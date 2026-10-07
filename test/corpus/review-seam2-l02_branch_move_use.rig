@@ -44,7 +44,7 @@ fun clobber(n: Int) -> Int
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   s = mk(100)
   c = f(1) == 1
   !(mk(1) if c else <s).bump()

@@ -4,10 +4,10 @@ error Disk
 error Net
   down
 
-fun f -> Int!
+fun f() -> Int!
   return Disk.full
 
-sub main
+sub main()
   x = f() catch |e|
     print(.full == e, Disk.full == e, Net.down == e, .down != e)
     0

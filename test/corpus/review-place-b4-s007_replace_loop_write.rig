@@ -1,7 +1,7 @@
 struct P
   a: String
 
-sub main
+sub main()
   ps = [P(a: "x")]
   for p in !ps
     print(replace(!p.a, "q"))

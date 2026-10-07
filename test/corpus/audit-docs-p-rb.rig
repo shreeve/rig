@@ -1,10 +1,13 @@
 struct P
   x: Int
+
 fun f(p: ?P) -> Int
   p.x
+
 fun g(a: ?[3]Int) -> Int
   a[0]
-sub main
+
+sub main()
   p = P(x: 1)
   a = [1, 2, 3]
   print(f(?p), g(?a))

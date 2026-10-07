@@ -1,6 +1,7 @@
 error E
   bad
-sub main
+
+sub main()
   f: *fun(Int) -> Int! = *|n: Int| n if n > 0 else E.bad
   g = +f
   print(g(1) catch -1, f(0) catch -2)

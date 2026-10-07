@@ -10,6 +10,6 @@ fun best[T](xs: []T) -> Int
     m = x.key() if x.key() > m else m
   m
 
-sub main
+sub main()
   a = [P(k: 1), P(k: 5)]
   print(best(?a))

@@ -31,7 +31,7 @@ fun arm(k: Int) -> Int!
       eat(<t)
       return E.bad
 
-sub main
+sub main()
   print(branch(1) catch -1, arm(1) catch -1)
 
 # error: 19:32: use of `t` after move

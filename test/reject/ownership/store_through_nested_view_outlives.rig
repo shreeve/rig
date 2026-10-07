@@ -20,7 +20,7 @@ enum E
   one(i: Inner)
   two
 
-sub main
+sub main()
   n = 0
   r = R(y: !n)
   inn = Inner(x: !r)

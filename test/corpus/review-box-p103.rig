@@ -7,7 +7,7 @@ struct R
 fun rd(r: ?*R) -> Int
   r.n
 
-sub main
+sub main()
   d: Box[*R] = Box(value: *R(n: 2))
   print(rd(?d))
   f: Box[~R] = Box(value: ~(*R(n: 3)))

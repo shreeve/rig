@@ -7,7 +7,7 @@ enum E
   one(s: R?)
   two
 
-sub main
+sub main()
   e = E.one(s: R(n: 1))
   match !e
     .one(s)

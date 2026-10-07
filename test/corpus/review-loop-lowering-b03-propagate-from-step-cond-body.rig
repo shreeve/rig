@@ -64,7 +64,7 @@ fun k(gone: Int) -> Int?
     print("body", h.n)
   i
 
-sub main
+sub main()
   print("f", f(9) catch 0 - 1)
   print("f", f(2) catch 0 - 1)
   print("g", g(9) catch 0 - 1)

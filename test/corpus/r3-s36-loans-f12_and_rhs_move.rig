@@ -10,7 +10,7 @@ fun take(r: R) -> Bool
   print("take", r.n)
   true
 
-sub main
+sub main()
   x = R(n: 1)
   c = false
   if c and take(<x)

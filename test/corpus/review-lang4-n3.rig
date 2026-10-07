@@ -4,7 +4,7 @@ struct H
 fun make(v: !Vec[Int]) -> H
   H(w: v)
 
-sub fill(h: H) 
+sub fill(h: H)
   u: Vec[Int] = Vec()
   !u.push(1)
   h.w = <u
@@ -16,7 +16,7 @@ fun pass_on(h: H) -> H
   h.w = <k
   h
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   h = make(!v)
   h2 = pass_on(<h)

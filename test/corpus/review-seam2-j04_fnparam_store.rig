@@ -44,7 +44,7 @@ fun clobber(n: Int) -> Int
 sub apply(f: ?sub(!Int), w: !Int)
   f(!w)
 
-sub main
+sub main()
   v: Vec[!Int] = Vec()
   apply(|!v, w: !Int| !v.push(!w), !mk(1).at())
   print(v.len)

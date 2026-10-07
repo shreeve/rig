@@ -1,5 +1,7 @@
 fun twice(n: Int) -> Int
   n * 2
+
 F = twice
-sub main
+
+sub main()
   print(F(2))

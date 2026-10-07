@@ -48,11 +48,11 @@ fun id_float(x: Float) -> Float
 
 fun id_f32(x: F32) -> F32
   x
-    
+
 struct Bx484
   f: Int
 
-sub t484
+sub t484()
   bx484 = Bx484(f: 2)
   mk484 = rt_int(1)
   mz484: Int = match mk484
@@ -60,5 +60,5 @@ sub t484
     _ => (-7)
   print(mz484)
 
-sub main
+sub main()
   t484()

@@ -12,13 +12,14 @@ fun mk(n: Int) -> Bag
 
 fun size(b: ?Bag) -> Int
   b.n + b.v.len
+
 sub eat(b: Bag)
   print(b.n)
 
 struct Hold
   b: Bag
 
-sub main
+sub main()
   b = mk(1)
   hs: Vec[Box[Bag]] = Vec()
   !hs.push(Box(b))

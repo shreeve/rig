@@ -18,19 +18,19 @@ fun mkv(n: Int) -> Vec[Int]
 fun mks(n: Int) -> S
   S(o: mkv(n), v: mkv(n))
 
-sub a
+sub a()
   s = mks(1)
   k = KR(r: ?s)
   x = <k.r.o
   print(x == none)
 
-sub b
+sub b()
   s = mks(1)
   k = K(w: !s)
   x = <k.w.v
   print(x.len)
 
-sub main
+sub main()
   a()
   b()
 

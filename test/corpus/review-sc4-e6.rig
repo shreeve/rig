@@ -6,7 +6,7 @@ fun flip(s: !Shape) -> Bool
   s = .point
   false
 
-sub main
+sub main()
   c: Shape = .circle(r: 1)
   n = match !c
     .point => 0

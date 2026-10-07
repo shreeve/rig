@@ -7,7 +7,7 @@ struct S
   a: R?
   b: R?
 
-sub main
+sub main()
   s = S(a: R(n: 1), b: R(n: 2))
   s = S(a: <s.b, b: <s.a)
   print(s)

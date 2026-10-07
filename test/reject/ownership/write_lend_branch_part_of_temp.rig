@@ -21,7 +21,7 @@ fun mkpair(n: Int) -> Pair
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   c = f(1) == 1
   !(mkpair(3).a if c else mk(5)).bump()
 

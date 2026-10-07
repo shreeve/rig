@@ -23,6 +23,6 @@ fun clobber(n: Int) -> Int
 fun pick(s: String, n: Int) -> String from s
   s
 
-sub main
+sub main()
   t = Text("place text long enough for the heap")
   print(pick(n: g(1), s: t))

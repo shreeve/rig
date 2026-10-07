@@ -12,6 +12,7 @@ fun id_int(x: Int) -> Int
 
 fun id_i128(x: I128) -> I128
   x
+
 fun id_u8(x: U8) -> U8
   x
 
@@ -30,7 +31,7 @@ fun id_u128(x: U128) -> U128
 fun id_float(x: Float) -> Float
   x
 
-sub main
+sub main()
   print("before")
   x: I8 = id_i8(1) >> id_int(9)
   print("after", x)

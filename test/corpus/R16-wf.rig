@@ -7,7 +7,7 @@ fun inc(n: Int) -> Int
 sub set(dst: !fun(Int) -> Int, v: fun(Int) -> Int)
   dst = v
 
-sub main
+sub main()
   g: fun(Int) -> Int = double
   set(!g, inc)
   print(g(1))

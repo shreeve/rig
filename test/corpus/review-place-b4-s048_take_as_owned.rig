@@ -1,7 +1,7 @@
 struct P
   o: String?
 
-sub main
+sub main()
   q: P? = P(o: "a")
   if <q as p
     x = <p.o

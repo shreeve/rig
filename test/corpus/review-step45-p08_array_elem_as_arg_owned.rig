@@ -2,6 +2,6 @@
 fun eat(t: Text) -> Int
   t.len
 
-sub main
+sub main()
   a = [Text("a"), Text("b")]
   print(eat(a[0]))

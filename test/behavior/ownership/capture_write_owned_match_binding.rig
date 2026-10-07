@@ -8,7 +8,7 @@ enum S
   a(r: R)
   b
 
-sub main
+sub main()
   s: S = .a(r: R(v: Vec()))
   match <s
     .a(r)

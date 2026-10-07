@@ -1,5 +1,5 @@
 # re-point in a loop with continue and break, old target used after the loop
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   c = Text("c")

@@ -1,7 +1,7 @@
 # std.sort.sort on Vec[Text]: needs `<`, which Text lacks: reject
 use std.sort
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("b"))
   !v.push(Text("a"))

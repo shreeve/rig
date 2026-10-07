@@ -5,5 +5,5 @@ error E
 fun f[T](x: T) -> Int!
   x
 
-sub main
+sub main()
   print(f(E.bad) catch -1)

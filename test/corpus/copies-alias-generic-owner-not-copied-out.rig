@@ -11,6 +11,6 @@ fun get(v: ?IP) -> IP
 fun getv(v: ?VP) -> VP
   v
 
-sub main
+sub main()
   p = Pair(a: 1, b: 2)
   print(get(?p).b)

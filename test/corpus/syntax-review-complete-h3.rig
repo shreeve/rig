@@ -13,7 +13,7 @@ struct Map[K, V]
 fun hash_int(k: ?Int) -> U64
   U64(k) if k >= 0 else 0
 
-sub main
+sub main()
   m = Map[Int, String].new(hash_int)
   five = 5
   print(m.slot(?five))

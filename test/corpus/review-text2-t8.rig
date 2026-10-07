@@ -9,7 +9,7 @@ enum M
   a(n: Int)
   b
 
-sub main
+sub main()
   a = N(id: 1, v: Vec())
   print((a))
   d = N(id: 4, v: Vec())

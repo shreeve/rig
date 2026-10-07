@@ -7,7 +7,7 @@ struct Bag
 sub keep(v: !Vec[?Int], x: ?Int)
   !v.push(x)
 
-sub main
+sub main()
   a = 1
   b = 2
   v: Vec[?Int] = Vec()

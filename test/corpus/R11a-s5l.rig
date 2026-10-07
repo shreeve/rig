@@ -1,7 +1,6 @@
 struct Wrap[T]
   v: T
 
-
 struct Res
   n: Int
 

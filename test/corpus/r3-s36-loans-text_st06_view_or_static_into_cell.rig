@@ -1,4 +1,4 @@
-sub main
+sub main()
   t = Text("abc")
   c: Cell[String] = Cell("x")
   s = "lit"

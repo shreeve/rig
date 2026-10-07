@@ -1,7 +1,9 @@
 struct V
   s: ![]Int
+
 fun mk(a: ![3]Int) -> V
   V(s: !a[..])
+
 sub main()
   a = [0, 0, 0]
   w = !mk(!a).s[..]

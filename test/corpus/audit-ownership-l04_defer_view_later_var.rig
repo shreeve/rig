@@ -15,6 +15,7 @@ sub eat(t: *Tok)
 fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
+
 error E
   bad
 
@@ -25,7 +26,7 @@ fun fail(k: Int) -> Int!
 struct View
   b: ?Tok
 
-sub main
+sub main()
   x = Tok(n: 1)
   vw = View(b: ?x)
   defer print(vw.b.n)

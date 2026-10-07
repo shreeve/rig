@@ -1,7 +1,7 @@
 struct N
   n: Int
 
-sub main
+sub main()
   v: Vec[*N] = Vec()
   !v.push(*N(n: 1))
   print(v[0].n)

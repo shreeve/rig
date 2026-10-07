@@ -8,7 +8,7 @@ struct R
   fun unbox(<self) -> Int
     self.n
 
-sub main
+sub main()
   b = Box(value: R(n: 3))
   print(!b.take(), b)
   r = <b.unbox()

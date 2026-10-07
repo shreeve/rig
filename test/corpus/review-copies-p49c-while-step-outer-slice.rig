@@ -2,7 +2,7 @@
 # loop, after the body grew the Vec.
 #
 # oracle: main reject C4
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0

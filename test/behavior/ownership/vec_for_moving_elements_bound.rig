@@ -5,18 +5,18 @@
 struct H
   items: Vec[Text]
 
-fun mk -> Vec[Text]
+fun mk() -> Vec[Text]
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   v
 
-fun mkh -> H
+fun mkh() -> H
   H(items: mk())
 
 fun items(v: ?Vec[Text], k: ?Vec[Text]) -> ?Vec[Text]
   v
 
-sub main
+sub main()
   v = mk()
   k = mk()
   m = mk()

@@ -4,8 +4,7 @@ fun parse_len(s: String) -> Int!
 fun double_len(s: String) -> Int!
   parse_len(s)! * 2
 
-
-sub main
+sub main()
   print(double_len("four")!)
 
   print(parse_len("abc") catch 0)

@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 struct P
   a: *Tok?
 
-sub main
+sub main()
   p = P(a: *Tok(n: 1))
   old = replace(!p.a, none)
   print(old == none, p.a == none)

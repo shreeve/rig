@@ -10,7 +10,7 @@ sub bump2(hs: ?[2]H)
 sub bump3(hs: ![]H)
   hs[0].w += 100
 
-sub main
+sub main()
   n = 1
   m = 2
   hs = [H(w: !n), H(w: !m)]

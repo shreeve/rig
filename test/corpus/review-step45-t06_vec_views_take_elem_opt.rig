@@ -1,5 +1,5 @@
 # Vec[String?]: take a view element, drop the Vec, then drop the source and use the taken view
-sub main
+sub main()
   t = Text("t")
   w: Vec[String?] = Vec()
   !w.push(?t)

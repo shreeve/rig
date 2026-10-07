@@ -1,0 +1,17 @@
+# A failing `sub` without a parameter list: the `!` goes after the
+# `()`.
+
+error Oops
+  bad
+
+sub save!
+  raise()!
+
+sub raise()!
+  return Oops.bad
+
+sub main()!
+  save()!
+
+# error: 7:5: write `sub save()!`: a function's parameter list is always written, even when empty
+# errors: 1

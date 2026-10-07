@@ -8,7 +8,7 @@ enum Opt[T]
   some(v: T)
   nothing
 
-sub main
+sub main()
   w: Wrap[Counter] = Wrap(v: Counter(hits: Cell(1)))
   w2 = w
   w2.v.hits.set(5)

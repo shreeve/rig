@@ -7,7 +7,7 @@ fun grow(v: !Vec[Shape]) -> Bool
     !v.push(.point)
   false
 
-sub main
+sub main()
   v: Vec[Shape] = Vec()
   !v.push(.circle(r: 5))
   w = !v

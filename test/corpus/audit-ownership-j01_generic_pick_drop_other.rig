@@ -22,7 +22,7 @@ fun pick[T](a: T, b: T, first: Bool) -> T
   else
     <b
 
-sub main
+sub main()
   t = pick(*Tok(n: 1), *Tok(n: 2), true)
   print(t.n)
   v = pick(Vec[Int](), Vec[Int](), false)

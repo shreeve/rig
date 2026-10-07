@@ -7,6 +7,6 @@ fun mk(p: ?P) -> ?P
 sub g(p: !P)
   p.x = 3
 
-sub main
+sub main()
   p = P(x: 1)
   g(!mk(?p))

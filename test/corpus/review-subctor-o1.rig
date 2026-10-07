@@ -4,7 +4,7 @@ struct Node
 struct Holder
   h: *Node
 
-sub main
+sub main()
   n = *Node(1)
   c = Holder(<n)
   print(c, n)

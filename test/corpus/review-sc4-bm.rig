@@ -28,6 +28,6 @@ fun get3(s: Slot) -> Vec[*B]
     .empty => print("e")
   v
 
-sub main
+sub main()
   x = get(.full(b: *B(n: 1)), *B(n: 2))
   print(x.n)

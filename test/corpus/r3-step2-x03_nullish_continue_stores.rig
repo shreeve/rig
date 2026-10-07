@@ -4,7 +4,7 @@ struct H
 fun opt(n: Int) -> Int?
   none
 
-sub main
+sub main()
   z: Vec[Int] = Vec()
   h = H(r: ?z)
   i = 0

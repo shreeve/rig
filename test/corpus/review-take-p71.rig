@@ -17,7 +17,7 @@ fun cut2(slot: !Box[Tree]?) -> Box[Tree]?
     return <t.right
   none
 
-sub main
+sub main()
   b = Box(value: Tree(key: 2, left: leaf(1), right: leaf(3)))
   l = cut(!b)
   print(l)

@@ -4,7 +4,7 @@ struct Holder
   sub put(!self, ys: []Int)
     !self.v.push(ys)
 
-sub main
+sub main()
   h = Holder(v: Vec())
   if true
     a = [1, 2, 3]

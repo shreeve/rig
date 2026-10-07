@@ -1,4 +1,5 @@
 fun g(a: Int? ?) -> Int
   3
+
 sub main()
   print(g(none))

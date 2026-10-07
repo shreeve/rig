@@ -3,7 +3,7 @@ struct Pair[T]
   a: T
   b: T
 
-sub main
+sub main()
   p = Pair(a: Text("x"), b: Text("y"))
   q = +p
   !q.a.add("!")

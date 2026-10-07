@@ -1,6 +1,6 @@
 use std.os
 
-sub main
+sub main()
   c = Cell("")
   v = os.env("HOME") ?? "unset"
   c.set(v)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   t = Text("a b")
   names: Vec[String] = Vec()
   !names.push(?t[0..1])

@@ -7,7 +7,7 @@ struct H
 sub setp(h: !H, r: ?Int)
   h.w = V(r: r)
 
-sub main
+sub main()
   a = 1
   x = V(r: ?a)
   h = H(w: !x)

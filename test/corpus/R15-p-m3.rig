@@ -1,5 +1,6 @@
 struct S
   arr: [2]Int
+
 sub main()
   vs: Vec[S] = Vec()
   !vs.push(S(arr: [1, 2]))

@@ -8,7 +8,7 @@ pub struct Pair[A, B]
   first: A
   second: B
 
-pub fun empty[T] -> Vec[T]
+pub fun empty[T]() -> Vec[T]
   Vec()
 
 pub fun id[T](x: T) -> T

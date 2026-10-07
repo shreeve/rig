@@ -5,7 +5,7 @@ struct C
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   a = [[C(c: Cell(1))]]
   b = [C(c: Cell(2))]
   c = b.len == 1

@@ -23,6 +23,6 @@ fun clobber(n: Int) -> Int
 fun pick(s: []Int, n: Int) -> []Int from s
   s[n..]
 
-sub main
+sub main()
   a = [1, 2, 3, 4]
   print(pick(n: g(1), s: a), pick(n: g(2), s: mkq(5).xs))

@@ -1,6 +1,6 @@
 type Byte = U8
 K: Byte = 7
 
-sub main
+sub main()
   a: [K]Int = [K of 1]
   print(a[0], K)

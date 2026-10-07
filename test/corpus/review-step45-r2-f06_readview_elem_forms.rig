@@ -22,7 +22,7 @@ fun f(v: ?Vec[R], o: ?Vec[Int?]) -> Int
       break
   k + tl(?v[0].t) + tl(v[0].t) + rl(v[0]) + rl(?v[0]) + v[0].len()
 
-sub main
+sub main()
   v: Vec[R] = Vec()
   !v.push(R(t: Text("abc"), n: 2))
   o: Vec[Int?] = Vec()

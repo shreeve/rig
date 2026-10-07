@@ -1,6 +1,6 @@
 NAME = "rig"
 
-sub main
+sub main()
   c: Cell[String] = Cell("a")
   s = NAME
   c.set(s)

@@ -6,7 +6,7 @@ struct Keep
   drop(!self)
     print("drop sees", self.a.len, self.a[self.a.len - 1])
 
-sub main
+sub main()
   k = Keep(a: os.args())
   for a, i in os.args()
     print(i, a)

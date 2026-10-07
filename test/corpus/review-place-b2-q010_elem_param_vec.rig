@@ -1,7 +1,7 @@
 sub f(v: Vec[Int])
   v[0] = 5
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   f(<v)

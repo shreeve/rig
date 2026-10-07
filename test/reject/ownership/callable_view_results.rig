@@ -19,7 +19,7 @@ fun bad(f: ?fun(?Wrap) -> ?Wrap) -> ?Wrap
   w = Wrap(n: 1)
   f(?w)
 
-sub main
+sub main()
   a = Wrap(n: 1)
   v = View(w: ?a)
   if true

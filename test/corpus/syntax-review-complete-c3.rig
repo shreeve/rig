@@ -1,7 +1,8 @@
 enum Dir
   n
   s
-sub main
+
+sub main()
   for d in Dir
     print(d)
   print(Dir.count)

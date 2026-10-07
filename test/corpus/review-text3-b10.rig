@@ -8,13 +8,13 @@ enum M
   a(n: N)
   c
 
-fun mk -> M
+fun mk() -> M
   M.a(n: N(id: 1))
 
 sub keep(m: M)
   print("kept")
 
-sub main
+sub main()
   match mk()
     .c => print("c")
     other => keep(<other)

@@ -3,5 +3,5 @@ sub fills(xs: ![]U8)
   xs[0] = 65
   print(xs)
 
-sub main
+sub main()
   fills(!"abc"[..])

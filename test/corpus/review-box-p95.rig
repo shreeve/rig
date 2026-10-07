@@ -7,7 +7,7 @@ struct R
 fun same[T](a: ?T, b: ?T) -> Bool
   a == b
 
-sub main
+sub main()
   x = Box(value: 1)
   y = Box(value: 1)
   print(same(?x, ?y))

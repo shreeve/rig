@@ -25,7 +25,7 @@ fun dir(d: ?Dir) -> ?Dir
 fun some(o: ?Int?) -> ?Int?
   o
 
-sub main
+sub main()
   p = Pair(x: 5)
   o = 6
   q = ?p.x

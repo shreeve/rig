@@ -1,6 +1,7 @@
 struct N
   a: Int
-sub main
+
+sub main()
   d = Cell[*(N
     )?](value: none)
   e = Cell[*( # hi

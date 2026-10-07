@@ -4,7 +4,7 @@ struct P
   sub hit(?self)
     self.c.set(self.c.get() + 1)
 
-sub main
+sub main()
   xs = [P(c: Cell(1))]
   for p in xs
     p.hit()

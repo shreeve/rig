@@ -15,6 +15,7 @@ sub eat(t: *Tok)
 fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
+
 error E
   bad
 
@@ -22,7 +23,7 @@ fun fail(k: Int) -> Int!
   return E.bad if k > 0
   k
 
-sub main
+sub main()
   v: Vec[*Tok] = Vec()
   for i in 0..4
     !v.push(*Tok(n: i))

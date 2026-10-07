@@ -44,7 +44,7 @@ struct Tree
     self.each(|!out, k| !out.push(k))
     out
 
-sub main
+sub main()
   t = Tree(root: none, size: 0)
   for k in [50, 30, 70, 20, 40, 60, 80, 35]
     !t.insert(k)

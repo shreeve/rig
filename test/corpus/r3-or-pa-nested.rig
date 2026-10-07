@@ -5,7 +5,7 @@ struct Pair
 fun left(p: ?Pair) -> ?Vec[Int]
   p.a
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   p = Pair(a: ?x, b: ?y)

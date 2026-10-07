@@ -1,7 +1,7 @@
 # A Text is changed only through its `!` methods, and viewed only
 # through a visible `?` view.
 
-sub main
+sub main()
   t = Text("abc")
   a = t[0..1]
   b = !t[..]

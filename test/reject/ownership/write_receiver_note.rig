@@ -15,7 +15,7 @@ struct Bag
     !self.items.push(Item(n: 0))
     it.n
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(Item(n: 7))
   print(!b.consume(!b.first()))

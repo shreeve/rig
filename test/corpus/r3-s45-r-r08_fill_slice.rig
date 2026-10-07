@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [Text("a"), Text("b")]
   !a[..].fill(Text("z"))
   print(a)

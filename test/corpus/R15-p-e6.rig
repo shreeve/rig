@@ -1,6 +1,7 @@
 sub apply(f: sub(![]Int), s: ![]Int)
   f(s)
   f(s)
+
 sub main()
   a = [1, 2]
   g = |s|

@@ -11,7 +11,7 @@ enum E
 fun geth(h: ?*E) -> ?*E
   h
 
-sub main
+sub main()
   h = *E.a(c: Counter(hits: Cell(1)))
   match geth(h)
     .a(c) if c.hits.get() > 0 => c.hit()

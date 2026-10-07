@@ -12,6 +12,6 @@ fun make(n: Int) -> Res
 fun pass_on(r: Res) -> Res
   return r
 
-sub main
+sub main()
   a = pass_on(make(1))
   print(a.n)

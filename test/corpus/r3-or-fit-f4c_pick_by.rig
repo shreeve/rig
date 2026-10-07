@@ -8,7 +8,7 @@ fun better(a: ?Wrap, b: ?Wrap, score: ?fun(?Wrap) -> Int) -> ?Wrap
   else
     b
 
-sub main
+sub main()
   x = Wrap(n: 1, v: Vec())
   y = Wrap(n: 2, v: Vec())
   bias = 0

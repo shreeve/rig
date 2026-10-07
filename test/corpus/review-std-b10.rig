@@ -8,7 +8,7 @@ struct Holder[T]
   sub put(!self, x: ?Int)
     self.p.a = x
 
-sub main
+sub main()
   a = 1
   h = Holder[Int](p: Pair(a: ?a, b: 0))
   if true

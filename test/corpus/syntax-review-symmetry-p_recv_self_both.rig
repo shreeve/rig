@@ -8,6 +8,7 @@ struct P
     !self.bump()
     self.items.push(1)
     print(self.n, self.items.len)
-sub main
+
+sub main()
   p = P(n: 0, items: Vec())
   !p.twice()

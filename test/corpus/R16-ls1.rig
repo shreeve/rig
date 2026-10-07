@@ -16,7 +16,7 @@ fun viahandle(c: ?*fun(Int) -> Int) -> Int
 fun double(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   h = H(cb: *|a| a + 100)
   print(apply(?h.cb, 1))
   print(viaparam(double))

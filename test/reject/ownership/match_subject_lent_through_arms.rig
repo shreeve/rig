@@ -24,7 +24,7 @@ fun clear(h: !H) -> Bool
 fun first(v: ?Vec[Shape]) -> []Shape
   ?v[..1]
 
-sub main
+sub main()
   v: Vec[Shape] = Vec()
   !v.push(.circle(r: 5))
   w = !v

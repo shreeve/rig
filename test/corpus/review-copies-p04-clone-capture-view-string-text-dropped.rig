@@ -1,7 +1,7 @@
 struct S
   s: String
 
-fun mk -> Int
+fun mk() -> Int
   t = Text("a heap string of some length")
   s = S(s: ?t)
   r = ?s
@@ -9,5 +9,5 @@ fun mk -> Int
   -t
   f()
 
-sub main
+sub main()
   print(mk())

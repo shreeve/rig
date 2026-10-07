@@ -4,7 +4,7 @@ struct V
 struct H
   w: !V
 
-sub main
+sub main()
   a = 1
   x = V(r: ?a)
   h = H(w: !x)

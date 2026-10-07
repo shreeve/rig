@@ -127,14 +127,14 @@ sub h1()!
   q7 = Q(h: *mk(23), o: mk(24))
   x8 = mayr(rt_int(4025))!
 
-fun h2 -> Int?
+fun h2() -> Int?
   print("val", 0)
   x1 = optr(rt_int(4036))?
   q2 = Q(h: *mk(37), o: mk(38))
   x3 = mk(39)
   0
 
-sub main
+sub main()
   h0() catch |e| print("caught", e)
   h1() catch |e| print("caught", e)
   print("got", h2())

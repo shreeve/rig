@@ -4,7 +4,7 @@
 
 use lib
 
-sub main
+sub main()
   words = ["pear", "fig", "apple"]
   calls = 0
   lib.sort(!words[..], |!calls, a, b|

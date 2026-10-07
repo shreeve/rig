@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [1, 2]
   w = !a[..]
   f = |<w| w.len

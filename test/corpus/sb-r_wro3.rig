@@ -4,6 +4,6 @@ sub g(s: ![]Int)
 sub f(t: []Int)
   g(!t)
 
-sub main
+sub main()
   a = [1]
   f(?a[..])

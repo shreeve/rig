@@ -2,7 +2,7 @@
 fun dup[T](v: ?Vec[T]) -> Vec[T]
   +v
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   w = dup(?v)

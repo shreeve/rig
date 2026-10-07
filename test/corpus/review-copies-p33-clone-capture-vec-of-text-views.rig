@@ -1,6 +1,6 @@
 # `|+v|` deep-clones a Vec of Strings viewing a Text; the Text is
 # then dropped while the closure lives.
-sub main
+sub main()
   t = Text("a long heap allocated text here")
   v: Vec[String] = Vec()
   !v.push(?t)

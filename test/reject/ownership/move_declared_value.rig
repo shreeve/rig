@@ -6,13 +6,13 @@
 struct Point
   x: Int
 
-  fun origin -> Point
+  fun origin() -> Point
     Point(x: 0)
 
-fun one -> Int
+fun one() -> Int
   1
 
-sub main
+sub main()
   a = <one
   b = <Point.origin
   print(a(), b().x)

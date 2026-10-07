@@ -24,7 +24,7 @@ sub try_pair(i: Int, j: Int)
     print("none")
   print("end")
 
-sub main
+sub main()
   try_pair(1, 2)
   try_pair(0, 4)
   try_pair(5, 0)

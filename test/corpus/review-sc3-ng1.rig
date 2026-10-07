@@ -4,6 +4,6 @@ struct Res
   drop(!self)
     print("drop", self.id)
 
-sub main
+sub main()
   x = 3
   -x

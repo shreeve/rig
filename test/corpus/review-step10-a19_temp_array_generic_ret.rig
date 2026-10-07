@@ -10,7 +10,7 @@ fun firstOf[T](xs: []T, k: Int) -> T
 fun g(k: Int) -> Int
   k
 
-sub main
+sub main()
   a = P(xs: [1, 2, 3, 4])
   b = P(xs: [5, 6, 7, 8])
   r = firstOf(k: g(1), xs: [?a, ?b])

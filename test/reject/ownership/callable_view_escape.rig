@@ -19,7 +19,7 @@ fun pick(a: ?fun(Int) -> Int, b: ?fun(Int) -> Int, first: Bool) -> ?fun(Int) -> 
   else
     b
 
-fun leak -> ?fun(Int) -> Int
+fun leak() -> ?fun(Int) -> Int
   k = 1
   g = |+k, a: Int| a + k
   ?g
@@ -33,7 +33,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
-sub main
+sub main()
   h: ?fun(Int) -> Int = double
   if true
     k = 1

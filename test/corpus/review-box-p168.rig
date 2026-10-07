@@ -4,7 +4,7 @@ struct Wrap
 struct Rd
   t: ?Wrap
 
-sub main
+sub main()
   b = Box(value: Wrap(n: 1))
   c = Wrap(n: 2)
   r = Rd(t: ?c)

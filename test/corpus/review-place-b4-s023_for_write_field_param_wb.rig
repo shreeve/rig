@@ -5,7 +5,7 @@ sub f(p: !P)
   for x in !p.xs
     x += 1
 
-sub main
+sub main()
   p = P(xs: [1, 2, 3])
   f(!p)
   print(p.xs[0])

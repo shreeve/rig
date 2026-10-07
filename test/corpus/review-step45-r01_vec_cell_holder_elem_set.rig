@@ -5,7 +5,7 @@ struct C
   sub hit(?self)
     self.c.set(self.c.get() + 1)
 
-sub main
+sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(1)))
   v[0].c.set(5)

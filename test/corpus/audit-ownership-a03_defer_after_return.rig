@@ -1,4 +1,4 @@
-fun mk -> Vec[Int]
+fun mk() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(1)
   defer
@@ -7,6 +7,6 @@ fun mk -> Vec[Int]
       !v.push(i)
   v
 
-sub main
+sub main()
   w = mk()
   print(w.len, w[0])

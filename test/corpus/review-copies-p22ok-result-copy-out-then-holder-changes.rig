@@ -6,7 +6,7 @@ struct S
 fun keep(r: ?S) -> S
   r
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   !xs.push(1)
   ys: Vec[Int] = Vec()

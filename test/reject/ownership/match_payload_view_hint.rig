@@ -26,7 +26,7 @@ fun first(o: ?K, d: ?Key) -> ?Key
     .k(kk) => ?kk
     .none => d
 
-sub main
+sub main()
   e = E.a(t: Text("abc"))
   r: String = "x"
   match e

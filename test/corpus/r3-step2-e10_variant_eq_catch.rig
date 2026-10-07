@@ -10,7 +10,7 @@ fun mk(ok: Bool) -> Shape!
     return E.bad
   .dot
 
-sub main
+sub main()
   p: Vec[Int] = Vec()
   !p.push(1)
   d = Shape.line(<p)

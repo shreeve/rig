@@ -267,6 +267,6 @@ fun f1(a1: Int) -> Int
   print(b1)
   a1 + b1 + c1
 
-sub main
+sub main()
   print("ret", f0(2))
   print("ret", f1(8))

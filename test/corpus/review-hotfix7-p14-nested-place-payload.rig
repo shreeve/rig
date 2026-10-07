@@ -20,6 +20,6 @@ fun nest[T](o: ?Opt[Opt[T]], d: T) -> T
         .nothing => <d
     .nothing => <d
 
-sub main
+sub main()
   o: Opt[Opt[Int]] = .some(v: .some(v: 5))
   print(nest(?o, 0))

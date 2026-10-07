@@ -8,7 +8,7 @@ sub put(h: !Outer)
   k: Vec[Int] = Vec()
   h.i = Inner(x: !k)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   inn = Inner(x: !v)
   o = Outer(i: !inn)

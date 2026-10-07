@@ -1,7 +1,7 @@
 fun mk(n: ?Int) -> [3]?Int
   [3 of n]
 
-sub main
+sub main()
   n = 1
   a = mk(?n)
   print(a[1])

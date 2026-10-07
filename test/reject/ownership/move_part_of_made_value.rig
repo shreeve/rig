@@ -22,7 +22,7 @@ struct S
   vs: [2]Vec[Int]
   o: Int?
 
-fun mk -> S
+fun mk() -> S
   v: Vec[Int] = Vec()
   !v.push(7)
   S(n: 1, v: <v, arr: [1, 2], vs: [Vec(), Vec()], o: 3)
@@ -31,7 +31,7 @@ fun get(bad: Bool) -> Vec[Int]!
   return E.bad if bad
   Vec[Int]()
 
-fun mkh -> *S
+fun mkh() -> *S
   *mk()
 
 fun gw(s: !S) -> !S
@@ -43,7 +43,7 @@ struct G[T]
 fun generic[T](x: T) -> T
   <G(f: <x).f
 
-sub owning
+sub owning()
   a = mk()
   b = mk()
   c = a.n > 0
@@ -53,7 +53,7 @@ sub owning
   z = <(mk() if c else mk()).v
   print(w.len, x.len, y.len, z.len)
 
-sub copying
+sub copying()
   a = mk()
   m = <mk().n
   h = <mkh().n
@@ -61,11 +61,11 @@ sub copying
   q = <mk().o
   print(m, h, p, q)
 
-sub for_owning
+sub for_owning()
   for x in <mk().v
     print(x)
 
-sub for_copying
+sub for_copying()
   for x in <mk().arr
     print(x)
 
@@ -78,11 +78,11 @@ fun made_leaf_value(c: Bool) -> Vec[Int]
   w: Vec[Int] = Vec()
   <(mk().v if c else <w)
 
-fun made_optional -> Int?
+fun made_optional() -> Int?
   x = <mk().o?
   x
 
-sub through_lend
+sub through_lend()
   a = <(!mk()).o
   b = <gw(!mk()).o
   print(a, b)
@@ -93,7 +93,7 @@ fun through_handle(w: ~S) -> Int?
   print(x, y.len)
   0
 
-sub main
+sub main()
   owning()
   copying()
   for_owning()

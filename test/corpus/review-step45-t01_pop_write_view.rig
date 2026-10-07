@@ -1,5 +1,5 @@
 # pop a write view out of Vec[!Int], drop the Vec, then write a directly while the popped view is live
-sub main
+sub main()
   a = 1
   w: Vec[!Int] = Vec()
   !w.push(!a)

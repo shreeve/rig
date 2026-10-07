@@ -2,7 +2,7 @@
 # with `match !b`, nor bound with `w = !b`: the message says where a Bool
 # is lent to write.
 
-sub main
+sub main()
   b = true
   match !b
     true => print("t")

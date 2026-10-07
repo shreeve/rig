@@ -109,7 +109,7 @@ fun fill_shelf[T](a: T, b: T) -> Shelf[T]
   !s.add(<b)
   s
 
-sub h0
+sub h0()
   o1: R? = none
   r1 = unwrap_or(<o1, mk(10))
   look(?r1)
@@ -133,7 +133,7 @@ sub h0
   if ?r11 as w12
     print("str", w12)
 
-sub h1
+sub h1()
   r14 = cycle(Box(mk(100)), rt_int(2))
   print("use", r14.id)
   r16 = pick(Box(mk(110)), Box(mk(120)), rt_bool(true))
@@ -152,6 +152,6 @@ sub h1
     .one(z27) => look(?z27)
     .empty => print("empty")
 
-sub main
+sub main()
   h0()
   h1()

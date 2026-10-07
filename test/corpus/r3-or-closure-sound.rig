@@ -83,7 +83,7 @@ sub returns_captured_view()
   print(get().len)
   !v.push(6)
 
-sub main
+sub main()
   write_capture()
   read_capture_then_write()
   literal_argument()

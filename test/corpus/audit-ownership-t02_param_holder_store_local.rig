@@ -17,6 +17,6 @@ sub f(h: Holder)
   h.b = ?y
   print("f end")
 
-sub main
+sub main()
   x = mk(1)
   f(Holder(b: ?x))

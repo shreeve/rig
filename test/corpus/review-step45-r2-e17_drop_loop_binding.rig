@@ -3,7 +3,7 @@ sub dropall[T](v: ?Vec[T])
   for x in v
     -x
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   dropall(?v)

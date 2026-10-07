@@ -12,7 +12,7 @@ struct Bag
 fun mk(n: Int) -> Bag
   Bag(o: Res(n: n, t: Text("a")), p: none)
 
-sub main
+sub main()
   keep = Res(n: 0, t: Text("k"))
   saved = ?keep
   if mk(1).o as r

@@ -1,4 +1,4 @@
-sub main
+sub main()
   for i in 0..3
     print("line", i)
   print("done")

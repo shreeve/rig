@@ -4,7 +4,7 @@
 
 use lib
 
-sub main
+sub main()
   root = lib.leaf(1)
   !root.kids.push(lib.leaf(2))
   !root.kids.push(lib.leaf(3))

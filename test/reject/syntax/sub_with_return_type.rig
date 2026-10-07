@@ -4,7 +4,7 @@
 sub total(n: Int) -> Int
   n
 
-sub main
+sub main()
   print(1)
 
 # error: 4:19: unexpected `->`; expected an indented block or `!`

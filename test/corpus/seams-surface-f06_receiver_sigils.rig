@@ -4,7 +4,7 @@ struct P
   fun first(?self) -> Int
     self.v[0]
 
-sub main
+sub main()
   p = P(v: Vec(), f: 3)
   !p.v.push(4)
   x = -p.first()

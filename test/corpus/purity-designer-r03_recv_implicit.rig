@@ -2,6 +2,7 @@ struct P
   x: Int
   fun get(?self) -> Int
     self.x
-sub main
+
+sub main()
   p = P(x: 1)
   print(p.get(), ?p.get())

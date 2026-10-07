@@ -1,4 +1,4 @@
-sub main
+sub main()
   n = 1
   r = ?n
   r = 5

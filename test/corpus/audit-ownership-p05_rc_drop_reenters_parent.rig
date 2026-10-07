@@ -8,6 +8,6 @@ struct Child
       old = p.replace(none)
       print("old none", old == none)
 
-sub main
+sub main()
   c: *Cell[*Child?] = *Cell(none)
   c.set(*Child(n: 1, parent: ~c))

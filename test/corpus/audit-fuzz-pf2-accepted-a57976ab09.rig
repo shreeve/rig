@@ -63,7 +63,7 @@ fun fal1202(ok: Bool) -> U64!
 error Err1202
   bad
 
-fun ret1251 -> I32
+fun ret1251() -> I32
   ce1251: Cell[I32] = Cell((-3))
   ce1251.get()
 
@@ -77,15 +77,15 @@ error Err2545
 struct GP4344[T]
   f: T
 
-sub t3469
+sub t3469()
   print(cf3469(false) catch (gsome(14) ?? 20))
 
-sub t2391
+sub t2391()
   cc2391: Cell[I8] = Cell(0)
   cc2391.set(95)
   print(cc2391.get())
 
-sub t1639
+sub t1639()
   const cst1639: U8 = 15
   mk1639 = rt_int(1)
   mz1639: U8 = match mk1639
@@ -93,67 +93,66 @@ sub t1639
     _ => 37
   print(mz1639)
 
-
-sub t1202
+sub t1202()
   b1202: U64 = id_u64(49)
   print(b1202 + (fal1202(true) catch 11668861460143548616), (fal1202(true) catch 11668861460143548616) + b1202)
 
-sub t1251
+sub t1251()
   print(ret1251())
 
-sub t4938
+sub t4938()
   op4938: I8? = gmax((-19), 4)
   print(op4938, op4938 ?? 0)
 
-sub t5674
+sub t5674()
   vec5674: Vec[Float] = Vec()
   !vec5674.push((|| 10.25)())
   print(vec5674)
 
-sub t5396
+sub t5396()
   vv5396: Vec[F32] = Vec()
   !vv5396.push(0)
   x5396: F32 = vv5396[0]
   print(x5396)
 
-sub t2545
+sub t2545()
   cmp2545: U32 = id_u32(11)
   print(cmp2545 == (fal2545(false) catch 20), (fal2545(false) catch 20) < cmp2545, (fal2545(false) catch 20) >= cmp2545)
 
-sub t773
+sub t773()
   const cst773: U64 = 14
   vw773: Vec[U64] = Vec()
   pushit773 = |!vw773, x: U64| !vw773.push(x)
   pushit773(cst773)
   print(vw773)
 
-sub t4344
+sub t4344()
   gp4344: GP4344[Int] = GP4344(f: (|| 8)())
   print(gp4344.f)
 
-sub t324
+sub t324()
   xs324: [2]F32 = [1, 0]
   print(xs324)
 
-sub t2001
+sub t2001()
   flag2001 = rt_bool(true)
   tv2001: Int = id_int((-2))
   op2001: Int? = ((-6) if flag2001 else tv2001)
   print(op2001, op2001 ?? 0)
 
-sub t3121
+sub t3121()
   mk3121 = rt_int(0)
   mz3121: F32 = match mk3121
     1 => gid((-2))
     _ => 1
   print(mz3121)
 
-sub t2851
+sub t2851()
   ce2851: Cell[I32] = Cell((-1788325601))
   op2851: I32? = ce2851.get()
   print(op2851, op2851 ?? 0)
 
-sub main
+sub main()
   t3469()
   t2391()
   t1639()

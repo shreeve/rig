@@ -5,7 +5,7 @@ struct P
 fun copy(p: ?P) -> P
   p
 
-sub main
+sub main()
   a = P(x: 1, y: 2)
   b = copy(?a)
   print(b.x)

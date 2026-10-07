@@ -1,7 +1,7 @@
 struct P
   count: Int
 
-sub main
+sub main()
   total = 1
   p = P(count: 2)
   print(totla, p.cuont)

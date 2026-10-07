@@ -1,7 +1,7 @@
 struct H
   w: !Box[Int]
 
-sub main
+sub main()
   b = Box(5)
   h = H(w: !b)
   r = ?h.w

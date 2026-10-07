@@ -49,7 +49,7 @@ fun opt(n: Int) -> Int?
   return none if n == 0
   n
 
-sub main
+sub main()
   c = f(1) == 1
   print(c and !mk(1).pop() > 1, not c and !mk(2).pop() > 1, c or !mk(3).pop() > 0)
   x = !mk(4).pop() if c else !mk(5).pop()

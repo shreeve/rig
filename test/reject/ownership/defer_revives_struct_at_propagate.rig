@@ -24,7 +24,7 @@ fun f(ok: Bool) -> Int!
   print(x.n)
   k
 
-sub main
+sub main()
   print(f(true) catch 0)
 
 # error: 24:9: use of `x` after move

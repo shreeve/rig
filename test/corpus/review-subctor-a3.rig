@@ -1,5 +1,5 @@
 error Bad
   neg
 
-sub main!
+sub main()!
   print("hi")

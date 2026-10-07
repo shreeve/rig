@@ -7,7 +7,7 @@ struct View
 sub show(v: !View, b: ?In)
   print(v.b.n, b.n)
 
-sub main
+sub main()
   a = In(n: 1)
   v = View(b: ?a)
   if true

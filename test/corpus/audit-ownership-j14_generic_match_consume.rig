@@ -25,6 +25,6 @@ fun unwrap[T](o: Opt[T], d: T) -> T
     .some(v) => v
     .nothing => <d
 
-sub main
+sub main()
   t = unwrap(Opt[*Tok].some(v: *Tok(n: 1)), *Tok(n: 2))
   print(t.n)

@@ -9,7 +9,7 @@ fun helper(invoke: Int) -> Int
   f = |a: Int| a + 1
   f(invoke)
 
-fun sum -> Int
+fun sum() -> Int
   total = 0
   each(3, |!total, invoke| total += invoke)
   total

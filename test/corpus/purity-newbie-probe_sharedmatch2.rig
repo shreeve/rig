@@ -7,6 +7,6 @@ fun eval(e: ?Expr) -> Float
     .num(v) => v
     .neg(x) => -eval(x)
 
-sub main
+sub main()
   e = Expr.neg(*Expr.num(4))
   print(eval(?e))

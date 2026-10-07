@@ -22,7 +22,7 @@ sub bump(p: ?P)
   p.c.set(p.c.get() + 10)
   print(p.c.get())
 
-sub main
+sub main()
   bump(?mk().p)
   mk().p.hit()
   if ?mk().o as p

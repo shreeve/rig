@@ -4,7 +4,7 @@
 fun slot(a: !Int) -> !Int
   a
 
-sub moved
+sub moved()
   m = 1
   n = 2
   w = !m
@@ -24,7 +24,7 @@ sub branches(c: Bool)
   w = 9
   print(m, n, k)
 
-sub called
+sub called()
   m = 1
   n = 2
   w = !m
@@ -32,7 +32,7 @@ sub called
   w = 4
   print(m, n)
 
-sub slice
+sub slice()
   a = [1, 2]
   b = [3, 4]
   s = !a
@@ -41,7 +41,7 @@ sub slice
   s[1] = 0
   print(a, b)
 
-sub main
+sub main()
   moved()
   branches(true)
   branches(false)

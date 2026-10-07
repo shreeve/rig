@@ -9,7 +9,7 @@ sub put[T](c: ?Cell[T], x: T)
 fun later[T](x: T) -> *sub()
   *|+x| print(x)
 
-sub main
+sub main()
   t = Text("abc")
   cell = Cell("lit")
   put(?cell, ?t[..])

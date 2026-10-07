@@ -22,7 +22,7 @@ struct R
   sub done(<self)
     print("done", self.t.n)
 
-sub main
+sub main()
   b = Box(R(t: *Tok(n: 1)))
   <b.done()
   print("end")

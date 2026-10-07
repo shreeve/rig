@@ -13,7 +13,7 @@ fun divide(a: Int, b: Int) -> Int!
     return MathError.DivideByZero
   a / b
 
-sub main
+sub main()
   names: Vec[String] = Vec()
   !names.push("ann")
   !names.push("bob")

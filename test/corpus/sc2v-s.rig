@@ -9,10 +9,10 @@ enum Opt
   some(value: Int)
   nothing
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [n of 0]
 
-sub main
+sub main()
   tail = *Node(n: 2, next: none)
   head = Node(n: 1, next: +tail)
   grid: [2][3]Int = [2 of [3 of 7]]

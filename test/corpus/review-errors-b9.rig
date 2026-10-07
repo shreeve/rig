@@ -3,10 +3,10 @@ error Disk
 
 type D = Disk
 
-fun f -> Int!
+fun f() -> Int!
   return D.full
 
-sub main
+sub main()
   x = f() catch |e|
     match e
       D.full => print("alias full")

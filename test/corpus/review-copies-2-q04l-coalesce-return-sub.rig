@@ -13,12 +13,11 @@ fun opt(r: ?P, k: Int) -> (?P)?!
   return none if k == 1
   r
 
-
 sub show(o: (?P)?)
   c: P = o ?? return
   print(c.x)
 
-sub main
+sub main()
   a = P(x: 4)
   show(?a)
   show(none)

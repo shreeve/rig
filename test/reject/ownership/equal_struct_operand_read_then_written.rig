@@ -9,7 +9,7 @@ fun growq(q: !Q) -> Q
     !q.t.add("abcdefgh")
   Q(t: Text("x"))
 
-sub main
+sub main()
   q = Q(t: Text("a"))
   print(q == growq(!q))
 

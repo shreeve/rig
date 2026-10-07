@@ -12,7 +12,8 @@ fun mk(n: Int) -> Bag
 
 fun size(b: ?Bag) -> Int
   b.n + b.v.len
-sub main
+
+sub main()
   b = mk(3)
   print(b)
   print(b.n)

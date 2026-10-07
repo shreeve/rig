@@ -101,11 +101,11 @@ fun mk(n: Int) -> S
   print("make S", n)
   S(n: n, t: Text("text long enough for the heap ", n))
 
-fun mkh -> H
+fun mkh() -> H
   print("make H")
   H(r: "init", rs: Vec())
 
-fun mkpr -> PR
+fun mkpr() -> PR
   PR(r: "init")
 
 fun pick(h: !H) -> !H
@@ -121,7 +121,7 @@ fun clobber(n: Int) -> Int
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   c = f(1) == 1
   h = mkh()
   h2 = mkh()

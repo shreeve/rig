@@ -8,7 +8,7 @@ struct R
 struct V
   r: ?R
 
-sub main
+sub main()
   keep = R(n: 0)
   v = V(r: ?keep)
   i = 0

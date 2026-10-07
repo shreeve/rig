@@ -103,11 +103,11 @@ fun mk(n: Int) -> S
   print("make S", n)
   S(n: n, t: Text("text long enough for the heap ", n))
 
-fun mkh -> H
+fun mkh() -> H
   print("make H")
   H(r: "init", rs: Vec())
 
-fun mkpr -> PR
+fun mkpr() -> PR
   PR(r: "init")
 
 fun pick(h: !H) -> !H
@@ -129,7 +129,7 @@ struct PW
   sub set(!self, w: !Int)
     self.w = w
 
-sub main
+sub main()
   k = 5
   m = 9
   p = PW(w: !k)

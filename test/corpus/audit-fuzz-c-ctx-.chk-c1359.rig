@@ -52,9 +52,9 @@ fun id_f32(x: F32) -> F32
 fun take1359(a: I8) -> I8
   a
 
-sub t1359
+sub t1359()
   y1359 = take1359((-1))
   print(y1359)
 
-sub main
+sub main()
   t1359()

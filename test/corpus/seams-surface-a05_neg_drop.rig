@@ -7,7 +7,7 @@ fun f(r: Int) -> Int
 sub g(r: Int)
   -r
 
-sub main
+sub main()
   n = 3
   -n
   print(f(2))

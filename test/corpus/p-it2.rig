@@ -16,7 +16,7 @@ struct Cut
 fun cut(s: String) -> Cut?
   Cut(before: s[..1])
 
-sub main
+sub main()
   t = Text("abc")
   w = trim(?t)
   !t.add("x")

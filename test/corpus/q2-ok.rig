@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = 33
   z = 35
   if x == 33

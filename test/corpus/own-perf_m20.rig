@@ -4,7 +4,7 @@ struct Tok
 sub eat(t: *Tok)
   print(t.n)
 
-sub main
+sub main()
   t = *Tok(n: 0)
   s = 0
   for _ in 0..2

@@ -16,7 +16,7 @@ struct H
   fun rinner(?self) -> ?H2
     ?self.h2
 
-sub main
+sub main()
   h = H(h2: H2(r: R(n: 1)))
   if ?h.rinner().r as x
     h = H(h2: H2(r: none))

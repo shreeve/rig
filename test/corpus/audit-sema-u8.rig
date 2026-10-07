@@ -3,6 +3,6 @@ fun U8(x: Int) -> Int
 
 K = U8(3)
 
-sub main
+sub main()
   a: [K]Int = [K of 1]
   print(K, a.len)

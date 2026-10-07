@@ -23,5 +23,5 @@ sub f(h: H)
   x = <h.o
   print(x == none, h.o == none)
 
-sub main
+sub main()
   f(H(o: *Tok(n: 1)))

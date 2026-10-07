@@ -16,7 +16,7 @@ fun check[mode: Mode](n: Int) -> Bool
 fun both[mode: Mode](a: Int, b: Int) -> Bool
   check[mode](a) and check[mode](b)
 
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
 
 sub report[mode: Mode, n: Int](label: String)
@@ -31,7 +31,7 @@ struct Scale
   sub bump[by: Int](!self)
     self.k += by
 
-  fun unit[n: Int] -> Scale
+  fun unit[n: Int]() -> Scale
     Scale(k: n)
 
 sub main()

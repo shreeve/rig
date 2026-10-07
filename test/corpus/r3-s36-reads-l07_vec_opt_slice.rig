@@ -3,7 +3,7 @@ fun sum(xs: ([]Int)?) -> Int
     return s.len
   0
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(4)
   o: Vec[Int]? = <v

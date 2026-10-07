@@ -6,7 +6,7 @@ fun renew(t: Text) -> Text
   -t
   r
 
-sub main
+sub main()
   a = Text("a")
   for _ in 0..10
     !a.add("abcdefgh")

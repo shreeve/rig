@@ -10,7 +10,7 @@ enum Color
   red
   green
 
-sub main
+sub main()
   n = 1
   x = 2.5
   p = P(x: 1)

@@ -3,6 +3,7 @@ sub f(w2: !Int)
   w += 1
   w2 += 1
   print(w, w2)
-sub main
+
+sub main()
   m = 3
   f(!m)

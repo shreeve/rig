@@ -22,7 +22,7 @@ fun cap[T](x: T) -> Int
 fun pick[T](o: ?T?, d: T) -> T
   o ?? d
 
-sub main
+sub main()
   ps = [P(s: "a", n: 1), P(s: "b", n: 2)]
   print(first(?ps).s, three(ps[1])[2].n, dup([1, 2])[1], cap(P(s: "c", n: 3)))
   o: P? = P(s: "d", n: 4)

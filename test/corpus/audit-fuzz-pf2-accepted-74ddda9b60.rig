@@ -75,65 +75,65 @@ fun fal1051(ok: Bool) -> I16!
 error Err1051
   bad
 
-sub t163
+sub t163()
   o163: U128? = none
   y163 = take163((o163 ?? 13))
   print(y163)
 
-sub t586
+sub t586()
   o586: I32? = id_i32(6)
   op586: I32? = (o586 ?? 2147483647)
   print(op586, op586 ?? 0)
 
-sub t1300
+sub t1300()
   vv1300: Vec[I128] = Vec()
   !vv1300.push(123658735722431922211322110412425641560)
   b1300: I128 = id_i128((-49))
   print(b1300 + vv1300[0], vv1300[0] + b1300)
 
-sub t1183
+sub t1183()
   arr1183: [2]U16 = [37476, 3]
   y1183 = take1183(arr1183[1])
   print(y1183)
 
-sub t1307
+sub t1307()
   cl1307 = |x: I128| x
   qo1307: I128? = id_i128((-12))
   print(qo1307 ?? cl1307(13143430442474787644971166844364250856))
 
-sub t1844
+sub t1844()
   y1844 = take1844((9 - 0))
   print(y1844)
 
-sub t1338
+sub t1338()
   bx1338 = Bx1338(f: 1)
   acc1338: F32 = id_f32(10.25)
   acc1338 += bx1338.f
   print(acc1338)
 
-sub t931
+sub t931()
   acc931: U32 = id_u32(5)
   acc931 += gmax(12, 16)
   print(acc931)
 
-sub t245
+sub t245()
   cmp245: I32 = id_i32(18)
   print(cmp245 == (-2147483648), (-2147483648) < cmp245, (-2147483648) >= cmp245)
 
-sub t1968
+sub t1968()
   wb1968: U32 = id_u32(64613)
   print(wb1968 +% (fal1968(true) catch 5))
 
-sub t536
+sub t536()
   acc536: U128 = id_u128(5)
   acc536 += 0
   print(acc536)
 
-sub t1051
+sub t1051()
   qo1051: I16? = none
   print(qo1051 ?? (fal1051(true) catch (-1)))
 
-sub main
+sub main()
   t163()
   t586()
   t1300()

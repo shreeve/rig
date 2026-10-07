@@ -8,7 +8,7 @@ struct R
 struct V
   r: ?R
 
-sub main
+sub main()
   a = R(n: 1)
   h = *V(r: ?a)
   print(h.r.n)

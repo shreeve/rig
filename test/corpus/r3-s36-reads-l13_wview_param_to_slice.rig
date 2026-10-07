@@ -4,6 +4,6 @@ fun sum(xs: []Int) -> Int
 sub f(w: ![]Int)
   print(sum(w))
 
-sub main
+sub main()
   a = [1, 2]
   f(!a)

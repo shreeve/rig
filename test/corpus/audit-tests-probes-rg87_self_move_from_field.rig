@@ -4,7 +4,7 @@ struct S
 struct T
   s: S
 
-sub main
+sub main()
   t = T(s: S(v: Vec()))
   u = <t.s
   print(u.v.len)

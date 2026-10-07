@@ -1,6 +1,7 @@
 struct S
   x: [2]Int
   y: [2]Int
+
 sub main()
   s = S(x: [1, 2], y: [3, 4])
   !s.x.copy(?s.y[..])

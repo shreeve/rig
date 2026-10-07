@@ -4,7 +4,7 @@
 
 use std.text
 
-sub main
+sub main()
   o = "init"
   while text.cut(?Text("k=v"), "=") as kv
     o = kv.after

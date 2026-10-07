@@ -5,7 +5,7 @@ sub set(a: ![3]Text)
 fun total(a: [3]Text) -> Int
   a[0].len + a[1].len + a[2].len
 
-sub main
+sub main()
   a = [Text("a"), Text("b"), Text("c")]
   set(!a)
   print(a)

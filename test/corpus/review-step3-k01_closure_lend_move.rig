@@ -4,7 +4,7 @@ fun twice(f: ?fun(Int) -> Int, x: Int) -> Int
 fun eat(f: *fun(Int) -> Int) -> Int
   f(0)
 
-sub main
+sub main()
   k = 2
   cb = *|?k, x: Int| x * k
   print(twice(cb, eat(<cb)))

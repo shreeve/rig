@@ -1,5 +1,5 @@
 # re-point a ![]Text local only in a branch; then push the old Vec and use s
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   u: Vec[Text] = Vec()

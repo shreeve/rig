@@ -1,6 +1,7 @@
 struct P
   x: Int
-sub main
+
+sub main()
   b = Box(P(x: 1))
   c = Cell(5)
   e: Box[Int] = Box(3)

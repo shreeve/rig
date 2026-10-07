@@ -4,7 +4,7 @@ sub inc(x: !Int)
 sub show(x: ?Int)
   print(x)
 
-sub main
+sub main()
   inc(5)
   show(7)
   n = 1

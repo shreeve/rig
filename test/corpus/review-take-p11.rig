@@ -6,7 +6,7 @@ struct R
 struct S
   a: R?
 
-sub main
+sub main()
   o: S? = S(a: R(n: 1))
   if !o as x
     y = <x.a

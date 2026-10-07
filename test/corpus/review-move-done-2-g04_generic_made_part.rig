@@ -13,7 +13,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub main
+sub main()
   print(get(mkv(1), true).len)
 
 # oracle: wrap accept

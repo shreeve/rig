@@ -3,7 +3,7 @@ struct S
   c: Cell[Int]
   t: Text
 
-sub main
+sub main()
   s = S(c: Cell(1), t: Text("x"))
   d = +s
   d.c.set(2)

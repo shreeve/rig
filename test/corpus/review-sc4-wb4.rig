@@ -7,7 +7,7 @@ sub poke(e: ?E)
     .w(p) => p += 5
     .none => print("n")
 
-sub main
+sub main()
   a = 1
   e: E = .w(p: !a)
   poke(?e)

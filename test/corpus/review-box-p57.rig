@@ -7,7 +7,7 @@ struct R
 struct S
   m: Int
 
-sub main
+sub main()
   s = S(m: 1)
   r: ?R = ?s
   print(r.n)

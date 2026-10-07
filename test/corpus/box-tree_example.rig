@@ -60,7 +60,7 @@ sub show[T](slot: ?Box[Node[T]]?)
     print(n.key, n.count)
     show(?n.right)
 
-sub main
+sub main()
   words = Tree[String](root: none, size: 0)
   for w in ["the", "quick", "fox", "jumps", "over", "the", "lazy", "fox"]
     !words.add(w)

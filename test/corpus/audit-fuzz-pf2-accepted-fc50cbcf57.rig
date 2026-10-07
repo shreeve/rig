@@ -30,11 +30,10 @@ struct Pt2
   fun plus(?self, o: ?Pt2) -> Pt2
     Pt2(x: self.x + o.x, y: self.y + o.y)
 
-sub main
+sub main()
   v0: Vec[String] = Vec()
   !v0.push("a")
   v0[1] = "a"
   print(!v0.pop())
   print(!v0.pop())
   !v0.push("bb")
-  

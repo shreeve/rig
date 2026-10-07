@@ -1,7 +1,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   a = Box(value: P(x: 1))
   b = Box(value: P(x: 1))
   print(a == b)

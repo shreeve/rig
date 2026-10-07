@@ -8,13 +8,12 @@ struct Q
   p: P
   n: Int
 
-
 fun wopt(w: !P, k: Int) -> (!P)?!
   return Bad.oops if k == 0
   return none if k == 1
   w
 
-sub main
+sub main()
   a = P(x: 1)
   for k in 0..3
     q = wopt(!a, k) catch none

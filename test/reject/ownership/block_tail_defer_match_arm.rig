@@ -1,5 +1,5 @@
 # A `match` arm's block-local tail leaves the arm before its defer runs.
-sub main
+sub main()
   k = 0
   x = match k
     0

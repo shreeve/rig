@@ -4,7 +4,7 @@ struct R
 struct H
   w: !R
 
-sub main
+sub main()
   v = R(xs: Vec())
   !v.xs.push(1)
   h = H(w: !v)

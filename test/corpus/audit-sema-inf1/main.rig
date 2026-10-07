@@ -9,5 +9,5 @@ struct Big
   a: lib.Wrap[Arr]
   b: lib.Wrap[Arr]
 
-sub main
+sub main()
   print(1)

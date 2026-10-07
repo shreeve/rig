@@ -21,7 +21,7 @@ fun through_read(p: ?P) -> Int
 fun through_write(p: !P) -> Int
   p.into()
 
-sub main
+sub main()
   s = S(p: P(x: 2))
   v: Vec[P] = Vec()
   !v.push(P(x: 3))

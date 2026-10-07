@@ -14,5 +14,5 @@ sub keeps_a_text_view()
 sub keeps_a_param(c: ?Cell[String], s: String)
   c.set(s)
 
-sub main
+sub main()
   keeps_a_text_view()

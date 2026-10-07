@@ -1,3 +1,3 @@
-sub main
+sub main()
   :blk if true
     print(1)

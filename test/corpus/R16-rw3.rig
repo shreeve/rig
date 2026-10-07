@@ -4,7 +4,7 @@ struct Wrap
 fun get(w: ?Wrap) -> ?Wrap
   w
 
-sub main
+sub main()
   a = Wrap(n: 1)
   b = Wrap(n: 2)
   r = ?a

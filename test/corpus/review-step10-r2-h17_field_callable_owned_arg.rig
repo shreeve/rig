@@ -20,6 +20,6 @@ fun mkh(k: Int) -> H
 fun usq(t: Text, q: ?Q, n: Int) -> Int
   t.len + q.c.get() + n
 
-sub main
+sub main()
   s = S(cb: usq)
   print(s.cb(Text("a text long enough to live on the heap"), ?mkh(5).q, g(2)))

@@ -25,7 +25,7 @@ struct Stack[T]
   fun pop(!self) -> T?
     !self.items.pop()
 
-sub main
+sub main()
   s = Stack[*Tok](items: Vec())
   !s.push(*Tok(n: 1))
   !s.push(*Tok(n: 2))

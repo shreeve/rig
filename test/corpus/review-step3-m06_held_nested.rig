@@ -15,7 +15,7 @@ struct H
 fun mkh(n: Int) -> H
   H(e: E.a(r: Res(n: n)), f: E.a(r: Res(n: n + 1)))
 
-sub main
+sub main()
   match mkh(5).e
     .a(r)
       match mkh(r.n * 10).f

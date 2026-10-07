@@ -1,7 +1,7 @@
 struct S
   v: ?Vec[Int]
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   !xs.push(1)
   s = S(v: ?xs)

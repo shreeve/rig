@@ -2,7 +2,7 @@ use lib
 
 type D = lib.Disk
 
-sub main
+sub main()
   x = lib.fail() catch |e|
     match e
       D.full => print("alias full")

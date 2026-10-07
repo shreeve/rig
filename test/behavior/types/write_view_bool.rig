@@ -12,7 +12,7 @@ sub twice(f: !Bool)
 struct Flags
   ready: Bool
 
-sub main
+sub main()
   a = true
   flip(!a)
   print(a)

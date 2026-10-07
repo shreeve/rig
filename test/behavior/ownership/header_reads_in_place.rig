@@ -32,7 +32,7 @@ fun bytes(t: ?Text) -> Int
     n += 1
   n
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)

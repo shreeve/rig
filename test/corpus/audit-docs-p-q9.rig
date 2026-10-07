@@ -2,5 +2,6 @@ struct T
   n: Int
   fun total(<self) -> Int
     self.n
-sub main
+
+sub main()
   print(T(n: 3).total())

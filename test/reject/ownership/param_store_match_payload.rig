@@ -18,7 +18,7 @@ fun f(a: !E, b: !Vec[Int]) -> Int
     .one(h) => h.r[0]
     .zero => 0
 
-sub main
+sub main()
   x = [9, 9]
   v: Vec[Int] = Vec()
   !v.push(1)

@@ -1,5 +1,5 @@
 # *Cell[Vec[Text]] shared by two handles; replace through one
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   c = *Cell(<v)

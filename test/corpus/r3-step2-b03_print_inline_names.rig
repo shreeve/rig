@@ -1,4 +1,4 @@
-sub main
+sub main()
   a: Vec[Int] = Vec()
   b: Vec[Int] = Vec()
   !a.push(1)

@@ -14,7 +14,7 @@ fun count(list: ?Box[Node]?) -> Int
     cur = ?node.next
   n
 
-sub main
+sub main()
   head: Box[Node]? = none
   i = 0
   while i < 200000 : i += 1

@@ -1,7 +1,6 @@
 # Passing a held write view (a local or a view's field) on to a call
 # or a constructor lends it, written `!w`: the result writes through it.
 
-
 struct Ed
   t: !Vec[Int]
 

@@ -6,7 +6,7 @@
 struct Name
   s: String
 
-sub main
+sub main()
   t = Text("ab")
   a = ["x", "y"]
   b = [?t[..1], ?t[1..]]

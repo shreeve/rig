@@ -2,7 +2,7 @@
 fun getw(o: !Text?, s: String) -> !Text?
   o
 
-sub main
+sub main()
   o: Text? = Text("q")
   if getw(!o, ?Text("a")) as t
     for _ in 0..40

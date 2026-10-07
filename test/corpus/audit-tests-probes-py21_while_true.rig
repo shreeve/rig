@@ -1,4 +1,4 @@
-sub main
+sub main()
   n = 0
   while True
     n += 1

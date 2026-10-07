@@ -8,7 +8,7 @@ fun grow(s: ?S) -> Int
     s.c.push(i)
   5
 
-sub main
+sub main()
   s = S(c: Cell(Vec()))
   s.c.push(42)
   print(s, grow(?s))

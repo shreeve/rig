@@ -45,7 +45,7 @@ sub sort_held(v: !Vec[Int])
 fun sum_held(v: ?Vec[Int]) -> Int
   total(v)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(3)
   !v.push(1)

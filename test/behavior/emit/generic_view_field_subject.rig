@@ -46,7 +46,7 @@ fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
     .none => 0
   n + m
 
-sub main
+sub main()
   o = Opt.some(v: Text("t"))
   w = V(r: ?o)
   print(f(?w), g(?w))

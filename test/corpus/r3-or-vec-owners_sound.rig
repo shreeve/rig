@@ -25,7 +25,7 @@ struct Stack[T]
   fun size(?self) -> Int
     self.items.len
 
-sub sorted
+sub sorted()
   v: Vec[Text] = Vec()
   !v.push(Text("ccc"))
   !v.push(Text("a"))
@@ -37,13 +37,13 @@ sub sorted
   if last(!v) as t
     print(t)
 
-sub stacked
+sub stacked()
   s: Stack[Text] = Stack(items: Vec())
   !s.push(Text("x"))
   !s.push(Text("y"))
   print(s.size())
 
-sub main
+sub main()
   sorted()
   stacked()
 

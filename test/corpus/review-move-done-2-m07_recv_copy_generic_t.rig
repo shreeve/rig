@@ -19,7 +19,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub main
+sub main()
   print(twice(P(v: 1)))
   print(twice(HV(v: mkv(2))))
 

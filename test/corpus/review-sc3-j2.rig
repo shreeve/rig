@@ -22,7 +22,7 @@ sub w(k: Int)
   x = own(<r, get(k) ?? return)
   print("w", x)
 
-sub main
+sub main()
   u(1)
   u(0)
   w(1)

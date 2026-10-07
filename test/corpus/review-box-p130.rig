@@ -11,7 +11,7 @@ struct N
 sub rep(b: !Box[R])
   b = Box(value: R(n: b.n + 100))
 
-sub main
+sub main()
   o: Box[R]? = Box(value: R(n: 1))
   if !o as x
     x = Box(value: R(n: 2))

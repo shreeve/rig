@@ -59,7 +59,7 @@ fun ints(n: Int) -> Vec[Int]
     !v.push(10 + i)
   v
 
-sub main
+sub main()
   guard = 0
   c0 = 0
   p0 = 0

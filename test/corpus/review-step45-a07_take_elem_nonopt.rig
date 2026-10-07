@@ -1,5 +1,5 @@
 # <v[0] of a non-optional owner must be rejected
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   t = <v[0]

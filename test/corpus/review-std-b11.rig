@@ -8,7 +8,7 @@ sub f(v: !View)
   a = [1, 2, 3]
   !v.point(?a)
 
-sub main
+sub main()
   b = [4, 5]
   v = View(xs: ?b)
   f(!v)

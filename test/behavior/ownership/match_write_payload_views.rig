@@ -44,7 +44,7 @@ fun first(e: ?E) -> Int
     .b(p) => p.x * 100 + p.y
     .c(r) => r.n
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("hi")))
   d = Res(n: 0, t: Text("d"))
   r = pick(!e, !d)

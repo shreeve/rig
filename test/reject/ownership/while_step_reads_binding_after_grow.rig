@@ -50,7 +50,7 @@ fun mkf(v: ?Vec[Int]) -> S?!
   return E.bad if v.len > 100
   mk(v)
 
-sub field
+sub field()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -58,7 +58,7 @@ sub field
     !v.push(2)
   print(k)
 
-sub slice
+sub slice()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -66,7 +66,7 @@ sub slice
     !v.push(2)
   print(k)
 
-sub method
+sub method()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -74,7 +74,7 @@ sub method
     !v.push(2)
   print(k)
 
-sub closure
+sub closure()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -82,14 +82,14 @@ sub closure
     !v.push(2)
   print(k)
 
-sub string
+sub string()
   t = Text("abc")
   k = 0
   while mkt(?t) as h: k += (1 if text.ends_with(h.s, "9") else 0)
     !t.add("0123456789")
   print(k)
 
-sub joined
+sub joined()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -97,7 +97,7 @@ sub joined
     !v.push(2)
   print(k)
 
-sub failing
+sub failing()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -105,7 +105,7 @@ sub failing
     !v.push(2)
   print(k)
 
-sub continued
+sub continued()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -114,7 +114,7 @@ sub continued
     continue
   print(k)
 
-sub labeled
+sub labeled()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -124,7 +124,7 @@ sub labeled
       continue :outer
   print(k)
 
-sub inner
+sub inner()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -134,7 +134,7 @@ sub inner
       !v.push(2)
   print(k)
 
-sub deferred
+sub deferred()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -143,7 +143,7 @@ sub deferred
     k += 1
   print(k)
 
-sub nested
+sub nested()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -153,7 +153,7 @@ sub nested
       !v.push(2)
   print(k)
 
-sub main
+sub main()
   field()
 
 # error: 58:5: cannot lend `v` to write while a read loan is live

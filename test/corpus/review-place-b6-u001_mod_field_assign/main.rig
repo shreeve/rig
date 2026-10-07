@@ -1,6 +1,6 @@
 use geo
 
-sub main
+sub main()
   p = geo.mk()
   p.x = 3
   !p.bump()

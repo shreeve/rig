@@ -6,6 +6,6 @@ sub f(w: !Wrap)
   w.n = 5
   print(g())
 
-sub main
+sub main()
   a = Wrap(n: 1)
   f(!a)

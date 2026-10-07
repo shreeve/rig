@@ -1,5 +1,5 @@
 # take a Vec of views out of an optional element, then drop the source
-sub main
+sub main()
   t = Text("x")
   inner: Vec[String] = Vec()
   !inner.push(?t)

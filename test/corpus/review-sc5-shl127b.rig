@@ -1,4 +1,5 @@
 K: U128 = 1
 TOP: U128 = K << 127
+
 sub main()
   print(TOP)

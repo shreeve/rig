@@ -8,7 +8,7 @@ fun id_of(n: ?*Node) -> Int
 fun take(n: *Node) -> Int
   n.id
 
-sub main
+sub main()
   a = *Node(id: 1, next: none)
   b = *Node(id: 2, next: +a)
   x = b.id

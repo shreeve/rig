@@ -11,7 +11,7 @@ fun f(s: ?S) -> Int
 sub bump(n: !Int)
   n += 1
 
-sub main
+sub main()
   s = S(n: 1)
   x = 1
   r: ?S = s

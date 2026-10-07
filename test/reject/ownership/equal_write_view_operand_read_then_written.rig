@@ -9,7 +9,7 @@ fun grow(t: !Text) -> Text
 fun same(w: !Text) -> Bool
   w == grow(!w)
 
-sub main
+sub main()
   a = Text("a")
   print(same(!a))
 

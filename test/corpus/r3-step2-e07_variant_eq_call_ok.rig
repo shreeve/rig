@@ -2,11 +2,11 @@ enum Shape
   dot
   line(v: Vec[Int])
 
-fun mk -> Shape
+fun mk() -> Shape
   p: Vec[Int] = Vec()
   !p.push(1)
   .line(v: <p)
 
-sub main
+sub main()
   if mk() != .dot
     print("line")

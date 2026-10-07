@@ -17,7 +17,7 @@ sub fill(u: !User)
   t = Text("cy")
   u.name = ?t
 
-sub main
+sub main()
   u = User(name: "x")
   if u.name == "x"
     t = Text("dee")

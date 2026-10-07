@@ -6,7 +6,7 @@ enum E
 fun getw(e: !E, s: String) -> !E
   e
 
-sub main
+sub main()
   e = E.a(t: Text("hi"))
   match getw(!e, ?Text("a"))
     .a(t) if t.len > 0

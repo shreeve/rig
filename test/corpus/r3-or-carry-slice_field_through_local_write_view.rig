@@ -8,7 +8,7 @@ struct P
   toks: []Tok
   pos: Int
 
-sub main
+sub main()
   a = [Tok(kind: 1), Tok(kind: 2)]
   p = P(toks: ?a[..], pos: 0)
   w = !p

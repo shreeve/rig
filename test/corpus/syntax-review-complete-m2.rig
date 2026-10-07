@@ -1,7 +1,8 @@
 enum E
   n(v: Int)
   z
-sub main
+
+sub main()
   e: E = .n(5)
   match e
     .n(v) if v > 3 => print("big")

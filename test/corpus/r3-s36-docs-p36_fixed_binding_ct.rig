@@ -1,7 +1,7 @@
 # Core §6 (`const`): SPEC §16 uses a `const` binding as a compile-time argument
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
 
-sub main
+sub main()
   const k = 3
   show[k]()

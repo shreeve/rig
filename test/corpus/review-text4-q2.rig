@@ -9,7 +9,7 @@ fun mo(k: Int) -> N?
 fun mf(k: Int) -> N!
   N(id: k)
 
-sub main
+sub main()
   o = N(id: 3)
   print(mo(5) ?? <o)
   p = N(id: 4)

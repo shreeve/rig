@@ -8,6 +8,6 @@ fun id(r: ?Res) -> ?Res
 fun mkres(n: Int) -> Res
   Res(n: n, t: Text("abc"))
 
-sub main
+sub main()
   x = id(mkres(1))
   print(x.n)

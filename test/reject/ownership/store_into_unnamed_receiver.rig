@@ -29,7 +29,7 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, t: Text("hello"))
 
-fun mkh -> H
+fun mkh() -> H
   H(r: "init", rs: Vec())
 
 fun wrap(h: !H) -> !H
@@ -41,13 +41,13 @@ fun wv(v: !Vec[H]) -> !Vec[H]
 fun f(n: Int) -> Int
   n
 
-sub recv_view
+sub recv_view()
   h = mkh()
   if f(1) == 1
     s = mk(1)
     wrap(!h).keep(?s.t)
 
-sub recv_branch
+sub recv_branch()
   a = mkh()
   b = mkh()
   c = f(1) == 1
@@ -55,45 +55,45 @@ sub recv_branch
     s = mk(2)
     (!a if c else !b).keep(?s.t)
 
-sub recv_hoisted
+sub recv_hoisted()
   h = mkh()
   if f(1) == 1
     s = mk(3)
     wrap(!h).keep2(r: ?s.t, k: f(1))
 
-sub recv_part
+sub recv_part()
   h = mkh()
   if f(1) == 1
     s = mk(4)
     (!wrap(!h).rs).push(?s.t)
 
-sub assign_lend
+sub assign_lend()
   h = mkh()
   if f(1) == 1
     s = mk(5)
     (!h).r = ?s.t
 
-sub assign_lend_elem
+sub assign_lend_elem()
   h = mkh()
   !h.rs.push("a")
   if f(1) == 1
     s = mk(6)
     (!h).rs[0] = ?s.t
 
-sub assign_view
+sub assign_view()
   h = mkh()
   if f(1) == 1
     s = mk(7)
     wrap(!h).r = ?s.t
 
-sub assign_elem
+sub assign_elem()
   v: Vec[H] = Vec()
   !v.push(mkh())
   if f(1) == 1
     s = mk(8)
     wv(!v)[0].r = ?s.t
 
-sub main
+sub main()
   recv_view()
 
 # error: 48:19: `s` does not live long enough

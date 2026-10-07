@@ -13,7 +13,7 @@ struct Clicker
   sub click(!self)
     !self.counter.increment()
 
-sub main
+sub main()
   counter = Counter()
   left = Clicker(name: "left", counter: counter)
   right = Clicker(name: "right", counter: counter)

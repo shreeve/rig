@@ -10,7 +10,7 @@ struct S
 sub bump(s: !S)
   !s.v.push(1)
 
-sub main
+sub main()
   o: S? = S(a: *R(n: 1), v: Vec())
   if <o as x
     y = <x.a

@@ -1,8 +1,10 @@
 error E
   bad
+
 fun p(n: Int) -> Int!
   return E.bad if n < 0
   n
-sub main
+
+sub main()
   f: *fun(Int) -> Int! = *|n| p(n)! + 1
   print(f(1) catch 0, f(-1) catch 0)

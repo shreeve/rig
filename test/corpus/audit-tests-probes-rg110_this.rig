@@ -4,5 +4,5 @@ struct P
   fun get(?self) -> Int
     this.x
 
-sub main
+sub main()
   print(P(x: 1).get())

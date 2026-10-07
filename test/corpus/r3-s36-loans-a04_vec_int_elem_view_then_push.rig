@@ -1,5 +1,5 @@
 # A read view of a Vec[Int] element, then a push that may realloc.
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   r = ?v[0]

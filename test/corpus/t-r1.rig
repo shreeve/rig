@@ -17,7 +17,7 @@ fun clears(ss: !Vec[String]) -> Int
   ss = Vec()
   0
 
-sub main
+sub main()
   ns: Vec[*Node] = Vec()
   !ns.push(*Node(n: 1))
   rc = *Node(n: 1)

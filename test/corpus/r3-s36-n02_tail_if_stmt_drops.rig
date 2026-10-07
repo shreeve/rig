@@ -12,6 +12,6 @@ fun pick(c: Bool) -> R
   else
     b
 
-sub main
+sub main()
   x = pick(true)
   print(x.n)

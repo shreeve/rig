@@ -7,7 +7,7 @@ sub put(h: !H, w2: !Int)
   h.w += 5
   print(h.w, w2)
 
-sub main
+sub main()
   n = 1
   m = 3
   h = H(w: !n)

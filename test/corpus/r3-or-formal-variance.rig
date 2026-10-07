@@ -7,7 +7,7 @@ struct Holder
 sub evil(h: !Holder, x: ?Item)
   h.r = x
 
-sub main
+sub main()
   g = Item(n: 1)
   h = Holder(r: ?g)
   if true

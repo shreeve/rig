@@ -4,7 +4,7 @@ struct P
   sub inc(!self)
     self.x += 1
 
-sub main
+sub main()
   b = Box(P(x: 1))
   !b.inc()
   print(b.x)

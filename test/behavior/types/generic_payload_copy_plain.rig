@@ -129,7 +129,7 @@ fun for_call[T](xs: ?Vec[T], d: T) -> T
     return x
   <d
 
-sub main
+sub main()
   o: Opt[Int] = .some(v: 1)
   w: W[Int] = W(o: .some(v: 2), p: 3)
   a: Vec[Opt[Int]] = Vec()

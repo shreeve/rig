@@ -1,6 +1,8 @@
 struct Wrap[T]
   v: T
+
 type W = Wrap[Int]
-sub main
+
+sub main()
   a = W(v: 1)
   print(a.v)

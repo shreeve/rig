@@ -1,4 +1,4 @@
-sub main
+sub main()
   sig: *Signal[Int] = *Signal(0)
   count: *Cell[Int] = *Cell(0)
   sig.subscribe(*|~sig, +count|

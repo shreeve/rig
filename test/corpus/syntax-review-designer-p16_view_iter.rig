@@ -14,7 +14,7 @@ struct Iter
 fun iter(b: ?Bag) -> Iter
   Iter(bag: b, i: 0)
 
-sub main
+sub main()
   b = Bag(items: [1, 2, 3, 4])
   it = iter(?b)
   while !it.next() as x

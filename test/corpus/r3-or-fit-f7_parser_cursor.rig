@@ -16,7 +16,7 @@ struct Parser
   fun text(?self, t: ?Tok) -> String
     self.src[t.start..t.start + t.len]
 
-sub main
+sub main()
   src = Text("let x")
   toks = [Tok(kind: 1, start: 0, len: 3), Tok(kind: 2, start: 4, len: 1)]
   p = Parser(src: ?src, toks: ?toks, pos: 0)

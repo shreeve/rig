@@ -1,3 +1,3 @@
-sub main
+sub main()
   s = "abc"
   print(s.get(1))

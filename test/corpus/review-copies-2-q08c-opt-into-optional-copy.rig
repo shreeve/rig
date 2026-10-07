@@ -4,7 +4,6 @@ error Bad
 struct P
   x: Int
 
-
 fun get(r: ?P, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   r
@@ -19,7 +18,7 @@ fun vx(o: (?P)?) -> Int
     return p.x
   -1
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   o: P? = get(?a, true) catch ?b

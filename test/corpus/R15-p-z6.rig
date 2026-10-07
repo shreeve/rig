@@ -1,5 +1,6 @@
 fun n(x: Int) -> Int
   x
+
 sub main()
   b: [3]U8 = [0, 0, 0]
   !b.write[U8, .big](0, n(300))

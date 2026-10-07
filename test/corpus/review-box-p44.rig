@@ -2,6 +2,6 @@ fun mk() -> Box[[]Int]
   a = [1, 2, 3]
   Box(value: a[0..2])
 
-sub main
+sub main()
   b = mk()
   print(b)

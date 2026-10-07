@@ -1,4 +1,4 @@
-sub main
+sub main()
   o: Vec[Int]? = Vec()
   if ?o as x
     if !o as y

@@ -10,7 +10,7 @@ struct Env
         return self.vals[i]
     none
 
-sub main
+sub main()
   ks = ["HOME", "PATH"]
   vs = ["/h", "/bin"]
   env = Env(keys: ?ks[..], vals: ?vs[..])

@@ -1,7 +1,7 @@
 struct Counter
   hits: Cell[Int]
 
-sub main
+sub main()
   o: Counter? = Counter(hits: Cell(1))
   if o as k
     k.hits.set(5)

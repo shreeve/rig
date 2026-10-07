@@ -3,7 +3,7 @@
 struct Bag
   v: Vec[?Int]
 
-sub views_kept
+sub views_kept()
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
@@ -12,7 +12,7 @@ sub views_kept
   a = 2
   print(w)
 
-sub through_view_kept
+sub through_view_kept()
   a = 1
   bag = Bag(v: Vec())
   !bag.v.push(?a)
@@ -22,7 +22,7 @@ sub through_view_kept
   a = 2
   print(c.v.len)
 
-sub main
+sub main()
   views_kept()
   through_view_kept()
 

@@ -5,7 +5,7 @@ fun pick(a: ?Int, ok: Bool) -> (?Int)!
   return E.bad if not ok
   a
 
-sub main
+sub main()
   n = 1
   r = pick(?n, true) catch return
   n = 2

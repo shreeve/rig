@@ -5,7 +5,7 @@ use geo
 sub bump(x: ![3]Int)
   x[0] += 1
 
-sub main
+sub main()
   geo.KP[0] = 3
   bump(!geo.KP)
   for x in !geo.KP

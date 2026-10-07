@@ -24,7 +24,7 @@ fun fail(n: Int) -> Int!
     return Bad.boom
   n
 
-sub main
+sub main()
   print(ret(), tail())
   x = for i in 0..3
     if i == 1

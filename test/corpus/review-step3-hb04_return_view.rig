@@ -12,6 +12,6 @@ fun pick(d: ?Counter) -> ?Counter
     return k
   d
 
-sub main
+sub main()
   one = Counter(hits: Cell(0))
   print(pick(?one).hits.get())

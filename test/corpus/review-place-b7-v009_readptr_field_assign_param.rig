@@ -10,7 +10,7 @@ sub f(b: ?Big)
   h.r = b
   print(h.r.v.len)
 
-sub main
+sub main()
   b = Big(v: Vec())
   !b.v.push(1)
   f(?b)

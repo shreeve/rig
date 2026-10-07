@@ -11,7 +11,7 @@ fun renew(b: !B) -> Int
   b.c = *Cell(<xs)
   3
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   !xs.push(1)
   b = B(c: *Cell(<xs))

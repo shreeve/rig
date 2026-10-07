@@ -42,7 +42,7 @@ fun run(k: Int) -> Int!
     print("then", k)
   0
 
-sub main
+sub main()
   if idof(?mk(1)) == 1
     print("then")
   x = idof(?mk(2)) if idof(?mk(3)) > 0 else idof(?mk(4))

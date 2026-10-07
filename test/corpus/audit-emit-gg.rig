@@ -1,4 +1,4 @@
-fun Self -> Int
+fun Self() -> Int
   3
 
 struct W[T]
@@ -7,6 +7,6 @@ struct W[T]
   fun get(?self) -> Int
     Self()
 
-sub main
+sub main()
   w = W(v: 1)
   print(w.get())

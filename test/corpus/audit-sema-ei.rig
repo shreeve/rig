@@ -3,6 +3,6 @@ enum E
 
 K = Int(E.a)
 
-sub main
+sub main()
   x: [K]Int = [K of 0]
   print(K, x.len)

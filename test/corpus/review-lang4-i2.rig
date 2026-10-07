@@ -1,7 +1,7 @@
 struct A
   a: [2]!Int
 
-sub main
+sub main()
   n = 1
   m = 2
   s = A(a: [!n, !m])

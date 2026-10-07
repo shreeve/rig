@@ -7,7 +7,7 @@ struct View
 sub fill(out: !View, f: ?sub(!View))
   f(out)
 
-sub main
+sub main()
   a = Wrap(n: 1)
   v = View(w: ?a)
   if true

@@ -5,7 +5,7 @@ enum Shape
   circle(r: Int)
   rect(w: Int, h: Int)
 
-sub main
+sub main()
   c: Shape = .circle(r: 1)
   match !c
     .circle(r)

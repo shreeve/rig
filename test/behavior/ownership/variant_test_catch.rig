@@ -13,7 +13,7 @@ fun mk(ok: Bool) -> Shape!
     return E.bad
   .dot
 
-sub main
+sub main()
   p: Vec[Int] = Vec()
   !p.push(1)
   d = Shape.line(<p)
@@ -22,7 +22,6 @@ sub main
   match ?d
     .line(v) => print(v[0])
     .dot => print("dot")
-
 
 # expect:
 # line

@@ -21,54 +21,54 @@ struct Guard
 struct Plain
   item: ?Item
 
-sub own_body
+sub own_body()
   x = Item(n: 1)
   g = Guard(item: ?x)
   print(g.item.n)
   x.n = 2
 
-sub vec_of_bodies
+sub vec_of_bodies()
   x = Item(n: 1)
   gs: Vec[Guard] = Vec()
   !gs.push(Guard(item: ?x))
   print(gs.len)
   x.n = 2
 
-sub counted
+sub counted()
   x = Item(n: 1)
   g = *Guard(item: ?x)
   print(g.item.n)
   x.n = 2
 
-sub closure_env
+sub closure_env()
   x = Item(n: 1)
   g = Guard(item: ?x)
   f = |<g| print(g.item.n)
   f()
   x.n = 2
 
-sub used_later
+sub used_later()
   x = Item(n: 1)
   v: Vec[?Item] = Vec()
   !v.push(?x)
   x.n = 2
   print(v.len)
 
-sub deferred
+sub deferred()
   x = Item(n: 1)
   v: Vec[?Item] = Vec()
   defer print(v.len)
   !v.push(?x)
   x.n = 2
 
-sub outlived
+sub outlived()
   v: Vec[Plain] = Vec()
   if true
     t = Item(n: 3)
     !v.push(Plain(item: ?t))
   print(v.len)
 
-sub main
+sub main()
   own_body()
 
 # error: 28:3: cannot assign to `x.n` while `x` is lent

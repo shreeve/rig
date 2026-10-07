@@ -8,7 +8,7 @@ struct Cur
   fun at(!self) -> !Item
     !self.items[0]
 
-sub main
+sub main()
   v: Vec[Item] = Vec()
   !v.push(Item(n: 1))
   c = Cur(items: !v)

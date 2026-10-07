@@ -3,6 +3,7 @@
 
 fun may() -> Int!
   return 42
+
 sub main()
   y = may() catch 0
   print(y)

@@ -110,7 +110,7 @@ struct K3
 fun f2(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   c = f(1) == 1
   a2 = [0, 0]
   a2[f(1)] = replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n

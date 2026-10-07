@@ -1,4 +1,4 @@
-sub main
+sub main()
   mk: fun() -> Vec[Int] = ||
     v: Vec[Int] = Vec()
     !v.push(1)

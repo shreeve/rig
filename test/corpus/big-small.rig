@@ -1,11 +1,14 @@
 struct Pair
   a: Int
   b: Int
+
 fun sum(p: ?Pair) -> Int
   p.a + p.b
+
 fun inc(n: ?Int) -> Int
   n + 1
-sub main
+
+sub main()
   p = Pair(a: 1, b: 2)
   x = 4
   print(sum(?p), inc(?x))

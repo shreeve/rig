@@ -14,7 +14,7 @@ fun area(s: ?Shape) -> Int
     .rect(w, h) if w > 0 => w * h
     .rect(_, _) => 0
 
-sub main
+sub main()
   w = Wrap(v: 3)
   print(w.get(), area(?(Shape.rect(w: 2, h: 3))))
   total = 0

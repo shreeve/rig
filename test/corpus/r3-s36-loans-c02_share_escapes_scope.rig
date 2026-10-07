@@ -6,7 +6,7 @@ struct R
 struct V
   r: ?R
 
-sub main
+sub main()
   h2: *V? = none
   if true
     a = R(n: 1)

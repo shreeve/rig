@@ -9,7 +9,7 @@ struct S
   fun inner(?self) -> ?Text
     ?self.t
 
-sub branch
+sub branch()
   a = S(t: Text("aa"))
   b = S(t: Text("bb"))
   c = a.t.len == 2
@@ -17,14 +17,14 @@ sub branch
   a.t = Text("zz")
   print(r, b.t)
 
-sub fallback
+sub fallback()
   b = S(t: Text("bb"))
   o: S? = S(t: Text("oo"))
   r = (o ?? b).inner()
   b.t = Text("zz")
   print(r)
 
-sub element
+sub element()
   ts = [S(t: Text("a")), S(t: Text("b"))]
   us = [S(t: Text("c")), S(t: Text("d"))]
   c = ts[0].t.len == 1
@@ -32,7 +32,7 @@ sub element
   ts[1].t = Text("zz")
   print(e)
 
-sub main
+sub main()
   branch()
   fallback()
   element()

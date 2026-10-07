@@ -25,7 +25,7 @@ fun caught(k: Int) -> Int!
     return err
   n + 1
 
-sub main
+sub main()
   print(named(2) catch -1, named(0) catch |e| 10 if e == E.worse else 20)
   print(ternary(3) catch -1, ternary(0) catch |e| 10 if e == E.bad else 20)
   print(arm(5) catch -1, arm(0) catch |e| 10 if e == E.bad else 20, arm(1) catch |e| 10 if e == E.worse else 20)

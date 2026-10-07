@@ -6,7 +6,7 @@ struct S
   top: Box[N]?
   n: N
 
-sub main
+sub main()
   s = S(top: none, n: N(v: 1, next: none))
   nm = <s.n
   print(nm)

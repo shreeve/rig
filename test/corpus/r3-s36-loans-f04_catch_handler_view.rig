@@ -10,10 +10,10 @@ struct R
 struct V
   r: ?R
 
-fun fail -> Int!
+fun fail() -> Int!
   return E.bad
 
-sub main
+sub main()
   keep = R(n: 0)
   v = V(r: ?keep)
   k = fail() catch |err|

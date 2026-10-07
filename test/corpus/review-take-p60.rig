@@ -3,7 +3,7 @@ fun replace(a: !Int, b: Int) -> Int
   a = b
   0
 
-sub main
+sub main()
   x = 1
   y = replace(!x, 5)
   print(x, y)

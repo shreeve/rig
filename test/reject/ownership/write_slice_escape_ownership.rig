@@ -1,7 +1,7 @@
 # A `![]T` is a write view: it is not copied, and it is returned only
 # when it views from a `!` parameter.
 
-fun local -> ![]Int
+fun local() -> ![]Int
   a = [1, 2]
   !a[..]
 

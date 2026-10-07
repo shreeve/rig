@@ -2,7 +2,7 @@ enum E
   a(n: Int)
   b
 
-sub main
+sub main()
   x = Box(E.a(1))
   match x
     .a(n) => print(n)

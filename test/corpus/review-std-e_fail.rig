@@ -11,7 +11,7 @@ fun f(x: Int) -> Int!
   return E.bad if x > 0
   x
 
-fun main -> Int
+fun main() -> Int
   r = R(n: 1)
   n = f(1)!
   n

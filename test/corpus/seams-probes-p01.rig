@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = Text("aaaa")
   defer print(Text("deferred"), ?a)
   print(a)

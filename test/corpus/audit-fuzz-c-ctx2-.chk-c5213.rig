@@ -49,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t5213
+sub t5213()
   qo5213: U128? = none
   print(qo5213 ?? gmax(6, 129158169027848300914956498531366630129))
 
-sub main
+sub main()
   t5213()

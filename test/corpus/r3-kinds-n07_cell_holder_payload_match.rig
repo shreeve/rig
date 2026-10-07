@@ -5,7 +5,7 @@ enum E
   a(c: Counter)
   b
 
-sub main
+sub main()
   e = E.a(c: Counter(hits: Cell(0)))
   match e
     .a(c) => c.hits.set(4)

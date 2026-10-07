@@ -6,7 +6,7 @@ enum E
 struct S
   v: Vec[E]
 
-sub main
+sub main()
   e: Vec[E] = Vec()
   !e.push(E.a(t: Text("hi")))
   h = *S(v: <e)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = 1
   :m match x
     1 => break :m

@@ -1,4 +1,4 @@
-sub main
+sub main()
   n = 0
   for _ in 10..0
     n += 1

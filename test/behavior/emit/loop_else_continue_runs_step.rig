@@ -4,7 +4,7 @@
 fun lim(i: Int, n: Int) -> Int?
   i if i < n else none
 
-sub main
+sub main()
   i = 0
   guard = 0
   while lim(i, 3) as h and h >= 0: i = h + 1

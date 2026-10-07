@@ -11,5 +11,5 @@ fun fnv1a(s: String) -> U64
     h = mulw(h, 0x100000001b3)
   h
 
-sub main
+sub main()
   print(fnv1a("hello"))

@@ -2,7 +2,7 @@
 struct H
   w: !Vec[String]
 
-sub main
+sub main()
   inner: Vec[String] = Vec()
   h = H(w: !inner)
   t = Text("x")

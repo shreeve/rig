@@ -4,6 +4,6 @@ fun mul(a: U64, b: U64) -> U64
     _ = @mulWithOverflow(a, b)
     r
 
-sub main
+sub main()
   x: U64 = 3
   print(x.wrapping_mul(5), mul(3, 4))

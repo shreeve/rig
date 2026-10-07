@@ -1,4 +1,4 @@
 use geo
 
-sub main
+sub main()
   !geo.KP.fill(0)

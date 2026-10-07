@@ -1,7 +1,7 @@
 struct P
   n: Int
 
-sub main
+sub main()
   v: Vec[*P] = Vec()
   !v.push(*P(n: 1))
   h = +v[0]

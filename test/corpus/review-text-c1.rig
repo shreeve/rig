@@ -1,7 +1,7 @@
 struct S
   s: String
 
-sub main
+sub main()
   out = S(s: "lit")
   if true
     t = Text("scoped text here")

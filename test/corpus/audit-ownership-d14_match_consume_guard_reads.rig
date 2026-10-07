@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   s: Slot = .pair(a: *Tok(n: 1), b: *Tok(n: 2))
   match <s
     .pair(a, b) if a.n > 5 => eat(<a)

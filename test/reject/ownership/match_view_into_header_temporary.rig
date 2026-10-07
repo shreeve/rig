@@ -30,7 +30,7 @@ fun pick(h: ?H) -> ?E
 fun pickf(g: ?G) -> ?F from g
   ?g.f
 
-sub main
+sub main()
   k = 1
   match pick(?mkh(7))
     .a(n) => print("a", n)

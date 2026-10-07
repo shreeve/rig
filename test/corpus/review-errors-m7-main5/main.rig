@@ -2,8 +2,8 @@ use lib
 
 type D = lib.Disk
 
-fun g -> Int!
+fun g() -> Int!
   return D.full
 
-sub main
+sub main()
   print(g() catch 0)

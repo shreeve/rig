@@ -14,7 +14,7 @@ pub fun eq[T](a: T, b: T) -> Bool
 pub fun lt[T](a: T, b: T) -> Bool
   a < b
 
-pub fun arr[n: Int] -> Int
+pub fun arr[n: Int]() -> Int
   a = [0; n]
   a.len
 

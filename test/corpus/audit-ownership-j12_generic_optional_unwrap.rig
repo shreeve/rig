@@ -21,7 +21,7 @@ fun get[T](o: T?, d: T) -> T
     return <x
   <d
 
-sub main
+sub main()
   t = get(*Tok(n: 1), *Tok(n: 2))
   print(t.n)
   u = get(none, *Tok(n: 3))

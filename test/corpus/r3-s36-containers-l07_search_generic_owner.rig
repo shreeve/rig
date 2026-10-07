@@ -3,7 +3,7 @@ use std.slices
 struct P
   x: Int
 
-sub main
+sub main()
   v: Vec[*P] = Vec()
   !v.push(*P(x: 1))
   print(v.len)

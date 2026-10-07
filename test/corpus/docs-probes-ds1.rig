@@ -8,7 +8,7 @@ fun max[T](a: T, b: T) -> T
 struct P
   n: Int
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   total = 0

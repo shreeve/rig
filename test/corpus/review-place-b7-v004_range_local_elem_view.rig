@@ -1,7 +1,7 @@
 sub g(n: !Int)
   n += 1
 
-sub main
+sub main()
   a = [1, 2, 3]
   g(!a[0..2][0])
   print(a[0])

@@ -9,7 +9,7 @@ fun idx(s: String) -> Int
 fun k(n: Int) -> Int
   n
 
-sub main
+sub main()
   v: Vec[E] = Vec()
   !v.push(E.a(t: Text("hi")))
   match !v[k(idx(?Text("a")))]

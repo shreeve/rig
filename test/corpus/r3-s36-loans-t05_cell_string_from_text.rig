@@ -1,6 +1,6 @@
 # On the strings branch a String may view a Text: it must stay out of
 # a Cell.
-sub main
+sub main()
   t = Text("abc")
   c: Cell[String] = Cell("x")
   c.set(?t)

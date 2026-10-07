@@ -15,7 +15,7 @@ fun at_end(v: !Vec[Text]) -> Int
   !v.push(Text("s"))
   0
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   v[0] = grow(!v)

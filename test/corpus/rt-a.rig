@@ -26,7 +26,7 @@ fun find(s: String, pat: String) -> Int?
 fun split(s: String, sep: String) -> Split
   Split(rest: s, sep: sep, done: false)
 
-sub main
+sub main()
   b: U8 = "abc"[1]
   print(b, find("hello", "ll"), find("x", "yy"))
   it = split("a,b,,c", ",")

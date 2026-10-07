@@ -1,7 +1,7 @@
 # Dropping a String that views a Text ends its loan, and the String
 # may not be used after it.
 
-sub main
+sub main()
   t = Text("abc")
   s = ?t[..2]
   -s

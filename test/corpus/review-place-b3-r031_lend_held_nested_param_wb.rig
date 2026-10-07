@@ -10,7 +10,7 @@ sub poke(w: !Int)
 sub f(g: G)
   poke(!g.h.w)
 
-sub main
+sub main()
   n = 1
   h = H(w: !n)
   f(G(h: !h))

@@ -4,7 +4,7 @@ struct Bx
   drop(!self)
     print("drop box", self.n)
 
-sub main
+sub main()
   h = *Bx(n: 7)
   r = ?h
   f = *|<r| print("in closure", r.n)

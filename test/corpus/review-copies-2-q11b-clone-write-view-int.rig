@@ -2,7 +2,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   n = 1
   w = !n
   c = +w

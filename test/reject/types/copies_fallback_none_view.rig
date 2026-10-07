@@ -6,7 +6,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   a = P(x: 1)
   i: (?P)? = ?a
   f: P? = i ?? none

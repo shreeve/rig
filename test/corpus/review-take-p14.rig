@@ -10,7 +10,7 @@ enum E
   one(s: S)
   two
 
-sub main
+sub main()
   e = E.one(s: S(a: R(n: 1)))
   match e
     .one(s)

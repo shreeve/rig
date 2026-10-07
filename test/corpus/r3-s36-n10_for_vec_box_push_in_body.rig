@@ -1,7 +1,7 @@
 struct P
   n: Int
 
-sub main
+sub main()
   v: Vec[Box[P]] = Vec()
   !v.push(Box(P(n: 1)))
   for x in ?v

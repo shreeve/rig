@@ -21,6 +21,6 @@ fun mkf(n: Int) -> Bag!
 fun run(n: Int) -> Int!
   two(mk(1), mkf(n)!)
 
-sub main
+sub main()
   print(run(2) catch -1)
   print(run(9) catch -1)

@@ -1,7 +1,7 @@
 struct N
   v: Vec[Int]
 
-sub main
+sub main()
   xs: Vec[*N] = Vec()
   !xs.push(*N(v: Vec()))
   a = xs[0]

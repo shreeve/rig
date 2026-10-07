@@ -2,7 +2,8 @@ struct R
   n: Int
   drop(!self)
     print("drop", self.n)
-sub main
+
+sub main()
   r = R(n: 1)
   _ = <r
   print("after")

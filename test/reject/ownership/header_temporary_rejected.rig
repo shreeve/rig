@@ -42,7 +42,7 @@ fun at2(v: ?Vec[E]) -> ?E from v
   match ?v[idx(?Text("a"))]
     x => x
 
-sub main
+sub main()
   v = [E.a(xs: [7, 7, 7, 7]), E.b]
   k = 3
   match ?v[idx(?Text("a"))]

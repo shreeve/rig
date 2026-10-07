@@ -10,7 +10,7 @@ fun g(o: Text?) -> Int?
   print(text.trim(?o?))
   1
 
-sub main
+sub main()
   a = Text("aaaa")
   b = Text("bb")
   c = true

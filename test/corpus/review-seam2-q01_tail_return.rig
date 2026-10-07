@@ -43,13 +43,13 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-fun t1 -> Int
+fun t1() -> Int
   !mk(1).pop()
 
-fun t2 -> Int
+fun t2() -> Int
   return !mk(2).pop() + clobber(1)
 
-fun t3 -> Int
+fun t3() -> Int
   i = 0
   r = while i < 5
     i += 1
@@ -58,5 +58,5 @@ fun t3 -> Int
     0
   r
 
-sub main
+sub main()
   print(t1(), t2(), t3())

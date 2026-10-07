@@ -1,4 +1,4 @@
-sub main
+sub main()
   done = false
   while !done
     done = true

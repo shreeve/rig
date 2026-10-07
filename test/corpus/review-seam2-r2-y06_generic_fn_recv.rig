@@ -30,12 +30,12 @@ struct W[V]
 fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap"))
 
-fun mkw[V] -> W[V]
+fun mkw[V]() -> W[V]
   W(h: H(rs: Vec()), xs: Vec[V]())
 
 sub go[V](v: V)
   !mkw[V]().put(?mk(1).t, <v)
 
-sub main
+sub main()
   go(5)
   print("end")

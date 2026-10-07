@@ -1,5 +1,6 @@
 use rig
 use std
 use panic
+
 sub main()
   print(rig.f() + std.K + panic.f())

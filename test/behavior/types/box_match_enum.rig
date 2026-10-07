@@ -14,7 +14,7 @@ fun name(b: !Box[Shape]) -> String
     .circle(_) => "circle"
     .square(_) => "square"
 
-sub main
+sub main()
   b = Box(Shape.circle(r: 2))
   match ?b
     .circle(r) => print("circle", r)

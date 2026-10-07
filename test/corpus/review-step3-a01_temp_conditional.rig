@@ -11,7 +11,7 @@ fun mk(n: Int) -> Bag
   print("mk", n)
   Bag(n: n)
 
-sub main
+sub main()
   c = false
   print(size(mk(1)) if c else 0)
   print(c and size(mk(2)) > 0)

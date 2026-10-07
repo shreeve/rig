@@ -1,5 +1,6 @@
 struct P
   x: Int
-sub main
+
+sub main()
   s = *Signal(value: P(x: 1))
   print(s.get())

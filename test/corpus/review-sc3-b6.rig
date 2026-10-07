@@ -4,7 +4,7 @@ struct Res
   drop(!self)
     print("drop", self.id)
 
-sub main
+sub main()
   o: Res? = Res(id: 1)
   if ?o as x and !o as y
     y.id = 9

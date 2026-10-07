@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [1, 2, 3]
   s = ?a[0..2]
   a[0] = 9

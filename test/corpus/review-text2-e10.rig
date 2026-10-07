@@ -1,9 +1,9 @@
-fun mk -> *Cell[Vec[String]]
+fun mk() -> *Cell[Vec[String]]
   cv: *Cell[Vec[String]] = *Cell(Vec())
   cv.push("lit")
   cv
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   cv = mk()
   keep = +cv

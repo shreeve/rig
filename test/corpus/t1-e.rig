@@ -1,7 +1,7 @@
 use std.math
 
-fun math -> Int
+fun math() -> Int
   1
 
-sub main
+sub main()
   print(math())

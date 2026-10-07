@@ -3,7 +3,7 @@ struct Node[K, V]
   vals: Vec[V]
   kids: Vec[Box[Node[K, V]]]
 
-  fun leaf -> Self
+  fun leaf() -> Self
     Node(keys: Vec(), vals: Vec(), kids: Vec())
 
   fun find(?self, k: K) -> V?
@@ -20,7 +20,7 @@ struct Node[K, V]
       j += 1
     none
 
-sub main
+sub main()
   n = Node[Int, String].leaf()
   !n.keys.push(3)
   !n.vals.push("three")

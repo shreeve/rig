@@ -1,2 +1,2 @@
 extern zig "evil.zig"
-  pub fun boom -> Int
+  pub fun boom() -> Int

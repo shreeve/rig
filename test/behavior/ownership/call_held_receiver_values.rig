@@ -22,13 +22,13 @@ struct Q
 struct H
   q: Q
 
-fun mk -> S
+fun mk() -> S
   S(n: 5, m: 6)
 
-fun mkh -> H
+fun mkh() -> H
   H(q: Q(c: Cell(1), n: 41))
 
-sub main
+sub main()
   print(mk().sum())
   print(mkh().q.get())
   print(mk().me().n)

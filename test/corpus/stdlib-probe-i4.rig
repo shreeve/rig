@@ -9,6 +9,6 @@ fun lower_bound[T](xs: []T, x: T) -> Int
       hi = mid
   lo
 
-sub main
+sub main()
   a = [1, 3, 5, 7]
   print(lower_bound(?a[..], 5), lower_bound(?a[..], 4), lower_bound(["a", "c"], "b"))

@@ -6,7 +6,7 @@ fun grow(t: !Text) -> Int
 fun two(x: ?Text, n: Int) -> Int
   x.len + n
 
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   c = true

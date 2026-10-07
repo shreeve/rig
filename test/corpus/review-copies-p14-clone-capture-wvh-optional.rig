@@ -6,7 +6,7 @@ fun first(o: ?H?) -> Int
     return q.w[0]
   0
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   !xs.push(5)
   o: H? = H(w: !xs)

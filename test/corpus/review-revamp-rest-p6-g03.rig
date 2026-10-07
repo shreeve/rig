@@ -3,6 +3,7 @@ struct Pair[A, B]
   b: B
   fun swap(?self) -> Pair[B, A]
     Pair[B, A](a: self.b, b: self.a)
+
 sub main()
   p = Pair[Int, String](a: 1, b: "x")
   q = p.swap()

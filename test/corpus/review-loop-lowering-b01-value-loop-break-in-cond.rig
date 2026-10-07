@@ -28,7 +28,7 @@ fun cx(k0: Int) -> Int
   else
     0 - 1
 
-sub main
+sub main()
   i = 0
   while (nxt(i) ?? break) > 0: i += 1
     d = D(n: i)

@@ -14,7 +14,7 @@ fun mk() -> E
 sub keep(b: B)
   print("kept", b.n)
 
-sub main
+sub main()
   match mk()
     .one(b) => keep(<b)
     .zero => pass

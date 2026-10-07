@@ -7,7 +7,7 @@ struct Res
 struct Box
   r: Res
 
-sub main
+sub main()
   b = Box(r: Res(id: 1))
   b = Box(r: Res(id: 2))
   g = |!b|

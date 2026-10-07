@@ -6,10 +6,10 @@ struct D
   drop(!self)
     print("drop", self.n, self.t)
 
-fun mk -> D
+fun mk() -> D
   D(n: 5, t: Text("hi"))
 
-sub main
+sub main()
   x = <mk().n
   print("got", x)
 

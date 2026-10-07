@@ -4,7 +4,7 @@ struct P
 sub g(p: !P)
   p.x = 4
 
-sub main
+sub main()
   p = P(x: 1)
   w = !p
   g(!w)

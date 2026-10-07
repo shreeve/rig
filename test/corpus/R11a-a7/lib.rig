@@ -1,4 +1,4 @@
-pub fun three[n: Int] -> Int
+pub fun three[n: Int]() -> Int
   a = [0; n]
   b = [1; n]
   c = [2; n]

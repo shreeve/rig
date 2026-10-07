@@ -1,4 +1,4 @@
 # [n of x] with an owner: reject
-sub main
+sub main()
   a = [2 of Text("a")]
   print(a)

@@ -20,7 +20,7 @@ fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
 fun desc(a: ?Int, b: ?Int) -> Bool
   a > b
 
-sub main
+sub main()
   v = [5, 3, 9, 1]
   sort(!v, |a, b| a < b)
   names = ["pear", "apple", "fig"]

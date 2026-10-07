@@ -1,8 +1,10 @@
 enum Status
   ok = 200
   missing = 404
+
 fun of(n: Int) -> Status
   raw
     @fromBackingInt(n)
-sub main
+
+sub main()
   print(of(404))

@@ -14,7 +14,7 @@ sub go(s: ![]P)
   for p in !s[1..]
     p.x *= 10
 
-sub main
+sub main()
   ps = [P(x: 1), P(x: 2), P(x: 3)]
   go(!ps[..])
   print(ps[0].x, ps[1].x, ps[2].x)

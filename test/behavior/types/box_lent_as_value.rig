@@ -24,7 +24,7 @@ fun rd(r: ?R) -> Int
 sub g(w: !Box[R])
   print(rd(w), rd(!w))
 
-sub main
+sub main()
   b = Box(R(n: 1))
   c = Box(R(n: 2))
   r: ?R = ?c

@@ -1,7 +1,7 @@
 struct S
   a: Int?
 
-sub main
+sub main()
   s: *S = *S(a: 1)
   swap(!s.a, !s.a)
   print(s)

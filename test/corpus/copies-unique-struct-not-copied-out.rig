@@ -4,6 +4,6 @@ struct Rng unique
 fun out(p: ?Rng) -> Rng
   p
 
-sub main
+sub main()
   r = Rng(s: 1)
   print(out(?r).s)

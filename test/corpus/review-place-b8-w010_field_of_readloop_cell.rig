@@ -7,7 +7,7 @@ struct P
 struct Q
   p: P
 
-sub main
+sub main()
   qs = [Q(p: P(c: Cell(1)))]
   for q in ?qs
     q.p.hit()

@@ -7,5 +7,5 @@ struct P
 sub f(p: P)
   p.hit()
 
-sub main
+sub main()
   f(P(c: Cell(1)))

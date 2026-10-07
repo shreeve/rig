@@ -1,7 +1,7 @@
 fun mk(a: ![]Int) -> ![]Int
   <a
 
-sub main
+sub main()
   a = [1, 2, 3]
   for x in !mk(!a[0..3])
     x = 0

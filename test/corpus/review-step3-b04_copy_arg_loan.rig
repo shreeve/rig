@@ -7,7 +7,7 @@ sub setp(a: !P, b: ?P)
 sub seti(a: !Int, b: Int)
   a += b
 
-sub main
+sub main()
   p = P(x: 1)
   setp(!p, p)
   n = 2

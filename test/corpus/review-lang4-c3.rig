@@ -1,7 +1,7 @@
 sub bump(a: !Int, b: Int)
   a += b
 
-sub main
+sub main()
   n = 1
   bump(!n, n)
   w = !n

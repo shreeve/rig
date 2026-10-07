@@ -15,7 +15,7 @@ fun mk(k: Int) -> P
   !v.push(k)
   P(v: <v)
 
-sub main
+sub main()
   a = mk(1)
   b = mk(2)
   c = true

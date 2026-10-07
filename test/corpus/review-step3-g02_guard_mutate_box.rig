@@ -9,7 +9,7 @@ fun clear(b: !Box[E]) -> Bool
   b = Box(E.b)
   false
 
-sub main
+sub main()
   b = Box(E.a(r: Res(t: Text("abc"))))
   match b
     .a(_) if clear(!b) => print("one")

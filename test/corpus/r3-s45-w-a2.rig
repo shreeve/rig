@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [Text("x"), Text("y")]
   for t in <a
     print(t)

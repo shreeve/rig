@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   print(lib.DEF)
   x = lib.fail() catch |e|
     print(e == lib.DEF)

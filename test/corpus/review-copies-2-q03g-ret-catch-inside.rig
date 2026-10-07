@@ -8,7 +8,6 @@ struct Q
   p: P
   n: Int
 
-
 fun get(r: ?P, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   r
@@ -16,7 +15,7 @@ fun get(r: ?P, ok: Bool) -> (?P)!
 fun two(r: ?P, s: ?P, ok: Bool) -> (?P)!
   get(r, ok) catch s
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   v = two(?a, ?b, true)!

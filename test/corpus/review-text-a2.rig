@@ -1,4 +1,4 @@
-sub main
+sub main()
   t = Text("abcdefgh")
   s = ?t[..]
   !t.add(s)

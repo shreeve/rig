@@ -4,7 +4,7 @@
 sub take(t: Text)
   print(t)
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   x = v[0]

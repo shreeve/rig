@@ -11,7 +11,7 @@ fun mk(c: Bool) -> Vec[Int]
   else
     Vec()
 
-sub main
+sub main()
   x = mk(true)
   !x.push(3)
   print(x.len, x[0])

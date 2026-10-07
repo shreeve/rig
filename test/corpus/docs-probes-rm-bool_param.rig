@@ -1,6 +1,6 @@
 struct R[T, b: Bool]
   v: T
 
-sub main
+sub main()
   r = R[Int, true](v: 1)
   print(r.v)

@@ -1,6 +1,8 @@
 error E
   bad
-fun g -> Int!
+
+fun g() -> Int!
   return E.bad
-sub main
+
+sub main()
   print(g()!)

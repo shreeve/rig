@@ -7,6 +7,6 @@ struct Res
 fun keep[T](a: T, b: T) -> T
   b
 
-sub main
+sub main()
   r = keep(Res(n: 1), Res(n: 2))
   print(r.n, keep(3, 4))

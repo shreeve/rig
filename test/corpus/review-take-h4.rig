@@ -13,7 +13,7 @@ struct S
 fun mk() -> S
   S(t: T(a: R(n: 1)), z: 0)
 
-sub main
+sub main()
   s = mk()
   t = <s.t.a
   print(t, s)

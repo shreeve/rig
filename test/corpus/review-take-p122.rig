@@ -20,7 +20,7 @@ sub rot2(slot: !Box[Tree]?)
     else
       slot = <t
 
-sub main
+sub main()
   root: Box[Tree]? = Box(value: Tree(key: 2, left: leaf(1), right: leaf(3)))
   rot2(!root)
   print(root)

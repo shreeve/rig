@@ -1,7 +1,7 @@
 # taken: `for x in [a, b]` over an array literal of Text places. The
 # array is made there and taken into `__rig_src_N`; are `a` and `b`
 # moved, copied (double drop), or read?
-sub main
+sub main()
   a = Text("a long text on the heap, number one")
   b = Text("a long text on the heap, number two")
   for x in [a, b]

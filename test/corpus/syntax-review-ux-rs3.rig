@@ -19,7 +19,7 @@ fun largest[T](xs: ?Vec[T]) -> T?
       best = x
   best
 
-sub main
+sub main()
   jobs: Vec[*Job] = Vec()
   !jobs.push(*Job(id: 1))
   !jobs.push(*Job(id: 2))

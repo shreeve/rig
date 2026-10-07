@@ -1,7 +1,7 @@
 use std.os
 use std.time
 
-sub main
+sub main()
   args = os.args()
   print(args.len, args[1..])
   for a in args

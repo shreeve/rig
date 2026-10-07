@@ -18,7 +18,7 @@ fun up2(w: ~S) -> Int?
   print(y.len)
   0
 
-sub main
+sub main()
   h = *S(v: mkv(1), o: mkv(2))
   w = ~h
   print(up(w), up2(w))

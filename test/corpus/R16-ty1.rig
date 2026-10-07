@@ -12,7 +12,7 @@ sub fill(xs: ![]Int)
   g = |?xs| xs[0]
   print(g())
 
-sub main
+sub main()
   arr = [1, 2, 3]
   fa = |!arr|
     arr[1] = 20

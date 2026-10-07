@@ -1,6 +1,6 @@
 use std.math
 
-sub main
+sub main()
   print(math.min(3, 2))
   s = "b"
   print(math.min(s, "a"))

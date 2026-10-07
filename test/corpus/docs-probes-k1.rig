@@ -1,7 +1,7 @@
 enum S
   rect(w: Int, h: Int)
 
-sub main
+sub main()
   s: S = .rect(w: 1, h: 2)
   match s
     .rect(w: a, h: b) => print(a, b)

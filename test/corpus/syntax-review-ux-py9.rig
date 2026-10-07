@@ -20,7 +20,7 @@ fun parse(line: []U8) -> Int!
     n = n * 10 + Int(b - 48)
   n
 
-sub main
+sub main()
   line: Vec[U8] = Vec()
   total = 0
   count = 0

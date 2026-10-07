@@ -3,7 +3,7 @@
 struct H
   v: Vec[Int]
 
-sub main
+sub main()
   c = true
   h = H(v: Vec())
   h.v = if c

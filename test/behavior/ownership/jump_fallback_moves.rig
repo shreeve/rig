@@ -16,7 +16,7 @@ fun total(xs: ?Vec[Int?]) -> Int
     0
   sum
 
-sub main
+sub main()
   p1 = pick(none)
   p2 = pick(5)
   print(p1.len, p2.len)

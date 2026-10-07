@@ -22,7 +22,7 @@ fun pick(c: Bool) -> R
   else
     R(n: 6)
 
-sub main
+sub main()
   c = true
   k = 0
   a = if c

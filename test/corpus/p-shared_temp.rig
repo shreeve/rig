@@ -7,7 +7,7 @@ fun mk() -> *P
 sub g(p: !*P)
   print(p.n)
 
-sub main
+sub main()
   g(!mk())
   h = *P(n: 2)
   g(!(<h))

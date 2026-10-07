@@ -1,5 +1,5 @@
 # m[0] = <inner where inner holds ?t; then drop t
-sub main
+sub main()
   m: Vec[Vec[String]] = Vec()
   !m.push(Vec())
   t = Text("x")

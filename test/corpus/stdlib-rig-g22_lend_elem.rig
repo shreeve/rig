@@ -1,12 +1,14 @@
 struct P
   x: Int
+
 struct List[T]
   items: Vec[T]
   fun at(?self, i: Int) -> ?T
     ?self.items[i]
   fun at_mut(!self, i: Int) -> !T
     !self.items[i]
-sub main
+
+sub main()
   l = List[P](items: Vec())
   !l.items.push(P(x: 1))
   r = l.at(0)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   xss = [[1, 2], [3, 4]]
   for xs in xss
     for x in !xs

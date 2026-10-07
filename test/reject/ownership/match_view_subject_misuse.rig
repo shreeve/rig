@@ -30,7 +30,7 @@ sub clear(s: !Slot)
   match s
     x => x = .empty
 
-sub main
+sub main()
   a = 1
   e: E = .w(p: !a)
   match e

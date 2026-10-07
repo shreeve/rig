@@ -86,7 +86,7 @@ fun guarded(e: ?E) -> Int
     .a(_, k) if k > 5 => k
     x => count(x)
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("x")), k: 2)
   print(whole(?e), guarded(?e))
 EOF2
@@ -118,10 +118,10 @@ struct P
 struct H
   p: P
 
-fun mk -> H
+fun mk() -> H
   H(p: P(c: Cell(1), n: 42))
 
-fun mks -> S
+fun mks() -> S
   S(t: Text("m"))
 
 fun id(x: ?P) -> ?P
@@ -130,7 +130,7 @@ fun id(x: ?P) -> ?P
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   a = S(t: Text("aa"))
   b = S(t: Text("bb"))
   c = a.t.len == 2
@@ -161,7 +161,7 @@ enum Opt[T]
 fun size[T](v: ?T) -> Int
   1
 
-sub main
+sub main()
   a = Opt.some(v: 3)
   print(a.all())
 EOF2
@@ -203,7 +203,7 @@ fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
     .none => 0
   n + m
 
-sub main
+sub main()
   o = Opt.some(v: Text("t"))
   w = V(r: ?o)
   print(f(?w), g(?w), h(?o, ?o))
@@ -226,10 +226,10 @@ fun mk(n: Int) -> Vec[Int]!
 fun pair(a: Vec[Int], b: Vec[Int]) -> Int
   a[0] + b[0]
 
-fun run -> Int!
+fun run() -> Int!
   pair(mk(1)!, mk(2)!)
 
-sub main
+sub main()
   print(run() catch 0, Text("abc").len)
 EOF2
 out=$(RIG_SANITIZE=1 "$RIG" emit poison.rig 2>/dev/null) || fail "rig emit poison.rig"

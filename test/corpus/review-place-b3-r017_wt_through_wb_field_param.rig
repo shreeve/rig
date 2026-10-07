@@ -7,7 +7,7 @@ struct H
 sub f(h: H)
   h.q.n = 7
 
-sub main
+sub main()
   x = Q(n: 1)
   f(H(q: !x))
   print(x.n)

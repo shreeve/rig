@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 sub sw[T](a: !T, b: !T)
   swap(!a, !b)
 
-sub main
+sub main()
   a = *Tok(n: 1)
   b = *Tok(n: 2)
   sw(!a, !b)

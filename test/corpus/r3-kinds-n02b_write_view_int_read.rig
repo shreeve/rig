@@ -2,6 +2,6 @@ sub paint(w: !Int)
   c = w
   print(c)
 
-sub main
+sub main()
   x = 1
   paint(!x)

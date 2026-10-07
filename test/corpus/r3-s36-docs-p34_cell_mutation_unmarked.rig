@@ -2,7 +2,7 @@
 sub bump(c: ?Cell[Int])
   c.set(c.get() + 1)
 
-sub main
+sub main()
   c = Cell(0)
   bump(?c)
   print(c.get())

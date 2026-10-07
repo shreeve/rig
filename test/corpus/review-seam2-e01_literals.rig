@@ -30,7 +30,7 @@ sub fills(xs: ![]Int)
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   inc(!(2 + 3))
   inc(!f(1))
   inc(!-f(1))

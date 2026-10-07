@@ -10,7 +10,7 @@ struct Counter
 fun look(c: ?Counter) -> Int
   c.peek()
 
-sub main
+sub main()
   c = Counter(hits: Cell(0), log: Cell(Vec()))
   a = c.peek()
   b = look(?c)

@@ -1,4 +1,4 @@
 # bind an owning element of a temporary array literal
-sub main
+sub main()
   x = [Text("a"), Text("b")][1]
   print(x)

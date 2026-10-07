@@ -9,7 +9,7 @@ struct WV
 struct S
   k: WV
 
-sub main
+sub main()
   n = 1
   s = S(k: WV(w: !n))
   print(s.k.into())

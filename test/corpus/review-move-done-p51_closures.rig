@@ -3,33 +3,33 @@ struct S
   v: Vec[Int]
   o: Vec[Int]?
 
-sub c1
+sub c1()
   s = S(n: 1, v: Vec(), o: none)
   f = |?s| <s.n
   print(f())
 
-sub c2
+sub c2()
   s = S(n: 1, v: Vec(), o: none)
   f = *|<s| (<s.v).len
   print(f())
 
-sub c3
+sub c3()
   s = S(n: 1, v: Vec(), o: none)
   f = |!s| <s.o
   print(f())
   print(s.o)
 
-sub c4
+sub c4()
   s = S(n: 1, v: Vec(), o: none)
   f = *|<s| <s.n
   print(f())
 
-sub c5
+sub c5()
   s = S(n: 1, v: Vec(), o: none)
   f = *|<s| (<s).n
   print(f())
 
-sub main
+sub main()
   c3()
 
 # oracle: c1 reject C3

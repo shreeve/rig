@@ -6,7 +6,7 @@ fun mk() -> *sub(Int)!
     return Bad.neg if x < 0
     print("f", x)
 
-sub main
+sub main()
   f = mk()
   f(1)!
   f(-1) catch |e|

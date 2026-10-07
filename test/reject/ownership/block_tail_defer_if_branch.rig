@@ -1,7 +1,7 @@
 # A block-local name at the tail of an `if` branch moves out of the
 # branch before the branch's defer runs, as `<v` would: the defer
 # cannot write it.
-sub main
+sub main()
   c = true
   x = if c
     v: Vec[Int] = Vec()

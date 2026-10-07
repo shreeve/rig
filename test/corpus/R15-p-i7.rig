@@ -1,5 +1,6 @@
 fun n(x: Int) -> Int
   x
+
 sub main()
   v: Vec[U8] = Vec()
   !v.push(1)

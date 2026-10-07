@@ -34,7 +34,6 @@ fun id_u32(x: U32) -> U32
 fun id_int(x: Int) -> Int
   x
 
-
 fun id_u64(x: U64) -> U64
   x
 
@@ -58,7 +57,7 @@ fun fu4325(s: Bool) -> Float?
   x = fo4325(s)?
   x
 
-fun ret2548 -> I16
+fun ret2548() -> I16
   vv2548: Vec[I16] = Vec()
   !vv2548.push(32767)
   vv2548[0]
@@ -98,16 +97,16 @@ fun cf572(ok: Bool) -> U32!
 error CE572
   no
 
-sub t4325
+sub t4325()
   tf4325 = rt_bool(true)
   tv4325: Float = id_float(2.5)
   tz4325: Float = (fu4325(false) ?? (-1.5)) if tf4325 else tv4325
   print(tz4325, tv4325 if tf4325 else (fu4325(false) ?? (-1.5)))
 
-sub t2548
+sub t2548()
   print(ret2548())
 
-sub t878
+sub t878()
   gv878: Vec[Int] = Vec()
   !gv878.push((-7439022870369575952))
   mk878 = rt_int(0)
@@ -116,25 +115,25 @@ sub t878
     _ => (-9223372036854775807)
   print(mz878)
 
-sub t5678
+sub t5678()
   qo5678: I32? = none
   print(qo5678 ?? (fal5678(false) catch (-544935519)))
 
-sub t764
+sub t764()
   acc764: U8 = id_u8(17)
   acc764 += 0
   print(acc764)
 
-sub t4822
+sub t4822()
   op4822: U32? = (gsome(0) ?? 4294967295)
   print(op4822, op4822 ?? 0)
 
-sub t1449
+sub t1449()
   cr1449: Cell[Float] = Cell(10.25)
   gy1449: Float = gid(cr1449.replace((-2)))
   print(gy1449)
 
-sub t4183
+sub t4183()
   k4183 = rt_int(2)
   z4183: F32 = match k4183
       1 => 0
@@ -143,24 +142,24 @@ sub t4183
   y4183 = take4183(z4183)
   print(y4183)
 
-sub t794
+sub t794()
   lc794 = rt_int(0)
   gz794: U128 = while true
       break 332878397397557684467855711242930049358 if lc794 >= 0
   gp794: GP794[U128] = GP794(f: gz794)
   print(gp794.f)
 
-sub t5304
+sub t5304()
   arr5304: [2]I128 = [(-2), (-17)]
   vw5304: Vec[I128] = Vec()
   pushit5304 = |!vw5304, x: I128| !vw5304.push(x)
   pushit5304(arr5304[1])
   print(vw5304)
 
-sub t2601
+sub t2601()
   print(ri2601(true), ri2601(false))
 
-sub t4182
+sub t4182()
   arr4182: [2]Int = [(-4912236136618164286), 1280334887887999893]
   mk4182 = rt_int(2)
   mz4182: Int = match mk4182
@@ -168,10 +167,10 @@ sub t4182
     _ => (-38705)
   print(mz4182)
 
-sub t332
+sub t332()
   print(ri332(true), ri332(false))
 
-sub t3771
+sub t3771()
   o3771: U32? = none
   mk3771 = rt_int(1)
   mz3771: U32 = match mk3771
@@ -179,10 +178,10 @@ sub t3771
     _ => 9
   print(mz3771)
 
-sub t572
+sub t572()
   print(cf572(true) catch (975387537 - 0))
 
-sub main
+sub main()
   t4325()
   t2548()
   t878()

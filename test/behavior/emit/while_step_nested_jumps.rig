@@ -32,7 +32,7 @@ fun take(a: Vec[Int]) -> Int
 fun odd(j: Int) -> Int?
   j if j % 2 == 1 else none
 
-sub joined
+sub joined()
   v: Vec[Int] = Vec()
   !v.push(5)
   k = 0
@@ -45,7 +45,7 @@ sub joined
     k += 100
   print(k, i)
 
-sub joined_moves
+sub joined_moves()
   v: Vec[Int] = Vec()
   !v.push(5)
   a = fresh(1)
@@ -61,7 +61,7 @@ sub joined_moves
       continue :outer if j == 2
   print(k, i)
 
-sub catch_break
+sub catch_break()
   v: Vec[Int] = Vec()
   !v.push(5)
   a = fresh(1)
@@ -76,7 +76,7 @@ sub catch_break
       continue :outer if j == 2
   print(k, i)
 
-sub deep
+sub deep()
   v: Vec[Int] = Vec()
   !v.push(5)
   a = fresh(1)
@@ -101,7 +101,7 @@ sub deep
           continue :outer
   print(k, i)
 
-sub leaves
+sub leaves()
   v: Vec[Int] = Vec()
   !v.push(5)
   a = fresh(1)
@@ -117,7 +117,7 @@ sub leaves
       continue :outer
   print(k, i)
 
-sub main
+sub main()
   joined()
   joined_moves()
   catch_break()

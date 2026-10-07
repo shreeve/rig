@@ -4,7 +4,7 @@ struct Q
 struct P
   q: Q
 
-sub main
+sub main()
   p = P(q: Q(n: 1))
   p.q.n = 5
   p.q.n *= 2

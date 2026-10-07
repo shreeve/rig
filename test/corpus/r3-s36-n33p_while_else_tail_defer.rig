@@ -1,4 +1,4 @@
-sub main
+sub main()
   i = 0
   x = while i < 0 : i += 1
     break Vec[Int]() if i > 5

@@ -1,7 +1,7 @@
 struct Node
   v: Int
 
-sub main
+sub main()
   a: *Cell[*Node?] = *Cell(none)
   old = a.replace(*Node(3))
   print(old)

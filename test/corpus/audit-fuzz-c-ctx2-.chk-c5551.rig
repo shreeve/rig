@@ -49,10 +49,10 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t5551
+sub t5551()
   o5551: U32? = none
   b5551: U32 = id_u32(4)
   print(b5551 + (o5551 ?? 0), (o5551 ?? 0) + b5551)
 
-sub main
+sub main()
   t5551()

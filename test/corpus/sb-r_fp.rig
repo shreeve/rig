@@ -2,7 +2,7 @@ sub f(a: [2]Int, b: ?[2]Int)
   a.fill(0)
   b.fill(0)
 
-sub main
+sub main()
   const c = [1, 2]
   c.fill(0)
   d = [1]

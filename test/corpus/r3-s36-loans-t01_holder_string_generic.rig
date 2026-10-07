@@ -5,6 +5,6 @@ struct Holder[T]
   fun get(?self) -> T
     self.v
 
-sub main
+sub main()
   h = Holder(v: "rig")
   print(h.get())

@@ -1,4 +1,5 @@
 sub f()
   return
-sub main
+
+sub main()
   f()

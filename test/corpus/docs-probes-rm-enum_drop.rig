@@ -5,6 +5,6 @@ enum E
   drop(!self)
     print(1)
 
-sub main
+sub main()
   e: E = .a
   print(e == .a)

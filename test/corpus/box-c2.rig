@@ -5,6 +5,6 @@ sub f(b: ?Box[P])
   b.x = 5
   q = <b.take()
 
-sub main
+sub main()
   b = Box(value: P(x: 1))
   f(?b)

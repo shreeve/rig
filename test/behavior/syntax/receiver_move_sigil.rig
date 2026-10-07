@@ -28,7 +28,7 @@ enum Shape
       .circle(r) => 3 * r * r
       .square => 1
 
-sub main
+sub main()
   c = Conn(name: "db")
   print(<c.close())
   print(Conn(name: "cache").renamed("store").close())

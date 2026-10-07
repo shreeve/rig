@@ -1,5 +1,6 @@
 fun z() -> F32
   0.0
+
 sub main()
   x = z() / z()
   print(U8(x))

@@ -3,7 +3,7 @@ fun mv() -> Vec[Int]
   !v.push(1)
   v
 
-sub main
+sub main()
   for n in ?mv()
     print(n)
   for n in mv()

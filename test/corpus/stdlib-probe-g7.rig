@@ -10,7 +10,7 @@ struct B
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   w = Wrap[*B](items: Vec())
   !w.items.push(*B(n: 4))
   if w.get(0) as b

@@ -1,7 +1,7 @@
 sub flip(b: !Bool)
   b = not b
 
-sub main
+sub main()
   f = true
   flip(!f)
   g = !f

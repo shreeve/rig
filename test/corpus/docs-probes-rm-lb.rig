@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = 3
   :blk if x > 1
     break :blk if x == 3

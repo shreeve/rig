@@ -17,7 +17,7 @@ fun look[T](x: T) -> Int
   n = peek(?x, |v| 7)
   n
 
-sub main
+sub main()
   print(hold(Res(id: 1)))
   print(hold(5))
   print(look(Res(id: 2)))

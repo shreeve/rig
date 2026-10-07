@@ -4,7 +4,7 @@ struct P
 sub f(h: *P)
   h.c.set(3)
 
-sub main
+sub main()
   h = *P(c: Cell(1))
   f(+h)
   print(h.c.get())

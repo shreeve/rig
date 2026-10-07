@@ -35,5 +35,5 @@ sub value_kept()
     saved = ?r
   print(saved.n)
 
-sub main
+sub main()
   payload_kept()

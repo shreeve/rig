@@ -14,7 +14,7 @@ struct Q
 struct Q2
   q: Box[Q]?
 
-sub main
+sub main()
   root = Box(value: T(k: 0, kids: Vec()))
   i = 1
   while i < 300000

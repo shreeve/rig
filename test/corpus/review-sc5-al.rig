@@ -1,5 +1,7 @@
 type Byte = U8
+
 fun top[T](x: T) -> T
   x
+
 sub main()
   print(Byte.max)

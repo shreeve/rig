@@ -22,7 +22,7 @@ fun pick(s: Slot) -> *Tok?
     .pair(a, b) => b
     .empty => none
 
-sub main
+sub main()
   if pick(.pair(a: *Tok(n: 1), b: *Tok(n: 2))) as t
     print("got", t.n)
   print("end")

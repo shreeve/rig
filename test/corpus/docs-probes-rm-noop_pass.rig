@@ -2,7 +2,7 @@ enum E
   a
   b
 
-sub main
+sub main()
   e: E = .a
   match e
     .a => print(1)

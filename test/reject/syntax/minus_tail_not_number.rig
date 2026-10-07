@@ -13,7 +13,7 @@ fun pick(c: Bool, v: Vec[Int]) -> Int
     -v
   x
 
-sub main
+sub main()
   print(total(Vec()), pick(true, Vec()))
 
 # error: 7:3: `-v` here is the function's value, and negation needs a number; to drop `v`, drop it before the last line

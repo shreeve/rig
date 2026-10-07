@@ -5,7 +5,7 @@ struct Pair
   a: *N
   b: *N
 
-sub main
+sub main()
   p = Pair(a: *N(n: 1), b: *N(n: 2))
   q = Pair(a: +p.a, b: +p.b)
   print(q.a.n, q.b.n)

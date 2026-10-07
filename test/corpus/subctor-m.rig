@@ -12,7 +12,7 @@ sub each(xs: []Int, f: ?fun(Int) -> Void!)!
   for x in xs
     f(x)!
 
-sub main
+sub main()
   b = Box2(items: Vec())
   !b.add(1)!
   !b.add(2)!

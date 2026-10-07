@@ -7,7 +7,7 @@ sub sw(x: !Int, y: !Int)
   x = y
   y = t
 
-sub main
+sub main()
   p = P(a: 1, b: 2)
   sw(!p.a, !p.b)
   print(p)

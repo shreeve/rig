@@ -4,5 +4,5 @@ fun hash(s: String) -> U64
     h = (h ^ U64(b)) *% 1099511628211
   h
 
-sub main
+sub main()
   print(hash("abc") % 16)

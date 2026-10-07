@@ -2,5 +2,5 @@ fun half(n: Int) -> Int?
   return none if n % 2 == 1
   n / 2
 
-sub main
+sub main()
   defer print(half(3)? )

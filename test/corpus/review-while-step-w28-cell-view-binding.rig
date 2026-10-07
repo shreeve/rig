@@ -5,7 +5,7 @@ fun pick(c: ?Cell[Vec[Int]], i: Int) -> (?Cell[Vec[Int]])?
     return c
   none
 
-sub main
+sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
   c.push(1)
   k = 0

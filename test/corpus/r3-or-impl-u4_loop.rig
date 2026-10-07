@@ -6,7 +6,7 @@ fun last(a: ?Vec[Int], b: ?Vec[Int], n: Int) -> ?Vec[Int]
     i += 1
   r
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = last(?x, ?y, 2)

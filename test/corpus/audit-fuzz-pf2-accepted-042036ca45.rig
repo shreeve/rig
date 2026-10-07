@@ -3,11 +3,10 @@
 
 fun add(a: Int, b: Int) -> Int
   a + b
- 
+
 sub main()
   x = add(1,
     2)
   print(x)
 # 3
 # expect:
-

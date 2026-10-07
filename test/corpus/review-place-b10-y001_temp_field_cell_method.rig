@@ -11,5 +11,5 @@ struct Q
 fun mk() -> Q
   Q(p: P(c: Cell(1)))
 
-sub main
+sub main()
   mk().p.hit()

@@ -1,6 +1,7 @@
 use lib
 type X = lib.IP
 type Y = lib.Q
+
 sub main()
   p = lib.IP(a: 1, b: "x")
   q = X(a: 2, b: "y")

@@ -21,7 +21,7 @@ fun elen(e: ?E) -> Int
     .n(h) => h.v
     .none => 0
 
-sub main
+sub main()
   e = E.t(s: Text("enum text"))
   f = |+e| elen(?e)
   e = E.n(h: *N(v: 1))

@@ -10,7 +10,7 @@ fun mk() -> P
 fun pair() -> [2]Int
   [1, 2]
 
-sub main
+sub main()
   mk().x = 5
   pair()[0] = 3
   c: Cell[P] = Cell(P(x: 1))

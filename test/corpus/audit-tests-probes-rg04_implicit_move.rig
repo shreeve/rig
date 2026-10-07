@@ -4,6 +4,6 @@ struct S
 sub take(s: S)
   print(s.v.len)
 
-sub main
+sub main()
   s = S(v: Vec())
   take(s)

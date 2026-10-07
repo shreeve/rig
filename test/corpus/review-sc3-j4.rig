@@ -15,7 +15,7 @@ fun w(k: Int) -> Res
   x = own(<r, Res(id: get(k) ?? return <r))
   Res(id: x)
 
-sub main
+sub main()
   a = w(1)
   b = w(0)
   print(a.id, b.id)

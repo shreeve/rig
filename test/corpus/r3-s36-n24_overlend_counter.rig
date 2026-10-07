@@ -2,7 +2,7 @@ fun find(xs: ?Vec[Int], n: !Int) -> ?Int
   n += 1
   ?xs[0]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(5)
   n = 0

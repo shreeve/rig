@@ -1,6 +1,7 @@
 struct Fmt
   e: Endian
   n: Int
+
 sub main()
   f = Fmt(e: .big, n: 2)
   v: Vec[Endian] = Vec()

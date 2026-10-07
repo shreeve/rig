@@ -51,7 +51,7 @@ sub rep1[T, n: Int](x: T)
   for i in 0..n
     print(i, x)
 
-sub main
+sub main()
   nx0 = counter0(7)
   print(nx0((-4)), nx0((-4)), nx0(3))
   v0: Vec[Int] = Vec()

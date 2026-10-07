@@ -1,7 +1,7 @@
 struct P
   n: Int
 
-sub main
+sub main()
   x = P(n: 0)
   f = |!x|
     x.n += 1

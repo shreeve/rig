@@ -27,7 +27,7 @@ struct Box2[T]
   fun get(?self) -> T
     self.c.get()
 
-sub main
+sub main()
   r = Reg(log: Cell(Vec()), cur: Cell(none), count: Cell(0))
   r.note(5)
   r.note(6)

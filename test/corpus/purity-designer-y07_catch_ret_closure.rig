@@ -1,10 +1,13 @@
 error A
   x
+
 fun f() -> Int!
   return A.x
+
 fun g() -> Int
   n = f() catch |e|
     return 5
   n
-sub main
+
+sub main()
   print(g())

@@ -8,7 +8,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
 fun twice(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   k = 3
   print(apply(|a| a + 1, 4))
   print(apply(twice, 4))

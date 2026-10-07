@@ -7,7 +7,7 @@ struct Counter
 sub bump(c: !Counter)
   !c.bump()
 
-sub main
+sub main()
   c = Counter(n: 0)
   w = !c
   bump((w))

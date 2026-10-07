@@ -27,7 +27,7 @@ fun id_u16(x: U16) -> U16
 
 fun id_i32(x: I32) -> I32
   x
-  
+
 fun id_u32(x: U32) -> U32
   x
 
@@ -49,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t609
+sub t609()
   fc609: fun(U8) -> U8 = |a| (gsome(15) ?? 18)
   print(fc609(0))
 
-sub main
+sub main()
   t609()

@@ -5,6 +5,6 @@ struct C
     self.n = 3
     self.n
 
-sub main
+sub main()
   c = C(n: 0)
   print(c.get())

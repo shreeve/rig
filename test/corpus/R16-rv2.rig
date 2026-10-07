@@ -8,7 +8,7 @@ struct Bag
       !self.items.push(f(i))
       i += 1
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(1)
   !b.grow(|?b, n| b.items.len + n)

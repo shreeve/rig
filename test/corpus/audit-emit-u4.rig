@@ -16,6 +16,6 @@ fun g(m: Msg) -> Msg
   match m
     x => x
 
-sub main
+sub main()
   q = f(Msg.data(r: R(n: 1), n: 2))
   print(q.n)

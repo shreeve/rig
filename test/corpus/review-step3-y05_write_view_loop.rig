@@ -7,7 +7,7 @@ sub go(w: !S)
       !w.v.push(x + 1)
     print(x)
 
-sub main
+sub main()
   s = S(v: Vec())
   !s.v.push(1)
   go(!s)

@@ -10,7 +10,7 @@ fun total(xs: ?[]Int) -> Int
     t += x
   t
 
-sub main
+sub main()
   a = [1, 2, 3]
   s = ?a[..]
   print(total(?s))

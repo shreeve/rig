@@ -2,7 +2,7 @@ struct Count
   word: String
   n: Int
 
-sub main
+sub main()
   words = ["apple", "banana", "cherry", "apple", "date", "banana", "apple"]
   counts = Vec()
   for w in words

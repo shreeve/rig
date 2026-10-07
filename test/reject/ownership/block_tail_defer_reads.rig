@@ -1,6 +1,6 @@
 # A defer that only reads a block's tail name runs after the name has
 # moved out with the block's value.
-sub main
+sub main()
   c = true
   x = if c
     v: Vec[Int] = Vec()

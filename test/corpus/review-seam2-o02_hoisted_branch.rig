@@ -24,7 +24,7 @@ fun f(n: Int) -> Int
   print("arg", n)
   n
 
-sub main
+sub main()
   c = f(1) == 1
   print(!(mk(1) if c else mk(2)).pick(y: f(3), x: f(4)))
   print(!(mk(5) if not c else mk(6)).pick(y: f(7), x: f(8)))

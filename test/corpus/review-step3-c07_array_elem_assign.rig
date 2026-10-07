@@ -1,7 +1,7 @@
 struct Counter
   hits: Cell[Int]
 
-sub main
+sub main()
   arr = [Counter(hits: Cell(0)), Counter(hits: Cell(1))]
   arr[0] = arr[1]
   k = Counter(hits: Cell(2))

@@ -7,7 +7,7 @@ struct Holder
 sub each(v: ?[2]Item, f: ?sub(?Item))
   f(?v[0])
 
-sub main
+sub main()
   g = Item(n: 1)
   h = Holder(r: ?g)
   f = |!h, x: ?Item| h.r = x

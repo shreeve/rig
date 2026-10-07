@@ -1,6 +1,6 @@
 use a
 
-sub main
+sub main()
   x = a.f(0) catch |e|
     match e
       a.Hidden.timeout => 1

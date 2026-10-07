@@ -5,7 +5,7 @@ struct Person
   fun label(?self) -> String
     self.name
 
-sub main
+sub main()
   p = Person(name: "Ann", tags: Vec())
   l = p.label()
   !p.tags.push(1)

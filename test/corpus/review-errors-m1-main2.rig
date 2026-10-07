@@ -5,5 +5,5 @@ fun f(n: Int) -> Int!
   return Mine.bad if n == 1
   n
 
-sub main
+sub main()
   print(f(1)!)

@@ -11,7 +11,7 @@ struct Page
   fun bytes(?self, a: Int, b: Int) -> []U8
     ?self.buf[a..b]
 
-sub main
+sub main()
   p = Page(buf: [4096 of 0], used: 0)
   !p.put(8, 77)
   print(p.key(8))

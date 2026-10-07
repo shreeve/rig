@@ -21,7 +21,7 @@ fun f(ok: Bool) -> Int!
   print(s)
   1
 
-sub main
+sub main()
   print(f(true) catch 0)
 
 # error: 18:16: `v` does not live long enough

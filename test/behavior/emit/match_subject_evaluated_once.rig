@@ -34,7 +34,7 @@ fun idx(c: ?Cell[Int]) -> Int
 sub keep(b: *B)
   print("kept", b.n)
 
-sub main
+sub main()
   match <make(1)
     .full(b, _) if b.n > 5 => keep(<b)
     _ => print("other")

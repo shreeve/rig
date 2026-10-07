@@ -19,7 +19,7 @@ fun count(root: ?Root) -> Int!
   k = +root.pick(true)!
   k.n
 
-sub main
+sub main()
   root = Root(leaf: *Leaf(n: 4))
   k = +root.first()
   print(k.n)

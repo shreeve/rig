@@ -1,5 +1,5 @@
 # Core sentence 2: `+v` of a Vec is a deep copy (decided, not built)
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   w = +v

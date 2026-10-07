@@ -4,6 +4,6 @@ struct I16
 fun f(v: I16) -> Int
   v.x
 
-sub main
+sub main()
   v = I16(x: 1)
   print(v.x)

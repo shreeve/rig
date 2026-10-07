@@ -13,7 +13,7 @@ struct P
     self.pos += 1
     t
 
-sub main
+sub main()
   p = P(toks: Vec(), pos: 0)
   !p.toks.push(Tok(kind: 1))
   a = !p.next()

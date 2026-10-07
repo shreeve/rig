@@ -6,7 +6,7 @@ fun pick(o: Counter?) -> Int
     return k.hits.get()
   0
 
-sub main
+sub main()
   o: Counter? = Counter(hits: Cell(1))
   print(pick(o))
   p = o

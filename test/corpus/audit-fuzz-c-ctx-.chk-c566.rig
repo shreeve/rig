@@ -49,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t566
+sub t566()
   x566: U128 = gmax(340282366920938463463374607431768211455, 11)
   print(x566)
 
-sub main
+sub main()
   t566()

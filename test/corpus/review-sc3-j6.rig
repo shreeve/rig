@@ -15,7 +15,7 @@ fun mk(i: Int) -> Res!
   return E.bad if i == 3
   Res(id: i)
 
-sub main
+sub main()
   xs: Vec[Box[Res]] = Vec()
   for i in 1..5
     !xs.push(Box(Res(id: i)))

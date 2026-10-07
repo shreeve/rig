@@ -10,7 +10,7 @@ struct H
 fun mk() -> H
   H(r: R(n: 1))
 
-sub main
+sub main()
   if ?mk().r as x
     print(x.n)
   print("end")

@@ -1,6 +1,6 @@
 struct String
   n: Int
 
-sub main
+sub main()
   s = String(n: 1)
   print(s.n)

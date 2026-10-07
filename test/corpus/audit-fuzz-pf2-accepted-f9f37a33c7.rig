@@ -17,7 +17,7 @@ sub setc(a: !C)
   w = C(n: 5)
   print(w.n)
 
-sub main
+sub main()
   z = 0
   set(!z)
   print(z)

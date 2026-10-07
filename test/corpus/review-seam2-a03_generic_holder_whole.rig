@@ -42,6 +42,6 @@ fun clobber(n: Int) -> Int
 struct Hold[T]
   x: T
 
-sub main
+sub main()
   h = Hold(x: !mk(1))
   print(h.x.n)

@@ -1,9 +1,10 @@
 use std.sort
+
 struct Task
   name: Text
   priority: Int
 
-sub main
+sub main()
   board: Vec[Box[Task]] = Vec()
   !board.push(Box(Task(name: Text("a"), priority: 2)))
   !board.push(Box(Task(name: Text("b"), priority: 1)))

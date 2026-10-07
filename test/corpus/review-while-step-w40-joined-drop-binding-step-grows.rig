@@ -21,7 +21,7 @@ fun grow(w: !Vec[Int]) -> Int
   !w.push(9)
   0
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   w: Vec[Int] = Vec()

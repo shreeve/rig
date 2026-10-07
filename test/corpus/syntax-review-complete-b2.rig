@@ -1,7 +1,7 @@
 struct Node
   v: Int
 
-sub main
+sub main()
   v: Vec[*Node] = Vec()
   !v.push(*Node(v: 1))
   r = ?v[0]

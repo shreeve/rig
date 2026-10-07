@@ -5,7 +5,7 @@ struct H
     self.w = 8
     self.w += 1
 
-sub main
+sub main()
   n = 1
   h = H(w: !n)
   !h.put()

@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[*sub()] = Vec()
   !v.push(*|| print("hi"))
   f = !v.pop()

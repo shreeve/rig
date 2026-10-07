@@ -4,7 +4,7 @@ struct H
 fun mk(w: !Int) -> H
   H(w: <w)
 
-sub main
+sub main()
   n = 1
   mk(!n).w = 5
   mk(!n).w += 1

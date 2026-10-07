@@ -1,5 +1,6 @@
 sub run(f: ?fun() -> Int)
   print(f())
+
 sub main()
   run(||
     i = 0

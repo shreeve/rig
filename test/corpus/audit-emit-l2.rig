@@ -1,2 +1,2 @@
-sub main
+sub main()
   print("a\u{110000}b", "\x4g")

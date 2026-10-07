@@ -5,6 +5,6 @@ fun find(i: Int) -> U?
   return U(name: "a") if i == 1
   none
 
-sub main
+sub main()
   n = find(1)?.name ?? "anon"
   print(n)

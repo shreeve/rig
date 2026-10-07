@@ -4,7 +4,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   c = true
   a = R(n: 1)
   x = if c

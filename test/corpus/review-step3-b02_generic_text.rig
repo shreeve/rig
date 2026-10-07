@@ -6,7 +6,7 @@ fun show[T](x: ?T) -> Int
 fun pick[T](a: T, b: T) -> T
   a
 
-sub main
+sub main()
   a = Text("abc")
   b = Text("abd")
   print(math.min(a, b))

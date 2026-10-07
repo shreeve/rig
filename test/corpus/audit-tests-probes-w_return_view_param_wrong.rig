@@ -4,7 +4,7 @@ struct S
 fun first(a: ?S, b: ?S) -> ?S
   a if a.n > b.n else b
 
-sub main
+sub main()
   x = S(n: 1)
   y = S(n: 2)
   print(first(?x, ?y).n)

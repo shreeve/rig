@@ -12,7 +12,7 @@ struct Acc
     return Bad.neg if self.n < 0
     print("acc", self.n)
 
-sub main
+sub main()
   b = Box(Acc(1))
   !b.bump(2)!
   b.show()!

@@ -11,7 +11,7 @@ struct Res
 struct H
   r: Res
 
-sub main
+sub main()
   b = Box(H(r: Res(n: 1)))
   d = b
   s = <b.r

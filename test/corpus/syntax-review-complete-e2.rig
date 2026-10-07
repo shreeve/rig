@@ -6,7 +6,7 @@ fun parse(s: String) -> ParseResult[Int]
   return .err(line: 3, msg: "empty") if s.len == 0
   .ok(s.len)
 
-sub main
+sub main()
   match parse("")
     .ok(v) => print(v)
     .err(l, m) => print("line", l, m)

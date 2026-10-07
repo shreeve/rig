@@ -1,7 +1,9 @@
 use lib
+
 enum E
   a = lib.J + 10
   b = lib.B.max
   c = lib.J
+
 sub main()
   print(Int(E.a), Int(E.b))

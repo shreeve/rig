@@ -23,5 +23,5 @@ fun clobber(n: Int) -> Int
 fun pick[T](q: ?T, n: Int) -> ?T from q
   q
 
-sub main
+sub main()
   print(pick(n: g(1), q: mkq(5)).t, pick(n: g(1), q: g(7)))

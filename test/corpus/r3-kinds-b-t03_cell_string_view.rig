@@ -1,4 +1,4 @@
-sub main
+sub main()
   c: Cell[String] = Cell("lit")
   t = Text("hello")
   c.set(?t[..])

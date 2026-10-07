@@ -12,6 +12,6 @@ fun parse_int(s: String) -> Int!
     n = n * 10 + (ch - '0')
   n
 
-sub main
+sub main()
   print(parse_int("123")!)
   print(parse_int("12x") catch -1)

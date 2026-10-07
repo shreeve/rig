@@ -16,5 +16,5 @@ fun h(fail: Bool) -> Int
   print(a, b)
   1
 
-sub main
+sub main()
   print(h(true), h(false))

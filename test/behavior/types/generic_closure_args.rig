@@ -48,7 +48,7 @@ fun look[T](x: T) -> Int
   n = peek(?x, |v| 7)
   n
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(3)
   !v.push(1)

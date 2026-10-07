@@ -6,7 +6,7 @@ struct R
 struct G[T]
   x: T
 
-sub main
+sub main()
   g = G[R?](x: R(n: 1))
   y = <g.x
   print(y, g)

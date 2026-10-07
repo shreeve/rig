@@ -1,4 +1,4 @@
-sub main
+sub main()
   s = 5
   r = ?s
   o = r

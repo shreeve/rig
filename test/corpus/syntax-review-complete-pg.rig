@@ -4,6 +4,6 @@ struct Page
   fun key(?self, at: Int) -> U64
     self.buf.read[U64, .little](at)
 
-sub main
+sub main()
   p = Page(buf: [4096 of 0])
   print(p.key(8))

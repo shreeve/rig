@@ -1,7 +1,7 @@
 struct H
   w: !Vec[Int]
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   !xs.push(5)
   hs = [H(w: !xs)]

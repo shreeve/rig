@@ -1,7 +1,7 @@
 fun double(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   h: ?fun(Int) -> Int = double
   if true
     x = 5

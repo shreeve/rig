@@ -4,7 +4,7 @@ struct S
 fun get(p: ?S) -> S
   p
 
-sub main
+sub main()
   s = S(c: Cell(1))
   t = get(?s)
   t.c.set(5)

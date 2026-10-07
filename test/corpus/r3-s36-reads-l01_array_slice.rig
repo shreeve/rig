@@ -4,6 +4,6 @@ fun sum(xs: []Int) -> Int
     s += x
   s
 
-sub main
+sub main()
   a = [1, 2, 3]
   print(sum(?a), sum(?a[1..]))

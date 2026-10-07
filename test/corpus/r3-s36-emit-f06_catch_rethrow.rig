@@ -9,7 +9,7 @@ fun g() -> Int!
 fun f() -> Int!
   g() catch E.other
 
-sub main
+sub main()
   x = f() catch |e|
     print(e)
     0

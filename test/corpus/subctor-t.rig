@@ -9,7 +9,7 @@ sub each(xs: []Int, f: ?sub(Int)!)!
   for x in xs
     f(x)!
 
-sub main
+sub main()
   a = [1, 2, -3]
   each(?a, check) catch |e|
     print("stopped", e)

@@ -15,7 +15,7 @@ struct S
   n: Int
   o: Int?
 
-fun mk -> S
+fun mk() -> S
   S(n: 7, o: 8)
 
 fun twice(n: Int) -> Int
@@ -29,7 +29,7 @@ fun first(o: Int?) -> Int?
   x = (<o)?
   x + 1
 
-sub main
+sub main()
   n = 21
   print(twice(<n))
   n = 4

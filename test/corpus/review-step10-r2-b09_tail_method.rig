@@ -28,7 +28,7 @@ struct W
     print(self.k)
     mkh(42).q.me(k: g(1), j: g(2))
 
-sub main
+sub main()
   d = Q(c: Cell(0), n: 0)
   w = W(k: 1)
   r = w.get(?d)

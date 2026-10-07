@@ -1,5 +1,5 @@
 # `+o` of an optional write view: the Core gives a write view one holder.
-sub main
+sub main()
   n = 1
   o: (!Int)? = !n
   p = +o

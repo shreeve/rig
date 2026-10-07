@@ -12,7 +12,7 @@ fun nx(v: !Vec[Int]) -> S?
     return S(s: ?v[..])
   none
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   k = 0
   while nx(!v) as h: k += h.s[h.s.len - 1]

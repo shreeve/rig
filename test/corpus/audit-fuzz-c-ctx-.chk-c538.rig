@@ -53,11 +53,11 @@ struct W538
   f: F32
   g: Int = 1
 
-sub t538
+sub t538()
   o538: F32? = none
   flag538 = rt_bool(true)
   w538 = W538(f: (o538 ?? ((-2) if flag538 else 10.25)))
   print(w538.f, w538)
 
-sub main
+sub main()
   t538()

@@ -1,5 +1,5 @@
 # remove a String view from Vec[String], drop the Vec, drop the source, use the view
-sub main
+sub main()
   t = Text("hello")
   w: Vec[String] = Vec()
   !w.push(?t)

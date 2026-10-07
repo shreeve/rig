@@ -1,4 +1,4 @@
-sub main
+sub main()
   c = Cell("a")
   c.set("b")
   v: Vec[String] = Vec()

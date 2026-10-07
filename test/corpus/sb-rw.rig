@@ -1,4 +1,4 @@
-sub main
+sub main()
   page: [4096]U8 = [4096 of 0]
   !page.write[U32, .little](0, 0xdeadbeef)
   !page.write[U16, .big](4, 0x1234)

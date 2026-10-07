@@ -4,7 +4,7 @@ struct P
 sub g(h: !*P)
   h = *P(x: 7)
 
-sub main
+sub main()
   h = *P(x: 1)
   g(!h)
   print(h.x)

@@ -113,7 +113,7 @@ fun f2(n: Int) -> Int
 sub put3(a: !Int, b: Int, c: Int)
   a = b * 10 + c
 
-sub main
+sub main()
   c = f(1) == 1
   put3(c: f(1), b: f(2), a: !(mk(3) if c else mk(4)).n)
   put3(c: f(1), b: f(2), a: !(mk(3) if c else mk(4)).kk.n)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   a: Vec[Int] = Vec()
   r = ?a
   for i in 0..2

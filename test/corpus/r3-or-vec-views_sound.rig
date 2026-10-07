@@ -3,7 +3,7 @@
 # on the Vec; an element holding a write view is written through and
 # re-pointed (Core §4, §5, §6).
 
-sub dropped_then_assign
+sub dropped_then_assign()
   a = 1
   b = 2
   v: Vec[?Int] = Vec()
@@ -15,7 +15,7 @@ sub dropped_then_assign
   b = 6
   print(a, b)
 
-sub popped_outlives_vec
+sub popped_outlives_vec()
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
@@ -23,7 +23,7 @@ sub popped_outlives_vec
   -v
   print(r)
 
-sub got_then_push
+sub got_then_push()
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
@@ -31,7 +31,7 @@ sub got_then_push
   !v.push(?a)
   print(r, v.len)
 
-sub write_elements
+sub write_elements()
   a = 1
   b = 2
   c = 3
@@ -45,7 +45,7 @@ sub write_elements
   -v
   print(a, b, c)
 
-sub write_array
+sub write_array()
   a = 1
   b = 2
   v = [!a, !b]
@@ -54,7 +54,7 @@ sub write_array
   -v
   print(a, b)
 
-sub popped_write
+sub popped_write()
   a = 1
   v: Vec[!Int] = Vec()
   !v.push(!a)
@@ -63,7 +63,7 @@ sub popped_write
   -v
   print(a)
 
-sub owners
+sub owners()
   rows: Vec[Vec[Int]] = Vec()
   r: Vec[Int] = Vec()
   !r.push(5)
@@ -78,7 +78,7 @@ sub owners
   o[0] = Text("b")
   print(o)
 
-sub main
+sub main()
   dropped_then_assign()
   popped_outlives_vec()
   got_then_push()

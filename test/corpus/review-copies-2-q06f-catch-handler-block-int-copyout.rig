@@ -8,7 +8,7 @@ fun get(r: ?P, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   r
 
-sub main
+sub main()
   a = P(x: 1)
   v: P = get(?a, false) catch |e|
     loc = P(x: 3 if e == Bad.oops else 4)

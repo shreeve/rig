@@ -1,7 +1,7 @@
 struct C
   n: Int
 
-sub main
+sub main()
   cs: Vec[C] = Vec()
   !cs.push(C(n: 1))
   for c in cs

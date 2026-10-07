@@ -11,7 +11,7 @@ struct Cursor
     self.i += 1
     ?self.items[k]
 
-sub main
+sub main()
   v: Vec[Item] = Vec()
   !v.push(Item(n: 1))
   !v.push(Item(n: 2))

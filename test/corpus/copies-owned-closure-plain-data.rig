@@ -7,7 +7,7 @@ fun px(o: P?) -> Int
     return p.x
   0
 
-sub main
+sub main()
   f = *|| 3
   g = *|| 2.5
   h = *|p: P| P(x: p.y, y: p.x)

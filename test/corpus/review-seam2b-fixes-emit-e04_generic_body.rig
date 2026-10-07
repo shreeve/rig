@@ -120,5 +120,5 @@ sub gsw[T](mkx: fun(Int) -> T, sel: fun(!T) -> !Int)
 fun seln(s: !S) -> !Int
   !s.n
 
-sub main
+sub main()
   gsw(mk, seln)

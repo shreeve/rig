@@ -11,7 +11,7 @@ struct Bag
 fun mk(n: Int) -> Bag
   Bag(o: Res(n: n), p: none)
 
-sub main
+sub main()
   if mk(1).p as r
     print("in", r.n)
   else

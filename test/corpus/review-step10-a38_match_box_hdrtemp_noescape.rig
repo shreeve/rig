@@ -8,7 +8,7 @@ enum E
 fun idx(s: ?Text) -> Int
   s.len - 1
 
-sub main
+sub main()
   bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
   k = 3
   match ?bs[idx(?Text("a"))]

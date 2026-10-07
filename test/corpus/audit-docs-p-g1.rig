@@ -6,6 +6,6 @@ struct A
 fun show[T](x: ?T) -> Int
   x.get()
 
-sub main
+sub main()
   a = A(n: 3)
   print(show(?a))

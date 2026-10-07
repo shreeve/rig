@@ -40,7 +40,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 
 - **Assertions** for `test` blocks, and running one test by name.
 - **Sema facts in `rig check --facts`**: add sema's facts table (symbols, types, ownership operations, captures) to the syntax facts it prints today, in a versioned format for tools.
-- **A formatter** that writes the canonical style, such as `sub main` rather than `sub main()` for a function with no parameters.
+- **A formatter** that writes the canonical style, such as one blank line between top-level declarations.
 - **A language server**: diagnostics, types on hover, go to definition, built on the facts table.
 - **C-ABI-friendly `extern` types.**
 - **Drop plans from the ownership checker**: which bindings are consumed on every path, so the emitter can drop their alive flags and emit a plain `defer` or none.

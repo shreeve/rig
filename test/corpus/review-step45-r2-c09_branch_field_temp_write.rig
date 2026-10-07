@@ -8,7 +8,7 @@ struct H
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   h = H(f: Vec())
   !h.f.push(S(o: Text("q")))
   w: Text? = Text("w")

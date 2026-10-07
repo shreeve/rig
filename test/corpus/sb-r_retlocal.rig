@@ -1,6 +1,6 @@
-fun f -> ![]Int
+fun f() -> ![]Int
   a = [1, 2]
   !a[..]
 
-sub main
+sub main()
   print(f().len)

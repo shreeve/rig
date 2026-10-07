@@ -16,7 +16,7 @@ fun f(b: !Vec[Int]) -> Int
     !b.push(i)
   c.w.r[0]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   print(f(!v))

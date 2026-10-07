@@ -7,5 +7,5 @@ struct P
 sub f(p: P)
   p.q.n = 5
 
-sub main
+sub main()
   f(P(q: Q(n: 1)))

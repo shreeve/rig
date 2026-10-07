@@ -25,7 +25,7 @@ struct R
 struct O
   r: R
 
-sub main
+sub main()
   o = O(r: R(t: *Tok(n: 1)))
   o.r.done()
   print("end")

@@ -5,10 +5,10 @@
 struct P
   n: Int
 
-sub greet
+sub greet()
   print("hi")
 
-sub main
+sub main()
   x = 1
   x
   (x)

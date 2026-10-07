@@ -5,7 +5,7 @@ sub main()
   print(big)
   small = -9223372036854775808
   print(small)
-  print(@sizeOf(Int), @sizeOf(Float))
+  print(@size(Int), @size(Float))
   a = 0.1
   f = a + 0.2
   print(f == 0.30000000000000004)

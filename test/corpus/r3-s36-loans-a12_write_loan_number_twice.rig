@@ -1,4 +1,4 @@
-sub main
+sub main()
   n = 1
   w1 = !n
   w2 = !n

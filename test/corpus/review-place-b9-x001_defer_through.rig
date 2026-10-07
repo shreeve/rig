@@ -6,7 +6,7 @@ sub f(n: !Int)
   defer h.w = 42
   h.w = 1
 
-sub main
+sub main()
   n = 0
   f(!n)
   print(n)

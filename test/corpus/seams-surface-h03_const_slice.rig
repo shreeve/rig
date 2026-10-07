@@ -1,8 +1,8 @@
 NAMES = ["a", "b"]
 NUMS = [1, 2, 3]
 
-fun first -> []Int
+fun first() -> []Int
   ?NUMS[..1]
 
-sub main
+sub main()
   print(first())

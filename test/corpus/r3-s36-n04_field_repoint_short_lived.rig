@@ -1,7 +1,7 @@
 struct H
   w: !Int
 
-sub main
+sub main()
   m = 1
   h = H(w: !m)
   if true

@@ -2,6 +2,6 @@
 fun greeter(name: String) -> *sub()
   *|+name| print("hi", name)
 
-sub main
+sub main()
   g = greeter("rig")
   g()

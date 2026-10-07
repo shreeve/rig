@@ -2,7 +2,7 @@ enum Sh
   circle(r: Vec[Int])
   dot
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   b = Box(Sh.circle(<v))

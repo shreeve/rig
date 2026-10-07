@@ -4,10 +4,10 @@
 error E
   bad
 
-fun which -> E
+fun which() -> E
   E.bad
 
-fun tail -> Int!
+fun tail() -> Int!
   E.bad
 
 fun branch(k: Int) -> Int!
@@ -40,7 +40,7 @@ fun deeper(k: Int) -> Int!
       E.bad
     _ => k
 
-sub main
+sub main()
   print(tail() catch 0, branch(1) catch 0, arm(1) catch 0, ternary(1) catch 0)
   print(named(0) catch 0, called(0) catch 0, deeper(1) catch 0)
 

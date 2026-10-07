@@ -13,7 +13,7 @@ fun mk(n: Int) -> S
   !s.v.push(n)
   s
 
-sub main
+sub main()
   h = H(s: ?mk(rt(7)))
   x = [rt(1), rt(2), rt(3), rt(4)]
   print(h.s.n, h.s.v.len, x[0])

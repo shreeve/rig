@@ -3,7 +3,7 @@ enum C
   g
   b
 
-sub main
+sub main()
   c: C = .g
   match c
     .r, .g => print("warm")

@@ -3,7 +3,7 @@
 struct W
   w: !Vec[Int]
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   !a.push(4)
   b: Vec[Int] = Vec()

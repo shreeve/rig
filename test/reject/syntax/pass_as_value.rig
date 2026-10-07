@@ -9,7 +9,7 @@ fun sign(n: Int) -> Int
 fun twice(n: Int) -> Int
   pass
 
-sub main
+sub main()
   a = 1 if true else 2
   x = if a > 0
     pass

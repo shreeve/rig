@@ -5,7 +5,7 @@ struct Cursor
   items: ?[2]Item
   i: Int
 
-sub main
+sub main()
   v = [2 of Item(n: 1)]
   c = Cursor(items: ?v, i: 0)
   r = ?c.items[0]

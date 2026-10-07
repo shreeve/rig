@@ -1,4 +1,4 @@
-sub main
+sub main()
   match 3
     x if x > 2 => print("big")
     _ => print("small")

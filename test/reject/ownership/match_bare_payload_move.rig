@@ -23,7 +23,7 @@ fun get(o: Opt, d: *B) -> *B
     .some(v) => v
     .nothing => <d
 
-sub main
+sub main()
   s: Slot = .tagged(box: *B(n: 1), tag: 2)
   match s
     .tagged(box, _) => eat(<box)

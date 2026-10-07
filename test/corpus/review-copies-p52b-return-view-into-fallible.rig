@@ -10,7 +10,7 @@ fun get(r: ?P, ok: Bool) -> (?P)!
     return Bad.oops
   r
 
-sub main
+sub main()
   a = P(x: 1)
   v = get(?a, true) catch ?a
   print(v.x)

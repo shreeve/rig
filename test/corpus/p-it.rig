@@ -53,7 +53,7 @@ fun split(s: String, sep: String) -> Split
 fun trim(s: String) -> String
   s
 
-sub main
+sub main()
   t = Text("a,b,c")
   it = split(?t, ",")
   a = !it.next()

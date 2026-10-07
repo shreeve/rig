@@ -6962,7 +6962,7 @@ test "symbols: binding flags" {
         \\fun read(u: ?U) -> Int
         \\  u.n
         \\
-        \\sub show[k: Int]
+        \\sub show[k: Int]()
         \\  print(k)
         \\
         \\sub main()

@@ -10,5 +10,5 @@ sub g(q: !Q)
 fun mk() -> P
   P(q: Q(n: 1))
 
-sub main
+sub main()
   g(!mk().q)

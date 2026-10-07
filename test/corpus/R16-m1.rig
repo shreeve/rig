@@ -23,7 +23,7 @@ struct Counter
   sub bump(!self, f: ?fun(Int) -> Int)
     self.n = f(self.n)
 
-sub main
+sub main()
   b = Bag[Int](items: Vec())
   !b.items.push(1)
   !b.items.push(2)

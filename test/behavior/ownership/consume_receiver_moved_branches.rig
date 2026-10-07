@@ -9,12 +9,12 @@ struct Bag
   fun size(?self) -> Int
     self.items.len
 
-fun mk -> Bag
+fun mk() -> Bag
   b = Bag(items: Vec())
   !b.items.push(7)
   b
 
-sub main
+sub main()
   a = Bag(items: Vec())
   b = Bag(items: Vec())
   !a.items.push(1)

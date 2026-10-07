@@ -10,7 +10,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   b = Box(value: W(v: 3))
   print(<b.eat())
   c = Box(value: W(v: R(n: 4)))

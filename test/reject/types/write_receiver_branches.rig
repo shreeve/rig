@@ -7,7 +7,7 @@ struct P
   sub bump(!self)
     self.x += 1
 
-sub main
+sub main()
   p = P(x: 1)
   q = P(x: 2)
   o: P? = P(x: 3)

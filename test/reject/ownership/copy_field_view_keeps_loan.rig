@@ -4,7 +4,7 @@
 struct H
   w: !Int
 
-sub main
+sub main()
   n = 1
   h = H(w: !n)
   print(n)

@@ -1,5 +1,6 @@
 fun t() -> Bool
   true
+
 sub main()
   a = [1, 2]
   w = !a[..]

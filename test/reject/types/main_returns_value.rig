@@ -4,4 +4,4 @@
 fun main() -> String
   "done"
 
-# error: `main` must be `sub main`, or `fun main -> Int` returning the exit status
+# error: `main` must be `sub main()`, or `fun main() -> Int` returning the exit status

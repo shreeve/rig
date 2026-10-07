@@ -11,10 +11,10 @@ struct D
 struct K
   d: D
 
-fun mk -> K
+fun mk() -> K
   K(d: D(v: Vec()))
 
-sub main
+sub main()
   k = K(d: D(v: Vec()))
   ds: Vec[D] = Vec()
   print(k.d.into(), ds[0].into(), mk().d.into())

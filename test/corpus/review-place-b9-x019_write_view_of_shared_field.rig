@@ -7,7 +7,7 @@ struct N
 sub g(h: !*P)
   h = *P(x: 7)
 
-sub main
+sub main()
   n = N(h: *P(x: 1))
   g(!n.h)
   print(n.h.x)

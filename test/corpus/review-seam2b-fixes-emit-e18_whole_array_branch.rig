@@ -125,7 +125,7 @@ sub show(xs: ![]Int)
   sort.sort(!xs)
   print(xs)
 
-sub main
+sub main()
   c = f(1) == 1
   show(!(arr3(9) if c else arr3(8))[..])
   show(!(vec3(9) if c else vec3(8))[..])

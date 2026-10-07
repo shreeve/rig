@@ -13,7 +13,7 @@ struct R
 fun mk() -> Box[R]
   Box(R(n: 2))
 
-sub main
+sub main()
   b = Box(R(n: 1))
   <b.eat()
   mk().eat()

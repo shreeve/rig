@@ -39,43 +39,43 @@ fun keep(v: !Vec[Item], h: !Hold, d: ?Item) -> ?Item
 fun both(a: ?Item, v: !Vec[Item]) -> Int
   a.n + v.len
 
-fun items -> Vec[Item]
+fun items() -> Vec[Item]
   v: Vec[Item] = Vec()
   !v.push(Item(n: 1))
   v
 
-sub result_then_write
+sub result_then_write()
   v = items()
   print(both(first(!v), !v))
 
-sub for_body_writes
+sub for_body_writes()
   v = items()
   for x in all(!v)
     !v.push(Item(n: x.n))
 
-sub match_arm_writes
+sub match_arm_writes()
   v = items()
   match find(!v)
     .found(it) => !v.push(Item(n: it.n))
     .missing => print("none")
 
-sub write_result_whole
+sub write_result_whole()
   v = items()
   print(firstw(!v).n, v.len)
 
-sub write_result_split
+sub write_result_split()
   v = items()
   r = firstw(!v)
   print(v.len, r.n)
 
-sub stored_whole
+sub stored_whole()
   v = items()
   o = items()
   h = Hold(w: !o)
   x = Item(n: 5)
   print(keep(!v, !h, ?x).n, v.len)
 
-sub stored_split
+sub stored_split()
   v = items()
   o = items()
   h = Hold(w: !o)
@@ -83,7 +83,7 @@ sub stored_split
   r = keep(!v, !h, ?x)
   print(r.n, v.len, h.w.len)
 
-sub main
+sub main()
   result_then_write()
 
 # error: 49:26: cannot lend `v` to write while a read loan is live

@@ -1,14 +1,14 @@
 error Disk
   full
 
-fun f -> Int!
+fun f() -> Int!
   return Disk.full
 
 struct Holder
   e: Disk
   n: Int
 
-sub main
+sub main()
   x = f() catch |e|
     print([e, e], e)
     0

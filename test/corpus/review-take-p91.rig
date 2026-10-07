@@ -3,7 +3,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   b: Vec[*R] = Vec()
   !b.push(*R(n: 2))
   z = replace(!b[0], *R(n: 3))

@@ -24,7 +24,7 @@ fun run() -> Int
     .b => pass
   0
 
-sub main
+sub main()
   for i in 0..3
     match mkh(i).e
       .a(r)

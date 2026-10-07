@@ -1,13 +1,13 @@
 struct Config
   tags: Vec[Int] = Vec()
 
-fun make -> Vec[Int]
+fun make() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)
   v
 
-sub main
+sub main()
   c = Config()
   for x in make()
     print(x)

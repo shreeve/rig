@@ -10,7 +10,7 @@ fun mk(i: Int) -> N
 fun get(n: ?N) -> Int
   n.id
 
-sub main
+sub main()
   i = 0
   while get(?mk(i)) < 5
     i += 1

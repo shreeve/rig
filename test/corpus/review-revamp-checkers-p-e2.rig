@@ -14,7 +14,7 @@ fun id[T](x: T) -> T!
   eat(<t)
   x
 
-sub main
+sub main()
   e: E = E.bad
   r = id(e) catch E.bad
   print(r)

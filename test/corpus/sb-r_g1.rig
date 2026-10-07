@@ -1,6 +1,6 @@
 fun get[T](b: []U8) -> T
   b.read[T, .big](0)
 
-sub main
+sub main()
   b: [2]U8 = [1, 2]
   print(get[U16](?b[..]))

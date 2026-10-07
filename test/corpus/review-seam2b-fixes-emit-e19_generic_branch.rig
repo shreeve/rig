@@ -129,7 +129,7 @@ sub gsw[T](mkx: fun(Int) -> T, sel: fun(!T) -> !Int, c: Bool)
 fun seln(s: !K2) -> !Int
   !s.n
 
-sub main
+sub main()
   gsw(mkk, seln, f(1) == 1)
 
 fun mkk(n: Int) -> K2

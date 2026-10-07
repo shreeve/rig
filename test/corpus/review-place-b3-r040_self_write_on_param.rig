@@ -7,5 +7,5 @@ struct P
 sub f(p: P)
   !p.inc()
 
-sub main
+sub main()
   f(P(x: 1))

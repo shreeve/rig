@@ -34,7 +34,7 @@ sub show(n: Int)
 fun mk(k: !Int) -> S
   S(n: 1, p: P(x: 2), r: ?k, name: "s", arr: [3, 4])
 
-sub fields
+sub fields()
   k = 0
   s = mk(!k)
   a = <s.n
@@ -44,7 +44,7 @@ sub fields
   e = <s.name
   print(a, b, c, d, e, s.n)
 
-sub elements
+sub elements()
   v: Vec[Int] = Vec()
   !v.push(1)
   ps: Vec[P] = Vec()
@@ -64,14 +64,14 @@ fun read_part(s: ?S) -> Int
 fun write_part(s: !S) -> Int
   <s.p.x
 
-sub through_views
+sub through_views()
   k = 0
   s = mk(!k)
   a = <(?s).n
   b = <(!s).n
   print(a, b, read_part(?s), write_part(!s))
 
-sub through_handle
+sub through_handle()
   k = 0
   h = *mk(!k)
   a = <h.n
@@ -80,7 +80,7 @@ sub through_handle
 fun ret(s: S) -> Int
   return <s.n
 
-sub forms
+sub forms()
   k = 0
   s = mk(!k)
   show(<s.n)
@@ -95,7 +95,7 @@ sub forms
     0
   print(<s.p.into(), q.n, j, ret(<s))
 
-sub for_part
+sub for_part()
   k = 0
   s = mk(!k)
   for x in <s.arr
@@ -107,7 +107,7 @@ struct G[T]
 fun generic_part[T](g: G[T]) -> T
   <g.f
 
-sub main
+sub main()
   print(generic_part(G(f: 3)))
   fields()
   elements()

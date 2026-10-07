@@ -15,7 +15,7 @@ fun remove[T](v: !Vec[T], at: Int) -> T?
     v.swap(i, i + 1)
   v.pop()
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   for k in [1, 3, 4]
     !a.push(k)

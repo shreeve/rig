@@ -1,8 +1,10 @@
 struct V
   s: ![]U8
+
 sub touch(v: !V)
   !v.s.write[U16, .big](0, 258)
   print(v.s.read[U16, .little](0))
+
 sub main()
   a: [3]U8 = [0, 0, 0]
   v = V(s: !a[..])

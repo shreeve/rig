@@ -37,7 +37,7 @@ fun div(l: Box[Expr], r: Box[Expr]) -> Box[Expr]
 fun neg(x: Box[Expr]) -> Box[Expr]
   Box(.neg(inner: <x))
 
-sub main
+sub main()
   # (2 + 3) * -4
   e = mul(add(num(2), num(3)), neg(num(4)))
   print(eval(?e)!)

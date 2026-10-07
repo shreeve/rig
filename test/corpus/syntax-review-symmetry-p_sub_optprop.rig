@@ -1,5 +1,6 @@
 sub f(o: Int?)
   print(o?)
-sub main
+
+sub main()
   f(1)
   f(none)

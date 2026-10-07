@@ -10,7 +10,7 @@ fun f(e: ?E) -> Int
     .a(p) => p.x
     .b(n) => n
 
-sub main
+sub main()
   e = E.a(p: P(x: 1))
   match e
     .a(p) => print(p.x)

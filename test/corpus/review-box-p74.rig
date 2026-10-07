@@ -7,11 +7,12 @@ struct Leaf
 enum Ex
   lit(l: Leaf)
   neg(a: Box[Ex])
+
 sub f(b: !Box[Ex])
   match b
     .lit(l) => print(l.n)
     .neg(a) => b = <a
 
-sub main
+sub main()
   t = Box(value: Ex.neg(a: Box(value: Ex.lit(l: Leaf(n: 2)))))
   f(!t)

@@ -1,6 +1,7 @@
 sub g(w: !Int)
   w = 5
-sub main
+
+sub main()
   n = 1
   g(!n)
   print(n)

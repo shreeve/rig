@@ -1,5 +1,6 @@
 # Would a stdlib map need hashing a T? No methods on T, no bit ops on String; try hashing Int keys only.
 fun hash[T](k: T) -> U64
   U64(k) * 11400714819323198485
-sub main
+
+sub main()
   print(hash(5))

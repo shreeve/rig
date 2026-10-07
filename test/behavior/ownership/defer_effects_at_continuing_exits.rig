@@ -78,7 +78,7 @@ fun looped(ok: Bool) -> Int!
     print("loop", x.n)
   total
 
-sub main
+sub main()
   print(replace(true) catch -1)
   print(replace(false) catch -1)
   print(revive(true) catch -1)

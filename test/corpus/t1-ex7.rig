@@ -1,4 +1,4 @@
-fun main -> Int
+fun main() -> Int
   v: Vec[Int] = Vec()
   !v.push(1)
   x = <v

@@ -1,4 +1,4 @@
-sub main
+sub main()
   o: String? = "a"
   if <o as s
     s = "b"

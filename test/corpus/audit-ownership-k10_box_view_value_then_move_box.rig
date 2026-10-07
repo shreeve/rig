@@ -27,7 +27,7 @@ fun key(n: ?Node) -> Int
 sub eat(b: Box[Node])
   print("eat", b.key)
 
-sub main
+sub main()
   b = Box(Node(key: 1, left: none, right: none))
   r: ?Node = ?b
   eat(<b)

@@ -6,7 +6,7 @@ fun f(s: !S) -> Int?
   print(r)
   1
 
-sub main
+sub main()
   s = S(a: 1)
   print(f(!s))
   print(s)

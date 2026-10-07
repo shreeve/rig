@@ -1,4 +1,4 @@
-sub main
+sub main()
   x: U12 = 5
   b: [4]U8 = [1, 2, 3, 4]
   print(x, b.read[U24, .big](0))

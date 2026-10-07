@@ -4,9 +4,9 @@ struct Log
   fun count(?self) -> Int
     self.lines.len
 
-fun make -> Log
+fun make() -> Log
   Log(lines: Vec())
 
-sub main
+sub main()
   print(Log.count(?make()))
   print((?make()).count())

@@ -11,7 +11,7 @@ struct Q
 fun mk(h: *P) -> Q
   Q(p: <h)
 
-sub main
+sub main()
   h = *P(c: Cell(1))
   mk(+h).p.hit()
   print(h.c.get())

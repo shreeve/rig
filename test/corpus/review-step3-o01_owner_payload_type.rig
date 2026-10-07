@@ -10,7 +10,7 @@ enum E
   c(k: Counter)
   b
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("x")))
   keep = Res(n: 0, t: Text("k"))
   saved = ?keep

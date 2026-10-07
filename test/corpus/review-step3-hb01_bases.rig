@@ -49,7 +49,7 @@ fun runo(n: Int) -> Int?
     print("runo", k.hits.get())
   0
 
-sub main
+sub main()
   _ = run(1) catch -1
   _ = run(99) catch -1
   _ = runo(2) ?? -1

@@ -2,7 +2,7 @@
 # environment's values are Strings that live as long as the program.
 use std.os
 
-fun first_arg -> String
+fun first_arg() -> String
   os.args()[0]
 
 sub main()

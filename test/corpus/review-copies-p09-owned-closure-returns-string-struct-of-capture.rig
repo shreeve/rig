@@ -3,7 +3,7 @@
 struct P
   s: String
 
-sub main
+sub main()
   t = Text("hello world, a heap string")
   f = *|<t| P(s: ?t)
   p = f()

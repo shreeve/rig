@@ -1,7 +1,7 @@
-sub helper
+sub helper()
   main()
 
-sub main
+sub main()
   print("once")
 
 test "calls main"

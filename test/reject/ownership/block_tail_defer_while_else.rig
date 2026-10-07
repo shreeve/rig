@@ -1,6 +1,6 @@
 # A `while ... else` value's block-local tail leaves the `else` block
 # before its defer runs.
-sub main
+sub main()
   i = 0
   x = while i < 0 : i += 1
     break Vec[Int]() if i > 5

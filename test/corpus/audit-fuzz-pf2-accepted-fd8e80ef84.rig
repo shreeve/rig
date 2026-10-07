@@ -36,7 +36,7 @@ fun id_u128(x: U128) -> U128
 fun id_i64(x: I64) -> I64
   x
 
-sub main
+sub main()
   r1: U16 = 27815
   print(r1)
   v2: I8 = id_i8(25)

@@ -1,5 +1,5 @@
 enum Endian
   a
 
-sub main
+sub main()
   print(1)

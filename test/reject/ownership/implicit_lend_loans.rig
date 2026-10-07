@@ -46,7 +46,7 @@ sub five()
   r = keep(mk())
   print(r.v.len)
 
-sub main
+sub main()
   one()
 
 # error: 26:4: cannot drop `b` while it is lent

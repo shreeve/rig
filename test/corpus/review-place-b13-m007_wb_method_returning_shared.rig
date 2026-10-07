@@ -10,7 +10,7 @@ struct Q
 sub g(h: !*P)
   h = *P(x: 7)
 
-sub main
+sub main()
   q = Q(h: *P(x: 1))
   g(!q.get())
   print(q.h.x)

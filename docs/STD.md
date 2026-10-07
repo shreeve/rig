@@ -7,7 +7,7 @@ its modules with `use std.NAME`, which names it `NAME`
 ```rig
 use std.math
 
-sub main
+sub main()
   print(math.gcd(12, 18))
 ```
 
@@ -57,7 +57,7 @@ checked for its type, as any generic call is.
 ```rig
 use std.math
 
-sub main
+sub main()
   print(math.abs(-7), math.abs(-0.5), math.clamp(15, 0, 10), math.clamp(-3, 0, 10))
   print(math.min(4, 2), math.max(1.5, 2.5), math.min("pear", "fig"))
   print(math.gcd(-12, 18), math.gcd(0, 0))
@@ -92,7 +92,7 @@ negative number) is NaN, which equals nothing, itself included.
 ```rig
 use std.math
 
-sub main
+sub main()
   print(math.sqrt(2.0) > 1.414, math.floor(-2.5), math.ceil(-2.5))
   print(math.exp(0.0), math.ln(math.E))
   print(math.cos(math.PI), math.powf(2.0, 0.5) == math.sqrt(2.0))
@@ -124,14 +124,14 @@ whatever `name` is.
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
 the path the program was started by: under `rig run`, that of the
-executable `rig` built in its cache. With `fun main -> Int`
+executable `rig` built in its cache. With `fun main() -> Int`
 ([SPEC §1](../SPEC.md#1-programs)), a program also reports an exit
 status:
 
 ```rig
 use std.os
 
-fun main -> Int
+fun main() -> Int
   args = os.args()
   if args.len < 2
     print("usage: greet NAME")
@@ -148,7 +148,7 @@ usage: greet NAME
 ```rig
 use std.os
 
-sub main
+sub main()
   home = os.env("RIG_EXAMPLE_UNSET") ?? "nowhere"
   print(home)
 ```
@@ -176,7 +176,7 @@ it cannot be mixed up with the wall clock's nanoseconds.
 ```rig
 use std.time
 
-sub main
+sub main()
   start = time.now()
   time.sleep(5 * time.MS)
   print(start.elapsed() >= 5 * time.MS)
@@ -212,7 +212,7 @@ platform. It is not for cryptography.
 ```rig
 use std.random
 
-sub main
+sub main()
   r = random.Random.seeded(2024)
   again = random.Random.seeded(2024)
   print(!r.next() == !again.next())
@@ -258,7 +258,7 @@ struct Player
   name: String
   score: Int
 
-sub main
+sub main()
   scores = [30, 10, 20, 10]
   sort.sort(!scores)
   print(scores, sort.search(?scores, 20), sort.search(?scores, 5))
@@ -289,7 +289,7 @@ last:
 ```rig
 use std.sort
 
-sub main
+sub main()
   zero = 0.0
   xs = [2.0, zero / zero, 1.0]
   sort.sort_by(!xs, |a, b| a == a and (b != b or a < b))
@@ -309,7 +309,7 @@ struct Player
   name: String
   score: Int
 
-sub main
+sub main()
   team = [Player(name: "ann", score: 7)]
   sort.sort(!team)
 ```
@@ -332,7 +332,7 @@ through a slice. `contains` and `index_of` compare elements with `==`.
 ```rig
 use std.slices
 
-sub main
+sub main()
   names = ["cy", "ann", "bob"]
   slices.reverse(!names)
   print(names, slices.index_of(?names, "ann"), slices.contains(?names, "dee"))
@@ -379,7 +379,7 @@ part these functions return.
 ```rig
 use std.text
 
-sub main
+sub main()
   line = "  name = Ada Lovelace  "
   if text.cut(text.trim(line), " = ") as kv
     print(kv.before, "is", kv.after)
@@ -402,7 +402,7 @@ after the last. It is advanced by lending it to write:
 ```rig
 use std.text
 
-sub main
+sub main()
   fields = text.split("ann,,bob", ",")
   while !fields.next() as field
     print("[", field, "]")
@@ -439,7 +439,7 @@ fun total(xs: []String) -> Int!
     sum += text.parse_int(text.trim(x))!
   sum
 
-sub main
+sub main()
   print(total(["12", " -3 ", "+4"]) catch -1, total(["1", "one"]) catch -1)
   print(text.parse_float("-2.5e3") catch 0.0, text.parse_bool("false") catch true)
   n = text.parse_int("9223372036854775808") catch |err|
@@ -466,7 +466,7 @@ struct City
   name: String
   pop: Int
 
-sub main
+sub main()
   cities = [City(name: "Oslo", pop: 7), City(name: "Bern", pop: 1), City(name: "Lima", pop: 10)]
   sort.sort_by(!cities, |a, b| text.compare(a.name, b.name) < 0)
   for c in cities

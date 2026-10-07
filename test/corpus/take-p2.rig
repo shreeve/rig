@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[Int?] = Vec()
   !v.push(5)
   a = <v[0]

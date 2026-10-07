@@ -15,7 +15,7 @@ fun mk(id: Int) -> D
 fun apply(f: ?fun(D) -> D, x: D) -> D
   f(<x)
 
-sub main
+sub main()
   g = |x: D| x
   pick = |x: D, c: Bool| x if c else mk(9)
   h = |x: D, c: Bool|

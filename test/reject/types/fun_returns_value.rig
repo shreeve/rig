@@ -16,7 +16,7 @@ sub take(cb: fun(Int) -> Void)
 
 extern fun tick()
 
-sub main
+sub main()
   f(1)
 
 # error: 5:5: a `fun` returns a value; declare `-> T`, or make `f` a `sub`

@@ -2,7 +2,7 @@ enum Shape
   circle(r: Int)
   point
 
-sub main
+sub main()
   c2: Shape = .circle(r: 4)
   z = 0
   new q = !z

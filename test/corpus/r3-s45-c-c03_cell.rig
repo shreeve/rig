@@ -2,6 +2,6 @@ struct C
   n: Cell[Int]
   t: Text
 
-sub main
+sub main()
   c = C(n: Cell(1), t: Text("x"))
   d = +c

@@ -6,15 +6,15 @@ fun get(k: Int) -> Int?
 fun parse(k: Int) -> Int!
   k
 
-sub first
+sub first()
   m = get(2) ?? continue
   print(m)
 
-sub second
+sub second()
   n = parse(3) catch continue
   print(n)
 
-sub main
+sub main()
   first()
   second()
 

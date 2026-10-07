@@ -1,7 +1,7 @@
 # A shared handle reads: an element of the value it holds is not
 # assigned, written by a compound assignment, or lent for writing.
 
-sub main
+sub main()
   h = *[1, 2]
   h[0] = 5
   h[1] += 1

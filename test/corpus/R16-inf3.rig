@@ -1,7 +1,7 @@
 fun apply[T](f: ?fun() -> T) -> T
   f()
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(3)
   r = apply(|?v| v)

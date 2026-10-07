@@ -5,7 +5,7 @@ struct Text
     for b in s
       !self.bytes.push(b)
 
-sub main
+sub main()
   t = Text(bytes: Vec())
   !t.add("hi ")
   !t.add("there")

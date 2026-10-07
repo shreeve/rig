@@ -6,7 +6,7 @@ struct S
 fun f(k: Int) -> Int!
   k
 
-sub main
+sub main()
   n = 1
   s = S(n: 2)
   o: Int? = 3

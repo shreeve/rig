@@ -4,6 +4,6 @@ struct Bag
 fun pick(a: ?Bag) -> ?Bag
   a
 
-sub main
+sub main()
   b = Bag(v: Vec())
   print(pick(?b).v.len)

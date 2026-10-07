@@ -37,7 +37,7 @@ fun pick(e: E) -> String
     .b
       return "b"
 
-sub main
+sub main()
   s = "lit"
   r = ?s
   o = r

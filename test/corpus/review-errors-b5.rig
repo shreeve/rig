@@ -1,13 +1,13 @@
 error Disk
   full
 
-fun f -> Int!
+fun f() -> Int!
   return Disk.full
 
-fun g -> Disk
+fun g() -> Disk
   x = f() catch |e|
     return e
   Disk.full
 
-sub main
+sub main()
   print(g())

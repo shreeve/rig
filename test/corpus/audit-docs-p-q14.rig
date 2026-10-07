@@ -1,3 +1,4 @@
 extern fun puts(s: String) -> I32
-sub main
+
+sub main()
   print(1)

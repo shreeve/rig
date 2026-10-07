@@ -7,7 +7,7 @@ fun bag(t: ?Text) -> Bag
   !b.items.push(?t)
   <b
 
-sub main
+sub main()
   t = Text("x")
   b = bag(?t)
   -t

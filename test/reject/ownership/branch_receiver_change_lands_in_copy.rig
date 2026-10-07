@@ -19,7 +19,7 @@ struct P
 fun g(k: Int) -> Int
   k
 
-sub main
+sub main()
   c = g(1) == 1
   a = P(n: 1)
   b = P(n: 2)

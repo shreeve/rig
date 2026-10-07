@@ -1,4 +1,4 @@
 # index a temporary array literal of owners; temporaries dropped
-sub main
+sub main()
   print([Text("a"), Text("b")][1])
   print([Box(1), Box(2)][0])

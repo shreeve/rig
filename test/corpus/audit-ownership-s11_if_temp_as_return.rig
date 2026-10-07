@@ -15,6 +15,7 @@ sub eat(t: *Tok)
 fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
+
 error E
   bad
 
@@ -22,13 +23,13 @@ fun fail(k: Int) -> Int!
   return E.bad if k > 0
   k
 
-fun mk -> *Tok?
+fun mk() -> *Tok?
   *Tok(n: 1)
 
-fun run -> Int
+fun run() -> Int
   if mk() as t
     return 5
   0
 
-sub main
+sub main()
   print(run())

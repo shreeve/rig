@@ -4,7 +4,7 @@ struct S
 sub take(s: S)
   print(s.v.len)
 
-sub main
+sub main()
   s = S(v: Vec())
   for i in 0..2
     take(<s)

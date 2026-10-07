@@ -32,7 +32,7 @@ fun id_u128(x: U128) -> U128
 fun id_float(x: Float) -> Float
   x
 
-sub main
+sub main()
   print("before")
   v: Vec[I128] = Vec()
   !v.push((-170141183460469231731687303715884105728))

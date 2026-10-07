@@ -1,5 +1,5 @@
 # `fill` stores a view of a temporary Text that ends with the statement.
-sub main
+sub main()
   a: [2]String = ["x", "y"]
   !a.fill(?Text("hello", " world, long enough to allocate"))
   print(a[0])

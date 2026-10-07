@@ -1,7 +1,7 @@
 struct H
   w: !Vec[Int]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   u: Vec[Int] = Vec()
   xs = [!v, !u]

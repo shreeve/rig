@@ -4,7 +4,7 @@ struct B
 fun len(b: ?B) -> Int
   b.v.len
 
-sub main
+sub main()
   a = B(v: Vec())
   b = B(v: Vec())
   c = true

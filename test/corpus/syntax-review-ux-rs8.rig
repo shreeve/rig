@@ -2,7 +2,7 @@ struct Person
   name: String
   tags: Vec[String]
 
-sub main
+sub main()
   people: Vec[Box[Person]] = Vec()
   for n in ["ada", "bob"]
     !people.push(Box(value: Person(name: n, tags: Vec())))

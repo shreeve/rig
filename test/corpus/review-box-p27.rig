@@ -7,7 +7,7 @@ struct R
   fun eat(<self) -> Int
     self.n
 
-sub main
+sub main()
   v: Vec[Box[R]] = Vec()
   !v.push(Box(value: R(n: 1)))
   for x in !v

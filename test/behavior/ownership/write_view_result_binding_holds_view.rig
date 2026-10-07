@@ -10,7 +10,7 @@ fun slot(a: !Int) -> !Int
 fun pick(a: !Int, b: !Int, c: Bool) -> !Int
   a if c else b
 
-sub main
+sub main()
   n = 1
   m = 10
   w = slot(!n)

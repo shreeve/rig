@@ -1,6 +1,7 @@
 sub load(v: !Vec[Int])
   c = [7, 8]
   !v.copy(?c[..])
+
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)

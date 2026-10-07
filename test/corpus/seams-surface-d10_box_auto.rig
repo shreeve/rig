@@ -8,7 +8,7 @@ struct P
 fun rd(p: ?P) -> Int
   p.x
 
-sub main
+sub main()
   b = Box(P(x: 1))
   !b.bump()
   print(b.x, b.get(), rd(?b))

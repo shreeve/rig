@@ -6,6 +6,6 @@ fun first(xs: []Val) -> ?Val
     return ?x
   ?xs[0]
 
-sub main
+sub main()
   a = [Val(n: 1)]
   print(first(?a).n)

@@ -23,7 +23,7 @@ fun f(t: *Tok, k: Int) -> *Tok!
   return E.bad if k > 0
   <t
 
-sub main
+sub main()
   a = *Tok(n: 1)
   b = *Tok(n: 2)
   x = f(<a, 1) catch <b

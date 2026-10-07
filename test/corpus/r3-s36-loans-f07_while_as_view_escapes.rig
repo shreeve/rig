@@ -14,7 +14,7 @@ fun next(i: !Int) -> R?
   else
     none
 
-sub main
+sub main()
   keep = R(n: 0)
   v = V(r: ?keep)
   i = 0

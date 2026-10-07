@@ -13,7 +13,7 @@ sub f(b: ?Box[R])
 sub g(b: ?Box[R])
   b.bump()
 
-sub main
+sub main()
   b = Box(value: R(n: 1))
   f(?b)
   g(?b)

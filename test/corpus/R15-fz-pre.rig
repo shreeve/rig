@@ -3,5 +3,6 @@ sub f(s: ![]Int, t: []U8, n: Int)
   b: [4]U8 = [4 of 0]
   w = !a[..]
   print(w)
+
 sub main()
   f(!([0])[..], ?([0 of 0])[..], 1)

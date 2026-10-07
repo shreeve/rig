@@ -4,7 +4,7 @@ struct W
 fun out(p: ?W) -> W
   p
 
-sub main
+sub main()
   n = 1
   x: (!Int)? = !n
   a = W(w: [x])

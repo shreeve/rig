@@ -49,7 +49,7 @@ fun via_raw() -> D
 fun apply(f: ?fun(D) -> D, x: D) -> D
   f(<x)
 
-sub main
+sub main()
   c = true
   print(last_name(c).id, last_branch(c).id, last_block(c).id, last_match(1).id, early(c).id, early(false).id, via_raw().id)
   g = |x: D| x

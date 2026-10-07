@@ -1,12 +1,12 @@
 # std.os reads the arguments and environment the program started with:
 # `rig run file.rig -- args...` passes arguments, as running a built
-# executable does, and `fun main -> Int` can report on them.
+# executable does, and `fun main() -> Int` can report on them.
 source "$ROOT/test/cli/_lib.sh"
 
 cat >args.rig <<'EOF2'
 use std.os
 
-fun main -> Int
+fun main() -> Int
   args = os.args()
   for a, i in args[1..]
     print(i, a)

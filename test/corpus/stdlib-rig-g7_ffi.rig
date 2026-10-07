@@ -1,5 +1,6 @@
 extern fun write(fd: I32, buf: []U8, n: U64) -> I64
 extern fun puts(s: String) -> I32
-sub main
+
+sub main()
   raw
     puts("hi")

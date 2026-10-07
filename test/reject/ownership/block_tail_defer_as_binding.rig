@@ -1,6 +1,6 @@
 # An `if ... as` binding at the tail of the then-branch leaves it before
 # the branch's defer runs; the defer cannot write it.
-sub main
+sub main()
   w: Vec[Int] = Vec()
   !w.push(1)
   o: Vec[Int]? = <w

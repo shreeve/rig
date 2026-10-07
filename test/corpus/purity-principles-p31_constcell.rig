@@ -8,7 +8,7 @@ sub bump(c: Counter)
   c.hit()
   print("param", c.hits.get())
 
-sub main
+sub main()
   const k = Counter(hits: Cell(0))
   k.hit()
   k.hit()

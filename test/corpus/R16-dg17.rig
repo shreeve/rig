@@ -1,7 +1,7 @@
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-sub main
+sub main()
   k = 2
   f = |+k, a: Int| a + k
   print(apply(!f, 1))

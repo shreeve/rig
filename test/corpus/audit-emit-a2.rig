@@ -18,6 +18,6 @@ sub g(k: Int)!
   q = Pair(b: f(k)!, a: *Node(n: 1))
   print(q.b)
 
-sub main
+sub main()
   g(0) catch print("e")
   g(1) catch print("e")

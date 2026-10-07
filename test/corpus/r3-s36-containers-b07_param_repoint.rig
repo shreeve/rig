@@ -3,7 +3,7 @@ sub f(w: !Int, other: !Int)
   w = other
   print(w)
 
-sub main
+sub main()
   m = 1
   n = 2
   f(!m, !n)

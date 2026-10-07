@@ -47,7 +47,7 @@ fun ints(n: Int) -> Vec[Int]
     !v.push(10 + i)
   v
 
-sub main
+sub main()
   guard = 0
   o0 = ints(1)
   c0 = 0

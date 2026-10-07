@@ -1,5 +1,5 @@
 # defer writes an element; a view of the element is still live at defer? 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   defer !v[0].add("!")

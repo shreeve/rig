@@ -1,5 +1,6 @@
 fun n(x: Int) -> Int
   x
+
 sub main()
   b: [16]U8 = [16 of 0xff]
   print(b.read[U128, .little](n(0)), b.read[I128, .big](0))

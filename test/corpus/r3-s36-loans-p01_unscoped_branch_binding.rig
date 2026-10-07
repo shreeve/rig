@@ -1,6 +1,6 @@
 # A binding made by a guarded statement (no block) lands in the
 # enclosing scope; does the branch join see its loan?
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   r = ?v if v.len > 0

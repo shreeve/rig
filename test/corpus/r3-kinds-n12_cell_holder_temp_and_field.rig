@@ -7,7 +7,7 @@ struct H
 fun make() -> H
   H(c: Counter(hits: Cell(1)))
 
-sub main
+sub main()
   k = make().c
   k.hits.set(2)
   h = make()

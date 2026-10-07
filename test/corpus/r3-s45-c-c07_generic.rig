@@ -4,7 +4,7 @@ struct Stack[T]
 fun copy_of[T](x: ?T) -> T
   +x
 
-sub main
+sub main()
   s: Stack[Text] = Stack(items: Vec())
   !s.items.push(Text("s"))
   t = +s

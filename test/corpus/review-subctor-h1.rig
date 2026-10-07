@@ -4,6 +4,6 @@ struct Guard
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   g = Guard(5)
   print(g.n)

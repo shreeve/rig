@@ -56,9 +56,9 @@ fun fal5449(ok: Bool) -> U32!
 error Err5449
   bad
 
-sub t5449
+sub t5449()
   b5449: U32 = id_u32(10)
   print(b5449 + (fal5449(true) catch 20), (fal5449(true) catch 20) + b5449)
 
-sub main
+sub main()
   t5449()

@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   keep: Vec[*Tok] = Vec()
   f = |!keep, t: *Tok| !keep.push(<t)
   f(*Tok(n: 1))

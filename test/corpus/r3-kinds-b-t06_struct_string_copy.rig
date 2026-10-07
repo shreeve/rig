@@ -1,7 +1,7 @@
 struct Tag
   s: String
 
-sub main
+sub main()
   t = Text("hello")
   a = Tag(s: ?t[..])
   b = a

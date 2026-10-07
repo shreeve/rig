@@ -29,7 +29,7 @@ fun level(t: Tank) -> Int
     .full(n) if n > 9 => n
     .low => 0
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   match <s
     .full(b) if eat(<b) => print("ate")

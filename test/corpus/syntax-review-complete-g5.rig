@@ -12,5 +12,5 @@ struct Map
         return ?e.unbox_ref()
     none
 
-sub main
+sub main()
   m = Map(es: Vec())

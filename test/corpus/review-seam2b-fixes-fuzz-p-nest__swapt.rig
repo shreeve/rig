@@ -90,7 +90,7 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   tx = Text("swapped in text long")
@@ -98,7 +98,7 @@ sub viatemp
   print(tx)
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = ((mk(3) if c else mk(4)) if c else mk(5))
@@ -107,7 +107,7 @@ sub vianame
   print(tx)
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

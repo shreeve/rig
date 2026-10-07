@@ -20,7 +20,7 @@ struct U
   fun me(!self) -> !U
     self
 
-  fun make -> U
+  fun make() -> U
     U(n: 1)
 
 struct Wrap[T]
@@ -48,6 +48,6 @@ sub growu(u: !U)
   u.n += 100
   print(u.n)
 
-sub main
+sub main()
   print(!(lib.mk()).bump(), !(lib.mk()).me().bump(), !(U.make()).me().bump())
   grow(!(lib.mk()))

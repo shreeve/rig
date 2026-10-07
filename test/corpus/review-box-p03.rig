@@ -7,7 +7,7 @@ struct R
 sub eat(r: R)
   print("eat", r.n)
 
-sub main
+sub main()
   o: R? = R(n: 1)
   if !o as x
     eat(<x)

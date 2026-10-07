@@ -16,7 +16,7 @@ fun longer(a: String, b: String) -> String
 fun head(t: ?Text, n: Int) -> String
   ?t[..n]
 
-sub main
+sub main()
   t = Text("alpha beta")
   s = Span(label: ?t[..5], width: 5)
   print(s)

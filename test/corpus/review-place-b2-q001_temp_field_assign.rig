@@ -4,5 +4,5 @@ struct P
 fun mk() -> P
   P(x: 1)
 
-sub main
+sub main()
   mk().x = 5

@@ -73,14 +73,14 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   if ![mk(3), mk(4)][f(1)].oi as x
     x += 30
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = [mk(3), mk(4)]
@@ -88,7 +88,7 @@ sub vianame
     x += 30
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

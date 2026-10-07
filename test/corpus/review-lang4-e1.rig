@@ -21,7 +21,7 @@ test "errdefer in a test"
   errdefer print("test failed")
   _ = f(1)!
 
-sub main
+sub main()
   errdefer print("main failed")
   cb: ?fun(Int) -> Int! = |x: Int|
     errdefer print("cb failed")

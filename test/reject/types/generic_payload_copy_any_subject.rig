@@ -131,7 +131,7 @@ fun for_call[T](xs: ?Vec[T], d: T) -> T
     return x
   <d
 
-sub main
+sub main()
   o: Opt[Text] = .some(v: Text("o"))
   w: W[Text] = W(o: .some(v: Text("w")), p: Text("p"))
   a: Vec[Opt[Text]] = Vec()

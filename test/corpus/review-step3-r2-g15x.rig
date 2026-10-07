@@ -14,7 +14,7 @@ fun whole(e: ?E) -> ?E
     .b(n) if n > 0 => e
     x => x
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("hello")))
   x = whole(?e)
   arr = [1, 2, 3, 4, 5, 6, 7, 8, 9]

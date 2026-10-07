@@ -49,12 +49,12 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t817
+sub t817()
   mk817 = rt_int(1)
   mz817: U32 = match mk817
     1 => (gsome(725125722) ?? 4212512800)
     _ => 80690
   print(mz817)
 
-sub main
+sub main()
   t817()

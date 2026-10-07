@@ -2,5 +2,5 @@ use std.math
 use math as mine
 use std.math as m
 
-sub main
+sub main()
   print(math.abs(-3), mine.twice(4), m.gcd(12, 18), math.pow(2, 10), math.mod(-1, 3), math.clamp(9, 0, 5), math.PI)

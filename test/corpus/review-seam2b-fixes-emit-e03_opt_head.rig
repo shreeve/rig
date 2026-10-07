@@ -118,5 +118,5 @@ fun g(c: Bool) -> Int?
   !(mkopt(11)?).kk.put2(b: f(2), a: f(3))
   0
 
-sub main
+sub main()
   _ = g(true)

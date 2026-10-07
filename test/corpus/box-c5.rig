@@ -4,7 +4,7 @@ fun wrap[T](x: T) -> Box[T]
 fun unwrap[T](b: Box[T]) -> T
   <b.take()
 
-sub main
+sub main()
   b = wrap(3)
   print(unwrap(<b))
   s = wrap("hi")

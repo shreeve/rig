@@ -5,5 +5,5 @@ fun half(n: Int) -> Int!
   return E.odd if n % 2 == 1
   n / 2
 
-sub main
+sub main()
   print(half(4)!)

@@ -9,5 +9,5 @@ fun f(n: Int) -> Int!
     E.bad
   x + 1
 
-sub main
+sub main()
   print(f(0) catch -1, f(1) catch -1)

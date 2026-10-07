@@ -1,7 +1,7 @@
 error Bad
   no
 
-fun f -> Text!
+fun f() -> Text!
   Text("hello")
 
 fun g(r: Text!) -> Int!
@@ -9,5 +9,5 @@ fun g(r: Text!) -> Int!
   print(r!)
   1
 
-sub main
+sub main()
   print(g(f()) catch -1)

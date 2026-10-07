@@ -2,7 +2,7 @@ struct Todo
   title: String
   done: Bool = false
 
-sub main
+sub main()
   items: Vec[Todo] = Vec()
   !items.push(Todo(title: "a"))
   !items.push(Todo(title: "b"))

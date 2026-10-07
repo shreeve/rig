@@ -2,7 +2,7 @@ enum Ev
   at(when: Int, async: Bool)
   none_yet
 
-sub main
+sub main()
   e = Ev.at(when: 5, async: false)
   match e
     .at(when: w, async: a) => print(w, a)

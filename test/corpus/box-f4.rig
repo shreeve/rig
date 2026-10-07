@@ -1,7 +1,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   a = [Box(value: P(x: 1)), Box(value: P(x: 2))]
   print(a[1].x, a)
   w: Box[Box[P]] = Box(value: Box(value: P(x: 3)))

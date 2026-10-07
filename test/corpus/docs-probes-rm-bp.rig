@@ -1,7 +1,7 @@
 struct P
   s: String
 
-sub main
+sub main()
   b = Box("hi")
   c = Box(3)
   x: String? = "o"

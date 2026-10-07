@@ -43,7 +43,7 @@ fun lines(s: String) -> Lines
 fun view(t: !Text) -> String
   ?t[..]
 
-sub main
+sub main()
   t = Text("one\r\ntwo\nthree")
   it = lines(?t)
   a = !it.next()

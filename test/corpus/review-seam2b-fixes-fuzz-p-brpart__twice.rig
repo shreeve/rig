@@ -73,20 +73,20 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   print(!(mkpair(3) if c else mkpair(5)).b.bump(), !(mkpair(3) if c else mkpair(5)).b.bump())
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = (mkpair(3) if c else mkpair(5))
   print(!tt.bump(), !tt.bump())
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

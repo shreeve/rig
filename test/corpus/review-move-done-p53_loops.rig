@@ -3,56 +3,56 @@ struct S
   v: Vec[Int]
   o: Vec[Int]?
 
-fun mk -> S
+fun mk() -> S
   S(n: 1, v: Vec(), o: none)
 
-sub l1
+sub l1()
   vs: Vec[S] = Vec()
   !vs.push(mk())
   for x in vs
     print(<x.n)
 
-sub l2
+sub l2()
   vs: Vec[S] = Vec()
   !vs.push(mk())
   for x in !vs
     w = <x.v
     print(w.len)
 
-sub l3
+sub l3()
   vs: Vec[S] = Vec()
   !vs.push(mk())
   for x in <vs
     w = <x.v
     print(w.len)
 
-sub l4
+sub l4()
   vs: Vec[S] = Vec()
   !vs.push(mk())
   for x in !vs
     w = <x.o
     print(w)
 
-sub l5
+sub l5()
   vs: Vec[S] = Vec()
   !vs.push(mk())
   for x in <vs
     w = <x.n
     print(w)
 
-sub l6
+sub l6()
   o: S? = mk()
   if o as x
     w = <x.v
     print(w.len)
 
-sub l7
+sub l7()
   o: S? = mk()
   if <o as x
     w = <x.v
     print(w.len)
 
-sub main
+sub main()
   l4()
 
 # oracle: mk accept

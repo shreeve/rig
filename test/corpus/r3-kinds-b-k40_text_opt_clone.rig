@@ -1,4 +1,4 @@
-sub main
+sub main()
   o: Text? = Text("x")
   p = +o
   print(p)

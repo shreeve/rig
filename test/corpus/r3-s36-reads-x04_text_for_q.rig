@@ -1,4 +1,4 @@
-sub main
+sub main()
   t = Text("hi")
   for b in ?t
     print(b)

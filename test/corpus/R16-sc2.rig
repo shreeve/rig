@@ -7,5 +7,5 @@ fun twice(g: fun(?fun(Int) -> Int) -> Int) -> Int
 fun use1(f: ?fun(Int) -> Int) -> Int
   f(4)
 
-sub main
+sub main()
   print(twice(use1))

@@ -109,7 +109,7 @@ struct K3
 fun f2(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   c = f(1) == 1
   !(mk(11) if c else mk(12)).put2(b: f(2), a: f(3))
   !(mkopt(0) ?? mk(13)).put2(b: f(2), a: f(3))

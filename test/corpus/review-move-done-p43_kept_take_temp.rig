@@ -2,10 +2,10 @@ struct S
   n: Int
   o: Int?
 
-fun mk -> S
+fun mk() -> S
   S(n: 1, o: 2)
 
-sub main
+sub main()
   a = <mk().o
   b = <mk().n
   print(a, b)

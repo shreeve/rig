@@ -8,10 +8,10 @@ use std.text
 struct E
   s: String
 
-fun f -> String
+fun f() -> String
   text.trim(?Text(" x "))
 
-sub main
+sub main()
   s = text.trim(?Text(" a "))
   e = E(s: text.trim(?Text(" b ")))
   v: Vec[String] = Vec()

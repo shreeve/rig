@@ -5,7 +5,7 @@ struct H
 fun mkh(n: Int) -> H
   H(arr: [n, 2], t: Text("x"))
 
-sub main
+sub main()
   match mkh(4).arr[0]
     4 => print("four")
     _ => print("other")

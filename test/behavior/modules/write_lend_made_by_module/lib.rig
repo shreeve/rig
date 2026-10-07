@@ -5,8 +5,8 @@ pub struct T
     self.n += 1
     self.n
 
-  pub fun make -> T
+  pub fun make() -> T
     T(n: 1)
 
-pub fun mk -> T
+pub fun mk() -> T
   T(n: 5)

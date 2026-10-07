@@ -3,7 +3,7 @@
 struct S
   v: Vec[Int]
 
-fun mk -> S
+fun mk() -> S
   v: Vec[Int] = Vec()
   !v.push(7)
   S(v: <v)
@@ -12,7 +12,7 @@ fun pick(c: Bool) -> Vec[Int]
   w: Vec[Int] = Vec()
   <(mk().v if c else <w)
 
-sub main
+sub main()
   c = true
   x = <(mk().v if c else Vec[Int]())
   print(x.len)

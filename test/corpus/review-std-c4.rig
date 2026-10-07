@@ -3,6 +3,6 @@ use std.random
 R = random.Random.seeded(5)
 N = random.Random.new()
 
-sub main
+sub main()
   r = R
   print(!r.next() > 0)

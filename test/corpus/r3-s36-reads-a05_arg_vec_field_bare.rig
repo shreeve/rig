@@ -4,7 +4,7 @@ struct Bag
 fun count(v: ?Vec[Int]) -> Int
   v.len
 
-sub main
+sub main()
   b = Bag(v: Vec())
   !b.v.push(3)
   print(count(b.v))

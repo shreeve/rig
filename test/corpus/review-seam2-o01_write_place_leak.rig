@@ -32,7 +32,7 @@ fun f(n: Int) -> Int
 fun g(s: String) -> Int
   s.len
 
-sub main
+sub main()
   c = f(1) == 1
   print(!mk((mkp(1) if c else mkp(2)).k).pop())
   print(!mk((P(k: 3, s: "x") if c else mkp(4)).k).pop())

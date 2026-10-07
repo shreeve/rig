@@ -3,5 +3,5 @@ enum E
   b = 1 << 3
   c = U16(7)
 
-sub main
+sub main()
   print(Int(E.a), Int(E.b), Int(E.c))

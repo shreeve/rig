@@ -1,7 +1,7 @@
-fun total -> Int
+fun total() -> Int
   0
 
-sub main
+sub main()
   count = 0
   cuont = 5
   print(count)

@@ -6,7 +6,7 @@ fun root(x: Float) -> Float
   raw
     sqrt(x)
 
-sub main
+sub main()
   print(root(2.0))
   raw
     print(time(0) > 0, getpid() > 0)

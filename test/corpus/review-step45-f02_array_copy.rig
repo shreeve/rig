@@ -1,5 +1,5 @@
 # bare copy of an array of Text must be rejected
-sub main
+sub main()
   a = [Text("a"), Text("b")]
   b = a
   print(a, b)

@@ -4,5 +4,5 @@ fun double(n: Int) -> Int
 const keep = double
 const k2: ?fun(Int) -> Int = double
 
-sub main
+sub main()
   print(keep(1), k2(2))

@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 struct H
   o: *Tok?
 
-sub main
+sub main()
   h = H(o: *Tok(n: 1))
   f = *|<h|
     if <h.o as t

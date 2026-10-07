@@ -27,7 +27,7 @@ fun rp(p: P, n: Int) -> Int
 fun rs(s: []Int, n: Int) -> Int
   s.len + n
 
-sub main
+sub main()
   p = P(x: 1, y: 2)
   print(rp(p, bump(!p)))
   print(p, bump(!p), p)

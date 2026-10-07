@@ -1,4 +1,4 @@
-sub main
+sub main()
   invoke = 3
   f = || print("x")
   f()

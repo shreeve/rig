@@ -22,7 +22,7 @@ struct Holder[T]
   fun get(?self) -> T
     self.x
 
-sub main
+sub main()
   h = Holder[*Tok](x: *Tok(n: 1))
   t = h.get()
   print(t.n)

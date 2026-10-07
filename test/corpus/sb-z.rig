@@ -4,7 +4,7 @@ fun first[T](s: ![]T) -> T
   s[s.len - 1] = t
   t
 
-sub main
+sub main()
   a = [1, 2, 3]
   z = !a[3..]
   print(z.len, z)

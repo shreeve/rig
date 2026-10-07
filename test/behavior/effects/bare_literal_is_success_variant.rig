@@ -14,7 +14,7 @@ fun pick(n: Int) -> Color!
   return .missing if n == 0
   .red
 
-sub main
+sub main()
   print(pick(1) catch .red, pick(0) catch .red, pick(-1) catch .red)
   e = pick(-1) catch |err| .red if err == E.missing else .missing
   print(e)

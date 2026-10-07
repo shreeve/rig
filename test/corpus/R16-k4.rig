@@ -1,7 +1,7 @@
 struct V
   w: ?Int
 
-sub main
+sub main()
   a = 1
   p = V(w: ?a)
   f = |!p|

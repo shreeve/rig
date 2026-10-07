@@ -4,7 +4,6 @@ error Bad
 struct P
   x: Int
 
-
 fun ri(w: !Int, ok: Bool) -> (?Int)!
   return Bad.oops if not ok
   w
@@ -18,7 +17,7 @@ fun ro(w: !P, k: Int) -> (?P)?!
   return none if k == 1
   w
 
-sub main
+sub main()
   n = 3
   m = 4
   a = P(x: 1)

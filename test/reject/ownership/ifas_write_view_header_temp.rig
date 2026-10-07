@@ -5,7 +5,7 @@
 struct O
   o: !Box[Int]?
 
-sub main
+sub main()
   b: Box[Int]? = Box(5)
   if (!O(o: !b)).o as x
     print(x)

@@ -5,7 +5,7 @@ struct Shape
 fun area(s: ?Shape) -> Int
   s.w * s.w
 
-sub main
+sub main()
   a = Shape(w: 2)
   b = Box(Shape(w: 3))
   h = *Shape(w: 4)

@@ -23,7 +23,7 @@ sub g(s: Slot)
   match <s
     .full(b, v) if v.len > 0 => keep(<b)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   print(f(.full(b: *B(n: 1), v: <v)))

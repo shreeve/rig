@@ -10,10 +10,10 @@ struct P
   fun get(?self) -> Int
     self.n
 
-sub tail
+sub tail()
   -f()
 
-sub main
+sub main()
   a = 1
   b = 2
   c = a > 0

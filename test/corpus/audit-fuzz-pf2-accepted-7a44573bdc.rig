@@ -108,7 +108,7 @@ fun fill_shelf[T](a: T, b: T) -> Shelf[T]
   !s.add(<b)
   s
 
-sub h0
+sub h0()
   m1: Maybe[*R] = .just(*mk(10))
   r1 = get_or(<m1, *mk(20))
   print("use", r1.id)
@@ -121,7 +121,7 @@ sub h0
     .one(z6) => look(?z6)
     .empty => print("empty")
 
-sub h1
+sub h1()
   r7 = fill_shelf(50, 60)
   !r7.add(70)
   if !r7.take() as w8
@@ -155,7 +155,7 @@ sub h1
   r27 = ident(ident(mk(130)))
   look(?r27)
 
-sub h2
+sub h2()
   r29 = Pair(first: "s140", second: optr(150))
   f29 = first_ref(?r29)
   print("str", f29)
@@ -174,7 +174,7 @@ sub h2
   r40 = ident(ident(mk(190)))
   look(?r40)
 
-sub main
+sub main()
   h0()
   h1()
   h2()

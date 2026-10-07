@@ -3,7 +3,7 @@ fun peek(p: ?Vec[Int], other: !Vec[Int]) -> Int
     !other.push(i)
   p[0]
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   !a.push(1)
   b: Vec[Int] = Vec()

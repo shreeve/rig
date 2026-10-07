@@ -41,7 +41,7 @@ fun looped(k: Int) -> Int!
     break
   k
 
-sub main
+sub main()
   print(tail(1) catch -1)
   print(tail(0) catch -1)
   print(early(1) catch -1)

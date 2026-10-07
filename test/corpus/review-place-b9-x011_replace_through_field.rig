@@ -1,7 +1,7 @@
 struct H
   w: !Int
 
-sub main
+sub main()
   a = 1
   h = H(w: !a)
   old = replace(!h.w, 5)

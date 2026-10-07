@@ -22,16 +22,16 @@ pub struct Instant
     monotonic() - self.ns
 
 # The monotonic clock now.
-pub fun now -> Instant
+pub fun now() -> Instant
   Instant(ns: monotonic())
 
 extern zig "time.zig"
   # Nanoseconds on the monotonic clock, since an unspecified moment.
-  fun monotonic -> Int
+  fun monotonic() -> Int
 
   # Nanoseconds since 1970-01-01 00:00 UTC on the wall clock, which can
   # be set, so it may jump.
-  pub fun unix_ns -> Int
+  pub fun unix_ns() -> Int
 
   # Wait at least `ns` nanoseconds; not at all when `ns` is not
   # positive.

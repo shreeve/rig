@@ -48,14 +48,15 @@ fun id_float(x: Float) -> Float
 
 fun id_f32(x: F32) -> F32
   x
+
 fun ri729(go: Bool) -> F32
   if go
 
     return gid(10.25)
   0
 
-sub t729
+sub t729()
   print(ri729(true), ri729(false))
 
-sub main
+sub main()
   t729()

@@ -43,9 +43,9 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-fun go -> Int?
+fun go() -> Int?
   x = !mk(1).maybe(true)?
   x
 
-sub main
+sub main()
   print(go() ?? 0)

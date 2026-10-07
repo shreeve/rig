@@ -12,7 +12,7 @@ fun mkd(w: ?Vec[Int], i: Int) -> D?
     return D(s: ?w[..])
   none
 
-sub main
+sub main()
   w: Vec[Int] = Vec()
   !w.push(2)
   i = 0

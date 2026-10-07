@@ -1,5 +1,5 @@
 const K = 3
 
-sub main
+sub main()
   K = 4
   print(K)

@@ -14,7 +14,7 @@ fun find(a: ?R, ok: Bool) -> (?R)?
   return none if not ok
   a
 
-sub main
+sub main()
   x = R(n: 1)
   r = pick(?x, true) catch return
   s = find(?x, true) ?? return

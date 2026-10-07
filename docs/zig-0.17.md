@@ -60,7 +60,7 @@ cover everything this document leaves out.
 | `src/emit.zig` | `std.Io.Writer.Allocating`, `Allocator.print` |
 | `src/runtime.zig` | `std.heap.smp_allocator`, `std.heap.SafeAllocator`, a custom `std.mem.Allocator`, `std.Io.Threaded.global_single_threaded`, `std.process.Init.Minimal`, `std.debug.FullPanic`, `@typeInfo` reflection, `@Tuple`, `@Int` |
 | `std/*.zig` | `std.mem.find*`, `std.fmt.parseInt` / `parseFloat`, `std.Io.Timestamp.now`, `io.sleep`, `io.random`, `init.environ.getPosix` |
-| Emitted programs | `pub fn main(__rig_init: std.process.Init.Minimal) void` (`u8` for `fun main -> Int`), `pub const panic = rig.panic;`, `anyerror!T`, `@divTrunc`, `@rem`, `@intCast`, `@floatFromInt`, `@trunc`, `@backingInt`, `@splat` |
+| Emitted programs | `pub fn main(__rig_init: std.process.Init.Minimal) void` (`u8` for `fun main() -> Int`), `pub const panic = rig.panic;`, `anyerror!T`, `@divTrunc`, `@rem`, `@intCast`, `@floatFromInt`, `@trunc`, `@backingInt`, `@splat` |
 | `build.zig` | `b.createModule`, `b.addExecutable(.{ .root_module = ... })`, `b.addOptions`, `b.addUpdateSourceFiles`, `b.installArtifact`, `run.addPassthruArgs()`, `b.addSystemCommand`, `b.addTest`, `b.root`, `b.graph.io` |
 
 ## 2. Reflexes from older Zig

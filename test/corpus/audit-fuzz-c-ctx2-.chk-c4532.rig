@@ -56,12 +56,12 @@ fun fal4532(ok: Bool) -> I32!
 error Err4532
   bad
 
-sub t4532
+sub t4532()
   mk4532 = rt_int(1)
   mz4532: I32 = match mk4532
     1 => (fal4532(false) catch 4)
     _ => 3
   print(mz4532)
 
-sub main
+sub main()
   t4532()

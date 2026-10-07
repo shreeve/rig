@@ -6,6 +6,6 @@ struct P
 fun copy_of(p: ?P) -> P
   p
 
-sub main
+sub main()
   a = P(x: 1, y: 2)
   print(copy_of(?a))

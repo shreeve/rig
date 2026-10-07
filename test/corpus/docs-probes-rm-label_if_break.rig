@@ -1,4 +1,4 @@
-sub main
+sub main()
   :blk if true
     break :blk
     print(1)

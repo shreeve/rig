@@ -9,13 +9,13 @@ enum M
   b(n: N)
   c
 
-fun mk -> M
+fun mk() -> M
   M.a(n: N(id: 1))
 
 sub take(n: N)
   print("took", n.id)
 
-sub main
+sub main()
   match mk()
     .a(n) if n.id > 5 => print("big")
     .a(n) => take(<n)

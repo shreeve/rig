@@ -11,7 +11,8 @@ sub f(w2: !Int, w3: !Int, c: Bool)
   y += 1
   z += 1
   print(x, y, z, w2, w3)
-sub main
+
+sub main()
   n = 1
   m = 2
   f(!n, !m, true)

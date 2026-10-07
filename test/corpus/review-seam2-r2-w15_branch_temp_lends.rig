@@ -27,7 +27,7 @@ fun mkopt(n: Int) -> S?
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   c = f(1) == 1
   x = <(!mk(1) if c else !mk(2)).items
   print(x)

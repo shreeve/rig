@@ -4,6 +4,7 @@
 
 fun g(a: Int, b: Int) -> Int
   a * 10 + b
+
 sub run(f: *sub())
   f()
 

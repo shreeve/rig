@@ -1,5 +1,7 @@
 const LIMIT = 8
+
 fun f(x: Int = LIMIT) -> Int
   x
-sub main
+
+sub main()
   print(f())

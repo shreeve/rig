@@ -1,2 +1,2 @@
-fun main -> I64
+fun main() -> I64
   4

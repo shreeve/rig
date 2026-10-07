@@ -1,7 +1,7 @@
 # An index is one value: a trailing comma makes the brackets a list of
 # compile-time arguments, which an array does not take.
 
-sub main
+sub main()
   xs = [1, 2]
   print(xs[1,])
 

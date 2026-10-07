@@ -1,5 +1,5 @@
 use std.math
 
-sub main
+sub main()
   math = 3
   print(math)

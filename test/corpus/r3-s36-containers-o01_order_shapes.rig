@@ -21,7 +21,7 @@ sub through_slice(xs: ![]Int)
   xs[ix(0, "slice")] = val(8, "slice")
   xs[ix(1, "slice-compound")] += val(1, "slice-compound")
 
-sub main
+sub main()
   x = 0
   x = val(1, "local")
   x += val(1, "local-compound")

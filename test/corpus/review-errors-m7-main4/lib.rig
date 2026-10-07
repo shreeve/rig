@@ -3,5 +3,5 @@ pub error Disk
 
 pub DEF = Disk.full
 
-pub fun fail -> Int!
+pub fun fail() -> Int!
   return Disk.full

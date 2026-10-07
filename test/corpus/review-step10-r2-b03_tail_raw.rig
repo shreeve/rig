@@ -26,7 +26,7 @@ fun f(d: ?Q) -> ?Q from d
     print("raw")
     mkh(42).q.me(k: g(1), j: g(2))
 
-sub main
+sub main()
   d = Q(c: Cell(0), n: 0)
   r = f(?d)
   print(clobber(1))

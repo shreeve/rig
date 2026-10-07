@@ -1,9 +1,11 @@
 # stored in a struct escaping scope
 struct V
   s: ![]Int
-fun mk -> V
+
+fun mk() -> V
   a = [1, 2]
   V(s: !a[..])
+
 sub main()
   v = mk()
   v.s[0] = 3

@@ -5,7 +5,7 @@ fun f(h: !H) -> Int?
   !(h.o?).push(5)
   0
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   h = H(o: <v)
   print(f(!h) ?? 1)

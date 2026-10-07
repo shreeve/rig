@@ -25,5 +25,5 @@ fun d(x: Bool) -> Int
     false => 0
     b if b => 3
 
-sub main
+sub main()
   print(a(.point), b(.point), c(1), d(true))

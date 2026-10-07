@@ -1,7 +1,8 @@
 struct U
   name: String
   boss: Int?
-sub main
+
+sub main()
   u: U? = U(name: "a", boss: none)
   n = (u?.boss) ?? 0
   print(n)

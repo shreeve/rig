@@ -9,6 +9,6 @@ fun pop(l: !Box[N]?) -> Int?
     return n.v
   none
 
-sub main
+sub main()
   l: Box[N]? = Box(value: N(v: 1, next: Box(value: N(v: 2, next: none))))
   print(pop(!l))

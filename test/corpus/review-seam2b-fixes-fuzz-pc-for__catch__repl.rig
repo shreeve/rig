@@ -110,7 +110,7 @@ struct K3
 fun f2(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   c = f(1) == 1
   for i in 0..2
     print(i, replace(!(mkf(7) catch mk(8)).n, 7))

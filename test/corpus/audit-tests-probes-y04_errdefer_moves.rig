@@ -7,7 +7,7 @@ struct R
 sub eat(r: R)
   print(r.v.len)
 
-fun f -> Int!
+fun f() -> Int!
   r = R(v: Vec())
   errdefer eat(<r)
   return E.bad

@@ -3,6 +3,6 @@ fun sum(xs: ([]Int)?) -> Int
     return s.len
   0
 
-sub main
+sub main()
   a = [1, 2]
   print(sum(?a))

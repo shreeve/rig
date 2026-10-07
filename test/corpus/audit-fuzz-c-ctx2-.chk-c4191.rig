@@ -62,8 +62,8 @@ fun ri4191(go: Bool) -> F32
     return (fal4191(false) catch 2.5)
   0
 
-sub t4191
+sub t4191()
   print(ri4191(true), ri4191(false))
 
-sub main
+sub main()
   t4191()

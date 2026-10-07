@@ -1,5 +1,6 @@
 K: U64 = 1
 A = K << 63
 B = (0 - 1) >> 1
-sub main
+
+sub main()
   print(A, B)

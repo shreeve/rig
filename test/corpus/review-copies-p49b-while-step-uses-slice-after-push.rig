@@ -8,7 +8,7 @@ fun mk(v: ?Vec[Int]) -> ([]Int)?
     return ?v[..]
   none
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0

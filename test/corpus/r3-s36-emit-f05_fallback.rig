@@ -5,5 +5,5 @@ error E
 fun f(o: Int?) -> Int!
   o ?? E.bad
 
-sub main
+sub main()
   print(f(none) catch -1, f(4) catch -1)

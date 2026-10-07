@@ -4,7 +4,7 @@ struct Big
 fun first(b: Big) -> Int
   b.a[0]
 
-sub main
+sub main()
   x = Big(a: [1000 of 7])
   y = x
   y.a[0] = 1

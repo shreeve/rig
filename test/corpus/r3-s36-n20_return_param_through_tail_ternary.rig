@@ -1,7 +1,7 @@
 fun pick(a: ?Vec[Int], b: ?Vec[Int], c: Bool) -> ?Vec[Int]
   a if c else b
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = pick(?x, ?y, true)

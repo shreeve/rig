@@ -8,7 +8,7 @@ struct Obj
       h.push(*Obj(n: self.n + 100, home: ~h))
       print("len in drop", h.len)
 
-sub main
+sub main()
   c: *Cell[Vec[*Obj]] = *Cell(Vec())
   c.push(*Obj(n: 1, home: ~c))
   c.push(*Obj(n: 2, home: ~c))

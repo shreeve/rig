@@ -12,7 +12,7 @@ sub twice(v: !Vec[Int])
 fun fx(p: !Point) -> !Int
   !p.x
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   twice(!v)
   p = Point(x: 1, y: 2)

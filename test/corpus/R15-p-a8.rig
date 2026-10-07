@@ -2,6 +2,7 @@
 struct P
   x: [2]Int
   y: [2]Int
+
 sub main()
   p = P(x: [1, 2], y: [3, 4])
   w = !p.x[..]

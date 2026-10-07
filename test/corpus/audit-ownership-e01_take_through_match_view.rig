@@ -23,7 +23,7 @@ enum E
   one(h: H)
   none_
 
-sub main
+sub main()
   e: E = .one(h: H(o: *Tok(n: 1)))
   match e
     .one(h)

@@ -1,5 +1,5 @@
 fun compute(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   print(compte(3))

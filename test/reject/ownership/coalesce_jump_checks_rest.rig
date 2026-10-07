@@ -22,21 +22,21 @@ fun lent(k: Int) -> Int
   print(r.len)
   n
 
-sub brk
+sub brk()
   a: Vec[Int] = Vec()
   while true
     n = make(1) ?? break
     eat(<a)
     print(n)
 
-sub cont
+sub cont()
   a: Vec[Int] = Vec()
   for k in 0..3
     n = make(k) ?? continue
     eat(<a)
     print(n)
 
-sub main
+sub main()
   print(ret(1), lent(1))
   brk()
   cont()

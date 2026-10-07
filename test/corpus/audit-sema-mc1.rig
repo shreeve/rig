@@ -1,4 +1,5 @@
 K: U8 = 250 +% 10
-sub main
+
+sub main()
   a: [K]Int = [K of 1]
   print(K, a.len)

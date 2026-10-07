@@ -7,7 +7,7 @@ struct S
   fun inner(?self) -> ?Text
     ?self.t
 
-sub main
+sub main()
   a = S(t: Text("aa"))
   b = S(t: Text("bb"))
   c = a.t.len == 2

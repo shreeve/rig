@@ -19,7 +19,7 @@ sub stash(f: ?fun(Int) -> Int)
   g = |+s, ?f| s.set(f(1))
   g()
 
-sub main
+sub main()
   bools = [true, false]
   sort_asc(!bools[..])
   g: ?fun(Int) -> Int = double

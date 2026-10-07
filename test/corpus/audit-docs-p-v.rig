@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = 5
   b: U8 = 7
   c = U8(a)

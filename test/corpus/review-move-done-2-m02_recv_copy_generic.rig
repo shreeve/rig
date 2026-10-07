@@ -23,7 +23,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub main
+sub main()
   a = G(f: P(v: 1))
   print(use_part(?a))
   b = G(f: HV(v: mkv(2)))

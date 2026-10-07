@@ -6,7 +6,7 @@ fun mk(b: !B) -> Int
   b.xs = Vec()
   3
 
-sub main
+sub main()
   b = B(xs: Vec())
   !b.xs.push(1)
   b.xs[0] = mk(!b)

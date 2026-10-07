@@ -8,5 +8,5 @@ fun get(n: Int) -> Int!
 fun run(f: ?fun(Int) -> Int!) -> Int!
   f(3)!
 
-sub main
+sub main()
   print(run(|x| get(x)! + 1)!)

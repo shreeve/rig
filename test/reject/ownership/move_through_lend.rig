@@ -27,26 +27,26 @@ sub steal(p: !S)
   x = <(!p).items
   print(x)
 
-sub from_branch
+sub from_branch()
   s = mk(1)
   t = mk(2)
   c = f(1) == 1
   x = <(!s if c else !t).items
   print(x)
 
-sub from_read_branch
+sub from_read_branch()
   s = mk(1)
   t = mk(2)
   c = f(1) == 1
   x = <(?s if c else ?t).items
   print(x)
 
-sub from_call
+sub from_call()
   s = mk(1)
   x = <wrap(!s).items
   print(x)
 
-sub main
+sub main()
   s = mk(1)
   x = <(!s).items
   y = <(?s).items

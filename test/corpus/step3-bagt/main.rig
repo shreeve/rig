@@ -1,6 +1,6 @@
 use bag
 
-sub main
+sub main()
   b = bag.Bag[Int](items: Vec())
   !b.add(3)
   !b.add(4)

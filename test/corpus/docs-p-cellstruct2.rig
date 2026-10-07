@@ -1,5 +1,6 @@
 struct G
   a: Cell[[1000000]Int]
   b: [100000]Int
-sub main
+
+sub main()
   print(1)

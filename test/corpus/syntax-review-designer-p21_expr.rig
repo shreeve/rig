@@ -7,6 +7,6 @@ fun eval(e: ?Expr) -> Int
     .num(v) => v
     .add(l, r) => eval(?l) + eval(?r)
 
-sub main
+sub main()
   e: Expr = .add(l: Box(value: Expr.num(1)), r: Box(value: Expr.num(2)))
   print(eval(?e))

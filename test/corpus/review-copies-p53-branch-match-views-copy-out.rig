@@ -11,7 +11,7 @@ fun arm(a: ?P, b: ?P, k: Int) -> P
     0 => a
     _ => b
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   f = a.x > 0

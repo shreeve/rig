@@ -5,7 +5,7 @@ fun idx(s: String) -> Int
 fun getw(v: !Vec[Text?]) -> !Vec[Text?]
   v
 
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("q"))
   if !getw(!v)[idx(?Text("a"))] as t

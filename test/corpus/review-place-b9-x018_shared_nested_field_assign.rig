@@ -4,6 +4,6 @@ struct P
 struct N
   h: *P
 
-sub main
+sub main()
   n = N(h: *P(x: 1))
   n.h.x = 2

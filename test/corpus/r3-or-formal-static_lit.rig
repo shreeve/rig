@@ -3,6 +3,6 @@ fun name(k: Int) -> String
     return "zero"
   "many"
 
-sub main
+sub main()
   s = name(1)
   print(s)

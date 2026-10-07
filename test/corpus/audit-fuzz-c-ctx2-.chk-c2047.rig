@@ -55,11 +55,11 @@ struct Bx2047
 struct FA2047
   f: I128
 
-sub t2047
+sub t2047()
   bx2047 = Bx2047(f: (-5))
   fa2047 = FA2047(f: 0)
   fa2047.f = bx2047.f
   print(fa2047.f)
 
-sub main
+sub main()
   t2047()

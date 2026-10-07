@@ -9,7 +9,7 @@ fun floor(x: Float) -> Float
 extern fun time(t: Int) -> Int
 extern fun getpid() -> I32
 
-sub main
+sub main()
   print(sqrt(2.0), floor(2.7))
   raw
     print(time(0) > 0, getpid() > 0)

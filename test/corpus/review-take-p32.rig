@@ -2,7 +2,7 @@ struct S
   a: Int
   b: Int
 
-sub main
+sub main()
   s = S(a: 1, b: 2)
   swap(!s.a, !s.a)
   swap(!s, !s)

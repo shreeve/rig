@@ -1,9 +1,9 @@
 struct S
   n: Int
 
-fun mk -> ?S
+fun mk() -> ?S
   s = S(n: 1)
   ?s
 
-sub main
+sub main()
   print(mk().n)

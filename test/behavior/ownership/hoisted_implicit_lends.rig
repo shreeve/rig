@@ -57,7 +57,7 @@ fun run_m(n: Int) -> Int!
 fun run_v(n: Int) -> Int!
   one(mk(1), val(n)!)
 
-sub main
+sub main()
   print(two(b: mk(2), a: mk(1)))
   print(two(b: ?mk(2), a: ?mk(1)))
   print(run_f(2) catch -1)

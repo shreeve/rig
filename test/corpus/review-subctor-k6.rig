@@ -9,7 +9,7 @@ sub b(v: !Vec[Int])!
   !v.push(1)
   !v.pop()
 
-sub main
+sub main()
   a(3)!
   v = Vec[Int]()
   b(!v)!

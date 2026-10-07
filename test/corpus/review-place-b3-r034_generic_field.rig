@@ -7,7 +7,7 @@ struct W[T]
   sub bad(self, v: T)
     self.x = v
 
-sub main
+sub main()
   w = W[Int](x: 1)
   !w.put(4)
   print(w.x)

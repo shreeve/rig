@@ -38,7 +38,7 @@ sub bump(o: !(Int?), p: !(Int?))
   if ?o as x and !p as y
     y += x
 
-sub main
+sub main()
   print(sum(1, 2), sum(0, 2), sum(1, 0))
   print(pick(5, true), pick(5, false), pick(2, true), pick(0, true))
   owned(1, 2)

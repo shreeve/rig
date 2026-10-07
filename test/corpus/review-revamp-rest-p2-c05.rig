@@ -1,5 +1,6 @@
 enum E
   a = 5 if true else 6
   b = 1 << 63
+
 sub main()
   print(Int(E.a))

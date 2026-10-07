@@ -9,7 +9,7 @@ struct H[K]
 fun hs(s: ?String) -> U64
   U64(s.len)
 
-sub main
+sub main()
   h = H[String](hash: hs, n: 0)
   !h.put("abc")
   print(h.n)

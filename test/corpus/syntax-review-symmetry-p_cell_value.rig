@@ -1,3 +1,3 @@
-sub main
+sub main()
   c = Cell(value: 1)
   print(c.value)

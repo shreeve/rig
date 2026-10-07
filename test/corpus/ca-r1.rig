@@ -18,7 +18,7 @@ sub go(n: Int)
   g = |!k|
     k += 1
 
-sub main
+sub main()
   x = 1
   owned = *|?x| x + 1
   owned2 = *|!x|

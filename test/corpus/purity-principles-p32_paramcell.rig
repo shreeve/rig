@@ -16,7 +16,7 @@ sub cellParam(c: Cell[Int])
   c.set(3)
   print(c.get())
 
-sub main
+sub main()
   direct(Counter(hits: Cell(0)))
   viaMethod(Counter(hits: Cell(0)))
   cellParam(Cell(0))

@@ -4,7 +4,7 @@ fun name() -> String
 fun first(s: String) -> String
   s[0..1]
 
-sub main
+sub main()
   t = Text("hello")
   v = first(?t)
   print(name(), v)

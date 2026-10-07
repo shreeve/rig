@@ -2,7 +2,7 @@ enum Shape
   dot
   line(v: Vec[Int])
 
-sub main
+sub main()
   p: Vec[Int] = Vec()
   !p.push(1)
   o: Shape? = none

@@ -4,7 +4,7 @@ struct P
 fun mk(p: ?P) -> ?P
   <p
 
-sub main
+sub main()
   p = P(c: Cell(1))
   mk(?p).c.set(3)
   print(p.c.get())

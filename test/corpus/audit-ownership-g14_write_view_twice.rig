@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 struct Ed
   t: !Tok
 
-sub main
+sub main()
   x = Tok(n: 1)
   e = Ed(t: !x)
   f = Ed(t: !x)

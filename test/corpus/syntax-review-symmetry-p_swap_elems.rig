@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [1, 2]
   swap(!a[0], !a[1])
   print(a)

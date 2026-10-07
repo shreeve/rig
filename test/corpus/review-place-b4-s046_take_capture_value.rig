@@ -1,7 +1,7 @@
 struct P
   o: Int?
 
-sub main
+sub main()
   p = P(o: 1)
   f = |p|
     x = <p.o

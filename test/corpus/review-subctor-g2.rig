@@ -1,4 +1,4 @@
-sub main
+sub main()
   v = Vec[Int]()
   b = Box(v)
   print(b, v)

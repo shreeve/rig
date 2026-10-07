@@ -11,6 +11,6 @@ fun g(c: Bool) -> Vec[Int]!
     return E.bad
   x
 
-sub main
+sub main()
   x = g(true)!
   print(x.len)

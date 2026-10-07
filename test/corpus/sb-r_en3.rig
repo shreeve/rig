@@ -1,4 +1,4 @@
-sub main
+sub main()
   b: [8]U8 = [8 of 0]
   !b.write[U16, .big](0, 70000)
   !b.write[U16, .big](0)

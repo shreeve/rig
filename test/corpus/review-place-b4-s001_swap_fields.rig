@@ -2,7 +2,7 @@ struct P
   a: String
   b: String
 
-sub main
+sub main()
   p = P(a: "x", b: "y")
   swap(!p.a, !p.b)
   old = replace(!p.a, "z")

@@ -1,7 +1,7 @@
 sub f(c: ?Cell[Int])
   c.set(2)
 
-sub main
+sub main()
   c: Cell[Int] = Cell(1)
   f(?c)
   print(c.get())

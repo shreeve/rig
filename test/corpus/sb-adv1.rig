@@ -17,7 +17,7 @@ sub setrow(s: ![]S)
 fun items(v: !Vec[Int]) -> ![]Int
   !v[..]
 
-sub main
+sub main()
   a = [1, 2, 3]
   w = !a[..]
   print(first(w))

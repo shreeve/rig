@@ -16,6 +16,6 @@ fun second[T](o: W[T]?) -> T?
     return <w.x
   none
 
-sub main
+sub main()
   print(first(W[R](x: R(n: 1))))
   print(second(W[R](x: R(n: 2))))

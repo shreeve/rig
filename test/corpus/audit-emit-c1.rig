@@ -15,7 +15,7 @@ fun sameq(a: ?Q, b: ?Q) -> Bool
 fun eqopt(a: ?P?, b: ?P?) -> Bool
   a == b
 
-sub main
+sub main()
   p = P(x: 1, y: 2)
   q = P(x: 1, y: 2)
   print(same(?p, ?q), p == q, ?p == ?q)

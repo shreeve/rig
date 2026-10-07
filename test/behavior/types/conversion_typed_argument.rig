@@ -4,7 +4,7 @@
 fun id(x: Int) -> Int
   x
 
-sub main
+sub main()
   v = id(5)
   c: Int = -1
   print(U8(v + 300 - 300), U8(v * -1 + 10), U8(v % -3), U8(v ^ c ^ c))

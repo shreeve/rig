@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = "foo"
   print(a[0], a.len, a[1..], a == "foo")
   for c in a

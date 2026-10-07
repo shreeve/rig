@@ -89,20 +89,20 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   inc(!(mkf(7) catch mk(8)).n)
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = (mkf(7) catch mk(8))
   inc(!tt.n)
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

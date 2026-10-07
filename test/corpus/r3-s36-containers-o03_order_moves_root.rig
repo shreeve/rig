@@ -1,7 +1,7 @@
 fun take(v: Vec[Int]) -> Int
   v.len
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(0)
   v[0] = take(<v)

@@ -8,7 +8,7 @@ fun mk(i: Int) -> (*Node)?
     return *Node(val: v)
   none
 
-sub main
+sub main()
   k = 0
   i = 0
   while mk(i) as r: k += r.val[0]

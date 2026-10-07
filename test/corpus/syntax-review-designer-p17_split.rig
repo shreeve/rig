@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [1, 2, 3, 4]
   l = !a[..2]
   r = !a[2..]

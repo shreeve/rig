@@ -2,7 +2,7 @@ struct P
   x: Int
   y: Int
 
-sub main
+sub main()
   p = P(x: 1, y: 2)
   p.x = 5
   p.y += 1

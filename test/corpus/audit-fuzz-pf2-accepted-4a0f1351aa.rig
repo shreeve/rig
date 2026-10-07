@@ -153,7 +153,7 @@ fun f1(a1: Int) -> Int
     print("lv", v22)
   a1 + b1 + c1
 
-sub main
+sub main()
   print("ret", f0((-1)))
   print("ret", f1(1))
   print("ret", f1((-5)))

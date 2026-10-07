@@ -5,7 +5,7 @@ fun mk(i: Int) -> Text?
     return Text("abcdefghijklmnopqrstuvwxyz0123456789")
   none
 
-sub main
+sub main()
   k = 0
   i = 0
   while mk(i) as x: k += x.len

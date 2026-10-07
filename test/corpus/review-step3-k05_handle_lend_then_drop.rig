@@ -8,6 +8,6 @@ fun get(s: ?S, n: Int) -> Int
 fun eat(h: *S) -> Int
   0
 
-sub main
+sub main()
   h = *S(n: 1, t: Text("x"))
   print(get(h, eat(<h)))

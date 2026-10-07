@@ -1,4 +1,4 @@
-sub main
+sub main()
   both = |a: ?sub(Int), b: ?sub(Int)|
     a(1)
     b(2)

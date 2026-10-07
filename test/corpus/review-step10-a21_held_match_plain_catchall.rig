@@ -12,7 +12,7 @@ struct M
 fun mk(k: Int) -> M
   M(t: Text("m"), e: E.a(xs: [k, k, k, k]))
 
-sub main
+sub main()
   z = E.b
   r = ?z
   k = 1

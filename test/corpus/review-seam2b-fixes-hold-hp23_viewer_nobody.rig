@@ -103,11 +103,11 @@ fun mk(n: Int) -> S
   print("make S", n)
   S(n: n, t: Text("text long enough for the heap ", n))
 
-fun mkh -> H
+fun mkh() -> H
   print("make H")
   H(r: "init", rs: Vec())
 
-fun mkpr -> PR
+fun mkpr() -> PR
   PR(r: "init")
 
 fun pick(h: !H) -> !H
@@ -129,6 +129,6 @@ struct W
   sub put(!self, r: String)
     self.p.r = r
 
-sub main
+sub main()
   !W(p: !mkpr()).put(?mk(1).t)
   print("after", clobber(1))

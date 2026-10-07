@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   b = lib.Bx[Int](v: 1)
   print(b)
   r: lib.R = .bad(.full)

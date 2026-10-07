@@ -1,9 +1,11 @@
 sub h(n: !Int)
   n += 1
+
 sub g(n: !Int)
   h(!n)
   h(n)
-sub main
+
+sub main()
   a = 1
   g(!a)
   print(a)

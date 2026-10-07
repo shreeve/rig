@@ -37,7 +37,7 @@ struct HV
   sub give(<self, out: !Holder)
     out.r = self.r
 
-fun mk -> Src
+fun mk() -> Src
   s = Src(items: Vec())
   !s.items.push(4)
   s
@@ -89,7 +89,7 @@ sub temporary(h: !Holder)
   mk().put(!h)
   print(h.r[0])
 
-sub main
+sub main()
   x = [1, 2]
   h = Holder(r: ?x[..])
   write_receiver(!h)

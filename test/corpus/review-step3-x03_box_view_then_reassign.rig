@@ -5,7 +5,7 @@ struct S
 fun first(s: String) -> String
   s
 
-sub main
+sub main()
   b = Box(Box(S(n: 1, t: Text("x"))))
   r = first(b.t)
   b = Box(Box(S(n: 2, t: Text("y"))))

@@ -14,7 +14,7 @@ enum E
 sub show(v: V)
   print(v.r.n)
 
-sub main
+sub main()
   x = N(n: 1)
   e = E.a(v: V(r: ?x))
   match e

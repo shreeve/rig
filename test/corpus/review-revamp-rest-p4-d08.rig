@@ -1,6 +1,7 @@
 enum Sh
   circle(r: Int)
   sq(s: Int)
+
 sub main()
   c = Sh.circle(r: 2)
   match c

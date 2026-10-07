@@ -9,7 +9,7 @@ fun t(k: Int) -> Int
   s(k) catch return -1
   k
 
-sub main
+sub main()
   for i in 0..3
     s(i) catch continue
     print("after", i)

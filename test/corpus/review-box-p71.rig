@@ -10,7 +10,7 @@ struct S
 sub wr(r: !R)
   r.n = 9
 
-sub main
+sub main()
   c = Cell(value: 0)
   s = S(b: Box(value: R(n: 1)))
   p = ?s

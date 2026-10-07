@@ -1,4 +1,5 @@
 fun g() -> Int?
   none
-sub main
+
+sub main()
   print(g() ?? 1 == 1)

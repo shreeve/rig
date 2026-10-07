@@ -4,7 +4,7 @@ struct Bag
   fun total(<self) -> Int
     self.items.len
 
-sub main
+sub main()
   a = Bag(items: Vec())
   b = Bag(items: Vec())
   !a.items.push(1)

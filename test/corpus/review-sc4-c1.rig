@@ -19,7 +19,7 @@ fun pick(p: Pair, first: Bool) -> *B
       <b
     .none => *B(n: 0)
 
-sub main
+sub main()
   i = 0
   while i < 3
     p: Pair = .two(a: *B(n: i), b: *B(n: i + 10))

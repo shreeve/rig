@@ -2,13 +2,13 @@
 K = [1, 2]
 N = 3
 
-fun one -> Int
+fun one() -> Int
   1
 
 fun eat(x: Int) -> Int
   x
 
-sub main
+sub main()
   k = 0
   for x in <K
     k += x

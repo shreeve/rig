@@ -4,11 +4,11 @@ struct Box[T]
 fun wrap[T](x: T) -> Box[T]
   Box(v: x)
 
-fun make -> Int
+fun make() -> Int
   k = 5
   f = |+k, a: Int| a + k
   b = wrap(?f)
   b.v(1)
 
-sub main
+sub main()
   print(make())

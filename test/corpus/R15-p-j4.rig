@@ -1,5 +1,6 @@
 fun n(x: Int) -> Int
   x
+
 sub main()
   b = [1, 2, 3]
   w = !b[..]

@@ -4,7 +4,7 @@
 struct H
   w: !Int
 
-sub main
+sub main()
   m = 1
   k = 1
   h = H(w: !m)

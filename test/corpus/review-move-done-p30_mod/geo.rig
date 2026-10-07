@@ -1,8 +1,10 @@
 pub K = 5
 pub KO: Int? = 3
 pub KA = [[1, 2], [3, 4]]
+
 pub enum Color
   red
   blue
-pub fun mk -> Int
+
+pub fun mk() -> Int
   4

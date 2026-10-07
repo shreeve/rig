@@ -4,7 +4,7 @@ fun label(n: Int) -> String
 struct Tag
   name: String
 
-sub main
+sub main()
   tags: Vec[Tag] = Vec()
   !tags.push(Tag(name: label(3)))
   !tags.push(Tag(name: "x"))

@@ -7,7 +7,7 @@ struct R
 struct H
   r: Box[R]?
 
-sub main
+sub main()
   s = *H(r: Box(value: R(n: 1)))
   w = ~s
   if ?s.r as x

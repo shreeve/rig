@@ -1,6 +1,6 @@
 struct P
   take: Int
 
-sub main
+sub main()
   b = Box(value: P(take: 4))
   print(b.take)

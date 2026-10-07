@@ -1,4 +1,4 @@
-sub main
+sub main()
   for i in 5..0
     print(i)
   print("done")

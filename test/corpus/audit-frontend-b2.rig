@@ -2,5 +2,6 @@ fun f(y: Int) -> Int
   match y
     3 => -y
     _ => 0
+
 sub main()
   print(f(3))

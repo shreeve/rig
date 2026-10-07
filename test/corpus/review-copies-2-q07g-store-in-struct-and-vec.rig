@@ -12,11 +12,10 @@ fun get(r: ?P, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   r
 
-
 struct S
   r: ?P
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   s = S(r: get(?a, true) catch ?b)

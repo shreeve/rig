@@ -1,7 +1,7 @@
 fun mk(x: ?Vec[Int]) -> ?fun() -> Int
   return ?(|?x| x.len)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   f = mk(?v)
   print(f())

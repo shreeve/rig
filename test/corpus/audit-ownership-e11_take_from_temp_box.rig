@@ -19,9 +19,9 @@ fun cond(t: *Tok) -> Bool
 struct H
   o: *Tok?
 
-fun mk -> Box[H]
+fun mk() -> Box[H]
   Box(H(o: *Tok(n: 3)))
 
-sub main
+sub main()
   x = <mk().o
   print(x == none)

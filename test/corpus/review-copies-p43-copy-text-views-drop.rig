@@ -1,4 +1,4 @@
-sub main
+sub main()
   a: [2]String = ["x", "y"]
   if true
     t = Text("a long heap allocated text here")

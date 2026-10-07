@@ -23,5 +23,5 @@ fun clobber(n: Int) -> Int
 fun pick(s: String, n: Int) -> String from s
   s
 
-sub main
+sub main()
   print(pick(n: g(1), s: mkq(5).t))

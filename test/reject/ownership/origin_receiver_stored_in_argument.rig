@@ -10,7 +10,7 @@ struct Src
   sub put(?self, out: !Holder)
     out.r = ?self.items[..]
 
-sub main
+sub main()
   x = [1, 2]
   h = Holder(r: ?x[..])
   s = Src(items: Vec())

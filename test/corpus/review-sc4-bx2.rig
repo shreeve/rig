@@ -7,5 +7,5 @@ fun g(n: U8, c: Bool) -> Int
   match n
     0..256 if c => 1
 
-sub main
+sub main()
   print(f(true, false), g(1, false))

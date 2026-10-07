@@ -1,7 +1,8 @@
 # `!f()` where f is a free function returning Bool (no receiver).
 fun ready() -> Bool
   false
-sub main
+
+sub main()
   print(!ready())
   if !ready()
     print("not ready")

@@ -8,7 +8,7 @@ enum Slot
   full(b: *B)
   empty
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   match !s
     .full(b)

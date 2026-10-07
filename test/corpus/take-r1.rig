@@ -21,7 +21,7 @@ sub alias(s: !S)
   swap(!s.n, !s.n.next)
   swap(!s, !s.n.next)
 
-sub main
+sub main()
   h = *S(top: none, name: "a", n: N(v: 1, next: none))
   z = <h.top
   s = S(top: none, name: "a", n: N(v: 1, next: none))

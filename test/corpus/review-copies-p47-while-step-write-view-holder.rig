@@ -8,7 +8,7 @@ fun mk(n: !Int) -> W?
     return W(w: !n)
   none
 
-sub main
+sub main()
   n = 0
   k = 0
   while mk(!n) as h: k = h.w + 1

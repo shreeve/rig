@@ -7,7 +7,7 @@ struct H
   sub point(!self, to: !Int)
     self.w = to
 
-sub main
+sub main()
   m = 1
   n = 2
   w = !m

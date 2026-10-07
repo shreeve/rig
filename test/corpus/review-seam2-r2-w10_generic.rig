@@ -33,6 +33,6 @@ struct G[T]
 fun take[T](g: !G[T]) -> T
   <(!g).x
 
-sub main
+sub main()
   g = G(x: mk(1))
   print(take(!g).n)

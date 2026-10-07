@@ -4,6 +4,7 @@ struct P
     self.x
   fun get2(self: Self) -> Int
     self.x
-sub main
+
+sub main()
   p = P(x: 1)
   print(p.get(), <p.get2())

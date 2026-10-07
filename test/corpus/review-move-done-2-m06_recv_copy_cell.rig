@@ -9,7 +9,7 @@ struct C
 struct S
   c: C
 
-sub main
+sub main()
   s = S(c: C(n: Cell(1)))
   print(s.c.into(), s.c.into(), s.c.n.get())
 

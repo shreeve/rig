@@ -6,7 +6,7 @@ struct Tok
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   v: Vec[*Tok] = Vec()
   !v.push(*Tok(n: 1))
   t = lib.get(?v, 0)

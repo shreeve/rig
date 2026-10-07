@@ -2,7 +2,7 @@ fun f(r: ?Int, other: ?Int) -> Int
   r = other
   r
 
-sub main
+sub main()
   m = 1
   n = 2
   print(f(?m, ?n))

@@ -90,14 +90,14 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   swap(!((mkopt(0) ?? mk(6)) if c else mk(5)).arr[2], !k)
   print(k)
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = ((mkopt(0) ?? mk(6)) if c else mk(5))
@@ -105,7 +105,7 @@ sub vianame
   print(k)
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

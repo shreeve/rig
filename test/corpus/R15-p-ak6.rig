@@ -1,8 +1,10 @@
 struct View
   s: ![]Int
+
 sub two(x: ?View, y: ?View)
   t = x.s
   print(t)
+
 sub main()
   a = [0, 0]
   view = View(s: !a[..])

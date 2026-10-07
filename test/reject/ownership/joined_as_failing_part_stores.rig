@@ -12,7 +12,7 @@ fun put(v: !View, t: ?Big) -> Bool
   v.b = t
   false
 
-sub viaIf
+sub viaIf()
   x0 = Big(v: Vec())
   vw = View(b: ?x0)
   o: Big? = Big(v: Vec())
@@ -20,7 +20,7 @@ sub viaIf
     return
   print(vw.b.v.len)
 
-sub viaWhile
+sub viaWhile()
   x0 = Big(v: Vec())
   vw = View(b: ?x0)
   o: Big? = Big(v: Vec())
@@ -28,7 +28,7 @@ sub viaWhile
     return
   print(vw.b.v.len)
 
-sub main
+sub main()
   viaIf()
   viaWhile()
 

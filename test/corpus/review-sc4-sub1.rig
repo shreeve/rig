@@ -13,7 +13,7 @@ struct H
     print("get")
     self.s
 
-sub main
+sub main()
   match mk()
     .circle(r) if r > 5 => print("big")
     _ => print("other")

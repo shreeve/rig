@@ -1,4 +1,4 @@
-sub main
+sub main()
   s = *Signal(value: 1)
   cb: *sub() = *|| print("hi")
   s.subscribe(cb)

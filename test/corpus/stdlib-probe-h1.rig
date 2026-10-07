@@ -4,7 +4,7 @@ struct Text
   fun view(?self) -> []U8
     ?self.bytes[..]
 
-sub main
+sub main()
   t = Text(bytes: Vec())
   !t.bytes.push(104)
   s: String = t.view()

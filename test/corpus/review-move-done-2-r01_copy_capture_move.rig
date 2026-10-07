@@ -9,7 +9,7 @@ struct P
 fun eat(p: P) -> Int
   p.v
 
-sub main
+sub main()
   n = 3
   g = |+n| twice(<n)
   print(g(), g(), n)

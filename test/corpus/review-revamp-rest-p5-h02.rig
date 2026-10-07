@@ -2,9 +2,11 @@ struct P
   n: Int
   sub bump(!self, k: Int)
     self.n += k
+
 fun g(i: !Int) -> Int
   i += 1
   5
+
 sub main()
   ps = [P(n: 0), P(n: 0)]
   i = 0

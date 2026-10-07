@@ -4,7 +4,7 @@ struct Counter
   sub bump(!self)
     self.n += 1
 
-sub main
+sub main()
   v: Vec[Counter] = Vec()
   !v.push(Counter(n: 1))
   w = !v

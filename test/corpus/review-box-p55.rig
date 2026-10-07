@@ -4,7 +4,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   b = Box(value: 1)
   r: ?Int = ?b
   print(r + 1)

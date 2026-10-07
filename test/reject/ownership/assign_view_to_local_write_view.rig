@@ -9,7 +9,7 @@ sub element(xs: ![]Int, other: !Int)
   for x in !xs
     x = <other
 
-sub main
+sub main()
   m = 1
   n = 2
   param(!m, !n)

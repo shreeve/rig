@@ -7,7 +7,7 @@ struct H
 sub f(h: H)
   poke(h.w)
 
-sub main
+sub main()
   n = 1
   f(H(w: !n))
   print(n)

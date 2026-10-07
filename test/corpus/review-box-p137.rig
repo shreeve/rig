@@ -11,7 +11,7 @@ enum Hold
   none_
   has(e: ?Wrap)
 
-sub main
+sub main()
   b = Box(value: Wrap(v: Vec()))
   e = Ed(t: !b)
   !e.t.v.push(1)

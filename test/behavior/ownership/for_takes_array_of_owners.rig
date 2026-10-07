@@ -8,10 +8,10 @@ struct D
   drop(!self)
     print("drop", self.n)
 
-fun mk -> [2]Text
+fun mk() -> [2]Text
   [Text("a"), Text("b")]
 
-sub main
+sub main()
   a = [D(n: 1), D(n: 2), D(n: 3)]
   for d in <a
     print("got", d.n)

@@ -20,7 +20,7 @@ fun fold[T, A](xs: []T, init: A, f: ?fun(A, T) -> A) -> A
 sub apply0(f: ?sub())
   f()
 
-sub main
+sub main()
   a = [1, 2, 3]
   m = map3(?a[..], |x| x * 2)
   print(m.len, m[2])

@@ -15,7 +15,7 @@ fun mk(v: ?Vec[Int]) -> S?
 fun take(a: Vec[Int]) -> Int
   a.len
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   a: Vec[Int] = Vec()

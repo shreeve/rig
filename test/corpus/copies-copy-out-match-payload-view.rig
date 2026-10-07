@@ -10,6 +10,6 @@ fun first(e: ?E) -> P
     .one(p) => p
     .none_ => P(x: 0)
 
-sub main
+sub main()
   e = E.one(p: P(x: 4))
   print(first(?e).x)

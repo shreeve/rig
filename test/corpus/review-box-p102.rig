@@ -4,7 +4,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   b: Box[Box[R]] = Box(value: Box(value: R(n: 1)))
   c = <b.take()
   print(c.n)

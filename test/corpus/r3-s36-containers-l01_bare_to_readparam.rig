@@ -4,6 +4,6 @@ struct P
 fun get(p: ?P) -> Int
   p.x
 
-sub main
+sub main()
   p = P(x: 1)
   print(get(p))

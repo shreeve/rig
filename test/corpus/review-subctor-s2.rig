@@ -1,7 +1,10 @@
 type V = Void
+
 fun f() -> V
   print(1)
+
 fun g() -> Void?
   print(1)
-sub main
+
+sub main()
   f()

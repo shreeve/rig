@@ -2,7 +2,7 @@
 fun grab(v: ?Vec[Text?]) -> Text?
   <v[0]
 
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("a"))
   print(grab(?v))

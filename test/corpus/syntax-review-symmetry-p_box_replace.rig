@@ -1,4 +1,4 @@
-sub main
+sub main()
   b = Box(value: 1)
   old = replace(!b, Box(value: 2))
   print(<old.unbox(), <b.unbox())

@@ -1,9 +1,11 @@
 enum D
   a
   b
+
 fun max[T](a: T, b: T) -> T
   a if a > b else b
-sub main
+
+sub main()
   x = 300
   y = U8(x - 100)
   d: D = .b

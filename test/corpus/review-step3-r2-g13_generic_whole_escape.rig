@@ -11,7 +11,7 @@ fun whole[T](o: ?Opt[T]) -> ?Opt[T]
     .nothing => o
     x => ?x
 
-sub main
+sub main()
   o: Opt[Res] = .some(v: Res(n: 7, t: Text("seven")))
   x = whole(o)
   print(x)

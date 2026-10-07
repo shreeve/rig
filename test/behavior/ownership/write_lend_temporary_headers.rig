@@ -17,12 +17,12 @@ struct B
   fun opt(!self) -> Int?
     self.o
 
-fun mk -> B
+fun mk() -> B
   b = B(n: 1, items: Vec(), o: 5)
   !b.items.push(7)
   b
 
-sub main
+sub main()
   if !mk().pop() > 1
     print("if")
   while !mk().pop() < 1

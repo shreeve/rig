@@ -6,7 +6,7 @@ struct Set
     !self.items.push(k)
     true
 
-sub main
+sub main()
   set = Set(items: Vec())
   n = 0
   while !set.insert(n) != false

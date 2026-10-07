@@ -1,4 +1,5 @@
 type Sig = Signal[Int]
+
 sub main()
   s = *Sig(1)
   print(s.get())

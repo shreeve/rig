@@ -8,6 +8,6 @@ fun get(s: ?S) -> Int
 fun via(s: ?S) -> Int
   get(s)
 
-sub main
+sub main()
   x = S(n: 1, v: Vec())
   print(via(?x))

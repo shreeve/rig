@@ -1,4 +1,4 @@
-sub main
+sub main()
   bt = Box(Text("ab"))
   for b in bt
     print(b)

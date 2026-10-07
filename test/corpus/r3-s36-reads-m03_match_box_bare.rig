@@ -2,7 +2,7 @@ enum Shape
   circle(r: Int)
   poly(pts: Vec[Int])
 
-sub main
+sub main()
   pts: Vec[Int] = Vec()
   !pts.push(1)
   b = Box(Shape.poly(pts: <pts))

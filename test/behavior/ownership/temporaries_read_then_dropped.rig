@@ -17,7 +17,7 @@ enum M
 error Bad
   no
 
-fun mk -> M
+fun mk() -> M
   M.a(t: Text("in m"))
 
 fun len(s: String) -> Int
@@ -39,7 +39,7 @@ fun early(o: Int?) -> Int
   print(Noisy(id: 9), o ?? return -1)
   1
 
-sub main
+sub main()
   n = 3
   print(Text("parsed ", n))
   print(len(?Text("a", n)), tlen(?Text("bc")))

@@ -19,7 +19,7 @@ fun get(e: ?E) -> ?E
 fun getb(b: ?Box[E], n: Int) -> ?Box[E]
   b
 
-sub main
+sub main()
   e = E.a(c: Counter(hits: Cell(1)))
   match get(e)
     .a(c) if c.hits.get() > 0 => c.hit()

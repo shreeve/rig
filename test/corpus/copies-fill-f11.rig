@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[?Int] = Vec()
   n = 3
   m = 4

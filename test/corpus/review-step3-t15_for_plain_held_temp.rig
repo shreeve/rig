@@ -4,6 +4,6 @@ struct H
 fun mkh(s: String) -> H
   H(arr: [s.len, 2])
 
-sub main
+sub main()
   for k in mkh(?Text("abc")).arr
     print("k", k)

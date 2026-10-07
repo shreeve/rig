@@ -109,7 +109,7 @@ struct K3
 fun f2(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   c = f(1) == 1
   print(incr(!(mkf(0) catch mk(8)).kk.n))
   print("--- end", c)

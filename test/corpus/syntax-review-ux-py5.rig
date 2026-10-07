@@ -1,4 +1,4 @@
-sub main
+sub main()
   line = "ada,36,london"
   parts = line.split(",")
   print(parts)

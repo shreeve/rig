@@ -11,6 +11,6 @@ struct Random
   fun below(!self, n: U64) -> U64
     !self.next() % n
 
-sub main
+sub main()
   r = Random(s: 42)
   print(!r.below(100), !r.below(100))

@@ -1,7 +1,7 @@
 fun size(s: String) -> Int
   s.len
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   n = for x in ?v

@@ -3,5 +3,5 @@ fun inc(n: Int) -> Int
 
 f = inc
 
-sub main
+sub main()
   print(f(1))

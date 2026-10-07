@@ -1,7 +1,7 @@
 # `get` on a String or an array only reads its receiver, so a `!` or a
 # `<` before the receiver is rejected, as for a Vec.
 
-sub main
+sub main()
   s = "hello"
   a = [1, 2, 3]
   print(!s.get(4))

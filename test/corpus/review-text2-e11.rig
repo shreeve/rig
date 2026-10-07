@@ -1,4 +1,4 @@
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   cv: *Cell[Vec[String]] = *Cell(Vec())
   keep = +cv

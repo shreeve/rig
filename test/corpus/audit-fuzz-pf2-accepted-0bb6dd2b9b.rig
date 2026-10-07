@@ -21,8 +21,9 @@ fun again(s: !Set, k: Int) -> Bool
 fun fill(s: !Set) -> Int!
   added = (!s).checked(3)!
   1 if added else 0
+
 # 1
-sub main
+sub main()
   set = Set(items: Vec())
   fresh = (!set).insert(1)
   print(fresh)

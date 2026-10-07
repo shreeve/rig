@@ -90,20 +90,20 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   !mk(1).items.push(1)
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = mk(1)
   !tt.items.push(1)
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

@@ -1,4 +1,4 @@
-sub main
+sub main()
   x: Vec[Int] = Vec()
   if true
     v: Vec[Int] = Vec()

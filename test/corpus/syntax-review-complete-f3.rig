@@ -1,6 +1,6 @@
 extern fun putchar(c: I32) -> I32
 
-sub main
+sub main()
   b: [3]U8 = [104, 105, 10]
   for c in b
     raw

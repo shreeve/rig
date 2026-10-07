@@ -2,7 +2,7 @@ struct Q
   p: Int
   o: Int?
 
-sub main
+sub main()
   a = 1
   w = !a
   q = Q(p: w, o: w)

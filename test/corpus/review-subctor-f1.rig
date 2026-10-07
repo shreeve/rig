@@ -17,7 +17,7 @@ fun get(n: Int) -> Int!
   return Bad.neg if n < 0
   n
 
-sub main
+sub main()
   a = Wrap(Wrap(1))
   print(a)
   o = Outer(Inner(2))

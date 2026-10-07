@@ -2,7 +2,7 @@
 # before the step reads it. (Textual liveness may over-reject.)
 #
 # oracle: main accept
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   s = ?v[..]

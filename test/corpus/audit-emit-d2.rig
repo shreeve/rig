@@ -19,7 +19,7 @@ fun mk(k: Int) -> Msg
 sub take(r: R)
   print("took", r.name)
 
-sub main
+sub main()
   for k in 0..4
     m = mk(k)
     match <m

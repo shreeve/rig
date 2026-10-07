@@ -1,6 +1,6 @@
 fun f(t: []Int) -> ![]Int
   !t
 
-sub main
+sub main()
   a = [1]
   print(f(?a[..]))

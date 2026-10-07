@@ -3,7 +3,7 @@ fun digits(n: Int, out: !Vec[U8])
     digits(n / 10, out)
   out.push(U8(n % 10) + 48)
 
-sub main
+sub main()
   v: Vec[U8] = Vec()
   digits(1234, !v)
   for b in v

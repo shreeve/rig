@@ -16,7 +16,7 @@ fun total(xs: []Int) -> Int
 fun rest(s: ![]Int) -> ![]Int
   !s[1..]
 
-sub main
+sub main()
   a = [1, 2, 3, 4]
   zero(!a[0..2])
   print(a)

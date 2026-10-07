@@ -11,7 +11,7 @@ fun f(a: !Holder, b: []Int, c: !Vec[Int]) -> Int
     !c.push(i)
   t[0] + b.len
 
-sub main
+sub main()
   x = [9, 9]
   v: Vec[Int] = Vec()
   !v.push(1)

@@ -15,7 +15,7 @@ fun mko(t: String) -> String?
 fun mka(t: String) -> [2]String
   [t, t]
 
-sub main
+sub main()
   match mkf(?Text("a text long enough to live on the heap"))
     .a(s) => print(s)
     .b => print("b")

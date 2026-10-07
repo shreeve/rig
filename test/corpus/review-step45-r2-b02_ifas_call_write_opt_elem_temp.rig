@@ -2,7 +2,7 @@
 fun getw(v: !Vec[Text?], s: String) -> !Text?
   !v[s.len - 1]
 
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("q"))
   if getw(!v, ?Text("a")) as t

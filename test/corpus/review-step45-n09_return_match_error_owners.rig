@@ -11,7 +11,7 @@ fun f(k: Int) -> Text!
     1 => Text("one")
     _ => <held
 
-sub main
+sub main()
   print(f(0) catch Text("caught"))
   print(f(1) catch Text("caught"))
   print(f(2) catch Text("caught"))

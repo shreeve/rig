@@ -7,7 +7,7 @@ sub each(f: ?sub(Int))
 fun double(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   k = 2
   f = |+k, a: Int| a * k
   print(apply(f, 1))

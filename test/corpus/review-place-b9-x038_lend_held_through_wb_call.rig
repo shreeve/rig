@@ -7,7 +7,7 @@ sub poke(w: !Int)
 fun mk(h: !H) -> !H
   <h
 
-sub main
+sub main()
   n = 1
   h = H(w: !n)
   poke(!mk(!h).w)

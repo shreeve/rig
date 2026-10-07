@@ -5,7 +5,7 @@ struct Pair
 fun mk(a: ?Vec[Int], b: ?Vec[Int]) -> Pair
   Pair(a: a, b: b)
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   p = mk(?x, ?y)

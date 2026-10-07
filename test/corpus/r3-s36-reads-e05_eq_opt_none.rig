@@ -1,7 +1,7 @@
 struct S
   v: Vec[Int]
 
-sub main
+sub main()
   o: S? = S(v: Vec())
   print(o == none)
   if ?o as x

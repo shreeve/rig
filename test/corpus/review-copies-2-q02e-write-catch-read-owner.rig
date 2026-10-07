@@ -8,7 +8,7 @@ fun wget(w: !P, ok: Bool) -> (!P)!
   return Bad.oops if not ok
   w
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   w = wget(!b, false) catch !a

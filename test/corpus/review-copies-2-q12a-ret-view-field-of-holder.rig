@@ -14,7 +14,6 @@ struct W
 struct WI
   w: !Int
 
-
 fun f(q: ?Q, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   q.r
@@ -23,7 +22,7 @@ fun g(q: Q, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   q.r
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   q = Q(r: ?a, n: 0)

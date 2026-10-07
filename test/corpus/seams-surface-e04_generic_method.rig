@@ -6,6 +6,6 @@ struct P
 fun keyof[T](a: ?T) -> Int
   a.key()
 
-sub main
+sub main()
   p = P(x: 1)
   print(keyof(?p))

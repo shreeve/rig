@@ -21,7 +21,7 @@ fun show(o: N?) -> Int?
   print(o?.id)
   1
 
-sub main
+sub main()
   a = mk(1)
   c = true
   print(a if c else mk(2))

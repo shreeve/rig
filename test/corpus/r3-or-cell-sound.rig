@@ -22,6 +22,6 @@ sub by_value()
   n = 9
   print(d.get(), n)
 
-sub main
+sub main()
   owners()
   by_value()

@@ -7,7 +7,7 @@ struct Tok
 struct P
   toks: []Tok
 
-sub main
+sub main()
   a = [Tok(kind: 1), Tok(kind: 2)]
   p = P(toks: ?a[..])
   t = ?p.toks[0]

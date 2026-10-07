@@ -1,6 +1,6 @@
 sub plain(n: Int)
   print("plain", n)
 
-sub main
+sub main()
   h: sub(Int)! = plain
   h(1)!

@@ -7,7 +7,7 @@
 #   filter      only run tests whose id contains one of these substrings;
 #               ids look like behavior/ownership/move_into_fn, known/emit/...,
 #               reject/types/..., examples/hello, ir/..., torture/..., cli/..., unit,
-#               parser, classify, vocab, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
+#               parser, classify, vocab, style, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
 #               oracle/corpus (the reference ownership checker over a set).
 #               A bare kind name (`known`, `doc`, ...) selects that kind.
 #   -v          also list passing and known-failing tests
@@ -17,7 +17,7 @@
 #               with no filter does first, and exit
 #   --shard I/N run only the selected tests whose id hashes to shard I
 #               of N (1 <= I <= N); shard 1 also runs the whole-program
-#               checks (unit, parser, classify, vocab)
+#               checks (unit, parser, classify, vocab, style)
 #
 # Environment: ZIG (the Zig executable), NEXUS (the Nexus executable),
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
@@ -641,7 +641,7 @@ fi
 export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE
 
 is_kind() {
-    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|classify|vocab|doc|corpus|oracle) return 0 ;; esac
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|classify|vocab|style|doc|corpus|oracle) return 0 ;; esac
     return 1
 }
 
@@ -713,7 +713,7 @@ select_tests() { # select_tests <file> → the selected lines of it
         BEGIN {
             for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i
             split(ENVIRON["FILTER_LIST"], filter, "\n")
-            split("behavior reject known examples ir torture cli unit parser classify vocab doc corpus oracle", ks, " ")
+            split("behavior reject known examples ir torture cli unit parser classify vocab style doc corpus oracle", ks, " ")
             for (k in ks) kinds[ks[k]] = 1
         }
         function selected(id,    i, f) {
@@ -1003,6 +1003,100 @@ if selected vocab; then
     fi
 fi
 
+# Style: the Rig in test/ (but test/torture/, malformed on purpose),
+# examples/, std/, and the docs' ```rig blocks is written one way. A
+# definition writes its parameter list (`sub main()`; the compiler
+# rejects the other form, except where a doc block is only parsed); one
+# blank line goes between top-level declarations, but one-line ones
+# (`use`, constants, `extern`, `type`) may stand together; no two blank
+# lines run together; a file or block neither starts nor ends with a
+# blank line, and a file ends with a newline; and no line of code ends
+# in spaces. A file or block that tests the definition rule's own
+# diagnostic may break it.
+if selected style; then
+    git ls-files --cached --others --exclude-standard >"$WORK/style.files" && [[ -s "$WORK/style.files" ]] ||
+        echo "test/run: git ls-files listed no files to read" >"$WORK/style.files.err"
+    sort -u "$WORK/style.files" | perl -e '
+        my @bad;
+        my $decl = qr/^(?:pub\s+)?(?:(?:fun|sub|struct|enum|error|type|test|use|extern|const)\b|[A-Za-z_]\w*\s*(?::[^=]*)?=(?!=))/;
+        sub code { my $l = shift; $l =~ s/("(?:[^"\\]|\\.)*"?|\x27(?:[^\x27]|\x27\x27)*\x27?|#.*)//g; $l }
+        # check(path, number of the first line, whether it tests the
+        # definition rule, lines...)
+        sub check {
+            my ($path, $base, $own, @l) = @_;
+            my $at = sub { push @bad, "$path:" . ($base + $_[0]) . ": $_[1]" };
+            $at->(0, "a blank first line") if @l && $l[0] =~ /^\s*$/;
+            $at->($#l, "a blank last line") if @l > 1 && $l[-1] =~ /^\s*$/;
+            my ($depth, $cont, @items) = (0, 0);
+            for my $i (0 .. $#l) {
+                my $line = $l[$i];
+                $at->($i, "trailing spaces") if $line =~ /[ \t]$/ && $line !~ /^\s*#/;
+                $at->($i, "two blank lines in a row") if $i && $line =~ /^\s*$/ && $l[$i - 1] =~ /^\s*$/;
+                my $c = code($line);
+                $c =~ s/^\x{feff}// if $i == 0;
+                if (!$own && $c =~ /^\s*(?:pub\s+)?(?:extern\s+)?((?:fun|sub)\s+\w+)\s*(\[[^\]]*\])?\s*(?:->|!|$)/) {
+                    $at->($i, "write the parameter list, even when empty: `$1" . ($2 // "") . "()`");
+                }
+                next if $c =~ /^\s*$/;
+                if ($depth == 0 && !$cont && $c =~ /^\S/) {
+                    push @items, [$i, $i, $c =~ $decl ? 1 : 0];
+                } elsif (@items) {
+                    $items[-1][1] = $i;
+                }
+                $depth += () = $c =~ /[\(\[]/g;
+                $depth -= () = $c =~ /[\)\]]/g;
+                $depth = 0 if $depth < 0;
+                $cont = $c =~ /\\\s*$/ ? 1 : 0;
+            }
+            for my $k (1 .. $#items) {
+                my ($a, $b) = ($items[$k - 1], $items[$k]);
+                next unless $a->[2] && $b->[2] && ($a->[1] > $a->[0] || $b->[1] > $b->[0]);
+                next if grep { $l[$_] =~ /^\s*$/ } $a->[1] + 1 .. $b->[0] - 1;
+                $at->($b->[0], "a blank line goes between top-level declarations");
+            }
+        }
+        binmode(STDOUT, ":utf8");
+        while (my $path = <STDIN>) {
+            chomp $path;
+            next unless -f $path;
+            my $rig = $path =~ m{^(?:test/(?!torture/)|examples/|std/).*\.rig$};
+            my $md = $path =~ /\.md$/;
+            next unless $rig || $md;
+            open(my $fh, "<:utf8", $path) or next;
+            my $text = do { local $/; <$fh> };
+            if ($rig) {
+                push @bad, "$path: no newline at the end" if length($text) && $text !~ /\n\z/;
+                my @l = split(/\n/, $text, -1);
+                pop @l if @l && $l[-1] eq "";
+                check($path, 1, scalar(grep { /parameter list is always written/ } @l), @l);
+                next;
+            }
+            my @l = split(/\n/, $text, -1);
+            for (my $i = 0; $i < @l; $i++) {
+                next unless $l[$i] =~ /^```rig(?:[ \t].*)?$/;
+                my $j = $i + 1;
+                $j++ while $j < @l && $l[$j] ne "```";
+                my $k = $j + 1;
+                $k++ while $k < @l && $l[$k] =~ /^\s*$/;
+                my @errors;
+                if ($k < @l && $l[$k] =~ /^```error/) {
+                    for ($k++; $k < @l && $l[$k] ne "```"; $k++) { push @errors, $l[$k] }
+                }
+                check($path, $i + 2, scalar(grep { /parameter list is always written/ } @errors), @l[$i + 1 .. $j - 1]);
+                $i = $j;
+            }
+        }
+        print "$_\n" for @bad;
+    ' >"$WORK/style" || echo "test/run: the style check failed" >>"$WORK/style"
+    [[ -f "$WORK/style.files.err" ]] && cat "$WORK/style.files.err" >>"$WORK/style"
+    if [[ -s "$WORK/style" ]]; then
+        cp "$WORK/style" "$RESULTS/log/style"
+        printf 'fail\tstyle\t%s (%s in all)\n' "$(head -1 "$WORK/style")" "$(wc -l <"$WORK/style" | tr -d ' ')" >"$RESULTS/st/style"
+    else
+        printf 'pass\tstyle\t\n' >"$RESULTS/st/style"
+    fi
+fi
+
 # The oracle's sets run bin/rig-oracle.
 if grep -q '^oracle/' "$LIST" && ! "$ZIG" build oracle 2>&1; then
     printf '%sbuild of bin/rig-oracle failed%s\n' "$R" "$X"
@@ -1010,7 +1104,7 @@ if grep -q '^oracle/' "$LIST" && ! "$ZIG" build oracle 2>&1; then
 fi
 
 TOTAL=$(wc -l <"$LIST" | tr -d ' ')
-if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser && ! selected classify && ! selected vocab; then
+if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser && ! selected classify && ! selected vocab && ! selected style; then
     # Only kinds named (`./test/run known`) is not a mistyped filter: a
     # kind can be empty, as test/known/ is when no bug is open.
     for f in "${FILTERS[@]}"; do is_kind "$f" || { echo "no test matches ${FILTERS[*]}" >&2; exit 2; }; done

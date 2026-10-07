@@ -8,7 +8,7 @@ fun len(l: ?List) -> Int
     .nil => 0
     .cons(_, t) => 1 + len(?t)
 
-sub main
+sub main()
   l = List.cons(head: Text("a"), tail: Box(List.cons(head: Text("b"), tail: Box(List.nil))))
   c = +l
   -l

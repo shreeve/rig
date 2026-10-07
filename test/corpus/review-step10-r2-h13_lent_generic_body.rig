@@ -26,7 +26,7 @@ fun pq(q: ?Q, n: Int) -> ?Q from q
 fun viaview(v: ?Vec[Int]) -> []Int from v
   sl(n: g(1), s: v)
 
-sub main
+sub main()
   print(outer(5, ?g(6)))
   print(outer([1, 2], ?[3, 4]))
   v: Vec[Int] = Vec()

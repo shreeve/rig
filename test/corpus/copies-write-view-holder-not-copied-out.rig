@@ -4,7 +4,7 @@ struct S
 fun get(p: ?S) -> S
   p
 
-sub main
+sub main()
   n = 1
   s = S(w: !n)
   t = get(?s)

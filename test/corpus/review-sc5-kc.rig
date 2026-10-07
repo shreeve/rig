@@ -1,7 +1,9 @@
 LIMIT = 4
 NAMES = ["a"]
+
 sub bump(x: !Int)
   x += 1
+
 sub main()
   bump(!LIMIT)
   n = <NAMES

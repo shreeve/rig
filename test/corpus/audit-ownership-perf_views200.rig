@@ -4,7 +4,7 @@ struct Tok
 struct V
   b: ?Tok
 
-sub main
+sub main()
   x = Tok(n: 1)
   v0 = V(b: ?x)
   v1 = V(b: ?x)

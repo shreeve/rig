@@ -26,5 +26,5 @@ fun mk(n: Int) -> S
 sub take(v: Vec[Int])
   print(v)
 
-sub main
+sub main()
   take(<!mk(1).items)

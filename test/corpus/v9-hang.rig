@@ -24,7 +24,9 @@ const C22 = C21 + C21 - C21
 const C23 = C22 + C22 - C22
 const C24 = C23 + C23 - C23
 const C25 = C24 + C24 - C24
+
 fun f(xs: [C25]Int) -> Int
   xs[0]
-sub main
+
+sub main()
   print(f([5]))

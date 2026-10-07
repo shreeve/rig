@@ -1,7 +1,7 @@
 struct Wrap
   n: Int
 
-sub main
+sub main()
   c = Wrap(n: 0)
   add = |!c|
     c.n += 1

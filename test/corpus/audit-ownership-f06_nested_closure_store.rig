@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 struct View
   b: ?Tok
 
-sub main
+sub main()
   x = Tok(n: 1)
   vw = View(b: ?x)
   f = |!vw|

@@ -5,7 +5,7 @@ struct Node
 sub push(list: !Box[Node]?, key: Int)
   list = Box(value: Node(key: key, next: <list))
 
-sub main
+sub main()
   l: Box[Node]? = none
   push(!l, 1)
   push(!l, 2)

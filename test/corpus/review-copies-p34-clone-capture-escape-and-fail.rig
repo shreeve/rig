@@ -25,7 +25,7 @@ fun run(n: Int) -> Int!
   k = risky(n)!
   f() + k
 
-sub main
+sub main()
   ts: Vec[Text] = Vec()
   !ts.push(Text("hello"))
   g = mk(?ts)

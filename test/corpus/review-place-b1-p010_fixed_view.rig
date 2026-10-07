@@ -4,6 +4,6 @@ struct P
 sub g(p: !P)
   p.x = 3
 
-sub main
+sub main()
   const p = P(x: 1)
   g(!p)

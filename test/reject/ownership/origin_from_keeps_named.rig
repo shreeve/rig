@@ -8,7 +8,7 @@ fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
 fun apply(f: ?fun(?Vec[Int], ?Vec[Int]) -> ?Vec[Int], a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
   f(a, b)
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = first(?x, ?y)

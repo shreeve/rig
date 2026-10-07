@@ -1,7 +1,7 @@
 struct Node
   id: Int
 
-sub main
+sub main()
   hs: Vec[*fun(Int) -> Int] = Vec()
   !hs.push(*|x| x * 10)
   for h in ?hs

@@ -2,7 +2,7 @@ fun grow(v: !Vec[Text]) -> Int
   !v.push(Text("z"))
   1
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   print(v[0], grow(!v))

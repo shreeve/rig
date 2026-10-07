@@ -4,7 +4,7 @@ struct S
   r: Vec[Int]
   n: Int
 
-sub main
+sub main()
   s = S(r: Vec(), n: 1)
   v = [1, 2]
   -s.r

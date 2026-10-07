@@ -2,7 +2,7 @@
 struct Bag
   items: Vec[String]
 
-sub main
+sub main()
   t = Text("x")
   b = Bag(items: Vec())
   !b.items.push(?t)

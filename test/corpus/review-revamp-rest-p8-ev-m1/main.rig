@@ -1,6 +1,8 @@
 use lib
+
 enum E
   a = lib.K
   b
+
 sub main()
   print(Int(E.a))

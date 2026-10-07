@@ -3,5 +3,5 @@ fun inc(n: Int) -> Int
 
 F: fun(Int) -> Int = inc
 
-sub main
+sub main()
   print(F(1))

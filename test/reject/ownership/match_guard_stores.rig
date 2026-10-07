@@ -16,7 +16,7 @@ fun put(v: !View, t: ?Big) -> Bool
   v.b = t
   false
 
-sub payload
+sub payload()
   x0 = Big(v: Vec())
   vw = View(b: ?x0)
   o: O = .some(x: Big(v: Vec()))
@@ -35,7 +35,7 @@ sub outer(n: Int)
   y = Big(v: Vec())
   print(vw.b.v.len, y.v.len)
 
-sub main
+sub main()
   payload()
   outer(3)
 

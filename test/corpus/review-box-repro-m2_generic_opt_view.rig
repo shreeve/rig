@@ -10,6 +10,6 @@ fun has[T](o: ?T?) -> Bool
   else
     false
 
-sub main
+sub main()
   r: R? = R(n: 1)
   print(has(?r))

@@ -16,7 +16,7 @@ struct Parser
     self.pos += 1
     t
 
-sub main
+sub main()
   ts = [Tok(kind: 1, start: 0), Tok(kind: 2, start: 3)]
   p = Parser(toks: ?ts[..], scratch: Vec(), pos: 0)
   a = !p.next()

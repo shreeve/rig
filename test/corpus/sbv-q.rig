@@ -11,7 +11,8 @@ sub qsort(xs: ![]Int)
   !xs.swap(i, xs.len - 1)
   qsort(!xs[..i])
   qsort(!xs[i + 1..])
-sub main
+
+sub main()
   a = [5, 3, 9, 1, 7, 2, 8]
   qsort(!a[..])
   page: [64]U8 = [64 of 0]

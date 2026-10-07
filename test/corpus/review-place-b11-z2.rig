@@ -1,4 +1,4 @@
-sub main
+sub main()
   c: Cell[Vec[String]] = Cell(Vec())
   c.push("a")
   (<c).clear()

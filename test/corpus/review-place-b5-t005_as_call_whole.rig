@@ -1,7 +1,7 @@
 fun mk() -> String?
   "a"
 
-sub main
+sub main()
   if mk() as s
     s = "b"
     print(s)

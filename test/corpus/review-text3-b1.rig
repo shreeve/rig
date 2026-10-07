@@ -14,7 +14,7 @@ fun mk(s: String) -> M
 sub take(n: N)
   print("took", n.id)
 
-sub main
+sub main()
   t = Text("hello")
   match mk(?t[..])
     .a(n, s) => take(<n)

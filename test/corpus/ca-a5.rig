@@ -2,7 +2,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
-sub main
+sub main()
   c: Vec[Int] = Vec()
   !c.push(1)
   f = |!c, n: Int|

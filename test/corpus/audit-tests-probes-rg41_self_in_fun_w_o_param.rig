@@ -1,8 +1,8 @@
 struct P
   x: Int
 
-  fun get -> Int
+  fun get() -> Int
     self.x
 
-sub main
+sub main()
   print(P(x: 1).get())

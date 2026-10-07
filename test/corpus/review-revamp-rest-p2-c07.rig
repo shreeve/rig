@@ -1,5 +1,6 @@
 enum E
   a = Int.max
   b
+
 sub main()
   print(Int(E.a), Int(E.b))

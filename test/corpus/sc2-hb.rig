@@ -1,7 +1,7 @@
 fun f(x: *(?Int)) -> Int
   1
 
-sub main
+sub main()
   y = 3
   h = *(?y)
   print(f(<h))

@@ -11,7 +11,7 @@ struct N
   drop(!self)
     print("drop", self.id)
 
-fun mk -> N
+fun mk() -> N
   N(id: 9, t: Text("m"))
 
 error E
@@ -39,7 +39,7 @@ fun k(o: (N?)?) -> Int?
   print(o? ?? N(id: 5, t: Text("e")))
   1
 
-sub main
+sub main()
   oa: N? = N(id: 1, t: Text("a"))
   ob: N? = N(id: 2, t: Text("b"))
   c = true

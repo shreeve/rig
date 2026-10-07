@@ -30,7 +30,7 @@ fun next(i: !Int) -> Int
 sub viaSideIndex(v: ?Vec[C], i: !Int)
   v[next(!i)].c.set(6)
 
-sub main
+sub main()
   o: Vec[C?] = Vec()
   !o.push(C(c: Cell(0)))
   viaIfAs(?o)

@@ -88,7 +88,7 @@ fun get_or_add(b: !Bag) -> ?Item
   b.items[0] = Item(n: 7)
   ?b.items[0]
 
-sub main
+sub main()
   b = Bag(items: [4 of Item(n: 0)])
   r = get_or_add(!b)
   print(r.n)

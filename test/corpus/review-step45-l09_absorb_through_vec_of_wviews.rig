@@ -1,5 +1,5 @@
 # store a view through a write view held in a Vec; the target must keep the loan
-sub main
+sub main()
   inner: Vec[String] = Vec()
   w: Vec[!Vec[String]] = Vec()
   !w.push(!inner)

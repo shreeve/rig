@@ -1,4 +1,4 @@
-sub main
+sub main()
   o: Int? = 4
   k = 0
   while ?o as x : print(x)

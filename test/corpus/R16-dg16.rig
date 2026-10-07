@@ -1,7 +1,7 @@
 fun run(f: ?fun(Int) -> Int) -> Int
   f(1)
 
-sub main
+sub main()
   g: fun(Int) -> Int = run2
   print(1)
 

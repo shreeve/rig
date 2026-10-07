@@ -6,8 +6,8 @@ struct S
     self.n += 1
     self.n
 
-fun mk -> S
+fun mk() -> S
   S(n: 1)
 
-sub main
+sub main()
   print(mk().next())

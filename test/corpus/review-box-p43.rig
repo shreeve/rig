@@ -9,5 +9,5 @@ fun mk() -> Int
   b = wrap(?p)
   3
 
-sub main
+sub main()
   print(mk())

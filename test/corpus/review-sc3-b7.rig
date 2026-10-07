@@ -1,7 +1,7 @@
 struct Res
   v: Vec[Int]
 
-sub main
+sub main()
   o: Res? = Res(v: Vec())
   if ?o as x and !o as y
     !y.v.push(1)

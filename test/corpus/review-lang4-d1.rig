@@ -10,7 +10,7 @@ struct H
 struct O
   h: H
 
-sub main
+sub main()
   r = R(id: 1)
   h = H(w: !r)
   h.w = R(id: 2)

@@ -6,7 +6,7 @@ sub f(w: !Int, other: !Int)
 sub g(xs: ![]Int, ys: ![]Int)
   xs = <ys
 
-sub main
+sub main()
   print(1)
 
 # error: 4:7: cannot point parameter `w` at another place: parameters are immutable, and `w = v` writes the value it views

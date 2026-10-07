@@ -24,10 +24,10 @@ fun either(a: ?Text, b: ?Text, c: Bool) -> Bool
 fun f(s: String, c: Bool) -> Int
   ("b" if c else s).len
 
-fun mkt -> Text
+fun mkt() -> Text
   Text("made")
 
-sub main
+sub main()
   s = S(t: Text("aa"))
   print(s.get() == "x", s.get() == s.get(), mkt() == s.get())
   print(g(?s.t))

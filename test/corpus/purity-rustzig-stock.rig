@@ -44,7 +44,7 @@ fun ship(stock: !Stock, name: String, qty: String) -> Int!
   n = parse_qty(qty)!
   !stock.take(name, n)!
 
-sub main
+sub main()
   s = Stock(items: Vec())
   !s.add("bolt", 10)
   !s.add("nut", 3)

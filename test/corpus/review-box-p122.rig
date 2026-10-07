@@ -17,7 +17,7 @@ fun rd(o: ?P?) -> Int
   else
     0
 
-sub main
+sub main()
   a: Int? = 1
   inc(!a)
   if !a as v

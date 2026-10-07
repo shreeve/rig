@@ -9,7 +9,7 @@ struct Set
 sub show(b: Bool)
   print("show", b)
 
-sub main
+sub main()
   s = Set(items: Vec())
   match !s.insert(1)
     true => print("C reader: not inserted?")

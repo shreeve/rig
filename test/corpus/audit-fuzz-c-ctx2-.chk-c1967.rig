@@ -49,10 +49,10 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t1967
+sub t1967()
   acc1967: F32 = id_f32((-1.5))
   acc1967 += gid((-1.5))
   print(acc1967)
 
-sub main
+sub main()
   t1967()

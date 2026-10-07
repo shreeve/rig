@@ -35,7 +35,7 @@ sub edit(t: !Tree)
       edit(!r)
     _ => print("x")
 
-sub main
+sub main()
   t: Tree = .node(l: Box(Tree.leaf(b: *B(n: 3))), r: Box(Tree.leaf(b: *B(n: 4))))
   print(count(?t))
   edit(!t)

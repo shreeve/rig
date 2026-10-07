@@ -4,7 +4,7 @@ fun rd(x: ?Int) -> Int
 sub wr(x: !Int)
   x = 7
 
-sub main
+sub main()
   b = Box(value: 5)
   print(rd(?b))
   wr(!b)

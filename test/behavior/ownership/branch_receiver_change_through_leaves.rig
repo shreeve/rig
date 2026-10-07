@@ -45,7 +45,7 @@ fun fails(b: Bool) -> H!
 fun first(o: H?) -> Int?
   o?.q.bump()
 
-sub main
+sub main()
   h1 = mkh(1)
   h2 = mkh(10)
   c = g(1) == 1

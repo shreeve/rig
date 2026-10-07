@@ -23,7 +23,7 @@ struct Stack
       prev = <n
     self.top = <prev
 
-sub main
+sub main()
   s = Stack(top: none)
   i = 0
   while i < 300000 : i += 1

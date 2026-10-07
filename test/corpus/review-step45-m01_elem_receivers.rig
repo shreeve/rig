@@ -16,7 +16,7 @@ fun size(v: ?Vec[Int]) -> Int
 fun nm(s: String) -> Int
   s.len
 
-sub main
+sub main()
   rs: Vec[Rec] = Vec()
   !rs.push(Rec(name: Text("a"), n: 1))
   !rs.push(Rec(name: Text("bb"), n: 2))

@@ -32,7 +32,7 @@ fun id_float(x
   : Float) -> Float
   x
 
-sub main
+sub main()
   print("before")
   x: I32 = id_i32(163) * 13174747
   print("after", x)

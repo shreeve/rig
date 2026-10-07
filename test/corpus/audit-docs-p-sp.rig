@@ -1,5 +1,6 @@
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
-sub main
+
+sub main()
   show [3]()
   b: []U8 = "hi".bytes

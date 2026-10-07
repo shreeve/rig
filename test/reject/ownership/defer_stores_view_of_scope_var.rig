@@ -1,7 +1,7 @@
 # A `defer` body runs when its scope exits: a view it stores outside
 # the scope, of a var the scope drops, does not live long enough.
 
-sub main
+sub main()
   e: Vec[Int] = Vec()
   s = ?e[..]
   if true

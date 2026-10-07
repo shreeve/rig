@@ -4,5 +4,5 @@ error Bad
 sub f(n: Int)
   return Bad.neg if n > 0
 
-sub main
+sub main()
   f(1)

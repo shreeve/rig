@@ -17,13 +17,13 @@ fun pick2(c: Bool) -> Res
   b = Res(n: 4)
   a if c else b
 
-fun loopy -> Res
+fun loopy() -> Res
   a = Res(n: 5)
   r = while true
     break <a
   r
 
-sub main
+sub main()
   x = pick(true)
   y = pick2(false)
   z = loopy()

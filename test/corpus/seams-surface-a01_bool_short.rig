@@ -7,7 +7,7 @@ struct Set
     !self.items.push(k)
     true
 
-sub main
+sub main()
   s = Set(items: Vec())
   dup = (!s).insert(1)
   print("dup?", dup, (!s).insert(1))

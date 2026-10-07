@@ -5,7 +5,7 @@ pub struct Pair[A, B]
   a: A
   b: B
 
-pub fun big[n: Int] -> Int
+pub fun big[n: Int]() -> Int
   a = [0; n]
   b = [0; n]
   a.len + b.len

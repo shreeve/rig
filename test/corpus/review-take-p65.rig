@@ -8,7 +8,7 @@ struct W[T]
   sub flip(!self)
     swap(!self.x, !self.y)
 
-sub main
+sub main()
   w = W[Int](x: 1, y: 2)
   o = !w.put(5)
   !w.flip()

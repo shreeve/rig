@@ -9,7 +9,7 @@ struct Q
   p: P
   o: P?
 
-sub main
+sub main()
   if ?Q(p: P(c: Cell(1)), o: P(c: Cell(2))).o as p
     p.c.set(20)
     print(p.c.get())
