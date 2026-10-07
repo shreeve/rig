@@ -82,6 +82,10 @@ sub main
 - `# errors: <n>` — the check must report exactly `n` errors (notes
   aside), so a cascade of follow-on errors fails the test. Use it where
   one mistake should get one error.
+- `# release` — a behavior test is also built with `--release` (Zig's
+  safe optimized mode) and must pass the same way: exit 0 (or the
+  expected panic) and print the `# expect:` block. Use it where the
+  optimizer may treat the emitted Zig differently from a debug build.
 - `# timeout: <seconds>` — raises this test's time limit above
   `RIG_TEST_TIMEOUT`, for a behavior test or CLI script that builds
   programs slowly when Zig's cache is cold.

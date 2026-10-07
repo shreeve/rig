@@ -86,14 +86,16 @@ directive() { # directive <name> <file>  → all values of `# name: value`
 
 has_expect_block() { grep -qE '^# expect:[[:space:]]*$' "$1"; }
 
-# run_program <entry> <outdir>: `rig run` the program under the time
-# limit, its stdout and stderr in <outdir>.stdout and .stderr; sets RC.
+# run_program <entry> <outdir> [flag...]: `rig run [flag...]` the program
+# under the time limit, its stdout and stderr in <outdir>.stdout and
+# .stderr; sets RC.
 # rig creates $STARTED (RIG_RUN_STARTED) once the program has started:
 # the positive evidence a test needs that it ran. $STARTED is the test's
 # own path in this run's private results directory, where no test's
 # output can sit, cleared before the run.
 run_program() {
     local entry=$1 outdir=$2
+    shift 2
     mkdir -p "$outdir"
     rm -f "$STARTED"
     if [[ -e "$STARTED" ]]; then
@@ -101,7 +103,7 @@ run_program() {
         return
     fi
     # The braces keep bash's own "Abort trap" job notice out of the output.
-    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" RIG_RUN_STARTED="$STARTED" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
+    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" RIG_RUN_STARTED="$STARTED" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$@" "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
     RC=$?
 }
 
@@ -117,11 +119,26 @@ not_run() {
     return 0
 }
 
-# check_behavior <entry> <outdir> <logfile> → sets REASON, returns 0 on pass
+# check_behavior <entry> <outdir> <logfile> → sets REASON, returns 0 on pass.
+# A test with a `# release` line is also built with `--release` and must
+# pass the same way.
 check_behavior() {
     local entry=$1 outdir=$2 log=$3
+    check_output "$entry" "$outdir" "$log" || return 1
+    grep -qE '^# release[[:space:]]*$' "$entry" || return 0
+    check_output "$entry" "$outdir/release" "$log.release" --release && return 0
+    REASON="--release: $REASON"
+    { echo "=== --release"; cat "$log.release"; } >>"$log"
+    return 1
+}
+
+# check_output <entry> <outdir> <logfile> [flag...]: one `rig run` of a
+# behavior test, with its flags; sets REASON, returns 0 on pass.
+check_output() {
+    local entry=$1 outdir=$2 log=$3
+    shift 3
     local out="$outdir.stdout" err="$outdir.stderr"
-    run_program "$entry" "$outdir"
+    run_program "$entry" "$outdir" "$@"
     local rc=$RC
     local panic_want
     panic_want=$(directive expect-panic "$entry" | head -1)
