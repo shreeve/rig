@@ -1524,8 +1524,11 @@ checker recorded that its context reads the value,
 `SemContext.readsThrough`, `readsThroughWriteView`: a bare name or
 place only reads, Core sentence 1, so `x = h.w` with `w: !Int` copies
 the Int, as `x = w` does; a binding holds the write view only a call or
-a lend hands over, `yieldsWriteView`), and only whole bindings move; closures use outer
-locals only through captures, and never consume their captured
+a lend hands over, `yieldsWriteView`); `<` leaves its source done
+(`MoveSource`, one classification for every form that carries a move):
+it ends a binding, empties an optional field or element (sema's
+`takes`), and rejects any other place, whether its value moves or
+copies, so only whole bindings move; closures use outer locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 view, directly or through what it views, a value dropped before it
 (declared later in the same scope), since the body could read it.

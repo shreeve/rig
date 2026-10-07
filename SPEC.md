@@ -2776,8 +2776,8 @@ happens:
 Plain data and read views copy, so they are used freely
 ([§2](#kinds-of-value)). `<x` always means "done with `x`", whatever its
 type: a value that copies is copied out, and `x` is unusable until it
-is assigned again. (`<p.f` of a plain field copies the field and leaves
-`p` whole.)
+is assigned again. Of a field or element, `<` takes an optional one and
+rejects any other ([Moves](#moves)).
 
 ```rig reject
 sub main
@@ -2935,11 +2935,28 @@ sub main
 use of `b` after move
 ```
 
-Only whole bindings move. Moving a field out of a struct is rejected
-(the struct would still drop it); clone a shared field with `+p.a`,
-move the struct as a whole, take an optional field, or exchange the
-field with `replace` or `swap` ([Places](#places)). A plain field can
-be read or copied freely.
+`<` always leaves its source done: a name is ended, an optional field
+or element is emptied to `none` ([Places](#places)), and `<` on any
+other place is rejected. So only whole bindings move. Moving a field
+that moves out of a struct is rejected (the struct would still drop
+it); clone a shared field with `+p.a`, move the struct as a whole, take
+an optional field, or exchange the field with `replace` or `swap`
+([Places](#places)). A field or element that copies would stay as it
+was, so `<p.n` is rejected too, and a plain read, `m = p.n`, copies it.
+
+```rig reject
+struct P
+  n: Int
+
+sub main
+  p = P(n: 1)
+  m = <p.n
+  print(m, p.n)
+```
+
+```error
+cannot move out of `p.n`: it copies, so `<` would leave it as it was; drop the `<` to copy it
+```
 
 ### Clone
 
@@ -3721,10 +3738,12 @@ taken is decided by its type where it is named: inside a generic body a
 `T?` field can be, a `T` field cannot, whatever `T` is. An `as` binding
 that owns a resource moved into it (`if <o as n`) has fields that can be
 written and taken, like a local's. A local binding is still moved whole:
-`<x` leaves `x` unusable, never `none`. `<`'s operand is a place or a
-value made there: `<(a if c else b)` and `<o?` are rejected, and written
-`<a if c else <b` and `(<o)?`. A path that passes through a value of
-a view type (`!T`, `?T`, a slice) or a handle reaches its place through
+`<x` leaves `x` unusable, never `none`. A field or element that is not
+optional is neither ended nor emptied, so `<` on it is rejected
+([Moves](#moves)). `<`'s operand is a place or a value made there:
+`<(a if c else b)` and `<o?` are rejected, and written
+`<a if c else <b` and `(<o)?`. A path that passes through a value of a
+view type (`!T`, `?T`, a slice) or a handle reaches its place through
 it, whatever its syntax: `(!p).f`, `(?a if c else ?b).f`, and
 `wrap(!p).f` of a call returning a `!T`. Through a write view an
 optional is taken there; through a `?T` or a handle nothing is, since
