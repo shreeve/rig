@@ -33,3 +33,6 @@ fun run(k: Int) -> Int
 
 sub main
   print(run(1))
+
+# oracle: run reject C3
+# error: 31:13: cannot move out of `b.n`: it copies, so `<` would leave it as it was; drop the `<` to copy it

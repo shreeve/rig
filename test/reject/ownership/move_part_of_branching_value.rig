@@ -1,0 +1,36 @@
+# A field of a branching value is a field of the binding its branch
+# reads where it stands (`a` or `b` here), so `<` on it is a part move
+# like `<a.v`: the binding would still drop what moved, and a part that
+# copies would stay as it was. Both are rejected.
+# oracle: owning reject C3
+# oracle: copying reject C3
+
+struct S
+  n: Int
+  v: Vec[Int]
+
+fun mk -> S
+  S(n: 3, v: Vec())
+
+sub owning(c: Bool)
+  a = S(n: 1, v: Vec())
+  b = S(n: 2, v: Vec())
+  !a.v.push(1)
+  w = <(a if c else b).v
+  x = <(a if c else mk()).v
+  print(w.len, x.len, a.v.len)
+
+sub copying(c: Bool)
+  a = S(n: 1, v: Vec())
+  b = S(n: 2, v: Vec())
+  m = <(a if c else b).n
+  print(m, a.n)
+
+sub main
+  owning(true)
+  copying(true)
+
+# error: 19:8: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it
+# error: 20:8: cannot move out of `(a if c else mk()).v`
+# error: 26:8: cannot move out of `(a if c else b).n`: it copies
+# errors: 3

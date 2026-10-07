@@ -8,3 +8,6 @@ sub main()
   v: Vec[P] = Vec()
   !v.push(P(n: 7))
   eat(<v[0])
+
+# oracle: main reject C3
+# error: 10:8: cannot move out of `v[...]`: it copies, so `<` would leave it as it was; drop the `<` to copy it

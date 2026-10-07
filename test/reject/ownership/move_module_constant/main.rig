@@ -1,0 +1,22 @@
+# A module's constant lives for the whole program: `<` can neither end
+# it nor empty it, whichever module names it, so `<K`, `<geo.K`, and
+# `<` on an element of one are rejected; a plain read copies it.
+# oracle: main reject C3
+
+use geo
+
+K = 7
+KP = [4, 5]
+
+sub main
+  a = <K
+  b = <geo.K
+  c = <KP[0]
+  d = <geo.KP[0]
+  print(a, b, c, d, K, geo.K, KP[0], geo.KP[0])
+
+# error: 12:8: cannot move module-level `K` inside a function; later calls would still use it
+# error: 13:8: cannot move module-level `geo.K` inside a function; later calls would still use it
+# error: 14:8: cannot move out of `KP[...]`: it copies, so `<` would leave it as it was; drop the `<` to copy it
+# error: 15:8: cannot move out of `geo.KP[...]`: it copies
+# errors: 4

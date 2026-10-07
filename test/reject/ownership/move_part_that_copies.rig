@@ -1,0 +1,144 @@
+# `<` always leaves its source done: a name is ended, an optional field
+# or element is emptied to `none`, and any other place is rejected. A
+# field or element whose value copies can be neither, so `<` on it is
+# rejected, however the place is reached and whatever form carries the
+# move; dropping the `<` copies it. In a generic body a `T` part is
+# judged by `T`, whatever it is instantiated with, as a part that moves.
+# oracle: fields reject C3
+# oracle: elements reject C3
+# oracle: read_part reject C3
+# oracle: write_part reject C3
+# oracle: through_views reject C3
+# oracle: through_handle reject C3
+# oracle: ret reject C3
+# oracle: forms reject C3
+# oracle: for_part reject C3
+# oracle: generic_part reject C3
+
+struct P
+  x: Int
+
+  fun into(<self) -> Int
+    self.x
+
+struct S
+  n: Int
+  p: P
+  r: ?Int
+  name: String
+  arr: [2]Int
+
+sub show(n: Int)
+  print(n)
+
+fun mk(k: !Int) -> S
+  S(n: 1, p: P(x: 2), r: ?k, name: "s", arr: [3, 4])
+
+sub fields
+  k = 0
+  s = mk(!k)
+  a = <s.n
+  b = <s.p
+  c = <s.p.x
+  d = <s.r
+  e = <s.name
+  print(a, b, c, d, e, s.n)
+
+sub elements
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  ps: Vec[P] = Vec()
+  !ps.push(P(x: 1))
+  arr = [1, 2]
+  sl = ?arr[..]
+  a = <v[0]
+  b = <ps[0]
+  c = <ps[0].x
+  d = <arr[0]
+  e = <sl[0]
+  print(a, b, c, d, e, v.len)
+
+fun read_part(s: ?S) -> Int
+  <s.n
+
+fun write_part(s: !S) -> Int
+  <s.p.x
+
+sub through_views
+  k = 0
+  s = mk(!k)
+  a = <(?s).n
+  b = <(!s).n
+  print(a, b, read_part(?s), write_part(!s))
+
+sub through_handle
+  k = 0
+  h = *mk(!k)
+  a = <h.n
+  print(a, h.n)
+
+fun ret(s: S) -> Int
+  return <s.n
+
+sub forms
+  k = 0
+  s = mk(!k)
+  show(<s.n)
+  match <s.n
+    1 => print("one")
+    _ => print("other")
+  q = S(n: <s.n, p: <s.p, r: ?k, name: "q", arr: [<s.n, 0])
+  i = 0
+  j = while i < 2 : i += 1
+    break <s.n
+  else
+    0
+  print(<s.p.into(), q.n, j, ret(<s))
+
+sub for_part
+  k = 0
+  s = mk(!k)
+  for x in <s.arr
+    print(x)
+
+struct G[T]
+  f: T
+
+fun generic_part[T](g: G[T]) -> T
+  <g.f
+
+sub main
+  print(generic_part(G(f: 3)))
+  fields()
+  elements()
+  through_views()
+  through_handle()
+  forms()
+  for_part()
+
+# error: 40:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; drop the `<` to copy it
+# error: 41:8: cannot move out of `s.p`: it copies
+# error: 42:8: cannot move out of `s.p.x`: it copies
+# error: 43:8: cannot move out of `s.r`: it copies
+# error: 44:8: cannot move out of `s.name`: it copies
+# error: 54:8: cannot move out of `v[...]`: it copies
+# error: 55:8: cannot move out of `ps[...]`: it copies
+# error: 56:8: cannot move out of `ps[...].x`: it copies
+# error: 57:8: cannot move out of `arr[...]`: it copies
+# error: 58:8: cannot move out of `sl[...]`: it copies
+# error: 62:4: cannot move out of `s.n`: it copies
+# error: 65:4: cannot move out of `s.p.x`: it copies
+# error: 70:8: cannot move out of `(?s).n`: it copies
+# error: 71:8: cannot move out of `(!s).n`: it copies
+# error: 77:8: cannot move out of `h.n`: it copies
+# error: 81:11: cannot move out of `s.n`: it copies
+# error: 86:9: cannot move out of `s.n`: it copies
+# error: 87:10: cannot move out of `s.n`: it copies
+# error: 90:13: cannot move out of `s.n`: it copies
+# error: 90:22: cannot move out of `s.p`: it copies
+# error: 90:52: cannot move out of `s.n`: it copies
+# error: 93:12: cannot move out of `s.n`: it copies
+# error: 96:10: cannot move out of `s.p`: it copies
+# error: 101:13: cannot move out of `s.arr`: it copies
+# error: 108:4: cannot move out of `g.f`: `g` would still drop it
+# errors: 25

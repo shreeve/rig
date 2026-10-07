@@ -1363,7 +1363,7 @@ const Lowerer = struct {
                 .move => if (source == .src) blk: {
                     const x = self.varOf(source) orelse return abstain("a `for` moving something not a local");
                     break :blk try self.moveWhole(x, pos);
-                } else try self.eval(source, .take, null),
+                } else try self.moveOut(source, pos, .take),
                 .iter => if (source.isKind(.@"..")) try self.eval(source, .read, null) else if (self.madeSubject(source)) blk: {
                     // A value the header makes is taken, and so is the made
                     // value the source is a part of; a branching value is
@@ -2334,11 +2334,19 @@ const Lowerer = struct {
         return @intCast(self.f.loans.items.len - 1);
     }
 
-    /// `<x` moves a whole binding; `<p.f` takes an optional field, or
-    /// copies a plain one (Core s2, §5).
+    /// `<` always leaves its source done (Core s2, §5): `<x` moves a
+    /// whole binding, and `<p.f` takes an optional field, leaving `none`.
+    /// Any other place is rejected: a part that copies would stay as it
+    /// was, and one that moves stays its owner's. A module's constant
+    /// lives for the whole program; a part of a value made here is done
+    /// with its statement.
     fn move(self: *Lowerer, e: Sexp, how: How) Error!?VarId {
-        const operand = ir.Move.operand(e);
-        const pos = self.posOf(e);
+        return self.moveOut(ir.Move.operand(e), self.posOf(e), how);
+    }
+
+    /// `move` of `operand`, also the source of a `for x in <e`.
+    fn moveOut(self: *Lowerer, operand: Sexp, pos: u32, how: How) Error!?VarId {
+        if (self.moduleValue(operand)) return self.found(.C3, pos, "a module's constant lives for the whole program; `<` can neither end nor empty it", .{});
         if (operand == .src) {
             const v = self.varOf(operand) orelse return abstain("a move of something not a local");
             return try self.moveWhole(v, pos);
@@ -2352,8 +2360,35 @@ const Lowerer = struct {
             try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .write } });
             return t;
         }
-        if (info.kind.copies()) return try self.copy(p, p.ty, pos);
+        if (info.kind.copies()) {
+            if (p.via == .own and self.f.vars.items[p.root].hidden) return try self.copy(p, p.ty, pos);
+            return self.found(.C3, pos, "a part that copies is neither ended nor emptied; `<` would leave it as it was", .{});
+        }
         return self.found(.C3, pos, "only a whole binding moves; a field that is not optional cannot be taken", .{});
+    }
+
+    /// A module's constant, of this module or another (`K`, `geo.K`), or
+    /// a part of one (`geo.KP[0]`); not a type's member or a function.
+    fn moduleValue(self: *Lowerer, e: Sexp) bool {
+        switch (e) {
+            .src => {
+                const sym_id = self.ctx.symbolOf(e) orelse return false;
+                const sym = self.ctx.symbols.items[sym_id];
+                return sym.kind == .local and sym.scope == sema.module_scope and !self.vars.contains(sym_id);
+            },
+            .list => {
+                const k = e.kind() orelse return false;
+                if (k == .index) return self.moduleValue(ir.Index.object(e));
+                if (k != .member) return false;
+                const obj = ir.Member.object(e);
+                if (obj == .src) if (self.ctx.symbolOf(obj)) |id| if (self.ctx.symbols.items[id].kind == .module) {
+                    const ty = self.ctx.typeOf(e) orelse return false;
+                    return self.ctx.types.get(ty) != .function;
+                };
+                return self.moduleValue(obj);
+            },
+            else => return false,
+        }
     }
 
     // ---- calls ----------------------------------------------------------

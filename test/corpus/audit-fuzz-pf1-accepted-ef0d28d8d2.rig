@@ -48,11 +48,5 @@ sub main
   q = <p
   print(first, q.x)
 
-# expect:
-# 0
-# 3 true
-# -4 -5
-# 6
-# 1
-# pair
-# 1 4
+# oracle: main reject C3
+# error: 44:11: cannot move out of `pair.name`: it copies, so `<` would leave it as it was; drop the `<` to copy it

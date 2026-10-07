@@ -19,7 +19,7 @@ struct Tree
 
 struct Pair
   v: Vec[Int]
-  name: String
+  name: String?
 
 sub fill(v: !Vec[Int])
   !v.push(1)
