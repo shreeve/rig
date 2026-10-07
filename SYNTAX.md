@@ -345,8 +345,8 @@ Only `?`, `!`, and `<` reach the receiver, since they are the modes a
 method declares (`?self`, `!self`, `<self`). Every other prefix, and
 `?`, `!`, or `<` with no method call after the place, applies to the
 whole expression: `*Point.origin()` shares the new `Point`, `-a.len`
-negates the length, `!x.v` lends the field, `<p.f` moves the field,
-and `?xs[0]` lends the element. A `?` or `<` before a value a call
+negates the length, `!x.v` lends the field, `<p.f` takes the optional
+field, and `?xs[0]` lends the element. A `?` or `<` before a value a call
 makes applies to the whole expression too: `?f(x).g()` lends what `g`
 returns, since a made receiver is read or taken without a sigil. With
 parentheses around the call, `?(p.m())` and `!(p.m())` lend its

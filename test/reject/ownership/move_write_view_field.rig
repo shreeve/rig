@@ -1,0 +1,15 @@
+# A write view held in a field has one holder, the struct, which keeps
+# it: `<h.w` cannot move it out. `!h.w` lends it on.
+
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  h = H(w: !n)
+  x = <h.w
+  x += 1
+  print(n)
+
+# error: 10:8: cannot move out of `h.w`: a write view has one holder, and `h` keeps it; lend it on with `!h.w`
+# errors: 1

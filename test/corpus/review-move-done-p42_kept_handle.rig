@@ -1,0 +1,18 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+fun mkh -> *S
+  *S(n: 1, v: Vec())
+
+fun mk -> S
+  S(n: 1, v: Vec())
+
+sub main
+  a = <mkh().n
+  b = <mk().n
+  print(a, b)
+
+# oracle: mkh accept
+# oracle: mk accept
+# oracle: main reject C3

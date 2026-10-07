@@ -92,9 +92,12 @@
 //!   `+x`; only a bare name returned directly moves implicitly. A value
 //!   holding a write view cannot be copied either, except as a call
 //!   argument (which lends it on for the call).
-//! * Only whole bindings move. Moving a non-Copy value out of a field or
-//!   element (`<p.a`, `<v[0]`) is rejected: a viewed or shared parent
-//!   still owns it, and an owned parent would drop it again.
+//! * `<` always leaves its source done (`MoveSource`): `<x` ends a
+//!   binding, and `<p.f` or `<v[i]` of an optional empties it to `none`.
+//!   Any other field or element (`<p.a`, `<v[0]`) is rejected: one that
+//!   copies would stay as it was, and of one that moves a viewed or
+//!   shared parent still owns it, or an owned parent would drop it
+//!   again. A module's constant lives for the whole program.
 //! * View parameters cannot be dropped or move-captured. Functions may
 //!   read module-level constants but not move them.
 //! * A match payload binding of `match x` or `match ?x` views the
@@ -417,6 +420,10 @@ const Sink = enum {
     }
 };
 
+/// Why `<` cannot leave a part that copies done (`MoveSource.part`).
+const part_copies_rule = "cannot move out of `{s}`: it copies, so `<` would leave it as it was; remove the `<` to copy it";
+/// Why a module's constant cannot be moved or dropped.
+const module_level_rule = "cannot {s} module-level `{s}` inside a function; later calls would still use it";
 /// Why a loop view cannot leave its slot, for diagnostics.
 const loop_view_rule = "a `for x in ?vec` element is a read view of the Vec slot and cannot be cloned, moved, dropped, or stored";
 
@@ -1841,7 +1848,7 @@ pub const Checker = struct {
             .@"defer", .@"errdefer" => try self.walkDefer(sexp),
             else => return switch (kind) {
                 .block => self.walkBlock(sexp),
-                .move => if (self.takes(sexp)) self.walkTake(ir.Move.operand(sexp)) else self.walkMove(ir.Move.operand(sexp)),
+                .move => self.walkMove(ir.Move.operand(sexp)),
                 // A view the type checker rejected lends nothing.
                 .read, .write => if (self.rejected(sexp))
                     self.walkRejectedLend(ir.get(sexp, .operand))
@@ -2500,19 +2507,79 @@ pub const Checker = struct {
         }
     };
 
-    /// `<e`: move a whole binding, or reject moving out of a path.
+    /// What `<e` does to its source (`sema.moveSource`). Without sema's
+    /// facts (the checker's own unit tests), a name is a binding and a
+    /// path a part.
+    fn moveSource(self: *const Checker, inner: Sexp) sema.MoveSource {
+        if (self.sema) |ctx| return sema.moveSource(ctx, inner);
+        const place = self.resolvePlace(inner) orelse return .made;
+        return if (place.whole) .binding else .part;
+    }
+
+    /// `<e`: a binding is ended, an optional part emptied (`walkTake`,
+    /// where typecheck recorded the take), and any other source is
+    /// rejected: `<` would leave it as it was, or move what its owner
+    /// still drops. A value made here is taken, and a branching value
+    /// leaf by leaf.
     fn walkMove(self: *Checker, inner: Sexp) Error!Value {
-        const place = self.resolvePlace(inner) orelse {
-            // A path that starts from no var reaches its value through a
-            // view or a handle when one of the values on it is one, by its
-            // type: `(!s).items`, `(?s if c else ?t).items`,
-            // `wrap(!s).items`.
-            if (self.viewOnPath(inner)) |via| return self.movePath(inner, .{ .root = 0, .whole = false, .through_view = !via.shared, .through_shared = via.shared }, via.value);
-            if (try self.movedTail(inner, inner, false)) |_| return .{};
-            return self.walk(inner);
-        };
-        if (place.whole) return self.moveVar(place.root, self.startOf(inner), .move);
-        return self.movePath(inner, place, null);
+        switch (self.moveSource(inner)) {
+            .binding => {
+                const place = self.resolvePlace(inner) orelse return self.walk(inner);
+                return self.moveVar(place.root, self.startOf(inner), .move);
+            },
+            .capture => {
+                const place = self.resolvePlace(inner) orelse return self.walk(inner);
+                // A capture that owns a resource, or holds a view, is
+                // reported as one (`rejectConsumedView`).
+                if (self.vars.items[place.root].capture_resource) return self.moveVar(place.root, self.startOf(inner), .move);
+                _ = try self.walk(inner);
+                try self.errAt(inner, "cannot move `{s}`, a copy capture: the closure keeps it for every call; remove the `<` to copy it", .{self.text(inner)});
+                return .{};
+            },
+            .optional_part => return self.walkTake(inner),
+            .part => {
+                if (self.resolvePlace(inner)) |place| return self.movePart(inner, place, null, false);
+                // A path that starts from no var reaches its value through
+                // a view or a handle when one of the values on it is one,
+                // by its type: `(!s).items`, `(?s if c else ?t).items`,
+                // `wrap(!s).items`.
+                if (self.viewOnPath(inner)) |via| return self.movePart(inner, .{ .root = 0, .whole = false, .through_view = !via.shared, .through_shared = via.shared }, via.value, false);
+                // A root no var holds here (an outer name a closure did not
+                // capture): walking reports it.
+                return self.walk(inner);
+            },
+            .branch_part => return self.movePart(inner, .{ .root = 0, .whole = false }, sema.pathRoot(inner), true),
+            // The type checker reported it (`rejectMadeParts`), and a
+            // module with type errors is not checked here.
+            .made_part => return self.walk(inner),
+            .declared => return self.moveDeclared(inner),
+            .made => return self.walk(inner),
+            .branches => {
+                if (try self.reportMoveLeaves(inner)) return .{};
+                return self.walk(inner);
+            },
+        }
+    }
+
+    /// `<` of what lives for the whole program
+    /// (`sema.MoveSource.declared`): rejected, since nothing could end it.
+    fn moveDeclared(self: *Checker, inner: Sexp) Error!Value {
+        _ = try self.walk(inner);
+        const pos = self.startOf(inner);
+        const shown = self.spanText(inner);
+        const ty = self.exprType(inner);
+        if (ty != null and self.typeData(ty.?) == .function) {
+            try self.err(pos, "cannot move function `{s}`: a function lives for the whole program; remove the `<` to use it", .{shown});
+        } else if (inner == .src or (inner.isKind(.member) and ir.Member.object(inner) == .src and self.namesModule(ir.Member.object(inner)))) {
+            try self.err(pos, module_level_rule, .{ "move", shown });
+        } else try self.err(pos, part_copies_rule, .{try self.placeText(inner)});
+        return .{};
+    }
+
+    fn namesModule(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        const id = ctx.symbolOf(e) orelse return false;
+        return ctx.symbols.items[id].kind == .module;
     }
 
     /// Whether `ty` is a shared or weak handle.
@@ -2542,11 +2609,6 @@ pub const Checker = struct {
         return null;
     }
 
-    fn takes(self: *const Checker, e: Sexp) bool {
-        const ctx = self.sema orelse return false;
-        return ctx.takes(e);
-    }
-
     /// `<p.f` of an optional field or element: the value is taken out
     /// and `none` left behind, so the place stays whole. The place is
     /// written: no other view of it may be live. What the value
@@ -2562,40 +2624,47 @@ pub const Checker = struct {
         return self.varValue(id);
     }
 
-    /// `<e` where `e` yields a binding or field it does not own: a
-    /// branch, `?`, `!`, `??`, or `catch` whose value is a place holding
-    /// an owning value. Moving it would leave the owner still dropping
-    /// it, so the move is written where the place is. Reported; the
-    /// offending place, or null.
-    fn movedTail(self: *Checker, e: Sexp, top: Sexp, nested: bool) Error!?Sexp {
-        switch (self.hands(e).kind) {
-            .place, .part_of_made => return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null,
-            .made, .lend, .branches, .jump, .none => {},
-        }
-        // A value one of whose parts it is (`sema.valueParts`).
-        var parts = sema.valueParts(e);
-        while (parts.next()) |p| if (try self.movedTail(p.node, top, true)) |place| return place;
-        return null;
+    /// `<e` of a branching value (`a if c else b`, `a ?? b`, `e catch h`,
+    /// `e!`, `e?`): `<` takes only what its leaves give up, a value made
+    /// there. Any other leaf (`sema.moveLeaves`) would be left as it was,
+    /// or moved while its owner still drops it, so the move is written
+    /// where the leaf is. The first such leaf is reported; whether one was.
+    fn reportMoveLeaves(self: *Checker, top: Sexp) Error!bool {
+        const ctx = self.sema orelse return false;
+        var leaves: std.ArrayList(sema.MoveLeaf) = .empty;
+        try sema.moveLeaves(self.arena(), ctx, top, &leaves);
+        for (leaves.items) |leaf| switch (leaf.source) {
+            // The type checker reported it.
+            .made_part => {},
+            else => {
+                try self.reportMoveLeaf(leaf, top);
+                return true;
+            },
+        };
+        return false;
     }
 
-    /// A binding or field whose value owns a resource.
-    fn ownsPlace(self: *Checker, e: Sexp) bool {
-        if (self.resolvePlace(e) == null) return false;
-        return self.owningKind(self.exprType(e)) != null;
-    }
-
-    fn reportMovedTail(self: *Checker, place: Sexp, top: Sexp) Error!Sexp {
-        const shown = try self.placeText(place);
+    fn reportMoveLeaf(self: *Checker, leaf: sema.MoveLeaf, top: Sexp) Error!void {
+        const place = leaf.node;
+        // A part of a branching value is shown as written.
+        const shown = if (leaf.source == .branch_part) self.spanText(place) else try self.placeText(place);
         const at_exit = top.isKind(.propagate) or top.isKind(.propagate_none);
-        const optional = if (self.exprType(place)) |t| self.typeData(t) == .optional else false;
-        if (place != .src and !optional) {
-            try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!{s}, v)`", .{ shown, shown });
-        } else if (at_exit) {
-            try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it before the `?` or `!`: `(<{s}){s}`", .{ shown, if (place == .src) "move" else "take", shown, if (top.isKind(.propagate)) "!" else "?" });
-        } else {
-            try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it inside the branch: `<{s}`", .{ shown, if (place == .src) "move" else "take", shown });
+        const ty = self.exprType(place);
+        switch (leaf.source) {
+            .capture => try self.errAt(place, "`<` here would leave `{s}` as it was: the closure keeps its capture for every call; remove the `<` to copy it", .{shown}),
+            .binding, .optional_part => {
+                const verb = if (leaf.source == .binding) "move" else "take";
+                if (at_exit) {
+                    try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it before the `?` or `!`: `(<{s}){s}`", .{ shown, verb, shown, if (top.isKind(.propagate)) "!" else "?" });
+                } else try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it inside the branch: `<{s}`", .{ shown, verb, shown });
+            },
+            .declared => try self.errAt(place, "`<` here would leave `{s}` as it was: it lives for the whole program; remove the `<` to copy it", .{shown}),
+            else => if (ty != null and (self.copies(ty) or self.refOfType(ty) == .read)) {
+                try self.errAt(place, "`<` here would leave `{s}` as it was: it copies; remove the `<` to copy it", .{shown});
+            } else if (leaf.source == .branch_part) {
+                try self.errAt(place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `replace`", .{shown});
+            } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!{s}, v)`", .{ shown, shown }),
         }
-        return place;
     }
 
     fn moveVar(self: *Checker, id: VarId, pos: u32, verb: MoveVerb) Error!Value {
@@ -2667,22 +2736,41 @@ pub const Checker = struct {
         return .{};
     }
 
-    /// `<p.a` / `<v[i]`: only Copy values can leave a field or element.
-    /// A path from no var reaches it through `via`, a view or a handle
-    /// (`viewOnPath`), whatever its syntax.
-    fn movePath(self: *Checker, inner: Sexp, place: Place, via: ?Sexp) Error!Value {
-        const value = try self.walk(inner);
+    /// `<p.f` or `<v[i]` of a part that can be neither ended nor emptied
+    /// (`MoveSource.part`): rejected. One that copies would stay as it
+    /// was; one that moves would stay owned by its parent, or by what
+    /// `via` reaches it through (`viewOnPath`, `branchesOnPath`),
+    /// whatever its syntax.
+    fn movePart(self: *Checker, inner: Sexp, place: Place, via: ?Sexp, branching: bool) Error!Value {
+        _ = try self.walk(inner);
         const ty = self.exprType(inner);
-        if (ty != null and self.copies(ty)) return value;
-        if (ty != null and self.refOfType(ty) == .read) return value;
         const path = try self.placeText(inner);
         const pos = self.startOf(inner);
+        // An optional is taken only out of a place (`sema.moveSource`).
+        if (branching and ty != null and self.typeData(ty.?) == .optional) {
+            const base = via.?;
+            if (base.isKind(.@"if")) {
+                try self.err(pos, "cannot take out of `{s}`: `{s}` reads a binding where it stands; take it inside each branch", .{ self.spanText(inner), self.spanText(base) });
+            } else try self.err(pos, "cannot take out of `{s}`: `{s}` reads a binding where it stands, and `<` takes only out of a place", .{ self.spanText(inner), self.spanText(base) });
+            return .{};
+        }
+        if (ty != null and (self.copies(ty) or self.refOfType(ty) == .read)) {
+            try self.err(pos, part_copies_rule, .{if (via != null) self.spanText(inner) else path});
+            return .{};
+        }
+        // A write view has one holder, which keeps it.
+        if (via == null and self.refOfType(ty) == .write) {
+            try self.err(pos, "cannot move out of `{s}`: a write view has one holder, and `{s}` keeps it; lend it on with `!{s}`", .{ path, self.vars.items[place.root].name, path });
+            return .{};
+        }
         if (via) |l| {
             const shown = self.spanText(inner);
             const lent_handle = (l.isKind(.read) or l.isKind(.write)) and self.isHandleType(self.exprType(ir.get(l, .operand)));
             if (place.through_shared or lent_handle) {
                 const handle = if (lent_handle) ir.get(l, .operand) else l;
                 try self.err(pos, "cannot move out of `{s}`: it is reached through the shared handle `{s}`, and other handles may still use it; clone it with `+({s})`", .{ shown, self.spanText(handle), shown });
+            } else if (branching) {
+                try self.err(pos, "cannot move out of `{s}`: `{s}` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", .{ shown, self.spanText(l) });
             } else if ((l.isKind(.read) or l.isKind(.write)) and self.resolvePlace(ir.get(l, .operand)) != null) {
                 // A lend of a place: the place's own path names the part.
                 try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; exchange it instead: `replace(!{s}, v)`", .{ shown, self.spanText(l), path });
@@ -2739,7 +2827,7 @@ pub const Checker = struct {
     fn rejectGlobal(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!bool {
         if (!self.isGlobal(id)) return false;
         const name = self.vars.items[id].name;
-        try self.err(pos, "cannot {s} module-level `{s}` inside a function; later calls would still use it", .{ op, name });
+        try self.err(pos, module_level_rule, .{ op, name });
         return true;
     }
 

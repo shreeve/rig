@@ -1,0 +1,46 @@
+struct S
+  v: Vec[Int]
+  w: Vec[Int]
+
+struct T
+  o: S?
+
+fun mk -> S
+  S(v: Vec(), w: Vec())
+
+sub m1
+  a = mk()
+  !a.v.push(1)
+  x = <(<a).v
+  print(x.len)
+
+sub m2(c: Bool)
+  a = mk()
+  b = mk()
+  x = <(<a if c else <b).v
+  print(x.len)
+
+sub m3
+  t = T(o: mk())
+  x = <((<t.o) ?? mk()).v
+  print(x.len)
+
+sub m4
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  x = <[<a, <b][0]
+  print(x.len)
+
+sub m5(c: Bool)
+  x = <(mk() if c else mk()).v
+  print(x.len)
+
+sub main
+  m1()
+
+# oracle: mk accept
+# oracle: m2 reject C3
+# oracle: m3 reject C3
+# oracle: m4 reject C3
+# oracle: m5 reject C3
+# oracle: main accept

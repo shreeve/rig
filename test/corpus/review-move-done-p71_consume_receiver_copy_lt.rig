@@ -1,0 +1,17 @@
+struct P
+  x: Int
+
+  fun into(<self) -> Int
+    self.x
+
+struct S
+  p: P
+
+sub main
+  s = S(p: P(x: 2))
+  v: Vec[P] = Vec()
+  !v.push(P(x: 3))
+  print(<s.p.into(), <v[0].into())
+
+# oracle: P.into accept
+# oracle: main reject C3

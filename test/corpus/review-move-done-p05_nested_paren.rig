@@ -1,0 +1,16 @@
+struct In
+  v: Vec[Int]
+
+struct S
+  i: In
+
+sub main
+  a = S(i: In(v: Vec()))
+  b = S(i: In(v: Vec()))
+  !a.i.v.push(1)
+  c = a.i.v.len == 1
+  w = <((a if c else b).i).v
+  x = <(((a if c else b))).i.v
+  print(w.len, x.len, a.i.v.len)
+
+# oracle: main reject C3

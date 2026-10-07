@@ -1,0 +1,19 @@
+# A take whose index writes the Vec it takes from.
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+fun grow(v: !Vec[Vec[Int]?]) -> Int
+  for i in 0..100
+    !v.push(mkv(i))
+  0
+
+sub main
+  v: Vec[Vec[Int]?] = Vec()
+  !v.push(mkv(1))
+  x = <v[grow(!v)]
+  print(x == none, v.len)
+
+# oracle: mkv accept
+# oracle: grow accept

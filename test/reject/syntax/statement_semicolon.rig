@@ -4,4 +4,4 @@ sub main()
   x = 1;
   print(x)
 
-# error: 4:8: unexpected `;`; Rig ends a statement at the end of its line; drop the `;`
+# error: 4:8: unexpected `;`; Rig ends a statement at the end of its line; remove the `;`

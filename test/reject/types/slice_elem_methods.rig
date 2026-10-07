@@ -32,4 +32,4 @@ sub main()
 # error: 21:14: index `2` is out of bounds for an array of length 2
 # error: `swap` takes two arguments, the indexes of the elements to swap; got 1 argument
 # error: `fill` takes no compile-time arguments
-# error: 25:3: `fill` does not consume its receiver; drop the `<`
+# error: 25:3: `fill` does not consume its receiver; remove the `<`

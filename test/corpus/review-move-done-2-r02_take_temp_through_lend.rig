@@ -1,0 +1,25 @@
+# `<` of an optional part of a value made in the statement, reached
+# through a write lend: it empties a field nothing sees, while
+# `<mks(1).o` is rejected for exactly that.
+struct S
+  o: Vec[Int]?
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+fun mks(n: Int) -> S
+  S(o: mkv(n))
+
+fun gw(s: !S) -> !S
+  s
+
+sub main
+  a = <(!mks(1)).o
+  b = <gw(!mks(2)).o
+  print(a == none, b == none)
+
+# oracle: mkv accept
+# oracle: mks accept
+# oracle: gw accept

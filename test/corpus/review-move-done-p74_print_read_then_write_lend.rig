@@ -1,0 +1,10 @@
+# aside (pre-existing, not this branch): a copied-out read of `(?s).n`
+# keeps `s` lent for the rest of the call's arguments
+struct S
+  n: Int
+
+sub main
+  s = S(n: 1)
+  print((?s).n, (!s).n)
+
+# oracle: main accept

@@ -1,8 +1,9 @@
 # A consuming method cannot be called on a viewed value, even when the
-# view comes from a call's `?User` result.
+# view comes from a call's `?User` result. (A view of a value that copies
+# is copied out instead.)
 
 struct User
-  name: String
+  name: Text
 
   sub consume(self: User)
     print(self.name)
@@ -11,7 +12,7 @@ fun get_ref(u: ?User) -> ?User
   u
 
 sub main()
-  u = User(name: "Steve")
+  u = User(name: Text("Steve"))
   get_ref(?u).consume()
 
 # error: cannot consume through a view

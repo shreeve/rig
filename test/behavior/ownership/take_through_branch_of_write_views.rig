@@ -1,0 +1,38 @@
+# A branching value whose every leaf is a write view is a write view of
+# the leaf it took: `<` through it takes the optional field out of the
+# place that leaf views, and leaves `none` there. The other place is
+# untouched.
+# oracle: lends accept
+# oracle: bindings accept
+
+struct S
+  o: Vec[Int]?
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub lends(c: Bool)
+  s = S(o: mkv(1))
+  t = S(o: mkv(2))
+  x = <(!s if c else !t).o
+  print(x, s.o, t.o)
+
+sub bindings(c: Bool)
+  s = S(o: mkv(1))
+  t = S(o: mkv(2))
+  r1 = !s
+  r2 = !t
+  x = <(r1 if c else r2).o
+  print(x, r1.o, r2.o)
+
+sub main
+  lends(true)
+  lends(false)
+  bindings(false)
+
+# expect:
+# [1] none [2]
+# [2] [1] none
+# [2] [1] none

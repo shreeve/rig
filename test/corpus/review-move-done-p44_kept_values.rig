@@ -1,0 +1,25 @@
+enum Color
+  red
+  blue
+
+struct S
+  n: Int
+
+fun one -> Int
+  1
+
+sub main
+  s = S(n: 3)
+  a = <Color.red
+  b = <[1, 2][0]
+  c = <(+s).n
+  d = <(1 + 2)
+  e = <"lit"
+  f = <one
+  g = <S(n: 4).n
+  h = <(s.n if true else 2)
+  i = <(s if true else S(n: 9)).n
+  print(a, b, c, d, e, f(), g, h, i, s.n)
+
+# oracle: one accept
+# oracle: main reject C3

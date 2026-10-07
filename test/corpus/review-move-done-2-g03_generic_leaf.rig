@@ -1,0 +1,19 @@
+# Generic leaves: `<(a if c else b)` with T params, `<(o ?? a)`.
+fun pick[T](c: Bool, a: T, b: T) -> T
+  <(a if c else b)
+
+fun orr[T](o: T?, a: T) -> T
+  <(o ?? a)
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  print(pick(true, mkv(1), mkv(2)).len)
+  print(orr(mkv(1), mkv(2)).len)
+
+# oracle: pick reject C3
+# oracle: orr reject C3
+# oracle: mkv accept

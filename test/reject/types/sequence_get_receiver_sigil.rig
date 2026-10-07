@@ -8,6 +8,6 @@ sub main
   print(!a.get(1))
   print(<a.get(0))
 
-# error: 7:9: `get` does not write its receiver; drop the `!`
+# error: 7:9: `get` does not write its receiver; remove the `!`
 # error: 8:9: `get` does not write its receiver
-# error: 9:9: `get` does not consume its receiver; drop the `<`
+# error: 9:9: `get` does not consume its receiver; remove the `<`

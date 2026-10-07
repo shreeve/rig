@@ -1742,6 +1742,8 @@ const Checker = struct {
                 try self.lendSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
+            // `for x in <e` moves `e` as `<e` does.
+            if (mode == .move and !self.isPoison(source_ty)) _ = try self.rejectMadeParts(source, source);
             self.outer_write = saved_outer;
             self.outer_write_is_loop = saved_loop;
             // How the loop has a bare source (docs/INTERNALS.md, "Header
@@ -3908,6 +3910,19 @@ const Checker = struct {
         return !self.isPoison(ty) and sema.typeHasDropGlue(self.ctx, ty);
     }
 
+    /// Whether `e` is a view whose value is copied out where a value is
+    /// expected (`sema.copiedThrough`).
+    fn copiesThrough(self: *const Checker, e: Sexp) bool {
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return sema.copiedThrough(self.ctx, ty) != null;
+    }
+
+    /// Whether `e`'s value copies (`sema.copies`).
+    fn copiesValue(self: *const Checker, e: Sexp) bool {
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return sema.copies(self.ctx, ty) == .yes;
+    }
+
     /// How receiver `recv` is written (`ReceiverShape`).
     fn receiverShape(self: *const Checker, recv: Sexp) ReceiverShape {
         if (recv.isKind(.read)) return .read_explicit;
@@ -3985,21 +4000,18 @@ const Checker = struct {
         return self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .slice = .{ .elem = elem } }) });
     }
 
-    /// `<x`. Of a field or element holding an optional, `<p.f` takes the
-    /// value out and leaves `none` behind: the place is written, so it
-    /// must be reachable for writing.
+    /// `<x`. What it does to its source is `sema.moveSource`: of a field
+    /// or element holding an optional, `<p.f` takes the value out and
+    /// leaves `none` behind, so the place is written, and must be
+    /// reachable for writing. A part of a value made here is reported
+    /// (`rejectMadeParts`); the ownership checker decides the rest.
     fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Move.operand(e);
         const ty = try self.synthExpr(operand);
         if (try self.payloadViewTaken(operand, "move")) return self.t().invalid_id;
-        if (!operand.isKind(.member) and !operand.isKind(.index)) return ty;
         if (self.isPoison(ty)) return ty;
-        // A part of a temporary is dropped with it.
-        if (self.ctx.types.get(ty) != .optional) if (self.tempBase(operand)) |temp| if (try self.needsCleanup(ty, self.startOf(e), "moves out of a temporary a part")) {
-            try self.errAt(e, "cannot move a part out of the temporary `{s}`, which its statement drops; bind it to a name first", .{self.sourceText(temp)});
-            return self.t().invalid_id;
-        };
-        if (self.ctx.types.get(ty) != .optional) return ty;
+        if (try self.rejectMadeParts(e, operand)) return self.t().invalid_id;
+        if (sema.moveSource(self.ctx, operand) != .optional_part) return ty;
         try self.ctx.recordTake(e);
         const place = self.placeOf(operand);
         if (place.cell_vec_elem != null) {
@@ -4013,6 +4025,60 @@ const Checker = struct {
             self.ctx.symbols.items[id].flags.written = true;
         };
         return ty;
+    }
+
+    /// `<operand` (at `at`) of a part of a value made here, as the whole
+    /// operand or as a leaf of a branching one (`sema.moveSource`): the
+    /// statement drops the value, so nothing would see the part ended or
+    /// emptied. Reported; whether it was.
+    fn rejectMadeParts(self: *Checker, at: Sexp, operand: Sexp) Error!bool {
+        switch (sema.moveSource(self.ctx, operand)) {
+            .made_part => {
+                try self.rejectMadePart(at, operand);
+                return true;
+            },
+            .branches => {
+                var leaves: std.ArrayList(sema.MoveLeaf) = .empty;
+                try sema.moveLeaves(self.ctx.arena.allocator(), self.ctx, operand, &leaves);
+                for (leaves.items) |leaf| if (leaf.source == .made_part) {
+                    try self.rejectMadePart(leaf.node, leaf.node);
+                    return true;
+                };
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    fn rejectMadePart(self: *Checker, at: Sexp, part: Sexp) Error!void {
+        const ty = self.ctx.typeOf(part) orelse return;
+        if (self.isPoison(ty)) return;
+        const optional = self.ctx.types.get(ty) == .optional;
+        // A handle made here reaches a box other handles may see.
+        if (!optional and sema.copies(self.ctx, ty) == .yes) {
+            try self.errAt(at, "cannot move out of `{s}`: it copies, so `<` would leave it as it was; remove the `<` to copy it", .{self.sourceText(part)});
+        } else if (self.handleOnPath(part)) |handle| {
+            try self.errAt(at, "cannot {s} `{s}`: it is reached through the shared handle `{s}`, and other handles may still use it", .{ if (optional) "take out of" else "move out of", self.sourceText(part), self.sourceText(handle) });
+        } else if (optional) {
+            try self.errAt(at, "cannot take out of a temporary: nothing would see it emptied; bind it to a name first", .{});
+        } else {
+            // A lend of a temporary names the temporary.
+            const root = sema.pathRoot(part);
+            const temp = if (root.isKind(.read) or root.isKind(.write)) ir.get(root, .operand) else root;
+            try self.errAt(at, "cannot move a part out of the temporary `{s}`, which its statement drops; bind it to a name first", .{self.sourceText(temp)});
+        }
+    }
+
+    /// The shared handle a field or element path passes through, by the
+    /// type of each value on it.
+    fn handleOnPath(self: *Checker, e: Sexp) ?Sexp {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) {
+            p = ir.get(p, .object);
+            const ty = self.ctx.typeOf(p) orelse continue;
+            if (self.ctx.types.get(ty) == .shared) return p;
+        }
+        return null;
     }
 
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
@@ -7110,7 +7176,7 @@ const Checker = struct {
         const value = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
         if (value == self.t().bool_id) {
             try self.errAt(s, "`!` here reaches `{s}`, {s}, and `{s}.{s}(...)` makes a `Bool`; for negation use `not`", .{ shown, what, shown, method });
-        } else try self.errAt(s, "`!` here reaches `{s}`, {s}, not the value `{s}.{s}(...)` makes: write `!({s}.{s}(...))` to lend that value, or drop the `!`", .{ shown, what, shown, method, shown, method });
+        } else try self.errAt(s, "`!` here reaches `{s}`, {s}, not the value `{s}.{s}(...)` makes: write `!({s}.{s}(...))` to lend that value, or remove the `!`", .{ shown, what, shown, method, shown, method });
         return self.t().invalid_id;
     }
 
@@ -7521,7 +7587,7 @@ const Checker = struct {
     /// `?p.m(...)`, `!p.m(...)`, or `<p.m(...)` where `m` takes no
     /// receiver the sigil could apply to.
     fn misplacedSigil(self: *Checker, recv: Sexp, method: []const u8, why: []const u8) Error!void {
-        try self.errAt(recv, "`{s}` {s}; drop the `{s}`", .{ method, why, sigilText(recv) });
+        try self.errAt(recv, "`{s}` {s}; remove the `{s}`", .{ method, why, sigilText(recv) });
     }
 
     /// `!p.f(...)` or `<p.f[i](...)`, where `f` is a field holding
@@ -7535,8 +7601,8 @@ const Checker = struct {
         if (recv.isKind(.write) and returns == self.t().bool_id) {
             return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; for negation use `not`", .{ field, what });
         }
-        if (recv.isKind(.read)) return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `?`, or lend the call's result with `?({s}.{s}(...))`", .{ field, what, self.sourceText(ir.Read.operand(recv)), field });
-        try self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `{s}`", .{ field, what, sigilText(recv) });
+        if (recv.isKind(.read)) return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; remove the `?`, or lend the call's result with `?({s}.{s}(...))`", .{ field, what, self.sourceText(ir.Read.operand(recv)), field });
+        try self.errAt(recv, "`{s}` is {s}, not a method with a receiver; remove the `{s}`", .{ field, what, sigilText(recv) });
     }
 
     /// `?p.m(...)`, `!p.m(...)`, and `<p.m(...)` (see
@@ -7565,11 +7631,11 @@ const Checker = struct {
             },
             else => if (returns == self.t().bool_id) {
                 try self.errAt(recv, "`{s}` does not write its receiver; for negation use `not`", .{method});
-            } else try self.errAt(recv, "`{s}` does not write its receiver; drop the `!`", .{method}),
+            } else try self.errAt(recv, "`{s}` does not write its receiver; remove the `!`", .{method}),
         } else switch (mode) {
             .value => return false,
             .write => try self.errAt(recv, "`{s}` does not consume its receiver; it writes it: `!{s}.{s}(...)`, and its result needs no `<`", .{ method, name, method }),
-            else => try self.errAt(recv, "`{s}` does not consume its receiver; drop the `<`: a call's result moves without it", .{method}),
+            else => try self.errAt(recv, "`{s}` does not consume its receiver; remove the `<`: a call's result moves without it", .{method}),
         }
         return true;
     }
@@ -7662,7 +7728,9 @@ const Checker = struct {
             },
             .value => {
                 switch (kind) {
-                    .read_view, .write_view => return self.err(pos, "method `{s}` consumes the receiver; cannot consume through a view", .{method}),
+                    // A view of a value that copies is copied out, as
+                    // where a value is expected (Core §4).
+                    .read_view, .write_view => if (!self.copiesThrough(recv)) return self.err(pos, "method `{s}` consumes the receiver; cannot consume through a view", .{method}),
                     .shared => return self.err(pos, "method `{s}` consumes the receiver; cannot consume the inner value through a shared handle (`*T`) — other handles may still reference it", .{method}),
                     else => {},
                 }
@@ -7671,7 +7739,13 @@ const Checker = struct {
                     // there is moved with `<` (the ownership checker).
                     .move_explicit, .made, .branches => {},
                     .read_explicit, .write_explicit => try self.err(pos, "method `{s}` consumes the receiver; a lend cannot give it up; use `<receiver.{s}(...)`", .{ method, method }),
-                    .place => try self.err(pos, "method `{s}` consumes the receiver; use `<receiver.{s}(...)`", .{ method, method }),
+                    // A place whose value copies is read, as an argument
+                    // is: the call takes a copy (Core sentence 1).
+                    .place => if (!self.copiesValue(recv) and !self.copiesThrough(recv)) switch (sema.moveSource(self.ctx, recv)) {
+                        .binding, .capture => try self.err(pos, "method `{s}` consumes the receiver; use `<receiver.{s}(...)`", .{ method, method }),
+                        .made_part => try self.errAt(recv, "method `{s}` consumes its receiver, and `{s}` is a part of a temporary its statement drops; bind the value to a name first", .{ method, self.sourceText(recv) }),
+                        else => try self.errAt(recv, "method `{s}` consumes its receiver, and `<` cannot move `{s}` out of the value that holds it; exchange it out first: `replace(!{s}, v).{s}(...)`", .{ method, self.sourceText(recv), self.sourceText(recv), method }),
+                    },
                 }
             },
             .none => {},
@@ -8029,7 +8103,7 @@ const Checker = struct {
                 const operand = ir.Share.operand(e);
                 if (try self.shareOfNone(e, target)) return target;
                 if (operand.isKind(.lambda) and sema.callableFn(self.ctx, target) != null) {
-                    try self.errAt(e, "`{s}` views a closure for the call; write the closure without `*` (drop the `*`)", .{try self.tyName(target)});
+                    try self.errAt(e, "`{s}` views a closure for the call; write the closure without `*` (remove the `*`)", .{try self.tyName(target)});
                     _ = try self.checkLambda(operand, sema.callableFnTy(self.ctx, target).?, false);
                     return target;
                 }

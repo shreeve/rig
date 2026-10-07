@@ -1,0 +1,18 @@
+# A take through a write lend of a shared handle, while another handle
+# to the same box holds a view of the field.
+struct S
+  o: Vec[Int]?
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  h = *S(o: mkv(1))
+  h2 = +h
+  x = <(!h).o
+  print(x == none, h2.o == none)
+
+# oracle: mkv accept
+# oracle: main accept

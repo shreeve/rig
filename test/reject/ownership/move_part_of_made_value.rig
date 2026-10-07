@@ -1,0 +1,127 @@
+# A field or element of a value made in the statement is dropped with
+# it: `<` can neither end it nor empty it, so `<` on it is rejected,
+# whatever its type and whatever form carries the move. One that copies
+# is read with no `<`; one that moves is reached by binding the value to
+# a name first. A branching value's leaf follows the same rule, and so
+# does a part reached through a lend of a made value, or through a
+# handle made there, whose box other handles may see.
+# oracle: owning reject C3
+# oracle: copying reject C3
+# oracle: for_owning reject C3
+# oracle: for_copying reject C3
+# oracle: branch_leaves reject C3
+# oracle: made_optional reject C3
+
+error E
+  bad
+
+struct S
+  n: Int
+  v: Vec[Int]
+  arr: [2]Int
+  vs: [2]Vec[Int]
+  o: Int?
+
+fun mk -> S
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  S(n: 1, v: <v, arr: [1, 2], vs: [Vec(), Vec()], o: 3)
+
+fun get(bad: Bool) -> Vec[Int]!
+  return E.bad if bad
+  Vec[Int]()
+
+fun mkh -> *S
+  *mk()
+
+fun gw(s: !S) -> !S
+  s
+
+struct G[T]
+  f: T
+
+fun generic[T](x: T) -> T
+  <G(f: <x).f
+
+sub owning
+  a = mk()
+  b = mk()
+  c = a.n > 0
+  w = <mk().v
+  x = <(<a).v
+  y = <[<b, mk()][0].v
+  z = <(mk() if c else mk()).v
+  print(w.len, x.len, y.len, z.len)
+
+sub copying
+  a = mk()
+  m = <mk().n
+  h = <mkh().n
+  p = <(+a).arr
+  q = <mk().o
+  print(m, h, p, q)
+
+sub for_owning
+  for x in <mk().v
+    print(x)
+
+sub for_copying
+  for x in <mk().arr
+    print(x)
+
+sub branch_leaves(c: Bool)
+  x = <(mk().v if c else Vec[Int]())
+  y = <(get(true) catch mk().v)
+  print(x.len, y.len)
+
+fun made_leaf_value(c: Bool) -> Vec[Int]
+  w: Vec[Int] = Vec()
+  <(mk().v if c else <w)
+
+fun made_optional -> Int?
+  x = <mk().o?
+  x
+
+sub through_lend
+  a = <(!mk()).o
+  b = <gw(!mk()).o
+  print(a, b)
+
+fun through_handle(w: ~S) -> Int?
+  x = <(w.upgrade()?.o)
+  y = <(w.upgrade()?.v)
+  print(x, y.len)
+  0
+
+sub main
+  owning()
+  copying()
+  for_owning()
+  for_copying()
+  print(generic(1))
+  branch_leaves(true)
+  through_lend()
+  h = mkh()
+  print(through_handle(~h))
+  print(made_leaf_value(true).len, made_optional())
+
+# error: 44:3: cannot move a part out of the temporary `G(f: <x)`, which its statement drops; bind it to a name first
+# error: 50:7: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first
+# error: 51:7: cannot move a part out of the temporary `<a`, which its statement drops; bind it to a name first
+# error: 52:7: cannot move a part out of the temporary `[<b, mk()]`, which its statement drops; bind it to a name first
+# error: 53:7: cannot move a part out of the temporary `mk() if c else mk()`, which its statement drops; bind it to a name first
+# error: 58:7: cannot move out of `mk().n`: it copies, so `<` would leave it as it was; remove the `<` to copy it
+# error: 59:7: cannot move out of `mkh().n`: it copies, so `<` would leave it as it was; remove the `<` to copy it
+# error: 60:7: cannot move out of `(+a).arr`: it copies, so `<` would leave it as it was; remove the `<` to copy it
+# error: 61:7: cannot take out of a temporary: nothing would see it emptied; bind it to a name first
+# error: 65:13: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first
+# error: 69:13: cannot move out of `mk().arr`: it copies, so `<` would leave it as it was; remove the `<` to copy it
+# error: 73:9: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first
+# error: 74:25: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first
+# error: 79:5: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first
+# error: 82:8: cannot take out of a temporary: nothing would see it emptied; bind it to a name first
+# error: 86:7: cannot take out of a temporary: nothing would see it emptied; bind it to a name first
+# error: 87:7: cannot take out of a temporary: nothing would see it emptied; bind it to a name first
+# error: 91:7: cannot take out of `w.upgrade()?.o`: it is reached through the shared handle `w.upgrade()?`, and other handles may still use it
+# error: 92:7: cannot move out of `w.upgrade()?.v`: it is reached through the shared handle `w.upgrade()?`, and other handles may still use it
+# errors: 19

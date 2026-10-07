@@ -1,0 +1,47 @@
+# Takes through match payload views and loop bindings; `while <e as x`.
+struct S
+  o: Vec[Int]?
+
+enum E
+  none_
+  one(s: S)
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub a
+  e: E = .one(s: S(o: mkv(1)))
+  match !e
+    .one(s) => print(<s.o == none)
+    .none_ => print(0)
+  match e
+    .one(s) => print(s.o == none)
+    .none_ => print(0)
+
+sub b
+  v: Vec[S] = Vec()
+  !v.push(S(o: mkv(1)))
+  !v.push(S(o: mkv(2)))
+  for s in <v
+    x = <s.o
+    print(x == none)
+
+sub c
+  s = S(o: mkv(3))
+  k = 0
+  while <s.o as x
+    k += x.len
+  print(k, s.o == none)
+
+sub main
+  a()
+  b()
+  c()
+
+# oracle: mkv accept
+# oracle: a accept
+# oracle: b accept
+# oracle: c accept
+# oracle: main accept

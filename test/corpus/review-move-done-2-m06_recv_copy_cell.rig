@@ -1,0 +1,17 @@
+# A consuming method on a part holding a Cell.
+struct C
+  n: Cell[Int]
+
+  fun into(<self) -> Int
+    self.n.set(self.n.get() + 1)
+    self.n.get()
+
+struct S
+  c: C
+
+sub main
+  s = S(c: C(n: Cell(1)))
+  print(s.c.into(), s.c.into(), s.c.n.get())
+
+# oracle: C.into accept
+# oracle: main reject C2

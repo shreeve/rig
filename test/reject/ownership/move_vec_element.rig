@@ -1,5 +1,5 @@
 # An element that moves cannot be moved out of a Vec: the Vec still
-# owns the slot. (An element of plain data is copied out.)
+# owns the slot. (`<` on an element that copies is rejected too.)
 
 struct P
   n: Int

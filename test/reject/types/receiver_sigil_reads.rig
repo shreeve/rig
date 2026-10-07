@@ -19,4 +19,4 @@ sub main
 
 # error: 14:6: `is_empty` does not write its receiver; for negation use `not`
 # error: 16:9: `is_empty` does not write its receiver; for negation use `not`
-# error: 18:9: `peek` does not write its receiver; drop the `!`
+# error: 18:9: `peek` does not write its receiver; remove the `!`

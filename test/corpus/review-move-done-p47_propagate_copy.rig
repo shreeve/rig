@@ -1,0 +1,33 @@
+# `<o?` and `<e!` of copying places: SPEC says `<o?` is rejected
+error E
+  bad
+
+struct S
+  o: Int?
+  n: Int
+
+fun f(o: Int?) -> Int?
+  x = <o?
+  print(o)
+  x
+
+fun g(s: S) -> Int?
+  y = <s.o?
+  print(s.o)
+  y
+
+fun k(n: Int) -> Int!
+  n
+
+fun h(n: Int) -> Int!
+  z = <k(n)!
+  z
+
+sub main
+  print(f(3), g(S(o: 4, n: 1)), h(5) catch 0)
+
+# oracle: f reject C3
+# oracle: g reject C3
+# oracle: k accept
+# oracle: h accept
+# oracle: main accept

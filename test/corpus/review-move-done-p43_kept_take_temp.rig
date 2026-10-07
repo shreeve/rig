@@ -1,0 +1,14 @@
+struct S
+  n: Int
+  o: Int?
+
+fun mk -> S
+  S(n: 1, o: 2)
+
+sub main
+  a = <mk().o
+  b = <mk().n
+  print(a, b)
+
+# oracle: mk accept
+# oracle: main reject C3

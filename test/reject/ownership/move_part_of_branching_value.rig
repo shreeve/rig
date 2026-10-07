@@ -1,0 +1,79 @@
+# A field or element of a branching value (`a if c else b`, `o ?? b`,
+# `e catch b`) is a part of the binding its branch reads where it
+# stands, so `<` on it is a part move like `<a.v`: the binding would
+# still drop what moved, a part that copies would stay as it was, and an
+# optional one is taken in each branch (`<a.o if c else <b.o`). Each is
+# rejected, whatever form carries the move.
+# oracle: owning reject C3
+# oracle: copying reject C3
+# oracle: others reject C3
+# oracle: optional reject C7
+# oracle: carried reject C3
+
+error E
+  bad
+
+struct S
+  n: Int
+  v: Vec[Int]
+  o: Int?
+  vs: Vec[Vec[Int]]
+
+fun mk -> S
+  S(n: 3, v: Vec(), o: none, vs: Vec())
+
+fun get(bad: Bool) -> S!
+  return E.bad if bad
+  mk()
+
+sub owning(c: Bool)
+  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
+  b = S(n: 2, v: Vec(), o: 2, vs: Vec())
+  !a.v.push(1)
+  w = <(a if c else b).v
+  x = <(a if c else mk()).v
+  print(w.len, x.len, a.v.len)
+
+sub copying(c: Bool)
+  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
+  b = S(n: 2, v: Vec(), o: 2, vs: Vec())
+  m = <(a if c else b).n
+  print(m, a.n)
+
+sub others(c: Bool)
+  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
+  o: S? = mk()
+  !a.vs.push(Vec())
+  x = <(o ?? a).v
+  y = <(get(c) catch a).v
+  z = <(a if c else mk()).vs[0]
+  print(x.len, y.len, z.len)
+
+sub optional(c: Bool)
+  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
+  b = S(n: 2, v: Vec(), o: 2, vs: Vec())
+  t = <(a if c else b).o
+  print(t)
+
+sub carried(c: Bool)
+  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
+  b = S(n: 2, v: Vec(), o: 2, vs: Vec())
+  for x in <(a if c else b).v
+    print(x)
+
+sub main
+  owning(true)
+  copying(true)
+  others(true)
+  optional(true)
+  carried(true)
+
+# error: 33:8: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`
+# error: 34:8: cannot move out of `(a if c else mk()).v`: `a if c else mk()` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`
+# error: 40:8: cannot move out of `(a if c else b).n`: it copies, so `<` would leave it as it was; remove the `<` to copy it
+# error: 47:8: cannot move out of `(o ?? a).v`: `o ?? a` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`
+# error: 48:8: cannot move out of `(get(c) catch a).v`: `get(c) catch a` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`
+# error: 49:8: cannot move out of `(a if c else mk()).vs[0]`: `a if c else mk()` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`
+# error: 55:8: cannot take out of `(a if c else b).o`: `a if c else b` reads a binding where it stands; take it inside each branch
+# error: 61:13: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`
+# errors: 8

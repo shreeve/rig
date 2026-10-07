@@ -1,0 +1,52 @@
+# Takes through a write view held in a field, a read view held in a
+# field, a Box, and a loop's write view; then the owner is read.
+struct S
+  o: Vec[Int]?
+  v: Vec[Int]
+
+struct K
+  w: !S
+
+struct KR
+  r: ?S
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+fun mks(n: Int) -> S
+  S(o: mkv(n), v: mkv(n))
+
+sub a
+  s = mks(1)
+  k = K(w: !s)
+  x = <k.w.o
+  print(x == none)
+  print(s.o == none)
+
+sub b
+  s = mks(1)
+  bx = Box(mks(2))
+  y = <bx.o
+  print(y == none, bx.o == none, s.v.len)
+
+sub c
+  v: Vec[S] = Vec()
+  !v.push(mks(1))
+  for e in !v
+    z = <e.o
+    print(z == none)
+  print(v[0].o == none)
+
+sub main
+  a()
+  b()
+  c()
+
+# oracle: mkv accept
+# oracle: mks accept
+# oracle: a accept
+# oracle: b accept
+# oracle: c accept
+# oracle: main accept

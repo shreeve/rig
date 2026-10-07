@@ -1,0 +1,104 @@
+
+error E
+  bad
+
+struct W
+  f: Vec[Int]
+  o: Vec[Int]?
+
+struct S
+  f: Vec[Int]
+  o: Vec[Int]?
+  w: W
+
+struct R
+  f: Vec[Int]
+
+struct RO
+  f: Vec[Int]?
+
+fun mk(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+fun mko(n: Int) -> Vec[Int]?
+  mk(n)
+
+fun mks(n: Int) -> S
+  S(f: mk(n), o: mk(n + 1), w: W(f: mk(n + 2), o: mk(n + 3)))
+
+fun fail(c: Bool) -> Vec[Int]!
+  return E.bad if c
+  mk(7)
+
+fun failo(c: Bool) -> Vec[Int]?!
+  return E.bad if c
+  mko(7)
+
+fun lk(x: ?Vec[Int]) -> Int
+  x[0] + x.len
+
+fun lko(x: ?Vec[Int]?) -> Int
+  if x as y
+    lk(y)
+  else
+    0
+
+fun lks(s: ?S) -> Int
+  lk(?s.f) + lko(?s.o) + lk(?s.w.f) + lko(?s.w.o)
+
+fun eat(x: Vec[Int]) -> Int
+  lk(?x)
+
+fun eato(x: Vec[Int]?) -> Int
+  lko(?x)
+
+sub eats(x: Vec[Int])
+  print(lk(?x))
+
+sub eatso(x: Vec[Int]?)
+  print(lko(?x))
+
+fun idf(x: Vec[Int]) -> Vec[Int]
+  x
+
+fun gw(s: !S) -> !S
+  s
+
+fun gr(s: ?S) -> ?S
+  s
+
+fun cell(c: Bool, p: ?S, q: !S) -> Int
+  v: Vec[Vec[Int]] = Vec()
+  !v.push(mk(1))
+  v2: Vec[Vec[Int]] = Vec()
+  !v2.push(mk(2))
+  print(eat(<(fail(c) catch (v if c else v2)[0])))
+  print(lk(?v[0]), lk(?v2[0]))
+  0
+
+sub main
+  for c in [true, false]
+    s0 = mks(10)
+    s1 = mks(20)
+    print(cell(c, ?s0, !s1))
+    print(lks(?s0), lks(?s1))
+
+# oracle: mk accept
+# oracle: mko accept
+# oracle: mks accept
+# oracle: fail accept
+# oracle: failo accept
+# oracle: lk accept
+# oracle: lko accept
+# oracle: lks accept
+# oracle: eat accept
+# oracle: eato accept
+# oracle: eats accept
+# oracle: eatso accept
+# oracle: idf accept
+# oracle: gw accept
+# oracle: gr accept
+# oracle: cell reject C3
+# oracle: main accept

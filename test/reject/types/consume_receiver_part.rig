@@ -1,0 +1,25 @@
+# A method that consumes its receiver cannot take a field or element
+# that moves: the owner keeps it, and `<` cannot move it out, nor out of
+# a temporary. (One that copies is taken as a copy.)
+
+struct D
+  v: Vec[Int]
+
+  fun into(<self) -> Int
+    self.v.len
+
+struct K
+  d: D
+
+fun mk -> K
+  K(d: D(v: Vec()))
+
+sub main
+  k = K(d: D(v: Vec()))
+  ds: Vec[D] = Vec()
+  print(k.d.into(), ds[0].into(), mk().d.into())
+
+# error: 20:9: method `into` consumes its receiver, and `<` cannot move `k.d` out of the value that holds it; exchange it out first: `replace(!k.d, v).into(...)`
+# error: 20:21: method `into` consumes its receiver, and `<` cannot move `ds[0]` out of the value that holds it; exchange it out first: `replace(!ds[0], v).into(...)`
+# error: 20:35: method `into` consumes its receiver, and `mk().d` is a part of a temporary its statement drops; bind the value to a name first
+# errors: 3

@@ -1,0 +1,28 @@
+# `<g.o` of a generic optional, and `for x in <` of a generic part.
+struct G[T]
+  f: T
+  o: T?
+
+fun take[T](g: !G[T]) -> T?
+  <g.o
+
+fun walk[T](g: !G[T]) -> Int
+  k = 0
+  for x in <g.f
+    k += 1
+  k
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  a = G(f: mkv(1), o: mkv(2))
+  x = take(!a)
+  print(x == none, a.o == none)
+  print(walk(!a))
+
+# oracle: take accept
+# oracle: walk reject C3
+# oracle: mkv accept

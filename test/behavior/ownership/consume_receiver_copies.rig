@@ -1,0 +1,38 @@
+# A method that consumes its receiver (`<self`) takes a copy of a
+# receiver whose value copies, as an argument does: `s.p.into()` and
+# `v[0].into()` copy the part and leave it as it was, and `p.into()`
+# copies a local. `<p.into()` still moves the local, which ends it, and
+# `(+s.p).into()` copies too. A view of a value that copies is copied
+# out the same way: `p.into()` with `p: ?P` or `p: !P`.
+# oracle: main accept
+
+struct P
+  x: Int
+
+  fun into(<self) -> Int
+    self.x
+
+struct S
+  p: P
+
+fun through_read(p: ?P) -> Int
+  p.into()
+
+fun through_write(p: !P) -> Int
+  p.into()
+
+sub main
+  s = S(p: P(x: 2))
+  v: Vec[P] = Vec()
+  !v.push(P(x: 3))
+  p = P(x: 4)
+  print(s.p.into(), v[0].into(), p.into(), (+s.p).into())
+  print(s.p.x, v[0].x, p.x)
+  print(through_read(?s.p), through_write(!s.p), s.p.x)
+  print(<p.into())
+
+# expect:
+# 2 3 4 2
+# 2 3 4
+# 2 2 2
+# 4

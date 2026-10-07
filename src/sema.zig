@@ -5529,6 +5529,166 @@ fn pathHands(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind
     };
 }
 
+// =============================================================================
+// What `<` does to its source
+// =============================================================================
+
+/// What `<e` does to its source (Core §5): `<` always leaves its source
+/// done, so a name is ended, an optional place is emptied to `none`, and
+/// any other place is rejected. Decided here, once, by a positive list
+/// over `handsOver` and the operand's type and root, for every form that
+/// carries a move: `<e` wherever it stands, a `for x in <e` source, and
+/// each leaf of a branching operand (`moveLeaves`). The type checker
+/// records a take where it empties an optional and reports a part of a
+/// value made here; the ownership checker ends a binding and reports the
+/// rest.
+pub const MoveSource = enum {
+    /// A binding (a local or a parameter): `<x` ends it.
+    binding,
+    /// A closure's capture (`|+x|`, `|<x|`, `|?x|`, `|!x|`, `|~x|`):
+    /// the closure keeps it for every call, so `<` cannot end it.
+    capture,
+    /// A field or element holding an optional, of a place (`<p.f`,
+    /// `<v[i]`, `<(!p).f`): it is emptied to `none`.
+    optional_part,
+    /// Any other field or element of a place: it can be neither ended
+    /// nor emptied.
+    part,
+    /// A field or element of a branching value (`(a if c else b).f`),
+    /// which may be a binding's: neither ended nor emptied.
+    branch_part,
+    /// A field or element of a value made here (`mk().n`, `[a, b][0]`),
+    /// which its statement drops: nothing would see it ended or emptied.
+    made_part,
+    /// What lives for the whole program: a function, or a module's
+    /// constant or a part of one (`K`, `geo.K`, `geo.KP[0]`).
+    declared,
+    /// A value made here: a call, a constructor, a literal, a lend, an
+    /// enum variant (`Color.red`), a `match` or block. Nothing is left
+    /// behind.
+    made,
+    /// A branching value (`a if c else b`, `a ?? b`, `e catch h`, `e!`,
+    /// `e?`): what each leaf gives up (`moveLeaves`).
+    branches,
+};
+
+pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
+    switch (handsOver(ctx, e).kind) {
+        .made, .lend, .jump, .none => return .made,
+        .branches => return .branches,
+        .part_of_made => return if (handsOver(ctx, pathRoot(e)).kind == .branches) .branch_part else .made_part,
+        .place => {},
+    }
+    const root = pathRoot(e);
+    // A path through a lend or a view made here reaches a place. An
+    // optional there is not emptied where the view sees only values made
+    // in the statement (`(!mk()).o`); any other part is rejected as one
+    // reached through a view.
+    if (root != .src) {
+        const source = partSource(ctx, e);
+        return if (source == .optional_part and viewsOnlyMade(ctx, root)) .made_part else source;
+    }
+    const sym = ctx.symbols.items[ctx.symbolOf(root) orelse {
+        // A built-in type's member (`Int.min`) is a value; a name sema
+        // could not resolve was reported, and stands for a binding.
+        if (e != .src and ctx.typeOf(root) == null) return .made;
+        return if (e == .src) .binding else partSource(ctx, e);
+    }];
+    switch (sym.kind) {
+        .param, .generic_param => return if (e == .src) .binding else partSource(ctx, e),
+        .capture => return if (e == .src) .capture else partSource(ctx, e),
+        .local => {
+            if (sym.scope == module_scope) return .declared;
+            return if (e == .src) .binding else partSource(ctx, e);
+        },
+        .function, .@"extern" => return .declared,
+        // `module.name`: a constant or function of the module, or a type
+        // whose member this path names.
+        .module => {
+            var q = e;
+            while (ir.get(q, .object) != .src) q = ir.get(q, .object);
+            if (ctx.typeOf(q) != null) return .declared;
+            return typeMemberSource(ctx, e);
+        },
+        .nominal_type, .type_alias, .generic_type => return typeMemberSource(ctx, e),
+    }
+}
+
+/// Whether `v`, a view made here, sees only values made in its statement:
+/// a lend of one (`!mk()`, `?mk().w`), or a call's view result whose
+/// every argument it carries a view from is such a view (`gw(!mk())`).
+fn viewsOnlyMade(ctx: *const SemContext, v: Sexp) bool {
+    if (v.isKind(.read) or v.isKind(.write)) {
+        const operand = ir.get(v, .operand);
+        return switch (handsOver(ctx, operand).kind) {
+            .made => true,
+            // A part of a branching value may be a binding's.
+            .part_of_made => handsOver(ctx, pathRoot(operand)).kind != .branches,
+            .place, .lend, .branches, .jump, .none => false,
+        };
+    }
+    if (!v.isKind(.call)) return false;
+    const params = ctx.callParamsOf(v) orelse return false;
+    var seen = false;
+    const callee = ir.Call.callee(v);
+    if (callee.isKind(.member) and params.resultCarriesReceiver()) {
+        if (!viewsOnlyMade(ctx, ir.Member.object(callee))) return false;
+        seen = true;
+    }
+    for (ir.Call.args(v), 0..) |arg, i| {
+        if (!params.resultCarries(i)) continue;
+        const value = if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg;
+        // An argument that holds no view gives the result none.
+        const ty = ctx.typeOf(value) orelse return false;
+        if (!mayHoldView(ctx, ty)) continue;
+        if (!viewsOnlyMade(ctx, value)) return false;
+        seen = true;
+    }
+    return seen;
+}
+
+/// A field or element of a place: emptied when it holds an optional.
+fn partSource(ctx: *const SemContext, e: Sexp) MoveSource {
+    const ty = ctx.typeOf(e) orelse return .part;
+    return if (ctx.types.get(ty) == .optional) .optional_part else .part;
+}
+
+/// A type's member (`Color.red`, `Point.origin`): a function lives for
+/// the whole program; any other is a value.
+fn typeMemberSource(ctx: *const SemContext, e: Sexp) MoveSource {
+    const ty = ctx.typeOf(e) orelse return .made;
+    return if (ctx.types.get(ty) == .function) .declared else .made;
+}
+
+/// The value a field or element path starts from: `mk()` in
+/// `mk().v[0]`; `e` itself for any other node.
+pub fn pathRoot(e: Sexp) Sexp {
+    var p = e;
+    while (p.isKind(.member) or p.isKind(.index)) p = ir.get(p, .object);
+    return p;
+}
+
+/// A leaf of a branching `<e` that `<` would leave as it was, and what it
+/// is (`moveSource`).
+pub const MoveLeaf = struct { node: Sexp, source: MoveSource };
+
+/// The leaves of `operand`, a branching value under `<`, that `<` cannot
+/// take: every leaf but a value made there, appended to `out` in order.
+/// (An operand of `<` is an expression, so no leaf is a name it declares:
+/// a block-form `if` or `match` cannot follow `<`.)
+pub fn moveLeaves(a: std.mem.Allocator, ctx: *const SemContext, operand: Sexp, out: *std.ArrayList(MoveLeaf)) std.mem.Allocator.Error!void {
+    var parts = valueParts(operand);
+    while (parts.next()) |p| {
+        if (p.node == .nil) continue;
+        const source = moveSource(ctx, p.node);
+        switch (source) {
+            .made => {},
+            .branches => try moveLeaves(a, ctx, p.node, out),
+            .binding, .capture, .optional_part, .part, .branch_part, .made_part, .declared => try out.append(a, .{ .node = p.node, .source = source }),
+        }
+    }
+}
+
 /// A name of a type or module, or a generic type's instance
 /// (`Vec[Int]`): it has no value of its own.
 fn namesTypeOrModule(ctx: *const SemContext, e: Sexp) bool {

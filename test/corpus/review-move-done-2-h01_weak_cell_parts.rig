@@ -1,0 +1,30 @@
+# Parts reached through a weak handle's upgrade, and through a Cell.
+struct S
+  v: Vec[Int]
+  o: Vec[Int]?
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+fun up(w: ~S) -> Int?
+  x = <(w.upgrade()?.o)
+  print(x == none)
+  0
+
+fun up2(w: ~S) -> Int?
+  y = <(w.upgrade()?.v)
+  print(y.len)
+  0
+
+sub main
+  h = *S(v: mkv(1), o: mkv(2))
+  w = ~h
+  print(up(w), up2(w))
+  print(h.o == none, h.v.len)
+
+# oracle: mkv accept
+# oracle: up reject C3
+# oracle: up2 reject C3
+# oracle: main reject C2

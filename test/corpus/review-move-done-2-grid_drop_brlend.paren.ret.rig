@@ -1,0 +1,111 @@
+struct D
+  v: Int
+
+  drop(!self)
+    print("drop", self.v)
+
+  fun into(<self) -> Int
+    self.v
+
+error E
+  bad
+
+struct W
+  f: D
+  o: D?
+
+struct S
+  f: D
+  o: D?
+  w: W
+
+struct R
+  f: D
+
+struct RO
+  f: D?
+
+fun mk(n: Int) -> D
+  D(v: n)
+
+fun mko(n: Int) -> D?
+  mk(n)
+
+fun mks(n: Int) -> S
+  S(f: mk(n), o: mk(n + 1), w: W(f: mk(n + 2), o: mk(n + 3)))
+
+fun fail(c: Bool) -> D!
+  return E.bad if c
+  mk(7)
+
+fun failo(c: Bool) -> D?!
+  return E.bad if c
+  mko(7)
+
+fun lk(x: ?D) -> Int
+  x.v
+
+fun lko(x: ?D?) -> Int
+  if x as y
+    lk(y)
+  else
+    0
+
+fun lks(s: ?S) -> Int
+  lk(?s.f) + lko(?s.o) + lk(?s.w.f) + lko(?s.w.o)
+
+fun eat(x: D) -> Int
+  lk(?x)
+
+fun eato(x: D?) -> Int
+  lko(?x)
+
+sub eats(x: D)
+  print(lk(?x))
+
+sub eatso(x: D?)
+  print(lko(?x))
+
+fun idf(x: D) -> D
+  x
+
+fun gw(s: !S) -> !S
+  s
+
+fun gr(s: ?S) -> ?S
+  s
+
+fun cell(c: Bool, p: ?S, q: !S) -> D?
+  s = mks(1)
+  s2 = mks(2)
+  return <((!s if c else !s2).o) if c
+  print(lks(?s), lks(?s2))
+  mko(5)
+
+sub main
+  for c in [true, false]
+    s0 = mks(10)
+    s1 = mks(20)
+    r = cell(c, ?s0, !s1)
+    print(lko(?r))
+    print(lks(?s0), lks(?s1))
+
+# oracle: D.drop accept
+# oracle: D.into accept
+# oracle: mk accept
+# oracle: mko accept
+# oracle: mks accept
+# oracle: fail accept
+# oracle: failo accept
+# oracle: lk accept
+# oracle: lko accept
+# oracle: lks accept
+# oracle: eat accept
+# oracle: eato accept
+# oracle: eats accept
+# oracle: eatso accept
+# oracle: idf accept
+# oracle: gw accept
+# oracle: gr accept
+# oracle: cell accept
+# oracle: main accept

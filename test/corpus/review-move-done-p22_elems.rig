@@ -1,0 +1,38 @@
+struct S
+  v: Vec[Int]
+
+sub e1
+  vv: Vec[Vec[Int]] = Vec()
+  w = <vv[0]
+  print(w.len)
+
+sub e2
+  vs: Vec[S] = Vec()
+  w = <vs[0]
+  print(w.v.len)
+
+sub e3
+  vs: Vec[S] = Vec()
+  w = <vs[0].v
+  print(w.len)
+
+sub e4
+  a = [S(v: Vec()), S(v: Vec())]
+  w = <a[0]
+  print(w.v.len)
+
+sub e5
+  a = [S(v: Vec()), S(v: Vec())]
+  sl = !a[..]
+  w = <sl[0]
+  print(w.v.len)
+
+sub main
+  e1()
+
+# oracle: e1 reject C3
+# oracle: e2 reject C3
+# oracle: e3 reject C3
+# oracle: e4 reject C3
+# oracle: e5 reject C3
+# oracle: main accept

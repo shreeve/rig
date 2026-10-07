@@ -1318,7 +1318,7 @@ pub const Parser = struct {
             },
             else => return null,
         };
-        return .{ .severity = .@"error", .pos = pos, .end = pos + 1, .message = "unexpected `:`; a block's header ends without one: drop the `:`, and indent the block below" };
+        return .{ .severity = .@"error", .pos = pos, .end = pos + 1, .message = "unexpected `:`; a block's header ends without one: remove the `:`, and indent the block below" };
     }
 
     /// `0..=3`: Rig's ranges exclude their end. Reported at the `..=`.
@@ -1473,7 +1473,7 @@ pub const Parser = struct {
             const eol = std.mem.findScalarPos(u8, src, tok.pos, '\n') orelse src.len;
             const rest = std.mem.trim(u8, src[tok.pos + 1 .. eol], " \r");
             if (rest.len > 0 and rest[0] != '#') return "unexpected `;`; Rig ends a statement at the end of its line; put each statement on its own line";
-            return "unexpected `;`; Rig ends a statement at the end of its line; drop the `;`";
+            return "unexpected `;`; Rig ends a statement at the end of its line; remove the `;`";
         }
         const open = lex.brackets[lex.nesting - 1];
         if (src[open] != '[') return "unexpected `;`";

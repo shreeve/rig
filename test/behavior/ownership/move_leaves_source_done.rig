@@ -1,0 +1,63 @@
+# `<` always leaves its source done. `<n` ends a local of any type, and
+# assigning it makes it usable again; `<s.o` and `<v[i]` of an optional
+# take the value and leave `none`, also through a write lend; a field or
+# element that copies is copied by a plain read, with no `<`. A
+# branching value moves each leaf where it is (`<a if c else <b`,
+# `(<o)?`), and `<` of a value made there takes it (`<(mk() if c else
+# <t)`, `<half(n)!`).
+# oracle: main accept
+# oracle: first accept
+
+error Odd
+  odd
+
+struct S
+  n: Int
+  o: Int?
+
+fun mk -> S
+  S(n: 7, o: 8)
+
+fun twice(n: Int) -> Int
+  n * 2
+
+fun half(n: Int) -> Int!
+  return Odd.odd if n % 2 == 1
+  n / 2
+
+fun first(o: Int?) -> Int?
+  x = (<o)?
+  x + 1
+
+sub main
+  n = 21
+  print(twice(<n))
+  n = 4
+  print(n)
+  s = S(n: 1, o: 2)
+  m = s.n
+  o = <s.o
+  print(m, o, s.n, s.o)
+  s.o = 3
+  t = <(!s).o
+  print(t, s.o)
+  v: Vec[Int?] = Vec()
+  !v.push(5)
+  e = <v[0]
+  f = v[0]
+  print(e, f, v.len)
+  a = 1
+  b = 2
+  c = a < b
+  x = <a if c else <b
+  r = S(n: 9, o: none)
+  y = <(mk() if c else <r)
+  print(x, y.n, first(4), <half(n)!)
+
+# expect:
+# 42
+# 4
+# 1 2 1 none
+# 3 none
+# 5 none 1
+# 1 7 5 2

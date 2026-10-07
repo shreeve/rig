@@ -1,0 +1,34 @@
+# A take through a branching value whose leaves are write views held in
+# bindings, and through a view binding's field. (A read lend of `s` before
+# `<(!s if c else !t).o` is rejected, as it should be: not kept here.)
+struct S
+  o: Vec[Int]?
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub a(c: Bool)
+  s = S(o: mkv(1))
+  t = S(o: mkv(2))
+  r1 = !s
+  r2 = !t
+  x = <(r1 if c else r2).o
+  print(x == none, r1.o == none, r2.o == none)
+
+sub d(c: Bool)
+  s = S(o: mkv(1))
+  r1 = !s
+  x = <r1.o
+  y = <(r1).o
+  print(x == none, y == none, s.o == none)
+
+sub main
+  a(true)
+  d(true)
+
+# oracle: mkv accept
+# oracle: a accept
+# oracle: d accept
+# oracle: main accept

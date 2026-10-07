@@ -1,0 +1,20 @@
+error E
+  bad
+
+struct S
+  n: Int
+  v: Vec[Int]
+
+fun mk(f: Bool) -> S!
+  if f
+    return E.bad
+  S(n: 1, v: Vec())
+
+sub main
+  b = S(n: 2, v: Vec())
+  !b.v.push(1)
+  w = <(mk(true) catch b).v
+  print(w.len, b.v.len)
+
+# oracle: mk accept
+# oracle: main reject C3
