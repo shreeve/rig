@@ -7,11 +7,10 @@ from).
 
 ## Current state
 
-- **Release:** `v0.2.3` is the latest release (Zig 0.17.0, Nexus
-  2.0.0), with CI green on Linux and macOS. It closes loop-step and
-  copy-out holes found in v0.2.2, fixes `%` by -1 on x86_64, and builds
-  `!` on any value and the copies rules; its release notes list each
-  change and the loop cases still open.
+- **Release:** `v0.2.4` is the latest release (Zig 0.17.0, Nexus
+  2.0.0), with CI green on Linux and macOS. It lowers every loop through
+  one desugaring the checker walks, closing the loop holes v0.2.3 listed,
+  and speeds up the test tooling; its release notes list each change.
   The version string in `build.zig` changes only when a release is cut.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires
