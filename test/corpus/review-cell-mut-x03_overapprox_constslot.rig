@@ -1,0 +1,37 @@
+# No user generic function: a Vec of a generic instance that holds Cell
+# holders only on the heap, read through a read view of the Vec. The
+# runtime's constSlot gives `*const G(C)`, the emitter's view type is
+# `*G(C)`.
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  items: Vec[T]
+  k: Int
+
+fun mk(k: Int) -> G[C]
+  v: Vec[C] = Vec()
+  !v.push(C(c: Cell(k)))
+  G(items: <v, k: k)
+
+fun look(g: ?G[C]) -> Int
+  g.items[0].c.set(g.items[0].c.get() + 1)
+  g.items[0].c.get() + g.k
+
+fun first(v: ?Vec[G[C]]) -> Int
+  look(?v[0])
+
+sub main()
+  v: Vec[G[C]] = Vec()
+  !v.push(mk(10))
+  print(first(?v))
+  print(look(?v[0]))
+
+# expect:
+# 21
+# 22
+
+# oracle: mk accept
+# oracle: look accept
+# oracle: first accept
+# oracle: main accept

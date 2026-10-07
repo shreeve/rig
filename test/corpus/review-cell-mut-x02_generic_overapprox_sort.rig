@@ -1,0 +1,33 @@
+# std.sort's comparator over a generic instance that holds a Cell holder
+# only in a Vec (heap): sema says the instance is interior-mutable, the
+# runtime does not, so the comparator's `*G(C)` meets FnRef's `*const`.
+use std.sort
+
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  items: Vec[T]
+  k: Int
+
+fun mk(k: Int) -> G[C]
+  v: Vec[C] = Vec()
+  !v.push(C(c: Cell(k)))
+  G(items: <v, k: k)
+
+fun less(a: ?G[C], b: ?G[C]) -> Bool
+  a.k < b.k
+
+sub main()
+  v: Vec[G[C]] = Vec()
+  for k in [3, 1, 2]
+    !v.push(mk(k))
+  sort.sort_by(!v, less)
+  print(v[0].k, v[1].k, v[2].k)
+
+# expect:
+# 1 2 3
+
+# oracle: mk accept
+# oracle: less accept
+# oracle: main accept

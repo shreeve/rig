@@ -1,0 +1,67 @@
+# A Cell changed through a read view of each kind of place that holds
+# it: a field, a Vec element, an array element, a slice element, a view
+# stored in a struct, a closure's `|?x|` capture, and a shared handle's
+# value, each in a loop that leaves early.
+# release
+
+struct C
+  c: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    self.log.push(self.c.get())
+
+  fun score(?self) -> Int
+    self.c.get() * 100 + self.log.len
+
+struct W
+  inner: C
+
+struct R
+  r: ?C
+
+fun mk() -> C
+  C(c: Cell(0), log: Cell(Vec()))
+
+fun hits(s: []C, k: Int) -> Int
+  s[k].hit()
+  s[k].c.get()
+
+fun maybe(n: Int) -> Int?
+  return none if n % 2 == 1
+  n
+
+sub main()
+  w = W(inner: mk())
+  v: Vec[C] = Vec()
+  !v.push(mk())
+  !v.push(mk())
+  a = [mk(), mk()]
+  shared = *mk()
+  for i in 0..6
+    w.inner.hit()
+    v[1].hit()
+    a[0].hit()
+    shared.hit()
+    print(hits(?a[..], 1) + (maybe(i) ?? continue))
+  print(w.inner.score(), v[0].score(), v[1].score(), a[0].score(), a[1].score(), shared.score())
+  k = mk()
+  r = R(r: ?k)
+  for i in 0..4
+    r.r.hit()
+    break if i == 2
+  print(k.score())
+  m = mk()
+  f = |?m| m.hit()
+  for _ in 0..3
+    f()
+  print(m.score())
+
+# expect:
+# 1
+# 5
+# 9
+# 606 0 606 606 606 606
+# 303
+# 303

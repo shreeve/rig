@@ -1,0 +1,25 @@
+# A generic type that holds its parameter only behind a handle, in a
+# subslice of an array of it, at an instance whose argument holds a
+# Cell: it holds no Cell inline, so its views are `*const` in generic
+# and concrete code alike, and the Cell it reaches changes through them,
+# in debug and in an optimized build.
+# release
+
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  h: *T
+
+fun tot(xs: []G[C]) -> Int
+  t = 0
+  for i in 0..xs.len
+    t += xs[i].h.c.get()
+  t
+
+sub main()
+  arr = [G(h: *C(c: Cell(1))), G(h: *C(c: Cell(2)))]
+  print(tot(?arr[0..2]), tot(?arr))
+
+# expect:
+# 3 3

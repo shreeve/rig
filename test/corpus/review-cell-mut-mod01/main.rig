@@ -1,0 +1,46 @@
+# Cell holders declared in another module, held by this one's types, and
+# a generic type of that module instantiated here with a local holder.
+use lib
+
+struct M
+  w: lib.W
+  k: Int
+
+  sub hit(?self)
+    self.w.c.hit()
+
+struct L
+  c: Cell[Int]
+
+sub bump(l: ?L)
+  l.c.set(l.c.get() + 10)
+
+fun via(m: ?M) -> Int
+  m.hit()
+  lib.look(?m.w)
+
+sub main()
+  m = M(w: lib.mkw(0), k: 1)
+  for _ in 0..3
+    m.hit()
+    m.w.hit2()
+  print(via(?m), m.w.c.c.get())
+  g = lib.G(x: L(c: Cell(0)))
+  for _ in 0..2
+    g.run(bump)
+  print(g.x.c.get())
+  gs: Vec[lib.G[L]] = Vec()
+  !gs.push(lib.G(x: L(c: Cell(5))))
+  for x in ?gs
+    x.run(bump)
+  print(gs[0].x.c.get())
+
+# expect:
+# 12 12
+# 20
+# 15
+
+# oracle: M.hit accept
+# oracle: bump accept
+# oracle: via accept
+# oracle: main accept

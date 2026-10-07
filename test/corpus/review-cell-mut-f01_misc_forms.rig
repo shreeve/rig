@@ -1,0 +1,99 @@
+# Assorted paths to a Cell holder: a consuming `for`, a Box field, a
+# weak handle, `raw`, an optional field's `?.` call, an enum's own
+# `?self` method, nested arrays and their slices, a rebound view, a
+# write view, and a view of a shared handle.
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+enum E
+  has(x: C)
+  nothing
+
+  sub hitall(?self)
+    match self
+      .has(x) => x.hit()
+      .nothing => pass
+
+struct B
+  b: Box[C]
+  o: C?
+
+  sub hit(?self)
+    self.b.hit()
+    if self.o as y
+      y.hit()
+
+fun mk(n: Int) -> C
+  C(c: Cell(n))
+
+fun tot(xs: []C) -> Int
+  t = 0
+  for i in 0..xs.len
+    xs[i].hit()
+    t += xs[i].c.get()
+  t
+
+sub viaw(x: !C)
+  x.hit()
+
+sub viah(h: ?*C)
+  h.hit()
+
+sub main()
+  arr = [mk(1), mk(2)]
+  for x in <arr
+    x.hit()
+    print(x.c.get())
+  b = B(b: Box(mk(10)), o: mk(20))
+  for _ in 0..3
+    b.hit()
+  if b.o as y
+    print(b.b.c.get(), y.c.get())
+  s = *mk(30)
+  w = ~s
+  if w.upgrade() as h
+    h.hit()
+  viah(?s)
+  print(s.c.get())
+  k = mk(40)
+  raw
+    k.hit()
+  print(k.c.get())
+  e: E = .has(mk(50))
+  for _ in 0..2
+    e.hitall()
+  match e
+    .has(x) => print(x.c.get())
+    .nothing => pass
+  aa = [[mk(0), mk(0)], [mk(0), mk(0)]]
+  aa[1][0].hit()
+  print(tot(?aa[1][..]), tot(?aa[0]))
+  p = mk(60)
+  q = mk(70)
+  r = ?p
+  r.hit()
+  r = ?q
+  r.hit()
+  viaw(!p)
+  print(p.c.get(), q.c.get())
+
+# expect:
+# 2
+# 3
+# 13 23
+# 32
+# 41
+# 52
+# 3 2
+# 62 71
+
+# oracle: C.hit accept
+# oracle: E.hitall accept
+# oracle: B.hit accept
+# oracle: mk accept
+# oracle: tot accept
+# oracle: viaw accept
+# oracle: viah accept

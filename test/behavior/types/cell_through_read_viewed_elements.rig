@@ -1,6 +1,7 @@
 # A Cell changes through any path to it, an element of a read-viewed
 # Vec, array, or slice included: through a field of the element, the
 # element itself, an element of an element, and a field's Vec.
+# release
 
 struct C
   c: Cell[Int]

@@ -1,0 +1,56 @@
+# A `?self` method pushes onto a Cell[Vec] of a named local in a loop
+# whose argument may leave the iteration. The push may reallocate the
+# Vec, so the `drop` and the next allocations must see the new buffer:
+# a stale header would free a buffer twice.
+# release
+
+struct V
+  c: Cell[Vec[Int]]
+
+  drop(!self)
+    print("drop", self.c.len)
+
+  fun add(?self, n: Int) -> Int
+    self.c.push(n)
+    self.c.len
+
+struct P
+  c: Cell[Vec[Int]]
+
+  fun add(?self, n: Int) -> Int
+    self.c.push(n)
+    self.c.len
+
+fun build(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i)
+  v
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub main()
+  for i in 0..3
+    p = P(c: Cell(build(i)))
+    print(p.add(maybe(i - 1) ?? 9))
+  for i in 0..3
+    v = V(c: Cell(build(4 * i)))
+    print(v.add(maybe(i - 1) ?? continue))
+  x = build(4)
+  y = build(4)
+  !x.push(100)
+  !y.push(200)
+  print(x[0], x[1], y[0], y[1], x[4], y[4])
+
+# expect:
+# 1
+# 2
+# 3
+# drop 0
+# 5
+# drop 5
+# 9
+# drop 9
+# 0 1 0 1 100 200

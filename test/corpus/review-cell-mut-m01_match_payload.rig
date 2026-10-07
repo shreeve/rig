@@ -1,0 +1,70 @@
+# A Cell changed through each kind of match payload binding: read,
+# write, consumed, in a loop that continues, and a guard.
+struct C
+  c: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    self.log.push(self.c.get())
+
+enum E
+  has(x: C)
+  two(a: C, b: Int)
+  nothing
+
+fun mk(n: Int) -> C
+  C(c: Cell(n), log: Cell(Vec()))
+
+fun maybe(n: Int) -> Int?
+  return none if n % 2 == 1
+  n
+
+fun score(e: ?E) -> Int
+  match e
+    .has(x)
+      x.hit()
+      x.c.get() * 100 + x.log.len
+    .two(a, b) => a.c.get() + b
+    .nothing => -1
+
+sub main()
+  e: E = .has(mk(0))
+  s = 0
+  for i in 0..6
+    match e
+      .has(x) => x.hit()
+      _ => pass
+    match ?e
+      .has(x) => x.hit()
+      _ => pass
+    match !e
+      .has(x) => x.hit()
+      _ => pass
+    s += score(?e) + (maybe(i) ?? continue)
+  print(s)
+  print(score(?e))
+  t: E = .two(a: mk(5), b: 7)
+  match t
+    .two(a, b) if b > 3
+      a.hit()
+      a.hit()
+    _ => pass
+  print(score(?t))
+  match <t
+    .two(a, b)
+      a.hit()
+      print(a.c.get(), a.log.len, b)
+    _ => pass
+
+# expect:
+# 3642
+# 2525
+# 14
+# 8 3 7
+
+# oracle: C.hit accept
+# oracle: mk accept
+# oracle: maybe accept
+# oracle: score accept
+# oracle: main accept

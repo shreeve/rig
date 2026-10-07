@@ -1,0 +1,53 @@
+# Headers over values made there (a call's result) whose payloads or
+# elements hold a Cell and are changed in the body.
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+enum E
+  has(x: C)
+  nothing
+
+fun mk(n: Int) -> C
+  C(c: Cell(n))
+
+fun mke(n: Int) -> E
+  .has(mk(n))
+
+fun mka(n: Int) -> [2]C
+  [mk(n), mk(n + 1)]
+
+fun mkv(n: Int) -> Vec[C]
+  v: Vec[C] = Vec()
+  !v.push(mk(n))
+  v
+
+sub main()
+  match mke(5)
+    .has(x)
+      x.hit()
+      print(x.c.get())
+    .nothing => pass
+  match <mke(7)
+    .has(x)
+      x.hit()
+      print(x.c.get())
+    .nothing => pass
+  for x in mka(10)
+    x.hit()
+    print(x.c.get())
+
+# expect:
+# 6
+# 8
+# 11
+# 12
+
+# oracle: C.hit accept
+# oracle: mk accept
+# oracle: mke accept
+# oracle: mka accept
+# oracle: mkv accept
+# oracle: main accept

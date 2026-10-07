@@ -1,0 +1,67 @@
+# Catch-all match bindings of a Cell holder: read, write, consume, on an
+# enum, a struct, and an optional, plus alternatives that consume.
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+enum E
+  has(x: C)
+  other(x: C)
+  nothing
+
+fun mk(n: Int) -> C
+  C(c: Cell(n))
+
+fun get(e: ?E) -> Int
+  match e
+    .has(x) => x.c.get()
+    .other(x) => x.c.get()
+    .nothing => -1
+
+sub main()
+  e: E = .other(mk(0))
+  for _ in 0..3
+    match e
+      .has(x) => x.hit()
+      w => match w
+        .other(y) => y.hit()
+        _ => pass
+    match ?e
+      .nothing => pass
+      w => match w
+        .other(y) => y.hit()
+        _ => pass
+    match !e
+      .nothing => pass
+      w => match w
+        .other(y) => y.hit()
+        _ => pass
+  print(get(?e))
+  o: C? = mk(20)
+  if o as w
+    w.hit()
+  if <o as w
+    w.hit()
+    print(w.c.get())
+  f: E = .has(mk(30))
+  match <f
+    .nothing => pass
+    w => match w
+      .has(y) => y.hit()
+      _ => pass
+  g: E = .has(mk(40))
+  match <g
+    .has(_), .other(_)
+      print(41)
+    .nothing => pass
+
+# expect:
+# 9
+# 22
+# 41
+
+# oracle: C.hit accept
+# oracle: mk accept
+# oracle: get accept

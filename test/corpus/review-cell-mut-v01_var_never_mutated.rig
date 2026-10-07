@@ -1,0 +1,47 @@
+# Locals the fact now makes `var` that Zig might find never mutated: a
+# Cell holder only read, a generic local at a plain instance, an array
+# of holders only read, an optional holder only tested.
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  x: T
+
+fun id[T](x: T) -> T
+  y = <x
+  w = [1, 2]
+  print(w[0] == 1)
+  <y
+
+fun mkg[T](x: T) -> G[T]
+  z = G(x: <x)
+  <z
+
+fun copy2[T](x: T) -> T
+  y = x
+  y
+
+sub main()
+  k = C(c: Cell(1))
+  print(k.c.get())
+  a = [C(c: Cell(2)), C(c: Cell(3))]
+  print(a[1].c.get())
+  o: C? = C(c: Cell(4))
+  print(o != none)
+  print(id(5), copy2(6), id("s"), mkg(8).x)
+  b = id(C(c: Cell(7)))
+  print(b.c.get())
+
+# expect:
+# 1
+# 3
+# true
+# true
+# true
+# 5 6 s 8
+# true
+# 7
+
+# oracle: id accept
+# oracle: mkg accept
+# oracle: copy2 accept

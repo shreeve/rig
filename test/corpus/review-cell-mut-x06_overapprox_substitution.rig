@@ -1,0 +1,26 @@
+# sema's answer is not stable under substitution: `?G[T]` in generic
+# code is `*const G(T)` (no: G holds T only behind a handle), while the
+# concrete `?G[C]` is `*G(C)` (yes: an argument holds a Cell).
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  h: *T
+
+fun pick[T](a: ?G[T], b: ?G[T], k: Bool) -> ?G[T]
+  a if k else b
+
+fun look(g: ?G[C]) -> Int
+  g.h.c.get()
+
+sub main()
+  a = G(h: *C(c: Cell(1)))
+  b = G(h: *C(c: Cell(2)))
+  print(look(pick(?a, ?b, false)))
+
+# expect:
+# 2
+
+# oracle: pick accept
+# oracle: look accept
+# oracle: main accept

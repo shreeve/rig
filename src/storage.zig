@@ -1008,3 +1008,51 @@ fn isCellVecTy(ctx: *const SemContext, ty: TypeId) bool {
     };
     return isVecTy(ctx, cell);
 }
+
+/// The first leaf of `e`, a value reached where its leaves are, that
+/// `Emitter.emitLeafPtr` reaches only as a Zig rvalue, whose address is
+/// a `*const`: walked as emit walks it, a value made there that no
+/// statement slot keeps (`dropsTemp`), where emit stops descending (at
+/// a node that does not hand over `.branches`), an optional or fallible
+/// operand whose payload is captured from such a value, or a part of
+/// one. Null when every leaf is reached in storage Zig may write: a
+/// place, a slot, or a jump. Typecheck rejects a change through such a
+/// leaf (a `?self` method on a part of `e`), since an interior-mutable
+/// value is only ever written through a mutable pointer
+/// (`sema.interiorMutable`).
+pub fn constLeaf(ctx: *const SemContext, e: Sexp) ?Sexp {
+    const kind = sema.handsOver(ctx, e).kind;
+    if (kind == .branches) switch (e.kind() orelse return null) {
+        .@"if" => {
+            if (constLeaf(ctx, sema.tailOf(ir.If.then(e)))) |leaf| return leaf;
+            return constLeaf(ctx, sema.tailOf(ir.If.@"else"(e)));
+        },
+        .@"??" => return constPayload(ctx, ir.@"??".left(e)) orelse constLeaf(ctx, ir.@"??".right(e)),
+        .propagate => return constPayload(ctx, ir.Propagate.value(e)),
+        .propagate_none => return constPayload(ctx, ir.PropagateNone.value(e)),
+        .@"catch" => return constPayload(ctx, ir.Catch.value(e)) orelse constLeaf(ctx, sema.tailOf(ir.Catch.handler(e))),
+        else => {},
+    };
+    return switch (kind) {
+        .jump, .place, .lend, .none => null,
+        .part_of_made => constPart(ctx, e),
+        .made, .branches => if (ctx.dropsTemp(e)) null else e,
+    };
+}
+
+/// The optional or fallible `e` whose payload a branch captures by
+/// address (`Emitter.emitPayloadHolder`), when it is a Zig rvalue: not
+/// a place, and kept in no slot.
+fn constPayload(ctx: *const SemContext, e: Sexp) ?Sexp {
+    if (sema.handsOver(ctx, e).hasStorage() and !e.isKind(.read) and !e.isKind(.write)) return null;
+    return if (ctx.dropsTemp(e)) null else e;
+}
+
+/// A part of a value made here, `e`, when the value it is part of is a
+/// Zig rvalue (`constLeaf`).
+fn constPart(ctx: *const SemContext, e: Sexp) ?Sexp {
+    if (!e.isKind(.member) and !e.isKind(.index)) return e;
+    var base = e;
+    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    return constLeaf(ctx, base);
+}

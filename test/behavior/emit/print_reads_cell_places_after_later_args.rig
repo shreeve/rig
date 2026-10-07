@@ -3,6 +3,7 @@
 # or write view, a generic `?T`, an optional, a Box, or a closure's
 # capture. Each later argument here grows the Cell's Vec, which moves
 # its buffer.
+# release
 struct S
   c: Cell[Vec[Int]]
 

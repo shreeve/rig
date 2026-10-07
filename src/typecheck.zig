@@ -7091,11 +7091,27 @@ const Checker = struct {
         // A `?self` method may change a Cell the value holds, which needs
         // a place. A part of a value that branches and may be a name's is
         // no part of a temporary: the call reaches the leaf where it is.
-        if (resolved.nominal_sym != self.ctx.cell_sym_id and receiver == .read and sema.holdsCellByValue(self.ctx, obj_ty)) {
+        // One that may also be a value made there that emit reaches only
+        // as a Zig rvalue (`storage.constLeaf`: no statement slot keeps
+        // it) has no place for that leaf, as `Cell.set` on the same part
+        // has none (`.set_cell`).
+        // In a generic body, where whether the value holds a Cell depends
+        // on the instance (`sema.interiorMutable`), a form with no place
+        // requires every instance to hold none (`.cell_place`).
+        const mutable = sema.interiorMutable(self.ctx, obj_ty);
+        if (resolved.nominal_sym != self.ctx.cell_sym_id and receiver == .read and mutable != .no) {
             const place = self.placeOf(obj);
             if (place.root == .temporary and place.steps == 0) {
-                try self.errAt(obj, "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
-            } else if (place.root == .temporary and self.namedLeaf(place.base) == null) try self.ctx.recordCellTemp(obj);
+                if (mutable == .depends) {
+                    try self.requireOf(obj_ty, .cell_place, self.startOf(obj), try std.fmt.allocPrint(self.ctx.arena.allocator(), "calls `{s}` on a temporary", .{method}));
+                } else try self.errAt(obj, "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
+            } else if (place.root == .temporary and self.namedLeaf(place.base) == null) {
+                try self.ctx.recordCellTemp(obj);
+            } else if (place.root == .temporary) if (storage.constLeaf(self.ctx, place.base)) |leaf| {
+                if (mutable == .depends) {
+                    try self.requireOf(obj_ty, .cell_place, self.startOf(obj), try std.fmt.allocPrint(self.ctx.arena.allocator(), "calls `{s}` on a part of a value that may be the temporary `{s}`", .{ method, self.sourceText(leaf) }));
+                } else try self.errAt(obj, "cannot call `{s}` on a part of `{s}`, which may be the temporary `{s}`, holding a Cell the method may change; bind it to a name first", .{ method, self.sourceText(place.base), self.sourceText(leaf) });
+            };
         }
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");
@@ -9822,6 +9838,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
             switch (req.req) {
                 .no_cell => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` holds a Cell, which the copy would fork", .{ inst, pname, aname, req.op, pname, aname }),
+                .cell_place => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` holds a Cell, which the method may change there with no place to change it", .{ inst, pname, aname, req.op, pname, aname }),
                 .copies, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
                 else
@@ -9838,7 +9855,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .copies, .no_cleanup, .no_cell => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .copies, .no_cleanup, .no_cell, .cell_place => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
@@ -9894,7 +9911,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         },
         .copies => sema.copies(ctx, ty) != .no,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
-        .no_cell => !sema.holdsCellByValue(ctx, ty),
+        .no_cell, .cell_place => !sema.holdsCellByValue(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {
             .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
             else => false,

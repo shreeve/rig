@@ -1230,6 +1230,11 @@ pub const Requirement = union(enum) {
     /// parameter (a loop element, a match payload) and may lend it, so a
     /// Cell in it would change in the copy only.
     no_cell,
+    /// Holds no Cell inline: the body calls a `?self` method that may
+    /// change a Cell on a value holding the parameter that has no place
+    /// (a temporary, or a branch's leaf made there), which an instance
+    /// holding a Cell would need.
+    cell_place,
     /// Needs no cleanup: the body discards the parameter's value, leaves
     /// a temporary of it, overwrites one, or keeps one in an array or a
     /// slice.
@@ -1264,7 +1269,7 @@ pub const Requirement = union(enum) {
             .shift => "a constant shift",
             .copies => "a value that copies",
             .no_cleanup => "a value that owns no resource",
-            .no_cell => "a value that holds no Cell",
+            .no_cell, .cell_place => "a value that holds no Cell",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
@@ -2607,8 +2612,9 @@ pub const Contents = struct {
     /// Needs its destructor run whatever its type arguments: a user
     /// `drop`, or a field that owns a resource.
     glue: bool = false,
-    /// Holds a `Cell` inline, directly or through any argument of a
-    /// generic instance it holds.
+    /// Holds a `Cell` inline, directly or through an argument of a
+    /// generic instance it holds that the generic holds by value
+    /// (`held`).
     cell: bool = false,
     /// Is declared `unique`, or holds such a type inline, as `cell`
     /// reaches (`Reach`).
@@ -2787,6 +2793,9 @@ const Reach = packed struct(u6) {
     /// What reaches through a view, or into a Cell's or Signal's value:
     /// only a Text matters.
     const text_only: Reach = .{ .views = .{ .text = true } };
+    /// What reaches through a type argument a generic holds only behind
+    /// a handle, a view, or heap memory: everything but an inline Cell.
+    const no_cell: Reach = .{ .unique = true, .views = .{ .marked = true, .write = true, .string = true, .text = true } };
 
     fn with(a: Reach, b: Reach) Reach {
         return @bitCast(@as(u6, @bitCast(a)) | @as(u6, @bitCast(b)));
@@ -2889,7 +2898,15 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             if (into) |e| {
                 try e.edges.append(ctx.allocator, .{ .from = pn.sym, .to = e.owner, .mask = m });
             } else r = Reach.of(ctx.symbols.items[pn.sym].contents);
-            for (pn.args) |a| r = r.with(try reachOf(ctx, a, m, into));
+            // A Cell an argument holds is inline only where the generic
+            // holds that parameter by value (`Contents.held`, the rule
+            // `holdsIn` follows), not behind a handle, a view, or a
+            // container's heap memory.
+            const held = contentsOf(ctx, pn.sym).held;
+            for (pn.args, 0..) |a, i| {
+                const by_value = i < held.len and held[i];
+                r = r.with(try reachOf(ctx, a, if (by_value) m else m.within(Reach.no_cell), into));
+            }
             break :blk r;
         },
         else => .{},
@@ -3886,6 +3903,26 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
 /// a pointer, since the cell can change while it is lent.
 pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
+}
+
+/// Whether a value of `ty` is interior-mutable: it holds a `Cell`
+/// inline (`holdsCellByValue`), so it changes through any path to it, a
+/// read view included (Core 9). Emit keeps such a value only in Zig
+/// storage it may write, a `var`, and views it only through a mutable
+/// pointer or slice (`*T`, `[]T`), however Rig lends it: Zig treats a
+/// write through a `*const T`, or into a `const`, as undefined
+/// behavior. A Cell behind a handle (`*Cell[T]`, `Box[Cell[T]]`) or in
+/// a Vec's buffer lives on the heap, which every pointer to it may
+/// write, so it makes no value that holds the handle interior-mutable.
+/// A type that holds a type parameter by value `depends` on the
+/// instance: emit writes its views `rig.ReadPtr(T)` and
+/// `rig.ReadSlice(T)`. This is the one place the fact is decided: emit
+/// writes the answer into each type it emits (`__rig_interior_mutable`,
+/// per instance where it depends), and the runtime only reads it.
+pub fn interiorMutable(ctx: *const SemContext, ty: TypeId) Answer {
+    const info = ctx.holds(ty);
+    if (info.cell) return .yes;
+    return if (info.holds_type_var) .depends else .no;
 }
 
 /// Whether a value of `ty` can hold a marked view (see `Views`). A generic

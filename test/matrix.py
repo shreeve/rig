@@ -8,12 +8,16 @@ for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
 `while` step reading what its condition binds (`step.`), and the
-shapes of nested loops and the jumps between them (`loop.`). The rule is
+shapes of nested loops and the jumps between them (`loop.`), and a Cell
+changed through each kind of path to the value holding it, built in
+debug and with `--release` (`cellmut.`). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds, and a `loop.`
-program the trace of its steps, defers, and drops.
+program the trace of its steps, defers, and drops. A `cellmut.` program
+must be accepted, and print its trace in debug and again built with
+`--release`.
 
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
@@ -606,6 +610,277 @@ def payload_program(tname, sname, ename):
     return "\n".join(out), f"2003\n{t['out']}\n"
 
 
+# -----------------------------------------------------------------------------
+# A Cell changed, or read, through each kind of path to the value holding
+# it, in each kind of position, built in debug and with `--release`: a
+# change through a read view (`?self`, `?T`, `[]T`, `|?x|`) must reach the
+# value in both, so emitted Zig never writes through a `*const` pointer or
+# into `const` storage (`sema.interiorMutable`). Each program applies
+# each operation (in a function of its own, to a value of its own)
+# through one access in a statement, a loop that continues early, a loop
+# that breaks, a `defer`, and a loop that returns, and prints the state
+# after each, which must be what `cellmut_output` computes. Cells are
+# `cellmut.<type>.<access>`: one program each, since a release build is
+# slow.
+# -----------------------------------------------------------------------------
+
+# Each type: its spelling, declarations (`METHODS` marks where a struct's
+# methods go), how `mk()` makes one, the paths to its `Cell[Int]` and its
+# `Cell[Vec[Int]]` from a value `E` (None: it has none), and whether it
+# prints when dropped.
+_CM_C = "struct C\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n"
+CELLMUT_TYPES = {
+    # a `drop`
+    "drop": dict(ty="D", decls='struct D\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
+                 mk="D(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v", drop=True),
+    # no `drop`
+    "plain": dict(ty="N", decls="struct N\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\nMETHODS",
+                  mk="N(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v"),
+    # constant fields: a value Zig knows at compile time
+    "const": dict(ty="K", decls="struct K\n  c: Cell[Int]\n  pad: [4]Int\nMETHODS",
+                  mk="K(c: Cell(1), pad: [4 of 0])", c="E.c", v=None),
+    # the Cells in a part
+    "part": dict(ty="W", decls="struct In\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n\nstruct W\n  t: In\nMETHODS",
+                 mk="W(t: In(c: Cell(1), v: Cell(vec2())))", c="E.t.c", v="E.t.v"),
+    # a generic type at Int
+    "generic": dict(ty="G[Int]", decls="struct G[T]\n  c: Cell[T]\n  v: Cell[Vec[T]]\nMETHODS",
+                    mk="G(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v"),
+    # generic types holding a Cell holder only behind a handle, and in a
+    # Vec: no Cell inline, so their views are `*const` while the Cells
+    # they reach change
+    "behind_handle": dict(ty="P[C]", decls=_CM_C + "\nstruct P[T]\n  h: *T\n", methods=False,
+                          mk="P(h: *C(c: Cell(1), v: Cell(vec2())))", c="E.h.c", v="E.h.v"),
+    "in_vec": dict(ty="Q[C]", decls=_CM_C + "\nstruct Q[T]\n  items: Vec[T]\n\nfun cs() -> Vec[C]\n  xs: Vec[C] = Vec()\n  !xs.push(C(c: Cell(1), v: Cell(vec2())))\n  xs\n", methods=False,
+                   mk="Q(items: cs())", c="E.items[0].c", v="E.items[0].v"),
+    # a bare Cell[Int], and a bare Cell[Vec[Int]]
+    "cell": dict(ty="Cell[Int]", decls="", mk="Cell(1)", c="E", v=None),
+    "cellvec": dict(ty="Cell[Vec[Int]]", decls="", mk="Cell(vec2())", c=None, v="E"),
+}
+
+# Each operation, applied once through `E` with argument `KARG`, adding
+# what it reads to `s`; `C` is the path to the `Cell[Int]`, `V` to the
+# `Cell[Vec[Int]]`.
+CELLMUT_OPS = {
+    "set": ("c", ["C.set(C.get() + KARG)"]),
+    "replace": ("c", ["s += C.replace(KARG)"]),
+    "get": ("c", ["s += C.get()"]),
+    "push": ("v", ["V.push(KARG)"]),
+    "pop": ("v", ["s += V.pop() ?? -1"]),
+    "clear": ("v", ["V.clear()", "V.push(KARG)"]),
+    "index": ("v", ["V[0] = V[0] + KARG"]),
+    "method": ("m", ["E.bump(KARG)"]),
+}
+
+# Each access: the declarations it adds (`T` the type, `OP` the
+# operation through the access path `e`), the statements that set it up
+# in `run`, how one application is written there (`OP` inline, or a
+# call passing `KARG`), and the place that shows the state (`x`
+# default; `opt` shows through `if o as z`). A wrapper returns the `s`
+# its operation adds to.
+_CM_WRAP = "  s = 0\nOP\n  s\n"
+CELLMUT_ACCESS = {
+    "local": dict(setup=["x = mk()"], do=["OP"], e="x"),
+    "field": dict(decls="struct H\n  f: T\n", setup=["h = H(f: mk())"], do=["OP"], e="h.f", x="h.f"),
+    "element": dict(setup=["vs: Vec[T] = Vec()", "!vs.push(mk())"], do=["OP"], e="vs[0]", x="vs[0]"),
+    "array": dict(setup=["a = [mk()]"], do=["OP"], e="a[0]", x="a[0]"),
+    "param": dict(decls="fun via(y: ?T, k: Int) -> Int\n" + _CM_WRAP, setup=["x = mk()"], do=["s += via(?x, KARG)"], e="y"),
+    "slice": dict(decls="fun via(y: []T, k: Int) -> Int\n" + _CM_WRAP, setup=["a = [mk()]"], do=["s += via(?a[..], KARG)"], e="y[0]", x="a[0]"),
+    "method": dict(method="fun via(?self, k: Int) -> Int\n" + _CM_WRAP, setup=["x = mk()"], do=["s += x.via(KARG)"], e="self"),
+    "stored": dict(decls="struct R\n  r: ?T\n", setup=["x = mk()", "r = R(r: ?x)"], do=["OP"], e="r.r"),
+    "capture": dict(closure=True, setup=["x = mk()"], do=["s += via(KARG)"], e="x"),
+    "optional": dict(setup=["o: T? = mk()"], do=["if o as y", "  OP"], e="y", opt=True),
+    "foreach": dict(setup=["vs: Vec[T] = Vec()", "!vs.push(mk())"], do=["for y in ?vs", "  OP"], e="y", x="vs[0]"),
+    "shared": dict(setup=["x = *mk()"], do=["OP"], e="x"),
+    # across the generic and runtime boundary: a view a generic function
+    # returns, an element of a `?Vec` parameter, and a subslice
+    "generic_fn": dict(decls="fun id[U](y: ?U) -> ?U\n  y\n", setup=["x = mk()"], do=["OP"], e="id(?x)"),
+    "vec_view": dict(decls="fun via(ys: ?Vec[T], k: Int) -> Int\n" + _CM_WRAP, setup=["vs: Vec[T] = Vec()", "!vs.push(mk())"], do=["s += via(?vs, KARG)"], e="ys[0]", x="vs[0]"),
+    "subslice": dict(decls="fun via(y: []T, k: Int) -> Int\n" + _CM_WRAP, setup=["a = [mk(), mk()]"], do=["s += via(?a[0..1], KARG)"], e="y[0]", x="a[0]"),
+}
+
+
+def cellmut_applies(tname, aname, oname):
+    t, needs = CELLMUT_TYPES[tname], CELLMUT_OPS[oname][0]
+    methods = t["decls"] != "" and t.get("methods", True)
+    if needs == "c" and t["c"] is None or needs == "v" and t["v"] is None:
+        return False
+    return methods or (needs != "m" and aname != "method")
+
+
+def _cm_op(t, oname, e, karg, acc="s"):
+    """The operation's lines through path `e`, with argument `karg`,
+    adding what it reads to `acc`."""
+    out = []
+    for l in CELLMUT_OPS[oname][1]:
+        if t["c"]:
+            l = l.replace("C.", t["c"].replace("E", e) + ".")
+        if t["v"]:
+            l = l.replace("V.", t["v"].replace("E", e) + ".").replace("V[", t["v"].replace("E", e) + "[")
+        out.append(l.replace("E.", e + ".").replace("KARG", karg).replace("s += ", acc + " += "))
+    return out
+
+
+def _cm_wrap(text, ty, op):
+    """A wrapper's declaration: `T` the type, `OP` its operation's lines."""
+    text = text.replace("?T", "?" + ty).replace("[]T", "[]" + ty).replace("Vec[T]", f"Vec[{ty}]").replace(": T\n", ": " + ty + "\n")
+    lines = []
+    for l in text.rstrip("\n").split("\n"):
+        lines += ["  " + o for o in op] if l == "OP" else [l]
+    return lines
+
+
+def cellmut_ops(tname, aname):
+    """The operations a cellmut cell applies, in order."""
+    return [o for o in CELLMUT_OPS if cellmut_applies(tname, aname, o)]
+
+
+def cellmut_program(tname, aname):
+    """The program for one cellmut cell: one `run_<op>` per operation,
+    each on a value of its own, or None where no operation applies."""
+    ops = cellmut_ops(tname, aname)
+    if not ops:
+        return None
+    t, a = CELLMUT_TYPES[tname], CELLMUT_ACCESS[aname]
+    ty = t["ty"]
+    out = []
+    if t["decls"] and not t.get("methods", True):
+        out += t["decls"].rstrip("\n").split("\n") + [""]
+    elif t["decls"]:
+        methods = []
+        c = t["c"].replace("E", "self")
+        bump = [f"{c}.set({c}.get() + k)"] + ([t["v"].replace("E", "self") + ".push(k)"] if t["v"] else [])
+        # A generic type's methods take and add its `T`.
+        kty = "T" if tname == "generic" else "Int"
+        methods += ["", f"  sub bump(?self, k: {kty})"] + ["    " + l for l in bump]
+        if aname == "method":
+            for oname in ops:
+                wrap = a["method"].replace("via(", f"via_{oname}(")
+                if tname == "generic":
+                    wrap = wrap.replace("k: Int) -> Int", "k: T) -> T").replace("  s = 0\n", "  s: T = k - k\n")
+                op = _cm_op(t, oname, "self", "k")
+                if tname == "generic":
+                    op = [l.replace("?? -1", "?? k - k - 1") for l in op]
+                methods += [""] + ["  " + l for l in _cm_wrap(wrap, ty, op)]
+        out += t["decls"].replace("\nMETHODS", "").split("\n") + methods + [""]
+    out += ["fun vec2() -> Vec[Int]", "  v: Vec[Int] = Vec()", "  !v.push(1)", "  !v.push(2)", "  v", ""]
+    out += [f"fun mk() -> {ty}", f"  {t['mk']}", ""]
+    out += ["fun maybe(n: Int) -> Int?", "  return none if n % 2 == 1", "  n", ""]
+    decls = a.get("decls", "")
+    if "OP" not in decls:
+        out += _cm_wrap(decls, ty, []) + [""]
+    elif decls:
+        for oname in ops:
+            out += _cm_wrap(decls.replace("via(", f"via_{oname}("), ty, _cm_op(t, oname, a["e"], "k")) + [""]
+    # The state, read through the owner.
+    xs = "z" if a.get("opt") else a.get("x", "x")
+    shown = []
+    if t["c"]:
+        shown.append(t["c"].replace("E", xs) + ".get()")
+    if t["v"]:
+        vp = t["v"].replace("E", xs)
+        shown += [vp + ".len", f"({vp}.get(0) ?? -1)"]
+    show = ["print(s, " + ", ".join(shown) + ")"]
+    if a.get("opt"):
+        show = ["if o as z", "  " + show[0]]
+    for oname in ops:
+        setup = [l.replace("[T]", f"[{ty}]").replace(": T?", f": {ty}?") for l in a["setup"]]
+        if a.get("closure"):
+            setup += [f"via_{oname} = |?x, k: Int|", "  t = 0"] + ["  " + l for l in _cm_op(t, oname, a["e"], "k", "t")] + ["  t"]
+
+        def apply(k, ind):
+            lines = []
+            for l in a["do"]:
+                if l.strip() == "OP":
+                    lines += [ind + l.replace("OP", "") + o for o in _cm_op(t, oname, a["e"], k)]
+                else:
+                    lines.append(ind + l.replace("via(", f"via_{oname}(").replace("KARG", k))
+            return lines
+        body = ["s = 0"] + setup
+        # a statement
+        body += apply("1", "") + show
+        # a loop whose argument may continue
+        body += ["for i in 0..4"] + apply("i", "  ") + ["  s += maybe(i) ?? continue"] + show
+        # a loop that breaks
+        body += ["j = 0", "while j < 9", "  j += 1"] + apply("j", "  ") + ["  break if j == 3"] + show
+        # a `defer` in a loop's body
+        body += ["for _ in 0..2", "  defer"] + apply("10", "    ") + ["  s += 100"] + show
+        # a loop that returns, with the state shown by a `defer`
+        body += ["defer"] + ["  " + l for l in show] + ["for i in 0..9"] + apply("i", "  ") + ["  return if i == 2"]
+        out += [f"sub run_{oname}()"] + ["  " + l for l in body] + [""]
+    out += ["sub main()"] + [f'  print("{o}")\n  run_{o}()' for o in ops] + ['  print("end")']
+    return "\n".join(out) + "\n"
+
+
+def cellmut_output(tname, aname):
+    """What a cellmut cell prints."""
+    # A subslice's array holds a second value, untouched, which drops
+    # first: an array drops its elements last to first.
+    second = aname == "subslice" and CELLMUT_TYPES[tname].get("drop")
+    out = ""
+    for o in cellmut_ops(tname, aname):
+        lines = _cm_trace(tname, o).splitlines(keepends=True)
+        if second:
+            lines.insert(len(lines) - 1, "drop 1 2\n")
+        out += f"{o}\n" + "".join(lines)
+    return out + "end\n"
+
+
+def _cm_trace(tname, oname):
+    """What one operation's `run_<op>` prints."""
+    t = CELLMUT_TYPES[tname]
+    st = dict(c=1, v=[1, 2], s=0)
+    lines = []
+
+    def do(k):
+        if oname == "set":
+            st["c"] += k
+        elif oname == "replace":
+            st["s"] += st["c"]
+            st["c"] = k
+        elif oname == "get":
+            st["s"] += st["c"]
+        elif oname == "push":
+            st["v"].append(k)
+        elif oname == "pop":
+            st["s"] += st["v"].pop() if st["v"] else -1
+        elif oname == "clear":
+            st["v"] = [k]
+        elif oname == "index":
+            st["v"][0] += k
+        elif oname == "method":
+            st["c"] += k
+            if t["v"]:
+                st["v"].append(k)
+
+    def show():
+        f = [st["s"]]
+        if t["c"]:
+            f.append(st["c"])
+        if t["v"]:
+            f += [len(st["v"]), st["v"][0] if st["v"] else -1]
+        lines.append(" ".join(str(x) for x in f))
+    do(1)
+    show()
+    for i in range(4):
+        do(i)
+        if i % 2 == 0:
+            st["s"] += i
+    show()
+    for j in range(1, 4):
+        do(j)
+    show()
+    for _ in range(2):
+        st["s"] += 100
+        do(10)
+    show()
+    for i in range(3):
+        do(i)
+    show()
+    if t.get("drop"):
+        lines.append(f"drop {st['c']} {len(st['v'])}")
+    return "\n".join(lines) + "\n"
+
+
 def store_program(oname, fname, then):
     """The program for one store cell."""
     o = STORE_OWNERS[oname]
@@ -773,9 +1048,11 @@ def run_capped(cmd, env):
         return subprocess.CompletedProcess(cmd, p.returncode, out.read().decode(errors="replace"), err.read().decode(errors="replace"))
 
 
-def run_one(path, keep, started_dir, expect=None):
+def run_one(path, keep, started_dir, expect=None, release=False):
     """Classify one program: rejected, ok, or a failure with its reason.
-    With `expect`, a program that runs must print exactly that."""
+    With `expect`, a program that runs must print exactly that; with
+    `release`, also when built with `--release`, and it must be
+    accepted."""
     d = os.path.dirname(path)
     try:
         chk = subprocess.run([RIG, "check", path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -785,21 +1062,35 @@ def run_one(path, keep, started_dir, expect=None):
     if chk.returncode < 0 or chk.returncode > 128 or CRASH.search(out):
         return "fail", "compiler crashed: " + first_line(out)
     if chk.returncode != 0:
+        # A `cellmut.` program is one the checker must accept: every
+        # operation it applies has a place.
+        if release:
+            return "fail", "rejected, but must be accepted: " + first_error(out)
         if POS.search(out):
             return "rejected", first_error(out)
         return "fail", "rejected without file:line:col: " + first_line(out)
-    outdir = path[:-4] + ".out"
+    why = run_built(path, keep, started_dir, expect, [])
+    if why is None and release:
+        why = run_built(path, keep, started_dir, expect, ["--release"])
+        why = why and "--release: " + why
+    return ("fail", why) if why else ("ok", "")
+
+
+def run_built(path, keep, started_dir, expect, flags):
+    """Run one accepted program built with `flags`: None when it runs as
+    it must, else why not."""
+    outdir = path[:-4] + (".release" if flags else "") + ".out"
     # rig creates `started` once the program has started: the evidence
     # that it ran (test/run's run_program). Each attempt has a fresh path
     # in this run's private directory, which no other run shares.
     started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
     env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
     try:
-        r = run_capped([RIG, "run", path], env)
+        r = run_capped([RIG, "run"] + flags + [path], env)
     except subprocess.TimeoutExpired:
-        return "fail", "timed out"
+        return "timed out"
     except MemoryError as e:
-        return "fail", str(e)
+        return str(e)
     err = r.stderr
     m = BAD.search(err)
     ran = os.path.isfile(started) and "rig: the program did not run" not in err
@@ -808,19 +1099,19 @@ def run_one(path, keep, started_dir, expect=None):
     if not keep:
         shutil.rmtree(outdir, ignore_errors=True)
     if not ran:
-        return "fail", "the program did not run: " + first_line(err)
+        return "the program did not run: " + first_line(err)
     if m:
         line = next((l for l in err.splitlines() if BAD.search(l)), m.group(0))
-        return "fail", line.strip()
+        return line.strip()
     # rig says when a signal ended the program (its status alone cannot).
     # A Rig panic aborts (signal 6) after its `panic:` report; any other
     # signal came from outside, or is a crash nothing reported.
     sig = re.search(r"rig: the program was killed by signal (\d+)", err)
     if sig and not (sig.group(1) == "6" and "panic: " in err):
-        return "fail", "killed by signal %s: %s" % (sig.group(1), first_line(err))
+        return "killed by signal %s: %s" % (sig.group(1), first_line(err))
     if expect is not None and r.stdout != expect:
-        return "fail", "printed " + repr(r.stdout) + ", expected " + repr(expect) + (", stderr " + repr(first_line(err)) if err.strip() else "")
-    return "ok", ""
+        return "printed " + repr(r.stdout) + ", expected " + repr(expect) + (", stderr " + repr(first_line(err)) if err.strip() else "")
+    return None
 
 
 def run_oracle(work, cells, args):
@@ -959,13 +1250,29 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(src)
                 cells.append((ident, path))
+    release = set()
+    for t in CELLMUT_TYPES:
+        for a in CELLMUT_ACCESS:
+            ident = f"cellmut.{t}.{a}"
+            if not wanted(ident):
+                continue
+            src = cellmut_program(t, a)
+            if src is None:
+                skipped += 1
+                continue
+            path = os.path.join(work, ident.replace(".", "__") + ".rig")
+            with open(path, "w") as fh:
+                fh.write(src)
+            cells.append((ident, path))
+            expects[ident] = cellmut_output(t, a)
+            release.add(ident)
     if args.oracle:
         sys.exit(run_oracle(work, cells, args))
     results = {}
     started_dir = tempfile.mkdtemp(prefix="rig-matrix-started.")
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
-            futs = {pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i)): i for i, p in cells}
+            futs = {pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), i in release): i for i, p in cells}
             for fut in concurrent.futures.as_completed(futs):
                 results[futs[fut]] = fut.result()
     finally:

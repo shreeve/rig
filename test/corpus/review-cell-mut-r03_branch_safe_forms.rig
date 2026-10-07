@@ -1,0 +1,50 @@
+# Forms the new rule should keep accepting, run in release: leaves with
+# drop glue (slotted), all-name leaves, a returned view leaf, `??` over
+# names, and a read-only method on a branch of plain parts.
+struct T
+  c: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    self.log.push(self.c.get())
+
+  fun score(?self) -> Int
+    self.c.get() * 100 + self.log.len
+
+struct D
+  t: T
+  v: Vec[Int]
+
+fun mkd(n: Int) -> D
+  D(t: T(c: Cell(n), log: Cell(Vec())), v: Vec())
+
+fun pick(a: ?D, b: ?D, k: Bool) -> ?D
+  a if k else b
+
+sub main()
+  d = mkd(0)
+  e = mkd(10)
+  o: D? = mkd(20)
+  for i in 0..4
+    k = i % 2 == 0
+    (d if k else mkd(50)).t.hit()
+    (d if k else e).t.hit()
+    (o ?? d).t.hit()
+    print((d if k else mkd(70)).t.score())
+  print(d.t.score(), e.t.score())
+  if o as x
+    print(x.t.score())
+
+# expect:
+# 202
+# 7000
+# 404
+# 7000
+# 404 1202
+# 2404
+
+# oracle: T.hit accept
+# oracle: T.score accept
+# oracle: mkd accept
+# oracle: pick accept

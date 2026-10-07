@@ -487,6 +487,7 @@ pub const Emitter = struct {
         const prev = try self.enterNominal(ir.Struct.name(node), false, members);
         defer self.nominal = prev;
         try self.emitFields(1);
+        try self.emitInteriorMutable(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
     }
@@ -498,6 +499,7 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericStruct.tparams(node), members, "struct");
         try self.emitFields(2);
+        try self.emitInteriorMutable(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -519,6 +521,7 @@ pub const Emitter = struct {
         if (has_payloads) {
             try self.w.print("pub const {f} = union(enum) {{\n", .{ident(name)});
             try self.emitUnionVariants(1);
+            try self.emitInteriorMutable(1);
         } else {
             try self.w.print("pub const {f} = enum{s} {{\n", .{ ident(name), if (has_values) "(u32)" else "" });
             for (self.nominalFields()) |f| {
@@ -539,6 +542,7 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericEnum.tparams(node), members, "union(enum)");
         try self.emitUnionVariants(2);
+        try self.emitInteriorMutable(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -630,6 +634,35 @@ pub const Emitter = struct {
     /// declaration order.
     fn nominalFields(self: *Emitter) []const sema.Field {
         return self.sema.symbols.items[self.nominal.?.sym].fields orelse &.{};
+    }
+
+    /// `pub const __rig_interior_mutable = ...;`: whether a value of the
+    /// type being emitted is interior-mutable (`sema.interiorMutable`),
+    /// decided here from what each field and variant payload holds by
+    /// value: `true` when one holds a Cell inline, and for a field whose
+    /// answer depends on a generic type's arguments, that field type's
+    /// own answer, `rig.interiorMutable(F)`, per instance. The runtime
+    /// reads it (`rig.ReadPtr`, `rig.ReadSlice`, `rig.ReadView`,
+    /// `constSlot`, `rig.slice`) and never decides it itself.
+    fn emitInteriorMutable(self: *Emitter, depth: u32) Error!void {
+        try self.writeIndent(depth);
+        try self.w.writeAll("pub const __rig_interior_mutable = ");
+        var any = false;
+        for (self.nominalFields()) |*f| for (sema.dataFields(f)) |d| {
+            if (sema.interiorMutable(self.sema, d.ty) == .yes) {
+                try self.w.writeAll("true;\n");
+                return;
+            }
+        };
+        for (self.nominalFields()) |*f| for (sema.dataFields(f)) |d| {
+            if (sema.interiorMutable(self.sema, d.ty) != .depends) continue;
+            if (any) try self.w.writeAll(" or ");
+            any = true;
+            try self.w.writeAll("rig.interiorMutable(");
+            try self.emitTypeTy(d.ty);
+            try self.w.writeAll(")");
+        };
+        try self.w.writeAll(if (any) ";\n" else "false;\n");
     }
 
     fn emitFields(self: *Emitter, depth: u32) Error!void {
@@ -1411,7 +1444,7 @@ pub const Emitter = struct {
         // A Cell can change through any path to it, so a value holding
         // one lives in mutable storage.
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
-            (ty != null and sema.holdsCellByValue(self.sema, ty.?));
+            (ty != null and sema.interiorMutable(self.sema, ty.?) != .no);
         // Assigning a write view writes through it, leaving the
         // pointer as it is.
         const rebound = s.flags.repointed or (s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?)));
@@ -3724,14 +3757,30 @@ pub const Emitter = struct {
         try self.w.writeAll(", ");
     }
 
+    /// The pointer a view of `inner` held by address is: a write view's
+    /// is mutable, `*T`, and so is a read view's of an interior-mutable
+    /// value (`sema.interiorMutable`), whose Cell changes through it; any
+    /// other read view's is `*const T`, and one whose `T` holds a type
+    /// parameter `rig.ReadPtr(T)`, which decides per instance.
+    fn emitViewPtrTy(self: *Emitter, inner: TypeId, view: enum { read, write }) Error!void {
+        const mutable: sema.Answer = if (view == .write) .yes else sema.interiorMutable(self.sema, inner);
+        switch (mutable) {
+            .yes => try self.w.writeAll("*"),
+            .no => try self.w.writeAll("*const "),
+            .depends => {
+                try self.w.writeAll("rig.ReadPtr(");
+                try self.emitTypeTy(inner);
+                return self.w.writeAll(")");
+            },
+        }
+        try self.emitTypeTy(inner);
+    }
+
     /// `*T` / `*const T` for a view type.
     fn emitPointerTy(self: *Emitter, ty: TypeId) Error!void {
         if (self.genericReadView(ty) != null) return self.emitTypeTy(ty);
         switch (self.sema.types.get(ty)) {
-            .read_view, .write_view => |inner| {
-                try self.w.writeAll(if (self.sema.types.get(ty) == .read_view) "*const " else "*");
-                try self.emitTypeTy(inner);
-            },
+            .read_view, .write_view => |inner| try self.emitViewPtrTy(inner, if (self.sema.types.get(ty) == .read_view) .read else .write),
             else => try self.emitTypeTy(ty),
         }
     }
@@ -4192,8 +4241,8 @@ pub const Emitter = struct {
 
     /// Whether place `e` is reached through a read view or a shared
     /// handle, whose value is read-only: an element on the way is
-    /// reached through `constSlot` (a Cell in it is changed through a
-    /// `@constCast` of its address).
+    /// reached through `constSlot` (which reaches an element holding a
+    /// Cell through a mutable pointer, `rig.ReadPtr`).
     fn throughReadView(self: *Emitter, e: Sexp) bool {
         var p = e;
         while (true) {
@@ -4925,15 +4974,13 @@ pub const Emitter = struct {
             return self.w.writeAll(")");
         };
         // `set` / `replace` change a Cell through any path to it: the
-        // receiver's address, which may be a `*const` read view, is
-        // cast to a mutable pointer. Sema keeps every Cell in mutable
-        // storage, so the cast is sound.
+        // Cell's address, a mutable pointer, since every view of a value
+        // holding a Cell is one (`sema.interiorMutable`).
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.sema.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
-                try self.w.writeAll("@constCast(");
                 try self.emitCellAddress(ir.Member.object(callee));
-                try self.w.print(").{s}(", .{m});
+                try self.w.print(".{s}(", .{m});
                 try self.emitArgs(sexp);
                 return self.w.writeAll(")");
             }
@@ -4953,7 +5000,7 @@ pub const Emitter = struct {
     }
 
     /// A mutable pointer to the Cell `obj` denotes: a shared handle's
-    /// value, or the Cell's address, cast as for `set`.
+    /// value, or the Cell's address.
     fn emitCellPtr(self: *Emitter, obj: Sexp) Error!void {
         const ty = self.typeOf(obj) orelse return self.unsupported(obj, "this Cell");
         if (self.sema.types.get(self.peelViews(ty)) == .shared) {
@@ -4961,19 +5008,21 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, ty);
             return self.w.writeAll(".value)");
         }
-        try self.w.writeAll("@constCast(");
         try self.emitCellAddress(obj);
-        try self.w.writeAll(")");
     }
 
-    /// The address of the Cell `obj` denotes, which `@constCast` makes
-    /// mutable: an element on its path is reached through `constSlot`,
-    /// since the Vec holding it may be reached through a read view.
+    /// The address of the Cell `obj` denotes, a mutable pointer: every
+    /// view on its path is one (`sema.interiorMutable`), and an element
+    /// on it is reached through `constSlot`, which reaches an element
+    /// holding a Cell through a mutable pointer, since the Vec holding
+    /// it may be reached through a read view.
     fn emitCellAddress(self: *Emitter, obj: Sexp) Error!void {
         const saved = self.read_place;
         defer self.read_place = saved;
         self.read_place = true;
+        try self.w.writeAll("(");
         try self.emitAddressOf(lentPlace(obj));
+        try self.w.writeAll(")");
     }
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
@@ -5942,7 +5991,7 @@ pub const Emitter = struct {
                     try self.emitTypeTy(inner);
                     return self.w.writeAll(")");
                 }
-                if (self.readViewIsPtr(inner)) try self.w.writeAll("*const ");
+                if (self.readViewIsPtr(inner)) return self.emitViewPtrTy(inner, .read);
                 try self.emitTypeTy(inner);
             },
             .write_view => |inner| {
@@ -5963,7 +6012,15 @@ pub const Emitter = struct {
                 try self.w.writeAll(")");
             },
             .slice => |s| {
-                try self.w.writeAll("[]const ");
+                switch (sema.interiorMutable(ctx, s.elem)) {
+                    .yes => try self.w.writeAll("[]"),
+                    .no => try self.w.writeAll("[]const "),
+                    .depends => {
+                        try self.w.writeAll("rig.ReadSlice(");
+                        try self.emitTypeTy(s.elem);
+                        return self.w.writeAll(")");
+                    },
+                }
                 try self.emitTypeTy(s.elem);
             },
             .array => |a| {
@@ -6556,4 +6613,20 @@ fn sameNode(a: Sexp, b: Sexp) bool {
 fn isTerminatingStmt(s: Sexp) bool {
     const h = s.kind() orelse return false;
     return h == .@"return" or h == .@"break" or h == .@"continue";
+}
+
+// Emitted code never writes through a const pointer or into const
+// storage: a value that holds a Cell is kept in a `var` and viewed
+// through a mutable pointer (`sema.interiorMutable`), so no cast is ever
+// needed, and a write a missed site would make through a `*const T` is a
+// Zig compile error rather than undefined behavior. Neither the emitter
+// nor the runtime casts constness away, except the runtime's `FnRef.ofFn`,
+// which erases a function pointer into a context no code writes through.
+test "emit and the runtime cast no constness away" {
+    const cast = "@const" ++ "Cast(";
+    try std.testing.expectEqual(0, std.mem.count(u8, @embedFile("emit.zig"), cast));
+    try std.testing.expectEqual(1, std.mem.count(u8, runtime_source, cast));
+    const of_fn = std.mem.indexOf(u8, runtime_source, "pub fn ofFn(").?;
+    const end = std.mem.indexOfPos(u8, runtime_source, of_fn, "\n        }\n").?;
+    try std.testing.expect(std.mem.indexOf(u8, runtime_source[of_fn..end], cast) != null);
 }

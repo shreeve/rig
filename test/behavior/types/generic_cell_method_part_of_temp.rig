@@ -1,0 +1,56 @@
+# In a generic body, a `?self` method that changes a Cell, called on a
+# part of a temporary, reaches a mutable copy the statement keeps, at an
+# instance that holds a Cell as at one that holds none.
+# release
+
+struct T
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct H[X]
+  x: X
+
+  sub run(?self, f: ?sub(?X))
+    f(?self.x)
+
+struct P[X]
+  h: H[X]
+
+sub bump(t: ?T)
+  t.hit()
+  t.hit()
+  print(t.c.get())
+
+fun mkh[X](x: X) -> H[X]
+  H(x: <x)
+
+fun mkp[X](x: X) -> P[X]
+  P(h: H(x: <x))
+
+sub look[X](h: ?H[X], f: ?sub(?X))
+  h.run(f)
+
+sub a[X](x: X, f: ?sub(?X))
+  mkh(<x).run(f)
+
+sub b[X](x: X, f: ?sub(?X))
+  mkp(<x).h.run(f)
+
+sub c[X](x: X, f: ?sub(?X))
+  look(?mkh(<x), f)
+
+sub show(n: ?Int)
+  print(n)
+
+sub main()
+  for i in 0..3
+    b(T(c: Cell(i * 10)), bump)
+  b(7, show)
+
+# expect:
+# 2
+# 12
+# 22
+# 7
