@@ -1,0 +1,31 @@
+# A `continue` in an inner loop's `else` targets the loop around it and
+# goes through its step, here the only thing that moves the loop on:
+# a lowering that skipped the step would never end (the guard stops it).
+fun lim(i: Int, n: Int) -> Int?
+  i if i < n else none
+
+sub main
+  i = 0
+  guard = 0
+  while lim(i, 3) as h and h >= 0: i = h + 1
+    guard += 1
+    if guard > 50
+      print("cap")
+      return
+    for j in 0..2
+      print("in", i, j)
+    else
+      continue if i == 1
+    print("tail", i)
+  print("end", i)
+
+# expect:
+# in 0 0
+# in 0 1
+# tail 0
+# in 1 0
+# in 1 1
+# in 2 0
+# in 2 1
+# tail 2
+# end 3
