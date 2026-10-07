@@ -1,0 +1,20 @@
+# A part of a generic made value, through a for source and a leaf.
+struct G[T]
+  f: T
+
+fun wrap[T](x: T) -> G[T]
+  G(f: <x)
+
+fun get[T](x: T, c: Bool) -> T
+  <(wrap(<x).f if c else wrap(<x).f)
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  print(get(mkv(1), true).len)
+
+# oracle: wrap accept
+# oracle: mkv accept

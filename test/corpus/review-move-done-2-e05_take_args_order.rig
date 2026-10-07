@@ -1,0 +1,62 @@
+# A take beside a lend of the same place in one call.
+struct S
+  o: Vec[Int]?
+
+  sub set(!self, x: Vec[Int]?)
+    self.o = <x
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+fun both(a: ?Vec[Int]?, b: Vec[Int]?) -> Int
+  n = 0
+  if a as x
+    n += x.len
+  if b as y
+    n += y.len
+  n
+
+fun both2(b: Vec[Int]?, a: ?S) -> Int
+  n = 0
+  if b as y
+    n += y.len
+  if a.o as x
+    n += x.len
+  n
+
+sub one
+  s = S(o: mkv(1))
+  print(both(?s.o, <s.o))
+
+sub two
+  s = S(o: mkv(1))
+  print(both2(<s.o, ?s))
+
+sub three
+  s = S(o: mkv(1))
+  !s.set(<s.o)
+  print(s.o == none)
+
+sub four
+  v: Vec[Vec[Int]?] = Vec()
+  !v.push(mkv(1))
+  !v.push(<v[0])
+  print(v.len, v[0] == none)
+
+sub main
+  one()
+  two()
+  three()
+  four()
+
+# oracle: S.set accept
+# oracle: mkv accept
+# oracle: both accept
+# oracle: both2 accept
+# oracle: one reject C4
+# oracle: two accept
+# oracle: three reject C4
+# oracle: four reject C4
+# oracle: main accept

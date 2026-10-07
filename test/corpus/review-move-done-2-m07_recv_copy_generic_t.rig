@@ -1,0 +1,28 @@
+# Inside a generic body, a consuming receiver of type T itself.
+struct P
+  v: Int
+
+  fun into(<self) -> Int
+    self.v
+
+struct HV
+  v: Vec[Int]
+
+  fun into(<self) -> Int
+    self.v.len
+
+fun twice[T](x: T) -> Int
+  x.into() + x.into()
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  print(twice(P(v: 1)))
+  print(twice(HV(v: mkv(2))))
+
+# oracle: P.into accept
+# oracle: HV.into accept
+# oracle: mkv accept

@@ -1,0 +1,20 @@
+# `<g.f` in a generic body, where an instance makes `f` optional.
+struct G[T]
+  f: T
+
+fun take[T](g: !G[T]) -> T
+  <g.f
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  o: Vec[Int]? = mkv(1)
+  a = G(f: <o)
+  x = take(!a)
+  print(x == none, a.f == none)
+
+# oracle: take reject C3
+# oracle: mkv accept

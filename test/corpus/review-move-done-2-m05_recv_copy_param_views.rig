@@ -1,0 +1,33 @@
+# A consuming method on a read-view parameter, a write-view parameter,
+# and a part through each.
+struct P
+  v: Int
+
+  fun into(<self) -> Int
+    self.v
+
+struct S
+  p: P
+
+fun r1(p: ?P) -> Int
+  p.into()
+
+fun r2(s: ?S) -> Int
+  s.p.into()
+
+fun w1(p: !P) -> Int
+  p.into()
+
+fun w2(s: !S) -> Int
+  s.p.into()
+
+sub main
+  s = S(p: P(v: 4))
+  print(r1(?s.p), r2(?s), w1(!s.p), w2(!s), s.p.v)
+
+# oracle: P.into accept
+# oracle: r1 accept
+# oracle: r2 accept
+# oracle: w1 accept
+# oracle: w2 accept
+# oracle: main accept

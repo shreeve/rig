@@ -4554,8 +4554,10 @@ The closure's environment owns what it captured and releases it once,
 when the closure is released, not after each call. The body may use,
 call, and clone a captured owning value, but not move, drop, or
 reassign it: the closure may be called again, so it cannot be the
-closure's value either. A captured view may be passed to a call,
-which views it for the call. A captured read view may be the
+closure's value either. For the same reason `<` of any capture is
+rejected, a copy (`|+n|`) too: `<n` would leave the closure's `n` as
+it was for the next call, and a plain `n` copies it. A captured view
+may be passed to a call, which views it for the call. A captured read view may be the
 closure's value, and a call's result then views what the closure
 captured. Through a captured write view the body can write fields,
 call `!self` methods (`!w.push(x)`), lend it on for a

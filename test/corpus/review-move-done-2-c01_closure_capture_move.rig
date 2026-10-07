@@ -1,0 +1,22 @@
+# Moving a captured owner out of a closure's environment, called twice.
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+fun eat(x: Vec[Int]) -> Int
+  x.len
+
+struct S
+  v: Vec[Int]
+  o: Vec[Int]?
+
+sub main
+  v = mkv(1)
+  g = |<v| eat(<v)
+  print(g())
+  print(g())
+
+# oracle: mkv accept
+# oracle: eat accept
+# oracle: main reject B3

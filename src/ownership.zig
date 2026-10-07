@@ -2527,6 +2527,15 @@ pub const Checker = struct {
                 const place = self.resolvePlace(inner) orelse return self.walk(inner);
                 return self.moveVar(place.root, self.startOf(inner), .move);
             },
+            .capture => {
+                const place = self.resolvePlace(inner) orelse return self.walk(inner);
+                // A capture that owns a resource, or holds a view, is
+                // reported as one (`rejectConsumedView`).
+                if (self.vars.items[place.root].capture_resource) return self.moveVar(place.root, self.startOf(inner), .move);
+                _ = try self.walk(inner);
+                try self.errAt(inner, "cannot move `{s}`, a copy capture: the closure keeps it for every call; remove the `<` to copy it", .{self.text(inner)});
+                return .{};
+            },
             .optional_part => return self.walkTake(inner),
             .part => {
                 if (self.resolvePlace(inner)) |place| return self.movePart(inner, place, null, false);
@@ -2637,10 +2646,12 @@ pub const Checker = struct {
 
     fn reportMoveLeaf(self: *Checker, leaf: sema.MoveLeaf, top: Sexp) Error!void {
         const place = leaf.node;
-        const shown = try self.placeText(place);
+        // A part of a branching value is shown as written.
+        const shown = if (leaf.source == .branch_part) self.spanText(place) else try self.placeText(place);
         const at_exit = top.isKind(.propagate) or top.isKind(.propagate_none);
         const ty = self.exprType(place);
         switch (leaf.source) {
+            .capture => try self.errAt(place, "`<` here would leave `{s}` as it was: the closure keeps its capture for every call; remove the `<` to copy it", .{shown}),
             .binding, .optional_part => {
                 const verb = if (leaf.source == .binding) "move" else "take";
                 if (at_exit) {
@@ -2650,6 +2661,8 @@ pub const Checker = struct {
             .declared => try self.errAt(place, "`<` here would leave `{s}` as it was: it lives for the whole program; remove the `<` to copy it", .{shown}),
             else => if (ty != null and (self.copies(ty) or self.refOfType(ty) == .read)) {
                 try self.errAt(place, "`<` here would leave `{s}` as it was: it copies; remove the `<` to copy it", .{shown});
+            } else if (leaf.source == .branch_part) {
+                try self.errAt(place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `replace`", .{shown});
             } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!{s}, v)`", .{ shown, shown }),
         }
     }

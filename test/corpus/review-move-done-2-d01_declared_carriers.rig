@@ -1,0 +1,20 @@
+# `<` of a module constant and a function in each carrier.
+K = [1, 2]
+N = 3
+
+fun one -> Int
+  1
+
+fun eat(x: Int) -> Int
+  x
+
+sub main
+  k = 0
+  for x in <K
+    k += x
+  g = || eat(<N)
+  h = <one
+  print(k, g(), h(), eat(<(N if k > 0 else 4)), [<N][0])
+
+# oracle: one accept
+# oracle: eat accept

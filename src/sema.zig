@@ -5543,8 +5543,11 @@ fn pathHands(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind
 /// value made here; the ownership checker ends a binding and reports the
 /// rest.
 pub const MoveSource = enum {
-    /// A binding (a local, a parameter, a capture): `<x` ends it.
+    /// A binding (a local or a parameter): `<x` ends it.
     binding,
+    /// A closure's capture (`|+x|`, `|<x|`, `|?x|`, `|!x|`, `|~x|`):
+    /// the closure keeps it for every call, so `<` cannot end it.
+    capture,
     /// A field or element holding an optional, of a place (`<p.f`,
     /// `<v[i]`, `<(!p).f`): it is emptied to `none`.
     optional_part,
@@ -5577,8 +5580,14 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
         .place => {},
     }
     const root = pathRoot(e);
-    // A path through a lend or a view made here reaches a place.
-    if (root != .src) return partSource(ctx, e);
+    // A path through a lend or a view made here reaches a place. An
+    // optional there is not emptied where the view sees only values made
+    // in the statement (`(!mk()).o`); any other part is rejected as one
+    // reached through a view.
+    if (root != .src) {
+        const source = partSource(ctx, e);
+        return if (source == .optional_part and viewsOnlyMade(ctx, root)) .made_part else source;
+    }
     const sym = ctx.symbols.items[ctx.symbolOf(root) orelse {
         // A built-in type's member (`Int.min`) is a value; a name sema
         // could not resolve was reported, and stands for a binding.
@@ -5586,7 +5595,8 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
         return if (e == .src) .binding else partSource(ctx, e);
     }];
     switch (sym.kind) {
-        .param, .capture, .generic_param => return if (e == .src) .binding else partSource(ctx, e),
+        .param, .generic_param => return if (e == .src) .binding else partSource(ctx, e),
+        .capture => return if (e == .src) .capture else partSource(ctx, e),
         .local => {
             if (sym.scope == module_scope) return .declared;
             return if (e == .src) .binding else partSource(ctx, e);
@@ -5602,6 +5612,39 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
         },
         .nominal_type, .type_alias, .generic_type => return typeMemberSource(ctx, e),
     }
+}
+
+/// Whether `v`, a view made here, sees only values made in its statement:
+/// a lend of one (`!mk()`, `?mk().w`), or a call's view result whose
+/// every argument it carries a view from is such a view (`gw(!mk())`).
+fn viewsOnlyMade(ctx: *const SemContext, v: Sexp) bool {
+    if (v.isKind(.read) or v.isKind(.write)) {
+        const operand = ir.get(v, .operand);
+        return switch (handsOver(ctx, operand).kind) {
+            .made => true,
+            // A part of a branching value may be a binding's.
+            .part_of_made => handsOver(ctx, pathRoot(operand)).kind != .branches,
+            .place, .lend, .branches, .jump, .none => false,
+        };
+    }
+    if (!v.isKind(.call)) return false;
+    const params = ctx.callParamsOf(v) orelse return false;
+    var seen = false;
+    const callee = ir.Call.callee(v);
+    if (callee.isKind(.member) and params.resultCarriesReceiver()) {
+        if (!viewsOnlyMade(ctx, ir.Member.object(callee))) return false;
+        seen = true;
+    }
+    for (ir.Call.args(v), 0..) |arg, i| {
+        if (!params.resultCarries(i)) continue;
+        const value = if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg;
+        // An argument that holds no view gives the result none.
+        const ty = ctx.typeOf(value) orelse return false;
+        if (!mayHoldView(ctx, ty)) continue;
+        if (!viewsOnlyMade(ctx, value)) return false;
+        seen = true;
+    }
+    return seen;
 }
 
 /// A field or element of a place: emptied when it holds an optional.
@@ -5631,29 +5674,17 @@ pub const MoveLeaf = struct { node: Sexp, source: MoveSource };
 
 /// The leaves of `operand`, a branching value under `<`, that `<` cannot
 /// take: every leaf but a value made there, appended to `out` in order.
-/// A name the operand itself declares (a block's own local at a branch's
-/// tail) leaves that block for good, so it is taken.
+/// (An operand of `<` is an expression, so no leaf is a name it declares:
+/// a block-form `if` or `match` cannot follow `<`.)
 pub fn moveLeaves(a: std.mem.Allocator, ctx: *const SemContext, operand: Sexp, out: *std.ArrayList(MoveLeaf)) std.mem.Allocator.Error!void {
-    const within = ctx.span(operand);
-    try collectMoveLeaves(a, ctx, operand, within, out);
-}
-
-fn collectMoveLeaves(a: std.mem.Allocator, ctx: *const SemContext, e: Sexp, within: diag.Span, out: *std.ArrayList(MoveLeaf)) std.mem.Allocator.Error!void {
-    var parts = valueParts(e);
+    var parts = valueParts(operand);
     while (parts.next()) |p| {
         if (p.node == .nil) continue;
         const source = moveSource(ctx, p.node);
         switch (source) {
             .made => {},
-            .branches => try collectMoveLeaves(a, ctx, p.node, within, out),
-            .binding => {
-                const declared_within = if (ctx.symbolOf(p.node)) |id| blk: {
-                    const at = ctx.symbols.items[id].decl_pos;
-                    break :blk at >= within.start and at < within.end;
-                } else false;
-                if (!declared_within) try out.append(a, .{ .node = p.node, .source = source });
-            },
-            .optional_part, .part, .branch_part, .made_part, .declared => try out.append(a, .{ .node = p.node, .source = source }),
+            .branches => try moveLeaves(a, ctx, p.node, out),
+            .binding, .capture, .optional_part, .part, .branch_part, .made_part, .declared => try out.append(a, .{ .node = p.node, .source = source }),
         }
     }
 }

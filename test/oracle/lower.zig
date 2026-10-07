@@ -1701,7 +1701,10 @@ const Lowerer = struct {
                 // `w, v: !Int`), each branch is read as that value (Core §4).
                 const ty = try self.wantedValue(try self.typeOf(e), want);
                 const in_place = (how == .read or how == .view) and !(try self.kinds.of(ty)).kind.copies();
-                const t = if (in_place) try self.viewTemp(ty, .read_view, pos) else try self.temp(ty, pos);
+                // A branch whose every leaf is a write view (its type is
+                // `!T`) is a write view of the leaf it took (Core §4).
+                const view_kind: kinds.Kind = if (self.ctx.types.get(ty) == .write_view) .write_view else .read_view;
+                const t = if (in_place) try self.viewTemp(ty, view_kind, pos) else try self.temp(ty, pos);
                 if (in_place) try self.read_leaves.put(self.a, t, self.regions.items.len - 1);
                 try self.valueInto(e, how, t);
                 return t;
@@ -2351,8 +2354,7 @@ const Lowerer = struct {
         // A branching value gives up only its leaves made there; `<` would
         // leave any other leaf as it was (Core §3: `<a if c else <b`).
         if (isBranchingValue(operand)) {
-            const within = self.parser.span(operand);
-            if (try self.keptLeaf(operand, within)) |leaf| return self.found(.C3, self.posOf(leaf), "`<` of a branching value leaves this leaf as it was; move it inside the branch", .{});
+            if (try self.keptLeaf(operand)) |leaf| return self.found(.C3, self.posOf(leaf), "`<` of a branching value leaves this leaf as it was; move it inside the branch", .{});
         }
         if (operand == .src) {
             const v = self.varOf(operand) orelse return abstain("a move of something not a local");
@@ -2404,9 +2406,8 @@ const Lowerer = struct {
     }
 
     /// The first leaf of branching value `e` that is not a value made
-    /// there: a name, a field or element, or a constant. A name declared
-    /// inside the value (`within`), a block's own local, leaves it for good.
-    fn keptLeaf(self: *Lowerer, e: Sexp, within: anytype) Error!?Sexp {
+    /// there: a name, a field or element, or a constant.
+    fn keptLeaf(self: *Lowerer, e: Sexp) Error!?Sexp {
         const leaves: [2]Sexp = switch (e.kind().?) {
             .@"if" => .{ blockTail(ir.If.then(e)), blockTail(ir.If.@"else"(e)) },
             .@"??" => .{ ir.get(e, .left), ir.get(e, .right) },
@@ -2418,23 +2419,23 @@ const Lowerer = struct {
         for (leaves) |leaf| {
             if (leaf == .nil) continue;
             if (isBranchingValue(leaf)) {
-                if (try self.keptLeaf(leaf, within)) |l| return l;
+                if (try self.keptLeaf(leaf)) |l| return l;
                 continue;
             }
-            if (self.leftAsItWas(leaf, within)) return leaf;
+            if (self.leftAsItWas(leaf)) return leaf;
         }
         return null;
     }
 
-    /// Whether `<` would leave leaf `e` as it was: a name of a binding
-    /// declared outside `within`, a function or constant, or a field or
-    /// element of anything but a type (`Color.red` is a value).
-    fn leftAsItWas(self: *Lowerer, e: Sexp, within: anytype) bool {
+    /// Whether `<` would leave leaf `e` as it was: a name of a binding, a
+    /// function or constant, or a field or element of anything but a
+    /// type (`Color.red` is a value).
+    fn leftAsItWas(self: *Lowerer, e: Sexp) bool {
         if (e == .src) {
             const sym_id = self.ctx.symbolOf(e) orelse return false;
             const sym = self.ctx.symbols.items[sym_id];
             return switch (sym.kind) {
-                .local, .param, .capture => sym.decl_pos < within.start or sym.decl_pos >= within.end,
+                .local, .param, .capture => true,
                 .function => true,
                 else => false,
             };

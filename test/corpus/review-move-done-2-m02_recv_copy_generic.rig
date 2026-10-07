@@ -1,0 +1,35 @@
+# A consuming method called on a part of generic type, instantiated with
+# a type that copies and with one that owns.
+struct P
+  v: Int
+
+  fun into(<self) -> Int
+    self.v
+
+struct HV
+  v: Vec[Int]
+
+  fun into(<self) -> Int
+    self.v.len
+
+struct G[T]
+  f: T
+
+fun use_part[T](g: ?G[T]) -> Int
+  g.f.into()
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  a = G(f: P(v: 1))
+  print(use_part(?a))
+  b = G(f: HV(v: mkv(2)))
+  print(use_part(?b))
+  print(b.f.v.len)
+
+# oracle: P.into accept
+# oracle: HV.into accept
+# oracle: mkv accept

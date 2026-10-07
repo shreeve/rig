@@ -1528,12 +1528,22 @@ a lend hands over, `yieldsWriteView`); `<` leaves its source done
 (`sema.moveSource`, one classification, beside `handsOver`, for every
 form that carries a move, and for each leaf of a branching operand,
 `moveLeaves`): it ends a binding, empties an optional field or element
-of a place (where the type checker records `takes` and checks the
-place may be written), and rejects any other source: a part of a value
-made there (reported by the type checker, `rejectMadeParts`), any
-other part, whether its value moves or copies, a function or module
-constant, and a branching value's leaf that is not made there (the
-ownership checker), so only whole bindings move; closures use outer locals only through captures, and never consume their captured
+of a place (where the type checker records `takes`, and
+`requireAccess(.take)` checks that the place may be written: not through
+a read view, a handle, a constant, a fixed binding, or a copy an `as`
+binds), and rejects any other source: a part of a value made in the
+statement, and an optional one reached through a lend of such a value
+or a view a call makes of one (reported by the type checker,
+`rejectMadeParts`; any other part reached that way is rejected as a
+part through a view), a
+capture, which the closure keeps for every call, any other part,
+whether its value moves or copies, a function or module constant, and
+a branching value's leaf that is not made there (the ownership
+checker), so only whole bindings move. One check is stricter than the
+fact and stays beside it: `payloadViewTaken` rejects `<y` of a binding
+a read `match` binds, which `moveSource` calls a binding, since `y`
+views the subject. Closures use outer locals only through captures, and never consume their captured
+resources; closures use outer locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 view, directly or through what it views, a value dropped before it
 (declared later in the same scope), since the body could read it.

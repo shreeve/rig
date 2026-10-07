@@ -1,0 +1,18 @@
+# A consuming method on a part holding a write view: it does not copy.
+struct WV
+  w: !Int
+
+  fun into(<self) -> Int
+    self.w += 1
+    self.w
+
+struct S
+  k: WV
+
+sub main
+  n = 1
+  s = S(k: WV(w: !n))
+  print(s.k.into())
+  print(s.k.into())
+
+# oracle: WV.into accept

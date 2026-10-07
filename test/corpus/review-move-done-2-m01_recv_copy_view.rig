@@ -1,0 +1,26 @@
+# A receiver that copies but holds a read view: `s.rv.into()` takes a
+# copy; the result views what the receiver viewed.
+struct RV
+  r: ?Vec[Int]
+
+  fun into(<self) -> ?Vec[Int]
+    self.r
+
+struct S
+  rv: RV
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  v = mkv(5)
+  s = S(rv: RV(r: ?v))
+  x = s.rv.into()
+  v = mkv(6)
+  print(x[0])
+
+# oracle: RV.into accept
+# oracle: mkv accept
+# oracle: main reject C4

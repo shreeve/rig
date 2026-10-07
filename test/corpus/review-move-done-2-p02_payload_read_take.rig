@@ -1,0 +1,21 @@
+# Rejected: a take through a read payload view.
+struct S
+  o: Vec[Int]?
+
+enum E
+  none_
+  one(s: S)
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+sub main
+  e: E = .one(s: S(o: mkv(1)))
+  match e
+    .one(s) => print(<s.o == none)
+    .none_ => print(0)
+
+# oracle: mkv accept
+# oracle: main reject C7

@@ -3910,6 +3910,13 @@ const Checker = struct {
         return !self.isPoison(ty) and sema.typeHasDropGlue(self.ctx, ty);
     }
 
+    /// Whether `e` is a view whose value is copied out where a value is
+    /// expected (`sema.copiedThrough`).
+    fn copiesThrough(self: *const Checker, e: Sexp) bool {
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return sema.copiedThrough(self.ctx, ty) != null;
+    }
+
     /// Whether `e`'s value copies (`sema.copies`).
     fn copiesValue(self: *const Checker, e: Sexp) bool {
         const ty = self.ctx.typeOf(e) orelse return false;
@@ -4046,11 +4053,32 @@ const Checker = struct {
     fn rejectMadePart(self: *Checker, at: Sexp, part: Sexp) Error!void {
         const ty = self.ctx.typeOf(part) orelse return;
         if (self.isPoison(ty)) return;
-        if (self.ctx.types.get(ty) == .optional) {
-            try self.errAt(at, "cannot take out of a temporary: nothing would see it emptied; bind it to a name first", .{});
-        } else if (sema.copies(self.ctx, ty) == .yes) {
+        const optional = self.ctx.types.get(ty) == .optional;
+        // A handle made here reaches a box other handles may see.
+        if (!optional and sema.copies(self.ctx, ty) == .yes) {
             try self.errAt(at, "cannot move out of `{s}`: it copies, so `<` would leave it as it was; remove the `<` to copy it", .{self.sourceText(part)});
-        } else try self.errAt(at, "cannot move a part out of the temporary `{s}`, which its statement drops; bind it to a name first", .{self.sourceText(sema.pathRoot(part))});
+        } else if (self.handleOnPath(part)) |handle| {
+            try self.errAt(at, "cannot {s} `{s}`: it is reached through the shared handle `{s}`, and other handles may still use it", .{ if (optional) "take out of" else "move out of", self.sourceText(part), self.sourceText(handle) });
+        } else if (optional) {
+            try self.errAt(at, "cannot take out of a temporary: nothing would see it emptied; bind it to a name first", .{});
+        } else {
+            // A lend of a temporary names the temporary.
+            const root = sema.pathRoot(part);
+            const temp = if (root.isKind(.read) or root.isKind(.write)) ir.get(root, .operand) else root;
+            try self.errAt(at, "cannot move a part out of the temporary `{s}`, which its statement drops; bind it to a name first", .{self.sourceText(temp)});
+        }
+    }
+
+    /// The shared handle a field or element path passes through, by the
+    /// type of each value on it.
+    fn handleOnPath(self: *Checker, e: Sexp) ?Sexp {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) {
+            p = ir.get(p, .object);
+            const ty = self.ctx.typeOf(p) orelse continue;
+            if (self.ctx.types.get(ty) == .shared) return p;
+        }
+        return null;
     }
 
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
@@ -7700,7 +7728,9 @@ const Checker = struct {
             },
             .value => {
                 switch (kind) {
-                    .read_view, .write_view => return self.err(pos, "method `{s}` consumes the receiver; cannot consume through a view", .{method}),
+                    // A view of a value that copies is copied out, as
+                    // where a value is expected (Core §4).
+                    .read_view, .write_view => if (!self.copiesThrough(recv)) return self.err(pos, "method `{s}` consumes the receiver; cannot consume through a view", .{method}),
                     .shared => return self.err(pos, "method `{s}` consumes the receiver; cannot consume the inner value through a shared handle (`*T`) — other handles may still reference it", .{method}),
                     else => {},
                 }
@@ -7711,8 +7741,8 @@ const Checker = struct {
                     .read_explicit, .write_explicit => try self.err(pos, "method `{s}` consumes the receiver; a lend cannot give it up; use `<receiver.{s}(...)`", .{ method, method }),
                     // A place whose value copies is read, as an argument
                     // is: the call takes a copy (Core sentence 1).
-                    .place => if (!self.copiesValue(recv)) switch (sema.moveSource(self.ctx, recv)) {
-                        .binding => try self.err(pos, "method `{s}` consumes the receiver; use `<receiver.{s}(...)`", .{ method, method }),
+                    .place => if (!self.copiesValue(recv) and !self.copiesThrough(recv)) switch (sema.moveSource(self.ctx, recv)) {
+                        .binding, .capture => try self.err(pos, "method `{s}` consumes the receiver; use `<receiver.{s}(...)`", .{ method, method }),
                         .made_part => try self.errAt(recv, "method `{s}` consumes its receiver, and `{s}` is a part of a temporary its statement drops; bind the value to a name first", .{ method, self.sourceText(recv) }),
                         else => try self.errAt(recv, "method `{s}` consumes its receiver, and `<` cannot move `{s}` out of the value that holds it; exchange it out first: `replace(!{s}, v).{s}(...)`", .{ method, self.sourceText(recv), self.sourceText(recv), method }),
                     },

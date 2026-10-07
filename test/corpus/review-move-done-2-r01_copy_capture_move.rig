@@ -1,0 +1,22 @@
+# `<n` of a copy capture, in a closure that runs twice: the capture is
+# left as it was (the closure's environment keeps it).
+fun twice(n: Int) -> Int
+  n * 2
+
+struct P
+  v: Int
+
+fun eat(p: P) -> Int
+  p.v
+
+sub main
+  n = 3
+  g = |+n| twice(<n)
+  print(g(), g(), n)
+  p = P(v: 4)
+  h = |+p| eat(<p)
+  print(h(), h(), p.v)
+
+# oracle: twice accept
+# oracle: eat accept
+# oracle: main reject B3

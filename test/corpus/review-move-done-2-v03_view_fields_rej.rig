@@ -1,0 +1,41 @@
+# Rejected: through a read view held in a field, and an owning part
+# through a write view held in a field.
+struct S
+  o: Vec[Int]?
+  v: Vec[Int]
+
+struct K
+  w: !S
+
+struct KR
+  r: ?S
+
+fun mkv(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  xs
+
+fun mks(n: Int) -> S
+  S(o: mkv(n), v: mkv(n))
+
+sub a
+  s = mks(1)
+  k = KR(r: ?s)
+  x = <k.r.o
+  print(x == none)
+
+sub b
+  s = mks(1)
+  k = K(w: !s)
+  x = <k.w.v
+  print(x.len)
+
+sub main
+  a()
+  b()
+
+# oracle: mkv accept
+# oracle: mks accept
+# oracle: a reject C7
+# oracle: b reject C3
+# oracle: main accept
