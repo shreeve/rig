@@ -6,8 +6,15 @@
 ./test/run -v known        # list each result of the known bugs
 ./test/run --update ir     # rewrite IR snapshots after an intended grammar change
 ./test/run corpus          # every corpus program (a plain run takes a sample)
+./test/run --shard 2/4     # the second of four disjoint shards of a run
+./test/run --prune         # only remove the output of tests that are gone
 test/matrix.py             # generate and run the form x context x type matrix
+test/matrix.py --shard 2/4 # the second of four disjoint shards of the matrix
 ```
+
+A shard takes the selected tests whose id hashes to it, so the N shards
+of a run, on one machine or several, run each test once; the first also
+runs the whole-program checks (`unit`, `parser`, `classify`, `vocab`).
 
 The summary line reads `N passed, M failed, K known, P pending`. The
 suite is green when nothing fails and no known-failing test or pending
@@ -19,14 +26,15 @@ no bug is open) exits 0. The runner works from any directory.
 The runner needs bash and either GNU `timeout` or perl (stock macOS has
 perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
 each test may take (default 120), `RIG_TEST_OUT` the directory for
-emitted packages (see [Output](#output)), and `RIG_SANITIZE=0` turns
-off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
+each test's output, `RIG_BUILD_STORE` where programs build (see
+[Output](#output)), and `RIG_SANITIZE=0` turns off the sanitizer (see
+[below](#leak-checking-and-the-sanitizer)).
 
 ## Layout
 
 | Path | Contract |
 |---|---|
-| `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks or use of freed memory, stdout equals the `# expect:` block |
+| `test/behavior/<area>/<name>.rig` | the program runs, exits 0, has no leaks or use of freed memory, and its stdout equals the `# expect:` block |
 | `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors) |
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
@@ -168,13 +176,16 @@ built in one directory would rebuild cold on every run. (`zig build-exe`
 caches nothing, so `rig build` is always cold; prefer `rig run` when the
 executable itself is not under test.) Call `"$RIG"` directly for
 commands that build nothing (`check`, `emit`, usage errors) and when
-the output directory is what the test is about.
+the output directory is what the test is about. Scripts inherit the
+suite's `RIG_BUILD_STORE`, so `rig run|build|test` builds in the store
+(see [Output](#output)); a script about the output directory sets
+`RIG_BUILD_STORE=` for those commands.
 
 ## The corpus
 
 `test/corpus/` keeps the probe programs written by past reviews and
 audits, deduplicated by content. Each program either is rejected by
-`rig check` with a `file:line:col` diagnostic, or runs under the
+`rig check` with a `file:line:col` diagnostic, or runs (see [Output](#output)) under the
 sanitizer with no leak, no use of freed memory, no Zig compile error,
 no crash, and no Zig safety check that means emitted code went wrong
 (`reached unreachable`, a wrong union field, ...). A probe need not
@@ -190,10 +201,9 @@ minutes of work, so a plain `./test/run` takes a fixed sample, one
 program in 16 by a hash of its name; `./test/run corpus` (or any filter
 that names corpus programs) takes all of them, as CI should nightly or
 before a merge that touches the checkers or the emitter. A corpus run
-removes each passing program's output but keeps its Zig cache (a few
-gigabytes for the whole corpus), so a later run rebuilds only the
-programs whose emitted Zig changed; delete `.zig-cache/rig-test/corpus`
-to reclaim the space. Add new review probes here, named `<review>-<probe>.rig`.
+removes each passing program's output; its build stays in the store
+(a few gigabytes for the whole corpus, see [Output](#output)), so a
+later run rebuilds only the programs whose emitted Zig changed. Add new review probes here, named `<review>-<probe>.rig`.
 
 `test/matrix.py` generates the programs where one expression form (a
 place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
@@ -284,17 +294,28 @@ bin/rig-oracle --sema -v file.rig     # also functions the compiler's
 ## Proving a refactor changed nothing
 
 ```bash
-test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR]
+test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR] [--no-cache]
 ```
 
 runs two compilers over every tracked program and every ```` ```rig ````
 block in the docs, and compares what they print for `parse`,
 `normalize`, `check`, `check --facts`, and, for an accepted program,
-`check --facts=sema`, `check --facts=storage`, and `emit`. It lists each program whose output
-differs, with the sections that differ (`--keep` saves both outputs),
-and exits 1 if any does. Build the old compiler from the base commit
-and copy `bin/rig` aside first. A refactor's every difference is a
-planned rule or a fixed bug, and its pull request lists them.
+`check --facts=sema`, `check --facts=storage`, `emit` (the root
+module), and `pkg`: a hash of the whole package that
+`RIG_SANITIZE=1 rig emit` writes, every module, the standard library's
+shims, and the runtime with its sanitizer, so a change that shows only
+in another module or in sanitized code is still seen. It lists each
+program whose output differs, with the sections that differ (`--keep`
+saves both outputs, and both packages for `pkg`), and exits 1 if any
+does. Build the old compiler from the base commit and copy `bin/rig`
+aside first. A refactor's every difference is a planned rule or a fixed
+bug, and its pull request lists them.
+
+The old compiler's results are cached in `rig-equiv-cache` in the
+repository's git directory, by a hash of its binary, the section, the
+program's path, and the contents of the program and of every module
+beside it that a `use` could name; so a rerun against the same old
+compiler runs only the new one. `--no-cache` runs both.
 
 ## Known bugs
 
@@ -314,7 +335,36 @@ failing test can be inspected there, and repeated runs hit Zig's build
 cache. A doc example's directory is `doc/<file>/<checksum>/`, named by
 its text rather than its line, so an edit that moves it keeps its cache.
 A run with no filter removes the directories of tests that no longer
-exist. One run at a time uses an output directory; a second run waits
+exist, and keeps those of every corpus program though it runs only a
+sample; `./test/run --prune` does only that.
+
+A test that runs a program (behavior, example, known bug, doc example
+with output, corpus, matrix) passes only on positive evidence that the
+program ran: `rig run` creates the file the harness names in
+`RIG_RUN_STARTED`, a fresh path in the run's private results directory
+(test/matrix.py: a private directory of its own), only once the program
+has started. Without a regular file there, or with rig's `the program
+did not run`, the test fails with `the program did not run`, whatever
+the exit status or output; so does a known bug or a pending example, so
+a failure in rig, Zig, or the build store never passes, holds, or counts
+as the known failure. In the corpus and the matrix, a program a signal
+ended (`rig: the program was killed by signal N`) fails too, unless it
+is a Rig panic: an abort (signal 6) after its `panic:` report. A status
+above 128 alone is the program's own.
+
+Programs build in a store shared by every worktree of the repository,
+`rig-build-store` in its git directory (`git rev-parse
+--git-common-dir`), or `$RIG_BUILD_STORE`; `RIG_BUILD_STORE=` (empty)
+builds each in its test's output directory instead. `rig run` builds a
+package in the store's entry named by a hash of everything the build
+reads (docs/INTERNALS.md), so a program built before, in this worktree
+or another, by this compiler or another that emits the same package, is
+not built again; a new branch's first run rebuilds only the programs
+whose package it changed. Zig still checks every input of a cached
+build. A run with no filter removes the entries no run has used for
+`RIG_BUILD_STORE_DAYS` days (default 7), each renamed into the store's
+trash in one step and then deleted. `test/matrix.py` builds in the
+same store. One run at a time uses an output directory; a second run waits
 for the first, unless `RIG_TEST_OUT` gives it a directory of its own.
 The runner marks an output directory as its own with a `.rig-test`
 file, and refuses a `RIG_TEST_OUT` that is not empty and lacks it, so

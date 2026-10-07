@@ -27,10 +27,14 @@ out=$(./args $'\xff' 2>&1); expect_rc $? 1 "bytes that are not UTF-8"
 expect_eq "$out" $'0 \xff\nunset' "arguments are the bytes given, not checked as UTF-8"
 
 # The first argument is the path the program was started by: under
-# `rig run`, the executable built in the package's cache.
+# `rig run`, the executable built in the package's cache, in the output
+# directory or the build store.
 printf 'use std.os\n\nsub main()\n  print(os.args()[0])\n' >name.rig
-out=$(rig run name.rig 2>&1); expect_rc $? 0 "the program's name"
+out=$(RIG_BUILD_STORE= rig run name.rig 2>&1); expect_rc $? 0 "the program's name"
 expect_has "$out" "$RIG_OUT_DIR/programs/name/.zig-cache/" "under rig run, the cached executable comes first"
+mkdir store
+out=$(RIG_BUILD_STORE=store rig run name.rig 2>&1); expect_rc $? 0 "the program's name, built in a store"
+[[ $out =~ store/[0-9a-f]{32}/ ]] || fail "under rig run with a store, the cached executable comes first: $out"
 rig build -o named name.rig >/dev/null 2>&1 || fail "build name.rig"
 out=$(./named 2>&1); expect_eq "$out" "./named" "a built program's name comes first"
 
