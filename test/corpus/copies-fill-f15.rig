@@ -1,0 +1,5 @@
+sub main
+  t = Text("abc")
+  a = [2 of ?t]
+  !t.add("d")
+  print(a[0])

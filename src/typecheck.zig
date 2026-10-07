@@ -850,11 +850,12 @@ const Checker = struct {
             // (`yieldsWriteView`), as `w: !T = e` does, so assigning it
             // writes through (Core §6). A bare name or place only reads
             // (Core sentence 1): a name, field, element, or loop value of
-            // type `!T`, a branching value of them, and a read view of a
-            // number, `Bool`, `String`, or plain enum bind the value it
-            // reaches.
+            // type `!T`, or a branching value of them, binds the value it
+            // reaches when that copies (`sema.copiedThrough`). A read view
+            // is copied, but one of a scalar binds the scalar
+            // (`readValue`).
             const holds_write_view = self.ctx.types.get(rhs_ty) == .write_view and yieldsWriteView(rhs);
-            if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
+            if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, bindingValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
@@ -1491,10 +1492,10 @@ const Checker = struct {
         const b = self.ctx.symbolOf(ir.As.name(cond)) orelse return;
         const sym = self.ctx.symbols.items[b];
         const use = sema.findUse(self.ctx, step, b) orelse return;
-        if (try self.cannotCopy(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
-            try self.errAt(use, "the loop step cannot use `{s}`: the body owns this `{s}`, which ends with the body before the step runs", .{ sym.name, try self.tyName(sym.ty) });
-        } else if (sema.isReadOrWriteView(self.ctx, sym.ty)) {
+        if (sema.isReadOrWriteView(self.ctx, sym.ty)) {
             try self.errAt(use, "the loop step cannot use `{s}`: it is a view (`{s}`) that lives only in the body; use it at the end of the body instead", .{ sym.name, try self.tyName(sym.ty) });
+        } else if (try self.mustTake(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
+            try self.errAt(use, "the loop step cannot use `{s}`: the body owns this `{s}`, which ends with the body before the step runs", .{ sym.name, try self.tyName(sym.ty) });
         }
     }
 
@@ -1615,7 +1616,7 @@ const Checker = struct {
         // as `if ?o as x` binds it; a part of a made value where the `if`
         // holds that value (docs/INTERNALS.md, "Header subjects").
         var viewed = false;
-        if (!through_view and !self.isPoison(inner) and sema.copyable(self.ctx, inner) == .no) switch (self.hands(expr).kind) {
+        if (!through_view and !self.isPoison(inner) and sema.copies(self.ctx, inner) == .no) switch (self.hands(expr).kind) {
             .place => {
                 viewed = true;
                 try self.ctx.recordHeader(node, .viewed, .nil);
@@ -1754,13 +1755,13 @@ const Checker = struct {
                     eff = .read;
                     try self.ctx.recordHeader(node, .viewed, .nil);
                 },
-                .part_of_made => if (self.held_base != .nil and sema.copyable(self.ctx, source_ty) == .no) {
+                .part_of_made => if (self.held_base != .nil and sema.copies(self.ctx, source_ty) == .no) {
                     eff = .read;
                     if (try self.holdsHeld(source)) {
                         try self.ctx.recordHeader(node, .held, self.held_base);
                     } else elem_poisoned = true;
                 },
-                .made => if (self.ctx.types.get(source_ty) == .array and sema.copyable(self.ctx, self.ctx.types.get(source_ty).array.elem) == .no) {
+                .made => if (self.ctx.types.get(source_ty) == .array and sema.copies(self.ctx, self.ctx.types.get(source_ty).array.elem) == .no) {
                     eff = .move;
                     try self.ctx.recordHeader(node, .taken, .nil);
                 },
@@ -1776,7 +1777,7 @@ const Checker = struct {
             const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.held_base == .nil);
             const vec = vecElementType(self.ctx, source_ty) != null;
             const moving = vec or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
-                .array => |a| sema.copyable(self.ctx, a.elem) == .no,
+                .array => |a| sema.copies(self.ctx, a.elem) == .no,
                 else => false,
             };
             // A Vec whose elements move is reported by `elementTypeForLoop`.
@@ -1945,11 +1946,11 @@ const Checker = struct {
     /// an element whose type depends on the instance is a copy, so every
     /// instance must supply one that copies and holds no Cell.
     fn readElement(self: *Checker, pos: u32, elem: TypeId) Error!TypeId {
-        switch (sema.copyable(self.ctx, elem)) {
+        switch (sema.copies(self.ctx, elem)) {
             .yes => return elem,
             .no => return self.ctx.intern(.{ .read_view = elem }),
             .depends => {
-                try self.requireOf(elem, .no_move, pos, "copies into a loop binding a value");
+                try self.requireOf(elem, .copies, pos, "copies into a loop binding a value");
                 try self.requireOf(elem, .no_cell, pos, "copies into a loop binding a value");
                 return elem;
             },
@@ -2011,7 +2012,7 @@ const Checker = struct {
                 // Inside a generic body an element whose type depends on
                 // the instance is bound as a copy, which is only read: a
                 // Cell in it would change in the copy alone.
-                if (sema.copyable(self.ctx, elem) == .depends) try self.requireOf(elem, .no_cell, pos, "copies into a loop binding a value");
+                if (sema.copies(self.ctx, elem) == .depends) try self.requireOf(elem, .no_cell, pos, "copies into a loop binding a value");
                 return elem;
             },
             .array => |a| {
@@ -2066,7 +2067,10 @@ const Checker = struct {
         var scrutinee = if (mode == .write) try self.synthOperand(subject) else try self.synthExpr(subject);
         const subject_hands = self.hands(subject);
         if (mode == .read and !self.isPoison(scrutinee)) switch (subject_hands.kind) {
-            .made => if (try self.cannotCopy(scrutinee, self.startOf(subject), "matches")) {
+            // A value made here that owns or is unique is the match's
+            // own (`sema.moves`); a view it yields, a write view
+            // included, stays a view.
+            .made => if (try self.mustTake(scrutinee, self.startOf(subject), "matches")) {
                 mode = .consume;
                 try self.ctx.recordHeader(node, .taken, .nil);
             },
@@ -2077,7 +2081,7 @@ const Checker = struct {
             // name's part, is checked below as a branching value is.)
             .place, .part_of_made => if (subject_hands.kind == .place or self.held_base != .nil) {
                 const reached = sema.unwrapAccess(self.ctx, scrutinee);
-                const plain = sema.copyable(self.ctx, reached) != .no;
+                const plain = sema.copies(self.ctx, reached) != .no;
                 const held = subject_hands.kind == .part_of_made and !plain;
                 if (subject_hands.kind == .part_of_made and plain) try self.releaseHeld();
                 if (!held) try self.readLeaf(subject);
@@ -2537,7 +2541,7 @@ const Checker = struct {
                     if (self.ctx.symbolOf(pattern)) |sym| {
                         // A binding that is no plain data is usable in its
                         // arm only.
-                        if (mode == .read and !self.isPoison(scrutinee) and sema.copyable(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                        if (mode == .read and !self.isPoison(scrutinee) and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
                         if (mode == .read) try self.readBinding(scrutinee, pattern);
                         self.ctx.symbols.items[sym].ty = scrutinee;
                         try self.ctx.recordType(pattern, scrutinee);
@@ -2675,7 +2679,7 @@ const Checker = struct {
             const view = !sema.isReadOrWriteView(self.ctx, f.ty) and self.ctx.types.get(f.ty) != .slice and !self.isPoison(f.ty);
             const ty = if (mode == .write and view)
                 try self.ctx.intern(.{ .write_view = f.ty })
-            else if (mode == .read and view and sema.copyable(self.ctx, f.ty) == .no)
+            else if (mode == .read and view and sema.copies(self.ctx, f.ty) == .no)
                 try self.ctx.intern(.{ .read_view = f.ty })
             else
                 f.ty;
@@ -2684,7 +2688,7 @@ const Checker = struct {
             if (self.ctx.symbolOf(b)) |sym| {
                 self.ctx.symbols.items[sym].ty = ty;
                 // A binding that is no plain data is usable in its arm only.
-                if (mode == .read and view and sema.copyable(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                if (mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
             }
         }
     }
@@ -3521,11 +3525,15 @@ const Checker = struct {
 
     /// The type of `a ?? b` or `a catch b`, where `a` gives an `inner`:
     /// `inner`, or the optional its context expects, which lets the
-    /// fallback `b` be `none` or another optional.
+    /// fallback `b` be `none` or another optional. `inner` widens to it
+    /// only as itself (`meets`), or as a view held by value, which is
+    /// its value: a view held by address stays the view, and the whole
+    /// `??` or `catch` is copied out where its context expects the value
+    /// (`copiedOut`).
     fn fallbackType(self: *Checker, inner: TypeId, expected: ?TypeId) TypeId {
         const e = expected orelse return inner;
         return switch (self.ctx.types.get(e)) {
-            .optional => |i| if (compatible(self.ctx, inner, i)) e else inner,
+            .optional => |i| if (meets(self.ctx, inner, i) or (!sema.viewHeldAsPointer(self.ctx, inner) and compatible(self.ctx, inner, i))) e else inner,
             else => inner,
         };
     }
@@ -3646,7 +3654,9 @@ const Checker = struct {
         const place = if (operand.isKind(.move)) ir.Move.operand(operand) else operand;
         const shown = self.sourceText(place);
         const sigil = if (self.ctx.types.get(ty) == .write_view and !place.isKind(.write)) "!" else "";
-        try self.errAt(operand, "a view cannot give up the resource inside it; lend the value inside with `if {s}{s} as {s}`", .{ sigil, shown, bindingNameFor(shown) });
+        const value = sema.unwrapViews(self.ctx, ty);
+        const what = if (!sema.typeHasDropGlue(self.ctx, value) and sema.holdsWriteView(self.ctx, value)) "write view" else "resource";
+        try self.errAt(operand, "a view cannot give up the {s} inside it; lend the value inside with `if {s}{s} as {s}`", .{ what, sigil, shown, bindingNameFor(shown) });
     }
 
     /// A name to suggest binding the value inside `shown` to, which
@@ -4091,10 +4101,12 @@ const Checker = struct {
         const value = try self.readThrough(operand, inner, sema.unwrapViews(self.ctx, inner));
         switch (sema.cloneable(self.ctx, inner)) {
             .copy, .bump, .text, .deep => {},
-            .depends => try self.requireOf(value, .no_move, self.startOf(operand), "clones a value"),
+            .depends => try self.requireOf(value, .copies, self.startOf(operand), "clones a value"),
             .no => {
                 const shown = try self.tyName(value);
-                if (!sema.typeHasDropGlue(self.ctx, value)) {
+                if (!sema.typeHasDropGlue(self.ctx, value) and sema.holdsWriteView(self.ctx, value)) {
+                    try self.errAt(operand, "`+x` cannot clone a `{s}`: it holds a write view, which has one holder; move it with `<x`", .{shown});
+                } else if (!sema.typeHasDropGlue(self.ctx, value)) {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it is unique, and a copy would duplicate it; move it with `<x`", .{shown});
                 } else if (sema.isUnique(self.ctx, value)) {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it holds a unique value, which a copy would duplicate; move it with `<x`, or lend it", .{shown});
@@ -4151,17 +4163,33 @@ const Checker = struct {
         return true;
     }
 
-    /// Whether a value of `ty` moves (`sema.moves`), for a check that
-    /// rejects `op`, which copies one. Inside a generic body a type
-    /// holding type parameters may or may not: `op` is then allowed, and
-    /// every instantiation must supply values that copy
-    /// (`Requirement.no_move`).
+    /// Whether a value of `ty` does not copy (`sema.copies`), for a
+    /// check that rejects `op`, which copies one. Inside a generic body a
+    /// type holding type parameters may or may not: `op` is then allowed,
+    /// and every instantiation must supply values that copy
+    /// (`Requirement.copies`).
     fn cannotCopy(self: *Checker, ty: TypeId, pos: u32, op: []const u8) Error!bool {
+        return switch (sema.copies(self.ctx, ty)) {
+            .no => true,
+            .yes => false,
+            .depends => {
+                try self.requireOf(ty, .copies, pos, op);
+                return false;
+            },
+        };
+    }
+
+    /// Whether a value of `ty` moves (`sema.moves`), for a construct
+    /// that takes such a value rather than reading a copy of it. Inside
+    /// a generic body a type holding type parameters may or may not: the
+    /// construct reads it, and every instantiation must supply values
+    /// that copy (`Requirement.copies`).
+    fn mustTake(self: *Checker, ty: TypeId, pos: u32, op: []const u8) Error!bool {
         return switch (sema.moves(self.ctx, ty)) {
             .yes => true,
             .no => false,
             .depends => {
-                try self.requireOf(ty, .no_move, pos, op);
+                try self.requireOf(ty, .copies, pos, op);
                 return false;
             },
         };
@@ -4179,10 +4207,12 @@ const Checker = struct {
         return false;
     }
 
-    /// Why a value of `ty`, which moves (`sema.moves`), cannot be copied,
-    /// as a diagnostic says it.
+    /// Why a value of `ty`, which does not copy (`sema.copies`), cannot
+    /// be copied, as a diagnostic says it.
     fn movesBecause(self: *const Checker, ty: TypeId) []const u8 {
-        return if (sema.typeHasDropGlue(self.ctx, ty)) "owns a resource" else "is unique";
+        if (sema.typeHasDropGlue(self.ctx, ty)) return "owns a resource";
+        if (sema.holdsWriteView(self.ctx, ty)) return "holds a write view, which has one holder";
+        return "is unique";
     }
 
     /// Every type parameter `ty` holds must meet `req` in each instance.
@@ -5189,11 +5219,7 @@ const Checker = struct {
         if (try self.cannotCopy(elem, self.startOf(value), "copies into every slot of `[n of x]` a value")) {
             if (sema.typeHasDropGlue(self.ctx, elem)) {
                 try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `Vec`)", .{try self.tyName(elem)});
-            } else try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` is unique, so it cannot be copied", .{try self.tyName(elem)});
-            return self.t().invalid_id;
-        }
-        if (sema.holdsMarkedView(self.ctx, elem)) {
-            try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` holds a view, and its element must be plain data", .{try self.tyName(elem)});
+            } else try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` {s}, so it cannot be copied", .{ try self.tyName(elem), self.movesBecause(elem) });
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
@@ -7013,7 +7039,7 @@ const Checker = struct {
             }
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
-                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns `T` by value but `T = {s}` {s}; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "has drop glue" else "is unique" });
+                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns `T` by value but `T = {s}` {s}; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "has drop glue" else self.movesBecause(elem) });
                 }
             }
         }
@@ -7023,7 +7049,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if (sema.holdsWriteView(self.ctx, elem) or try self.cannotCopy(elem, pos, "copies an element out of a Vec")) return self.badCall(args, pos, "`Vec.{s}` would copy an element out of a `Vec` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, try self.tyName(elem) });
+                if (try self.cannotCopy(elem, pos, "copies an element out of a Vec")) return self.badCall(args, pos, "`Vec.{s}` would copy an element out of a `Vec` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, try self.tyName(elem) });
             }
         }
 
@@ -7114,11 +7140,6 @@ const Checker = struct {
         if (!try self.writesElements(obj, obj_ty, peeled, method)) return try self.skipCall(args);
         if (op != .swap and try self.cannotCopy(elem, pos, "copies into the elements a value")) {
             return try self.badCall(args, pos, "`{s}` copies values into the elements; a `{s}` {s}", .{ method, try self.tyName(elem), self.movesBecause(elem) });
-        }
-        // As in `[n of x]`: a copy of a value holding a view would
-        // duplicate the view, and a write view has one holder.
-        if (op != .swap and sema.holdsMarkedView(self.ctx, elem)) {
-            return try self.badCall(args, pos, "`{s}` copies {s}; `{s}` holds a view, and the elements must be plain data", .{ method, if (op == .fill) "its value into every element" else "its source into the elements", try self.tyName(elem) });
         }
         for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         const want: usize = if (op == .swap) 2 else 1;
@@ -7308,7 +7329,7 @@ const Checker = struct {
             .is_sub = false,
         };
         try self.noteCallee(f);
-        if (sema.holdsWriteView(self.ctx, elem) or try self.cannotCopy(elem, pos, "copies an element out of a sequence")) {
+        if (try self.cannotCopy(elem, pos, "copies an element out of a sequence")) {
             return try self.badCall(args, pos, "`get` would copy an element out of a `{s}`, whose elements a copy cannot share; index it (`xs[i]`) or iterate over it instead", .{try self.tyName(seq)});
         }
         try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "get", pos, .{ .receiver = true });
@@ -7711,13 +7732,13 @@ const Checker = struct {
         if (resultCall(e)) |call| if (call.list.id != 0) if (self.result_hints.get(call.list.id)) |hint| {
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; {s}", .{ try self.tyName(expected), try self.tyName(actual), hint });
         };
-        // Only a number, `Bool`, `String`, or plain enum reads as the
-        // value a view reaches (`readValue`).
+        // Only a value that copies is copied out of a view (`copiedOut`).
         switch (at) {
             .read_view, .write_view => |inner| if (compatible(self.ctx, inner, expected)) {
                 if (try self.payloadViewTaken(e, "move")) return;
                 const name = try self.tyName(inner);
-                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; only a number, `Bool`, `String`, or plain enum is copied out of a view: lend it on where it goes (`?{s}` or `!{s}`)", .{ try self.tyName(expected), try self.tyName(actual), name, name });
+                const why = if (sema.copies(self.ctx, inner) == .depends) "may not copy in every instance" else self.movesBecause(inner);
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; only a value that copies is copied out of a view, and `{s}` {s}: lend it on where it goes (`?{s}` or `!{s}`)", .{ try self.tyName(expected), try self.tyName(actual), name, why, name, name });
             },
             else => {},
         }
@@ -8038,7 +8059,9 @@ const Checker = struct {
             },
             .@"??", .@"catch" => {
                 const ty = if (head == .@"??") try self.synthCoalesce(e, expected) else try self.synthCatch(e, expected);
-                if (!compatible(self.ctx, ty, expected)) try self.mismatch(e, expected, ty);
+                // A view either branch gives is copied out where its
+                // value is expected (`copiedOut`).
+                if (compatible(self.ctx, ty, expected)) try self.recordAdapted(e, ty, expected) else try self.mismatch(e, expected, ty);
                 return ty;
             },
             else => return null,
@@ -8077,12 +8100,12 @@ const Checker = struct {
     }
 
     /// Record how `e`, of type `actual`, adapts to the `expected` its
-    /// context gives: a view of a Copy value is read through
+    /// context gives: a view copied out (`copiedOut`) is read through
     /// (`recordRead`), and so is a write view lent where a read view
     /// that copies its value is expected; a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         const lifted = self.liftTarget(expected);
-        if (readValue(self.ctx, actual) != actual and !sema.isReadOrWriteView(self.ctx, lifted)) return self.ctx.recordRead(e);
+        if (copiedOut(self.ctx, actual, expected)) return self.ctx.recordRead(e);
         if (self.ctx.types.get(actual) == .write_view) switch (self.ctx.types.get(lifted)) {
             .read_view => |inner| if (sema.lendByValue(self.ctx, inner)) return self.ctx.recordRead(e),
             else => {},
@@ -8660,7 +8683,7 @@ const Checker = struct {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
             if (owned and given == null and !sema.isClosureValue(self.ctx, pty)) {
-                try self.errAt(pn, "an owned closure takes values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
+                try self.errAt(pn, "an owned closure takes plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
             }
             try params.append(self.ctx.allocator, pty);
             if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
@@ -8710,7 +8733,7 @@ const Checker = struct {
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
         if (owned and ret != self.t().void_id and !sema.isClosureResult(self.ctx, ret)) {
-            try self.errAt(body, "an owned closure returns values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
+            try self.errAt(body, "an owned closure returns plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
         }
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
@@ -8850,30 +8873,48 @@ const Checker = struct {
                 .shared => |inner| try self.ctx.intern(.{ .weak = inner }),
                 else => null,
             },
-            .cap_clone => switch (self.ctx.types.get(outer_ty)) {
-                .shared, .weak => outer_ty,
-                // Cloning through a view of a handle makes a new handle.
-                .read_view, .write_view => |inner| switch (self.ctx.types.get(inner)) {
-                    .shared, .weak => inner,
-                    else => null,
-                },
-                // Inside a generic body, copying a `T` requires plain data.
-                else => if (sema.isPlainData(self.ctx, outer_ty) or self.isPoison(outer_ty) or
-                    (sema.maybeDropGlue(self.ctx, outer_ty) and !(try self.cannotCopy(outer_ty, pos, "copies into a closure a value")))) outer_ty else null,
-            },
+            .cap_clone => try self.cloneCapture(outer_ty, outer_sym.flags.closure, pos),
         };
         if (bound == null) if (mode == .cap_weak) {
             try self.err(pos, "weak-capture `|~{s}|` requires a shared handle `*T`; got `{s}`", .{ name, try self.tyName(outer_ty) });
         } else if (outer_sym.flags.closure or sema.isReadOrWriteView(self.ctx, outer_ty)) {
             // A closure or a view is captured as a view.
             const sigil: []const u8 = if (self.ctx.types.get(outer_ty) == .write_view) "!" else "?";
-            try self.err(pos, "`|+{s}|` copies plain data or clones a `*T` / `~T` handle, but `{s}` is {s}`{s}`; capture it with `|{s}{s}|`", .{ name, name, if (outer_sym.flags.closure) "a closure of type " else "", try self.tyName(outer_ty), sigil, name });
+            try self.err(pos, "`|+{s}|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `{s}` is {s}`{s}`; capture it with `|{s}{s}|`", .{ name, name, if (outer_sym.flags.closure) "a closure of type " else "", try self.tyName(outer_ty), sigil, name });
         } else {
-            try self.err(pos, "`|+{s}|` copies plain data or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
+            try self.err(pos, "`|+{s}|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `{s}` is `{s}`, which has no clone; move it in with `|<{s}|`", .{ name, name, try self.tyName(outer_ty), name });
         };
         self.ctx.symbols.items[cap_sym].ty = bound orelse self.t().invalid_id;
         self.ctx.symbols.items[cap_sym].origin = outer_id;
         try self.ctx.recordType(name_node, bound orelse self.t().invalid_id);
+    }
+
+    /// The type `|+x|` captures for an `x` of type `ty`: what `+x` gives
+    /// (Core §7). A handle, or one a view reaches, is counted again; a
+    /// value that copies is copied (`sema.copies`), read through a view
+    /// (`sema.copiedThrough`); an owner, or one a view reaches, is cloned
+    /// part by part (`sema.cloneable`). Inside a generic body, copying a
+    /// `T` requires that each instance copies. Null for a closure, a
+    /// callable, or a value with no clone.
+    fn cloneCapture(self: *Checker, ty: TypeId, closure: bool, pos: u32) Error!?TypeId {
+        if (self.isPoison(ty)) return ty;
+        if (closure or sema.holdsCallable(self.ctx, ty)) return null;
+        switch (self.ctx.types.get(ty)) {
+            .read_view, .write_view => {
+                if (sema.copiedThrough(self.ctx, ty)) |value| return value;
+                const value = sema.unwrapViews(self.ctx, ty);
+                return switch (sema.cloneable(self.ctx, ty)) {
+                    .bump, .text, .deep => value,
+                    .copy, .depends, .no => null,
+                };
+            },
+            else => {},
+        }
+        return switch (sema.cloneable(self.ctx, ty)) {
+            .copy, .bump, .text, .deep => ty,
+            .depends => if (try self.cannotCopy(ty, pos, "copies into a closure a value")) null else ty,
+            .no => null,
+        };
     }
 };
 
@@ -8892,13 +8933,24 @@ fn operandValue(ctx: *const SemContext, ty: TypeId) TypeId {
     };
 }
 
-/// A view of a value that reads as the value itself
-/// (`sema.readsAsValue`: a primitive or a plain enum) reads as that
-/// value: `n + 1` with `n: ?Int` or `n: !Int` is an `Int`.
+/// A view of a scalar (`sema.readsAsValue`) reads as the scalar to an
+/// operator: `n + 1` with `n: ?Int` or `n: !Int` is an `Int`.
 fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
     return switch (ctx.types.get(ty)) {
         .read_view, .write_view => |inner| if (sema.readsAsValue(ctx, inner)) inner else ty,
         else => ty,
+    };
+}
+
+/// The type a binding with no type takes from a bare name or place of
+/// type `ty` (Core sentence 1): a write view, which is never copied,
+/// reads the value it reaches where that copies (`sema.copiedThrough`);
+/// a read view is copied, but one of a scalar binds the scalar
+/// (`readValue`).
+fn bindingValue(ctx: *const SemContext, ty: TypeId) TypeId {
+    return switch (ctx.types.get(ty)) {
+        .write_view => sema.copiedThrough(ctx, ty) orelse ty,
+        else => readValue(ctx, ty),
     };
 }
 
@@ -8970,7 +9022,25 @@ fn findMove(e: Sexp) ?Sexp {
 }
 
 /// Can a value of type `actual` be used where `expected` is required?
+/// As itself (`meets`), or as a copy of the value a view of it reaches
+/// (`copiedOut`).
 fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+    return meets(ctx, actual, expected) or copiedOut(ctx, actual, expected);
+}
+
+/// Whether a view `actual` meets `expected` only as a copy of the value
+/// it reaches (`sema.copiedThrough`): that value meets `expected`,
+/// and the view itself does not. A view of a value that copies is copied
+/// out where the value is expected (Core §4), and the view is read
+/// through there (`Checker.recordAdapted`).
+fn copiedOut(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+    const inner = sema.copiedThrough(ctx, actual) orelse return false;
+    return !meets(ctx, actual, expected) and compatible(ctx, inner, expected);
+}
+
+/// Can a value of type `actual` be used as itself where `expected` is
+/// required?
+fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     if (actual == expected) return true;
     const ts = &ctx.types;
     if (actual == ts.invalid_id or actual == ts.unknown_id or expected == ts.invalid_id or expected == ts.unknown_id) return true;
@@ -8980,11 +9050,11 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     switch (e) {
         .optional => |inner| {
             if (a == .none_literal) return true;
-            return compatible(ctx, actual, inner);
+            return meets(ctx, actual, inner);
         },
         // A `T!` holds a `T`; an error value meets it only as `return`'s
         // operand (`Checker.isReturnLeaf`).
-        .fallible => |inner| return compatible(ctx, actual, inner),
+        .fallible => |inner| return meets(ctx, actual, inner),
         .read_view => |inner| if (a == .write_view) return a.write_view == inner,
         // A `![]T` (or a `?[]T`) reads as the `[]T` it views.
         .slice => switch (a) {
@@ -8996,7 +9066,6 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     return switch (a) {
         .int_literal => e == .int or e == .float,
         .float_literal => e == .float,
-        .read_view, .write_view => readValue(ctx, actual) != actual and compatible(ctx, readValue(ctx, actual), expected),
         else => false,
     };
 }
@@ -9618,7 +9687,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
             switch (req.req) {
                 .no_cell => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` holds a Cell, which the copy would fork", .{ inst, pname, aname, req.op, pname, aname }),
-                .no_move, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
+                .copies, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
                 else
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
@@ -9634,7 +9703,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .no_move, .no_cleanup, .no_cell => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .copies, .no_cleanup, .no_cell => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
@@ -9688,7 +9757,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             .int => |info| v < intBounds(info).bits,
             else => false,
         },
-        .no_move => sema.moves(ctx, ty) != .yes,
+        .copies => sema.copies(ctx, ty) != .no,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
         .no_cell => !sema.holdsCellByValue(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {

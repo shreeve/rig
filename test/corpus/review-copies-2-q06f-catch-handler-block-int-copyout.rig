@@ -1,0 +1,17 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+sub main
+  a = P(x: 1)
+  v: P = get(?a, false) catch |e|
+    loc = P(x: 3 if e == Bad.oops else 4)
+    ?loc
+  x = P(x: 99)
+  print(v.x, x.x)

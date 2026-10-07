@@ -7,9 +7,11 @@ from).
 
 ## Current state
 
-- **Release:** `v0.2.2` is the latest release (Zig 0.17.0, Nexus
-  2.0.0), with CI green on Linux and macOS. It closes store, move and
-  constant holes found in v0.2.1; its release notes list each change.
+- **Release:** `v0.2.3` is the latest release (Zig 0.17.0, Nexus
+  2.0.0), with CI green on Linux and macOS. It closes loop-step and
+  copy-out holes found in v0.2.2, fixes `%` by -1 on x86_64, and builds
+  `!` on any value and the copies rules; its release notes list each
+  change and the loop cases still open.
   The version string in `build.zig` changes only when a release is cut.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires
@@ -65,7 +67,7 @@ structure: about 90% of earlier soundness bugs traced to three
 structural weak spots, which these steps removed (the evidence is in
 `.git/revamp/reports/`, local). All ten steps are done:
 
-1. **Type facts.** One fact per question (copyable, unique, needs
+1. **Type facts.** One fact per question (copies, unique, needs
    cleanup, may hold a loan, cloneable, how a read view is represented)
    replaced the disagreeing proxies; `struct T unique` exists,
    `std.random.Rng` became the unique `Random`, and a type holding a
@@ -214,11 +216,12 @@ and run the corpus after.
   anything (`print(gfirst(!v).n, v.len)` is rejected); per-instance
   origins are a later refinement.
 - **Review findings not fixed:**
-  - `|+x|` captures a copy of plain data or a handle only; a deep copy
-    of an owner is *planned* (CORE §7).
-  - `fill`, `copy`, and `[n of x]` ask whether an element is plain data,
-    while a binding asks the `copyable` fact, so a read-view element is
-    copyable to one and not the other: two classifiers for one fact.
+  - An operator, generic inference, and a binding with no type read a
+    read view of a scalar as the value (`readsAsValue`), but keep a read
+    view of a plain struct, array, or optional as the view: copying
+    those out there would change the type of accepted programs
+    (`x = r` with `r: ?Point` binds a `?Point`). Where a type is
+    expected, every value that copies is copied out (`sema.copies`).
   - The oracle accepts two shapes the Core rejects (the compiler
     rejects both): a `?self` result reaching an owned field beside a
     held view (`x77`), and re-pointing a write view a closure has lent
@@ -236,8 +239,7 @@ and run the corpus after.
    B4a), then B5, which lift the header temporaries rule and arm-local
    payload views.
 3. The structural address chokepoint.
-4. The per-expression "is a view" fact, and `copyable` for `fill` and
-   `[n of x]`.
+4. The per-expression "is a view" fact.
 5. The held items, as their prerequisites land.
 
 ## The gates

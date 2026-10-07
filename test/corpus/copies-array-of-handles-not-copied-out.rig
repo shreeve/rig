@@ -1,0 +1,10 @@
+struct N
+  v: Int
+
+fun get(a: ?[2]*N) -> [2]*N
+  a
+
+sub main
+  a = [*N(v: 1), *N(v: 2)]
+  b = get(?a)
+  print(b[0].v)

@@ -1,0 +1,33 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+
+fun get(o: (?P)?, ok: Bool) -> (?P)?!
+  return Bad.oops if not ok
+  o
+
+fun get2(o: (?P)?, ok: Bool) -> (?P)?!
+  return Bad.oops if not ok
+  r = o?
+  r
+
+fun px(o: P?) -> Int
+  if o as p
+    return p.x
+  -1
+
+fun vx(o: (?P)?) -> Int
+  if o as p
+    return p.x
+  -1
+
+sub main
+  a = P(x: 1)
+  o: (?P)? = ?a
+  x = get(o, true) catch none
+  y = get2(o, true) catch none
+  z = get2(none, true) catch none
+  print(vx(x), vx(y), vx(z))

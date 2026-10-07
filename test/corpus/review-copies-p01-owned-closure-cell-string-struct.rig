@@ -1,0 +1,13 @@
+# An owned closure takes a plain struct holding a String and stores it
+# into a captured Cell; the Text the String views is then dropped.
+struct P
+  s: String
+
+sub main
+  c = *Cell(P(s: "x"))
+  d = +c
+  f = *|<c, p: P| c.set(p)
+  if true
+    t = Text("hello world, a heap string")
+    f(P(s: ?t))
+  print(d.get().s)

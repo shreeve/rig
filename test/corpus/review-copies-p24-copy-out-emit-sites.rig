@@ -1,0 +1,42 @@
+# Copy-out of a read view of a plain struct at many sites: each must
+# emit a dereference and copy, and the copy must not see later writes.
+struct P
+  x: Int
+  y: Int
+
+struct Q
+  p: P
+  o: P?
+  a: [2]P
+
+fun sum(p: P) -> Int
+  p.x + p.y
+
+fun lift(r: ?P) -> P?
+  r
+
+sub main
+  a = P(x: 1, y: 2)
+  r = ?a
+  q = Q(p: r, o: r, a: [r, r])
+  v: Vec[P] = Vec()
+  !v.push(r)
+  c = Cell(P(x: 0, y: 0))
+  c.set(r)
+  arr: [2]P = [r, P(x: 7, y: 8)]
+  o: P? = r
+  f = *|p: P| p.x * 10
+  k = f(r)
+  b: [3]P = [3 of r]
+  !b.fill(r)
+  n = sum(r)
+  g = lift(r)
+  a.x = 100
+  print(q.p.x, q.a[1].x, v[0].x, c.get().x, arr[0].x, k, b[2].x, n)
+  if o as p
+    print(p.x)
+  if q.o as p
+    print(p.y)
+  if g as p
+    print(p.x)
+  print(a.x)

@@ -1,0 +1,21 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+
+error Other
+  nope
+
+fun get(r: ?P, k: Int) -> (?P)!
+  return Bad.oops if k == 0
+  return Other.nope if k == 1
+  r
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  for k in 0..3
+    v = get(?a, k) catch |e| (?b if e == Bad.oops else ?a)
+    print(v.x)

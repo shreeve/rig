@@ -1,0 +1,13 @@
+struct W
+  w: !Vec[Int]
+
+struct O
+  h: W
+
+sub main
+  a: Vec[Int] = Vec()
+  o = O(h: W(w: !a))
+  r = ?o
+  x = r.h
+  !x.w.push(1)
+  print(a.len)

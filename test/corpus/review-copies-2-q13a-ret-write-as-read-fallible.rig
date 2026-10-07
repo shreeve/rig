@@ -1,0 +1,32 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+
+fun ri(w: !Int, ok: Bool) -> (?Int)!
+  return Bad.oops if not ok
+  w
+
+fun rp(w: !P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  w
+
+fun ro(w: !P, k: Int) -> (?P)?!
+  return Bad.oops if k == 0
+  return none if k == 1
+  w
+
+sub main
+  n = 3
+  m = 4
+  a = P(x: 1)
+  b = P(x: 2)
+  x = ri(!n, true) catch ?m
+  y = rp(!a, true) catch ?b
+  print(x, y.x)
+  c = P(x: 7)
+  z = ro(!c, 2) catch none
+  if z as zz
+    print(zz.x)

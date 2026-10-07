@@ -1,0 +1,17 @@
+# The view a `catch` gives carries the loans of both sides.
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  v = get(?a, true) catch ?b
+  a.x = 5
+  print(v.x)

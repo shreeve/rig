@@ -1,0 +1,22 @@
+# `catch` whose value is a view, where an optional of its value is expected.
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+fun px(o: P?) -> Int
+  if o as p
+    return p.x
+  -1
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  o: P? = get(?a, true) catch ?b
+  a.x = 9
+  print(px(o))

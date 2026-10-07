@@ -1,0 +1,80 @@
+# Every copy of a read view carries its loan (Core §5, sentence 6): an
+# array `[n of ?x]` or `fill`ed with views, a copy of a struct holding
+# a view, and a `|+x|` capture of one keep the viewed value lent while
+# they are used. An owned closure carries no loan (Core sentence 9).
+# oracle: fill_loan reject C4
+# oracle: fill_method_loan reject C4
+# oracle: copy_elements_loan reject C4
+# oracle: copy_loan reject C4
+# oracle: capture_loan reject C4
+# oracle: capture_through_view_loan reject C4
+# oracle: owned_capture reject C8
+
+struct S
+  r: ?Int
+
+fun keep(s: ?S) -> S
+  s
+
+sub fill_loan
+  n = 1
+  a = [3 of ?n]
+  n = 5
+  print(a[2])
+
+sub fill_method_loan
+  n = 1
+  m = 2
+  a = [3 of ?n]
+  !a.fill(?m)
+  m = 7
+  print(a[0])
+
+sub copy_elements_loan
+  n = 1
+  m = 2
+  a = [3 of ?n]
+  b = [?m, ?m]
+  !a[..2].copy(?b[..])
+  m = 7
+  print(a[0])
+
+sub copy_loan
+  n = 1
+  s = S(r: ?n)
+  t = keep(?s)
+  n = 2
+  print(t.r)
+
+sub capture_loan
+  n = 1
+  s = S(r: ?n)
+  f = |+s| s.r
+  n = 2
+  print(f())
+
+sub capture_through_view_loan
+  n = 1
+  s = S(r: ?n)
+  v = ?s
+  f = |+v| v.r
+  n = 5
+  print(f())
+
+sub owned_capture
+  n = 1
+  s = S(r: ?n)
+  f = *|+s| s.r + 0
+  print(f())
+
+sub main
+  fill_loan()
+
+# error: 22:3: cannot reassign `n` while it is lent
+# error: 30:3: cannot reassign `m` while it is lent
+# error: 39:3: cannot reassign `m` while it is lent
+# error: 46:3: cannot reassign `n` while it is lent
+# error: 53:3: cannot reassign `n` while it is lent
+# error: 61:3: cannot reassign `n` while it is lent
+# error: 67:10: an owned closure cannot capture `s`, which holds a view of `n`
+# errors: 7

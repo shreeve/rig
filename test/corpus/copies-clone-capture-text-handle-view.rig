@@ -1,0 +1,23 @@
+struct Node
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun size(o: ?(*Node)?) -> Int
+  if o as h
+    return h.n
+  0
+
+sub main
+  t = Text("hi")
+  f = |+t| t.len
+  !t.add("!")
+  print(f(), t)
+  h = *Node(n: 3)
+  o: (*Node)? = +h
+  g = |+o| size(?o)
+  -h
+  print(g())
+  r = ?t
+  k = |+r| r.len
+  print(k())

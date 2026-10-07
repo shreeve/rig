@@ -1,0 +1,14 @@
+# Reading a field of `r ?? W(...)`, with `r: ?W?` and `W` holding a
+# write view, copies nothing out for good: is it rejected?
+struct W
+  w: !Vec[Int]
+
+sub main
+  a: Vec[Int] = Vec()
+  !a.push(4)
+  b: Vec[Int] = Vec()
+  o: W? = W(w: !a)
+  r = ?o
+  print((r ?? W(w: !b)).w.len)
+  if r as h
+    print(h.w.len)

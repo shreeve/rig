@@ -1,0 +1,37 @@
+error Bad
+  oops
+
+struct T
+  x: Int
+
+struct H
+  t: T
+
+struct HO
+  t: T?
+
+fun get(r: ?T, ok: Bool) -> (?T)!
+  return Bad.oops if not ok
+  r
+
+fun opt(r: ?T, k: Int) -> (?T)?!
+  return Bad.oops if k == 0
+  return none if k == 1
+  r
+
+fun idv(t: T) -> T
+  t
+
+fun unopt(t: T?, d: T) -> T
+  if t as v
+    return v
+  d
+
+fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+  o ?? b
+
+sub main
+  a = T(x: 1)
+  b = T(x: 2)
+  c = unopt(get(?a, false) catch ?b, b)
+  print(c.x)

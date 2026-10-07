@@ -1,0 +1,39 @@
+error Bad
+  oops
+
+struct T
+  r: ?Vec[Int]
+  x: Int
+
+struct H
+  t: T
+
+struct HO
+  t: T?
+
+fun get(r: ?T, ok: Bool) -> (?T)!
+  return Bad.oops if not ok
+  r
+
+fun opt(r: ?T, k: Int) -> (?T)?!
+  return Bad.oops if k == 0
+  return none if k == 1
+  r
+
+fun idv(t: T) -> T
+  t
+
+fun unopt(t: T?, d: T) -> T
+  if t as v
+    return v
+  d
+
+fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+  o ?? b
+
+sub main
+  gv: Vec[Int] = Vec()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  c: T? = (opt(?a, 2) catch ?b) ?? ?b
+  print(unopt(c, b).x)

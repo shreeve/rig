@@ -1,0 +1,16 @@
+# Control: the body does not touch `v`; the step writes through the slice.
+struct S
+  s: ![]Int
+
+fun mk(v: !Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: !v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  i = 0
+  while mk(!v, i) as h: h.s[0] += 1
+    i += 1
+  print(v[0], v.len)

@@ -1,0 +1,30 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+
+struct S
+  r: ?P
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  s = S(r: get(?a, true) catch ?b)
+  vs: Vec[?P] = Vec()
+  !vs.push(get(?a, false) catch ?b)
+  cs: Vec[P] = Vec()
+  !cs.push(get(?a, true) catch ?b)
+  arr: [2]P = [get(?a, true) catch ?b, get(?a, false) catch ?b]
+  t = S(r: ?a)
+  t.r = get(?b, true) catch ?a
+  print(s.r.x, vs[0].x, cs[0].x, arr[0].x, arr[1].x, t.r.x)

@@ -1,0 +1,4 @@
+sub main
+  x: Text? = Text("a")
+  a = [2 of ?x]
+  print(a[0])

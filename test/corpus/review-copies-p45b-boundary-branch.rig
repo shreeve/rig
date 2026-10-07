@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+sub main
+  a = P(x: 1)
+  p = P(x: 9)
+  r = ?a
+  b = r if a.x > 0 else p
+  a.x = 2
+  print(b.x)

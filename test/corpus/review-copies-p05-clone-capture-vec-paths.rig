@@ -1,0 +1,36 @@
+struct N
+  v: Int
+  drop(!self)
+    print("drop", self.v)
+
+fun build -> *fun() -> Int
+  v: Vec[Text] = Vec()
+  !v.push(Text("aa"))
+  !v.push(Text("bbb"))
+  f = *|+v| v.len + v[1].len
+  !v.push(Text("c"))
+  f
+
+sub unused
+  v: Vec[Text] = Vec()
+  !v.push(Text("zz"))
+  f = |+v| v.len
+  if v.len > 5
+    print(f())
+  print("unused", v.len)
+
+sub many
+  hs: Vec[*N] = Vec()
+  !hs.push(*N(v: 7))
+  f = |+hs| hs[0].v
+  -hs
+  print(f(), f(), f())
+
+sub main
+  g = build()
+  print(g(), g())
+  h = +g
+  -g
+  print(h())
+  unused()
+  many()

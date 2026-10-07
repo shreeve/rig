@@ -1,0 +1,15 @@
+enum E
+  a(w: !Vec[Int])
+  b
+
+fun first(e: ?E) -> Int
+  match e
+    .a(w) => w[0]
+    .b => 0
+
+sub main
+  xs: Vec[Int] = Vec()
+  !xs.push(5)
+  e = E.a(w: !xs)
+  f = |+e| first(?e)
+  print(f())

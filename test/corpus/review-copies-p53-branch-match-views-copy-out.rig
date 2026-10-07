@@ -1,0 +1,22 @@
+# Branching values whose every arm is a `?P`, where a `P` is expected:
+# a branch, a match, a block, and a `??` whose fallback is a view too.
+struct P
+  x: Int
+
+fun two(a: ?P, b: ?P, f: Bool) -> P
+  a if f else b
+
+fun arm(a: ?P, b: ?P, k: Int) -> P
+  match k
+    0 => a
+    _ => b
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  f = a.x > 0
+  c: P = ?a if f else ?b
+  d: P = match a.x
+    1 => ?b
+    _ => ?a
+  print(c.x, d.x, two(?a, ?b, false).x, arm(?a, ?b, 0).x)

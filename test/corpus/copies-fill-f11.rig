@@ -1,0 +1,10 @@
+sub main
+  v: Vec[?Int] = Vec()
+  n = 3
+  m = 4
+  !v.push(?n)
+  !v.push(?n)
+  w = !v[..]
+  !w.fill(?m)
+  print(v)
+  m = 9

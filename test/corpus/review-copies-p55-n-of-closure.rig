@@ -1,0 +1,9 @@
+fun two -> Int
+  2
+
+sub main
+  k = 3
+  f = |?k| k + 1
+  a = [3 of f]
+  b = [2 of two]
+  print(a[0](), b[1]())

@@ -1,0 +1,14 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun leak(ok: Bool) -> (?P)!
+  p = P(x: 7)
+  return Bad.oops if not ok
+  ?p
+
+sub main
+  v = leak(true)!
+  print(v.x)

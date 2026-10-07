@@ -1,0 +1,28 @@
+struct P
+  x: Int
+  y: Int
+
+struct H
+  w: !P
+
+fun sum(p: P) -> Int
+  p.x + p.y
+
+sub main
+  a = P(x: 1, y: 2)
+  b = P(x: 10, y: 20)
+  w = !a
+  x = w
+  x.x = 100
+  y: P = w
+  print(x.x, y.x, sum(w))
+  h = H(w: !b)
+  z = h.w
+  z.y = 7
+  print(z.y, sum(h.w))
+  h.w = w
+  print(h.w.x)
+  c = true
+  u = w if c else h.w
+  print(u.x)
+  print(b.x, a.x)

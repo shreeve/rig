@@ -1,0 +1,19 @@
+# The owner Vec is replaced while `h` holds a live write view of it:
+# the view is then used.
+struct W
+  w: !Vec[Int]
+
+fun mk(v: !Vec[Int]) -> W?
+  if v.len < 3
+    return W(w: !v)
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  while mk(!v) as h
+    v = Vec()
+    !v.push(1)
+    !v.push(2)
+    !h.w.push(7)
+    print(h.w.len)
+  print(v.len)

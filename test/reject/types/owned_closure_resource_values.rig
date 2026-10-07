@@ -12,8 +12,8 @@ sub main()
   inferred = *|+v, cell: *Cell[Int]| v.set(0)
   returns = *|+v| +v
 
-# error: an owned closure takes values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `Vec[Int]` is not one
-# error: an owned closure takes values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `*Cell[Int]` is not one
-# error: an owned closure returns values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; `*Cell[Int]` is not one
+# error: an owned closure takes plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data); `Vec[Int]` is not one
+# error: an owned closure takes plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data); `*Cell[Int]` is not one
+# error: an owned closure returns plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; `*Cell[Int]` is not one
 # error: parameter `cell` is `*Cell[Int]`
-# error: an owned closure returns values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; this one returns `*Cell[Int]`
+# error: an owned closure returns plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; this one returns `*Cell[Int]`

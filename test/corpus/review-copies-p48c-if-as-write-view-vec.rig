@@ -1,0 +1,12 @@
+struct W
+  w: !Vec[Int]
+
+fun mk(v: !Vec[Int]) -> W?
+  return W(w: !v)
+
+sub main
+  v: Vec[Int] = Vec()
+  if mk(!v) as h
+    v = Vec()
+    !h.w.push(7)
+  print(v.len)

@@ -1,0 +1,27 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+
+fun px(o: P?) -> Int
+  if o as p
+    return p.x
+  -1
+
+fun vx(o: (?P)?) -> Int
+  if o as p
+    return p.x
+  -1
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  i: (?P)? = ?a
+  o: ((?P)?)? = i
+  n: ((?P)?)? = none
+  c: P = (o ?? none) ?? ?b
+  d: P = (n ?? none) ?? ?b
+  f: P? = i ?? ?b
+  print(c.x, d.x, px(f))

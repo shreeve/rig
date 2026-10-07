@@ -2887,7 +2887,7 @@ pub const Checker = struct {
                         if (self.binding) |*b| if (b.value == .list and expr == .list and b.value.list.ptr == expr.list.ptr and self.refOfType(ty) == .write) {
                             b.rejected = true;
                             const src = self.spanText(expr);
-                            if (self.readsAsValue(self.pointee(ty))) {
+                            if (self.copiedThrough(ty)) {
                                 try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = {s}` to read its value, or `{s} = !{s}` to lend the view on", .{ src, b.name, src, b.name, src });
                             } else try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = !{s}` to lend the view on", .{ src, b.name, src });
                             return;
@@ -2918,12 +2918,12 @@ pub const Checker = struct {
 
     /// Whether a bare name, field, or element of type `ty` hands over the
     /// value a write view reaches rather than the view: `ty` is a write
-    /// view of a value that reads as a value (`sema.readsAsValue`), and
-    /// the context reads it (`copy_reads`, `SemContext.readsThrough`).
-    /// A bare name or place only reads (Core sentence 1): `x = h.w`,
-    /// with `w: !Int`, copies the Int.
+    /// view of a value that copies (`sema.copiedThrough`), and the
+    /// context reads it (`copy_reads`, `SemContext.readsThrough`). A bare
+    /// name or place only reads (Core sentence 1): `x = h.w`, with
+    /// `w: !Int` or `w: !Point`, copies the value.
     fn readsThroughWriteView(self: *const Checker, ty: ?TypeId) bool {
-        return self.copy_reads and self.refOfType(ty) == .write and self.readsAsValue(self.pointee(ty));
+        return self.copy_reads and self.refOfType(ty) == .write and self.copiedThrough(ty);
     }
 
     /// The var the name `expr` refers to, once the walk has bound it:
@@ -3639,7 +3639,10 @@ pub const Checker = struct {
                 continue;
             }
             if (!self.keepsCallable(node, a)) continue;
-            if (params == null or params.?.stores(i)) stored = try self.valueUnion(stored, v.*);
+            // `!dst.copy(src)` stores copies of the elements `src` views,
+            // which carry what those elements carry, not `src`'s loan
+            // on what holds them (Core sentence 7).
+            if (params == null or params.?.stores(i)) stored = try self.valueUnion(stored, if (self.copiedElem(callee)) |elem| try self.carry(elem, v.*) else v.*);
             if (params == null or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
         }
         result = try self.valueUnion(result, carried);
@@ -3656,8 +3659,9 @@ pub const Checker = struct {
         // The callee may store what its arguments view into anything it
         // can mutate: the receiver, and whatever the write views passed
         // to it lead to (`!x`, a write view passed on or moved in, a
-        // value holding one). A built-in element method (`!dst.copy(src)`)
-        // stores only elements, which may hold no view to store.
+        // value holding one). A built-in element method (`!dst.fill(v)`,
+        // `!dst.copy(src)`) stores elements, which hold a view only where
+        // the element type does (`storesNothing`).
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             // A receiver lent to read is never written (Core sentence 9:
             // what changes through one is a Cell, which holds no loan). A
@@ -3836,6 +3840,14 @@ pub const Checker = struct {
         return self.mayCarryLoan(ctx.types.get(fn_ty).function.returns);
     }
 
+    /// The element type of a call of `copy`, a built-in element method
+    /// that stores copies of the elements its argument views.
+    fn copiedElem(self: *const Checker, callee: Sexp) ?TypeId {
+        const ctx = self.sema orelse return null;
+        const ec = ctx.elemCallOf(callee) orelse return null;
+        return if (ec.op == .copy) ec.elem else null;
+    }
+
     /// A call of a built-in element method whose elements hold no
     /// view: it stores none of its arguments' views.
     fn storesNothing(self: *const Checker, callee: Sexp) bool {
@@ -3844,15 +3856,14 @@ pub const Checker = struct {
         return !self.mayCarryLoan(ec.elem);
     }
 
-    /// A view of plain data (`k` with `k: ?Int`) passed where a value
-    /// is expected is read by value: what it views is not stored.
+    /// A view of a value that copies and carries no loan (`k` with
+    /// `k: ?Int`), passed where a value is expected, is read by value
+    /// (`sema.copiedThrough`): what it views is not stored.
     fn readsPlainValue(self: *const Checker, e: Sexp) bool {
         const ctx = self.sema orelse return false;
         const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
-        return switch (self.typeData(self.exprType(arg) orelse return false)) {
-            .read_view, .write_view => |inner| sema.isPlainData(ctx, inner) and !self.mayCarryLoan(inner),
-            else => false,
-        };
+        const value = sema.copiedThrough(ctx, self.exprType(arg) orelse return false) orelse return false;
+        return !self.mayCarryLoan(value);
     }
 
     /// Whether `callee` is the built-in `swap` (true) or `replace`
@@ -4228,7 +4239,13 @@ pub const Checker = struct {
             try self.noteLoan(l);
             return .{};
         }
-        return self.newHandle(pos, name, self.symType(pos), id, self.varValue(id), mode == .cap_weak);
+        // `|+x|` through a view captures a copy or a clone of what the
+        // view sees, which keeps what that holds, not the view's loan
+        // on it (Core §7, sentence 7).
+        const ty = self.symType(pos);
+        const through = self.refOfType(v.ty) != .none and self.refOfType(ty) == .none;
+        const held = if (through) try self.carry(ty, self.varValue(id)) else self.varValue(id);
+        return self.newHandle(pos, name, ty, id, held, mode == .cap_weak);
     }
 
     // -------------------------------------------------------------------------
@@ -4765,7 +4782,7 @@ pub const Checker = struct {
         const ty = self.symType(pos);
         var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = self.refOfType(ty) };
         var loans: []const Loan = &.{};
-        // A payload that copies (`sema.copyable`) is copied out of the
+        // A payload that copies (`sema.copies`) is copied out of the
         // matched value, which stays whole. A view the match makes of a
         // field (`match ?e`) views the matched value instead.
         const copied = self.copies(ty) and v.ref == .none;
@@ -5348,18 +5365,18 @@ pub const Checker = struct {
         };
     }
 
-    /// A value copied implicitly where it is used (`sema.copyable`):
+    /// A value copied implicitly where it is used (`sema.copies`):
     /// not one whose copying depends on a type parameter.
     fn copies(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
-        return sema.copyable(ctx, ty orelse return false) == .yes;
+        return sema.copies(ctx, ty orelse return false) == .yes;
     }
 
-    /// A value read through a write view as the value itself
-    /// (`sema.readsAsValue`).
-    fn readsAsValue(self: *const Checker, ty: ?TypeId) bool {
+    /// A view whose value is copied out where its context reads it
+    /// (`sema.copiedThrough`).
+    fn copiedThrough(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
-        return sema.readsAsValue(ctx, ty orelse return false);
+        return sema.copiedThrough(ctx, ty orelse return false) != null;
     }
 
     /// A scalar: a number, `Bool`, `String`, or an error. A method call

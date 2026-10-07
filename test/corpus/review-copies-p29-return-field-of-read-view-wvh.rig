@@ -1,0 +1,18 @@
+struct W
+  w: !Vec[Int]
+
+struct O
+  h: W
+
+fun get(r: ?O) -> W
+  r.h
+
+fun getw(r: ?O) -> !Vec[Int]
+  r.h.w
+
+sub main
+  a: Vec[Int] = Vec()
+  o = O(h: W(w: !a))
+  x = get(?o)
+  !x.w.push(1)
+  print(a.len)

@@ -1254,6 +1254,18 @@ pub fn div(a: anytype, b: anytype) @TypeOf(a, b) {
     return if (@typeInfo(T) == .float) @as(T, a) / @as(T, b) else @divTrunc(@as(T, a), @as(T, b));
 }
 
+/// `a % b`: the remainder with the dividend's sign, for integers and
+/// floats. A signed integer's remainder by -1 is 0, `Int.min % -1`
+/// included, where the machine's division would trap.
+pub fn rem(a: anytype, b: anytype) @TypeOf(a, b) {
+    const T = @TypeOf(a, b);
+    switch (@typeInfo(T)) {
+        .int => |int| if (int.signedness == .signed and b == -1) return 0,
+        else => {},
+    }
+    return @rem(@as(T, a), @as(T, b));
+}
+
 /// A length or count as a Rig `Int`.
 pub fn len(n: usize) Int {
     return @intCast(n);

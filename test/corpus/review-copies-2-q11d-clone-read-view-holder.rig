@@ -1,0 +1,11 @@
+# A value holding only read views copies, so it clones.
+struct R
+  r: ?Int
+  s: String
+
+sub main
+  n = 1
+  h = R(r: ?n, s: "s")
+  c = +h
+  f = |+h| h.r
+  print(c.r, c.s, f())

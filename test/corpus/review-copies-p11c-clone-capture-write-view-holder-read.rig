@@ -1,0 +1,12 @@
+# `|+h|` of a struct holding a write view: the closure reads through
+# its copy of the write view while the original writes.
+struct H
+  w: !Vec[Int]
+
+sub main
+  xs: Vec[Int] = Vec()
+  !xs.push(5)
+  h = H(w: !xs)
+  f = |+h| h.w[0]
+  !h.w.push(1)
+  print(f())
