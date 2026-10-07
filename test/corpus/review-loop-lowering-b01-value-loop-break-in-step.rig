@@ -1,0 +1,28 @@
+# Control: a `break v` in a step (and `-1` as a statement-loop else) is
+# rejected by both main and the branch.
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun nxt(i: Int) -> Int?
+  i + 1 if i < 3 else none
+
+fun some(i: Int) -> Int?
+  i if i < 9 else none
+
+sub main
+  i = 0
+  a = while i < 10: i = nxt(i) ?? break 100 + i
+    d = D(n: i)
+    defer print("defer", i)
+  else
+    -1
+  print("a", a, i)
+  j = 0
+  b = while some(j) as h: j = nxt(h) ?? break 200 + h
+    d = D(n: 10 + j)
+    defer print("defer", j)
+  else
+    -1
+  print("b", b, j)

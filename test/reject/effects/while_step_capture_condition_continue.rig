@@ -1,0 +1,22 @@
+# A step that reads the condition's binding through a closure's capture
+# reads it too, so a `continue` in the condition, which goes on to the
+# step, would leave it unbound.
+
+fun odd(i: Int) -> Int?
+  none if i % 2 == 1 else i
+
+fun some(i: Int) -> Int?
+  i if i < 6 else none
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  steps = 0
+  i = 0
+  while some(odd(i) ?? continue) as h: steps = apply(|+h, x: Int| x + h, steps)
+    i += 1
+  print(steps, i)
+
+# error: 17:56: the loop step reads `h`, a binding of the condition, which a `continue` in the condition leaves unbound
+# errors: 1

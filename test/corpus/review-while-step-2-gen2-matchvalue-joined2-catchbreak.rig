@@ -1,0 +1,68 @@
+# review-while-step-2 gen2 cell matchvalue.joined2.catchbreak: steps, defers and drops must
+# print what the plain.plain cell prints.
+#
+# oracle: D.drop accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: fresh accept
+# oracle: take accept
+# oracle: odd accept
+error E
+  bad
+
+struct S
+  s: []Int
+
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 4
+    return S(s: ?v[..])
+  none
+
+fun mkf(v: ?Vec[Int], i: Int, bad: Int) -> S?!
+  return E.bad if i == bad
+  mk(v, i)
+
+fun fresh(t: Int, n: Int) -> Vec[Int]
+  print("step", t, n)
+  a: Vec[Int] = Vec()
+  !a.push(n)
+  a
+
+fun take(a: Vec[Int]) -> Int
+  a[0]
+
+fun odd(j: Int) -> Int?
+  j if j % 2 == 1 else none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  a = fresh(0, 0)
+  k = 0
+  i = 0
+  :outer while i >= 0 and mk(?v, i) as h: a = fresh(1, h.s[0] + i)
+    i += 1
+    defer print("odefer", i)
+    x = D(n: i)
+    k += take(<a)
+    m = 0
+    b = fresh(9, 0)
+    :mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+      m += 1
+      defer print("mdefer", i, m)
+      y = D(n: 100 + m)
+      k += take(<b)
+      w = match m
+        1 => 10
+        2
+          continue :outer if i % 2 == 0
+          20
+        _ => 30
+      k += w
+    print("after mid", i, m)
+  print("end", k, i)

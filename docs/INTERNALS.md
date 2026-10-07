@@ -1443,19 +1443,13 @@ scope of the bindings, so a view of one stored in a surviving value
 is reported as a jump out of the scope would be. Loops
 iterate to a fixpoint over the back edge: the loop-head state joins the
 entry, the end of the body, and every `continue`; the state after the
-loop joins the exit condition with every `break`. A `while` loop's step
-runs after the body, and the checker walks it there, as emit runs it.
-A step that reads a binding of the condition (`sema.stepReadsBinding`,
-which emit uses too) runs in the bindings' scope:
-`while c as x: step` is
-`while true { x = c or break; { body }; step }`, where a `continue` in
-the body leaves the body's scope (running its defers) and goes on to
-the step, and a `continue` in the condition or the step goes back to
-the head. Any other step runs after the bindings' scope ends, where
-every `continue` goes on to it. So a view the step reads, a binding
-of the condition or a name declared before the loop, is live through
-the body, and its loans exclude what the body would change. A loop's `else` is
-walked after the loop, where a jump leaves the enclosing loop. The value
+loop joins the exit condition with every `break`. The walk is the
+loop's desugaring ([Loops](#loops)), which emit writes: the condition,
+its bindings, the body's own scope, the step after it, and the `else`
+after the loop, where a jump leaves the enclosing loop. So a view the
+step reads, a binding of the condition or a name declared before the
+loop, is live through the body, and its loans exclude what the body
+would change. The value
 of a loop used as a value is the union of its `break` values, each
 consumed like a returned value and checked not to view the loop's own
 vars, and its `else` value. Diagnostics are reported only on the final
@@ -1714,6 +1708,66 @@ so a `from` clause is sentence 7's refinement rather than a form that
 desugars, and its checker rule is the call rule with the named set plus
 the body check.
 
+### Loops
+
+Every loop, `while` and each form of `for`, is one desugaring, which
+the checker walks (`walkLoop`, `loopIteration`) and emit writes
+(`emitLoop`), so a jump goes in the emitted Zig where the checker sent
+it. For `:L while a as x and c: step` with an `else`:
+
+```text
+L_res: {                         // the loop's block: what its header holds, its `else`, its value
+    L: while (true) : (step) {   // the step here when it reads no binding of the condition
+        x = a or break           // one `if` per part of the condition, each `else break`
+        c or break
+        L_body: { body }         // the body's own scope
+        step                     // here when it reads a binding (`sema.stepReadsBinding`)
+    }
+    else                         // after the loop
+}
+```
+
+| Step | The checker | The emitted Zig |
+|---|---|---|
+| condition | each part walked in order in the loop (`walkConditionParts`); a part failing exits to the `else` | `if (a) \|x\| { ... } else break;`, `if (!(c)) break;` |
+| binding | the parts' bindings in a scope around the body's | the `if`'s capture, and an owned binding's local and drop guard in its block |
+| body | its own scope (`pushScopeFor`), holding a `for`'s element | `L_body: { ... }`; for a `for`, the Zig loop's body block |
+| body end | the body's scope pops: its defers and drops run, its loans end | the end of `L_body` |
+| step | walked after the body scope pops (`walkStep`): in the bindings' scope when it reads a binding, else after it pops | a statement after `L_body` in the innermost `if`, or the loop's continue expression, which Zig runs after the `if`s end |
+| back edge | `exitTo` the loop's entry, joined into the head | the end of the Zig loop's body |
+| `continue` | in the body, to the step's point (`step_point`), or to the entry then the step; in the step, to the entry; in the condition, to the entry through a step that reads no binding (the type checker rejects one where the step reads a binding, which it would leave unbound) | `break :L_body`; `break :L_step` out of the step's block; `continue :L` |
+| `break`, `break x` | joined after the `else`; `x` consumed like a returned value | `break :L_res x`, or `break :L` when the loop has no `else` and no value |
+| `else` | walked after the loop's iterations, with the enclosing loop as the jumps' target | statements after the loop in `L_res`, or `break :L_res value` for a loop used as a value |
+
+A step reads a binding when a name in it is the binding or a
+closure's capture of it (`sema.findUse`, which the type checker's step
+rules use too).
+
+A `for` has no condition and no step of its own: it is Zig's `for`, or a
+`while` over a consuming iterator or a range, whose counter is the Zig
+loop's continue expression, and its source is evaluated before the loop
+is entered, so a jump in it targets the loop around this one, as the
+checker walks it before `walkLoop`.
+
+**Jump targets.** Each loop, and each labeled `match` or `raw` block,
+is a `JumpTarget` on `Emitter.targets` while it is emitted, popped
+before its `else`. A jump resolves by lexical scope, as `walkJump`
+does: an unlabeled one to the innermost loop, a labeled one to the
+innermost target of its name, so a label may repeat an enclosing one.
+The target says where each jump goes from the part being emitted
+(`continue :L` from the condition, `break :L_body` from the body,
+`break :L_step` from the step), and every jump emit writes names its
+Zig label; none relies on Zig's innermost-loop rule. A Rig label is the
+Zig label's name unless an enclosing construct has the same one, which
+Zig rejects; then it is `__rig_label_N`.
+
+**Labels.** Zig rejects a label nothing jumps to. Emit writes each
+labeled construct into a buffer of its own (`openLabeled`) and puts the
+label before it when it closes (`closeLabeled`) only if a jump was
+written to it: the resolver that writes the jump marks the label, so
+which labels appear needs no analysis of its own. The blocks are always
+there; an unused one is a plain `{ }`, which Zig compiles to nothing.
+
 ## Emit
 
 `emit.zig` lowers each checked module to Zig 0.17 source. It only
@@ -1792,21 +1846,14 @@ lower is an internal error: sema must have rejected it.
   first picks its arm in a labeled block (one `if` per arm, testing the
   pattern with `==` or a range comparison, then the guard over the
   bindings it names), then switches on the arm's index. A loop used as
-  a value (one a `break` leaves with a value) becomes a labeled block
-  holding the loop without its `else`, then `break :block else_value`;
-  each `break v` leaves the block, so the `else` value is reached only
-  when no `break` gave one, for every form of loop.
-- **Loops.** `while c: step` is Zig's `while (c) : (step)`, and
-  `while a as x: step` its `while (a) |x| : (step)`. A joined condition,
-  or one that jumps (`catch break`), becomes nested `if`s in a
-  `while (true)`; a step that reads a binding of the condition then runs
-  inside them after the body, and a `continue` that targets the loop
-  leaves a labeled block around the body instead
-  (`while true { x = a or break; { body }; step }`, as the checker walks
-  it). Every loop pushes an entry on `Emitter.redirects` (with its
-  Rig label, and where its jumps go when Zig's own cannot reach it); a
-  jump takes the entry of the loop it targets, the innermost one or the
-  innermost of its label, at any depth of nested loops.
+  a value (one a `break` leaves with a value) is its block `L_res` in an
+  `@as(T, ...)`: each `break v` leaves the block, and the `else` value
+  is the block's last `break`, reached only when no `break` gave one.
+- **Loops** follow one desugaring ([Loops](#loops)): a `while` is a
+  `while (true)` with one `if` per part of its condition inside, a `for`
+  Zig's `for` or a `while` over an iterator or a range, the body is a
+  block a `continue` leaves, and the `else` follows the loop in a block
+  a `break` leaves.
 - **Compile-time parameters** are Zig `comptime` parameters, first in
   the signature, after a method's receiver (Zig's method call syntax
   needs the receiver first): `fun times[n: Int](?self)` is

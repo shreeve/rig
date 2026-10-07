@@ -1,0 +1,27 @@
+# A labeled `:a match` inside an `:a` loop: its `break :a` leaves the match.
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  j = 0
+  :a while mk(?v, i) as h and i >= 0: k += h.s[0]
+    i += 1
+    continue :a if i == 99
+    :a match i
+      1
+        j += 1
+        break :a
+      _ => j += 1
+  print("end", k, j)
+
+# expect:
+# end 3 3

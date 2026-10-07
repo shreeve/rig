@@ -3972,14 +3972,21 @@ pub fn stepReadsBinding(ctx: *const SemContext, cond: Sexp, step: Sexp) bool {
     if (rig.isConditionJoin(cond)) return stepReadsBinding(ctx, ir.get(cond, .left), step) or stepReadsBinding(ctx, ir.get(cond, .right), step);
     if (!cond.isKind(.as)) return false;
     const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
-    return usesSymbol(ctx, step, sym);
+    return findUse(ctx, step, sym) != null;
 }
 
-fn usesSymbol(ctx: *const SemContext, node: Sexp, sym: SymbolId) bool {
-    if (node == .src) return if (ctx.symbolOf(node)) |s| s == sym else false;
-    if (node != .list) return false;
-    for (node.items()) |c| if (usesSymbol(ctx, c, sym)) return true;
-    return false;
+/// The first name in `node` that reads binding `sym`: `sym` itself, or a
+/// closure's capture of it, whose symbol leads back to `sym` through its
+/// `origin`.
+pub fn findUse(ctx: *const SemContext, node: Sexp, sym: SymbolId) ?Sexp {
+    if (node == .src) {
+        var s = ctx.symbolOf(node) orelse return null;
+        while (s != symbol_invalid) : (s = ctx.symbols.items[s].origin) if (s == sym) return node;
+        return null;
+    }
+    if (node != .list) return null;
+    for (node.items()) |c| if (findUse(ctx, c, sym)) |use| return use;
+    return null;
 }
 
 /// Whether a value of `ty` holds a String but no marked view or type

@@ -5031,10 +5031,11 @@ pub const Checker = struct {
             if (spec.cond) |c| try self.walkStmt(c);
             if (!spec.cond_always_true) exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         }
-        // A step that reads a binding of the condition runs in the
-        // bindings' scope, after the body's own scope ends, and a
-        // `continue` in the body goes on to it:
-        // `while true { x = a or break; { body }; step }`.
+        // The loop is `while true { x = a or break; body: { body }; step }`
+        // (docs/INTERNALS.md, "Loops"): a `continue` in the body leaves
+        // the body's block for the step. A step that reads a binding of
+        // the condition runs in the bindings' scope, after the body's
+        // own scope ends; any other runs after the bindings' scope ends.
         const step_inside = if (self.sema) |sctx| spec.cond_binds and sema.stepReadsBinding(sctx, spec.cond.?, spec.cont orelse .nil) else false;
         if (step_inside) {
             ctx.step_point = try self.here();
@@ -5052,9 +5053,10 @@ pub const Checker = struct {
         while (self.scopes.items.len > depth) try self.popScope();
 
         // A `continue` and the end of the body go back to the loop's
-        // head through any other step; a `continue` in the step (or, for
-        // a step that runs in the bindings' scope, in the condition)
-        // ends it.
+        // head through any other step, as does a `continue` in the
+        // condition (which the type checker rejects when the step reads a
+        // binding, since it would skip binding one); a `continue` in the
+        // step ends it.
         if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
         if (!step_inside) if (spec.cont) |c| {
             ctx.conts.clearRetainingCapacity();

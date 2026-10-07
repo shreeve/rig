@@ -6,12 +6,14 @@ one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
 stores into a view parameter (`store.`, below), the views of a
-read `match` payload, used in the arm or escaping (`payload.`), and a
-`while` step reading what its condition binds (`step.`). The rule is
+read `match` payload, used in the arm or escaping (`payload.`), a
+`while` step reading what its condition binds (`step.`), and the
+shapes of nested loops and the jumps between them (`loop.`). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
-program that runs must also print what the payload holds.
+program that runs must also print what the payload holds, and a `loop.`
+program the trace of its steps, defers, and drops.
 
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
@@ -20,6 +22,13 @@ program that runs must also print what the payload holds.
     test/matrix.py --oracle        # only run the reference ownership checker
                                    # (bin/rig-oracle, test/oracle/) over them
     test/matrix.py --shard 2/4     # only the cells whose id hashes to shard 2 of 4
+    test/matrix.py --rig OLD/rig   # test another compiler
+    test/matrix.py --timeout 20 --mem 2048   # each program's limits
+
+Each program is stopped past its time, past 1 MB of output, or when its
+processes hold more than its memory, and every loop a cell writes
+counts its passes and stops past a cap, so a loop that never ends fails
+the cell.
 
 Nothing it writes is committed: programs go to a temporary directory,
 and each run's output is removed after it passes. Programs build in
@@ -33,9 +42,11 @@ import fcntl
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 import zlib
 
@@ -363,6 +374,127 @@ def step_output(shape):
 
 
 # -----------------------------------------------------------------------------
+# Loop shapes: an outer loop labeled `:outer` holding an inner construct
+# that jumps once, in the outer loop's second pass, with a `defer` or an
+# owned local at the outer body's end. Every program prints a trace of
+# its passes, steps, defers, and drops, which must be the one
+# `loop_trace` computes from the meaning of the jumps (SPEC, "while" and
+# "Labels, break, and continue"): a step runs after the body's defers and
+# drops on every path but `break`, and a jump in a loop's `else` targets
+# the loop around it. Cells are `loop.<outer>.<inner>.<jump>.<end>`.
+# -----------------------------------------------------------------------------
+
+LOOP_OUTERS = {
+    "while": ":outer while i < 3: i = st(i)",
+    "while_as": ":outer while lim(i, 3) as h: i = st(h)",
+    "joined": ":outer while lim(i, 3) as h and h >= 0: i = st(h)",
+    "catch_break": ":outer while (limf(i, 3) catch break) as h: i = st(h)",
+    "for": ":outer for q in 0..3",
+}
+# Each inner construct, with `JUMP` the statement that jumps; a loop's
+# `else` (or the construct's last branch) holds `ELSE`.
+LOOP_INNERS = {
+    "while": ["j = 0", "while j < 2: j += 1", "  print(\"in\", i, j)", "  JUMP", "  print(\"after\", i, j)", "ELSE"],
+    "for": ["for j in 0..2", "  print(\"in\", i, j)", "  JUMP", "  print(\"after\", i, j)", "ELSE"],
+    "while_as": ["j = 0", "while lim(j, 2) as g: j = g + 1", "  print(\"in\", i, g)", "  JUMP", "  print(\"after\", i, g)", "ELSE"],
+    "match": ["match i", "  1 => JUMP", "  _ => print(\"m\", i)"],
+    "if": ["if i == 1", "  JUMP", "else", "  print(\"m\", i)"],
+}
+LOOP_JUMPS = {
+    "continue": "continue",
+    "continue_outer": "continue :outer",
+    "break_outer": "break :outer",
+    "else_continue": None,
+}
+
+
+def loop_program(outer, inner, jump, end):
+    """The program for one loop cell."""
+    # Every pass of every loop counts, so a loop that runs away (a step a
+    # `continue` skipped) stops and prints `cap`, which no trace has.
+    cap = ["guard += 1", "if guard > 50", '  print("cap")', "  return"]
+    lines = list(cap)
+    if outer == "for":
+        lines.append("i = q")
+    lines.append('defer print("defer", i)' if end == "defer" else "x = D(n: i)")
+    lines.append('print("body", i)')
+    word = LOOP_JUMPS[jump]
+    var = "g" if inner == "while_as" else "j"
+    if word is None and inner == "match":
+        lines += ["match i", '  0 => print("m", i)', '  2 => print("m", i)', "  _ => continue"]
+    elif word is None and inner == "if":
+        lines += ["if i != 1", '  print("m", i)', "else", "  continue"]
+    else:
+        guard = f" if i == 1 and {var} == 1" if inner in ("while", "for", "while_as") else ""
+        for l in LOOP_INNERS[inner]:
+            if l.startswith("while") or l.startswith("for"):
+                lines.append(l)
+                lines += ["  " + c for c in cap]
+            elif l == "ELSE":
+                if word is None:
+                    lines += ["else", '  print("else", i)', "  continue if i == 1"]
+            elif "JUMP" in l:
+                if word is not None:
+                    lines.append(l.replace("JUMP", word + guard))
+            else:
+                lines.append(l)
+    lines.append('print("tail", i)')
+    head = ["struct D", "  n: Int", "", "  drop(!self)", '    print("drop", self.n)', "",
+            "error E", "  bad", "",
+            "fun st(i: Int) -> Int", '  print("step", i)', "  i + 1", "",
+            "fun lim(i: Int, n: Int) -> Int?", "  i if i < n else none", "",
+            "fun limf(i: Int, n: Int) -> Int?!", "  return E.bad if i > 50", "  lim(i, n)", ""]
+    main = ["sub main", "  i = 0", "  guard = 0", "  " + LOOP_OUTERS[outer]] + ["    " + l for l in lines] + ['  print("end", i)']
+    return "\n".join(head + main) + "\n"
+
+
+def loop_trace(outer, inner, jump, end):
+    """What a loop cell prints."""
+    out = []
+    is_loop = inner in ("while", "for", "while_as")
+    i = 0
+    while i < 3:
+        out.append(f"body {i}")
+        action = "next"
+        if is_loop:
+            for j in range(2):
+                out.append(f"in {i} {j}")
+                if jump != "else_continue" and i == 1 and j == 1:
+                    if jump == "continue":
+                        continue
+                    action = "cont" if jump == "continue_outer" else "break"
+                    break
+                out.append(f"after {i} {j}")
+            if action == "next" and jump == "else_continue":
+                out.append(f"else {i}")
+                if i == 1:
+                    action = "cont"
+        elif jump == "else_continue":
+            if i == 1:
+                action = "cont"
+            else:
+                out.append(f"m {i}")
+        elif i == 1:
+            action = "break" if jump == "break_outer" else "cont"
+        else:
+            out.append(f"m {i}")
+        if action == "next":
+            out.append(f"tail {i}")
+        out.append(f"defer {i}" if end == "defer" else f"drop {i}")
+        if action == "break":
+            break
+        if outer == "for":
+            if i == 2:
+                break
+            i += 1
+        else:
+            out.append(f"step {i}")
+            i += 1
+    out.append(f"end {i}")
+    return "\n".join(out) + "\n"
+
+
+# -----------------------------------------------------------------------------
 # A view of a read `match` payload: used in its arm, or escaping the match
 # (returned from the function that matches, or stored in a binding it
 # returns). Each cell runs other code on the stack before it reads the
@@ -589,6 +721,58 @@ def program(tname, fname, cname):
     return "\n".join(out)
 
 
+# A program that runs away is stopped: after RUN_SECONDS (`--timeout`),
+# when it has printed more than RUN_OUTPUT bytes, or when its processes
+# (the compiler, Zig, the program) hold more than RUN_MB megabytes
+# (`--mem`). Memory is watched, not limited: the sanitizer reserves
+# address space far beyond what it uses, so an address-space limit
+# (`ulimit -v`, `prlimit --as`) stops every sanitized program.
+RUN_SECONDS = 120
+RUN_OUTPUT = 1 << 20
+RUN_MB = 2048
+
+
+def tree_rss(pgid):
+    """The resident memory of process group `pgid`, in kilobytes."""
+    r = subprocess.run(["ps", "-A", "-o", "pgid=,rss="], capture_output=True, text=True)
+    total = 0
+    for l in r.stdout.splitlines():
+        f = l.split()
+        if len(f) == 2 and f[0] == str(pgid):
+            total += int(f[1])
+    return total
+
+
+def run_capped(cmd, env):
+    """Run `cmd` with its output in files, stopping it as RUN_* say."""
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        p = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+        start = time.monotonic()
+        why = None
+        while p.poll() is None:
+            time.sleep(0.2)
+            if time.monotonic() - start > RUN_SECONDS:
+                why = "timeout"
+            elif os.fstat(out.fileno()).st_size + os.fstat(err.fileno()).st_size > RUN_OUTPUT:
+                why = f"printed more than {RUN_OUTPUT} bytes"
+            elif tree_rss(p.pid) > RUN_MB << 10:
+                why = f"used more than {RUN_MB} MB"
+            if why:
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                p.wait()
+                break
+        if why == "timeout":
+            raise subprocess.TimeoutExpired(cmd, RUN_SECONDS)
+        if why:
+            raise MemoryError("stopped: " + why)
+        out.seek(0)
+        err.seek(0)
+        return subprocess.CompletedProcess(cmd, p.returncode, out.read().decode(errors="replace"), err.read().decode(errors="replace"))
+
+
 def run_one(path, keep, started_dir, expect=None):
     """Classify one program: rejected, ok, or a failure with its reason.
     With `expect`, a program that runs must print exactly that."""
@@ -611,9 +795,11 @@ def run_one(path, keep, started_dir, expect=None):
     started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
     env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
     try:
-        r = subprocess.run([RIG, "run", path], capture_output=True, text=True, errors="replace", timeout=120, env=env, stdin=subprocess.DEVNULL)
+        r = run_capped([RIG, "run", path], env)
     except subprocess.TimeoutExpired:
         return "fail", "timed out"
+    except MemoryError as e:
+        return "fail", str(e)
     err = r.stderr
     m = BAD.search(err)
     ran = os.path.isfile(started) and "rig: the program did not run" not in err
@@ -633,7 +819,7 @@ def run_one(path, keep, started_dir, expect=None):
     if sig and not (sig.group(1) == "6" and "panic: " in err):
         return "fail", "killed by signal %s: %s" % (sig.group(1), first_line(err))
     if expect is not None and r.stdout != expect:
-        return "fail", "printed " + repr(r.stdout) + ", expected " + repr(expect)
+        return "fail", "printed " + repr(r.stdout) + ", expected " + repr(expect) + (", stderr " + repr(first_line(err)) if err.strip() else "")
     return "ok", ""
 
 
@@ -668,6 +854,7 @@ def first_error(s):
 
 
 def main():
+    global RIG, RUN_SECONDS, RUN_MB
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-j", type=int, default=4, help="programs at a time (default 4)")
     ap.add_argument("-k", action="append", default=[], help="only ids containing this (repeatable)")
@@ -675,7 +862,12 @@ def main():
     ap.add_argument("-v", action="store_true", help="list every result")
     ap.add_argument("--oracle", action="store_true", help="run bin/rig-oracle over the programs instead")
     ap.add_argument("--shard", help="I/N: only the cells whose id hashes to I - 1 modulo N (1 <= I <= N)")
+    ap.add_argument("--rig", help="the compiler to test (default bin/rig)")
+    ap.add_argument("--timeout", type=int, default=RUN_SECONDS, help=f"seconds each program may take to build and run (default {RUN_SECONDS})")
+    ap.add_argument("--mem", type=int, default=RUN_MB, help=f"megabytes each program may use (default {RUN_MB})")
     args = ap.parse_args()
+    RIG = os.path.abspath(args.rig) if args.rig else RIG
+    RUN_SECONDS, RUN_MB = args.timeout, args.mem
     shard = re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", args.shard or "1/1")
     if not shard or int(shard[1]) > int(shard[2]):
         ap.error("--shard needs I/N, with 1 <= I <= N")
@@ -741,6 +933,18 @@ def main():
                     cells.append((ident, path))
                     if then == "read":
                         expects[ident] = step_output(shape)
+    for outer in LOOP_OUTERS:
+        for inner in LOOP_INNERS:
+            for jump in LOOP_JUMPS:
+                for end in ("defer", "owned"):
+                    ident = f"loop.{outer}.{inner}.{jump}.{end}"
+                    if not wanted(ident):
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(loop_program(outer, inner, jump, end))
+                    cells.append((ident, path))
+                    expects[ident] = loop_trace(outer, inner, jump, end)
     for t in PAYLOAD_TYPES:
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:

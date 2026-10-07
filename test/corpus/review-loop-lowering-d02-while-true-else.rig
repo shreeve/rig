@@ -1,0 +1,17 @@
+# `while true` with an `else`, which never runs: every `break` leaves the
+# loop's result block, so nothing leaves the Zig `while (true)` itself.
+#
+# oracle: main accept
+sub main
+  n = 0
+  while true
+    n += 1
+    break if n > 2
+  else
+    print("never")
+  x = while true
+    n += 1
+    break n if n > 5
+  else
+    0
+  print(n, x)

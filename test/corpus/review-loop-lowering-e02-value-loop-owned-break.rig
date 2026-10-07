@@ -1,0 +1,53 @@
+# Loops used as values that hand out an owned value: a consumed Vec's
+# element, an element of an array the source makes, and a while binding;
+# the remaining elements drop when the loop is left.
+#
+# oracle: D.drop accept
+# oracle: mkvec accept
+# oracle: arr accept
+# oracle: mk accept
+# oracle: main accept
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun mkvec(n: Int) -> Vec[D]
+  v: Vec[D] = Vec()
+  for i in 0..n
+    !v.push(D(n: i))
+  v
+
+fun arr() -> [3]D
+  [D(n: 10), D(n: 11), D(n: 12)]
+
+fun mk(i: Int) -> D?
+  D(n: 20 + i) if i < 4 else none
+
+sub main
+  q = mkvec(4)
+  a = for e, i in <q
+    y = D(n: 100 + i)
+    continue if i == 0
+    break <e if i == 1
+  else
+    D(n: 99)
+  print("a", a.n)
+  b = for e in arr()
+    break <e if e.n == 11
+  else
+    D(n: 98)
+  print("b", b.n)
+  i = 0
+  c = while mk(i) as h: i += 1
+    y = D(n: 200 + i)
+    break <h if i == 2
+  else
+    D(n: 97)
+  print("c", c.n)
+  i = 0
+  d = while mk(i) as h: i += 1
+    break <h if i == 9
+  else
+    D(n: 96)
+  print("d", d.n)

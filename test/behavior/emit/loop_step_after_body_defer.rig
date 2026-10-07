@@ -1,0 +1,35 @@
+# A step that reads a binding of a joined condition runs after the body's
+# defers: here it moves `b`, which a body `defer` reads.
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+fun fresh(n: Int) -> Vec[Int]
+  a: Vec[Int] = Vec()
+  !a.push(n)
+  a
+
+fun take(a: Vec[Int]) -> Int
+  a[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  b = fresh(0)
+  k = 0
+  i = 0
+  while mk(?v, i) as h and i >= 0: k += h.s[0] + take(<b)
+    i += 1
+    b = fresh(i)
+    defer print("d", b[0])
+  print("end", k, i)
+
+# expect:
+# d 1
+# d 2
+# d 3
+# end 6 3

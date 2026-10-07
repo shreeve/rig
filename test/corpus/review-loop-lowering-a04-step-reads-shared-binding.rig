@@ -1,0 +1,21 @@
+# A step reading a `*T` or `~T` or Text binding of a single `as` condition:
+# compare main's verdict with the branch's (the plain-data rule now covers
+# single `as` conditions too).
+struct B
+  n: Int
+
+fun get(v: ?Vec[*B], i: Int) -> (*B)?
+  +v[i] if i < v.len else none
+
+fun nxt(b: ?B, i: Int) -> Int
+  i + 1 + b.n * 0
+
+sub main
+  v: Vec[*B] = Vec()
+  !v.push(*B(n: 1))
+  !v.push(*B(n: 2))
+  i = 0
+  k = 0
+  while get(?v, i) as h: i = nxt(?h, i)
+    k += h.n
+  print(k, i)

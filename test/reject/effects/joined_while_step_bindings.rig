@@ -22,5 +22,5 @@ sub main
   while (get(m) ?? continue) > 0 and get(m) as y : m = y - 1
     print(y)
 
-# error: 19:47: the loop step reads `x`, a binding of a joined condition, so each binding there must be plain data; `r` is a `Res`
+# error: 19:47: the loop step reads `x`, a binding of the condition, so each binding there must be plain data; `r` is a `Res`
 # error: 22:56: the loop step reads `y`, a binding of the condition, which a `continue` in the condition leaves unbound

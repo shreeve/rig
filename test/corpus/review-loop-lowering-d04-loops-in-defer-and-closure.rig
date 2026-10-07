@@ -1,0 +1,43 @@
+# Loops inside a `defer` block, an `errdefer` block, and a closure, each
+# with labels that repeat an enclosing loop's and jumps of their own.
+#
+# oracle: opt accept
+# oracle: run accept
+# oracle: work accept
+# oracle: main accept
+error E
+  bad
+
+fun opt(j: Int) -> Int?
+  j + 1 if j != 1 else none
+
+fun run(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun work(fail: Bool) -> Int!
+  n = 0
+  :a for i in 0..2
+    defer
+      :a for j in 0..3
+        continue :a if j == 0
+        print("defer", i, j)
+        break :a if j == 1
+    errdefer
+      k = 0
+      :a while (opt(k) ?? continue) > 0: k += 1
+        print("errdefer", i, k)
+        break :a if k > 2
+    n += run(|x: Int|
+      t = 0
+      :a for q in 0..x
+        continue :a if q == 0
+        t += q
+      t
+    , 3)
+    return E.bad if fail and i == 1
+    continue :a
+  n
+
+sub main
+  print(work(false) catch 0 - 1)
+  print(work(true) catch 0 - 1)

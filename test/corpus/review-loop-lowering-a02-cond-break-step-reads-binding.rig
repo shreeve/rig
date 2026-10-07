@@ -1,0 +1,17 @@
+# Control: a `break` in the condition with a step reading the binding.
+#
+# oracle: odd accept
+# oracle: some accept
+# oracle: main accept
+fun odd(i: Int) -> Int?
+  none if i % 2 == 1 else i
+
+fun some(i: Int) -> Int?
+  i if i < 6 else none
+
+sub main
+  steps = 0
+  i = 0
+  while some(odd(i) ?? break) as h: steps += h
+    i += 2
+  print(steps, i)

@@ -1,0 +1,22 @@
+# Loops whose condition is a compile-time constant other than `true`.
+#
+# oracle: main accept
+DONE = false
+
+sub main
+  n = 0
+  while false
+    n += 1
+  while DONE
+    n += 10
+  while 1 > 2
+    n += 100
+  k = false
+  while k: n += 1000
+    n += 1000
+  while not true
+    n += 7
+  while (true)
+    n += 1
+    break if n > 2
+  print(n)

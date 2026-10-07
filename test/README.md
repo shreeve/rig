@@ -226,7 +226,17 @@ the body grows what it views on each way to the step (the body's end,
 `continue`, `continue :outer` from a nested `for`, `while`, or
 `while … as`, also under a joined or `catch break` condition, an inner
 loop, a `defer`, a `break`), and a program that runs must print how
-many steps ran.
+many steps ran. And it puts a `while`, `for`, `while … as`, `match`, or
+`if` in each kind of loop (`while`, `while … as`, joined, `catch break`,
+`for`) that jumps once (`continue`, `continue :outer`, `break :outer`,
+or `continue` in the inner construct's `else`) past a `defer` or an
+owned local, and a program that runs must print the trace of passes,
+steps, defers, and drops the jumps' meaning gives. Every loop a cell
+writes counts its passes and stops at a cap, and each program is
+stopped past its time (`--timeout`), when its processes hold more than
+its memory (`--mem`; an address-space limit would stop the sanitizer,
+which reserves far more than it uses), or past 1 MB of output. `--rig`
+tests another compiler.
 It writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
 

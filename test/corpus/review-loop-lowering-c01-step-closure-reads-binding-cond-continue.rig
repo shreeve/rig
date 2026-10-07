@@ -1,0 +1,25 @@
+# The step reads the condition's binding only inside a closure; the
+# condition has a `continue`. SPEC: the `continue` runs the step, which
+# would read an unbound binding, so the type checker must reject it (as it
+# does for a direct read) or the step must run.
+#
+# oracle: odd accept
+# oracle: some accept
+# oracle: apply accept
+# oracle: main reject C1
+fun odd(i: Int) -> Int?
+  none if i % 2 == 1 else i
+
+fun some(i: Int) -> Int?
+  i if i < 6 else none
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  steps = 0
+  i = 0
+  while some(odd(i) ?? continue) as h: steps = apply(|+h, x: Int| x + h, steps)
+    i += 1
+    print("body", i, h)
+  print(steps, i)

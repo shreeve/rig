@@ -1491,7 +1491,7 @@ const Checker = struct {
         if (!cond.isKind(.as)) return;
         const b = self.ctx.symbolOf(ir.As.name(cond)) orelse return;
         const sym = self.ctx.symbols.items[b];
-        const use = findUse(self.ctx, step, b) orelse return;
+        const use = sema.findUse(self.ctx, step, b) orelse return;
         if (sema.isReadOrWriteView(self.ctx, sym.ty)) {
             try self.errAt(use, "the loop step cannot use `{s}`: it is a view (`{s}`) that lives only in the body; use it at the end of the body instead", .{ sym.name, try self.tyName(sym.ty) });
         } else if (try self.mustTake(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
@@ -1499,18 +1499,20 @@ const Checker = struct {
         }
     }
 
-    /// A step that reads a binding of a joined condition runs inside the
-    /// `if`s that bind it, after the body, so every binding there stays
-    /// until the step is done: each must be plain data (neither a view
-    /// nor owning), and no `continue` in the condition may skip binding
-    /// one.
-    fn checkJoinedStep(self: *Checker, cond: Sexp, step: Sexp) Error!void {
+    /// A step that reads a binding of the condition runs inside the `if`s
+    /// that bind it, after the body (docs/INTERNALS.md, "Loops"), so every
+    /// binding there stays until the step is done: each must be plain
+    /// data (neither a view nor owning), and no `continue` in the
+    /// condition, which goes on to the step, may skip binding one. (Every
+    /// `continue` there targets this loop: the grammar has no labeled
+    /// jump in a condition.)
+    fn checkStepBindings(self: *Checker, cond: Sexp, step: Sexp) Error!void {
         var parts: std.ArrayList(Sexp) = .empty;
         defer parts.deinit(self.ctx.allocator);
         try collectConditionParts(self.ctx.allocator, cond, &parts);
         var read: ?Sexp = null;
         for (parts.items) |p| if (p.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(p))) |b| {
-            if (findUse(self.ctx, step, b)) |use| read = use;
+            if (sema.findUse(self.ctx, step, b)) |use| read = use;
         };
         const use = read orelse return;
         const name = self.text(use);
@@ -1521,7 +1523,7 @@ const Checker = struct {
             const sym = self.ctx.symbols.items[b];
             if (self.isPoison(sym.ty)) continue;
             if (sema.isReadOrWriteView(self.ctx, sym.ty) or sema.moves(self.ctx, sym.ty) == .yes) {
-                return self.errAt(use, "the loop step reads `{s}`, a binding of a joined condition, so each binding there must be plain data; `{s}` is a `{s}`", .{ name, sym.name, try self.tyName(sym.ty) });
+                return self.errAt(use, "the loop step reads `{s}`, a binding of the condition, so each binding there must be plain data; `{s}` is a `{s}`", .{ name, sym.name, try self.tyName(sym.ty) });
             }
         }
     }
@@ -1694,7 +1696,7 @@ const Checker = struct {
             };
             const mark = self.ctx.diagnostics.items.len;
             try self.checkStepUses(cond, step);
-            if (rig.isConditionJoin(cond) and self.ctx.diagnostics.items.len == mark) try self.checkJoinedStep(cond, step);
+            if ((rig.isConditionJoin(cond) or cond.isKind(.as)) and self.ctx.diagnostics.items.len == mark) try self.checkStepBindings(cond, step);
         }
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
@@ -9376,13 +9378,6 @@ fn loopsForever(source: []const u8, s: Sexp) bool {
 
 fn isWhileTrue(source: []const u8, loop: Sexp) bool {
     return loop.isKind(.@"while") and std.mem.eql(u8, identAt(source, ir.While.cond(loop)) orelse "", "true");
-}
-
-/// The first name in `node` that denotes symbol `sym`.
-fn findUse(ctx: *const SemContext, node: Sexp, sym: SymbolId) ?Sexp {
-    if (node == .src) return if (ctx.symbolOf(node) == sym) node else null;
-    for (rig.children(node)) |c| if (findUse(ctx, c, sym)) |use| return use;
-    return null;
 }
 
 /// The call whose value `e` is: `e` itself, or the call under a `!`,

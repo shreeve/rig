@@ -1,0 +1,53 @@
+# Steps that move an owned value and re-point a view, which the body's
+# `defer` reads, with `continue` from the body, from an inner loop's
+# `else`, and from a labeled inner loop; a joined condition whose binding
+# the step reads.
+#
+# oracle: D.drop accept
+# oracle: mv accept
+# oracle: pick accept
+# oracle: lim accept
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun mv(d: D, c: Int) -> D
+  print("step", d.n, c)
+  D(n: d.n + 1)
+
+fun pick(a: ?Vec[Int], b: ?Vec[Int], c: Int) -> []Int
+  ?a[..] if c % 2 == 0 else ?b[..]
+
+fun lim(c: Int, n: Int) -> Int?
+  c if c < n else none
+
+sub main
+  o = D(n: 10)
+  c = 0
+  :outer while lim(c, 4) as h and h >= 0: o = mv(<o, h)
+    c += 1
+    defer print("defer", o.n)
+    continue if c == 1
+    for t in 0..2
+      continue :outer if c == 3 and t == 1
+    else
+      continue if c == 2
+    print("tail", c)
+  print("o", o.n)
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  b: Vec[Int] = Vec()
+  !b.push(2)
+  s = pick(?a, ?b, 0)
+  k = 0
+  i = 0
+  while lim(i, 4) as g: s = pick(?a, ?b, g)
+    i += 1
+    defer print("view", s[0])
+    k += s[0]
+    for t in 0..1
+      print("t", t)
+    else
+      continue if i == 2
+  print("k", k)
