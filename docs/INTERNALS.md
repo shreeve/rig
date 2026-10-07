@@ -1688,6 +1688,10 @@ L_res: {                         // the loop's block: what its header holds, its
 | `break`, `break x` | joined after the `else`; `x` consumed like a returned value | `break :L_res x`, or `break :L` when the loop has no `else` and no value |
 | `else` | walked after the loop's iterations, with the enclosing loop as the jumps' target | statements after the loop in `L_res`, or `break :L_res value` for a loop used as a value |
 
+A step reads a binding when a name in it is the binding or a
+closure's capture of it (`sema.findUse`, which the type checker's step
+rules use too).
+
 A `for` has no condition and no step of its own: it is Zig's `for`, or a
 `while` over a consuming iterator or a range, whose counter is the Zig
 loop's continue expression, and its source is evaluated before the loop

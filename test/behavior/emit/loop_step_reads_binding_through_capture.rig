@@ -1,0 +1,22 @@
+# A step that reads the condition's binding only through a closure's
+# capture reads the binding: it runs in the binding's scope.
+fun some(i: Int) -> Int?
+  i if i < 4 else none
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  steps = 0
+  i = 0
+  while some(i) as h: steps = apply(|+h, x: Int| x + h * 10, steps)
+    i += 1
+    print("body", i, h)
+  print(steps, i)
+
+# expect:
+# body 1 0
+# body 2 1
+# body 3 2
+# body 4 3
+# 60 4
