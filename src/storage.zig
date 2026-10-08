@@ -390,6 +390,11 @@ pub const LeafStep = enum {
     /// A value made here: its address in its statement's slot when one
     /// keeps it (`dropsTemp`), else of a Zig temporary.
     made,
+    /// A literal (`none`, a number, a string): a constant of the program,
+    /// which no slot keeps and which holds no Cell. `none` is reached only
+    /// as the operand whose payload a branch captures, which it has
+    /// none of, so its address is never written through.
+    literal,
     /// `return`, `break`, `continue`: no value, no address.
     jump,
 };
@@ -413,7 +418,7 @@ fn wholeStep(ctx: *const SemContext, e: Sexp) LeafStep {
         .part_of_made => .part,
         .lend => .lend,
         .jump => .jump,
-        .made, .branches, .none => .made,
+        .made, .branches, .none => if (e == .src) .literal else .made,
     };
 }
 
@@ -437,7 +442,7 @@ pub fn madeLeaves(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *s
         },
         .made => try out.append(a, e),
         .part => try madeLeaves(ctx, a, pathBase(e), out),
-        .place, .lend, .jump => {},
+        .place, .lend, .literal, .jump => {},
     }
 }
 
@@ -451,7 +456,7 @@ fn madeLeavesIn(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std
         },
         .made => try out.append(a, e),
         .part => try madeLeaves(ctx, a, pathBase(e), out),
-        .place, .lend, .jump => {},
+        .place, .lend, .literal, .jump => {},
     }
 }
 
@@ -1053,7 +1058,7 @@ const Planner = struct {
 
     fn leaf(p: *Planner, e: Sexp) !void {
         switch (leafStep(p.ctx, e)) {
-            .place, .part, .lend, .made, .jump => {},
+            .place, .part, .lend, .made, .literal, .jump => {},
             .@"if" => {
                 try p.leaf(lastValue(ir.If.then(e)));
                 try p.leaf(lastValue(ir.If.@"else"(e)));

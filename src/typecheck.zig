@@ -1407,7 +1407,7 @@ const Checker = struct {
         var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
         try storage.madeLeaves(self.ctx, self.ctx.allocator, e, &leaves);
-        for (leaves.items) |leaf| if (leaf == .list) try self.ctx.recordTempDrop(leaf);
+        for (leaves.items) |leaf| try self.ctx.recordTempDrop(leaf);
     }
 
     /// Whether `place` starts from a binding that owns what it binds: an

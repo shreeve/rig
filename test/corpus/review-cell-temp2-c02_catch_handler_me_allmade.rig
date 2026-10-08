@@ -1,0 +1,32 @@
+# All-made: `(mkf(-1) catch mk(5)).me()` with no branch beside a name.
+#
+# oracle: N.me accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mkww accept
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+  fun me(?self) -> ?N
+    self.c.set(self.c.get() + 1)
+    self
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkf(n: Int) -> N!
+  return E.bad if n < 0
+  mk(n)
+
+struct WW
+  t: N
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+sub main()
+  print((mkf(-1) catch mk(5)).me().c.get())
+  print((mkf(-1) catch mkww(6).t).me().c.get())

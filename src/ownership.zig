@@ -532,6 +532,10 @@ pub const Checker = struct {
     /// being walked (`sema.dropsTemp`), each with its position: dropped
     /// when its statement ends.
     stmt_drops: std.ArrayList(struct { id: VarId, pos: u32 }) = .empty,
+    /// The hidden vars made, before the scope a `catch` handler or a
+    /// `match` arm opens, for the statement temporaries it makes
+    /// (`holdPartTemps`), by node: `holdTemp` holds each there.
+    part_temps: std.AutoHashMapUnmanaged(u32, VarId) = .empty,
     /// The hidden vars holding what the calls being walked keep in
     /// storage of their own (`holdForCall`): each ends when its call
     /// returns (`endCallHeld`).
@@ -606,6 +610,7 @@ pub const Checker = struct {
         self.names.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
         self.stmt_drops.deinit(self.gpa);
+        self.part_temps.deinit(self.gpa);
         self.call_held.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         self.loan_counts.deinit(self.gpa);
@@ -1226,7 +1231,14 @@ pub const Checker = struct {
         }
         const to = x.to orelse return .{ .reachable = false };
         try self.reportDropped(to.vars, x.resume_at);
-        return self.capture(to);
+        var s = try self.capture(to);
+        // A jump leaves the statements it is in, which end there: the
+        // loans they took and keep for their own ends (`temps`) do not go
+        // on with it; the point it goes to has its own.
+        if (x.exit) |e| if (e == .jump) {
+            s.temps = to.temps;
+        };
+        return s;
     }
 
     /// Report each var below `depth` that keeps a loan on a var at
@@ -1704,12 +1716,57 @@ pub const Checker = struct {
     }
 
     /// An owning temporary only read where it stands lives in a hidden
-    /// var until its statement ends; what views it views that var.
+    /// var until its statement ends; what views it views that var. One a
+    /// `catch` handler or `match` arm makes is held in the var made for it
+    /// before the handler's or arm's scope opened (`holdPartTemps`).
     fn holdTemp(self: *Checker, node: Sexp, v: Value) Error!Value {
         const pos = self.startOf(node);
+        if (node == .list) if (self.part_temps.fetchRemove(node.list.id)) |kv| if (self.isStmtTempVar(kv.value, pos)) {
+            try self.setFlow(kv.value, .{ .loans = v.loans });
+            return .{ .loans = try self.oneLoan(.{ .root = kv.value, .kind = .read, .pos = pos }) };
+        };
         const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden }, .{ .loans = v.loans });
         try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
         return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
+    }
+
+    /// Make the hidden vars for the statement temporaries `part`, a
+    /// `catch` handler or a `match` arm, makes (`sema.stmtTemps`), before
+    /// the caller opens the scope it binds its names in: they are the
+    /// statement's, as emit declares their slots for the statement, so
+    /// they outlive that scope and end with the statement
+    /// (`dropStmtTemps`). Each is made before the state a branch starts
+    /// from, so a path that makes it and one that does not join.
+    fn holdPartTemps(self: *Checker, part: Sexp) Error!void {
+        const ctx = self.sema orelse return;
+        var temps: std.ArrayList(Sexp) = .empty;
+        try sema.stmtTemps(ctx, self.arena(), part, &temps);
+        for (temps.items) |node| {
+            const pos = self.startOf(node);
+            const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden }, .{});
+            try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+            try self.part_temps.put(self.gpa, node.list.id, id);
+        }
+    }
+
+    /// Whether var `id` is still the hidden var of the statement
+    /// temporary at `pos`: one whose scope ended is gone, and its id may
+    /// name a newer var.
+    fn isStmtTempVar(self: *const Checker, id: VarId, pos: u32) bool {
+        if (id >= self.vars.items.len) return false;
+        const v = self.vars.items[id];
+        return v.kind == .hidden and v.decl == pos;
+    }
+
+    /// The hidden var of the live statement temporary at `pos`, if any.
+    fn stmtTempAt(self: *const Checker, pos: u32) ?VarId {
+        var i = self.stmt_drops.items.len;
+        while (i > 0) {
+            i -= 1;
+            const d = self.stmt_drops.items[i];
+            if (d.pos == pos and self.isStmtTempVar(d.id, pos)) return d.id;
+        }
+        return null;
     }
 
     /// Drop the temporaries statement-held since `start`: a value that
@@ -1720,9 +1777,7 @@ pub const Checker = struct {
         while (i > start) {
             i -= 1;
             const d = self.stmt_drops.items[i];
-            if (d.id >= self.vars.items.len) continue;
-            const t = self.vars.items[d.id];
-            if (t.kind != .hidden or t.decl != d.pos) continue;
+            if (!self.isStmtTempVar(d.id, d.pos)) continue;
             if (self.isLent(d.id)) for (0..self.flows.items.len) |holder| {
                 if (holder == d.id) continue;
                 var f = self.flows.items[holder];
@@ -2243,6 +2298,10 @@ pub const Checker = struct {
     }
 
     fn carryLoan(self: *Checker, out: *std.ArrayList(Loan), ty: TypeId, reads: bool, l: Loan, depth: u8) Error!void {
+        // A loan on a var whose scope ended was released with it
+        // (`releaseVarsFrom`); one that survives is a lost track of the
+        // walk, which no program is accepted with.
+        if (l.root >= self.vars.items.len) return self.err(l.pos, "internal error: a loan outlives the var it is on", .{});
         if (l.ext or depth >= 16 or try self.mayOwnView(l.root, ty)) {
             var kept = l;
             if (reads and !l.ext and l.kind == .write) {
@@ -3843,12 +3902,7 @@ pub const Checker = struct {
         // branching value's leaf included, is lent there.
         if (self.sema) |ctx| if (ctx.dropsTemp(base)) {
             const pos = self.startOf(base);
-            var i = self.stmt_drops.items.len;
-            while (i > 0) {
-                i -= 1;
-                const d = self.stmt_drops.items[i];
-                if (d.pos == pos) return .{ .loans = try self.oneLoan(.{ .root = d.id, .kind = .read, .pos = pos }) };
-            }
+            if (self.stmtTempAt(pos)) |id| return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
         };
         var leaves: std.ArrayList(Sexp) = .empty;
         try sema.valueLeaves(self.arena(), base, &leaves);
@@ -3869,9 +3923,7 @@ pub const Checker = struct {
             if (leaf == .src) continue;
             // A made value: the temporary its statement holds, made here
             // if the value needs no drop.
-            const held = for (self.stmt_drops.items) |d| {
-                if (d.pos == pos) break d.id;
-            } else null;
+            const held = self.stmtTempAt(pos);
             const loan: Loan = .{ .root = held orelse (try self.holdTemp(leaf, .{})).loans[0].root, .kind = .read, .pos = pos };
             out = try self.valueUnion(out, .{ .loans = try self.oneLoan(loan) });
         }
@@ -4625,8 +4677,9 @@ pub const Checker = struct {
     fn walkCatch(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
         const v1 = try self.walk(ir.Catch.value(node));
-        const base = try self.here();
         const handler = ir.Catch.handler(node);
+        try self.holdPartTemps(handler);
+        const base = try self.here();
         try self.pushScopeFor(.block, handler);
         const name = ir.Catch.name(node);
         if (name != .nil) {
@@ -4780,6 +4833,7 @@ pub const Checker = struct {
         var held: std.ArrayList(Loan) = .empty;
         for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) == null) try held.append(self.arena(), l);
         const hold = try self.addVar(.{ .name = "", .decl = self.startOf(scrut), .kind = .hidden }, .{ .loans = held.items });
+        for (ir.Match.arms(match)) |arm| try self.holdPartTemps(ir.Arm.body(arm));
 
         const base = try self.here();
         // The state an arm starts from: the entry state joined with what

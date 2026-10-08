@@ -1,0 +1,72 @@
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: D.bumped accept
+# oracle: D.me accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mko accept
+# oracle: mkww accept
+# oracle: look accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WW
+  t: D
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun look(x: ?D) -> Int
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+sub go(k: Bool)
+  r = mkf(3 if k else -1)
+  a = mk(1)
+  (r catch a).hit()
+  (a if k else r!).hit() catch print("x")
+  print((r catch a).c.get())
+  print("a", a.c.get())
+
+sub go2(k: Bool)!
+  r = mkf(3 if k else -1)
+  a = mk(1)
+  (a if not k else r!).hit()
+  (r! if k else a).hit()
+  print((r catch a).c.get())
+  print("a", a.c.get())
+
+sub main()
+  go(true)
+  go(false)
+  go2(true) catch print("failed")
+  go2(false) catch print("failed")

@@ -1,0 +1,25 @@
+# A module constant holding a Cell as the named leaf of a branch, read and
+# changed.
+#
+# oracle: N.hit accept
+# oracle: mk accept
+# oracle: main accept
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+kk = N(c: Cell(2))
+
+sub go(k: Bool)
+  print((kk if k else mk(5)).c.get())
+  (kk if k else mk(5)).hit()
+  (mk(6) if k else kk).c.set(9)
+
+sub main()
+  go(true)
+  go(false)

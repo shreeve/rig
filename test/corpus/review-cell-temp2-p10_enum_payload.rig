@@ -1,0 +1,75 @@
+# An enum whose payload holds a Cell, changed by a `?self` method on
+# temporaries and on branches beside a name's value.
+#
+# oracle: D.drop accept
+# oracle: En.hit accept
+# oracle: En.val accept
+# oracle: mk1 accept
+# oracle: mk2 accept
+# oracle: mko accept
+# oracle: mkf accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+enum En
+  one(d: D)
+  two(c: Cell[Int])
+
+  sub hit(?self)
+    match self
+      .one(d) => d.c.set(d.c.get() + 1)
+      .two(c) => c.set(c.get() + 2)
+
+  fun val(?self) -> Int
+    match self
+      .one(d) => d.c.get()
+      .two(c) => c.get()
+
+fun mk1(n: Int) -> En
+  En.one(d: D(c: Cell(n)))
+
+fun mk2(n: Int) -> En
+  En.two(c: Cell(n))
+
+fun mko(n: Int) -> En?
+  return none if n < 0
+  mk1(n)
+
+fun mkf(n: Int) -> En!
+  return E.bad if n < 0
+  mk1(n)
+
+sub go(k: Bool)!
+  a = mk1(1)
+  b = mk2(10)
+  mk1(5).hit()
+  mk2(6).hit()
+  (a if k else mk1(7)).hit()
+  (mk2(8) if k else b).hit()
+  (a if k else (mko(-1) ?? mk2(9))).hit()
+  (b if k else mkf(11)!).hit()
+  print("v", (a if k else mk1(12)).val(), (b if k else mk2(13)).val())
+  print("a", a.val(), "b", b.val())
+
+sub main()
+  go(true) catch print("failed")
+  go(false) catch print("failed")
+# expect:
+# drop 6
+# v 3 12
+# a 3 b 12
+# drop 3
+# drop 6
+# drop 8
+# drop 12
+# v 12 13
+# drop 12
+# a 1 b 12
+# drop 1

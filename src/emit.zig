@@ -1181,23 +1181,17 @@ pub const Emitter = struct {
     /// on their own, or in its headers, which are their own statements:
     /// `openHeader`) that has none yet, inline before the statement.
     fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
-        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
-        // The parts first: they are made first, so their `defer`s run
-        // after those of what holds them. An assignment makes its value
-        // before it finds its target (Core §6), so the value's
-        // temporaries are older, and dropped after the target's.
-        if (stmt.isKind(.set)) {
-            try self.emitTempSlots(ir.Set.value(stmt));
-            try self.emitTempSlots(ir.Set.target(stmt));
-        } else for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !sema.isWhileStep(stmt, c)) try self.emitTempSlots(c);
-        if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
-            const name = try self.hiddenStorage(stmt, .temp, .owned, .next);
+        var temps: std.ArrayList(Sexp) = .empty;
+        try sema.stmtTemps(self.sema, self.arena.allocator(), stmt, &temps);
+        for (temps.items) |temp| {
+            if (self.tempSlot(temp) != null) continue;
+            const name = try self.hiddenStorage(temp, .temp, .owned, .next);
             try self.w.print("var {s}: ", .{name});
-            try self.emitTypeTy(self.typeOf(stmt) orelse return self.unsupported(stmt, "an untyped temporary"));
+            try self.emitTypeTy(self.typeOf(temp) orelse return self.unsupported(temp, "an untyped temporary"));
             try self.w.print(" = undefined; var {s}_live = false; ", .{name});
             if (self.poison) try self.w.print("defer rig.poison(&{s}); ", .{name});
             try self.w.print("defer if ({s}_live) rig.drop(&{s}); ", .{ name, name });
-            try self.temp_slots.append(self.allocator, .{ .node = stmt.list.id, .name = name });
+            try self.temp_slots.append(self.allocator, .{ .node = temp.list.id, .name = name });
         }
     }
 
@@ -3654,6 +3648,17 @@ pub const Emitter = struct {
     /// view or an optional view goes stays a view.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
         if (ty) |t| if (self.isPtrViewExpr(e) and self.isPtrViewTy(self.unwrapOptionals(t))) return self.emitWriteViewPtr(e);
+        // A branch's `none` has the optional type of the value: Zig would
+        // otherwise give `null` a type of its own, which a branch beside
+        // it, or a reference to the branch's value, does not share. A
+        // nested `if` of `none`s alone is that type too.
+        if (ty) |t| if (self.sema.types.get(t) == .optional) {
+            if (self.isNoneLeaf(e)) {
+                try self.writeAsOpen(t);
+                return self.w.writeAll("null)");
+            }
+            if (e.isKind(.@"if") and self.typeOf(e) == self.sema.types.none_id) return self.emitIfYieldAs(e, .value, t);
+        };
         // A branch's String is a slice, so a literal in one branch and a
         // slice in another have one Zig type.
         if (ty) |t| if (self.unwrapOptional(t) == self.sema.types.string_id) {
@@ -4498,7 +4503,7 @@ pub const Emitter = struct {
         switch (storage.leafStep(self.sema, e)) {
             .@"if" => {
                 try self.w.writeAll("(");
-                try self.emitIfYield(e, .leaf_ptr);
+                try self.emitIfYieldAs(e, .leaf_ptr, ty);
                 return self.w.writeAll(")");
             },
             .fallback => {
@@ -4542,6 +4547,19 @@ pub const Emitter = struct {
                 self.read_place = true;
                 return self.emitAddressOf(e);
             },
+            .literal => {
+                // An absent optional, whose payload no branch captures,
+                // so nothing writes through its address.
+                if (self.isNoneLeaf(e)) {
+                    try self.w.writeAll("rig.noneAt(");
+                    try self.emitTypeTy(ty);
+                    return self.w.writeAll(")");
+                }
+                try self.w.writeAll("&");
+                try self.writeAsOpen(ty);
+                try self.emitBare(e);
+                return self.w.writeAll(")");
+            },
             .made => {
                 // A value kept in its statement's slot is reached there.
                 if (self.sema.dropsTemp(e)) {
@@ -4566,7 +4584,7 @@ pub const Emitter = struct {
     fn emitPayloadHolder(self: *Emitter, e: Sexp) Error!void {
         const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped optional");
         switch (storage.leafStep(self.sema, e)) {
-            .@"if", .fallback, .unwrap, .place, .part => {
+            .@"if", .fallback, .unwrap, .place, .part, .literal => {
                 try self.w.writeAll("(");
                 try self.emitLeafPtr(e, ty);
                 return self.w.writeAll(").*");
@@ -4737,11 +4755,14 @@ pub const Emitter = struct {
 
     /// `(if cond then else)` as a value.
     fn emitIfExpr(self: *Emitter, sexp: Sexp) Error!void {
-        return self.emitIfYield(sexp, .value);
+        return self.emitIfYieldAs(sexp, .value, self.typeOf(sexp));
     }
 
-    /// `(if cond then else)` yielding `how` each branch's value.
-    fn emitIfYield(self: *Emitter, sexp: Sexp, how: Yield) Error!void {
+    /// `(if cond then else)` yielding `how` each branch's value, of type
+    /// `result`: the `if`'s own, or for a leaf reached by address, the
+    /// type of the value it is a leaf of (a branch of `none`s alone has
+    /// no optional type of its own).
+    fn emitIfYieldAs(self: *Emitter, sexp: Sexp, how: Yield, result: ?TypeId) Error!void {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
         if (else_ == .nil) return self.unsupported(sexp, "an `if` without `else` in value position");
@@ -4757,24 +4778,24 @@ pub const Emitter = struct {
             try self.openParts(parts);
             try self.writeIndent(self.indent);
             try self.w.print("break :{s} ", .{label});
-            try self.emitYieldBlock(ir.If.then(sexp), .{}, self.typeOf(sexp), how);
+            try self.emitYieldBlock(ir.If.then(sexp), .{}, result, how);
             try self.w.writeAll(";\n");
             try self.closeParts(parts.len, null);
             try self.popScope();
             try self.w.writeAll("\n");
             try self.writeIndent(self.indent);
             try self.w.print("break :{s} ", .{label});
-            try self.emitYieldBlock(else_, .{}, self.typeOf(sexp), how);
+            try self.emitYieldBlock(else_, .{}, result, how);
             try self.w.writeAll(";\n");
             return self.closeBrace();
         }
         try self.w.writeAll("if ");
         try self.pushScope();
         const prelude = try self.emitCond(cond);
-        try self.emitYieldBlock(ir.If.then(sexp), prelude, self.typeOf(sexp), how);
+        try self.emitYieldBlock(ir.If.then(sexp), prelude, result, how);
         try self.popScope();
         try self.w.writeAll(" else ");
-        try self.emitYieldBlock(else_, .{}, self.typeOf(sexp), how);
+        try self.emitYieldBlock(else_, .{}, result, how);
     }
 
     /// A block that yields its last expression: inline when it is a

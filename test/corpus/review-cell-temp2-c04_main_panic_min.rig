@@ -1,0 +1,46 @@
+# Checker panic on the branch (main rejects this one): a `?self` method
+# returning a view, on a part of a value that may be one made in a
+# `catch` handler, in a `while` condition. c03_main_panic_while.rig is a
+# grid program that panics main's checker the same way.
+#
+# oracle: D.me accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mkww accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WD
+  inner: D
+
+struct WW
+  t: WD
+
+fun mk(n: Int) -> WD
+  WD(inner: D(c: Cell(n)))
+
+fun mkf(n: Int) -> WD!
+  return E.bad if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun op(k: Bool) -> Int?
+  o: WD? = mk(2)
+  i = 0
+  while i < 2 and ((mkf(-1) catch mkww(5).t) if k else o?).inner.me().c.get() > 0
+    i += 1
+  print(i)
+  0
+
+sub main()
+  print(op(true) ?? -1)

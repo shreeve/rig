@@ -726,7 +726,21 @@ lent leaf by leaf, each value made here in its own hidden binding
 are is one walk, `storage.madeLeaves` (through every branching form
 inside the value, `storage.leafStep`; a part of a value made here
 reaches that value), which emit's `emitLeafPtr` and the storage planner
-follow step by step. A header (`sema.isHeaderOf`: an `if` or `while`
+follow step by step. A literal leaf (`none`, the one an optional
+branch may have) is no made value: no slot keeps it and it holds no
+Cell, and emit reaches it as `rig.noneAt(T?)`, an absent optional whose
+payload no branch captures. Which temporaries are a statement's is one
+decision too, `sema.stmtTemps`: those of every part of it, a branch's,
+a `??` fallback's, a `catch` handler's, and a `match` arm's value
+included, but not those of a block or closure it holds, of a header,
+or of a `while` step, each a statement of its own. Emit declares a
+slot for each where the statement starts (`emitTempSlots`), and the
+ownership checker holds each in a hidden var for the statement: one a
+handler or an arm makes, in a var made before the scope it opens for
+its names (`holdPartTemps`), so a view of it is checked against the
+statement's end, where it is dropped, not the handler's. A jump out of
+a statement ends the loans the statement took for its own end, as the
+statement does. A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
 so a binding that still views `_t` is reported where the header ends.

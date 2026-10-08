@@ -1,0 +1,27 @@
+# A `none` leaf of an optional that branches, unwrapped with `?` and read
+# by a field, for a type with no Cell: emitted as the address of a
+# `null` literal, a Zig compile error (main and branch).
+#
+# oracle: mk accept
+# oracle: opt accept
+# oracle: main accept
+struct Q
+  n: Int
+  t: Text
+
+fun mk(n: Int) -> Q
+  Q(n: n, t: Text("x"))
+
+fun opt(k: Bool) -> Int?
+  o: Q? = mk(2)
+  print("v", (o if k else none)?.n)
+  0
+
+sub main()
+  print("q", opt(true) ?? -1)
+  print("q", opt(false) ?? -1)
+
+# expect:
+# v 2
+# q 0
+# q -1

@@ -1,0 +1,25 @@
+# A branch whose every leaf is `none`, beside a name's optional, as the
+# left of `??`: emit stops with "cannot emit a value of this type".
+#
+# oracle: mk accept
+# oracle: go accept
+# oracle: main accept
+struct Q
+  n: Int
+  t: Text
+
+fun mk(n: Int) -> Q
+  Q(n: n, t: Text("x"))
+
+sub go(k: Bool, j: Bool)
+  a = mk(1)
+  o: Q? = mk(2)
+  print(((o if j else (none if k else none)) ?? a).n)
+
+sub main()
+  go(true, true)
+  go(true, false)
+
+# expect:
+# 2
+# 1

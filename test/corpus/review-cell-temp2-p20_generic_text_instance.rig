@@ -1,0 +1,36 @@
+# A generic body that calls a `?self` method on a temporary and on a
+# branch beside a name's value, instantiated at Text (owning, no Cell).
+#
+# oracle: H.run accept
+# oracle: mkh accept
+# oracle: showt accept
+# oracle: temp accept
+# oracle: branch accept
+# oracle: main accept
+struct H[X]
+  x: X
+
+  sub run(?self, f: ?sub(?X))
+    f(?self.x)
+
+fun mkh[X](x: X) -> H[X]
+  H(x: <x)
+
+sub showt(t: ?Text)
+  print("t", t)
+
+sub temp[X](x: X, f: ?sub(?X))
+  mkh(<x).run(f)
+
+sub branch[X](h: H[X], x: X, f: ?sub(?X), k: Bool)
+  (h if k else mkh(<x)).run(f)
+
+sub main()
+  temp(Text("a"), showt)
+  branch(mkh(Text("b")), Text("c"), showt, true)
+  branch(mkh(Text("b")), Text("c"), showt, false)
+
+# expect:
+# t a
+# t b
+# t c

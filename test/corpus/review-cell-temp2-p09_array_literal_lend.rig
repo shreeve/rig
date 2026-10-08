@@ -1,0 +1,94 @@
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: D.bumped accept
+# oracle: D.me accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mko accept
+# oracle: mkww accept
+# oracle: look accept
+# oracle: lookall accept
+# oracle: lookarr accept
+# oracle: mkarr accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WW
+  t: D
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun look(x: ?D) -> Int
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+sub lookall(xs: []D)
+  for x in xs
+    x.c.set(x.c.get() + 10)
+
+sub lookarr(xs: ?[2]D)
+  xs[0].c.set(xs[0].c.get() + 20)
+
+fun mkarr(n: Int) -> [2]D
+  [mk(n), mk(n + 1)]
+
+sub main()
+  lookall(?[mk(1), mk(2)][..])
+  print("--")
+  lookarr(?[mk(3), mk(4)])
+  print("--")
+  lookarr(?mkarr(5))
+  print("--")
+  lookall(?mkarr(7)[..])
+  print("--")
+  [mk(9), mk(10)][1].hit()
+  print("--")
+  mkarr(11)[0].hit()
+# expect:
+# drop 12
+# drop 11
+# --
+# drop 4
+# drop 23
+# --
+# drop 6
+# drop 25
+# --
+# drop 18
+# drop 17
+# --
+# drop 11
+# drop 9
+# --
+# drop 12
+# drop 12

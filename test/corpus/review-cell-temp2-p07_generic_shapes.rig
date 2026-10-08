@@ -1,0 +1,154 @@
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: D.bumped accept
+# oracle: D.me accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mko accept
+# oracle: mkww accept
+# oracle: look accept
+# oracle: H.run accept
+# oracle: H.read accept
+# oracle: mkh accept
+# oracle: mkho accept
+# oracle: mkhf accept
+# oracle: mkn accept
+# oracle: bump accept
+# oracle: bumpr accept
+# oracle: showi accept
+# oracle: readi accept
+# oracle: showt accept
+# oracle: readt accept
+# oracle: shapes accept
+# oracle: shapes2 accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WW
+  t: D
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun look(x: ?D) -> Int
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+struct H[X]
+  x: X
+
+  sub run(?self, f: ?sub(?X))
+    f(?self.x)
+
+  fun read(?self, f: ?fun(?X) -> Int) -> Int
+    f(?self.x)
+
+struct P[X]
+  h: H[X]
+
+fun mkh[X](x: X) -> H[X]
+  H(x: <x)
+
+fun mkho[X](x: X, n: Int) -> H[X]?
+  return none if n < 0
+  H(x: <x)
+
+fun mkhf[X](x: X, n: Int) -> H[X]!
+  return E.bad if n < 0
+  H(x: <x)
+
+struct N
+  c: Cell[Int]
+
+fun mkn(n: Int) -> N
+  N(c: Cell(n))
+
+sub bump(t: ?N)
+  t.c.set(t.c.get() + 1)
+  print("n", t.c.get())
+
+fun bumpr(t: ?N) -> Int
+  t.c.set(t.c.get() + 1)
+  t.c.get()
+
+sub showi(n: ?Int)
+  print("i", n)
+
+fun readi(n: ?Int) -> Int
+  n + 1
+
+sub showt(t: ?Text)
+  print("t", t)
+
+fun readt(t: ?Text) -> Int
+  t.len
+
+sub shapes[X](h: H[X], x1: X, x2: X, x3: X, f: ?sub(?X), g: ?fun(?X) -> Int, k: Bool)!
+  (h if k else (mkh(<x1) if k else mkh(<x2))).run(f)
+  print("r", (h if k else (mkho(<x3, -1) ?? h)).read(g))
+  print("h", h.read(g))
+
+sub shapes2[X](h: H[X], x1: X, x2: X, f: ?sub(?X), k: Bool)!
+  (h if k else mkhf(<x1, 1)!).run(f)
+  (mkhf(<x2, 1)! if k else h).run(f)
+  print("h2")
+
+sub main()
+  shapes(mkh(mkn(1)), mkn(10), mkn(20), mkn(30), bump, bumpr, true) catch print("failed")
+  shapes(mkh(mkn(1)), mkn(10), mkn(20), mkn(30), bump, bumpr, false) catch print("failed")
+  shapes(mkh(1), 10, 20, 30, showi, readi, true) catch print("failed")
+  shapes(mkh(1), 10, 20, 30, showi, readi, false) catch print("failed")
+  shapes2(mkh(mkn(1)), mkn(10), mkn(20), bump, true) catch print("failed")
+  shapes2(mkh(mkn(1)), mkn(10), mkn(20), bump, false) catch print("failed")
+  shapes2(mkh(1), 10, 20, showi, false) catch print("failed")
+# expect:
+# n 2
+# r 3
+# h 4
+# n 21
+# r 2
+# h 3
+# i 1
+# r 2
+# h 2
+# i 20
+# r 2
+# h 2
+# n 2
+# n 21
+# h2
+# n 11
+# n 2
+# h2
+# i 10
+# i 1
+# h2

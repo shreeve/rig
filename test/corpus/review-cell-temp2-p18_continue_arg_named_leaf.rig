@@ -1,0 +1,32 @@
+# Was an over-rejection: a `?self` method or Cell member on a branch beside a
+# name's leaf, whose argument may `continue`, in a loop: "use of `a` while
+# a write loan is live". The same with `?? 0`, or `?? break`, is accepted.
+#
+# oracle: D.hitn accept
+# oracle: mk accept
+# oracle: maybe accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  sub hitn(?self, n: Int)
+    self.c.set(self.c.get() + n)
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub go(k: Bool)
+  a = mk(1)
+  for i in 0..3
+    (a if k else mk(10)).hitn(maybe(i - 1) ?? continue)
+  print(a.c.get())
+
+sub main()
+  go(true)
+
+# expect:
+# 2

@@ -1,0 +1,48 @@
+# Bare Cell[Vec] temporaries and branch leaves changed by members whose
+# argument jumps or fails after the receiver is reached.
+#
+# oracle: vec1 accept
+# oracle: mkv accept
+# oracle: maybe accept
+# oracle: fails accept
+# oracle: main accept
+error E
+  bad
+
+fun vec1(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  v
+
+fun mkv(n: Int) -> Cell[Vec[Int]]
+  Cell(vec1(n))
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+fun fails(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+sub go(k: Bool)!
+  x = mkv(1)
+  for i in 0..4
+    (x if k else mkv(10)).push(maybe(i - 1) ?? continue)
+    (mkv(20) if k else x).push(maybe(2 - i) ?? break)
+    print("i", i, x.len)
+  (x if k else (mkv(30) if k else mkv(31))).push(fails(5)!)
+  (x if k else mkv(40))[0] = fails(-1 if k else 7)!
+  print("x", x.len, x.get(0) ?? -1)
+
+sub main()
+  go(true) catch print("failed")
+  go(false) catch print("failed")
+
+# expect:
+# i 1 2
+# i 2 3
+# failed
+# i 1 2
+# i 2 3
+# x 3 1
