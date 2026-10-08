@@ -1,0 +1,21 @@
+# Oracle difference: `(mk(5).opt() ?? ?mk(0)).c.get()` within one statement,
+# where `opt(?self)` returns an optional view of self. Cell-holding version.
+#
+# oracle: C.opt accept
+# oracle: mkc accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+  fun opt(?self) -> (?C)?
+    self.c.set(self.c.get() + 1)
+    self
+
+fun mkc(n: Int) -> C
+  C(c: Cell(n))
+
+sub main()
+  print((mkc(5).opt() ?? ?mkc(0)).c.get())
+
+# expect:
+# 6

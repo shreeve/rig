@@ -1,0 +1,101 @@
+# Newly accepted by cell-temp (main rejects): `(a if k else mk(5)).hit()`, a ?self push
+# on the slotted made leaf. Debug: the slot's drop sees len 2 (2005);
+# --release: it drops the header from before the push (1005), C1.
+#
+# oracle: V.hit accept
+# oracle: V.bumped accept
+# oracle: V.me accept
+# oracle: V.bumpw accept
+# oracle: vec1 accept
+# oracle: vtext accept
+# oracle: mk accept
+# oracle: mko accept
+# oracle: mkf accept
+# oracle: mkww accept
+# oracle: look accept
+# oracle: poke accept
+# oracle: main accept
+error E
+  bad
+
+struct V
+  c: Cell[Vec[Int]]
+
+  drop(!self)
+    print("drop", self.c.len * 1000 + (self.c.get(0) ?? -1))
+
+  sub hit(?self)
+    self.c.push(1)
+
+  fun bumped(?self) -> Int
+    self.c.push(1)
+    self.c.len
+
+  fun me(?self) -> ?V
+    self.c.push(1)
+    self
+
+  fun bumpw(!self) -> Int
+    self.c.push(1000)
+    self.c.len
+
+fun vec1(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  v
+
+fun vtext(n: Int) -> Vec[Text]
+  v: Vec[Text] = Vec()
+  t = Text("")
+  for _ in 0..n
+    !t.add("x")
+  !v.push(<t)
+  v
+
+fun mk(n: Int) -> V
+  V(c: Cell(vec1(n)))
+
+fun mko(n: Int) -> V?
+  return none if n < 0
+  V(c: Cell(vec1(n)))
+
+fun mkf(n: Int) -> V!
+  return E.bad if n < 0
+  V(c: Cell(vec1(n)))
+
+struct WW
+  t: V
+
+fun mkww(n: Int) -> WW
+  WW(t: V(c: Cell(vec1(n))))
+
+fun look(x: ?V) -> Int
+  x.c.push(10)
+  x.c.len
+
+fun poke(x: !V) -> Int
+  x.c.push(100)
+  x.c.len
+
+fun show(x: ?V) -> Int
+  x.c.len * 1000 + (x.c.get(0) ?? -1)
+
+sub op_hit(k: Bool)
+  a = mk(1)
+  (a if k else mk(5)).hit()
+  print("a", show(?a))
+
+sub main()
+  print("== hit true")
+  op_hit(true)
+  print("== hit false")
+  op_hit(false)
+
+# expect:
+# == hit true
+# a 2001
+# drop 2001
+# == hit false
+# drop 2005
+# a 1001
+# drop 1001

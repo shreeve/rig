@@ -1,0 +1,70 @@
+# Generic bodies reaching temporaries and branch leaves, instantiated at a
+# Cell holder, at a read view of one, at a write view of one, and at Int.
+#
+# oracle: T.drop accept
+# oracle: H.run accept
+# oracle: mkh accept
+# oracle: mkp accept
+# oracle: bumpv accept
+# oracle: showi accept
+# oracle: temp accept
+# oracle: branch accept
+struct T
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+struct H[X]
+  x: X
+
+  sub run(?self, f: ?sub(?X))
+    f(?self.x)
+
+struct P[X]
+  h: H[X]
+
+fun mkh[X](x: X) -> H[X]
+  H(x: <x)
+
+fun mkp[X](x: X) -> P[X]
+  P(h: H(x: <x))
+
+sub bumpv(t: ?(?T))
+  t.c.set(t.c.get() + 10)
+
+sub bumpw(t: ?(!T))
+  t.c.set(t.c.get() + 100)
+
+sub showi(n: ?Int)
+  print("i", n)
+
+sub temp[X](x: X, f: ?sub(?X))
+  mkh(<x).run(f)
+
+sub branch[X](p: ?P[X], x: X, f: ?sub(?X), k: Bool)
+  (p if k else ?mkp(<x)).h.run(f)
+
+sub main()
+  t1 = T(c: Cell(1))
+  t2 = T(c: Cell(2))
+  temp(?t1, bumpv)
+  print("t1", t1.c.get())
+  temp(!t1, bumpw)
+  print("t1", t1.c.get())
+  pp = mkp(?t2)
+  branch(?pp, ?t1, bumpv, true)
+  branch(?pp, ?t1, bumpv, false)
+  print("t1", t1.c.get(), "t2", t2.c.get())
+  qq = mkp(5)
+  branch(?qq, 6, showi, true)
+  branch(?qq, 6, showi, false)
+
+# expect:
+# t1 11
+# t1 111
+# t1 121 t2 12
+# i 5
+# i 6
+# drop 12
+# drop 121

@@ -1,0 +1,32 @@
+# A Cell change through a `for` binding over a branching value with a
+# named leaf: the binding views the element where it is.
+#
+# oracle: C.hit accept
+# oracle: mka accept
+# oracle: go reject C2
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mka(n: Int) -> [2]C
+  [C(c: Cell(n)), C(c: Cell(n + 1))]
+
+sub go(k: Bool)
+  arr = mka(10)
+  for x in (arr if k else mka(20))
+    x.hit()
+    x.c.set(x.c.get() + 5)
+  for x in ?(arr if k else mka(20))
+    x.hit()
+  print(arr[0].c.get(), arr[1].c.get())
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# 17 18
+# 10 11

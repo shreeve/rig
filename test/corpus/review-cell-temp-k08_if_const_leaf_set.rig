@@ -1,0 +1,22 @@
+# `(a if k else C(c: Cell(2))).c.set(5)`, the constant leaf taken.
+#
+# oracle: C.hit accept
+# oracle: mkc accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+  fun hit(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+fun mkc(n: Int) -> C
+  C(c: Cell(n))
+
+sub run(k: Bool)
+  a = mkc(1)
+  (a if k else C(c: Cell(2))).c.set(5)
+  print(a.c.get())
+
+sub main()
+  run(false)

@@ -1,0 +1,31 @@
+# A `?self` method returning a view of self, on a value whose leaf is a
+# value made in a `catch` handler: the ownership checker panics (index
+# out of bounds in `mayOwnView`) instead of accepting or rejecting.
+#
+# oracle: N.me accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: main accept
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+  fun me(?self) -> ?N
+    self.c.set(self.c.get() + 1)
+    self
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkf(n: Int) -> N!
+  return E.bad if n < 0
+  mk(n)
+
+sub go(k: Bool)
+  a = mk(1)
+  print(((mkf(-1) catch mk(5)) if k else a).me().c.get())
+
+sub main()
+  go(true)

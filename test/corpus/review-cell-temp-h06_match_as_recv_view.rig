@@ -1,0 +1,24 @@
+# if/while/match binding a view a `?self` method returns of a Cell-holding
+# temporary.
+#
+# oracle: D.drop accept
+# oracle: D.me accept
+# oracle: mkd accept
+# oracle: main reject C5
+struct D
+  c: Cell[Int]
+  o: Int?
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun me(?self) -> ?D
+    self.c.set(9)
+    self
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n), o: n)
+
+sub main()
+  match mkd(1).me()
+    d => print(d.c.get())

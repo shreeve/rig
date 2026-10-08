@@ -1,0 +1,21 @@
+# Returning a view of a Cell-holding temporary from a function.
+#
+# oracle: mkd accept
+# oracle: touch accept
+# oracle: leak reject C5
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun touch(p: ?D) -> ?D
+  p.c.set(p.c.get() + 10)
+  p
+
+fun leak() -> ?D
+  touch(?mkd(1))
+
+sub main()
+  print(leak().c.get())

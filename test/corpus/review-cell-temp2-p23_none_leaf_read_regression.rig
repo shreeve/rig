@@ -1,0 +1,33 @@
+# Regression: a read of a branch beside a name's value whose other leaf
+# unwraps an optional that branches to `none`. Main prints the expected
+# output; the branch stops at emit's backstop.
+#
+# oracle: mk accept
+# oracle: mko accept
+# oracle: main accept
+struct N
+  c: Cell[Int]
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mko(n: Int) -> N?
+  return none if n < 0
+  mk(n)
+
+fun op(k: Bool, j: Bool) -> Int?
+  b = mk(4)
+  print("v", (b if j else (mko(5) if k else none)?).c.get())
+  0
+
+sub main()
+  print("q", op(true, true) ?? -1)
+  print("q", op(true, false) ?? -1)
+  print("q", op(false, false) ?? -1)
+
+# expect:
+# v 4
+# q 0
+# v 5
+# q 0
+# q -1

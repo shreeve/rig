@@ -1,0 +1,122 @@
+# ((mkf(-1) catch mkww(23202).t) if k else o?)
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: D.bumped accept
+# oracle: D.me accept
+# oracle: D.bumpw accept
+# oracle: vec1 accept
+# oracle: mk accept
+# oracle: mko accept
+# oracle: mkf accept
+# oracle: mkww accept
+# oracle: consume accept
+# oracle: look accept
+# oracle: poke accept
+# oracle: show accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+  fun bumpw(!self) -> Int
+    self.c.set(self.c.get() + 1000)
+    self.c.get()
+
+struct WD
+  inner: D
+  n: Int
+
+fun vec1(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  v
+
+fun mk(n: Int) -> WD
+  WD(inner: D(c: Cell(n)), n: 0)
+
+fun mko(n: Int) -> WD?
+  return none if n < 0
+  mk(n)
+
+fun mkf(n: Int) -> WD!
+  return E.bad if n < 0
+  mk(n)
+
+struct WW
+  t: WD
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+sub consume(n: Int)
+  print("v", n)
+
+fun look(x: ?WD) -> Int
+  x.inner.c.set(x.inner.c.get() + 10)
+  x.inner.c.get()
+
+fun poke(x: !WD) -> Int
+  x.inner.c.set(x.inner.c.get() + 100)
+  x.inner.c.get()
+
+fun show(x: ?WD) -> Int
+  x.inner.c.get()
+
+fun op(k: Bool, j: Bool) -> Int?
+  o: WD? = none
+  o = mk(2) if j
+  i = 0
+  while i < 2 and ((mkf(-1) catch mkww(23202).t) if k else o?).inner.me().c.get() > 0
+    i += 1
+  print("w", i)
+  if o as y
+    print("o", show(?y))
+  0
+
+sub main()
+  print("== op 11")
+  print("q", op(true, true) ?? -1)
+  print("== op 10")
+  print("q", op(true, false) ?? -1)
+  print("== op 01")
+  print("q", op(false, true) ?? -1)
+  print("== op 00")
+  print("q", op(false, false) ?? -1)
+
+# expect:
+# == op 11
+# drop 23203
+# drop 23203
+# w 2
+# o 2
+# drop 2
+# q 0
+# == op 10
+# drop 23203
+# drop 23203
+# w 2
+# q 0
+# == op 01
+# w 2
+# o 4
+# drop 4
+# q 0
+# == op 00
+# q -1

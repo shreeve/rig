@@ -1,0 +1,23 @@
+# A write lend of a branching value whose leaf is a moved name.
+#
+# oracle: poke accept
+# oracle: go accept
+# oracle: main accept
+struct N
+  c: Cell[Int]
+
+fun poke(x: !N) -> Int
+  x.c.set(x.c.get() + 100)
+  x.c.get()
+
+sub go(k: Bool)
+  a = N(c: Cell(1))
+  print("v", poke(!((<a) if k else N(c: Cell(5)))))
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# v 101
+# v 105

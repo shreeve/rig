@@ -1,0 +1,36 @@
+# Variants of a branching lend with a named leaf, each of which would copy a
+# unique value: nested branches, `??`, `catch`, a named part.
+#
+# oracle: mkc accept
+# oracle: mkf accept
+# oracle: bump accept
+struct C
+  c: Cell[Int]
+
+struct H
+  d: C
+
+error E
+  bad
+
+fun mkc() -> C
+  C(c: Cell(100))
+
+fun mkf(n: Int) -> C!
+  return E.bad if n < 0
+  mkc()
+
+sub bump(p: ?C)
+  p.c.set(p.c.get() + 1)
+
+sub main()
+  a = mkc()
+  h = H(d: mkc())
+  o: C? = mkc()
+  c = a.c.get() > 0
+  bump(?((a if c else mkc()) if c else mkc()))
+  bump(?(o ?? mkc()))
+  bump(?(mkf(-1) catch a))
+  bump(?(h.d if c else mkc()))
+  bump(?(mkc() if c else (mkc() if c else a)))
+  print(a.c.get())

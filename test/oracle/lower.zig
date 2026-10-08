@@ -1588,17 +1588,19 @@ const Lowerer = struct {
         try self.storeLeaf(j, v, left);
         try self.goto(x);
         self.cur = other;
-        try self.pushRegion();
-        if (e.isKind(.@"catch")) {
-            const name = ir.Catch.name(e);
-            if (name != .nil and !std.mem.eql(u8, name.getText(self.src), "_")) {
-                const err = try self.bind(name, 0);
-                try self.emit(.{ .pos = pos, .what = .make, .def = err });
-            }
+        // The fallback is no statement of its own (Core §3), as an `if`
+        // branch is not (`ifInto`): its temporaries are its statement's,
+        // and only the error a `catch` binds leaves with it.
+        const name: Sexp = if (e.isKind(.@"catch")) ir.Catch.name(e) else .nil;
+        const binds = name != .nil and !std.mem.eql(u8, name.getText(self.src), "_");
+        if (binds) {
+            try self.pushRegion();
+            const err = try self.bind(name, 0);
+            try self.emit(.{ .pos = pos, .what = .make, .def = err });
         }
         const handler = if (e.isKind(.@"??")) ir.get(e, .right) else ir.Catch.handler(e);
         try self.valueInto(handler, if (how == .ret) .take else how, j);
-        try self.popRegion(pos);
+        if (binds) try self.popRegion(pos);
         try self.goto(x);
         self.cur = x;
     }

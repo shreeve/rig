@@ -1,0 +1,78 @@
+# A temporary that holds a Cell may be lent to read, as any temporary
+# may (Core §3): it lives in its statement's slot, a change through the
+# view lands there, and the temporary's `drop` sees it when the statement
+# ends. So does a temporary that holds one, an optional or a fallible
+# value made here, a constructor, and a value whose every branch is made
+# here, whole or a part of it. A generic body lending a temporary of its type parameter does
+# the same in an instance whose type holds a Cell.
+# release
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+struct H
+  d: D
+  n: Int
+
+error E
+  bad
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkh(n: Int) -> H
+  H(d: mkd(n), n: 0)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mkd(n)
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mkd(n)
+
+sub bump(p: ?D)
+  p.c.set(p.c.get() + 10)
+
+sub bumph(h: ?H)
+  h.d.c.set(h.d.c.get() + 10)
+
+sub bumpo(p: ?(D?))
+  if p as d
+    d.c.set(d.c.get() + 10)
+
+sub lend[T](mk: fun(Int) -> T, f: sub(?T))
+  f(?mk(9))
+
+sub run()
+  bump(?mkd(1))
+  bumph(?mkh(2))
+  bumpo(?mko(3))
+  bump(?D(c: Cell(4)))
+
+sub branches(c: Bool)!
+  bump(?mkf(5)!)
+  bump(?(mkd(6) if c else mkd(7)))
+  bump(?(mkd(6) if not c else mkd(7)))
+  bump(?(mkh(8) if c else mkh(9)).d)
+
+sub main()!
+  run()
+  branches(true)!
+  lend(mkd, bump)
+  print("end")
+
+# expect:
+# drop 11
+# drop 12
+# drop 13
+# drop 14
+# drop 15
+# drop 16
+# drop 17
+# drop 18
+# drop 19
+# end

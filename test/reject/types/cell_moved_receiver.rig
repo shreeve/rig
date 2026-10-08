@@ -1,6 +1,9 @@
-# A Cell moved out of its binding (`<c`) is a temporary: a change to it
-# through `set`, `replace`, or its Vec's `push`, `pop`, or `clear`
-# would be lost with it.
+# A Cell's `set`, `replace`, and its Vec's `push`, `pop`, and `clear`
+# take their receiver as a read view, as any `?self` method does, so a
+# receiver moved there with `<` is rejected: `<` would end the binding
+# for a call that only lends it. (A moved value as the base of a path,
+# `(<a).c.set(v)`, is a temporary, whose Cell changes in its statement's
+# slot: test/behavior/types/cell_temporary_set.rig.)
 
 sub main()
   c: Cell[Vec[Int]] = Cell(Vec[Int]())
@@ -15,9 +18,9 @@ sub main()
   y = (<m).replace(2)
   print(x ?? 0, y)
 
-# error: 7:8: `Cell.push` needs a Cell that has a place
-# error: 9:12: `Cell.pop` needs a Cell that has a place
-# error: 11:8: `Cell.clear` needs a Cell that has a place
-# error: 13:8: `Cell.set` needs a Cell that has a place
-# error: 15:12: `Cell.replace` needs a Cell that has a place
+# error: 10:8: method `push` takes its receiver as a read view; cannot move
+# error: 12:12: method `pop` takes its receiver as a read view; cannot move
+# error: 14:8: method `clear` takes its receiver as a read view; cannot move
+# error: 16:8: method `set` takes its receiver as a read view; cannot move
+# error: 18:12: method `replace` takes its receiver as a read view; cannot move
 # errors: 5

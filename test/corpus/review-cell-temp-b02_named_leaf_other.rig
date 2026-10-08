@@ -1,0 +1,38 @@
+# The same shapes with the made leaf taken: the change must land in the
+# made temporary, which its drop sees.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+sub run(k: Int)
+  a = mkd(10)
+  o: D? = none
+  (a if k == 0 else mkd(11)).c.set(100)
+  (a if k == 0 else mkd(12)).hit()
+  (o ?? mkd(21)).c.set(300)
+  (o ?? mkd(22)).hit()
+  print(a.c.get())
+
+sub main()
+  run(1)
+
+# expect:
+# drop 100
+# drop 13
+# drop 300
+# drop 23
+# 10
+# drop 10

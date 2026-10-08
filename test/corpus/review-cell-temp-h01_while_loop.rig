@@ -1,0 +1,59 @@
+# A while header lending a Cell-holding temporary: made, changed, and dropped
+# once per iteration.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: ok accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun hit(?self) -> Int
+    self.c.set(self.c.get() + 100)
+    self.c.get()
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun ok(p: ?D) -> Bool
+  p.c.set(p.c.get() + 10)
+  p.c.get() < 14
+
+sub main()
+  n = 0
+  while ok(?mkd(n))
+    print("body", n)
+    n += 1
+  m = 0
+  while mkd(m).hit() < 102
+    print("body2", m)
+    m += 1
+  k = 0
+  while mkd(k).c.replace(k + 50) < 2
+    print("body3", k)
+    k += 1
+
+# expect:
+# drop 10
+# body 0
+# drop 11
+# body 1
+# drop 12
+# body 2
+# drop 13
+# body 3
+# drop 14
+# drop 100
+# body2 0
+# drop 101
+# body2 1
+# drop 102
+# drop 50
+# body3 0
+# drop 51
+# body3 1
+# drop 52

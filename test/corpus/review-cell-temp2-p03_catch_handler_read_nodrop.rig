@@ -1,0 +1,33 @@
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: main accept
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkf(n: Int) -> N!
+  return E.bad if n < 0
+  mk(n)
+
+sub go(k: Bool)
+  a = mk(1)
+  print((a if k else (mkf(-1) catch mk(5))).c.get())
+  print((mkf(-1) catch mk(6)).c.get())
+  print((a if k else (mkf(-1) catch |e| mk(7) if e == E.bad else mk(8))).c.get())
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# 1
+# 6
+# 1
+# 5
+# 6
+# 7

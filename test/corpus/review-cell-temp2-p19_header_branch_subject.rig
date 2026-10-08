@@ -1,0 +1,57 @@
+# Headers whose subject branches beside a name's value, over types that
+# hold a Cell: a `for` over an array, a `match` on an enum, `if ... as`.
+#
+# oracle: N.hit accept
+# oracle: mk accept
+# oracle: mkarr accept
+# oracle: mke accept
+# oracle: mko accept
+# oracle: go reject C2
+# oracle: main accept
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+enum En
+  one(n: N)
+  two(c: Cell[Int])
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkarr(n: Int) -> [2]N
+  [mk(n), mk(n + 1)]
+
+fun mke(n: Int) -> En
+  En.one(n: mk(n))
+
+fun mko(n: Int) -> N?
+  return none if n < 0
+  mk(n)
+
+sub go(k: Bool)
+  arr = mkarr(1)
+  print("arr", arr[0].c.get(), arr[1].c.get())
+  e = mke(5)
+  match e
+    .one(n) => print("e", n.c.get())
+    .two(_) => print("two")
+  o: N? = mk(7)
+  if (o if k else mko(30)) as y
+    y.hit()
+  if o as y
+    print("o", y.c.get())
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# arr 1 2
+# e 5
+# o 8
+# arr 1 2
+# e 5
+# o 7

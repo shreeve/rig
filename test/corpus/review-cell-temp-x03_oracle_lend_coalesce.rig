@@ -1,0 +1,20 @@
+# The same shape through a free function lent `?mkc(5)` (no receiver).
+#
+# oracle: opt accept
+# oracle: mkc accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+fun opt(p: ?C) -> (?C)?
+  p.c.set(p.c.get() + 1)
+  p
+
+fun mkc(n: Int) -> C
+  C(c: Cell(n))
+
+sub main()
+  print((opt(?mkc(5)) ?? ?mkc(0)).c.get())
+
+# expect:
+# 6

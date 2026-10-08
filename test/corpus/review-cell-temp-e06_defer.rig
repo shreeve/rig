@@ -1,0 +1,33 @@
+# A deferred statement lending or changing a Cell-holding temporary.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: bump accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+sub bump(p: ?D)
+  p.c.set(p.c.get() + 10)
+
+sub main()
+  defer bump(?mkd(1))
+  defer mkd(5).hit()
+  defer mkd(7).c.set(8)
+  print("body")
+
+# expect:
+# body
+# drop 8
+# drop 6
+# drop 11

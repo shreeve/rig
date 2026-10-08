@@ -1,0 +1,26 @@
+# Inside a generic body, `?(x if c else mk())` with `x: T` a named value: at
+# T = C (holds a Cell, no drop), lending it would copy `x` (unique) into the
+# slot, and the change through the view would land in the copy.
+#
+# oracle: mkc accept
+# oracle: bump accept
+struct C
+  c: Cell[Int]
+
+fun mkc() -> C
+  C(c: Cell(100))
+
+sub bump(p: ?C)
+  p.c.set(p.c.get() + 1)
+
+fun lend[T](x: T, mk: fun() -> T, f: sub(?T), c: Bool) -> T
+  f(?(x if c else mk()))
+  f(?(x if c else mk()))
+  x
+
+sub main()
+  r = lend(C(c: Cell(1)), mkc, bump, true)
+  print(r.c.get())
+
+# expect:
+# 3

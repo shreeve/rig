@@ -1,0 +1,24 @@
+# A module-level constant that holds a Cell: changing it would write a Zig
+# `const` global (read-only memory).
+#
+# oracle: N.hit accept
+# oracle: main accept
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+base = Cell(1)
+k = N(c: Cell(2))
+ks = [N(c: Cell(3))]
+
+sub main()
+  base.set(5)
+  k.c.set(6)
+  k.hit()
+  ks[0].hit()
+  print(base.get(), k.c.get(), ks[0].c.get())
+
+# expect:
+# 5 7 4

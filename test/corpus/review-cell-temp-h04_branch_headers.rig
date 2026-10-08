@@ -1,0 +1,65 @@
+# Branching Cell-holding temporaries in headers, re-made each iteration.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: mkh accept
+# oracle: val accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun hit(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+struct H
+  d: D
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkh(n: Int) -> H
+  H(d: mkd(n))
+
+fun val(p: ?D) -> Int
+  p.c.set(p.c.get() + 10)
+  p.c.get()
+
+sub main()
+  i = 0
+  while (mkh(i) if i % 2 == 0 else mkh(100 + i)).d.hit() < 104
+    print("w", i)
+    i += 1
+  j = 0
+  while val(?(mkd(j) if j < 1 else mkd(50))) < 30
+    print("v", j)
+    j += 1
+  for k in 0..(mkd(2) if i > 0 else mkd(3)).c.replace(7)
+    print("f", k)
+  match (mkh(5) if i > 0 else mkh(6)).d.c.replace(8)
+    5 => print("five")
+    _ => print("other")
+  if val(?(mkh(1) if i > 0 else mkh(2)).d) == 11
+    print("if")
+
+# expect:
+# drop 1
+# w 0
+# drop 102
+# w 1
+# drop 3
+# w 2
+# drop 104
+# drop 10
+# v 0
+# drop 60
+# drop 7
+# f 0
+# f 1
+# drop 8
+# five
+# drop 11
+# if

@@ -1,0 +1,33 @@
+# A bare Cell as a branching receiver with a named leaf.
+#
+# oracle: fresh accept
+# oracle: main accept
+fun fresh(n: Int) -> Cell[Int]
+  Cell(n)
+
+fun gen[T](x: Cell[T], k: Bool, v: T, w: T) -> Cell[T]
+  (x if k else Cell(v)).set(w)
+  x
+
+sub run(k: Bool)
+  x = Cell(1)
+  (x if k else fresh(2)).set(5)
+  print(x.get())
+  print((x if k else fresh(3)).replace(6))
+  print(x.get())
+  (x if k else Cell(4)).set(7)
+  print(x.get())
+
+sub main()
+  run(true)
+  run(false)
+
+# expect:
+# 5
+# 5
+# 6
+# 7
+# 1
+# 3
+# 1
+# 1

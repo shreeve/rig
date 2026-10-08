@@ -1,0 +1,23 @@
+# A write lend of a branching value with a named
+# leaf and a constant made leaf (no Cell).
+#
+# oracle: P.bumpw accept
+# oracle: main accept
+struct P
+  n: Int
+
+  sub bumpw(!self)
+    self.n += 1
+
+sub run(k: Bool)
+  a = P(n: 1)
+  !(a if k else P(n: 2)).bumpw()
+  print(a.n)
+
+sub main()
+  run(false)
+  run(true)
+
+# expect:
+# 1
+# 2

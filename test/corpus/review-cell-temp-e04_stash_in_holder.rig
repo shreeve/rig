@@ -1,0 +1,22 @@
+# A callee that stores the view it is lent into a holder that outlives the statement.
+#
+# oracle: mkd accept
+# oracle: stash accept
+# oracle: main reject C5
+struct D
+  c: Cell[Int]
+
+struct K
+  r: ?D
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+sub stash(k: !K, p: ?D)
+  k.r = p
+
+sub main()
+  a = mkd(0)
+  k = K(r: ?a)
+  stash(!k, ?mkd(1))
+  print(k.r.c.get())

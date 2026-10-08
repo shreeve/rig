@@ -1,0 +1,35 @@
+# A `unique` type without a Cell: a read lend of a branch beside a name's
+# value (rejected now: it would copy the unique value into the slot), a
+# `?self` method on such a branch, and a read of a field.
+#
+# oracle: R.get accept
+# oracle: mkr accept
+# oracle: look accept
+# oracle: go accept
+# oracle: main accept
+struct R unique
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+fun mkr(n: Int) -> R
+  R(n: n)
+
+fun look(r: ?R) -> Int
+  r.n
+
+sub go(k: Bool)
+  r = mkr(1)
+  print((r if k else mkr(5)).get(), (r if k else mkr(6)).n)
+  print(look(?r if k else ?mkr(7)))
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# 1 1
+# 1
+# 5 6
+# 7

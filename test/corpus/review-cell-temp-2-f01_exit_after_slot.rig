@@ -1,0 +1,120 @@
+# Leaving a statement after a made leaf of a named-leaf branch is in its
+# slot: `break`, `continue`, `return`, `!` and `?` in an argument, in loops.
+# The made value is dropped once on every path; the name keeps its change.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: D.with accept
+# oracle: mkd accept
+# oracle: maybe accept
+# oracle: fails accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  drop(!self)
+    print("drop", self.c.get(), self.log.len)
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun with(?self, n: Int) -> Int
+    self.log.push(n)
+    self.log.len
+
+fun mkd(n: Int) -> D
+  d = D(c: Cell(n), log: Cell(Vec()))
+  d.log.push(n)
+  d
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+fun fails(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+sub loops(k: Bool)
+  for i in 0..4
+    (mkd(70 + i) if k else mkd(10 + i)).c.set(maybe(i - 2) ?? continue)
+    mkd(20 + i).log.push(maybe(2 - i) ?? break)
+  print("end")
+
+sub fails_out(k: Bool)!
+  a = mkd(1)
+  for i in 0..3
+    print((a if k else mkd(30 + i)).with(fails(1 - i)!))
+  print("not reached")
+
+fun quits(k: Bool) -> Int?
+  a = mkd(1)
+  i = 0
+  while i < 3
+    (mkd(40 + i) if k else a).hit()
+    print((mkd(50 + i) if k else a).with(maybe(1 - i)?))
+    i += 1
+  0
+
+fun rets(k: Bool) -> Int
+  a = mkd(1)
+  (a if k else mkd(60)).c.set(maybe(-1) ?? return 7)
+  0
+
+sub main()
+  loops(true)
+  loops(false)
+  fails_out(true) catch print("failed")
+  fails_out(false) catch print("failed")
+  print(quits(true) ?? -1)
+  print(quits(false) ?? -1)
+  print(rets(true), rets(false))
+
+# expect:
+# drop 70 1
+# drop 71 1
+# drop 0 1
+# drop 22 2
+# drop 1 1
+# drop 23 1
+# end
+# drop 10 1
+# drop 11 1
+# drop 0 1
+# drop 22 2
+# drop 1 1
+# drop 23 1
+# end
+# 2
+# 3
+# drop 1 3
+# failed
+# 2
+# drop 30 2
+# 2
+# drop 31 2
+# drop 32 1
+# drop 1 1
+# failed
+# drop 41 1
+# 2
+# drop 50 2
+# drop 42 1
+# 2
+# drop 51 2
+# drop 43 1
+# drop 52 1
+# drop 1 1
+# -1
+# 2
+# 3
+# drop 4 3
+# -1
+# drop 1 1
+# drop 60 1
+# drop 1 1
+# 7 7

@@ -1230,11 +1230,6 @@ pub const Requirement = union(enum) {
     /// parameter (a loop element, a match payload) and may lend it, so a
     /// Cell in it would change in the copy only.
     no_cell,
-    /// Holds no Cell inline: the body calls a `?self` method that may
-    /// change a Cell on a value holding the parameter that has no place
-    /// (a temporary, or a branch's leaf made there), which an instance
-    /// holding a Cell would need.
-    cell_place,
     /// Needs no cleanup: the body discards the parameter's value, leaves
     /// a temporary of it, overwrites one, or keeps one in an array or a
     /// slice.
@@ -1269,7 +1264,7 @@ pub const Requirement = union(enum) {
             .shift => "a constant shift",
             .copies => "a value that copies",
             .no_cleanup => "a value that owns no resource",
-            .no_cell, .cell_place => "a value that holds no Cell",
+            .no_cell => "a value that holds no Cell",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
@@ -3967,18 +3962,46 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
     return header == .list and child == .list and header.list.id == child.list.id;
 }
 
+/// Whether the temporaries `child` makes are its parent `stmt`'s: a
+/// block or a closure holds statements of its own, and a header (an
+/// `if`'s condition, a `match`'s subject, an arm's guard) or a `while`
+/// loop's step is a statement of its own; every other part of a
+/// statement, a branch, a `??` fallback, a `catch` handler, and a
+/// `match` arm's value included, makes its temporaries for the
+/// statement.
+fn sharesStmtTemps(stmt: Sexp, child: Sexp) bool {
+    if (child != .list or child.isKind(.block) or child.isKind(.lambda)) return false;
+    return !isHeaderOf(stmt, child) and !isWhileStep(stmt, child);
+}
+
 /// The first statement temporary (`dropsTemp`) that `stmt`, a statement
-/// or a header, makes itself: not one inside a block or closure it
-/// holds, a header of its own (an `if`'s condition, a `match`'s
-/// subject), or a `while` loop's step, each of which ends its own.
+/// or a header, makes itself (`stmtTemps`).
 pub fn firstStmtTemp(ctx: *const SemContext, stmt: Sexp) ?Sexp {
     if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return null;
     if (ctx.dropsTemp(stmt)) return stmt;
     for (rig.children(stmt)) |c| {
-        if (isHeaderOf(stmt, c) or isWhileStep(stmt, c)) continue;
+        if (!sharesStmtTemps(stmt, c)) continue;
         if (firstStmtTemp(ctx, c)) |t| return t;
     }
     return null;
+}
+
+/// The statement temporaries (`dropsTemp`) that `stmt`, a statement, a
+/// header, or a part of one, makes itself (`sharesStmtTemps`), appended
+/// to `out` in the order they are made: an assignment's value before its
+/// target (Core §6), and a value's parts before it. This is where each
+/// temporary lives: emit declares a slot for each where the statement
+/// starts (`Emitter.emitTempSlots`), and the ownership checker holds each
+/// for the statement, also one made in a `catch` handler or a `match`
+/// arm, whose scope it opens for the handler's or arm's names
+/// (`Checker.holdPartTemps`).
+pub fn stmtTemps(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
+    if (stmt.isKind(.set)) {
+        try stmtTemps(ctx, a, ir.Set.value(stmt), out);
+        try stmtTemps(ctx, a, ir.Set.target(stmt), out);
+    } else for (rig.children(stmt)) |c| if (sharesStmtTemps(stmt, c)) try stmtTemps(ctx, a, c, out);
+    if (ctx.dropsTemp(stmt)) try out.append(a, stmt);
 }
 
 /// Whether a view of type `ty` is held as a pointer: a write view (but
@@ -5934,7 +5957,7 @@ pub fn valueLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) 
 
 /// A value that is one of its operands: `a if c else b`, `a ?? b`,
 /// `e catch h`, `e!`, or `e?`. An `if` without an `else` is a statement.
-fn isBranchingForm(node: Sexp) bool {
+pub fn isBranchingForm(node: Sexp) bool {
     return switch (node.kind() orelse return false) {
         .@"if" => ir.If.@"else"(node) != .nil,
         .@"??", .@"catch", .propagate, .propagate_none => true,

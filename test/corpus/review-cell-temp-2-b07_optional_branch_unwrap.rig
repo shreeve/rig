@@ -1,0 +1,37 @@
+# `(o if k else mko(5))?`: a branching optional with a named leaf, unwrapped
+# with `?`, then a Cell change or a read through it.
+#
+# oracle: N.hit accept
+# oracle: mk accept
+# oracle: mko accept
+# oracle: main accept
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mko(n: Int) -> N?
+  return none if n < 0
+  mk(n)
+
+fun hits(k: Bool) -> Int?
+  o: N? = mk(2)
+  (o if k else mko(5))?.hit()
+  (o if k else mko(6))?.c.set(77)
+  o?.c.get()
+
+fun reads(k: Bool) -> Int?
+  o: N? = mk(2)
+  (o if k else mko(5))?.c.get()
+
+sub main()
+  print(hits(true) ?? -1, hits(false) ?? -1)
+  print(reads(true) ?? -1, reads(false) ?? -1)
+
+# expect:
+# 77 2
+# 2 5

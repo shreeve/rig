@@ -1,0 +1,56 @@
+# Cell methods on temporaries whose Cell holds owners: no leak, no double drop.
+#
+# oracle: D.drop accept
+# oracle: L.drop accept
+# oracle: mkd accept
+# oracle: mkl accept
+# oracle: freshT accept
+# oracle: freshV accept
+# oracle: freshD accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+struct L
+  t: Cell[Text]
+  v: Cell[Vec[Text]]
+  d: Cell[D]
+
+  drop(!self)
+    print("dropL", self.t.replace(Text("-")), self.v.len)
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkl(s: String) -> L
+  L(t: Cell(Text(s)), v: Cell(Vec()), d: Cell(mkd(0)))
+
+fun freshT() -> Cell[Text]
+  Cell(Text("ft"))
+
+fun freshV() -> Cell[Vec[Text]]
+  w: Vec[Text] = Vec()
+  !w.push(Text("v0"))
+  Cell(<w)
+
+fun freshD() -> Cell[D]
+  Cell(mkd(100))
+
+sub main()
+  mkl("a").t.set(Text("b"))
+  print(mkl("c").t.replace(Text("d")))
+  mkl("e").v.push(Text("x"))
+  print(mkl("f").v.pop())
+  mkl("g").v.clear()
+  mkl("h").d.set(mkd(5))
+  print(mkl("i").d.replace(mkd(6)).c.get())
+  freshT().set(Text("z"))
+  print(freshT().replace(Text("y")))
+  freshV().push(Text("w"))
+  print(freshV().pop())
+  freshV().clear()
+  freshD().set(mkd(7))
+  freshD().replace(mkd(8)).c.set(9)

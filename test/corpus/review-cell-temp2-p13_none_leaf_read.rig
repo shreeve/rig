@@ -1,0 +1,24 @@
+# A `none` leaf of an optional that branches, unwrapped with `?` and read
+# where it stands: main runs it; the branch stops at emit's backstop.
+#
+# oracle: mk accept
+# oracle: main accept
+struct N
+  c: Cell[Int]
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun opt(k: Bool) -> Int?
+  o: N? = mk(2)
+  print("v", (o if k else none)?.c.get())
+  0
+
+sub main()
+  print("q", opt(true) ?? -1)
+  print("q", opt(false) ?? -1)
+
+# expect:
+# v 2
+# q 0
+# q -1

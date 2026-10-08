@@ -1,0 +1,41 @@
+# Closures whose body lends or changes a Cell-holding temporary; and a
+# closure called while a slot temporary is live.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: bump accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun bump(p: ?D) -> Int
+  p.c.set(p.c.get() + 10)
+  p.c.get()
+
+sub main()
+  f = || bump(?mkd(1))
+  print(f())
+  g = ||
+    mkd(3).hit()
+    mkd(4).c.set(40)
+  g()
+  print(bump(?mkd(f())))
+
+# expect:
+# drop 11
+# 11
+# drop 4
+# drop 40
+# drop 11
+# 21
+# drop 21

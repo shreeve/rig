@@ -1,0 +1,45 @@
+# A `?self` method returning a view of self, called on a Cell-holding
+# temporary that has no drop: the view must point at storage that lives
+# until the statement ends, not at a block-local copy.
+#
+# oracle: C.me accept
+# oracle: mkc accept
+# oracle: both accept
+# oracle: burn accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+  pad: [8]Int
+
+  fun me(?self) -> ?C
+    self.c.set(self.c.get() + 1)
+    self
+
+struct W
+  inner: C
+
+fun mkc(n: Int) -> C
+  C(c: Cell(n), pad: [n, n, n, n, n, n, n, n])
+
+fun both(a: ?C, b: ?C) -> Int
+  a.c.get() * 1000 + b.c.get()
+
+fun burn(n: Int) -> Int
+  arr: [64]Int = [64 of 0]
+  for i in 0..64
+    arr[i] = n + i
+  arr[63]
+
+sub main()
+  print(both(mkc(1).me(), mkc(2).me()))
+  print(both(W(inner: mkc(3)).inner.me(), W(inner: mkc(4)).inner.me()))
+  print(both([mkc(5)][0].me(), [mkc(6)][0].me()))
+  print(mkc(7).me().me().c.get(), burn(1), mkc(8).me().c.get())
+  print(both(mkc(9).me(), mkc(burn(10)).me()))
+
+# expect:
+# 2003
+# 4005
+# 6007
+# 9 64 9
+# 10074

@@ -1,0 +1,28 @@
+# Pre-existing (main too): a function that changes a Cell[Vec] through a
+# read view parameter. Debug is right; --release loses the push (the length
+# read after it is stale), for a temporary and for a named local alike.
+#
+# oracle: build accept
+# oracle: look accept
+# oracle: main accept
+fun build(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i)
+  v
+
+fun look(x: ?Cell[Vec[Int]]) -> Int
+  x.push(10)
+  x.len
+
+sub main()
+  a: Cell[Vec[Int]] = Cell(build(1))
+  print(look(?a), a.len)
+  print(look(?Cell(build(1))))
+  b: Cell[Vec[Int]] = Cell(build(1))
+  print(look(?(<b)))
+
+# expect:
+# 2 2
+# 2
+# 2

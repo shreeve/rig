@@ -1,0 +1,40 @@
+# A for header whose source is computed from a lent Cell-holding temporary.
+#
+# oracle: D.drop accept
+# oracle: mkd accept
+# oracle: count accept
+# oracle: list accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun count(p: ?D) -> Int
+  p.c.set(p.c.get() + 10)
+  p.c.get()
+
+fun list(p: ?D) -> Vec[Int]
+  p.c.set(p.c.get() + 20)
+  v: Vec[Int] = Vec()
+  !v.push(p.c.get())
+  !v.push(p.c.get() + 1)
+  v
+
+sub main()
+  for i in 0..count(?mkd(-8))
+    print("i", i)
+  for x in list(?mkd(1))
+    print("x", x)
+
+# expect:
+# drop 2
+# i 0
+# i 1
+# drop 21
+# x 21
+# x 22

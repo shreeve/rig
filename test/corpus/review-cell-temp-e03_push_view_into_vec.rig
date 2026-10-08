@@ -1,0 +1,14 @@
+# A view of a Cell-holding temporary pushed into a longer-lived Vec of views.
+#
+# oracle: mkd accept
+# oracle: main reject C5
+struct D
+  c: Cell[Int]
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+sub main()
+  v: Vec[?D] = Vec()
+  !v.push(?mkd(1))
+  print(v[0].c.get())

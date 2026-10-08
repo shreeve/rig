@@ -1,0 +1,92 @@
+# A value that branches, read where its leaves are, whose made leaf is a
+# `catch` handler's value: the leaf lives in its statement's slot, for
+# the statement, as every temporary the handler makes does
+# (`sema.stmtTemps`), so a read within the statement reads a live value,
+# with or without a `drop`. A `?self` method returning a view of such a
+# leaf is used within the statement too, also in a `while` condition, a
+# part of the branch, and under a handler that names its error.
+# release
+
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+  fun me(?self) -> ?N
+    self.c.set(self.c.get() + 1)
+    self
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WW
+  t: N
+
+fun mkn(n: Int) -> N
+  N(c: Cell(n))
+
+fun mknf(n: Int) -> N!
+  return E.bad if n < 0
+  mkn(n)
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkdf(n: Int) -> D!
+  return E.bad if n < 0
+  mkd(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mkn(n))
+
+sub reads(k: Bool)
+  n = mkn(2)
+  print((n if k else (mknf(-1) catch mkn(7))).c.get())
+  d = mkd(3)
+  print((d if k else (mkdf(-1) catch mkd(8))).c.get())
+
+sub views(k: Bool)
+  a = mkn(1)
+  print(((mknf(-1) catch mkn(5)) if k else a).me().c.get())
+  print((mknf(-1) catch mkww(6).t).me().c.get())
+  print((a if k else (mknf(-1) catch |e| mkn(9 if e == E.bad else 0))).me().c.get())
+  print((mkdf(-1) catch mkd(4)).me().c.get())
+  i = 0
+  while i < 2 and ((mknf(-1) catch mkww(5).t) if k else a).me().c.get() > 0
+    i += 1
+  print(i, a.c.get())
+
+sub main()
+  reads(true)
+  reads(false)
+  views(true)
+  views(false)
+
+# expect:
+# 2
+# 3
+# drop 3
+# 7
+# 8
+# drop 8
+# drop 3
+# 6
+# 7
+# 2
+# 5
+# drop 5
+# 2 2
+# 2
+# 7
+# 10
+# 5
+# drop 5
+# 2 4

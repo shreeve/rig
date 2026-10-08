@@ -1,0 +1,31 @@
+# A named leaf beside `mkf(6)!`, a made value reached through `!`: the
+# emitter's backstop (internal error) on an accepted program.
+#
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: main accept
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkf(n: Int) -> N!
+  return E.bad if n < 0
+  N(c: Cell(n))
+
+sub go(k: Bool)!
+  a = mk(1)
+  (a if k else mkf(6)!).c.set(77)
+  print("a", a.c.get())
+
+sub main()
+  go(true) catch print("failed")
+  go(false) catch print("failed")
+
+# expect:
+# a 77
+# a 1

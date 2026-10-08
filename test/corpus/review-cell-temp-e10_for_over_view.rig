@@ -1,0 +1,21 @@
+# A for header over elements a view of a Cell-holding temporary reaches.
+#
+# oracle: mkd reject C2
+# oracle: items accept
+# oracle: main reject C5
+struct D
+  c: Cell[Int]
+  xs: Vec[Int]
+
+fun mkd(n: Int) -> D
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  D(c: Cell(n), xs: v)
+
+fun items(p: ?D) -> ?Vec[Int]
+  p.c.set(9)
+  ?p.xs
+
+sub main()
+  for x in items(?mkd(1))
+    print(x)

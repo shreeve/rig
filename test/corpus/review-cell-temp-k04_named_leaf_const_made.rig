@@ -1,0 +1,49 @@
+# A branching receiver with a named leaf and a made leaf of a type with no
+# drop: the made leaf is a constructor with compile-time-known fields. The
+# call reaches the leaf it takes; a change must not write constant memory.
+#
+# oracle: C.hit accept
+# oracle: mkc accept
+# oracle: bump accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+  fun hit(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+fun mkc(n: Int) -> C
+  C(c: Cell(n))
+
+fun bump(p: ?C) -> Int
+  p.c.set(p.c.get() + 10)
+  p.c.get()
+
+sub run(k: Bool)
+  a = mkc(1)
+  (a if k else C(c: Cell(2))).c.set(5)
+  print((a if k else C(c: Cell(3))).c.replace(6))
+  print((a if k else C(c: Cell(4))).hit())
+  print((a if k else mkc(5)).hit())
+  print(bump(?a if k else ?C(c: Cell(6))))
+  print((C(c: Cell(7)) if k else C(c: Cell(8))).hit())
+  print(a.c.get())
+
+sub main()
+  run(false)
+  run(true)
+
+# expect:
+# 3
+# 5
+# 6
+# 16
+# 9
+# 1
+# 5
+# 7
+# 8
+# 18
+# 8
+# 18

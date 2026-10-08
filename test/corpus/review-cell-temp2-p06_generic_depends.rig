@@ -1,0 +1,104 @@
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: D.bumped accept
+# oracle: D.me accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mko accept
+# oracle: mkww accept
+# oracle: look accept
+# oracle: Q.drop accept
+# oracle: Q.hit accept
+# oracle: Q.bumped accept
+# oracle: mkq accept
+# oracle: mkon accept
+# oracle: mkqo accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WW
+  t: D
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun look(x: ?D) -> Int
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+struct Q
+  n: Int
+
+  drop(!self)
+    print("qdrop", self.n)
+
+  sub hit(?self)
+    print("qhit", self.n)
+
+  fun bumped(?self) -> Int
+    self.n + 1
+
+fun mkq(n: Int) -> Q
+  Q(n: n)
+
+struct Hold[T]
+  v: T
+
+fun gen[T](k: Bool, a: ?T, f: fun(Int) -> T) -> Int
+  (a if k else ?f(5)).hit()
+  f(6).hit()
+  r = f(7).bumped()
+  print("r", r)
+  (Hold[T](v: f(8)).v).hit()
+  (Hold[T](v: f(9)) if k else Hold[T](v: f(10))).v.bumped()
+
+fun gen2[T](k: Bool, f: fun(Int) -> T, g: fun(Int) -> T?) -> Int
+  (g(-1) ?? f(11)).hit()
+  (g(12) ?? f(13)).bumped()
+
+fun mkon(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkqo(n: Int) -> Q?
+  return none if n < 0
+  mkq(n)
+
+sub main()
+  d = mk(1)
+  print("g", gen[D](true, ?d, mk))
+  print("g", gen[D](false, ?d, mk))
+  print("d", d.c.get())
+  q = mkq(1)
+  print("g", gen[Q](true, ?q, mkq))
+  print("g", gen[Q](false, ?q, mkq))
+  print("g2", gen2[D](true, mk, mkon))
+  print("g2", gen2[Q](true, mkq, mkqo))

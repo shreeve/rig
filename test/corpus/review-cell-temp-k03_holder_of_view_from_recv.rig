@@ -1,0 +1,39 @@
+# A `?self` method on a Cell-holding temporary (no drop) returning a struct
+# that holds a view of self, or a String of a Text it holds; and a Cell
+# method's arguments run after a hoisted receiver.
+#
+# oracle: C.wrap accept
+# oracle: C.opt accept
+# oracle: mkc accept
+# oracle: both accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+  pad: [8]Int
+
+  fun wrap(?self) -> V
+    self.c.set(self.c.get() + 1)
+    V(r: self)
+
+  fun opt(?self) -> (?C)?
+    self.c.set(self.c.get() + 1)
+    self
+
+struct V
+  r: ?C
+
+fun mkc(n: Int) -> C
+  C(c: Cell(n), pad: [8 of n])
+
+fun both(a: V, b: V) -> Int
+  a.r.c.get() * 1000 + b.r.c.get()
+
+sub main()
+  print(both(mkc(1).wrap(), mkc(2).wrap()))
+  print(mkc(3).wrap().r.c.get())
+  print((mkc(5).opt() ?? ?mkc(0)).c.get())
+
+# expect:
+# 2003
+# 4
+# 6

@@ -1,0 +1,21 @@
+# Direct `c[i] = e` and `c[i] += e` into a temporary's Cell[Vec].
+#
+# oracle: made accept
+# oracle: freshv accept
+# oracle: main accept
+struct Log
+  lines: Cell[Vec[Int]]
+
+fun made() -> Log
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  Log(lines: Cell(<w))
+
+fun freshv() -> Cell[Vec[Int]]
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  Cell(<w)
+
+sub main()
+  made().lines[0] += 4
+  freshv()[0] = 3

@@ -204,6 +204,18 @@ pub fn keep(slot: anytype, live: *bool, value: @TypeOf(slot.*)) @TypeOf(slot) {
     return slot;
 }
 
+/// The address of an absent optional of type `O`: a `none` leaf of a
+/// value whose payload a branch captures by address (`o if k else none`
+/// in `(o if k else none)?`), beside leaves reached through mutable
+/// pointers. It is never written: a branch captures the payload of a
+/// value that has one, and this has none.
+pub fn noneAt(comptime O: type) *O {
+    const S = struct {
+        var none: O = null;
+    };
+    return &S.none;
+}
+
 /// Yield `value` after clearing its binding's alive flag: the value has
 /// been moved out, so the binding's scope-exit drop must not run.
 pub fn take(alive: *bool, value: anytype) @TypeOf(value) {

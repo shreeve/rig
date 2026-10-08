@@ -1,0 +1,147 @@
+# A temporary that holds a Cell, changed where it stands, alone or as a
+# leaf of a value that branches: through a `catch` that names its error,
+# in an `if`, `while`, and `match` header, through views a `?self`
+# method returns and the statement uses, in a `defer`, and in a closure.
+# Each lives in its statement's (or header's) slot and is dropped once,
+# with the change.
+# release
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun me(?self) -> ?D
+    self.hit()
+    self
+
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun me(?self) -> ?N
+    self.hit()
+    self
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkn(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mknf(n: Int) -> N!
+  return E.bad if n < 0
+  mkn(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun both(x: ?D, y: ?D) -> Int
+  x.c.get() * 100 + y.c.get()
+
+sub catches(k: Bool)
+  a = mk(1)
+  n = mkn(2)
+  (a if k else (mkf(-1) catch a)).hit()
+  (n if k else (mknf(6) catch |_| n)).hit()
+  print((mkf(-1) catch |e| mk(8 if e == E.bad else 0)).me().c.get())
+  print(a.c.get(), n.c.get())
+
+sub headers(k: Bool)
+  a = mk(1)
+  if (a if k else mk(5)).me().c.get() > 1
+    print("if")
+  i = 0
+  while i < 2 and (a if k else mk(10)).me().c.get() > 0
+    i += 1
+  match (a if k else mk(20)).me().c.get()
+    v => print("match", v)
+  print(a.c.get())
+
+sub views(k: Bool)
+  a = mk(1)
+  b = mk(2)
+  print(both((a if k else mk(5)).me(), (b if k else mk(7)).me()))
+  print(both(mk(3).me(), (mko(-1) ?? mk(4)).me()))
+  print(a.c.get(), b.c.get())
+
+sub later(k: Bool)
+  a = mk(1)
+  if true
+    defer (a if k else mk(30)).hit()
+    print("in")
+  f = |?a, j: Bool| (mk(40) if j else mk(50)).me().c.get() + a.me().c.get()
+  print(f(k))
+  print(a.c.get())
+
+sub main()
+  catches(true)
+  catches(false)
+  headers(true)
+  headers(false)
+  views(true)
+  views(false)
+  later(true)
+  later(false)
+
+# expect:
+# 9
+# drop 9
+# 2 3
+# drop 2
+# 9
+# drop 9
+# 2 2
+# drop 2
+# if
+# match 5
+# 5
+# drop 5
+# drop 6
+# if
+# drop 11
+# drop 11
+# drop 21
+# match 21
+# 1
+# drop 1
+# 203
+# 405
+# drop 5
+# drop 4
+# 2 3
+# drop 3
+# drop 2
+# 608
+# drop 8
+# drop 6
+# 405
+# drop 5
+# drop 4
+# 1 2
+# drop 2
+# drop 1
+# in
+# drop 41
+# 44
+# 3
+# drop 3
+# in
+# drop 31
+# drop 51
+# 53
+# 2
+# drop 2

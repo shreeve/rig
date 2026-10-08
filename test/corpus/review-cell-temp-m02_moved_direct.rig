@@ -1,0 +1,16 @@
+# A Cell method on a value moved out with `<`, a temporary.
+#
+# oracle: D.drop accept
+# oracle: mkd accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+sub main()
+  a = mkd(1)
+  (<a).c.set(10)
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))

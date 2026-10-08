@@ -161,10 +161,10 @@ test/corpus/review-copies-p25b-write-view-int-struct-literal-field.rig main prod
 
 # A `catch` whose value is a view is copied out after its handler, at the
 # `catch` itself, where the context expects the value; a `??` fallback
-# and a branch arm are copied out where they stand. So a view of a
-# temporary or a local the handler makes does not outlive the handler,
-# while the oracle copies it out inside.
-test/corpus/review-copies-2-q05g-catch-copyout-handler-temp.rig main prod-rejects prod-strict `v: N = get(?a, false) catch ?N(...)`: the handler's temporary ends before the copy
+# and a branch arm are copied out where they stand. So a view of a local
+# a handler block makes does not outlive the block, while the oracle
+# copies it out inside. (A temporary the handler makes is its
+# statement's, and lives past the copy.)
 test/corpus/review-copies-2-q06a-catch-handler-block-local-copyout.rig main prod-rejects prod-strict a handler block ending in `?loc`, copied out after the block
 test/corpus/review-copies-2-q06f-catch-handler-block-int-copyout.rig main prod-rejects prod-strict a handler block ending in `?loc` of an Int, copied out after the block
 

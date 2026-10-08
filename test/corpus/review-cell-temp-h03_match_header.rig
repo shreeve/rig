@@ -1,0 +1,44 @@
+# match and if headers; a guard lending a Cell-holding temporary.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: val accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun hit(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun val(p: ?D) -> Int
+  p.c.set(p.c.get() + 10)
+  p.c.get()
+
+sub main()
+  match val(?mkd(1))
+    11 => print("eleven")
+    _ => print("other")
+  match mkd(5).hit()
+    n if n == val(?mkd(n)) - 10 => print("guard", n)
+    n => print("no", n)
+  if mkd(1).c.replace(3) == 1
+    print("yes")
+  else if mkd(2).hit() == 3
+    print("elif")
+
+# expect:
+# drop 11
+# eleven
+# drop 6
+# drop 16
+# guard 6
+# drop 3
+# yes

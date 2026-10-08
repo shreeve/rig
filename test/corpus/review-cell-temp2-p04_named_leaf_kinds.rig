@@ -1,0 +1,123 @@
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: D.bumped accept
+# oracle: D.me accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mko accept
+# oracle: mkww accept
+# oracle: look accept
+# oracle: viewparam accept
+# oracle: writeparam accept
+# oracle: loopbind accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WW
+  t: D
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun look(x: ?D) -> Int
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+sub viewparam(p: ?D, k: Bool)
+  (p if k else ?mk(5)).hit()
+  print("vp", (p if k else ?mk(6)).bumped())
+
+sub writeparam(p: !D, k: Bool)
+  (p if k else !mk(7)).hit()
+  print("wp", (p if k else !mk(8)).bumped())
+
+sub byval(p: D, k: Bool)
+  (p if k else mk(9)).hit()
+  print("bv", p.c.get())
+
+sub loopbind(vs: ?Vec[D], k: Bool)
+  for x in vs
+    (x if k else ?mk(11)).hit()
+
+sub elem(k: Bool)
+  vs: Vec[D] = Vec()
+  !vs.push(mk(20))
+  (vs[0] if k else mk(21)).hit()
+  print("el", (vs[0] if k else mk(22)).bumped())
+  print("el", vs[0].c.get())
+
+sub main()
+  d = mk(1)
+  viewparam(?d, true)
+  viewparam(?d, false)
+  print("d", d.c.get())
+  writeparam(!d, true)
+  writeparam(!d, false)
+  print("d", d.c.get())
+  byval(mk(30), true)
+  byval(mk(31), false)
+  vs: Vec[D] = Vec()
+  !vs.push(mk(40))
+  loopbind(?vs, true)
+  loopbind(?vs, false)
+  print("vs", vs[0].c.get())
+  elem(true)
+  elem(false)
+
+# expect:
+# vp 3
+# drop 6
+# vp 7
+# drop 7
+# d 3
+# wp 5
+# drop 8
+# wp 9
+# drop 9
+# d 5
+# bv 31
+# drop 31
+# drop 10
+# bv 31
+# drop 31
+# drop 12
+# vs 41
+# el 22
+# el 22
+# drop 22
+# drop 22
+# el 23
+# drop 23
+# el 20
+# drop 20
+# drop 41
+# drop 5

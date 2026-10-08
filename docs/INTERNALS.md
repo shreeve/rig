@@ -713,7 +713,34 @@ its temporaries views (one made before it, so dropped after it), the
 holder uses that view as any owner's drop does: only through a `drop`
 body, or through a live value that views the holder (`holdsPastDrop`,
 Core sentence 6). A receiver that branches lends each leaf where it is instead
-(`receiverLeaves`). A header (`sema.isHeaderOf`: an `if` or `while`
+(`receiverLeaves`). A change to a Cell through a temporary lands in its
+hidden binding, whatever the type: `mk().c.set(v)` is `_t = mk()`,
+`Cell.set(?_t.c, v)`, `-_t`, and so is a `?self` method on a value
+whose type holds a Cell (`mk().hit()` is `_t = mk()`, `N.hit(?_t)`,
+`-_t`), a Cell member's or `c[i] = e`'s, and a read lend's
+(`keepsCellChange`, `lendTemp`). A value that branches, reached where
+its leaves are (`storage.reachesLeaf`), whose type holds a Cell, is
+lent leaf by leaf, each value made here in its own hidden binding
+(`keepReached`): `(a if k else mk()).hit()` is `N.hit(?a if k else
+?mk())`, the per-branch lend, with `?mk()` as above. Which values those
+are is one walk, `storage.madeLeaves` (through every branching form
+inside the value, `storage.leafStep`; a part of a value made here
+reaches that value), which emit's `emitLeafPtr` and the storage planner
+follow step by step. A literal leaf (`none`, the one an optional
+branch may have) is no made value: no slot keeps it and it holds no
+Cell, and emit reaches it as `rig.noneAt(T?)`, an absent optional whose
+payload no branch captures. Which temporaries are a statement's is one
+decision too, `sema.stmtTemps`: those of every part of it, a branch's,
+a `??` fallback's, a `catch` handler's, and a `match` arm's value
+included, but not those of a block or closure it holds, of a header,
+or of a `while` step, each a statement of its own. Emit declares a
+slot for each where the statement starts (`emitTempSlots`), and the
+ownership checker holds each in a hidden var for the statement: one a
+handler or an arm makes, in a var made before the scope it opens for
+its names (`holdPartTemps`), so a view of it is checked against the
+statement's end, where it is dropped, not the handler's. A jump out of
+a statement ends the loans the statement took for its own end, as the
+statement does. A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
 so a binding that still views `_t` is reported where the header ends.
@@ -957,7 +984,7 @@ instead of re-deriving it by name:
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
-| `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
+| `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`), or a temporary array lent as a slice, holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value) may change: emit lends it where its statement's slot keeps the temporary (`storage.keptInSlot`), and otherwise (an array literal lent as a slice) copies it into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
@@ -1875,10 +1902,7 @@ lower is an internal error: sema must have rejected it.
   and anything else is not), so where the answer depends on the
   instance, the view is `rig.ReadPtr(T)` or `rig.ReadSlice(T)`, and an
   element through a read-viewed Vec `constSlot(i)`, each of which reads
-  the same answer. In a generic body, a `?self` method that may change
-  a Cell, on a value with no place (below) whose type `depends`,
-  records the requirement that every instance hold no Cell
-  (`.cell_place`), checked where the generic is instantiated. The checker still treats `?x` as a
+  the same answer. The checker still treats `?x` as a
   read lend: only the Zig pointer's mutability changes. A Cell change
   is then a call on the Cell's address (`(&x.c).set(v)`) through
   pointers that were mutable all along, so neither the emitter nor the
@@ -1886,13 +1910,16 @@ lower is an internal error: sema must have rejected it.
   site that would write through a const pointer is a Zig compile error,
   never undefined behavior. A Cell behind a handle (`*Cell[T]`,
   `Box[Cell[T]]`) or in a Vec's buffer is on the heap, which every
-  pointer to it may write. The one form whose storage is neither, a
-  `?self` method on a part of a value that branches between a name's
-  leaf and one made there that no statement slot keeps
-  (`(w if k else mk()).t.hit()`, `storage.constLeaf`), is rejected, as
-  `Cell.set` on the same part is: the made leaf has no place. This
-  rejects a `?self` method that only reads too, since whether a method
-  reaches a Cell write is not decided.
+  pointer to it may write. A value made here whose type holds a Cell
+  (or, in a generic body, may) and whose address emit takes, a `?self`
+  receiver, the object of a Cell member, a lend, or a leaf of a
+  branching value reached by address, lives in its statement's slot,
+  a `var`, never in a Zig temporary ([Sema](#sema), temporaries): the
+  checker records the slot on each value `storage.madeLeaves` finds,
+  and `emitLeafPtr` reaches a made leaf there. One no slot keeps would
+  be the address of a Zig temporary, which may be constant, so emit
+  stops with an internal error (`refuseHeldCell`) rather than write
+  into it.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
   `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
@@ -2013,8 +2040,11 @@ lower is an internal error: sema must have rejected it.
   - a `?self` method on a branching value with a leaf made there, which
     `reachesLeaf` does not reach, so the receiver is a copy:
     `(@as(Q, if (c) mkq(5) else b)).me()` (never of an
-    interior-mutable `Q`, whose method takes a `*Q`: sema rejects it);
-  - `emitLeafPtr`'s fallback, `&@as(T, value)`, for a leaf made there;
+    interior-mutable `Q`: a type that holds a Cell is read by address,
+    so `reachesLeaf` reaches it, and each leaf made there is in its
+    slot);
+  - `emitLeafPtr`'s fallback, `&@as(T, value)`, for a leaf made there
+    whose type holds no Cell (`refuseHeldCell`);
   - the values the labeled value blocks (`__rig_blk_N`, `__rig_if_N`)
     yield, where an address of them is taken;
   - a temporary array lent as a slice to a call that keeps no view of

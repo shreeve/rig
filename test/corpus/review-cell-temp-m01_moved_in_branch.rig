@@ -1,0 +1,52 @@
+# A Cell method on a branching value with a moved-out leaf, and on a clone;
+# and through a write lend of a temporary.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: other accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct H
+  d: D
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+sub run(k: Bool)
+  a = mkd(1)
+  (<a if k else mkd(2)).c.set(10)
+  h = H(d: mkd(3))
+  (<h if k else H(d: mkd(4))).d.c.set(20)
+  print("after")
+
+sub other()
+  b = mkd(30)
+  (!mkd(40)).c.set(41)
+  print(b.c.get())
+
+sub main()
+  run(true)
+  run(false)
+  other()
+
+# expect:
+# drop 10
+# drop 20
+# after
+# drop 10
+# drop 20
+# after
+# drop 3
+# drop 1
+# drop 41
+# 30
+# drop 30

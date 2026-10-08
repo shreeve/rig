@@ -3557,10 +3557,15 @@ statement is its scope, so it is a **temporary**. One that owns a
 resource is dropped when its statement ends, last made first, also
 when the statement fails (`!`) or leaves early (`?? return`). A
 temporary that nothing reads or takes (an expression statement) is
-rejected: bind it to a name first. A temporary lent to write
-(`!make().bump()`, `grow(!make())`) is kept in its statement's slot,
-where the change is seen, and dropped when the statement ends
-([Lending](#lending)).
+rejected: bind it to a name first. A temporary may be lent to read or
+to write; it lives until its statement ends, and any change made
+through the view, a Cell's included, lands in it and is dropped with
+it. So a temporary lent to write (`!make().bump()`, `grow(!make())`),
+one whose Cell a read view may change (`bump(?made())`, a `?self`
+method `made().hit()`), and one whose Cell a Cell member changes
+(`made().hits.set(4)`) is kept in its statement's slot, where the
+change is seen, and dropped when the statement ends ([Lending](#lending),
+[Cell](#cell)).
 
 ```rig
 struct B
@@ -3761,7 +3766,11 @@ its statement ends, so the view may be used there and nowhere after (a
 [Temporaries](#temporaries)). A
 receiver that branches lends each leaf where it is:
 `(a if c else b).name()` keeps a loan on `a` and on `b`, so neither may
-change while the view lives.
+change while the view lives. A leaf made there is a temporary in the
+statement's slot, so a change through such a receiver, or through a
+field or element of it, lands in the leaf it takes: `(a if c else
+made()).hit()` changes `a`'s Cell, or the temporary's, which its `drop`
+sees.
 
 ```rig
 struct S
@@ -3798,6 +3807,45 @@ sub main()
 
 ```error
 cannot assign to `a.t` while `a` is lent
+```
+
+A change to a temporary's Cell lands in the temporary, which its `drop`
+sees when the statement ends; a branch that takes a name's value changes
+that value where it is:
+
+```rig
+struct Counter
+  hits: Cell[Int]
+
+  drop(!self)
+    print("drop", self.hits.get())
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun fresh(n: Int) -> Counter
+  Counter(hits: Cell(n))
+
+sub bump(c: ?Counter)
+  c.hits.set(c.hits.get() + 10)
+
+sub main()
+  fresh(0).hit()
+  fresh(1).hits.set(5)
+  bump(?fresh(2))
+  k = fresh(3)
+  (k if k.hits.get() > 5 else fresh(4)).hit()
+  (k if k.hits.get() < 5 else fresh(6)).hit()
+  print(k.hits.get())
+```
+
+```output
+drop 1
+drop 5
+drop 12
+drop 5
+4
+drop 4
 ```
 
 ### Places
@@ -4143,7 +4191,11 @@ shared handle. A value holding a Cell is unique
 by-value parameter owns the value moved into it (`c.hits.set(v)` with
 `c: Counter` changes the callee's own), and a loop or match binding is
 a view of the element or payload where it is, or owns one a loop or
-match takes; only a temporary's Cell has no place.
+match takes. A temporary's Cell, or a Cell that is a temporary,
+changes where its statement's slot keeps the temporary, and the
+temporary's `drop` sees the change when the statement ends
+([Temporaries](#temporaries)): `made().hits.set(4)`,
+`made().lines.push(1)`, `fresh().set(4)`.
 
 ```rig
 struct Counter

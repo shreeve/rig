@@ -1,0 +1,44 @@
+# A named leaf beside a nested branch whose every leaf is made: `if`, `??`,
+# `catch`. Set, a ?self method, and a read.
+#
+# oracle: N.hit accept
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mko accept
+# oracle: main accept
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkf(n: Int) -> N!
+  return E.bad if n < 0
+  N(c: Cell(n))
+
+fun mko(n: Int) -> N?
+  return none if n < 0
+  N(c: Cell(n))
+
+sub go(k: Bool, j: Bool)
+  a = mk(1)
+  (a if k else (mk(5) if j else mk(8))).c.set(77)
+  (a if k else (mko(-1) ?? mk(5))).hit()
+  print((a if k else (mk(5) if j else mk(8))).c.get())
+  print(a.c.get())
+
+sub main()
+  go(true, true)
+  go(false, true)
+
+# expect:
+# 78
+# 78
+# 5
+# 1

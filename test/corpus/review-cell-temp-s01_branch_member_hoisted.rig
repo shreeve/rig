@@ -1,0 +1,54 @@
+# A branching temporary its slot keeps, reached through a member, where the
+# call evaluates its arguments first (hoisting). Each made value must be made
+# once, changed in place, and dropped once.
+#
+# oracle: D.drop accept
+# oracle: D.hitn accept
+# oracle: mkd accept
+# oracle: mkh accept
+# oracle: side accept
+# oracle: two accept
+# oracle: three accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hitn(?self, n: Int)
+    self.c.set(self.c.get() + n)
+
+struct H
+  d: D
+  k: Int
+
+fun mkd(n: Int) -> D
+  print("mk", n)
+  D(c: Cell(n))
+
+fun mkh(n: Int) -> H
+  H(d: mkd(n), k: n)
+
+fun side(n: Int) -> Int
+  print("side", n)
+  n
+
+sub two(p: ?D, n: Int)
+  p.c.set(p.c.get() + n)
+
+sub three(p: ?H, n: Int)
+  p.d.c.set(p.d.c.get() + n)
+
+sub run(c: Bool)
+  (mkh(1) if c else mkh(2)).d.hitn(side(5))
+  two(?(mkh(3) if c else mkh(4)).d, side(6))
+  three(?(mkh(5) if c else mkh(6)), side(7))
+  (mkh(7) if c else mkh(8)).d.c.set(side(8))
+  print((mkh(9) if c else mkh(10)).d.c.replace(side(9)), (mkh(11) if c else mkh(12)).k)
+  two(?(mkd(13) if c else mkd(14)), (mkh(15) if c else mkh(16)).d.c.replace(side(10)))
+
+sub main()
+  run(true)
+  print("--")
+  run(false)

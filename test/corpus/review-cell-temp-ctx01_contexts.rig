@@ -1,0 +1,84 @@
+# A Cell method on a part of a drop-carrying temporary, in many contexts:
+# the temporary's drop must see the change (prints "drop 5").
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: mkh accept
+# oracle: ret1 accept
+# oracle: ret2 accept
+# oracle: ret3 accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun hit(?self) -> Int
+    self.c.set(5)
+    1
+
+struct H
+  d: D
+  n: Int
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkh(n: Int) -> H
+  H(d: mkd(n), n: n)
+
+fun ret1() -> Int
+  return mkh(1).d.c.replace(5)
+
+fun ret2() -> Int
+  mkh(2).d.hit()
+
+fun ret3(c: Bool) -> Int
+  mkh(3).d.c.replace(5) if c else 0
+
+struct P
+  a: Int
+
+sub main()
+  print(ret1())
+  print(ret2())
+  print(ret3(true))
+  x = mkh(4).d.c.replace(5)
+  print(x)
+  p = P(a: mkh(6).d.hit())
+  print(p.a)
+  f = || mkh(7).d.c.replace(5)
+  print(f())
+  y = 0
+  while true
+    break
+  v: Vec[Int] = Vec()
+  !v.push(mkh(8).d.c.replace(5))
+  print(v[0])
+  z = [mkh(9).d.c.replace(5), mkh(10).d.hit()]
+  print(z[0], z[1])
+  w = (mkh(11).d.c.replace(5) if y == 0 else mkh(12).d.hit())
+  print(w)
+
+# expect:
+# drop 5
+# 1
+# drop 5
+# 1
+# drop 5
+# 3
+# drop 5
+# 4
+# drop 5
+# 1
+# drop 5
+# 7
+# drop 5
+# 8
+# drop 5
+# drop 5
+# 9 1
+# drop 5
+# 11

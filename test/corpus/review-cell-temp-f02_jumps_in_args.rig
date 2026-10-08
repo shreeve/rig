@@ -1,0 +1,53 @@
+# continue and return in an argument after a Cell-holding temporary is held.
+#
+# oracle: D.drop accept
+# oracle: D.hitn accept
+# oracle: mkd accept
+# oracle: maybe accept
+# oracle: two accept
+# oracle: f3 accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+  t: Text
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hitn(?self, n: Int)
+    self.c.set(self.c.get() + n)
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n), t: Text("owned"))
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub two(p: ?D, n: Int)
+  p.c.set(p.c.get() + n)
+
+sub f3(n: Int)
+  for k in 0..2
+    mkd(k).c.set(maybe(n) ?? continue)
+    two(?mkd(10 + k), maybe(n) ?? continue)
+  mkd(30).hitn(maybe(n) ?? return)
+  print("unreached")
+
+sub f4(n: Int)
+  while true
+    mkd(40).hitn(maybe(n) ?? break)
+  (mkd(50) if n < 0 else mkd(51)).hitn(maybe(n) ?? return)
+
+sub main()
+  f3(-1)
+  f4(-1)
+  print("end")
+
+# expect:
+# drop 0
+# drop 1
+# drop 30
+# drop 40
+# drop 50
+# end

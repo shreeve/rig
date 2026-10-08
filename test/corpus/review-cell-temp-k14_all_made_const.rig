@@ -1,0 +1,53 @@
+# All-made branching values of a no-drop Cell holder with constant leaves.
+#
+# oracle: C.hit accept
+# oracle: C.me accept
+# oracle: mko accept
+# oracle: bump accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun me(?self) -> ?C
+    self.c.set(self.c.get() + 1)
+    self
+
+fun mko(n: Int) -> C?
+  return none if n < 0
+  C(c: Cell(n))
+
+fun bump(p: ?C) -> Int
+  p.c.set(p.c.get() + 10)
+  p.c.get()
+
+sub run(k: Bool)
+  (C(c: Cell(7)) if k else C(c: Cell(8))).c.set(5)
+  (C(c: Cell(7)) if k else C(c: Cell(8))).hit()
+  print((C(c: Cell(7)) if k else C(c: Cell(8))).me().c.get())
+  print((C(c: Cell(7)) if k else C(c: Cell(8))).c.replace(1))
+  (mko(-1) ?? C(c: Cell(2))).c.set(5)
+  print((mko(-1) ?? C(c: Cell(2))).me().c.get())
+  print(bump(?(C(c: Cell(7)) if k else C(c: Cell(8)))))
+  print(bump(?(mko(-1) ?? C(c: Cell(3)))))
+  print(bump(?C(c: Cell(4))))
+
+sub main()
+  run(true)
+  run(false)
+
+# expect:
+# 8
+# 7
+# 3
+# 17
+# 13
+# 14
+# 9
+# 8
+# 3
+# 18
+# 13
+# 14
