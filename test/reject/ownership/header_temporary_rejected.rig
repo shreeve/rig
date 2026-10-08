@@ -1,21 +1,16 @@
 # A `match`, `if … as`, `while … as`, or `for` header that makes a
-# statement temporary is emitted over a copy of its subject, in the
-# block that drops the temporary, so what it binds would be in that
-# copy: a write, a Cell change, or a view through a binding would reach
-# the copy, not the subject. Such a header is rejected, whatever it
-# binds, unless it takes a value made there (`match mke(?Text("a"))`,
-# `if opt(3) as p`), and the hint says what to bind to a name first.
+# statement temporary and has no place outside it to reach (a value made
+# in the header, or a part of one) is emitted over a copy of that value,
+# in the block that drops the temporary, so what it binds would be in
+# that copy: a write, a Cell change, or a view through a binding would
+# reach the copy. Such a header is rejected, whatever it binds, unless it
+# takes a value made there (`match mke(?Text("a"))`, `if opt(3) as p`),
+# and the hint says what to bind to a name first. A header that reaches a
+# place binds the place's own (`header_temporary_points.rig`).
 
 enum E
   a(xs: [4]Int)
   b
-
-enum F
-  a(n: Int)
-  b(n: Int)
-
-struct C
-  c: Cell[Int]
 
 struct P
   x: Int
@@ -38,48 +33,11 @@ fun mkh(n: Int) -> H
 fun mke(s: ?Text) -> E
   .a(xs: [s.len, 0, 0, 0])
 
-fun at2(v: ?Vec[E]) -> ?E from v
-  match ?v[idx(?Text("a"))]
-    x => x
-
 sub main()
-  v = [E.a(xs: [7, 7, 7, 7]), E.b]
-  k = 3
-  match ?v[idx(?Text("a"))]
-    x if k > 2 => print(x)
-    _ => print(0)
-  arr = [F.a(n: 1)]
-  match !arr[idx(?Text("a"))]
-    .a(n) if n > 0 => n = 50
-    .a(n) => n = 60
-    .b(n) => print(n)
-  match !arr[idx(?Text("a"))]
-    .a(n) => n = 50
-    .b(n) => print(n)
-  ints: [1]Int? = [1]
-  if !ints[idx(?Text("a"))] as n
-    n = 50
-  w: Int? = 2
-  if (!ints[idx(?Text("a"))] if k > 0 else !w) as n
-    n = 50
-  while !ints[idx(?Text("a"))] as n
-    n = 50
-    break
-  cs: [1]C? = [C(c: Cell(1))]
-  if ?cs[idx(?Text("a"))] as c
-    c.c.set(5)
   if ?opt(?Text("abc")) as p
     print(p.x)
   while ?opt(?Text("")) as q
     print(q.x)
-  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
-  match ?bs[idx(?Text("a"))]
-    .a(xs) if k > 2 => print(xs[0])
-    _ => print(0)
-  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
-  match ?hs[idx(?Text("a"))]
-    .a(xs) => print(xs[3])
-    _ => print(0)
   match mkh(4).e
     .a(xs) => print(xs[0])
     .b => pass
@@ -90,20 +48,9 @@ sub main()
     .b => pass
   if opt(?Text("abc")) as p
     print(p.x)
-  print(arr, ints, w)
 
-# errors: 14
-# error: 42:17: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
-# error: 48:17: bind the index to a name first
-# error: 52:19: bind the index to a name first
-# error: 56:19: bind the index to a name first
-# error: 60:17: bind the index to a name first
-# error: 63:18: bind the index to a name first
-# error: 65:20: bind the index to a name first
-# error: 69:15: bind the index to a name first
-# error: 71:7: bind `opt(?Text("abc"))` to a name first
-# error: 73:10: bind `opt(?Text(""))` to a name first
-# error: 76:18: bind the index to a name first
-# error: 80:18: bind the index to a name first
-# error: 83:9: bind `mkh(4)` to a name first
-# error: 86:34: bind the index to a name first
+# errors: 4
+# error: 37:7: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `opt(?Text("abc"))` to a name first
+# error: 39:10: bind `opt(?Text(""))` to a name first
+# error: 41:9: bind `mkh(4)` to a name first
+# error: 44:34: bind the index to a name first

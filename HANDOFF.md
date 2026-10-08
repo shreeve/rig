@@ -157,20 +157,21 @@ Reviewers keep finding problems in these areas. Change them carefully,
 and run the corpus after.
 
 - **Statement temporaries** (Core §3). A header whose subject makes a
-  temporary is rejected, unless it takes its subject or binds plain data
-  of a value made there. Emit now points at a subject that reaches a
-  place (`storage.headerPoints`, the storage fact `header_value` held
-  by pointer) and copies only a value made in the header (`copiesHeader`,
-  the storage fact `header_copy`). Next: B4b, the checker accepts a
-  header that points, which lifts the rejection there.
+  temporary and reaches a place outside it binds the place's own: emit
+  points at it (`storage.headerPoints`, the storage fact `header_value`
+  held by pointer). One that reaches no place copies a value made in the
+  header (`copiesHeader`, the storage fact `header_copy`) and is
+  rejected, unless it takes its subject or binds plain data of a value
+  made there. Tests: `test/behavior/ownership/header_points_through_temporary.rig`,
+  `header_temporary_points.rig`, `header_branch_points.rig`, and
+  `test/reject/ownership/header_temporary_rejected.rig`.
   - *Resolved in B4a:* a place inside a view of a value the header
     makes (`id(?mk()).e`, `(?mk()).e`, `idh(?mkh()).xs`) lives in the
     header's own temporary, so the header copies it and stays rejected;
     pointing there would read the temporary after the header drops it.
     Tests: the `sema` unit test "storage: a header points at a place its
     temporaries reach, never into one" and
-    `test/reject/ownership/header_place_inside_temporary.rig`. B4b keeps
-    both.
+    `test/reject/ownership/header_place_inside_temporary.rig`.
 - **Arm-local payload views.** A read match's binding that is no plain
   data is usable within its arm only, because emit matched a copy of
   the subject (a guarded match, a generic body). Emit now matches a

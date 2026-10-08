@@ -3778,13 +3778,13 @@ a view of the temporary `Text(" a ")` outlives its statement
 ```
 
 A header that makes a temporary is evaluated before that temporary
-ends, so what it binds would be a copy of its subject, which a write or
-a Cell change through the binding would miss: it is rejected, whatever
-it binds, unless it takes a value made there (`match parse(?Text(s))`,
-`if find(?Text(s)) as i`) or binds plain data of one. Bind the index or
-the argument to a name first: `i = idx(?t)`, then `if !arr[i] as n`.
+ends. When its subject is a place reached from outside the header's
+temporaries (from a name, or from a view whose evaluation makes none),
+through an index or an argument that makes one, the header binds the
+place's own, as it would with no temporary: a write or a Cell change
+through what it binds reaches the place.
 
-```rig reject
+```rig
 fun idx(s: ?Text) -> Int
   s.len - 1
 
@@ -3795,24 +3795,32 @@ sub main()
   print(arr)
 ```
 
-```error
-this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
-```
-
-```rig
-fun idx(s: ?Text) -> Int
-  s.len - 1
-
-sub main()
-  arr: [1]Int? = [1]
-  i = idx(?Text("a"))
-  if !arr[i] as n
-    n = 50
-  print(arr)
-```
-
 ```output
 [50]
+```
+
+Any other subject that makes a temporary, a value made in the header or
+a part of one, has no place that outlives the header, so what the header
+binds would be a copy of it, which a write or a Cell change through the
+binding would miss: it is rejected, whatever it binds, unless it takes
+the value made there (`match parse(?Text(s))`, `if find(?Text(s)) as
+i`) or binds plain data of it. Bind the value, the index, or the
+argument to a name first.
+
+```rig reject
+struct P
+  o: Int?
+
+fun mk(s: ?Text) -> P
+  P(o: s.len)
+
+sub main()
+  if mk(?Text("a")).o as n
+    print(n)
+```
+
+```error
+this header binds a copy of its subject, since a temporary it makes ends with the header
 ```
 
 A `?self` or `!self` receiver is lent as `?e` or `!e` would be when the

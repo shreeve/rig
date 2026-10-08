@@ -2384,21 +2384,22 @@ const Checker = struct {
         return false;
     }
 
-    /// Whether header `node` (a `match`, a `for`, or an `as`) over
-    /// `subject` makes a statement temporary (`sema.firstStmtTemp`), so
-    /// emit evaluates it in a block that ends the temporary. The block
-    /// yields the address of a place the subject reaches
-    /// (`storage.headerPoints`), and the construct binds the place's
-    /// own; it yields the value of any other subject, and what the
+    /// Header `node` (a `match`, a `for`, or an `as`) over `subject` that
+    /// makes a statement temporary (`sema.firstStmtTemp`) is evaluated by
+    /// emit in a block that ends the temporary. The block yields the
+    /// address of a place the subject reaches (`storage.headerPoints`),
+    /// and the construct binds the place's own, as it would with no
+    /// temporary. It yields the value of any other subject, and what the
     /// construct binds is in that copy, which is recorded (the storage
-    /// fact `header_copy`) for emit. Such a header is rejected at the
-    /// temporary, whatever it binds: a write, a Cell change, or a view, a
-    /// catch-all's of plain data included, would reach a copy. A value
-    /// made here, which no name holds, is the construct's own: it binds
-    /// plain data of it by copy, which is what the copy holds.
+    /// fact `header_copy`) for emit. A header that copies is rejected at
+    /// the temporary, whatever it binds: a write, a Cell change, or a
+    /// view, a catch-all's of plain data included, would reach the copy.
+    /// A value made here, which no name holds, is the construct's own: it
+    /// binds plain data of it by copy, which is what the copy holds.
     fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, bound: TypeId) Error!void {
         const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
-        if (!storage.headerPoints(self.ctx, storage.headerSubject(node))) try self.ctx.recordHeaderCopy(node);
+        if (storage.headerPoints(self.ctx, storage.headerSubject(node))) return;
+        try self.ctx.recordHeaderCopy(node);
         if (self.isPoison(bound)) return;
         if (self.hands(subject).kind == .made and sema.isPlainData(self.ctx, sema.unwrapViews(self.ctx, bound))) return;
         if (inIndex(subject, temp)) {

@@ -936,15 +936,15 @@ drops. Typecheck records the copy once per
 header (`copiesHeader`, the storage fact `header_copy`), unless the
 construct takes its subject (`<p`, a `match` that takes it), walks a
 slice, or matches a view a call returns, which is held as the pointer it
-is. Emit reads the fact and fails if its own shape disagrees. Every
-header with a temporary is still rejected at the temporary, whatever it
-binds and of whatever type (`rejectHeaderCopy`), with "bind the index
-(the argument, `e`) to a name first", except a value made there, which
-no name holds, of which the construct binds plain data: what it binds is
-a copy either way. The rejection of a header that points is lifted next
-(HANDOFF, weak spots); it stays for one that copies, where a write, a
-Cell change, or a view, a plain-data catch-all's included, would reach
-the copy.
+is. Emit reads the fact and fails if its own shape disagrees. A header
+that copies is rejected at the temporary, whatever it binds and of
+whatever type (`rejectHeaderCopy`), with "bind the index (the argument,
+`e`) to a name first", since a write, a Cell change, or a view, a
+plain-data catch-all's included, would reach the copy, except a value
+made there, which no name holds, of which the construct binds plain
+data: what it binds is a copy either way. A header that points binds
+what it would with no temporary, and the ownership checker walks it so:
+the header's temporaries end with it, and the bindings view the place.
 A `match` on a view a call returns is matched where the view points,
 after its header: its tag and payloads are read there. So the ownership
 checker reports such a subject whose value carries a loan on a

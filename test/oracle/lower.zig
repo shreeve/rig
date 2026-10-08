@@ -1100,7 +1100,8 @@ const Lowerer = struct {
         }
         // What the binding sees: a payload of its declared type, or for a
         // catch-all the subject's value. Plain data and views are copies.
-        const seen = if (stored) |st| (if (st == h.ty) sema.unwrapViews(self.ctx, st) else st) else sema.unwrapViews(self.ctx, xv.ty);
+        // A catch-all over a box sees the value the box holds (Core §4).
+        const seen = if (stored) |st| (if (st == h.ty) sema.boxedNominal(self.ctx, st) orelse sema.unwrapViews(self.ctx, st) else st) else sema.unwrapViews(self.ctx, xv.ty);
         const seen_kind = (try self.kinds.of(seen)).kind;
         const arm_local = h.arm != null and (seen_kind == .owning or seen_kind == .write_view);
         try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(h.v), .def = x });

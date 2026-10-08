@@ -1,0 +1,132 @@
+# A header whose subject makes a statement temporary (an index or an
+# argument on the path to a place) and reaches a place outside it is
+# evaluated in a block that ends the temporary and yields the place's
+# address (`storage.headerPoints`): what `match`, `if … as`,
+# `while … as`, and `for` bind is the place's own, so a write, a Cell
+# change, and a view through a binding reach the place, after the
+# header's temporary is gone.
+# release
+
+struct C
+  c: Cell[Int]
+
+enum E
+  a(t: Text)
+  b(n: Int)
+
+enum F
+  a(n: Int)
+  b(n: Int)
+
+struct S
+  e: E
+  o: Text?
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub write_match(v: !Vec[E])
+  match !v[idx(?Text("a"))]
+    .a(t) if t.len > 1 => !t.add("x")
+    .a(t) => !t.add("?")
+    .b(n) => n += 1
+
+fun read_match(v: ?Vec[E]) -> Int
+  match v[idx(?Text("a"))]
+    .a(t) => t.len
+    .b(n) => n
+
+sub field_match(v: !Vec[S])
+  match !v[idx(?Text("a"))].e
+    .a(t) => !t.add("f")
+    .b(n) => print(n)
+
+sub write_as(v: !Vec[Text?])
+  if !v[idx(?Text("a"))] as t
+    !t.add("w")
+
+sub read_as(v: ?Vec[C?])
+  if v[idx(?Text("a"))] as c
+    c.c.set(c.c.get() + 5)
+
+sub write_while(v: !Vec[Text?])
+  k = 0
+  while !v[idx(?Text("ab"))] as t
+    !t.add("l")
+    k += 1
+    break if k > 1
+
+sub plain(arr: ![1]Int?)
+  if !arr[idx(?Text("a"))] as n
+    n = 50
+
+sub branch(v: !Vec[Text?], w: !Text?, c: Bool)
+  if (!v[idx(?Text("a"))] if c else !w) as t
+    !t.add("b")
+
+sub main()
+  es = [E.a(t: Text("e")), E.b(n: 3)]
+  ev: Vec[E] = Vec()
+  !ev.push(E.a(t: Text("q")))
+  write_match(!ev)
+  write_match(!ev)
+  print(clobber(1), read_match(?ev))
+  match ev[0]
+    .a(t) => print(t)
+    .b(n) => print(n)
+  sv: Vec[S] = Vec()
+  !sv.push(S(e: E.a(t: Text("s")), o: none))
+  field_match(!sv)
+  match sv[0].e
+    .a(t) => print(t)
+    .b(n) => print(n)
+  tv: Vec[Text?] = Vec()
+  !tv.push(Text("t"))
+  !tv.push(Text("u"))
+  write_as(!tv)
+  write_while(!tv)
+  print(tv)
+  cv: Vec[C?] = Vec()
+  !cv.push(C(c: Cell(1)))
+  read_as(?cv)
+  read_as(?cv)
+  if cv[0] as c
+    print(c.c.get())
+  arr: [1]Int? = [1]
+  plain(!arr)
+  print(arr)
+  w: Text? = Text("w")
+  branch(!tv, !w, true)
+  branch(!tv, !w, false)
+  print(tv, w)
+  match es[idx(?Text("ab"))]
+    .a(t) => print(t)
+    .b(n) => print("b", n)
+  m: Vec[[2]Int] = Vec()
+  !m.push([1, 2])
+  for x in !m[idx(?Text("k"))]
+    x *= 10
+  for x in m[idx(?Text("k"))]
+    print(clobber(x), x)
+  ws: Vec[[1]C] = Vec()
+  !ws.push([C(c: Cell(0))])
+  for c in ws[idx(?Text("k"))]
+    c.c.set(7)
+  print(ws[0][0].c.get())
+
+# expect:
+# 2 3
+# q?x
+# sf
+# ["tw", "ull"]
+# 11
+# [50]
+# ["twb", "ull"] wb
+# b 3
+# 11 10
+# 21 20
+# 7
