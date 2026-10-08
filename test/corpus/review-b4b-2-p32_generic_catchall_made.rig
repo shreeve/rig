@@ -1,0 +1,18 @@
+# Generic body: catch-all of a made subject escapes the arm. Expect reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun mk[T](a: T) -> Opt[T]
+  Opt.some(v: <a)
+
+sub g[T](a: T, b: T)
+  w = Opt.some(v: <b)
+  ws = ?w
+  match mk(<a)
+    .nothing => pass
+    x => ws = ?x
+  print(ws)
+
+sub main()
+  g(1, 2)

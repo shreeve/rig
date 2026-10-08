@@ -1,0 +1,44 @@
+# A `match` on a value that branches over bare places is a copy of the
+# place it takes, so a binding that views it would view the copy, or
+# carry no loan on the place: the match is rejected, as for a value that
+# moves, when the value may move, in a generic body (`sema.moves` is
+# `depends`), guarded or not (the review-b4b-2 probes p63 to p70). A
+# branch over lends (`?o1 if c else ?o2`) is matched where it points.
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub guarded[T](a: T, b: T, k: T, c: Bool)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  saved = ?k
+  match o1 if c else o2
+    .some(x) if c => print(x)
+    .some(x) => saved = ?x
+    .nothing => pass
+  print(saved)
+
+sub plain[T](a: T, b: T, k: T, c: Bool)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  saved = ?k
+  match o1 if c else o2
+    .some(x) => saved = ?x
+    .nothing => pass
+  o2 = Opt[T].nothing
+  print(saved)
+
+sub whole[T](a: T, b: T, c: Bool)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  match o2 if c else o1
+    x => print(?x)
+
+sub main()
+  guarded(1, 2, 3, true)
+
+# error: 16:9: a `match` reads a place or takes a call's result; bind this `Opt[T]` to a name first
+# error: 26:9: a `match` reads a place or takes a call's result
+# error: 35:9: a `match` reads a place or takes a call's result
+# errors: 3

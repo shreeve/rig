@@ -1,0 +1,30 @@
+# Generic: guarded match on a local with a catch-all whose view escapes into `saved`; a later guarded match's arm copy may reuse the dead arm copy's stack slot. Expect `saved` to print o's value (.some(v: Pt(x: 3, y: 4))), or a reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct Pt
+  x: Int
+  y: Int
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T)
+  o = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  z = Opt[T].nothing
+  saved = ?z
+  if clobber(0) > 0
+    match o
+      .nothing if clobber(2) > 100 => pass
+      x => saved = ?x
+  if clobber(0) > 0
+    match o2
+      .nothing if clobber(2) > 100 => pass
+      y => print(y)
+  print(saved)
+
+sub main()
+  g(Pt(x: 3, y: 4), Pt(x: 7, y: 8))

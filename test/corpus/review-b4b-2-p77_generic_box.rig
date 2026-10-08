@@ -1,0 +1,27 @@
+# Generic: guarded match on a Box of a generic enum; view escapes; then box reassigned. Expect reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct Hd[T]
+  o: Opt[T]
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T, k: T)
+  bx = Box(Opt.some(v: <a))
+  saved = ?k
+  match bx
+    .some(x) if clobber(2) > 100 => print(x)
+    .some(x) => saved = ?x
+    .nothing => pass
+  bx = Box(Opt.some(v: <b))
+  print(saved)
+
+sub main()
+  g(Text("one"), Text("two"), Text("k"))

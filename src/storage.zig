@@ -692,7 +692,13 @@ pub fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) boo
 pub fn matchesInPlace(ctx: *const SemContext, match: Sexp) bool {
     if (matchMode(ctx, match) != .read) return false;
     const subject = lentPlace(ir.Match.subject(match));
-    return ctx.headerOf(match) == .held or reachesPlace(ctx, subject) or (!hasStorage(ctx, subject) and isPtrViewExpr(ctx, subject));
+    if (ctx.headerOf(match) == .held) return true;
+    // A value that branches is matched where it points when it is a view
+    // held as a pointer, or through the address its header yields; one
+    // over bare places is a copy (`subjectHold`), so typecheck rejects
+    // one that moves or may (`sema.moves` is not `no`).
+    if (sema.handsOver(ctx, subject).kind == .branches) return headerPoints(ctx, subject) or isPtrViewExpr(ctx, subject);
+    return reachesPlace(ctx, subject) or (!hasStorage(ctx, subject) and isPtrViewExpr(ctx, subject));
 }
 
 /// Whether the value of an assignment, or an index of its target, can

@@ -1,23 +1,15 @@
-# A generic body binds a loop element or a read payload of a type
-# parameter by copy, so an instance whose type argument holds a Cell (a
-# unique value) is rejected: a change through the copy would not reach
-# the original.
+# A generic body binds a loop element of a type parameter by copy, so
+# an instance whose type argument holds a Cell (a unique value) is
+# rejected: a change through the copy would not reach the original. (A
+# read payload matched in place is bound by address:
+# `test/behavior/types/generic_in_place_cell_holder.rig`.)
 
 struct Counter
   hits: Cell[Int]
 
-enum Opt[T]
-  some(v: T)
-  nothing
-
 sub each[T](xs: ?[2]T, f: ?fun(?T) -> Int)
   for k in xs
     _ = f(?k)
-
-sub apply[T](o: ?Opt[T], f: ?fun(?T) -> Int)
-  match o
-    .some(v) => print(f(?v))
-    .nothing => pass
 
 fun look(c: ?Counter) -> Int
   c.hits.get()
@@ -25,11 +17,8 @@ fun look(c: ?Counter) -> Int
 sub main()
   a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
   each(?a, look)
-  o = Opt.some(v: Counter(hits: Cell(0)))
-  apply(?o, look)
   n = [1, 2]
   each(?n, |x: ?Int| x)
 
-# error: 27:3: `each[Counter]` cannot use `T = Counter`: the generic body copies into a loop binding a value that holds a `T`, and `Counter` is unique
-# error: 29:3: `apply[Counter]` cannot use `T = Counter`: the generic body copies into a match binding a value that holds a `T`, and `Counter` holds a Cell, which the copy would fork
-# errors: 2
+# error: 19:3: `each[Counter]` cannot use `T = Counter`: the generic body copies into a loop binding a value that holds a `T`, and `Counter` is unique
+# errors: 1

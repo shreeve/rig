@@ -1,0 +1,17 @@
+# Non-generic catch-all of a place: by-copy capture, so arm-local. Expect reject (conservative), never a dangling view.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  f = E.b
+  saved = ?f
+  match e
+    .b => pass
+    x => saved = ?x
+  print(saved)

@@ -1,0 +1,23 @@
+# Generic body: catch-all over a branching value of two places; the view escapes and o2 is then reassigned. Expect reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  o3 = Opt[T].nothing
+  saved = ?o3
+  match o1 if clobber(0) > 5 else o2
+    .nothing => pass
+    x => saved = ?x
+  o2 = Opt[T].nothing
+  print(clobber(1))
+  print(saved)
+
+sub main()
+  g(Text("one"), Text("two two two two two two two two"))

@@ -1,0 +1,22 @@
+# Branching subject over places of an enum holding a write view. Expect reject, or accept with correct loans.
+enum W
+  a(p: !Int)
+  b
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  x = 1
+  y = 2
+  w1 = W.a(p: !x)
+  w2 = W.a(p: !y)
+  z = 0
+  saved = ?z
+  match w1 if clobber(0) > 5 else w2
+    .a(p) => saved = ?p
+    .b => pass
+  w2 = W.b
+  print(clobber(1))
+  print(saved)

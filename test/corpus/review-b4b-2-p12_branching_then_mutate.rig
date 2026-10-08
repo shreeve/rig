@@ -1,0 +1,24 @@
+# Subject is a branching value of views; payload view escapes; then one owner is reassigned. Expect reject.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  e1 = E.a(r: Res(n: 1, t: Text("one")))
+  e2 = E.b(r: Res(n: 2, t: Text("two")))
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match ?e1 if false else ?e2
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  e2 = E.a(r: Res(n: 9, t: Text("nine")))
+  print(clobber(1))
+  print(saved.t)

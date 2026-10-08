@@ -1,0 +1,27 @@
+# A function returns a payload view of a Vec element, guarded match. Expect accept, prints one 1.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun first(v: ?Vec[E], i: Int) -> ?Res from v
+  match v[i]
+    .a(r) if r.n > 0 => ?r
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(r: Res(n: 1, t: Text("one"))))
+  !v.push(E.b(r: Res(n: 2, t: Text("two"))))
+  f = first(?v, 0)
+  g = first(?v, 1)
+  print(clobber(1))
+  print(f.t, f.n, g.t)

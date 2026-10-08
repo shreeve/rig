@@ -1,0 +1,101 @@
+# A guarded match in a generic body reads its subject in place, so its
+# catch-all binding is the subject's own (`storage.catchAllByAddress`,
+# which the guarded and unguarded emit both read): a view of it kept
+# past the arm, or changing a Cell through it, reaches the subject (the
+# review-b4b-2 probes p78, p81, p82).
+# A branch over lends of the subjects is matched where it points.
+# release
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct Pt
+  x: Int
+  y: Int
+
+struct Counter
+  hits: Cell[Int]
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T)
+  o = Opt.some(v: <a)
+  z = Opt[T].nothing
+  saved = ?z
+  match o
+    .nothing if clobber(2) > 100 => pass
+    x => saved = ?x
+  print(clobber(1))
+  print(saved)
+
+sub two[T](a: T, b: T)
+  o = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  z = Opt[T].nothing
+  saved = ?z
+  if clobber(0) > 0
+    match o
+      .nothing if clobber(2) > 100 => pass
+      x => saved = ?x
+  if clobber(0) > 0
+    match o2
+      .nothing if clobber(2) > 100 => pass
+      y => print(y)
+  print(saved)
+
+fun bump(o: ?Opt[Counter]) -> Int
+  match o
+    .some(c) => c.hits.set(9)
+    .nothing => pass
+  0
+
+fun show(o: ?Opt[Counter]) -> Int
+  match o
+    .some(c) => print(c.hits.get())
+    .nothing => print("nothing")
+  0
+
+sub cell[T](a: T, f: fun(?Opt[T]) -> Int, s: fun(?Opt[T]) -> Int)
+  o = Opt.some(v: <a)
+  z = Opt[T].nothing
+  saved = ?z
+  match o
+    .nothing if clobber(2) > 100 => pass
+    x => saved = ?x
+  _ = f(saved)
+  _ = s(?o)
+
+sub lends[T](a: T, b: T, k: T, c: Bool)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  saved = ?k
+  match (?o1 if c else ?o2)
+    .some(x) if clobber(2) > 100 => print(x)
+    .some(x) => saved = ?x
+    .nothing => pass
+  print(clobber(1))
+  print(saved)
+
+sub main()
+  g(Pt(x: 3, y: 4))
+  g(Text("two two two two two two two two"))
+  two(Pt(x: 3, y: 4), Pt(x: 7, y: 8))
+  cell(Counter(hits: Cell(1)), bump, show)
+  lends(Text("one"), Text("two"), Text("k"), false)
+  lends(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0), true)
+
+# expect:
+# 2
+# .some(v: Pt(x: 3, y: 4))
+# 2
+# .some(v: "two two two two two two two two")
+# .some(v: Pt(x: 7, y: 8))
+# .some(v: Pt(x: 3, y: 4))
+# 9
+# 2
+# two
+# 2
+# Pt(x: 1, y: 2)

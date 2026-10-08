@@ -903,9 +903,13 @@ a subject that reaches a place, a guarded match through `__rig_subject`
 holding its address, a header with temporaries through the address its
 block yields, a part of a value the match holds, a view a call returns
 or a value that branches over views through the pointer it is
-(`evalSubject`), and a generic body through `rig.viewedPtr`, capturing
-a payload, or a catch-all's value, of a type parameter by pointer there
-(`storage.payloadByAddress`, `storage.catchAllByAddress`). One rule
+(`evalSubject`), and a generic body through `rig.viewedPtr`. (A value
+that branches over bare places is matched as a copy, so typecheck
+rejects one whose type moves or may, a type parameter's included, as
+it rejects a binding of one.) Emit captures a payload, or a catch-all's
+value, of a type parameter by pointer there, guarded or not
+(`storage.payloadByAddress`, `storage.catchAllByAddress`), and such a
+binding copies nothing, so it puts no requirement on the instance. One rule
 covers the rest: where a read match matches a copy (not
 `matchesInPlace`), or captures a catch-all's value as a copy, a binding
 that is no plain data is usable within its arm only

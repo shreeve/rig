@@ -1,0 +1,28 @@
+# Generic body: payload and catch-all views of a local escape the arm. Expect accept, prints a / 1 then whole values.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T)
+  o = Opt.some(v: <a)
+  k = <b
+  saved = ?k
+  match o
+    .some(x) if clobber(3) > 0 => saved = ?x
+    .some(x) => saved = ?x
+    .nothing => pass
+  w = Opt[T].nothing
+  ws = ?w
+  match o
+    .nothing => pass
+    x => ws = ?x
+  print(clobber(1))
+  print(saved, ws)
+
+sub main()
+  g(Text("a"), Text("b"))
+  g(1, 2)

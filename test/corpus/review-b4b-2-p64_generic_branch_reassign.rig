@@ -1,0 +1,26 @@
+# As p63, then o2 is reassigned while `saved` is used. Expect reject (saved views o2); if accepted, saved must not read a stale copy.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct Pt
+  x: Int
+  y: Int
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T, c: T, k: T)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  saved = ?k
+  match o1 if clobber(0) > 5 else o2
+    .some(x) => saved = ?x
+    .nothing => pass
+  o2 = Opt.some(v: <c)
+  print(clobber(1))
+  print(saved, o1, o2)
+
+sub main()
+  g(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 5, y: 6), Pt(x: 0, y: 0))

@@ -1,0 +1,30 @@
+# Nested match: view of an inner payload escapes both matches, then the outer subject is reassigned. Expect reject.
+enum In
+  x(t: Text)
+  y
+
+struct Res
+  n: Int
+  i: In
+
+enum E
+  a(r: Res)
+  b
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  e = E.a(r: Res(n: 1, i: In.x(t: Text("inner"))))
+  k = Text("k")
+  saved = ?k
+  match e
+    .a(r)
+      match r.i
+        .x(t) => saved = ?t
+        .y => pass
+    .b => pass
+  e = E.b
+  print(clobber(1))
+  print(saved)

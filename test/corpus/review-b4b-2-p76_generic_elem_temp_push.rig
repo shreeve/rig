@@ -1,0 +1,29 @@
+# As p75 then the Vec grows. Expect reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct Hd[T]
+  o: Opt[T]
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T, c: T, k: T)
+  v: Vec[Opt[T]] = Vec()
+  !v.push(Opt.some(v: <a))
+  !v.push(Opt.some(v: <b))
+  saved = ?k
+  match v[idx(?Text("ab"))]
+    .some(x) if clobber(2) > 100 => print(x)
+    .some(x) => saved = ?x
+    .nothing => pass
+  !v.push(Opt.some(v: <c))
+  print(saved)
+
+sub main()
+  g(Text("one"), Text("two"), Text("three"), Text("k"))

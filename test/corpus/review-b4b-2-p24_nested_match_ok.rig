@@ -1,0 +1,38 @@
+# Nested match: view of an inner payload (Text) escapes both matches; ok. Expect accept, prints inner.
+enum In
+  x(t: Text)
+  y
+
+struct Res
+  n: Int
+  i: In
+
+enum E
+  a(r: Res)
+  b
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun deep(e: ?E, d: ?Text) -> ?Text from e, d
+  match e
+    .a(r)
+      match r.i
+        .x(t) => ?t
+        .y => d
+    .b => d
+
+sub main()
+  e = E.a(r: Res(n: 1, i: In.x(t: Text("inner"))))
+  k = Text("k")
+  saved = ?k
+  match e
+    .a(r)
+      match r.i
+        .x(t) => saved = ?t
+        .y => pass
+    .b => pass
+  d = deep(?e, ?k)
+  print(clobber(1))
+  print(saved, d)

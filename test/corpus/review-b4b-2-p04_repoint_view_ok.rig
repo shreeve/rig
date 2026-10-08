@@ -1,0 +1,25 @@
+# Subject is a view local re-pointed after the match; saved still views e1, which lives. Expect accept, prints one.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  e1 = E.a(r: Res(n: 1, t: Text("one")))
+  e2 = E.a(r: Res(n: 2, t: Text("two")))
+  p = ?e1
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match p
+    .a(r) => saved = ?r
+    .b => pass
+  p = ?e2
+  print(clobber(1))
+  print(saved.t, p)

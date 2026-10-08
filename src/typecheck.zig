@@ -2154,7 +2154,7 @@ const Checker = struct {
         // where it is, and one made here is taken: a branching value
         // that may be either is bound to a name first.
         const branching = subject_hands.kind == .branches or (subject_hands.kind == .part_of_made and self.held_base == .nil);
-        if (mode == .read and branching and !self.isPoison(scrutinee) and sema.moves(self.ctx, scrutinee) == .yes) {
+        if (mode == .read and branching and !self.isPoison(scrutinee) and sema.moves(self.ctx, scrutinee) != .no) {
             try self.errAt(subject, "a `match` reads a place or takes a call's result; bind this `{s}` to a name first", .{try self.tyName(scrutinee)});
             scrutinee = self.t().invalid_id;
         }
@@ -2736,12 +2736,16 @@ const Checker = struct {
 
     /// A read match binds `b`, a payload or the whole matched value, of
     /// type `ty` where the matched value is. One that is no view or
-    /// slice and holds a type parameter by value is bound by copy: no
-    /// instance may hold a Cell the copy would fork. (Where the copy is
+    /// slice and holds a type parameter by value is bound by copy where
+    /// the match reads a copy: no instance may hold a Cell the copy would
+    /// fork. (Where the copy is
     /// consumed, the ownership checker requires an instance that owns
     /// nothing: `Var.payload_view`.)
     fn readBinding(self: *Checker, ty: TypeId, b: Sexp) Error!void {
         if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty) or self.ctx.types.get(ty) == .slice) return;
+        // Captured by address where the match reads in place, it copies
+        // nothing (`storage.catchAllByAddress`, `payloadByAddress`).
+        if (!self.arm_local and storage.catchAllByAddress(self.ctx, ty, true)) return;
         if (sema.maybeDropGlue(self.ctx, ty)) try self.requireOf(ty, .no_cell, self.startOf(b), "copies into a match binding a value");
     }
 

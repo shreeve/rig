@@ -1,0 +1,25 @@
+# Generic body: match on a branching value over two places (moves depends); the payload view escapes the arm. Instance T = a plain struct, whose read view is a pointer. Expect accept with the view into o1/o2, or reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct Pt
+  x: Int
+  y: Int
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T, k: T)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  saved = ?k
+  match o1 if clobber(0) > 5 else o2
+    .some(x) => saved = ?x
+    .nothing => pass
+  print(clobber(1))
+  print(saved)
+
+sub main()
+  g(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0))

@@ -1,0 +1,49 @@
+# Generic: guarded match on a local with a catch-all whose view escapes into `saved`; a Cell is changed through `saved`. A view of o must change o's own Cell: expect 9 printed for o, or a reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct Counter
+  hits: Cell[Int]
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun bump(o: ?Opt[Counter]) -> Int
+  match o
+    .some(c) => c.hits.set(9)
+    .nothing => pass
+  0
+
+fun show(o: ?Opt[Counter]) -> Int
+  match o
+    .some(c) => print(c.hits.get())
+    .nothing => print("nothing")
+  0
+
+sub g[T](a: T, f: fun(?Opt[T]) -> Int, s: fun(?Opt[T]) -> Int)
+  o = Opt.some(v: <a)
+  z = Opt[T].nothing
+  saved = ?z
+  match o
+    .nothing if clobber(2) > 100 => pass
+    x => saved = ?x
+  _ = f(saved)
+  _ = s(?o)
+  _ = s(saved)
+
+sub h[T](a: T, f: fun(?Opt[T]) -> Int, s: fun(?Opt[T]) -> Int)
+  o = Opt.some(v: <a)
+  z = Opt[T].nothing
+  saved = ?z
+  match o
+    .nothing => pass
+    x => saved = ?x
+  _ = f(saved)
+  _ = s(?o)
+  _ = s(saved)
+
+sub main()
+  g(Counter(hits: Cell(1)), bump, show)
+  h(Counter(hits: Cell(1)), bump, show)

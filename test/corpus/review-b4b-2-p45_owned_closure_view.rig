@@ -1,0 +1,21 @@
+# An owned closure made in the arm copies a String view of the payload; the subject is then reassigned. Expect reject.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("one")))
+  f = match e
+    .a(r) => *|+r| print(r.t)
+    .b(r) => *|+r| print(r.t)
+  e = E.b(r: Res(n: 9, t: Text("over")))
+  print(clobber(1))
+  f()

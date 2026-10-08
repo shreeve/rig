@@ -1,0 +1,26 @@
+# A function returns a payload view of a Vec element; the caller then pushes. Expect reject at the push.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun first(v: ?Vec[E]) -> ?Res from v
+  match v[0]
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(r: Res(n: 1, t: Text("one"))))
+  f = first(?v)
+  for i in 0..100
+    !v.push(E.b(r: Res(n: i, t: Text("x"))))
+  print(clobber(1))
+  print(f.t)

@@ -2779,12 +2779,18 @@ pub const Emitter = struct {
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
     }
 
-    /// The matched value `subj` as a catch-all binding `pattern` holds
-    /// it: its address for a write view or a view in place (`?S`), the
-    /// value for a copy.
-    fn wholeExpr(self: *Emitter, pattern: Sexp, subj: []const u8, writes: bool) Error![]const u8 {
-        const viewed = if (self.payloadLocal(pattern)) |local| (if (local.ty) |t| self.isPtrViewTy(t) else false) else false;
-        return if (writes or viewed) self.fmt("&{s}", .{subj}) else subj;
+    /// The catch-all binding `pattern` of the matched value `subj`, used
+    /// in `used_in`: its address for a write view, and for a read one
+    /// captured by address (`storage.catchAllByAddress`, as `emitCapture`
+    /// decides it), the value for a copy.
+    fn wholeBinding(self: *Emitter, pattern: Sexp, subj: []const u8, info: MatchInfo, used_in: Sexp) Error![]const Alias {
+        const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
+        const t = local.ty orelse return self.unsupported(pattern, "a catch-all binding of unknown type");
+        if (info.mode == .write) return self.wholeAlias(pattern, try self.fmt("&{s}", .{subj}), used_in);
+        const by_addr = storage.catchAllByAddress(self.sema, t, info.in_place);
+        const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));
+        const expr = if (by_addr) try self.fmt("&{s}", .{subj}) else subj;
+        return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
     }
 
     /// The prelude of a `match <x` arm on payload variant `fields`, held
@@ -2893,7 +2899,7 @@ pub const Emitter = struct {
         if (isCatchAll(self.source, pattern)) {
             const sym = self.sema.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
-            const aliases = try self.wholeAlias(pattern, try self.wholeExpr(pattern, subj, writes), .nil);
+            const aliases = try self.wholeBinding(pattern, subj, info, .nil);
             return self.emitPrelude(.{ .aliases = aliases });
         }
         if (!pattern.isKind(.variant_pattern)) return;
@@ -2939,10 +2945,9 @@ pub const Emitter = struct {
             prelude.head = head;
             return prelude;
         }
-        const writes = info.mode == .write;
         if (isCatchAll(self.source, pattern)) {
             if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
-            return .{ .aliases = try self.wholeAlias(pattern, try self.wholeExpr(pattern, subj, writes), body) };
+            return .{ .aliases = try self.wholeBinding(pattern, subj, info, body) };
         }
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(ir.VariantPattern.name(pattern));
