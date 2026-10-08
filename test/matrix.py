@@ -30,6 +30,8 @@ again built with `--release`.
     test/matrix.py --shard 2/4     # only the cells whose id hashes to shard 2 of 4
     test/matrix.py --rig OLD/rig   # test another compiler
     test/matrix.py --timeout 20 --mem 2048   # each program's limits
+    test/matrix.py --delta         # check every program, but do not run one
+                                   # whose runs passed before (below)
 
 Each program is stopped past its time, past 1 MB of output, or when its
 processes hold more than its memory, and every loop a cell writes
@@ -40,11 +42,23 @@ Nothing it writes is committed: programs go to a temporary directory,
 and each run's output is removed after it passes. Programs build in
 test/run's store (RIG_BUILD_STORE, test/README.md), so a program built
 before, by any worktree, is not built again.
+
+A program whose runs pass is recorded in test/run's results cache
+(RIG_RESULTS_CACHE, test/README.md) under a key that hashes everything
+the verdict depends on: the code below that runs and judges it, the
+compiler's driver (src/main.zig), Zig, the program, what it must print,
+whether it is also built with `--release`, and every file of its
+sanitized package. With `--delta`, a program whose key is recorded is
+checked but not run, and counts as ran clean, carried over. The cache is
+not used with `--rig`, whose driver it cannot know; otherwise bin/rig is
+built first, so that it is the compiler src/main.zig describes.
 """
 
 import argparse
 import concurrent.futures
 import fcntl
+import hashlib
+import inspect
 import os
 import re
 import shutil
@@ -75,6 +89,99 @@ def build_store():
 
 
 STORE = build_store()
+
+
+def results_cache():
+    """test/run's results cache: RIG_RESULTS_CACHE, else rig-results-cache
+    in the repository's git directory; None when empty or outside git."""
+    if "RIG_RESULTS_CACHE" in os.environ:
+        return os.environ["RIG_RESULTS_CACHE"] or None
+    if not os.path.exists(os.path.join(ROOT, ".git")):
+        return None
+    r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                       cwd=ROOT, capture_output=True, text=True)
+    return os.path.join(r.stdout.strip(), "rig-results-cache") if r.returncode == 0 else None
+
+
+def sha256(*parts):
+    h = hashlib.sha256()
+    for p in parts:
+        p = p if isinstance(p, bytes) else str(p).encode()
+        h.update(b"%d:" % len(p) + p)
+    return h.hexdigest()
+
+
+def package_listing(rig, path, tmp):
+    """Each file of the package `RIG_SANITIZE=1 rig emit` writes for the
+    program at `path` (the package `rig run` builds, but for the line
+    naming its start hook, which src/main.zig writes), as `hash path`
+    lines; None when emit fails."""
+    d = tempfile.mkdtemp(dir=tmp)
+    try:
+        env = dict(os.environ, RIG_OUT_DIR=d, RIG_SANITIZE="1")
+        try:
+            p = subprocess.run([rig, "emit", path], env=env, capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            return None
+        if p.returncode != 0:
+            return None
+        listing = []
+        for dirpath, dirs, files in os.walk(d):
+            dirs.sort()
+            for name in sorted(files):
+                f = os.path.join(dirpath, name)
+                listing.append("%s %s" % (hashlib.sha256(open(f, "rb").read()).hexdigest(), os.path.relpath(f, d)))
+        return "\n".join(listing) or None
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+class Results:
+    """The results cache: one empty file per recorded key, in a directory
+    named by the key's first two digits; a hit touches it, so test/run's
+    prune keeps what runs still use."""
+
+    def __init__(self, path, delta, tmp):
+        self.path, self.delta, self.tmp = path, delta, tmp
+        zig = os.environ.get("ZIG", "zig")
+        zenv = subprocess.run([zig, "env"], capture_output=True, text=True)
+        if zenv.returncode != 0:
+            raise OSError("`zig env` failed")
+        # The code that runs a program and judges it, and the limits it
+        # runs under.
+        verdict = [inspect.getsource(f) for f in VERDICT_CODE] + [r.pattern for r in (BAD, POS, CRASH)]
+        self.base = sha256("rig results 1 matrix", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB,
+                           open(os.path.join(ROOT, "src", "main.zig"), "rb").read(), zig, zenv.stdout,
+                           os.environ.get("RIG_LEAK_TRACE", ""))
+
+    def key(self, path, expect, release):
+        listing = package_listing(RIG, path, self.tmp)
+        if listing is None:
+            return None
+        return sha256(self.base, open(path, "rb").read(), repr(expect), release, listing)
+
+    def file(self, key):
+        return os.path.join(self.path, key[:2], key)
+
+    def carried(self, key):
+        """A --delta run, and the key is recorded."""
+        if not self.delta or not os.path.isfile(self.file(key)):
+            return False
+        try:
+            os.utime(self.file(key))
+        except OSError:
+            pass
+        return True
+
+    def record(self, key):
+        try:
+            os.makedirs(os.path.dirname(self.file(key)), exist_ok=True)
+            open(self.file(key), "w").close()
+        except OSError:
+            pass
+
+
+RESULTS = None
 
 # What a sound program never does when it runs (test/run's CORPUS_BAD_RE).
 BAD = re.compile(
@@ -1368,11 +1475,18 @@ def run_one(path, keep, started_dir, expect=None, release=False):
         if POS.search(out):
             return "rejected", first_error(out)
         return "fail", "rejected without file:line:col: " + first_line(out)
+    key = RESULTS and RESULTS.key(path, expect, release)
+    if key and RESULTS.carried(key):
+        return "ok", "carried over"
     why = run_built(path, keep, started_dir, expect, [])
     if why is None and release:
         why = run_built(path, keep, started_dir, expect, ["--release"])
         why = why and "--release: " + why
-    return ("fail", why) if why else ("ok", "")
+    if why:
+        return "fail", why
+    if key:
+        RESULTS.record(key)
+    return "ok", ""
 
 
 def run_built(path, keep, started_dir, expect, flags):
@@ -1443,8 +1557,12 @@ def first_error(s):
     return first_line(s)
 
 
+# Every function a program's verdict reads (Results hashes their code).
+VERDICT_CODE = (tree_rss, run_capped, run_one, run_built, first_line, first_error)
+
+
 def main():
-    global RIG, RUN_SECONDS, RUN_MB
+    global RIG, RUN_SECONDS, RUN_MB, RESULTS
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-j", type=int, default=4, help="programs at a time (default 4)")
     ap.add_argument("-k", action="append", default=[], help="only ids containing this (repeatable)")
@@ -1455,6 +1573,7 @@ def main():
     ap.add_argument("--rig", help="the compiler to test (default bin/rig)")
     ap.add_argument("--timeout", type=int, default=RUN_SECONDS, help=f"seconds each program may take to build and run (default {RUN_SECONDS})")
     ap.add_argument("--mem", type=int, default=RUN_MB, help=f"megabytes each program may use (default {RUN_MB})")
+    ap.add_argument("--delta", action="store_true", help="do not run a program whose runs passed before (the results cache)")
     args = ap.parse_args()
     RIG = os.path.abspath(args.rig) if args.rig else RIG
     RUN_SECONDS, RUN_MB = args.timeout, args.mem
@@ -1584,6 +1703,15 @@ def main():
         sys.exit(run_oracle(work, cells, args))
     results = {}
     started_dir = tempfile.mkdtemp(prefix="rig-matrix-started.")
+    cache = results_cache()
+    if args.delta and (args.rig or not cache):
+        print("note: no results cache (%s); --delta runs everything" % ("--rig" if args.rig else "RIG_RESULTS_CACHE is empty"))
+    if cache and not args.rig:
+        # The cache's keys name src/main.zig: bin/rig must be built from it.
+        b = subprocess.run([os.environ.get("ZIG", "zig"), "build"], cwd=ROOT, stdin=subprocess.DEVNULL)
+        if b.returncode != 0:
+            sys.exit("zig build failed")
+        RESULTS = Results(cache, args.delta, started_dir)
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
             futs = {pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), i in release): i for i, p in cells}
@@ -1605,8 +1733,10 @@ def main():
         print("\nrejections by message:")
         for k, n in sorted(reasons.items(), key=lambda kv: -kv[1]):
             print(f"{n:5}  {k}")
+    carried = sum(1 for st, why in results.values() if st == "ok" and why == "carried over")
     print(f"\n{len(cells)} programs ({skipped} cells where the form cannot stand): "
-          f"{counts.get('ok', 0)} ran clean, {counts.get('rejected', 0)} rejected, {counts.get('fail', 0)} failed")
+          f"{counts.get('ok', 0)} ran clean{f' ({carried} carried over)' if args.delta else ''}, "
+          f"{counts.get('rejected', 0)} rejected, {counts.get('fail', 0)} failed")
     if not args.keep:
         shutil.rmtree(work, ignore_errors=True)
     sys.exit(1 if counts.get("fail") else 0)

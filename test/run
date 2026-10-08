@@ -18,6 +18,9 @@
 #   --shard I/N run only the selected tests whose id hashes to shard I
 #               of N (1 <= I <= N); shard 1 also runs the whole-program
 #               checks (unit, parser, classify, vocab, style)
+#   --delta     check every program, but do not run again one whose run
+#               passed before with the same inputs (the results cache,
+#               test/README.md); it counts as passed, carried over
 #
 # Environment: ZIG (the Zig executable), NEXUS (the Nexus executable),
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
@@ -27,8 +30,11 @@
 # rig-build-store in the repository's git directory, shared by its
 # worktrees; empty builds each in its test's output directory),
 # RIG_BUILD_STORE_DAYS (a run with no filter removes the store's builds
-# unused for longer, default 7), RIG_SANITIZE (0 builds the programs
-# tests run on the plain leak checker instead of the sanitizing
+# and the results cache's entries unused for longer, default 7),
+# RIG_RESULTS_CACHE (where passing runs are recorded, default
+# rig-results-cache in the repository's git directory; empty records
+# nothing, and --delta then runs everything), RIG_SANITIZE (0 builds the
+# programs tests run on the plain leak checker instead of the sanitizing
 # allocator).
 #
 # Exit status is 1 if any test fails, or a known-failing test or a
@@ -119,11 +125,57 @@ not_run() {
     return 0
 }
 
+# The results cache: a test whose program runs records each passing run
+# under a key that hashes everything the run's verdict depends on, so a
+# --delta run need not run it again (test/README.md). The key is a hash
+# of RESULTS_BASE (this script, the compiler's driver src/main.zig, Zig
+# and its target, and the run's settings), the contract the run is held
+# to, the entry file (the program and its directives: the expected
+# output, an expected panic, `# release`, a time limit), and every file
+# of the package `rig emit` writes under the run's settings: each
+# module, the standard library's shims, and the runtime. The package
+# `rig run` builds is that one with the line naming its start hook,
+# which src/main.zig writes. A program `rig emit` rejects has no key.
+# results_key <contract> <entry>: sets KEY, or returns 1 with KEY empty.
+results_key() {
+    KEY=""
+    [[ -n "$RESULTS_CACHE" && -z "$NO_CACHE" ]] || return 1
+    local tmp="$RESULTS/key/${ID//\//__}" listing
+    rm -rf "$tmp"
+    mkdir -p "$tmp" || return 1
+    if RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$tmp" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" emit "$2" >/dev/null 2>&1 </dev/null; then
+        listing=$(cd "$tmp" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 $SHA256)
+    fi
+    rm -rf "$tmp"
+    [[ -n "$listing" ]] || return 1
+    KEY=$({ printf 'rig results 1\n%s\n%s\n' "$RESULTS_BASE" "$1"; $SHA256 <"$2"; printf '%s\n' "$listing"; } | $SHA256)
+    KEY=${KEY%% *}
+    [[ ${#KEY} -eq 64 ]] || { KEY=""; return 1; }
+}
+
+# carried_over <contract> <entry>: the run of this test passed before
+# with the same key, and this is a --delta run; sets CARRIED. Otherwise
+# KEY is left for record_pass.
+carried_over() {
+    results_key "$1" "$2" || return 1
+    [[ -n "$DELTA" && -f "$RESULTS_CACHE/${KEY:0:2}/$KEY" ]] || return 1
+    touch "$RESULTS_CACHE/${KEY:0:2}/$KEY" 2>/dev/null
+    CARRIED=1
+}
+
+# record_pass: this test's program ran, and passed: record its KEY.
+record_pass() {
+    [[ -n "$KEY" && -z "$CARRIED" ]] || return 0
+    mkdir -p "$RESULTS_CACHE/${KEY:0:2}" 2>/dev/null && : >"$RESULTS_CACHE/${KEY:0:2}/$KEY" 2>/dev/null
+    return 0
+}
+
 # check_behavior <entry> <outdir> <logfile> → sets REASON, returns 0 on pass.
 # A test with a `# release` line is also built with `--release` and must
 # pass the same way.
 check_behavior() {
     local entry=$1 outdir=$2 log=$3
+    carried_over behavior "$entry" && return 0
     check_output "$entry" "$outdir" "$log" || return 1
     grep -qE '^# release[[:space:]]*$' "$entry" || return 0
     check_output "$entry" "$outdir/release" "$log.release" --release && return 0
@@ -285,7 +337,9 @@ check_doc() {
     local dir=$1 entry=$2 outdir=$3 log=$4 mode ok
     mode=$(cat "$dir/mode")
     PENDING=""
-    if [[ $mode == "pending "* ]]; then mode=${mode#pending }; PENDING=held; fi
+    # A pending example's verdict is turned around: its runs are never
+    # recorded, nor carried over.
+    if [[ $mode == "pending "* ]]; then mode=${mode#pending }; PENDING=held NO_CACHE=1; fi
     case $mode in
         run)      check_behavior "$entry" "$outdir" "$log" ;;
         check)    check_accept "$entry" "$log" ;;
@@ -347,6 +401,7 @@ check_corpus() {
         REASON="rejected without a file:line:col diagnostic: $(head -1 <<<"$out")"
         return 1
     fi
+    carried_over corpus "$entry" && return 0
     run_program "$entry" "$outdir"
     rc=$RC
     { echo "--- stdout"; head -40 "$outdir.stdout"; echo "--- stderr"; cat "$outdir.stderr"; } >"$log"
@@ -462,7 +517,7 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
     local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$3"
     local entry=$path
     [[ -d "$path" ]] && entry="$path/main.rig"
-    REASON=""
+    REASON="" ID=$id KEY="" CARRIED="" NO_CACHE=""
     local kind=${id%%/*} ok
     # A test that builds and runs programs may raise its own time limit
     # with a `# timeout: <seconds>` line.
@@ -496,6 +551,8 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
         corpus)            check_corpus "$entry" "$outdir" "$log"; ok=$? ;;
         oracle)            check_oracle "${id#oracle/}" "$outdir" "$log"; ok=$? ;;
         known)
+            # A known bug's verdict is turned around, like a pending example's.
+            NO_CACHE=1
             if grep -qE '^# error:' "$entry"; then check_reject "$entry" "$log"
             else check_behavior "$entry" "$outdir" "$log"; fi
             ok=$?
@@ -511,14 +568,16 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
             return
             ;;
     esac
-    if [[ $ok -eq 0 ]]; then printf 'pass\t%s\t\n' "$id" >"$res"
+    if [[ -n "$CARRIED" ]]; then printf 'pass\t%s\tcarried over\n' "$id" >"$res"
+    elif [[ $ok -eq 0 ]]; then record_pass; printf 'pass\t%s\t\n' "$id" >"$res"
     else printf 'fail\t%s\t%s\n' "$id" "$REASON" >"$res"; fi
 }
 
 if [[ "${1:-}" == "--worker" ]]; then
     worker "$2" "$3" "$4"
-    # Whole seconds since this worker started, to schedule the next run.
-    printf '%s\t%s\n' "$2" "$SECONDS" >>"$RESULTS/durations"
+    # Whole seconds since this worker started, to schedule the next run
+    # (not a carried-over test's, which did not run).
+    [[ -n "$CARRIED" ]] || printf '%s\t%s\n' "$2" "$SECONDS" >>"$RESULTS/durations"
     exit 0
 fi
 
@@ -526,7 +585,7 @@ fi
 # Driver
 # -----------------------------------------------------------------------------
 
-UPDATE="" VERBOSE="" PRUNE="" SHARD="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+UPDATE="" VERBOSE="" PRUNE="" SHARD="" DELTA="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 FILTERS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -537,6 +596,7 @@ while [[ $# -gt 0 ]]; do
                 (( BASH_REMATCH[1] <= BASH_REMATCH[2] )) || { echo "--shard needs I/N, with 1 <= I <= N" >&2; exit 2; }
             SHARD=$2; shift ;;
         -v) VERBOSE=1 ;;
+        --delta) DELTA=1 ;;
         -j) [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { echo "-j needs a number of jobs" >&2; exit 2; }
             JOBS=$2; shift ;;
         -h|--help) sed -n '2,/^$/p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -595,11 +655,39 @@ fi
 STORE_DAYS=${RIG_BUILD_STORE_DAYS:-7}
 [[ $STORE_DAYS =~ ^[0-9]+$ ]] || { echo "RIG_BUILD_STORE_DAYS takes a number of days" >&2; exit 2; }
 export RIG_BUILD_STORE
+# Passing runs are recorded in the results cache beside the store, shared
+# by every worktree; --delta carries them over (results_key).
+if [[ -z "${RIG_RESULTS_CACHE+set}" ]]; then
+    RESULTS_CACHE=""
+    if [[ -e .git ]] && common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+        RESULTS_CACHE=$common/rig-results-cache
+    fi
+else
+    RESULTS_CACHE=$RIG_RESULTS_CACHE
+fi
+[[ -n "$DELTA" && -z "$RESULTS_CACHE" ]] && printf '%snote: no results cache (RIG_RESULTS_CACHE is empty); --delta runs everything%s\n' "$Y" "$X"
+if SHA256=$(command -v sha256sum); then :
+elif command -v shasum >/dev/null; then SHA256="shasum -a 256"
+else RESULTS_CACHE=""; fi
 
 printf '%sbuilding rig%s\n' "$D" "$X"
 if ! "$ZIG" build 2>&1; then
     printf '%sbuild failed%s\n' "$R" "$X"
     exit 1
+fi
+
+# What every recorded run's verdict depends on beside its program and
+# package (results_key): how this script judges it, how bin/rig runs it
+# (src/main.zig, which bin/rig was just built from), Zig, its standard
+# library and target, and the settings of the run. A change to any of
+# them leaves every earlier record unused.
+if [[ -n "$RESULTS_CACHE" ]]; then
+    if ! RESULTS_BASE=$({ $SHA256 <"$SELF" && $SHA256 <src/main.zig && "$ZIG" env &&
+        printf 'zig %s\nsanitize %s\nleak trace %s\ntimeout %s\n' "$ZIG" "$SANITIZE" "${RIG_LEAK_TRACE:-}" "$TIMEOUT"; } 2>/dev/null | $SHA256); then
+        printf '%snote: cannot hash the inputs of a run; the results cache is off%s\n' "$Y" "$X"
+        RESULTS_CACHE=""
+    fi
+    RESULTS_BASE=${RESULTS_BASE%% *}
 fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/rig-test.XXXXXX")
@@ -638,7 +726,7 @@ exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
 PERL
     chmod +x "$TIMEOUT_CMD"
 fi
-export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE
+export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE DELTA RESULTS_CACHE RESULTS_BASE SHA256
 
 is_kind() {
     case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|classify|vocab|style|doc|corpus|oracle) return 0 ;; esac
@@ -883,6 +971,10 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
         # The evidence files of runs killed before rig could remove them.
         [[ -d "$RIG_BUILD_STORE/.started" ]] && find -H "$RIG_BUILD_STORE/.started" -type f -mtime +1 -delete
     fi
+    # And the results cache's records no run has used for as long (a
+    # record is touched when a run carries it over).
+    [[ -n "$RESULTS_CACHE" && -d "$RESULTS_CACHE" ]] &&
+        find -H "$RESULTS_CACHE" -mindepth 2 -maxdepth 2 -type f -mtime +"$STORE_DAYS" -delete
 fi
 [[ -n "$PRUNE" ]] && exit 0
 
@@ -1165,7 +1257,7 @@ show_log() {
 if [[ -n "$VERBOSE" ]]; then
     while IFS=$'\t' read -r st id why; do
         case $st in
-            pass)  printf '  %spass%s   %s\n' "$G" "$X" "$id" ;;
+            pass)  printf '  %spass%s   %s%s\n' "$G" "$X" "$id" "${why:+ $D— $why$X}" ;;
             known) printf '  %sknown%s  %s %s— %s%s\n' "$Y" "$X" "$id" "$D" "$why" "$X" ;;
             pending) printf '  %spending%s %s %s— %s%s\n' "$Y" "$X" "$id" "$D" "$why" "$X" ;;
         esac
@@ -1205,9 +1297,12 @@ FAIL=$(grep -cE '^(fail|fixed)' "$ALL")
 KNOWN=$(grep -c '^known' "$ALL")
 PENDING=$(grep -c '^pending' "$ALL")
 ELAPSED=$((SECONDS - START))
+# With --delta, how many of the passes were carried over, not run.
+CARRIED_OVER=""
+[[ -n "$DELTA" ]] && CARRIED_OVER=" ($(grep -c $'^pass\t[^\t]*\tcarried over$' "$ALL") carried over)"
 if [[ $FAILED -eq 0 ]]; then
-    printf '\n%s%d passed%s, 0 failed, %s%d known, %d pending%s  %s(%ds)%s\n' "$G" "$PASS" "$X" "$Y" "$KNOWN" "$PENDING" "$X" "$D" "$ELAPSED" "$X"
+    printf '\n%s%d passed%s%s, 0 failed, %s%d known, %d pending%s  %s(%ds)%s\n' "$G" "$PASS" "$X" "$CARRIED_OVER" "$Y" "$KNOWN" "$PENDING" "$X" "$D" "$ELAPSED" "$X"
 else
-    printf '\n%d passed, %s%d failed%s, %s%d known, %d pending%s  %s(%ds)%s\n' "$PASS" "$R" "$FAIL" "$X" "$Y" "$KNOWN" "$PENDING" "$X" "$D" "$ELAPSED" "$X"
+    printf '\n%d passed%s, %s%d failed%s, %s%d known, %d pending%s  %s(%ds)%s\n' "$PASS" "$CARRIED_OVER" "$R" "$FAIL" "$X" "$Y" "$KNOWN" "$PENDING" "$X" "$D" "$ELAPSED" "$X"
     exit 1
 fi

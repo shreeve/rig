@@ -10,6 +10,8 @@
 ./test/run --prune         # only remove the output of tests that are gone
 test/matrix.py             # generate and run the form x context x type matrix
 test/matrix.py --shard 2/4 # the second of four disjoint shards of the matrix
+./test/run --delta corpus  # check every program; run only those whose run
+test/matrix.py --delta     # could differ from one that passed (below)
 ```
 
 A shard takes the selected tests whose id hashes to it, so the N shards
@@ -28,7 +30,9 @@ The runner needs bash and either GNU `timeout` or perl (stock macOS has
 perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
 each test may take (default 120), `RIG_TEST_OUT` the directory for
 each test's output, `RIG_BUILD_STORE` where programs build (see
-[Output](#output)), and `RIG_SANITIZE=0` turns off the sanitizer (see
+[Output](#output)), `RIG_RESULTS_CACHE` where passing runs are recorded
+(see [Rerunning only what changed](#rerunning-only-what-changed)), and
+`RIG_SANITIZE=0` turns off the sanitizer (see
 [below](#leak-checking-and-the-sanitizer)).
 
 ## Layout
@@ -413,3 +417,53 @@ it never removes files it did not write.
 The output directory's `.durations` file records how long each test
 took, in whole seconds; the next run starts the longest tests first, so
 it does not end waiting on one of them.
+
+## Rerunning only what changed
+
+A program's run passes or fails by its inputs: the package `rig run`
+builds (every module, the standard library's shims, and the runtime),
+how rig runs it, Zig, and what the test expects. A change that leaves
+all of them as they were, such as a diagnostic's wording or a fix in
+the checker that rejects nothing new, cannot change the verdict, so the
+run need not be repeated.
+
+Each passing run of a behavior test, example, doc example with output,
+corpus program, or matrix program is recorded in the results cache,
+`rig-results-cache` in the repository's git directory beside the build
+store (or `$RIG_RESULTS_CACHE`; empty records nothing). Its key is a
+hash of:
+
+- the package `RIG_SANITIZE=1 rig emit` writes for the program, every
+  file by its path and contents (the package `rig run` builds is this
+  one with the line naming its start hook);
+- the entry file, so the program's directives (`# expect:`,
+  `# expect-panic:`, `# release`, `# timeout:`) and, for a matrix
+  program, what it must print and whether it is also built with
+  `--release`;
+- what judges the run: `test/run` itself, or the functions of
+  `test/matrix.py` that run and judge a program;
+- the driver that runs it, `src/main.zig`, which `bin/rig` is built
+  from first (`test/run` always builds it, and `test/matrix.py` does
+  when the cache is on);
+- `zig env` (Zig's version, its standard library, and the target), the
+  `ZIG` named, `RIG_SANITIZE`, `RIG_LEAK_TRACE`, and the time limits.
+
+With `--delta`, `./test/run` and `test/matrix.py` check every program as
+always, but do not run one whose key is recorded: it passes, carried
+over, and the summary says how many were (`2841 passed (2790 carried
+over)`). Everything else runs: a program whose package changed, any
+program after a change to the runtime, the driver, the harness, or Zig,
+and every test whose verdict is not a run's (rejections, IR snapshots,
+CLI scripts, the whole-program checks, the oracle). Known bugs and
+pending examples are never carried over. A run without `--delta`
+records its passes but carries nothing over, so the merge gates at a
+pull request's head run in full and fill the cache for the next round.
+`test/matrix.py --rig` neither reads nor writes the cache.
+
+A record is an empty file named by its key, so runs in every worktree
+share it, and a failing run records nothing. A run with no filter
+removes the records no run has used for `RIG_BUILD_STORE_DAYS` days.
+`test/cli/results_cache.sh` checks that a changed expectation, runtime,
+driver, harness, Zig, or setting is never carried over. A program whose
+output depends on the clock, randomness, or the machine it runs on is
+carried over on the strength of one passing run.
