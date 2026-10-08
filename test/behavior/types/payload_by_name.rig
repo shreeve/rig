@@ -1,0 +1,105 @@
+# A pattern binds a variant's fields either in order, all of them, or by
+# name, any of them, in any order; a field it leaves out is not bound.
+# The same holds in a read, write or consuming match, under a guard, in
+# a generic enum, and in a match nested in an arm.
+# release
+
+enum Shape
+  circle(radius: Int, center: Int)
+  rect(w: Int, h: Int, depth: Int)
+  point
+
+enum Opt[T]
+  some(v: T, tag: Int)
+  nothing
+
+enum Outer
+  wrap(inner: Shape, n: Int)
+  bare
+
+fun area(s: Shape) -> Int
+  match s
+    .circle(radius: r) => r * r * 3
+    .rect(h: y, w: x) => x * y
+    .point => 0
+
+fun depth(s: Shape) -> Int
+  match s
+    .rect(depth: d) if d > 5 => d * 100
+    .rect(depth: d) => d
+    .circle(center: c) if c == 0 => -1
+    _ => 0
+
+fun first[T](o: Opt[T], d: T) -> T
+  match <o
+    .some(v: x) => x
+    .nothing => d
+
+fun tag[T](o: ?Opt[T]) -> Int
+  match o
+    .some(tag: t) => t
+    .nothing => 0
+
+sub main()
+  c: Shape = .circle(radius: 2, center: 7)
+  r: Shape = .rect(w: 3, h: 4, depth: 9)
+  print(area(c), area(r), area(.point))
+  print(depth(r), depth(.rect(w: 1, h: 1, depth: 2)), depth(.circle(radius: 1, center: 0)), depth(c))
+  # All the fields, named in another order.
+  match r
+    .rect(depth: d, w: x, h: y) => print("rect", x, y, d)
+    _ => pass
+  # A write match writes the fields it names, and leaves the rest.
+  match !r
+    .rect(h: y) => y = 40
+    .circle(center: k) => k = 0
+    _ => pass
+  print(r)
+  match !r
+    .rect(w: x) if x > 100 => x = 0
+    .rect(depth: d) => d += 1
+    _ => pass
+  print(r)
+  match !c
+    .circle(center: k, radius: q)
+      k += 1
+      q *= 10
+    _ => pass
+  print(c)
+  # A consuming match of plain data.
+  match <c
+    .circle(center: k) => print("center", k)
+    _ => pass
+  # Generic enums.
+  print(first(Opt[Int].some(v: 5, tag: 1), 0), first(Opt[Int].nothing, 8))
+  o = Opt[Int].some(v: 6, tag: 3)
+  print(tag(?o))
+  # A match nested in an arm, on a field bound by name.
+  w: Outer = .wrap(inner: .rect(w: 2, h: 5, depth: 1), n: 3)
+  match w
+    .wrap(inner: s)
+      match s
+        .rect(w: x) => print("inner w", x)
+        _ => pass
+    .bare => pass
+  match !w
+    .wrap(n: n, inner: s)
+      n += 1
+      match !s
+        .rect(depth: d) => d = 99
+        _ => pass
+    .bare => pass
+  print(w)
+
+# expect:
+# 12 12 0
+# 900 2 -1 0
+# rect 3 4 9
+# .rect(w: 3, h: 40, depth: 9)
+# .rect(w: 3, h: 40, depth: 10)
+# .circle(radius: 20, center: 8)
+# center 8
+# 5 8
+# 3
+# inner w 2
+# .wrap(inner: .rect(w: 2, h: 5, depth: 99), n: 4)

@@ -1,0 +1,112 @@
+# A consuming match that binds some fields by name owns them; every
+# field it leaves out is dropped once, at the end of the arm, as a `_`
+# field is. A read match's view of a field bound by name outlives the
+# arm as a positional one does, and a write match writes it in place.
+# release
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Bag
+  three(a: *B, label: Text, xs: Vec[Int])
+  one(b: *B)
+  empty
+
+struct Res
+  t: Text
+
+enum E
+  pair(r: Res, k: Int)
+  none
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+fun label(e: ?Bag, d: ?Text) -> ?Text from e, d
+  match e
+    .three(label: t) => ?t
+    _ => d
+
+fun res(e: ?E, d: ?Res) -> ?Res from e, d
+  match e
+    .pair(r: r) if r.t.len > 3 => ?r
+    .pair(r: r) => r
+    .none => d
+
+fun take(e: E) -> Res
+  match <e
+    .pair(k: k) if k > 10 => Res(t: Text("big"))
+    .pair(r: r) => <r
+    .none => Res(t: Text("none"))
+
+sub main()
+  x: Bag = .three(a: *B(n: 1), label: Text("one"), xs: Vec())
+  match <x
+    .three(a: a)
+      keep(<a)
+      print("arm end")
+    _ => pass
+  print("after 1")
+  y: Bag = .three(a: *B(n: 2), label: Text("two"), xs: Vec())
+  match <y
+    .three(xs: v, label: t)
+      print(t, v.len)
+      print("arm end")
+    _ => pass
+  print("after 2")
+  z: Bag = .three(a: *B(n: 3), label: Text("three"), xs: Vec())
+  match <z
+    .three(label: t) => print(t)
+    _ => pass
+  print("after 3")
+  w: Bag = .three(a: *B(n: 4), label: Text("four"), xs: Vec())
+  match <w
+    .three(label: t) if t.len > 9 => print("long")
+    .three(xs: v) => print("xs", v.len)
+    _ => pass
+  print("after 4")
+  # A read match's view of a field bound by name, past the arm.
+  blank = Text("")
+  dr = Res(t: Text(""))
+  g: Bag = .three(a: *B(n: 5), label: Text("five"), xs: Vec())
+  print(label(?g, ?blank))
+  e: E = .pair(r: Res(t: Text("viewed")), k: 1)
+  print(res(?e, ?dr).t)
+  f: E = .pair(r: Res(t: Text("abc")), k: 2)
+  print(res(?f, ?dr).t)
+  # A write match on owning fields, by name.
+  match !g
+    .three(label: t, a: a)
+      t = Text("changed")
+      a = *B(n: 6)
+    _ => pass
+  print(label(?g, ?blank))
+  print(take(.pair(r: Res(t: Text("taken")), k: 1)).t, take(.pair(r: Res(t: Text("x")), k: 20)).t, take(.none).t)
+  print("end")
+
+# expect:
+# kept 1
+# drop 1
+# arm end
+# after 1
+# two 0
+# arm end
+# drop 2
+# after 2
+# three
+# drop 3
+# after 3
+# xs 0
+# drop 4
+# after 4
+# five
+# viewed
+# abc
+# drop 5
+# changed
+# taken big none
+# end
+# drop 6

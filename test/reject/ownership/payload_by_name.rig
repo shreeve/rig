@@ -1,0 +1,29 @@
+# A field bound by name is bound as one bound in order is: a read match
+# cannot move it out, and a guard cannot write it.
+
+struct B
+  n: Int
+
+enum Bag
+  two(a: *B, t: Text)
+  empty
+
+sub keep(b: *B)
+  print(b.n)
+
+fun bump(t: !Text) -> Bool
+  !t.add("!")
+  true
+
+sub main()
+  x: Bag = .two(a: *B(n: 1), t: Text("x"))
+  match x
+    .two(a: a) => keep(<a)
+    _ => pass
+  match !x
+    .two(t: t) if bump(!t) => pass
+    _ => pass
+
+# error: 21:25: cannot move `a` out of `x`: `match x` reads `x`
+# error: 24:24: a guard cannot change the value being matched
+# errors: 2

@@ -1031,7 +1031,8 @@ const Planner = struct {
             const in_place = matchesInPlace(ctx, m);
             var any = false;
             var by_addr = mode == .write;
-            for (ir.VariantPattern.bindings(pattern), fields) |b, f| {
+            const binds = ctx.payloadBindings(pattern) orelse continue;
+            for (binds, fields) |b, f| {
                 if (!p.isUsed(b)) continue;
                 any = true;
                 const binding: ?TypeId = if (ctx.symbolOf(b)) |s| known(ctx, ctx.symbols.items[s].ty) else null;

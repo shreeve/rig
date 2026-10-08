@@ -1,0 +1,37 @@
+# A pattern binds a variant's fields either in order, all of them, or by
+# name, any of them; it doesn't mix the two. Each name is a field of the
+# variant, bound once.
+
+enum Shape
+  rect(w: Int, h: Int)
+  circle(radius: Int)
+  point
+
+sub main()
+  s: Shape = .rect(w: 1, h: 2)
+  match s
+    .rect(a, h: b) => print(a, b)
+    _ => pass
+  match s
+    .rect(w: a, b) => print(a, b)
+    _ => pass
+  match s
+    .rect(width: a) => print(a)
+    _ => pass
+  match s
+    .rect(w: a, w: b) => print(a, b)
+    _ => pass
+  match s
+    .point(w: a) => print(a)
+    _ => pass
+  match s
+    .rect(w: a), .circle(radius: a) => print(a)
+    _ => pass
+
+# error: 13:6: `.rect` binds its fields both in order and by name; a pattern binds a variant's fields either in order, all of them, or by name, any of them
+# error: 16:6: `.rect` binds its fields both in order and by name
+# error: 19:11: no field `width` on variant `rect`
+# error: 22:17: field `w` is bound twice
+# error: 25:6: variant `point` has no payload to destructure
+# error: 28:14: an arm with alternatives cannot bind names
+# errors: 6

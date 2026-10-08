@@ -4984,7 +4984,8 @@ pub const Checker = struct {
             },
             .list => {
                 if (pattern.isKind(.variant_pattern)) {
-                    for (ir.VariantPattern.bindings(pattern)) |b| {
+                    const ctx = self.sema orelse return false;
+                    for (ctx.payloadBindings(pattern) orelse &.{}) |b| {
                         if (b == .src and !std.mem.eql(u8, self.text(b), "_")) _ = try self.bindPayload(b, info, scrut_value);
                     }
                 }
