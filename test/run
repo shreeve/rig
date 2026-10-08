@@ -161,7 +161,7 @@ check_output() {
     fi
 
     if [[ -z "$panic_want" ]] || has_expect_block "$entry"; then
-        if ! diff <(expected_stdout "$entry") "$out" >"$outdir.diff" 2>&1; then
+        if ! expected_stdout "$entry" | diff - "$out" >"$outdir.diff" 2>&1; then
             REASON="stdout differs from # expect block"
             { echo "--- diff (expected vs actual)"; cat "$outdir.diff"; } >>"$log"
             return 1
@@ -271,7 +271,7 @@ check_facts() {
     local rc=$?
     echo "$out" >"$3"
     if [[ $rc -ne 0 ]]; then REASON="rejected: $(head -1 <<<"$out")"; return 1; fi
-    if ! diff "$2" <(printf '%s\n' "$out") >>"$3" 2>&1; then REASON='facts differ from the facts block'; return 1; fi
+    if ! printf '%s\n' "$out" | diff "$2" - >>"$3" 2>&1; then REASON='facts differ from the facts block'; return 1; fi
     return 0
 }
 
@@ -396,7 +396,7 @@ check_ir() {
             printf '%s\n' "$got" >"$snap"
         elif [[ ! -f "$snap" ]]; then
             REASON="missing snapshot $(basename "$snap") (run with --update)"; ok=1
-        elif ! diff "$snap" <(printf '%s\n' "$got") >>"$log" 2>&1; then
+        elif ! printf '%s\n' "$got" | diff "$snap" - >>"$log" 2>&1; then
             REASON="$kind IR differs from $(basename "$snap") (review, then --update)"; ok=1
         fi
     done
