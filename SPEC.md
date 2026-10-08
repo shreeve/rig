@@ -3594,6 +3594,36 @@ drop 3
 drop 2
 ```
 
+A `match` arm's body is a statement of its own, as each line of a
+block is: a temporary made there is dropped where the arm ends, while
+the arm's bindings are still in scope, so it may view them.
+
+```rig
+struct Tag
+  n: ?Int
+
+  drop(!self)
+    print("drop tag", self.n)
+
+fun show(t: ?Tag) -> Int
+  t.n + 1
+
+sub main()
+  for i in 0..2
+    match i
+      0 => print("zero")
+      m => print("m", show(?Tag(n: ?m)))
+    print("after", i)
+```
+
+```output
+zero
+after 0
+m 2
+drop tag 1
+after 1
+```
+
 ```rig
 struct Log
   lines: Vec[Int]

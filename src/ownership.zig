@@ -532,9 +532,9 @@ pub const Checker = struct {
     /// being walked (`sema.dropsTemp`), each with its position: dropped
     /// when its statement ends.
     stmt_drops: std.ArrayList(struct { id: VarId, pos: u32 }) = .empty,
-    /// The hidden vars made, before the scope a `catch` handler or a
-    /// `match` arm opens, for the statement temporaries it makes
-    /// (`holdPartTemps`), by node: `holdTemp` holds each there.
+    /// The hidden vars made, before the scope a `catch` handler opens,
+    /// for the statement temporaries it makes (`holdPartTemps`), by node:
+    /// `holdTemp` holds each there.
     part_temps: std.AutoHashMapUnmanaged(u32, VarId) = .empty,
     /// The hidden vars holding what the calls being walked keep in
     /// storage of their own (`holdForCall`): each ends when its call
@@ -1717,8 +1717,8 @@ pub const Checker = struct {
 
     /// An owning temporary only read where it stands lives in a hidden
     /// var until its statement ends; what views it views that var. One a
-    /// `catch` handler or `match` arm makes is held in the var made for it
-    /// before the handler's or arm's scope opened (`holdPartTemps`).
+    /// `catch` handler makes is held in the var made for it before the
+    /// handler's scope opened (`holdPartTemps`).
     fn holdTemp(self: *Checker, node: Sexp, v: Value) Error!Value {
         const pos = self.startOf(node);
         if (node == .list) if (self.part_temps.fetchRemove(node.list.id)) |kv| if (self.isStmtTempVar(kv.value, pos)) {
@@ -1731,8 +1731,8 @@ pub const Checker = struct {
     }
 
     /// Make the hidden vars for the statement temporaries `part`, a
-    /// `catch` handler or a `match` arm, makes (`sema.stmtTemps`), before
-    /// the caller opens the scope it binds its names in: they are the
+    /// `catch` handler, makes (`sema.stmtTemps`), before the caller opens
+    /// the scope it binds the handler's name in: they are the
     /// statement's, as emit declares their slots for the statement, so
     /// they outlive that scope and end with the statement
     /// (`dropStmtTemps`). Each is made before the state a branch starts
@@ -1823,15 +1823,25 @@ pub const Checker = struct {
                 try self.walkStmt(s);
                 continue;
             }
-            // The value leaves: its tail name moves before the block's
-            // defers run, as emit takes it there.
-            if (t) |ctx| self.markTail(s, ctx);
-            v = try self.walkStmtValue(s, null);
-            if (t) |ctx| if (s == .src and self.reachable) try self.consumeTailName(s, ctx);
+            v = try self.walkTailStmt(s, t);
         }
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
+    }
+
+    /// Walk `stmt`, a block's last statement or a `match` arm's body, as
+    /// a statement whose value `t`, if any, consumes: its temporaries
+    /// end with it, and its tail name moves before the scope's defers
+    /// run, as emit takes it there.
+    fn walkTailStmt(self: *Checker, stmt: Sexp, t: ?Tail) Error!Value {
+        if (t) |ctx| self.markTail(stmt, ctx);
+        const v = try self.walkStmtValue(stmt, null);
+        if (t) |ctx| {
+            self.tail = null;
+            if (stmt == .src and self.reachable) try self.consumeTailName(stmt, ctx);
+        }
+        return v;
     }
 
     /// Report loans in `v` on vars of the innermost scope and drop them.
@@ -4833,7 +4843,6 @@ pub const Checker = struct {
         var held: std.ArrayList(Loan) = .empty;
         for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) == null) try held.append(self.arena(), l);
         const hold = try self.addVar(.{ .name = "", .decl = self.startOf(scrut), .kind = .hidden }, .{ .loans = held.items });
-        for (ir.Match.arms(match)) |arm| try self.holdPartTemps(ir.Arm.body(arm));
 
         const base = try self.here();
         // The state an arm starts from: the entry state joined with what
@@ -4875,7 +4884,9 @@ pub const Checker = struct {
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
-            var v = try self.walkTailPart(body, tail_ctx);
+            // The body is a statement of its own (`sema.isArmBody`): its
+            // temporaries end with it, in the arm's scope.
+            var v = try self.walkTailStmt(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);

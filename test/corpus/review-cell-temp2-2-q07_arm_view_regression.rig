@@ -1,0 +1,51 @@
+# A temporary made in a `match` arm that views the arm's binding: the
+# arm's body is a statement of its own, so the temporary ends with the
+# arm, inside the binding's scope.
+struct P
+  n: Int
+
+struct HT
+  v: ?P
+  t: Text
+
+fun len2(h: ?HT) -> Int
+  h.v.n + h.t.len
+
+fun mkht(v: ?P) -> HT
+  HT(v: v, t: Text("ab"))
+
+enum Bx
+  has(p: P)
+  nothing
+
+sub arms(b: ?Bx)
+  match b
+    .has(x) => print("arm", len2(?HT(v: ?x, t: Text("abc"))))
+    .nothing => print("none")
+  match b
+    .has(x) => print("arm2", mkht(?x).t.len, len2(?mkht(?x)))
+    .nothing => print("none")
+
+fun arms3(b: ?Bx) -> Int
+  r = match b
+    .has(x) => len2(?mkht(?x))
+    .nothing => 0
+  r
+
+fun arms4(n: Int) -> Int
+  match n
+    m if m > 0 => len2(?HT(v: ?P(n: m), t: Text("q")))
+    m => m
+
+sub main()
+  b = Bx.has(P(n: 3))
+  arms(?b)
+  arms(?Bx.nothing)
+  print(arms3(?b), arms4(4), arms4(-2))
+
+# expect:
+# arm 6
+# arm2 2 5
+# none
+# none
+# 5 5 -2

@@ -1,0 +1,30 @@
+# A `match` arm's body is a statement of its own, as a block's line is:
+# a write view last used in the subject is no longer live there, so the
+# arm may lend what it viewed, as a block arm may.
+enum Shape
+  circle(r: Int)
+  point
+
+fun grow(v: !Vec[Shape]) -> Int
+  for _ in 0..10
+    !v.push(.point)
+  v.len
+
+sub main()
+  v: Vec[Shape] = Vec()
+  !v.push(.circle(r: 5))
+  x = !v
+  match ?x[0]
+    .circle(_) => print("simple", grow(!v))
+    .point => pass
+  y = !v
+  match ?y[0]
+    .circle(r)
+      print("block", r, grow(!v), r)
+    .point => pass
+  print(v.len)
+
+# expect:
+# simple 11
+# block 5 21 5
+# 21

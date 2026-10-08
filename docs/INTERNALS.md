@@ -731,14 +731,25 @@ branch may have) is no made value: no slot keeps it and it holds no
 Cell, and emit reaches it as `rig.noneAt(T?)`, an absent optional whose
 payload no branch captures. Which temporaries are a statement's is one
 decision too, `sema.stmtTemps`: those of every part of it, a branch's,
-a `??` fallback's, a `catch` handler's, and a `match` arm's value
-included, but not those of a block or closure it holds, of a header,
-or of a `while` step, each a statement of its own. Emit declares a
-slot for each where the statement starts (`emitTempSlots`), and the
-ownership checker holds each in a hidden var for the statement: one a
-handler or an arm makes, in a var made before the scope it opens for
-its names (`holdPartTemps`), so a view of it is checked against the
-statement's end, where it is dropped, not the handler's. A jump out of
+a `??` fallback's, and a `catch` handler's included, but not those of
+a block or closure it holds, of a header, of a `while` step, or of a
+`match` arm's body (`sema.isArmBody`), each a statement of its own.
+Emit declares a slot for each where the statement starts
+(`emitTempSlots`), and the ownership checker holds each in a hidden
+var for the statement: one a handler makes, in a var made before the
+scope it opens for its name (`holdPartTemps`), so a view of it is
+checked against the statement's end, where it is dropped, not the
+handler's. An arm is a block of one statement: `pat => s` is `pat`
+followed by the block `s`, so `.has(x) => f(?mk(?x))` is `.has(x)`,
+`_t = mk(?x)`, `f(?_t)`, `-_t`, with `_t` dropped where the arm ends,
+inside the scope of `x` (emit's slot is the prong's, `emitBodyWith` or
+`emitYieldBlock`; the checker walks the body as the arm's statement,
+`walkTailStmt`). A handler and an arm differ because of what takes
+their value: a handler is part of an expression whose rest may view
+its value or a temporary it makes (`(f() catch mk()).me()`), while a
+`match` stands only where its value is taken whole (a statement, the
+value of a binding, `return`, `break`, an arm, or a block's last
+line), so nothing past an arm can view what the arm made. A jump out of
 a statement ends the loans the statement took for its own end, as the
 statement does. A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:

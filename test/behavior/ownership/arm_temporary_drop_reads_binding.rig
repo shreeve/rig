@@ -1,0 +1,120 @@
+# A temporary made in a `match` arm whose drop reads a view of the arm's
+# binding: the arm is the temporary's statement, so it is dropped where
+# the arm ends, while the binding is still in scope.
+# release
+error E
+  bad
+
+struct P
+  n: Int
+
+struct HI
+  v: ?Int
+  t: Text
+
+  drop(!self)
+    print("drop hi", self.v)
+
+struct HP
+  v: ?P
+  t: Text
+
+  drop(!self)
+    print("drop hp", self.v.n)
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop d", self.c.get())
+
+struct HC
+  v: ?D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop hc", self.v.c.get(), self.c.get())
+
+  fun me(?self) -> ?HC
+    self.c.set(self.c.get() + 1)
+    self.v.c.set(self.v.c.get() + 10)
+    self
+
+enum Bx
+  has(p: P)
+  nothing
+
+enum Bd
+  has(d: D)
+  nothing
+
+fun showi(h: ?HI) -> Int
+  h.v + h.t.len
+
+fun showp(h: ?HP) -> Int
+  h.v.n + h.t.len
+
+fun mkbx(n: Int) -> Bx
+  return Bx.nothing if n < 0
+  Bx.has(P(n: n))
+
+fun mkhc(v: ?D, n: Int) -> HC!
+  return E.bad if n < 0
+  HC(v: v, c: Cell(n))
+
+fun valued(b: ?Bx) -> Int
+  r = match b
+    .has(x) => showp(?HP(v: ?x, t: Text("a")))
+    .nothing => 0
+  print("valued", r)
+  r
+
+fun returned(b: ?Bx) -> Int
+  match b
+    .has(x) => return showp(?HP(v: ?x, t: Text("ab")))
+    .nothing => pass
+  -1
+
+sub cells(b: ?Bd)
+  match b
+    .has(x) => print("hc", HC(v: x, c: Cell(1)).me().c.get(), x.c.get())
+    .nothing => pass
+  match b
+    .has(x) => print("hc2", (mkhc(x, -1) catch HC(v: x, c: Cell(5))).me().c.get())
+    .nothing => pass
+
+sub main()
+  for i in 0..3
+    match i * 10
+      0 => print("zero")
+      m => print("m", showi(?HI(v: ?m, t: Text("ab"))))
+    print("after", i)
+  match mkbx(7)
+    .has(x) => print("x", showp(?HP(v: ?x, t: Text("abc"))))
+    .nothing => print("none")
+  print(valued(?mkbx(4)), returned(?mkbx(5)))
+  d = Bd.has(D(c: Cell(2)))
+  cells(?d)
+  print("end")
+
+# expect:
+# zero
+# after 0
+# m 12
+# drop hi 10
+# after 1
+# m 22
+# drop hi 20
+# after 2
+# x 10
+# drop hp 7
+# drop hp 4
+# valued 5
+# drop hp 5
+# 5 7
+# hc 2 12
+# drop hc 12 2
+# hc2 6
+# drop hc 22 6
+# end
+# drop d 22
