@@ -18,57 +18,30 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    defaults:
-      run:
-        working-directory: rig
+  ubuntu:
+    uses: ./.github/workflows/shards.yml
+    with:
+      os: ubuntu-latest
+
+  macos:
+    uses: ./.github/workflows/shards.yml
+    with:
+      os: macos-latest
+
+  # The checks the ruleset on main requires: each passes only when every
+  # shard of its system passed.
+  test-ubuntu:
+    name: test (ubuntu-latest)
+    needs: ubuntu
+    if: always()
+    runs-on: ubuntu-latest
     steps:
-      # Rig and Nexus side by side: the build and test/run look for
-      # nexus/bin/nexus in a parent directory of the checkout.
-      - uses: actions/checkout@v4
-        with:
-          path: rig
+      - run: test "${{ needs.ubuntu.result }}" = success
 
-      # setup-zig also caches Zig's global cache between runs.
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.0
-
-      # Nexus is pinned, so its binary is built once per runner and Zig
-      # version and then restored from the cache.
-      - name: Restore Nexus
-        id: nexus
-        uses: actions/cache@v4
-        with:
-          path: nexus/bin/nexus
-          key: nexus-v2.0.0-zig-0.17.0-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Check out Nexus
-        if: steps.nexus.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: shreeve/nexus
-          ref: v2.0.0
-          path: nexus
-
-      - name: Build Nexus
-        if: steps.nexus.outputs.cache-hit != 'true'
-        working-directory: nexus
-        run: zig build -Doptimize=safe
-
-      - name: Build Rig
-        run: zig build
-
-      # test/run stops a test with GNU timeout, or with perl where there
-      # is none (macOS).
-      - name: Test
-        # Release builds on a cold cache can take minutes on a CI runner.
-        env:
-          RIG_TEST_TIMEOUT: 300
-        run: ./test/run -j 4
+  test-macos:
+    name: test (macos-latest)
+    needs: macos
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.macos.result }}" = success
