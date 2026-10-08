@@ -2440,6 +2440,15 @@ pub const Emitter = struct {
         in_place: bool = false,
     };
 
+    /// Whether the field or element path `e` passes through an element.
+    fn throughElement(e: Sexp) bool {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) : (p = ir.get(p, .object)) {
+            if (p.isKind(.index)) return true;
+        }
+        return false;
+    }
+
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
     /// yields a value. A match with a guarded arm picks its arm first
     /// (`emitGuardedMatch`).
@@ -2495,6 +2504,14 @@ pub const Emitter = struct {
             // is, so each payload captured by pointer is the place's own.
             try self.emitSubjectPtr(subject, info.mode == .write);
             try self.w.writeAll(".*");
+            if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
+        } else if (info.mode == .write and sema.handsOver(self.sema, subject).kind == .place and throughElement(subject)) {
+            // A place through an element that a write match writes is
+            // switched on where it is (a Vec's element reads as a
+            // value): `(&v.slot(i).*).*`.
+            try self.w.writeAll("(");
+            try self.emitSubjectPtr(subject, true);
+            try self.w.writeAll(").*");
             if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         } else {
             // A match on a call returning a view held by pointer
