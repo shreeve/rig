@@ -702,6 +702,23 @@ pub fn actsBeforeStore(target: Sexp, value: Sexp) bool {
     };
 }
 
+/// Whether assignment `set` to a name, which stores a value (a plain
+/// local, or what a `!T` local views) rather than pointing a view
+/// elsewhere, makes its value into `__rig_new` before the store: when
+/// the value can act (`actsBeforeStore`). An assignment is
+/// `{ __v = value; place op= __v }`, so the store goes through the
+/// place as the value left it; Zig would take a `!T` local's pointer
+/// before the value runs (`w.* = switch ...`).
+pub fn storesAfterValue(ctx: *const SemContext, set: Sexp) bool {
+    const target = ir.Set.target(set);
+    const value = ir.Set.value(set);
+    if (target != .src or !actsBeforeStore(target, value) or isPureArg(ctx, value)) return false;
+    const sym = ctx.symbolOf(target) orelse return false;
+    const ty = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
+    if (sema.isReadOrWriteView(ctx, ty)) return !ctx.repoints(set) and sema.assignWritesThrough(ctx, ty);
+    return true;
+}
+
 /// Whether `e` holds a node of one of `kinds`, outside the closures in it.
 pub fn contains(e: Sexp, kinds: []const Tag) bool {
     if (e != .list) return false;
@@ -1002,11 +1019,12 @@ const Planner = struct {
         const s = ctx.symbols.items[sym];
         if (s.decl_pos == target.src.pos) return;
         // A reassigned resource's new value is made before the old one
-        // is dropped.
+        // is dropped. Any other store whose value can act makes its value
+        // first, as every assignment does (`storesAfterValue`).
         const ty = known(ctx, s.ty) orelse return;
         const ptr = isPtrViewTy(ctx, ty);
         const writes_through = !ctx.repoints(set) and sema.assignWritesThrough(ctx, s.ty);
-        if ((ptr and writes_through and owns(ctx, sema.unwrapViews(ctx, ty))) or (!ptr and owns(ctx, ty)))
+        if ((ptr and writes_through and owns(ctx, sema.unwrapViews(ctx, ty))) or (!ptr and owns(ctx, ty)) or storesAfterValue(ctx, set))
             try p.record(value, .new_value, .owned, .assignment);
     }
 

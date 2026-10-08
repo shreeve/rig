@@ -1,0 +1,28 @@
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun sink(d: D) -> D
+  D(n: d.n + 10)
+
+sub run(k: Bool)
+  s = D(n: 1)
+  s = if k
+    sink(<s)
+  else
+    D(n: 4)
+  print("s", s.n)
+
+sub main()
+  run(true)
+  run(false)
+
+# expect:
+# drop 1
+# s 11
+# drop 11
+# drop 1
+# s 4
+# drop 4

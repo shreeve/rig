@@ -1,0 +1,21 @@
+struct B
+  v: Vec[Int]
+
+  fun grow(!self) -> Int
+    for _ in 0..200
+      !self.v.push(1)
+    self.v.len
+
+  sub set(!self, k: Int)
+    self.v[0] = match k
+      0 => !self.grow()
+      _ => 3
+
+sub main()
+  b = B(v: Vec())
+  !b.v.push(7)
+  !b.set(0)
+  print(b.v[0], b.v.len)
+
+# expect:
+# 201 201

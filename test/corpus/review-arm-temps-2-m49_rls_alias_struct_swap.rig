@@ -1,0 +1,29 @@
+# A store whose value reads the place it replaces: the value is computed
+# first, then stored (Zig result-location aliasing would break this).
+struct P
+  a: Int
+  b: Int
+
+sub main()
+  p = P(a: 1, b: 2)
+  p = P(a: p.b, b: p.a)
+  print(p.a, p.b)
+  v: Vec[P] = Vec()
+  !v.push(P(a: 3, b: 4))
+  v[0] = P(a: v[0].b, b: v[0].a)
+  print(v[0].a, v[0].b)
+  w = !v[0]
+  w = P(a: w.b, b: w.a)
+  print(w.a, w.b)
+  k = 0
+  w = match k
+    0
+      P(a: w.b, b: w.a)
+    _ => P(a: 0, b: 0)
+  print(v[0].a, v[0].b)
+
+# expect:
+# 2 1
+# 4 3
+# 3 4
+# 4 3

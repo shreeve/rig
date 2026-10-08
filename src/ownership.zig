@@ -397,6 +397,10 @@ const LoopCtx = struct {
     reads: bool = false,
 };
 
+/// A symbol an assignment's target reads, used after its value
+/// (`Checker.after_value`), and the loop around the assignment.
+const AfterValue = struct { sym: SymbolId, loop: ?*LoopCtx };
+
 /// Where a value is being consumed, for alias diagnostics.
 const Sink = enum {
     binding,
@@ -526,6 +530,14 @@ pub const Checker = struct {
     /// `last_use` and in the liveness checks.
     step_at: ?u32 = null,
     scopes: std.ArrayList(Scope) = .empty,
+    /// What the targets of the assignments whose values are being walked
+    /// read. An assignment is `{ __v = value; place op= __v }`, so its
+    /// target is used after the whole value, every statement and scope
+    /// in it included: while the value is walked, these symbols are
+    /// live (`holderLive`), each with the loop around its assignment, so
+    /// a jump out of the assignment, which never reaches the target,
+    /// leaves them behind (`walkJump`).
+    after_value: std.ArrayList(AfterValue) = .empty,
     /// Loans taken by the current statement and not stored in a var.
     temps: std.ArrayList(Loan) = .empty,
     /// The hidden vars holding the owning temporaries of the statements
@@ -620,6 +632,7 @@ pub const Checker = struct {
         self.defer_used.deinit(self.gpa);
         for (self.scopes.items) |*s| s.defers.deinit(self.gpa);
         self.scopes.deinit(self.gpa);
+        self.after_value.deinit(self.gpa);
         self.temps.deinit(self.gpa);
         self.reaches.deinit(self.gpa);
         self.fn_arena_state.deinit();
@@ -1412,9 +1425,9 @@ pub const Checker = struct {
     /// and body), and the symbols deferred code uses. A capture's own
     /// leaf is also a use of the binding it captures. A `while` loop's
     /// step runs after the body, so its uses count there (`stepAt`), or
-    /// at `at` when `e` is in a step already; an assignment's target is
-    /// used after its value, so its uses count at the assignment's end,
-    /// past every statement nested in the value (an arm, a block line).
+    /// at `at` when `e` is in a step already. (An assignment's target is
+    /// used after its value, which `after_value` records as the value is
+    /// walked.)
     fn indexUses(self: *Checker, e: Sexp, in_defer: bool, at: ?u32) Error!void {
         switch (e) {
             .src => |s| {
@@ -1429,8 +1442,8 @@ pub const Checker = struct {
             .list => {
                 const deferred = in_defer or e.isKind(.@"defer") or e.isKind(.@"errdefer");
                 for (e.items()) |c| {
-                    const use_at = if (sema.isWhileStep(e, c)) at orelse stepAt(e) else if (isSetTarget(e, c)) at orelse extent(e).hi else at;
-                    try self.indexUses(c, deferred, use_at);
+                    const step_at = if (sema.isWhileStep(e, c)) at orelse stepAt(e) else at;
+                    try self.indexUses(c, deferred, step_at);
                 }
             },
             else => {},
@@ -1472,8 +1485,10 @@ pub const Checker = struct {
     /// loans it holds are still in force. It is live when the var is used
     /// later in the code, or anywhere in a loop around this point that
     /// does not also enclose its declaration (the next iteration runs
-    /// that code again), or in deferred code, or when its drop at scope
-    /// exit may run a `drop` body, which could read what it views
+    /// that code again), or in deferred code, or by the target of an
+    /// assignment whose value is being walked (`after_value`), or when
+    /// its drop at scope exit may run a `drop` body, which could read
+    /// what it views
     /// (`sema.dropRunsBody`; any other drop only releases memory, and
     /// uses no view), or when a live var or temporary views it in turn.
     /// Otherwise its last use is behind, and its views have ended.
@@ -1490,6 +1505,7 @@ pub const Checker = struct {
         if (v.kind == .hidden or v.kind == .param or v.env_drop_reads or self.isGlobal(id)) return true;
         const sym = v.sym orelse return true;
         if (self.defer_used.contains(sym)) return true;
+        for (self.after_value.items) |a| if (a.sym == sym) return true;
         const ty = v.ty orelse return true;
         // A var that owns its value drops it at scope exit, which uses
         // its views only through a `drop` body. (A match payload or a
@@ -3229,7 +3245,14 @@ pub const Checker = struct {
         const kind = rig.bindingKindOf(ir.Set.op(node));
         const target = ir.Set.target(node);
         const expr = ir.Set.value(node);
-        if (target != .src) return self.walkFieldAssign(target, expr);
+        if (target != .src) {
+            const value = blk: {
+                const mark = try self.useAfterValue(node);
+                defer self.after_value.shrinkRetainingCapacity(mark);
+                break :blk try self.walkConsumed(expr, .field);
+            };
+            return self.walkFieldAssign(target, value);
+        }
 
         const pos = target.src.pos;
         const name = self.text(target);
@@ -3241,6 +3264,7 @@ pub const Checker = struct {
         if (kind == .default and (if (self.sema) |ctx| ctx.repoints(node) else false)) if (self.find(name)) |id| {
             if (!self.readsName(expr, name) and !leavesEarly(expr)) try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
         };
+        const mark = try self.useAfterValue(node);
         const value: Value = switch (kind) {
             .default, .fixed, .shadow => if (is_lambda) blk: {
                 self.lambda_ok = true;
@@ -3256,6 +3280,7 @@ pub const Checker = struct {
             },
             else => try self.walk(expr),
         };
+        self.after_value.shrinkRetainingCapacity(mark);
 
         if (std.mem.eql(u8, name, "_")) return;
 
@@ -3280,6 +3305,38 @@ pub const Checker = struct {
             },
         }
         if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drop_reads = self.envDropReads(expr);
+    }
+
+    /// An assignment is `{ __v = value; place op= __v }`: what its target
+    /// reads is used after its value, so it is live while the value is
+    /// walked (`after_value`). A name target reads its binding when the
+    /// store combines with it (`x op= v`) or writes through it (a `!T`
+    /// local given a value); a field or element target reads every name
+    /// in it. Returns the mark to drop them back to once the value is
+    /// walked.
+    fn useAfterValue(self: *Checker, node: Sexp) Error!usize {
+        const mark = self.after_value.items.len;
+        const ctx = self.sema orelse return mark;
+        const target = ir.Set.target(node);
+        if (target != .src) {
+            try self.useAfterValueIn(target);
+            return mark;
+        }
+        const sym = ctx.symbolOf(target) orelse return mark;
+        const s = ctx.symbols.items[sym];
+        if (s.decl_pos == target.src.pos) return mark;
+        const kind = rig.bindingKindOf(ir.Set.op(node));
+        const writes_through = kind == .default and !ctx.repoints(node) and sema.assignWritesThrough(ctx, s.ty);
+        if (kind.operator() != null or writes_through) try self.after_value.append(self.gpa, .{ .sym = sym, .loop = self.loop });
+        return mark;
+    }
+
+    fn useAfterValueIn(self: *Checker, e: Sexp) Error!void {
+        switch (e) {
+            .src => if (self.sema.?.symbolOf(e)) |sym| try self.after_value.append(self.gpa, .{ .sym = sym, .loop = self.loop }),
+            .list => for (e.items()) |c| try self.useAfterValueIn(c),
+            else => {},
+        }
     }
 
     /// Whether `e` names `name` anywhere.
@@ -3438,9 +3495,8 @@ pub const Checker = struct {
         try self.absorbThroughWrites(held, value, pos, self.vars.items[id].name, depth);
     }
 
-    /// `p.f = e` / `v[i] = e`.
-    fn walkFieldAssign(self: *Checker, target: Sexp, expr: Sexp) Error!void {
-        const value = try self.walkConsumed(expr, .field);
+    /// `p.f = e` / `v[i] = e`, once `e` is walked to `value`.
+    fn walkFieldAssign(self: *Checker, target: Sexp, value: Value) Error!void {
         const place = self.resolvePlace(target) orelse {
             // A target whose path starts from a value no var holds (a
             // lend, `(!h).r`, or a write view a call returns,
@@ -5307,6 +5363,15 @@ pub const Checker = struct {
             try self.errSpan(at, "`continue :{s}` names a block, not a loop", .{label});
         }
         if (target) |t| {
+            // A jump out of an assignment's value never reaches its
+            // target: what the target reads is not used on this path.
+            const pinned = self.after_value.items.len;
+            const left = for (self.after_value.items, 0..) |a, i| {
+                if (encloses(t, a.loop)) break i;
+            } else pinned;
+            const kept = try self.arena().dupe(AfterValue, self.after_value.items[left..]);
+            self.after_value.shrinkRetainingCapacity(left);
+            defer self.after_value.appendSliceAssumeCapacity(kept);
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
             // A `continue` goes on to a step that runs in the condition's
             // bindings' scope, or else back to the loop's head.
@@ -5757,15 +5822,11 @@ fn sexpMentionsView(t: Sexp) bool {
     return false;
 }
 
-/// Whether `child` is the target of assignment `parent`.
-fn isSetTarget(parent: Sexp, child: Sexp) bool {
-    if (!parent.isKind(.set)) return false;
-    const target = ir.Set.target(parent);
-    return switch (target) {
-        .src => child == .src and child.src.pos == target.src.pos,
-        .list => child == .list and child.list.id == target.list.id,
-        else => false,
-    };
+/// Whether loop (or labeled block) `outer` is `inner` or encloses it.
+fn encloses(outer: *const LoopCtx, inner: ?*const LoopCtx) bool {
+    var l = inner;
+    while (l) |ctx| : (l = ctx.parent) if (ctx == outer) return true;
+    return false;
 }
 
 /// Where the step of `while` loop `node` runs: after its body.

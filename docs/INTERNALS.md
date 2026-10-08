@@ -1447,7 +1447,9 @@ step counts where the step runs, just past the body, `stepAt`, which
 also stands for the step's statements while it is walked) and the
 symbols deferred code uses. A var is live after the current statement when it is used at or
 after the statement's start, or anywhere in an enclosing loop it was
-declared outside of (the next iteration), or in deferred code, or when
+declared outside of (the next iteration), or in deferred code, or in
+the target of an assignment whose value is being walked
+([Assignments](#assignments)), or when
 it owns a value whose drop at scope exit may run a `drop` body
 (`sema.dropRunsBody`: one of its own, or of a value it holds and drops,
 or `depends` for a value holding a type parameter), which could read
@@ -1827,6 +1829,55 @@ written to it: the resolver that writes the jump marks the label, so
 which labels appear needs no analysis of its own. The blocks are always
 there; an unused one is a plain `{ }`, which Zig compiles to nothing.
 
+### Assignments
+
+Every assignment, to a name, a field, or an element, plain or compound,
+is one desugaring, which the checker walks (`walkSet`) and emit writes
+(`emitSet`):
+
+```text
+place op= value   ==>   { __v = value; place op= __v }
+```
+
+The value runs to its end first: every statement in it (a `match` arm,
+an `if` or `else` block, a `catch` handler, a nested assignment), every
+scope it opens, and the drops and defers that end them. Only then is
+the target evaluated, its indexes from the outside in, and the store
+made through the place as the value left it.
+
+- **The checker** walks the value, then the target. While the value is
+  walked, the target's uses lie ahead, in the statement after `__v`:
+  the symbols the target reads are live (`Checker.after_value`,
+  `useAfterValue`), so a scope that ends inside the value, the last one
+  included, reports a loan of its locals that the target's view still
+  holds, and a lend in the value conflicts with what the target views.
+  A name target reads its binding when the store combines with it
+  (`x op= v`) or writes through it (a `!T` local given a value); one
+  that is pointed elsewhere (`repoints`) or given a new value reads
+  nothing. A jump out of the value never reaches the target, so the
+  symbols pinned inside the loop or block it leaves are not live on its
+  path (`walkJump`). Liveness positions are not patched: the target's
+  uses are recorded where they stand, and a scope that ends after the
+  assignment (one whose last line it is) sees them as behind it.
+- **Emit** makes `__v` whenever the value can act (`actsBeforeStore`: a
+  call, an assignment, a drop, or a jump), as the `new_value` storage
+  fact `__rig_new_N`, then stores through the place: a field or element
+  through `openAssign` or `openNewValue`, a compound through
+  `openAssign`, a reassigned resource through `openNewValue`, and any
+  other name store through `storesAfterValue`. So Zig never takes the
+  place's address before the value runs: `w = match ...` through a
+  `!T` local is `{ const __rig_new_N = switch ...; w.* = __rig_new_N; }`,
+  never `w.* = switch ...`.
+
+The other forms whose value may hold statements have no place to
+evaluate after it: `return value`, `break value`, and a new binding's
+initializer (`x = value` that declares `x`) evaluate the value and then
+leave or bind, so the order is the same. Layout gives no other form a
+statement-bearing value: an operand, an argument, a receiver, an index,
+and a struct or array literal field all reject a block, and a deferred
+assignment (`defer w[0] = match ...`) is rejected, as deferred code
+keeps what it reads live for the whole scope.
+
 ## Emit
 
 `emit.zig` lowers each checked module to Zig 0.17 source. It only
@@ -2067,11 +2118,12 @@ lower is an internal error: sema must have rejected it.
   the chokepoint checks the storage's `life` against the scope emit
   gives it, so each of these becomes a slot or a fact the checker walks.
 - **Assignments.** Zig finds the address of `place.* = f()` before it
-  calls `f`, so an assignment to a field or element whose value or
-  indexes can act (a call, an assignment, a drop, a jump) evaluates the
-  value into `__rig_new_N` and each index into `__rig_ix_N_k` first,
-  then stores (`openAssign`): the order the ownership checker walks it
-  in (`walkFieldAssign`), and the order SPEC §4 gives. A lend, a
+  calls `f`, so an assignment whose value or indexes can act (a call,
+  an assignment, a drop, a jump) evaluates the value into
+  `__rig_new_N` and each index into `__rig_ix_N_k` first, then stores
+  (`openAssign`, and `storesAfterValue` for a name): the desugaring
+  [Assignments](#assignments) gives, which the ownership checker walks,
+  and the order SPEC §4 gives. A lend, a
   slice, or a receiver takes its place's address up to each index
   before the index runs, so there the checker holds the root read while
   the indexes are walked (`walkIndicesHeld`).

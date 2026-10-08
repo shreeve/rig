@@ -1,0 +1,19 @@
+# Valid: a set is the last line of a block, and its target writes through
+# a view re-pointed at the block's local; nothing uses the view after.
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = 5
+  k = true
+  if k
+    u: Vec[Int] = Vec()
+    !u.push(1)
+    w = !u[0..1]
+    w[0] = 3
+    print(u[0])
+  print(v[0])
+
+# expect:
+# 3
+# 5

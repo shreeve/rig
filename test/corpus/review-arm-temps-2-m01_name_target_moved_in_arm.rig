@@ -1,0 +1,30 @@
+# `s = match k` whose arm moves `s`: the store must not drop the moved value.
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun sink(d: D) -> D
+  print("sink", d.n)
+  D(n: d.n + 10)
+
+sub run(k: Int)
+  s = D(n: k)
+  s = match k
+    0 => sink(<s)
+    _ => D(n: 5)
+  print("s", s.n)
+
+sub main()
+  run(0)
+  run(1)
+
+# expect:
+# sink 0
+# drop 0
+# s 10
+# drop 10
+# drop 1
+# s 5
+# drop 5

@@ -1,0 +1,16 @@
+# Valid: as m50 with the set as the block's very last line.
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = 5
+  k = true
+  if k
+    u: Vec[Int] = Vec()
+    !u.push(1)
+    w = !u[0..1]
+    w[0] = 3
+  print(v[0])
+
+# expect:
+# 5

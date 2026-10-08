@@ -1,0 +1,24 @@
+# The target's index lends `v` (a temporary) after the value grows it: the
+# checker walks the target after the value, as emit evaluates it.
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..3
+    !v.push(1)
+  v.len
+
+fun at(v: ?Vec[Int]) -> Int
+  v.len - 1
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  u: Vec[Int] = Vec()
+  for _ in 0..10
+    !u.push(0)
+  k = 0
+  u[at(?v)] = match k
+    0 => grow(!v)
+    _ => 3
+  print(u[3], v.len)
+
+# expect:
+# 4 4

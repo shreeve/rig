@@ -1,0 +1,16 @@
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..200
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  i = 0
+  while i < 2 : i += 1
+    w[0] = if i == 1
+      grow(!v)
+    else
+      2
+  print(v[0])

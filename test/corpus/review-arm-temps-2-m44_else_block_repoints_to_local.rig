@@ -1,0 +1,13 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  k = false
+  w[0] = if k
+    4
+  else
+    u: Vec[Int] = Vec()
+    !u.push(1)
+    w = !u[0..1]
+    3
+  print(v[0])
