@@ -2156,18 +2156,13 @@ pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 
+const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Void" };
+
 fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
-    const table = [_]struct { []const u8, TypeId }{
-        .{ "Int", t.int_id },
-        .{ "Float", t.float_id },
-        .{ "Bool", t.bool_id },
-        .{ "String", t.string_id },
-        .{ "Text", t.text_id },
-        .{ "Void", t.void_id },
-    };
-    for (table) |e| {
-        if (std.mem.eql(u8, name, e[0])) return e[1];
+    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.text_id, t.void_id };
+    for (primitive_type_names, ids) |n, id| {
+        if (std.mem.eql(u8, name, n)) return id;
     }
     return null;
 }
@@ -2189,12 +2184,33 @@ fn sizedTypeBits(name: []const u8) ?u8 {
 /// A sized type. `I64` is `Int` and `F64` is `Float`: the same types
 /// under their sized names.
 fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
+    return ctx.intern(sizedType(name) orelse return null);
+}
+
+/// The type a sized type name spells: `I64` is `Int`, `F64` is `Float`.
+fn sizedType(name: []const u8) ?Type {
     const bits = sizedTypeBits(name) orelse return null;
     return switch (name[0]) {
-        'I' => if (bits == 64) ctx.types.int_id else ctx.intern(.{ .int = .{ .bits = bits } }),
-        'U' => ctx.intern(.{ .int = .{ .bits = bits, .signed = false } }),
-        else => if (bits == 64) ctx.types.float_id else ctx.intern(.{ .float = .{ .bits = bits } }),
+        'I' => .{ .int = .{ .bits = if (bits == 64) 0 else bits } },
+        'U' => .{ .int = .{ .bits = bits, .signed = false } },
+        else => .{ .float = .{ .bits = if (bits == 64) 0 else bits } },
     };
+}
+
+/// Every built-in type a name spells, once each (`I64` is `Int`): the
+/// types `@name` of a type parameter names from a table (`emit`).
+pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const Type {
+    var out: std.ArrayList(Type) = .empty;
+    for (primitive_type_names) |name| try out.append(a, ctx.types.get(primitiveTypeId(ctx, name).?));
+    var buf: [4]u8 = undefined;
+    for ("IUF") |prefix| for ([_]u8{ 8, 16, 32, 64, 128 }) |bits| {
+        const ty = sizedType(std.fmt.bufPrint(&buf, "{c}{d}", .{ prefix, bits }) catch unreachable) orelse continue;
+        const seen = for (out.items) |t| {
+            if (std.meta.eql(t, ty)) break true;
+        } else false;
+        if (!seen) try out.append(a, ty);
+    };
+    return out.items;
 }
 
 /// Whether `name` spells a built-in type: `Int`, `String`, `U8`, ...

@@ -262,6 +262,9 @@ pub const Emitter = struct {
     subject_path: Sexp = .nil,
     /// A name was qualified as `__rig_module.name` (`writeModuleName`).
     uses_module: bool = false,
+    /// A `@name` of a type parameter needs the module's table of names
+    /// (`emitNamesTable`).
+    uses_names: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
     links_libc: bool = false,
     /// Fill each hidden storage location with `0xAA` when its scope ends
@@ -319,6 +322,7 @@ pub const Emitter = struct {
         }
         try self.emitTestTable();
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
+        if (self.uses_names) try self.emitNamesTable();
     }
 
     // =========================================================================
@@ -488,6 +492,7 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitFields(1);
         try self.emitInteriorMutable(1);
+        try self.emitRigName(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
     }
@@ -497,9 +502,10 @@ pub const Emitter = struct {
         const members = ir.GenericStruct.members(node);
         const prev = try self.enterNominal(ir.GenericStruct.name(node), true, members);
         defer self.nominal = prev;
-        try self.emitGenericHead(ir.GenericStruct.tparams(node), members, "struct");
+        try self.emitGenericHead(ir.GenericStruct.tparams(node), "struct");
         try self.emitFields(2);
         try self.emitInteriorMutable(2);
+        try self.emitRigName(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -531,6 +537,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(",\n");
             }
         }
+        try self.emitRigName(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
     }
@@ -540,9 +547,10 @@ pub const Emitter = struct {
         const members = ir.GenericEnum.members(node);
         const prev = try self.enterNominal(ir.GenericEnum.name(node), true, members);
         defer self.nominal = prev;
-        try self.emitGenericHead(ir.GenericEnum.tparams(node), members, "union(enum)");
+        try self.emitGenericHead(ir.GenericEnum.tparams(node), "union(enum)");
         try self.emitUnionVariants(2);
         try self.emitInteriorMutable(2);
+        try self.emitRigName(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -576,9 +584,8 @@ pub const Emitter = struct {
     }
 
     /// `pub fn Name(comptime T: type, comptime n: i64, ...) type { return
-    /// <container> {`, with a discard for each parameter nothing in the
-    /// body names.
-    fn emitGenericHead(self: *Emitter, params: Sexp, members: []const Sexp, container: []const u8) Error!void {
+    /// <container> {`. Its name (`emitRigName`) names every parameter.
+    fn emitGenericHead(self: *Emitter, params: Sexp, container: []const u8) Error!void {
         try self.w.print("pub fn {f}(", .{ident(self.sema.symbols.items[self.nominal.?.sym].name)});
         for (params.items(), 0..) |p, i| {
             if (i > 0) try self.w.writeAll(", ");
@@ -588,46 +595,7 @@ pub const Emitter = struct {
             } else try self.emitTypeTy(try self.declType(ir.get(p, .name)));
         }
         try self.w.writeAll(") type {\n");
-        for (self.sema.symbols.items[self.nominal.?.sym].type_params orelse &.{}) |tp| {
-            const used = for (members) |m| {
-                if (self.mentions(m, tp)) break true;
-            } else false;
-            if (!used) try self.w.print("    _ = {f};\n", .{ident(self.sema.symbols.items[tp].name)});
-        }
         try self.w.print("    return {s} {{\n        const __rig_Self = @This();\n\n", .{container});
-    }
-
-    /// Whether a leaf under `node` names `sym`, outside the type being
-    /// emitted at its own parameters (`Tag[T]` in `Tag[T]`), which is
-    /// emitted as `__rig_Self`.
-    fn mentions(self: *Emitter, node: Sexp, sym: SymbolId) bool {
-        return switch (node) {
-            .src => self.sema.symbolOf(node) == sym,
-            .list => if (self.namesSelf(node)) false else for (node.items()) |c| {
-                if (self.mentions(c, sym)) break true;
-            } else false,
-            else => false,
-        };
-    }
-
-    /// Whether `node` spells the type being emitted at its own
-    /// parameters, as a type or in an expression.
-    fn namesSelf(self: *Emitter, node: Sexp) bool {
-        if (node.isKind(.generic_inst)) {
-            const n = self.nominal orelse return false;
-            if (self.sema.symbolOf(ir.GenericInst.name(node)) != n.sym) return false;
-            const params = self.sema.symbols.items[n.sym].type_params orelse return false;
-            const args = ir.GenericInst.args(node);
-            if (args.len != params.len) return false;
-            for (params, args) |p, a| if (a != .src or self.sema.symbolOf(a) != p) return false;
-            return true;
-        }
-        const inst = self.sema.instanceOf(node) orelse return false;
-        if (inst != .type) return false;
-        return switch (self.sema.types.get(inst.type)) {
-            .parameterized_nominal => |pn| self.isSelfInstance(pn),
-            else => false,
-        };
     }
 
     /// The fields and variants of the nominal type being emitted, in
@@ -663,6 +631,24 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
         };
         try self.w.writeAll(if (any) ";\n" else "false;\n");
+    }
+
+    /// `pub const __rig_name = .{ .module = "geo", .name = .{ "Point" } };`:
+    /// the type being emitted as sema's printer spells it, for `@name` of
+    /// a type parameter (`rig.typeName`): its module (`nameModule`), and
+    /// its spelling, a generic type's at the parameters of each instance
+    /// (`.{ "Pair[", A, ", ", B, "]" }`).
+    fn emitRigName(self: *Emitter, depth: u32) Error!void {
+        const sym = self.nominal.?.sym;
+        const a = self.arena.allocator();
+        const spelling = if (self.sema.symbols.items[sym].type_params != null)
+            try sema.formatGenericSelfMarked(self.sema, a, sym)
+        else
+            try sema.formatTypeValue(self.sema, a, .{ .nominal = sym });
+        try self.writeIndent(depth);
+        try self.w.print("pub const __rig_name = .{{ .module = \"{s}\", .name = ", .{nameModule(self.sema)});
+        try self.writeSpelling(spelling, .parts, null);
+        try self.w.writeAll(" };\n");
     }
 
     fn emitFields(self: *Emitter, depth: u32) Error!void {
@@ -4610,6 +4596,7 @@ pub const Emitter = struct {
     /// backing integer type exactly, so its operand, any integer, goes
     /// through `@intCast` (checked in safe builds, as the tag is).
     fn emitBuiltin(self: *Emitter, sexp: Sexp) Error!void {
+        if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "name")) return self.emitNameQuery(sexp);
         const name = zigBuiltinName(self.srcText(ir.Builtin.name(sexp)));
         const cast = std.mem.eql(u8, name, "fromBackingInt");
         try self.w.print("@{s}(", .{name});
@@ -4620,6 +4607,92 @@ pub const Emitter = struct {
         }
         if (cast) try self.w.writeAll(")");
         try self.w.writeAll(")");
+    }
+
+    /// `@name(T)`: the type's name as sema's printer spells it, the
+    /// string itself for a type known here. A type that holds a type
+    /// parameter is spelled per instance: the printer's spelling, with
+    /// each parameter named by `rig.typeName` from the module's table
+    /// (`emitNamesTable`). Zig's `@typeName`, inside `raw`, is Zig's.
+    fn emitNameQuery(self: *Emitter, sexp: Sexp) Error!void {
+        const arg = ir.Builtin.args(sexp)[0];
+        const of = if (arg.isKind(.builtin)) ir.Builtin.args(arg)[0] else arg;
+        const ty = self.typeOf(of) orelse return self.unsupported(arg, "an untyped `@name` argument");
+        const spelling = try sema.formatTypeMarked(self.sema, self.arena.allocator(), ty);
+        if (std.mem.findScalar(u8, spelling, sema.type_param_mark) == null) return self.w.print("\"{s}\"", .{spelling});
+        self.uses_names = true;
+        try self.w.writeAll("(comptime ");
+        try self.writeSpelling(spelling, .concat, null);
+        try self.w.writeAll(")");
+    }
+
+    /// A marked spelling (`sema.formatTypeMarked`) as Zig: its strings,
+    /// and each type parameter as `how` writes it. `.concat` joins them
+    /// with `++`, each parameter named by `rig.typeName`; `.parts` lists
+    /// them in a tuple, each parameter as itself, or, given the generic
+    /// type `of`, as its index among that type's parameters.
+    fn writeSpelling(self: *Emitter, spelling: []const u8, how: enum { concat, parts }, of: ?SymbolId) Error!void {
+        if (how == .parts) try self.w.writeAll(".{ ");
+        var it = std.mem.splitScalar(u8, spelling, sema.type_param_mark);
+        var i: usize = 0;
+        var first = true;
+        while (it.next()) |piece| : (i += 1) {
+            const is_param = i % 2 == 1;
+            if (!is_param and piece.len == 0) continue;
+            if (!first) try self.w.writeAll(if (how == .concat) " ++ " else ", ");
+            first = false;
+            if (!is_param) {
+                try self.w.print("\"{s}\"", .{piece});
+                continue;
+            }
+            const sym = std.fmt.parseInt(SymbolId, piece, 10) catch unreachable;
+            if (of) |generic| {
+                const params = self.sema.symbols.items[generic].type_params.?;
+                try self.w.print("{d}", .{std.mem.findScalar(SymbolId, params, sym).?});
+            } else if (how == .concat) {
+                try self.w.writeAll("rig.typeName(");
+                try self.writeTypeParam(sym);
+                try self.w.writeAll(", __rig_names)");
+            } else try self.writeTypeParam(sym);
+        }
+        if (how == .parts) try self.w.writeAll(" }");
+    }
+
+    /// `const __rig_names = .{ ... };`: what `rig.typeName` needs to name
+    /// a type parameter's instance as this module writes it, every name
+    /// from sema's printer: this module (`nameModule`), what each module
+    /// it imports qualifies its types with, each built-in type, and the
+    /// spelling of each of the runtime's generic types.
+    fn emitNamesTable(self: *Emitter) Error!void {
+        const ctx = self.sema;
+        const a = self.arena.allocator();
+        try self.w.print("\nconst __rig_names = .{{\n    .module = \"{s}\",\n    .imports = .{{\n", .{nameModule(ctx)});
+        for (ctx.imports, 0..) |imp, i| {
+            // The first import of a module names it, as in the printer.
+            const seen = for (ctx.imports[0..i]) |prev| {
+                if (prev.module_id == imp.module_id) break true;
+            } else false;
+            if (!seen) try self.w.print("        .{{ \"{s}\", \"{s}.\" }},\n", .{ imp.sema.name, imp.local_name });
+        }
+        try self.w.writeAll("    },\n    .types = .{\n");
+        for (try resolve.builtinTypes(ctx, a)) |t| {
+            try self.w.writeAll("        .{ ");
+            try self.emitBuiltinTy(t);
+            try self.w.print(", \"{s}\" }},\n", .{try sema.formatTypeValue(ctx, a, t)});
+        }
+        try self.w.writeAll("        .{ ");
+        try self.writeNominalName(ctx.endian_sym_id);
+        try self.w.print(", \"{s}\" }},\n    }},\n    .generics = .{{\n", .{try sema.formatTypeValue(ctx, a, .{ .nominal = ctx.endian_sym_id })});
+        for (0..ctx.symbols.items.len) |i| {
+            const sym: SymbolId = @intCast(i);
+            if (!sema.isBuiltinGeneric(ctx, sym)) continue;
+            try self.w.writeAll("        .{ ");
+            try self.writeNominalName(sym);
+            try self.w.writeAll(", ");
+            try self.writeSpelling(try sema.formatGenericSelfMarked(ctx, a, sym), .parts, sym);
+            try self.w.writeAll(" },\n");
+        }
+        try self.w.writeAll("    },\n};\n");
     }
 
     /// The Zig name of builtin `name`: Rig's type queries are Zig's
@@ -5996,15 +6069,7 @@ pub const Emitter = struct {
     fn emitTypeTy(self: *Emitter, ty: TypeId) Error!void {
         const ctx = self.sema;
         switch (ctx.types.get(ty)) {
-            .void => try self.w.writeAll("void"),
-            .any_error => try self.w.writeAll("anyerror"),
-            .bool => try self.w.writeAll("bool"),
-            .string => try self.w.writeAll("[]const u8"),
-            .text => try self.w.writeAll("rig.Text"),
-            .int_literal => try self.w.writeAll(int_zig),
-            .float_literal => try self.w.writeAll(float_zig),
-            .int => |i| if (i.bits == 0) try self.w.writeAll(int_zig) else try self.w.print("{c}{d}", .{ @as(u8, if (i.signed) 'i' else 'u'), i.bits }),
-            .float => |f| if (f.bits == 0) try self.w.writeAll(float_zig) else try self.w.print("f{d}", .{f.bits}),
+            .void, .any_error, .bool, .string, .text, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
             .optional => |inner| {
                 try self.w.writeAll("?");
                 try self.emitTypeTy(inner);
@@ -6061,10 +6126,7 @@ pub const Emitter = struct {
             },
             // An array length or a generic type's value argument.
             .ct_value => |v| try self.w.print("{d}", .{v.int}),
-            .ct_param => |sym_id| if (self.localBySym(sym_id)) |local|
-                try self.w.writeAll(local.zig_name)
-            else
-                try self.w.print("{f}", .{ident(ctx.symbols.items[sym_id].name)}),
+            .ct_param => |sym_id| try self.writeTypeParam(sym_id),
             .nominal => |sym_id| try self.writeNominalName(sym_id),
             .imported_nominal => |in| {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
@@ -6080,10 +6142,7 @@ pub const Emitter = struct {
             },
             // A generic function's type parameter is its `comptime`
             // parameter; a generic type's, its function's.
-            .type_var => |sym_id| if (self.localBySym(sym_id)) |local|
-                try self.w.writeAll(local.zig_name)
-            else
-                try self.w.print("{f}", .{ident(ctx.symbols.items[sym_id].name)}),
+            .type_var => |sym_id| try self.writeTypeParam(sym_id),
             .function => |f| {
                 try self.w.writeAll("*const fn (");
                 try self.emitTypeList(f.params);
@@ -6092,6 +6151,29 @@ pub const Emitter = struct {
             },
             else => return self.unsupported(.nil, "a value of this type"),
         }
+    }
+
+    /// A built-in type, which needs no type store.
+    fn emitBuiltinTy(self: *Emitter, t: sema.Type) Error!void {
+        switch (t) {
+            .void => try self.w.writeAll("void"),
+            .any_error => try self.w.writeAll("anyerror"),
+            .bool => try self.w.writeAll("bool"),
+            .string => try self.w.writeAll("[]const u8"),
+            .text => try self.w.writeAll("rig.Text"),
+            .int_literal => try self.w.writeAll(int_zig),
+            .float_literal => try self.w.writeAll(float_zig),
+            .int => |i| if (i.bits == 0) try self.w.writeAll(int_zig) else try self.w.print("{c}{d}", .{ @as(u8, if (i.signed) 'i' else 'u'), i.bits }),
+            .float => |f| if (f.bits == 0) try self.w.writeAll(float_zig) else try self.w.print("f{d}", .{f.bits}),
+            else => return self.unsupported(.nil, "a value of this type"),
+        }
+    }
+
+    /// A type parameter, or a compile-time value parameter: a generic
+    /// function's `comptime` parameter, or a generic type's function's.
+    fn writeTypeParam(self: *Emitter, sym: SymbolId) Error!void {
+        if (self.localBySym(sym)) |local| return self.w.writeAll(local.zig_name);
+        try self.w.print("{f}", .{ident(self.sema.symbols.items[sym].name)});
     }
 
     /// `A, B, C`.
@@ -6497,8 +6579,15 @@ fn ident(name: []const u8) Ident {
 /// than the root. Zig's errors share one namespace, so each carries its
 /// set and module; `rig.print` shows the last two parts.
 fn writeErrorName(w: *Writer, owner: *const sema.SemContext, set: []const u8, name: []const u8) Error!void {
-    if (owner.is_root or owner.name.len == 0) return w.print("@\"{s}.{s}\"", .{ set, name });
-    try w.print("@\"{s}.{s}.{s}\"", .{ owner.name, set, name });
+    const module = nameModule(owner);
+    if (module.len == 0) return w.print("@\"{s}.{s}\"", .{ set, name });
+    try w.print("@\"{s}.{s}.{s}\"", .{ module, set, name });
+}
+
+/// The module a name the emitter writes carries (an error's, a type's
+/// `__rig_name`): its own, or none for the root.
+fn nameModule(ctx: *const sema.SemContext) []const u8 {
+    return if (ctx.is_root) "" else ctx.name;
 }
 
 /// A literal default value: a number, a string, `true` / `false`,

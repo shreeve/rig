@@ -4775,8 +4775,9 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
     const a = ctx.arena.allocator();
     const generic = fsym.kind == .generic_type;
     const id = try ctx.addSymbol(.{
-        // A generic type is named as this module spells it: `lib.Wrap`.
-        .name = if (generic) try a.print("{s}.{s}", .{ foreign.name, fsym.name }) else fsym.name,
+        // A generic type is named as this module spells it: `lib.Wrap`,
+        // as the type printer names it.
+        .name = if (generic) try formatTypeValue(ctx, a, .{ .imported_nominal = .{ .module_id = origin.module_id, .sym_id = origin.sym } }) else fsym.name,
         .kind = fsym.kind,
         .ty = ctx.types.unknown_id,
         .decl_pos = imported_decl_pos,
@@ -5052,81 +5053,161 @@ pub fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
 }
 
 /// Render a type the way it is spelled in Rig source, allocating in the
-/// context's arena.
+/// context's arena. This is the one place a type's Rig name is decided:
+/// diagnostics print it, and `@name(T)` returns it.
 pub fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
     return formatTypeIn(ctx, ctx.arena.allocator(), ty_id);
 }
 
 /// `formatType` with a caller-chosen allocator.
 pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
-    return switch (ctx.types.get(ty_id)) {
-        .invalid => "invalid",
-        .unknown => "unknown",
-        .void => "Void",
-        .bool => "Bool",
-        .string => "String",
-        .text => "Text",
-        .int => |info| if (info.bits == 0) "Int" else try a.print("{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
-        .float => |info| if (info.bits == 0) "Float" else try a.print("F{d}", .{info.bits}),
-        .int_literal => "Int",
-        .float_literal => "Float",
-        .none_literal => "none",
-        .any_error => "error",
-        .noreturn => "NoReturn",
-        .optional => |inner| try formatSuffixed(ctx, a, inner, '?'),
-        .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),
-        .read_view => |inner| try a.print("?{s}", .{try formatTypeIn(ctx, a, inner)}),
-        .callable => |f| try formatTypeIn(ctx, a, f),
-        .write_view => |inner| try a.print("!{s}", .{try formatTypeIn(ctx, a, inner)}),
-        .shared => |inner| try formatHandle(ctx, a, inner, '*'),
-        .weak => |inner| try formatHandle(ctx, a, inner, '~'),
-        .slice => |s| try a.print("[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
-        .array => |arr| try a.print("[{s}]{s}", .{ try formatTypeIn(ctx, a, arr.len), try formatTypeIn(ctx, a, arr.elem) }),
-        .range => |e| try a.print("range of {s}", .{try formatTypeIn(ctx, a, e)}),
-        .function => |f| if (f.is_sub)
-            try a.print("sub({s}){s}", .{ try formatTypeList(ctx, a, f.params), if (f.returns == ctx.types.void_id) "" else "!" })
-        else
-            try a.print("fun({s}) -> {s}", .{ try formatTypeList(ctx, a, f.params), try formatTypeIn(ctx, a, f.returns) }),
-        .nominal => |sym| ctx.symbols.items[sym].name,
-        .imported_nominal => |in| blk: {
-            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk "<imported>";
-            if (in.sym_id >= foreign.symbols.items.len) break :blk "<imported>";
-            const name = foreign.symbols.items[in.sym_id].name;
-            // Spelled the way this module names it: `other.Point`.
-            for (ctx.imports) |imp| {
-                if (imp.module_id == in.module_id) break :blk try a.print("{s}.{s}", .{ imp.local_name, name });
-            }
-            // A module reached only through an import, by its file name.
-            break :blk try a.print("{s}.{s}", .{ foreign.name, name });
-        },
-        .parameterized_nominal => |pn| try a.print("{s}[{s}]", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
-        .type_var, .ct_param => |sym| ctx.symbols.items[sym].name,
-        .ct_value => |v| try a.print("{d}", .{v.int}),
-    };
+    return (TypePrinter{ .ctx = ctx, .a = a }).id(ty_id);
 }
+
+/// `formatTypeIn` of a type not interned in `ctx`: a built-in type
+/// (`Int`, `U8`) that a module may not use itself.
+pub fn formatTypeValue(ctx: *const SemContext, a: std.mem.Allocator, ty: Type) std.mem.Allocator.Error![]const u8 {
+    return (TypePrinter{ .ctx = ctx, .a = a }).value(ty);
+}
+
+/// The byte that brackets each type parameter in a marked spelling.
+pub const type_param_mark = 0;
+
+/// `formatTypeIn` with each type parameter, or compile-time value
+/// parameter, written as its symbol id between two `type_param_mark`
+/// bytes (`Vec[\x003\x00]`), for a spelling completed per instance: the
+/// emitter fills each in (`@name(T)`). A spelling with no mark names
+/// one type.
+pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
+    return (TypePrinter{ .ctx = ctx, .a = a, .marked = true }).id(ty_id);
+}
+
+/// The marked spelling (`formatTypeMarked`) of generic type `sym`
+/// applied to its own parameters: `Pair[A, B]`, with `A` and `B` marked.
+pub fn formatGenericSelfMarked(ctx: *const SemContext, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
+    const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
+    var args: std.ArrayList(u8) = .empty;
+    for (ctx.symbols.items[sym].type_params orelse &.{}, 0..) |tp, i| {
+        if (i > 0) try args.appendSlice(a, ", ");
+        try args.appendSlice(a, try p.param(tp));
+    }
+    return p.instance(ctx.symbols.items[sym].name, args.items);
+}
+
+const TypePrinter = struct {
+    ctx: *const SemContext,
+    a: std.mem.Allocator,
+    /// Type parameters are marked (`formatTypeMarked`).
+    marked: bool = false,
+
+    fn id(p: TypePrinter, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
+        return p.value(p.ctx.types.get(ty_id));
+    }
+
+    fn value(p: TypePrinter, ty: Type) std.mem.Allocator.Error![]const u8 {
+        const ctx = p.ctx;
+        const a = p.a;
+        return switch (ty) {
+            .invalid => "invalid",
+            .unknown => "unknown",
+            .void => "Void",
+            .bool => "Bool",
+            .string => "String",
+            .text => "Text",
+            .int => |info| if (info.bits == 0) "Int" else try a.print("{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
+            .float => |info| if (info.bits == 0) "Float" else try a.print("F{d}", .{info.bits}),
+            .int_literal => "Int",
+            .float_literal => "Float",
+            .none_literal => "none",
+            .any_error => "error",
+            .noreturn => "NoReturn",
+            .optional => |inner| try p.suffixed(inner, '?'),
+            .fallible => |inner| try p.suffixed(inner, '!'),
+            .read_view => |inner| try a.print("?{s}", .{try p.id(inner)}),
+            .callable => |f| try p.id(f),
+            .write_view => |inner| try a.print("!{s}", .{try p.id(inner)}),
+            .shared => |inner| try p.handle(inner, '*'),
+            .weak => |inner| try p.handle(inner, '~'),
+            .slice => |s| try a.print("[]{s}", .{try p.id(s.elem)}),
+            .array => |arr| try a.print("[{s}]{s}", .{ try p.id(arr.len), try p.id(arr.elem) }),
+            .range => |e| try a.print("range of {s}", .{try p.id(e)}),
+            .function => |f| if (f.is_sub)
+                try a.print("sub({s}){s}", .{ try p.list(f.params), if (f.returns == ctx.types.void_id) "" else "!" })
+            else
+                try a.print("fun({s}) -> {s}", .{ try p.list(f.params), try p.id(f.returns) }),
+            .nominal => |sym| ctx.symbols.items[sym].name,
+            .imported_nominal => |in| try p.foreign(in.module_id, in.sym_id),
+            // Another module's generic type is its proxy, named as this
+            // module spells it (`importSymbol`).
+            .parameterized_nominal => |pn| try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
+            .type_var, .ct_param => |sym| try p.param(sym),
+            .ct_value => |v| try a.print("{d}", .{v.int}),
+        };
+    }
+
+    /// Symbol `sym_id` of another module, spelled the way this module
+    /// names it: `other.Point`.
+    fn foreign(p: TypePrinter, module_id: u32, sym_id: SymbolId) std.mem.Allocator.Error![]const u8 {
+        const other = p.ctx.foreign_semas.get(module_id) orelse return "<imported>";
+        if (sym_id >= other.symbols.items.len) return "<imported>";
+        const name = other.symbols.items[sym_id].name;
+        for (p.ctx.imports) |imp| {
+            if (imp.module_id == module_id) return p.a.print("{s}.{s}", .{ imp.local_name, name });
+        }
+        // A module reached only through an import, by its file name.
+        return p.a.print("{s}.{s}", .{ other.name, name });
+    }
+
+    /// A type parameter: its name, or marked.
+    fn param(p: TypePrinter, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
+        if (p.marked) return p.a.print("{c}{d}{c}", .{ type_param_mark, sym, type_param_mark });
+        return p.ctx.symbols.items[sym].name;
+    }
+
+    /// Generic type `name` at arguments `args`: `Pair[Int, String]`.
+    fn instance(p: TypePrinter, name: []const u8, args: []const u8) std.mem.Allocator.Error![]const u8 {
+        return p.a.print("{s}[{s}]", .{ name, args });
+    }
+
+    /// Types separated by `, `.
+    fn list(p: TypePrinter, ids: []const TypeId) std.mem.Allocator.Error![]const u8 {
+        var buf: std.ArrayList(u8) = .empty;
+        for (ids, 0..) |ty_id, i| {
+            if (i > 0) try buf.appendSlice(p.a, ", ");
+            try buf.appendSlice(p.a, try p.id(ty_id));
+        }
+        return buf.items;
+    }
+
+    /// `T?` / `T!`. A handle binds tighter than a suffix (`*T?` is an
+    /// optional handle), so only a prefix type that a suffix cannot follow
+    /// takes parentheses: `(?T)?`, `([]Int)?`, `(*sub())?`; and so does an
+    /// optional of an optional, `(T?)?`.
+    fn suffixed(p: TypePrinter, inner: TypeId, suffix: u8) std.mem.Allocator.Error![]const u8 {
+        const s = try p.id(inner);
+        // `N??` would lex as the `??` operator: `(N?)?`.
+        const doubled = suffix == '?' and p.ctx.types.get(inner) == .optional;
+        return if (doubled or takesNoSuffix(p.ctx, inner))
+            p.a.print("({s}){c}", .{ s, suffix })
+        else
+            p.a.print("{s}{c}", .{ s, suffix });
+    }
+
+    /// `*T` / `~T`, parenthesizing a suffixed operand: `*(T?)` is a handle
+    /// to an optional, while `*T?` is an optional handle.
+    fn handle(p: TypePrinter, inner: TypeId, sigil: u8) std.mem.Allocator.Error![]const u8 {
+        const s = try p.id(inner);
+        return switch (p.ctx.types.get(inner)) {
+            // A handle binds tighter than a suffix, and takes no view prefix.
+            .optional, .fallible, .read_view, .write_view => p.a.print("{c}({s})", .{ sigil, s }),
+            else => p.a.print("{c}{s}", .{ sigil, s }),
+        };
+    }
+};
 
 /// Types separated by `, `.
 fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const TypeId) std.mem.Allocator.Error![]const u8 {
-    var buf: std.ArrayList(u8) = .empty;
-    for (ids, 0..) |id, i| {
-        if (i > 0) try buf.appendSlice(a, ", ");
-        try buf.appendSlice(a, try formatTypeIn(ctx, a, id));
-    }
-    return buf.items;
-}
-
-/// `T?` / `T!`. A handle binds tighter than a suffix (`*T?` is an
-/// optional handle), so only a prefix type that a suffix cannot follow
-/// takes parentheses: `(?T)?`, `([]Int)?`, `(*sub())?`; and so does an
-/// optional of an optional, `(T?)?`.
-fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, suffix: u8) ![]const u8 {
-    const s = try formatTypeIn(ctx, a, inner);
-    // `N??` would lex as the `??` operator: `(N?)?`.
-    const doubled = suffix == '?' and ctx.types.get(inner) == .optional;
-    return if (doubled or takesNoSuffix(ctx, inner))
-        a.print("({s}){c}", .{ s, suffix })
-    else
-        a.print("{s}{c}", .{ s, suffix });
+    return (TypePrinter{ .ctx = ctx, .a = a }).list(ids);
 }
 
 /// A type whose spelling a suffix cannot follow: a view (which covers
@@ -5137,17 +5218,6 @@ fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
         .read_view, .write_view, .function, .slice, .array => true,
         .shared, .weak => |inner| takesNoSuffix(ctx, inner),
         else => false,
-    };
-}
-
-/// `*T` / `~T`, parenthesizing a suffixed operand: `*(T?)` is a handle
-/// to an optional, while `*T?` is an optional handle.
-fn formatHandle(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, sigil: u8) ![]const u8 {
-    const s = try formatTypeIn(ctx, a, inner);
-    return switch (ctx.types.get(inner)) {
-        // A handle binds tighter than a suffix, and takes no view prefix.
-        .optional, .fallible, .read_view, .write_view => a.print("{c}({s})", .{ sigil, s }),
-        else => a.print("{c}{s}", .{ sigil, s }),
     };
 }
 
