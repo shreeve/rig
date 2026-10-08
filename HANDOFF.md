@@ -12,6 +12,11 @@ from).
   assignment as its value, then its store, closing the assignment holes
   of earlier versions, and adds `--delta` runs that rerun only what
   changed; its release notes list each change.
+- **Releases:** every change, fixes included, ships in the current
+  line, `v0.3.x`; an earlier line gets no further releases. Rounds land
+  on `main` untagged until the next tag, which is cut only after the
+  deep gate (AGENTS.md, "Land fast, release deep"); its release notes
+  include a migration guide for any renames.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires
   `test (ubuntu-latest)` and `test (macos-latest)`, and blocks force
