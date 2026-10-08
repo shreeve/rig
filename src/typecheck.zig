@@ -2719,6 +2719,7 @@ const Checker = struct {
                 f.ty;
             if (mode == .read) try self.readBinding(f.ty, b);
             try self.ctx.recordType(b, ty);
+            if (!self.isPoison(f.ty)) try self.ctx.recordPayloadField(b, f.ty);
             if (self.ctx.symbolOf(b)) |sym| {
                 self.ctx.symbols.items[sym].ty = ty;
                 // A binding that is no plain data of a copy of the

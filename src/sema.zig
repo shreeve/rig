@@ -682,6 +682,10 @@ pub const Facts = struct {
     /// Assignments of a view to a `!T` or `![]T` local, which point it
     /// at another place (`SemContext.recordRepoint`).
     repoints: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Payload bindings of a variant pattern -> the type of the field
+    /// each binds, at the matched instance and in this module's types
+    /// (`SemContext.recordPayloadField`).
+    payload_fields: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
     /// Fields and elements of a temporary, holding a Cell, that a read
     /// view lends (`SemContext.recordCellTemp`).
     cell_temps: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -1154,7 +1158,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         const sym = ctx.symbols.items[v];
         return w.print(" {s} {s}", .{ sym.name, @tagName(sym.kind) });
     }
-    if (comptime std.mem.eql(u8, name, "types"))
+    if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "payload_fields"))
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
@@ -1894,6 +1898,19 @@ pub const SemContext = struct {
 
     pub fn repoints(self: *const SemContext, node: Sexp) bool {
         return self.facts.repoints.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, a payload binding of a variant pattern, binds a field of
+    /// type `ty`: the declared field's type at the matched instance
+    /// (`Opt[?T]`'s `v: T` is a `?T`), in this module's types.
+    pub fn recordPayloadField(self: *SemContext, node: Sexp, ty: TypeId) !void {
+        try self.facts.payload_fields.put(self.allocator, recordExprKey(node) orelse return, ty);
+    }
+
+    /// The type of the field payload binding `node` binds
+    /// (`recordPayloadField`); null for a binding sema did not type.
+    pub fn payloadFieldOf(self: *const SemContext, node: Sexp) ?TypeId {
+        return self.facts.payload_fields.get(exprKey(node) orelse return null);
     }
 
     /// `node`, a field or element of a temporary (`mk().p`), holds a Cell

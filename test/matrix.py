@@ -7,6 +7,7 @@ for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
 stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
+`match` payload field that is itself a view (`viewpay.`), a
 `while` step reading what its condition binds (`step.`), an assignment
 to a place a view reaches whose value holds a statement of its own
 (`target.`), and the
@@ -878,6 +879,106 @@ def payload_program(tname, sname, ename):
     main += show
     out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out), f"2003\n{t['out']}\n"
+
+
+# -----------------------------------------------------------------------------
+# A `match` payload field that is itself a view: an enum instantiated at a
+# view type (`G[?Text]`, `G[[]Int]`, `G[!Int]`), whose binding is the view
+# the field holds, used in the arm or escaping. Like a `payload.` cell, a
+# program that runs runs other code on the stack before it reads the view,
+# and must print what it views. Cells are `viewpay.<type>.<subject>.<use>`.
+# -----------------------------------------------------------------------------
+
+# Each field type: its spelling, the same with the type parameter `T`
+# (`gen`, at `arg`), the sigil that passes a view of that kind (`lend`),
+# `k` and `d` making two values, the statement that shows a view `v` of
+# one, and what it prints for `k`, then for `d`.
+VIEWPAY_TYPES = {
+    "text": dict(ty="?Text", gen="?T", arg="Text", lend="?", k='Text("tx")', d='Text("dd")',
+                 show="print(v)", out="tx", outd="dd"),
+    "int": dict(ty="?Int", gen="?T", arg="Int", lend="?", k="4", d="40", show="print(v)", out="4", outd="40"),
+    "plain": dict(ty="?P", gen="?T", arg="P", lend="?", k="P(x: 4, y: 5)", d="P(x: 40, y: 50)",
+                  show="print(v.x, v.y)", out="4 5", outd="40 50"),
+    "vec": dict(ty="?Vec[Int]", gen="?T", arg="Vec[Int]", lend="?", k="vec(8)", d="vec(80)",
+                show="print(v[0], v.len)", out="8 1", outd="80 1"),
+    "slice": dict(ty="[]Int", gen="[]T", arg="Int", lend="?", k="[8, 9]", d="[80]", slice=True,
+                  show="print(v[0], v.len)", out="8 2", outd="80 1"),
+    "write": dict(ty="!Int", gen="!T", arg="Int", lend="!", k="4", d="40", show="print(v)", out="4", outd="40",
+                  write=True),
+}
+# How the match reaches the enum: a call that wraps the view, the same in
+# a generic function, a `?G[V]` or `!G[V]` parameter, or a local the
+# function makes. `main` lends `k` and `d`.
+VIEWPAY_SUBJECTS = {
+    "call": dict(subj="wrap(PX)"),
+    "generic": dict(subj="gwrap(PX)", generic=True),
+    "param": dict(param="o: ?G[@V]", subj="o", make="o = wrap(LK)", arg="?o"),
+    "write_param": dict(param="o: !G[@V]", subj="o", make="o = wrap(LK)", arg="!o"),
+    "local": dict(subj="o", local=["o = wrap(PX)"]),
+}
+# Where the view goes: returned (`ret`), returned past a guard that reads
+# it (`guard`), used in the arm, which then returns `d` (`arm`), stored in
+# a binding the function returns (`store`), or returned through a
+# catch-all that matches the whole value again (`whole`).
+VIEWPAY_USES = {
+    "ret": dict(arms=[".a(r) => r", ".b(r) => r"]),
+    "guard": dict(arms=[".a(r) if ok(PR) => r", "_ => d"]),
+    "arm": dict(arms=[".a(r)", "  see(PR)", "  d", ".b(_) => d"], arm=True),
+    "store": dict(arms=[".a(r) => saved = r", ".b(_) => pass"], store=True),
+    "whole": dict(arms=[".b(r) => r", "w => match w", "  .a(r) => r", "  .b(r) => r"]),
+}
+
+
+def viewpay_program(tname, sname, uname):
+    """The program for one view payload cell, and the output it must print."""
+    t = VIEWPAY_TYPES[tname]
+    s = VIEWPAY_SUBJECTS[sname]
+    u = VIEWPAY_USES[uname]
+    if u.get("store") and t.get("write"):
+        # Assigning a `!Int` binding writes through it: no store to show.
+        return None, None
+    if u.get("arm") and s.get("generic") and t["show"] != "print(v)":
+        # A generic arm shows the view with `print`, which spells only a
+        # view of a value that prints as itself.
+        return None, None
+    lend = t["lend"]
+    ty = t["ty"]
+    gen = s.get("generic")
+    vt = t["gen"] if gen else ty
+    pass_ = lambda e: f"!{e}" if t.get("write") else e
+    out = ["enum G[T]\n  a(r: T)\n  b(r: T)\n", "struct P\n  x: Int\n  y: Int\n",
+           "fun vec(n: Int) -> Vec[Int]\n  xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs\n",
+           f"fun wrap(x: {ty}) -> G[{ty}] from x\n  .a(r: {pass_('x')})\n",
+           f"fun gwrap[T](x: {t['gen']}) -> G[{t['gen']}] from x\n  .a(r: {pass_('x')})\n",
+           f"fun ok(v: {ty}) -> Bool\n  true\n", f"fun gok[T](v: {t['gen']}) -> Bool\n  true\n",
+           "fun clobber(n: Int) -> Int\n  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n"
+           "  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n  a[1] + b[2]\n"]
+    see = "gsee" if gen else "see"
+    out.append(f"sub see(v: {ty})\n  print(clobber(1000))\n  {t['show']}\n")
+    out.append(f"sub gsee[T](v: {t['gen']})\n  print(clobber(1000))\n  print(v)\n")
+    arms = [a.replace("ok(", "gok(" if gen else "ok(").replace("see(", see + "(").replace("PR", pass_("r"))
+            for a in u["arms"]]
+    subj = s["subj"].replace("PX", pass_("x"))
+    local = [l.replace("PX", pass_("x")) for l in s.get("local", [])]
+    first = s.get("param", f"x: {vt}").replace("@V", ty)
+    head = f"fun inner{'[T]' if gen else ''}({first}, d: {vt}) -> {vt} from {first.split(':')[0]}, d"
+    if u.get("store"):
+        body = [f"saved: {vt} = {pass_('d')}"] + local + [f"match {subj}"] + ["  " + a for a in arms] + ["saved"]
+    else:
+        body = local + [f"match {subj}"] + ["  " + a for a in arms]
+    out.append(head + "\n" + indent(body, 2) + "\n")
+    lk = f"{lend}k[..]" if t.get("slice") else f"{lend}k"
+    ld = f"{lend}d[..]" if t.get("slice") else f"{lend}d"
+    main = [f"k = {t['k']}", f"d = {t['d']}"]
+    if "make" in s:
+        main.append(s["make"].replace("LK", lk))
+    main.append(f"v = inner({s.get('arg', lk)}, {ld})")
+    main.append("print(clobber(1000))")
+    main.append(t["show"])
+    out.append("sub main()\n" + indent(main, 2) + "\n")
+    shown = "\n".join(["2003", t["out"]] if u.get("arm") else [])
+    want = f"{shown}\n" if shown else ""
+    return "\n".join(out), want + f"2003\n{t['outd'] if u.get('arm') else t['out']}\n"
 
 
 # -----------------------------------------------------------------------------
@@ -1844,6 +1945,20 @@ def main():
                 if not wanted(ident):
                     continue
                 src, expects[ident] = payload_program(t, sname, e)
+                if src is None:
+                    skipped += 1
+                    continue
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(src)
+                cells.append((ident, path))
+    for t in VIEWPAY_TYPES:
+        for sname in VIEWPAY_SUBJECTS:
+            for u in VIEWPAY_USES:
+                ident = f"viewpay.{t}.{sname}.{u}"
+                if not wanted(ident):
+                    continue
+                src, expects[ident] = viewpay_program(t, sname, u)
                 if src is None:
                     skipped += 1
                     continue

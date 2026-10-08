@@ -1,0 +1,6 @@
+pub enum Opt[T]
+  some(v: T)
+  nothing
+
+pub fun wrap(x: ?Text) -> Opt[?Text] from x
+  Opt.some(v: x)
