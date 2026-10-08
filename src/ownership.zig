@@ -2778,6 +2778,12 @@ pub const Checker = struct {
         if (v.payload_view) return self.movePayload(id, pos, vt);
 
         if (try self.conflicts(id, .{ .consume = vt }, pos)) return .{};
+        // Emit arms a drop flag only for a binding the consumed fact
+        // records (`SemContext.consumes`), so no other may move.
+        if (self.sema) |ctx| if (ctx.symbolAt(v.decl)) |sym| if (!ctx.consumes(sym)) {
+            try self.err(pos, "internal error: `{s}` moves here, but the consumed fact does not record it", .{v.name});
+            return .{};
+        };
         // `<x` ends `x`, whatever its type: a Copy value or a view is
         // copied out, and the name is done.
         try self.markInvalid(id, .moved, pos);

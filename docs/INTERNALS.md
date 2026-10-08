@@ -1508,7 +1508,14 @@ through the parts `sema.eachTailPart` lists: a block's last statement,
 branches, arms, a `catch` handler, `??`, a loop's `else`) is the name
 emit takes; when the value is consumed, the checker moves it there, as
 `<x` would, before the scopes the value leaves run their defers (a name
-the value declares itself, or one the function returns). A `defer` body
+the value declares itself, or one the function returns). Which bindings
+a use may move is one fact, `SemContext.consumed` (`storage.plan`): the
+name of `<x` and `-x`, a `for x in <v` source, a `|<x|` capture, and a
+tail name of `return`, `break`, a function's or closure's last value,
+and every value that yields through its parts. Emit arms the drop of
+each such binding behind an alive flag (`resourceGuard`), and the
+checker moves no binding the fact leaves out, which it reports as an
+internal error. A `defer` body
 is re-checked against the state at every exit of its scope, where what
 it reads may not view a var declared after the `defer` (dropped
 before it runs).

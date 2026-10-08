@@ -787,6 +787,61 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.*) p.used.set(e.value_ptr.*);
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < p.used.bit_length) p.used.set(s.origin);
     try p.walk(tree);
+    try planConsumed(ctx, tree);
+}
+
+/// Record the bindings a use may move out (`SemContext.consumed`): the
+/// name `<x` or `-x` takes, a `for x in <v` source, a `|<x|` capture,
+/// and a bare name at a tail of a value that leaves its scope
+/// (`sema.eachTailPart`): `return x`, `break x`, a function's or a
+/// closure's last value, and a value `if`, `match`, `??`, `catch`, loop,
+/// or block. Whether such a use moves is the ownership checker's
+/// decision; it moves no binding this fact leaves out.
+fn planConsumed(ctx: *SemContext, e: Sexp) !void {
+    if (e != .list) return;
+    const head = e.kind() orelse {
+        for (e.items()) |c| try planConsumed(ctx, c);
+        return;
+    };
+    switch (head) {
+        .move => try consumeName(ctx, ir.Move.operand(e)),
+        .drop => try consumeName(ctx, ir.Drop.name(e)),
+        .@"return" => try consumeTail(ctx, ir.Return.value(e)),
+        .@"break" => try consumeTail(ctx, ir.Break.value(e)),
+        .@"for" => {
+            if (ir.For.mode(e).tag == .move) try consumeName(ctx, ir.For.source(e));
+            try consumeTail(ctx, e);
+        },
+        .@"if" => if (ir.If.@"else"(e) != .nil) try consumeTail(ctx, e),
+        .@"??", .@"catch", .match, .@"while", .raw_block => try consumeTail(ctx, e),
+        .cap_move => if (ctx.symbolOf(ir.get(e, .name))) |cap| try ctx.consumed.put(ctx.allocator, ctx.symbols.items[cap].origin, {}),
+        .fun => if (ir.Fun.returns(e) != .nil) try consumeTail(ctx, ir.Fun.body(e)),
+        .lambda => if (lambdaYields(ctx, e)) try consumeTail(ctx, ir.Lambda.body(e)),
+        else => {},
+    }
+    for (rig.children(e)) |c| try planConsumed(ctx, c);
+}
+
+fn consumeName(ctx: *SemContext, node: Sexp) !void {
+    if (node != .src) return;
+    const sym = ctx.symbolOf(node) orelse return;
+    try ctx.consumed.put(ctx.allocator, sym, {});
+}
+
+fn consumeTail(ctx: *SemContext, value: Sexp) std.mem.Allocator.Error!void {
+    if (value == .src) return consumeName(ctx, value);
+    try sema.eachTailPart(value, ctx, consumeTail);
+}
+
+/// Whether closure literal `lambda` yields a value: a `fun` whose body
+/// has a result.
+pub fn lambdaYields(ctx: *const SemContext, lambda: Sexp) bool {
+    const f = fnType(ctx, typeOf(ctx, lambda)) orelse return false;
+    if (f.is_sub) return false;
+    return switch (ctx.types.get(f.returns)) {
+        .void, .unknown, .invalid, .noreturn => false,
+        else => true,
+    };
 }
 
 const Planner = struct {

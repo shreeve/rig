@@ -174,13 +174,9 @@ const Nominal = struct {
 const Usage = struct {
     /// Referenced somewhere after the declaration.
     used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
-    /// May be moved, dropped, or returned: a resource binding with this
-    /// fact needs an alive flag.
-    consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
 
     fn deinit(self: *Usage, a: std.mem.Allocator) void {
         self.used.deinit(a);
-        self.consumed.deinit(a);
     }
 };
 
@@ -1052,7 +1048,7 @@ pub const Emitter = struct {
     /// How a resource binding's drop is armed: behind an alive flag when
     /// it may be consumed first.
     fn resourceGuard(self: *Emitter, sym: SymbolId) Guard {
-        return if (self.usage.consumed.contains(sym)) .flag else .scope;
+        return if (self.sema.consumes(sym)) .flag else .scope;
     }
 
     /// `var _h = base`, for a `header` that holds the value it makes of
@@ -6110,8 +6106,7 @@ pub const Emitter = struct {
     /// Whether a closure's body yields its value: not a `sub`'s, even a
     /// fallible one (`Void!`).
     fn lambdaYields(self: *Emitter, lambda: Sexp) bool {
-        const f = self.fnType(self.typeOf(lambda)) orelse return false;
-        return self.lambdaReturn(lambda) != null and !f.is_sub;
+        return storage.lambdaYields(self.sema, lambda);
     }
 
     /// The value type a closure literal's body produces, or null.
@@ -6553,21 +6548,6 @@ const Scan = struct {
         try set.put(s.e.allocator, sym, {});
     }
 
-    fn consume(s: *Scan, node: Sexp) Error!void {
-        if (node != .src) return;
-        const sym = s.e.sema.symbolOf(node) orelse return;
-        try s.put(&s.e.usage.consumed, sym);
-    }
-
-    /// The names a value moves out of their bindings when it leaves its
-    /// scope: a bare name in tail position, through the parts that yield
-    /// the value (`sema.eachTailPart`; the positions `emitValue` is given
-    /// `tail` for).
-    fn consumeTail(s: *Scan, value: Sexp) Error!void {
-        if (value == .src) return s.consume(value);
-        try sema.eachTailPart(value, s, consumeTail);
-    }
-
     fn walk(s: *Scan, sexp: Sexp) Error!void {
         switch (sexp) {
             .src => |leaf| {
@@ -6585,30 +6565,11 @@ const Scan = struct {
             return;
         };
         switch (head) {
-            .move => try s.consume(ir.Move.operand(sexp)),
-            .drop => try s.consume(ir.Drop.name(sexp)),
-            .@"return" => try s.consumeTail(ir.Return.value(sexp)),
-            .@"for" => {
-                if (ir.For.mode(sexp).tag == .move) try s.consume(ir.For.source(sexp));
-                try s.consumeTail(sexp);
-            },
-            // An `if` with `else`, a `match`, `??`, and `catch` may be
-            // values: their branches yield.
-            .@"if" => if (ir.If.@"else"(sexp) != .nil) try s.consumeTail(sexp),
-            .@"??", .@"catch", .match => try s.consumeTail(sexp),
-            // A loop's `else` and a `raw` block yield when they are values.
-            .@"while", .raw_block => try s.consumeTail(sexp),
             .cap_clone, .cap_weak, .cap_move, .cap_read, .cap_write => {
                 const cap = s.e.sema.symbolOf(ir.get(sexp, .name)) orelse return;
-                const origin = s.e.sema.symbols.items[cap].origin;
-                try s.put(&s.e.usage.used, origin);
-                if (head == .cap_move) {
-                    try s.put(&s.e.usage.consumed, origin);
-                }
+                try s.put(&s.e.usage.used, s.e.sema.symbols.items[cap].origin);
                 return;
             },
-            .fun => if (ir.Fun.returns(sexp) != .nil) try s.consumeTail(ir.Fun.body(sexp)),
-            .lambda => if (s.e.lambdaYields(sexp)) try s.consumeTail(ir.Lambda.body(sexp)),
             else => {},
         }
         for (rig.children(sexp)) |c| try s.walk(c);
