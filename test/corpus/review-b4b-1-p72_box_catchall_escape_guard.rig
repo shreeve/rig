@@ -1,0 +1,20 @@
+# guarded catch-all over a lent Box element escapes into r; the box is then replaced. Expect reject or valid.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  z = E.b
+  r = ?z
+  k = 3
+  match ?bs[idx(?Text("a"))]
+    x if k > 2 => r = x
+    _ => pass
+  bs[0] = Box(E.a(xs: [9, 9, 9, 9]))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

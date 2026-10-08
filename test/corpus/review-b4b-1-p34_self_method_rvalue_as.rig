@@ -1,0 +1,24 @@
+# `if … as` through a `?self` view of a plain made receiver; index makes an owning temp.
+struct P
+  xs: [2]Int?
+
+  fun items(?self) -> ?[2]Int? from self
+    ?self.xs
+
+fun mk(k: Int) -> P
+  P(xs: [k, 2])
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  k = 41
+  if mk(k).items()[idx(?Text("a"))] as n
+    print(clobber(n), n)
+  while mk(k).items()[idx(?Text("a"))] as n
+    print(clobber(n), n)
+    break

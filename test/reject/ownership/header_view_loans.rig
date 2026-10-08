@@ -49,6 +49,5 @@ sub main()
 # error: 22:5: cannot lend `v` to write while a read loan is live
 # error: 27:5: cannot reassign `o` while it is lent
 # error: 34:8: cannot drop `b` while it is lent
-# error: 42:8: a view of `r` does not outlive the `match` that reads `mkh().e`
 # error: 42:8: a view of the temporary `mkh()` outlives its statement
-# errors: 5
+# errors: 4

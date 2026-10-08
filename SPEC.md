@@ -2650,12 +2650,12 @@ be used otherwise. `match <e` needs a value `e` owns, not a view. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
 or `match !b` ([§10](#box)), and so is the value a handle holds,
 `match h`, which reads it. A read binding that is not plain data is a
-view (`?F`) of the field where it is, and it is usable within its arm
-only: it may be read, lent to a call, and have its `Cell` changed there,
-but a view of it is not returned, stored past the arm, or given as the
-match's value ("a view of `r` does not outlive the `match` that reads
-`e`"); copy what it holds (`+r`, or a plain field), or take the subject
-with `match <e`. A match on a part of a value made there (`match mk().e`)
+view (`?F`) of the field where it is, so it carries the subject's loan:
+a view of it may be returned, stored past the arm, or given as the
+match's value, for as long as the subject may be viewed. The subject may
+not change, move, or end while such a view is used; to keep what a
+binding holds past that, copy it (`+r`, or a plain field), or take the
+subject with `match <e`. A match on a part of a value made there (`match mk().e`)
 holds that value until the match ends when the part is not plain data,
 so its payloads are read where they are; a part of plain data is read
 in the header, whose temporaries end with it.
@@ -2720,7 +2720,7 @@ sub main()
 cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fields
 ```
 
-```rig reject
+```rig
 struct Res
   n: Int
   t: Text
@@ -2744,8 +2744,32 @@ sub main()
   print(name(?e), inner(?e).n)
 ```
 
+```output
+hi 1
+```
+
+```rig reject
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("hi")))
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match e
+    .a(r) => saved = ?r
+    .b => pass
+  e = E.b
+  print(saved.n)
+```
+
 ```error
-a view of `r` does not outlive the `match` that reads `e`: use it in the arm, or keep an owner of what it holds: copy it with `+r`
+cannot reassign `e` while it is lent
 ```
 
 ### pass

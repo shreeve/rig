@@ -1,4 +1,5 @@
-# while-as / for read / for write over a place through a temp: each must be rejected
+# while-as / for read / for write over a place through a temp: each
+# header points at the place, so each binds the place's own
 fun idx(s: String) -> Int
   s.len - 1
 

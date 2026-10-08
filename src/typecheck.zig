@@ -139,6 +139,11 @@ const Checker = struct {
     /// its subject is a part (`Header.held`): it is no temporary of the
     /// header.
     held_base: Sexp = .nil,
+    /// The arms of a read `match` whose subject emit matches as a copy
+    /// (not `storage.matchesInPlace`) are being bound: a binding that is
+    /// no plain data views that copy, so it is usable within its arm only
+    /// (`SymbolFlags.arm_view`).
+    arm_local: bool = false,
     /// A condition is being checked where nothing it makes can be held
     /// for the construct: a `while`'s, which runs again each iteration,
     /// a joined one, whose later parts may use earlier bindings, and a
@@ -2207,6 +2212,9 @@ const Checker = struct {
         const viewed: ?CopySource = if (mode != .read) null else if (subject.isKind(.read) and self.hands(ir.Read.operand(subject)).hasStorage())
             .{ .place = ir.Read.operand(subject), .kind = .match_read }
         else if (subject_hands.hasStorage()) .{ .place = subject, .kind = .match_copy } else null;
+        const saved_arm_local = self.arm_local;
+        defer self.arm_local = saved_arm_local;
+        self.arm_local = mode == .read and !self.isPoison(scrutinee) and !storage.matchesInPlace(self.ctx, node);
         var cov: MatchCoverage = .{};
         var arm_values: std.ArrayList(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
@@ -2569,9 +2577,11 @@ const Checker = struct {
                 cov.has_default = true;
                 if (resolve.patternBinds(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
-                        // A binding that is no plain data is usable in its
+                        // A binding that is no plain data of a copy of the
+                        // subject, or captured as a copy, is usable in its
                         // arm only.
-                        if (mode == .read and !self.isPoison(scrutinee) and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                        const copied = self.arm_local or !storage.catchAllByAddress(self.ctx, scrutinee, true);
+                        if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
                         if (mode == .read) try self.readBinding(scrutinee, pattern);
                         self.ctx.symbols.items[sym].ty = scrutinee;
                         try self.ctx.recordType(pattern, scrutinee);
@@ -2717,8 +2727,9 @@ const Checker = struct {
             try self.ctx.recordType(b, ty);
             if (self.ctx.symbolOf(b)) |sym| {
                 self.ctx.symbols.items[sym].ty = ty;
-                // A binding that is no plain data is usable in its arm only.
-                if (mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                // A binding that is no plain data of a copy of the
+                // subject is usable in its arm only.
+                if (self.arm_local and mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
             }
         }
     }

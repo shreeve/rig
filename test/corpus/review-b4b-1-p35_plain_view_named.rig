@@ -1,0 +1,30 @@
+# base is a view a call returns of a NAMED plain-data value (a view of plain data may be a copy); index makes an owning temp.
+# Expect: accept and the binding sees the place (no dangling into the header block).
+struct Q
+  a: Int
+  b: Int
+
+struct P
+  xs: [2]Q?
+
+fun look(p: ?P) -> ?P from p
+  p
+
+fun lookw(p: !P) -> !P from p
+  p
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, n, n, n, n, n, n, n, n]
+  a[1] + a[15]
+
+sub main()
+  p = P(xs: [Q(a: 41, b: 42), none])
+  if look(?p).xs[idx(?Text("a"))] as q
+    print(clobber(1000), q.a, q.b)
+  if !lookw(!p).xs[idx(?Text("a"))] as q
+    q.a = 7
+    print(clobber(1000), q.a, q.b)
+  print(p.xs[0])

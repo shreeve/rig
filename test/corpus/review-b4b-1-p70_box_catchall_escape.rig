@@ -1,0 +1,23 @@
+# catch-all over a lent Box element (plain enum inside) escapes into r; the box is then replaced (old box freed) and r read. Expect reject or r reads a valid value.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  z = E.b
+  r = ?z
+  match ?bs[idx(?Text("a"))]
+    x => r = x
+  bs[0] = Box(E.a(xs: [9, 9, 9, 9]))
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

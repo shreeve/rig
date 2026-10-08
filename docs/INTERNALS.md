@@ -895,20 +895,25 @@ by pointer where the match reads its subject in place,
 `storage.payloadByAddress`, and copies it out otherwise.)
 
 A read match's binding that is no plain data, a payload or the binding
-of a catch-all arm, is usable within its arm only (`SymbolFlags.arm_view`):
-it may be read, lent to a call, and have its `Cell` changed there, but a
-view of it may not be returned, stored in anything that outlives the
-arm, or yielded as the match's value. The ownership checker gives each
-such binding a loan on a hidden var of the arm (`Var.arm_of`), which
-ends with the arm. The rule is conservative: emit matches a subject that
-reaches a place where it is (`storage.matchesInPlace`), a guarded match
-through `__rig_subject` holding its address, a header with temporaries
-through the address its block yields, and a generic body through
-`rig.viewedPtr`, and binds a payload of a type parameter by pointer
-there; it copies only a value made in the header, which no name holds.
-The rule is lifted next, for the subjects matched in place (HANDOFF,
-weak spots). A subject that is a view a call returns is held as the
-pointer it is (`evalSubject`), never copied.
+of a catch-all arm, views the subject where the match reads it, and
+carries the subject's loan as any view does: a view of it may be
+returned, stored, or yielded as the match's value while that loan
+allows. Emit matches such a subject in place (`storage.matchesInPlace`):
+a subject that reaches a place, a guarded match through `__rig_subject`
+holding its address, a header with temporaries through the address its
+block yields, a part of a value the match holds, a view a call returns
+or a value that branches over views through the pointer it is
+(`evalSubject`), and a generic body through `rig.viewedPtr`, capturing
+a payload, or a catch-all's value, of a type parameter by pointer there
+(`storage.payloadByAddress`, `storage.catchAllByAddress`). One rule
+covers the rest: where a read match matches a copy (not
+`matchesInPlace`), or captures a catch-all's value as a copy, a binding
+that is no plain data is usable within its arm only
+(`SymbolFlags.arm_view`, set by typecheck from those facts, which emit
+reads): the ownership checker gives it
+a loan on a hidden var of the arm (`Var.arm_of`), which ends with the
+arm. Every such subject that makes a header temporary is also rejected
+where it copies (`rejectHeaderCopy`).
 
 A held header is rejected, conservatively, where its value could not
 be held for the construct: when the made value makes a statement
@@ -1130,8 +1135,7 @@ statement's temporaries are `dropsTemp`'s. Of the copies, a header
 that binds one is rejected where typecheck records it
 (`rejectHeaderCopy`), unless it binds plain data of a value made there;
 a read match's
-payload view, which may view a `subject` copy of a value made in the
-header, lives for its arm (`arm_view`); a `payload` copy only copies
+payload view of a copy lives for its arm (`arm_view`); a `payload` copy only copies
 fields out, and an `error_value` is plain data.
 
 ### Generics

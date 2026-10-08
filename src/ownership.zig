@@ -5025,11 +5025,10 @@ pub const Checker = struct {
                 loans = scrut_value.loans;
             }
         }
-        // A read match's binding that is no plain data is usable within
-        // its arm only: emit may match a copy of the subject (a guarded
-        // match evaluates it first, a generic one reads it as a value), so
-        // a view of the binding never outlives the arm (docs/INTERNALS.md,
-        // "Header subjects").
+        // A read match's binding that is no plain data of a subject emit
+        // matches as a copy (not `storage.matchesInPlace`) is usable
+        // within its arm only, so a view of it never outlives the copy
+        // (docs/INTERNALS.md, "Header subjects").
         if (self.sema) |ctx| if (ctx.symbolAt(pos)) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
             const arm = self.arm_var orelse blk: {
                 const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject, .arm_take = self.arm_take }, .{});

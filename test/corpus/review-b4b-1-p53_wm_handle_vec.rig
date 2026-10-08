@@ -1,0 +1,16 @@
+# read match through a shared handle element with a temp index; arm drops other handles. Expect accept, clean.
+enum E
+  a(t: Text)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  h: *E = *E.a(t: Text("x"))
+  hs = [+h, +h]
+  match hs[idx(?Text("a"))]
+    .a(t)
+      -h
+      print(t)
+    .b => pass

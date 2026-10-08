@@ -1,0 +1,40 @@
+# a temp-making index with an effect (counter) must be evaluated once per header evaluation,
+# including a write catch-all binding the whole element, a guarded match, and `match <`. Expect counts exact.
+enum E
+  a(t: Text)
+  b
+
+struct K
+  n: Cell[Int]
+
+fun idx(k: ?K, s: ?Text) -> Int
+  k.n.set(k.n.get() + 1)
+  s.len - 1
+
+sub main()
+  k = K(n: Cell(0))
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("x")))
+  !v.push(E.b)
+  match !v[idx(?k, ?Text("a"))]
+    .b => pass
+    x => x = E.a(t: Text("new"))
+  print(k.n.get(), v[0])
+  g = 3
+  match !v[idx(?k, ?Text("a"))]
+    .a(t) if g > 5 => !t.add("no")
+    .a(t) if g > 2 => !t.add("yes")
+    x => x = E.b
+  print(k.n.get(), v[0])
+  match ?v[idx(?k, ?Text("a"))]
+    .a(t) if g > 5 => print(t)
+    x => print(x)
+  print(k.n.get())
+  o: Vec[Text?] = Vec()
+  !o.push(Text("o"))
+  n = 0
+  while !o[idx(?k, ?Text("a"))] as e
+    !e.add("w")
+    n += 1
+    break if n > 2
+  print(k.n.get(), o)

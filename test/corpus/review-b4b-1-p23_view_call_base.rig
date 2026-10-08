@@ -1,0 +1,26 @@
+# subject through a call returning a view of a named owner, index makes a temp. Expect accept, clean.
+enum E
+  a(t: Text)
+  b
+
+struct H
+  es: [2]E
+
+fun get(h: !H) -> !H from h
+  h
+
+fun look(h: ?H) -> ?H from h
+  h
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  h = H(es: [E.a(t: Text("x")), E.b])
+  match !get(!h).es[idx(?Text("a"))]
+    .a(t) => !t.add("y")
+    .b => pass
+  match look(?h).es[idx(?Text("a"))]
+    .a(t) => print(t)
+    .b => pass
+  print(h.es[0])

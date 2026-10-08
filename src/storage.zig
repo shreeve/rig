@@ -674,6 +674,16 @@ pub fn payloadByAddress(ctx: *const SemContext, binding: ?TypeId, f: sema.Field,
     return (writes or viewed or generic) and fieldIsPointee(ctx, f.ty);
 }
 
+/// Whether a read match's catch-all binding of type `ty` is captured by
+/// address where the match switches: a view held as a pointer, and a
+/// value of a type parameter (`sema.copies` is `depends`) that the match
+/// reads where its subject is (`in_place`, `matchesInPlace`), as
+/// `payloadByAddress` binds a payload. Any other is a copy in the arm.
+pub fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
+    if (isPtrViewTy(ctx, ty)) return true;
+    return in_place and !sema.isReadOrWriteView(ctx, ty) and sema.copies(ctx, ty) == .depends;
+}
+
 /// Whether a read `match` switches on its subject where it is, never on
 /// a copy: the subject reaches a place (`reachesPlace`), through its
 /// header's temporaries or not, is a part of the made value the match

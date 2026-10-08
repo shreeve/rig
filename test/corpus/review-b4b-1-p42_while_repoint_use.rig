@@ -1,0 +1,18 @@
+# while-as: body re-points the view, then uses t, then moves old owner. Expect reject at the move or clean.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub eat(v: Vec[Text?])
+  print(v.len)
+
+sub main()
+  a: Vec[Text?] = Vec()
+  !a.push(Text("a"))
+  b: Vec[Text?] = Vec()
+  !b.push(Text("b"))
+  r = ?a
+  while r[idx(?Text("a"))] as t
+    r = ?b
+    eat(<a)
+    print(t)
+    break

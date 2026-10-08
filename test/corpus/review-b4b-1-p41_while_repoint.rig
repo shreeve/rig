@@ -1,0 +1,18 @@
+# while-as re-evaluated each iteration while the body re-points the view it goes through. Expect accept, clean.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  a: Vec[Text?] = Vec()
+  !a.push(Text("a"))
+  b: Vec[Text?] = Vec()
+  !b.push(Text("b"))
+  !b.push(none)
+  r = ?a
+  k = 0
+  while r[idx(?Text("a"))] as t
+    print(t)
+    r = ?b
+    k += 1
+    break if k > 3
+  print(k)

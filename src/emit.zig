@@ -2552,7 +2552,7 @@ pub const Emitter = struct {
                 try self.w.writeAll("else => ");
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
                 switch (info.mode) {
-                    .read => if (named) try self.emitCapture(pattern),
+                    .read => if (named) try self.emitCapture(pattern, info.in_place),
                     .write => if (named) {
                         prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
                     },
@@ -3031,11 +3031,14 @@ pub const Emitter = struct {
 
     /// `|name| ` for a payload or catch-all binding that the body uses:
     /// `|*name| ` for one that views the matched value where it is.
-    fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
+    fn emitCapture(self: *Emitter, name_node: Sexp, in_place: bool) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
-        const stored = try self.declare(local, self.srcText(name_node));
-        const viewed = if (local.ty) |t| self.isPtrViewTy(t) else false;
-        try self.w.print("|{s}{s}| ", .{ if (viewed) "*" else "", stored.zig_name });
+        const t = local.ty orelse return self.unsupported(name_node, "a catch-all binding of unknown type");
+        const by_addr = storage.catchAllByAddress(self.sema, t, in_place);
+        // A value captured by address is held as a pointer to it; a view
+        // held as a pointer is that pointer.
+        const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(name_node));
+        try self.w.print("|{s}{s}| ", .{ if (by_addr) "*" else "", stored.zig_name });
     }
 
     /// Where payload bindings read their fields: an expression, or a

@@ -1,0 +1,18 @@
+# write match on vv[0][i]; arm pushes to vv[0] (inner) then writes payload. Expect reject.
+enum E
+  a(n: Int)
+  b
+
+sub main()
+  vv: Vec[Vec[E]] = Vec()
+  w: Vec[E] = Vec()
+  !w.push(E.a(n: 4))
+  !vv.push(<w)
+  i = 0
+  match !vv[0][i]
+    .a(n)
+      for _ in 0..64
+        !vv[0].push(E.b)
+      n = 5
+    .b => pass
+  print(vv[0][0])

@@ -1,0 +1,13 @@
+# write match on an element of a Cell[Vec[E]] (elements cannot be lent). Expect reject.
+enum E
+  a(n: Int)
+  b
+
+sub main()
+  c: Cell[Vec[E]] = Cell(Vec())
+  c.push(E.a(n: 1))
+  i = 0
+  match !c[i]
+    .a(n) => n = 5
+    .b => pass
+  print(c[0])

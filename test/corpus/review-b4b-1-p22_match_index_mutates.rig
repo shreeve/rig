@@ -1,0 +1,17 @@
+# match on vv[0][grow(!vv, ?Text)] with Text payloads. Expect reject (or clean).
+enum E
+  a(t: Text)
+  b
+
+fun grow(vv: !Vec[[1]E], s: ?Text) -> Int
+  for _ in 0..64
+    !vv.push([E.b])
+  s.len - 1
+
+sub main()
+  vv: Vec[[1]E] = Vec()
+  !vv.push([E.a(t: Text("x"))])
+  match !vv[0][grow(!vv, ?Text("a"))]
+    .a(t) => !t.add("y")
+    .b => pass
+  print(vv[0], vv.len)

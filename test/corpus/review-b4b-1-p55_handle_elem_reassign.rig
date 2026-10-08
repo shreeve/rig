@@ -1,0 +1,16 @@
+# read match through a handle element via temp index; arm replaces the element (dropping the last handle) then uses t. Expect reject.
+enum E
+  a(t: Text)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  hs: Vec[*E] = Vec()
+  !hs.push(*E.a(t: Text("x")))
+  match hs[idx(?Text("a"))]
+    .a(t)
+      hs[0] = *E.b
+      print(t)
+    .b => pass

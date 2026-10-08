@@ -412,8 +412,9 @@ pub const SymbolFlags = packed struct(u16) {
     /// copied (`Contents.unique`).
     unique: bool = false,
     /// A read match's binding of a payload, or the whole value, that is
-    /// not plain data: usable within its arm only (docs/INTERNALS.md,
-    /// "Header subjects").
+    /// not plain data, of a subject the match reads as a copy (not
+    /// `storage.matchesInPlace`): usable within its arm only
+    /// (docs/INTERNALS.md, "Header subjects").
     arm_view: bool = false,
     /// A `!T` or `![]T` local assigned a view somewhere
     /// (`SemContext.repoints`): it lowers to a Zig `var` pointer.

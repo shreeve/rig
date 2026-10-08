@@ -1,0 +1,28 @@
+# a temp-making index that propagates failure / none out of the function, inside a pointing header. Expect leak-free, correct.
+fun idxo(s: ?Text) -> Int?
+  return none if s.len > 3
+  s.len - 1
+
+error Bad
+  long
+
+fun idxf(s: ?Text) -> Int!
+  return Bad.long if s.len > 3
+  s.len - 1
+
+fun go(v: !Vec[Text?], w: Text) -> Int?
+  if !v[idxo(?Text(w))?] as t
+    !t.add("o")
+  1
+
+fun gof(v: !Vec[Text?], w: Text) -> Int!
+  if !v[idxf(?Text(w))!] as t
+    !t.add("f")
+  1
+
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  print(go(!v, Text("a")), go(!v, Text("abcd")))
+  print(gof(!v, Text("a")) catch 0, gof(!v, Text("abcd")) catch 0)
+  print(v)

@@ -1,0 +1,12 @@
+# write `if !… as` over Vec element via temp index; body pushes then writes t. Expect reject.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  if !v[idx(?Text("a"))] as t
+    for _ in 0..64
+      !v.push(Text("zz"))
+    !t.add("x")
+  print(v)

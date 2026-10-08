@@ -1,7 +1,8 @@
-# a05 sibling: the plain-data catch-all view of a header-copied subject
-# leaves the function as the match's value (unguarded: `|*x|` captures
-# the header block's Zig rvalue, a copy of the Vec element). The caller
-# reads a `?E` into the callee's dead frame. Expected: 8 8.
+# a05 sibling: the catch-all view of a header subject through a
+# temporary leaves the function as the match's value. The caller must
+# read the Vec's element, 8 8, never the callee's dead frame; the header
+# points at the element, so it does
+# (test/behavior/ownership/header_points_view_escapes.rig).
 enum E
   a(xs: [4]Int)
   b

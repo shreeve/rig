@@ -150,8 +150,6 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
   a `!Int` copies the Int.
 - **The kind of a struct of Strings:** CORE calls it a view, SPEC plain
   data; the compiler treats it as CORE's read-view kind.
-- **Arm-local payload views:** lift them for an unguarded, non-generic
-  match on a place once emit matches in place?
 - **A branching receiver:** a pointer per leaf (built) or a rejection?
 - **Clone limits:** are the missing clones of a type from another
   module, or one holding a `Signal`, rules or gaps?
@@ -177,12 +175,15 @@ and run the corpus after.
     Tests: the `sema` unit test "storage: a header points at a place its
     temporaries reach, never into one" and
     `test/reject/ownership/header_place_inside_temporary.rig`.
-- **Arm-local payload views.** A read match's binding that is no plain
-  data is usable within its arm only, because emit matched a copy of
-  the subject (a guarded match, a generic body). Emit now matches a
-  subject that reaches a place, or a view a call returns, where it is
-  (`storage.matchesInPlace`). This rejects programs `v0.1.6` ran
-  correctly. B4b and B5 lift it.
+- **Payload views.** A read match's binding that is no plain data views
+  the subject where emit matches it (`storage.matchesInPlace`: a place,
+  a held part, a view a call returns, a value branching over views,
+  through temporaries or a guard), so a view of it carries the subject's
+  loan past the arm. Where a read match matches a copy, such a binding
+  is usable within its arm only (`SymbolFlags.arm_view`); every such
+  subject with a header temporary is also rejected (`rejectHeaderCopy`).
+  Tests: `test/behavior/ownership/match_payload_view_outlives_arm.rig`
+  and `test/reject/ownership/match_payload_view_escapes.rig`.
   - *Resolved in B4a:* a generic read view a field or an element holds
     on the subject's path (`match w.r`, `match arr[1]`) is reached in
     place, `rig.viewedPtr(T, &w.r).*`, never through a `rig.viewed`
@@ -190,8 +191,7 @@ and run the corpus after.
     `test/cli/emit_shapes.sh` (no `&rig.viewed(` and no switch on a
     `rig.viewed(` copy), `test/behavior/emit/generic_view_field_subject.rig`,
     `test/behavior/emit/generic_view_field_guard.rig`, and the escape
-    `test/corpus/review-b4a-g21_view_field_escape.rig`, rejected until
-    B4b lifts the rule and then expected to run.
+    `test/behavior/ownership/generic_view_field_escape.rig`.
 - **Addresses of Zig rvalues.** Emit still takes the address of a few
   Zig rvalues no fact names: a `?self` method on a made value no slot
   keeps, on a branching value with a made leaf, `emitLeafPtr`'s
@@ -240,9 +240,8 @@ and run the corpus after.
 ## What comes next
 
 1. The design owner settles the open questions and the CORE wording.
-2. B4b (the checker accepts the header subjects emit now points at,
-   B4a), then B5, which lift the header temporaries rule and arm-local
-   payload views.
+2. B5: what B4b left of the header temporaries rule, a header that
+   copies a value made in it.
 3. The structural address chokepoint.
 4. The per-expression "is a view" fact.
 5. The held items, as their prerequisites land.

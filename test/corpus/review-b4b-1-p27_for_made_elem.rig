@@ -1,0 +1,10 @@
+# for over an element of a made value (owning elements). Expect reject.
+struct H
+  xs: [2]Text
+
+fun mk(s: ?Text) -> H
+  H(xs: [Text(s), Text("b")])
+
+sub main()
+  for x in mk(?Text("a")).xs
+    print(x)

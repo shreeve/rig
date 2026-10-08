@@ -1,0 +1,9 @@
+# p73's read line without the temp: `if (?v[i..2])[1] as t`. Oracle vs production.
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  i = 0
+  if (?v[i..2])[1] as t
+    print(t)
+  print(v)

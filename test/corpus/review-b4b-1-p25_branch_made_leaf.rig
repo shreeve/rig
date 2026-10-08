@@ -1,0 +1,13 @@
+# branching subjects with a made leaf / ?? / catch. Expect reject.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun mk() -> Text?
+  Text("m")
+
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  c = true
+  if (v[idx(?Text("a"))] if c else mk()) as t
+    print(t)
