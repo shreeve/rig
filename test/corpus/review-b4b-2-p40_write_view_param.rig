@@ -1,0 +1,26 @@
+# Subject is a write-view param read by match; view escapes; then assigned through. Expect reject.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub f(w: !E)
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match w
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  w = E.b(r: Res(n: 9, t: Text("over")))
+  print(clobber(1))
+  print(saved.t)
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("one")))
+  f(!e)

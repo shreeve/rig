@@ -119,12 +119,12 @@ const Loop = struct {
     value: ?VarId,
 };
 
-/// The Core's planned rule the oracle models under `planned`: a bare
-/// `break x` of an owner declared in the loop moves it (Core s1). Rules
-/// once planned and now built hold in every run: a type holding a `Cell`
-/// is unique (Core §1), and a bare place a `for` walks or an `if … as`
-/// or `while … as` binds is read where it stands, as `?p` (Core s1).
-pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit, planned: bool) !core.Func {
+/// Lower one function to the core. Rules once planned and now built hold
+/// in every run: a type holding a `Cell` is unique (Core §1), a bare
+/// place a `for` walks or an `if … as` or `while … as` binds is read
+/// where it stands, as `?p`, and a bare `break x` of an owner declared in
+/// the loop moves it (Core s1).
+pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit) !core.Func {
     var l: Lowerer = .{
         .a = a,
         .ctx = m.sema,
@@ -132,7 +132,6 @@ pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit,
         .src = m.source,
         .kinds = kinds.Kinds.init(a, m.sema, true),
         .planned = true,
-        .planned_break = planned,
         .module = m,
     };
     l.run(unit) catch |err| switch (err) {
@@ -262,9 +261,6 @@ const Lowerer = struct {
     src: []const u8,
     kinds: kinds.Kinds,
     planned: bool,
-    /// Core s1, planned: a bare `break x` of an owner declared in the
-    /// loop moves it.
-    planned_break: bool = false,
     f: core.Func = .{},
     cur: ?BlockId = null,
     vars: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
@@ -895,9 +891,6 @@ const Lowerer = struct {
         /// For a lend of a place the function owns: its payloads are that
         /// place's.
         of_owner: bool = false,
-        /// In an arm of a read `match`: the hidden var of the arm, on
-        /// which each binding that is no plain data holds a loan.
-        arm: ?VarId = null,
     };
 
     /// The value of `if e as x`, `while e as x`, or a `match` subject: a
@@ -912,6 +905,12 @@ const Lowerer = struct {
         // it stands, as `?p` (Core s1, planned; INTERNALS "Header
         // subjects"); an optional of plain data still copies.
         const is_place = self.isPlaceSyntax(value);
+        // An element or field of a lend (`(?v[i..2])[1]`) is a place the
+        // header views through it; the oracle does not model that path.
+        if (!is_place and (value.isKind(.member) or value.isKind(.index))) {
+            const rk = chainRoot(value).kind();
+            if (rk == .read or rk == .write) return abstain("a header subject reached through a lend");
+        }
         const bare: How = if (how == .take and self.planned and is_place) .read else how;
         try self.pushRegion();
         var v = try self.subject(value, bare, "the `as` value");
@@ -919,11 +918,12 @@ const Lowerer = struct {
         // or a call's result, is read as its value in the header, which
         // carries no loan (Core §4).
         const named = if (value.isKind(.read)) ir.Read.operand(value) else value;
-        // A bare `match` subject reads a `T` in a view a call returns
-        // where it is, as it reads a place's: each binding sees its
+        // A bare `match` subject, or a lend of a view a call returns
+        // (`lendsHeldView`), reads a `T` in that view where it is, as it
+        // reads a place's: each binding sees its
         // payload through the view (Core s1), and a generic body's copy
         // of one is the instance's question where the binding is used.
-        const in_place = how == .read and self.kinds.generic and !value.isKind(.read);
+        const in_place = how == .read and self.kinds.generic and (!value.isKind(.read) or self.lendsHeldView(value));
         if (!value.isKind(.write) and !self.isPlaceSyntax(named)) v = if (in_place) try self.readPlainThrough(v, pos) else try self.readThrough(v, pos);
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
@@ -936,7 +936,7 @@ const Lowerer = struct {
             if (rv.kind != .write_view and !rv.alias) carry_from = r;
             of_owner = rv.kind == .owning and !rv.alias;
         };
-        const lent_temp = (value.isKind(.read) or value.isKind(.write)) and self.madeSubject(ir.get(value, .operand));
+        const lent_temp = (value.isKind(.read) or value.isKind(.write)) and self.madeSubject(ir.get(value, .operand)) and !self.lendsHeldView(value);
         return .{ .v = h, .pos = pos, .ty = ty, .carry_from = carry_from, .lent_temp = lent_temp, .of_owner = of_owner };
     }
 
@@ -960,7 +960,7 @@ const Lowerer = struct {
         const lent = value.isKind(.read) or value.isKind(.write);
         const named = if (lent) ir.get(value, .operand) else value;
         const root = chainRoot(named);
-        if (self.madeSubject(named)) {
+        if (self.madeSubject(named) and !self.lendsHeldView(value)) {
             if (lent and isBranching(named)) return abstain("a lend of a branching value (Core §3, planned)");
             if (lent and value.isKind(.write)) return abstain("a write lend of a made value");
             const part = named.kind().? == .member or named.kind().? == .index;
@@ -1018,6 +1018,17 @@ const Lowerer = struct {
 
     /// Whether a header subject names a value the header makes, or a
     /// part of one: neither a place, nor a constant, nor a sigil.
+    /// Whether `value` lends to read a read view a call returns,
+    /// `?get(e)`: that lends the view on, the view itself (Core §4, a
+    /// held view lends `?T`), not a temporary the header made.
+    fn lendsHeldView(self: *Lowerer, value: Sexp) bool {
+        if (!value.isKind(.read)) return false;
+        const operand = ir.Read.operand(value);
+        if (!operand.isKind(.call)) return false;
+        const ty = self.ctx.typeOf(operand) orelse return false;
+        return self.ctx.types.get(ty) == .read_view;
+    }
+
     fn madeSubject(self: *Lowerer, named: Sexp) bool {
         const rk = chainRoot(named).kind() orelse return false;
         if (rk == .read or rk == .write or rk == .move) return false;
@@ -1098,18 +1109,7 @@ const Lowerer = struct {
             xv.holds_pointers = true;
             xv.drop_reads = false;
         }
-        // What the binding sees: a payload of its declared type, or for a
-        // catch-all the subject's value. Plain data and views are copies.
-        const seen = if (stored) |st| (if (st == h.ty) sema.unwrapViews(self.ctx, st) else st) else sema.unwrapViews(self.ctx, xv.ty);
-        const seen_kind = (try self.kinds.of(seen)).kind;
-        const arm_local = h.arm != null and (seen_kind == .owning or seen_kind == .write_view);
         try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(h.v), .def = x });
-        if (arm_local) {
-            const arm = h.arm.?;
-            const loan = try self.newLoan(self.rootPlace(arm), .read, false, 0, h.pos);
-
-            try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(arm), .weak = x, .loan = loan });
-        }
     }
 
     /// The type an `as` binds: what the optional subject holds.
@@ -1175,25 +1175,7 @@ const Lowerer = struct {
             if (sure or !falls) try self.goto(body) else try self.branch(body, next);
             self.cur = body;
             try self.pushRegion();
-            // A read match's binding that is no plain data is a view of
-            // the subject usable within its arm only (INTERNALS "Header
-            // subjects"): it holds a loan on a hidden var of the arm,
-            // which ends with the arm, so a view of it that outlives the
-            // arm is a loan that outlives its owner (Core s6).
-            var ha = h;
-            if (self.f.vars.items[h.v].kind == .read_view) {
-                const arm_var = try self.newVar("the arm", h.ty, true, self.posOf(arm));
-                const av = &self.f.vars.items[arm_var];
-                av.kind = .plain;
-                av.holds_views = false;
-                av.holds_pointers = false;
-                av.drop_reads = false;
-                av.arm = true;
-                try self.regions.items[self.regions.items.len - 1].vars.append(self.a, arm_var);
-                try self.emit(.{ .pos = self.posOf(arm), .what = .make, .def = arm_var });
-                ha.arm = arm_var;
-            }
-            try self.bindPattern(pattern, ha);
+            try self.bindPattern(pattern, h);
             if (guard != .nil) {
                 try self.header(guard);
                 const held_blk = try self.newBlock();
@@ -1455,10 +1437,9 @@ const Lowerer = struct {
             const lv = lp.value orelse return abstain("a `break` value of a loop that is not a value");
             // A `break` value is consumed like a result (SPEC §6); where
             // the loop's value is read, a write view is read through.
-            // Under the planned rule a bare name declared in the loop
-            // leaves for good, and moves (Core s1, planned); one from
-            // outside the loop takes `<x`.
-            const local: ?VarId = if (!self.planned_break or v != .src) null else if (self.varOf(v)) |x| blk: {
+            // A bare name declared in the loop leaves for good, and
+            // moves (Core s1); one from outside the loop takes `<x`.
+            const local: ?VarId = if (v != .src) null else if (self.varOf(v)) |x| blk: {
                 const in_loop = if (self.region_of.get(x)) |r| r >= lp.depth else false;
                 const moves = !(try self.kinds.of(self.f.vars.items[x].ty)).kind.copies();
                 break :blk if (in_loop and moves and !self.f.vars.items[x].alias) x else null;
@@ -2183,7 +2164,6 @@ const Lowerer = struct {
             .src = self.src,
             .kinds = kinds.Kinds.init(self.a, self.ctx, self.planned),
             .planned = self.planned,
-            .planned_break = self.planned_break,
         };
         inner.kinds.generic = self.kinds.generic;
         inner.module = self.module;

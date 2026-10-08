@@ -1,0 +1,11 @@
+# for over a plain-data part of a made value. Expect accept, clean.
+struct H
+  xs: [2]Int
+  t: Text
+
+fun mk(s: ?Text) -> H
+  H(xs: [s.len, 2], t: Text(s))
+
+sub main()
+  for x in mk(?Text("a")).xs
+    print(x)

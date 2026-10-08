@@ -1,0 +1,16 @@
+# write match on Vec element with a catch-all binding the whole element, then assigning it. Expect accept, clean.
+enum E
+  a(n: Int, t: Text)
+  b
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.b)
+  !v.push(E.a(n: 1, t: Text("v")))
+  i = 0
+  match !v[i]
+    .a(n, _) => n += 1
+    x => x = E.a(n: 7, t: Text("new"))
+  match !v[1]
+    x => x = E.b
+  print(v[0], v[1])

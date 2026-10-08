@@ -1,0 +1,26 @@
+# Multi-field payload with guard; views of each escape. Expect accept, prints r s.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res, s: Res, n: Int)
+  b
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("r")), s: Res(n: 2, t: Text("s")), n: 3)
+  k = Res(n: 0, t: Text("k"))
+  s1 = ?k
+  s2 = ?k
+  match e
+    .a(r, s, n) if n > 0
+      s1 = ?r
+      s2 = ?s
+    .a(_, s, _) => s2 = ?s
+    .b => pass
+  print(clobber(1))
+  print(s1.t, s2.t)

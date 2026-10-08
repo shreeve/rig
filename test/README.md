@@ -310,16 +310,11 @@ decides (also where the compiler's semantic checks stop first):
 
 ```
 # oracle: main reject C2
-# oracle planned: loops accept
 ```
 
 The word after the function is `accept`, or `reject` with the rule
-the oracle names (C1–C8, B1–B4). `oracle planned:` checks the verdict
-under the Core's planned rule the oracle models (`--planned`): a bare
-`break x` of an owner declared in the loop moves it. (A type holding a
-`Cell` is unique, and a `for`, `if … as`, `while … as`, or `match`
-reads a bare place where it stands, in every run.) A different
-verdict, or none, fails the set. These lines are
+the oracle names (C1–C8, B1–B4). A different verdict, or none, fails
+the set. These lines are
 the oracle's own tests: each of the oracle's header rules (a subject
 that is a place, a made value, a part of one, a lend of one, or a
 branching value) has tests that state its verdict, so the change that
@@ -330,7 +325,6 @@ wrong. By hand:
 bin/rig-oracle -v file.rig            # every function's two verdicts
 bin/rig-oracle --explain main file.rig  # the lowered core of `main`
 bin/rig-oracle --stats test/corpus/*  # why it abstains, by count
-bin/rig-oracle --planned -v file.rig  # with the planned rules it models
 bin/rig-oracle --sema -v file.rig     # also functions the compiler's
                                       # semantic checks rejected
 ```

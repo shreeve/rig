@@ -1,0 +1,11 @@
+# for over element (array) of a Vec via temp index; body pushes. Expect reject.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  m: Vec[[2]Int] = Vec()
+  !m.push([1, 2])
+  for x in !m[idx(?Text("k"))]
+    !m.push([3, 4])
+    x *= 10
+  print(m)

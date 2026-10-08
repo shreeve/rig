@@ -1,0 +1,15 @@
+# write `if !… as` through a !-view of a plain rvalue; index makes an owning temp.
+struct P
+  xs: [2]Int?
+
+fun pick(p: !P) -> !P from p
+  p
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  k = 41
+  if !pick(!P(xs: [k, 2])).xs[idx(?Text("a"))] as n
+    n = 5
+    print(n)

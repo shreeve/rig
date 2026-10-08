@@ -1,0 +1,25 @@
+# Payload view of a Vec element escapes the arm; the Vec then grows. Expect reject.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(r: Res(n: 1, t: Text("one"))))
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match v[0]
+    .a(r) => saved = ?r
+    .b => pass
+  for i in 0..100
+    !v.push(E.b)
+  print(clobber(1))
+  print(saved.t)

@@ -1,0 +1,34 @@
+# base is a generic function's returned view (`?T`, `!T`), indexed with a temp-making index. Expect clean, correct.
+struct Q
+  a: Int
+  b: Int
+
+fun first[T](v: ?Vec[T]) -> ?T from v
+  ?v[0]
+
+fun firstw[T](v: !Vec[T]) -> !T from v
+  !v[0]
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, n, n, n, n, n, n, n, n]
+  a[1] + a[15]
+
+sub main()
+  vv: Vec[[2]Q?] = Vec()
+  !vv.push([Q(a: 41, b: 42), none])
+  if first(?vv)[idx(?Text("a"))] as q
+    print(clobber(1000), q.a, q.b)
+  if !firstw(!vv)[idx(?Text("a"))] as q
+    q.a = 7
+    print(clobber(1000), q.a, q.b)
+  print(vv[0])
+  tv: Vec[[2]Text?] = Vec()
+  !tv.push([Text("x"), none])
+  if !firstw(!tv)[idx(?Text("a"))] as t
+    !t.add("y")
+  if first(?tv)[idx(?Text("a"))] as t
+    print(clobber(1000), t)
+  print(tv[0])

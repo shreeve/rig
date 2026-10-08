@@ -1,0 +1,23 @@
+# Generic body: payload view of a local escapes the arm; the local is then reassigned. Expect reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T)
+  o = Opt.some(v: <a)
+  k = <b
+  saved = ?k
+  match o
+    .some(x) => saved = ?x
+    .nothing => pass
+  o = Opt[T].nothing
+  print(clobber(1))
+  print(saved)
+
+sub main()
+  g(Text("a"), Text("b"))
+  g(1, 2)

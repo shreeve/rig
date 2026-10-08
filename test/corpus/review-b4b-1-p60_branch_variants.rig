@@ -1,0 +1,32 @@
+# branching `as` subjects: temp in the condition, nested if leaves, read leaves. Expect accept, clean, correct.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun yes(s: ?Text) -> Bool
+  s.len > 0
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub f(v: !Vec[Text?], w: !Text?, c: Int)
+  if (!v[0] if yes(?Text("a")) else !w) as t
+    !t.add("1")
+  if (!v[idx(?Text("a"))] if c > 1 else (!w if c > 0 else !v[1])) as t
+    !t.add("2")
+  if (?v[idx(?Text("a"))] if c > 5 else ?v[idx(?Text("ab"))]) as t
+    print(clobber(1), t)
+
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("v"))
+  !v.push(Text("u"))
+  w: Text? = Text("w")
+  f(!v, !w, 2)
+  print(v, w)
+  f(!v, !w, 1)
+  print(v, w)
+  f(!v, !w, 0)
+  print(v, w)
+  f(!v, !w, 9)
+  print(v, w)

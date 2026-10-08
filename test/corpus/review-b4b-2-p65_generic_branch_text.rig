@@ -1,0 +1,22 @@
+# As p63 with T = Text, an owning instance. Expect reject (instance or loan), never a view into a freed or copied Text.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T, c: T, k: T)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  saved = ?k
+  match o1 if clobber(0) > 5 else o2
+    .some(x) => saved = ?x
+    .nothing => pass
+  o2 = Opt.some(v: <c)
+  print(clobber(1))
+  print(saved, o1, o2)
+
+sub main()
+  g(Text("one"), Text("two"), Text("three"), Text("k"))

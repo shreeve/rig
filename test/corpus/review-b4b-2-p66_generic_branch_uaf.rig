@@ -1,0 +1,22 @@
+# Generic body, T = Text: match on a branching value over two places (moves depends). Emit switches in place (Zig propagates the ref into the if), but the checker records no loan on o1/o2, so o2 may be reassigned to .nothing (dropping its Text) while `saved` still views o2's payload. Expect reject at `o2 = ...`.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub g[T](a: T, b: T, k: T)
+  o1 = Opt.some(v: <a)
+  o2 = Opt.some(v: <b)
+  saved = ?k
+  match o1 if clobber(0) > 5 else o2
+    .some(x) => saved = ?x
+    .nothing => pass
+  o2 = Opt[T].nothing
+  print(clobber(1))
+  print(saved)
+
+sub main()
+  g(Text("one"), Text("two two two two two two two two two two"), Text("k"))

@@ -1,0 +1,19 @@
+# read match through temp index, arm moves the owner then uses payload. Expect reject.
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub eat(v: Vec[E])
+  print(v.len)
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("q")))
+  match v[idx(?Text("a"))]
+    .a(t)
+      eat(<v)
+      print(t)
+    .b(n) => print(n)

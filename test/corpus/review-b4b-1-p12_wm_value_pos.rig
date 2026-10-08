@@ -1,0 +1,22 @@
+# write match on Vec element in value position, with a guard. Expect accept, clean.
+enum E
+  a(n: Int, t: Text)
+  b
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(n: 1, t: Text("v")))
+  i = 0
+  k = 3
+  r = match !v[i]
+    .a(n, t) if k > 2
+      n += 1
+      !t.add("g")
+      n
+    .a(n, _) => n
+    .b => 0
+  print(r, v[0])
+  match !v[i]
+    .a(n, _) => n += 5
+    .b => pass
+  print(v[0])

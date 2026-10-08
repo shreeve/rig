@@ -1,0 +1,15 @@
+# nested pointing headers: the inner subject is reached from the outer binding with its own temp index. Expect clean, correct.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  vv: Vec[[2]Text?] = Vec()
+  !vv.push([Text("a"), Text("b")])
+  for row in !vv[idx(?Text("a"))..1]
+    if !row[idx(?Text("ab"))] as t
+      !t.add("x")
+  if !vv[idx(?Text("a"))][idx(?Text("a"))] as t
+    !t.add("y")
+    if !vv[0][idx(?Text("ab"))] as u
+      !u.add("z")
+  print(vv)

@@ -1,0 +1,72 @@
+# `break x` of a name declared in the loop it leaves moves it out, as
+# `return x` moves a local out of its function: the move happens before
+# the jump runs the drops and defers of the scopes it leaves. `break <x`
+# says the same.
+# release
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  a(r: R)
+  b
+
+sub main()
+  i = 0
+  x = while i < 3
+    r = R(n: i)
+    i += 1
+    if i == 2
+      s = R(n: 7)
+      break r
+  else
+    R(n: 99)
+  print(x.n)
+  v: Vec[R] = Vec()
+  !v.push(R(n: 10))
+  !v.push(R(n: 11))
+  y = for e in <v
+    break e if e.n == 10
+  else
+    R(n: 0)
+  print(y.n)
+  z = for k in 0..3
+    t: Vec[Int] = Vec()
+    !t.push(k)
+    defer print("defer", k)
+    break t if k == 1
+  else
+    Vec[Int]()
+  print(z)
+  w = while true
+    q = R(n: 20)
+    break <q
+  print(w.n)
+  es: Vec[E] = Vec()
+  !es.push(E.a(r: R(n: 30)))
+  u = for e in <es
+    match <e
+      .a(p) => break p
+      .b => pass
+  else
+    R(n: 0)
+  print(u.n)
+
+# expect:
+# drop 0
+# drop 7
+# 1
+# drop 11
+# 10
+# defer 0
+# defer 1
+# [1]
+# 20
+# 30
+# drop 30
+# drop 20
+# drop 10
+# drop 1

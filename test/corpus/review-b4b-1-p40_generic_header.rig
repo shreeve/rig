@@ -1,0 +1,41 @@
+# generic bodies: headers through a temp index over Vec[T?] and Vec[O[T]], read/write/return a view. Expect accept, clean.
+enum O[T]
+  some(x: T)
+  nothing
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub at[T](v: ?Vec[O[T]])
+  match ?v[idx(?Text("a"))]
+    .some(x) => print(x)
+    .nothing => pass
+
+sub setw[T](v: !Vec[T?], x: T)
+  if !v[idx(?Text("a"))] as y
+    y = <x
+
+sub show[T](v: ?Vec[T?])
+  if v[idx(?Text("a"))] as y
+    print(y)
+  while v[idx(?Text("a"))] as y
+    print(y)
+    break
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  v: Vec[O[Text]] = Vec()
+  !v.push(O.some(x: Text("q")))
+  at(?v)
+  print(clobber(3))
+  w: Vec[Text?] = Vec()
+  !w.push(Text("a"))
+  setw(!w, Text("b"))
+  print(w)
+  n: Vec[Int?] = Vec()
+  !n.push(4)
+  setw(!n, 5)
+  show(?n)

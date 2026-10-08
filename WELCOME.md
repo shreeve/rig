@@ -258,9 +258,11 @@ The [README](README.md#install) says how to build `bin/rig`.
 ## From Rust and Zig
 
 Rig's ownership model is Rust's, with two differences you notice at
-once: every transfer is written (`<x` moves; a bare name moves an
-owning value only in `return x`, or as the last value of the function
-or block that declares it), and there is no lifetime syntax (the
+once: every transfer is written (write `<x` when `x` stays in scope
+after the move; where `x`'s scope ends with the move, the move is
+plain: `return x`, `break x` of a name the loop declares, or `x` as the
+last value of the function or block that declares it), and there is no
+lifetime syntax (the
 checker follows where each view came from instead). Its cost model is
 Zig's: the emitted program is plain Zig, with no runtime beyond a small
 support file.
@@ -581,9 +583,10 @@ sub main()
 method `bump` needs its receiver lent to write
 ```
 
-**Moves without `<`.** A bare name moves an owning value only out of a
-function (`return x`, or `x` as its last value); anywhere else the
-error names the fix:
+**Moves without `<`.** A bare name moves an owning value only where its
+scope ends with the move (`return x`, `break x` of a name the loop
+declares, or `x` as the last value of the function or block that
+declares it); anywhere else the error names the fix:
 
 ```rig reject
 struct Res

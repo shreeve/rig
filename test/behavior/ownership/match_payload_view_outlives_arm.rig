@@ -1,0 +1,152 @@
+# A read `match` matches its subject where it is (a place, a lent box or
+# handle, a view a call returns, a guarded match, a generic body), so a
+# binding that is no plain data views the subject's own payload: a view
+# of it may be returned, stored past the arm, or yielded as the match's
+# value, for as long as the subject's loan allows.
+# release
+
+struct Res
+  n: Int
+  t: Text
+  xs: [2]Int
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+struct Hold
+  r: ?Res
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+enum K
+  k(t: Text)
+  none
+
+struct Key unique
+  n: Int
+
+enum U
+  k(key: Key)
+  none
+
+fun get(e: ?E) -> ?E from e
+  e
+
+fun ret(e: ?E) -> ?Res from e
+  match e
+    .a(r) => ?r
+    .b(r) => r
+
+fun boxed(b: ?Box[E]) -> ?Res from b
+  match b
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun shared(h: ?*E) -> ?Res from h
+  match h
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun guarded(e: ?E) -> ?Res from e
+  match get(e)
+    .a(r) if r.n > 1 => ?r
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun whole(e: ?E) -> ?E from e
+  match get(e)
+    .b(r) if r.n > 0 => e
+    x => x
+
+fun peek[T](o: ?Opt[T], d: ?T) -> ?T from o, d
+  match o
+    .some(v) => ?v
+    .nothing => d
+
+fun gwhole[T](o: ?Opt[T]) -> ?Opt[T] from o
+  match o
+    .nothing => o
+    x => ?x
+
+fun elems(e: ?E, d: ?[2]Int) -> []Int from e, d
+  match e
+    .a(r) => ?r.xs[0..2]
+    .b(_) => ?d[0..1]
+
+fun pick(e: ?K) -> String from e
+  match ?e
+    .k(t) => return ?t
+    .none => return "none"
+
+fun ukey(o: ?U, d: ?Key) -> ?Key from o, d
+  match o
+    .k(kk) => ?kk
+    .none => d
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub stores()
+  e = E.a(r: Res(n: 1, t: Text("x"), xs: [1, 2]))
+  k = Res(n: 0, t: Text("k"), xs: [0, 0])
+  saved = ?k
+  match e
+    .a(r) => saved = ?r
+    .b(_) => pass
+  hold = Hold(r: ?k)
+  match e
+    .a(r) => hold.r = ?r
+    .b(_) => pass
+  v = match e
+    .a(r) => ?r
+    .b(r) => ?r
+  s: String = "s"
+  o = K.k(t: Text("kt"))
+  match o
+    .k(t) => s = ?t
+    .none => pass
+  print(clobber(1))
+  print(saved.t, hold.r.t, v.t, s)
+
+sub main()
+  e = E.a(r: Res(n: 2, t: Text("a"), xs: [3, 4]))
+  f = E.b(r: Res(n: 0, t: Text("b"), xs: [5, 6]))
+  bx = Box(E.a(r: Res(n: 3, t: Text("box"), xs: [7, 8])))
+  h = *E.b(r: Res(n: 4, t: Text("handle"), xs: [9, 9]))
+  r1 = ret(?e)
+  r2 = ret(?f)
+  r3 = boxed(?bx)
+  r4 = shared(?h)
+  r5 = guarded(?e)
+  r6 = guarded(?f)
+  w1 = whole(?e)
+  o = Opt.some(v: Text("gen"))
+  d = Text("d")
+  g1 = peek(?o, ?d)
+  g2 = gwhole(?o)
+  zz = [0, 0]
+  x1 = elems(?e, ?zz)
+  kk = K.k(t: Text("pick"))
+  p1 = pick(?kk)
+  u = U.k(key: Key(n: 5))
+  dk = Key(n: 0)
+  k1 = ukey(?u, ?dk)
+  print(clobber(2))
+  print(r1.t, r2.t, r3.t, r4.t, r5.t, r6.t)
+  match w1
+    .a(r) => print(r.n)
+    .b(r) => print(r.n)
+  print(g1, g2, x1, p1, k1.n)
+  stores()
+
+# expect:
+# 3
+# a b box handle a b
+# 2
+# gen .some(v: "gen") [3, 4] pick 5
+# 2
+# x x x kt

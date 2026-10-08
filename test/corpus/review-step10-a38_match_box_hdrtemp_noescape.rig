@@ -1,6 +1,7 @@
 # a37 without any escape: a guarded `match ?bs[idx(?Text("a"))]` on an
-# element of an array of Box[E]. The subject is copied (`__rig_subject_N`
-# typed `rig.Box(E)`) but assigned the boxed `E`: the Zig does not compile.
+# element of an array of Box[E]. The subject once was copied into a
+# `__rig_subject_N` typed `rig.Box(E)` and assigned the boxed `E`, which
+# Zig rejected; the guarded match now holds the boxed value's address.
 enum E
   a(xs: [4]Int)
   b

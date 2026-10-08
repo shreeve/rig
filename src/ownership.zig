@@ -2778,6 +2778,12 @@ pub const Checker = struct {
         if (v.payload_view) return self.movePayload(id, pos, vt);
 
         if (try self.conflicts(id, .{ .consume = vt }, pos)) return .{};
+        // Emit arms a drop flag only for a binding the consumed fact
+        // records (`SemContext.consumes`), so no other may move.
+        if (self.sema) |ctx| if (ctx.symbolAt(v.decl)) |sym| if (!ctx.consumes(sym)) {
+            try self.err(pos, "internal error: `{s}` moves here, but the consumed fact does not record it", .{v.name});
+            return .{};
+        };
         // `<x` ends `x`, whatever its type: a Copy value or a view is
         // copied out, and the name is done.
         try self.markInvalid(id, .moved, pos);
@@ -5025,11 +5031,10 @@ pub const Checker = struct {
                 loans = scrut_value.loans;
             }
         }
-        // A read match's binding that is no plain data is usable within
-        // its arm only: emit may match a copy of the subject (a guarded
-        // match evaluates it first, a generic one reads it as a value), so
-        // a view of the binding never outlives the arm (docs/INTERNALS.md,
-        // "Header subjects").
+        // A read match's binding that is no plain data of a subject emit
+        // matches as a copy (not `storage.matchesInPlace`) is usable
+        // within its arm only, so a view of it never outlives the copy
+        // (docs/INTERNALS.md, "Header subjects").
         if (self.sema) |ctx| if (ctx.symbolAt(pos)) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
             const arm = self.arm_var orelse blk: {
                 const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject, .arm_take = self.arm_take }, .{});
@@ -5348,7 +5353,15 @@ pub const Checker = struct {
         // function: it is consumed, and it may not view what the loop
         // declared.
         if (target) |t| self.value_reads = t.reads;
-        const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
+        // A name declared in the loop leaves its scope with the value:
+        // `break x` moves it, as `return x` does, before the scopes the
+        // jump leaves run their defers. Any other name stays in scope
+        // after the jump, so one that owns is written `<x`.
+        const moved = if (target) |t| try self.breakMovesName(value, t.point.vars) else null;
+        const v: Value = if (value == .nil) .{} else if (moved) |id|
+            (if (self.vars.items[id].payload_view) try self.movePayload(id, value.src.pos, "move") else try self.moveVar(id, value.src.pos, .move))
+        else
+            try self.walkConsumed(value, .brk);
         self.value_reads = false;
         const word = if (jump == .brk) "break" else "continue";
         const at = self.stmtSpan(node);
@@ -5383,6 +5396,19 @@ pub const Checker = struct {
             try self.after_value.appendSlice(self.gpa, kept);
         }
         self.reachable = false;
+    }
+
+    /// The binding `break value` moves out: a bare name declared since
+    /// the loop's entry (`vars`), so its scope ends at this `break`,
+    /// whose value owns, as `return x` moves one (`returnMoves`).
+    fn breakMovesName(self: *Checker, value: Sexp, vars: u32) Error!?VarId {
+        if (value != .src) return null;
+        const id = self.boundVar(value) orelse return null;
+        if (id < vars) return null;
+        const v = self.vars.items[id];
+        if (v.closure or v.loop_view or v.capture_resource or v.alias_of != null or !self.returnMoves(v)) return null;
+        try self.checkNoImplicitCopy(value, .brk, true);
+        return id;
     }
 
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.

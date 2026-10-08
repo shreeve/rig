@@ -1,0 +1,61 @@
+# A `match !p` whose subject is an element of a Vec, or a path through
+# one, writes its payloads where the element is: the switch is on the
+# place, never on a copy of the element.
+# release
+
+enum E
+  a(n: Int, t: Text)
+  b
+
+struct S
+  e: E
+
+struct H
+  f: Vec[E]
+
+sub bump(p: !Vec[E], i: Int)
+  match !p[i]
+    .a(n, t)
+      n += 1
+      !t.add("p")
+    .b => pass
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(n: 1, t: Text("v")))
+  !v.push(E.b)
+  i = 0
+  match !v[i]
+    .a(n, t)
+      n += 10
+      !t.add("x")
+    .b => pass
+  match !v[0]
+    .a(n, _) => n += 100
+    .b => pass
+  bump(!v, i)
+  s: Vec[S] = Vec()
+  !s.push(S(e: E.a(n: 2, t: Text("s"))))
+  match !s[i].e
+    .a(n, t)
+      n += 20
+      !t.add("y")
+    .b => pass
+  h = H(f: Vec())
+  !h.f.push(E.a(n: 3, t: Text("h")))
+  match !h.f[i]
+    .a(n, t)
+      n += 30
+      !t.add("z")
+    .b => pass
+  vv: Vec[Vec[E]] = Vec()
+  w: Vec[E] = Vec()
+  !w.push(E.a(n: 4, t: Text("w")))
+  !vv.push(<w)
+  match !vv[0][i]
+    .a(n, _) => n += 40
+    .b => pass
+  print(v[0], s[0].e, h.f[0], vv[0][0])
+
+# expect:
+# .a(n: 112, t: "vxp") .a(n: 22, t: "sy") .a(n: 33, t: "hz") .a(n: 44, t: "w")

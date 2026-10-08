@@ -1,0 +1,11 @@
+# only p73's read line, with the temp.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  if (?v[idx(?Text("a"))..2])[1] as t
+    print(t)
+  print(v)

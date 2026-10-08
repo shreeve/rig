@@ -1,0 +1,13 @@
+# while !… as with the body assigning the element itself (place the binding points at). Expect reject or clean.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  a: Vec[Text?] = Vec()
+  !a.push(Text("a"))
+  k = 0
+  while !a[idx(?Text("a"))] as t
+    !t.add("x")
+    a[0] = none
+    k += 1
+  print(a, k)

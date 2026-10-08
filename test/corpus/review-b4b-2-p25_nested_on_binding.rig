@@ -1,0 +1,21 @@
+# Inner match on the outer payload binding itself (match i, i: In), view returned. Known stricter: reject expected per handoff.
+enum In
+  x(t: Text)
+  y
+
+enum E
+  a(i: In)
+  b
+
+fun deep(e: ?E, d: ?Text) -> ?Text from e, d
+  match e
+    .a(i)
+      match i
+        .x(t) => ?t
+        .y => d
+    .b => d
+
+sub main()
+  e = E.a(i: In.x(t: Text("inner")))
+  k = Text("k")
+  print(deep(?e, ?k))

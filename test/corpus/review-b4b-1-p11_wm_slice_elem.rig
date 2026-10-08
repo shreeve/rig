@@ -1,0 +1,32 @@
+# write match on element of a write slice, and on a !Vec parameter's element via a view-returning call. Expect accept, clean.
+enum E
+  a(n: Int, t: Text)
+  b
+
+fun first(v: !Vec[E]) -> !Vec[E] from v
+  v
+
+sub bump(s: ![]E, i: Int)
+  match !s[i]
+    .a(n, t)
+      n += 1
+      !t.add("s")
+    .b => pass
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(n: 1, t: Text("v")))
+  !v.push(E.b)
+  bump(!v[0..2], 0)
+  i = 0
+  match !first(!v)[i]
+    .a(n, t)
+      n += 10
+      !t.add("f")
+    .b => pass
+  arr = [E.a(n: 5, t: Text("a")), E.b]
+  bump(!arr[0..], i)
+  match !arr[i]
+    .a(n, _) => n += 7
+    .b => pass
+  print(v[0], arr[0])

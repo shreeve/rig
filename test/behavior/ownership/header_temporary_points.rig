@@ -1,0 +1,95 @@
+# A `match`, `if … as`, `while … as`, or `for` header whose subject is a
+# place reached through a statement temporary the header makes (an
+# index or a call's argument) binds the place's own: a guarded or
+# unguarded match, a lend of a Box's or a handle's value, a write, a
+# Cell change, and a catch-all view returned from a function all reach
+# the place, after the header drops its temporary.
+# release
+
+enum E
+  a(xs: [4]Int)
+  b
+
+enum F
+  a(n: Int)
+  b(n: Int)
+
+enum G
+  a(n: Int)
+  b
+
+struct C
+  c: Cell[Int]
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun at2(v: ?Vec[E]) -> ?E from v
+  match ?v[idx(?Text("a"))]
+    x => x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  v = [E.a(xs: [7, 7, 7, 7]), E.b]
+  k = 3
+  match ?v[idx(?Text("a"))]
+    x if k > 2 => print(x)
+    _ => print(0)
+  arr = [F.a(n: 1)]
+  match !arr[idx(?Text("a"))]
+    .a(n) if n > 0 => n = 50
+    .a(n) => n = 60
+    .b(n) => print(n)
+  print(arr)
+  match !arr[idx(?Text("a"))]
+    .a(n) => n += 1
+    .b(n) => print(n)
+  ints: [1]Int? = [1]
+  if !ints[idx(?Text("a"))] as n
+    n = 50
+  w: Int? = 2
+  if (!ints[idx(?Text("a"))] if k > 0 else !w) as n
+    n += 1
+  while !ints[idx(?Text("a"))] as n
+    n += 1
+    break
+  cs: [1]C? = [C(c: Cell(1))]
+  if ?cs[idx(?Text("a"))] as c
+    c.c.set(5)
+  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  match ?bs[idx(?Text("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
+  match ?hs[idx(?Text("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)
+  ev: Vec[E] = Vec()
+  !ev.push(E.a(xs: [1, 2, 3, 4]))
+  r = at2(?ev)
+  print(clobber(1), r)
+  if cs[0] as c
+    print(c.c.get())
+  print(arr, ints, w)
+  pa: [2]Int? = [7, none]
+  pe = [G.a(n: 3), G.b]
+  if pa[idx(?Text("a"))] as n
+    print(n)
+  match pe[idx(?Text("a"))]
+    .a(n) if n > 1 => print("a", n)
+    .a(_) => print("small")
+    .b => print("b")
+
+# expect:
+# .a(xs: [7, 7, 7, 7])
+# [.a(n: 50)]
+# 7
+# 7
+# 2 .a(xs: [1, 2, 3, 4])
+# 5
+# [.a(n: 51)] [52] 2
+# 7
+# a 3

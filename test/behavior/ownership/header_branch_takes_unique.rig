@@ -3,7 +3,6 @@
 # copied, so the loop's elements and the arm's payloads are its own.
 #
 # oracle: loops accept
-# oracle planned: loops accept
 use std.random
 
 struct Die

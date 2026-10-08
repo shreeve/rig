@@ -1,0 +1,16 @@
+# read match through a handle element via temp index; arm drops the Vec then uses t. Expect reject.
+enum E
+  a(t: Text)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  hs: Vec[*E] = Vec()
+  !hs.push(*E.a(t: Text("x")))
+  match hs[idx(?Text("a"))]
+    .a(t)
+      -hs
+      print(t)
+    .b => pass

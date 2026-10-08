@@ -1,0 +1,16 @@
+# 2d47a2db: write match on Vec element (no temp); arm pushes then writes payload. Expect reject.
+enum E
+  a(t: Text)
+  b(n: Int)
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("q")))
+  i = 0
+  match !v[i]
+    .a(t)
+      for _ in 0..64
+        !v.push(E.b(n: 5))
+      !t.add("x")
+    .b(n) => n += 1
+  print(v.len)

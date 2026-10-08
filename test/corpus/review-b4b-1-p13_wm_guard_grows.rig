@@ -1,0 +1,18 @@
+# write match on Vec element; guard calls a function that grows the Vec. Expect reject.
+enum E
+  a(n: Int)
+  b
+
+fun grow(v: !Vec[E]) -> Bool
+  for _ in 0..64
+    !v.push(E.b)
+  true
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(n: 1))
+  i = 0
+  match !v[i]
+    .a(n) if grow(!v) => n = 5
+    _ => pass
+  print(v[0])

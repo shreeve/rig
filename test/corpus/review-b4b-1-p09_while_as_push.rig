@@ -1,0 +1,15 @@
+# while-as over Vec element via temp index, body pushes after using t (each iteration re-evaluates). Expect accept + clean.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  k = 0
+  while !v[idx(?Text("a"))] as t
+    !t.add("x")
+    for _ in 0..64
+      !v.push(Text("zzzzzzzzzzzzzzzzzzz"))
+    k += 1
+    break if k > 2
+  print(v[0], v.len)

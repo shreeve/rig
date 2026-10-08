@@ -1,0 +1,19 @@
+# `??` and `catch`-free branching match subject with a temp index. Expect reject or clean.
+enum E
+  a(t: Text)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  v: Vec[E?] = Vec()
+  !v.push(E.a(t: Text("a")))
+  w = E.b
+  match (v[idx(?Text("a"))] ?? w)
+    .a(t) => print(t)
+    .b => print("b")
+  match !(v[idx(?Text("a"))] ?? w)
+    .a(t) => !t.add("x")
+    .b => print("b")
+  print(v, w)

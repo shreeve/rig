@@ -174,13 +174,9 @@ const Nominal = struct {
 const Usage = struct {
     /// Referenced somewhere after the declaration.
     used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
-    /// May be moved, dropped, or returned: a resource binding with this
-    /// fact needs an alive flag.
-    consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
 
     fn deinit(self: *Usage, a: std.mem.Allocator) void {
         self.used.deinit(a);
-        self.consumed.deinit(a);
     }
 };
 
@@ -1052,7 +1048,7 @@ pub const Emitter = struct {
     /// How a resource binding's drop is armed: behind an alive flag when
     /// it may be consumed first.
     fn resourceGuard(self: *Emitter, sym: SymbolId) Guard {
-        return if (self.usage.consumed.contains(sym)) .flag else .scope;
+        return if (self.sema.consumes(sym)) .flag else .scope;
     }
 
     /// `var _h = base`, for a `header` that holds the value it makes of
@@ -2440,6 +2436,15 @@ pub const Emitter = struct {
         in_place: bool = false,
     };
 
+    /// Whether the field or element path `e` passes through an element.
+    fn throughElement(e: Sexp) bool {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) : (p = ir.get(p, .object)) {
+            if (p.isKind(.index)) return true;
+        }
+        return false;
+    }
+
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
     /// yields a value. A match with a guarded arm picks its arm first
     /// (`emitGuardedMatch`).
@@ -2496,6 +2501,14 @@ pub const Emitter = struct {
             try self.emitSubjectPtr(subject, info.mode == .write);
             try self.w.writeAll(".*");
             if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
+        } else if (info.mode == .write and sema.handsOver(self.sema, subject).kind == .place and throughElement(subject)) {
+            // A place through an element that a write match writes is
+            // switched on where it is (a Vec's element reads as a
+            // value): `(&v.slot(i).*).*`.
+            try self.w.writeAll("(");
+            try self.emitSubjectPtr(subject, true);
+            try self.w.writeAll(").*");
+            if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         } else {
             // A match on a call returning a view held by pointer
             // switches on the value it points to, where it is: a header
@@ -2535,7 +2548,7 @@ pub const Emitter = struct {
                 try self.w.writeAll("else => ");
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
                 switch (info.mode) {
-                    .read => if (named) try self.emitCapture(pattern),
+                    .read => if (named) try self.emitCapture(pattern, info.in_place),
                     .write => if (named) {
                         prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
                     },
@@ -2766,12 +2779,18 @@ pub const Emitter = struct {
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
     }
 
-    /// The matched value `subj` as a catch-all binding `pattern` holds
-    /// it: its address for a write view or a view in place (`?S`), the
-    /// value for a copy.
-    fn wholeExpr(self: *Emitter, pattern: Sexp, subj: []const u8, writes: bool) Error![]const u8 {
-        const viewed = if (self.payloadLocal(pattern)) |local| (if (local.ty) |t| self.isPtrViewTy(t) else false) else false;
-        return if (writes or viewed) self.fmt("&{s}", .{subj}) else subj;
+    /// The catch-all binding `pattern` of the matched value `subj`, used
+    /// in `used_in`: its address for a write view, and for a read one
+    /// captured by address (`storage.catchAllByAddress`, as `emitCapture`
+    /// decides it), the value for a copy.
+    fn wholeBinding(self: *Emitter, pattern: Sexp, subj: []const u8, info: MatchInfo, used_in: Sexp) Error![]const Alias {
+        const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
+        const t = local.ty orelse return self.unsupported(pattern, "a catch-all binding of unknown type");
+        if (info.mode == .write) return self.wholeAlias(pattern, try self.fmt("&{s}", .{subj}), used_in);
+        const by_addr = storage.catchAllByAddress(self.sema, t, info.in_place);
+        const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));
+        const expr = if (by_addr) try self.fmt("&{s}", .{subj}) else subj;
+        return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
     }
 
     /// The prelude of a `match <x` arm on payload variant `fields`, held
@@ -2880,7 +2899,7 @@ pub const Emitter = struct {
         if (isCatchAll(self.source, pattern)) {
             const sym = self.sema.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
-            const aliases = try self.wholeAlias(pattern, try self.wholeExpr(pattern, subj, writes), .nil);
+            const aliases = try self.wholeBinding(pattern, subj, info, .nil);
             return self.emitPrelude(.{ .aliases = aliases });
         }
         if (!pattern.isKind(.variant_pattern)) return;
@@ -2926,10 +2945,9 @@ pub const Emitter = struct {
             prelude.head = head;
             return prelude;
         }
-        const writes = info.mode == .write;
         if (isCatchAll(self.source, pattern)) {
             if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
-            return .{ .aliases = try self.wholeAlias(pattern, try self.wholeExpr(pattern, subj, writes), body) };
+            return .{ .aliases = try self.wholeBinding(pattern, subj, info, body) };
         }
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(ir.VariantPattern.name(pattern));
@@ -3014,11 +3032,14 @@ pub const Emitter = struct {
 
     /// `|name| ` for a payload or catch-all binding that the body uses:
     /// `|*name| ` for one that views the matched value where it is.
-    fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
+    fn emitCapture(self: *Emitter, name_node: Sexp, in_place: bool) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
-        const stored = try self.declare(local, self.srcText(name_node));
-        const viewed = if (local.ty) |t| self.isPtrViewTy(t) else false;
-        try self.w.print("|{s}{s}| ", .{ if (viewed) "*" else "", stored.zig_name });
+        const t = local.ty orelse return self.unsupported(name_node, "a catch-all binding of unknown type");
+        const by_addr = storage.catchAllByAddress(self.sema, t, in_place);
+        // A value captured by address is held as a pointer to it; a view
+        // held as a pointer is that pointer.
+        const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(name_node));
+        try self.w.print("|{s}{s}| ", .{ if (by_addr) "*" else "", stored.zig_name });
     }
 
     /// Where payload bindings read their fields: an expression, or a
@@ -6090,8 +6111,7 @@ pub const Emitter = struct {
     /// Whether a closure's body yields its value: not a `sub`'s, even a
     /// fallible one (`Void!`).
     fn lambdaYields(self: *Emitter, lambda: Sexp) bool {
-        const f = self.fnType(self.typeOf(lambda)) orelse return false;
-        return self.lambdaReturn(lambda) != null and !f.is_sub;
+        return storage.lambdaYields(self.sema, lambda);
     }
 
     /// The value type a closure literal's body produces, or null.
@@ -6533,21 +6553,6 @@ const Scan = struct {
         try set.put(s.e.allocator, sym, {});
     }
 
-    fn consume(s: *Scan, node: Sexp) Error!void {
-        if (node != .src) return;
-        const sym = s.e.sema.symbolOf(node) orelse return;
-        try s.put(&s.e.usage.consumed, sym);
-    }
-
-    /// The names a value moves out of their bindings when it leaves its
-    /// scope: a bare name in tail position, through the parts that yield
-    /// the value (`sema.eachTailPart`; the positions `emitValue` is given
-    /// `tail` for).
-    fn consumeTail(s: *Scan, value: Sexp) Error!void {
-        if (value == .src) return s.consume(value);
-        try sema.eachTailPart(value, s, consumeTail);
-    }
-
     fn walk(s: *Scan, sexp: Sexp) Error!void {
         switch (sexp) {
             .src => |leaf| {
@@ -6565,30 +6570,11 @@ const Scan = struct {
             return;
         };
         switch (head) {
-            .move => try s.consume(ir.Move.operand(sexp)),
-            .drop => try s.consume(ir.Drop.name(sexp)),
-            .@"return" => try s.consumeTail(ir.Return.value(sexp)),
-            .@"for" => {
-                if (ir.For.mode(sexp).tag == .move) try s.consume(ir.For.source(sexp));
-                try s.consumeTail(sexp);
-            },
-            // An `if` with `else`, a `match`, `??`, and `catch` may be
-            // values: their branches yield.
-            .@"if" => if (ir.If.@"else"(sexp) != .nil) try s.consumeTail(sexp),
-            .@"??", .@"catch", .match => try s.consumeTail(sexp),
-            // A loop's `else` and a `raw` block yield when they are values.
-            .@"while", .raw_block => try s.consumeTail(sexp),
             .cap_clone, .cap_weak, .cap_move, .cap_read, .cap_write => {
                 const cap = s.e.sema.symbolOf(ir.get(sexp, .name)) orelse return;
-                const origin = s.e.sema.symbols.items[cap].origin;
-                try s.put(&s.e.usage.used, origin);
-                if (head == .cap_move) {
-                    try s.put(&s.e.usage.consumed, origin);
-                }
+                try s.put(&s.e.usage.used, s.e.sema.symbols.items[cap].origin);
                 return;
             },
-            .fun => if (ir.Fun.returns(sexp) != .nil) try s.consumeTail(ir.Fun.body(sexp)),
-            .lambda => if (s.e.lambdaYields(sexp)) try s.consumeTail(ir.Lambda.body(sexp)),
             else => {},
         }
         for (rig.children(sexp)) |c| try s.walk(c);

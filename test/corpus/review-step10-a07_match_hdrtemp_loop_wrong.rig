@@ -1,8 +1,7 @@
-# a06 made observable without poisoning: in a loop, the Zig rvalue the
-# header block yields is the same stack slot each iteration, so the view
-# `r` taken in iteration 0 reads iteration 1's element. Expected 7 7.
-# Result: prints 7 7 at HEAD (Zig gives the switch operand a fresh slot
-# here), so the unguarded form stays latent; see a27 for an observed one.
+# a06 made observable without poisoning, in a loop: the catch-all view
+# `r` taken in pass 0 of `match ?v[idx(...)]` must read pass 0's
+# element after the loop, 7 7. The header points at the element, so it
+# does (test/behavior/ownership/header_points_view_escapes.rig).
 enum E
   a(xs: [4]Int)
   b

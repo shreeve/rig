@@ -1,0 +1,55 @@
+# A catch-all view of a header subject that reaches a place through the
+# header's temporary is a view of the place: taken in one pass of a loop
+# and read after it, guarded or not, or returned as the match's value,
+# it reads the element it was taken from (the corpus probes
+# review-step10-a07, a08, and a27, which once read another pass's copy).
+# release
+
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text, i: Int) -> Int
+  s.len - 1 + i
+
+fun at2(v: ?Vec[E], i: Int) -> ?E from v
+  match ?v[idx(?Text("a"), i)]
+    x => x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub show(r: ?E)
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+sub main()
+  v = [E.a(xs: [7, 7, 7, 7]), E.a(xs: [8, 8, 8, 8])]
+  z = E.b
+  r = ?z
+  for i in 0..2
+    match ?v[idx(?Text("a"), i)]
+      x => if i == 0
+        r = x
+  show(r)
+  g = ?z
+  for i in 0..2
+    match ?v[idx(?Text("a"), i)]
+      x if i == 0 => g = x
+      _ => print("skip")
+  show(g)
+  w: Vec[E] = Vec()
+  !w.push(E.a(xs: [7, 7, 7, 7]))
+  !w.push(E.a(xs: [8, 8, 8, 8]))
+  s = at2(?w, 1)
+  print(clobber(2))
+  show(s)
+
+# expect:
+# 7 7
+# skip
+# 7 7
+# 3
+# 8 8

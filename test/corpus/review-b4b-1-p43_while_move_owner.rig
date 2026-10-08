@@ -1,0 +1,13 @@
+# while-as over an element via temp index; body moves the owner after using t. Expect reject (moved in loop).
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub eat(v: Vec[Text?])
+  print(v.len)
+
+sub main()
+  a: Vec[Text?] = Vec()
+  !a.push(Text("a"))
+  while a[idx(?Text("a"))] as t
+    print(t)
+    eat(<a)

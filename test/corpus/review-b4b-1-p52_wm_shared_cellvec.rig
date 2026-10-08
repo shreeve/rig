@@ -1,0 +1,18 @@
+# write/read match on an element of a *Cell[Vec[E]] through a temp index; arm pushes via the cell. Expect reject.
+enum E
+  a(t: Text)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  c: *Cell[Vec[E]] = *Cell(Vec())
+  c.push(E.a(t: Text("x")))
+  d = +c
+  match c[idx(?Text("a"))]
+    .a(t)
+      for _ in 0..64
+        d.push(E.b)
+      print(t)
+    .b => pass

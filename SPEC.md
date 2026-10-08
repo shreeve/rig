@@ -2551,9 +2551,11 @@ from an inner loop) is an expression. Its value is the value of the
 of its `else` block, which it therefore needs (only `while true` can do
 without). Every `break` leaving it carries a value, and they and the
 `else` value meet in one type. A `break` value is consumed like a
-returned value: an owning binding is moved out with `<x`, and a view
-may not outlive what it views. The value must be used; a `break`
-cannot carry a value out of a loop whose value is not.
+returned value: a name the loop declares moves out bare (`break x`),
+since its scope ends with the move, an owning name from outside the
+loop is moved with `<x`, and a view may not outlive what it views. The
+value must be used; a `break` cannot carry a value out of a loop whose
+value is not.
 
 ### match
 
@@ -2650,12 +2652,12 @@ be used otherwise. `match <e` needs a value `e` owns, not a view. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
 or `match !b` ([§10](#box)), and so is the value a handle holds,
 `match h`, which reads it. A read binding that is not plain data is a
-view (`?F`) of the field where it is, and it is usable within its arm
-only: it may be read, lent to a call, and have its `Cell` changed there,
-but a view of it is not returned, stored past the arm, or given as the
-match's value ("a view of `r` does not outlive the `match` that reads
-`e`"); copy what it holds (`+r`, or a plain field), or take the subject
-with `match <e`. A match on a part of a value made there (`match mk().e`)
+view (`?F`) of the field where it is, so it carries the subject's loan:
+a view of it may be returned, stored past the arm, or given as the
+match's value, for as long as the subject may be viewed. The subject may
+not change, move, or end while such a view is used; to keep what a
+binding holds past that, copy it (`+r`, or a plain field), or take the
+subject with `match <e`. A match on a part of a value made there (`match mk().e`)
 holds that value until the match ends when the part is not plain data,
 so its payloads are read where they are; a part of plain data is read
 in the header, whose temporaries end with it.
@@ -2720,7 +2722,7 @@ sub main()
 cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fields
 ```
 
-```rig reject
+```rig
 struct Res
   n: Int
   t: Text
@@ -2744,8 +2746,32 @@ sub main()
   print(name(?e), inner(?e).n)
 ```
 
+```output
+hi 1
+```
+
+```rig reject
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("hi")))
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match e
+    .a(r) => saved = ?r
+    .b => pass
+  e = E.b
+  print(saved.n)
+```
+
 ```error
-a view of `r` does not outlive the `match` that reads `e`: use it in the arm, or keep an owner of what it holds: copy it with `+r`
+cannot reassign `e` while it is lent
 ```
 
 ### pass
@@ -2926,10 +2952,11 @@ sub main()
 > **Core 2:** `<x` moves, `+x` makes a new owner, `-x` drops now.
 
 A value moves when it is passed to a parameter of owning type, bound to
-another name, stored in a field, or returned. The move is written
-`<x`; only a bare name returned directly (`return x`, or `x` as the
-last expression) moves without it. After a move the name cannot be
-used until it is reassigned.
+another name, stored in a field, or returned. Write `<x` when `x`
+stays in scope after the move; where `x`'s scope ends with the move,
+the move is plain: `return x`, `x` as the last value of the function
+or block that declares it, and `break x` of a name the loop declares.
+After a move the name cannot be used until it is reassigned.
 
 ```rig
 struct Packet
@@ -3778,13 +3805,13 @@ a view of the temporary `Text(" a ")` outlives its statement
 ```
 
 A header that makes a temporary is evaluated before that temporary
-ends, so what it binds would be a copy of its subject, which a write or
-a Cell change through the binding would miss: it is rejected, whatever
-it binds, unless it takes a value made there (`match parse(?Text(s))`,
-`if find(?Text(s)) as i`) or binds plain data of one. Bind the index or
-the argument to a name first: `i = idx(?t)`, then `if !arr[i] as n`.
+ends. When its subject is a place reached from outside the header's
+temporaries (from a name, or from a view whose evaluation makes none),
+through an index or an argument that makes one, the header binds the
+place's own, as it would with no temporary: a write or a Cell change
+through what it binds reaches the place.
 
-```rig reject
+```rig
 fun idx(s: ?Text) -> Int
   s.len - 1
 
@@ -3795,24 +3822,32 @@ sub main()
   print(arr)
 ```
 
-```error
-this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
-```
-
-```rig
-fun idx(s: ?Text) -> Int
-  s.len - 1
-
-sub main()
-  arr: [1]Int? = [1]
-  i = idx(?Text("a"))
-  if !arr[i] as n
-    n = 50
-  print(arr)
-```
-
 ```output
 [50]
+```
+
+Any other subject that makes a temporary, a value made in the header or
+a part of one, has no place that outlives the header, so what the header
+binds would be a copy of it, which a write or a Cell change through the
+binding would miss: it is rejected, whatever it binds, unless it takes
+the value made there (`match parse(?Text(s))`, `if find(?Text(s)) as
+i`) or binds plain data of it. Bind the value, the index, or the
+argument to a name first.
+
+```rig reject
+struct P
+  o: Int?
+
+fun mk(s: ?Text) -> P
+  P(o: s.len)
+
+sub main()
+  if mk(?Text("a")).o as n
+    print(n)
+```
+
+```error
+this header binds a copy of its subject, since a temporary it makes ends with the header
 ```
 
 A `?self` or `!self` receiver is lent as `?e` or `!e` would be when the

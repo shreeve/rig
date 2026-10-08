@@ -1,0 +1,16 @@
+# write match on Vec element; arm writes payload then pushes (no later use). Expect accept, runs clean.
+enum E
+  a(n: Int)
+  b(n: Int)
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(n: 1))
+  i = 0
+  match !v[i]
+    .a(n)
+      n = 99
+      for _ in 0..64
+        !v.push(E.b(n: 5))
+    .b(n) => n += 1
+  print(v[0], v.len)

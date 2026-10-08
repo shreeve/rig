@@ -1,0 +1,13 @@
+# subject is an element of a slice whose bounds make a temp. Expect clean, correct.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  if !(!v[idx(?Text("ab"))..])[0] as t
+    !t.add("x")
+  if (?v[idx(?Text("a"))..2])[1] as t
+    print(t)
+  print(v)

@@ -1,26 +1,18 @@
-# Under the planned rule (Core s1) a bare owning place an `if … as` or
-# `while … as` binds is lent to read while the binding lives: the place
-# may not be assigned, moved, or dropped then, and the view may not
-# outlive the place. The binding is a view (`x: ?T`): `<x` moves the
-# view, which still carries the loan on the place, and nothing can be
-# taken out of the payload through it (`<x.next`).
+# Core s1: a bare owning place an `if … as` or `while … as` binds is
+# lent to read while the binding lives: the place may not be assigned,
+# moved, or dropped then, and the view may not outlive the place. The
+# binding is a view (`x: ?T`): `<x` moves the view, which still carries
+# the loan on the place, and nothing can be taken out of the payload
+# through it (`<x.next`).
 #
-# The plain lines hold before and after the rule is on by default: a
-# rejection there is C2 (a bare owner would be copied) before, and the
-# planned line's rule after.
-#
-# oracle: assign_place reject
-# oracle: escape reject
+# oracle: assign_place reject C4
+# oracle: move_place reject C4
+# oracle: drop_place reject C4
+# oracle: move_view_then_assign reject
+# oracle: take_payload reject C7
+# oracle: while_assign reject C4
+# oracle: escape reject C5
 # oracle: match_assign reject C4
-# oracle: take_payload reject
-# oracle planned: assign_place reject C4
-# oracle planned: move_place reject C4
-# oracle planned: drop_place reject C4
-# oracle planned: move_view_then_assign reject
-# oracle planned: take_payload reject C7
-# oracle planned: while_assign reject C4
-# oracle planned: escape reject C5
-# oracle planned: match_assign reject C4
 
 struct N
   v: Int

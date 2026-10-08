@@ -1,11 +1,12 @@
-# The unsound neighbours of r3-or-arm-sound: a view of a read match's
-# binding that is no plain data given as the match's value, returned
-# from a guarded arm, or from a generic body (INTERNALS "Header
-# subjects").
+# The neighbours of r3-or-arm-sound, once unsound while emit matched a
+# copy of the subject: a view of a read match's binding that is no plain
+# data given as the match's value, returned from a guarded arm, or from
+# a generic body. Emit matches each subject where it is, so the view
+# carries the subject's loan (INTERNALS "Header subjects").
 #
-# oracle: yielded reject C5
-# oracle: guarded_return reject C5
-# oracle: Opt.peek reject C6
+# oracle: yielded accept
+# oracle: guarded_return accept
+# oracle: Opt.peek accept
 
 struct Res
   n: Int
@@ -39,4 +40,9 @@ fun guarded_return(e: ?E, k: ?Res) -> ?Res
 
 sub main()
   k = Res(n: 0, t: Text("k"))
-  yielded(?E.b, ?k)
+  e = E.a(r: Res(n: 1, t: Text("e")))
+  yielded(?e, ?k)
+  print(guarded_return(?e, ?k).t)
+  o = Opt.some(v: Text("o"))
+  d = Text("d")
+  print(o.peek(?d))

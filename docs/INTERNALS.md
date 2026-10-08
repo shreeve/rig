@@ -895,20 +895,29 @@ by pointer where the match reads its subject in place,
 `storage.payloadByAddress`, and copies it out otherwise.)
 
 A read match's binding that is no plain data, a payload or the binding
-of a catch-all arm, is usable within its arm only (`SymbolFlags.arm_view`):
-it may be read, lent to a call, and have its `Cell` changed there, but a
-view of it may not be returned, stored in anything that outlives the
-arm, or yielded as the match's value. The ownership checker gives each
-such binding a loan on a hidden var of the arm (`Var.arm_of`), which
-ends with the arm. The rule is conservative: emit matches a subject that
-reaches a place where it is (`storage.matchesInPlace`), a guarded match
-through `__rig_subject` holding its address, a header with temporaries
-through the address its block yields, and a generic body through
-`rig.viewedPtr`, and binds a payload of a type parameter by pointer
-there; it copies only a value made in the header, which no name holds.
-The rule is lifted next, for the subjects matched in place (HANDOFF,
-weak spots). A subject that is a view a call returns is held as the
-pointer it is (`evalSubject`), never copied.
+of a catch-all arm, views the subject where the match reads it, and
+carries the subject's loan as any view does: a view of it may be
+returned, stored, or yielded as the match's value while that loan
+allows. Emit matches such a subject in place (`storage.matchesInPlace`):
+a subject that reaches a place, a guarded match through `__rig_subject`
+holding its address, a header with temporaries through the address its
+block yields, a part of a value the match holds, a view a call returns
+or a value that branches over views through the pointer it is
+(`evalSubject`), and a generic body through `rig.viewedPtr`. (A value
+that branches over bare places is matched as a copy, so typecheck
+rejects one whose type moves or may, a type parameter's included, as
+it rejects a binding of one.) Emit captures a payload, or a catch-all's
+value, of a type parameter by pointer there, guarded or not
+(`storage.payloadByAddress`, `storage.catchAllByAddress`), and such a
+binding copies nothing, so it puts no requirement on the instance. One rule
+covers the rest: where a read match matches a copy (not
+`matchesInPlace`), or captures a catch-all's value as a copy, a binding
+that is no plain data is usable within its arm only
+(`SymbolFlags.arm_view`, set by typecheck from those facts, which emit
+reads): the ownership checker gives it
+a loan on a hidden var of the arm (`Var.arm_of`), which ends with the
+arm. Every such subject that makes a header temporary is also rejected
+where it copies (`rejectHeaderCopy`).
 
 A held header is rejected, conservatively, where its value could not
 be held for the construct: when the made value makes a statement
@@ -936,15 +945,15 @@ drops. Typecheck records the copy once per
 header (`copiesHeader`, the storage fact `header_copy`), unless the
 construct takes its subject (`<p`, a `match` that takes it), walks a
 slice, or matches a view a call returns, which is held as the pointer it
-is. Emit reads the fact and fails if its own shape disagrees. Every
-header with a temporary is still rejected at the temporary, whatever it
-binds and of whatever type (`rejectHeaderCopy`), with "bind the index
-(the argument, `e`) to a name first", except a value made there, which
-no name holds, of which the construct binds plain data: what it binds is
-a copy either way. The rejection of a header that points is lifted next
-(HANDOFF, weak spots); it stays for one that copies, where a write, a
-Cell change, or a view, a plain-data catch-all's included, would reach
-the copy.
+is. Emit reads the fact and fails if its own shape disagrees. A header
+that copies is rejected at the temporary, whatever it binds and of
+whatever type (`rejectHeaderCopy`), with "bind the index (the argument,
+`e`) to a name first", since a write, a Cell change, or a view, a
+plain-data catch-all's included, would reach the copy, except a value
+made there, which no name holds, of which the construct binds plain
+data: what it binds is a copy either way. A header that points binds
+what it would with no temporary, and the ownership checker walks it so:
+the header's temporaries end with it, and the bindings view the place.
 A `match` on a view a call returns is matched where the view points,
 after its header: its tag and payloads are read there. So the ownership
 checker reports such a subject whose value carries a loan on a
@@ -1130,8 +1139,7 @@ statement's temporaries are `dropsTemp`'s. Of the copies, a header
 that binds one is rejected where typecheck records it
 (`rejectHeaderCopy`), unless it binds plain data of a value made there;
 a read match's
-payload view, which may view a `subject` copy of a value made in the
-header, lives for its arm (`arm_view`); a `payload` copy only copies
+payload view of a copy lives for its arm (`arm_view`); a `payload` copy only copies
 fields out, and an `error_value` is plain data.
 
 ### Generics
@@ -1504,7 +1512,14 @@ through the parts `sema.eachTailPart` lists: a block's last statement,
 branches, arms, a `catch` handler, `??`, a loop's `else`) is the name
 emit takes; when the value is consumed, the checker moves it there, as
 `<x` would, before the scopes the value leaves run their defers (a name
-the value declares itself, or one the function returns). A `defer` body
+the value declares itself, or one the function returns). Which bindings
+a use may move is one fact, `SemContext.consumed` (`storage.plan`): the
+name of `<x` and `-x`, a `for x in <v` source, a `|<x|` capture, and a
+tail name of `return`, `break`, a function's or closure's last value,
+and every value that yields through its parts. Emit arms the drop of
+each such binding behind an alive flag (`resourceGuard`), and the
+checker moves no binding the fact leaves out, which it reports as an
+internal error. A `defer` body
 is re-checked against the state at every exit of its scope, where what
 it reads may not view a var declared after the `defer` (dropped
 before it runs).

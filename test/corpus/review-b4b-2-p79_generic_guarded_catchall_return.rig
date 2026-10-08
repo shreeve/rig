@@ -1,0 +1,34 @@
+# Generic: guarded match with a catch-all whose view is returned. The guarded emit binds `const x = o.*` (a copy in the callee's frame) and returns &x. Expect accept printing the caller's value, or reject.
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct Pt
+  x: Int
+  y: Int
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun big(n: Int) -> Int
+  a = [64 of n]
+  b = [64 of n + 1]
+  a[3] + b[5]
+
+fun pick[T](o: ?Opt[T], d: ?Opt[T]) -> ?Opt[T] from o, d
+  match o
+    .nothing if clobber(2) > 100 => d
+    x => ?x
+
+sub main()
+  o = Opt.some(v: Pt(x: 3, y: 4))
+  d = Opt[Pt].nothing
+  p = pick(?o, ?d)
+  print(big(7))
+  print(p)
+  t = Opt.some(v: Text("two two two two two two two two"))
+  dt = Opt[Text].nothing
+  q = pick(?t, ?dt)
+  print(big(9))
+  print(q)

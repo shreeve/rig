@@ -412,8 +412,9 @@ pub const SymbolFlags = packed struct(u16) {
     /// copied (`Contents.unique`).
     unique: bool = false,
     /// A read match's binding of a payload, or the whole value, that is
-    /// not plain data: usable within its arm only (docs/INTERNALS.md,
-    /// "Header subjects").
+    /// not plain data, of a subject the match reads as a copy (not
+    /// `storage.matchesInPlace`): usable within its arm only
+    /// (docs/INTERNALS.md, "Header subjects").
     arm_view: bool = false,
     /// A `!T` or `![]T` local assigned a view somewhere
     /// (`SemContext.repoints`): it lowers to a Zig `var` pointer.
@@ -1407,6 +1408,10 @@ pub const SemContext = struct {
     /// resolved (`resolve.foldModuleConsts`), so a type anywhere in the
     /// module can name them.
     const_ints: std.AutoHashMapUnmanaged(SymbolId, ConstVal) = .empty,
+    /// The bindings a use may move, drop, or give away (`consumes`,
+    /// recorded by `storage.plan`): emit arms such a binding's drop
+    /// behind an alive flag, and the ownership checker moves no other.
+    consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// The array types spelled or built in generic declarations, which
     /// each instance checks against `max_value_bytes`; `module_id` is
     /// the module whose source `pos` is in (0 for this one).
@@ -1498,6 +1503,7 @@ pub const SemContext = struct {
         self.fn_instance_set.deinit(self.allocator);
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
+        self.consumed.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
@@ -1863,6 +1869,11 @@ pub const SemContext = struct {
     /// value, not the subject itself.
     pub fn recordHeaderCopy(self: *SemContext, node: Sexp) !void {
         try self.facts.header_copies.put(self.allocator, recordKey(node), {});
+    }
+
+    /// Whether a use may move binding `sym` out (`consumed`).
+    pub fn consumes(self: *const SemContext, sym: SymbolId) bool {
+        return self.consumed.contains(sym);
     }
 
     pub fn copiesHeader(self: *const SemContext, node: Sexp) bool {

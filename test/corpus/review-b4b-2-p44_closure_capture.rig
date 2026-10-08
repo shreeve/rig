@@ -1,0 +1,24 @@
+# A closure captures a payload view; the subject is then reassigned and the closure called. Expect reject.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("one")))
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match e
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  f = |?saved| print(saved.t)
+  e = E.b(r: Res(n: 9, t: Text("over")))
+  print(clobber(1))
+  f()

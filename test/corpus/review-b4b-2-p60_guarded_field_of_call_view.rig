@@ -1,0 +1,29 @@
+# Guarded match on a field of a view a call returns (no header temporaries): the payload view escapes the arm. Expect accept and the view is h's own (prints one), or reject.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+struct H
+  e: E
+
+fun get(h: ?H) -> ?H from h
+  h
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  h = H(e: E.a(r: Res(n: 1, t: Text("one"))))
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match get(?h).e
+    .a(r) if r.n > 5 => saved = ?r
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  print(clobber(1))
+  print(saved.t)

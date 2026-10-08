@@ -1,0 +1,63 @@
+# A generic `match` that reads its subject in place binds a payload or
+# its whole subject by address (`storage.payloadByAddress`,
+# `catchAllByAddress`), so an instance whose `T` holds a Cell is
+# allowed: a change through the binding reaches the matched value. The
+# subject may be a place or a field of a view a call returns.
+# release
+
+struct C
+  c: Cell[Int]
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct W[T]
+  o: Opt[T]
+
+fun getw[T](w: ?W[T]) -> ?W[T] from w
+  w
+
+fun hit(o: ?Opt[C]) -> Int
+  match o
+    .some(v)
+      v.c.set(v.c.get() + 1)
+      v.c.get()
+    .nothing => 0
+
+fun bump(v: ?C) -> Int
+  v.c.set(v.c.get() + 10)
+  v.c.get()
+
+sub field[T](w: ?W[T], f: ?fun(?Opt[T]) -> Int)
+  match w.o
+    x => print(f(?x))
+
+sub field_of_call[T](w: ?W[T], f: ?fun(?Opt[T]) -> Int)
+  match getw(w).o
+    x => print(f(?x))
+
+sub guarded[T](w: ?W[T], c: Bool, f: ?fun(?Opt[T]) -> Int)
+  match w.o
+    x if c => print(f(?x))
+    _ => pass
+
+sub apply[T](o: ?Opt[T], f: ?fun(?T) -> Int)
+  match o
+    .some(v) => print(f(?v))
+    .nothing => pass
+
+sub main()
+  w: W[C] = W(o: .some(v: C(c: Cell(0))))
+  field(?w, hit)
+  field_of_call(?w, hit)
+  guarded(?w, true, hit)
+  apply(?w.o, bump)
+  print(hit(?w.o))
+
+# expect:
+# 1
+# 2
+# 3
+# 13
+# 14

@@ -1,0 +1,20 @@
+# `if … as` over an optional element of a view of a plain rvalue; index makes an owning temp.
+struct P
+  xs: [2]Int?
+
+fun look(p: ?P) -> ?P from p
+  p
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  k = 41
+  if look(?P(xs: [k, 2])).xs[idx(?Text("a"))] as n
+    print(clobber(n), n)
+  for x in look(?P(xs: [k, 2])).xs[idx(?Text("a"))..]
+    print(clobber(1), x)

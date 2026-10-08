@@ -1,0 +1,27 @@
+# write match on an element of a Vec in a Box, an array in a Box, a Vec reached through `if !o as v`, and a `!H` param's field. Expect clean, correct.
+enum E
+  a(n: Int, t: Text)
+  b
+
+struct H
+  f: Vec[E]
+
+sub viaparam(h: !H, i: Int)
+  match !h.f[i]
+    .a(n, t)
+      n += 1
+      !t.add("p")
+    .b => pass
+
+sub main()
+  i = 0
+  o: Vec[E]? = Vec()
+  if !o as v
+    !v.push(E.a(n: 9, t: Text("o")))
+    match !v[i]
+      .a(n, _) => n += 1
+      .b => pass
+  h = H(f: Vec())
+  !h.f.push(E.a(n: 3, t: Text("h")))
+  viaparam(!h, i)
+  print(o, h.f[0])

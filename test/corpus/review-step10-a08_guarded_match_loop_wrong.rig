@@ -1,7 +1,7 @@
-# a05 in a loop, observable without the sanitizer: the guarded match
-# copies `v[idx(..., i)]` into `__rig_subject_N` each iteration; the
-# plain-data catch-all view `r` taken in iteration 0 reads iteration 1's
-# copy (8 8). Expected: 7 7.
+# a05 in a loop, guarded: the catch-all view `r` taken in pass 0 must
+# read pass 0's element after the loop, 7 7, not a later pass's copy in
+# `__rig_subject_N`. The guarded match holds the element's address, so
+# it does (test/behavior/ownership/header_points_view_escapes.rig).
 enum E
   a(xs: [4]Int)
   b

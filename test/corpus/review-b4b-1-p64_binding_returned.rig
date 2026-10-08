@@ -1,0 +1,18 @@
+# a header binding that points is returned from the function. Expect accept, clean.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun get(v: ?Vec[Text?]) -> (?Text)? from v
+  if v[idx(?Text("a"))] as t
+    return t
+  none
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  r = get(?v)
+  print(clobber(1), r)

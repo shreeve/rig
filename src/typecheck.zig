@@ -139,6 +139,11 @@ const Checker = struct {
     /// its subject is a part (`Header.held`): it is no temporary of the
     /// header.
     held_base: Sexp = .nil,
+    /// The arms of a read `match` whose subject emit matches as a copy
+    /// (not `storage.matchesInPlace`) are being bound: a binding that is
+    /// no plain data views that copy, so it is usable within its arm only
+    /// (`SymbolFlags.arm_view`).
+    arm_local: bool = false,
     /// A condition is being checked where nothing it makes can be held
     /// for the construct: a `while`'s, which runs again each iteration,
     /// a joined one, whose later parts may use earlier bindings, and a
@@ -2149,7 +2154,7 @@ const Checker = struct {
         // where it is, and one made here is taken: a branching value
         // that may be either is bound to a name first.
         const branching = subject_hands.kind == .branches or (subject_hands.kind == .part_of_made and self.held_base == .nil);
-        if (mode == .read and branching and !self.isPoison(scrutinee) and sema.moves(self.ctx, scrutinee) == .yes) {
+        if (mode == .read and branching and !self.isPoison(scrutinee) and sema.moves(self.ctx, scrutinee) != .no) {
             try self.errAt(subject, "a `match` reads a place or takes a call's result; bind this `{s}` to a name first", .{try self.tyName(scrutinee)});
             scrutinee = self.t().invalid_id;
         }
@@ -2207,6 +2212,9 @@ const Checker = struct {
         const viewed: ?CopySource = if (mode != .read) null else if (subject.isKind(.read) and self.hands(ir.Read.operand(subject)).hasStorage())
             .{ .place = ir.Read.operand(subject), .kind = .match_read }
         else if (subject_hands.hasStorage()) .{ .place = subject, .kind = .match_copy } else null;
+        const saved_arm_local = self.arm_local;
+        defer self.arm_local = saved_arm_local;
+        self.arm_local = mode == .read and !self.isPoison(scrutinee) and !storage.matchesInPlace(self.ctx, node);
         var cov: MatchCoverage = .{};
         var arm_values: std.ArrayList(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
@@ -2384,21 +2392,22 @@ const Checker = struct {
         return false;
     }
 
-    /// Whether header `node` (a `match`, a `for`, or an `as`) over
-    /// `subject` makes a statement temporary (`sema.firstStmtTemp`), so
-    /// emit evaluates it in a block that ends the temporary. The block
-    /// yields the address of a place the subject reaches
-    /// (`storage.headerPoints`), and the construct binds the place's
-    /// own; it yields the value of any other subject, and what the
+    /// Header `node` (a `match`, a `for`, or an `as`) over `subject` that
+    /// makes a statement temporary (`sema.firstStmtTemp`) is evaluated by
+    /// emit in a block that ends the temporary. The block yields the
+    /// address of a place the subject reaches (`storage.headerPoints`),
+    /// and the construct binds the place's own, as it would with no
+    /// temporary. It yields the value of any other subject, and what the
     /// construct binds is in that copy, which is recorded (the storage
-    /// fact `header_copy`) for emit. Such a header is rejected at the
-    /// temporary, whatever it binds: a write, a Cell change, or a view, a
-    /// catch-all's of plain data included, would reach a copy. A value
-    /// made here, which no name holds, is the construct's own: it binds
-    /// plain data of it by copy, which is what the copy holds.
+    /// fact `header_copy`) for emit. A header that copies is rejected at
+    /// the temporary, whatever it binds: a write, a Cell change, or a
+    /// view, a catch-all's of plain data included, would reach the copy.
+    /// A value made here, which no name holds, is the construct's own: it
+    /// binds plain data of it by copy, which is what the copy holds.
     fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, bound: TypeId) Error!void {
         const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
-        if (!storage.headerPoints(self.ctx, storage.headerSubject(node))) try self.ctx.recordHeaderCopy(node);
+        if (storage.headerPoints(self.ctx, storage.headerSubject(node))) return;
+        try self.ctx.recordHeaderCopy(node);
         if (self.isPoison(bound)) return;
         if (self.hands(subject).kind == .made and sema.isPlainData(self.ctx, sema.unwrapViews(self.ctx, bound))) return;
         if (inIndex(subject, temp)) {
@@ -2568,9 +2577,11 @@ const Checker = struct {
                 cov.has_default = true;
                 if (resolve.patternBinds(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
-                        // A binding that is no plain data is usable in its
+                        // A binding that is no plain data of a copy of the
+                        // subject, or captured as a copy, is usable in its
                         // arm only.
-                        if (mode == .read and !self.isPoison(scrutinee) and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                        const copied = self.arm_local or !storage.catchAllByAddress(self.ctx, scrutinee, true);
+                        if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
                         if (mode == .read) try self.readBinding(scrutinee, pattern);
                         self.ctx.symbols.items[sym].ty = scrutinee;
                         try self.ctx.recordType(pattern, scrutinee);
@@ -2716,20 +2727,25 @@ const Checker = struct {
             try self.ctx.recordType(b, ty);
             if (self.ctx.symbolOf(b)) |sym| {
                 self.ctx.symbols.items[sym].ty = ty;
-                // A binding that is no plain data is usable in its arm only.
-                if (mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                // A binding that is no plain data of a copy of the
+                // subject is usable in its arm only.
+                if (self.arm_local and mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
             }
         }
     }
 
     /// A read match binds `b`, a payload or the whole matched value, of
     /// type `ty` where the matched value is. One that is no view or
-    /// slice and holds a type parameter by value is bound by copy: no
-    /// instance may hold a Cell the copy would fork. (Where the copy is
+    /// slice and holds a type parameter by value is bound by copy where
+    /// the match reads a copy: no instance may hold a Cell the copy would
+    /// fork. (Where the copy is
     /// consumed, the ownership checker requires an instance that owns
     /// nothing: `Var.payload_view`.)
     fn readBinding(self: *Checker, ty: TypeId, b: Sexp) Error!void {
         if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty) or self.ctx.types.get(ty) == .slice) return;
+        // Captured by address where the match reads in place, it copies
+        // nothing (`storage.catchAllByAddress`, `payloadByAddress`).
+        if (!self.arm_local and storage.catchAllByAddress(self.ctx, ty, true)) return;
         if (sema.maybeDropGlue(self.ctx, ty)) try self.requireOf(ty, .no_cell, self.startOf(b), "copies into a match binding a value");
     }
 

@@ -1,0 +1,30 @@
+# As p10, then the holder is reassigned while the view lives. Expect reject.
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+struct Hold
+  e: E?
+
+fun go() -> Int?
+  h = Hold(e: E.a(r: Res(n: 1, t: Text("one"))))
+  k = Res(n: 0, t: Text("k"))
+  saved = ?k
+  match h.e?
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  h = Hold(e: none)
+  print(clobber(1))
+  print(saved.t)
+  return 1
+
+sub main()
+  print(go() ?? 0)

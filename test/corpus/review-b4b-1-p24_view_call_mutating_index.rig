@@ -1,0 +1,23 @@
+# view-returning call base, index mutates the owner. Expect reject.
+enum E
+  a(t: Text)
+  b
+
+struct H
+  es: Vec[E]
+
+fun get(h: !H) -> !H from h
+  h
+
+fun grow(h: !H, s: ?Text) -> Int
+  for _ in 0..64
+    !h.es.push(E.b)
+  s.len - 1
+
+sub main()
+  h = H(es: Vec())
+  !h.es.push(E.a(t: Text("x")))
+  match !get(!h).es[grow(!h, ?Text("a"))]
+    .a(t) => !t.add("y")
+    .b => pass
+  print(h.es[0])

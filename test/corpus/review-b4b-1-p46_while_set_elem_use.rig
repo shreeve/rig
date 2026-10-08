@@ -1,0 +1,11 @@
+# while !… as: body sets the element to none, then uses t. Expect reject.
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main()
+  a: Vec[Text?] = Vec()
+  !a.push(Text("a"))
+  while !a[idx(?Text("a"))] as t
+    a[0] = none
+    !t.add("x")
+  print(a)

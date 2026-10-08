@@ -1,0 +1,29 @@
+# base is a `?self` method's view of a plain-data made receiver; index makes an owning temp.
+enum F
+  a(n: Int)
+  b(n: Int)
+
+struct P
+  xs: [2]F
+
+  fun items(?self) -> ?[2]F from self
+    ?self.xs
+
+fun mk(k: Int) -> P
+  P(xs: [F.a(n: k), F.b(n: 2)])
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main()
+  k = 41
+  match mk(k).items()[idx(?Text("a"))]
+    .a(n) => print(clobber(n), n)
+    .b(n) => print(n)
+  match P(xs: [F.a(n: k), F.b(n: 2)]).items()[idx(?Text("a"))]
+    .a(n) => print(clobber(n), n)
+    .b(n) => print(n)

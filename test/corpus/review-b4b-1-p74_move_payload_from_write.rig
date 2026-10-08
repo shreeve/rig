@@ -1,0 +1,18 @@
+# write match through a temp index; the arm moves the payload out. Expect reject or correct (no double free).
+enum E
+  a(t: Text)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub eat(t: Text)
+  print(t)
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("q")))
+  match !v[idx(?Text("a"))]
+    .a(t) => eat(<t)
+    .b => pass
+  print(v)

@@ -674,6 +674,16 @@ pub fn payloadByAddress(ctx: *const SemContext, binding: ?TypeId, f: sema.Field,
     return (writes or viewed or generic) and fieldIsPointee(ctx, f.ty);
 }
 
+/// Whether a read match's catch-all binding of type `ty` is captured by
+/// address where the match switches: a view held as a pointer, and a
+/// value of a type parameter (`sema.copies` is `depends`) that the match
+/// reads where its subject is (`in_place`, `matchesInPlace`), as
+/// `payloadByAddress` binds a payload. Any other is a copy in the arm.
+pub fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
+    if (isPtrViewTy(ctx, ty)) return true;
+    return in_place and !sema.isReadOrWriteView(ctx, ty) and sema.copies(ctx, ty) == .depends;
+}
+
 /// Whether a read `match` switches on its subject where it is, never on
 /// a copy: the subject reaches a place (`reachesPlace`), through its
 /// header's temporaries or not, is a part of the made value the match
@@ -682,7 +692,13 @@ pub fn payloadByAddress(ctx: *const SemContext, binding: ?TypeId, f: sema.Field,
 pub fn matchesInPlace(ctx: *const SemContext, match: Sexp) bool {
     if (matchMode(ctx, match) != .read) return false;
     const subject = lentPlace(ir.Match.subject(match));
-    return ctx.headerOf(match) == .held or reachesPlace(ctx, subject) or (!hasStorage(ctx, subject) and isPtrViewExpr(ctx, subject));
+    if (ctx.headerOf(match) == .held) return true;
+    // A value that branches is matched where it points when it is a view
+    // held as a pointer, or through the address its header yields; one
+    // over bare places is a copy (`subjectHold`), so typecheck rejects
+    // one that moves or may (`sema.moves` is not `no`).
+    if (sema.handsOver(ctx, subject).kind == .branches) return headerPoints(ctx, subject) or isPtrViewExpr(ctx, subject);
+    return reachesPlace(ctx, subject) or (!hasStorage(ctx, subject) and isPtrViewExpr(ctx, subject));
 }
 
 /// Whether the value of an assignment, or an index of its target, can
@@ -777,6 +793,61 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.*) p.used.set(e.value_ptr.*);
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < p.used.bit_length) p.used.set(s.origin);
     try p.walk(tree);
+    try planConsumed(ctx, tree);
+}
+
+/// Record the bindings a use may move out (`SemContext.consumed`): the
+/// name `<x` or `-x` takes, a `for x in <v` source, a `|<x|` capture,
+/// and a bare name at a tail of a value that leaves its scope
+/// (`sema.eachTailPart`): `return x`, `break x`, a function's or a
+/// closure's last value, and a value `if`, `match`, `??`, `catch`, loop,
+/// or block. Whether such a use moves is the ownership checker's
+/// decision; it moves no binding this fact leaves out.
+fn planConsumed(ctx: *SemContext, e: Sexp) !void {
+    if (e != .list) return;
+    const head = e.kind() orelse {
+        for (e.items()) |c| try planConsumed(ctx, c);
+        return;
+    };
+    switch (head) {
+        .move => try consumeName(ctx, ir.Move.operand(e)),
+        .drop => try consumeName(ctx, ir.Drop.name(e)),
+        .@"return" => try consumeTail(ctx, ir.Return.value(e)),
+        .@"break" => try consumeTail(ctx, ir.Break.value(e)),
+        .@"for" => {
+            if (ir.For.mode(e).tag == .move) try consumeName(ctx, ir.For.source(e));
+            try consumeTail(ctx, e);
+        },
+        .@"if" => if (ir.If.@"else"(e) != .nil) try consumeTail(ctx, e),
+        .@"??", .@"catch", .match, .@"while", .raw_block => try consumeTail(ctx, e),
+        .cap_move => if (ctx.symbolOf(ir.get(e, .name))) |cap| try ctx.consumed.put(ctx.allocator, ctx.symbols.items[cap].origin, {}),
+        .fun => if (ir.Fun.returns(e) != .nil) try consumeTail(ctx, ir.Fun.body(e)),
+        .lambda => if (lambdaYields(ctx, e)) try consumeTail(ctx, ir.Lambda.body(e)),
+        else => {},
+    }
+    for (rig.children(e)) |c| try planConsumed(ctx, c);
+}
+
+fn consumeName(ctx: *SemContext, node: Sexp) !void {
+    if (node != .src) return;
+    const sym = ctx.symbolOf(node) orelse return;
+    try ctx.consumed.put(ctx.allocator, sym, {});
+}
+
+fn consumeTail(ctx: *SemContext, value: Sexp) std.mem.Allocator.Error!void {
+    if (value == .src) return consumeName(ctx, value);
+    try sema.eachTailPart(value, ctx, consumeTail);
+}
+
+/// Whether closure literal `lambda` yields a value: a `fun` whose body
+/// has a result.
+pub fn lambdaYields(ctx: *const SemContext, lambda: Sexp) bool {
+    const f = fnType(ctx, typeOf(ctx, lambda)) orelse return false;
+    if (f.is_sub) return false;
+    return switch (ctx.types.get(f.returns)) {
+        .void, .unknown, .invalid, .noreturn => false,
+        else => true,
+    };
 }
 
 const Planner = struct {
