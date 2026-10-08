@@ -121,14 +121,13 @@ that copies (§1: plain data, or a read view), whether a name, a field,
 or an element holds it, reads the value it sees, so `x = h.w` with
 `w: !Int` copies the Int, and with `w: !Point` the Point. It never clones, writes, or drops, and it moves only where the
 value leaves for good: `return x`, `break x`, or `x` as the last value
-of the function or block that declares `x`. *(built* for copies, `return x`, a function's last value, a
-block's last value when the block declares the name, and reading in
-place: an argument where a view is expected (`size(v)` for a
-`?Vec[Int]` parameter), and a header's subject (a `for` over a `Vec`,
-`if o as x`, a `match` on a `Box`, whose payload views are usable within
-their arm only, for now); *planned:* `break x` of a name the loop
-declares, which takes `<x` today. A name declared outside the block
-always takes `<x`.*)*
+of the function or block that declares `x`. *(built:* copies, `return x`, a function's last value, a
+block's last value when the block declares the name, `break x` of a
+name the loop declares, and reading in place: an argument where a view
+is expected (`size(v)` for a `?Vec[Int]` parameter), and a header's
+subject (a `for` over a `Vec`, `if o as x`, a `match` on a `Box`). Write
+`<x` when `x` stays in scope after the move: a name declared outside
+the block or loop always takes `<x`.*)*
 
 ```rig
 fun make() -> Vec[Int]
