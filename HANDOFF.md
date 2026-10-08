@@ -7,12 +7,11 @@ from).
 
 ## Current state
 
-- **Release:** `v0.2.8` is the latest release (Zig 0.17.0, Nexus
-  2.0.0), with CI green on Linux and macOS. It keeps a `match` arm's
-  temporaries in the arm and counts an assignment target's uses after
-  its value, closing use-after-free holes in earlier versions; its
-  release notes list the assignment cases still open, which the
-  assignment desugaring closes next.
+- **Release:** `v0.2.9` is the latest release (Zig 0.17.0, Nexus
+  2.0.0), with CI green on Linux and macOS. It checks and emits every
+  assignment as its value, then its store, closing the assignment holes
+  of earlier versions, and adds `--delta` runs that rerun only what
+  changed; its release notes list each change.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires
   `test (ubuntu-latest)` and `test (macos-latest)`, and blocks force
