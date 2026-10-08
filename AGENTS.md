@@ -107,9 +107,11 @@ review rounds.
   Linux, and an adversarial review of everything merged since the last
   release. A soundness finding from either gate is fixed before the
   tag.
-- **Rerun only what changed.** A grid or corpus rerun checks the
-  programs whose emitted package differs from the last checked
-  compiler's (`test/equiv.py` lists them), not the whole set.
+- **Rerun only what changed.** A grid or corpus rerun uses `--delta`
+  (`./test/run --delta`, `test/matrix.py --delta`): it checks every
+  program, and runs only those whose package, expectation, driver,
+  harness, or Zig differ from a run that passed (test/README.md,
+  "Rerunning only what changed").
 - **Reviewer probes are kept** in `test/corpus/`.
 - **"Runs clean" means sanitizer-clean:** no leak and no use of freed
   memory under `RIG_SANITIZE=1`, which `./test/run` sets.

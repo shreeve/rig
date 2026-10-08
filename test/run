@@ -130,42 +130,62 @@ not_run() {
 # --delta run need not run it again (test/README.md). The key is a hash
 # of RESULTS_BASE (this script, the compiler's driver src/main.zig, Zig
 # and its target, and the run's settings), the contract the run is held
-# to, the entry file (the program and its directives: the expected
-# output, an expected panic, `# release`, a time limit), and every file
-# of the package `rig emit` writes under the run's settings: each
-# module, the standard library's shims, and the runtime. The package
-# `rig run` builds is that one with the line naming its start hook,
-# which src/main.zig writes. A program `rig emit` rejects has no key.
+# to with its time limit, the entry file (the program and its
+# directives: the expected output, an expected panic, `# release`, a
+# time limit), and every file of the package `rig emit` writes under the
+# run's settings: each module, the standard library's shims, and the
+# runtime, with whether Zig links it with libc. The package `rig run`
+# builds is that one with the line naming its start hook, which
+# src/main.zig writes. A program `rig emit` rejects has no key.
 # results_key <contract> <entry>: sets KEY, or returns 1 with KEY empty.
 results_key() {
     KEY=""
     [[ -n "$RESULTS_CACHE" && -z "$NO_CACHE" ]] || return 1
-    local tmp="$RESULTS/key/${ID//\//__}" listing
+    local tmp="$RESULTS/key/${ID//\//__}" listing libc
     rm -rf "$tmp"
     mkdir -p "$tmp" || return 1
-    if RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$tmp" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" emit "$2" >/dev/null 2>&1 </dev/null; then
-        listing=$(cd "$tmp" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 $SHA256)
+    if RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$tmp/package" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" emit "$2" >/dev/null 2>"$tmp/stderr" </dev/null; then
+        listing=$(cd "$tmp/package" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 $SHA256)
+        libc=$(grep -c -- '(-lc)$' "$tmp/stderr")
     fi
     rm -rf "$tmp"
     [[ -n "$listing" ]] || return 1
-    KEY=$({ printf 'rig results 1\n%s\n%s\n' "$RESULTS_BASE" "$1"; $SHA256 <"$2"; printf '%s\n' "$listing"; } | $SHA256)
+    KEY=$({ printf 'rig results 2\n%s\n%s\nlibc %s\n' "$RESULTS_BASE" "$1" "$libc"; $SHA256 <"$2"; printf '%s\n' "$listing"; } | $SHA256)
     KEY=${KEY%% *}
     [[ ${#KEY} -eq 64 ]] || { KEY=""; return 1; }
 }
 
 # carried_over <contract> <entry>: the run of this test passed before
 # with the same key, and this is a --delta run; sets CARRIED. Otherwise
-# KEY is left for record_pass.
+# KEY, CONTRACT, and ENTRY are left for record_pass.
 carried_over() {
+    CONTRACT=$1 ENTRY=$2
     results_key "$1" "$2" || return 1
     [[ -n "$DELTA" && -f "$RESULTS_CACHE/${KEY:0:2}/$KEY" ]] || return 1
     touch "$RESULTS_CACHE/${KEY:0:2}/$KEY" 2>/dev/null
     CARRIED=1
 }
 
-# record_pass: this test's program ran, and passed: record its KEY.
+# fixed_inputs: what this run fixed when it started and a recorded run
+# must have used: this script, src/main.zig, and bin/rig (by its device,
+# inode, size, and time, since a `zig build` replaces it).
+fixed_inputs() {
+    local id
+    id=$(stat -c '%d %i %s %Y' "$RIG" 2>/dev/null || stat -f '%d %i %z %m' "$RIG") || return 1
+    { $SHA256 <"$SELF" && $SHA256 <src/main.zig && printf '%s\n' "$id"; } | $SHA256
+}
+
+# record_pass <logfile>: this test's program ran and passed: record its
+# KEY, if nothing it hashes changed while it ran (the program, its
+# package, this script, the driver, bin/rig) and the sanitizer guarded
+# every allocation (past the mapping limit it guards no more, and says
+# so).
 record_pass() {
     [[ -n "$KEY" && -z "$CARRIED" ]] || return 0
+    local key=$KEY
+    grep -qF 'rig: sanitizer: mapping limit reached' "$1" "$1.release" 2>/dev/null && return 0
+    [[ $(fixed_inputs) == "$FIXED_INPUTS" ]] || return 0
+    results_key "$CONTRACT" "$ENTRY" && [[ $KEY == "$key" ]] || return 0
     mkdir -p "$RESULTS_CACHE/${KEY:0:2}" 2>/dev/null && : >"$RESULTS_CACHE/${KEY:0:2}/$KEY" 2>/dev/null
     return 0
 }
@@ -175,7 +195,7 @@ record_pass() {
 # pass the same way.
 check_behavior() {
     local entry=$1 outdir=$2 log=$3
-    carried_over behavior "$entry" && return 0
+    carried_over "behavior $TIMEOUT" "$entry" && return 0
     check_output "$entry" "$outdir" "$log" || return 1
     grep -qE '^# release[[:space:]]*$' "$entry" || return 0
     check_output "$entry" "$outdir/release" "$log.release" --release && return 0
@@ -401,7 +421,7 @@ check_corpus() {
         REASON="rejected without a file:line:col diagnostic: $(head -1 <<<"$out")"
         return 1
     fi
-    carried_over corpus "$entry" && return 0
+    carried_over "corpus $TIMEOUT" "$entry" && return 0
     run_program "$entry" "$outdir"
     rc=$RC
     { echo "--- stdout"; head -40 "$outdir.stdout"; echo "--- stderr"; cat "$outdir.stderr"; } >"$log"
@@ -517,7 +537,7 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
     local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$3"
     local entry=$path
     [[ -d "$path" ]] && entry="$path/main.rig"
-    REASON="" ID=$id KEY="" CARRIED="" NO_CACHE=""
+    REASON="" ID=$id KEY="" CARRIED="" NO_CACHE="" CONTRACT="" ENTRY=""
     local kind=${id%%/*} ok
     # A test that builds and runs programs may raise its own time limit
     # with a `# timeout: <seconds>` line.
@@ -569,7 +589,7 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
             ;;
     esac
     if [[ -n "$CARRIED" ]]; then printf 'pass\t%s\tcarried over\n' "$id" >"$res"
-    elif [[ $ok -eq 0 ]]; then record_pass; printf 'pass\t%s\t\n' "$id" >"$res"
+    elif [[ $ok -eq 0 ]]; then record_pass "$log"; printf 'pass\t%s\t\n' "$id" >"$res"
     else printf 'fail\t%s\t%s\n' "$id" "$REASON" >"$res"; fi
 }
 
@@ -679,11 +699,17 @@ fi
 # What every recorded run's verdict depends on beside its program and
 # package (results_key): how this script judges it, how bin/rig runs it
 # (src/main.zig, which bin/rig was just built from), Zig, its standard
-# library and target, and the settings of the run. A change to any of
-# them leaves every earlier record unused.
+# library and target, and the settings of the run: every RIG_ variable
+# but those naming where things go (a runtime knob, such as
+# RIG_SANITIZE_BLOCKS, or one a program reads). A change to any of them
+# leaves every earlier record unused. FIXED_INPUTS is what record_pass
+# checks has not changed since.
+RIG_LOCATIONS='^RIG_(RESULTS_CACHE|BUILD_STORE|BUILD_STORE_DAYS|TEST_OUT|OUT_DIR|RUN_STARTED|PROGRAM_STARTED)='
 if [[ -n "$RESULTS_CACHE" ]]; then
     if ! RESULTS_BASE=$({ $SHA256 <"$SELF" && $SHA256 <src/main.zig && "$ZIG" env &&
-        printf 'zig %s\nsanitize %s\nleak trace %s\ntimeout %s\n' "$ZIG" "$SANITIZE" "${RIG_LEAK_TRACE:-}" "$TIMEOUT"; } 2>/dev/null | $SHA256); then
+        printf 'zig %s\nsanitize %s\ntimeout %s\n' "$ZIG" "$SANITIZE" "$TIMEOUT" &&
+        env | awk -v loc="$RIG_LOCATIONS" '/^RIG_/ && $0 !~ loc' | LC_ALL=C sort; } 2>/dev/null | $SHA256) ||
+        ! FIXED_INPUTS=$(fixed_inputs 2>/dev/null); then
         printf '%snote: cannot hash the inputs of a run; the results cache is off%s\n' "$Y" "$X"
         RESULTS_CACHE=""
     fi
@@ -726,7 +752,7 @@ exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
 PERL
     chmod +x "$TIMEOUT_CMD"
 fi
-export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE DELTA RESULTS_CACHE RESULTS_BASE SHA256
+export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE DELTA RESULTS_CACHE RESULTS_BASE SHA256 FIXED_INPUTS
 
 is_kind() {
     case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|classify|vocab|style|doc|corpus|oracle) return 0 ;; esac

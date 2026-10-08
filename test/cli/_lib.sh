@@ -4,6 +4,11 @@
 
 set -uo pipefail
 
+# A test/run or test/matrix.py a test starts records nothing in the
+# shared results cache, and prunes nothing there; results_cache.sh names
+# one of its own.
+export RIG_RESULTS_CACHE=
+
 fail() { echo "FAIL: $*"; exit 1; }
 
 # expect_eq <actual> <expected> <what>

@@ -435,7 +435,8 @@ hash of:
 
 - the package `RIG_SANITIZE=1 rig emit` writes for the program, every
   file by its path and contents (the package `rig run` builds is this
-  one with the line naming its start hook);
+  one with the line naming its start hook), and whether Zig links it
+  with libc, which `rig emit` notes;
 - the entry file, so the program's directives (`# expect:`,
   `# expect-panic:`, `# release`, `# timeout:`) and, for a matrix
   program, what it must print and whether it is also built with
@@ -446,7 +447,10 @@ hash of:
   from first (`test/run` always builds it, and `test/matrix.py` does
   when the cache is on);
 - `zig env` (Zig's version, its standard library, and the target), the
-  `ZIG` named, `RIG_SANITIZE`, `RIG_LEAK_TRACE`, and the time limits.
+  `ZIG` named, the test's time limit, and every `RIG_` variable but
+  those that name a place (`RIG_RESULTS_CACHE`, `RIG_BUILD_STORE`,
+  `RIG_BUILD_STORE_DAYS`, `RIG_TEST_OUT`, `RIG_OUT_DIR`): the sanitizer
+  and its knobs, `RIG_LEAK_TRACE`, `RIG_STD`, and any a program reads.
 
 With `--delta`, `./test/run` and `test/matrix.py` check every program as
 always, but do not run one whose key is recorded: it passes, carried
@@ -461,9 +465,20 @@ pull request's head run in full and fill the cache for the next round.
 `test/matrix.py --rig` neither reads nor writes the cache.
 
 A record is an empty file named by its key, so runs in every worktree
-share it, and a failing run records nothing. A run with no filter
-removes the records no run has used for `RIG_BUILD_STORE_DAYS` days.
-`test/cli/results_cache.sh` checks that a changed expectation, runtime,
-driver, harness, Zig, or setting is never carried over. A program whose
-output depends on the clock, randomness, or the machine it runs on is
-carried over on the strength of one passing run.
+share it. A failing run records nothing, and neither does a passing run
+the sanitizer stopped guarding (`rig: sanitizer: mapping limit
+reached`), or one during which something its key names changed: after
+the run, the key is computed again and must be the same, and `test/run`,
+`src/main.zig`, and `bin/rig` (which a `zig build` replaces) must be the
+ones the run started with. A run with no filter removes the records no
+run has used for `RIG_BUILD_STORE_DAYS` days. The CLI tests run with
+`RIG_RESULTS_CACHE` empty, so they neither fill nor prune the shared
+cache. `test/cli/results_cache.sh` checks that a changed expectation,
+runtime, libc link, driver, harness, Zig, or setting is never carried
+over, and that a change during a run is never recorded.
+
+Two inputs are left out of the key. A program whose output depends on
+the clock, randomness, or the machine it runs on is carried over on the
+strength of one passing run; and so is one that reads an environment
+variable not named `RIG_` (`os.env`), since hashing the whole
+environment (`PWD`, `TMPDIR`, ...) would match no record.

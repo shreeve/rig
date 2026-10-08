@@ -48,12 +48,15 @@ before, by any worktree, is not built again.
 A program whose runs pass is recorded in test/run's results cache
 (RIG_RESULTS_CACHE, test/README.md) under a key that hashes everything
 the verdict depends on: the code below that runs and judges it, the
-compiler's driver (src/main.zig), Zig, the program, what it must print,
-whether it is also built with `--release`, and every file of its
-sanitized package. With `--delta`, a program whose key is recorded is
-checked but not run, and counts as ran clean, carried over. The cache is
-not used with `--rig`, whose driver it cannot know; otherwise bin/rig is
-built first, so that it is the compiler src/main.zig describes.
+compiler's driver (src/main.zig), Zig, the RIG_ settings, the program,
+what it must print, whether it is also built with `--release`, and
+every file of its sanitized package, with whether Zig links it with
+libc. A run is recorded only if none of them changed while it ran, and
+the sanitizer guarded every allocation. With `--delta`, a program whose
+key is recorded is checked but not run, and counts as ran clean,
+carried over. The cache is not used with `--rig`, whose driver it
+cannot know; otherwise bin/rig is built first, so that it is the
+compiler src/main.zig describes.
 """
 
 import argparse
@@ -117,7 +120,7 @@ def package_listing(rig, path, tmp):
     """Each file of the package `RIG_SANITIZE=1 rig emit` writes for the
     program at `path` (the package `rig run` builds, but for the line
     naming its start hook, which src/main.zig writes), as `hash path`
-    lines; None when emit fails."""
+    lines, and whether Zig links it with libc; None when emit fails."""
     d = tempfile.mkdtemp(dir=tmp)
     try:
         env = dict(os.environ, RIG_OUT_DIR=d, RIG_SANITIZE="1")
@@ -133,9 +136,24 @@ def package_listing(rig, path, tmp):
             for name in sorted(files):
                 f = os.path.join(dirpath, name)
                 listing.append("%s %s" % (hashlib.sha256(open(f, "rb").read()).hexdigest(), os.path.relpath(f, d)))
-        return "\n".join(listing) or None
+        if not listing:
+            return None
+        return "\n".join(listing) + "\nlibc %s" % (b"(-lc)\n" in p.stderr)
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+# The RIG_ variables that name where things go; every other one is a
+# setting of the run (test/run's RIG_LOCATIONS).
+RIG_LOCATIONS = re.compile(r"RIG_(RESULTS_CACHE|BUILD_STORE|BUILD_STORE_DAYS|TEST_OUT|OUT_DIR|RUN_STARTED|PROGRAM_STARTED)$")
+
+
+def fixed_inputs():
+    """What a run fixes when it starts and a recorded run must have used:
+    src/main.zig, and bin/rig (by its device, inode, size, and time,
+    since a `zig build` replaces it)."""
+    st = os.stat(RIG)
+    return sha256(open(os.path.join(ROOT, "src", "main.zig"), "rb").read(), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
 
 
 class Results:
@@ -149,12 +167,14 @@ class Results:
         zenv = subprocess.run([zig, "env"], capture_output=True, text=True)
         if zenv.returncode != 0:
             raise OSError("`zig env` failed")
-        # The code that runs a program and judges it, and the limits it
-        # runs under.
+        # The code that runs a program and judges it, the limits it runs
+        # under, and every RIG_ setting (a runtime knob, such as
+        # RIG_SANITIZE_BLOCKS, or one a program reads).
         verdict = [inspect.getsource(f) for f in VERDICT_CODE] + [r.pattern for r in (BAD, POS, CRASH)]
-        self.base = sha256("rig results 1 matrix", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB,
-                           open(os.path.join(ROOT, "src", "main.zig"), "rb").read(), zig, zenv.stdout,
-                           os.environ.get("RIG_LEAK_TRACE", ""))
+        settings = sorted("%s=%s" % kv for kv in os.environ.items() if kv[0].startswith("RIG_") and not RIG_LOCATIONS.match(kv[0]))
+        self.fixed = fixed_inputs()
+        self.base = sha256("rig results 2 matrix", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB,
+                           open(os.path.join(ROOT, "src", "main.zig"), "rb").read(), zig, zenv.stdout, *settings)
 
     def key(self, path, expect, release):
         listing = package_listing(RIG, path, self.tmp)
@@ -175,7 +195,14 @@ class Results:
             pass
         return True
 
-    def record(self, key):
+    def record(self, key, path, expect, release):
+        """Record `key`, if nothing it hashes changed while the program ran:
+        the program, its package, src/main.zig, and bin/rig."""
+        try:
+            if fixed_inputs() != self.fixed or self.key(path, expect, release) != key:
+                return
+        except OSError:
+            return
         try:
             os.makedirs(os.path.dirname(self.file(key)), exist_ok=True)
             open(self.file(key), "w").close()
@@ -1542,20 +1569,22 @@ def run_one(path, keep, started_dir, expect=None, release=False):
     key = RESULTS and RESULTS.key(path, expect, release)
     if key and RESULTS.carried(key):
         return "ok", "carried over"
-    why = run_built(path, keep, started_dir, expect, [])
+    unguarded = []
+    why = run_built(path, keep, started_dir, expect, [], unguarded)
     if why is None and release:
-        why = run_built(path, keep, started_dir, expect, ["--release"])
+        why = run_built(path, keep, started_dir, expect, ["--release"], unguarded)
         why = why and "--release: " + why
     if why:
         return "fail", why
-    if key:
-        RESULTS.record(key)
+    if key and not unguarded:
+        RESULTS.record(key, path, expect, release)
     return "ok", ""
 
 
-def run_built(path, keep, started_dir, expect, flags):
+def run_built(path, keep, started_dir, expect, flags, unguarded):
     """Run one accepted program built with `flags`: None when it runs as
-    it must, else why not."""
+    it must, else why not. A run past the sanitizer's mapping limit,
+    which guards no more allocations, is noted in `unguarded`."""
     outdir = path[:-4] + (".release" if flags else "") + ".out"
     # rig creates `started` once the program has started: the evidence
     # that it ran (test/run's run_program). Each attempt has a fresh path
@@ -1569,6 +1598,8 @@ def run_built(path, keep, started_dir, expect, flags):
     except MemoryError as e:
         return str(e)
     err = r.stderr
+    if "rig: sanitizer: mapping limit reached" in err:
+        unguarded.append(flags)
     m = BAD.search(err)
     ran = os.path.isfile(started) and "rig: the program did not run" not in err
     if os.path.lexists(started):
