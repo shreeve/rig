@@ -1,0 +1,19 @@
+# An arm binding that views the subject's payload, which a write lend in
+# the arm would reallocate: must be rejected in both arm forms.
+enum Sh
+  name(t: Text)
+  point
+
+fun grow(v: !Vec[Sh]) -> Int
+  for _ in 0..50
+    !v.push(.point)
+  v.len
+
+sub main()
+  v: Vec[Sh] = Vec()
+  !v.push(.name(t: Text("abc")))
+  x = !v
+  match ?x[0]
+    .name(t) => print("simple", grow(!v), t.len)
+    .point => pass
+  print(v.len)

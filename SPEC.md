@@ -3336,6 +3336,26 @@ sub main()
 cannot lend `x` to write while a read loan is live
 ```
 
+```rig reject
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0 => grow(!v)
+    _ => 3
+  print(v[0])
+```
+
+```error
+cannot lend `v` to write while a write loan is live
+```
+
 **Evaluation order within a call.** A call evaluates its arguments left
 to right and uses them all when it runs, so what an earlier argument
 holds is still in use while the later ones are evaluated. A view (`?v`)
@@ -3592,6 +3612,36 @@ B(n: 3)
 next
 drop 3
 drop 2
+```
+
+A `match` arm's body is a statement of its own, as each line of a
+block is: a temporary made there is dropped where the arm ends, while
+the arm's bindings are still in scope, so it may view them.
+
+```rig
+struct Tag
+  n: ?Int
+
+  drop(!self)
+    print("drop tag", self.n)
+
+fun show(t: ?Tag) -> Int
+  t.n + 1
+
+sub main()
+  for i in 0..2
+    match i
+      0 => print("zero")
+      m => print("m", show(?Tag(n: ?m)))
+    print("after", i)
+```
+
+```output
+zero
+after 0
+m 2
+drop tag 1
+after 1
 ```
 
 ```rig

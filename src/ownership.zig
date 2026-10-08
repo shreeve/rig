@@ -532,9 +532,9 @@ pub const Checker = struct {
     /// being walked (`sema.dropsTemp`), each with its position: dropped
     /// when its statement ends.
     stmt_drops: std.ArrayList(struct { id: VarId, pos: u32 }) = .empty,
-    /// The hidden vars made, before the scope a `catch` handler or a
-    /// `match` arm opens, for the statement temporaries it makes
-    /// (`holdPartTemps`), by node: `holdTemp` holds each there.
+    /// The hidden vars made, before the scope a `catch` handler opens,
+    /// for the statement temporaries it makes (`holdPartTemps`), by node:
+    /// `holdTemp` holds each there.
     part_temps: std.AutoHashMapUnmanaged(u32, VarId) = .empty,
     /// The hidden vars holding what the calls being walked keep in
     /// storage of their own (`holdForCall`): each ends when its call
@@ -1412,7 +1412,9 @@ pub const Checker = struct {
     /// and body), and the symbols deferred code uses. A capture's own
     /// leaf is also a use of the binding it captures. A `while` loop's
     /// step runs after the body, so its uses count there (`stepAt`), or
-    /// at `at` when `e` is in a step already.
+    /// at `at` when `e` is in a step already; an assignment's target is
+    /// used after its value, so its uses count at the assignment's end,
+    /// past every statement nested in the value (an arm, a block line).
     fn indexUses(self: *Checker, e: Sexp, in_defer: bool, at: ?u32) Error!void {
         switch (e) {
             .src => |s| {
@@ -1427,8 +1429,8 @@ pub const Checker = struct {
             .list => {
                 const deferred = in_defer or e.isKind(.@"defer") or e.isKind(.@"errdefer");
                 for (e.items()) |c| {
-                    const step_at = if (sema.isWhileStep(e, c)) at orelse stepAt(e) else at;
-                    try self.indexUses(c, deferred, step_at);
+                    const use_at = if (sema.isWhileStep(e, c)) at orelse stepAt(e) else if (isSetTarget(e, c)) at orelse extent(e).hi else at;
+                    try self.indexUses(c, deferred, use_at);
                 }
             },
             else => {},
@@ -1717,8 +1719,8 @@ pub const Checker = struct {
 
     /// An owning temporary only read where it stands lives in a hidden
     /// var until its statement ends; what views it views that var. One a
-    /// `catch` handler or `match` arm makes is held in the var made for it
-    /// before the handler's or arm's scope opened (`holdPartTemps`).
+    /// `catch` handler makes is held in the var made for it before the
+    /// handler's scope opened (`holdPartTemps`).
     fn holdTemp(self: *Checker, node: Sexp, v: Value) Error!Value {
         const pos = self.startOf(node);
         if (node == .list) if (self.part_temps.fetchRemove(node.list.id)) |kv| if (self.isStmtTempVar(kv.value, pos)) {
@@ -1731,8 +1733,8 @@ pub const Checker = struct {
     }
 
     /// Make the hidden vars for the statement temporaries `part`, a
-    /// `catch` handler or a `match` arm, makes (`sema.stmtTemps`), before
-    /// the caller opens the scope it binds its names in: they are the
+    /// `catch` handler, makes (`sema.stmtTemps`), before the caller opens
+    /// the scope it binds the handler's name in: they are the
     /// statement's, as emit declares their slots for the statement, so
     /// they outlive that scope and end with the statement
     /// (`dropStmtTemps`). Each is made before the state a branch starts
@@ -1823,15 +1825,25 @@ pub const Checker = struct {
                 try self.walkStmt(s);
                 continue;
             }
-            // The value leaves: its tail name moves before the block's
-            // defers run, as emit takes it there.
-            if (t) |ctx| self.markTail(s, ctx);
-            v = try self.walkStmtValue(s, null);
-            if (t) |ctx| if (s == .src and self.reachable) try self.consumeTailName(s, ctx);
+            v = try self.walkTailStmt(s, t);
         }
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
+    }
+
+    /// Walk `stmt`, a block's last statement or a `match` arm's body, as
+    /// a statement whose value `t`, if any, consumes: its temporaries
+    /// end with it, and its tail name moves before the scope's defers
+    /// run, as emit takes it there.
+    fn walkTailStmt(self: *Checker, stmt: Sexp, t: ?Tail) Error!Value {
+        if (t) |ctx| self.markTail(stmt, ctx);
+        const v = try self.walkStmtValue(stmt, null);
+        if (t) |ctx| {
+            self.tail = null;
+            if (stmt == .src and self.reachable) try self.consumeTailName(stmt, ctx);
+        }
+        return v;
     }
 
     /// Report loans in `v` on vars of the innermost scope and drop them.
@@ -4833,7 +4845,6 @@ pub const Checker = struct {
         var held: std.ArrayList(Loan) = .empty;
         for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) == null) try held.append(self.arena(), l);
         const hold = try self.addVar(.{ .name = "", .decl = self.startOf(scrut), .kind = .hidden }, .{ .loans = held.items });
-        for (ir.Match.arms(match)) |arm| try self.holdPartTemps(ir.Arm.body(arm));
 
         const base = try self.here();
         // The state an arm starts from: the entry state joined with what
@@ -4875,7 +4886,9 @@ pub const Checker = struct {
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
-            var v = try self.walkTailPart(body, tail_ctx);
+            // The body is a statement of its own (`sema.isArmBody`): its
+            // temporaries end with it, in the arm's scope.
+            var v = try self.walkTailStmt(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
@@ -5742,6 +5755,17 @@ fn sexpMentionsView(t: Sexp) bool {
         if (sexpMentionsView(c)) return true;
     }
     return false;
+}
+
+/// Whether `child` is the target of assignment `parent`.
+fn isSetTarget(parent: Sexp, child: Sexp) bool {
+    if (!parent.isKind(.set)) return false;
+    const target = ir.Set.target(parent);
+    return switch (target) {
+        .src => child == .src and child.src.pos == target.src.pos,
+        .list => child == .list and child.list.id == target.list.id,
+        else => false,
+    };
 }
 
 /// Where the step of `while` loop `node` runs: after its body.

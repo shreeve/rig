@@ -1,0 +1,14 @@
+struct S
+  n: Int
+  t: Text
+
+fun sink(s: S) -> Int
+  s.t.len
+
+sub main()
+  s = S(n: 1, t: Text("abc"))
+  k = 0
+  s.n = match k
+    0 => sink(<s)
+    _ => 3
+  print("done")

@@ -1,0 +1,55 @@
+# An assignment's value may hold statements of its own (a `match` arm,
+# a block arm, an `if` block, a `catch` block) that lend, read, or move
+# what the target does not view; the store lands after them.
+# release
+error E
+  bad
+
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..20
+    !v.push(1)
+  v.len
+
+fun sink(v: Vec[Int]) -> Int
+  v.len
+
+fun fail(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  u: Vec[Int] = Vec()
+  !u.push(1)
+  k = 0
+  w = !v[0..1]
+  w[0] = match k
+    0 => grow(!u)
+    _ => 3
+  w[0] += match k
+    0
+      grow(!u)
+    _ => 3
+  w[0] = if k == 0
+    w[0] + u.len
+  else
+    3
+  w[0] = fail(-1) catch |_|
+    w[0] + grow(!u)
+  print(v[0], u.len)
+  t: Vec[Int] = Vec()
+  !t.push(4)
+  v[0] = match k
+    0 => sink(<t)
+    _ => 3
+  n = 0
+  n = match k
+    0
+      grow(!v)
+    _ => 3
+  print(v[0], n, v.len)
+
+# expect:
+# 164 61
+# 1 21 21

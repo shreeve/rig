@@ -1,0 +1,18 @@
+# The view is read in the target's index, not its base.
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..200
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  u: Vec[Int] = Vec()
+  !u.push(5)
+  !u.push(6)
+  w = ?v[0..1]
+  k = 0
+  u[w[0]] = match k
+    0 => grow(!v)
+    _ => 3
+  print(u[0], u[1])
