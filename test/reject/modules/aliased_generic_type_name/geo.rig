@@ -1,0 +1,5 @@
+pub struct Wrap[T]
+  pub v: T
+
+pub struct Point
+  pub x: Int

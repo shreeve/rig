@@ -1,0 +1,13 @@
+# A diagnostic names another module's type as this module spells it,
+# by the name of the import: a generic type's instance as a plain type
+# is, `g.Wrap[Int]` beside `g.Point`.
+
+use geo as g
+
+sub main()
+  w: Bool = g.Wrap(v: 1)
+  p: Bool = g.Point(x: 1)
+  print(w, p)
+
+# error: 8:13: type mismatch: expected `Bool`, got `g.Wrap[Int]`
+# error: 9:13: type mismatch: expected `Bool`, got `g.Point`

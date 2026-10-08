@@ -4780,8 +4780,9 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
     const a = ctx.arena.allocator();
     const generic = fsym.kind == .generic_type;
     const id = try ctx.addSymbol(.{
-        // A generic type is named as this module spells it: `lib.Wrap`.
-        .name = if (generic) try a.print("{s}.{s}", .{ foreign.name, fsym.name }) else fsym.name,
+        // A generic type is named as this module spells it: `lib.Wrap`,
+        // as the type printer names it.
+        .name = if (generic) try formatTypeValue(ctx, a, .{ .imported_nominal = .{ .module_id = origin.module_id, .sym_id = origin.sym } }) else fsym.name,
         .kind = fsym.kind,
         .ty = ctx.types.unknown_id,
         .decl_pos = imported_decl_pos,
@@ -5141,12 +5142,9 @@ const TypePrinter = struct {
                 try a.print("fun({s}) -> {s}", .{ try p.list(f.params), try p.id(f.returns) }),
             .nominal => |sym| ctx.symbols.items[sym].name,
             .imported_nominal => |in| try p.foreign(in.module_id, in.sym_id),
-            .parameterized_nominal => |pn| {
-                const sym = ctx.symbols.items[pn.sym];
-                // Another module's generic type, through its proxy.
-                const name = if (isProxy(sym)) try p.foreign(sym.from.module_id, sym.from.sym) else sym.name;
-                return p.instance(name, try p.list(pn.args));
-            },
+            // Another module's generic type is its proxy, named as this
+            // module spells it (`importSymbol`).
+            .parameterized_nominal => |pn| try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),
             .ct_value => |v| try a.print("{d}", .{v.int}),
         };
