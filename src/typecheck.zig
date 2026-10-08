@@ -8726,8 +8726,8 @@ const Checker = struct {
         return null;
     }
 
-    /// `@size(T)` / `@size(@type(x))`. A type argument is recorded
-    /// with the type it names.
+    /// `@size(T)` / `@size(@type(x))`. A type argument, written as one is
+    /// in an expression (`typeArg`), is recorded with the type it names.
     fn builtinTypeArg(self: *Checker, name: []const u8, args: []const Sexp, pos: u32) Error!bool {
         if (args.len != 1) {
             try self.err(pos, "`@{s}` takes one type argument", .{name});
@@ -8744,8 +8744,8 @@ const Checker = struct {
                 return true;
             };
         }
-        var r = self.resolver();
-        const ty = try r.resolveType(a);
+        // Written as in an expression: `Vec[Int]`, `?Point`, `Int?`.
+        const ty = try self.typeArg(a);
         if (self.isPoison(ty)) return false;
         try self.ctx.recordType(a, ty);
         return true;

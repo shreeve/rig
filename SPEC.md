@@ -2264,9 +2264,10 @@ sub main()
 
 `@builtin(args)` calls a compiler builtin. Rig's own work anywhere:
 `@size(T)` and `@align(T)` are a type's size and alignment in bytes,
-`@name(T)` is the name the emitted Zig gives it, and `@type(x)`, only
-as the argument of one of these three, is the type of `x`. Rig type
-names are translated (`@size(I64)` is 8).
+`@name(T)` is its name, and `@type(x)`, only as the argument of one of
+these three, is the type of `x`. A type argument is written as one is
+in an expression (`Vec[Int]`, `?P`, `Int?`; a slice, array, or function
+type through a `type` alias).
 
 ```rig
 struct P
@@ -2279,7 +2280,33 @@ sub main()
 ```
 
 ```output
-8 8 2 i64
+8 8 2 Int
+```
+
+`@name(T)` is the type as Rig writes it, the spelling the diagnostics
+print: `Int` (also for `I64`, the same type), `Vec[Int]`, `Int?`,
+`?P`, `*P`, `fun(Int) -> Int!`. An alias is the type it names (`type
+Byte = U8` gives `U8`), and another module's type is qualified the way
+this module names that module (`geo.Point`, or `g.Point` after `use
+geo as g`). In a generic body, a type parameter is named for each
+instance, as the generic's module writes it:
+
+```rig
+struct Pair[A, B]
+  a: A
+  b: B
+
+fun name[T]() -> String
+  @name(T)
+
+type Byte = U8
+
+sub main()
+  print(@name(Vec[Int]), @name(Byte), name[Pair[Int, Text]](), name[*Pair[U8, Bool]?]())
+```
+
+```output
+Vec[Int] U8 Pair[Int, Text] *Pair[U8, Bool]?
 ```
 
 Every other builtin is Zig's, keeps its Zig name, and works only
@@ -2287,8 +2314,10 @@ inside a `raw` block ([§15](#15-raw-code-and-ffi)): the casts
 `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`,
 `@floatFromInt`, and `@fromBackingInt`, and Zig's names for Rig's
 four, `@sizeOf`, `@alignOf`, `@typeName`, and `@TypeOf`, which mean
-what Rig's do. Rig's names work inside `raw` too. Outside it, Zig's
-name for one of Rig's is rejected, with the call to write:
+what Rig's do, except that `@typeName(T)` is the name the emitted Zig
+gives the type (`i64` for `Int`). Rig's names work inside `raw` too.
+Outside it, Zig's name for one of Rig's is rejected, with the call to
+write:
 
 ```rig reject
 sub main()

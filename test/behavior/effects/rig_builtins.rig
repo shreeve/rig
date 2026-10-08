@@ -1,7 +1,8 @@
 # Rig's builtins work anywhere: `@size(T)` and `@align(T)` are a type's
 # size and alignment in bytes, `@name(T)` its name, and `@type(x)`, as
 # their argument, the type of `x`. Inside `raw` they work too, as do
-# Zig's names for them (`@sizeOf`, `@alignOf`, `@typeName`, `@TypeOf`).
+# Zig's names for them (`@sizeOf`, `@alignOf`, `@typeName`, `@TypeOf`);
+# Zig's `@typeName` is the emitted Zig's name for the type.
 
 struct P
   a: I32
@@ -22,6 +23,6 @@ sub main()
 # expect:
 # 8 1 8 16
 # 2 2 4
-# bool i16
+# Bool I16
 # 8 8 2 2
-# bool bool 2 2
+# bool Bool 2 2

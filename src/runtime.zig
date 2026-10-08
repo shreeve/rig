@@ -434,6 +434,8 @@ pub fn WeakHandle(comptime T: type) type {
         ptr: *RcBox(T),
 
         const Self = @This();
+        /// Its handle's type, for `typeName`.
+        pub const __rig_weak = T;
 
         pub fn cloneWeak(self: Self) Self {
             self.ptr.weak += 1;
@@ -549,6 +551,8 @@ pub fn Box(comptime T: type) type {
         value: *T,
 
         const Self = @This();
+        /// Its arguments, for `typeName`.
+        pub const __rig_args = .{T};
 
         pub fn init(value: T) Self {
             const p = create(T);
@@ -601,6 +605,8 @@ pub fn Cell(comptime T: type) type {
         value: T,
 
         const Self = @This();
+        /// Its arguments, for `typeName`.
+        pub const __rig_args = .{T};
         pub const __rig_interior_mutable = true;
 
         pub fn get(self: *const Self) T {
@@ -686,6 +692,8 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
         drop_fn: *const fn (*anyopaque) void,
 
         const Self = @This();
+        /// Its function type, for `typeName`.
+        pub const __rig_fn = .{ params, R };
         pub const Args = @Tuple(params);
 
         /// Erase `env`, a heap-allocated `Env` the closure now owns.
@@ -800,6 +808,8 @@ pub fn Signal(comptime T: type) type {
         pending: ?T = null,
 
         const Self = @This();
+        /// Its arguments, for `typeName`.
+        pub const __rig_args = .{T};
 
         pub fn init(value: T) Self {
             return .{ .value = value, .subs = .empty };
@@ -856,6 +866,8 @@ pub fn Vec(comptime T: type) type {
         len: usize = 0,
 
         const Self = @This();
+        /// Its arguments, for `typeName`.
+        pub const __rig_args = .{T};
 
         pub const empty: Self = .{};
 
@@ -1053,6 +1065,143 @@ pub const Text = struct {
         self.list = .empty;
     }
 };
+
+// -----------------------------------------------------------------------------
+// Type names
+// -----------------------------------------------------------------------------
+
+// `@name(T)` of a type parameter: the name of the instance, as Rig writes
+// it. The runtime holds no Rig name. The emitter writes every name from
+// sema's type printer: into each type it emits, and into the table of
+// each module that asks. This follows the shape of a Zig type between
+// them, as the printer spells each shape.
+//
+// The table, `names` (`__rig_names` in the module), has:
+//   .module    the module asking, as a `__rig_name` names its module;
+//   .imports   each module it imports, and what its types are qualified
+//              with there (`.{ "geo", "geo." }`);
+//   .types     each built-in type, and its name;
+//   .generics  each of the runtime's generic types, and its spelling:
+//              strings, and the index of each argument.
+// A type the emitter writes declares `__rig_name`: `.module`, its module
+// (empty for the root), and `.name`, its spelling: strings, and each of
+// its parameters, a type or a compile-time integer.
+
+/// The name of `x`, a type or a compile-time integer, as the module
+/// whose table is `names` writes it.
+pub fn typeName(comptime x: anytype, comptime names: anytype) []const u8 {
+    return comptime nameOf(x, names);
+}
+
+fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
+    if (@TypeOf(x) != type) return std.fmt.comptimePrint("{d}", .{x});
+    const T = x;
+    if (builtinName(T, names)) |name| return name;
+    return switch (@typeInfo(T)) {
+        .optional => |o| suffixedName(o.child, "?", names),
+        .error_union => |e| suffixedName(e.payload, "!", names),
+        .error_set => |e| errorSetName(e.error_names.?[0], names),
+        .array => |a| std.fmt.comptimePrint("[{d}]", .{a.len}) ++ nameOf(a.child, names),
+        // A function, or a strong handle. A type parameter holds no view
+        // or slice: its instance is a type the generic body may copy.
+        .pointer => |p| if (@typeInfo(p.child) == .@"fn")
+            fnName(@typeInfo(p.child).@"fn".param_types, @typeInfo(p.child).@"fn".return_type.?, names)
+        else if (isStrongHandle(T))
+            handleName("*", @FieldType(p.child, "value"), names)
+        else
+            @compileError("rig.typeName: no Rig name for " ++ @typeName(T)),
+        .@"struct", .@"union", .@"enum" => if (@hasDecl(T, "__rig_name"))
+            qualifier(T.__rig_name.module, names) ++ spell(T.__rig_name.name, .{}, names)
+        else if (@hasDecl(T, "__rig_weak"))
+            handleName("~", T.__rig_weak, names)
+        else if (@hasDecl(T, "__rig_fn"))
+            fnName(T.__rig_fn[0], T.__rig_fn[1], names)
+        else
+            genericName(T, names),
+        else => @compileError("rig.typeName: no Rig name for " ++ @typeName(T)),
+    };
+}
+
+fn builtinName(comptime T: type, comptime names: anytype) ?[]const u8 {
+    inline for (names.types) |entry| if (entry[0] == T) return entry[1];
+    return null;
+}
+
+/// An instance of one of the runtime's generic types, which declares
+/// its arguments, `__rig_args`.
+fn genericName(comptime T: type, comptime names: anytype) []const u8 {
+    if (@hasDecl(T, "__rig_args")) inline for (names.generics) |g| {
+        if (@typeInfo(@TypeOf(g[0])).@"fn".param_types.len == T.__rig_args.len and @call(.auto, g[0], T.__rig_args) == T)
+            return spell(g[1], T.__rig_args, names);
+    };
+    @compileError("rig.typeName: no Rig name for " ++ @typeName(T));
+}
+
+/// A spelling: each string as it is, and each other part named, an
+/// index standing for that argument of `args`.
+fn spell(comptime parts: anytype, comptime args: anytype, comptime names: anytype) []const u8 {
+    var out: []const u8 = "";
+    inline for (parts) |part| out = out ++ switch (@typeInfo(@TypeOf(part))) {
+        .pointer => part,
+        .comptime_int => nameOf(args[part], names),
+        else => nameOf(part, names),
+    };
+    return out;
+}
+
+/// What a type of `module` is qualified with where `names` is written:
+/// nothing in its own module, or the root's, the name it is imported
+/// under, or else its own name.
+fn qualifier(comptime module: []const u8, comptime names: anytype) []const u8 {
+    if (module.len == 0 or std.mem.eql(u8, module, names.module)) return "";
+    inline for (names.imports) |imp| if (std.mem.eql(u8, imp[0], module)) return imp[1];
+    return module ++ ".";
+}
+
+/// An error set, by one of its errors' names, which the emitter writes
+/// as `module.Set.error` (`Set.error` in the root).
+fn errorSetName(comptime error_name: []const u8, comptime names: anytype) []const u8 {
+    const set = error_name[0 .. std.mem.lastIndexOfScalar(u8, error_name, '.').?];
+    const dot = std.mem.lastIndexOfScalar(u8, set, '.') orelse return set;
+    return qualifier(set[0..dot], names) ++ set[dot + 1 ..];
+}
+
+/// A function type: `fun(A, B) -> R`, or `sub(A)` returning nothing,
+/// `sub(A)!` when it may fail. Its parameters are types, or a Zig
+/// function's (`?type`).
+fn fnName(comptime params: anytype, comptime R: type, comptime names: anytype) []const u8 {
+    var list: []const u8 = "";
+    inline for (params, 0..) |P, i| list = list ++ (if (i > 0) ", " else "") ++ nameOf(if (@TypeOf(P) == type) P else P.?, names);
+    if (R == void) return "sub(" ++ list ++ ")";
+    if (@typeInfo(R) == .error_union and @typeInfo(R).error_union.payload == void) return "sub(" ++ list ++ ")!";
+    return "fun(" ++ list ++ ") -> " ++ nameOf(R, names);
+}
+
+/// `T?` / `T!`, with `T` in parentheses when a suffix cannot follow it,
+/// as the printer writes them.
+fn suffixedName(comptime T: type, comptime suffix: []const u8, comptime names: anytype) []const u8 {
+    const doubled = std.mem.eql(u8, suffix, "?") and builtinName(T, names) == null and @typeInfo(T) == .optional;
+    if (doubled or takesNoSuffix(T, names)) return "(" ++ nameOf(T, names) ++ ")" ++ suffix;
+    return nameOf(T, names) ++ suffix;
+}
+
+/// An array or a function, or a handle to one: a type whose spelling a
+/// suffix cannot follow.
+fn takesNoSuffix(comptime T: type, comptime names: anytype) bool {
+    if (builtinName(T, names) != null) return false;
+    return switch (@typeInfo(T)) {
+        .array => true,
+        .pointer => |p| if (isStrongHandle(T)) takesNoSuffix(@FieldType(p.child, "value"), names) else true,
+        .@"struct" => if (@hasDecl(T, "__rig_weak")) takesNoSuffix(T.__rig_weak, names) else @hasDecl(T, "__rig_fn"),
+        else => false,
+    };
+}
+
+/// `*T` / `~T`, with `T` in parentheses when it is suffixed.
+fn handleName(comptime sigil: []const u8, comptime T: type, comptime names: anytype) []const u8 {
+    const suffixed = @typeInfo(T) == .optional or @typeInfo(T) == .error_union;
+    return if (suffixed) sigil ++ "(" ++ nameOf(T, names) ++ ")" else sigil ++ nameOf(T, names);
+}
 
 // -----------------------------------------------------------------------------
 // Zig-backed declarations
