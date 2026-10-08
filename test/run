@@ -1283,7 +1283,7 @@ show_log() {
 if [[ -n "$VERBOSE" ]]; then
     while IFS=$'\t' read -r st id why; do
         case $st in
-            pass)  printf '  %spass%s   %s%s\n' "$G" "$X" "$id" "${why:+ $D— $why$X}" ;;
+            pass)  printf '  %spass%s   %s%s\n' "$G" "$X" "$id" "${why:+ ${D}— $why${X}}" ;;
             known) printf '  %sknown%s  %s %s— %s%s\n' "$Y" "$X" "$id" "$D" "$why" "$X" ;;
             pending) printf '  %spending%s %s %s— %s%s\n' "$Y" "$X" "$id" "$D" "$why" "$X" ;;
         esac
