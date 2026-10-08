@@ -661,17 +661,23 @@ pub fn fieldIsPointee(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
-/// Whether a payload binding of type `binding` (null when unknown) for
-/// field `f` points at the field: a write binds a pointer to each field,
-/// and a read binds one to a field it views (`?F` of a field that is no
-/// view), and to a field of a type parameter's value (`sema.copies` is
-/// `depends`) that the match reads where its subject is (`in_place`,
-/// `matchesInPlace`): what each instance reads is the subject's own,
-/// never a copy in the arm.
-pub fn payloadByAddress(ctx: *const SemContext, binding: ?TypeId, f: sema.Field, writes: bool, in_place: bool) bool {
-    const viewed = !writes and if (binding) |t| ctx.types.get(t) == .read_view and ctx.types.get(f.ty) != .read_view else false;
-    const generic = !writes and in_place and if (binding) |t| !sema.isReadOrWriteView(ctx, t) and sema.copies(ctx, t) == .depends else false;
-    return (writes or viewed or generic) and fieldIsPointee(ctx, f.ty);
+/// Whether payload binding `b` points at the field it binds: a write
+/// binds a pointer to each field, and a read binds one to a field it
+/// views (`?F` of a field that is no view), and to a field of a type
+/// parameter's value (`sema.copies` is `depends`) that the match reads
+/// where its subject is (`in_place`, `matchesInPlace`): what each
+/// instance reads is the subject's own, never a copy in the arm. A field
+/// that is itself a view or a slice is bound as it is. The binding's
+/// type and its field's (`SemContext.payloadFieldOf`) are typecheck's:
+/// the field's type at the matched instance, so `v` of `Opt[?T]`'s
+/// `v: T` is the view the field holds.
+pub fn payloadByAddress(ctx: *const SemContext, b: Sexp, writes: bool, in_place: bool) bool {
+    const field = ctx.payloadFieldOf(b) orelse return writes;
+    if (!fieldIsPointee(ctx, field)) return false;
+    if (writes) return true;
+    const binding = known(ctx, ctx.bindingTypeOf(b) orelse return false) orelse return false;
+    if (ctx.types.get(binding) == .read_view) return true;
+    return in_place and !sema.isReadOrWriteView(ctx, binding) and sema.copies(ctx, binding) == .depends;
 }
 
 /// Whether a read match's catch-all binding of type `ty` is captured by
@@ -1031,11 +1037,10 @@ const Planner = struct {
             const in_place = matchesInPlace(ctx, m);
             var any = false;
             var by_addr = mode == .write;
-            for (ir.VariantPattern.bindings(pattern), fields) |b, f| {
+            for (ir.VariantPattern.bindings(pattern), fields) |b, _| {
                 if (!p.isUsed(b)) continue;
                 any = true;
-                const binding: ?TypeId = if (ctx.symbolOf(b)) |s| known(ctx, ctx.symbols.items[s].ty) else null;
-                if (payloadByAddress(ctx, binding, f, mode == .write, in_place)) by_addr = true;
+                if (payloadByAddress(ctx, b, mode == .write, in_place)) by_addr = true;
             }
             if (any) try p.record(arm, .payload, if (by_addr) .pointer else .copy, .arm);
         }

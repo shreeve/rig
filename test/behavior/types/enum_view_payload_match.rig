@@ -1,0 +1,77 @@
+# A match binds a payload field that is itself a view (an enum
+# instantiated at a view type, `Opt[?T]`) as the view it is, not as a
+# view of the field: in a plain arm, a guarded one, beside a field that
+# is no view, at a concrete instance, a slice, and in a write match.
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+enum Pair[A, B]
+  both(a: A, b: B)
+  neither
+
+fun wrap[T](x: ?T) -> Opt[?T] from x
+  Opt.some(v: x)
+
+fun first[T](x: ?T, d: ?T) -> ?T from x, d
+  match wrap(x)
+    .some(v) => v
+    .nothing => d
+
+fun pick[T](x: ?T, d: ?T, ok: Bool) -> ?T from x, d
+  match wrap(x)
+    .some(v) if ok => v
+    _ => d
+
+fun mk[T](x: ?T, n: Int) -> Pair[?T, Int] from x
+  Pair.both(a: x, b: n)
+
+fun left[T](x: ?T, d: ?T) -> ?T from x, d
+  match mk(x, 2)
+    .both(a, _) => a
+    .neither => d
+
+fun wrapText(x: ?Text) -> Opt[?Text] from x
+  Opt.some(v: x)
+
+fun firstText(x: ?Text, d: ?Text) -> ?Text from x, d
+  match wrapText(x)
+    .some(v) => v
+    .nothing => d
+
+fun longer(x: ?Text, d: ?Text) -> ?Text from x, d
+  match wrapText(x)
+    .some(v) if v.len > 1 => v
+    _ => d
+
+fun held(o: !Opt[?Text], d: ?Text) -> ?Text from o, d
+  match o
+    .some(v) => v
+    .nothing => d
+
+fun wrapSlice(xs: []Int) -> Opt[[]Int] from xs
+  Opt.some(v: xs)
+
+sub main()
+  t = Text("tt")
+  u = Text("u")
+  d = Text("d")
+  print(first(?t, ?d), pick(?t, ?d, true), pick(?t, ?d, false))
+  print(left(?t, ?d), firstText(?t, ?d), longer(?t, ?d), longer(?u, ?d))
+  o = wrapText(?t)
+  print(held(!o, ?d))
+  n = 4
+  m = 0
+  print(first(?n, ?m), pick(?n, ?m, false))
+  v = [1, 2, 3]
+  match wrapSlice(?v[..])
+    .some(s) => print(s[1])
+    .nothing => pass
+
+# expect:
+# tt tt d
+# tt tt tt d
+# tt
+# 4 0
+# 2
