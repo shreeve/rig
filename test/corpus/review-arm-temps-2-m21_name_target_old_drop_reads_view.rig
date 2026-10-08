@@ -1,0 +1,26 @@
+# The store drops the old value of `h`, whose `drop` reads what it views,
+# after the arm grows that owner.
+struct H
+  v: ?Vec[Int]
+
+  drop(!self)
+    print("drop", self.v[0])
+
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..200
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  u: Vec[Int] = Vec()
+  !u.push(8)
+  h = H(v: ?v)
+  k = 0
+  h = match k
+    0
+      grow(!v)
+      H(v: ?u)
+    _ => H(v: ?u)
+  print("end")

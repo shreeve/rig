@@ -1,0 +1,13 @@
+# Valid: a `break` out of the value (and the loop around the assignment).
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  for i in 0..5
+    w[0] = match i
+      3 => break
+      _ => i * 10
+  print(v[0])
+
+# expect:
+# 20

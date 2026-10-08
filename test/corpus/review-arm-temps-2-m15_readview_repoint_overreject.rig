@@ -1,0 +1,24 @@
+# A read-view local re-pointed from a value whose arm grows its old referent.
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..3
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  u: Vec[Int] = Vec()
+  !u.push(8)
+  r = ?v[0..1]
+  print(r[0])
+  k = 0
+  r = match k
+    0
+      grow(!v)
+      ?u[0..1]
+    _ => ?u[0..1]
+  print(r[0], v.len)
+
+# expect:
+# 7
+# 8 4

@@ -1,0 +1,26 @@
+# Valid: the value assigns the target before the compound store reads it.
+sub main()
+  x = 1
+  k = 0
+  x += match k
+    0
+      x = 10
+      3
+    _ => 4
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  v[0] += match k
+    0
+      v[0] = 20
+      3
+    _ => 4
+  w = !v[0]
+  w += match k
+    0
+      w = 100
+      5
+    _ => 4
+  print(x, v[0])
+
+# expect:
+# 13 105

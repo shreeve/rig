@@ -1,0 +1,27 @@
+# The value's last arm re-points the target at an owned payload the arm
+# binds from a made subject; the payload drops at the arm's end.
+enum Bx
+  has(v: Vec[Int])
+  nothing
+
+fun mk() -> Bx
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  Bx.has(<v)
+
+sub run(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = match k
+    1 => 4
+    _
+      match mk()
+        .has(p)
+          w = !p[0..1]
+          3
+        .nothing => 5
+  print(v[0])
+
+sub main()
+  run(0)

@@ -1506,6 +1506,23 @@ pub const Emitter = struct {
             }
         }
         const kind = local.kind orelse {
+            // The value is made first when it can act, so the store goes
+            // through the place as the value left it (`storesAfterValue`).
+            const first = self.sema.storageOf(value, .new_value) != null;
+            if (first) {
+                const id = self.nextId();
+                const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
+                try self.w.print("{{ const {s}", .{name});
+                if (local.ty) |t| {
+                    try self.w.writeAll(": ");
+                    try self.emitTypeTy(if (local.is_ptr) self.peelViews(t) else t);
+                }
+                try self.w.writeAll(" = ");
+                try self.emitBareAs(value, local.ty);
+                try self.w.writeAll("; ");
+                try self.writeLocalPlace(&local);
+                return self.w.print(" = {s}; }}", .{name});
+            }
             try self.writeLocalPlace(&local);
             try self.w.writeAll(" = ");
             try self.emitBareAs(value, local.ty);

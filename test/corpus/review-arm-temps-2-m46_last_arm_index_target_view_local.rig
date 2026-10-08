@@ -1,0 +1,17 @@
+# The target's index reads a view the last arm re-points at an arm-local Vec.
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(2)
+  t: Vec[Int] = Vec()
+  for _ in 0..5
+    !t.push(0)
+  w = ?v[0..1]
+  k = 0
+  t[w[0]] = match k
+    1 => 4
+    _
+      u: Vec[Int] = Vec()
+      !u.push(3)
+      w = ?u[0..1]
+      9
+  print(t[2], t[3])

@@ -193,3 +193,15 @@ step.text.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `b
 # cannot lend `s` to write (Core §6: "a value an earlier argument reads
 # stays lent until the call returns").
 test/corpus/review-move-done-p74_print_read_then_write_lend.rig main prod-rejects core-gap `print((?s).n, (!s).n)`: a copied-out field of a read lend, then a write lend
+
+# An assignment is `{ __v = value; place op= __v }` (INTERNALS
+# "Assignments"). Liveness is textual, so a later arm's guard keeps the
+# subject's view live in an earlier arm, and a view re-pointed by the
+# assignment keeps its old loan through the value. A reassigned owner's
+# old value is dropped after the value: a `drop` that reads a slice of a
+# Vec the value grew reads freed memory, which the oracle does not model.
+test/corpus/review-arm-temps-l07_subject_viewed_by_guard_after.rig main prod-rejects prod-strict `grow(!v)` in arm 0 while a later arm's guard reads `x`, a view of `v`
+test/corpus/review-arm-temps-2-m15_readview_repoint_overreject.rig main prod-rejects prod-strict `grow(!v)` in the value of `r = match`, which re-points `r` from a view of `v`
+test/corpus/review-arm-temps-2-m21_name_target_old_drop_reads_view.rig main prod-rejects prod-strict `grow(!v)` in the value of `h = match`, whose old value's `drop` reads `v` through a `?Vec[Int]`
+test/corpus/review-arm-temps-2-m33_slice_holder_drop_reads.rig main prod-rejects ref-gap `grow(!v)` in the value of `h = match`, whose old value's `drop` reads a slice of `v`
+test/corpus/review-arm-temps-2-m34_slice_holder_drop_reads_plain.rig main prod-rejects ref-gap `h = growh(!v, ?u)`, whose old value's `drop` reads a slice of `v`

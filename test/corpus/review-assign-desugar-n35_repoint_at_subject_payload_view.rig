@@ -1,0 +1,23 @@
+# As n34 with a read match (`?`): the payload views the subject temporary.
+enum Bx
+  nothing
+  has(v: Vec[Int])
+
+fun mk() -> Bx
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  Bx.has(<v)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = ?v[0..1]
+  t: Vec[Int] = Vec()
+  for _ in 0..3
+    !t.push(0)
+  t[w[0]] = match ?mk()
+    .nothing => 5
+    .has(p)
+      w = ?p[0..1]
+      3
+  print(t[0], t[1], w[0])

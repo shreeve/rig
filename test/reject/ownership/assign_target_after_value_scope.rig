@@ -1,0 +1,148 @@
+# An assignment is `{ __v = value; place op= __v }`: every scope nested
+# in the value ends before the target is used, so a view the target reads
+# may not be pointed at a local of such a scope, the last one included
+# (the last `match` arm, an `else` block, a `catch` block).
+error E
+  bad
+
+struct S
+  n: Int
+
+fun fail(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+sub first_arm(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = match k
+    0
+      u: Vec[Int] = Vec()
+      !u.push(1)
+      w = !u[0..1]
+      3
+    _ => 4
+
+sub last_arm(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = match k
+    1 => 4
+    _
+      u: Vec[Int] = Vec()
+      !u.push(1)
+      w = !u[0..1]
+      3
+
+sub if_block(k: Bool)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = if k
+    u: Vec[Int] = Vec()
+    !u.push(1)
+    w = !u[0..1]
+    3
+  else
+    4
+
+sub else_block(k: Bool)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = if k
+    4
+  else
+    u: Vec[Int] = Vec()
+    !u.push(1)
+    w = !u[0..1]
+    3
+
+sub catch_block()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = fail(-1) catch |_|
+    u: Vec[Int] = Vec()
+    !u.push(1)
+    w = !u[0..1]
+    3
+
+sub compound(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] += match k
+    1 => 4
+    _
+      u: Vec[Int] = Vec()
+      !u.push(1)
+      w = !u[0..1]
+      3
+
+sub field(k: Int)
+  v: Vec[S] = Vec()
+  !v.push(S(n: 7))
+  w = !v[0]
+  w.n = match k
+    1 => 4
+    _
+      u: Vec[S] = Vec()
+      !u.push(S(n: 1))
+      w = !u[0]
+      3
+
+sub name_first(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0]
+  w = match k
+    0
+      u: Vec[Int] = Vec()
+      !u.push(1)
+      w = !u[0]
+      3
+    _ => 4
+
+sub name_last(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0]
+  w = match k
+    1 => 4
+    _
+      u: Vec[Int] = Vec()
+      !u.push(1)
+      w = !u[0]
+      3
+
+sub index_view(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(2)
+  t: Vec[Int] = Vec()
+  !t.push(0)
+  w = ?v[0..1]
+  t[w[0]] = match k
+    1 => 4
+    _
+      u: Vec[Int] = Vec()
+      !u.push(0)
+      w = ?u[0..1]
+      9
+
+sub main()
+  pass
+
+# error: 23:12: `u` does not live long enough
+# error: 36:12: `u` does not live long enough
+# error: 46:10: `u` does not live long enough
+# error: 60:10: `u` does not live long enough
+# error: 70:10: `u` does not live long enough
+# error: 82:12: `u` does not live long enough
+# error: 94:12: `u` does not live long enough
+# error: 105:12: `u` does not live long enough
+# error: 118:12: `u` does not live long enough
+# error: 132:12: `u` does not live long enough
+# errors: 10

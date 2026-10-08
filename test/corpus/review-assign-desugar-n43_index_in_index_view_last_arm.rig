@@ -1,0 +1,19 @@
+# `u[w[0]][w[1]] = ` where the last arm re-points `w` at its own local.
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  !v.push(0)
+  u: Vec[Vec[Int]] = Vec()
+  !u.push(Vec())
+  !u[0].push(0)
+  w = ?v[0..2]
+  k = 0
+  u[w[0]][w[1]] = match k
+    1 => 4
+    _
+      t: Vec[Int] = Vec()
+      !t.push(0)
+      !t.push(0)
+      w = ?t[0..2]
+      3
+  print(u[0][0])

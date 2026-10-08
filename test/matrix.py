@@ -489,64 +489,134 @@ STEP_SHAPES = {
 
 # -----------------------------------------------------------------------------
 # An assignment to a place a view reaches (`w[0] = X`, `w[0] += X`,
-# `w.n = X`, `u[w[0]] = X`, and `w = X` through a write view) whose
-# value holds a statement of its own (a `match` arm, a block arm, an
-# `if` block, a `catch` block), or none (a ternary, the plain value).
-# The store goes through the view after the value, so there the value
-# may not grow, read, or move what the view views; it may lend another
-# value, and the cell must print what was stored.
+# `w.n = X`, `u[w[0]] = X`, and `w = X` and `w += X` through a write
+# view) whose value holds a statement of its own (a `match` arm, a block
+# arm, the last arm, an `if` block, an `else` block, a `catch` block, an
+# `if` block in a last arm), or none (a ternary, the plain value). An
+# assignment is `{ __v = value; place op= __v }` (docs/INTERNALS.md), so
+# every scope in the value ends before the store goes through the view:
+# there the value may not grow, read, move, or drop what the view views,
+# nor point the view at a local of its own scope; it may lend another
+# value, or point the view at another one, and the store then lands
+# there. `in_block` puts the assignment last in a block whose local the
+# view was pointed at, which is valid. Each valid cell must be accepted
+# and print what was stored, in debug and with `--release`.
 # Cells are `target.<target>.<nest>.<act>`.
 # -----------------------------------------------------------------------------
 
 TARGET_PLACES = {
-    "elem": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0..1]"], store="w[0] = X", show="v[0]"),
-    "compound": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0..1]"], store="w[0] += X", show="v[0]"),
-    "field": dict(make=["v: Vec[S] = Vec()", "!v.push(S(n: 7))", "w = !v[0]"], store="w.n = X", show="v[0].n"),
-    "index": dict(make=["v: Vec[Int] = Vec()", "!v.push(0)", "u: Vec[Int] = Vec()", "!u.push(5)", "w = ?v[0..1]"],
-                  store="u[w[0]] = X", show="u[0]"),
-    "name": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0]"], store="w = X", show="v[0]"),
+    "elem": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0..1]"], store="w[0] = X", show="v[0]",
+                 repoint="w = !R[0..1]", elem="Int", seen="R[0]", base=7, add=False),
+    "compound": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0..1]"], store="w[0] += X", show="v[0]",
+                     repoint="w = !R[0..1]", elem="Int", seen="R[0]", base=7, add=True),
+    "field": dict(make=["v: Vec[S] = Vec()", "!v.push(S(n: 7))", "w = !v[0]"], store="w.n = X", show="v[0].n",
+                  repoint="w = !R[0]", elem="S", seen="R[0].n", base=7, add=False),
+    "index": dict(make=["v: Vec[Int] = Vec()", "!v.push(0)", "u: Vec[Int] = Vec()", "!u.push(5)", "!u.push(6)", "w = ?v[0..1]"],
+                  store="u[w[0]] = X", show="u[0]", repoint="w = ?R[0..1]", elem="Int", seen="u[1]", base=5, add=False),
+    "name": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0]"], store="w = X", show="v[0]",
+                 repoint="w = !R[0]", elem="Int", seen="R[0]", base=7, add=False),
+    "name_compound": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0]"], store="w += X", show="v[0]",
+                          repoint="w = !R[0]", elem="Int", seen="R[0]", base=7, add=True),
 }
 TARGET_NESTS = {
     "arm": ["match k", "  0 => A", "  _ => 3"],
     "block_arm": ["match k", "  0", "    A", "  _ => 3"],
+    "last_arm": ["match k", "  1 => 3", "  _", "    A"],
     "if_block": ["if k == 0", "  A", "else", "  3"],
+    "else_block": ["if k != 0", "  3", "else", "  A"],
     "catch_block": ["fail(-1) catch |_|", "  A"],
+    "nested_last": ["match k", "  1 => 3", "  _", "    if k != 0", "      4", "    else", "      A"],
     "ternary": ["A if k == 0 else 3"],
     "plain": ["A"],
+    "in_block": None,
 }
+# Each act is the lines of the value, its last line the value itself;
+# `R` is the Vec a re-pointing act points the view at. Valid acts give
+# the stored value (`stores`) and whether the view ends at x (`at_x`).
 TARGET_ACTS = {
-    "grow": "grow(!v)",
-    "read": "v.len",
-    "move": "sink(<v)",
-    "other": "grow(!x)",
+    "grow": dict(lines=["grow(!v)"]),
+    "read": dict(lines=["v.len"]),
+    "move": dict(lines=["sink(<v)"]),
+    "drop": dict(lines=["-v", "3"]),
+    "other": dict(lines=["grow(!x)"], stores=201),
+    "local": dict(lines=["y: Vec[Int] = Vec()", "!y.push(1)", "grow(!y)"], stores=201),
+    "repoint_local": dict(lines=["MAKE_y", "REPOINT_y", "3"]),
+    "repoint_outer": dict(lines=["REPOINT_x", "3"], stores=3, at_x=True),
+    "repoint_grow": dict(lines=["REPOINT_x", "grow(!v)"], stores=201, at_x=True),
 }
 
 
 def target_program(tname, nname, aname):
-    """The program for one target cell."""
+    """The program for one target cell, or None where the act's lines
+    cannot stand in the nest (a statement in a one-line value), or
+    `in_block` with any act but the plain value."""
     t = TARGET_PLACES[tname]
-    act = TARGET_ACTS[aname]
-    if tname == "field" and aname == "grow":
-        act = "grows(!v)"
-    nest = [l.replace("A", act) for l in TARGET_NESTS[nname]]
+    a = TARGET_ACTS[aname]
+    pushed = "S(n: 1)" if t["elem"] == "S" else ("0" if tname == "index" else "1")
+
+    def act_line(line):
+        if line.startswith("MAKE_"):
+            r = line[5:]
+            return [f"{r}: Vec[{t['elem']}] = Vec()", f"!{r}.push({pushed})"]
+        if line.startswith("REPOINT_"):
+            return [t["repoint"].replace("R", line[8:])]
+        if tname == "field" and line in ("grow(!v)", "grow(!x)"):
+            return [line.replace("grow", "grows")]
+        return [line]
+
+    lines = [l for line in a["lines"] for l in act_line(line)]
     store = t["store"].split("X")[0]
-    uses_k = any("k" in l.split() for l in nest)
-    body = list(t["make"]) + ["x: Vec[Int] = Vec()", "!x.push(1)"] + (["k = 0"] if uses_k else []) + [store + nest[0]] + nest[1:] + [f"print({t['show']})"]
+    x_make = [f"x: Vec[{t['elem']}] = Vec()", f"!x.push({'S(n: 1)' if t['elem'] == 'S' else '1'})"]
+    if nname == "in_block":
+        if aname != "repoint_local":
+            return None
+        inner = [f"y: Vec[{t['elem']}] = Vec()", f"!y.push({pushed})", t["repoint"].replace("R", "y"), store + "3"]
+        body = list(t["make"]) + ["k = 0", "if k == 0"] + ["  " + l for l in inner] + [f"print({t['show']})"]
+    else:
+        nest = TARGET_NESTS[nname]
+        if len(lines) > 1 and nname in ("arm", "ternary", "plain"):
+            return None
+        out_nest = []
+        for l in nest:
+            if "A" in l.split() or l.strip().startswith("A"):
+                pad = l[:len(l) - len(l.lstrip())]
+                if len(lines) == 1:
+                    out_nest.append(l.replace("A", lines[0], 1))
+                else:
+                    out_nest += [pad + x for x in lines]
+            else:
+                out_nest.append(l)
+        uses_k = any("k" in l.split() for l in out_nest)
+        show = t["show"] + (", " + t["seen"].replace("R", "x") if a.get("at_x") else "")
+        body = list(t["make"]) + x_make + (["k = 0"] if uses_k else []) + [store + out_nest[0]] + out_nest[1:] + [f"print({show})"]
     out = ["error E\n  bad\n", "struct S\n  n: Int\n",
            "fun grow(v: !Vec[Int]) -> Int\n  for _ in 0..200\n    !v.push(1)\n  v.len\n",
            "fun grows(v: !Vec[S]) -> Int\n  for _ in 0..200\n    !v.push(S(n: 1))\n  v.len\n",
-           "fun sink(v: Vec[S]) -> Int\n  v.len\n" if tname == "field" else "fun sink(v: Vec[Int]) -> Int\n  v.len\n",
+           "fun sink(v: Vec[S]) -> Int\n  v.len\n" if t["elem"] == "S" else "fun sink(v: Vec[Int]) -> Int\n  v.len\n",
            "fun fail(n: Int) -> Int!\n  return E.bad if n < 0\n  n\n",
            "sub main()\n" + indent(body, 2) + "\n"]
     return "\n".join(out)
 
 
-def target_output(tname, aname):
-    """What a cell that lends another value prints: the length it grew to,
-    stored (added, for `+=`)."""
-    if aname != "other":
+def target_output(tname, nname, aname):
+    """What a valid cell prints, or None for a cell that may be rejected:
+    the value stored where the view points after the value (added to
+    what is there, for `op=`), and beside it what the view first viewed."""
+    t = TARGET_PLACES[tname]
+    a = TARGET_ACTS[aname]
+    if nname == "in_block":
+        # The store lands in y; u[y[0]] is u[0] for `index`.
+        return ("3\n" if tname == "index" else f"{t['base']}\n") if aname == "repoint_local" else None
+    if "stores" not in a:
         return None
-    return "208\n" if tname == "compound" else "201\n"
+    if aname == "local" and nname in ("arm", "ternary", "plain"):
+        return None
+    if a.get("at_x"):
+        # x holds 1 (index: u[1] holds 6, replaced).
+        stored = a["stores"] + (1 if t["add"] else 0)
+        return f"{t['base']} {stored}\n"
+    stored = a["stores"] + (t["base"] if t["add"] else 0)
+    return f"{stored}\n"
 
 
 def step_program(oname, hname, shape, then):
@@ -1724,6 +1794,7 @@ def main():
                     fh.write(store_program(o, f, then))
                 cells.append((ident, path))
     expects = {}
+    release = set()
     for o in STEP_OWNERS:
         for hname in STEP_HOLDERS:
             for shape in STEP_SHAPES:
@@ -1743,12 +1814,17 @@ def main():
                 ident = f"target.{tp}.{nest}.{act}"
                 if not wanted(ident):
                     continue
+                src = target_program(tp, nest, act)
+                if src is None:
+                    skipped += 1
+                    continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(target_program(tp, nest, act))
+                    fh.write(src)
                 cells.append((ident, path))
-                if target_output(tp, act) is not None:
-                    expects[ident] = target_output(tp, act)
+                if target_output(tp, nest, act) is not None:
+                    expects[ident] = target_output(tp, nest, act)
+                    release.add(ident)
     for outer in LOOP_OUTERS:
         for inner in LOOP_INNERS:
             for jump in LOOP_JUMPS:
@@ -1775,7 +1851,6 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(src)
                 cells.append((ident, path))
-    release = set()
     for t in CELLMUT_TYPES:
         for a in CELLMUT_ACCESS:
             ident = f"cellmut.{t}.{a}"

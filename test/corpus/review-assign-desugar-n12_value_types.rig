@@ -1,0 +1,86 @@
+# Valid: name stores of many value types through `__v` (a call in the
+# value), to a plain local and through a write view.
+enum Color
+  red
+  green
+
+struct P
+  a: Int
+  b: Float
+
+fun tick(n: Int) -> Int
+  print("tick", n)
+  n
+
+sub main()
+  k = 0
+  i = 1
+  i = match k
+    0
+      tick(1)
+      2
+    _ => 3
+  f = 1.5
+  f = if k == 0
+    tick(2)
+    2.5
+  else
+    3.5
+  c = Color.red
+  c = match k
+    0
+      tick(3)
+      .green
+    _ => .red
+  o: Int? = 4
+  o = match k
+    0
+      tick(4)
+      none
+    _ => 5
+  s = "a"
+  s = match k
+    0
+      tick(5)
+      "b"
+    _ => "c"
+  b = true
+  b = match k
+    0 => tick(6) == 7
+    _ => true
+  p = P(a: 1, b: 1.0)
+  wp = !p
+  wp = match k
+    0
+      tick(7)
+      P(a: 2, b: 2.0)
+    _ => P(a: 0, b: 0.0)
+  vc: Vec[Color] = Vec()
+  !vc.push(Color.red)
+  wc = !vc[0]
+  wc = match k
+    0
+      tick(8)
+      .green
+    _ => .red
+  vo: Vec[Int?] = Vec()
+  !vo.push(1)
+  wo = !vo[0]
+  wo = match k
+    0
+      tick(9)
+      none
+    _ => 3
+  print(i, f, c == Color.green, o == none, s, b, p.a, p.b, vc[0] == Color.green, vo[0] == none)
+
+# expect:
+# tick 1
+# tick 2
+# tick 3
+# tick 4
+# tick 5
+# tick 6
+# tick 7
+# tick 8
+# tick 9
+# 2 2.5 true true b false 2 2.0 true true

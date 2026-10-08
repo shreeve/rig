@@ -1,0 +1,17 @@
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  t = D(n: 9)
+  s = D(n: 1)
+  r = ?t
+  k = 0
+  s = match k
+    0
+      r = ?s
+      D(n: 2)
+    _ => D(n: 5)
+  print(r.n)

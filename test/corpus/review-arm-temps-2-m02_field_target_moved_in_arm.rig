@@ -1,0 +1,25 @@
+# `o.d = match k` whose arm moves `o.d` out: a conditional partial move,
+# then the store reinitializes it.
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct O
+  d: D
+
+fun sink(d: D) -> D
+  print("sink", d.n)
+  D(n: d.n + 10)
+
+sub run(k: Int)
+  o = O(d: D(n: k))
+  o.d = match k
+    0 => sink(<o.d)
+    _ => D(n: 5)
+  print("o", o.d.n)
+
+sub main()
+  run(0)
+  run(1)

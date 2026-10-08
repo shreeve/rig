@@ -1,0 +1,15 @@
+# Valid: continue the loop around the assignment from inside its value;
+# on the other path the target is stored.
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  for i in 0..4
+    w[0] = if i % 2 == 0
+      continue
+    else
+      i
+  print(v[0])
+
+# expect:
+# 3

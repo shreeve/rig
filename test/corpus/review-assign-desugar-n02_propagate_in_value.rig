@@ -1,0 +1,22 @@
+# Valid: `w[0] = fail(n)!` where `w` views a local; the error path leaves.
+error E
+  bad
+
+fun fail(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun run(n: Int) -> Int!
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = fail(n)!
+  v[0]
+
+sub main()
+  print(run(4) catch |_| 0)
+  print(run(-1) catch |_| 9)
+
+# expect:
+# 4
+# 9

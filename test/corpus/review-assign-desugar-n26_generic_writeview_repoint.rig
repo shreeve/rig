@@ -1,0 +1,33 @@
+# A write-view local of a generic element type, re-pointed in the value,
+# which then grows the old referent; the store goes to y[0].
+fun grow[T](v: !Vec[T], x: T) -> Int
+  for _ in 0..200
+    !v.push(x)
+  v.len
+
+sub run[T](x: !Vec[T], y: !Vec[T], a: T, k: Int)
+  w = !x[0]
+  w = match k
+    0
+      w = !y[0]
+      grow(!x, a)
+      a
+    _ => a
+
+sub main()
+  x: Vec[Int] = Vec()
+  !x.push(1)
+  y: Vec[Int] = Vec()
+  !y.push(2)
+  run(!x, !y, 9, 0)
+  print(x[0], y[0], x.len)
+  xs: Vec[String] = Vec()
+  !xs.push("a")
+  ys: Vec[String] = Vec()
+  !ys.push("b")
+  run(!xs, !ys, "z", 0)
+  print(xs[0], ys[0], xs.len)
+
+# expect:
+# 1 9 201
+# a z 201

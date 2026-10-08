@@ -1,0 +1,25 @@
+# Valid: a deferred block holding an assignment whose value has a block
+# arm that calls; it runs at scope exit, before `v` drops.
+fun tick(n: Int) -> Int
+  print("tick", n)
+  n
+
+sub run(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  defer
+    w[0] = match k
+      0
+        tick(3)
+      _ => 4
+    print("deferred", w[0])
+  print(w[0])
+
+sub main()
+  run(0)
+
+# expect:
+# 7
+# tick 3
+# deferred 3

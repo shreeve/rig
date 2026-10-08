@@ -1,0 +1,15 @@
+# The arm re-points the target's write view at a Vec local to the arm; the
+# store then writes through it after the arm drops that Vec.
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0
+      u: Vec[Int] = Vec()
+      !u.push(1)
+      w = !u[0..1]
+      3
+    _ => 4
+  print(v[0])

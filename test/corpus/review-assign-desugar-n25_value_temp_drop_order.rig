@@ -1,0 +1,25 @@
+# Order: does a temporary the value makes drop before the target's
+# index runs ({ __v = value; place = __v }), or after the store?
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> D
+  D(n: n)
+
+fun at(i: Int, what: String) -> Int
+  print(what)
+  i
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  v[at(0, "index")] = mk(5).n
+  print(v[0])
+  k = 0
+  v[at(0, "index2")] = match k
+    0 => mk(6).n
+    _ => 1
+  print(v[0])
