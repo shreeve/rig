@@ -1,0 +1,22 @@
+# Valid: `a[i][j] = grow(!a)`: the value grows the outer Vec before the
+# target is found, so the store lands in the moved inner Vec.
+fun grow(a: !Vec[Vec[Int]]) -> Int
+  for _ in 0..100
+    !a.push(Vec())
+  a.len
+
+sub main()
+  a: Vec[Vec[Int]] = Vec()
+  !a.push(Vec())
+  !a[0].push(0)
+  !a[0].push(0)
+  k = 0
+  a[0][1] = match k
+    0
+      grow(!a)
+    _ => 3
+  a[0][0] += grow(!a)
+  print(a[0][0], a[0][1], a.len)
+
+# expect:
+# 201 101 201

@@ -1,0 +1,19 @@
+# Name target through a write view; the catch block re-points it at its
+# local.
+error E
+  bad
+
+fun fail(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0]
+  w = fail(-1) catch |_|
+    u: Vec[Int] = Vec()
+    !u.push(1)
+    w = !u[0]
+    3
+  print(v[0])

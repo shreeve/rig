@@ -1,0 +1,19 @@
+# The value makes a temporary holding a write view of the target's Vec,
+# whose drop grows it. The temporary drops at the end of the statement:
+# after the store (emit), or before the target (the desugaring's text).
+struct G
+  r: !Vec[Int]
+  n: Int
+
+  drop(!self)
+    for _ in 0..200
+      !self.r.push(9)
+
+fun mk(v: !Vec[Int]) -> G
+  G(r: !v, n: v.len)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  v[0] = mk(!v).n
+  print(v[0], v.len)

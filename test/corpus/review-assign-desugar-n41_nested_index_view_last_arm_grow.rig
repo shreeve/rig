@@ -1,0 +1,18 @@
+# `wv[0][0] = match` through a slice of a Vec of Vecs; the last arm
+# grows the outer Vec, which the slice views.
+fun grow(a: !Vec[Vec[Int]]) -> Int
+  for _ in 0..100
+    !a.push(Vec())
+  a.len
+
+sub main()
+  a: Vec[Vec[Int]] = Vec()
+  !a.push(Vec())
+  !a[0].push(0)
+  wv = !a[0..1]
+  k = 0
+  wv[0][0] = match k
+    1 => 4
+    _
+      grow(!a)
+  print(a[0][0])

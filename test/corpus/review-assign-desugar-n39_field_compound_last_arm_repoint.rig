@@ -1,0 +1,17 @@
+# Field compound target; the last arm re-points the view at its local.
+struct S
+  n: Int
+
+sub main()
+  v: Vec[S] = Vec()
+  !v.push(S(n: 7))
+  w = !v[0]
+  k = 0
+  w.n += match k
+    1 => 4
+    _
+      u: Vec[S] = Vec()
+      !u.push(S(n: 1))
+      w = !u[0]
+      3
+  print(v[0].n)

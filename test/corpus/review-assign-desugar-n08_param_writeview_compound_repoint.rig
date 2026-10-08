@@ -1,0 +1,15 @@
+# A `!Int` parameter target, compound, re-pointed in the last arm at an
+# arm-local. Must be rejected.
+sub run(w: !Int, k: Int)
+  w += match k
+    1 => 4
+    _
+      u: Vec[Int] = Vec()
+      !u.push(1)
+      w = !u[0]
+      3
+
+sub main()
+  x = 1
+  run(!x, 0)
+  print(x)

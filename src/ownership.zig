@@ -5371,7 +5371,6 @@ pub const Checker = struct {
             } else pinned;
             const kept = try self.arena().dupe(AfterValue, self.after_value.items[left..]);
             self.after_value.shrinkRetainingCapacity(left);
-            defer self.after_value.appendSliceAssumeCapacity(kept);
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
             // A `continue` goes on to a step that runs in the condition's
             // bindings' scope, or else back to the loop's head.
@@ -5381,6 +5380,7 @@ pub const Checker = struct {
                 .brk => try t.breaks.append(self.arena(), s),
                 .cont => try (if (step != null) &t.step_conts else &t.conts).append(self.arena(), s),
             }
+            try self.after_value.appendSlice(self.gpa, kept);
         }
         self.reachable = false;
     }

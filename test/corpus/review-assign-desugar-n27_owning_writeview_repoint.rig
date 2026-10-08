@@ -1,0 +1,30 @@
+# A write view of an owning struct, re-pointed in the value, which then
+# grows the old Vec: the old value at y[0] is dropped and replaced.
+struct S
+  items: Vec[Int]
+
+fun grow(v: !Vec[S]) -> Int
+  for _ in 0..200
+    !v.push(S(items: Vec()))
+  v.len
+
+sub main()
+  x: Vec[S] = Vec()
+  !x.push(S(items: Vec()))
+  y: Vec[S] = Vec()
+  !y.push(S(items: Vec()))
+  !y[0].items.push(5)
+  w = !x[0]
+  k = 0
+  w = match k
+    0
+      w = !y[0]
+      n = grow(!x)
+      t: Vec[Int] = Vec()
+      !t.push(n)
+      S(items: <t)
+    _ => S(items: Vec())
+  print(x.len, x[0].items.len, y[0].items[0])
+
+# expect:
+# 201 0 201

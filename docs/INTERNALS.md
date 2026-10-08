@@ -1843,7 +1843,10 @@ The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
 scope it opens, and the drops and defers that end them. Only then is
 the target evaluated, its indexes from the outside in, and the store
-made through the place as the value left it.
+made through the place as the value left it. A temporary the value
+makes outside its nested scopes (`mk(5).n`) belongs to the assignment's
+statement, as every statement's temporaries do, so it lives until after
+the store: `__v = value;` does not end it.
 
 - **The checker** walks the value, then the target. While the value is
   walked, the target's uses lie ahead, in the statement after `__v`:

@@ -1,0 +1,17 @@
+# Valid: a `return` in the value never reaches the target; the target's
+# view of a local must not make the return's drops an error.
+sub run(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = match k
+    0 => return
+    _ => 3
+  print(v[0])
+
+sub main()
+  run(0)
+  run(1)
+
+# expect:
+# 3

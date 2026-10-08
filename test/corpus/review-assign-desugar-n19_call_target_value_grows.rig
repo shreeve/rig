@@ -1,0 +1,21 @@
+# Valid: a call in the target, after a value that grows what it returns
+# a view into.
+fun first(v: !Vec[Int]) -> !Int
+  !v[0]
+
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..200
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  k = 0
+  first(!v) = match k
+    0 => grow(!v)
+    _ => 3
+  print(v[0], v.len)
+
+# expect:
+# 201 201

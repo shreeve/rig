@@ -1726,7 +1726,9 @@ So `place op= value` is `{ __v = value; place op= __v }`: the value
 runs to its end, every block, arm, and handler in it and the drops
 that end them included, before the target is evaluated, so a store
 through a view goes where the value left the view, and the view may
-not point at anything the value's own scopes dropped.
+not point at anything the value's own scopes dropped. A temporary the
+value makes outside those scopes lives until after the store, as every
+statement's temporaries do.
 
 ```rig
 fun grow(v: !Vec[Int]) -> Int
