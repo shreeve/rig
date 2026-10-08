@@ -1,7 +1,8 @@
 # In a generic body, a `?self` method that may change a Cell, called on
-# a value with no place (a temporary, or a part of a branch whose leaf is
-# made there), requires every instance to hold no Cell: at an instance
-# that holds one the call is rejected, as it is in concrete code.
+# a temporary or on a part of a branch whose leaf is made there, reaches
+# the temporary in its statement's slot, as concrete code does: at an
+# instance that holds a Cell the change lands there.
+# release
 
 struct T
   c: Cell[Int]
@@ -42,7 +43,11 @@ sub main()
   temp(T(c: Cell(0)), bump)
   print(branch(mkp(1), 2, show, true).h.x)
   print(branch(mkp(T(c: Cell(0))), T(c: Cell(1)), bump, false).h.x.c.get())
+  print(branch(mkp(T(c: Cell(0))), T(c: Cell(1)), bump, true).h.x.c.get())
 
-# error: 42:3: `temp[T]` cannot use `X = T`: the generic body calls `run` on a temporary
-# error: 44:9: `branch[T]` cannot use `X = T`: the generic body calls `run` on a part of a value that may be the temporary `mkp(<x)`
-# errors: 2
+# expect:
+# 5
+# 1
+# 1
+# 0
+# 1

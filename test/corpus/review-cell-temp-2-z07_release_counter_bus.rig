@@ -1,0 +1,33 @@
+# Pre-existing (main too): a plain ?self counter on a named local, in a loop.
+# Debug prints 20 20 159; --release on macOS: bus error in Cell.set (C1).
+#
+# oracle: C.hit accept
+# oracle: total accept
+# oracle: maybe accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    self.log.push(self.c.get())
+
+fun total(x: ?C) -> Int
+  x.hit()
+  x.c.get() + x.log.len
+
+fun maybe(n: Int) -> Int?
+  return none if n % 3 == 0
+  n
+
+sub main()
+  k = C(c: Cell(0), log: Cell(Vec()))
+  s = 0
+  for i in 0..10
+    k.hit()
+    s += total(?k) + (maybe(i) ?? continue)
+  print(k.c.get(), k.log.len, s)
+
+# expect:
+# 20 20 159

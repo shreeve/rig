@@ -1230,11 +1230,6 @@ pub const Requirement = union(enum) {
     /// parameter (a loop element, a match payload) and may lend it, so a
     /// Cell in it would change in the copy only.
     no_cell,
-    /// Holds no Cell inline: the body calls a `?self` method that may
-    /// change a Cell on a value holding the parameter that has no place
-    /// (a temporary, or a branch's leaf made there), which an instance
-    /// holding a Cell would need.
-    cell_place,
     /// Needs no cleanup: the body discards the parameter's value, leaves
     /// a temporary of it, overwrites one, or keeps one in an array or a
     /// slice.
@@ -1269,7 +1264,7 @@ pub const Requirement = union(enum) {
             .shift => "a constant shift",
             .copies => "a value that copies",
             .no_cleanup => "a value that owns no resource",
-            .no_cell, .cell_place => "a value that holds no Cell",
+            .no_cell => "a value that holds no Cell",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
@@ -5864,7 +5859,7 @@ pub fn valueLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) 
 
 /// A value that is one of its operands: `a if c else b`, `a ?? b`,
 /// `e catch h`, `e!`, or `e?`. An `if` without an `else` is a statement.
-fn isBranchingForm(node: Sexp) bool {
+pub fn isBranchingForm(node: Sexp) bool {
     return switch (node.kind() orelse return false) {
         .@"if" => ir.If.@"else"(node) != .nil,
         .@"??", .@"catch", .propagate, .propagate_none => true,

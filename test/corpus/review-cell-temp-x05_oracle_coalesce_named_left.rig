@@ -1,0 +1,22 @@
+# `(opt(?b) ?? ?mkt(0)).n`,
+# a lent temporary on the right of `??`, read within its statement.
+#
+# oracle: opt accept
+# oracle: mkt accept
+# oracle: main accept
+struct T
+  t: Text
+  n: Int
+
+fun opt(p: ?T) -> (?T)?
+  p
+
+fun mkt(n: Int) -> T
+  T(t: Text("x"), n: n)
+
+sub main()
+  b = mkt(1)
+  print((opt(?b) ?? ?mkt(0)).n)
+
+# expect:
+# 1

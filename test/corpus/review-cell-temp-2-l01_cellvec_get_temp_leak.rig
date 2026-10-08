@@ -1,0 +1,28 @@
+# `get(i)` on a Cell[Vec[Int]] that is a temporary: the temporary leaks.
+#
+# oracle: vec1 accept
+# oracle: mk accept
+# oracle: mkh accept
+fun vec1(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  v
+
+fun mk(n: Int) -> Cell[Vec[Int]]
+  Cell(vec1(n))
+
+struct H
+  c: Cell[Vec[Int]]
+
+fun mkh(n: Int) -> H
+  H(c: Cell(vec1(n)))
+
+sub main()
+  print(mk(5).get(0) ?? -1)
+  print(mkh(6).c.get(0) ?? -1)
+  print(mk(7).len, mkh(8).c.len, mk(9)[0])
+
+# expect:
+# 5
+# 6
+# 1 1 9

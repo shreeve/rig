@@ -1,0 +1,22 @@
+# The same shape with a type holding a Text and no Cell.
+#
+# oracle: T.opt accept
+# oracle: mkt accept
+# oracle: main accept
+struct T
+  t: Text
+  n: Int
+
+  fun opt(?self) -> (?T)?
+    self
+
+fun mkt(n: Int) -> T
+  T(t: Text("x"), n: n)
+
+sub main()
+  print((mkt(5).opt() ?? ?mkt(0)).n)
+  print((mkt(6).opt() ?? ?mkt(0)).t)
+
+# expect:
+# 5
+# x

@@ -1,0 +1,62 @@
+# catch with a named fallback, both ways; a branching value whose leaf is a
+# named part (h.d), and a view-held leaf (a parameter `p: ?D`).
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: mkf accept
+# oracle: viaparam accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct H
+  d: D
+
+error E
+  bad
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mkd(n)
+
+sub viaparam(p: ?D, k: Int)
+  (p if k == 0 else ?mkd(5)).c.set(77)
+  (p if k == 0 else ?mkd(6)).hit()
+
+sub run(k: Int)
+  a = mkd(10)
+  h = H(d: mkd(30))
+  (mkf(k - 1) catch a).c.set(100)
+  (mkf(k - 1) catch a).hit()
+  (h.d if k == 0 else mkd(31)).c.set(40)
+  (h.d if k == 0 else mkd(32)).hit()
+  viaparam(?a, k)
+  print(a.c.get(), h.d.c.get())
+
+sub main()
+  run(0)
+  run(1)
+
+# expect:
+# 78 41
+# drop 41
+# drop 78
+# drop 100
+# drop 1
+# drop 40
+# drop 33
+# drop 77
+# drop 7
+# 10 30
+# drop 30
+# drop 10

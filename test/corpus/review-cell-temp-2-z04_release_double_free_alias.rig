@@ -1,0 +1,38 @@
+# Pre-existing (main too): the stale header z03 drops frees a buffer that
+# realloc already freed. In --release (smp_allocator) the block goes on the
+# free list twice, so two live Vecs can share one buffer.
+#
+# oracle: V.add accept
+# oracle: build accept
+# oracle: maybe accept
+# oracle: main accept
+struct V
+  c: Cell[Vec[Int]]
+
+  fun add(?self, n: Int) -> Int
+    self.c.push(n)
+    self.c.len
+
+fun build(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i)
+  v
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub main()
+  for i in 0..2
+    v = V(c: Cell(build(4 * i)))
+    print(v.add(maybe(i - 1) ?? continue))
+  x = build(4)
+  y = build(4)
+  !x.push(100)
+  !y.push(200)
+  print(x[0], x[1], y[0], y[1])
+
+# expect:
+# 5
+# 0 1 0 1

@@ -1,0 +1,69 @@
+# Constructors with compile-time-known fields as Cell temporaries: Zig may
+# put such a value in constant memory, so a change through a pointer to it
+# must land in mutable storage.
+#
+# oracle: C.hit accept
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: bump accept
+# oracle: me accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+  fun hit(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun hit(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+struct W
+  inner: C
+
+fun bump(p: ?C) -> Int
+  p.c.set(p.c.get() + 10)
+  p.c.get()
+
+fun me(p: ?C) -> ?C
+  p.c.set(p.c.get() + 100)
+  p
+
+sub main()
+  print(C(c: Cell(1)).hit())
+  C(c: Cell(2)).c.set(3)
+  print(C(c: Cell(4)).c.replace(5))
+  print(bump(?C(c: Cell(6))))
+  print(me(?C(c: Cell(7))).c.get())
+  print(me(?C(c: Cell(8))).hit())
+  print(W(inner: C(c: Cell(9))).inner.hit())
+  print(bump(?W(inner: C(c: Cell(10))).inner))
+  W(inner: C(c: Cell(11))).inner.c.set(12)
+  print(Cell(13).replace(14))
+  Cell(15).set(16)
+  print(D(c: Cell(17)).hit())
+  D(c: Cell(18)).c.set(19)
+  print([C(c: Cell(20)), C(c: Cell(21))][1].hit())
+  print(me(?[C(c: Cell(22))][0]).c.get())
+
+# expect:
+# 2
+# 4
+# 16
+# 107
+# 109
+# 10
+# 20
+# 13
+# 18
+# drop 18
+# drop 19
+# 22
+# 122

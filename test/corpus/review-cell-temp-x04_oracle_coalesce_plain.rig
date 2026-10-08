@@ -1,0 +1,21 @@
+# Minimal: a view of a temporary through `??` with another lent temporary,
+# read within the statement. No Cell, no receiver.
+#
+# oracle: opt accept
+# oracle: mkt accept
+# oracle: main accept
+struct T
+  t: Text
+  n: Int
+
+fun opt(p: ?T) -> (?T)?
+  p
+
+fun mkt(n: Int) -> T
+  T(t: Text("x"), n: n)
+
+sub main()
+  print((opt(?mkt(5)) ?? ?mkt(0)).n)
+
+# expect:
+# 5

@@ -1,0 +1,29 @@
+# A value that branches, every leaf of which is made here, `<a` included,
+# lent to write: the statement's slot keeps the value the branch takes,
+# moved in, and the change lands there.
+
+struct N
+  c: Cell[Int]
+
+fun poke(x: !N) -> Int
+  x.c.set(x.c.get() + 100)
+  x.c.get()
+
+sub go(k: Bool)
+  a = N(c: Cell(1))
+  print("v", poke(!((<a) if k else N(c: Cell(5)))))
+  b = N(c: Cell(2))
+  print("v", poke(!(N(c: Cell(7)) if k else <b)))
+  c = Vec[Int]()
+  d = Vec[Int]()
+  !(<c if k else <d).push(3)
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# v 101
+# v 107
+# v 105
+# v 102

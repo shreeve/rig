@@ -1,0 +1,33 @@
+# A branching receiver with a named leaf and a made leaf (runtime, no drop):
+# a `?self` method returns a view of the made leaf, used within the statement.
+#
+# oracle: C.me accept
+# oracle: mkc accept
+# oracle: both accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+  pad: [16]Int
+
+  fun me(?self) -> ?C
+    self.c.set(self.c.get() + 1)
+    self
+
+fun mkc(n: Int) -> C
+  C(c: Cell(n), pad: [16 of n])
+
+fun both(x: ?C, y: ?C) -> Int
+  x.c.get() * 1000 + x.pad[15] * 100 + y.c.get()
+
+sub run(k: Bool)
+  a = mkc(1)
+  b = mkc(2)
+  print(both((a if k else mkc(5)).me(), (b if k else mkc(7)).me()))
+  print((a if k else C(c: Cell(3), pad: [16 of 3])).me().c.get())
+
+sub main()
+  run(false)
+
+# expect:
+# 6508
+# 4

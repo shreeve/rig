@@ -1,0 +1,18 @@
+# Binding a read view of a Cell-holding temporary, and an `as` binding of
+# a view the callee returns.
+#
+# oracle: mkd accept
+# oracle: touch accept
+# oracle: main reject C5
+struct D
+  c: Cell[Int]
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun touch(p: ?D) -> ?D
+  p
+
+sub main()
+  r = ?mkd(1)
+  print(r.c.get())

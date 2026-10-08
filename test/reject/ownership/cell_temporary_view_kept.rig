@@ -1,0 +1,25 @@
+# A temporary that holds a Cell, lent to read, lives in its statement's
+# slot and is dropped when the statement ends (Core §3), so a view of it
+# kept past the statement is rejected, as for any temporary.
+#
+# oracle: main reject C5
+
+struct C
+  c: Cell[Int]
+
+struct K
+  r: ?C
+
+fun mkc() -> C
+  C(c: Cell(1))
+
+fun keep(p: ?C) -> ?C
+  p
+
+sub main()
+  x = keep(?mkc())
+  k = K(r: ?mkc())
+  print(x.c.get(), k.r.c.get())
+
+# error: 20:13: a view of the temporary `mkc()` outlives its statement
+# error: 21:13: a view of the temporary `mkc()` outlives its statement

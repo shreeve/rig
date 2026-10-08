@@ -1,0 +1,37 @@
+# A generic struct holding a T and a callable that changes T's Cell through
+# a read view; a `?self` method on a temporary of it at T = N.
+#
+# oracle: Hold.run accept
+# oracle: Hold.read accept
+# oracle: bump accept
+# oracle: bumped accept
+struct N
+  c: Cell[Int]
+
+struct Hold[T]
+  x: T
+
+  sub run(?self, f: ?sub(?T))
+    f(?self.x)
+
+  fun read(?self, f: ?fun(?T) -> Int) -> Int
+    f(?self.x)
+
+sub bump(n: ?N)
+  n.c.set(n.c.get() + 1)
+
+fun bumped(n: ?N) -> Int
+  n.c.set(n.c.get() + 1)
+  n.c.get()
+
+sub main()
+  Hold(x: N(c: Cell(5))).run(bump)
+  print(Hold(x: N(c: Cell(5))).read(bumped))
+  h = Hold(x: N(c: Cell(1)))
+  k = h.x.c.get() > 0
+  (h if k else Hold(x: N(c: Cell(7)))).run(bump)
+  print((Hold(x: N(c: Cell(7))) if k else h).read(bumped), h.x.c.get())
+
+# expect:
+# 6
+# 8 2

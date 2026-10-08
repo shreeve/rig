@@ -1,0 +1,74 @@
+# A Cell holding a value with a `drop`, reached through temporaries and
+# branches: every value is dropped exactly once, at the right time.
+#
+# oracle: In.drop accept
+# oracle: H.put accept
+# oracle: mkh accept
+# oracle: look accept
+# oracle: main accept
+struct In
+  n: Int
+
+  drop(!self)
+    print("in drop", self.n)
+
+struct H
+  c: Cell[In]
+
+  sub put(?self, n: Int)
+    self.c.set(In(n: n))
+
+fun mkh(n: Int) -> H
+  H(c: Cell(In(n: n)))
+
+fun look(h: ?H, n: Int) -> Int
+  h.c.set(In(n: n))
+  n
+
+sub go(k: Bool)
+  a = mkh(1)
+  (a if k else mkh(2)).c.set(In(n: 3))
+  (mkh(4) if k else a).put(5)
+  print(look(?(mkh(6) if k else mkh(7)), 8))
+  old = (a if k else H(c: Cell(In(n: 9)))).c.replace(In(n: 10))
+  print("old", old.n)
+  for o in [mkh(13), mkh(14)]
+    (o if k else mkh(11)).put(12)
+  print("end")
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# in drop 1
+# in drop 4
+# in drop 5
+# in drop 6
+# 8
+# in drop 8
+# old 3
+# in drop 13
+# in drop 12
+# in drop 14
+# in drop 12
+# end
+# in drop 3
+# in drop 10
+# in drop 2
+# in drop 3
+# in drop 1
+# in drop 7
+# 8
+# in drop 8
+# in drop 10
+# old 9
+# in drop 11
+# in drop 12
+# in drop 13
+# in drop 11
+# in drop 12
+# in drop 14
+# end
+# in drop 9
+# in drop 5

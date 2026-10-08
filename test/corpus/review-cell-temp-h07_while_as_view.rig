@@ -1,0 +1,25 @@
+# while ... as binding a view from a lent Cell-holding temporary.
+#
+# oracle: D.drop accept
+# oracle: mkd accept
+# oracle: some accept
+# oracle: main reject C5
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun some(p: ?D) -> (?D)?
+  p.c.set(p.c.get() + 1)
+  return none if p.c.get() > 3
+  p
+
+sub main()
+  n = 0
+  while some(?mkd(n)) as d
+    print(d.c.get())
+    n += 1

@@ -1,0 +1,40 @@
+# Pre-existing (main too): the release miscompile of a Cell change through
+# a `?self` receiver, where the push reallocates the Vec. If the drop sees
+# the header from before the push, it frees a buffer realloc already freed.
+#
+# oracle: V.drop accept
+# oracle: V.add accept
+# oracle: build accept
+# oracle: maybe accept
+# oracle: main accept
+struct V
+  c: Cell[Vec[Int]]
+
+  drop(!self)
+    print("drop", self.c.len)
+
+  fun add(?self, n: Int) -> Int
+    self.c.push(n)
+    self.c.len
+
+fun build(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i)
+  v
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub main()
+  for i in 0..3
+    v = V(c: Cell(build(4 * i)))
+    print(v.add(maybe(i - 1) ?? continue))
+
+# expect:
+# drop 0
+# 5
+# drop 5
+# 9
+# drop 9

@@ -1,0 +1,46 @@
+# A temporary lent to read lives in its statement's slot (Core §3). A
+# branching value with a leaf a name holds, or a part of a temporary, is
+# no temporary: lending it would copy that leaf into the slot, which
+# forks a Cell the value holds (a type holding a Cell, or declared
+# `unique`, is unique, Core §1), as it would duplicate an owner. Each
+# branch is lent instead (`?a if c else ?mkc()`).
+
+struct C
+  c: Cell[Int]
+
+struct H
+  d: C
+  e: C
+
+struct R unique
+  seed: Int
+
+fun mkc() -> C
+  C(c: Cell(1))
+
+fun mkh() -> H
+  H(d: mkc(), e: mkc())
+
+fun mkr() -> R
+  R(seed: 2)
+
+sub bump(p: ?C)
+  p.c.set(p.c.get() + 1)
+
+fun look(p: ?R) -> Int
+  p.seed
+
+sub main()
+  a = mkc()
+  c = a.c.get() > 0
+  bump(?(a if c else mkc()))
+  bump(?a if c else ?mkc())
+  bump(?(mkh().e if c else mkh().d))
+  r = mkr()
+  print(look(?(r if c else mkr())))
+  print(a.c.get(), r.seed)
+
+# error: 36:10: cannot lend `a if c else mkc()`: it may be `a`, a value a name holds
+# error: 38:10: cannot lend `mkh().e if c else mkh().d`: it may be `mkh().e`, a part of a temporary
+# error: 40:16: cannot lend `r if c else mkr()`: it may be `r`, a value a name holds
+# errors: 3

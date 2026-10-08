@@ -1,0 +1,43 @@
+# Only reading a Cell through a branch with a named leaf and a made leaf
+# reached through `!` or `?`: accepted and run on main.
+#
+# oracle: mk accept
+# oracle: mkf accept
+# oracle: mko accept
+# oracle: main accept
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkf(n: Int) -> N!
+  return E.bad if n < 0
+  N(c: Cell(n))
+
+fun mko(n: Int) -> N?
+  return none if n < 0
+  N(c: Cell(n))
+
+sub go(k: Bool)!
+  a = mk(1)
+  print((a if k else mkf(6)!).c.get())
+
+fun gq(k: Bool) -> Int?
+  a = mk(2)
+  print((mko(7)? if k else a).c.get())
+  0
+
+sub main()
+  go(true) catch print("failed")
+  go(false) catch print("failed")
+  print(gq(true) ?? -1)
+
+# expect:
+# 1
+# 6
+# 7
+# 0

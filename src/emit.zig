@@ -3269,8 +3269,15 @@ pub const Emitter = struct {
         if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping) and self.hoistedOf(sexp) == null) {
             const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
             const saved = self.keeping;
-            defer self.keeping = saved;
+            const saved_ptr = self.ptr_tail;
+            defer {
+                self.keeping = saved;
+                self.ptr_tail = saved_ptr;
+            }
             self.keeping = sexp;
+            // The slot holds the value: a view of it, the pointer a write
+            // lend wants, is taken from the slot (`rig.keep`'s result).
+            self.ptr_tail = false;
             try self.w.print("rig.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
             self.bare = true;
             try self.emitValue(sexp, tail);
@@ -4462,11 +4469,13 @@ pub const Emitter = struct {
             return self.emitLeafPtr(o, self.typeOf(o).?);
         }
         // A value that branches is read as its Rig type: Zig would take
-        // a field of each branch's own type (a literal's, a String's).
-        // A receiver evaluated first is read where it was kept. One lent
-        // to write (`sema.writesTemp`) is written in its statement's
-        // slot (below), which has that type, never in a copy.
-        if (!self.sema.writesTemp(o)) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
+        // a field of each branch's own type (a literal's, a String's);
+        // a receiver evaluated first is read where it was kept. One its
+        // statement's slot keeps (`sema.dropsTemp`), lent to write
+        // (`sema.writesTemp`) or not, is reached in the slot (below),
+        // which has that type, never in a copy: a change through it is
+        // the temporary's own, which its drop sees.
+        if (!self.sema.writesTemp(o) and !self.sema.dropsTemp(o)) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
             if (self.hoistedOf(o)) |h| if (h.flag.len == 0) return self.w.writeAll(h.name);
             try self.writeAsOpen(t);
             try self.emitExpr(o);
@@ -4493,39 +4502,29 @@ pub const Emitter = struct {
     /// that branches, the address of the leaf it takes,
     /// `(if (c) &a else &b)` for `a if c else b`, and for `o ?? d`,
     /// `e catch d`, `o?`, and `e!`, the address of the payload where it
-    /// is, `(if (o) |*v| v else &d)`. A place is reached where it is, a
-    /// value kept in its statement's slot there, and a jump leaves. Any
-    /// other value made here is a Zig temporary of the expression.
+    /// is, `(if (o) |*v| v else &d)`, walked as `storage.leafStep` says. A
+    /// place is reached where it is, a value kept in its statement's slot
+    /// there, and a jump leaves. Any other value made here is a Zig
+    /// temporary of the expression, which may be constant: one whose type
+    /// holds a Cell is kept in its slot (`storage.madeLeaves`), since a
+    /// change may land in it.
     fn emitLeafPtr(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
-        const branches = sema.handsOver(self.sema, e).kind == .branches;
-        if (branches) switch (e.kind().?) {
+        switch (storage.leafStep(e)) {
             .@"if" => {
                 try self.w.writeAll("(");
                 try self.emitIfYield(e, .leaf_ptr);
                 return self.w.writeAll(")");
             },
-            .@"??" => {
-                const left = ir.@"??".left(e);
+            .fallback => {
+                const holder = if (e.isKind(.@"??")) ir.@"??".left(e) else ir.Catch.value(e);
                 const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
                 try self.w.writeAll("(if (");
-                try self.emitPayloadHolder(left);
+                try self.emitPayloadHolder(holder);
                 try self.w.print(") |*{s}| {s} else ", .{ v, v });
-                try self.emitLeafPtr(ir.@"??".right(e), ty);
-                return self.w.writeAll(")");
-            },
-            .propagate_none, .propagate => {
-                const operand = if (e.isKind(.propagate)) ir.Propagate.value(e) else ir.PropagateNone.value(e);
-                const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
-                try self.w.writeAll("(if (");
-                try self.emitPayloadHolder(operand);
-                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|err| return err" else "return null" });
-                return;
-            },
-            .@"catch" => {
-                const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
-                try self.w.writeAll("(if (");
-                try self.emitPayloadHolder(ir.Catch.value(e));
-                try self.w.print(") |*{s}| {s} else ", .{ v, v });
+                if (e.isKind(.@"??")) {
+                    try self.emitLeafPtr(ir.@"??".right(e), ty);
+                    return self.w.writeAll(")");
+                }
                 const name = ir.Catch.name(e);
                 const handler = ir.Catch.handler(e);
                 const sym: ?SymbolId = if (name != .nil) self.sema.symbolOf(name) else null;
@@ -4538,12 +4537,20 @@ pub const Emitter = struct {
                     try self.popScope();
                 } else {
                     try self.w.writeAll("|_| ");
-                    try self.emitLeafPtr(handler, ty);
+                    try self.emitYieldBlock(handler, .{}, ty, .leaf_ptr);
                 }
                 return self.w.writeAll(")");
             },
-            else => {},
-        };
+            .unwrap => {
+                const operand = if (e.isKind(.propagate)) ir.Propagate.value(e) else ir.PropagateNone.value(e);
+                const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
+                try self.w.writeAll("(if (");
+                try self.emitPayloadHolder(operand);
+                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|err| return err" else "return null" });
+                return;
+            },
+            .value => {},
+        }
         switch (sema.handsOver(self.sema, e).kind) {
             .jump => return self.emitExpr(e),
             .place, .part_of_made, .lend => {
@@ -4559,6 +4566,7 @@ pub const Emitter = struct {
                     try self.emitBare(e);
                     return self.w.writeAll(")");
                 }
+                try self.refuseHeldCell(e, ty);
                 try self.w.writeAll("&");
                 try self.writeAsOpen(ty);
                 try self.emitBare(e);
@@ -4568,18 +4576,33 @@ pub const Emitter = struct {
     }
 
     /// The optional or fallible value `e`, whose payload a branch takes
-    /// by address (`emitLeafPtr`): a place where it is, so the payload
-    /// captured by pointer is the place's own.
+    /// by address (`emitLeafPtr`), as an lvalue where it can be: a place
+    /// where it is, so the payload captured by pointer is the place's
+    /// own; a value that branches at the leaf it takes; a value its
+    /// statement's slot keeps there.
     fn emitPayloadHolder(self: *Emitter, e: Sexp) Error!void {
-        if (sema.handsOver(self.sema, e).hasStorage() and !e.isKind(.read) and !e.isKind(.write)) {
-            const saved = self.read_place;
-            defer self.read_place = saved;
-            self.read_place = true;
+        const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped optional");
+        if (storage.leafStep(e) != .value or (sema.handsOver(self.sema, e).hasStorage() and !e.isKind(.read) and !e.isKind(.write))) {
             try self.w.writeAll("(");
-            try self.emitAddressOf(e);
+            try self.emitLeafPtr(e, ty);
             return self.w.writeAll(").*");
         }
+        if (!self.sema.dropsTemp(e)) try self.refuseHeldCell(e, ty);
         try self.emitBare(e);
+    }
+
+    /// Stop at `e`, a value made here of type `ty` that emit would reach
+    /// by address as a Zig temporary, when the type holds a Cell: the
+    /// temporary may be constant, and a Cell change through it would be
+    /// lost or undefined. The checker keeps every such value in its
+    /// statement's slot (`storage.madeLeaves`).
+    fn refuseHeldCell(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
+        const held = switch (self.sema.types.get(ty)) {
+            .optional => |inner| inner,
+            .fallible => |inner| inner,
+            else => ty,
+        };
+        if (sema.interiorMutable(self.sema, held) != .no) return self.unsupported(e, "a Cell held in storage Zig keeps for the expression");
     }
 
     /// `@builtin(args)`. Arguments that name Rig types are spelled as Zig

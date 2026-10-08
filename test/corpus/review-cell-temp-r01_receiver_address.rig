@@ -1,0 +1,48 @@
+# Receivers held by address while the arguments run first: write lends,
+# read lends, places, slot temporaries, and branching values.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: D.wr accept
+# oracle: mkd accept
+# oracle: side accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+  n: Int
+
+  drop(!self)
+    print("drop", self.c.get(), self.n)
+
+  sub hit(?self, k: Int)
+    self.c.set(self.c.get() + k)
+
+  sub wr(!self, k: Int)
+    self.n += k
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n), n: 0)
+
+fun side(n: Int) -> Int
+  print("side", n)
+  n
+
+sub run(c: Bool)
+  a = mkd(1)
+  v: Vec[D] = Vec()
+  !v.push(mkd(2))
+  !mkd(3).wr(side(1))
+  mkd(4).hit(side(2))
+  !a.wr(side(3))
+  a.hit(side(4))
+  !v[0].wr(side(5))
+  v[0].hit(side(6))
+  (a if c else mkd(5)).hit(side(7))
+  !(mkd(6) if c else mkd(7)).wr(side(8))
+  (mkd(8) if c else mkd(9)).hit(side(9))
+  (!mkd(10)).c.set(side(10))
+  (?mkd(11)).c.set(side(11))
+  print(a.c.get(), a.n, v[0].c.get(), v[0].n)
+
+sub main()
+  run(true)

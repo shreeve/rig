@@ -1,0 +1,23 @@
+# A type declared `unique` (no Cell, no drop): a branching lend with a named
+# leaf would copy the unique value into the slot, as for a Cell holder.
+#
+# oracle: R.peek accept
+# oracle: mkr accept
+# oracle: look accept
+struct R unique
+  seed: Int
+
+  fun peek(?self) -> Int
+    self.seed
+
+fun mkr(n: Int) -> R
+  R(seed: n)
+
+fun look(p: ?R) -> Int
+  p.seed
+
+sub main()
+  a = mkr(1)
+  c = a.seed > 0
+  print(look(?(a if c else mkr(2))))
+  print((a if c else mkr(3)).peek())

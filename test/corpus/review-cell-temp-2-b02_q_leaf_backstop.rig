@@ -1,0 +1,34 @@
+# A named leaf beside `mko(6)?`: the emitter's backstop on an accepted program.
+#
+# oracle: N.hit accept
+# oracle: mk accept
+# oracle: mko accept
+# oracle: main accept
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mko(n: Int) -> N?
+  return none if n < 0
+  N(c: Cell(n))
+
+fun go(k: Bool) -> Int?
+  a = mk(1)
+  (mko(6)? if k else a).hit()
+  print("a", a.c.get())
+  0
+
+sub main()
+  print(go(true) ?? -1)
+  print(go(false) ?? -1)
+
+# expect:
+# a 1
+# 0
+# a 2
+# 0

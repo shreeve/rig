@@ -1,0 +1,27 @@
+# Newly accepted by cell-temp (main rejects `?mk(5)`): a Cell[Vec] temporary
+# lent to read, changed through the view, in a loop. Debug is right;
+# --release loses the push (Mac and pup), the z01-z04 class.
+#
+# oracle: vec1 accept
+# oracle: mk accept
+# oracle: look accept
+# oracle: main accept
+fun vec1(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  v
+
+fun mk(n: Int) -> Cell[Vec[Int]]
+  Cell(vec1(n))
+
+fun look(x: ?Cell[Vec[Int]]) -> Int
+  x.push(10)
+  x.len
+
+sub main()
+  for _ in 0..2
+    print("v", look(?mk(5)))
+
+# expect:
+# v 2
+# v 2

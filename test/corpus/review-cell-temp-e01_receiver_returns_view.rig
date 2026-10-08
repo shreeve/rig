@@ -1,0 +1,23 @@
+# A `?self` method on a Cell-holding temporary that returns a view of self,
+# kept past the statement: must be rejected.
+#
+# oracle: D.drop accept
+# oracle: D.me accept
+# oracle: mkd accept
+# oracle: main reject C5
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+sub main()
+  x = mkd(1).me()
+  print(x.c.get())

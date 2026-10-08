@@ -1,0 +1,59 @@
+# A `?self` method may change a Cell of the value it is called on. A
+# part of a value that branches reaches a name's leaf where it is, and a
+# leaf made there, which needs no cleanup, in its statement's slot: the
+# change lands in the leaf the value takes, for every branching form. A
+# method that only reads is called the same way.
+# release
+
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun score(?self) -> Int
+    self.c.get() * 10
+
+  fun me(?self) -> ?N
+    self.hit()
+    self
+
+struct W
+  t: N
+
+fun mk(n: Int) -> W
+  W(t: N(c: Cell(n)))
+
+fun mkf(n: Int) -> W!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> W?
+  return none if n < 0
+  mk(n)
+
+sub go(k: Bool)!
+  w = mk(1)
+  o: W? = mk(2)
+  (w if k else mk(5)).t.hit()
+  (w if k else mkf(5)!).t.hit()
+  (o ?? mk(5)).t.hit()
+  (mko(5) ?? w).t.hit()
+  (w if k else (mk(5) if k else mk(6))).t.hit()
+  (w if k else mk(5)).t.c.set(30)
+  (w if k else o ?? w).t.hit()
+  print((w if k else mk(7)).t.score(), (w if k else mk(8)).t.me().c.get())
+  print(w.t.c.get(), (o ?? mk(0)).t.c.get())
+
+sub main()
+  go(true) catch print("failed")
+  go(false) catch print("failed")
+
+# expect:
+# 310 32
+# 32 3
+# 70 9
+# 1 4

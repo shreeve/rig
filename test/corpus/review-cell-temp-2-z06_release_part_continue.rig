@@ -1,0 +1,45 @@
+# Pre-existing (main too): a ?self Cell[Vec] push on a part of a temporary, an
+# argument with `?? continue`. Debug right; --release loses the push (C1).
+#
+# oracle: V.drop accept
+# oracle: V.add accept
+# oracle: mkv accept
+# oracle: mkwv accept
+# oracle: maybe accept
+# oracle: main accept
+struct V
+  c: Cell[Vec[Int]]
+
+  drop(!self)
+    print("drop", self.c.len)
+
+  fun add(?self, n: Int) -> Int
+    self.c.push(n)
+    self.c.len
+
+struct WV
+  t: V
+
+fun mkv(n: Int) -> V
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i)
+  V(c: Cell(<v))
+
+fun mkwv(n: Int) -> WV
+  WV(t: mkv(n))
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub main()
+  for i in 0..3
+    print(mkwv(i).t.add(maybe(i - 1) ?? continue))
+
+# expect:
+# drop 0
+# 2
+# drop 2
+# 3
+# drop 3

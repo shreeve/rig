@@ -1,0 +1,116 @@
+# Cell-holding temporaries lent to read as arguments that are hoisted
+# because a later argument has an effect, fails, or jumps.
+#
+# oracle: V.drop accept
+# oracle: V.add accept
+# oracle: mkv accept
+# oracle: mkwv accept
+# oracle: look2 accept
+# oracle: side accept
+# oracle: fails accept
+# oracle: maybe accept
+# oracle: main accept
+error E
+  bad
+
+struct V
+  c: Cell[Vec[Int]]
+
+  drop(!self)
+    print("drop", self.c.len)
+
+  fun add(?self, n: Int) -> Int
+    self.c.push(n)
+    self.c.len
+
+struct WV
+  t: V
+
+fun mkv(n: Int) -> V
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i)
+  V(c: Cell(<v))
+
+fun mkwv(n: Int) -> WV
+  WV(t: mkv(n))
+
+fun look2(x: ?V, n: Int) -> Int
+  x.c.push(n)
+  x.c.len
+
+fun side(n: Int) -> Int
+  print("side", n)
+  n
+
+fun fails(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub go(k: Bool)!
+  print(look2(?(mkv(1) if k else mkv(2)), side(3)))
+  print(look2(?mkwv(3).t, side(4)))
+  print(look2(?mkv(4), fails(5)!))
+  print((mkv(1) if k else mkv(2)).add(side(6)))
+  print(mkwv(2).t.add(fails(7)!))
+  for i in 0..3
+    print(look2(?(mkv(i) if k else mkv(i + 1)), maybe(1 - i) ?? break))
+    print(mkwv(i).t.add(maybe(i - 1) ?? continue))
+  print(look2(?mkwv(5).t, fails(-1)!))
+  print("not reached")
+
+sub main()
+  go(true) catch print("failed")
+  go(false) catch print("failed")
+
+# expect:
+# side 3
+# 2
+# drop 2
+# side 4
+# 4
+# drop 4
+# 5
+# drop 5
+# side 6
+# 2
+# drop 2
+# 3
+# drop 3
+# 1
+# drop 1
+# drop 0
+# 2
+# drop 2
+# 2
+# drop 2
+# drop 2
+# drop 5
+# failed
+# side 3
+# 3
+# drop 3
+# side 4
+# 4
+# drop 4
+# 5
+# drop 5
+# side 6
+# 3
+# drop 3
+# 3
+# drop 3
+# 2
+# drop 2
+# drop 0
+# 3
+# drop 3
+# 2
+# drop 2
+# drop 3
+# drop 5
+# failed

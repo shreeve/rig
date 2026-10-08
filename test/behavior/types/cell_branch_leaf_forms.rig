@@ -1,0 +1,120 @@
+# A value that branches beside a name's leaf is reached at the leaf it
+# takes, through every branching form: a nested branch whose every leaf
+# is made here, a `??` or `catch` fallback, a made value reached through
+# `e!` or `e?`, and an optional that branches, unwrapped with `?`. Each
+# value made here lives in its statement's slot, so a Cell change lands
+# in it and its `drop` sees it, and a read sees the leaf it takes. A
+# bare `Cell[Vec]` is reached the same way by its Vec's members.
+# release
+
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun vec1(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  v
+
+fun mkv(n: Int) -> Cell[Vec[Int]]
+  Cell(vec1(n))
+
+sub nested(k: Bool, j: Bool)
+  a = mk(1)
+  (a if k else (mk(5) if j else mk(8))).c.set(70)
+  (a if k else (mko(-1) ?? mk(6))).hit()
+  print((a if k else (mk(5) if j else mk(8))).c.get())
+  print("a", a.c.get())
+
+sub fails(k: Bool)!
+  a = mk(1)
+  (a if k else mkf(6)!).c.set(70)
+  (mkf(7)! if k else a).hit()
+  print((a if k else mkf(9)!).c.get())
+  print("a", a.c.get())
+
+fun absent(k: Bool) -> Int?
+  a = mk(1)
+  o: D? = mk(2)
+  (mko(6)? if k else a).hit()
+  (o if k else mko(5))?.hit()
+  (o if k else mko(6))?.c.set(70)
+  print((o if k else mko(7))?.c.get())
+  print("a", a.c.get())
+  o?.c.get()
+
+sub cells(k: Bool)
+  x = mkv(1)
+  (x if k else mkv(5)).push(5)
+  print((x if k else mkv(6)).pop() ?? -1)
+  (x if k else mkv(7)).clear()
+  (x if k else mkv(8)).push(9)
+  (x if k else mkv(2))[0] = 3
+  print((x if k else mkv(4)).len, (x if k else mkv(4)).get(0) ?? -1, (x if k else mkv(4))[0])
+
+sub main()
+  nested(true, true)
+  nested(false, false)
+  fails(true) catch print("failed")
+  fails(false) catch print("failed")
+  print(absent(true) ?? -1)
+  print(absent(false) ?? -1)
+  cells(true)
+  cells(false)
+
+# expect:
+# 71
+# a 71
+# drop 71
+# drop 70
+# drop 7
+# 8
+# drop 8
+# a 1
+# drop 1
+# drop 8
+# 70
+# a 70
+# drop 70
+# drop 70
+# 9
+# drop 9
+# a 2
+# drop 2
+# drop 7
+# 70
+# a 1
+# drop 70
+# drop 1
+# 70
+# drop 6
+# drop 70
+# 7
+# drop 7
+# a 2
+# drop 2
+# drop 2
+# 2
+# 5
+# 1 3 3
+# 6
+# 1 4 4

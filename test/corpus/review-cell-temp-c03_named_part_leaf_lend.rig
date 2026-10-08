@@ -1,0 +1,28 @@
+# A branching lend whose leaves are parts of temporaries: no name holds them.
+#
+# oracle: D.drop accept
+# oracle: mkd accept
+# oracle: mkh accept
+# oracle: bump accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+struct H
+  d: D
+  e: D
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkh(n: Int) -> H
+  H(d: mkd(n), e: mkd(n + 1))
+
+sub bump(p: ?D)
+  p.c.set(p.c.get() + 1000)
+
+sub main()
+  c = true
+  bump(?(mkh(12).e if c else mkh(14).d))

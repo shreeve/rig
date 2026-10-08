@@ -1,0 +1,32 @@
+# The made leaf is a part of a constant struct literal: `(w.inner if k else W(...).inner).c.set(6)`, k false.
+# Each branching kind with a named leaf and a constant made leaf of a type
+# with no drop, changed by a Cell method or a `?self` method.
+#
+# oracle: C.hit accept
+# oracle: mkf accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct W
+  inner: C
+
+error E
+  bad
+
+fun mkf(n: Int) -> C!
+  return E.bad if n < 0
+  C(c: Cell(n))
+
+sub run(k: Bool)
+  a = C(c: Cell(1))
+  o: C? = none
+  w = W(inner: C(c: Cell(1)))
+  (w.inner if k else W(inner: C(c: Cell(4))).inner).c.set(6)
+  print(a.c.get(), w.inner.c.get())
+
+sub main()
+  run(false)

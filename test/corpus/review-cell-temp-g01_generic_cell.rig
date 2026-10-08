@@ -1,0 +1,61 @@
+# Generic types holding a Cell, and generic bodies calling Cell methods on
+# temporaries of a type parameter's Cell.
+#
+# oracle: G.bump accept
+# oracle: D.drop accept
+# oracle: mkg accept
+# oracle: mkd accept
+# oracle: mkcell accept
+# oracle: setter accept
+# oracle: setown accept
+# oracle: peek accept
+# oracle: main accept
+# oracle: mkint accept
+struct G[T]
+  c: Cell[T]
+  n: Int
+
+  sub bump(?self, v: T)
+    self.c.set(<v)
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+fun mkg[T](v: T, n: Int) -> G[T]
+  G(c: Cell(<v), n: n)
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkcell[T](v: T) -> Cell[T]
+  Cell(<v)
+
+sub setter[T](v: T, w: T)
+  mkcell(v).set(w)
+  mkg(v, 1).c.set(w)
+  mkg(v, 2).bump(w)
+
+sub setown[T](mk: fun(Int) -> T)
+  mkcell(mk(1)).set(mk(2))
+  mkg(mk(3), 1).c.set(mk(4))
+  mkg(mk(5), 2).bump(mk(6))
+  print(peek(?mkg(mk(7), 3)).n)
+
+fun peek[T](p: ?T) -> ?T
+  p
+
+sub main()
+  mkg(1, 3).c.set(5)
+  mkg(mkd(7), 4).c.set(mkd(8))
+  mkg(mkd(9), 5).bump(mkd(10))
+  print(mkg(mkd(11), 6).c.replace(mkd(12)).c.get())
+  setter(20, 21)
+  setown(mkint)
+  peek(?mkd(30)).c.set(31)
+  peek(?mkg(mkd(40), 7)).c.set(mkd(41))
+
+fun mkint(n: Int) -> Int
+  n

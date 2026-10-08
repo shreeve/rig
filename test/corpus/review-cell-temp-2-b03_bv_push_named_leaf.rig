@@ -1,0 +1,25 @@
+# A bare Cell[Vec[Int]] reached through a branch with a named leaf: push.
+#
+# oracle: vec1 accept
+# oracle: mk accept
+# oracle: main accept
+fun vec1(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  v
+
+fun mk(n: Int) -> Cell[Vec[Int]]
+  Cell(vec1(n))
+
+sub go(k: Bool)
+  a = mk(1)
+  (a if k else mk(5)).push(5)
+  print("a", a.len)
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# a 2
+# a 1

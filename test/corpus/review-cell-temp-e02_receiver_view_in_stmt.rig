@@ -1,0 +1,34 @@
+# The view a `?self` method returns, used within the statement.
+#
+# oracle: D.drop accept
+# oracle: D.me accept
+# oracle: mkd accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+sub main()
+  print(mkd(1).me().c.get())
+  mkd(5).me().c.set(9)
+  mkd(10).me().me().c.set(mkd(20).me().c.get())
+  n = mkd(30).me().me().c.get()
+  print(n)
+
+# expect:
+# 2
+# drop 2
+# drop 9
+# drop 21
+# drop 21
+# drop 32
+# 32

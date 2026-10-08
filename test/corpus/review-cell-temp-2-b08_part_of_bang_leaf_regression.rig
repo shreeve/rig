@@ -1,0 +1,43 @@
+# Accepted and right on main; internal error on cell-temp: a `?self` method on
+# a part of a branch whose made leaf is reached through `!`, and a read of a
+# nested all-made branch beside a named leaf.
+#
+# oracle: N.hit accept
+# oracle: mk accept
+# oracle: mkwwf accept
+# oracle: main accept
+error E
+  bad
+
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct WW
+  t: N
+
+fun mk(n: Int) -> N
+  N(c: Cell(n))
+
+fun mkwwf(n: Int) -> WW!
+  return E.bad if n < 0
+  WW(t: mk(n))
+
+sub go(k: Bool, j: Bool)!
+  a = mk(1)
+  ww = WW(t: mk(3))
+  (ww if k else mkwwf(5)!).t.hit()
+  print((a if k else (mk(5) if j else mk(8))).c.get())
+  print(ww.t.c.get())
+
+sub main()
+  go(true, true) catch print("failed")
+  go(false, false) catch print("failed")
+
+# expect:
+# 1
+# 4
+# 8
+# 3

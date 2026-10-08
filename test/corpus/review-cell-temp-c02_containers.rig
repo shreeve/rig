@@ -1,0 +1,76 @@
+# Cell changes on elements of temporary arrays, Vecs, Boxes, optionals and
+# fallible values.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: mkv accept
+# oracle: mkb accept
+# oracle: mko accept
+# oracle: mkf accept
+# oracle: bump accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+error E
+  bad
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkv(n: Int) -> Vec[D]
+  v: Vec[D] = Vec()
+  !v.push(mkd(n))
+  !v.push(mkd(n + 1))
+  v
+
+fun mkb(n: Int) -> Box[D]
+  Box(mkd(n))
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mkd(n)
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mkd(n)
+
+sub bump(p: ?D)
+  p.c.set(p.c.get() + 1000)
+
+fun opt(i: Int) -> Int?
+  mko(1)?.c.set(5)
+  mko(2)?.hit()
+  bump(?mko(3)?)
+  i
+
+sub fal(i: Int)!
+  mkf(1)!.c.set(5)
+  mkf(2)!.hit()
+  bump(?mkf(3)!)
+
+sub run(i: Int)
+  [mkd(1), mkd(2)][i].c.set(10)
+  [mkd(3), mkd(4)][i].hit()
+  bump(?[mkd(5), mkd(6)][i])
+  mkv(7)[i].c.set(20)
+  mkv(9)[i].hit()
+  bump(?mkv(11)[i])
+  mkb(13).c.set(30)
+  bump(?mkb(14))
+  (mko(-1) ?? mkd(15)).c.set(40)
+  (mko(16) ?? mkd(17)).c.set(41)
+  (mkf(-1) catch mkd(18)).c.set(50)
+  (mkf(19) catch mkd(20)).hit()
+  opt(0)
+  fal(0) catch print("bad")
+
+sub main()
+  run(1)

@@ -1,0 +1,42 @@
+# A by-value parameter owns its value; a Cell change through it, with the
+# argument a constant constructor, a temporary, a moved name, or a branch.
+#
+# oracle: N.hit accept
+# oracle: f accept
+# oracle: mk accept
+# oracle: main accept
+struct N
+  c: Cell[Int]
+  pad: [8]Int
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun f(x: N) -> Int
+  x.hit()
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+fun g(x: N, k: Bool) -> Int
+  (x if k else N(c: Cell(100), pad: [8 of 0])).hit()
+  x.c.get()
+
+fun mk(n: Int) -> N
+  N(c: Cell(n), pad: [8 of n])
+
+sub main()
+  print(f(N(c: Cell(5), pad: [8 of 0])))
+  print(f(mk(6)))
+  a = mk(7)
+  print(f(<a))
+  print(g(N(c: Cell(1), pad: [8 of 0]), true), g(N(c: Cell(1), pad: [8 of 0]), false))
+  for _ in 0..2
+    print(f(N(c: Cell(20), pad: [8 of 0])))
+
+# expect:
+# 16
+# 17
+# 18
+# 2 1
+# 31
+# 31

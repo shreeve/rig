@@ -364,6 +364,75 @@ pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     };
 }
 
+/// How the address of `e`, a value reached where its leaves are
+/// (`reachesLeaf`), or one of its leaves, is found: one step of the walk
+/// that `Emitter.emitLeafPtr` writes and `madeLeaves` follows, so the
+/// checker keeps exactly the values emit reaches. Inside such a value,
+/// every branching form is walked to its parts (`sema.valueParts`), as
+/// `sema.valueLeaves` walks a read, also one whose every leaf is made
+/// here.
+pub const LeafStep = enum {
+    /// `a if c else b`: the address of the branch it takes.
+    @"if",
+    /// `o ?? d` and `e catch h`: the address of the payload where the
+    /// optional or fallible operand is, reached as a leaf, or else of the
+    /// fallback's value.
+    fallback,
+    /// `o?` and `e!`: the address of the payload where the operand is.
+    unwrap,
+    /// Any other value: a place, a lend, or a part of a value, at its
+    /// address (a part's within the value it is a part of); a value made
+    /// here, in its statement's slot (`madeLeaves`); or a jump.
+    value,
+};
+
+pub fn leafStep(e: Sexp) LeafStep {
+    if (!sema.isBranchingForm(e)) return .value;
+    return switch (e.kind().?) {
+        .@"if" => .@"if",
+        .@"??", .@"catch" => .fallback,
+        else => .unwrap,
+    };
+}
+
+/// The values made here that reaching `e` by address reaches, appended
+/// to `out`: a value that branches with a leaf not made here
+/// (`sema.handsOver` is `branches`) at each of its leaves, walked as
+/// `leafStep` walks them; any other value whole, as one temporary. A
+/// leaf that is a part of a value made here (`mk().t`) reaches that
+/// value, the same way. A place, a lend, or a jump reaches none. Emit
+/// takes the address of each such value where its statement's slot
+/// keeps it (`dropsTemp`); otherwise of a Zig temporary, which may be
+/// constant, so nothing may change it. Typecheck keeps each in its slot
+/// wherever a value whose type holds a Cell is reached this way, and
+/// emit stops with an internal error at one that is not
+/// (`Emitter.emitLeafPtr`).
+pub fn madeLeaves(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    if (sema.handsOver(ctx, e).kind == .branches) return leafValues(ctx, a, e, out);
+    return madeValue(ctx, a, e, out);
+}
+
+fn leafValues(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    if (leafStep(e) == .value) return madeValue(ctx, a, e, out);
+    var parts = sema.valueParts(e);
+    while (parts.next()) |part| try leafValues(ctx, a, part.node, out);
+}
+
+fn madeValue(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    switch (sema.handsOver(ctx, e).kind) {
+        .made => try out.append(a, e),
+        .part_of_made => try madeLeaves(ctx, a, pathBase(e), out),
+        .place, .lend, .branches, .jump, .none => {},
+    }
+}
+
+/// The value the field or element path `e` starts from.
+fn pathBase(e: Sexp) Sexp {
+    var base = e;
+    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    return base;
+}
+
 /// Whether a header over `e` (a `match` subject, a `for` source, an
 /// `as` value) that makes statement temporaries yields the address of
 /// what `e` reaches, not its value: the block that ends the temporaries
@@ -947,29 +1016,33 @@ const Planner = struct {
     }
 
     /// The branches of `e`, when it is a value read where its leaves are
-    /// (`reachesLeaf`), that capture a payload by address.
+    /// (`reachesLeaf`), that capture a payload by address, walked as emit
+    /// walks them (`leafStep`).
     fn leaves(p: *Planner, e: Sexp) !void {
         if (reachesLeaf(p.ctx, e)) try p.leaf(e);
     }
 
     fn leaf(p: *Planner, e: Sexp) !void {
-        if (sema.handsOver(p.ctx, e).kind != .branches) return;
-        switch (e.kind() orelse return) {
+        switch (leafStep(e)) {
+            .value => {},
             .@"if" => {
                 try p.leaf(lastValue(ir.If.then(e)));
                 try p.leaf(lastValue(ir.If.@"else"(e)));
             },
-            .@"??" => {
+            .fallback => {
                 try p.record(e, .leaf, .pointer, .expression);
-                try p.leaf(ir.@"??".right(e));
+                if (e.isKind(.@"??")) {
+                    try p.leaf(ir.@"??".left(e));
+                    try p.leaf(ir.@"??".right(e));
+                } else {
+                    try p.leaf(ir.Catch.value(e));
+                    try p.leaf(lastValue(ir.Catch.handler(e)));
+                }
             },
-            .propagate, .propagate_none => try p.record(e, .leaf, .pointer, .expression),
-            .@"catch" => {
+            .unwrap => {
                 try p.record(e, .leaf, .pointer, .expression);
-                const handler = ir.Catch.handler(e);
-                try p.leaf(if (p.isUsed(ir.Catch.name(e))) lastValue(handler) else handler);
+                try p.leaf(if (e.isKind(.propagate)) ir.Propagate.value(e) else ir.PropagateNone.value(e));
             },
-            else => {},
         }
     }
 };
@@ -1007,52 +1080,4 @@ fn isCellVecTy(ctx: *const SemContext, ty: TypeId) bool {
         else => return false,
     };
     return isVecTy(ctx, cell);
-}
-
-/// The first leaf of `e`, a value reached where its leaves are, that
-/// `Emitter.emitLeafPtr` reaches only as a Zig rvalue, whose address is
-/// a `*const`: walked as emit walks it, a value made there that no
-/// statement slot keeps (`dropsTemp`), where emit stops descending (at
-/// a node that does not hand over `.branches`), an optional or fallible
-/// operand whose payload is captured from such a value, or a part of
-/// one. Null when every leaf is reached in storage Zig may write: a
-/// place, a slot, or a jump. Typecheck rejects a change through such a
-/// leaf (a `?self` method on a part of `e`), since an interior-mutable
-/// value is only ever written through a mutable pointer
-/// (`sema.interiorMutable`).
-pub fn constLeaf(ctx: *const SemContext, e: Sexp) ?Sexp {
-    const kind = sema.handsOver(ctx, e).kind;
-    if (kind == .branches) switch (e.kind() orelse return null) {
-        .@"if" => {
-            if (constLeaf(ctx, sema.tailOf(ir.If.then(e)))) |leaf| return leaf;
-            return constLeaf(ctx, sema.tailOf(ir.If.@"else"(e)));
-        },
-        .@"??" => return constPayload(ctx, ir.@"??".left(e)) orelse constLeaf(ctx, ir.@"??".right(e)),
-        .propagate => return constPayload(ctx, ir.Propagate.value(e)),
-        .propagate_none => return constPayload(ctx, ir.PropagateNone.value(e)),
-        .@"catch" => return constPayload(ctx, ir.Catch.value(e)) orelse constLeaf(ctx, sema.tailOf(ir.Catch.handler(e))),
-        else => {},
-    };
-    return switch (kind) {
-        .jump, .place, .lend, .none => null,
-        .part_of_made => constPart(ctx, e),
-        .made, .branches => if (ctx.dropsTemp(e)) null else e,
-    };
-}
-
-/// The optional or fallible `e` whose payload a branch captures by
-/// address (`Emitter.emitPayloadHolder`), when it is a Zig rvalue: not
-/// a place, and kept in no slot.
-fn constPayload(ctx: *const SemContext, e: Sexp) ?Sexp {
-    if (sema.handsOver(ctx, e).hasStorage() and !e.isKind(.read) and !e.isKind(.write)) return null;
-    return if (ctx.dropsTemp(e)) null else e;
-}
-
-/// A part of a value made here, `e`, when the value it is part of is a
-/// Zig rvalue (`constLeaf`).
-fn constPart(ctx: *const SemContext, e: Sexp) ?Sexp {
-    if (!e.isKind(.member) and !e.isKind(.index)) return e;
-    var base = e;
-    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
-    return constLeaf(ctx, base);
 }

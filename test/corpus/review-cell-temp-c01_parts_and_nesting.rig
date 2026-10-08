@@ -1,0 +1,44 @@
+# Cell changes through parts and nested branches of temporaries; each drop
+# must see the change.
+#
+# oracle: D.drop accept
+# oracle: D.hit accept
+# oracle: mkd accept
+# oracle: mkh accept
+# oracle: bump accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct H
+  d: D
+  e: D
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkh(n: Int) -> H
+  H(d: mkd(n), e: mkd(n + 1))
+
+sub bump(p: ?D)
+  p.c.set(p.c.get() + 1000)
+
+sub run(c: Bool, d: Bool)
+  ((mkd(1) if c else mkd(2)) if d else mkd(3)).c.set(10)
+  (mkh(4).d if c else mkh(6).e).c.set(20)
+  (mkh(8).d if c else mkh(10).e).hit()
+  bump(?((mkh(16) if c else mkh(18)).e))
+  ((mkh(20) if c else mkh(22)).e if d else mkd(24)).c.set(30)
+
+sub main()
+  run(true, true)
+  print("--")
+  run(false, true)
+  print("--")
+  run(true, false)

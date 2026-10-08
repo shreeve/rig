@@ -1,0 +1,65 @@
+# A Cell-holding temporary kept in its slot, then a later argument fails or
+# leaves early: the temporary must be dropped once, and the Cell change (if
+# any) must not have run.
+#
+# oracle: D.drop accept
+# oracle: D.hitn accept
+# oracle: mkd accept
+# oracle: fails accept
+# oracle: maybe accept
+# oracle: two accept
+# oracle: f2 accept
+# oracle: f3 accept
+# oracle: main accept
+struct D
+  c: Cell[Int]
+  t: Text
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hitn(?self, n: Int)
+    self.c.set(self.c.get() + n)
+
+error E
+  bad
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n), t: Text("owned"))
+
+fun fails(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub two(p: ?D, n: Int)
+  p.c.set(p.c.get() + n)
+
+sub f1(n: Int)!
+  two(?mkd(1), fails(n)!)
+  mkd(2).hitn(fails(n)!)
+  mkd(3).c.set(fails(n)!)
+  print(mkd(4).c.replace(fails(n)!))
+  two(?(mkd(5) if n > 0 else mkd(6)), fails(n)!)
+
+fun f2(n: Int) -> Int?
+  two(?mkd(11), maybe(n)?)
+  mkd(12).hitn(maybe(n)?)
+  mkd(13).c.set(maybe(n)?)
+  n
+
+sub f3(n: Int)
+  for _ in 0..2
+    two(?mkd(21), fails(n) catch break)
+    mkd(22).c.set(maybe(n) ?? continue)
+    mkd(23).hitn(maybe(n) ?? return)
+
+sub main()
+  f1(-1) catch print("caught")
+  f1(1) catch print("caught")
+  print(f2(-1))
+  f3(-1)
+  print("end")

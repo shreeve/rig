@@ -1,0 +1,26 @@
+# A `?self` method on a part of a branching value with
+# a named leaf and a constant made leaf (no drop).
+#
+# oracle: C.hit accept
+# oracle: main accept
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct W
+  inner: C
+
+sub run(k: Bool)
+  w = W(inner: C(c: Cell(1)))
+  (w if k else W(inner: C(c: Cell(4)))).inner.hit()
+  print(w.inner.c.get())
+
+sub main()
+  run(false)
+  run(true)
+
+# expect:
+# 1
+# 2

@@ -1,0 +1,17 @@
+# A header lending a Cell-holding temporary whose view a binding keeps.
+#
+# oracle: mkd accept
+# oracle: first accept
+struct D
+  c: Cell[Int]
+
+fun mkd(n: Int) -> D
+  D(c: Cell(n))
+
+fun first(p: ?D) -> ?D?
+  p
+
+sub main()
+  if first(?mkd(1)) as d
+    d.c.set(5)
+    print(d.c.get())
