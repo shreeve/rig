@@ -881,6 +881,303 @@ def _cm_trace(tname, oname):
     return "\n".join(lines) + "\n"
 
 
+# -----------------------------------------------------------------------------
+# A temporary that holds a Cell, changed or read where it stands: made
+# in the statement, a part of one, or a leaf a value that branches may
+# take beside a name's (`a if k else mk(5)`, `o ?? mk(5)`, `mkf(6)!`, a
+# nested branch, a part of a branch), through a Cell member, a `?self`
+# method, a view a method returns, and, where no leaf is a name's, a read
+# or write lend. Each lives in its statement's slot, so a change lands in
+# the leaf the value takes, and a `drop` sees it when the statement
+# ends; a name's leaf changes where it is. Each operation runs in a
+# statement, an argument, a loop, and an `if` and a `while` condition,
+# with each leaf taken, and the program must print what
+# `celltemp_output` computes, in debug and built with `--release`.
+# Cells are `celltemp.<type>.<shape>`, one program each.
+# -----------------------------------------------------------------------------
+
+_CT_INT = """
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?T
+    self.c.set(self.c.get() + 1)
+    self
+
+  fun bumpw(!self) -> Int
+    self.c.set(self.c.get() + 1000)
+    self.c.get()
+"""
+_CT_VEC = """
+  sub hit(?self)
+    self.c.push(1)
+
+  fun me(?self) -> ?T
+    self.c.push(1)
+    self
+
+  fun bumpw(!self) -> Int
+    self.c.push(1000)
+    self.c.len
+"""
+
+
+def _ct_int(name, fields="", drop=False):
+    d = f"struct {name}\n  c: Cell[Int]\n{fields}"
+    if drop:
+        d += '\n  drop(!self)\n    print("drop", self.c.get())\n'
+    return d + _CT_INT.replace("?T", "?" + name)
+
+
+# Each type: its spelling, declarations, a constructor of value `m`, the
+# path from a value to its Cell and to its methods' receiver (None: a
+# bare Cell, which has no methods), whether its Cell holds an Int or a
+# Vec, and whether it prints when dropped.
+CELLTEMP_TYPES = {
+    "drop": dict(ty="D", decls=_ct_int("D", drop=True), ctor="D(c: Cell(M))", cell=".c", recv="", kind="int", drop=True),
+    # constant fields: a value Zig knows at compile time
+    "plain": dict(ty="N", decls=_ct_int("N", "  pad: [4]Int\n"), ctor="N(c: Cell(M), pad: [4 of 0])", cell=".c", recv="", kind="int"),
+    "part": dict(ty="W", decls=_ct_int("In") + "\nstruct W\n  t: In\n", ctor="W(t: In(c: Cell(M)))", cell=".t.c", recv=".t", kind="int"),
+    "vec": dict(ty="V", decls='struct V\n  c: Cell[Vec[Int]]\n\n  drop(!self)\n    print("drop", self.c.len * 1000 + (self.c.get(0) ?? -1))\n' + _CT_VEC.replace("?T", "?V"),
+                ctor="V(c: Cell(vec1(M)))", cell=".c", recv="", kind="vec", drop=True),
+    "cell": dict(ty="Cell[Int]", decls="", ctor="Cell(M)", cell="", recv=None, kind="int"),
+    "cellvec": dict(ty="Cell[Vec[Int]]", decls="", ctor="Cell(vec1(M))", cell="", recv=None, kind="vec"),
+    "generic": dict(ty="G[Int]", decls="struct G[T]\n  c: Cell[T]\n", ctor="G[Int](c: Cell(M))", cell=".c", recv=None, kind="int"),
+}
+
+# Each shape: the value, with `M(n)` a value made here (a constructor or a
+# call), the names it uses, which leaf it takes when `k` is true and
+# when false (a name, `made` with its value, or `fail`), how a function
+# holding it fails (`fail`: `!`, `opt`: `?`), and whether a leaf is a
+# name's, which a lend of the whole would copy.
+CELLTEMP_SHAPES = {
+    "temp": dict(e="mk(5)", uses=[], take=(("made", 5), ("made", 5))),
+    "const": dict(e="M(5)", uses=[], take=(("made", 5), ("made", 5))),
+    "part": dict(e="WW(t: mk(5)).t", uses=[], take=(("made", 5), ("made", 5))),
+    "made_made": dict(e="(mk(5) if k else M(8))", uses=[], take=(("made", 5), ("made", 8))),
+    "name_made": dict(e="(a if k else M(5))", uses=["a"], take=(("a",), ("made", 5)), named=True),
+    "made_name": dict(e="(mk(5) if k else a)", uses=["a"], take=(("made", 5), ("a",)), named=True),
+    "fallback": dict(e="(o ?? M(5))", uses=["o"], take=(("o",), ("made", 5)), named=True),
+    "made_fallback": dict(e="(mko(6 if k else -1) ?? a)", uses=["a"], take=(("made", 6), ("a",)), named=True),
+    "catch": dict(e="(mkf(-1 if k else 6) catch a)", uses=["a"], take=(("a",), ("made", 6)), named=True),
+    "nested": dict(e="(a if k else (mk(5) if k else M(8)))", uses=["a"], take=(("a",), ("made", 8)), named=True),
+    "nested_fallback": dict(e="(a if k else (mko(-1) ?? M(5)))", uses=["a"], take=(("a",), ("made", 5)), named=True),
+    "part_of_branch": dict(e="(w if k else WW(t: M(5))).t", uses=["w"], take=(("w",), ("made", 5)), named=True),
+    "fails": dict(e="(a if k else mkf(6)!)", uses=["a"], take=(("a",), ("made", 6)), named=True, fkind="fail"),
+    "absent": dict(e="(mko(6)? if k else a)", uses=["a"], take=(("made", 6), ("a",)), named=True, fkind="opt"),
+    "optional": dict(e="(o if k else mko(5))?", uses=["o"], take=(("o",), ("made", 5)), named=True, fkind="opt"),
+}
+
+CELLTEMP_POSITIONS = ["stmt", "arg", "loop", "if", "while"]
+
+
+def celltemp_ops(t):
+    """Each operation: (statement form, value form, effect on the state:
+    the new state and what the value form gives)."""
+    C = lambda x: x + t["cell"]
+    R = lambda x: x + (t["recv"] or "")
+    # the Cell's path from the methods' receiver
+    inner = t["cell"][len(t["recv"] or ""):]
+    ops = {}
+    if t["kind"] == "int":
+        ops["set"] = (lambda x: f"{C(x)}.set(77)", None, lambda s: (77, None))
+        ops["replace"] = (None, lambda x: f"{C(x)}.replace(77)", lambda s: (77, s))
+        ops["get"] = (None, lambda x: f"{C(x)}.get()", lambda s: (s, s))
+        if t["recv"] is not None:
+            ops["hit"] = (lambda x: f"{R(x)}.hit()", None, lambda s: (s + 1, None))
+            ops["bumped"] = (None, lambda x: f"{R(x)}.bumped()", lambda s: (s + 1, s + 1))
+            ops["me"] = (None, lambda x: f"{R(x)}.me(){inner}.get()", lambda s: (s + 1, s + 1))
+            ops["bumpw"] = (None, lambda x: f"!{R(x)}.bumpw()", lambda s: (s + 1000, s + 1000))
+        ops["look"] = (None, lambda x: f"look(?{x})", lambda s: (s + 10, s + 10))
+        ops["poke"] = (None, lambda x: f"poke(!{x})", lambda s: (s + 100, s + 100))
+    else:
+        ops["push"] = (lambda x: f"{C(x)}.push(5)", None, lambda s: (s + [5], None))
+        ops["pop"] = (None, lambda x: f"{C(x)}.pop() ?? -1", lambda s: (s[:-1], s[-1] if s else -1))
+        ops["clear"] = (lambda x: f"{C(x)}.clear()", None, lambda s: ([], None))
+        ops["index"] = (lambda x: f"{C(x)}[0] = 9", None, lambda s: ([9] + s[1:], None))
+        ops["len"] = (None, lambda x: f"{C(x)}.len", lambda s: (s, len(s)))
+        ops["geti"] = (None, lambda x: f"{C(x)}.get(0) ?? -1", lambda s: (s, s[0] if s else -1))
+        if t["recv"] is not None:
+            ops["hit"] = (lambda x: f"{R(x)}.hit()", None, lambda s: (s + [1], None))
+            ops["me"] = (None, lambda x: f"{R(x)}.me(){inner}.len", lambda s: (s + [1], len(s) + 1))
+            ops["bumpw"] = (None, lambda x: f"!{R(x)}.bumpw()", lambda s: (s + [1000], len(s) + 1))
+        ops["look"] = (None, lambda x: f"look(?{x})", lambda s: (s + [10], len(s) + 1))
+        ops["poke"] = (None, lambda x: f"poke(!{x})", lambda s: (s + [100], len(s) + 1))
+    return ops
+
+
+def celltemp_applies(sname, oname, pos, op):
+    """A lend of the whole value would copy a name's leaf, so a shape
+    with one only reaches its leaves. A statement changes the value; an
+    argument or a header uses what an operation gives."""
+    if CELLTEMP_SHAPES[sname].get("named") and oname in ("look", "poke", "bumpw"):
+        return False
+    if pos == "stmt":
+        return op[0] is not None
+    return op[1] is not None or pos == "loop"
+
+
+def _ct_state(t, m):
+    return m if t["kind"] == "int" else [m]
+
+
+def _ct_show(t, s):
+    return s if t["kind"] == "int" else len(s) * 1000 + (s[0] if s else -1)
+
+
+def _ct_trace(t, sname, pos, op, k):
+    """What one `op_*` function prints for leaf choice `k`."""
+    sh = CELLTEMP_SHAPES[sname]
+    _, val, eff = op
+    st = {"a": _ct_state(t, 1), "w": _ct_state(t, 3), "o": _ct_state(t, 2) if k else None}
+    out = []
+
+    def drop(s):
+        if t.get("drop"):
+            out.append(f"drop {_ct_show(t, s)}")
+
+    def once():
+        leaf = sh["take"][0 if k else 1]
+        if leaf[0] == "made":
+            s, v = eff(_ct_state(t, leaf[1]))
+            return v, [s]
+        s, v = eff(st[leaf[0]])
+        st[leaf[0]] = s
+        return v, []
+    if pos in ("stmt", "loop"):
+        for _ in range(2 if pos == "loop" else 1):
+            v, temps = once()
+            if val is not None:
+                out.append(f"v {v}")
+            for s in temps:
+                drop(s)
+    elif pos == "arg":
+        v, temps = once()
+        out.append(f"v {v}")
+        for s in temps:
+            drop(s)
+    elif pos == "if":
+        v, temps = once()
+        for s in temps:
+            drop(s)
+        if v > 0:
+            out.append("body")
+    elif pos == "while":
+        i = 0
+        while i < 2:
+            v, temps = once()
+            for s in temps:
+                drop(s)
+            if not v > 0:
+                break
+            i += 1
+        out.append(f"w {i}")
+    for n in ("a", "w", "o"):
+        if n in sh["uses"] and st[n] is not None:
+            out.append(f"{n} {_ct_show(t, st[n])}")
+    for n in ("o", "w", "a"):
+        if n in sh["uses"] and st[n] is not None:
+            drop(st[n])
+    return out
+
+
+def celltemp_cells(tname, sname):
+    """The (function name, operation, position) a cell runs, in order."""
+    t = CELLTEMP_TYPES[tname]
+    if sname == "const" and tname in ("cell", "cellvec"):
+        return []
+    cells = []
+    for oname, op in celltemp_ops(t).items():
+        for pos in CELLTEMP_POSITIONS:
+            if celltemp_applies(sname, oname, pos, op):
+                cells.append((f"op_{oname}_{pos}", oname, pos))
+    return cells
+
+
+def celltemp_program(tname, sname):
+    """The program for one celltemp cell, or None where nothing applies."""
+    cells = celltemp_cells(tname, sname)
+    if not cells:
+        return None
+    t, sh = CELLTEMP_TYPES[tname], CELLTEMP_SHAPES[sname]
+    ty, fk = t["ty"], sh.get("fkind", "plain")
+    ctor = lambda m: t["ctor"].replace("M", m)
+    x = sh["e"].replace("M(5)", ctor("5")).replace("M(8)", ctor("8"))
+    ops = celltemp_ops(t)
+    C = lambda v: v + t["cell"]
+    out = ["error E\n  bad\n"]
+    if t["decls"]:
+        out.append(t["decls"])
+    out.append("fun vec1(n: Int) -> Vec[Int]\n  v: Vec[Int] = Vec()\n  !v.push(n)\n  v\n")
+    out.append(f"fun mk(n: Int) -> {ty}\n  {ctor('n')}\n")
+    out.append(f"fun mko(n: Int) -> {ty}?\n  return none if n < 0\n  mk(n)\n")
+    out.append(f"fun mkf(n: Int) -> {ty}!\n  return E.bad if n < 0\n  mk(n)\n")
+    out.append(f"struct WW\n  t: {ty}\n")
+    if t["kind"] == "int":
+        out.append(f"fun look(x: ?{ty}) -> Int\n  {C('x')}.set({C('x')}.get() + 10)\n  {C('x')}.get()\n")
+        out.append(f"fun poke(x: !{ty}) -> Int\n  {C('x')}.set({C('x')}.get() + 100)\n  {C('x')}.get()\n")
+        out.append(f"fun show(x: ?{ty}) -> Int\n  {C('x')}.get()\n")
+    else:
+        out.append(f"fun look(x: ?{ty}) -> Int\n  {C('x')}.push(10)\n  {C('x')}.len\n")
+        out.append(f"fun poke(x: !{ty}) -> Int\n  {C('x')}.push(100)\n  {C('x')}.len\n")
+        out.append(f"fun show(x: ?{ty}) -> Int\n  {C('x')}.len * 1000 + ({C('x')}.get(0) ?? -1)\n")
+    main = []
+    for fname, oname, pos in cells:
+        stmt, val, _ = ops[oname]
+        body = []
+        if "a" in sh["uses"]:
+            body.append("a = mk(1)")
+        if "w" in sh["uses"]:
+            body.append(f"w = WW(t: {ctor('3')})")
+        if "o" in sh["uses"]:
+            body += [f"o: {ty}? = none", "o = mk(2) if k"]
+        s = stmt(x) if stmt else f'print("v", {val(x)})'
+        if pos == "stmt":
+            body.append(s)
+        elif pos == "loop":
+            body += ["for _ in 0..2", "  " + s]
+        elif pos == "arg":
+            body.append(f'print("v", {val(x)})')
+        elif pos == "if":
+            body += [f"if {val(x)} > 0", '  print("body")']
+        elif pos == "while":
+            body += ["i = 0", f"while i < 2 and {val(x)} > 0", "  i += 1", 'print("w", i)']
+        for n, p in (("a", "?a"), ("w", "?w.t"), ("o", None)):
+            if n in sh["uses"]:
+                body += [f'print("{n}", show({p}))'] if p else ["if o as y", '  print("o", show(?y))']
+        if fk == "fail":
+            head, call = f"sub {fname}(k: Bool)!", f'{fname}(K) catch print("failed")'
+        elif fk == "opt":
+            head, call = f"fun {fname}(k: Bool) -> Int?", f'print("q", {fname}(K) ?? -1)'
+            body.append("0")
+        else:
+            head, call = f"sub {fname}(k: Bool)", f"{fname}(K)"
+        out.append(head + "\n" + indent(body, 2) + "\n")
+        for k in ("true", "false"):
+            main += [f'print("== {oname} {pos} {k}")', call.replace("K", k)]
+    out.append("sub main()\n" + indent(main, 2))
+    return "\n".join(out) + "\n"
+
+
+def celltemp_output(tname, sname):
+    """What a celltemp cell prints."""
+    t, sh = CELLTEMP_TYPES[tname], CELLTEMP_SHAPES[sname]
+    ops = celltemp_ops(t)
+    fk = sh.get("fkind", "plain")
+    out = []
+    for fname, oname, pos in celltemp_cells(tname, sname):
+        for k in (True, False):
+            out.append(f"== {oname} {pos} {'true' if k else 'false'}")
+            out += _ct_trace(t, sname, pos, ops[oname], k)
+            if fk == "opt":
+                out.append("q 0")
+    return "\n".join(out) + "\n"
+
+
 def store_program(oname, fname, then):
     """The program for one store cell."""
     o = STORE_OWNERS[oname]
@@ -1265,6 +1562,21 @@ def main():
                 fh.write(src)
             cells.append((ident, path))
             expects[ident] = cellmut_output(t, a)
+            release.add(ident)
+    for t in CELLTEMP_TYPES:
+        for sname in CELLTEMP_SHAPES:
+            ident = f"celltemp.{t}.{sname}"
+            if not wanted(ident):
+                continue
+            src = celltemp_program(t, sname)
+            if src is None:
+                skipped += 1
+                continue
+            path = os.path.join(work, ident.replace(".", "__") + ".rig")
+            with open(path, "w") as fh:
+                fh.write(src)
+            cells.append((ident, path))
+            expects[ident] = celltemp_output(t, sname)
             release.add(ident)
     if args.oracle:
         sys.exit(run_oracle(work, cells, args))
