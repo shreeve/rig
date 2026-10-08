@@ -29,6 +29,16 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 - **Async**: suspended computations with their own ownership, cancellation, and pinning rules, built on structured concurrency.
 - **Thread-safe handles**: an atomically counted shared handle and rules for what may cross threads.
 
+## Kernels and freestanding code
+
+A kernel is the stress test for Rig's ownership model, reached in steps:
+
+- **A freestanding target**: programs with no operating system under them, on Zig's freestanding support, with a runtime that makes no OS calls, a panic hook, and a boot entry point.
+- **Containers with explicit allocators**: owning values (List, String, `*T`) built over an allocator the program chooses, not a hidden global one.
+- **A teaching kernel** on one CPU in QEMU, with `raw` as the boundary for hardware access: volatile loads and stores, memory layout, interrupt calling conventions and inline assembly.
+- **Global state**: rules for module-level mutable state, designed together with Static Strings.
+- **Concurrency for kernels**: what may cross CPUs and interrupts, with atomics and locks, built on the thread-safe handles above; this is what a kernel beyond one CPU needs.
+
 ## Libraries
 
 - **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`struct File owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
