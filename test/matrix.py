@@ -9,15 +9,17 @@ stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
 `while` step reading what its condition binds (`step.`), and the
 shapes of nested loops and the jumps between them (`loop.`), and a Cell
-changed through each kind of path to the value holding it, built in
-debug and with `--release` (`cellmut.`). The rule is
+changed through each kind of path to the value holding it (`cellmut.`),
+and the Cell of a temporary changed where it stands, alone or as a leaf
+of a value that branches (`celltemp.`), each built in debug and with
+`--release`. The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds, and a `loop.`
-program the trace of its steps, defers, and drops. A `cellmut.` program
-must be accepted, and print its trace in debug and again built with
-`--release`.
+program the trace of its steps, defers, and drops. A `cellmut.` or
+`celltemp.` program must be accepted, and print its trace in debug and
+again built with `--release`.
 
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"

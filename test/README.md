@@ -250,7 +250,18 @@ function returns, an element of a `?Vec` parameter, a subslice), in a
 statement, a loop that continues or breaks early, a `defer`, and a loop
 that returns. Every such program must be accepted, and print the state
 the operations give both in a debug build and built with `--release`,
-where Zig's optimizer would expose a write through a read-only pointer. Every loop a cell
+where Zig's optimizer would expose a write through a read-only pointer. And
+it changes or reads the Cell of a temporary that holds one, of the same
+kinds of value, where the temporary stands: made in the statement, a
+part of one, or a leaf a value that branches may take beside a name's
+(`a if k else mk()`, `o ?? mk()`, `mkf()!`, `mko()?`, a nested branch,
+a part of a branch), through a Cell member, a `?self` method, a view a
+method returns, and, where no leaf is a name's, a read or write lend,
+in a statement, an argument, a loop, and an `if` and a `while`
+condition, with each leaf taken (`celltemp.`). Every such program must
+be accepted, and print, in debug and with `--release`, the trace in
+which each change lands in the leaf taken and each temporary's `drop`
+sees it. Every loop a cell
 writes counts its passes and stops at a cap, and each program is
 stopped past its time (`--timeout`), when its processes hold more than
 its memory (`--mem`; an address-space limit would stop the sanitizer,
