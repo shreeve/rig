@@ -119,9 +119,6 @@ diagnostics name only forms that compile.
 
 **Held, each waiting on the change named:**
 
-- **Bare `break x` of a loop-local owner** (CORE sentence 1, *planned*;
-  commit `3acb07a9` on `r3-step45-held`): until emit's usage scan is a
-  recorded fact.
 - **Whole-program parameter summaries** (CORE §9, *planned*): a generic
   `Holder[String]` built from literals is still rejected.
 - **Field-precise re-pointing:** with field-precise loans.
@@ -139,6 +136,10 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
 - **Core wording.** The commit "Correct CORE status words and
   precision" proposes the status words and precision the final review
   found wrong; it needs the owner's approval, and can be dropped alone.
+  So does B4b's "Mark bare break and payload views past the arm built
+  in CORE sentence 1".
+- **Payload fields by name** (`.rect(w: a, h: b)`, reserved): may a
+  by-name pattern leave fields out, and mix with positional bindings?
 - **Field-disjoint loans:** today field loans are unioned. The design
   owner decided they come, with field-precise re-pointing, as their own
   round after B4, with `docs/CORE.md` updated first. The other three
@@ -221,6 +222,13 @@ and run the corpus after.
   anything (`print(gfirst(!v).n, v.len)` is rejected); per-instance
   origins are a later refinement.
 - **Review findings not fixed:**
+  - Over-rejections main has too (review of B4b part 2, probes
+    `test/corpus/review-b4b-2-p22`, `p24`, `p25`, `p43`): a payload
+    view pushed into a Vec inside a `for` stays rooted on the loop
+    binding; a view returned from a `match` nested on an outer payload
+    binding (`match r.i` in `.a(r)`) is rooted on that binding; and a
+    write-view local a payload view came through cannot be re-pointed
+    while the view lives.
   - An operator, generic inference, and a binding with no type read a
     read view of a scalar as the value (`readsAsValue`), but keep a read
     view of a plain struct, array, or optional as the view: copying
