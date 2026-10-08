@@ -2551,9 +2551,11 @@ from an inner loop) is an expression. Its value is the value of the
 of its `else` block, which it therefore needs (only `while true` can do
 without). Every `break` leaving it carries a value, and they and the
 `else` value meet in one type. A `break` value is consumed like a
-returned value: an owning binding is moved out with `<x`, and a view
-may not outlive what it views. The value must be used; a `break`
-cannot carry a value out of a loop whose value is not.
+returned value: a name the loop declares moves out bare (`break x`),
+since its scope ends with the move, an owning name from outside the
+loop is moved with `<x`, and a view may not outlive what it views. The
+value must be used; a `break` cannot carry a value out of a loop whose
+value is not.
 
 ### match
 
@@ -2950,10 +2952,11 @@ sub main()
 > **Core 2:** `<x` moves, `+x` makes a new owner, `-x` drops now.
 
 A value moves when it is passed to a parameter of owning type, bound to
-another name, stored in a field, or returned. The move is written
-`<x`; only a bare name returned directly (`return x`, or `x` as the
-last expression) moves without it. After a move the name cannot be
-used until it is reassigned.
+another name, stored in a field, or returned. Write `<x` when `x`
+stays in scope after the move; where `x`'s scope ends with the move,
+the move is plain: `return x`, `x` as the last value of the function
+or block that declares it, and `break x` of a name the loop declares.
+After a move the name cannot be used until it is reassigned.
 
 ```rig
 struct Packet

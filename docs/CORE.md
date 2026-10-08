@@ -195,7 +195,7 @@ sub main()
 write `y = !h.v` to lend the view on
 ```
 
-```rig pending
+```rig
 fun first() -> Vec[Int]
   e: Vec[Int] = Vec()
   r = while true

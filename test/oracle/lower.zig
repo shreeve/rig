@@ -119,12 +119,12 @@ const Loop = struct {
     value: ?VarId,
 };
 
-/// The Core's planned rule the oracle models under `planned`: a bare
-/// `break x` of an owner declared in the loop moves it (Core s1). Rules
-/// once planned and now built hold in every run: a type holding a `Cell`
-/// is unique (Core §1), and a bare place a `for` walks or an `if … as`
-/// or `while … as` binds is read where it stands, as `?p` (Core s1).
-pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit, planned: bool) !core.Func {
+/// Lower one function to the core. Rules once planned and now built hold
+/// in every run: a type holding a `Cell` is unique (Core §1), a bare
+/// place a `for` walks or an `if … as` or `while … as` binds is read
+/// where it stands, as `?p`, and a bare `break x` of an owner declared in
+/// the loop moves it (Core s1).
+pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit) !core.Func {
     var l: Lowerer = .{
         .a = a,
         .ctx = m.sema,
@@ -132,7 +132,6 @@ pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit,
         .src = m.source,
         .kinds = kinds.Kinds.init(a, m.sema, true),
         .planned = true,
-        .planned_break = planned,
         .module = m,
     };
     l.run(unit) catch |err| switch (err) {
@@ -262,9 +261,6 @@ const Lowerer = struct {
     src: []const u8,
     kinds: kinds.Kinds,
     planned: bool,
-    /// Core s1, planned: a bare `break x` of an owner declared in the
-    /// loop moves it.
-    planned_break: bool = false,
     f: core.Func = .{},
     cur: ?BlockId = null,
     vars: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
@@ -1441,10 +1437,9 @@ const Lowerer = struct {
             const lv = lp.value orelse return abstain("a `break` value of a loop that is not a value");
             // A `break` value is consumed like a result (SPEC §6); where
             // the loop's value is read, a write view is read through.
-            // Under the planned rule a bare name declared in the loop
-            // leaves for good, and moves (Core s1, planned); one from
-            // outside the loop takes `<x`.
-            const local: ?VarId = if (!self.planned_break or v != .src) null else if (self.varOf(v)) |x| blk: {
+            // A bare name declared in the loop leaves for good, and
+            // moves (Core s1); one from outside the loop takes `<x`.
+            const local: ?VarId = if (v != .src) null else if (self.varOf(v)) |x| blk: {
                 const in_loop = if (self.region_of.get(x)) |r| r >= lp.depth else false;
                 const moves = !(try self.kinds.of(self.f.vars.items[x].ty)).kind.copies();
                 break :blk if (in_loop and moves and !self.f.vars.items[x].alias) x else null;
@@ -2169,7 +2164,6 @@ const Lowerer = struct {
             .src = self.src,
             .kinds = kinds.Kinds.init(self.a, self.ctx, self.planned),
             .planned = self.planned,
-            .planned_break = self.planned_break,
         };
         inner.kinds.generic = self.kinds.generic;
         inner.module = self.module;

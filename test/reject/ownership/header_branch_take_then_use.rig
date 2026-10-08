@@ -4,8 +4,6 @@
 #
 # oracle: loops reject C1
 # oracle: matches reject C1
-# oracle planned: loops reject C1
-# oracle planned: matches reject C1
 struct Counter
   hits: Cell[Int]
 
@@ -35,6 +33,6 @@ sub main()
   loops(true)
   matches(true)
 
-# error: 24:9: use of `a` after move
-# error: 32:9: use of `x` after move
+# error: 22:9: use of `a` after move
+# error: 30:9: use of `x` after move
 # errors: 2

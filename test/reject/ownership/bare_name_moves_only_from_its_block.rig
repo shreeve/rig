@@ -1,16 +1,14 @@
-# A bare name moves an owning value only as `return x`, or as the last
-# value of the function or block that declares it
-# (`test/behavior/ownership/value_tails_leave.rig`). A name declared
-# outside the block, and a `break` value, take `<x`.
+# A bare name moves an owning value only where its scope ends with the
+# move: `return x`, the last value of the function or block that
+# declares it (`test/behavior/ownership/value_tails_leave.rig`), and
+# `break x` of a name the loop declares. A name declared outside the
+# block or loop takes `<x`.
 
 fun f() -> Vec[Int]
-  e: Vec[Int] = Vec()
+  v: Vec[Int] = Vec()
   r = while true
-    v: Vec[Int] = Vec()
     !v.push(1)
     break v
-  else
-    <e
   r
 
 sub main()
@@ -24,5 +22,5 @@ sub main()
   print(w.len, f().len)
 
 # error: 11:11: bare use of `Vec` value `v` in `break` value would copy the buffer pointer and double-free on scope exit; use `<v` to move ownership
-# error: 21:5: bare use of `Vec` value `v` in binding would copy the buffer pointer and double-free on scope exit; use `<v` to move ownership
+# error: 19:5: bare use of `Vec` value `v` in binding would copy the buffer pointer and double-free on scope exit; use `<v` to move ownership
 # errors: 2

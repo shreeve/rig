@@ -5353,7 +5353,15 @@ pub const Checker = struct {
         // function: it is consumed, and it may not view what the loop
         // declared.
         if (target) |t| self.value_reads = t.reads;
-        const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
+        // A name declared in the loop leaves its scope with the value:
+        // `break x` moves it, as `return x` does, before the scopes the
+        // jump leaves run their defers. Any other name stays in scope
+        // after the jump, so one that owns is written `<x`.
+        const moved = if (target) |t| try self.breakMovesName(value, t.point.vars) else null;
+        const v: Value = if (value == .nil) .{} else if (moved) |id|
+            (if (self.vars.items[id].payload_view) try self.movePayload(id, value.src.pos, "move") else try self.moveVar(id, value.src.pos, .move))
+        else
+            try self.walkConsumed(value, .brk);
         self.value_reads = false;
         const word = if (jump == .brk) "break" else "continue";
         const at = self.stmtSpan(node);
@@ -5388,6 +5396,19 @@ pub const Checker = struct {
             try self.after_value.appendSlice(self.gpa, kept);
         }
         self.reachable = false;
+    }
+
+    /// The binding `break value` moves out: a bare name declared since
+    /// the loop's entry (`vars`), so its scope ends at this `break`,
+    /// whose value owns, as `return x` moves one (`returnMoves`).
+    fn breakMovesName(self: *Checker, value: Sexp, vars: u32) Error!?VarId {
+        if (value != .src) return null;
+        const id = self.boundVar(value) orelse return null;
+        if (id < vars) return null;
+        const v = self.vars.items[id];
+        if (v.closure or v.loop_view or v.capture_resource or v.alias_of != null or !self.returnMoves(v)) return null;
+        try self.checkNoImplicitCopy(value, .brk, true);
+        return id;
     }
 
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.

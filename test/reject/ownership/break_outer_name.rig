@@ -1,0 +1,38 @@
+# A bare `break x` moves only a name declared in the loop it leaves: a
+# name from outside that loop, or from an outer loop, is moved with
+# `<x`, since it stays in scope after the move. A `defer` that reads the
+# name runs after it moved.
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  r0 = R(n: 5)
+  a = while true
+    break r0
+  x = for _ in 0..2
+    r = R(n: 10)
+    y = for _ in 0..2
+      break r
+    else
+      R(n: 0)
+    break y
+  else
+    R(n: 1)
+  i = 0
+  z = while i < 3
+    q = R(n: i)
+    defer print("defer", q.n)
+    i += 1
+    break q if i == 2
+  else
+    R(n: 99)
+  print(a.n, x.n, z.n)
+
+# error: 15:11: would alias an owning value
+# error: 19:13: would alias an owning value
+# error: use of `q` after move
+# errors: 3

@@ -55,8 +55,8 @@ type, which is why a `Cell` accepts only values that carry no loan.
 There is no hidden refcount traffic, no implicit error propagation, and
 no unmarked unsafe code. What stays implicit is cheap and cannot
 surprise: copying plain data, reading through a shared handle, lending
-a receiver to a `?self` method, and moving a local out with `return x`,
-where its scope ends anyway. Writing through a receiver
+a receiver to a `?self` method, and moving a local out with `return x`
+or `break x`, where its scope ends anyway. Writing through a receiver
 (`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out,
 and so is lending on a write view a binding already holds
 (`v: !Vec[Int]` lends on with `!v.push(x)` and `f(!v)`): at a call, `!`

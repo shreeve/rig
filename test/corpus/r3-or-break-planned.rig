@@ -1,7 +1,7 @@
-# Core s1, planned: a bare `break x` of an owner declared in the loop it
-# leaves moves it, as `return x` moves a local; one from outside that
-# loop still takes `<x`, and a `defer` that reads the name runs after it
-# moved. Today a bare `break x` of an owner is rejected (C2).
+# Core s1: a bare `break x` of an owner declared in the loop it leaves
+# moves it, as `return x` moves a local; one from outside that loop
+# still takes `<x`, and a `defer` that reads the name runs after it
+# moved.
 
 struct Bag
   v: Vec[Int]
@@ -53,13 +53,8 @@ sub deferred_read()
 sub main()
   loop_local()
 
-# oracle: loop_local reject C2
-# oracle: for_element reject C2
+# oracle: loop_local accept
+# oracle: for_element accept
 # oracle: outer_name reject C2
 # oracle: outer_loop reject C2
-# oracle: deferred_read reject C2
-# oracle planned: loop_local accept
-# oracle planned: for_element accept
-# oracle planned: outer_name reject C2
-# oracle planned: outer_loop reject C2
-# oracle planned: deferred_read reject C1
+# oracle: deferred_read reject C1
