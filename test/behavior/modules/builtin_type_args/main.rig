@@ -25,4 +25,4 @@ sub main()
   print(@size(P2), p.size(), @size(lib.Q), @size(U8), b.size(), @name(Bool), @align(U16))
 
 # expect:
-# 16 16 8 1 2 bool 2
+# 16 16 8 1 2 Bool 2

@@ -1,0 +1,177 @@
+# `@name(T)` is the type's name as Rig writes it, the spelling the
+# diagnostics print: an alias is the type it names, another module's
+# type is qualified the way this module names that module, and a
+# generic type shows its arguments. Every built-in type and every shape
+# is named twice, where it is written and through a type parameter,
+# whose instance is named per instance, and the two must agree.
+
+use geo as g
+
+struct Point
+  x: Int
+
+struct Pair[A, B]
+  a: A
+  b: B
+
+struct Ring[T, n: Int]
+  items: [n]T
+
+  fun name(?self) -> String
+    @name(Self)
+
+enum Shape
+  dot
+  circle(r: Float)
+
+enum Mode
+  on
+  off
+
+error Oops
+  bad
+
+struct Holder[T]
+  v: T
+
+  fun name(?self) -> String
+    @name(T)
+
+  fun view(?self) -> String
+    @name(?T)
+
+type Byte = U8
+type Ints = []Int
+type Four = [4]Int
+type F = fun(Int, Bool) -> Int!
+type S = sub(Int)
+type SF = sub()!
+type OO = (Int?)?
+type RP = ?Point
+type WP = !Point
+type WI = ![]Int
+type CB = ?fun(Int) -> Int
+type HO = *(Int?)
+type HF = *F?
+
+fun name[T]() -> String
+  @name(T)
+
+# Prints the name `@name` gives `T` where it is written, and checks
+# that the name a type parameter gets in a generic body agrees.
+sub show[T](direct: String)
+  through = name[T]()
+  print(direct if direct == through else "{direct} != {through}")
+
+sub main()
+  show[Int](@name(Int))
+  show[I64](@name(I64))
+  show[I8](@name(I8))
+  show[I16](@name(I16))
+  show[I32](@name(I32))
+  show[I128](@name(I128))
+  show[U8](@name(U8))
+  show[Byte](@name(Byte))
+  show[U16](@name(U16))
+  show[U32](@name(U32))
+  show[U64](@name(U64))
+  show[U128](@name(U128))
+  show[Float](@name(Float))
+  show[F32](@name(F32))
+  show[F64](@name(F64))
+  show[Bool](@name(Bool))
+  show[Void](@name(Void))
+  show[String](@name(String))
+  show[Text](@name(Text))
+  show[Endian](@name(Endian))
+  show[Point](@name(Point))
+  show[Shape](@name(Shape))
+  show[Mode](@name(Mode))
+  show[Oops](@name(Oops))
+  show[g.Point](@name(g.Point))
+  show[g.Fault](@name(g.Fault))
+  show[g.Wrap[Point]](@name(g.Wrap[Point]))
+  show[Pair[Int, Text]](@name(Pair[Int, Text]))
+  show[Ring[Int, 4]](@name(Ring[Int, 4]))
+  show[Vec[Int]](@name(Vec[Int]))
+  show[Cell[Bool]](@name(Cell[Bool]))
+  show[Box[Point]](@name(Box[Point]))
+  show[Signal[F32]](@name(Signal[F32]))
+  show[Vec[Vec[I8]]](@name(Vec[Vec[I8]]))
+  show[Int?](@name(Int?))
+  show[OO](@name(OO))
+  show[*Point](@name(*Point))
+  show[~Point](@name(~Point))
+  show[*Point?](@name(*Point?))
+  show[Four](@name(Four))
+  show[F](@name(F))
+  show[S](@name(S))
+  show[SF](@name(SF))
+  show[*F](@name(*F))
+  show[HO](@name(HO))
+  show[HF](@name(HF))
+  show[~Point?](@name(~Point?))
+  # `geo` names its own types bare; the root module's are bare too.
+  print(g.name[g.Point](), g.name[Point](), g.name[g.Wrap[Int]]())
+  r: Ring[Int, 2] = Ring(items: [1, 2])
+  print(r.name())
+  p = Point(x: 1)
+  print(p.x)
+  h: Holder[Int] = Holder(v: 1)
+  print(h.name(), h.view())
+  # A type parameter's instance holds no view or slice.
+  print(@name(RP), @name(WP), @name(Ints), @name(WI), @name(CB), @name(?Int), @name(@type(p)))
+
+# expect:
+# Int
+# Int
+# I8
+# I16
+# I32
+# I128
+# U8
+# U8
+# U16
+# U32
+# U64
+# U128
+# Float
+# F32
+# Float
+# Bool
+# Void
+# String
+# Text
+# Endian
+# Point
+# Shape
+# Mode
+# Oops
+# g.Point
+# g.Fault
+# g.Wrap[Point]
+# Pair[Int, Text]
+# Ring[Int, 4]
+# Vec[Int]
+# Cell[Bool]
+# Box[Point]
+# Signal[F32]
+# Vec[Vec[I8]]
+# Int?
+# (Int?)?
+# *Point
+# ~Point
+# *Point?
+# [4]Int
+# fun(Int, Bool) -> Int!
+# sub(Int)
+# sub()!
+# *fun(Int, Bool) -> Int!
+# *(Int?)
+# (*fun(Int, Bool) -> Int!)?
+# ~Point?
+# Point Point Wrap[Int]
+# Ring[Int, 2]
+# 1
+# Int ?Int
+# ?Point !Point []Int ![]Int ?fun(Int) -> Int ?Int Point
