@@ -364,65 +364,94 @@ pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     };
 }
 
-/// How the address of `e`, a value reached where its leaves are
-/// (`reachesLeaf`), or one of its leaves, is found: one step of the walk
-/// that `Emitter.emitLeafPtr` writes and `madeLeaves` follows, so the
-/// checker keeps exactly the values emit reaches. Inside such a value,
-/// every branching form is walked to its parts (`sema.valueParts`), as
-/// `sema.valueLeaves` walks a read, also one whose every leaf is made
-/// here.
+/// How emit finds the address of `e`, a value reached where its leaves
+/// are (`reachesLeaf`), or of one of its leaves: one step of the walk
+/// `Emitter.emitLeafPtr` writes, which the storage planner and
+/// `madeLeaves` follow, so the checker keeps exactly the values emit
+/// reaches. Inside such a value every branching form is walked to its
+/// parts (`sema.valueParts`), as `sema.valueLeaves` walks a read, also
+/// one whose every leaf is made here.
 pub const LeafStep = enum {
     /// `a if c else b`: the address of the branch it takes.
     @"if",
     /// `o ?? d` and `e catch h`: the address of the payload where the
-    /// optional or fallible operand is, reached as a leaf, or else of the
-    /// fallback's value.
+    /// optional or fallible operand is (reached as a leaf), or else of
+    /// the fallback's value.
     fallback,
     /// `o?` and `e!`: the address of the payload where the operand is.
     unwrap,
-    /// Any other value: a place, a lend, or a part of a value, at its
-    /// address (a part's within the value it is a part of); a value made
-    /// here, in its statement's slot (`madeLeaves`); or a jump.
-    value,
+    /// A place: its address.
+    place,
+    /// A field or element of a value made here: its address within that
+    /// value, which is reached as a value is (`madeLeaves`).
+    part,
+    /// A lend: the view it makes.
+    lend,
+    /// A value made here: its address in its statement's slot when one
+    /// keeps it (`dropsTemp`), else of a Zig temporary.
+    made,
+    /// `return`, `break`, `continue`: no value, no address.
+    jump,
 };
 
-pub fn leafStep(e: Sexp) LeafStep {
-    if (!sema.isBranchingForm(e)) return .value;
-    return switch (e.kind().?) {
+pub fn leafStep(ctx: *const SemContext, e: Sexp) LeafStep {
+    if (sema.isBranchingForm(e)) return switch (e.kind().?) {
         .@"if" => .@"if",
         .@"??", .@"catch" => .fallback,
         else => .unwrap,
+    };
+    return wholeStep(ctx, e);
+}
+
+/// The step that reaches `e` as one value, not through its parts: what
+/// `leafStep` gives a value that is no branching form, and how a value
+/// whose every leaf is made here (`sema.handsOver` is `made`) is reached
+/// where no value that branches beside a name's encloses it.
+fn wholeStep(ctx: *const SemContext, e: Sexp) LeafStep {
+    return switch (sema.handsOver(ctx, e).kind) {
+        .place => .place,
+        .part_of_made => .part,
+        .lend => .lend,
+        .jump => .jump,
+        .made, .branches, .none => .made,
     };
 }
 
 /// The values made here that reaching `e` by address reaches, appended
 /// to `out`: a value that branches with a leaf not made here
-/// (`sema.handsOver` is `branches`) at each of its leaves, walked as
-/// `leafStep` walks them; any other value whole, as one temporary. A
-/// leaf that is a part of a value made here (`mk().t`) reaches that
-/// value, the same way. A place, a lend, or a jump reaches none. Emit
+/// (`sema.handsOver` is `branches`) at each of its leaves, walked by
+/// `leafStep`; any other value whole, as one temporary. A part of a
+/// value made here (`mk().t`) reaches that value, the same way. Emit
 /// takes the address of each such value where its statement's slot
-/// keeps it (`dropsTemp`); otherwise of a Zig temporary, which may be
-/// constant, so nothing may change it. Typecheck keeps each in its slot
-/// wherever a value whose type holds a Cell is reached this way, and
-/// emit stops with an internal error at one that is not
-/// (`Emitter.emitLeafPtr`).
+/// keeps it (`dropsTemp`), and otherwise of a Zig temporary, which may
+/// be constant, so nothing may change it: typecheck keeps each in its
+/// slot wherever a value whose type holds a Cell is reached so
+/// (`Checker.keepReached`), and emit stops with an internal error at one
+/// no slot keeps (`Emitter.refuseHeldCell`).
 pub fn madeLeaves(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    if (sema.handsOver(ctx, e).kind == .branches) return leafValues(ctx, a, e, out);
-    return madeValue(ctx, a, e, out);
-}
-
-fn leafValues(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    if (leafStep(e) == .value) return madeValue(ctx, a, e, out);
-    var parts = sema.valueParts(e);
-    while (parts.next()) |part| try leafValues(ctx, a, part.node, out);
-}
-
-fn madeValue(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    switch (sema.handsOver(ctx, e).kind) {
+    const step = if (sema.handsOver(ctx, e).kind == .branches) leafStep(ctx, e) else wholeStep(ctx, e);
+    switch (step) {
+        .@"if", .fallback, .unwrap => {
+            var parts = sema.valueParts(e);
+            while (parts.next()) |part| try madeLeavesIn(ctx, a, part.node, out);
+        },
         .made => try out.append(a, e),
-        .part_of_made => try madeLeaves(ctx, a, pathBase(e), out),
-        .place, .lend, .branches, .jump, .none => {},
+        .part => try madeLeaves(ctx, a, pathBase(e), out),
+        .place, .lend, .jump => {},
+    }
+}
+
+/// `madeLeaves` of `e`, a part of a value that branches beside a name's:
+/// every branching form is walked through (`leafStep`).
+fn madeLeavesIn(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    switch (leafStep(ctx, e)) {
+        .@"if", .fallback, .unwrap => {
+            var parts = sema.valueParts(e);
+            while (parts.next()) |part| try madeLeavesIn(ctx, a, part.node, out);
+        },
+        .made => try out.append(a, e),
+        .part => try madeLeaves(ctx, a, pathBase(e), out),
+        .place, .lend, .jump => {},
     }
 }
 
@@ -1023,8 +1052,8 @@ const Planner = struct {
     }
 
     fn leaf(p: *Planner, e: Sexp) !void {
-        switch (leafStep(e)) {
-            .value => {},
+        switch (leafStep(p.ctx, e)) {
+            .place, .part, .lend, .made, .jump => {},
             .@"if" => {
                 try p.leaf(lastValue(ir.If.then(e)));
                 try p.leaf(lastValue(ir.If.@"else"(e)));

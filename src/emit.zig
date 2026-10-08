@@ -4509,7 +4509,7 @@ pub const Emitter = struct {
     /// holds a Cell is kept in its slot (`storage.madeLeaves`), since a
     /// change may land in it.
     fn emitLeafPtr(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
-        switch (storage.leafStep(e)) {
+        switch (storage.leafStep(self.sema, e)) {
             .@"if" => {
                 try self.w.writeAll("(");
                 try self.emitIfYield(e, .leaf_ptr);
@@ -4549,17 +4549,14 @@ pub const Emitter = struct {
                 try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|err| return err" else "return null" });
                 return;
             },
-            .value => {},
-        }
-        switch (sema.handsOver(self.sema, e).kind) {
             .jump => return self.emitExpr(e),
-            .place, .part_of_made, .lend => {
+            .place, .part, .lend => {
                 const saved = self.read_place;
                 defer self.read_place = saved;
                 self.read_place = true;
                 return self.emitAddressOf(e);
             },
-            else => {
+            .made => {
                 // A value kept in its statement's slot is reached there.
                 if (self.sema.dropsTemp(e)) {
                     try self.w.writeAll("&(");
@@ -4582,12 +4579,15 @@ pub const Emitter = struct {
     /// statement's slot keeps there.
     fn emitPayloadHolder(self: *Emitter, e: Sexp) Error!void {
         const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped optional");
-        if (storage.leafStep(e) != .value or (sema.handsOver(self.sema, e).hasStorage() and !e.isKind(.read) and !e.isKind(.write))) {
-            try self.w.writeAll("(");
-            try self.emitLeafPtr(e, ty);
-            return self.w.writeAll(").*");
+        switch (storage.leafStep(self.sema, e)) {
+            .@"if", .fallback, .unwrap, .place, .part => {
+                try self.w.writeAll("(");
+                try self.emitLeafPtr(e, ty);
+                return self.w.writeAll(").*");
+            },
+            .made => if (!self.sema.dropsTemp(e)) try self.refuseHeldCell(e, ty),
+            .lend, .jump => {},
         }
-        if (!self.sema.dropsTemp(e)) try self.refuseHeldCell(e, ty);
         try self.emitBare(e);
     }
 
@@ -5038,11 +5038,18 @@ pub const Emitter = struct {
     /// view on its path is one (`sema.interiorMutable`), and an element
     /// on it is reached through `constSlot`, which reaches an element
     /// holding a Cell through a mutable pointer, since the Vec holding
-    /// it may be reached through a read view.
+    /// it may be reached through a read view. A value made here that the
+    /// path starts from is reached in its statement's slot
+    /// (`storage.madeLeaves`), never as a Zig temporary.
     fn emitCellAddress(self: *Emitter, obj: Sexp) Error!void {
         const saved = self.read_place;
         defer self.read_place = saved;
         self.read_place = true;
+        var base = lentPlace(obj);
+        while (base.isKind(.member) or base.isKind(.index)) base = lentPlace(ir.get(base, .object));
+        var leaves: std.ArrayList(Sexp) = .empty;
+        try storage.madeLeaves(self.sema, self.arena.allocator(), base, &leaves);
+        for (leaves.items) |leaf| if (!self.sema.dropsTemp(leaf)) if (self.typeOf(leaf)) |t| try self.refuseHeldCell(leaf, t);
         try self.w.writeAll("(");
         try self.emitAddressOf(lentPlace(obj));
         try self.w.writeAll(")");
