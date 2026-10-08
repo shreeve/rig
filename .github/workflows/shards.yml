@@ -1,0 +1,70 @@
+name: shards
+
+# One operating system's test run, split into four disjoint shards that
+# run in parallel (test/run --shard). Called by test.yml once per system.
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  shard:
+    name: shard ${{ matrix.shard }}/4
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: rig
+    steps:
+      # Rig and Nexus side by side: the build and test/run look for
+      # nexus/bin/nexus in a parent directory of the checkout.
+      - uses: actions/checkout@v4
+        with:
+          path: rig
+
+      # setup-zig also caches Zig's global cache between runs.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      # Nexus is pinned, so its binary is built once per runner and Zig
+      # version and then restored from the cache.
+      - name: Restore Nexus
+        id: nexus
+        uses: actions/cache@v4
+        with:
+          path: nexus/bin/nexus
+          key: nexus-v2.0.0-zig-0.17.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Check out Nexus
+        if: steps.nexus.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: shreeve/nexus
+          ref: v2.0.0
+          path: nexus
+
+      - name: Build Nexus
+        if: steps.nexus.outputs.cache-hit != 'true'
+        working-directory: nexus
+        run: zig build -Doptimize=safe
+
+      - name: Build Rig
+        run: zig build
+
+      # test/run stops a test with GNU timeout, or with perl where there
+      # is none (macOS). Shard 1 also runs the whole-program checks.
+      - name: Test
+        # Release builds on a cold cache can take minutes on a CI runner.
+        env:
+          RIG_TEST_TIMEOUT: 300
+        run: ./test/run -j 4 --shard ${{ matrix.shard }}/4
