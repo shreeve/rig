@@ -1,0 +1,17 @@
+struct S
+  n: Int
+
+fun grow(v: !Vec[S]) -> Int
+  for _ in 0..200
+    !v.push(S(n: 1))
+  v.len
+
+sub main()
+  v: Vec[S] = Vec()
+  !v.push(S(n: 7))
+  w = !v[0]
+  k = 0
+  w.n = match k
+    0 => grow(!v)
+    _ => 3
+  print(v[0].n, v.len)

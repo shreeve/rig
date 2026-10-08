@@ -1,0 +1,19 @@
+error E
+  bad
+
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..200
+    !v.push(1)
+  v.len
+
+fun f(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = f(-1) catch |_|
+    grow(!v)
+  print(v[0], v.len)

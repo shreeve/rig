@@ -1,0 +1,111 @@
+# An assignment uses its target after its value, so a view the target
+# reads stays live through every statement nested in the value: a
+# `match` arm, a block arm, an `if` block, a `catch` block, as through
+# a ternary branch. Lending, reading, or moving what it views there is
+# rejected, also where the target is a write view a store goes through.
+error E
+  bad
+
+struct S
+  n: Int
+
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..200
+    !v.push(1)
+  v.len
+
+fun grows(v: !Vec[S]) -> Int
+  for _ in 0..200
+    !v.push(S(n: 1))
+  v.len
+
+fun sink(v: Vec[Int]) -> Int
+  v.len
+
+fun fail(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+sub arm(v: !Vec[Int], k: Int)
+  w = !v[0..1]
+  w[0] = match k
+    0 => grow(!v)
+    _ => 3
+
+sub block_arm(v: !Vec[Int], k: Int)
+  w = !v[0..1]
+  w[0] = match k
+    0
+      grow(!v)
+    _ => 3
+
+sub if_block(v: !Vec[Int], k: Bool)
+  w = !v[0..1]
+  w[0] = if k
+    grow(!v)
+  else
+    3
+
+sub catch_block(v: !Vec[Int])
+  w = !v[0..1]
+  w[0] = fail(-1) catch |_|
+    grow(!v)
+
+sub ternary(v: !Vec[Int], k: Bool)
+  w = !v[0..1]
+  w[0] = grow(!v) if k else 3
+
+sub compound(v: !Vec[Int], k: Int)
+  w = !v[0..1]
+  w[0] += match k
+    0 => grow(!v)
+    _ => 3
+
+sub field(v: !Vec[S], k: Int)
+  w = !v[0]
+  w.n = match k
+    0 => grows(!v)
+    _ => 3
+
+sub index(v: !Vec[Int], u: !Vec[Int], k: Int)
+  w = ?v[0..1]
+  u[w[0]] = match k
+    0 => grow(!v)
+    _ => 3
+
+sub read(v: !Vec[Int], k: Int)
+  w = !v[0..1]
+  w[0] = match k
+    0 => v.len
+    _ => 3
+
+sub moved(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = match k
+    0 => sink(<v)
+    _ => 3
+
+sub name_target(v: !Vec[Int], k: Int)
+  w = !v[0]
+  w = match k
+    0
+      grow(!v)
+    _ => 3
+
+sub main()
+  pass
+
+# error: 32:16: cannot lend `v` to write while a write loan is live
+# error: 39:13: cannot lend `v` to write while a write loan is live
+# error: 45:11: cannot lend `v` to write while a write loan is live
+# error: 52:11: cannot lend `v` to write while a write loan is live
+# error: 56:16: cannot lend `v` to write while a write loan is live
+# error: 61:16: cannot lend `v` to write while a write loan is live
+# error: 67:17: cannot lend `v` to write while a write loan is live
+# error: 73:16: cannot lend `v` to write while a read loan is live
+# error: 79:10: use of `v` while a write loan is live
+# error: 87:16: cannot move `v` while a write loan is live
+# error: 94:13: cannot lend `v` to write while a write loan is live
+# errors: 11

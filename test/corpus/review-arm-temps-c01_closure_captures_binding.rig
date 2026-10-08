@@ -1,0 +1,51 @@
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WW
+  t: D
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun look(x: ?D) -> Int
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+enum Bx
+  has(d: D)
+  nothing
+
+sub main()
+  b = Bx.has(mk(3))
+  g = match ?b
+    .has(x) => |?x, n: Int| n + x.c.get()
+    .nothing => |n: Int| n
+  print(g(1))

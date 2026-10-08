@@ -1,0 +1,14 @@
+# The same with a read: the target is a write view, an arm reads v through
+# a read lend (allowed only if w is dead) and the store follows.
+fun look(v: ?Vec[Int]) -> Int
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0 => look(?v)
+    _ => 3
+  print(v[0], v.len)

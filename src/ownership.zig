@@ -1412,7 +1412,9 @@ pub const Checker = struct {
     /// and body), and the symbols deferred code uses. A capture's own
     /// leaf is also a use of the binding it captures. A `while` loop's
     /// step runs after the body, so its uses count there (`stepAt`), or
-    /// at `at` when `e` is in a step already.
+    /// at `at` when `e` is in a step already; an assignment's target is
+    /// used after its value, so its uses count at the assignment's end,
+    /// past every statement nested in the value (an arm, a block line).
     fn indexUses(self: *Checker, e: Sexp, in_defer: bool, at: ?u32) Error!void {
         switch (e) {
             .src => |s| {
@@ -1427,8 +1429,8 @@ pub const Checker = struct {
             .list => {
                 const deferred = in_defer or e.isKind(.@"defer") or e.isKind(.@"errdefer");
                 for (e.items()) |c| {
-                    const step_at = if (sema.isWhileStep(e, c)) at orelse stepAt(e) else at;
-                    try self.indexUses(c, deferred, step_at);
+                    const use_at = if (sema.isWhileStep(e, c)) at orelse stepAt(e) else if (isSetTarget(e, c)) at orelse extent(e).hi else at;
+                    try self.indexUses(c, deferred, use_at);
                 }
             },
             else => {},
@@ -5753,6 +5755,17 @@ fn sexpMentionsView(t: Sexp) bool {
         if (sexpMentionsView(c)) return true;
     }
     return false;
+}
+
+/// Whether `child` is the target of assignment `parent`.
+fn isSetTarget(parent: Sexp, child: Sexp) bool {
+    if (!parent.isKind(.set)) return false;
+    const target = ir.Set.target(parent);
+    return switch (target) {
+        .src => child == .src and child.src.pos == target.src.pos,
+        .list => child == .list and child.list.id == target.list.id,
+        else => false,
+    };
 }
 
 /// Where the step of `while` loop `node` runs: after its body.
