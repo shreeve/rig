@@ -1,0 +1,19 @@
+# `s = match k` whose block arm drops `s` now: the store must not drop it again.
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub run(k: Int)
+  s = D(n: k)
+  s = match k
+    0
+      -s
+      D(n: 20)
+    _ => D(n: 5)
+  print("s", s.n)
+
+sub main()
+  run(0)
+  run(1)

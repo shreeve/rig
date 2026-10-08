@@ -1,0 +1,40 @@
+# Valid: a match on the place being assigned, whose arm builds the new
+# value from the payload; the payload must be read before the store.
+struct P
+  a: Int
+  b: Int
+  c: Int
+  d: Int
+
+enum Pr
+  pair(p: P)
+  empty
+
+sub main()
+  e = Pr.pair(P(a: 1, b: 2, c: 3, d: 4))
+  e = match e
+    .pair(p) => Pr.pair(P(a: p.d, b: p.c, c: p.b, d: p.a))
+    .empty => Pr.empty
+  match e
+    .pair(p) => print(p.a, p.b, p.c, p.d)
+    .empty => pass
+  v: Vec[Pr] = Vec()
+  !v.push(Pr.pair(P(a: 1, b: 2, c: 3, d: 4)))
+  v[0] = match v[0]
+    .pair(p) => Pr.pair(P(a: p.d, b: p.c, c: p.b, d: p.a))
+    .empty => Pr.empty
+  match v[0]
+    .pair(p) => print(p.a, p.b, p.c, p.d)
+    .empty => pass
+  w = !v[0]
+  w = match w
+    .pair(p) => Pr.pair(P(a: p.d, b: p.c, c: p.b, d: p.a))
+    .empty => Pr.empty
+  match v[0]
+    .pair(p) => print(p.a, p.b, p.c, p.d)
+    .empty => pass
+
+# expect:
+# 4 3 2 1
+# 4 3 2 1
+# 1 2 3 4

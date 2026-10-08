@@ -1,0 +1,33 @@
+# Order: the value (with its arm) runs first, then the target's indexes,
+# outermost first; identical on main and the branch.
+fun at(i: Int, what: String) -> Int
+  print(what)
+  i
+
+sub main()
+  a: Vec[Vec[Int]] = Vec()
+  !a.push(Vec())
+  !a[0].push(0)
+  k = 0
+  a[at(0, "i")][at(0, "j")] = match k
+    0
+      at(5, "arm")
+    _ => 1
+  a[at(0, "i2")][at(0, "j2")] += at(2, "value")
+  w = !a[0][0]
+  w = match k
+    0 => at(9, "w-arm")
+    _ => 1
+  w += at(1, "w-value")
+  print(a[0][0])
+
+# expect:
+# arm
+# i
+# j
+# value
+# i2
+# j2
+# w-arm
+# w-value
+# 10

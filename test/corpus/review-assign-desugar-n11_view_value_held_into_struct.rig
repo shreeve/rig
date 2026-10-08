@@ -1,0 +1,24 @@
+# A value that is a view, made in __v and stored into a struct local:
+# the struct's loan on `v` lasts, so a later grow must be rejected.
+struct H
+  r: ?Int
+
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..200
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  t: Vec[Int] = Vec()
+  !t.push(1)
+  h = H(r: ?t[0])
+  k = 0
+  h = match k
+    0
+      grow(!v)
+      H(r: ?v[0])
+    _ => H(r: ?t[0])
+  grow(!v)
+  print(h.r)

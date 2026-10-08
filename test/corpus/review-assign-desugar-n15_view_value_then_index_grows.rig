@@ -1,0 +1,18 @@
+# The value is a view (made in __v); the target's index then grows what
+# it views. The loan of __v must be live across the index.
+struct H
+  r: ?Int
+
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..200
+    !v.push(1)
+  0
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  t = 5
+  hs: Vec[H] = Vec()
+  !hs.push(H(r: ?t))
+  hs[grow(!v)] = H(r: ?v[0])
+  print(hs[0].r)

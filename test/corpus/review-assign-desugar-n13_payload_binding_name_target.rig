@@ -1,0 +1,18 @@
+# A write payload binding as a name target; the value replaces the subject.
+enum Bx
+  has(n: Int)
+  nothing
+
+fun grow(b: !Bx) -> Int
+  b = Bx.nothing
+  0
+
+sub main()
+  b = Bx.has(1)
+  k = 0
+  match !b
+    .has(d)
+      d = match k
+        0 => grow(!b)
+        _ => 3
+    .nothing => pass

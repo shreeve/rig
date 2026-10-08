@@ -1,0 +1,33 @@
+error E
+  bad
+
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> D!
+  return E.bad if n < 0
+  D(n: n)
+
+fun sink(d: D) -> D
+  D(n: d.n + 10)
+
+sub run(k: Int)
+  s = D(n: 1)
+  s = mk(k) catch |_|
+    sink(<s)
+  print("s", s.n)
+
+sub main()
+  run(-1)
+  run(3)
+
+# expect:
+# drop 1
+# s 11
+# drop 11
+# drop 1
+# s 3
+# drop 3

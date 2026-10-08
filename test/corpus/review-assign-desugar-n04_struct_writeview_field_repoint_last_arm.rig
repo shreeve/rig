@@ -1,0 +1,20 @@
+# A struct field that is a write view, written through; the value's last
+# arm re-points the field at an arm-local. Must be rejected.
+struct H
+  r: !Int
+
+sub run(k: Int)
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  h = H(r: !v[0])
+  h.r = match k
+    1 => 4
+    _
+      u: Vec[Int] = Vec()
+      !u.push(1)
+      h.r = !u[0]
+      3
+  print(v[0])
+
+sub main()
+  run(0)

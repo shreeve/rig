@@ -1,0 +1,22 @@
+# The value is a match on a made subject whose last arm re-points the
+# target at the payload. The payload (or the subject temporary holding
+# it) dies at the arm's end or at the statement's end.
+enum Bx
+  nothing
+  has(v: Vec[Int])
+
+fun mk() -> Bx
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  Bx.has(<v)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = match mk()
+    .nothing => 5
+    .has(p)
+      w = !p[0..1]
+      3
+  print(v[0])

@@ -1,0 +1,39 @@
+# Valid: pure values (no call) that read the place they replace, through
+# an `if`, a `match`, an array literal, and a write view. Zig result-
+# location aliasing must not show through: __v semantics.
+struct P
+  a: Int
+  b: Int
+
+sub main()
+  k = 0
+  p = P(a: 1, b: 2)
+  p = P(a: p.b, b: p.a) if k == 0 else p
+  print(p.a, p.b)
+  p = match k
+    0 => P(a: p.b, b: p.a)
+    _ => p
+  print(p.a, p.b)
+  v: Vec[P] = Vec()
+  !v.push(P(a: 3, b: 4))
+  v[0] = P(a: v[0].b, b: v[0].a) if k == 0 else v[0]
+  print(v[0].a, v[0].b)
+  w = !v[0]
+  w = match k
+    0 => P(a: w.b, b: w.a)
+    _ => P(a: 0, b: 0)
+  print(v[0].a, v[0].b)
+  arr = [1, 2]
+  arr = [arr[1], arr[0]]
+  print(arr[0], arr[1])
+  wa = !arr
+  wa = [wa[1], wa[0]]
+  print(arr[0], arr[1])
+
+# expect:
+# 2 1
+# 1 2
+# 4 3
+# 3 4
+# 2 1
+# 1 2

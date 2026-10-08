@@ -1,0 +1,20 @@
+# The target's nested index reads a view the value's else block re-points
+# at its own local.
+sub run(k: Bool)
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  a: Vec[Vec[Int]] = Vec()
+  !a.push(Vec())
+  !a[0].push(0)
+  r = ?v[0..1]
+  a[r[0]][r[0]] = if k
+    4
+  else
+    u: Vec[Int] = Vec()
+    !u.push(0)
+    r = ?u[0..1]
+    9
+  print(a[0][0])
+
+sub main()
+  run(false)

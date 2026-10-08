@@ -1,0 +1,23 @@
+# Valid: the value moves the target's owner and makes a new one; the
+# field store lands in the new owner.
+struct S
+  items: Vec[Int]
+  n: Int
+
+fun sink(s: S) -> Int
+  s.items.len
+
+sub main()
+  s = S(items: Vec(), n: 1)
+  !s.items.push(4)
+  k = 0
+  s.n = match k
+    1 => 2
+    _
+      m = sink(<s)
+      s = S(items: Vec(), n: 0)
+      m + 10
+  print(s.n, s.items.len)
+
+# expect:
+# 11 0

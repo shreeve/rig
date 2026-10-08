@@ -1,0 +1,20 @@
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  s = D(n: 1)
+  k = 0
+  s = match k
+    0
+      r = ?s
+      D(n: r.n + 1)
+    _ => D(n: 5)
+  print("s", s.n)
+
+# expect:
+# drop 1
+# s 2
+# drop 2

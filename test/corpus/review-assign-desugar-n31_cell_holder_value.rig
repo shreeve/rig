@@ -1,0 +1,50 @@
+# Valid: unique (Cell-holding) values stored through a write view, a
+# plain local, a field and an element, from values that act.
+struct C
+  hits: Cell[Int]
+
+fun tick(c: ?C) -> Int
+  c.hits.set(c.hits.get() + 1)
+  c.hits.get()
+
+sub main()
+  k = 0
+  a = C(hits: Cell(1))
+  b = C(hits: Cell(10))
+  a = match k
+    0
+      tick(?a)
+      <b
+    _ => C(hits: Cell(0))
+  print(a.hits.get())
+  v: Vec[C] = Vec()
+  !v.push(C(hits: Cell(20)))
+  w = !v[0]
+  d = C(hits: Cell(30))
+  w = match k
+    0
+      tick(?w)
+      tick(?d)
+      <d
+    _ => C(hits: Cell(0))
+  print(v[0].hits.get())
+  v[0] = match k
+    0
+      tick(?v[0])
+      C(hits: Cell(40))
+    _ => C(hits: Cell(0))
+  print(v[0].hits.get())
+  cv = Cell[Vec[Int]](value: Vec())
+  cv.push(1)
+  cv[0] = match k
+    0
+      cv.push(2)
+      cv.len
+    _ => 0
+  print(cv[0], cv.len)
+
+# expect:
+# 10
+# 31
+# 40
+# 2 2

@@ -1,0 +1,21 @@
+# A write payload binding holding a Vec, as a name target: the value
+# replaces the subject, which drops the Vec the store writes into.
+enum Bx
+  has(v: Vec[Int])
+  nothing
+
+fun grow(b: !Bx) -> Int
+  b = Bx.nothing
+  0
+
+sub main()
+  b = Bx.has(Vec())
+  k = 0
+  match !b
+    .has(d)
+      d = match k
+        0
+          grow(!b)
+          Vec()
+        _ => Vec()
+    .nothing => pass

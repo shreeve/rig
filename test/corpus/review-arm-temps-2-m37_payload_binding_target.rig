@@ -1,0 +1,23 @@
+# The target writes through a payload binding of the enclosing match; the
+# value's arm lends the subject's owner.
+struct D
+  v: Vec[Int]
+
+enum Bx
+  has(d: D)
+  nothing
+
+fun grow(b: !Bx) -> Int
+  b = Bx.nothing
+  0
+
+sub main()
+  b = Bx.has(D(v: Vec()))
+  k = 0
+  match !b
+    .has(d)
+      !d.v.push(1)
+      d.v[0] = match k
+        0 => grow(!b)
+        _ => 3
+    .nothing => pass
