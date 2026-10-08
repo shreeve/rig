@@ -510,7 +510,7 @@ goals, and says no where they don't.
 | **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes | interfaces as constraints on type parameters |
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
 | **Ruby** | short keywords, readability first | `valid?` names, implicit mutation, calls without parentheses |
-| **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) and Zag (its Zig-targeted sibling) supplied the indentation lexer and much of the surface | reactive operators in the core language |
+| **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) supplied the indentation lexer and much of the surface | reactive operators in the core language |
 | **Swift** | second-class references; `x?` optional propagation | |
 | **Hylo, Mojo** | views as parameter conventions rather than types with lifetimes; values first | |
 | **Lisp** | S-expressions as the IR and a project contract | S-expression syntax; macros |
