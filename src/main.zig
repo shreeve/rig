@@ -400,6 +400,8 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     try writer.interface.writeAll(pkg.root_source);
     try writer.interface.flush();
     std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ emit.runtime_filename, dir });
+    // Not in any file of the package, but in what `run` and `build` hand Zig.
+    if (pkg.links_libc) std.debug.print("note: Zig links it with libc (-lc)\n", .{});
 }
 
 /// `rig run`, `build`, and `test`: emit the package and hand it to Zig.
