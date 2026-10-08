@@ -138,8 +138,6 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
   found wrong; it needs the owner's approval, and can be dropped alone.
   So does B4b's "Mark bare break and payload views past the arm built
   in CORE sentence 1".
-- **Payload fields by name** (`.rect(w: a, h: b)`, reserved): may a
-  by-name pattern leave fields out, and mix with positional bindings?
 - **Field-disjoint loans:** today field loans are unioned. The design
   owner decided they come, with field-precise re-pointing, as their own
   round after B4, with `docs/CORE.md` updated first. The other three
