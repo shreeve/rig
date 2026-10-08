@@ -99,6 +99,17 @@ review rounds.
   once only if they touch different facts or classifiers. Each later
   branch to merge first passes the full gates on the combined tree:
   main with the earlier branches merged, plus it.
+- **Land fast, release deep.** A round lands through the fast gate: the
+  full gates (suite, corpus, matrix, unit), the round's new tests, a
+  targeted grid of the forms it changes, and one independent review run
+  in parallel with them, then CI. A release is tagged only after the
+  deep gate: the generated grids in debug and `--release` on macOS and
+  Linux, and an adversarial review of everything merged since the last
+  release. A soundness finding from either gate is fixed before the
+  tag.
+- **Rerun only what changed.** A grid or corpus rerun checks the
+  programs whose emitted package differs from the last checked
+  compiler's (`test/equiv.py` lists them), not the whole set.
 - **Reviewer probes are kept** in `test/corpus/`.
 - **"Runs clean" means sanitizer-clean:** no leak and no use of freed
   memory under `RIG_SANITIZE=1`, which `./test/run` sets.

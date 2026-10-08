@@ -1,0 +1,100 @@
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+struct WW
+  t: D
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun look(x: ?D) -> Int
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+enum Bx
+  has(d: D)
+  nothing
+
+fun hc(v: ?D, n: Int) -> HC
+  HC(v: v, c: Cell(n))
+
+struct HC
+  v: ?D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop hc", self.c.get(), self.v.c.get())
+
+  fun me(?self) -> ?HC
+    self.c.set(self.c.get() + 1)
+    self.v.hit()
+    self
+
+sub main()
+  b = Bx.has(mk(3))
+  for i in 0..3
+    match ?b
+      .has(x) => match i
+        0 => print("n0", hc(x, 10).me().me().c.get(), x.c.get())
+        1 => print("n1", (hc(x, 20) if i > 0 else hc(x, 30)).me().c.get())
+        _ => match mk(i).me().c.get()
+          3 => print("three", hc(x, 40).me().c.get())
+          m => print("m", m)
+      .nothing => pass
+    print("after", i)
+  r = match ?b
+    .has(x) => hc(x, 50).me().c.get() + x.c.get()
+    .nothing => 0
+  print("r", r)
+  s = match ?b
+    .has(x)
+      t = hc(x, 60).me().c.get()
+      t + hc(x, 70).me().c.get()
+    .nothing => 0
+  print("s", s)
+
+# expect:
+# n0 12 5
+# drop hc 12 5
+# after 0
+# n1 21
+# drop hc 21 6
+# after 1
+# drop 3
+# three 41
+# drop hc 41 7
+# after 2
+# drop hc 51 8
+# r 59
+# drop hc 61 9
+# drop hc 71 10
+# s 132
+# drop 10

@@ -1,0 +1,17 @@
+# The subject views v; a later arm's guard reads it through x after a
+# write lend in an earlier-tested arm? Guards run before the arm body.
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..50
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  x = ?v[0..1]
+  k = 0
+  r = match k
+    0 => grow(!v)
+    _ if x[0] > 0 => 1
+    _ => 2
+  print(r)

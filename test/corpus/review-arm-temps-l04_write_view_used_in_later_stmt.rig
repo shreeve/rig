@@ -1,0 +1,16 @@
+# A write view taken before the match, used after it: a write lend in an
+# arm must still conflict.
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..50
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  x = ?v[0..1]
+  k = 1
+  match k
+    1 => print(grow(!v))
+    _ => pass
+  print(x[0])

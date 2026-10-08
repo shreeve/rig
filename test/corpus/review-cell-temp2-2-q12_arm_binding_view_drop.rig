@@ -1,0 +1,51 @@
+# A temporary made in a `match` arm whose drop reads a view of the arm's
+# binding. Where emit keeps the arm's temporary past the arm, the drop
+# would read a binding whose scope has ended.
+struct P
+  n: Int
+
+struct HI
+  v: ?Int
+  t: Text
+
+  drop(!self)
+    print("drop hi", self.v)
+
+struct HP
+  v: ?P
+  t: Text
+
+  drop(!self)
+    print("drop hp", self.v.n)
+
+enum Bx
+  has(p: P)
+  nothing
+
+fun showi(h: ?HI) -> Int
+  h.v + h.t.len
+
+fun showp(h: ?HP) -> Int
+  h.v.n + h.t.len
+
+fun mkbx(n: Int) -> Bx
+  return Bx.nothing if n < 0
+  Bx.has(P(n: n))
+
+sub main()
+  for i in 0..3
+    match i * 10
+      0 => print("zero")
+      m => print("m", showi(?HI(v: ?m, t: Text("ab"))))
+  match mkbx(7)
+    .has(x) => print("x", showp(?HP(v: ?x, t: Text("abc"))))
+    .nothing => print("none")
+
+# expect:
+# zero
+# m 12
+# drop hi 10
+# m 22
+# drop hi 20
+# x 10
+# drop hp 7

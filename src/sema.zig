@@ -3963,15 +3963,23 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
 }
 
 /// Whether the temporaries `child` makes are its parent `stmt`'s: a
-/// block or a closure holds statements of its own, and a header (an
-/// `if`'s condition, a `match`'s subject, an arm's guard) or a `while`
-/// loop's step is a statement of its own; every other part of a
-/// statement, a branch, a `??` fallback, a `catch` handler, and a
-/// `match` arm's value included, makes its temporaries for the
-/// statement.
+/// block or a closure holds statements of its own, a `match` arm's body
+/// is a statement of its own (as the one statement of a block is), and
+/// a header (an `if`'s condition, a `match`'s subject, an arm's guard)
+/// or a `while` loop's step is a statement of its own; every other part
+/// of a statement, a branch, a `??` fallback, and a `catch` handler
+/// included, makes its temporaries for the statement.
 fn sharesStmtTemps(stmt: Sexp, child: Sexp) bool {
     if (child != .list or child.isKind(.block) or child.isKind(.lambda)) return false;
-    return !isHeaderOf(stmt, child) and !isWhileStep(stmt, child);
+    return !isHeaderOf(stmt, child) and !isWhileStep(stmt, child) and !isArmBody(stmt, child);
+}
+
+/// Whether `child` is the body of `match` arm `parent`: a statement of
+/// its own, in the arm's scope, which its bindings outlive.
+pub fn isArmBody(parent: Sexp, child: Sexp) bool {
+    if (!parent.isKind(.arm)) return false;
+    const body = ir.Arm.body(parent);
+    return body == .list and child == .list and body.list.id == child.list.id;
 }
 
 /// The first statement temporary (`dropsTemp`) that `stmt`, a statement
@@ -3992,9 +4000,8 @@ pub fn firstStmtTemp(ctx: *const SemContext, stmt: Sexp) ?Sexp {
 /// target (Core §6), and a value's parts before it. This is where each
 /// temporary lives: emit declares a slot for each where the statement
 /// starts (`Emitter.emitTempSlots`), and the ownership checker holds each
-/// for the statement, also one made in a `catch` handler or a `match`
-/// arm, whose scope it opens for the handler's or arm's names
-/// (`Checker.holdPartTemps`).
+/// for the statement, also one made in a `catch` handler, whose scope it
+/// opens for the handler's name (`Checker.holdPartTemps`).
 pub fn stmtTemps(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
     if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
     if (stmt.isKind(.set)) {

@@ -1,0 +1,96 @@
+# A `match` arm's body is a statement of its own, as a block's line is:
+# a temporary it makes ends with the arm, so it may view the arm's
+# bindings. Here no drop reads the view.
+error E
+  bad
+
+struct P
+  n: Int
+
+struct HT
+  v: ?P
+  t: Text
+
+fun len2(h: ?HT) -> Int
+  h.v.n + h.t.len
+
+fun mkht(v: ?P) -> HT
+  HT(v: v, t: Text("ab"))
+
+fun mkhtf(v: ?P, n: Int) -> HT!
+  return E.bad if n < 0
+  mkht(v)
+
+enum Bx
+  has(p: P)
+  nothing
+
+sub arms(b: ?Bx)
+  match b
+    .has(x) => print("arm", len2(?HT(v: ?x, t: Text("abc"))))
+    .nothing => print("none")
+  match b
+    .has(x) => print("arm2", mkht(?x).t.len, len2(?mkht(?x)))
+    .nothing => print("none")
+  match b
+    .has(x) if len2(?mkht(?x)) > 4 => print("guarded", len2(?mkht(?x)))
+    .has(x) => print("unguarded", x.n)
+    .nothing => print("none")
+  match b
+    .has(x) => print("caught", len2(?(mkhtf(?x, -1) catch mkht(?x))))
+    .nothing => print("none")
+
+fun valued(b: ?Bx) -> Int
+  r = match b
+    .has(x) => len2(?mkht(?x))
+    .nothing => 0
+  r
+
+fun tail(n: Int) -> Int
+  match n
+    m if m > 0 => len2(?HT(v: ?P(n: m), t: Text("q")))
+    m => m
+
+fun returned(b: ?Bx) -> Int
+  match b
+    .has(x) => return len2(?mkht(?x)) * 10
+    .nothing => pass
+  -1
+
+fun nested(b: ?Bx, c: ?Bx) -> Int
+  match b
+    .has(x) => match c
+      .has(y) => len2(?mkht(?x)) + len2(?mkht(?y))
+      .nothing => len2(?mkht(?x))
+    .nothing => 0
+
+sub looped(b: ?Bx)
+  for i in 0..4
+    match b
+      .has(_) if i == 1 => continue
+      .has(_) if i == 3 => break
+      .has(x) => print("loop", i, len2(?HT(v: ?x, t: Text("z"))))
+      .nothing => pass
+
+sub main()
+  b = Bx.has(P(n: 3))
+  c = Bx.has(P(n: 1))
+  arms(?b)
+  arms(?Bx.nothing)
+  print(valued(?b), tail(4), tail(-2), returned(?b), returned(?Bx.nothing))
+  print(nested(?b, ?c), nested(?b, ?Bx.nothing), nested(?Bx.nothing, ?c))
+  looped(?b)
+
+# expect:
+# arm 6
+# arm2 2 5
+# guarded 5
+# caught 5
+# none
+# none
+# none
+# none
+# 5 5 -2 50 -1
+# 8 5 0
+# loop 0 4
+# loop 2 4

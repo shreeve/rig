@@ -1,0 +1,15 @@
+# A view used in an earlier arm, in a loop: the arm of the next iteration
+# reads it after a later arm lent to write.
+fun grow(v: !Vec[Int]) -> Int
+  for _ in 0..50
+    !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  x = ?v[0..1]
+  for i in 0..2
+    match i
+      0 => print(x[0])
+      _ => print(grow(!v))

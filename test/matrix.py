@@ -7,7 +7,9 @@ for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
 stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
-`while` step reading what its condition binds (`step.`), and the
+`while` step reading what its condition binds (`step.`), an assignment
+to a place a view reaches whose value holds a statement of its own
+(`target.`), and the
 shapes of nested loops and the jumps between them (`loop.`), and a Cell
 changed through each kind of path to the value holding it (`cellmut.`),
 and the Cell of a temporary changed where it stands, alone or as a leaf
@@ -456,6 +458,68 @@ STEP_SHAPES = {
     "failure": ["while F: S", "  n += 1", "  G"],
     "break": ["while C: S", "  n += 1", "  if n > 1", "    G", "    break"],
 }
+
+
+# -----------------------------------------------------------------------------
+# An assignment to a place a view reaches (`w[0] = X`, `w[0] += X`,
+# `w.n = X`, `u[w[0]] = X`, and `w = X` through a write view) whose
+# value holds a statement of its own (a `match` arm, a block arm, an
+# `if` block, a `catch` block), or none (a ternary, the plain value).
+# The store goes through the view after the value, so there the value
+# may not grow, read, or move what the view views; it may lend another
+# value, and the cell must print what was stored.
+# Cells are `target.<target>.<nest>.<act>`.
+# -----------------------------------------------------------------------------
+
+TARGET_PLACES = {
+    "elem": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0..1]"], store="w[0] = X", show="v[0]"),
+    "compound": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0..1]"], store="w[0] += X", show="v[0]"),
+    "field": dict(make=["v: Vec[S] = Vec()", "!v.push(S(n: 7))", "w = !v[0]"], store="w.n = X", show="v[0].n"),
+    "index": dict(make=["v: Vec[Int] = Vec()", "!v.push(0)", "u: Vec[Int] = Vec()", "!u.push(5)", "w = ?v[0..1]"],
+                  store="u[w[0]] = X", show="u[0]"),
+    "name": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0]"], store="w = X", show="v[0]"),
+}
+TARGET_NESTS = {
+    "arm": ["match k", "  0 => A", "  _ => 3"],
+    "block_arm": ["match k", "  0", "    A", "  _ => 3"],
+    "if_block": ["if k == 0", "  A", "else", "  3"],
+    "catch_block": ["fail(-1) catch |_|", "  A"],
+    "ternary": ["A if k == 0 else 3"],
+    "plain": ["A"],
+}
+TARGET_ACTS = {
+    "grow": "grow(!v)",
+    "read": "v.len",
+    "move": "sink(<v)",
+    "other": "grow(!x)",
+}
+
+
+def target_program(tname, nname, aname):
+    """The program for one target cell."""
+    t = TARGET_PLACES[tname]
+    act = TARGET_ACTS[aname]
+    if tname == "field" and aname == "grow":
+        act = "grows(!v)"
+    nest = [l.replace("A", act) for l in TARGET_NESTS[nname]]
+    store = t["store"].split("X")[0]
+    uses_k = any("k" in l.split() for l in nest)
+    body = list(t["make"]) + ["x: Vec[Int] = Vec()", "!x.push(1)"] + (["k = 0"] if uses_k else []) + [store + nest[0]] + nest[1:] + [f"print({t['show']})"]
+    out = ["error E\n  bad\n", "struct S\n  n: Int\n",
+           "fun grow(v: !Vec[Int]) -> Int\n  for _ in 0..200\n    !v.push(1)\n  v.len\n",
+           "fun grows(v: !Vec[S]) -> Int\n  for _ in 0..200\n    !v.push(S(n: 1))\n  v.len\n",
+           "fun sink(v: Vec[S]) -> Int\n  v.len\n" if tname == "field" else "fun sink(v: Vec[Int]) -> Int\n  v.len\n",
+           "fun fail(n: Int) -> Int!\n  return E.bad if n < 0\n  n\n",
+           "sub main()\n" + indent(body, 2) + "\n"]
+    return "\n".join(out)
+
+
+def target_output(tname, aname):
+    """What a cell that lends another value prints: the length it grew to,
+    stored (added, for `+=`)."""
+    if aname != "other":
+        return None
+    return "208\n" if tname == "compound" else "201\n"
 
 
 def step_program(oname, hname, shape, then):
@@ -1642,6 +1706,18 @@ def main():
                     cells.append((ident, path))
                     if then == "read":
                         expects[ident] = step_output(shape)
+    for tp in TARGET_PLACES:
+        for nest in TARGET_NESTS:
+            for act in TARGET_ACTS:
+                ident = f"target.{tp}.{nest}.{act}"
+                if not wanted(ident):
+                    continue
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(target_program(tp, nest, act))
+                cells.append((ident, path))
+                if target_output(tp, act) is not None:
+                    expects[ident] = target_output(tp, act)
     for outer in LOOP_OUTERS:
         for inner in LOOP_INNERS:
             for jump in LOOP_JUMPS:

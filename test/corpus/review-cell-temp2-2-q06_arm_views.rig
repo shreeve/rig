@@ -1,0 +1,135 @@
+# Cell holders made in `match` arms (and in `catch` handlers inside
+# them) that view the arm's binding: each ends with its arm.
+error E
+  bad
+
+struct D
+  c: Cell[Int]
+
+  drop(!self)
+    print("drop", self.c.get())
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+  fun bumped(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun me(?self) -> ?D
+    self.c.set(self.c.get() + 1)
+    self
+
+  fun cp(?self) -> D
+    self.c.set(self.c.get() + 1)
+    D(c: Cell(self.c.get() * 10))
+
+struct WW
+  t: D
+
+fun mk(n: Int) -> D
+  D(c: Cell(n))
+
+fun mkf(n: Int) -> D!
+  return E.bad if n < 0
+  mk(n)
+
+fun mko(n: Int) -> D?
+  return none if n < 0
+  mk(n)
+
+fun mkww(n: Int) -> WW
+  WW(t: mk(n))
+
+fun look(x: ?D) -> Int
+  x.c.set(x.c.get() + 10)
+  x.c.get()
+
+fun two(x: !D, n: Int) -> Int
+  x.c.set(x.c.get() + n)
+  x.c.get()
+
+fun rd(x: ?D, n: Int) -> Int
+  x.c.get() + n
+
+struct HV
+  v: !D
+
+fun tk(x: D, n: Int) -> Int
+  x.c.get() + n
+
+fun tk2(x: D, y: D, n: Int) -> Int
+  x.c.get() + y.c.get() + n
+
+fun tv(v: Vec[Int], t: Text, n: Int) -> Int
+  v.len + t.len + n
+
+fun mkv(n: Int) -> Vec[Int]!
+  return E.bad if n < 0
+  v = Vec[Int]()
+  !v.push(n)
+  v
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+fun tk3(x: D, n: Int, y: D, m: Int) -> Int
+  x.c.get() + n + y.c.get() + m
+
+struct HC
+  v: ?D
+  c: Cell[Int]
+
+  fun me(?self) -> ?HC
+    self.c.set(self.c.get() + 1)
+    self
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    self.v.hit()
+
+fun mkhc(v: ?D, n: Int) -> HC!
+  return E.bad if n < 0
+  HC(v: v, c: Cell(n))
+
+enum Bx
+  has(d: D)
+  nothing
+
+sub arms(b: ?Bx, k: Bool)
+  match b
+    .has(x) => print("arm", HC(v: x, c: Cell(1)).me().c.get(), x.c.get())
+    .nothing => pass
+  match b
+    .has(x) => print("arm2", (mkhc(x, -1) catch HC(v: x, c: Cell(5))).me().c.get(), x.c.get())
+    .nothing => pass
+  match b
+    .has(x) => (mkhc(x, -1) catch HC(v: x, c: Cell(7))).hit()
+    .nothing => pass
+  match b
+    .has(x) => print("arm4", ((mkhc(x, -1) catch HC(v: x, c: Cell(5))) if k else HC(v: x, c: Cell(9))).me().me().c.get())
+    .nothing => pass
+
+sub main()
+  b = Bx.has(mk(3))
+  arms(?b, true)
+  arms(?b, false)
+  a = mk(1)
+  for i in 0..2
+    print("h", (mkhc(?a, -1) catch HC(v: ?a, c: Cell(i))).me().c.get(), a.c.get())
+    (mkhc(?a, i - 1) catch (mkhc(?a, -1) catch HC(v: ?a, c: Cell(20)))).hit()
+  print("a", a.c.get())
+
+# expect:
+# arm 2 3
+# arm2 6 3
+# arm4 7
+# arm 2 4
+# arm2 6 4
+# arm4 11
+# h 1 1
+# h 2 2
+# a 3
+# drop 3
+# drop 5

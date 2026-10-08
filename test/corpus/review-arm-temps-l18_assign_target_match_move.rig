@@ -1,0 +1,13 @@
+# The arm moves the owner the target views.
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0 => sink(<v)
+    _ => 3
+  print("done")
+
+fun sink(v: Vec[Int]) -> Int
+  v.len
