@@ -4033,9 +4033,13 @@ pub const Emitter = struct {
         return storage.isNoneLeaf(self.sema, e);
     }
 
-    /// `&place`, or the pointer itself when the place is already one.
+    /// `&place`, or the pointer itself when the place is already one. A
+    /// value that branches, read where its leaves are, is addressed at
+    /// the leaf it takes (`emitLeafPtr`), never through Zig's address of
+    /// the branching expression, which may be a constant.
     fn emitAddressOf(self: *Emitter, place: Sexp) Error!void {
         if (self.hoistedOf(place)) |h| return self.w.print("{s}{s}", .{ if (h.ptr) "" else "&", h.name });
+        if (self.reachesLeaf(place)) return self.emitLeafPtr(place, self.typeOf(place).?);
         if (place == .src) if (self.localOf(place)) |local| {
             if (local.is_ptr) return self.w.writeAll(local.zig_name);
         };
