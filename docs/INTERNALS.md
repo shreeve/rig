@@ -797,16 +797,20 @@ operand it passes through, or the optional `e?` unwraps.
 values, and `sema.yieldsValue(source, s)` whether a statement gives a
 value. Whether a receiver needs `!`, `<`, or nothing follows from what
 it hands over too (`receiverShape`); the receiver sigil itself is
-syntax (Core §8). A lend of a place is never the base of a path
-(`Checker.lendBase`): a field, element, or slice whose object is a lend
-(`Checker.lendUnder`: it hands over a `lend`, also moved, `<(!p)`) of
-anything but a slice is rejected, since the lend goes on the whole path
-or the path needs none. A method's receiver is no path; a field holding
-functions, called, is. Every such path is reported: a closure's, a
-block's, and a function's last value are statements of their own for
-the hint (`synthTail`, `checkTail`). A written `!` on a slice the path
-only reads is decided by `Checker.writeLendRead`, as any read of a
-written lend is.
+syntax (Core §8).
+
+A lend of a place is never the base of a path. One walk over each typed
+declaration (`Checker.checkLendBases`) visits every field, element, and
+slice node once, after typing, so no typing routine can route a path
+around the rule.
+- **The base.** What a path's object is comes from one fact, `Checker.lendOf`: what the object hands over (`handsOver`), a `lend`, or a `<` of one, recorded once.
+- **The non-cases.** They are positive facts:
+  - a member a call resolved as a method (`Checker.methods`, recorded where `synthMemberCall` resolves one) is a receiver, so a field holding functions, called, is a path;
+  - a value that branches is no lend;
+  - a lend of a slice makes the view the path reaches. A written `!` on one that the path only reads is decided by `Checker.writeLendRead`, as any read of a written lend is.
+- **The hint.** `LendBaseFix` rewrites the path's line. The whole path takes the sigil its context takes, read from what typing recorded: the type each expression was checked against (`Checker.expected`), a method's receiver mode, and the value tails a function, a closure, or a block uses (`Checker.value_tails`).
+- **The error is always reported.** Where no rewrite compiles (a write through a read lend or a shared handle, or a lend its own check rejected), it gives none.
+- **The suite enforces the hints.** `test/hints.py` applies each hint in every reject test, and fails if the rewritten line draws an error the program did not draw already.
 The suite's `classify` check fails on any classifier
 of this kind left outside `handsOver`.
 
