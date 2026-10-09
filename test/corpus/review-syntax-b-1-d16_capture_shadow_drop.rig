@@ -1,0 +1,9 @@
+sub main()
+  t = Text("hi")
+  f = |+t|
+    print(t)
+    new t = Text("local")
+    <t
+    print(1)
+  f()
+  print(t)

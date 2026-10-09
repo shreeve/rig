@@ -1,0 +1,8 @@
+sub main()
+  vv: Vec[Vec[Text]] = Vec()
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !vv.push(<v)
+  for x in vv[0]
+    <x
+  print(vv)

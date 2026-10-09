@@ -1,0 +1,8 @@
+fun both[T](a: T, b: !Vec[Int]) -> T
+  !b.push(1)
+  a
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(both(v[..], !v))

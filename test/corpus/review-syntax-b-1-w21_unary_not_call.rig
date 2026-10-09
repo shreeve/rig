@@ -1,0 +1,10 @@
+struct S
+  items: Vec[Int]
+
+  fun has(?self) -> Bool
+    self.items.len > 0
+
+sub main()
+  s = S(items: Vec())
+  if !s.has()
+    print("empty")

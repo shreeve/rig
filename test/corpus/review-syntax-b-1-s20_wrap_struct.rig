@@ -1,0 +1,12 @@
+struct W
+  xs: []Int
+
+fun wrap(xs: []Int) -> W
+  W(xs: xs)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = wrap(v[..])
+  !v.push(2)
+  print(w.xs)

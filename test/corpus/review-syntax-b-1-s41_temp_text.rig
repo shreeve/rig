@@ -1,0 +1,12 @@
+fun mkt() -> Text
+  Text("hello world")
+
+fun size(s: String) -> Int
+  s.len
+
+fun word(s: String) -> String
+  s
+
+sub main()
+  print(size(mkt()[1..]))
+  print(word(mkt()[1..]))

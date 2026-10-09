@@ -1,0 +1,14 @@
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun mkv() -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  v
+
+sub main()
+  c = mkv().len > 0
+  print(total((mkv() if c else mkv())[..]))

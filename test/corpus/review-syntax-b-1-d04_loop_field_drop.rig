@@ -1,0 +1,9 @@
+struct B
+  items: Vec[Text]
+
+sub main()
+  b = B(items: Vec())
+  !b.items.push(Text("a"))
+  for x in b.items
+    <x
+  print(b.items)

@@ -1,0 +1,9 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  a = [1, 2, 3, 4]
+  x = ?a[..]
+  r = keep(x[1..])
+  a[1] = 9
+  print(r)

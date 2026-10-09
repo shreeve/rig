@@ -1,0 +1,10 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  h = *<v
+  r = keep(h[..])
+  print(r)

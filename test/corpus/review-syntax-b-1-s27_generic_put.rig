@@ -1,0 +1,7 @@
+fun put[T](xs: []T, x: T) -> Int
+  xs.len
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  print(put(v[..], Text("b")))

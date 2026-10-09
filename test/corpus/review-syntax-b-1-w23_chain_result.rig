@@ -1,0 +1,12 @@
+struct C
+  n: Int
+
+  fun bump(!self) -> !C
+    self.n += 1
+    self
+
+sub main()
+  c = C(n: 0)
+  !c.bump()
+  !c.bump().bump()
+  print(c.n)

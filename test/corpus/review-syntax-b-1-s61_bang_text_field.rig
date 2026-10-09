@@ -1,0 +1,13 @@
+fun word(s: String) -> String
+  s
+
+struct H
+  t: !Text
+
+sub main()
+  t = Text("hello")
+  h = H(t: !t)
+  s = word(h.t[1..])
+  for _ in 0..50
+    !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

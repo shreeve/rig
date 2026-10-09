@@ -1,0 +1,11 @@
+struct C
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+sub main()
+  c = C(n: 0)
+  if !c.next() == 1
+    print("one")

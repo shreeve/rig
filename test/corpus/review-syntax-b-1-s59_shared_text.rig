@@ -1,0 +1,8 @@
+fun word(s: String) -> String
+  s
+
+sub main()
+  h = *Text("hello")
+  s = word(h[1..])
+  <h
+  print(s)

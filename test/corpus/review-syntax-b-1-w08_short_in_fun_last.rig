@@ -1,0 +1,7 @@
+fun take(v: !Vec[Int]) -> Int?
+  !v.pop()
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(take(!v))

@@ -1,0 +1,18 @@
+error E
+  bad
+
+struct C
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun take(!self) -> Int!
+    return E.bad if self.n >= 0
+    self.n
+
+sub main()
+  c = C(n: 0)
+  x = (!c).take() catch !c.next()
+  print(x)

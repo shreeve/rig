@@ -1,0 +1,10 @@
+struct B
+  items: Vec[Int]
+
+fun g(xs: []Int, b: B) -> Int
+  xs.len + b.items.len
+
+sub main()
+  b = B(items: Vec())
+  !b.items.push(1)
+  print(g(b.items[..], <b))

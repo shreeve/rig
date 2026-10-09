@@ -1,0 +1,12 @@
+fun word(s: String) -> String
+  s
+
+sub f(h: !*Text)
+  s = word(h[1..])
+  h = *Text("other")
+  print(s)
+
+sub main()
+  h = *Text("hello world, this is a longer text")
+  f(!h)
+  print(h)

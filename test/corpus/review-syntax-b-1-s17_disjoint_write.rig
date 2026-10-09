@@ -1,0 +1,8 @@
+fun two(xs: []Int, w: ![]Int) -> Int
+  w[0] = 5
+  xs[0]
+
+sub main()
+  a = [1, 2, 3, 4]
+  print(two(a[..2], !a[2..]))
+  print(a)

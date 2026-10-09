@@ -1,0 +1,15 @@
+struct It
+  n: Int
+
+  fun next(!self) -> Int?
+    return none if self.n >= 3
+    self.n += 1
+    self.n
+
+sub main()
+  it = It(n: 0)
+  while (!it).next() as x
+    print(x)
+  it2 = It(n: 1)
+  while !it2.next() as y
+    print(y)

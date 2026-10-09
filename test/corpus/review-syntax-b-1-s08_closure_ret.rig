@@ -1,0 +1,7 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  f = |xs: []Int| xs
+  r = f(v[..])
+  !v.push(2)
+  print(r)

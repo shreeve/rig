@@ -1,0 +1,12 @@
+fun name(t: Text) -> Int
+  t.len
+
+sub zero(w: ![]Int)
+  w[0] = 0
+
+sub main()
+  t = Text("hello")
+  a = [1, 2, 3]
+  print(name(Text(?t[1..])))
+  zero(!a[1..])
+  print(a, t)

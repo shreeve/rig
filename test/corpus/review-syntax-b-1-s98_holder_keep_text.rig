@@ -1,0 +1,13 @@
+struct H
+  s: String
+
+  sub keep(!self, s: String)
+    self.s = s
+
+sub main()
+  t = Text("hello")
+  h = H(s: "x")
+  !h.keep(t[1..])
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(h.s)

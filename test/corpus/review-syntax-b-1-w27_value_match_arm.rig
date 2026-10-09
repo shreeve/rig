@@ -1,0 +1,14 @@
+struct C
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+sub main()
+  c = C(n: 0)
+  k = c.n
+  x = match k
+    0 => !c.next()
+    _ => 5
+  print(x)

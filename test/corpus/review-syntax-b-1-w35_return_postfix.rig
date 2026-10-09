@@ -1,0 +1,14 @@
+struct C
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+fun f(c: !C) -> Int
+  !c.next() if c.n > 5
+  3
+
+sub main()
+  c = C(n: 0)
+  print(f(!c))
