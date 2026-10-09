@@ -3002,8 +3002,9 @@ sub main()
 ## 7. Ownership
 
 Every owning value and handle has exactly one owner, which decides when
-it is released. The sigils make each ownership effect visible where it
-happens:
+it is released. The sigils mark ownership effects where they happen; a
+read lend may go unwritten where its view lasts only for the use, and a
+value that is not moved is dropped where its scope ends, with no mark:
 
 | Sigil | Name | Effect |
 |---|---|---|

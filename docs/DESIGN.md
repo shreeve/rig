@@ -41,22 +41,24 @@ done
 
 Visibility is not the safety mechanism; the checkers are. Visibility is
 what lets a person, or a tool, reason about a program locally, and it
-keeps the checkers honest: every effect the checker reasons about is an
-effect the reader can see. Rust achieves correctness through rigor; Rig
-aims for rigor plus visibility.
+keeps the checkers honest: every effect the checker reasons about is
+written in the program, or follows from where a scope ends. Rust
+achieves correctness through rigor; Rig aims for rigor plus visibility.
 
 ## Principles
 
-**Effects stay visible.** Moves, lends, clones, drops, shared and
-weak ownership, allocation, failure, mutation, capture modes,
-compile-time parameters, and the unsafe boundary each have a marker;
-the one mutation without one is inside a `Cell`, the interior-mutable
-type, which is why a `Cell` accepts only values that carry no loan.
-There is no hidden refcount traffic, no implicit error propagation, and
-no unmarked unsafe code. What stays implicit is cheap and cannot
-surprise: copying plain data, reading through a shared handle, lending
-a receiver to a `?self` method, and moving a local out with `return x`
-or `break x`, where its scope ends anyway. Writing through a receiver
+**Effects stay visible.** Rig writes every move, clone, and write where
+it happens, and reading is unmarked. Sharing and weak handles, failure,
+capture modes, compile-time parameters, and the unsafe boundary are
+written too. Like Rust, Rig leaves some effects implicit: a drop where
+a scope ends, the allocation a `Vec`, `Box`, or `Text` makes, a plain
+copy, and a change inside a `Cell`, which changes through any path and
+so accepts only values that carry no loan. There is no hidden refcount
+traffic, no implicit error propagation, and no unmarked unsafe code.
+What else stays implicit is cheap and cannot surprise: reading through
+a shared handle, lending an argument or a `?self` receiver to read for
+the call, and moving a local out with `return x` or `break x`, where
+its scope ends anyway. Writing through a receiver
 (`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out,
 and so is lending on a write view a binding already holds
 (`v: !Vec[Int]` lends on with `!v.push(x)` and `f(!v)`): at a call, `!`

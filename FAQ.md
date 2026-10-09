@@ -9,7 +9,8 @@ are coming from another language, start with [WELCOME.md](WELCOME.md).
 No. Numbers, strings, and structs, enums, and arrays made of them are
 plain values (a struct holding a `Vec` owns it), and views (`?T`,
 `!T`) are checked at compile time and cost nothing at run time. Counting happens only behind a shared handle `*T`, where
-every count change is written (`*x`, `+x`, `<x`); a heap value with one
+every new count is written (`*x`, `+x`) and a count ends where its
+handle's scope does, or at a statement `<x`; a heap value with one
 owner is a `Box[T]`, which counts nothing
 ([cost model](docs/DESIGN.md#cost-model)).
 
@@ -143,7 +144,8 @@ parser and no AST layer ([more](docs/DESIGN.md#nexus-and-an-s-expression-ir)).
 ## Why another systems language?
 
 Rig explores a point Rust and Zig don't occupy: Rust's ownership model
-with a much smaller surface, effects visible at the call site, an IR
+with a much smaller surface, moves, clones, and writes visible at the
+call site, an IR
 tools can read, and Zig's backend. For most production code today,
 Rust or Zig is the right choice; they are mature, and Rig is not.
 
