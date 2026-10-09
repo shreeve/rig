@@ -29,5 +29,5 @@ sub main()
   for e in arr
     reset(e.t)
 
-# error: 22:20: type mismatch: expected `!Holder`, got `?Holder`; `t` is a read view of a field of `x`: to write through it, match with `match !x`
+# error: 22:20: type mismatch: expected `!Holder`, got `?Holder`; `t` is a read view of a field of `x`, which is reached through a read view, so nothing writes through it
 # error: 29:12: each element holds a write view, which a loop binding would copy

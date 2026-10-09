@@ -1,7 +1,8 @@
-# A write view a `match` subject makes, a call's result or a branch of
-# write lends, is lent on, as `if … as` lends one on: the bindings write
-# through it, as under `match !e`, and the lend keeps what it views lent
-# while they live. A value made there that moves is taken instead.
+# A write view a `match` subject makes is lent on, as `if … as` lends one
+# on: a call's result, or a branch whose every leaf is a write lend or a
+# call's result (`sema.makesWriteView`), through `if`, `??`, and
+# `catch`, nested too. The bindings write through it, as under
+# `match !e`, and the lend keeps what it views lent while they live.
 # release
 
 struct Res
@@ -12,7 +13,18 @@ enum E
   a(r: Res)
   b
 
+error Bad
+  nope
+
 fun getw(e: !E) -> !E
+  e
+
+fun tryw(e: !E, ok: Bool) -> (!E)!
+  return Bad.nope if not ok
+  e
+
+fun optw(e: !E, ok: Bool) -> (!E)?
+  return none if not ok
   e
 
 sub main()
@@ -29,7 +41,19 @@ sub main()
       !r.t.add("!")
     .b => pass
   print(e, f)
+  g = E.a(r: Res(n: 3, t: Text("z")))
+  match (!e if c else (!f if c else !g))
+    .a(r) => r.n = 30
+    .b => pass
+  match tryw(!e, false) catch !f
+    .a(r) => r.n = 20
+    .b => pass
+  match optw(!e, true) ?? !f
+    .a(r) => r.n = 10
+    .b => pass
+  print(e, f, g)
 
 # expect:
 # .a(r: Res(n: 60, t: "x"))
 # .a(r: Res(n: 60, t: "x")) .a(r: Res(n: 3, t: "y!"))
+# .a(r: Res(n: 10, t: "x")) .a(r: Res(n: 20, t: "y!")) .a(r: Res(n: 30, t: "z"))

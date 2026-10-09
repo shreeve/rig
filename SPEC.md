@@ -2779,9 +2779,14 @@ be used otherwise. `match <e` needs a value `e` owns, not a view. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
 or `match !b` ([§10](#box)), and so is the value a handle holds,
 `match h`, which reads it. A write view the subject makes, a call's
-result (`match get(!h)`) or a branch of write lends
-(`match (!a if c else !b)`), is lent on, as `if … as` lends one on: its
-bindings write, as under `match !e`. Any other read match never writes
+result (`match get(!h)`) or a branch whose every leaf is a write lend or
+a call's result (`match (!a if c else !b)`, `match optw(!e) ?? !d`), is
+lent on, as `if … as` lends one on: its bindings write, as under
+`match !e`. A branch that reads a place holding a write view
+(`match (a if c else b)` of `!E` names, `match o?` of a `(!E)?`) would
+copy the write view out of it, and is rejected, for `match` and
+`if … as` alike: lend each leaf (`!a`), or match the place where it
+stands. Any other read match never writes
 through its bindings: whatever its subject (a place, a lend, a read
 view a call returns, or a part of a value made in the header), it binds
 a field that is itself a write view as the read view of what it views

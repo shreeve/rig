@@ -1732,13 +1732,19 @@ const Checker = struct {
             else => try self.errAt(expr, "`as` binds the value inside an optional; this expression has type `{s}`", .{try self.tyName(ty)}),
         };
         const through_view = sema.unwrapViews(self.ctx, ty) != ty;
+        // A branch that reads a place holding a write view would copy the
+        // write view out of it (`sema.headerCopiesWriteView`).
+        if (!self.isPoison(inner)) if (try sema.headerCopiesWriteView(self.ctx, expr)) |leaf| {
+            try self.reportHeaderWriteViewCopy(leaf, "as");
+            inner = self.t().invalid_id;
+        };
         // How the binding reaches the value inside, from which its access
         // and type follow (`bindAsView`).
         var reach: sema.AsReach = .copied;
         if (through_view and !self.isPoison(inner) and !sema.isReadOrWriteView(self.ctx, inner)) {
             // `!o`, or a fresh write view (a call's result, `<w`).
             const writes = self.ctx.types.get(ty) == .write_view;
-            if (expr.isKind(.write) or (writes and !self.hands(expr).hasStorage())) {
+            if (try sema.makesWriteView(self.ctx, expr)) {
                 reach = .written;
             } else if (sema.holdsCellByValue(self.ctx, inner) or try self.cannotCopy(inner, self.startOf(expr), "moves out of a view a value")) {
                 // Over a view a call returns, a header temporary makes emit
@@ -1761,7 +1767,10 @@ const Checker = struct {
             _ = try self.reachThrough(expr, ty, sema.unwrapViews(self.ctx, ty));
             // A view inside an optional reached through a read view or a
             // handle is bound to read, a write view included.
-            if (through_view and !self.isPoison(inner) and sema.isReadOrWriteView(self.ctx, inner) and self.ctx.types.get(ty) != .write_view) reach = .read;
+            if (through_view and !self.isPoison(inner) and sema.isReadOrWriteView(self.ctx, inner)) switch (self.ctx.types.get(ty)) {
+                .read_view, .shared => reach = .read,
+                else => {},
+            };
         }
         // A place whose value is not plain data is bound where it stands,
         // as `if ?o as x` binds it; a part of a made value where the `if`
@@ -2295,6 +2304,12 @@ const Checker = struct {
             try self.errAt(subject, "a `match` reads a place or takes a call's result; bind this `{s}` to a name first", .{try self.tyName(scrutinee)});
             scrutinee = self.t().invalid_id;
         }
+        // A branch that reads a place holding a write view would copy the
+        // write view out of it (`sema.headerCopiesWriteView`).
+        if (mode == .read and !self.isPoison(scrutinee)) if (try sema.headerCopiesWriteView(self.ctx, subject)) |leaf| {
+            try self.reportHeaderWriteViewCopy(leaf, "match");
+            scrutinee = self.t().invalid_id;
+        };
         // `match <e` takes the fields of a value `e` owns.
         if (subject.isKind(.move)) if (self.ctx.typeOf(ir.Move.operand(subject))) |held| switch (self.ctx.types.get(held)) {
             .read_view, .write_view => {
@@ -2489,11 +2504,64 @@ const Checker = struct {
         if (s.access != .read) return "";
         if (self.read_subjects.get(id)) |from| if (from.kind == .as) {
             const shown = try self.plainText(from.place);
+            // A parameter taken by value is written once it is taken to
+            // write (`o: !T`).
+            if (self.placeOf(from.place).root == .param) return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`: to write through it, take the parameter to write (`{s}: !…`), then bind it with `if !{s} as {s}`", .{ s.name, shown, shown, shown, s.name });
             return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`: to write through it, bind it with `if !{s} as {s}`", .{ s.name, shown, shown, s.name });
         };
         const from = self.copied_from.get(id) orelse self.read_subjects.get(id) orelse return "";
         if (from.kind != .match_copy and from.kind != .match_read) return "";
-        return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`: to write through it, {s}", .{ s.name, if (from.whole) "" else "a field of ", try self.plainText(from.place), try self.writeMatchAdvice(from.place) });
+        const what = if (from.whole) "" else "a field of ";
+        const shown = try self.plainText(from.place);
+        // A subject reached through a read view or a shared handle is never
+        // written through, however it is matched.
+        if (self.readOnlyStep(from.place)) |why| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, which is reached through {s}, so nothing writes through it", .{ s.name, what, shown, why });
+        return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`: to write through it, {s}", .{ s.name, what, shown, try self.writeMatchAdvice(from.place) });
+    }
+
+    /// What makes `subject` read-only: it, or a value on its path (the
+    /// base, an object of a field or element, a leaf of a branch), is a
+    /// read view or a shared handle, by its type; null for none.
+    fn readOnlyStep(self: *Checker, subject: Sexp) ?[]const u8 {
+        var e = subject;
+        while (true) {
+            if (self.ctx.typeOf(e)) |ty| switch (self.ctx.types.get(ty)) {
+                .read_view => return "a read view",
+                .shared => return "a shared handle",
+                else => {},
+            };
+            if (e.isKind(.member) or e.isKind(.index)) {
+                e = ir.get(e, .object);
+            } else if (sema.isBranchingForm(e)) {
+                var leaves: std.ArrayList(Sexp) = .empty;
+                defer leaves.deinit(self.ctx.allocator);
+                sema.valueLeaves(self.ctx.allocator, e, &leaves) catch return null;
+                for (leaves.items) |leaf| if (self.ctx.typeOf(leaf)) |ty| switch (self.ctx.types.get(ty)) {
+                    .read_view => return "a read view",
+                    .shared => return "a shared handle",
+                    else => {},
+                };
+                return null;
+            } else return null;
+        }
+    }
+
+    /// A header's branch reads `leaf`, a place holding a write view, and
+    /// would copy the write view out of it (`sema.headerCopiesWriteView`).
+    fn reportHeaderWriteViewCopy(self: *Checker, leaf: Sexp, header: []const u8) Error!void {
+        const shown = try self.plainText(leaf);
+        const verb: []const u8 = if (std.mem.eql(u8, header, "match")) "match" else "bind";
+        const head = "this `{s}` reads `{s}`, which holds a write view, through a branch, and would copy the write view, a second writer: ";
+        // The value inside an optional is lent to write with `if !o as x`;
+        // any other place with `!p`.
+        const optional = if (self.ctx.typeOf(leaf)) |ty| self.ctx.types.get(ty) == .optional else false;
+        if (self.readOnlyStep(leaf)) |why| {
+            if (optional) {
+                try self.errAt(leaf, head ++ "bind the value inside where it stands, with `if {s} as x` (it is reached through {s}, so nothing writes through it)", .{ header, shown, shown, why });
+            } else try self.errAt(leaf, head ++ "{s} `{s}` where it stands (it is reached through {s}, so nothing writes through it)", .{ header, shown, verb, shown, why });
+        } else if (optional) {
+            try self.errAt(leaf, head ++ "bind the value inside where it stands, with `if {s} as x`, or `if !{s} as x` to write through it", .{ header, shown, shown, shown });
+        } else try self.errAt(leaf, head ++ "lend it to write with `!{s}`, or {s} `{s}` where it stands", .{ header, shown, shown, verb, shown });
     }
 
     /// How to write through the bindings of a read match of `subject`:
@@ -2904,21 +2972,25 @@ const Checker = struct {
     /// How the match being checked reaches what its bindings bind
     /// (`sema.MatchReach`): it writes, takes, holds a value made there
     /// whole, or reads a value another holds.
-    fn matchReach(self: *Checker, mode: MatchMode) sema.MatchReach {
+    fn matchReach(self: *Checker, mode: MatchMode) Error!sema.MatchReach {
         return switch (mode) {
             .write => .written,
             .consume => .owned,
             .read => blk: {
                 if (self.matching == .nil) break :blk .read;
                 const subject = ir.Match.subject(self.matching);
-                const ty = self.ctx.typeOf(subject) orelse break :blk .read;
-                const subject_hands = self.hands(subject);
                 // A write view the subject makes, a call's or a branch of
                 // write lends (`match (!a if c else !b)`), is lent on, as
-                // `if … as` lends one on.
-                if (self.ctx.types.get(ty) == .write_view and !subject_hands.hasStorage()) break :blk .written;
-                if (subject_hands.kind != .made) break :blk .read;
-                break :blk if (sema.isReadOrWriteView(self.ctx, ty)) .read else .read_own;
+                // `if … as` lends one on (`sema.makesWriteView`).
+                if (try sema.makesWriteView(self.ctx, subject)) break :blk .written;
+                // A value made here, an enum, an error, an integer, or a
+                // Bool, is the match's whole.
+                if (self.hands(subject).kind == .made) if (self.ctx.typeOf(subject)) |ty| switch (self.ctx.types.get(ty)) {
+                    .nominal, .parameterized_nominal, .imported_nominal, .any_error, .int, .bool => break :blk .read_own,
+                    else => {},
+                };
+                // Anything else is read.
+                break :blk .read;
             },
         };
     }
@@ -2931,7 +3003,7 @@ const Checker = struct {
     /// match binding's mode is decided (docs/INTERNALS.md, "Binding
     /// access").
     fn bindMatchView(self: *Checker, b: Sexp, mode: MatchMode, reached: TypeId) Error!TypeId {
-        const access = if (self.isPoison(reached)) null else sema.decideBindingAccess(self.ctx, .{ .match = .{ .reach = self.matchReach(mode), .reached = reached } });
+        const access = if (self.isPoison(reached)) null else sema.decideBindingAccess(self.ctx, .{ .match = .{ .reach = try self.matchReach(mode), .reached = reached } });
         const ty = try self.viewOfAccess(access, reached);
         if (self.ctx.symbolOf(b)) |sym| {
             self.ctx.symbols.items[sym].access = access;
@@ -11773,6 +11845,21 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
         at += derive.len;
     }
     try std.testing.expectEqual(0, std.mem.count(u8, tc, "asBinding" ++ "Type("));
+    // Whether a header lends on a write view its subject makes, and
+    // whether it would copy one out of a place, are each one decider in
+    // sema, by a positive list, which `match` and `as` share.
+    for ([_][]const u8{ "sema." ++ "makesWriteView(", "sema." ++ "headerCopiesWriteView(" }) |shared| {
+        try std.testing.expectEqual(2, std.mem.count(u8, tc, shared));
+        var from: usize = 0;
+        var fns: [2][]const u8 = undefined;
+        for (&fns) |*f| {
+            from = std.mem.indexOfPos(u8, tc, from, shared).?;
+            const fn_at = std.mem.lastIndexOf(u8, tc[0..from], "    fn ").?;
+            f.* = tc[fn_at .. fn_at + std.mem.indexOfScalar(u8, tc[fn_at..], '(').?];
+            from += shared.len;
+        }
+        try std.testing.expect(!std.mem.eql(u8, fns[0], fns[1]));
+    }
     // The decider is sema's alone.
     try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "decideBindingAccess("));
     for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("resolve.zig") }) |other| {

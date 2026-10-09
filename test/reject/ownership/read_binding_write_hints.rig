@@ -1,9 +1,11 @@
 # A write through a binding that only reads names what writes: a read
 # match of a place, `match !p`; of a part of a value made in the
-# header, that value bound to a name first; of `o?`, `if !o as x`; of
-# another value, that value bound to a name first; of a call that
-# returns a read view, a write view instead; and `if o as x` of a place,
-# `if !o as x`.
+# header, that value bound to a name first; of a call that returns a
+# read view, a write view instead; of a value reached through a read
+# view, nothing; and `if o as x` of a local, `if !o as x`, or of a
+# parameter, the parameter taken to write first. A `match` of `o?` or of
+# `o ?? d`, with `o` holding a write view, would copy that write view
+# out of `o`, and is rejected at `o`.
 
 struct P
   t: Text
@@ -55,13 +57,24 @@ sub optional(p: !P)
   if o as x
     x.t = Text("x")
 
+sub optional_param(o: (!P)?)
+  if o as x
+    x.t = Text("x")
+
+sub read_view(e: ?E)
+  match e
+    .a(w) => w.t = Text("x")
+    .b => pass
+
 sub main()
   pass
 
-# error: 27:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `e`: to write through it, match with `match !e`
-# error: 32:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `mk(!p).e`: to write through it, bind `mk(!p)` to a name first, then match its part with `match !`
-# error: 38:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `o?`: to write through it, lend the value inside to write first, `if !o as x`, then match it with `match !x`
-# error: 45:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `o ?? E.b`: to write through it, bind `o ?? E.b` to a name first, then match it with `match !`
-# error: 50:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `peek(h)`: to write through it, match a write view instead: a place with `match !`, or a call that returns one
-# error: 56:5: cannot assign through a read view (`?T`); `x` is a read view of the value inside `o`: to write through it, bind it with `if !o as x`
-# errors: 6
+# error: 29:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `e`: to write through it, match with `match !e`
+# error: 34:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `mk(!p).e`: to write through it, bind `mk(!p)` to a name first, then match its part with `match !`
+# error: 39:9: this `match` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
+# error: 46:9: this `match` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
+# error: 52:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `peek(h)`, which is reached through a read view, so nothing writes through it
+# error: 58:5: cannot assign through a read view (`?T`); `x` is a read view of the value inside `o`: to write through it, bind it with `if !o as x`
+# error: 62:5: cannot assign through a read view (`?T`); `x` is a read view of the value inside `o`: to write through it, take the parameter to write (`o: !…`), then bind it with `if !o as x`
+# error: 66:14: cannot assign through a read view (`?T`); `w` is a read view of a field of `e`, which is reached through a read view, so nothing writes through it
+# errors: 8

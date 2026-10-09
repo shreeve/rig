@@ -6349,6 +6349,57 @@ pub fn valueLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) 
     try out.append(a, node);
 }
 
+/// Whether header subject `subject` gives a write view it makes, which
+/// the header lends on (`match`, `if … as`): a write lend `!x`, or a
+/// value of a write view type whose every leaf (`yieldedLeaves`) is a
+/// write lend, a call's result, or a jump that gives no value
+/// (`getw(!e)`, `(!a if c else !b)`, `optw(!e) ?? !d`,
+/// `tryw(!e) catch !d`). Any other subject, a place or a leaf that is
+/// one included, is only read. The one decider of a header that lends
+/// on a write view, by a positive list.
+pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!bool {
+    if (subject.isKind(.write)) return true;
+    const ty = ctx.typeOf(subject) orelse return false;
+    switch (ctx.types.get(ty)) {
+        .write_view => {
+            var leaves: std.ArrayList(Sexp) = .empty;
+            defer leaves.deinit(ctx.allocator);
+            try yieldedLeaves(ctx.allocator, ctx.source, subject, &leaves);
+            var made = false;
+            for (leaves.items) |leaf| {
+                if (leaf.isKind(.write) or leaf.isKind(.call)) {
+                    made = true;
+                } else if (handsOver(ctx, leaf).kind != .jump) return false;
+            }
+            return made;
+        },
+        else => return false,
+    }
+}
+
+/// The place leaf of header subject `subject` whose write view the
+/// header would copy out of it: a branching subject (`isBranchingForm`:
+/// `a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`) one of whose
+/// leaves (`valueLeaves`) is a place, or a part of one, of a type that
+/// holds a write view (`h1.w if c else h2.w`, `o?` of a `(!E)?`). A
+/// branch reads its leaves, so such a leaf would be a second writer that
+/// holds no loan on the place. Null for any other subject. The one
+/// decider, for `match` and `if … as` alike.
+pub fn headerCopiesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!?Sexp {
+    if (!isBranchingForm(subject)) return null;
+    var leaves: std.ArrayList(Sexp) = .empty;
+    defer leaves.deinit(ctx.allocator);
+    try valueLeaves(ctx.allocator, subject, &leaves);
+    for (leaves.items) |leaf| switch (handsOver(ctx, leaf).kind) {
+        .place, .part_of_made => {
+            const ty = ctx.typeOf(leaf) orelse continue;
+            if (holdsWriteView(ctx, ty)) return leaf;
+        },
+        .made, .lend, .branches, .jump, .none => {},
+    };
+    return null;
+}
+
 /// A value that is one of its operands: `a if c else b`, `a ?? b`,
 /// `e catch h`, `e!`, or `e?`. An `if` without an `else` is a statement.
 pub fn isBranchingForm(node: Sexp) bool {

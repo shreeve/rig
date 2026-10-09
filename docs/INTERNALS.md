@@ -1777,9 +1777,26 @@ the value is:
 | Binding | `.write` | `.read` | none |
 |---|---|---|---|
 | a parameter, local, or closure capture | its type is `!T` or `![]T` (`w = !x`, `\|!x\|`, `\|<w\|` of one) | its type is `?T` | any other type |
-| `if … as x`, `while … as x` | `!o`, or a write view the header makes | a value viewed where it is, or reached through a read view or handle | a copy, or a value taken (then by its type) |
+| `if … as x`, `while … as x` | a write view the header makes (`sema.makesWriteView`) | a value viewed where it is, or reached through a read view or handle | a copy, or a value taken (then by its type) |
 | `for x in` | `!v` | an element that does not copy | an element that copies, or one taken (then by its type) |
-| a `match` payload, named field, or catch-all | `match !e`, or a write view the subject makes (a call's, or a branch of write lends: `match (!a if c else !b)`), of a field that is no read view or slice; a write view field of a value the match holds whole | a read match of anything else, whatever its subject: a place, a lend, a read view a call returns, a part of a value made in the header; a `?T` field | plain data a read copies; a slice; `match <e` (then by its type) |
+| a `match` payload, named field, or catch-all | `match !e`, or a write view the subject makes (`sema.makesWriteView`), of a field that is no read view or slice; a write view field of an enum, error, integer, or Bool made there, which the match holds whole | a read match of anything else, whatever its subject: a place, a lend, a read view a call returns, a part of a value made in the header; a `?T` field | plain data a read copies; a slice; `match <e` (then by its type) |
+
+A header **makes a write view** (`sema.makesWriteView`), which it lends
+on, by a positive list: the subject is a write lend `!x`, or a value of
+a write view type whose every leaf (`yieldedLeaves`) is a write lend, a
+call's result, or a jump (`getw(!e)`, `(!a if c else !b)`,
+`optw(!e) ?? !d`, `tryw(!e) catch !d`). Any other subject is read: a
+leaf that is a place is never written through, whether it is reached
+through a read view, a handle, or holds a write view itself.
+
+A header **copies a write view out of a place**
+(`sema.headerCopiesWriteView`), which typecheck rejects for `match` and
+`if … as` alike, when its subject is a branching value (`a if c else
+b`, `a ?? b`, `e catch h`, `e!`, `e?`) one of whose leaves is a place,
+or a part of one, of a type that holds a write view (`match (a if c else
+b)` of `!E` locals, `match o?` of a `(!E)?`, `match h1.w if c else
+h2.w`). The branch would read the leaf, copying the write view, which
+holds no loan on the place: a second writer.
 
 Typecheck records the access on the binding's symbol where it types the
 binding (`bindMatchView`, `checkOptionalBinding`, `checkFor`), and
