@@ -295,11 +295,15 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //
 //       sig.subscribe(*|~sig|
 //         if sig.upgrade() as s
-//           print(s.get()))
+//           print(s.get())
+//       )
 //
 //   The island closes when a line comes back to the indentation of the
 //   line the closure started on, or when the bracket around it closes;
-//   its open blocks end there.
+//   its open blocks end there. The line that closes it starts with that
+//   bracket, at the indentation of the line that opened the bracket; a
+//   bracket that closes it anywhere else is recorded (`layouts`), and
+//   reported once the source parses.
 //
 // Position
 //   Whitespace inside an expression never picks a form. A character that
@@ -399,11 +403,12 @@ pub const Lexer = struct {
     last2_cat: TokenCat = .eof,
     /// The operators whose spacing breaks the rule (an infix operator
     /// has the same spacing on both sides; a postfix, a member `.`, and a
-    /// range's open end touch what they join), the first `max_spacings`
-    /// of them, reported once the source parses
-    /// (`Parser.spacingMessage`).
-    spacings: [max_spacings]Spacing = undefined,
-    spacing_count: u32 = 0,
+    /// range's open end touch what they join), and the closure bodies
+    /// laid out below their bar lists that end anywhere but on a line of
+    /// their own: the first `max_layouts` of them, reported once the
+    /// source parses (`Parser.layoutMessage`).
+    layouts: [max_layouts]Layout = undefined,
+    layout_count: u32 = 0,
     /// The bracket nesting of the `while` header being lexed, whose first
     /// `:` there starts the step; null outside one.
     while_header: ?u32 = null,
@@ -435,7 +440,7 @@ pub const Lexer = struct {
     pub const max_indent_depth = 64;
     pub const max_nesting = 512;
     pub const max_islands = 32;
-    pub const max_spacings = 32;
+    pub const max_layouts = 32;
 
     /// A closure body laid out inside brackets. Its blocks sit on the
     /// layout stack above `depth`; `column` is the indentation of the
@@ -443,11 +448,15 @@ pub const Lexer = struct {
     /// `depth` / `outer_column`.
     const Island = struct { nesting: u32, depth: u32, column: u32, outer_column: u32 };
 
-    /// An operator whose spacing breaks the rule, at `pos`.
-    pub const Spacing = struct {
+    /// An operator whose spacing, or a closure body whose layout, breaks
+    /// the rule, at `pos`.
+    pub const Layout = struct {
         pos: u32,
         len: u32,
         kind: Kind,
+        /// For a closure body: the indentation of the line that opened
+        /// the bracket around it, where its closing bracket goes.
+        column: u32 = 0,
 
         pub const Kind = enum {
             /// An infix operator with whitespace before it only (`a <b`).
@@ -462,6 +471,15 @@ pub const Lexer = struct {
             enum_dot,
             /// A range's `..` apart from its only bound (`.. b`, `a ..]`).
             range_end,
+            /// The bracket around a closure body laid out below its bar
+            /// list closes on the body's last line (`print(x))`).
+            closure_hanging,
+            /// The line that ends such a body starts with something other
+            /// than that bracket (`, 1)`).
+            closure_close,
+            /// It starts with the bracket, at another indentation than
+            /// the line that opened the bracket.
+            closure_indent,
         };
     };
 
@@ -704,6 +722,7 @@ pub const Lexer = struct {
             // Back at the closure's own line: the island ends and the
             // bracketed expression continues.
             if (self.inIsland() and p - line <= self.islands[self.island_count - 1].column) {
+                self.checkIslandClose(p, p - line);
                 return self.closeIsland(p, null) orelse self.produce();
             }
             return self.indentTo(p - line, p, nl);
@@ -773,8 +792,12 @@ pub const Lexer = struct {
     // -------------------------------------------------------------------------
 
     fn classify(self: *Lexer, tok: Token) Token {
-        // The bracket around an island closes: so do the island's blocks.
+        // The bracket around an island closes on the body's last line:
+        // so do the island's blocks. The bracket belongs on a line of its
+        // own.
         if ((tok.cat == .rparen or tok.cat == .rbracket) and self.inIsland()) {
+            const kind: Layout.Kind = if (self.startsLine(tok)) .closure_indent else .closure_hanging;
+            self.recordLayout(.{ .pos = tok.pos, .len = 1, .kind = kind, .column = self.lineIndent(self.brackets[self.nesting - 1]) });
             if (self.closeIsland(tok.pos, tok)) |outdent| return outdent;
         }
         const after_value = self.after_value;
@@ -822,7 +845,7 @@ pub const Lexer = struct {
             if (twice and tok.cat == .minus) return self.fail(.decrement, tok.pos - 1);
             return self.fail(.detached_prefix, tok.pos);
         }
-        if (self.spacing_count < max_spacings) self.checkSpacing(tok, out.cat, after_value and !self.after_jump_label);
+        if (self.layout_count < max_layouts) self.checkSpacing(tok, out.cat, after_value and !self.after_jump_label);
         switch (out.cat) {
             .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
@@ -841,7 +864,7 @@ pub const Lexer = struct {
         const src = self.base.source;
         const before = tok.pos > 0 and isSpaceBefore(src[tok.pos - 1]);
         const after = isSpace(self.charAfter(tok));
-        const kind: ?Spacing.Kind = switch (cat) {
+        const kind: ?Layout.Kind = switch (cat) {
             .question, .not_sym => if (after_value and before) .postfix else null,
             // A member may start a line inside brackets, continuing a
             // chain from the line before.
@@ -850,9 +873,26 @@ pub const Lexer = struct {
             .dotdot_open => if (after_value and before) .range_end else null,
             else => if (after_value and isInfix(cat) and before != after) (if (before) .infix_before else .infix_after) else null,
         };
-        if (kind) |k| {
-            self.spacings[self.spacing_count] = .{ .pos = tok.pos, .len = tok.len, .kind = k };
-            self.spacing_count += 1;
+        if (kind) |k| self.recordLayout(.{ .pos = tok.pos, .len = tok.len, .kind = k });
+    }
+
+    fn recordLayout(self: *Lexer, layout: Layout) void {
+        if (self.layout_count == max_layouts) return;
+        self.layouts[self.layout_count] = layout;
+        self.layout_count += 1;
+    }
+
+    /// The line at `pos`, `width` deep, ends a closure body laid out in
+    /// the innermost island: it starts with the bracket around the body,
+    /// at the indentation of the line that opened that bracket.
+    fn checkIslandClose(self: *Lexer, pos: u32, width: u32) void {
+        const open = self.brackets[self.nesting - 1];
+        const closer: u8 = if (self.base.source[open] == '(') ')' else ']';
+        const want = self.lineIndent(open);
+        if (self.base.source[pos] != closer) {
+            self.recordLayout(.{ .pos = pos, .len = 1, .kind = .closure_close, .column = want });
+        } else if (width != want) {
+            self.recordLayout(.{ .pos = pos, .len = 1, .kind = .closure_indent, .column = want });
         }
     }
 
@@ -1234,8 +1274,8 @@ pub const Parser = struct {
         // the parse is the one reported.
         if (self.failure == null) {
             const lexer = &self.base.lexer;
-            for (lexer.spacings[0..lexer.spacing_count]) |sp| {
-                const d: diag.Diagnostic = .{ .severity = .@"error", .pos = sp.pos, .end = sp.pos + sp.len, .message = self.spacingMessage(sp) };
+            for (lexer.layouts[0..lexer.layout_count]) |sp| {
+                const d: diag.Diagnostic = .{ .severity = .@"error", .pos = sp.pos, .end = sp.pos + sp.len, .message = self.layoutMessage(sp) };
                 if (self.failure == null) self.failure = d else try self.more_failures.append(self.allocator(), d);
             }
         }
@@ -1244,7 +1284,7 @@ pub const Parser = struct {
     }
 
     /// Why an operator's spacing is wrong, with the text to write.
-    fn spacingMessage(self: *Parser, sp: Lexer.Spacing) []const u8 {
+    fn layoutMessage(self: *Parser, sp: Lexer.Layout) []const u8 {
         const src = self.base.source;
         const op = src[sp.pos .. sp.pos + sp.len];
         const left = operandBefore(src, sp.pos) orelse "a";
@@ -1272,7 +1312,30 @@ pub const Parser = struct {
                 self.format("a range's `..` touches its only bound; write `{s}..`", .{left})
             else
                 self.format("a range's `..` touches its only bound; write `..{s}`", .{right}),
+            .closure_hanging => self.format("a closure body below its bar list ends with `{s}` on a line of its own: end this line before the `{s}`, and write `{s}` on the next line at the indentation of the line that opened it (column {d}); a one-line body may instead follow the bar list on its line", .{ op, op, op, sp.column + 1 }),
+            .closure_close => self.format("a closure body below its bar list ends where the `{c}` around it stands alone at the start of a line, at the indentation of the line that opened it (column {d})", .{ closerOf(src, sp), sp.column + 1 }),
+            .closure_indent => self.format("write this `{s}`, which ends a closure body below its bar list, at the indentation of the line that opened it (column {d})", .{ op, sp.column + 1 }),
         };
+    }
+
+    /// The bracket that closes the island a `closure_close` ends.
+    fn closerOf(src: []const u8, sp: Lexer.Layout) u8 {
+        // The opening bracket is on the line at `column`'s indentation
+        // above; the island's bracket is the innermost one open there.
+        var depth: i32 = 0;
+        var p = sp.pos;
+        while (p > 0) {
+            p -= 1;
+            switch (src[p]) {
+                ')', ']' => depth += 1,
+                '(', '[' => {
+                    if (depth == 0) return if (src[p] == '(') ')' else ']';
+                    depth -= 1;
+                },
+                else => {},
+            }
+        }
+        return ')';
     }
 
     const Meaning = struct { infix: []const u8, prefix: []const u8 };
@@ -2280,13 +2343,13 @@ test "a prefix sigil touches its operand; after a value it is infix or a suffix"
 }
 
 /// The spacing kinds the lexer records for `source`, in order.
-fn expectSpacing(source: []const u8, expected: []const Lexer.Spacing.Kind) !void {
+fn expectLayout(source: []const u8, expected: []const Lexer.Layout.Kind) !void {
     var lx = Lexer.init(source);
     while (true) {
         const t = lx.next();
         if (t.cat == .eof or t.cat == .err) break;
     }
-    const got = lx.spacings[0..lx.spacing_count];
+    const got = lx.layouts[0..lx.layout_count];
     testing.expectEqual(expected.len, got.len) catch |e| {
         std.debug.print("source: {s}\n", .{source});
         return e;
@@ -2296,23 +2359,23 @@ fn expectSpacing(source: []const u8, expected: []const Lexer.Spacing.Kind) !void
 
 test "spacing: an infix operator is balanced; a postfix, a member, and an open range touch" {
     for ([_][]const u8{ "a < b", "a<b", "a - 1", "a-1", "x = -1", "x=1", "a ?? b", "0..n", "0 .. n", "f()!", "x?", "w.get()", "c = .red", "xs[..2]", "xs[a..]", "a < -b", "a<-b", "f(\n  a\n  .b())", "[]?T", "[2]*T", "break :a !n", "f = |a| a + 1", "while i < n : i += 1" }) |src| {
-        try expectSpacing(src, &.{});
+        try expectLayout(src, &.{});
     }
-    try expectSpacing("a <b", &.{.infix_before});
-    try expectSpacing("a< b", &.{.infix_after});
-    try expectSpacing("x =1", &.{.infix_before});
-    try expectSpacing("f() !", &.{.postfix});
-    try expectSpacing("[] ?T", &.{.postfix});
-    try expectSpacing("w . get()", &.{.member});
-    try expectSpacing("w .get()", &.{.member});
-    try expectSpacing("c = . red", &.{.enum_dot});
-    try expectSpacing("xs[.. 2]", &.{.range_end});
-    try expectSpacing("xs[a ..]", &.{.range_end});
-    try expectSpacing("0 ..n", &.{.infix_before});
+    try expectLayout("a <b", &.{.infix_before});
+    try expectLayout("a< b", &.{.infix_after});
+    try expectLayout("x =1", &.{.infix_before});
+    try expectLayout("f() !", &.{.postfix});
+    try expectLayout("[] ?T", &.{.postfix});
+    try expectLayout("w . get()", &.{.member});
+    try expectLayout("w .get()", &.{.member});
+    try expectLayout("c = . red", &.{.enum_dot});
+    try expectLayout("xs[.. 2]", &.{.range_end});
+    try expectLayout("xs[a ..]", &.{.range_end});
+    try expectLayout("0 ..n", &.{.infix_before});
     // Inside brackets a line break is whitespace, so a line starting
     // `-1` after a value is a subtraction with one side spaced.
-    try expectSpacing("f(a\n  -1)", &.{.infix_before});
-    try expectSpacing("a -1 + b *c", &.{ .infix_before, .infix_before });
+    try expectLayout("f(a\n  -1)", &.{.infix_before});
+    try expectLayout("a -1 + b *c", &.{ .infix_before, .infix_before });
 }
 
 test "`name:` is a keyword argument inside ( ), a name inside [ ]" {
@@ -2389,6 +2452,13 @@ test "layout: a closure body inside brackets is laid out in blocks" {
     });
     // Coming back to the closure's line ends the body.
     try expectCats("f(||\n  g\n, 1)", &.{ .ident, .lparen, .bar_empty, .indent, .ident, .outdent, .comma, .integer, .rparen });
+    // The bracket around the body goes on a line of its own, at the
+    // indentation of the line that opened it.
+    try expectLayout("f(*|x|\n  g(x)\n  h\n)\ny", &.{});
+    try expectLayout("  r = (|+n|\n    n\n  )()", &.{});
+    try expectLayout("f(*|x|\n  g(x)\n  h)\ny", &.{.closure_hanging});
+    try expectLayout("f(||\n  g\n, 1)", &.{.closure_close});
+    try expectLayout("f(||\n  g\n  )", &.{.closure_indent});
 }
 
 test "writeZigIdent escapes Zig keywords and emitter names" {

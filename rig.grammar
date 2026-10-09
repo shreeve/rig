@@ -13,7 +13,8 @@
 #   * turns indentation into INDENT / OUTDENT / NEWLINE, and joins lines
 #     inside ( ) and [ ] (a newline there is plain whitespace), except in
 #     a closure body that starts below its bar list, which is laid out in
-#     blocks as anywhere else;
+#     blocks as anywhere else and ends with the bracket around it on a
+#     line of its own;
 #   * classifies keywords (every keyword is reserved, but reads as a name
 #     where it names a member or a builtin: after `.` or `@`, before `:`
 #     inside ( ), and in a member list before `:` or after `fun` /
