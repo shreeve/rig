@@ -906,6 +906,21 @@ pub const Question = enum(u8) {
     /// Of an `as` value: whether the binding views the value inside the
     /// optional (`storage.viewsOptionalValue`).
     views_optional_value,
+    /// Of a call: whether its arguments are evaluated first, into storage
+    /// (`storage.hoistsArgs`).
+    hoists_args,
+    /// Of a call: how it holds its receiver while its arguments run, if it
+    /// does (`storage.receiverHold`).
+    receiver_hold,
+    /// Of a call: whether its receiver is a temporary the method consumes
+    /// (`storage.consumedTemporary`).
+    consumes_receiver,
+    /// Of a call argument: how a call that evaluates its arguments first
+    /// holds it (`storage.argumentHold`).
+    argument_hold,
+    /// Of an argument, an assigned value, or an index: whether it is pure,
+    /// so it stays where it is (`storage.isPureArg`).
+    pure_arg,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.

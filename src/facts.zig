@@ -310,6 +310,25 @@ pub const Facts = struct {
     pub fn viewsOptionalValue(f: Facts, value: Sexp) ?bool {
         return storage.decided(f.c(), value, .views_optional_value);
     }
+    /// The decisions about a call the plan made (`storage`): whether it
+    /// evaluates its arguments first, how it holds its receiver and each
+    /// argument, whether it consumes a temporary receiver, and whether an
+    /// argument, an assigned value, or an index is pure.
+    pub fn hoistsArgs(f: Facts, call: Sexp) ?bool {
+        return storage.decided(f.c(), call, .hoists_args);
+    }
+    pub fn receiverHold(f: Facts, call: Sexp) ??ReceiverHold {
+        return storage.decided(f.c(), call, .receiver_hold);
+    }
+    pub fn consumesReceiver(f: Facts, call: Sexp) ?bool {
+        return storage.decided(f.c(), call, .consumes_receiver);
+    }
+    pub fn argumentHold(f: Facts, v: Sexp) ?ArgumentHold {
+        return storage.decided(f.c(), v, .argument_hold);
+    }
+    pub fn isPureArg(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .pure_arg);
+    }
     /// Whether a `for` consumes its source (`storage.forConsumes`).
     pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
         return storage.decided(f.c(), loop, .for_consumes);
@@ -523,24 +542,6 @@ pub const Pending = struct {
     pub fn madeLeaves(p: Pending, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
         return storage.madeLeaves(p.c(), a, e, out);
     }
-    pub fn hoistsArgs(p: Pending, call: Sexp) bool {
-        return storage.hoistsArgs(p.c(), call);
-    }
-    pub fn receiverHold(p: Pending, call: Sexp) ?ReceiverHold {
-        return storage.receiverHold(p.c(), call);
-    }
-    pub fn argumentHold(p: Pending, v: Sexp) ArgumentHold {
-        return storage.argumentHold(p.c(), v);
-    }
-    pub fn consumedTemporary(p: Pending, call: Sexp) ?Sexp {
-        return storage.consumedTemporary(p.c(), call);
-    }
-    pub fn keptInSlot(p: Pending, e: Sexp) bool {
-        return storage.keptInSlot(p.c(), e);
-    }
-    pub fn isPureArg(p: Pending, e: Sexp) bool {
-        return storage.isPureArg(p.c(), e);
-    }
     pub fn stepReadsBinding(p: Pending, cond: Sexp, step: Sexp) bool {
         return sema.stepReadsBinding(p.c(), cond, step);
     }
@@ -590,7 +591,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 13;
+const pending_budget = 7;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");

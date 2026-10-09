@@ -1323,7 +1323,7 @@ pub const Emitter = struct {
                 if (body.isKind(.block)) try self.emitBlock(body) else try self.emitStmt(body);
             },
             else => {
-                if (self.discardsValue(sexp)) try self.w.writeAll("_ = ");
+                if (try self.discardsValue(sexp)) try self.w.writeAll("_ = ");
                 try self.emitExpr(sexp);
                 try self.w.writeAll(";");
             },
@@ -1332,7 +1332,7 @@ pub const Emitter = struct {
 
     /// True when `expr` in statement position produces a value that Zig
     /// requires to be used.
-    fn discardsValue(self: *Emitter, expr: Sexp) bool {
+    fn discardsValue(self: *Emitter, expr: Sexp) Error!bool {
         var e = expr;
         while (e.isKind(.propagate)) e = ir.Propagate.value(e);
         if (!e.isKind(.call)) return true;
@@ -1340,7 +1340,7 @@ pub const Emitter = struct {
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (self.facts.calleeOf(e).isKind(.lambda)) return true;
-        if (self.hoistsArgs(e)) return true;
+        if (try self.hoistsArgs(e)) return true;
         return !self.yieldsNothing(e);
     }
 
@@ -1637,7 +1637,7 @@ pub const Emitter = struct {
         const first = self.hoisted.items.len;
         const id = self.nextId();
         try self.w.writeAll("{ ");
-        if (!self.isPureArg(value)) {
+        if (!try self.isPureArg(value)) {
             const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
             try self.w.print("const {s}", .{name});
             if (ty) |t| {
@@ -1676,7 +1676,7 @@ pub const Emitter = struct {
     }
 
     fn hoistIndex(self: *Emitter, index: Sexp, id: u32) Error!void {
-        if (self.isPureArg(index)) return;
+        if (try self.isPureArg(index)) return;
         const name = try self.hiddenStorage(index, .index, .owned, .{ .pair = .{ id, @intCast(self.hoisted.items.len) } });
         try self.w.print("const {s}", .{name});
         if (self.typeOf(index)) |t| {
@@ -3938,7 +3938,7 @@ pub const Emitter = struct {
             },
             .call => if (self.facts.elemCallOf(self.facts.calleeOf(sexp))) |ec|
                 try self.emitElemCall(sexp, ec)
-            else if (self.hoistsArgs(sexp))
+            else if (try self.hoistsArgs(sexp))
                 try self.emitHoistedCall(sexp)
             else
                 try self.emitCallDirect(sexp),
@@ -5430,8 +5430,8 @@ pub const Emitter = struct {
         return self.facts.isTypeSym(id);
     }
     /// `storage.hoistsArgs`.
-    fn hoistsArgs(self: *Emitter, call: Sexp) bool {
-        return self.facts.pending.hoistsArgs(call);
+    fn hoistsArgs(self: *Emitter, call: Sexp) Error!bool {
+        return self.need(self.facts.hoistsArgs(call), call);
     }
 
     /// `storage.lentLiteral`.
@@ -5440,13 +5440,13 @@ pub const Emitter = struct {
     }
 
     /// `storage.consumedTemporary`.
-    fn consumedTemporary(self: *Emitter, call: Sexp) ?Sexp {
-        return self.facts.pending.consumedTemporary(call);
+    fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
+        return if (try self.need(self.facts.consumesReceiver(call), call)) self.facts.receiverOf(call) else null;
     }
 
     /// `storage.isPureArg`.
-    fn isPureArg(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.isPureArg(e);
+    fn isPureArg(self: *Emitter, e: Sexp) Error!bool {
+        return self.need(self.facts.isPureArg(e), e);
     }
 
     /// `storage.receiverOf`.
@@ -5475,7 +5475,7 @@ pub const Emitter = struct {
     /// into `__rig_recv_N` first, so it runs before them, as written: the
     /// address of a place, or a temporary value, dropped after the call.
     fn hoistReceiver(self: *Emitter, call: Sexp, id: u32) Error!void {
-        const hold = self.facts.pending.receiverHold(call) orelse return;
+        const hold = (try self.need(self.facts.receiverHold(call), call)) orelse return;
         // Lend sigils on a receiver are implicit in Zig's method calls.
         const recv = lentPlace(self.receiverOf(call).?);
         const writes = self.receiverWrites(call);
@@ -5559,12 +5559,12 @@ pub const Emitter = struct {
         try self.w.print("__rig_call_{d}: ", .{id});
         try self.openBrace();
         const first = self.hoisted.items.len;
-        if (self.consumedTemporary(call)) |recv| {
+        if (try self.consumedTemporary(call)) |recv| {
             try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .receiver, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
         } else try self.hoistReceiver(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
-            if (self.isPureArg(value)) continue;
+            if (try self.isPureArg(value)) continue;
             const slot: usize = if (slots) |ss| for (ss, 0..) |s, i| {
                 if (s == .arg and s.arg == ai) break i;
             } else ai else ai;
@@ -5586,7 +5586,9 @@ pub const Emitter = struct {
     /// written: a receiver the method consumes comes named.
     fn hoist(self: *Emitter, h_in: Hoisted, suffix: ?StorageSuffix, params: []const TypeId, slot: usize, fields: bool) Error!void {
         var h = h_in;
-        const hold = self.facts.pending.argumentHold(h.node);
+        // A consumed receiver (no suffix: its storage is named) is a value
+        // of its own; an argument is held as the plan decided.
+        const hold: facts.ArgumentHold = if (suffix == null) .value else try self.need(self.facts.argumentHold(h.node), h.node);
         if (hold == .closure or hold == .callable) {
             const fn_ty = self.facts.callableOf(h.node).?;
             if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, .owned, sx);
@@ -5657,9 +5659,6 @@ pub const Emitter = struct {
     }
 
     /// `storage.keptInSlot`.
-    fn keptInSlot(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.keptInSlot(e);
-    }
 
     /// The address of `e` in its statement's slot (`keptInSlot`).
     fn emitSlotAddress(self: *Emitter, e: Sexp) Error!void {

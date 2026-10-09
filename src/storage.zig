@@ -138,6 +138,10 @@ pub fn hasStorage(ctx: *const SemContext, e: Sexp) bool {
 /// later argument could change: a literal, a constant, a function,
 /// or a view or move of a name.
 pub fn isPureArg(ctx: *const SemContext, e: Sexp) bool {
+    return decide(ctx, e, .pure_arg);
+}
+
+fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
     switch (e) {
         .src => {
             if (isLiteralText(srcText(ctx, e)) or isNoneLeaf(ctx, e)) return true;
@@ -186,6 +190,14 @@ pub fn receiverWrites(ctx: *const SemContext, call: Sexp) bool {
 /// The receiver of `value.method(...)` when it is an owned temporary
 /// the method consumes (`mk().consume(...)`).
 pub fn consumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
+    return if (decide(ctx, call, .consumes_receiver)) receiverOf(ctx, call) else null;
+}
+
+fn decideConsumesReceiver(ctx: *const SemContext, call: Sexp) bool {
+    return decideConsumedTemporary(ctx, call) != null;
+}
+
+fn decideConsumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
     if (!hasReceiver(ctx, call)) return null;
     const callee = ctx.calleeOf(call);
     const obj = ir.Member.object(callee);
@@ -208,6 +220,10 @@ pub fn lentLiteral(ctx: *const SemContext, e: Sexp) bool {
 /// effects, or when an argument may leave (`!`, a `catch` that
 /// returns) after an owned value was produced, which would be lost.
 pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
+    return decide(ctx, call, .hoists_args);
+}
+
+fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     if (!call.isKind(.call) or isPrintCall(ctx, call) or textCall(ctx, call) != null) return false;
     const args = ir.Call.args(call);
     // A closure literal lent to the call gets an environment first.
@@ -272,6 +288,10 @@ pub const ReceiverHold = enum {
 /// How a call whose arguments are evaluated first holds its receiver,
 /// or null when it is evaluated where the call is.
 pub fn receiverHold(ctx: *const SemContext, call: Sexp) ?ReceiverHold {
+    return decide(ctx, call, .receiver_hold);
+}
+
+fn decideReceiverHold(ctx: *const SemContext, call: Sexp) ?ReceiverHold {
     if (consumedTemporary(ctx, call) != null) return .consumed;
     // Lend sigils on a receiver are implicit in Zig's method calls.
     const recv = lentPlace(receiverOf(ctx, call) orelse return null);
@@ -308,6 +328,10 @@ pub const ArgumentHold = enum {
 };
 
 pub fn argumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
+    return decide(ctx, v, .argument_hold);
+}
+
+fn decideArgumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
     if (ctx.callableOf(v) != null) return if (v.isKind(.lambda)) .closure else .callable;
     if (v.isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(v))) return if (keptInSlot(ctx, ir.Read.operand(v))) .cell_slot else .cell_copy;
     if (ctx.lendOf(v) != null and !ctx.lendsTempArray(v)) return .lent;
@@ -932,7 +956,9 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_receiver, .pure_arg => bool,
+        .receiver_hold => ?ReceiverHold,
+        .argument_hold => ArgumentHold,
         .match_mode => MatchMode,
         .hands => sema.Hands.Kind,
         .subject_hold => ?StorageBy,
@@ -969,6 +995,11 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .hands => Node.of(decideHands),
         .header_points => Node.of(decideHeaderPoints),
         .views_optional_value => Node.of(decideViewsOptionalValue),
+        .hoists_args => Node.of(decideHoistsArgs),
+        .receiver_hold => Node.of(decideReceiverHold),
+        .consumes_receiver => Node.of(decideConsumesReceiver),
+        .argument_hold => Node.of(decideArgumentHold),
+        .pure_arg => Node.of(decideIsPureArg),
     };
 }
 
@@ -1148,6 +1179,14 @@ const Planner = struct {
                 _ = dropsWhenTested(ctx, operand);
             },
             .call => {
+                // How a call holds what it is passed, for emit to read.
+                _ = hoistsArgs(ctx, e);
+                _ = receiverHold(ctx, e);
+                _ = consumedTemporary(ctx, e);
+                for (ir.Call.args(e)) |a| {
+                    _ = isPureArg(ctx, argValue(a));
+                    _ = argumentHold(ctx, argValue(a));
+                }
                 // How `print` and the Text operations read each argument.
                 if (isPrintCall(ctx, e) or textCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
                     _ = printsByAddress(ctx, a);

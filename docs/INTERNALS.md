@@ -1066,7 +1066,12 @@ expression hands over (`sema.handsOver`'s kind), which the plan decides
 for every expression, as `reaches_leaf`; and for each header, whether
 its block yields the address of the place its subject reaches
 (`header_points`), and for an `as`, whether its binding views the value
-inside the optional (`views_optional_value`). Typecheck's arm-local
+inside the optional (`views_optional_value`); and for each call,
+whether it evaluates its arguments first (`hoists_args`), how it holds
+its receiver (`receiver_hold`), whether it consumes a temporary
+receiver (`consumes_receiver`), how it holds each argument
+(`argument_hold`), and whether an argument, an assigned value, or an
+index is pure, staying where it is (`pure_arg`). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
