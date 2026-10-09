@@ -152,6 +152,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | Path | Role |
 |---|---|
 | `HANDOFF.md` | Where Rig stands, the work that comes next, the gates, and whom to ask |
+| `TODO.md` | Work decided but not started |
 | `rig.grammar` | Nexus grammar: syntax, and the IR schema every node follows |
 | `src/rig.zig` | Lexer and parser wrappers (layout, position, IR rewrites) |
 | `src/diag.zig` | Diagnostics: spans, line and column, the printed format |
