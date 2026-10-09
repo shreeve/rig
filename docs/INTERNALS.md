@@ -834,8 +834,21 @@ around the rule.
   - a value that branches is no lend;
   - a lend of a slice makes the view the path reaches. A written `!` on one that the path only reads is decided by `Checker.writeLendRead`, as any read of a written lend is.
 - **The hint.** `LendBaseFix` rewrites the path's line. The whole path takes the sigil its context takes, read from what typing recorded: the type each expression was checked against (`Checker.expected`), a method's receiver mode, and the value tails a function, a closure, or a block uses (`Checker.value_tails`).
-- **The error is always reported.** Where no rewrite compiles (a write through a read lend or a shared handle, or a lend its own check rejected), it gives none.
-- **The suite enforces the hints.** `test/hints.py` applies each hint in every reject test, and fails if the rewritten line draws an error the program did not draw already.
+- **The error is always reported.** A rewrite is the source line the path is on. The sigil the whole path takes comes from the type expected there:
+  - `!` for a write view;
+  - `?` for a read view, but none for an argument a `?T` parameter takes;
+  - `?` for a slice of an array, a Vec, or a Text;
+  - none for a value that copies, and `+` for one that does not;
+  - the lend's own sigil for a value taken where no type is expected.
+
+  There is no rewrite, and the message says why where it can, when the path:
+  - writes through a read lend or a shared handle;
+  - takes a part that is no optional;
+  - binds a temporary where no statement can go first;
+  - has an error of its own, in its lend or after it;
+  - is spread over lines or at module level;
+  - meets a context no plain form fits.
+- **The suite enforces the hints.** `test/hints.py` applies each hint in every reject test, and fails if the program then draws an error it did not draw before, at the same place with the same text. The rewritten line's columns are mapped through the rewrite.
 The suite's `classify` check fails on any classifier
 of this kind left outside `handsOver`.
 
