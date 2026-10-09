@@ -30,9 +30,9 @@ sub main()
   if !lib.ok()
     print("no")
 
-# error: 26:9: `!` here reaches `lib`, a module, not the value `lib.mk(...)` makes: write `!(lib.mk(...))` to lend that value
-# error: 27:9: `!` here reaches `lib.T`, a type, not the value `lib.T.make(...)` makes
-# error: 28:9: `!` here reaches `U`, a type, not the value `U.make(...)` makes
-# error: 29:8: `!` here reaches `E`, a type, not the value `E.a(...)` makes
-# error: 30:6: `!` here reaches `lib`, a module, and `lib.ok(...)` makes a `Bool`; for negation use `not`
+# error: 26:9: `!` here reaches `lib`, a module, not the value `lib.mk()` makes: write `!(lib.mk())` to lend that value, or remove the `!`
+# error: 27:9: `!` here reaches `lib.T`, a type, not the value `lib.T.make()` makes: write `!(lib.T.make())` to lend that value, or remove the `!`
+# error: 28:9: `!` here reaches `U`, a type, not the value `U.make()` makes: write `!(U.make())` to lend that value, or remove the `!`
+# error: 29:8: `!` here reaches `E`, a type, not the value `E.a(s: "x")` makes: write `!(E.a(s: "x"))` to lend that value, or remove the `!`
+# error: 30:6: `!` here reaches `lib`, a module, and `lib.ok()` makes a `Bool`; for negation use `not`
 # errors: 5

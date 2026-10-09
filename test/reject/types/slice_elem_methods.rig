@@ -25,7 +25,7 @@ sub main()
   <w.fill(0)
 
 # error: 10:3: cannot `fill` a `[]Int`; its elements are read-only
-# error: 14:3: `fill` writes the elements; write the receiver with `!`: `!a.fill(...)`
+# error: 14:3: `fill` writes the elements; write the receiver with `!`: `!a.fill(0)`
 # error: 16:3: cannot `swap` a String; a String is read-only
 # error: 18:7: `fill` copies values into the elements; a `*P` owns a resource
 # error: 20:11: type mismatch: expected `[]Int`, got `[]U8`

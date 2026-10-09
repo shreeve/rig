@@ -51,6 +51,6 @@ sub main()
 # error: 13:5: write `!self.bump()`: the call writes `self`
 # error: 29:8: write `!c`: the call writes through `c`
 # error: 31:13: write `!c`: the field writes through `c`
-# error: 35:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(...)`
+# error: 35:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(0)`
 # error: 38:17: write `!c`: the call writes through `c`
 # error: 44:3: write `!w.bump()`: the call writes `w`

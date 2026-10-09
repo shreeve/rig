@@ -7,5 +7,5 @@ fun mk() -> [3]Int
 sub main()
   mk().fill(0)
 
-# error: 8:3: `fill` writes the elements; write the receiver with `!`: `!mk().fill(...)`
+# error: 8:3: `fill` writes the elements; write the receiver with `!`: `!mk().fill(0)`
 # errors: 1
