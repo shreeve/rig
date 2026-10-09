@@ -1,0 +1,19 @@
+fun keep(s: String) -> String
+  s
+
+struct P
+  t: Text
+
+enum F
+  a(p: P)
+  b
+
+sub main()
+  e = F.a(P(t: Text("hello")))
+  match !e
+    .a(p)
+      s = keep(p.t[1..])
+      for _ in 0..50
+        !p.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => print("b")

@@ -1,0 +1,14 @@
+fun grow(t: !Text, s: String) -> String
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  s
+
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t) => print(grow(!t, ?t[1..]))
+    .b => pass
