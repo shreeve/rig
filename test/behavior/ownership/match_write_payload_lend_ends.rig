@@ -1,7 +1,9 @@
 # A lend of a `match !e` binding is a loan on the binding, which ends at
 # the last use of the view: the arm may read a view of the payload, and
 # write through the binding before the lend and after the view's last
-# use, for each kind of payload, subject, and lend.
+# use, for each kind of payload, subject, and lend. A read match's
+# binding, a write view by its type or not, is a read view, whose view
+# may leave the arm.
 # release
 # oracle: texts accept
 # oracle: vec accept
@@ -13,6 +15,8 @@
 # oracle: subjects accept
 # oracle: slices accept
 # oracle: forms accept
+# oracle: whole_of accept
+# oracle: read_match accept
 
 use std.text
 
@@ -211,6 +215,22 @@ sub forms()
     .b => pass
   print(e)
 
+fun whole_of(o: !E) -> ?E from o
+  match o
+    x => ?x
+
+sub read_match()
+  e = E.a(Text("read"))
+  r = whole_of(!e)
+  print(r)
+  t = Text("field")
+  g = WV.a(!t)
+  s = ""
+  match g
+    .a(w) => s = ?w[1..]
+    .b => pass
+  print(s)
+
 sub main()
   texts()
   vec()
@@ -224,6 +244,7 @@ sub main()
   subjects()
   slices()
   forms()
+  read_match()
 
 # expect:
 # ello
@@ -258,3 +279,5 @@ sub main()
 # =v123
 # k=v1234
 # .a(t: "k=v12345")
+# .a(t: "read")
+# ield

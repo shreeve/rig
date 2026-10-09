@@ -1579,27 +1579,30 @@ place's var holds, and no loan on the var (`walkThroughView`). The var
 is still held while the place's indexes run.
 
 **Lending a binding.** What a lend of a var, or of a path in it, puts a
-loan on follows from what the var is, one positive list (`lendOn`):
+loan on follows from what the var is, one positive list (`lendTarget`):
 
 - **An owner** (a local, a parameter taken by value, an owned loop
   element, a binding of `match <e`): a loan on the var.
 - **A write view**, which a write may go through (a `!T` or `![]T`
   parameter or local, a `|!x|` capture, and a binding of `if !o as w`,
-  `while !o as w`, `for x in !v`, or `match !e`, a catch-all's
-  included): a loan on the var, and the loans the var holds.
-- **A read view**, which no write goes through (a `?T`, and a binding
-  of a read `match` whose type is no `?T`: a slice, a String, or a type
-  parameter it binds where the subject is): the loans the var holds, as
-  a copy of the view carries.
+  `while !o as w`, or `for x in !v`, and one of `match !e` whose type is
+  a write view, a catch-all's included): a loan on the var, and the
+  loans the var holds.
+- **A read view**, which no write goes through (a `?T`; a binding of a
+  read `match`, whatever its type, since a write through one is
+  rejected: a `!T` field it binds, or a catch-all of a `!T` subject; and
+  one of `match !e` whose type is a slice, a String, or a `?T`): the
+  loans the var holds, as a copy of the view carries.
 
 Desugared, `.a(t)` of `match !e` binds `t` as `w = !x` binds `w`: a
 write view, of the payload's field. So in the arm `s = ?t[1..]` lends a
-held write view: while `s`
-lives, `!t.add(x)` or `t = v` writes through `t` against a read loan of
-`t` (Core sentence 5), and `s` also keeps `t`'s own loan on `e`. As for
-every write view, a view of the binding lives no longer than the
-binding: a slice of a `match !e` binding stays in its arm, as one of an
-`if !o as w` binding stays in its `if`.
+held write view: while `s` lives, `!t.add(x)` or `t = v` writes through
+`t` against a read loan of `t` (Core sentence 5), and `s` also keeps
+`t`'s own loan on `e`. As for every write view, a view of the binding
+lives no longer than the binding: a slice of a `match !e` binding stays
+in its arm, as one of an `if !o as w` binding stays in its `if`. A read
+match's binding is a read view of what it binds, so a view of it keeps
+only the binding's loan on the subject, and may leave the arm.
 
 **Liveness.** A loan held by a var is in force only while the var is
 live: while it may still be used. Before checking a function, one walk
