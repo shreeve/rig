@@ -48,7 +48,12 @@ input: the root module as `__rig_main.zig`, every other module as
 `<module>.zig` (a standard library module as `__rig_std_<module>.zig`),
 and the runtime as `rig/runtime.zig`. The package goes
 to `$RIG_OUT_DIR` when it is set, otherwise to
-`~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`). Each file
+`~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`), the cache
+home. Each build there sets the directory's time to now, and at most
+once a day, as the stamp `.trimmed` in the cache home records, `run`,
+`build`, and `test` remove the package directories unused for 5 days,
+each renamed out of the way in one step before it is deleted. `rig
+clean` removes the cache home; a `$RIG_OUT_DIR` is never trimmed. Each file
 is replaced atomically, so concurrent builds of one program never read
 a partly written file, a file that already holds the same contents is
 left alone, and the directory is not emptied. It holds the

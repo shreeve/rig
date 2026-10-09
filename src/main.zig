@@ -22,6 +22,7 @@ const usage =
     \\
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
+    \\       rig clean
     \\
     \\Commands:
     \\  check     Check the program and its imports
@@ -29,6 +30,7 @@ const usage =
     \\  build     Check and build a native executable
     \\  test      Check, build, and run the program's `test` blocks
     \\  emit      Check, then print the root module's Zig to stdout
+    \\  clean     Remove the cache of built programs (see RIG_OUT_DIR)
     \\
     \\Options:
     \\  --facts                Print the root module's syntax facts after
@@ -55,7 +57,9 @@ const usage =
     \\Environment:
     \\  RIG_OUT_DIR      Directory for the emitted package and its Zig
     \\                   build cache (default: a per-project directory
-    \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig)
+    \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig,
+    \\                   where run, build, and test, at most once a
+    \\                   day, remove the directories unused for 5 days)
     \\  RIG_BUILD_STORE  A store shared by every program and checkout:
     \\                   run, build, and test write the package to a
     \\                   directory in it named by a hash of everything
@@ -78,7 +82,7 @@ const usage =
     \\
 ;
 
-const Command = enum { tokens, parse, normalize, check, run, build, @"test", emit };
+const Command = enum { tokens, parse, normalize, check, run, build, @"test", emit, clean };
 
 /// Zig's optimize mode for the program being built.
 const Mode = enum {
@@ -154,6 +158,7 @@ pub fn main(init: std.process.Init) !void {
     const opts = parseArgs(io, args[@min(1, args.len)..]);
 
     switch (opts.command) {
+        .clean => clean(allocator, io, env),
         .tokens, .parse, .normalize => {
             const source = std.Io.Dir.cwd().readFileAlloc(io, opts.path, allocator, .limited(modules.max_source_bytes)) catch |err|
                 fatal("error: cannot read `{s}`: {s}", .{ opts.path, modules.fileError(err) });
@@ -246,6 +251,10 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         usageError("`--release` applies to run, build, and test", .{});
     if (out_path != null and cmd != .build) usageError("`-o` applies to build", .{});
     if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
+    if (cmd == .clean) {
+        if (path != null) usageError("`rig clean` takes no file", .{});
+        return .{ .command = cmd, .path = "" };
+    }
     const file = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)});
     // `rig build` writes ./<name>: a file without `.rig` would be its own
     // output.
@@ -444,6 +453,11 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
         zig_cache = try std.fs.path.join(allocator, &.{ dir, ".zig-cache" });
     }
     try writePackage(allocator, io, dir, pkg.files.items);
+    // A package in the cache home is marked used, and old ones go.
+    if (env.get("RIG_BUILD_STORE") == null and env.get("RIG_OUT_DIR") == null) if (try cacheHome(allocator, env)) |home| {
+        std.Io.Dir.cwd().setTimestampsNow(io, dir, .{}) catch {};
+        trimCache(allocator, io, home, std.fs.path.basename(dir));
+    };
 
     const root_zig = try std.fs.path.join(allocator, &.{ dir, root });
     const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{opts.out_path orelse graph.root().name})} else &.{};
@@ -698,16 +712,86 @@ fn writeFile(io: std.Io, path: []const u8, contents: []const u8) !void {
 /// this user and project under the cache home.
 fn outputDir(allocator: std.mem.Allocator, env: Env, root: *const modules.Module) ![]const u8 {
     if (env.get("RIG_OUT_DIR")) |dir| return dir;
-
-    const base = if (env.get("XDG_CACHE_HOME")) |x|
-        try std.fs.path.join(allocator, &.{ x, "rig" })
-    else if (env.get("HOME")) |home|
-        try std.fs.path.join(allocator, &.{ home, ".cache", "rig" })
-    else
-        fatal("error: set RIG_OUT_DIR, XDG_CACHE_HOME, or HOME for emitted Zig", .{});
-
+    const base = (try cacheHome(allocator, env)) orelse fatal("error: set RIG_OUT_DIR, XDG_CACHE_HOME, or HOME for emitted Zig", .{});
     const project = try allocator.print("{s}-{x:0>16}", .{ root.name, std.hash.Wyhash.hash(0, root.path) });
     return std.fs.path.join(allocator, &.{ base, project });
+}
+
+/// Where `rig run` and `rig build` keep each program's package when
+/// `$RIG_OUT_DIR` names no directory: `$XDG_CACHE_HOME/rig`, or
+/// `~/.cache/rig`. Null with neither variable set.
+fn cacheHome(allocator: std.mem.Allocator, env: Env) !?[]const u8 {
+    if (env.get("XDG_CACHE_HOME")) |x| return try std.fs.path.join(allocator, &.{ x, "rig" });
+    if (env.get("HOME")) |home| return try std.fs.path.join(allocator, &.{ home, ".cache", "rig" });
+    return null;
+}
+
+/// How long a package directory in the cache home is kept unused, and
+/// how often the cache home is trimmed of older ones.
+const cache_keep_days = 5;
+const cache_trim_days = 1;
+
+/// Remove the package directories in the cache home `home` that no run
+/// or build has used (`setTimestampsNow`) for `cache_keep_days`, all but
+/// `current`. A stamp, `.trimmed`, records the last trim, so this reads
+/// the directory at most once in `cache_trim_days`. Each directory is
+/// renamed out of the way in one step and then deleted, so a build never
+/// meets one half removed. A failure here never fails the build.
+fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current: []const u8) void {
+    const cwd = std.Io.Dir.cwd();
+    const now = std.Io.Timestamp.now(io, .real);
+    const day: i96 = std.time.ns_per_day;
+    const stamp = std.fs.path.join(allocator, &.{ home, ".trimmed" }) catch return;
+    if (cwd.statFile(io, stamp, .{})) |st| {
+        if (st.mtime.durationTo(now).nanoseconds < cache_trim_days * day) return;
+        cwd.setTimestampsNow(io, stamp, .{}) catch return;
+    } else |_| {
+        const file = cwd.createFile(io, stamp, .{}) catch return;
+        file.close(io);
+    }
+    var d = cwd.openDir(io, home, .{ .iterate = true }) catch return;
+    defer d.close(io);
+    var old: std.ArrayList([]const u8) = .empty;
+    var it = d.iterate();
+    while (it.next(io) catch return) |entry| {
+        if (entry.kind != .directory or eql(entry.name, current)) continue;
+        // What an interrupted trim left.
+        const trash = std.mem.startsWith(u8, entry.name, ".trash-");
+        if (!trash and !isPackageDir(entry.name)) continue;
+        const st = d.statFile(io, entry.name, .{}) catch continue;
+        if (!trash and st.mtime.durationTo(now).nanoseconds < cache_keep_days * day) continue;
+        old.append(allocator, allocator.dupe(u8, entry.name) catch return) catch return;
+    }
+    for (old.items) |name| {
+        var gone = name;
+        if (!std.mem.startsWith(u8, name, ".trash-")) {
+            var tag: [8]u8 = undefined;
+            io.random(&tag);
+            gone = allocator.print(".trash-{x}", .{&tag}) catch return;
+            d.rename(name, d, gone, io) catch continue;
+        }
+        d.deleteTree(io, gone) catch {};
+    }
+}
+
+/// Whether `name` is a package directory `outputDir` makes: a program's
+/// name, `-`, and 16 hex digits.
+fn isPackageDir(name: []const u8) bool {
+    const n = 17;
+    if (name.len <= n or name[name.len - n] != '-') return false;
+    for (name[name.len - n + 1 ..]) |c| if (!std.ascii.isHex(c)) return false;
+    return true;
+}
+
+/// `rig clean`: remove the cache home, every program's package and Zig
+/// cache. `$RIG_OUT_DIR` and `$RIG_BUILD_STORE` are their callers'.
+fn clean(allocator: std.mem.Allocator, io: std.Io, env: Env) void {
+    const home = (cacheHome(allocator, env) catch fatal("error: out of memory", .{})) orelse fatal("error: set XDG_CACHE_HOME or HOME to name the cache", .{});
+    const cwd = std.Io.Dir.cwd();
+    if (cwd.statFile(io, home, .{})) |_| {
+        cwd.deleteTree(io, home) catch |err| fatal("error: cannot remove `{s}`: {s}", .{ home, @errorName(err) });
+        printOut(io, "rig: removed {s}\n", .{home});
+    } else |_| printOut(io, "rig: {s} is already empty\n", .{home});
 }
 
 // The unit tests of every compiler file, and of the runtime.

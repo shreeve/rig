@@ -284,8 +284,15 @@ bin/rig build --release=fast file.rig  # fast: no overflow checks
 bin/rig test file.rig                  # run the program's `test` blocks
 bin/rig check file.rig                 # check only
 bin/rig emit file.rig                  # print the emitted Zig
+bin/rig clean                          # remove the cache of built programs
 ./test/run                             # the whole test suite
 ```
+
+`rig run`, `build`, and `test` build each program in a directory of
+its own under `~/.cache/rig` (or `$XDG_CACHE_HOME/rig`, or
+`$RIG_OUT_DIR` when set). At most once a day they remove the
+directories there that no build has used for 5 days; `rig clean`
+removes them all. A `$RIG_OUT_DIR` is never trimmed.
 
 Debug builds (the default) check for memory leaks: a program that
 leaks reports how many allocations it lost and exits 1; set
