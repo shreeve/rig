@@ -249,7 +249,11 @@ is live, or after its last use; a program that runs must print what the
 view showed before the write. A read binding of a write view (a read
 match's of every subject, a part of a value made in the header
 included, and `if o as b` and `while o as b` of a `(!T)?`) is written
-the same way, and every such program must be rejected (`lendw.`). A `while` step
+the same way, and so is a match of a branch that reads a place holding a
+write view (fields through a read view or handle, bare write views, a
+call beside a field, `??` of an optional write view), through the
+binding or through the place; every such program must be rejected
+(`lendw.`). A `while` step
 reads what its condition binds, a view or a struct holding one, while
 the body grows what it views on each way to the step (the body's end,
 `continue`, `continue :outer` from a nested `for`, `while`, or

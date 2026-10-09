@@ -1058,6 +1058,8 @@ _LW_EW = "enum E\n  a(x: !TY)\n  z\n"
 _LW_HH = "\nstruct HH\n  e: E\n"
 _LW_GET = _LW_HH + "\nfun get(h: !HH) -> !E\n  !h.e\n"
 _LW_O = "\nenum O\n  a(i: !E)\n  z\n"
+_LW_HW = "\nstruct HW\n  w: !E\n"
+_LW_TWO = ["e1 = E.a(mk())", "e2 = E.a(mk())", "c = true"]
 LENDW_BINDINGS.update({
     "match_made": dict(decls=_LW_EW, setup=["y = mk()"], head=["match E.a(!y)", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_named": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(x: b)"], depth=4, after=["  .z => pass"]),
@@ -1097,6 +1099,32 @@ LENDW_BINDINGS.update({
     "read_while_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y", "n = 0"], head=["while o as b"], depth=2, after=["  n += 1", "  break if n > 0"], rejected=True),
     "read_as_payload": dict(decls="enum E\n  a(o: (!TY)?)\n  z\n", setup=["y = mk()", "e = E.a(!y)"], head=["match e", "  .a(o)", "    if o as b"], depth=6, after=["  .z => pass"], rejected=True),
     "read_catchall_param": dict(decls=_LW_EW, param="e: !E", arg="E.a(!z)", pre=["z = mk()"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    # A branch whose leaf is a place holding a write view reads it: the
+    # match neither writes through it nor copies it out
+    # (`sema.makesWriteView`, `sema.headerCopiesWriteView`).
+    "read_branch_readview_fields": dict(decls=_LW_E + _LW_HW, setup=_LW_TWO + ["h1 = HW(w: !e1)", "h2 = HW(w: !e2)", "r1 = ?h1", "r2 = ?h2"],
+                                        head=["match (r1.w if c else r2.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_coalesce_readview_field": dict(decls=_LW_E + "\nstruct HO\n  o: (!E)?\n", setup=_LW_TWO + ["h = HO(o: !e1)", "r = ?h"],
+                                         head=["match r.o ?? !e2", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_branch_handle_fields": dict(decls=_LW_E + _LW_HW, setup=_LW_TWO + ["h1 = *HW(w: !e1)", "h2 = *HW(w: !e2)"],
+                                      head=["match (h1.w if c else h2.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_branch_call_and_field": dict(decls=_LW_E + _LW_HW + "\nfun getw(e: !E) -> !E\n  e\n", setup=_LW_TWO + ["h1 = HW(w: !e1)", "r1 = ?h1"],
+                                       head=["match (getw(!e2) if c else r1.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_branch_bare_write_views": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1", "wb = !e2"],
+                                         head=["match (wa if c else wb)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_coalesce_local_write_view": dict(decls=_LW_E, setup=_LW_TWO + ["o: (!E)? = !e1"],
+                                           head=["match o ?? !e2", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    # The same, written through the place the branch copied the write
+    # view out of (`via`): a second writer, which main accepts.
+    "copied_branch_bare_write_views": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1", "wb = !e2"],
+                                           head=["match (wa if c else wb)", "  .a(b)"], depth=4, after=["  .z => pass"],
+                                           via=["match !wa", "  .a(x2)", "@WRITE", "  .z => pass"], rejected=True),
+    "copied_branch_write_view_and_lend": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1"],
+                                              head=["match (wa if c else !e2)", "  .a(b)"], depth=4, after=["  .z => pass"],
+                                              via=["match !wa", "  .a(x2)", "@WRITE", "  .z => pass"], rejected=True),
+    "copied_coalesce_local_write_view": dict(decls=_LW_E, setup=_LW_TWO + ["o: (!E)? = !e1"],
+                                             head=["match o ?? !e2", "  .a(b)"], depth=4, after=["  .z => pass"],
+                                             via=["if !o as w2", "  match !w2", "    .a(x2)", "@WRITE", "    .z => pass"], rejected=True),
 })
 
 
@@ -1108,6 +1136,14 @@ def lendw_program(bname, tname, lname, when):
     name = b.get("name", "b")
     fill = lambda x: x.replace("@B", name)
     write = fill(t["write"]).split("\n")
+    if "via" in b:
+        # The write goes through the place `via` matches to write, as `x2`.
+        inner = t["write"].replace("@B", "x2").split("\n")
+        at = next(l for l in b["via"] if l.strip() == "@WRITE")
+        pad = " " * (b["via"][b["via"].index(at) - 1].index(".") + 2)
+        write = []
+        for l in b["via"]:
+            write += [pad + w for w in inner] if l.strip() == "@WRITE" else [l]
     body = [f"s = {fill(lend)}"]
     if when == "live":
         body += write + [show_s, fill(t["show"])]
