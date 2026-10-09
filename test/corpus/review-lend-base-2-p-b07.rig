@@ -1,0 +1,26 @@
+struct Q
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  fun get(?self) -> Int
+    self.n
+
+struct P
+  x: Int
+  o: Int?
+  a: [2]Int
+  v: Vec[Int]
+  q: Q
+
+fun mk() -> P
+  P(x: 1, o: 3, a: [1, 2], v: Vec(), q: Q(n: 1))
+
+fun id(n: Int) -> Int
+  n
+
+sub main()
+  p = mk()
+  arr = [5, 6]
+  print(arr[(?p).x])

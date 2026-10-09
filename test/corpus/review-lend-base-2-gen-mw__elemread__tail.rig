@@ -1,0 +1,68 @@
+enum E
+  a(n: Int)
+  b
+
+error Bad
+  bad
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun yes(n: Int) -> Bool
+  n > 0
+
+struct Set
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    !self.items.push(k)
+    true
+
+struct Q
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  fun get(?self) -> Int
+    self.n
+
+struct S
+  x: Int
+  o: Int?
+  a: [2]Int
+  v: Vec[Int]
+  q: Q
+  e: E
+  f: fun(Int) -> Int
+  g: fun(Int) -> Bool
+  t: Text
+  s: Set
+
+fun mk(n: Int) -> S
+  S(x: n, o: n, a: [n, n], v: Vec(), q: Q(n: n), e: E.a(n: n), f: double, g: yes, t: Text("t"), s: Set(items: Vec()))
+
+fun pk(d: !S, k: Bool) -> (!S)?
+  return none if k
+  d
+
+fun fl(d: !S, k: Bool) -> (!S)!
+  return Bad.bad if k
+  d
+
+sub bump(n: !Int)
+  n += 100
+
+fun show(c: ?S) -> Int
+  c.x * 1000 + c.a[1] * 100 + c.q.n * 10 + c.v.len
+
+fun tl(c: !S, d: !S, k: Bool) -> Int
+  _ = k
+  (<(!c)).a[1] + 1
+
+sub main()
+  c = mk(1)
+  d = mk(2)
+  kk = c.x > 0
+  print(tl(!c, !d, kk))
+  print(show(?c), show(?d))

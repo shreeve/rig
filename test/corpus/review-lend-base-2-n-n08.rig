@@ -1,0 +1,19 @@
+fun double(n: Int) -> Int
+  n * 2
+
+struct T
+  f: fun(Int) -> Int
+  n: Int
+
+struct C
+  cb: *fun(Int) -> Int
+
+struct W
+  t: T
+  ts: [2]T
+
+sub main()
+  t = T(f: double, n: 1)
+  arr = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+  arr[(<(?t)).f(4)] = 1
+  print(arr)

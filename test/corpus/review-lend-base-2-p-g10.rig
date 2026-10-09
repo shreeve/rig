@@ -1,0 +1,32 @@
+error E
+  bad
+
+struct Q
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct P
+  x: Int
+  o: Int?
+  a: [2]Int
+  v: Vec[Int]
+  q: Q
+
+fun mk() -> P
+  P(x: 1, o: 3, a: [1, 2], v: Vec(), q: Q(n: 1))
+
+fun pick(p: !P, b: Bool) -> (!P)?
+  return none if b
+  p
+
+fun fail(p: !P, b: Bool) -> (!P)!
+  return E.bad if b
+  p
+
+sub main()
+  p = mk()
+  q = mk()
+  !(pick(!q, true) ?? !p).v.push(4)
+  print(p.v)

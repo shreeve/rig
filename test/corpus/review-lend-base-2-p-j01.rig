@@ -1,0 +1,25 @@
+struct Q
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct P
+  x: Int
+  a: [2]Int
+  q: Q
+
+fun mk() -> P
+  P(x: 1, a: [1, 2], q: Q(n: 1))
+
+fun go() -> Int?
+  o: P? = mk()
+  ((!o)?).x = 5
+  ((!o)?).a[1] += 5
+  ((!o)?).q.bump()
+  z = o ?? mk()
+  print(z.x, z.a, z.q.n)
+  1
+
+sub main()
+  print(go() ?? 0)

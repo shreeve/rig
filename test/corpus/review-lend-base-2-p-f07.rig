@@ -1,0 +1,5 @@
+sub main()
+  arr = [1, 2, 3]
+  b = [7, 8, 9]
+  (<(!arr)).copy(?b[..])
+  print(arr)

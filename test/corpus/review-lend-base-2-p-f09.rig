@@ -1,0 +1,4 @@
+sub main()
+  arr = [1, 2, 3]
+  x = (?arr).get(1)
+  print(x ?? 0)

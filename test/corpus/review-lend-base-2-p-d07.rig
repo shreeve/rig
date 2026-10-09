@@ -1,0 +1,18 @@
+fun double(n: Int) -> Int
+  n * 2
+
+struct T
+  f: fun(Int) -> Int
+  ops: [2]fun(Int) -> Int
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+  sub bump(!self)
+    self.n += 1
+
+sub main()
+  t = T(f: double, ops: [double, double], n: 1)
+  r = ?t
+  print((?r).f(1))

@@ -1,0 +1,35 @@
+struct Q
+  n: Int
+
+struct P
+  x: Int
+  a: [2]Int
+  q: Q
+  items: Vec[Int]
+
+struct W
+  r: ?Vec[Int]
+
+fun mk() -> P
+  P(x: 1, a: [1, 2], q: Q(n: 1), items: Vec())
+
+sub grow(v: !Vec[Int])
+  !v.push(7)
+
+sub bump(n: !Int)
+  n += 1
+
+sub bumpq(q: !Q)
+  q.n += 1
+
+fun size(v: ?Vec[Int]) -> Int
+  v.len
+
+fun items(p: ?P) -> ?Vec[Int] from p
+  (?p).items
+
+sub main()
+  p = mk()
+  w: !Int = (!p).x
+  w += 1
+  print(p.x)
