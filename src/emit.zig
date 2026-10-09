@@ -4343,7 +4343,7 @@ pub const Emitter = struct {
     /// (`<(a if c else b)`), is emitted as Zig's `if`, which a postfix
     /// would not reach whole, so it is parenthesized.
     fn emitBaseExpr(self: *Emitter, base: Sexp) Error!void {
-        const parens = movesBranch(base);
+        const parens = movesCompound(base);
         if (parens) try self.w.writeAll("(");
         try self.emitExpr(base);
         if (parens) try self.w.writeAll(")");
@@ -4535,7 +4535,7 @@ pub const Emitter = struct {
             try self.emitExpr(o);
             return self.w.writeAll(")");
         };
-        const needs_parens = movesBranch(o) or if (o.kind()) |h| switch (h) {
+        const needs_parens = movesCompound(o) or if (o.kind()) |h| switch (h) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .propagate, .call, .array => true,
             else => false,
         } else false;
@@ -6767,12 +6767,14 @@ fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
 
 const lentPlace = facts.syntax.lentPlace;
 
-/// Whether `e` moves a value that branches: `<(a if c else b)`, emitted
-/// as the branch itself.
-fn movesBranch(e: Sexp) bool {
+/// Whether `e` moves a compound value, `<(a if c else b)` or `<(?t)`,
+/// emitted as that value, which a postfix after it would not reach
+/// whole: anything but a name, a field, an element, or a call.
+fn movesCompound(e: Sexp) bool {
     if (!e.isKind(.move)) return false;
     const o = ir.Move.operand(e);
-    return o.isKind(.@"if") or o.isKind(.@"??") or o.isKind(.@"catch") or o.isKind(.match) or o.isKind(.block) or o.isKind(.propagate) or o.isKind(.propagate_none);
+    if (o != .list) return false;
+    return !(o.isKind(.member) or o.isKind(.index) or o.isKind(.call));
 }
 
 const argValue = facts.syntax.argValue;
