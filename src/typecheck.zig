@@ -8555,10 +8555,10 @@ const Checker = struct {
 
     /// Each field or element reached through a write lend written as its
     /// base and never written, assigned, lent, or taken: only read, it has
-    /// its `!` ignored (`writeLendRead`). Where an error was reported in
-    /// the statement's own part (`ownSpan`), the write was rejected
-    /// there, and it is not reported again as only a read. The errors
-    /// go among the others in source order.
+    /// its `!` ignored (`writeLendRead`). Where an error other than a
+    /// lint was reported in the statement's own part (`ownSpan`), the
+    /// write was rejected there, and it is not reported again as only a
+    /// read. The errors go among the others in source order.
     fn checkReachedLends(self: *Checker) Error!void {
         const from = self.ctx.diagnostics.items.len;
         std.mem.sort(ReachedLend, self.reached_lends.items, self, struct {
@@ -8570,7 +8570,7 @@ const Checker = struct {
             if (self.written_paths.contains(r.path.list.id)) continue;
             const own = self.ownSpan(if (r.stmt == .nil) r.path else r.stmt);
             const rejected = for (self.ctx.diagnostics.items[0..from]) |d| {
-                if (d.severity == .@"error" and d.module == 0 and d.pos >= own.start and d.pos < own.end) break true;
+                if (d.severity == .@"error" and !d.lint and d.module == 0 and d.pos >= own.start and d.pos < own.end) break true;
             } else false;
             if (rejected) continue;
             _ = try self.writeLendRead(r.base, r.ty, .{ .path = r.path });
