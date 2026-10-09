@@ -184,4 +184,5 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
+| `IDEAS.md` | Suggestions for improving Rig, led by the bar it must clear: shorter and plainer than idiomatic Rust |
 | `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |
