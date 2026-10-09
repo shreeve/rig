@@ -53,8 +53,10 @@ capture modes, compile-time parameters, and the unsafe boundary are
 written too. Like Rust, Rig leaves some effects implicit: a drop where
 a scope ends, the allocation a `Vec`, `Box`, or `Text` makes, a plain
 copy, and a change inside a `Cell`, which changes through any path and
-so accepts only values that carry no loan. There is no hidden refcount
-traffic, no implicit error propagation, and no unmarked unsafe code.
+so accepts only values that carry no loan. A count is added only where
+`*x` or `+x` is written, and released where `<x` drops a handle or its
+scope ends; there is no implicit error propagation, and no unmarked
+unsafe code.
 What else stays implicit is cheap and cannot surprise: reading through
 a shared handle, lending an argument or a `?self` receiver to read for
 the call, and moving a local out with `return x` or `break x`, where

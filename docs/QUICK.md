@@ -16,7 +16,10 @@ After a type, `T?` may be `none` and `T!` may fail; after an
 expression, `e?` passes `none` up and `e!` passes a failure up.
 
 **Reading is unmarked; writing is marked.** A bare argument is lent to
-read: `size(v)` is `size(?v)`. A write is always written: `grow(!v)`, or
+read where its parameter is a read view: `size(v)` is `size(?v)` for
+`size(xs: ?Vec[Int])`. Where the parameter owns its value, a bare owner
+is rejected: write `<v` to move it or `+v` to pass a clone (plain data
+such as an `Int` just copies). A write is always written: `grow(!v)`, or
 `!v.push(3)` for a method that changes `v`. A write call whose result
 is used puts its `!` in parentheses, `x = (!v).pop()`. A value has any
 number of read views or one write view, never both.
