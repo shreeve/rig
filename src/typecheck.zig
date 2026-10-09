@@ -2703,7 +2703,11 @@ const Checker = struct {
         };
         try self.ctx.recordPayloadBindings(pattern, binds);
         for (binds, resolved.payload) |b, f| {
-            if (b == .nil) continue;
+            // A field the pattern leaves out is read as a `_` field is.
+            if (b == .nil) {
+                if (mode == .read) try self.readBinding(f.ty, name);
+                continue;
+            }
             // `match !e` binds a write view of each field; a field that
             // is a view or a slice (a view) is bound as it is.
             // A read binds a copy of a plain payload and a view of any
