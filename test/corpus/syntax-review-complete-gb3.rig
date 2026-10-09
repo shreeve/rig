@@ -13,7 +13,7 @@ struct N
 
 sub main()
   h = Holder[N](one: N(n: 1))
-  if !h.val() as v
+  if (!h).val() as v
     v.n = 5
   if ?h.one as w
     print(w.n)

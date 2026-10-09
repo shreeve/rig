@@ -71,5 +71,5 @@ sub main()
   h = mkh()
   if true
     s = mk(1)
-    !h.me().keep(?s.t)
+    (!h).me().keep(?s.t)
   print("end")

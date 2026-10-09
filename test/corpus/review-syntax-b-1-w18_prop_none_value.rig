@@ -1,0 +1,8 @@
+fun f(v: !Vec[Int]) -> Int?
+  x = !v.pop()?
+  x + 1
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(f(!v))

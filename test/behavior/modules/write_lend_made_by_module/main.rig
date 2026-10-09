@@ -21,7 +21,7 @@ sub sete(e: !E)
   e = .b
 
 sub main()
-  print(!(lib.mk()).bump(), !(lib.T.make()).bump(), !(U.make()).bump())
+  print((!(lib.mk())).bump(), (!(lib.T.make())).bump(), (!(U.make())).bump())
   sete(!(E.a(s: "x")))
 
 # expect:

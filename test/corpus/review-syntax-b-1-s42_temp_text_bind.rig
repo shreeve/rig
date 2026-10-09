@@ -1,0 +1,9 @@
+fun mkt() -> Text
+  Text("hello world")
+
+fun word(s: String) -> String
+  s
+
+sub main()
+  w = word(mkt()[1..])
+  print(w)

@@ -64,7 +64,7 @@ sub main()
   !v.push(2)
   done = false
   while not done
-    print(!v.pop() ?? 0)
+    print((!v).pop() ?? 0)
     done = v.len == 0
 ```
 
@@ -88,7 +88,10 @@ positions:
 `!` means "act": write, or fail. As in Ruby's `sort!` and Scheme's
 `set!`, it marks something that changes things. Rig spells negation
 `not`, so `!` never means "not". In every position the sigil touches
-what it marks: `?v`, `Int?`, `peek(?v)?`, `pop(!v)!`.
+what it marks: `?v`, `Int?`, `peek(?v)?`, `pop(!v)!`. A write call
+whose result is used goes in parentheses, `if (!set).insert(k)`, so
+its `!` never reads as "not"; one whose result is dropped is written
+`!set.insert(k)`.
 
 ```rig
 error Stack
@@ -100,7 +103,7 @@ fun peek(v: ?Vec[Int]) -> Int?
 
 fun pop(v: !Vec[Int]) -> Int!
   return Stack.empty if v.len == 0
-  !v.pop() ?? 0
+  (!v).pop() ?? 0
 
 fun next(v: ?Vec[Int]) -> Int?
   peek(?v)? + 1

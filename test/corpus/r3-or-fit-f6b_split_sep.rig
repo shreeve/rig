@@ -5,7 +5,7 @@ sub main()
   sep = Text(";")
   firsts: Vec[String] = Vec()
   parts = text.split(?line, ?sep)
-  if !parts.next() as p
+  if (!parts).next() as p
     !firsts.push(p)
   <sep
   print(firsts)

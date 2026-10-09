@@ -5,7 +5,7 @@ struct V
 
 fun top(v: !Vec[Int]) -> Int?
   a = ((!v).pop())?
-  b = !v.pop()?
+  b = (!v).pop()?
   a + b
 
 sub main()

@@ -1,0 +1,17 @@
+struct C
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+struct P
+  x: Int
+
+sub main()
+  c = C(n: 0)
+  a = [0, 0]
+  p = P(x: 0)
+  a[0] = !c.next()
+  p.x = !c.next()
+  print(a, p.x)

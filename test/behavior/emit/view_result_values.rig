@@ -103,14 +103,14 @@ sub main()
 
   print(take(wr(!y)), ret(!y), tail(!y), next(!o), next(!n))
   p = P(n: wr(!y))
-  sh = Shape.box(w: !p.get())
+  sh = Shape.box(w: (!p).get())
   match sh
     .box(w)
       print(p.n, w)
     _
       print(0)
   pair: [2]Int = [wr(!y), 0]
-  print(pair[0], [!p.get(), 1][0])
+  print(pair[0], [(!p).get(), 1][0])
 
   print(arr[wr(!u)], ws(!s)[0], ws(!s)[0..1], ws(!s).len)
   for i in 0..wr(!u)

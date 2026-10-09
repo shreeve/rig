@@ -45,6 +45,6 @@ sub main()
   keep = |!v, w: !Int| !v.push(!w)
   if true
     s = mk(1)
-    keep(!s.at())
+    keep((!s).at())
   print(clobber(5))
   print(v.len)

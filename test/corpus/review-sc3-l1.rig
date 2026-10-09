@@ -11,7 +11,7 @@ sub main()
   xs: Vec[Int] = Vec()
   for n in 1..5
     !xs.push(n)
-  :outer while !xs.pop() as x and make(x) as r
+  :outer while (!xs).pop() as x and make(x) as r
     for j in 0..3
       continue :outer if j == 1 and x == 4
       break :outer if x == 2

@@ -1,0 +1,12 @@
+fun getv(v: ?Vec[Int]) -> ?Vec[Int]
+  v
+
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  r = keep(getv(?v)[..])
+  !v.push(2)
+  print(r)

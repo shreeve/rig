@@ -12,6 +12,6 @@ struct H
 
 sub main()
   h = H(r: R(n: 1))
-  if !(!h.get()) as x
+  if !((!h).get()) as x
     x.n = 5
   print(h)

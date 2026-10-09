@@ -356,6 +356,12 @@ CONTEXTS = {
                                      recv={"drop": "me()", "shared": "me()"}),
     "recv_view_held_then_write": dict(inline="x = (E).M", after="print(poke(!W), x.v)", write=True,
                                       recv={"drop": "me()", "shared": "me()"}),
+    # A slice of the value, written with no lend, as an argument where a
+    # `[]T` or a String goes: it is lent the way its name is, as
+    # `?(E)[..1]`, also while a later argument writes what it slices.
+    "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("vec", "array", "text", "string")),
+    "slice_arg_then_write": dict(inline="print(both(E[..1], poke(!W)))", slice=True, write=True,
+                                 types=("vec", "array", "text", "string")),
 }
 
 # How `poke` changes a value of each type: it grows the buffer, or
@@ -1362,7 +1368,7 @@ def celltemp_ops(t):
             ops["hit"] = (lambda x: f"{R(x)}.hit()", None, lambda s: (s + 1, None))
             ops["bumped"] = (None, lambda x: f"{R(x)}.bumped()", lambda s: (s + 1, s + 1))
             ops["me"] = (None, lambda x: f"{R(x)}.me(){inner}.get()", lambda s: (s + 1, s + 1))
-            ops["bumpw"] = (None, lambda x: f"!{R(x)}.bumpw()", lambda s: (s + 1000, s + 1000))
+            ops["bumpw"] = (None, lambda x: f"(!{R(x)}).bumpw()", lambda s: (s + 1000, s + 1000))
         ops["look"] = (None, lambda x: f"look(?{x})", lambda s: (s + 10, s + 10))
         ops["poke"] = (None, lambda x: f"poke(!{x})", lambda s: (s + 100, s + 100))
     else:
@@ -1375,7 +1381,7 @@ def celltemp_ops(t):
         if t["recv"] is not None:
             ops["hit"] = (lambda x: f"{R(x)}.hit()", None, lambda s: (s + [1], None))
             ops["me"] = (None, lambda x: f"{R(x)}.me(){inner}.len", lambda s: (s + [1], len(s) + 1))
-            ops["bumpw"] = (None, lambda x: f"!{R(x)}.bumpw()", lambda s: (s + [1000], len(s) + 1))
+            ops["bumpw"] = (None, lambda x: f"(!{R(x)}).bumpw()", lambda s: (s + [1000], len(s) + 1))
         ops["look"] = (None, lambda x: f"look(?{x})", lambda s: (s + [10], len(s) + 1))
         ops["poke"] = (None, lambda x: f"poke(!{x})", lambda s: (s + [100], len(s) + 1))
     return ops
@@ -1549,6 +1555,65 @@ def celltemp_output(tname, sname):
     return "\n".join(out) + "\n"
 
 
+# -----------------------------------------------------------------------------
+# Slices of a value however it is held: a slice of an array, a Vec, a Text,
+# or a String, held owned, through a read or write view, a `*T`, a box, a
+# field, or a nested field (and a write view of a `*T`, a box, or a field),
+# passed as an argument whose result keeps the view, or bound bare, and
+# then the owner changed or replaced while the slice is still used
+# (`live`) or after its last use (`done`). Whatever is accepted must run
+# sanitizer-clean: a slice that lends what it slices keeps the change out.
+# -----------------------------------------------------------------------------
+
+SLICEVIEW_ELEMS = {
+    "array": dict(ty="[4]Int", view="[]Int", mk="[n, n + 1, n + 2, n + 3]", grow=["P[0] = 9"]),
+    "vec": dict(ty="Vec[Int]", view="[]Int", mk="v: Vec[Int] = Vec()\n  for i in 0..4\n    !v.push(n + i)\n  v",
+                grow=["for i in 0..100", "  !P.push(i)"]),
+    "text": dict(ty="Text", view="String", mk='Text("hello", n)', grow=["for _ in 0..100", '  !P.add("abcdefgh")']),
+    "string": dict(ty="String", view="String", mk='"hello" if n > 0 else "world"', grow=['P = "other"']),
+}
+
+# How the slice's object is held (`X` is what is sliced), and what
+# changes the owner: growing it (`P`, the place written) or replacing
+# what holds it.
+SLICEVIEW_HOLDERS = {
+    "owned": dict(setup=["o = mk(1)"], x="o", place="o"),
+    "read": dict(setup=["o = mk(1)", "x = ?o"], x="x", place="o"),
+    "write": dict(setup=["o = mk(1)", "x = !o"], x="x", place="x"),
+    "shared": dict(setup=["x = *mk(1)"], x="x", replace="x = *mk(2)"),
+    "wshared": dict(setup=["h = *mk(1)", "x = !h"], x="x", replace="x = *mk(2)"),
+    "box": dict(setup=["x = Box(mk(1))"], x="x", replace="x = Box(mk(2))"),
+    "wbox": dict(setup=["b = Box(mk(1))", "x = !b"], x="x", replace="x = Box(mk(2))"),
+    "field": dict(setup=["h = H(f: mk(1))"], x="h.f", place="h.f"),
+    "wfield": dict(setup=["o = mk(1)", "h = W(f: !o)"], x="h.f", place="h.f"),
+    "nested": dict(setup=["g = G(h: H(f: mk(1)))"], x="g.h.f", place="g.h.f"),
+}
+
+
+def sliceview_program(hname, ename, use, then):
+    e = SLICEVIEW_ELEMS[ename]
+    h = SLICEVIEW_HOLDERS[hname]
+    ty, view = e["ty"], e["view"]
+    out = [f"fun mk(n: Int) -> {ty}\n  {e['mk']}\n",
+           f"fun keep(x: {view}) -> {view}\n  x\n",
+           f"struct H\n  f: {ty}\n",
+           f"struct G\n  h: H\n",
+           f"struct W\n  f: !{ty}\n"]
+    body = list(h["setup"])
+    sliced = f"{h['x']}[1..]"
+    body.append(f"s = keep({sliced})" if use == "arg" else f"s = {sliced}")
+    if then == "done":
+        body.append("print(s)")
+    if "replace" in h:
+        body.append(h["replace"])
+    else:
+        body += [l.replace("P", h["place"]) for l in e["grow"]]
+    after = h.get("place", h["x"])
+    body.append("print(s)" if then == "live" else f"print({after}[1..].len)" if ename == "string" else f"print((?{after}[1..]).len)")
+    out.append("sub main()\n" + indent(body, 2) + "\n")
+    return "\n".join(out)
+
+
 def store_program(oname, fname, then):
     """The program for one store cell."""
     o = STORE_OWNERS[oname]
@@ -1619,6 +1684,10 @@ def program(tname, fname, cname):
     if ctx.get("temp"):
         out.append(f"fun pass_t(x: {ty}, t: ?Text) -> {ty}\n  x\n")
         out.append(f"fun some_t(x: {ty}, t: ?Text) -> {ty}?\n  x\n")
+    if ctx.get("slice"):
+        view = "String" if tname in ("text", "string") else "[]Int"
+        out.append(f"fun sliced(x: {view}) -> Int\n  x.len\n")
+        out.append(f"fun both(x: {view}, k: Int) -> Int\n  x.len + k\n")
     if ctx.get("write"):
         out.append(f"fun poke(x: !{ty}) -> Int\n  {POKES[tname]}\n  0\n")
         out.append(f"fun pokev(x: !{ty}) -> {ty}\n  n = poke(!x)\n  mk(n + 9)\n")
@@ -1645,6 +1714,9 @@ def program(tname, fname, cname):
             text = text.replace("!W", "!" + WRITE_TARGETS.get(fname, "a"))
         e = form
         if cname in ("lend_arg", "for_source") and " " in e:
+            e = f"({e})"
+        # A slice's object is a path, or in parentheses.
+        if ctx.get("slice") and not re.fullmatch(r"[\w.]+", e):
             e = f"({e})"
         # `@POKE` and `@POKY` stand for the type's change through the loop
         # or match binding, or `pass`; they are replaced before `E` is.
@@ -1966,6 +2038,17 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(src)
                 cells.append((ident, path))
+    for hname in SLICEVIEW_HOLDERS:
+        for ename in SLICEVIEW_ELEMS:
+            for use in ("arg", "bind"):
+                for then in ("live", "done"):
+                    ident = f"sliceview.{hname}.{ename}.{use}.{then}"
+                    if not wanted(ident):
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(sliceview_program(hname, ename, use, then))
+                    cells.append((ident, path))
     for t in CELLMUT_TYPES:
         for a in CELLMUT_ACCESS:
             ident = f"cellmut.{t}.{a}"

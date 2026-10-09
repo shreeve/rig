@@ -93,14 +93,14 @@ fun f(n: Int) -> Int
 sub viatemp()
   c = f(1) == 1
   k = 3
-  print(!(mk(3) if c else mk(4)).me().bump())
+  print((!(mk(3) if c else mk(4))).me().bump())
   print(c, k)
 
 sub vianame()
   c = f(1) == 1
   k = 3
   tt = (mk(3) if c else mk(4))
-  print(!tt.me().bump())
+  print((!tt).me().bump())
   print(c, k)
 
 sub main()

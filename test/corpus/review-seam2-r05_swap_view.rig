@@ -45,5 +45,5 @@ sub main()
   w = !n
   m = 2
   v = !m
-  v = !mk(7).at() if n > 100 else w
+  v = (!mk(7)).at() if n > 100 else w
   print(v)

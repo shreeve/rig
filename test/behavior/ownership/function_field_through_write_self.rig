@@ -23,7 +23,7 @@ sub main()
   m = Map[String](hash: byte_sum, n: 0)
   !m.put("ab")
   key = "c"
-  print(m.n, !m.slot(?key))
+  print(m.n, (!m).slot(?key))
 
 # expect:
 # 195 99

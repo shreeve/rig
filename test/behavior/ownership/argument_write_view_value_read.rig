@@ -18,8 +18,8 @@ fun sum(a: Int, b: ?Bag) -> Int
 sub main()
   b = Bag(items: Vec())
   !b.items.push(Item(n: 7))
-  print(!b.firstw().n, b.items.len)
-  print(sum(!b.firstw().n, ?b))
+  print((!b).firstw().n, b.items.len)
+  print(sum((!b).firstw().n, ?b))
 
 # expect:
 # 7 1

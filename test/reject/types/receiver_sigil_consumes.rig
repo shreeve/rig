@@ -6,7 +6,7 @@ struct Stack
   fun top(?self) -> Int?
     self.items.get(0)
   fun pop(!self) -> Int?
-    !self.items.pop()
+    (!self.items).pop()
 
 sub main()
   s = Stack(items: Vec())
@@ -15,4 +15,4 @@ sub main()
   print(a ?? 0, b ?? 0)
 
 # error: 13:7: `top` does not consume its receiver; remove the `<`: a call's result moves without it
-# error: 14:7: `pop` does not consume its receiver; it writes it: `!s.pop(...)`, and its result needs no `<`
+# error: 14:7: `pop` does not consume its receiver; it writes it: `(!s).pop(...)`, and its result needs no `<`

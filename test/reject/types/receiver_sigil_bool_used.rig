@@ -1,6 +1,6 @@
-# A write call whose `Bool` value is used is written `(!s).m(...)`
-# wherever the value goes, not only where its `!` could read as
-# negation: a binding, an argument, a `return`, a body's value, a
+# A write call whose value is used is written `(!s).m(...)` wherever
+# the value goes, not only where its `!` could read as negation: here a
+# `Bool` in a binding, an argument, a `return`, a body's value, a
 # `match` subject, a ternary's branch, a `catch` value that is used.
 
 struct Set
@@ -35,14 +35,14 @@ sub main()
   _ = !set.insert(5)
   print(fresh, n, ok)
 
-# error: 14:5: `(!self).insert(...)`
-# error: 17:10: `(!s).insert(...)`
-# error: 20:3: `(!s).insert(...)`
-# error: 23:11: `(!s).checked(...)`
-# error: 28:11: `(!set).insert(...)`
-# error: 29:9: `(!set).insert(...)`
-# error: 30:9: `(!set).insert(...)`
-# error: 33:27: `(!set).insert(...)`
-# error: 34:8: `(!set).checked(...)`
-# error: 35:7: `(!set).insert(...)`
+# error: 14:5: write `(!self).insert(k)`: a write call whose value is used puts its `!` in parentheses
+# error: 17:10: write `(!s).insert(k)`: a write call whose value is used puts its `!` in parentheses
+# error: 20:3: write `(!s).insert(k)`: a write call whose value is used puts its `!` in parentheses
+# error: 23:11: write `(!s).checked(3)`: a write call whose value is used puts its `!` in parentheses
+# error: 28:11: write `(!set).insert(1)`: a write call whose value is used puts its `!` in parentheses
+# error: 29:9: write `(!set).insert(1)`: a write call whose value is used puts its `!` in parentheses
+# error: 30:9: write `(!set).insert(2)`: a write call whose value is used puts its `!` in parentheses
+# error: 33:27: write `(!set).insert(3)`: a write call whose value is used puts its `!` in parentheses
+# error: 34:8: write `(!set).checked(4)`: a write call whose value is used puts its `!` in parentheses
+# error: 35:7: write `(!set).insert(5)`: a write call whose value is used puts its `!` in parentheses
 # errors: 10

@@ -1,0 +1,8 @@
+fun word(s: String) -> String
+  s
+
+sub main()
+  b = Box(Text("hello"))
+  s = word(b[1..])
+  <b
+  print(s)

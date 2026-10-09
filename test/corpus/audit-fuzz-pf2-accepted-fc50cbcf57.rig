@@ -34,6 +34,6 @@ sub main()
   v0: Vec[String] = Vec()
   !v0.push("a")
   v0[1] = "a"
-  print(!v0.pop())
-  print(!v0.pop())
+  print((!v0).pop())
+  print((!v0).pop())
   !v0.push("bb")

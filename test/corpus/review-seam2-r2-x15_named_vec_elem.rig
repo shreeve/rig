@@ -72,6 +72,6 @@ sub main()
   if true
     s = mk(1)
     !hh.hs[0].keep(?s.t)
-    w = !hh.in()
+    w = (!hh).in()
     !w.keep(?s.t)
   print("end")

@@ -1,0 +1,6 @@
+sub main()
+  t = Text("hi")
+  f = |<t|
+    <t
+  f()
+  f()

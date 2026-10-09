@@ -43,6 +43,6 @@ fun clobber(n: Int) -> Int
 sub main()
   a = [1, 2]
   w = !a[..]
-  w = !mk(5).vs()
+  w = (!mk(5)).vs()
   print(clobber(9))
   print(w)

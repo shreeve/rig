@@ -112,5 +112,5 @@ fun f2(n: Int) -> Int
 
 sub main()
   c = f(1) == 1
-  print(0 if not c else !(mk(3) if c else mk(4)).at())
+  print(0 if not c else (!(mk(3) if c else mk(4))).at())
   print("--- end", c)

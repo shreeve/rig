@@ -1,0 +1,15 @@
+struct H
+  xs: []Int
+
+  sub keep(!self, xs: []Int)
+    self.xs = xs
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = [0]
+  h = H(xs: ?e[..])
+  !h.keep(v[..])
+  for i in 0..50
+    !v.push(i)
+  print(h.xs)

@@ -17,11 +17,11 @@ fun mkb[T](v: T) -> Box2[T]
   Box2(v: <v, n: 0)
 
 fun go[T](x: T) -> Int
-  !mkb(<x).bump()
+  (!mkb(<x)).bump()
 
 fun go2[T](x: T, y: T) -> Int
   c = true
-  !(mkb(<x) if c else mkb(<y)).bump()
+  (!(mkb(<x) if c else mkb(<y))).bump()
 
 fun go3[T](x: T) -> Int
   Vec[T]().len

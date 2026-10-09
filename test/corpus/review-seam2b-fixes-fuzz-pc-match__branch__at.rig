@@ -113,6 +113,6 @@ fun f2(n: Int) -> Int
 sub main()
   c = f(1) == 1
   match f(1)
-    1 => print(!(mk(3) if c else mk(4)).at())
+    1 => print((!(mk(3) if c else mk(4))).at())
     _ => pass
   print("--- end", c)

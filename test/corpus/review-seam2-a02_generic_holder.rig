@@ -44,5 +44,5 @@ struct Hold[T]
   x: T
 
 sub main()
-  h = Hold(x: !mk(1).at())
+  h = Hold(x: (!mk(1)).at())
   print(h.x)

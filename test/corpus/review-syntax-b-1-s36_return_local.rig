@@ -1,0 +1,10 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+fun bad() -> []Int
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  keep(v[..])
+
+sub main()
+  print(bad())

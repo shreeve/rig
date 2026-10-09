@@ -1,0 +1,38 @@
+# The forms the slice-of-a-view hints write: a view a call returns,
+# bound first, then sliced; and a branch of write views, each lent to
+# read, then sliced. Each lends what it views until the slice's last use.
+# release
+
+fun keep(s: String) -> String
+  s
+
+struct H
+  t: Text
+
+fun get(h: !H) -> !Text
+  !h.t
+
+sub f(a: !Text, b: !Text, c: Bool)
+  s = keep((?a if c else ?b)[1..])
+  print(s)
+  !a.add("x")
+  print(a)
+
+sub main()
+  h = H(t: Text("hello"))
+  w = get(!h)
+  s = keep(w[1..])
+  print(s)
+  !h.t.add("x")
+  print(h.t)
+  x = Text("hello")
+  y = Text("world")
+  f(!x, !y, false)
+
+# oracle: f accept
+# oracle: main accept
+# expect:
+# ello
+# hellox
+# orld
+# hellox

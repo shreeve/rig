@@ -33,5 +33,5 @@ fun wrap(h: !H) -> !H
   h
 
 sub main()
-  (!mkh().me()).r = ?mk(1).t
+  ((!mkh()).me()).r = ?mk(1).t
   print("end")

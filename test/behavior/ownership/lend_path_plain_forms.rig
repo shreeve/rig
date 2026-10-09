@@ -92,7 +92,7 @@ sub main()
   print((!p.s).insert(4), (!p.s).insert(4), p.s.items.len)
   (!p.s).put[2](3)
   (!p).pickw().n = 20
-  (!p.pickw()).n += 1
+  ((!p).pickw()).n += 1
   print(p.s.items, p.qs[1].n)
   a = [1, 2]
   b = [3, 4]

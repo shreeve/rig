@@ -3,7 +3,7 @@ sub main()
   t = Text("hello")
   w: Vec[String] = Vec()
   !w.push(?t)
-  s = !w.remove(0)
+  s = (!w).remove(0)
   <w
   <t
   print(s)

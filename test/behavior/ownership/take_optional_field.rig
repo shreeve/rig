@@ -37,7 +37,7 @@ sub main()
   !s.push(2)
   !s.push(3)
   !s.reverse()
-  print(!s.pop(), !s.pop())
+  print((!s).pop(), (!s).pop())
   print("end")
 
 # expect:

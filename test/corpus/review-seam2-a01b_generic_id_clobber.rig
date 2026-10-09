@@ -26,7 +26,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  r = id(!mk(1).at())
+  r = id((!mk(1)).at())
   print(clobber(77))
   r += 5
   print(r)

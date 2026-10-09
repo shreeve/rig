@@ -42,7 +42,7 @@ fun parse_qty(s: String) -> Int!
 # One order: parse, then take. Either failure propagates.
 fun ship(stock: !Stock, name: String, qty: String) -> Int!
   n = parse_qty(qty)!
-  !stock.take(name, n)!
+  (!stock).take(name, n)!
 
 sub main()
   s = Stock(items: Vec())

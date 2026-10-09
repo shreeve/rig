@@ -42,5 +42,5 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  match !mk(1).at()
+  match (!mk(1)).at()
     x => print(x + clobber(2))

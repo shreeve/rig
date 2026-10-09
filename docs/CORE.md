@@ -319,7 +319,7 @@ fun start() -> Counter
   Counter(n: 41)
 
 sub main()
-  print(!start().next())
+  print((!start()).next())
 ```
 
 ```output
@@ -438,8 +438,8 @@ sub main()
   !v.push(Item(n: 1))
   !v.push(Item(n: 2))
   c = Cursor(items: ?v, i: 0)
-  a = !c.next()
-  b = !c.next()
+  a = (!c).next()
+  b = (!c).next()
   print(a.n, b.n)
 ```
 
@@ -696,7 +696,8 @@ A view of a value that copies (§1) is copied out where that value is
 expected, a plain struct, array, or optional as a number is, and the
 copy carries no loan but those of the views it holds, as with a call's
 `?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
-part of `x`. So `sort.sort(!v)` works on a `Vec` as it does on an array,
+part of `x`, and goes unwritten as an argument where `x` does:
+`total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `Vec` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `Box[Shape]`, and a
 `*Shape`.
 
@@ -989,8 +990,10 @@ rule in SYNTAX is syntax too.
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`, and
   `!mk().pop()` applies it to `mk()`. *(built)*
 - **`const x = e`:** a binding that never changes. *(built)*
-- **A write call whose `Bool` value is used** is written
-  `(!s).insert(k)`, everywhere. *(built)*
+- **A write call whose value is used** is written `(!s).insert(k)`,
+  everywhere: a condition, an `as` header, an operand, a binding, an
+  argument, a result. The short form `!s.insert(k)` stands only where
+  the value is discarded. *(built)*
 - **Labels**, the `catch` forms, `pass`, and `??`.
 - **Habits from other languages that keep Rig's meaning,** documented
   rather than changed: integer `/` and `%` truncate as in C; `u?.n`
@@ -1026,7 +1029,7 @@ sub main()
 ```
 
 ```error
-(!s).insert(...)
+write `(!s).insert(1)`: a write call whose value is used puts its `!` in parentheses
 ```
 
 ## 9. Inside the compiler

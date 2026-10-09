@@ -131,5 +131,5 @@ struct PQ
     self.r
 
 sub main()
-  if !PQ(r: "a").get(?mk(1).t) as x
+  if (!PQ(r: "a")).get(?mk(1).t) as x
     print("in", clobber(1), x)

@@ -1,0 +1,67 @@
+# A write call whose value is used, whatever its type, is written
+# `(!v).m(...)`: a binding, `_ =`, an `as` header of `if` and `while`,
+# an operand, `??`, an argument, an array element, `return`, a
+# function's and a closure's last line, a `match` subject, a value
+# `if`'s branch, and a `catch` whose value is used. The hint is the
+# call to write.
+
+error E
+  bad
+
+struct Counter
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun twice(!self) -> Int
+    !self.next()
+    !self.next()
+
+  fun take(!self) -> Int!
+    return E.bad if self.n > 9
+    self.n
+
+fun last(c: !Counter) -> Int
+  return !c.next() if c.n > 5
+  !c.next()
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  c = Counter(n: 0)
+  x = !v.remove(0)
+  _ = !v.pop()
+  if !v.pop() as t
+    print(t)
+  while !v.pop() as t
+    print(t)
+  n = !c.next() + 1
+  m = !v.pop() ?? 0
+  print(!c.next(), [!c.next()], last(!c))
+  match !c.next()
+    1 => print("one")
+    _ => pass
+  y = !c.next() if x > 0 else 0
+  z = !c.take() catch 0
+  f = |!c| !c.next()
+  print(x, n, m, y, z, f())
+
+# error: 20:5: write `(!self).next()`: a write call whose value is used puts its `!` in parentheses
+# error: 27:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses
+# error: 28:3: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses
+# error: 35:7: write `(!v).remove(0)`: a write call whose value is used puts its `!` in parentheses
+# error: 36:7: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
+# error: 37:6: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
+# error: 39:9: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
+# error: 41:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses
+# error: 42:7: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
+# error: 43:9: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses
+# error: 43:21: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses
+# error: 44:9: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses
+# error: 47:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses
+# error: 48:7: write `(!c).take()`: a write call whose value is used puts its `!` in parentheses
+# error: 49:12: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses
+# errors: 15

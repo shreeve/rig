@@ -1,0 +1,12 @@
+struct B
+  n: Int
+
+  fun pick(?self, xs: []Int) -> []Int
+    xs
+
+sub main()
+  a = [1, 2, 3, 4]
+  b = B(n: 1)
+  r = b.pick(a[1..])
+  a[1] = 9
+  print(r)

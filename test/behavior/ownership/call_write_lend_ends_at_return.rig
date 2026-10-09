@@ -72,8 +72,8 @@ sub split()
 
 sub receivers()
   b = Bag(items: items(), count: 0)
-  print(!b.first().n, b.count)
-  r = !b.first()
+  print((!b).first().n, b.count)
+  r = (!b).first()
   print(r.n, b.count)
 
 sub for_source()

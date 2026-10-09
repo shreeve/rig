@@ -71,6 +71,6 @@ sub main()
   hh = mkhh()
   if true
     s = mk(1)
-    w = !hh.in()
+    w = (!hh).in()
     !w.keep(?s.t)
   print("end")

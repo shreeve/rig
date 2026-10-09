@@ -125,6 +125,6 @@ fun f(n: Int) -> Int
 sub main()
   c = f(1) == 1
   h = mkh()
-  !P(h: !h).hh().keep(?mk(1).t)
+  (!P(h: !h)).hh().keep(?mk(1).t)
   print("after", clobber(1))
   print(c)

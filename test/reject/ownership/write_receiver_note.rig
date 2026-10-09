@@ -18,7 +18,7 @@ struct Bag
 sub main()
   b = Bag(items: Vec())
   !b.items.push(Item(n: 7))
-  print(!b.consume(!b.first()))
+  print((!b).consume((!b).first()))
 
-# error: 21:20: cannot lend `b` to write while a read loan is live
-# error: 21:10: lent to write here, as the receiver, which is read until the call starts
+# error: 21:23: cannot lend `b` to write while a read loan is live
+# error: 21:11: lent to write here, as the receiver, which is read until the call starts

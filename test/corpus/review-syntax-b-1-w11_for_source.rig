@@ -1,0 +1,11 @@
+struct C
+  n: Int
+
+  fun next(!self) -> [2]Int
+    self.n += 1
+    [self.n, self.n]
+
+sub main()
+  c = C(n: 0)
+  for x in !c.next()
+    print(x)

@@ -215,9 +215,9 @@ use std.random
 sub main()
   r = random.Random.seeded(2024)
   again = random.Random.seeded(2024)
-  print(!r.next() == !again.next())
-  roll = !r.int(1, 7)
-  print(roll >= 1 and roll <= 6, !r.float() < 1.0)
+  print((!r).next() == (!again).next())
+  roll = (!r).int(1, 7)
+  print(roll >= 1 and roll <= 6, (!r).float() < 1.0)
   deck = [1, 2, 3, 4, 5]
   !r.shuffle(!deck)
   total = 0
@@ -404,12 +404,12 @@ use std.text
 
 sub main()
   fields = text.split("ann,,bob", ",")
-  while !fields.next() as field
+  while (!fields).next() as field
     print("[", field, "]")
   rows = text.lines("x 1\r\ny  2\n")
-  while !rows.next() as row
+  while (!rows).next() as row
     ws = text.words(row)
-    while !ws.next() as w
+    while (!ws).next() as w
       print(w, text.is_digit(w[0]))
 ```
 

@@ -4,6 +4,6 @@ sub main()
   line = Text("a,b")
   sep = Text(",")
   parts = text.split(?line, ?sep)
-  if !parts.next() as first
+  if (!parts).next() as first
     !sep.add(";")
     print(first, sep)

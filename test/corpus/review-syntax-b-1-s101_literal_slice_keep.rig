@@ -1,0 +1,6 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  r = keep([4, 5, 6][1..])
+  print(r)

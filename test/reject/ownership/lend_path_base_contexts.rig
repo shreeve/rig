@@ -85,7 +85,7 @@ sub main()
   (!h).v.push(4)
   print(z, n, w, m, x)
 
-# error: 47:10: method `insert` needs its receiver lent to write; use `!receiver.insert(...)`
+# error: 47:10: method `insert` needs its receiver lent to write; use `(!receiver).insert(...)`
 # error: 81:4: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
 # error: 82:10: method `insert` needs its receiver lent to write; use `!receiver.insert(...)`
 # error: 84:3: cannot assign through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.

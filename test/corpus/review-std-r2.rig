@@ -2,4 +2,4 @@ use std.random
 
 sub main()
   r = random.Random.seeded(1)
-  print(!r.int(-1, Int.max))
+  print((!r).int(-1, Int.max))

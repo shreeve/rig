@@ -21,7 +21,7 @@ struct Stack[T]
     !self.items.push(<x)
 
   fun pop(!self) -> T?
-    !self.items.pop()
+    (!self.items).pop()
 
   fun map[U](?self, f: fun(?T) -> U) -> Stack[U]
     out = Stack[U](items: Vec())
@@ -65,7 +65,7 @@ sub main()
   print(lengths.items, max(lengths.items[0], lengths.items[1]))
   spare = pick(Tape(label: "demo", minutes: 3), Tape(label: "blank", minutes: 0), false)
   print("spare", spare.label)
-  if !tapes.pop() as t
+  if (!tapes).pop() as t
     print("played", t.label)
   print("left", tapes.items.len, max[Float](1, 2))
   recent = Ring[Int, HISTORY](items: [HISTORY of 0])

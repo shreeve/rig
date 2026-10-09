@@ -1,0 +1,13 @@
+fun find(xs: []Int) -> ([]Int)?
+  if xs.len > 0
+    xs
+  else
+    none
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  match find(v[..])
+    none => print(0)
+    _ => !v.push(2)
+  print(v)

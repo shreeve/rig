@@ -22,7 +22,7 @@ sub inc(v: !Int)
 
 sub main()
   s = S(n: 1)
-  inc(!wrap(!s).at())
+  inc((!wrap(!s)).at())
   print(s.n)
   wrap(!s).pop()
   print(s.n)

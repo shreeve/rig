@@ -23,6 +23,6 @@ sub main()
   !m.es.push(Entry(k: "a", v: 1))
   if m.get("a") as v
     print(v.v)
-  if !m.get_mut("a") as w
+  if (!m).get_mut("a") as w
     w.v = 9
   print(m.es[0].v)

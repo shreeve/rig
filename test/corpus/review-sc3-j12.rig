@@ -6,6 +6,6 @@ sub main()
   !xs.push(1)
   !xs.push(none)
   !xs.push(3)
-  while !xs.pop() as o and (o ?? continue) > 0
+  while (!xs).pop() as o and (o ?? continue) > 0
     print(o)
   print("done")

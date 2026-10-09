@@ -16,9 +16,9 @@ struct Cursor
 sub main()
   a = [Item(n: 1), Item(n: 2)]
   c = Cursor(items: !a, i: 0)
-  x = !c.next()
-  y = !c.next()
+  x = (!c).next()
+  y = (!c).next()
   x.n = 5
   print(y.n)
 
-# error: 20:8: use of `c` while a write loan is live
+# error: 20:9: use of `c` while a write loan is live

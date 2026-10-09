@@ -1,0 +1,8 @@
+use std.slices
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  print(slices.contains(v[..], Text("a")))
+  a = [3, 1, 2]
+  print(slices.index_of(a[1..], 2))

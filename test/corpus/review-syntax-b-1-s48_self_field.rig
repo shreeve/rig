@@ -1,0 +1,15 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+struct B
+  items: Vec[Int]
+
+  sub go(!self)
+    r = keep(self.items[..])
+    !self.items.push(9)
+    print(r)
+
+sub main()
+  b = B(items: Vec())
+  !b.items.push(1)
+  !b.go()

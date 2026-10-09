@@ -14,5 +14,5 @@ sub main()
   mk()
   r = random.Random.seeded(1)
   _ = r
-  print(a.hits.get(), !r.next() % 10)
+  print(a.hits.get(), (!r).next() % 10)
   _ = random.Random.seeded(2)

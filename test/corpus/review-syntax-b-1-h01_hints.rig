@@ -1,0 +1,16 @@
+fun name(t: Text) -> Int
+  t.len
+
+sub zero(w: ![]Int)
+  w[0] = 0
+
+fun own(v: Vec[Int]) -> Int
+  v.len
+
+sub main()
+  t = Text("hello")
+  a = [1, 2, 3]
+  v: Vec[Int] = Vec()
+  print(name(t[1..]))
+  zero(a[1..])
+  print(own(v[..]))

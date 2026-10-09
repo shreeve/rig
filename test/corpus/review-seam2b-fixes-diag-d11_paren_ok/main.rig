@@ -49,5 +49,5 @@ sub growu(u: !U)
   print(u.n)
 
 sub main()
-  print(!(lib.mk()).bump(), !(lib.mk()).me().bump(), !(U.make()).me().bump())
+  print((!(lib.mk())).bump(), (!(lib.mk())).me().bump(), (!(U.make())).me().bump())
   grow(!(lib.mk()))

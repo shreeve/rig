@@ -1,0 +1,5 @@
+fun count(xs: []Text) -> Int
+  xs.len
+
+sub main()
+  print(count([Text("a"), Text("b")][..]))

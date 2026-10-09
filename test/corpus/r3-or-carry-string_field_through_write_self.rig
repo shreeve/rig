@@ -13,6 +13,6 @@ struct P
 sub main()
   t = Text("abc")
   p = P(src: ?t, pos: 0)
-  a = !p.word()
+  a = (!p).word()
   p.pos = 5
   print(a, p.pos)

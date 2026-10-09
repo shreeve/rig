@@ -10,21 +10,21 @@ enum E
 sub main()
   w = Wrap(item: random.Random.seeded(5))
   v = <w
-  print(!v.item.next() % 10)
+  print((!v.item).next() % 10)
   e = E.a(r: random.Random.seeded(5))
   match <e
-    .a(r) => print(!r.next() % 10)
+    .a(r) => print((!r).next() % 10)
     .b => pass
   b = Box(random.Random.seeded(5))
-  print(!b.next() % 10)
+  print((!b).next() % 10)
   h = *random.Random.seeded(5)
   g = +h
   print("h")
   o: random.Random? = random.Random.seeded(5)
   if !o as q
-    print(!q.next() % 10)
+    print((!q).next() % 10)
   if <o as q
-    print(!q.next() % 10)
+    print((!q).next() % 10)
   c = Cell(random.Random.seeded(5))
   old = c.replace(random.Random.seeded(6))
-  print(!old.next() % 10)
+  print((!old).next() % 10)

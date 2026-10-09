@@ -5,10 +5,10 @@ sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)
-  v[0] = !v.pop() ?? 0
+  v[0] = (!v).pop() ?? 0
   print(v)
   !v.push(5)
-  v[1] = !v.pop() ?? 0
+  v[1] = (!v).pop() ?? 0
   print(v)
 
 # expect-panic: index out of bounds

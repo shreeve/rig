@@ -12,8 +12,8 @@ sub main()
   v: Vec[Item] = Vec()
   !v.push(Item(n: 1))
   c = Cur(items: !v)
-  a = !c.at()
-  b = !c.at()
+  a = (!c).at()
+  b = (!c).at()
   a.n = 5
   b.n = 7
   print(a.n, b.n)

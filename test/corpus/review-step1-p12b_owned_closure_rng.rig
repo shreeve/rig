@@ -2,7 +2,7 @@ use std.random
 
 sub main()
   r = random.Random.seeded(3)
-  cb: *sub() = *|<r| print(!r.next() % 100)
+  cb: *sub() = *|<r| print((!r).next() % 100)
   cb()
   again = +cb
   again()

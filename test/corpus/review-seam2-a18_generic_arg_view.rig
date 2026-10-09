@@ -44,6 +44,6 @@ sub show[T](x: T)
   print(x)
 
 sub main()
-  show(!mk(1).at())
+  show((!mk(1)).at())
   show(!mk(2))
   show(!mk(3).items)

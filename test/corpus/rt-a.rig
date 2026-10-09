@@ -30,7 +30,7 @@ sub main()
   b: U8 = "abc"[1]
   print(b, find("hello", "ll"), find("x", "yy"))
   it = split("a,b,,c", ",")
-  while !it.next() as part
+  while (!it).next() as part
     print(part)
   x = "héllo"
   print(x.len, x < "i", 'a')

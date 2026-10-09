@@ -6,7 +6,7 @@ sub main()
   r = random.Random.seeded(1)
   print(r.state, random.entropy())
   s = random.Random(state: 1)
-  print(!s.next())
+  print((!s).next())
 
 # error: 7:11: field `state` of `std.random.Random` is private to the standard library's module `std.random`
 # error: 7:25: `random.entropy` is private to the standard library's module `std.random`

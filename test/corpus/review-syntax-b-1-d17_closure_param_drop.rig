@@ -1,0 +1,5 @@
+sub main()
+  f = |t: Text|
+    <t
+    print(1)
+  f(Text("a"))

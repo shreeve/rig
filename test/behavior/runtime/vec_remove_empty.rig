@@ -2,6 +2,6 @@
 
 sub main()
   v: Vec[Int] = Vec()
-  print(!v.remove(0))
+  print((!v).remove(0))
 
 # expect-panic: index out of bounds

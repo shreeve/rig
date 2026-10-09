@@ -15,6 +15,6 @@ sub main()
   !b.items.push(P(x: 1))
   r = b.at(0)
   print(r.x)
-  w = !b.at_mut(0)
+  w = (!b).at_mut(0)
   w.x = 5
   print(b.items[0].x)

@@ -419,7 +419,10 @@ pub const SymbolFlags = packed struct(u16) {
     /// A `!T` or `![]T` local assigned a view somewhere
     /// (`SemContext.repoints`): it lowers to a Zig `var` pointer.
     repointed: bool = false,
-    _: u4 = 0,
+    /// A `for` element that views a slot of the Vec the loop walks in
+    /// place (`forViewsSlot`).
+    slot_view: bool = false,
+    _: u3 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -5948,6 +5951,46 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
         },
         .nominal_type, .type_alias, .generic_type => return typeMemberSource(ctx, e),
     }
+}
+
+/// Whether the element a `for` binds views a slot of the Vec it walks
+/// in place, a Vec of values that move: `for x in ?v`, or a bare
+/// `for x in v`, over a `Vec[Text]`. The Vec owns what the slot holds,
+/// so the element is never moved, dropped, cloned, or stored. Decided
+/// here, once: the type checker marks the element (`slot_view`), and the
+/// ownership checker walks it as a loop view.
+pub fn forViewsSlot(ctx: *const SemContext, node: Sexp) bool {
+    if (ir.For.mode(node).tag != .read and ctx.headerOf(node) == null) return false;
+    const source = ir.For.source(node);
+    if (handsOver(ctx, source).kind != .place) return false;
+    const ty = ctx.typeOf(source) orelse return false;
+    const elem = vecElem(ctx, unwrapViews(ctx, ty)) orelse return false;
+    return moves(ctx, elem) == .yes;
+}
+
+/// Why `<x` cannot drop the binding `x`, where it cannot.
+pub const Undroppable = enum {
+    /// A `?T` or `!T` parameter: the caller owns what it views.
+    view_param,
+    /// A closure's capture: the closure keeps it for every call
+    /// (`moveSource`).
+    capture,
+    /// A `for` element that views a slot of the Vec it walks
+    /// (`forViewsSlot`).
+    loop_slot,
+};
+
+/// Why `<name` cannot drop the binding `name` names; null where it
+/// drops it. Decided here, once: the ownership checker rejects such a
+/// `<x` by it, and the type checker offers `<x` for a statement `-x`
+/// only where it drops.
+pub fn undroppable(ctx: *const SemContext, name: Sexp) ?Undroppable {
+    if (name != .src) return null;
+    if (moveSource(ctx, name) == .capture) return .capture;
+    const sym = ctx.symbols.items[ctx.symbolOf(name) orelse return null];
+    if (sym.kind == .param and isReadOrWriteView(ctx, sym.ty)) return .view_param;
+    if (sym.flags.slot_view) return .loop_slot;
+    return null;
 }
 
 /// Whether `v`, a view made here, sees only values made in its statement:

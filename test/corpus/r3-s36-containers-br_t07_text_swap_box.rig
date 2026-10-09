@@ -6,5 +6,5 @@ sub main()
   for t in !v
     !t.add("!")
   print(v)
-  x = !v.remove(0)
+  x = (!v).remove(0)
   print(x)

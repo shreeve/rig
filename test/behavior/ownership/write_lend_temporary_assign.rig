@@ -39,7 +39,7 @@ fun clobber(n: Int) -> Int
 
 sub main()
   wrap(!mkh()).r = ?mk(2).t
-  (!mkh().me()).r = ?mk(3).t
+  ((!mkh()).me()).r = ?mk(3).t
   !mkh().set("lit")
   print("end", clobber(1))
 

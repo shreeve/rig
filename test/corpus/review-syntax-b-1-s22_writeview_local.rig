@@ -1,0 +1,9 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  a = [1, 2, 3, 4]
+  w = !a[..]
+  r = keep(w[1..])
+  w[1] = 7
+  print(r)

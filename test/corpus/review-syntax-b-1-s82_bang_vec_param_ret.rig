@@ -1,0 +1,13 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+fun f(v: !Vec[Int]) -> []Int
+  keep(v[..])
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = f(!v)
+  for i in 0..50
+    !v.push(i)
+  print(s)

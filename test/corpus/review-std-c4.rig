@@ -5,4 +5,4 @@ N = random.Random.new()
 
 sub main()
   r = R
-  print(!r.next() > 0)
+  print((!r).next() > 0)

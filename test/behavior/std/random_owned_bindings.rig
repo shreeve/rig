@@ -13,24 +13,24 @@ enum Pick
 
 fun roll(r: random.Random) -> U64
   g = <r
-  !g.next()
+  (!g).next()
 
 sub main()
   o: G? = G(r: random.Random.seeded(1), n: 0)
   if <o as g
     g.n = 4
-    print(!g.r.next() != 0, g.n)
+    print((!g.r).next() != 0, g.n)
   p: random.Random? = random.Random.seeded(1)
   if <p as r
-    print(!r.next() != 0)
+    print((!r).next() != 0)
   print(roll(random.Random.seeded(1)) != 0)
   e = Pick.a(r: random.Random.seeded(2))
   match <e
-    .a(r) => print(!r.next() != 0)
+    .a(r) => print((!r).next() != 0)
     .b => pass
   w = Cell(random.Random.seeded(5))
   old = w.replace(random.Random.seeded(6))
-  print(!old.next() != 0)
+  print((!old).next() != 0)
 
 # expect:
 # true 4

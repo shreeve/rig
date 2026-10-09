@@ -44,9 +44,9 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub go(ok: Bool)!
-  print(!mk(1).trypop(ok)! + clobber(2))
-  print(!mk(2).tryat(ok)! + clobber(3))
-  w = !mk(3).tryat(ok)! + 1
+  print((!mk(1)).trypop(ok)! + clobber(2))
+  print((!mk(2)).tryat(ok)! + clobber(3))
+  w = (!mk(3)).tryat(ok)! + 1
   print(w)
 
 sub main()

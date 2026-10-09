@@ -113,6 +113,6 @@ sub main()
   c = f(1) == 1
   if f(0) == 1
     print("a")
-  else if !(mkpair(3) if c else mkpair(5)).b.kk.put2v(b: f(2), a: f(3)) > 0
+  else if (!(mkpair(3) if c else mkpair(5)).b.kk).put2v(b: f(2), a: f(3)) > 0
     print("b")
   print("--- end", c)

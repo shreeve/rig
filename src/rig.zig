@@ -1353,11 +1353,19 @@ pub const Parser = struct {
     }
 
     /// The operand that ends at `end` (past whitespace, line breaks
-    /// included), as written, when it is short: a name, a literal, or a call or index
-    /// on one (`f(x)`, `a.b[i]`).
+    /// included, and a comment that ends a line), as written, when it is
+    /// short: a name, a literal, or a call or index on one (`f(x)`,
+    /// `a.b[i]`).
     fn operandBefore(src: []const u8, end: u32) ?[]const u8 {
         var e: usize = end;
-        while (e > 0 and (src[e - 1] == ' ' or src[e - 1] == '\t' or src[e - 1] == '\r' or src[e - 1] == '\n')) e -= 1;
+        while (true) {
+            while (e > 0 and (src[e - 1] == ' ' or src[e - 1] == '\t' or src[e - 1] == '\r')) e -= 1;
+            if (e == 0 or src[e - 1] != '\n') break;
+            // The line before may end in a comment, which is no operand.
+            e -= 1;
+            const line = if (std.mem.lastIndexOfScalar(u8, src[0..e], '\n')) |nl| nl + 1 else 0;
+            if (commentStart(src[line..e])) |c| e = line + c;
+        }
         var s = e;
         while (s > 0) {
             const c = src[s - 1];
@@ -1385,6 +1393,23 @@ pub const Parser = struct {
         while (s < e and (src[s] == '.' or src[s] == '?' or src[s] == '!')) s += 1;
         if (s == e or e - s > 24) return null;
         return src[s..e];
+    }
+
+    /// Where a comment starts on `line`: its first `#` outside a string.
+    fn commentStart(line: []const u8) ?usize {
+        var i: usize = 0;
+        while (i < line.len) : (i += 1) switch (line[i]) {
+            '#' => return i,
+            '"', '\'' => {
+                const q = line[i];
+                i += 1;
+                while (i < line.len and line[i] != q) : (i += 1) {
+                    if (q == '"' and line[i] == '\\') i += 1;
+                }
+            },
+            else => {},
+        };
+        return null;
     }
 
     /// The operand that starts at `start` (past whitespace on its line),

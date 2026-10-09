@@ -43,7 +43,7 @@ fun calls(f: ?sub(), b: ?Item) -> Int
 sub receiver_result()
   b = Bag(items: Vec())
   !b.items.push(Item(n: 7))
-  print(both(!b.firstw(), ?b))
+  print(both((!b).firstw(), ?b))
 
 sub moved_view()
   x = Item(n: 1)
@@ -63,15 +63,15 @@ sub closure_arg()
 sub constructor_arg()
   b = Bag(items: Vec())
   !b.items.push(Item(n: 7))
-  p = Pair(w: !b.firstw(), r: ?b)
+  p = Pair(w: (!b).firstw(), r: ?b)
   print(p.r.items.len)
 
 sub main()
   receiver_result()
 
-# error: 46:28: cannot lend `b` to read while a write loan is live
+# error: 46:30: cannot lend `b` to read while a write loan is live
 # error: 51:19: cannot lend `x` to read while a write loan is live
 # error: 56:19: cannot lend `x` to read while a write loan is live
 # error: 61:20: cannot lend `x` to read while a write loan is live
-# error: 66:32: cannot lend `b` to read while a write loan is live
+# error: 66:34: cannot lend `b` to read while a write loan is live
 # errors: 5

@@ -36,7 +36,7 @@ sub run()!
 sub main()
   cs = [C(n: 5), C(n: 6)]
   k = 0
-  print(!cs[k].sub2(b: bump(!k), a: two()))
+  print((!cs[k]).sub2(b: bump(!k), a: two()))
   print(cs[0].n, cs[1].n, k)
   run() catch print("e")
 
