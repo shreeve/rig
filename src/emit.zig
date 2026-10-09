@@ -3884,14 +3884,15 @@ pub const Emitter = struct {
             else
                 try self.emitAddressOf(ir.Write.operand(sexp)),
             .move => {
-                self.bare = bare;
                 const operand = ir.Move.operand(sexp);
-                // `<p.f` of an optional takes it, leaving `none`.
+                // `<p.f` of an optional takes it, leaving `none`; the
+                // place's own parts keep their parentheses.
                 if (self.facts.takes(sexp)) {
                     try self.w.writeAll("rig.takeOut(");
                     try self.emitAddressOf(operand);
                     return self.w.writeAll(")");
                 }
+                self.bare = bare;
                 if (tail and self.ptr_tail) try self.emitValue(operand, true) else try self.emitMoved(operand);
             },
             .share => try self.emitShare(sexp),

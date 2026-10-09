@@ -1,0 +1,27 @@
+# release
+# `<` takes an optional element through a value that branches over write
+# lends, leaving `none` in the element of the place the branch took: the
+# branch is indexed as a whole, in a binding and in an `if … as` header.
+
+struct S
+  a: [2]Int?
+
+sub main()
+  k = 1 > 0
+  c: [2]Int? = [1, 2]
+  d: [2]Int? = [3, 4]
+  x = <(!c if k else !d)[1]
+  print(x, c, d)
+  if <(!d if k else !c)[0] as m
+    print(m)
+  print(c, d)
+  s = S(a: [5, 6])
+  t = S(a: [7, 8])
+  y = <(!s.a if not k else !t.a)[0]
+  print(y, s.a, t.a)
+
+# expect:
+# 2 [1, none] [3, 4]
+# 3
+# [1, none] [none, 4]
+# 7 [5, 6] [none, 8]
