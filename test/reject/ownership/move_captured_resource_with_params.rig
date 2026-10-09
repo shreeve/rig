@@ -8,4 +8,4 @@ sub main()
   sig: *Cell[Int] = *Cell(0)
   bad: *sub(Int) = *|+sig, a: Int| takes_owned(<sig)
 
-# error: cannot move captured `sig`; the closure keeps what it captures for every call. Use `+sig` for another handle, `~sig` for a weak one, or call its methods
+# error: cannot move captured `sig`: the closure keeps what it captures for every call; write `+sig` for another handle, or `~sig` for a weak one

@@ -42,10 +42,10 @@ sub main()
 
 # error: 25:19: cannot move `n`, a copy capture: the closure keeps it for every call; remove the `<` to copy it
 # error: 27:17: cannot move `p`, a copy capture: the closure keeps it for every call; remove the `<` to copy it
-# error: 29:19: cannot move captured `m`; the closure keeps what it captures for every call. Use `+m` for another handle, `~m` for a weak one, or call its methods
+# error: 29:19: cannot move captured `m`: the closure keeps what it captures for every call; write `+m` for a clone
 # error: 31:18: cannot move captured view `v`; the closure holds it for every call. Use it through the view, or pass it to a call
 # error: 33:18: cannot move captured view `w`; the closure holds it for every call. Use it through the view, or pass it to a call
-# error: 35:14: cannot move captured `hh`; the closure keeps what it captures for every call. Use `+hh` for another handle, `~hh` for a weak one, or call its methods
-# error: 39:18: cannot move captured `u`; the closure keeps what it captures for every call. Use `+u` for another handle, `~u` for a weak one, or call its methods
+# error: 35:14: cannot move captured `hh`: the closure keeps what it captures for every call; write `+hh` for another weak handle
+# error: 39:18: cannot move captured `u`: the closure keeps what it captures for every call; write `+u` for a clone
 # error: 40:29: `<` here would leave `n` as it was: the closure keeps its capture for every call; remove the `<` to copy it
 # errors: 8

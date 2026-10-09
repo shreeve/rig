@@ -1469,6 +1469,10 @@ pub const SemContext = struct {
     /// `diagnostics`: the same finding reached twice is reported once.
     /// (A check whose diagnostics are dropped truncates `diagnostics`.)
     reported: std.AutoHashMapUnmanaged(struct { pos: u32, message: u64 }, usize) = .empty,
+    /// Optional fields and elements that `<` could not take out, since
+    /// the path to them allows no write (`recordUntakeable`). Only a
+    /// diagnostic's hint reads it, so it is no fact.
+    untakeable: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     facts: Facts = .{},
 
     cell_sym_id: SymbolId = symbol_invalid,
@@ -1611,6 +1615,7 @@ pub const SemContext = struct {
         self.deferred_checks.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.reported.deinit(self.allocator);
+        self.untakeable.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
@@ -1965,6 +1970,17 @@ pub const SemContext = struct {
 
     pub fn isErrorMember(self: *const SemContext, node: Sexp) bool {
         return self.facts.error_members.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, an optional field or element, could not be taken with
+    /// `<node`: the type checker's check of the take rejects it.
+    pub fn recordUntakeable(self: *SemContext, node: Sexp) !void {
+        try self.untakeable.put(self.allocator, recordKey(node), {});
+    }
+
+    /// Whether `<node` would be rejected (`recordUntakeable`).
+    pub fn untakeableAt(self: *const SemContext, node: Sexp) bool {
+        return self.untakeable.contains(nodeKey(node) orelse return false);
     }
 
     pub fn recordTake(self: *SemContext, node: Sexp) !void {

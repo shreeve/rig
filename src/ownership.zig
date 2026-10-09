@@ -2078,7 +2078,7 @@ pub const Checker = struct {
         const k = self.owningKind(v.ty) orelse return;
         if (k == .generic and v.via != .owned) {
             // A copy for plain data; each instantiation is checked.
-            return self.reportAlias(node.src.pos, v.name, .name, k, .binding, v.ty);
+            return self.reportAlias(node.src.pos, v.name, .name, k, .binding, v.ty, null);
         }
         _ = try self.movePayload(id, node.src.pos, "move");
     }
@@ -2899,6 +2899,23 @@ pub const Checker = struct {
         return self.flows.items[id].status == .live;
     }
 
+    /// What to write instead of taking a captured `name` of type `ty` out
+    /// of its closure: what `+` gives, where it gives anything, and for
+    /// a shared handle a weak one too.
+    fn captureFix(self: *Checker, name: []const u8, ty: ?TypeId) Error![]const u8 {
+        const ctx = self.sema orelse return "";
+        const t = ty orelse return "";
+        const a = self.arena();
+        return switch (sema.cloneable(ctx, t)) {
+            .no, .depends => "",
+            .bump => if (self.owningKind(t)) |k| switch (k) {
+                .shared => a.print("; write `+{s}` for another handle, or `~{s}` for a weak one", .{ name, name }),
+                else => a.print("; write `+{s}` for another weak handle", .{name}),
+            } else "",
+            else => a.print("; write `+{s}` for a clone", .{name}),
+        };
+    }
+
     /// Loop elements and captured resources are views of a slot owned
     /// elsewhere: they cannot be consumed. Returns true if rejected.
     fn rejectConsumedView(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!bool {
@@ -2917,7 +2934,7 @@ pub const Checker = struct {
                 try self.err(pos, "cannot {s} captured view `{s}`; the closure holds it for every call. Use it through the view, or pass it to a call", .{ op, v.name });
                 return true;
             }
-            try self.err(pos, "cannot {s} captured `{s}`; the closure keeps what it captures for every call. Use `+{s}` for another handle, `~{s}` for a weak one, or call its methods", .{ op, v.name, v.name, v.name });
+            try self.err(pos, "cannot {s} captured `{s}`: the closure keeps what it captures for every call{s}", .{ op, v.name, try self.captureFix(v.name, v.ty) });
             return true;
         }
         return false;
@@ -3003,7 +3020,7 @@ pub const Checker = struct {
             .capture => if (v.ref != .none)
                 self.err(pos, "cannot drop captured view `{s}`; the closure holds it for every call. Use it through the view, or pass it to a call", .{name})
             else if (v.capture_resource)
-                self.err(pos, "cannot drop captured `{s}`; the closure keeps what it captures for every call. Use `+{s}` for another handle, `~{s}` for a weak one, or call its methods", .{ name, name, name })
+                self.err(pos, "cannot drop captured `{s}`: the closure keeps what it captures for every call", .{name})
             else
                 self.err(pos, "cannot drop captured `{s}`; the closure keeps what it captures for every call", .{name}),
             .loop_slot => self.err(pos, "cannot drop loop view `{s}`; " ++ loop_view_rule, .{name}),
@@ -3062,11 +3079,11 @@ pub const Checker = struct {
                     return;
                 }
                 if (v.capture_resource and !copied) {
-                    try self.err(pos, "`{s}` is a handle the closure captures and keeps for every call, so a {s} can't take it; write `+{s}` for another handle, or `~{s}` for a weak one", .{ name, sink.text(), name, name });
+                    try self.err(pos, "`{s}` is captured by the closure, which keeps it for every call, so a {s} can't take it{s}", .{ name, sink.text(), try self.captureFix(name, v.ty) });
                     return;
                 }
                 if (top_return) return;
-                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, .name, k, sink, v.ty);
+                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, .name, k, sink, v.ty, null);
                 if (sink == .argument) return;
                 // A write view of a Copy value is copied where the
                 // value is read; where a `!T` goes, the view would be.
@@ -3082,7 +3099,7 @@ pub const Checker = struct {
                     if (self.namesType(ir.get(expr, .object))) return;
                     const ty = self.exprType(expr);
                     if (self.owningKind(ty)) |k| {
-                        return self.reportAlias(self.startOf(expr), try self.placeText(expr), if (expr.isKind(.index)) .element else .field, k, sink, ty);
+                        return self.reportAlias(self.startOf(expr), try self.placeText(expr), if (expr.isKind(.index)) .element else .field, k, sink, ty, expr);
                     }
                     // A field or element that is a write view of a Copy
                     // value reads the value where its context reads it,
@@ -3213,7 +3230,7 @@ pub const Checker = struct {
 
     /// A bare use that would copy a value that moves: say what holds the
     /// value, and every way to write what is meant (move, clone, view).
-    fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
+    fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId, part: ?Sexp) Error!void {
         if (k == .generic) {
             // Fine for plain data: each instantiation is checked.
             if (ty) |t| try self.requirePlain(pos, t, false);
@@ -3229,7 +3246,7 @@ pub const Checker = struct {
         // `<` leaves `none`.
         if (is_name) {
             try fixes.append(a, try a.print("`<{s}` to move it", .{what}));
-        } else if (self.typeData(t) == .optional) {
+        } else if (self.typeData(t) == .optional and !(if (part) |p| ctx.untakeableAt(p) else true)) {
             try fixes.append(a, try a.print("`<{s}` to take it out (leaving `none`)", .{what}));
         }
         switch (sema.cloneable(ctx, t)) {
@@ -3238,10 +3255,10 @@ pub const Checker = struct {
             else => try fixes.append(a, try a.print("`+{s}` to {s}", .{ what, if (sink == .argument) "pass a clone" else "clone it" })),
         }
         if (sink == .binding) try fixes.append(a, try a.print("`?{s}` to view it", .{what}));
-        const callee = if (sink == .argument) self.ownerCallee(pos) else null;
+        const callee = if (sink == .argument) try self.ownerCallee(pos) else null;
         var msg: std.ArrayList(u8) = .empty;
         if (callee) |f| {
-            try msg.print(a, "`{s}` takes ownership of {s} `{s}`, and `{s}` can't be copied", .{ f, article(shown), shown, what });
+            try msg.print(a, "`{s}` takes ownership of {s} `{s}`, and `{s}` can't be copied", .{ f.name, article(shown), shown, what });
         } else {
             const holds = switch (k) {
                 .shared, .weak => try a.print("is {s} `{s}` handle", .{ article(shown), shown }),
@@ -3268,31 +3285,52 @@ pub const Checker = struct {
         } else {
             try msg.appendSlice(a, if (aliased == .element) ", has no clone, and can't be moved out of what holds it" else ", has no clone, and can't be moved out of its parent");
         }
-        if (callee) |f| try msg.print(a, "; if `{s}` only reads it, make its parameter {s} `?{s}`", .{ f, article(shown), shown });
+        if (callee) |f| {
+            const param = f.param orelse shown;
+            if (param.len == 0) {
+                try msg.print(a, "; if `{s}` only reads it, make its parameter a read view", .{f.name});
+            } else try msg.print(a, "; if `{s}` only reads it, make its parameter {s} `?{s}`", .{ f.name, article(param), param });
+        }
         try self.err(pos, "{s}", .{msg.items});
     }
 
     /// The function or method whose argument at `pos` is the one being
     /// walked (`arg_call`), when it is declared: its parameter could be
     /// a view. Null for a constructor, a closure, or a built-in method.
-    fn ownerCallee(self: *Checker, pos: u32) ?[]const u8 {
+    /// `param` is the parameter's declared type where it mentions a type
+    /// parameter (`T`), which the hint writes in place of the argument's,
+    /// or empty where that parameter is not known.
+    fn ownerCallee(self: *Checker, pos: u32) Error!?struct { name: []const u8, param: ?[]const u8 = null } {
         const call = self.arg_call orelse return null;
         const ctx = self.sema orelse return null;
-        const inside = for (ir.Call.args(call)) |arg| {
+        const args = ir.Call.args(call);
+        const index = for (args, 0..) |arg, i| {
             const sp = ctx.span(arg);
-            if (pos >= sp.start and pos < sp.end) break true;
-        } else false;
-        if (!inside) return null;
+            if (pos >= sp.start and pos < sp.end) break i;
+        } else return null;
         const callee = ir.Call.callee(call);
         if (callee == .src) {
-            const sym = ctx.symbolOf(callee) orelse return null;
-            return if (ctx.symbols.items[sym].kind == .function) self.text(callee) else null;
+            const sym = ctx.symbols.items[ctx.symbolOf(callee) orelse return null];
+            if (sym.kind != .function) return null;
+            const f = switch (ctx.types.get(sym.ty)) {
+                .function => |f| f,
+                else => return .{ .name = self.text(callee) },
+            };
+            // A generic parameter is named as declared; a positional
+            // argument fills the parameter at its place.
+            if (!sema.isGenericFn(ctx, f)) return .{ .name = self.text(callee) };
+            // By name, the parameter is not known here: the hint names
+            // no type (`param` empty).
+            for (args[0 .. index + 1]) |arg| if (arg.isKind(.kwarg)) return .{ .name = self.text(callee), .param = "" };
+            if (index >= f.params.len) return .{ .name = self.text(callee), .param = "" };
+            if (!sema.containsTypeVar(ctx, f.params[index])) return .{ .name = self.text(callee) };
+            return .{ .name = self.text(callee), .param = try sema.formatTypeIn(ctx, self.arena(), f.params[index]) };
         }
         if (!callee.isKind(.member) or self.namesType(callee) or self.callsFunctionField(call, callee)) return null;
         var obj = ir.Member.object(callee);
         if (obj.isKind(.write) or obj.isKind(.read) or obj.isKind(.move)) obj = ir.get(obj, .operand);
         if (self.builtinName(self.exprType(obj)) != null) return null;
-        return self.text(ir.Member.name(callee));
+        return .{ .name = self.text(ir.Member.name(callee)) };
     }
 
     // -------------------------------------------------------------------------

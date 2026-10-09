@@ -2970,7 +2970,23 @@ const Checker = struct {
             .list => if (e.kind() == null) self.t().invalid_id else try self.synthList(e),
         };
         try self.ctx.recordType(e, self.canonical(ty));
+        try self.noteTakeable(e, ty);
         return ty;
+    }
+
+    /// An optional field or element that moves, which a diagnostic may
+    /// offer to take with `<e`: recorded when the take's own check
+    /// (`requireAccess` of `.take`) would reject it, its diagnostics
+    /// dropped.
+    fn noteTakeable(self: *Checker, e: Sexp, ty: TypeId) Error!void {
+        if (!e.isKind(.member) and !e.isKind(.index)) return;
+        if (self.ctx.types.get(ty) != .optional or sema.moves(self.ctx, ty) != .yes) return;
+        if (sema.moveSource(self.ctx, e) != .optional_part) return;
+        const mark = self.ctx.diagnostics.items.len;
+        const place = self.placeOf(e);
+        const ok = place.cell_vec_elem == null and try self.requireAccess(place, .take, e);
+        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        if (!ok) try self.ctx.recordUntakeable(e);
     }
 
     /// Literal pseudo-types as the concrete type they default to.
@@ -3382,7 +3398,7 @@ const Checker = struct {
         // Written in parentheses: `not` ends past its operand, at `)`.
         if (whole.end > cmp.end) return;
         const a = self.ctx.arena.allocator();
-        const shown = self.sourceText(operand);
+        const shown = try oneLine(self.ctx.arena.allocator(), try withoutComments(self.ctx.arena.allocator(), self.sourceText(operand)));
         const equality = op[0] == '=' or op[0] == '!';
         const exact = equality or (self.flipsExactly(ir.get(operand, .left)) and self.flipsExactly(ir.get(operand, .right)));
         // The operator, between the two sides' spans (and any
@@ -3392,7 +3408,7 @@ const Checker = struct {
         const at = if (exact and gap_start <= gap_end) std.mem.find(u8, self.ctx.source[gap_start..gap_end], op) else null;
         if (at) |i| {
             const o = gap_start + i;
-            const flip = try std.mem.concat(a, u8, &.{ self.ctx.source[cmp.start..o], flipped, self.ctx.source[o + op.len .. cmp.end] });
+            const flip = try oneLine(a, try withoutComments(a, try std.mem.concat(a, u8, &.{ self.ctx.source[cmp.start..o], flipped, self.ctx.source[o + op.len .. cmp.end] })));
             return self.errAt(e, "write `{s}`, or `not ({s})`: `not` applies to the whole comparison", .{ flip, shown });
         }
         try self.errAt(e, "write `not ({s})`: `not` applies to the whole comparison", .{shown});
@@ -11007,6 +11023,35 @@ fn sameNode(a: Sexp, b: Sexp) bool {
 fn sameSite(a: Sexp, b: Sexp) bool {
     if (a == .src and b == .src) return a.src.pos == b.src.pos and a.src.len == b.src.len;
     return sameNode(a, b);
+}
+
+/// `text` with each comment (`#` to the end of its line, outside a
+/// string) taken out, for a hint that writes source spanning lines.
+fn withoutComments(a: std.mem.Allocator, text: []const u8) Error![]const u8 {
+    if (std.mem.findScalar(u8, text, '#') == null) return text;
+    var out: std.ArrayList(u8) = .empty;
+    var quote: ?u8 = null;
+    var i: usize = 0;
+    while (i < text.len) : (i += 1) {
+        const c = text[i];
+        if (quote) |q| {
+            if (c == '\\' and q == '"' and i + 1 < text.len) {
+                try out.appendSlice(a, text[i .. i + 2]);
+                i += 1;
+                continue;
+            }
+            if (c == q) quote = null;
+        } else if (c == '"' or c == '\'') {
+            quote = c;
+        } else if (c == '#') {
+            while (i < text.len and text[i] != '\n') i += 1;
+            while (out.items.len > 0 and isBlank(out.items[out.items.len - 1])) out.items.len -= 1;
+            if (i < text.len) try out.append(a, '\n');
+            continue;
+        }
+        try out.append(a, c);
+    }
+    return out.items;
 }
 
 /// `text` on one line: each run of blanks with a line break in it is one

@@ -1,0 +1,28 @@
+# The forms the copy rejection offers for an optional field, applied.
+
+struct Bag
+  items: Vec[Int]
+
+struct H
+  o: Bag?
+
+sub viaread(p: ?H)
+  x = +p.o
+  y = ?p.o
+  print(x == none, y == none)
+
+sub viawrite(p: !H)
+  x = <p.o
+  print(x == none, p.o == none)
+
+sub main()
+  h = H(o: Bag(items: Vec()))
+  viaread(?h)
+  viawrite(!h)
+  x = <h.o
+  print(x == none)
+
+# expect:
+# false false
+# false true
+# true

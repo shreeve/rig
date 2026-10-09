@@ -1,0 +1,40 @@
+# The copy rejection offers `<p.o`, which takes an optional field out
+# and leaves `none`, only where the take itself is accepted: not through
+# a read view or a shared handle, nor out of a parameter, which is fixed.
+
+struct Bag
+  items: Vec[Int]
+
+struct H
+  o: Bag?
+
+sub viaread(p: ?H)
+  x = p.o
+  print(x == none)
+
+sub viashared(rc: *H)
+  x = rc.o
+  print(x == none)
+
+sub viaparam(h: H)
+  x = h.o
+  print(x == none)
+
+sub local()
+  h = H(o: none)
+  x = h.o
+  print(x == none)
+
+sub viawrite(p: !H)
+  x = p.o
+  print(x == none)
+
+sub main()
+  local()
+
+# error: 12:7: `p.o` owns a `Bag?`, which can't be copied by `=`: write `+p.o` to clone it or `?p.o` to view it
+# error: 16:7: `rc.o` owns a `Bag?`, which can't be copied by `=`: write `+rc.o` to clone it or `?rc.o` to view it
+# error: 20:7: `h.o` owns a `Bag?`, which can't be copied by `=`: write `+h.o` to clone it or `?h.o` to view it
+# error: 25:7: `h.o` owns a `Bag?`, which can't be copied by `=`: write `<h.o` to take it out (leaving `none`), `+h.o` to clone it, or `?h.o` to view it
+# error: 29:7: `p.o` owns a `Bag?`, which can't be copied by `=`: write `<p.o` to take it out (leaving `none`), `+p.o` to clone it, or `?p.o` to view it
+# errors: 5
