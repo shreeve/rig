@@ -1790,13 +1790,20 @@ leaf that is a place is never written through, whether it is reached
 through a read view, a handle, or holds a write view itself.
 
 A header **copies a write view out of a place**
-(`sema.headerCopiesWriteView`), which typecheck rejects for `match` and
-`if … as` alike, when its subject is a branching value (`a if c else
-b`, `a ?? b`, `e catch h`, `e!`, `e?`) one of whose leaves is a place,
-or a part of one, of a type that holds a write view (`match (a if c else
-b)` of `!E` locals, `match o?` of a `(!E)?`, `match h1.w if c else
-h2.w`). The branch would read the leaf, copying the write view, which
-holds no loan on the place: a second writer.
+(`sema.headerCopiesWriteView`), which typecheck rejects for `match`,
+`if … as`, `while … as`, and `for` alike, when its subject, or the base
+its fields, elements, and `?.` steps are reached from (`pathRoot`), is a
+branching value (`a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`)
+one of whose leaves is a place, or a part of one, of a type that holds a
+write view: `match (a if c else b)` of `!E` locals, `match o?` of a
+`(!E)?`, `match (a if c else b).e` of `!W` names, `match o?.w`,
+`for x in (h1.v if c else h2.v)`. The branch would read the leaf,
+copying the write view, which holds no loan on the place: a second
+writer. A path through the branch reaches a part of that copy; one that
+copies (plain data) is copied out in the header, so only a part the
+header views is rejected. Every header kind asks it of its subject:
+`checkMatch`, `checkOptionalBinding`, and `checkFor`, which a unit test
+pins.
 
 Typecheck records the access on the binding's symbol where it types the
 binding (`bindMatchView`, `checkOptionalBinding`, `checkFor`), and
