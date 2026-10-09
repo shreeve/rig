@@ -3255,11 +3255,13 @@ field, a write receiver, a type spelled or expected with one, or a value
 whose type it gives: a binding with no type, an array literal, or an
 `if`, `match`, or loop each of whose values is one), and rejected
 wherever `x` is only read. A written `!x` binds a generic's `T` to the
-value it reaches where that copies, so `Opt.some(v: !n)` stores an
-`Int`. A value that branches or loops is decided at each of its leaves,
-and the base of a field or element (`(!p).x`) when the place is only
-read. A held write view (`w`, a `!T` parameter) has no `!` written, and
-is read, or lent where a read view goes, as a bare name is.
+value it reaches where that copies, so `Opt.some(v: !n)` would store an
+`Int`, and is rejected: write `Opt.some(v: n)` to store a copy, or
+`Opt[!Int].some(v: !n)` to keep the write view. A value that branches
+or loops is decided at each of its leaves, and the base of a field or
+element (`(!p).x`) when the place is only read. A held write view (`w`,
+a `!T` parameter) has no `!` written, and is read, or lent where a read
+view goes, as a bare name is.
 
 | Written | Where it goes | Write instead |
 |---|---|---|
