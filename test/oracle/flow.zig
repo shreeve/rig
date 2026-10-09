@@ -243,6 +243,9 @@ const Checker = struct {
         // (Core s7: a result that holds no write view carries its loans
         // as read loans, even of an argument lent to write), and a write
         // view pushed into a Vec of them stays one (Core §5).
+        // A call never stores its own lend of its receiver, which ends
+        // as it returns (Core s7), in what that receiver views.
+        if (op.what == .call) if (op.loan) |own| stored.unset(own);
         const stored_full = self.stored_full;
         stored_full.copyFrom(stored);
         if (op.what == .call) {
