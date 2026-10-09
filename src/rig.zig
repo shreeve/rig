@@ -317,6 +317,16 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //     so `a <- b` is not quietly `a < -b`. After a type's `]` the
 //     parser decides (`[2]?T`), and the Parser wrapper checks the touch.
 //
+//     Spacing never picks a form, but spacing that reads as another
+//     form is wrong: an infix operator has the same spacing on both
+//     sides (`a < b`, `a<b`, never `a <b`), a postfix `?` or `!` touches
+//     what it follows, a member `.` touches both sides (a chain may go
+//     on at the start of the next line inside brackets), an enum
+//     literal's `.` touches its name, and a range's `..` with one bound
+//     touches it. The lexer records each such operator (`spacings`);
+//     the Parser wrapper reports them once the source parses, so that a
+//     parse error is the one reported.
+//
 //   Token boundaries still matter, as in `!=` and `==`: `=!` is one
 //   token, and an error wherever it stands, so `x =!y` is never quietly
 //   `x = !y`.
@@ -382,6 +392,18 @@ pub const Lexer = struct {
     /// The last token is a statement's label: a statement starts after
     /// it, and it ends no operand.
     after_label: bool = false,
+    /// The last token is the label of a jump (`break :outer`): what
+    /// follows it starts the jump's value, though the label is a name.
+    after_jump_label: bool = false,
+    /// The category of the token before the last one.
+    last2_cat: TokenCat = .eof,
+    /// The operators whose spacing breaks the rule (an infix operator
+    /// has the same spacing on both sides; a postfix, a member `.`, and a
+    /// range's open end touch what they join), the first `max_spacings`
+    /// of them, reported once the source parses
+    /// (`Parser.spacingMessage`).
+    spacings: [max_spacings]Spacing = undefined,
+    spacing_count: u32 = 0,
     /// The bracket nesting of the `while` header being lexed, whose first
     /// `:` there starts the step; null outside one.
     while_header: ?u32 = null,
@@ -413,12 +435,35 @@ pub const Lexer = struct {
     pub const max_indent_depth = 64;
     pub const max_nesting = 512;
     pub const max_islands = 32;
+    pub const max_spacings = 32;
 
     /// A closure body laid out inside brackets. Its blocks sit on the
     /// layout stack above `depth`; `column` is the indentation of the
     /// line the closure starts on, and the layout state to restore is
     /// `depth` / `outer_column`.
     const Island = struct { nesting: u32, depth: u32, column: u32, outer_column: u32 };
+
+    /// An operator whose spacing breaks the rule, at `pos`.
+    pub const Spacing = struct {
+        pos: u32,
+        len: u32,
+        kind: Kind,
+
+        pub const Kind = enum {
+            /// An infix operator with whitespace before it only (`a <b`).
+            infix_before,
+            /// An infix operator with whitespace after it only (`a< b`).
+            infix_after,
+            /// A postfix `?` or `!` apart from what it follows (`f() !`).
+            postfix,
+            /// A member `.` with whitespace beside it (`w . get()`).
+            member,
+            /// An enum literal's `.` apart from its name (`. red`).
+            enum_dot,
+            /// A range's `..` apart from its only bound (`.. b`, `a ..]`).
+            range_end,
+        };
+    };
 
     pub const LexError = enum {
         none,
@@ -493,6 +538,8 @@ pub const Lexer = struct {
         self.after_label = self.label_colon and tok.cat == .ident;
         self.label_colon = tok.cat == .colon and self.stmtStart();
         self.after_value = !self.after_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
+        self.after_jump_label = tok.cat == .ident and self.last_cat == .colon and (self.last2_cat == .@"break" or self.last2_cat == .@"continue");
+        self.last2_cat = self.last_cat;
         self.last_cat = tok.cat;
         switch (tok.cat) {
             .@"while" => self.while_header = self.nesting,
@@ -775,6 +822,7 @@ pub const Lexer = struct {
             if (twice and tok.cat == .minus) return self.fail(.decrement, tok.pos - 1);
             return self.fail(.detached_prefix, tok.pos);
         }
+        if (self.spacing_count < max_spacings) self.checkSpacing(tok, out.cat, after_value and !self.after_jump_label);
         switch (out.cat) {
             .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
@@ -784,6 +832,39 @@ pub const Lexer = struct {
             self.head_pos = tok.pos;
         }
         return out;
+    }
+
+    /// Record the first operator whose spacing breaks the rule:
+    /// `after_value` says the token follows an operand, so it continues
+    /// it (an infix operator, a postfix, a member `.`).
+    fn checkSpacing(self: *Lexer, tok: Token, cat: TokenCat, after_value: bool) void {
+        const src = self.base.source;
+        const before = tok.pos > 0 and isSpaceBefore(src[tok.pos - 1]);
+        const after = isSpace(self.charAfter(tok));
+        const kind: ?Spacing.Kind = switch (cat) {
+            .question, .not_sym => if (after_value and before) .postfix else null,
+            // A member may start a line inside brackets, continuing a
+            // chain from the line before.
+            .dot => if (after_value) (if ((before and !self.startsLine(tok)) or after) .member else null) else if (after) .enum_dot else null,
+            .dotdot => if (!after_value) (if (after) .range_end else null) else if (before != after) (if (before) .infix_before else .infix_after) else null,
+            .dotdot_open => if (after_value and before) .range_end else null,
+            else => if (after_value and isInfix(cat) and before != after) (if (before) .infix_before else .infix_after) else null,
+        };
+        if (kind) |k| {
+            self.spacings[self.spacing_count] = .{ .pos = tok.pos, .len = tok.len, .kind = k };
+            self.spacing_count += 1;
+        }
+    }
+
+    /// Only whitespace stands before `tok` on its line.
+    fn startsLine(self: *const Lexer, tok: Token) bool {
+        var p = tok.pos;
+        while (p > 0) : (p -= 1) switch (self.base.source[p - 1]) {
+            ' ', '\t', '\r' => {},
+            '\n' => return true,
+            else => return false,
+        };
+        return true;
     }
 
     fn classifyWord(self: *const Lexer, tok: Token) TokenCat {
@@ -1072,6 +1153,27 @@ fn isSigil(cat: TokenCat) bool {
     };
 }
 
+/// The infix operators, whose spacing is the same on both sides.
+fn isInfix(cat: TokenCat) bool {
+    return switch (cat) {
+        .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap => true,
+        .eq, .ne, .lt, .gt, .le, .ge, .nullish, .nullish_jump => true,
+        .bar, .ampersand, .caret, .lshift, .rshift => true,
+        .assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign => true,
+        .amp_assign, .bar_assign, .caret_assign, .lshift_assign, .rshift_assign => true,
+        .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign => true,
+        else => false,
+    };
+}
+
+/// Whitespace before a token.
+fn isSpaceBefore(c: u8) bool {
+    return switch (c) {
+        ' ', '\t', '\r', '\n' => true,
+        else => false,
+    };
+}
+
 /// Whitespace, or the end of the line or source, after a token.
 fn isSpace(c: u8) bool {
     return switch (c) {
@@ -1128,8 +1230,136 @@ pub const Parser = struct {
     /// `diagnostic()` describes the failure.
     pub fn parseProgram(self: *Parser) !Sexp {
         const tree = try self.rewrite(try self.parseTree());
+        // Spacing is checked once the source parses, so that an error in
+        // the parse is the one reported.
+        if (self.failure == null) {
+            const lexer = &self.base.lexer;
+            for (lexer.spacings[0..lexer.spacing_count]) |sp| {
+                const d: diag.Diagnostic = .{ .severity = .@"error", .pos = sp.pos, .end = sp.pos + sp.len, .message = self.spacingMessage(sp) };
+                if (self.failure == null) self.failure = d else try self.more_failures.append(self.allocator(), d);
+            }
+        }
         if (self.failure != null) return error.ParseError;
         return tree;
+    }
+
+    /// Why an operator's spacing is wrong, with the text to write.
+    fn spacingMessage(self: *Parser, sp: Lexer.Spacing) []const u8 {
+        const src = self.base.source;
+        const op = src[sp.pos .. sp.pos + sp.len];
+        const left = operandBefore(src, sp.pos) orelse "a";
+        const right = operandAfter(src, sp.pos + sp.len) orelse "b";
+        // `print -1`: a call without its parentheses.
+        if (sp.kind == .infix_before and std.mem.eql(u8, left, "print")) return self.format("`print` is called with parentheses: `print({s}{s})`", .{ op, right });
+        return switch (sp.kind) {
+            .infix_before => if (prefixMeaning(op)) |m|
+                self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s} {s} {s}` to {s}, or `{s}, {s}{s}` to {s} `{s}` as a value of its own", .{ left, op, right, left, op, right, m.infix, left, op, right, m.prefix, right })
+            else if (std.mem.eql(u8, op, ".."))
+                self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s}{s}{s}` or `{s} {s} {s}`", .{ left, op, right, left, op, right, left, op, right })
+            else
+                self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s} {s} {s}`", .{ left, op, right, left, op, right }),
+            .infix_after => if (std.mem.eql(u8, op, ".."))
+                self.format("`{s}{s} {s}`: an operator has the same spacing on both sides; write `{s}{s}{s}` or `{s} {s} {s}`", .{ left, op, right, left, op, right, left, op, right })
+            else
+                self.format("`{s}{s} {s}`: an operator has the same spacing on both sides; write `{s} {s} {s}`", .{ left, op, right, left, op, right }),
+            .postfix => if (sp.pos + sp.len < src.len and !isSpace(src[sp.pos + sp.len]))
+                self.format("`{s} {s}{s}`: a `{s}` after a value touches it; write `{s}{s}{s}`", .{ left, op, right, op, left, op, right })
+            else
+                self.format("`{s} {s}`: a postfix `{s}` touches what it follows; write `{s}{s}`", .{ left, op, op, left, op }),
+            .member => self.format("a member `.` touches both sides; write `{s}.{s}`", .{ left, right }),
+            .enum_dot => self.format("`.` touches the name after it; write `.{s}`", .{right}),
+            .range_end => if (sp.pos + sp.len < src.len and src[sp.pos + sp.len] == ']')
+                self.format("a range's `..` touches its only bound; write `{s}..`", .{left})
+            else
+                self.format("a range's `..` touches its only bound; write `..{s}`", .{right}),
+        };
+    }
+
+    const Meaning = struct { infix: []const u8, prefix: []const u8 };
+
+    /// What an operator that is also a prefix sigil does in each place.
+    fn prefixMeaning(op: []const u8) ?Meaning {
+        if (op.len != 1) return null;
+        return switch (op[0]) {
+            '<' => .{ .infix = "compare", .prefix = "move" },
+            '-' => .{ .infix = "subtract", .prefix = "negate" },
+            '+' => .{ .infix = "add", .prefix = "clone" },
+            '*' => .{ .infix = "multiply", .prefix = "share" },
+            else => null,
+        };
+    }
+
+    /// The operand that ends at `end` (past whitespace on its line), as
+    /// written, when it is short: a name, a literal, or a call or index
+    /// on one (`f(x)`, `a.b[i]`).
+    fn operandBefore(src: []const u8, end: u32) ?[]const u8 {
+        var e: usize = end;
+        while (e > 0 and (src[e - 1] == ' ' or src[e - 1] == '\t')) e -= 1;
+        var s = e;
+        while (s > 0) {
+            const c = src[s - 1];
+            if (c == ')' or c == ']') {
+                const open: u8 = if (c == ')') '(' else '[';
+                var depth: u32 = 0;
+                while (s > 0) {
+                    s -= 1;
+                    if (src[s] == '\n') return null;
+                    if (src[s] == c) depth += 1;
+                    if (src[s] == open) {
+                        depth -= 1;
+                        if (depth == 0) break;
+                    }
+                }
+            } else if (c == '"' or c == '\'') {
+                s -= 1;
+                while (s > 0 and src[s - 1] != c) : (s -= 1) if (src[s - 1] == '\n') return null;
+                if (s == 0) return null;
+                s -= 1;
+            } else if (isIdentCont(c) or c == '.' or c == '?' or c == '!') {
+                s -= 1;
+            } else break;
+        }
+        while (s < e and (src[s] == '.' or src[s] == '?' or src[s] == '!')) s += 1;
+        if (s == e or e - s > 24) return null;
+        return src[s..e];
+    }
+
+    /// The operand that starts at `start` (past whitespace on its line),
+    /// as written, when it is short.
+    fn operandAfter(src: []const u8, start: u32) ?[]const u8 {
+        var s: usize = start;
+        while (s < src.len and (src[s] == ' ' or src[s] == '\t')) s += 1;
+        var e = s;
+        while (e < src.len and std.mem.findScalar(u8, "<?!+-*~.", src[e]) != null) e += 1;
+        if (e < src.len and (src[e] == '"' or src[e] == '\'')) {
+            const q = src[e];
+            e += 1;
+            while (e < src.len and src[e] != q and src[e] != '\n') e += 1;
+            if (e == src.len or src[e] != q) return null;
+            e += 1;
+        }
+        while (e < src.len) {
+            const c = src[e];
+            if (isIdentCont(c) or c == '.') {
+                e += 1;
+            } else if (c == '(' or c == '[') {
+                const close: u8 = if (c == '(') ')' else ']';
+                var depth: u32 = 0;
+                while (e < src.len) : (e += 1) {
+                    if (src[e] == '\n') return null;
+                    if (src[e] == c) depth += 1;
+                    if (src[e] == close) {
+                        depth -= 1;
+                        if (depth == 0) break;
+                    }
+                }
+                if (e == src.len) return null;
+                e += 1;
+            } else break;
+        }
+        while (e > s and src[e - 1] == '.') e -= 1;
+        if (e == s or e - s > 24) return null;
+        return src[s..e];
     }
 
     /// Parse without the IR rewrites: the grammar's own output.
@@ -2047,6 +2277,42 @@ test "a prefix sigil touches its operand; after a value it is infix or a suffix"
     try expectCats("a | b | c", &.{ .ident, .bar, .ident, .bar, .ident });
     try expectCats("f = |a, +b| a", &.{ .ident, .assign, .bar_capture, .ident, .comma, .plus, .ident, .bar_capture, .ident });
     try expectCats("f = | +b , a | a", &.{ .ident, .assign, .bar_capture, .plus, .ident, .comma, .ident, .bar_capture, .ident });
+}
+
+/// The spacing kinds the lexer records for `source`, in order.
+fn expectSpacing(source: []const u8, expected: []const Lexer.Spacing.Kind) !void {
+    var lx = Lexer.init(source);
+    while (true) {
+        const t = lx.next();
+        if (t.cat == .eof or t.cat == .err) break;
+    }
+    const got = lx.spacings[0..lx.spacing_count];
+    testing.expectEqual(expected.len, got.len) catch |e| {
+        std.debug.print("source: {s}\n", .{source});
+        return e;
+    };
+    for (expected, got) |want, sp| try testing.expectEqual(want, sp.kind);
+}
+
+test "spacing: an infix operator is balanced; a postfix, a member, and an open range touch" {
+    for ([_][]const u8{ "a < b", "a<b", "a - 1", "a-1", "x = -1", "x=1", "a ?? b", "0..n", "0 .. n", "f()!", "x?", "w.get()", "c = .red", "xs[..2]", "xs[a..]", "a < -b", "a<-b", "f(\n  a\n  .b())", "[]?T", "[2]*T", "break :a !n", "f = |a| a + 1", "while i < n : i += 1" }) |src| {
+        try expectSpacing(src, &.{});
+    }
+    try expectSpacing("a <b", &.{.infix_before});
+    try expectSpacing("a< b", &.{.infix_after});
+    try expectSpacing("x =1", &.{.infix_before});
+    try expectSpacing("f() !", &.{.postfix});
+    try expectSpacing("[] ?T", &.{.postfix});
+    try expectSpacing("w . get()", &.{.member});
+    try expectSpacing("w .get()", &.{.member});
+    try expectSpacing("c = . red", &.{.enum_dot});
+    try expectSpacing("xs[.. 2]", &.{.range_end});
+    try expectSpacing("xs[a ..]", &.{.range_end});
+    try expectSpacing("0 ..n", &.{.infix_before});
+    // Inside brackets a line break is whitespace, so a line starting
+    // `-1` after a value is a subtraction with one side spaced.
+    try expectSpacing("f(a\n  -1)", &.{.infix_before});
+    try expectSpacing("a -1 + b *c", &.{ .infix_before, .infix_before });
 }
 
 test "`name:` is a keyword argument inside ( ), a name inside [ ]" {

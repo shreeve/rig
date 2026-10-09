@@ -4,4 +4,4 @@
 sub main()
   print -1
 
-# error: 5:3: `print` is called with parentheses: `print(...)`
+# error: 5:9: `print` is called with parentheses: `print(-1)`

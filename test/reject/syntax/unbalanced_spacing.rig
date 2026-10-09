@@ -1,0 +1,57 @@
+# An infix operator has the same spacing on both sides, and a postfix,
+# a member `.`, an enum literal's `.`, and an open range's `..` touch
+# what they join: spacing that reads one way and is parsed another is
+# rejected, each case with the text to write. Every case in the file is
+# reported, once the source parses.
+
+N = 4
+
+enum Color
+  red
+  green
+
+struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+fun maybe(n: Int) -> Int?
+  n if n > 0 else none
+
+fun half(n: Int) -> Int?
+  m = maybe(n) ?
+  m / 2
+
+sub main()
+  a = 7
+  b = 3
+  print(a -1, a- 1)
+  print(a *b, a +b, a <b, a< b)
+  w = Wrap[Int](v: 3)
+  print(w . get(), w .get())
+  c: Color = . green
+  s: [N -1]Int = [N - 1 of 0]
+  xs = [1, 2, 3]
+  print(?xs[.. 2], ?xs[a ..], 0 ..a)
+  n = a?? 0
+  n =1
+  print(c, s, n, half(4))
+
+# errors: 16
+# error: 23:16: `maybe(n) ?`: a postfix `?` touches what it follows; write `maybe(n)?`
+# error: 29:11: `a -1`: an operator has the same spacing on both sides; write `a - 1` to subtract, or `a, -1` to negate `1` as a value of its own
+# error: 29:16: `a- 1`: an operator has the same spacing on both sides; write `a - 1`
+# error: 30:11: `a *b`: an operator has the same spacing on both sides; write `a * b` to multiply, or `a, *b` to share `b` as a value of its own
+# error: 30:17: `a +b`: an operator has the same spacing on both sides; write `a + b` to add, or `a, +b` to clone `b` as a value of its own
+# error: 30:23: `a <b`: an operator has the same spacing on both sides; write `a < b` to compare, or `a, <b` to move `b` as a value of its own
+# error: 30:28: `a< b`: an operator has the same spacing on both sides; write `a < b`
+# error: 32:11: a member `.` touches both sides; write `w.get()`
+# error: 32:22: a member `.` touches both sides; write `w.get()`
+# error: 33:14: `.` touches the name after it; write `.green`
+# error: 34:9: `N -1`: an operator has the same spacing on both sides; write `N - 1` to subtract, or `N, -1` to negate `1` as a value of its own
+# error: 36:13: a range's `..` touches its only bound; write `..2`
+# error: 36:26: a range's `..` touches its only bound; write `a..`
+# error: 36:33: `0 ..a`: an operator has the same spacing on both sides; write `0..a` or `0 .. a`
+# error: 37:8: `a?? 0`: an operator has the same spacing on both sides; write `a ?? 0`
+# error: 38:5: `n =1`: an operator has the same spacing on both sides; write `n = 1`
