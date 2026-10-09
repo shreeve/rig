@@ -46,8 +46,8 @@ sub main()
 # error: 26:11: `!m` here is read, not held: only its `Int` is read here. Write `m`
 # error: 29:13: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
 # error: 33:10: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
-# error: 38:9: `!arr` here is read, not held: `(!arr)[0..1]` only reads the place it reaches. Write `arr[0..1]`
 # error: 35:8: `!p` here is read, not held: `(!p).x` only reads the place it reaches. Write `p.x`
 # error: 36:8: `!arr` here is read, not held: `(!arr)[0]` only reads the place it reaches. Write `arr[0]`
 # error: 37:8: `!s` here is read, not held: `(!s).len` only reads the place it reaches. Write `s.len`
+# error: 38:9: `!arr` here is read, not held: `(!arr)[0..1]` only reads the place it reaches. Write `arr[0..1]`
 # errors: 12

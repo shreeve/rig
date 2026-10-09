@@ -140,3 +140,20 @@ printf 'pub struct Wrap[T]\n  v: T\n' >lib.rig
 printf 'use lib\n\nsub main()\n  print(lib.Wrap[Int].nope())\n' >main.rig
 out=$("$RIG" check main.rig 2>&1); expect_rc $? 1 "rig check of a missing method of another module's generic"
 expect_has "$out" "lib.rig:1:12:   note: \`lib.Wrap\` declared here" "a declaration note names its file"
+
+# A write lend whose path is only read is decided once the module is
+# checked, and its error is still printed in source order.
+cat >order.rig <<'EOF2'
+struct P
+  x: Int
+
+sub main()
+  p = P(x: 1)
+  n = 2
+  f = (!p).x
+  print(!n + f)
+  g = (!p).x
+  print(g)
+EOF2
+"$RIG" check order.rig >out.txt 2>&1; expect_rc $? 1 "rig check of write lends only read"
+expect_eq "$(grep -oE '^order\.rig:[0-9]+:[0-9]+' out.txt | tr '\n' ' ')" "order.rig:7:8 order.rig:8:9 order.rig:9:8 " "path errors in source order"

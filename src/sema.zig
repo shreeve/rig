@@ -1635,6 +1635,44 @@ pub const SemContext = struct {
         try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
+    /// Move the diagnostics reported from index `from` on, a check that
+    /// runs once the module is checked, in among the earlier ones: each
+    /// error, with the notes after it, goes before the first earlier error
+    /// in this module's source past it. They must be in source order.
+    pub fn placeInOrder(self: *SemContext, from: usize) std.mem.Allocator.Error!void {
+        const items = self.diagnostics.items;
+        if (from >= items.len) return;
+        const late = try self.allocator.dupe(Diagnostic, items[from..]);
+        defer self.allocator.free(late);
+        const early = try self.allocator.dupe(Diagnostic, items[0..from]);
+        defer self.allocator.free(early);
+        var out: usize = 0;
+        var j: usize = 0;
+        for (early) |d| {
+            if (d.severity == .@"error" and d.module == 0) {
+                while (j < late.len and late[j].pos < d.pos) {
+                    items[out] = late[j];
+                    out += 1;
+                    j += 1;
+                    while (j < late.len and late[j].severity == .note) : (j += 1) {
+                        items[out] = late[j];
+                        out += 1;
+                    }
+                }
+            }
+            items[out] = d;
+            out += 1;
+        }
+        for (late[j..]) |d| {
+            items[out] = d;
+            out += 1;
+        }
+        // Each error moved keeps its entry in `reported`.
+        for (items, 0..) |d, i| if (d.severity == .@"error") {
+            if (self.reported.getPtr(.{ .pos = d.pos, .message = std.hash.Wyhash.hash(0, d.message) })) |at| at.* = i;
+        };
+    }
+
     pub fn pushScopeKind(self: *SemContext, parent: ScopeId, kind: ScopeKind) !ScopeId {
         const id: ScopeId = @intCast(self.scopes.items.len);
         try self.scopes.append(self.allocator, .{

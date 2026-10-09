@@ -184,6 +184,9 @@ const Checker = struct {
     /// ignored (`checkReachedLends`).
     reached_lends: std.ArrayList(ReachedLend) = .empty,
     written_paths: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The statement being checked (`checkStmt`), where a reached lend
+    /// is noted.
+    stmt: Sexp = .nil,
     /// A loop element or `as` binding that copies from a place: the
     /// place, named when the binding is written (`checkBindingWritable`).
     copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
@@ -242,7 +245,7 @@ const Checker = struct {
     };
 
     /// A loop used as a value: its `break` values and its `else` value.
-    const ReachedLend = struct { path: Sexp, base: Sexp, ty: TypeId };
+    const ReachedLend = struct { path: Sexp, base: Sexp, ty: TypeId, stmt: Sexp };
 
     const LoopValue = struct {
         expected: ?TypeId,
@@ -573,6 +576,9 @@ const Checker = struct {
     // =========================================================================
 
     fn checkStmt(self: *Checker, stmt: Sexp) Error!void {
+        const saved_stmt = self.stmt;
+        self.stmt = stmt;
+        defer self.stmt = saved_stmt;
         const head = stmt.kind() orelse return self.checkExprStmt(stmt);
         if (self.isValueLoop(stmt)) {
             try self.errAt(stmt, "the value of this loop is not used; bind it (`x = for ...`) or `break` without a value", .{});
@@ -8524,7 +8530,7 @@ const Checker = struct {
     fn noteReachedLend(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!void {
         if (self.ctx.quiet > 0 or e != .list or e.list.id == 0) return;
         if (self.writtenWriteLend(obj, obj_ty) == null) return;
-        try self.reached_lends.append(self.ctx.allocator, .{ .path = e, .base = obj, .ty = obj_ty });
+        try self.reached_lends.append(self.ctx.allocator, .{ .path = e, .base = obj, .ty = obj_ty, .stmt = self.stmt });
     }
 
     /// Each field or element path within `node`, which an access writes,
@@ -8538,12 +8544,44 @@ const Checker = struct {
 
     /// Each field or element reached through a write lend written as its
     /// base and never written, assigned, lent, or taken: only read, it has
-    /// its `!` ignored (`writeLendRead`).
+    /// its `!` ignored (`writeLendRead`). Where an error was reported in
+    /// the statement's own part (`ownSpan`), the write was rejected
+    /// there, and it is not reported again as only a read. The errors
+    /// go among the others in source order.
     fn checkReachedLends(self: *Checker) Error!void {
+        const from = self.ctx.diagnostics.items.len;
+        std.mem.sort(ReachedLend, self.reached_lends.items, self, struct {
+            fn before(c: *Checker, a: ReachedLend, b: ReachedLend) bool {
+                return c.startOf(a.base) < c.startOf(b.base);
+            }
+        }.before);
         for (self.reached_lends.items) |r| {
             if (self.written_paths.contains(r.path.list.id)) continue;
+            const own = self.ownSpan(if (r.stmt == .nil) r.path else r.stmt);
+            const rejected = for (self.ctx.diagnostics.items[0..from]) |d| {
+                if (d.severity == .@"error" and d.module == 0 and d.pos >= own.start and d.pos < own.end) break true;
+            } else false;
+            if (rejected) continue;
             _ = try self.writeLendRead(r.base, r.ty, .{ .path = r.path });
         }
+        try self.ctx.placeInOrder(from);
+    }
+
+    /// The part of statement `s` that is not another statement's: all of
+    /// a simple statement, and the header of a loop, an `if`, or a
+    /// `match`, up to its body.
+    fn ownSpan(self: *Checker, s: Sexp) parser.Span {
+        var sp = self.ctx.span(s);
+        const stmt = if (s.isKind(.labeled)) ir.Labeled.stmt(s) else s;
+        const body: Sexp = switch (stmt.kind() orelse return sp) {
+            .@"while" => ir.While.body(stmt),
+            .@"for" => ir.For.body(stmt),
+            .@"if" => ir.If.then(stmt),
+            .match => if (ir.Match.arms(stmt).len > 0) ir.Match.arms(stmt)[0] else .nil,
+            else => .nil,
+        };
+        if (body != .nil) sp.end = @min(sp.end, self.startOf(body));
+        return sp;
     }
 
     /// How a view is read as the value it reaches (`readOf`).
