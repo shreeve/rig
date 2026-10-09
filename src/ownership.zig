@@ -1028,7 +1028,12 @@ pub const Checker = struct {
             if (self.last_err_kept) try self.note(hv.decl, "`{s}` is made before `{s}`, so dropped after it", .{ hv.name, name });
             return;
         };
-        try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{name});
+        // A view the statement holds owns nothing it could drop: what
+        // it views is held only while the statement runs.
+        const is_view = if (self.sema) |ctx| (if (self.vars.items[l.root].ty) |t| sema.isReadOrWriteView(ctx, t) else false) else false;
+        if (is_view) {
+            try self.err(l.pos, "a view reached through `{s}` outlives its statement, which holds `{s}`, itself a view, only while it runs; bind `{s}` to a name first", .{ name, name, name });
+        } else try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{name});
         if (!self.last_err_kept) return;
         const h = holder orelse return;
         const hv = self.vars.items[h];
