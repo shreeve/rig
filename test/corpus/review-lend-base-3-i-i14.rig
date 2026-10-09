@@ -1,0 +1,12 @@
+struct P
+  x: Int
+  o: Int?
+  items: Vec[Int]
+  s: Text
+  arr: [3]Int
+
+sub main()
+  p = P(x: 1, o: 2, items: Vec[Int](), s: Text("hi"), arr: [1, 2, 3])
+  y = (?p).arr[5]
+  print(y)
+  print(p.x, p.items.len)

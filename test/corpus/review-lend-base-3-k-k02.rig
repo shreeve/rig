@@ -1,0 +1,20 @@
+struct P
+  x: Int
+  arr: [3]Int
+  items: Vec[Int]
+
+fun id(p: !P) -> !P
+  p
+
+fun mk(n: Int) -> P
+  P(x: n, arr: [n, n, n], items: Vec[Int]())
+
+sub main()
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  (!p if d else id(!q)).x = 6
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)

@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main()
+  p = P(x: 1)
+  :out for i in 0..3
+    break :out if (?p).x == i
+  print(p.x)

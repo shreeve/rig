@@ -1,0 +1,13 @@
+struct P
+  x: Int
+  arr: [3]Int
+  v: Vec[Int]
+
+sub show(p: ?P)
+  print(p.x, p.arr[0], p.v.len)
+
+sub main()
+  p = P(x: 1, arr: [1, 2, 3], v: Vec[Int]())
+  !p.v.push(9)
+  (!p).v.push(3)
+  show(?p)

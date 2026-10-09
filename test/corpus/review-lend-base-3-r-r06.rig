@@ -1,0 +1,31 @@
+struct P
+  x: Int
+  name: Text
+  arr: [3]Int
+  items: Vec[Int]
+
+struct H
+  r: ?Vec[Int]
+
+fun sum(xs: []Int) -> Int
+  t = 0
+  for x in xs
+    t += x
+  t
+
+fun wsum(xs: ![]Int) -> Int
+  xs[0] = 100
+  xs[0]
+
+fun show(s: String) -> Int
+  print(s)
+  1
+
+fun cnt(v: ?Vec[Int]) -> Int
+  v.len
+
+sub main()
+  p = P(x: 1, name: Text("nm"), arr: [1, 2, 3], items: Vec[Int]())
+  h = H(r: (?p).items)
+  print(h.r.len)
+  print(p.x, p.arr[0], p.items.len)

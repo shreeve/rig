@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+sub main()
+  p = P(x: 1)
+  t = 1
+  tmp = 2
+  tmp1 = 3
+  tmp2 = 4
+  tmp3 = 5
+  tmp4 = 6
+  print(t, tmp, tmp1, tmp2, tmp3, tmp4)
+  (!P(x: 3)).x = 5

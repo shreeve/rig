@@ -1,0 +1,10 @@
+struct P
+  x: Int
+  arr: [3]Int
+
+sub main()
+  p = P(x: 1, arr: [1, 2, 3])
+  for i in 0..(?p).x
+    print(i)
+  for a in (?p).arr
+    print(a)

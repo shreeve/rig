@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun add(a: Int, b: Int, c: Int, d: Int) -> Int
+  a + b + c + d
+
+sub main()
+  p = P(x: 1)
+  yyyyyyyyyyyyyyyyyyyyyyyyyy = add(1111111111, 2222222222, 3333333333, (?p).x) + add(1111111111, 2222222222, 3333333333, 4)
+  print(yyyyyyyyyyyyyyyyyyyyyyyyyy)

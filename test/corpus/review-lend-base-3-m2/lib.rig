@@ -1,0 +1,6 @@
+pub struct P
+  x: Int
+  items: Vec[Int]
+
+pub fun getn[T](p: ?P, t: T) -> Int
+  (?p).items.len

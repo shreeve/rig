@@ -1,0 +1,8 @@
+A = [1, 2, 3]
+
+struct S
+  x: Int = (?A)[1]
+
+sub main()
+  s = S()
+  print(s.x)

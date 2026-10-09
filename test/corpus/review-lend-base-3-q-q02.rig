@@ -1,0 +1,16 @@
+struct P
+  x: Int
+  o: Int?
+  items: Vec[Int]
+
+fun mk() -> P
+  P(x: 1, o: 2, items: Vec[Int]())
+
+sub main()
+  k = 1
+  c = k == 1
+  _ = c
+  if (!mk()).o as v
+    v += 1
+    print(v)
+  print(k)

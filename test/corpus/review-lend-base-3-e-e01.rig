@@ -1,0 +1,35 @@
+fun dbl(n: Int) -> Int
+  n * 2
+
+fun tpl(n: Int) -> Int
+  n * 3
+
+struct P
+  x: Int
+  items: Vec[Int]
+  s: Text
+  f: fun(Int) -> Int
+
+fun mk(n: Int) -> P
+  v = Vec[Int]()
+  !v.push(n)
+  P(x: n, items: <v, s: Text("hello"), f: dbl)
+
+sub main()
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+  p = mk(1)
+  q = mk(2)
+  v1 = Vec[Int]()
+  !v1.push(7)
+  !v1.push(8)
+  v2 = Vec[Int]()
+  !v2.push(9)
+  !v2.push(10)
+  t1 = Text("abcdef")
+  t2 = Text("uvwxyz")
+  c = true
+  _ = c
+  y = (<(!a if c else !b))[1]
+  print(y)
+  print(a[1], b[1], p.x, q.x, p.items.len, q.items.len, v1.len, v2.len)

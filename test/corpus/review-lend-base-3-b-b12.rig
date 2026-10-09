@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+fun get[T](p: ?P, t: T) -> Int
+  (?p).x
+
+sub main()
+  p = P(x: 1)
+  print(get(?p, 3))

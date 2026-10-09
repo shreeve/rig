@@ -1,0 +1,6 @@
+pub struct P
+  x: Int
+  s: Text
+
+pub fun gets(p: ?P) -> Int
+  (?p).s.len

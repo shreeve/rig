@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  p = lib.P(x: 1, items: Vec())
+  y = (?p).x
+  print(lib.getn(?p, 1), y)

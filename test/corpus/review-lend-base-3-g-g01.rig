@@ -1,0 +1,21 @@
+struct K
+  hits: Cell[Int]
+  log: Cell[Vec[Int]]
+  n: Int
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct N
+  v: Int
+  next: (~N)?
+
+fun made() -> K
+  K(hits: Cell(0), log: Cell(Vec[Int]()), n: 3)
+
+sub main()
+  k = made()
+  h = *N(v: 1, next: none)
+  wk = ~h
+  (?k).hits.set(5)
+  print(k.hits.get(), k.log.len, k.n, h.v)
