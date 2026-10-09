@@ -588,6 +588,15 @@ fn recordKey(node: Sexp) NodeKey {
     return nodeKey(node) orelse std.debug.panic("sema recorded a fact for a node without a node id: {s}", .{if (node.kind()) |k| @tagName(k) else @tagName(node)});
 }
 
+/// The key of a decision about a node (`Question`): its `exprKey`, or, for
+/// a list node a rewrite built without a number, its items' address, which
+/// no other node shares while the tree lives (bit 33 set).
+fn decisionKey(node: Sexp) ?u64 {
+    if (exprKey(node)) |k| return k;
+    if (node != .list) return null;
+    return @as(u64, @intFromPtr(node.list.items().ptr)) | 1 << 33;
+}
+
 /// The key of a fact about an expression, leaf or list node: a leaf's
 /// source position, or a list node's id with bit 32 set. Null for any
 /// other node.
@@ -854,10 +863,68 @@ pub const Question = enum(u8) {
     /// Whether this value is reached where its leaves are
     /// (`storage.reachesLeaf`).
     reaches_leaf,
+    /// Of a `match`: whether it switches on its subject where it is
+    /// (`storage.matchesInPlace`).
+    matches_in_place,
+    /// Of a `match`: whether it reads, writes, or takes its subject
+    /// (`storage.matchMode`).
+    match_mode,
+    /// Of a `match`: whether it reads its subject again after picking an
+    /// arm (`storage.matchRereads`).
+    match_rereads,
+    /// Of a `match`: whether it evaluates its subject first, in a block
+    /// (`storage.matchBlock`).
+    match_block,
+    /// Of a `match`: how `__rig_subject` holds its subject, if it does
+    /// (`storage.subjectHold`).
+    subject_hold,
+    /// Of a `match`: whether its subject is a view a call returns, held as
+    /// a pointer, which it switches on where it points
+    /// (`storage.holdsView`).
+    holds_view,
+    /// Of a read `match`'s catch-all binding: whether it is captured by
+    /// address where the match switches (`storage.catchAllCaptured`).
+    catch_all_by_address,
+    /// Of a payload binding: whether it points at the field it binds
+    /// (`storage.bindsByAddress`).
+    payload_by_address,
+    /// Of a `for`: whether it consumes its source, handing its elements
+    /// over one at a time (`storage.forConsumes`).
+    for_consumes,
+    /// Of a `print`, `Text(...)`, or `add` argument: whether it is read
+    /// by address (`storage.printsByAddress`).
+    print_by_address,
+    /// Of an operand of `==` or `!=` beside `none` or a bare `.variant`:
+    /// whether the test drops it (`storage.dropsWhenTested`).
+    drops_when_tested,
+    /// What an expression hands over (`handsOver`'s kind), which the plan
+    /// decides for every expression (`storage.handsKind`).
+    hands,
+    /// Of a header's subject: whether its block yields the address of the
+    /// place the subject reaches (`storage.headerPoints`).
+    header_points,
+    /// Of an `as` value: whether the binding views the value inside the
+    /// optional (`storage.viewsOptionalValue`).
+    views_optional_value,
+    /// Of a call: whether its arguments are evaluated first, into storage
+    /// (`storage.hoistsArgs`).
+    hoists_args,
+    /// Of a call: how it holds its receiver while its arguments run, if it
+    /// does (`storage.receiverHold`).
+    receiver_hold,
+    /// Of a call: whether its receiver is a temporary the method consumes
+    /// (`storage.consumedTemporary`).
+    consumes_receiver,
+    /// Of a call argument: how a call that evaluates its arguments first
+    /// holds it (`storage.argumentHold`).
+    argument_hold,
+    /// Of an argument, an assigned value, or an index: whether it is pure,
+    /// so it stays where it is (`storage.isPureArg`).
+    pure_arg,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.
-pub const Decision = struct { node: Sexp, answer: u8 };
+pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8 };
 
 /// The `Question`s decided so far. Held behind a pointer, so a pass that
 /// reads the context as constant still records the answer it is first to
@@ -1997,7 +2064,7 @@ pub const SemContext = struct {
     /// The recorded answer to `q` about `node`; null when no pass has
     /// asked it.
     pub fn decision(self: *const SemContext, node: Sexp, q: Question) ?u8 {
-        const d = self.decided.map.get(.{ .node = exprKey(node) orelse return null, .q = q }) orelse return null;
+        const d = self.decided.map.get(.{ .node = decisionKey(node) orelse return null, .q = q }) orelse return null;
         // Two nodes never share a key: the parser numbers each list node,
         // and a rewrite that keeps a number replaces the node it took it
         // from.
@@ -2006,16 +2073,17 @@ pub const SemContext = struct {
         return d.answer;
     }
 
-    /// Record `answer` to `q` about `node`, the first time it is decided,
+    /// Record `answer` to `q` about `node` (in the construct `at`, for a
+    /// question that depends on it), the first time it is decided,
     /// before the plan seals the record. A memo: it changes no fact a pass
     /// reads but this one, so it is written through a constant context.
     /// A node no key names is decided again where it is asked. Running out
     /// of memory here stops the compiler, which keeps the questions
     /// infallible for their many callers.
-    pub fn recordDecision(self: *const SemContext, node: Sexp, q: Question, answer: u8) void {
+    pub fn recordDecision(self: *const SemContext, node: Sexp, at: Sexp, q: Question, answer: u8) void {
         if (self.decided.sealed) return;
-        const key = exprKey(node) orelse return;
-        self.decided.map.put(self.allocator, .{ .node = key, .q = q }, .{ .node = node, .answer = answer }) catch std.debug.panic("out of memory", .{});
+        const key = decisionKey(node) orelse return;
+        self.decided.map.put(self.allocator, .{ .node = key, .q = q }, .{ .node = node, .at = at, .answer = answer }) catch std.debug.panic("out of memory", .{});
     }
 
     /// Emit holds a value of `node` in hidden storage `s`

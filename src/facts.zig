@@ -34,6 +34,7 @@ const storage = @import("storage.zig");
 const resolve = @import("resolve.zig");
 
 const Sexp = parser.Sexp;
+const ir = parser.ir;
 const SemContext = sema.SemContext;
 
 pub const TypeId = sema.TypeId;
@@ -62,6 +63,7 @@ pub const TypedInt = sema.TypedInt;
 pub const ValueParts = sema.ValueParts;
 pub const ArgSlot = sema.ArgSlot;
 pub const Instance = sema.Instance;
+pub const HandsKind = sema.Hands.Kind;
 pub const LeafStep = storage.LeafStep;
 pub const MatchMode = storage.MatchMode;
 pub const ReceiverHold = storage.ReceiverHold;
@@ -247,6 +249,89 @@ pub const Facts = struct {
     /// a recorded decision); null when it was never decided.
     pub fn reachesLeaf(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .reaches_leaf);
+    }
+    /// The decisions about a `match` the checkers made (`storage`): null
+    /// when none did.
+    pub fn matchMode(f: Facts, match: Sexp) ?MatchMode {
+        return storage.decided(f.c(), match, .match_mode);
+    }
+    pub fn matchesInPlace(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .matches_in_place);
+    }
+    pub fn matchRereads(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .match_rereads);
+    }
+    pub fn matchBlock(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .match_block);
+    }
+    /// How `__rig_subject` holds the subject (null inside: not at all).
+    pub fn subjectHold(f: Facts, match: Sexp) ??StorageBy {
+        return storage.decided(f.c(), match, .subject_hold);
+    }
+    pub fn holdsView(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .holds_view);
+    }
+    /// Whether a read match's catch-all binding is captured by address.
+    pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
+        return storage.decided(f.c(), pattern, .catch_all_by_address);
+    }
+    /// Whether a payload binding points at the field it binds.
+    pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
+        return storage.decided(f.c(), b, .payload_by_address);
+    }
+    /// Whether a `print`, `Text(...)`, or `add` argument is read by address
+    /// (`storage.printsByAddress`).
+    pub fn printsByAddress(f: Facts, a: Sexp) ?bool {
+        return storage.decided(f.c(), a, .print_by_address);
+    }
+    /// Whether a test against `none` or a `.variant` drops its operand
+    /// (`storage.dropsWhenTested`).
+    pub fn dropsWhenTested(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .drops_when_tested);
+    }
+    /// What an expression hands over (`sema.handsOver`), as the plan
+    /// decided it for every expression.
+    pub fn handsOver(f: Facts, e: Sexp) ?HandsKind {
+        return storage.decided(f.c(), e, .hands);
+    }
+    /// Whether `e` is read from storage, not made for its context: a
+    /// place, a part of a value made here, or a lend (`Hands.hasStorage`).
+    pub fn hasStorage(f: Facts, e: Sexp) ?bool {
+        const kind = f.handsOver(e) orelse return null;
+        return (sema.Hands{ .kind = kind }).hasStorage();
+    }
+    /// Whether a header's block yields the address of the place its
+    /// subject reaches (`storage.headerPoints`).
+    pub fn headerPoints(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .header_points);
+    }
+    /// Whether an `as` binding views the value inside the optional
+    /// (`storage.viewsOptionalValue`).
+    pub fn viewsOptionalValue(f: Facts, value: Sexp) ?bool {
+        return storage.decided(f.c(), value, .views_optional_value);
+    }
+    /// The decisions about a call the plan made (`storage`): whether it
+    /// evaluates its arguments first, how it holds its receiver and each
+    /// argument, whether it consumes a temporary receiver, and whether an
+    /// argument, an assigned value, or an index is pure.
+    pub fn hoistsArgs(f: Facts, call: Sexp) ?bool {
+        return storage.decided(f.c(), call, .hoists_args);
+    }
+    pub fn receiverHold(f: Facts, call: Sexp) ??ReceiverHold {
+        return storage.decided(f.c(), call, .receiver_hold);
+    }
+    pub fn consumesReceiver(f: Facts, call: Sexp) ?bool {
+        return storage.decided(f.c(), call, .consumes_receiver);
+    }
+    pub fn argumentHold(f: Facts, v: Sexp) ?ArgumentHold {
+        return storage.decided(f.c(), v, .argument_hold);
+    }
+    pub fn isPureArg(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .pure_arg);
+    }
+    /// Whether a `for` consumes its source (`storage.forConsumes`).
+    pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
+        return storage.decided(f.c(), loop, .for_consumes);
     }
     /// Whether a binding is an integer constant the module folds.
     pub fn isConstInt(f: Facts, sym: SymbolId) bool {
@@ -454,59 +539,8 @@ pub const Pending = struct {
         return @ptrCast(@alignCast(p.sema_context));
     }
 
-    pub fn handsOver(p: Pending, e: Sexp) sema.Hands {
-        return sema.handsOver(p.c(), e);
-    }
     pub fn madeLeaves(p: Pending, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
         return storage.madeLeaves(p.c(), a, e, out);
-    }
-    pub fn headerPoints(p: Pending, e: Sexp) bool {
-        return storage.headerPoints(p.c(), e);
-    }
-    pub fn viewsOptionalValue(p: Pending, value: Sexp) bool {
-        return storage.viewsOptionalValue(p.c(), value);
-    }
-    pub fn matchMode(p: Pending, match: Sexp) MatchMode {
-        return storage.matchMode(p.c(), match);
-    }
-    pub fn matchesInPlace(p: Pending, match: Sexp) bool {
-        return storage.matchesInPlace(p.c(), match);
-    }
-    pub fn matchRereads(p: Pending, match: Sexp) bool {
-        return storage.matchRereads(p.c(), match);
-    }
-    pub fn matchBlock(p: Pending, match: Sexp) bool {
-        return storage.matchBlock(p.c(), match);
-    }
-    pub fn subjectHold(p: Pending, match: Sexp) ?StorageBy {
-        return storage.subjectHold(p.c(), match);
-    }
-    pub fn payloadByAddress(p: Pending, b: Sexp, writes: bool, in_place: bool) bool {
-        return storage.payloadByAddress(p.c(), b, writes, in_place);
-    }
-    pub fn catchAllByAddress(p: Pending, ty: TypeId, in_place: bool) bool {
-        return storage.catchAllByAddress(p.c(), ty, in_place);
-    }
-    pub fn hoistsArgs(p: Pending, call: Sexp) bool {
-        return storage.hoistsArgs(p.c(), call);
-    }
-    pub fn receiverHold(p: Pending, call: Sexp) ?ReceiverHold {
-        return storage.receiverHold(p.c(), call);
-    }
-    pub fn argumentHold(p: Pending, v: Sexp) ArgumentHold {
-        return storage.argumentHold(p.c(), v);
-    }
-    pub fn consumedTemporary(p: Pending, call: Sexp) ?Sexp {
-        return storage.consumedTemporary(p.c(), call);
-    }
-    pub fn keptInSlot(p: Pending, e: Sexp) bool {
-        return storage.keptInSlot(p.c(), e);
-    }
-    pub fn hasStorage(p: Pending, e: Sexp) bool {
-        return storage.hasStorage(p.c(), e);
-    }
-    pub fn isPureArg(p: Pending, e: Sexp) bool {
-        return storage.isPureArg(p.c(), e);
     }
     pub fn stepReadsBinding(p: Pending, cond: Sexp, step: Sexp) bool {
         return sema.stepReadsBinding(p.c(), cond, step);
@@ -525,9 +559,6 @@ pub const Pending = struct {
     }
     pub fn actsBeforeStore(_: Pending, target: Sexp, value: Sexp) bool {
         return storage.actsBeforeStore(target, value);
-    }
-    pub fn readByAddress(p: Pending, ty: TypeId) bool {
-        return sema.readByAddress(p.c(), ty);
     }
 };
 
@@ -560,7 +591,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 25;
+const pending_budget = 7;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
@@ -697,6 +728,52 @@ test "Facts reads the leaf walk the storage plan decided" {
     // `r if k else mkr(5)`, with `mkr(5)` made there.
     try std.testing.expectEqual(1, reached);
     try std.testing.expectEqual(1, made);
+}
+
+test "Facts reads every match decision the plan made" {
+    const source =
+        \\enum E
+        \\  a(n: Int, t: Text)
+        \\  b
+        \\
+        \\sub main()
+        \\  e = E.a(n: 1, t: Text("x"))
+        \\  match e
+        \\    .a(n, t) if n > 0 => print(n, t)
+        \\    other => print(other)
+        \\
+    ;
+    const a = std.testing.allocator;
+    var p = parser.Parser.init(a, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    var ctx = try sema.check(a, source, tree, .{});
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+    const f = Facts.of(&ctx);
+    var nodes: std.ArrayList(Sexp) = .empty;
+    defer nodes.deinit(a);
+    try collect(a, tree, &nodes);
+    var matches: usize = 0;
+    for (nodes.items) |n| if (n.isKind(.match)) {
+        matches += 1;
+        try std.testing.expectEqual(MatchMode.read, f.matchMode(n).?);
+        // A name's value is matched where it is.
+        try std.testing.expect(f.matchesInPlace(n).?);
+        try std.testing.expect(f.matchBlock(n).?);
+        try std.testing.expect(!f.holdsView(n).?);
+        try std.testing.expect(f.matchRereads(n) != null and f.subjectHold(n) != null);
+        for (ir.Match.arms(n)) |arm| {
+            const pattern = ir.Arm.pattern(arm);
+            if (pattern == .src) try std.testing.expect(f.catchAllCaptured(pattern) != null);
+            if (pattern.isKind(.variant_pattern)) for (f.payloadBindings(pattern).?) |b| {
+                // `t` is a view of the Text where it is; `n` a copy.
+                const by_addr = f.bindsByAddress(b).?;
+                try std.testing.expectEqual(std.mem.eql(u8, source[b.src.pos..][0..b.src.len], "t"), by_addr);
+            };
+        }
+    };
+    try std.testing.expectEqual(1, matches);
 }
 
 fn collect(a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) !void {

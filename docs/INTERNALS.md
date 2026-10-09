@@ -1038,10 +1038,43 @@ and the checkers all act on are recorded as answered the first time a
 pass asks them (`sema.Question`, `SemContext.decided`): every later
 ask, emit's included, reads the record, so no two passes act on
 different answers. They are `leaf_step`, how the walk that reaches a
-value by address reaches a node (`storage.leafStep`), and
-`reaches_leaf`, whether a value is reached where its leaves are
-(`storage.reachesLeaf`), which the storage plan decides for every
-expression. At its end the plan asks each recorded question again from
+value by address reaches a node (`storage.leafStep`); `reaches_leaf`,
+whether a value is reached where its leaves are (`storage.reachesLeaf`),
+which the storage plan decides for every expression; and, for each
+`match`, how it reaches its subject (`match_mode`), whether it switches
+on it where it is (`matches_in_place`), reads it again
+(`match_rereads`), evaluates it first (`match_block`), holds it in
+`__rig_subject` (`subject_hold`), or switches where a view a call
+returns points (`holds_view`), and for each of its bindings whether it
+is captured by address (`catch_all_by_address`, `payload_by_address`, a
+question about the binding within its match); and for each `for`,
+whether it consumes its source (`for_consumes`: a Vec it takes or its
+source makes that owns resources, or an array of values that move,
+which it takes or its source makes), which emit lowers to a consuming
+loop, the plan gives an iterator and elements, and the ownership checker
+walks as taking the source; and for each argument of `print`,
+`Text(...)`, or `add`, whether it is read where it is, by address
+(`print_by_address`: a function's binding, or a field or element, not a
+slice, of a type read by address), which emit passes as an address. The
+ownership checker holds every place an argument reads in place while the
+later arguments run (`holdRead`), a rule of loans that covers these;
+and for each operand of `==` or `!=` beside `none` or a bare `.variant`,
+whether the test drops it (`drops_when_tested`: a value made there that
+moves and that no statement slot keeps, which `rig.isNone` or
+`rig.isVariantDiscard` drops where it reads it); `hands`, what an
+expression hands over (`sema.handsOver`'s kind), which the plan decides
+for every expression, as `reaches_leaf`; and for each header, whether
+its block yields the address of the place its subject reaches
+(`header_points`), and for an `as`, whether its binding views the value
+inside the optional (`views_optional_value`); and for each call,
+whether it evaluates its arguments first (`hoists_args`), how it holds
+its receiver (`receiver_hold`), whether it consumes a temporary
+receiver (`consumes_receiver`), how it holds each argument
+(`argument_hold`), and whether an argument, an assigned value, or an
+index is pure, staying where it is (`pure_arg`). Typecheck's arm-local
+views and copy requirements, the ownership checker's check of a returned
+view, the storage plan, and emit all read the same records; the plan
+decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
 the facts as they then stand, and an answer that changed is an internal
 error (`storage.verifyDecisions`); then it seals the record, so a
 question asked later, by a classifier emit still calls, is answered but
@@ -2163,6 +2196,12 @@ symbols); a query that decides more than that belongs in `Pending`.
   and evaluates its arguments where they stand. Zig keeps each until its
   statement ends (it emits no lifetime markers), and the ownership
   checker confines every view of one to the statement.
+
+  A payload captured by address from a lend (`?o ?? d` of an optional
+  whose payload is read by address) would be an address no fact names,
+  but typecheck rejects every such lend, as handing over a resource or a
+  type parameter's value from inside a view; emit stops with an internal
+  error there.
 
   It still takes the address of a Zig rvalue in these places, which the
   ownership checker confines to the statement too, but which no storage
