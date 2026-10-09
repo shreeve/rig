@@ -127,5 +127,5 @@ struct PW
 
 sub main()
   k = 5
-  _ = replace(!PW(w: !k).w, !mk(1).n)
+  _ = replace(!PW(w: !k).w, mk(1).n)
   print(k, clobber(1))
