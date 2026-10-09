@@ -1,0 +1,12 @@
+struct H
+  o: (!Int)?
+
+sub main()
+  p = 5
+  h = *H(o: !p)
+  if h.o as k
+    g = |?k| k * 2
+    print(k, g(), [k])
+  while h.o as k
+    print(k)
+    break

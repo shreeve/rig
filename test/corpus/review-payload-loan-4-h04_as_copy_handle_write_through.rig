@@ -1,0 +1,11 @@
+struct H
+  o: (!Int)?
+
+sub main()
+  p = 5
+  h = *H(o: !p)
+  if h.o as k
+    if !h.o as w
+      w = 42
+    print(k)
+  print(p)

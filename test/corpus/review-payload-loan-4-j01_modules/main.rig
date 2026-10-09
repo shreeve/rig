@@ -1,0 +1,34 @@
+use m
+
+sub main()
+  p = m.P(n: 1, t: Text("x"))
+  e = m.E.a(!p)
+  m.poke(!e)
+  c = true
+  f = m.E.b
+  match (!e if c else !f)
+    .a(w)
+      w.n = 50
+      g = |?w| w.n
+      print(g())
+    _ => pass
+  match e
+    .a(w) => print(w.t)
+    _ => pass
+  g1: m.G[Text] = m.G.a(Text("q"))
+  print(m.peek(?g1))
+  o: (!m.E)? = !e
+  if o as x
+    h = |?x| 1
+    print(h())
+  q = m.P(n: 2, t: Text("y"))
+  r = m.E.r(?q)
+  match r
+    .r(z) => print(z.n)
+    _ => pass
+  match getr(?r)
+    .r(z) => print(z.t)
+    _ => pass
+
+fun getr(e: ?m.E) -> ?m.E
+  e

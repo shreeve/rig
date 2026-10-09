@@ -1,0 +1,12 @@
+sub f(o: ?((!Cell[Int])?))
+  if o as k
+    k.set(5)
+  while o as k
+    k.set(k.get() + 1)
+    break
+
+sub main()
+  x = Cell(1)
+  o: (!Cell[Int])? = !x
+  f(?o)
+  print(x.get())

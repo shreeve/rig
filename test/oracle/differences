@@ -61,6 +61,17 @@ test/corpus/review-payload-loan-3-f04b_for_write_break_move.rig main prod-reject
 test/corpus/review-payload-loan-3-j04_writeparam_read_as_write_ok.rig f prod-rejects prod-strict `if o as x` of a `!((!P)?)` parameter, then `x.t = v`, which takes `if !o as x`
 test/corpus/review-payload-loan-3-j05_writeparam_read_as_second.rig f prod-rejects ref-gap two `if o as` bindings of one write view, one written while a view through the other lives
 
+# A match of a branch of write lends (`match (!e if c else !d)`) lends
+# every leaf for as long as its bindings' views live (Core s5), so a view
+# kept across loop passes keeps both lent, though the passes alternate.
+test/corpus/review-payload-loan-4-e15_loop_hold_across.rig main prod-rejects prod-strict `keep = ?r.v[..]` held across passes of `match (!e if i % 2 == 0 else !d)`
+
+# A call whose write arguments can hold views may store one in another
+# (Core s7), so `f(!h1, !h2, true)` keeps `h1` lent while the result of
+# the call could hold what `h2` lent.
+test/corpus/review-payload-loan-4-n02_hint_followthrough_branch_part_fixed.rig main prod-rejects prod-strict `print(h1.w)` after `f(!h1, !h2, true)`, with `f(h1: !H, h2: !H)` able to store `h2.w` in `h1`
+test/corpus/review-payload-loan-4-n03_hint_followthrough_branch_part_alt.rig main prod-rejects prod-strict `print(h1.w)` after `f(!h1, !h2, true)`, with `f(h1: !H, h2: !H)` able to store `h2.w` in `h1`
+
 # A `defer` runs at its scope's exits, after the values declared after
 # it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also
 # checks deferred code where it is written, and its liveness counts

@@ -1,0 +1,31 @@
+pub struct P
+  pub n: Int
+  pub t: Text
+
+pub enum E
+  a(w: !P)
+  r(q: ?P)
+  b
+
+pub enum G[T]
+  a(x: T)
+  b
+
+pub fun getw(e: !E) -> !E
+  e
+
+pub fun peek[T](g: ?G[T]) -> Int
+  match g
+    .a(x)
+      f = |?x| 1
+      f()
+    .b => 0
+
+pub sub poke(e: !E)
+  match getw(!e)
+    .a(w) => w.n += 1
+    _ => pass
+  match e
+    .a(w) => print(w.n)
+    .r(q) => print(q.n)
+    .b => pass

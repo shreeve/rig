@@ -1,0 +1,11 @@
+sub f(o: ?((!Int)?), q: !Int)
+  if o as k
+    q = 1
+    print(k)
+
+sub main()
+  p = 5
+  r = 7
+  o: (!Int)? = !p
+  f(?o, !r)
+  print(p, r)

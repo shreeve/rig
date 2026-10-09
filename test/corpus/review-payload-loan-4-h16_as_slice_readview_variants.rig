@@ -1,0 +1,13 @@
+struct H
+  o: (![]Int)?
+
+sub f(h: ?H)
+  if h.o as s
+    print(s[0], s.len)
+    g = |?s| s.len
+    print(g(), [s[1]])
+
+sub main()
+  arr = [1, 2, 3]
+  h = H(o: !arr[..])
+  f(?h)

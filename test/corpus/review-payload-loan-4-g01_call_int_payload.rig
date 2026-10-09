@@ -1,0 +1,43 @@
+struct P
+  t: Text
+
+enum F
+  a(n: Int)
+  s(t: Text)
+  w(p: !P)
+  v(xs: Vec[Int])
+  b
+
+fun getf(f: !F) -> !F
+  f
+
+sub main()
+  f = F.a(5)
+  match getf(!f)
+    .a(n)
+      n += 10
+    _ => pass
+  print(f)
+  g = F.s(Text("hi"))
+  c = true
+  match (!g if c else !f)
+    .s(t) => !t.add(" there")
+    _ => pass
+  print(g)
+  p = P(t: Text("pp"))
+  h = F.w(!p)
+  match getf(!h)
+    .w(q) => q.t = Text("qq")
+    _ => pass
+  match h
+    .w(q) => print(q.t)
+    _ => pass
+  vv: Vec[Int] = Vec()
+  !vv.push(1)
+  k = F.v(<vv)
+  match getf(!k)
+    .v(xs)
+      xs[0] = 100
+      !xs.push(3)
+    _ => pass
+  print(k)

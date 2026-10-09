@@ -1,0 +1,16 @@
+sub f(a: ?((!Text)?), b: ?((!Text)?), ia: ?((!Int)?), c: Bool)
+  if (a if c else b) as t
+    print(t, t.len)
+    g = |?t| t.len
+    print(g())
+  if ia as k
+    print(k + 1)
+
+sub main()
+  x = Text("aa")
+  y = Text("bbb")
+  n = 41
+  o1: (!Text)? = !x
+  o2: (!Text)? = !y
+  oi: (!Int)? = !n
+  f(?o1, ?o2, ?oi, true)
