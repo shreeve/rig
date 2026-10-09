@@ -39,6 +39,12 @@ test/corpus/review-syntax-b-2-v06_if_bang_as_escape_written.rig f prod-rejects p
 test/corpus/review-syntax-b-2-v09_match_bang_escape_ok.rig main prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
 test/corpus/review-syntax-b-2-v11_if_bang_as_owned_escape.rig main prod-rejects prod-strict `s = keep(r[1..])` of an `if !o as r` binding is used past the `if`
 test/corpus/review-syntax-b-2-v12_match_bang_param_escape.rig f prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
+test/corpus/review-payload-loan-1-v01_return_write_of_payload.rig get prod-rejects prod-strict `!t` of a `match !e` binding returned as `!Text`
+test/corpus/review-payload-loan-1-v02_return_read_of_payload.rig head prod-rejects prod-strict `?t[..3]` of a `match !e` binding returned
+test/corpus/review-payload-loan-1-v04_if_as_return.rig head prod-rejects prod-strict `?t[..3]` of an `if !o as t` binding returned
+test/corpus/review-payload-loan-1-v08_return_whole_view_of_payload.rig peek prod-rejects prod-strict `?t` of a `match !e` binding returned
+test/corpus/review-payload-loan-1-w05_ifas_return_write.rig get prod-rejects prod-strict `!t` of an `if !o as t` binding returned
+test/corpus/review-payload-loan-1-w07_for_return_write.rig first prod-rejects prod-strict `!t` of a `for t in !v` binding returned
 
 # A `defer` runs at its scope's exits, after the values declared after
 # it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also
@@ -46,6 +52,9 @@ test/corpus/review-syntax-b-2-v12_match_bang_param_escape.rig f prod-rejects pro
 # every use in deferred code, so a view whose last use comes before the
 # deferred code runs still holds its loan there.
 test/corpus/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
+test/corpus/review-payload-loan-1-p15_defer_write_after_view.rig main prod-rejects prod-strict `defer !t.add("x")` of a `match !e` binding before `s = ?t[1..]`, whose last use precedes the exit
+test/corpus/review-payload-loan-1-v15_defer_param.rig f prod-rejects prod-strict `defer !t.add("x")` of a `!Text` parameter before `s = ?t[1..]`, whose last use precedes the exit
+test/corpus/review-payload-loan-1-v15b_defer_ifas.rig main prod-rejects prod-strict `defer !t.add("x")` of an `if !o as t` binding before `s = ?t[1..]`, whose last use precedes the exit
 test/corpus/review-step45-k04_defer_elem_write.rig main prod-rejects prod-strict `defer !v[0].add("!")` before `x = ?v[0]`, whose last use precedes the exit
 test/corpus/review-step45-k04b_defer_push_plain.rig main prod-rejects prod-strict `defer !v.push(2)` before `x = ?v`, whose last use precedes the exit
 test/corpus/review-step45-r2-d08_repoint_defer_uses_w.rig main prod-rejects prod-strict the deferred `!w.add("d")` runs at the inner block's end, before `print(b)`
@@ -195,6 +204,7 @@ test/corpus/review-copies-2-q07l-write-catch-same-owner.rig main prod-rejects pr
 test/corpus/review-while-step-w48-grow-then-return-ok.rig run prod-rejects prod-strict `!v.push(2)` before a `return`, while the step reads `h`, a view of `v`
 test/corpus/review-while-step-w32-outer-repoint-after-grow-ok.rig main prod-rejects prod-strict `!v.push(2)` before `s` is re-pointed, where the step reads `s`
 step.vec.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
+test/corpus/review-payload-loan-1-v10_loop_outer_var.rig main prod-rejects prod-strict `!t.add("!")` in a loop, while `s`, declared before it, holds a view of `t` from the same pass
 step.vec.field.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.r`, a view of `v`
 step.vec.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.get()`, a view of `v`
 step.text.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
