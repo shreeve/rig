@@ -692,6 +692,9 @@ pub const Facts = struct {
     /// `E.name` nodes that name a member of an error set `E`, through
     /// its module or an alias (`SemContext.recordErrorMember`).
     error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Variant pattern node -> the binding of each payload field of its
+    /// variant, in field order (`SemContext.payloadBindings`).
+    payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
@@ -1178,6 +1181,8 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
             for (v.type_args) |ty| try w.print(" {s}", .{if (ty == type_invalid) "_" else try formatTypeIn(ctx, a, ty)});
             if (v.receiver_arg) try w.writeAll(" receiver");
         },
+        // A field a pattern leaves out shows as `-`.
+        []const Sexp => for (v) |b| try w.print(" {s}", .{identAt(ctx.source, b) orelse "-"}),
         []const ArgSlot => for (v) |slot| switch (slot) {
             .arg => |i| try w.print(" arg{d}", .{i}),
             .default => try w.writeAll(" default"),
@@ -2059,6 +2064,23 @@ pub const SemContext = struct {
     pub fn headerOf(self: *const SemContext, node: Sexp) ?Header {
         const fact = self.facts.headers.get(nodeKey(node) orelse return null) orelse return null;
         return fact.how;
+    }
+
+    /// The variant pattern `pattern` binds, for each payload field of its
+    /// variant in field order, `binds[i]`: a name leaf, `_`, or `.nil` for
+    /// a field a pattern that binds by name leaves out.
+    pub fn recordPayloadBindings(self: *SemContext, pattern: Sexp, binds: []const Sexp) !void {
+        try self.facts.payload_binds.put(self.allocator, recordKey(pattern), binds);
+    }
+
+    /// The binding of each payload field of the variant `pattern` matches,
+    /// in field order (`recordPayloadBindings`): `.rect(w: a)` binds
+    /// `rect(w, h)`'s fields as `.rect(a, _)` does, with `.nil` for `_`.
+    /// Null for a pattern the checker rejected, or that binds nothing.
+    /// Every pass that pairs a pattern's bindings with the fields they
+    /// bind reads this.
+    pub fn payloadBindings(self: *const SemContext, pattern: Sexp) ?[]const Sexp {
+        return self.facts.payload_binds.get(nodeKey(pattern) orelse return null);
     }
 
     /// The value made there that the header `node` holds for its
@@ -5288,6 +5310,13 @@ fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
 // IR helpers shared by the sema passes
 // =============================================================================
 
+/// The name a variant pattern's binding `b` binds: `b` itself, or the
+/// name of `(kwarg field name)`, a field bound by name. Which field each
+/// binds is `SemContext.payloadBindings`.
+pub fn bindingName(b: Sexp) Sexp {
+    return if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b;
+}
+
 pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
     return switch (sexp) {
         .src => |s| source[s.pos..][0..s.len],
@@ -7550,7 +7579,7 @@ const Coverage = struct {
                     self.expr(ir.Match.subject(e));
                     for (ir.Match.arms(e)) |arm| {
                         const pat = ir.Arm.pattern(arm);
-                        if (pat.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pat)) |b| self.expectName(b);
+                        if (pat.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pat)) |b| self.expectName(bindingName(b));
                         if (ir.Arm.guard(arm) != .nil) self.expr(ir.Arm.guard(arm));
                         self.expr(ir.Arm.body(arm));
                     }

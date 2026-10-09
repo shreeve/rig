@@ -1,0 +1,18 @@
+# A pattern that binds in order binds every field of the variant.
+
+enum Shape
+  rect(w: Int, h: Int)
+  point
+
+sub main()
+  s: Shape = .rect(w: 1, h: 2)
+  match s
+    .rect(a) => print(a)
+    _ => pass
+  match s
+    .rect(a, b, c) => print(a, b, c)
+    _ => pass
+
+# error: 10:6: variant `rect` has 2 payload fields, pattern destructures 1; bind them all in order, or the ones you need by name: `.rect(w: x)`
+# error: 13:6: variant `rect` has 2 payload fields, pattern destructures 3
+# errors: 2

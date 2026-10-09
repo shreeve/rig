@@ -549,7 +549,8 @@ const SymbolResolver = struct {
             defer seen.deinit(self.ctx.allocator);
             for (ir.AltPattern.alts(pattern)) |alt| {
                 const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (patternBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
-                for (binds) |b| {
+                for (binds) |bound| {
+                    const b = sema.bindingName(bound);
                     const name = identAt(self.ctx.source, b) orelse continue;
                     if ((try seen.getOrPut(self.ctx.allocator, name)).found_existing) continue;
                     _ = try self.bindFresh(b, "pattern binding");
@@ -561,9 +562,7 @@ const SymbolResolver = struct {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
             .list => if (pattern.isKind(.variant_pattern)) {
-                // A field bound by name (`w: a`, which the checker rejects)
-                // still binds its name.
-                for (ir.VariantPattern.bindings(pattern)) |b| _ = try self.bindFresh(if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b, "pattern binding");
+                for (ir.VariantPattern.bindings(pattern)) |b| _ = try self.bindFresh(sema.bindingName(b), "pattern binding");
             },
             else => {},
         }

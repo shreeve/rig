@@ -2561,7 +2561,7 @@ pub const Emitter = struct {
             } else {
                 try self.writePatternHead(pattern, info);
                 try self.w.writeAll(" => ");
-                const captures: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else &.{};
+                const captures: []const Sexp = if (pattern.isKind(.variant_pattern)) self.sema.payloadBindings(pattern) orelse &.{} else &.{};
                 const vname: []const u8 = if (pattern.isKind(.variant_pattern) or pattern.isKind(.enum_lit)) self.srcText(ir.get(pattern, .name)) else "";
                 if (info.mode == .consume) {
                     // The arm owns the value: each field is bound or
@@ -2905,7 +2905,7 @@ pub const Emitter = struct {
         if (!pattern.isKind(.variant_pattern)) return;
         const vname = self.srcText(ir.VariantPattern.name(pattern));
         const fields = self.variantPayload(info.ty.?, vname) orelse return self.unsupported(pattern, "this payload pattern");
-        for (ir.VariantPattern.bindings(pattern), fields) |b, f| {
+        for (self.sema.payloadBindings(pattern) orelse &.{}, fields) |b, f| {
             const sym = self.sema.symbolOf(b) orelse continue;
             if (!self.usesSymbol(guard, sym)) continue;
             const local = self.payloadLocal(b) orelse continue;
@@ -2940,7 +2940,7 @@ pub const Emitter = struct {
             } else if (pattern.isKind(.variant_pattern)) {
                 const vname = self.srcText(ir.VariantPattern.name(pattern));
                 const fields = self.variantPayload(info.ty.?, vname) orelse &.{};
-                prelude = try self.consumedPayload(ir.VariantPattern.bindings(pattern), fields, try self.fmt("{s}.{f}", .{ whole, ident(vname) }), body);
+                prelude = try self.consumedPayload(self.sema.payloadBindings(pattern) orelse &.{}, fields, try self.fmt("{s}.{f}", .{ whole, ident(vname) }), body);
             } else prelude = try self.ownedParts(&.{.nil}, &.{.{ .expr = whole }}, body);
             prelude.head = head;
             return prelude;
@@ -2951,7 +2951,8 @@ pub const Emitter = struct {
         }
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(ir.VariantPattern.name(pattern));
-        return .{ .aliases = try self.payloadAliases(ir.VariantPattern.bindings(pattern), info, vname, .{ .expr = try self.fmt("{s}.{f}", .{ subj, ident(vname) }) }, body) };
+        const captures = self.sema.payloadBindings(pattern) orelse return .{};
+        return .{ .aliases = try self.payloadAliases(captures, info, vname, .{ .expr = try self.fmt("{s}.{f}", .{ subj, ident(vname) }) }, body) };
     }
 
     /// A payload binding: `const zig_name = payload.field`, or of

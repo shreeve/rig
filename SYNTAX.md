@@ -1472,6 +1472,7 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `E.name`, `m.E.name` | a member of error set `E` (of module `m`); a variant of an enum is written `.name` |
 | `.name(a, b)` | a payload variant, binding its fields in order |
 | `.name(_, b)` | a payload variant, ignoring a field |
+| `.name(f: a)` | a payload variant, binding the fields it names, in any order; the rest are not bound |
 | `42`, `-1`, `true` | a literal |
 | `lo..hi` | an integer from `lo` up to, not including, `hi` |
 | `_` | everything else |
@@ -1481,8 +1482,9 @@ expression, or a `return` value. A `raw` block may yield a value too.
 
 A pattern is one of these, never a string or a float, and never a
 module's constant (`lib.LIMIT`), which an arm compares with in a guard:
-`x if x == lib.LIMIT =>`. Binding a payload field by name
-(`.rect(w: a, h: b)`) is reserved, and rejected as not supported yet ([SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)).
+`x if x == lib.LIMIT =>`. A pattern binds a variant's fields either in
+order, all of them, or by name, any of them: `.rect(w, h)` or
+`.rect(h: tall)`, never `.rect(w, h: tall)`.
 
 ---
 

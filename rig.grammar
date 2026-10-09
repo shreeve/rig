@@ -786,9 +786,10 @@ patatom  = name
 
 pqual    = object:name "." name:name                → (member)
 
-# A payload field is bound by position (`.rect(w, h)`) or, reserved for
-# the checker to reject, by name (`.rect(w: a)`). Written out rather
-# than `L(pbind)`, which conflicts with a trailing comma.
+# A payload field is bound by position (`.rect(w, h)`) or by name
+# (`.rect(w: a)`); the checker rejects a pattern that mixes the two.
+# Written out rather than `L(pbind)`, which conflicts with a trailing
+# comma.
 pbinds   = pbind                                    → (1)
          | pbinds "," pbind                         → (...1 3)
 
