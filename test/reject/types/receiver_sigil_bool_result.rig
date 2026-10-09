@@ -33,7 +33,7 @@ sub main()
   if !set.insert(8) == false
     print("seen")
   e = true and !set.insert(9) == true
-  f = not !set.insert(10) == true
+  f = not (!set.insert(10) == true)
   print("x") if !set.insert(11) != false
   g = 1 if !set.insert(12) == true else 2
   print(e, f, g)
@@ -47,6 +47,6 @@ sub main()
 # error: 30:12: write `(!set).insert(7)`: a write call whose value is used puts its `!` in parentheses
 # error: 33:6: write `(!set).insert(8)`: a write call whose value is used puts its `!` in parentheses
 # error: 35:16: write `(!set).insert(9)`: a write call whose value is used puts its `!` in parentheses
-# error: 36:11: write `(!set).insert(10)`: a write call whose value is used puts its `!` in parentheses
+# error: 36:12: write `(!set).insert(10)`: a write call whose value is used puts its `!` in parentheses
 # error: 37:17: write `(!set).insert(11)`: a write call whose value is used puts its `!` in parentheses
 # error: 38:12: write `(!set).insert(12)`: a write call whose value is used puts its `!` in parentheses

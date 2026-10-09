@@ -2214,7 +2214,7 @@ sub main()
 sub main()
   a = 7
   print(-7 / 2, -7 % 2, a & 3, a << 2, a ^ 1)
-  print(not a == 3, a > 3 and a < 10, false or true)
+  print(not (a == 3), a > 3 and a < 10, false or true)
   print(1 if a > 5 else 2)
 ```
 
