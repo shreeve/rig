@@ -5401,14 +5401,26 @@ const Checker = struct {
     }
 
     /// Whether a slice of a value of type `obj_ty` lends that value, as
-    /// `?xs[a..b]` (Core §4): a slice of an array, a Vec, a Text, or a
-    /// `![]T`. A slice of a String or a `[]T`, or of a view of a Text,
-    /// views what that value views, and is a value of its own.
+    /// `?xs[a..b]` does (Core §4), so that nothing frees or overwrites
+    /// what the slice views while it is used. Decided here, once, for
+    /// every slice, written `?` or not, an argument or bound, by what
+    /// holds the elements and how it is reached:
+    /// - the elements of an array or a Vec, owned or through any view,
+    ///   box, or handle: lent;
+    /// - the elements a `![]T` views, which it writes: lent;
+    /// - the bytes of a Text, owned, in a box or a `*T`, or through a
+    ///   write view of one, which may add to the Text or replace it:
+    ///   lent;
+    /// - the bytes of a Text through a read view (`?Text`, `?*Text`,
+    ///   `?Box[Text]`), which cannot change while that view's loan
+    ///   lives, and the slice carries it: not lent, a String of its own;
+    /// - what a String or a `[]T` views, which writing the String or the
+    ///   `[]T` itself does not free: not lent.
     fn sliceLendsObject(self: *Checker, obj_ty: TypeId) bool {
         if (sema.writeSliceElem(self.ctx, obj_ty) != null) return true;
         return switch (self.ctx.types.get(textOrBoxed(self.ctx, sema.unwrapViews(self.ctx, obj_ty)))) {
             .string, .slice => false,
-            .text => !sema.isReadOrWriteView(self.ctx, obj_ty),
+            .text => self.ctx.types.get(obj_ty) != .read_view,
             else => true,
         };
     }

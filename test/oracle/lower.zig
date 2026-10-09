@@ -1518,6 +1518,16 @@ const Lowerer = struct {
         };
     }
 
+    /// Whether a slice of a value of type `ty` slices a String, itself
+    /// or through a write view.
+    fn slicesString(self: *Lowerer, ty: TypeId) bool {
+        const t = switch (self.ctx.types.get(ty)) {
+            .write_view => |inner| inner,
+            else => ty,
+        };
+        return self.ctx.types.get(t) == .string;
+    }
+
     fn innerOf(self: *Lowerer, ty: TypeId) Error!TypeId {
         return switch (self.ctx.types.get(ty)) {
             .write_view, .read_view => |t| t,
@@ -1986,8 +1996,10 @@ const Lowerer = struct {
         const pos = self.posOf(e);
         const info = try self.kinds.of(p.ty);
         if (info.unsupported) |why| return abstain(why);
-        // A bare slice of a place lends it (Core §4).
-        if (p.slice and p.via == .own) return try self.lend(p, .read, e, p.ty);
+        // A bare slice of a place lends it (Core §4), and so does one
+        // through a write view, which may change or replace what the
+        // slice views; a slice of a String copies the view it is.
+        if (p.slice and (p.via == .own or (p.via == .write and !self.slicesString(p.slice_of)))) return try self.lend(p, .read, e, p.ty);
         // A value holding a write view moves as an owner does (Core §1);
         // the compiler lends one on where it is handed over bare, which
         // the oracle does not model.

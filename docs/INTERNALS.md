@@ -1090,10 +1090,17 @@ value is lent to read where it is, as `?e` would lend it (Core sentence
 (`Checker.view_arg`), and records the lend as implicit
 (`Lend.implicit`, and the use `lend`, `recordImplicitLend`). A slice is
 lent the way its name is: a slice argument written with no lend,
-`xs[a..b]` of an array, a Vec, a Text, or a `![]T`
-(`sliceLendsObject`), desugars to `?xs[a..b]` where its parameter
-takes the read view that makes (a `[]T` or a String, or an optional of
-one). `synthSlice` types it as that lend, whose own rows are the
+`xs[a..b]` of an array, a Vec, a Text, or a `![]T`, desugars to
+`?xs[a..b]` where its parameter takes the read view that makes (a `[]T`
+or a String, or an optional of one). Whether a slice lends what it
+slices is decided once, for every slice, written or not, bound or an
+argument (`sliceLendsObject`), by what holds the elements: an array's
+or a Vec's, however reached, a `![]T`'s, and a Text's, owned, boxed,
+behind a `*T`, or through a write view of one, which may add to it or
+replace it, are lent; a Text's through a read view, which cannot change
+while that view's loan lives, and what a String or a `[]T` views, are
+not: the slice is a value carrying the view's loans. `synthSlice` types
+it as that lend, whose own rows are the
 slice's (`sliceLendOf`), and the same branch records it implicit with no
 rows: it is the view already. The ownership checker walks an implicit
 lend with no rows as `?e` (`walkImplicitLend`), so the slice is walked

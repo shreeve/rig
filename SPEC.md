@@ -4804,6 +4804,7 @@ Text. A `String` is the view of text; a Text is where text is built.
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t` where a String or `String?` is expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
 | a view `p: ?Text` (a name, or a call's result) where a String is expected | its bytes; `p[a..b]` is a view of them, with no further `?` |
+| a write view `w: !Text` (also of a `*Text` or a `Box[Text]`) | `?w[a..b]`, which lends `w`, as a slice of the Text itself does: `w` may add to the Text or replace it |
 | `for b in t`, `for b in ?t` | its bytes, as `U8`s |
 | `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
 | `+t` | a new Text holding the same bytes |
