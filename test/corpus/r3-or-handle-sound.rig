@@ -27,21 +27,21 @@ sub boxes()
   a = *<u
   b = +a
   show(?a)
-  -a
+  <a
   print(b.name)
 
 sub view_of_contents()
   a = *User(name: "bob")
   r = ?a.name
   b = +a
-  -b
+  <b
   print(r)
 
 sub clone_outlives()
   a = *User(name: "cy")
   b = +a
   w = ~a
-  -a
+  <a
   if w.upgrade() as h
     print(h.name)
   print(b.name)
@@ -52,15 +52,15 @@ sub carries_then_done()
   h = *Holder(r: ?v)
   g = +h
   print(g.r.len, h.r.len)
-  -h
-  -g
+  <h
+  <g
   !v.push(2)
   print(v.len)
 
 sub weak_after_drop()
   a = *User(name: "dee")
   w = ~a
-  -a
+  <a
   if w.upgrade() as h
     print("still", h.name)
   else

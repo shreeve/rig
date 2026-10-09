@@ -11,5 +11,5 @@ sub main()
   c = Cur(items: !v)
   a = at(!c)
   a = 5
-  -c
+  <c
   print(v, a)

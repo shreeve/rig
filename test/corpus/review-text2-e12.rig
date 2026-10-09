@@ -6,5 +6,5 @@ sub main()
   cv: Cell[Vec[String]] = Cell(Vec())
   cv.push("lit")
   put(?cv, ?t[..3])
-  -t
+  <t
   print(cv[0])

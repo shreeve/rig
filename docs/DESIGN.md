@@ -218,7 +218,7 @@ sub main()
   first = +shared.node         # clone the handle in a field: *Node
   print(id_of(?first))         # lend the handle: ?*Node
   w = ~first                   # weaken it: ~Node
-  -first
+  <first
   if w.upgrade() as n          # the way back is a method: *Node?
     print("alive", n.id)
 ```

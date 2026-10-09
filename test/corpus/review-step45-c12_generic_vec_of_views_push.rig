@@ -7,5 +7,5 @@ sub main()
   v: Vec[String] = Vec()
   s: String = ?t
   add(!v, s)
-  -t
+  <t
   print(v)

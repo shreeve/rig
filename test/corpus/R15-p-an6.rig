@@ -3,4 +3,4 @@ sub main()
   !v.push(1)
   w = !v[..]
   defer w[0] = 5
-  -v
+  <v

@@ -5,6 +5,6 @@ sub main()
   h = *Text("abc")
   g = +h
   r = first(h)
-  -h
+  <h
   print(r)
   print(g)

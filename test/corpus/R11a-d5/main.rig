@@ -9,5 +9,5 @@ struct Res
 sub main()
   r = Res(n: 1)
   v = lib.pairs(?r, Res(n: 2))
-  -r
+  <r
   print(v.first.n)

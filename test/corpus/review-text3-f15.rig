@@ -8,5 +8,5 @@ sub main()
   cv.push("lit")
   cv[0] = ?b[..]
   cv.push(?b)
-  -b
+  <b
   print(x.s)

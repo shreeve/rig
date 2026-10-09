@@ -7,7 +7,7 @@ struct Wrap
 sub main()
   rc = *Wrap(value: 1)
   rc2 = rc
-  -rc2
-  -rc
+  <rc2
+  <rc
 
 # error: bare use of shared (`*T`) handle `rc` in binding would alias the handle

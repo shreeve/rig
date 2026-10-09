@@ -8,5 +8,5 @@ sub main()
   !u.push(3)
   b.w = <u
   print(b.w.len)
-  -b
+  <b
   print(v.len)

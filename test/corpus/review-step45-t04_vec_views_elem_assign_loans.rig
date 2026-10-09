@@ -5,5 +5,5 @@ sub main()
   w: Vec[String] = Vec()
   !w.push(?t)
   w[0] = ?u
-  -u
+  <u
   print(w)

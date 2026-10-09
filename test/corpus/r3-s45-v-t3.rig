@@ -6,7 +6,7 @@ sub main()
   !v.push(!a)
   !v.push(!b)
   !v.push(!c)
-  -v
+  <v
   print(c)
   print(b)
   print(a)

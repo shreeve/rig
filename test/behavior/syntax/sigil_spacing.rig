@@ -26,7 +26,7 @@ sub main()
   t = +s              # clone
   u = <s              # move
   print(u.v)
-  -u                  # drop statement
+  <u                  # drop statement
   print(t.v)
   box = Wrap(v: 1)
   print(show(?box))   # read view

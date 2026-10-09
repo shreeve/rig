@@ -22,19 +22,19 @@ sub main()
   t = Text("abc")
   s = ?t[..2]
   print(s)
-  -s
+  <s
   !t.add("d")
   it = split(?t)
   if !it.next() as first
     print(first)
-  -it
+  <it
   !t.add("e")
   p = Pair(a: ?t[1..], b: 1)
   print(p.a, p.b)
-  -p
+  <p
   !t.clear()
   lit = "hi"
-  -lit
+  <lit
   print(t.len)
 
 # expect:

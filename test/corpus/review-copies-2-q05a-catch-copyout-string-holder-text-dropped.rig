@@ -14,5 +14,5 @@ sub main()
   n = N(s: ?t, k: 1)
   b = N(s: "zz", k: 2)
   c: N = get(?n, true) catch ?b
-  -t
+  <t
   print(c.s, c.k)

@@ -18,13 +18,13 @@ struct Holder
 sub drop_while_viewed()
   a = *User(name: "bob")
   r = ?a.name
-  -a
+  <a
   print(r)
 
 sub lend_then_drop()
   a = *User(name: "eve")
   u = ?a
-  -a
+  <a
   print(u.name)
 
 sub clone_carries()
@@ -32,7 +32,7 @@ sub clone_carries()
   !v.push(1)
   h = *Holder(r: ?v)
   g = +h
-  -h
+  <h
   !v.push(2)
   print(g.r.len)
 
@@ -42,7 +42,7 @@ sub weak_carries()
   h = *Holder(r: ?v)
   g = +h
   w = ~h
-  -h
+  <h
   !v.push(2)
   if w.upgrade() as k
     print(k.r.len)

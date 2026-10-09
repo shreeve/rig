@@ -7,7 +7,7 @@ fun f(x: Int, c: Bool) -> Int
 
 fun g(x: Int, c: Bool) -> Int
   if c
-    -x
+    <x
   else
     x
   0

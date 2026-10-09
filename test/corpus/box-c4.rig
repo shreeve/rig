@@ -15,4 +15,4 @@ sub main()
   print(h.b.get(), h)
   h.b = Box(value: Wrap(v: 1))
   print(h.b.v)
-  -h
+  <h

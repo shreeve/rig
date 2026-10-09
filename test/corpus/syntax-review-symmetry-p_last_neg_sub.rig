@@ -4,7 +4,7 @@ struct R
     print("drop", self.n)
 
 fun f(r: R) -> Int
-  -r
+  <r
   3
 
 sub main()

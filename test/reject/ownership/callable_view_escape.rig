@@ -43,7 +43,7 @@ sub main()
   r = Res(id: 1)
   m = |<r, a: Int| a + r.id
   p = pick(?m, double, true)
-  -m
+  <m
   print(p(2))
   c: Vec[Int] = Vec()
   each(?c, |!c, n|

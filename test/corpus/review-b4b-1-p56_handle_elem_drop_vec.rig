@@ -11,6 +11,6 @@ sub main()
   !hs.push(*E.a(t: Text("x")))
   match hs[idx(?Text("a"))]
     .a(t)
-      -hs
+      <hs
       print(t)
     .b => pass

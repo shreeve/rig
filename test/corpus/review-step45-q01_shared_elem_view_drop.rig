@@ -7,5 +7,5 @@ sub main()
   !v.push(Text("a"))
   h = *S(v: <v)
   r = ?h.v[0]
-  -h
+  <h
   print(r)

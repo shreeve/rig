@@ -114,7 +114,7 @@ struct Config
 sub main()
   a = *Config(level: 3)
   b = +a
-  -a
+  <a
   print("still here:", b.level)
 ```
 

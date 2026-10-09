@@ -4,6 +4,6 @@ sub main()
   b = +a
   c = [Box(1), Box(2)]
   d = +c
-  -a
-  -c
+  <a
+  <c
   print(b, d)

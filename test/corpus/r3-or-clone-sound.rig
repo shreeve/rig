@@ -12,7 +12,7 @@ sub of_owner()
   !v.push(1)
   w = +v
   !v.push(2)
-  -v
+  <v
   print(w)
 
 sub of_made()

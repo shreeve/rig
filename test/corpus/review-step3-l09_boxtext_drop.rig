@@ -4,5 +4,5 @@ fun keep(s: String) -> String
 sub main()
   b = Box(Box(Text("abc")))
   s = keep(?b)
-  -b
+  <b
   print(s)

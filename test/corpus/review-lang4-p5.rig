@@ -7,5 +7,5 @@ sub main()
   !hs.push(H(w: !n))
   hs[0].w += 1
   hs[0].w = 7
-  -hs
+  <hs
   print(n)

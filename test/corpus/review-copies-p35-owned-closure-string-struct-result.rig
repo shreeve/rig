@@ -7,5 +7,5 @@ sub main()
   f = *|s: String| P(s: s)
   t = Text("a long heap allocated text here")
   p = f(?t)
-  -t
+  <t
   print(p.s)

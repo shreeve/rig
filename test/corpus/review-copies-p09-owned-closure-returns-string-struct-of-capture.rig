@@ -7,5 +7,5 @@ sub main()
   t = Text("hello world, a heap string")
   f = *|<t| P(s: ?t)
   p = f()
-  -f
+  <f
   print(p.s)

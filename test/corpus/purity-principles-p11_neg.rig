@@ -6,7 +6,7 @@ fun f(x: Int, c: Bool) -> Int
 
 sub g(x: Int, c: Bool)
   if c
-    -x
+    <x
   print("g")
 
 sub main()

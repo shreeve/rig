@@ -3,5 +3,5 @@ sub main()
   !v.push(1)
   f = |?v| print(v.len)
   errdefer f()
-  -v
+  <v
   print(1)

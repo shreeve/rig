@@ -7,6 +7,6 @@ sub main()
   h = H(w: !inner)
   t = Text("x")
   !h.w.push(?t)
-  -h
-  -t
+  <h
+  <t
   print(inner)

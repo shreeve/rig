@@ -5,5 +5,5 @@ sub main()
   name = "name"
   key = Text(name, "=")
   v = text.strip_prefix(?line, ?key) ?? ""
-  -key
+  <key
   print(v)

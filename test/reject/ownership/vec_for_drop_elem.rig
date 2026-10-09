@@ -8,6 +8,6 @@ sub main()
   !subs.push(+cb1)
 
   for cb in ?subs
-    -cb
+    <cb
 
 # error: cannot drop loop view `cb`

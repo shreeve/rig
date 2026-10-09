@@ -7,5 +7,5 @@ sub main()
   w = !p
   b = V(n: 2)
   w = ?b
-  -b
+  <b
   print(p.n)

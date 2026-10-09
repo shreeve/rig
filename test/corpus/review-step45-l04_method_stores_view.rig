@@ -9,5 +9,5 @@ sub main()
   b = Bag(items: Vec())
   t = Text("x")
   !b.add(?t)
-  -t
+  <t
   print(b.items)

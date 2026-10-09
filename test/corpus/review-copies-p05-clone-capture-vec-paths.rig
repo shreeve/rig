@@ -23,14 +23,14 @@ sub many()
   hs: Vec[*N] = Vec()
   !hs.push(*N(v: 7))
   f = |+hs| hs[0].v
-  -hs
+  <hs
   print(f(), f(), f())
 
 sub main()
   g = build()
   print(g(), g())
   h = +g
-  -g
+  <g
   print(h())
   unused()
   many()

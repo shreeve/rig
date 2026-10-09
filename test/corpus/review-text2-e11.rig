@@ -3,6 +3,6 @@ sub main()
   cv: *Cell[Vec[String]] = *Cell(Vec())
   keep = +cv
   cv.push(?t[..3])
-  -cv
-  -t
+  <cv
+  <t
   print(keep[0])

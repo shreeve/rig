@@ -11,6 +11,6 @@ sub main()
   hs = [+h, +h]
   match hs[idx(?Text("a"))]
     .a(t)
-      -h
+      <h
       print(t)
     .b => pass

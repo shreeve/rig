@@ -173,7 +173,7 @@ sub main()
   archive(<log)
   cfg = *File(name: "cfg.toml")
   cfg2 = +cfg
-  -cfg
+  <cfg
   print("still open:", cfg2.name)
 ```
 

@@ -19,7 +19,7 @@ sub main()
   take_int(5)
   rc = make_rc()
   print(rc.v)
-  -rc
+  <rc
   print("end")
 
 # expect:

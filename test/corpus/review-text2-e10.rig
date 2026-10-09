@@ -8,6 +8,6 @@ sub main()
   cv = mk()
   keep = +cv
   cv[0] = ?t[..3]
-  -cv
-  -t
+  <cv
+  <t
   print(keep[0])

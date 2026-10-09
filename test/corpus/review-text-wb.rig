@@ -10,5 +10,5 @@ sub main()
   !toks.push(tok("num", 1))
   !toks.push(tok("op", 2))
   k = toks[0].kind
-  -toks
+  <toks
   print(k)

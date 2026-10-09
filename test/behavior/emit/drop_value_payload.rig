@@ -14,7 +14,7 @@ sub main()
   s: S = .one(a: B(n: 1))
   match <s
     .one(a)
-      -a
+      <a
       print("dropped")
     .empty => print(0)
   print("end")

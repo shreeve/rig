@@ -16,4 +16,4 @@ sub main()
     print(x.n)
   else
     h = H(r: none)
-  -h
+  <h

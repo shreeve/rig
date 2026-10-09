@@ -8,5 +8,5 @@ sub main()
   t = Text("a heap allocated text that is long")
   s = S(s: ?t)
   c = keep(?s)
-  -t
+  <t
   print(c.s)

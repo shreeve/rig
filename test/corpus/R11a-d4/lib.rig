@@ -3,7 +3,7 @@ error Oops
 
 pub fun check[T](x: T, ok: Bool) -> T!
   if not ok
-    -x
+    <x
     return Oops.bad
   x
 

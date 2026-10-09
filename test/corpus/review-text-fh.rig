@@ -6,5 +6,5 @@ sub main()
   o = ?e[..]
   for x in [?v[..], ?v[..1]]
     o = x
-  -v
+  <v
   print(o)

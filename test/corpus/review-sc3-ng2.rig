@@ -6,4 +6,4 @@ struct Res
 
 sub main()
   a = Res(id: 1)
-  -a
+  <a

@@ -6,5 +6,5 @@ sub main()
   t = Text("hello")
   v: Vec[String] = Vec()
   keep(!v, ?t)
-  -t
+  <t
   print(v)

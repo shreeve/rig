@@ -8,4 +8,4 @@ sub main()
   !w.push(Text("b"))
   old = c.replace(<w)
   print(old)
-  -old
+  <old

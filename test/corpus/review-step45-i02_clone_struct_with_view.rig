@@ -7,5 +7,5 @@ sub main()
   t = Text("viewed")
   s = S(own: Text("own"), see: ?t)
   c = +s
-  -s
+  <s
   print(c.own, c.see)

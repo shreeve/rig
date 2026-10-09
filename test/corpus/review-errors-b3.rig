@@ -17,5 +17,5 @@ sub main()
   !v.push(.full)
   !v.push(none)
   print(h, v, [Disk.full])
-  -v
+  <v
   print(x)

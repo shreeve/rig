@@ -25,7 +25,7 @@ sub main()
   sh = *Holder(s: .full(*Tok(n: 2)))
   match sh.s
     .full(t)
-      -t
+      <t
     .empty => print("empty")
 
 # error: cannot move out of `t`: it is a view of `h`

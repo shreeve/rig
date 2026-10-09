@@ -229,7 +229,7 @@ struct File
 sub main()
   a = File(name: "a.txt")
   b = <a
-  -b
+  <b
   print("end")
 ```
 
@@ -511,7 +511,7 @@ sub main()
   w = ~a
   if w.upgrade() as h
     print(h.name)
-  -a
+  <a
   if w.upgrade() as h
     print("still here")
   else

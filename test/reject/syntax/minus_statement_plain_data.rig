@@ -16,11 +16,11 @@ sub main()
   p = P(x: 1)
   o: Int? = 1
   k = Color.red
-  -n
-  -x
-  -p
-  -o
-  -k if true
+  <n
+  <x
+  <p
+  <o
+  <k if true
   print("end")
 
 # errors: 5

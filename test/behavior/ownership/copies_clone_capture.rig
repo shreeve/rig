@@ -52,7 +52,7 @@ sub main()
   hs = [*N(v: 1), *N(v: 2)]
   c = |+hs| hs[0].v + hs[1].v
   print(c())
-  -hs
+  <hs
   print(c())
   s = S(r: ?v)
   l = |+s| s.r.len

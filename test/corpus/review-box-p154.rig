@@ -9,5 +9,5 @@ sub main()
   print(r.len)
   c = Box(value: P(v: Vec()))
   s = !c.v
-  -c
+  <c
   !s.push(3)

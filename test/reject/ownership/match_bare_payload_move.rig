@@ -30,7 +30,7 @@ sub main()
     .empty => print(0)
   t: Slot = .tagged(box: *B(n: 3), tag: 4)
   match t
-    .tagged(box, _) => -box
+    .tagged(box, _) => <box
     .empty => print(0)
   g = get(.some(v: *B(n: 5)), *B(n: 6))
   print(g.n)

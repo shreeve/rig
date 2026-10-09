@@ -1339,7 +1339,7 @@ sub main()
   b = Cell[Held](*none)
   print(a.replace(none) == none)
   old = b.replace(*none)
-  -old
+  <old
 ```
 
 ```output

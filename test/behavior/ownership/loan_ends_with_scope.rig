@@ -12,7 +12,7 @@ sub main()
   if true
     r = ?a
     print(r.payload)
-  -a
+  <a
   print("end")
 
 # expect:

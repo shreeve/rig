@@ -17,5 +17,5 @@ sub main()
   b: Vec[Box[Text]] = Vec()
   !b.push(Box(Text("q")))
   r = first(?b)
-  -b
+  <b
   print(r)

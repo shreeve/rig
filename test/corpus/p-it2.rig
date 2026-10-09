@@ -24,15 +24,15 @@ sub main()
   u = Text("abc")
   it = Split(rest: ?u[..])
   a = !it.next()
-  -it
+  <it
   !u.clear()
   print(a)
   v = Text("v")
   c = cut(?v)
-  -v
+  <v
   print(c)
   x = Text("xyz")
   o: String? = ?x[1..]
   if o as s
-    -x
+    <x
     print(s)

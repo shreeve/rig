@@ -4,5 +4,5 @@ sub main()
   v: Vec[!Int] = Vec()
   !v.push(!a)
   !v.push(!b)
-  -v
+  <v
   print(a, b)

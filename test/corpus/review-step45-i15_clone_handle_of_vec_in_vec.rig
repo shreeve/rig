@@ -10,8 +10,8 @@ sub main()
   v: Vec[Box[*D]] = Vec()
   !v.push(Box(+a))
   w = +v
-  -a
-  -v
+  <a
+  <v
   print("v gone")
-  -w
+  <w
   print("end")

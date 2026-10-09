@@ -18,5 +18,5 @@ sub main()
   o: Vec[Text?] = Vec()
   !o.push(Text("q"))
   r = grab(?o)
-  -o
+  <o
   print(r)

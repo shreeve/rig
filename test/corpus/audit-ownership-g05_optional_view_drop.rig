@@ -19,6 +19,6 @@ fun cond(t: *Tok) -> Bool
 sub main()
   a = Tok(n: 1)
   o: ?Tok? = ?a
-  -a
+  <a
   if o as t
     print(t.n)

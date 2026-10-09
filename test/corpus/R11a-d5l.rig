@@ -7,7 +7,7 @@ struct Res
 sub main()
   r = Res(n: 1)
   p = Pair(first: ?r, second: 1)
-  -r
+  <r
   print(p.first.n)
 
 struct Pair[A, B]

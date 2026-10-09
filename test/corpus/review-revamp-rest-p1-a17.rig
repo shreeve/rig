@@ -1,4 +1,4 @@
 sub main()
   x = 1
-  defer -x
+  defer <x
   print(x)

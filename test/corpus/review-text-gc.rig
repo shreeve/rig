@@ -4,5 +4,5 @@ fun later[T](x: T) -> *fun() -> T
 sub main()
   t = Text("abcdefghijklmnop")
   f = later(?t[2..])
-  -t
+  <t
   print(f())

@@ -1,4 +1,4 @@
 sub main()
   y = "s"
-  :x -y
+  :x <y
   print(1)

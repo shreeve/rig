@@ -12,14 +12,14 @@ sub main()
   w = +v
   o: (*D)? = +a
   p = +o
-  -a
-  -o
+  <a
+  <o
   print("still", w.len)
-  -p
+  <p
   if w[0].upgrade() as h
     print("alive", h.n)
   else
     print("gone")
-  -v
-  -w
+  <v
+  <w
   print("end")

@@ -3159,7 +3159,7 @@ sub run(early: Bool)
   a = Noisy(id: 1)
   b = Noisy(id: 2)
   if early
-    -b
+    <b
     print("dropped b early")
   print("end of run")
 
@@ -3696,7 +3696,7 @@ sub main()
   x = Wrap(payload: 1)
   y = Wrap(payload: 2)
   r = first(?x, ?y)
-  -y
+  <y
   print(r.payload)
 ```
 
@@ -4276,7 +4276,7 @@ struct User
 sub main()
   a = *User(name: "ada")
   b = +a
-  -a
+  <a
   print(b.name)
   print("end")
 ```
@@ -4345,7 +4345,7 @@ sub main()
   rc = *Node(id: 7)
   w = ~rc
   show(?w)
-  -rc
+  <rc
   show(?w)
 ```
 
@@ -4735,7 +4735,7 @@ sub main()
   names: Vec[String] = Vec()
   !names.push(w)
   print(w, e, names)
-  -names
+  <names
   !t.add("!")
   print(t)
 ```
@@ -5007,7 +5007,7 @@ sub main()
   w: ~fun(Int) -> Int = ~f
   if w.upgrade() as g
     print(g(1))
-  -f
+  <f
   print(w.upgrade() == none)
 ```
 
