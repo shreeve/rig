@@ -1,0 +1,28 @@
+# A loop used as a value is read at each `break` that leaves it. An
+# inner loop of the same label keeps its own `break :a`, but its `else`
+# runs after it, so a `break :a !n` there leaves the outer loop, and its
+# `!` would be ignored where the value is only read.
+
+sub main()
+  n = 1
+  c = n > 0
+  k = if c
+    :a for i in 0..3
+      j = if c
+        :a while true
+          break :a i
+      else
+        0
+      :a for x in 0..2
+        if x > j + 5
+          break :a
+      else
+        break :a !n
+    else
+      0
+  else
+    1
+  print(k)
+
+# error: 20:18: `!n` here is read, not held
+# errors: 1

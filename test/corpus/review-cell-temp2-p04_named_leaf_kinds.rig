@@ -57,8 +57,8 @@ sub viewparam(p: ?D, k: Bool)
   print("vp", (p if k else ?mk(6)).bumped())
 
 sub writeparam(p: !D, k: Bool)
-  (p if k else !mk(7)).hit()
-  print("wp", (p if k else !mk(8)).bumped())
+  (?p if k else ?mk(7)).hit()
+  print("wp", (?p if k else ?mk(8)).bumped())
 
 sub byval(p: D, k: Bool)
   (p if k else mk(9)).hit()

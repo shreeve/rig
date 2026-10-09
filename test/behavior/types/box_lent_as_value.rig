@@ -1,5 +1,5 @@
 # A box lent as its value (`?b` where a `?T` is expected, `!b` where a
-# `!T` or `?T` is) works wherever a view goes: a typed or rebound
+# `!T` is) works wherever a view goes: a typed or rebound
 # view local, an argument evaluated out of order, a generic result, a
 # write view of the box read as the value.
 
@@ -22,7 +22,7 @@ fun rd(r: ?R) -> Int
   r.n
 
 sub g(w: !Box[R])
-  print(rd(w), rd(!w))
+  print(rd(w), rd(?w))
 
 sub main()
   b = Box(R(n: 1))

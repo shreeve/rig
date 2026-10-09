@@ -1,0 +1,59 @@
+# A write lend `!x` read as a value has its `!` ignored, wherever the
+# read is: an operator's operand, a comparison, an index, a range bound,
+# a conversion, a printed value, `+`, `?`, `??`, `?`, a compound
+# assignment's value, and a method's index argument. Each is rejected by
+# the one decider that every read of a view as a value passes
+# (`writeLendRead`). A held view (`w`) is read as a bare name is.
+
+fun opt() -> Int?
+  2
+
+fun unwrap(o: Int?) -> Int?
+  p = o
+  x = (!p)?
+  x
+
+sub main()
+  n = 1
+  i = 0
+  o = opt()
+  arr = [1, 2, 3]
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  w = !n
+  print(w + 1)
+  a = !n + 1
+  b = -!n
+  c = !n == 1
+  d = !n < 2
+  e = arr[!i]
+  f = ?arr[0..!i]
+  g = Float(!n)
+  print(!n)
+  h = Text(!n)
+  k = +!n
+  l = ?!n
+  m = !o ?? 0
+  t = 0
+  t += !n
+  q = v.get(!i)
+  r = !arr == [1, 2, 3]
+  print(a, b, c, d, e, f, g, h, k, l, m, t, q, r, unwrap(o))
+
+# error: 13:8: `!p` here is read, not held: only its `Int?` is read here. Write `p`
+# error: 25:7: `!n` here is read, not held: only its `Int` is read here. Write `n`
+# error: 26:8: `!n` here is read, not held: only its `Int` is read here. Write `n`
+# error: 27:7: `!n` here is read, not held
+# error: 28:7: `!n` here is read, not held
+# error: 29:11: `!i` here is read, not held
+# error: 30:15: `!i` here is read, not held
+# error: 31:13: `!n` here is read, not held
+# error: 32:9: `!n` here is read, not held
+# error: 33:12: `!n` here is read, not held
+# error: 34:8: `!n` here is read, not held
+# error: 35:8: `!n` here is read, not held: `?` lends it on to read. Write `?n`
+# error: 36:7: `!o` here is read, not held
+# error: 38:8: `!n` here is read, not held
+# error: 39:13: `!i` here is read, not held
+# error: 40:7: `!arr` here is read, not held: only its `[3]Int` is read here. Write `arr`
+# errors: 16

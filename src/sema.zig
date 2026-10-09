@@ -1702,6 +1702,44 @@ pub const SemContext = struct {
         try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
+    /// Move the diagnostics reported from index `from` on, a check that
+    /// runs once the module is checked, in among the earlier ones: each
+    /// error, with the notes after it, goes before the first earlier error
+    /// in this module's source past it. They must be in source order.
+    pub fn placeInOrder(self: *SemContext, from: usize) std.mem.Allocator.Error!void {
+        const items = self.diagnostics.items;
+        if (from >= items.len) return;
+        const late = try self.allocator.dupe(Diagnostic, items[from..]);
+        defer self.allocator.free(late);
+        const early = try self.allocator.dupe(Diagnostic, items[0..from]);
+        defer self.allocator.free(early);
+        var out: usize = 0;
+        var j: usize = 0;
+        for (early) |d| {
+            if (d.severity == .@"error" and d.module == 0) {
+                while (j < late.len and late[j].pos < d.pos) {
+                    items[out] = late[j];
+                    out += 1;
+                    j += 1;
+                    while (j < late.len and late[j].severity == .note) : (j += 1) {
+                        items[out] = late[j];
+                        out += 1;
+                    }
+                }
+            }
+            items[out] = d;
+            out += 1;
+        }
+        for (late[j..]) |d| {
+            items[out] = d;
+            out += 1;
+        }
+        // Each error moved keeps its entry in `reported`.
+        for (items, 0..) |d, i| if (d.severity == .@"error") {
+            if (self.reported.getPtr(.{ .pos = d.pos, .message = std.hash.Wyhash.hash(0, d.message) })) |at| at.* = i;
+        };
+    }
+
     pub fn pushScopeKind(self: *SemContext, parent: ScopeId, kind: ScopeKind) !ScopeId {
         const id: ScopeId = @intCast(self.scopes.items.len);
         try self.scopes.append(self.allocator, .{
@@ -5463,7 +5501,9 @@ pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
 /// Whether `e` holds a `break` (with a value, when `valued`) that leaves
 /// the loop whose body it is: an unlabeled one outside nested loops, or
 /// one naming the loop's `label`, outside closures. A nested loop's
-/// `else` runs after that loop, so its jumps are the outer loop's.
+/// `else` runs after that loop, so its jumps are the outer loop's. A
+/// nested construct labeled `label` too is the one its jumps name
+/// (`shadows`).
 pub fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool, valued: bool) bool {
     const h = e.kind() orelse return false;
     switch (h) {
@@ -5477,6 +5517,10 @@ pub fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool, v
         .@"while", .@"for" => {
             if (breaksOut(source, ir.get(e, .@"else"), label, nested, valued)) return true;
             return label.len > 0 and breaksOut(source, ir.get(e, .body), label, true, valued);
+        },
+        .labeled => if (shadows(source, e, label)) |stmt| {
+            if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) return breaksOut(source, ir.get(stmt, .@"else"), label, nested, valued);
+            return breaksOut(source, stmt, "", nested, valued);
         },
         else => {},
     }
@@ -6188,6 +6232,92 @@ pub fn yieldsThroughParts(e: Sexp) bool {
         .block, .raw_block, .@"if", .match, .@"??", .@"catch", .@"while", .@"for", .labeled => true,
         else => false,
     };
+}
+
+/// The values a loop used as a value gives, appended to `out`: the value
+/// of each `break` that leaves it (unlabeled in its own body, or naming
+/// its label from a nested loop), and its `else`'s tail. A closure's
+/// body is another function's, so a `break` there leaves no loop here.
+pub fn loopValues(a: std.mem.Allocator, source: []const u8, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    var label: []const u8 = "";
+    var loop = e;
+    if (e.isKind(.labeled)) {
+        label = identAt(source, ir.Labeled.label(e)) orelse "";
+        loop = ir.Labeled.stmt(e);
+    }
+    if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return;
+    try breakValues(a, source, ir.get(loop, .body), label, false, out);
+    const else_ = ir.get(loop, .@"else");
+    if (else_ != .nil) {
+        const tail = tailOf(else_);
+        if (tail != .nil) try out.append(a, tail);
+    }
+}
+
+/// The values of the `break`s in `e` that leave the loop labeled `label`
+/// (`nested`: from inside a loop within it, so only by its label), the
+/// walk `breaksOut` makes.
+fn breakValues(a: std.mem.Allocator, source: []const u8, e: Sexp, label: []const u8, nested: bool, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    const h = e.kind() orelse return;
+    switch (h) {
+        .@"break" => {
+            const value = ir.Break.value(e);
+            if (value == .nil) return;
+            const l = ir.Break.label(e);
+            const leaves = if (l == .nil) !nested else label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
+            if (leaves) try out.append(a, value);
+            return;
+        },
+        .lambda => return,
+        .@"while", .@"for" => {
+            try breakValues(a, source, ir.get(e, .@"else"), label, nested, out);
+            if (label.len > 0) try breakValues(a, source, ir.get(e, .body), label, true, out);
+            return;
+        },
+        .labeled => if (shadows(source, e, label)) |stmt| {
+            if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) return breakValues(a, source, ir.get(stmt, .@"else"), label, nested, out);
+            return breakValues(a, source, stmt, "", nested, out);
+        },
+        else => {},
+    }
+    for (rig.children(e)) |c| try breakValues(a, source, c, label, nested, out);
+}
+
+/// The statement `e`, a `(labeled name stmt)` inside the construct
+/// labeled `label`, labels when it repeats that label, so a
+/// `break :label` within it leaves `e`, the innermost so named: of a
+/// labeled loop only the `else`, which runs after the loop, can still
+/// leave the outer construct, and of a labeled `match` or `raw` block
+/// only an unlabeled `break`. Null when `e` has another label.
+fn shadows(source: []const u8, e: Sexp, label: []const u8) ?Sexp {
+    if (label.len == 0 or !std.mem.eql(u8, identAt(source, ir.Labeled.label(e)) orelse "", label)) return null;
+    return ir.Labeled.stmt(e);
+}
+
+/// The leaves of the value `node` gives, appended to `out`, through
+/// every form that gives one of its parts: the tails of an `if`, a
+/// `match`, and a block, the operands of `??`, `catch`, `e!`, and `e?`
+/// (`valueParts`), and the values of a loop used as a value
+/// (`loopValues`). Any other node is its own leaf. The one walk of what
+/// a value may be, at its leaves: a branching value and a loop alike.
+pub fn yieldedLeaves(a: std.mem.Allocator, source: []const u8, node: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    switch (node.kind() orelse return out.append(a, node)) {
+        .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) {
+            var values: std.ArrayList(Sexp) = .empty;
+            defer values.deinit(a);
+            try loopValues(a, source, node, &values);
+            for (values.items) |v| try yieldedLeaves(a, source, v, out);
+            return;
+        },
+        else => {},
+    }
+    var parts = valueParts(node);
+    var any = false;
+    while (parts.next()) |p| {
+        any = true;
+        if (p.node != .nil) try yieldedLeaves(a, source, p.node, out);
+    }
+    if (!any) try out.append(a, node);
 }
 
 /// A loop used as a value: a `while` or `for`, labeled or not, that a

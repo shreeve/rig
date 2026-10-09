@@ -48,7 +48,8 @@ fun clobber(n: Int) -> Int
 
 sub main()
   d = 7
-  print((!mk(1).tryat(false) catch !d) + clobber(1))
-  print((!mk(2).tryat(true) catch !d) + clobber(1))
+  w = !d
+  print((!mk(1).tryat(false) catch w) + clobber(1))
+  print((!mk(2).tryat(true) catch w) + clobber(1))
   inc(!mk(3).tryat(false) catch !d)
   print(d)

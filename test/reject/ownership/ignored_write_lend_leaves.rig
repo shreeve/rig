@@ -1,0 +1,53 @@
+# A written `!x` that is a leaf of a value that branches or loops is
+# decided as the value is read (`sema.yieldedLeaves`): printed, an
+# operand, or bound beside a held view, each leaf only reads. So is the
+# base of a field or element only read (`(!p).x`, `(!arr)[0]`,
+# `(!s).len`, a read slice).
+
+struct P
+  x: Int
+
+fun mk() -> P
+  P(x: 4)
+
+sub main()
+  n = 1
+  m = 2
+  c = n > 0
+  p = P(x: 1)
+  arr = [1, 2]
+  s = "hi"
+  print(!n if c else !m)
+  k = (!n if c else !m) + 1
+  w = !p.x
+  a = w if c else !m
+  b = while true
+    break w if c
+    break !m
+  d = if c
+    while true
+      break !n
+  else
+    m
+  e = match n
+    1 => !n
+    _ => m
+  f = (!p).x
+  g = (!arr)[0]
+  h = (!s).len
+  i = ?(!arr)[0..1]
+  print(k, a, b, d, e, f, g, h, i)
+
+# error: 20:9: `!n` here is read, not held: only its `Int` is read here. Write `n`
+# error: 20:22: `!m` here is read, not held: only its `Int` is read here. Write `m`
+# error: 21:8: `!n` here is read, not held: only its `Int` is read here. Write `n`
+# error: 21:21: `!m` here is read, not held: only its `Int` is read here. Write `m`
+# error: 23:19: `!m` here is read, not held: only its `Int` is read here. Write `m`
+# error: 26:11: `!m` here is read, not held: only its `Int` is read here. Write `m`
+# error: 29:13: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 33:10: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 35:8: `!p` here is read, not held: `(!p).x` only reads the place it reaches. Write `p.x`
+# error: 36:8: `!arr` here is read, not held: `(!arr)[0]` only reads the place it reaches. Write `arr[0]`
+# error: 37:8: `!s` here is read, not held: `(!s).len` only reads the place it reaches. Write `s.len`
+# error: 38:9: `!arr` here is read, not held: `(!arr)[0..1]` only reads the place it reaches. Write `arr[0..1]`
+# errors: 12

@@ -1,5 +1,7 @@
 # An operator reads through a view that an expression yields: a call
-# returning `!Int` or `?Int`, and `!x` itself.
+# returning `!Int` or `?Int`. (A `!x` written as an operand is read,
+# its `!` ignored, and is rejected: test/reject/ownership/
+# ignored_write_lend_read.rig.)
 
 fun wr(a: !Int) -> !Int
   a
@@ -17,7 +19,7 @@ sub main()
   print(wr(!x) << 1)
   print(wr(!x) > y)
   print(rd(?y) * 2, rd(?y) - 1)
-  print(!x == 6)
+  print(x == 6)
 
 # expect:
 # 7

@@ -1840,8 +1840,10 @@ alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
 reaches and writes it through `w`. A new local holds a write view the
 same way, with or without a type: `w = slot(!n)`, a call returning a
 `!Int`, holds the view, as `w: !Int = slot(!n)` does, so `w = 5`
-writes `n`; a bare name, a field or element, or a loop's value of type
-`!Int` binds the value it reaches. A parameter is never re-pointed:
+writes `n`, and so does a branching value or a loop used as a value
+each of whose values hands one over (`l = while true` with `break
+slot(!n)`); a bare name, a field or element of type `!Int`, or a value
+that branches among them binds the value it reaches. A parameter is never re-pointed:
 `w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
 name instead. A field or element of type `!T` follows the same rule:
 `h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
@@ -2975,7 +2977,9 @@ reads, so a binding with no type reads the value a name's, field's, or
 element's write view sees when that value copies (`x = h.w`), and holds
 a write view a call yields, which is a value, not a place ([View
 places](#view-places)). A value that does not copy is not copied out of
-a view: lend it on, as `?T` or `!T`.
+a view: lend it on, as `?T` or `!T`. A write lend written where its
+view would only be read, `!x`, is rejected instead
+([Lending](#lending)).
 
 ```rig
 fun slot(a: !Int) -> !Int
@@ -3243,6 +3247,87 @@ So `sort.sort(!v)` works on a Vec as it does on an array, and one `fun
 area(s: ?Shape)` takes `?s` of a `Shape`, a `Box[Shape]`, and a
 `*Shape` ([§9](#shared-handles), [§10](#box)). A slice `x[a..b]` is the
 same lend, of part of `x` ([§2](#slices)).
+
+A written `!` must lend to write
+([Core 4](docs/CORE.md#2-the-core-in-ten-sentences)): `!x` is kept only
+where the type it goes to holds a write view (a `!T` parameter or
+field, a write receiver, a type spelled or expected with one, or a value
+whose type it gives: a binding with no type, an array literal, or an
+`if`, `match`, or loop each of whose values is one), and rejected
+wherever `x` is only read. A written `!x` binds a generic's `T` to the
+value it reaches where that copies, so `Opt.some(v: !n)` would store an
+`Int`, and is rejected: write `Opt.some(v: n)` to store a copy, or
+`Opt[!Int].some(v: !n)` to keep the write view. A value that branches
+or loops is decided at each of its leaves, and the base of a field or
+element (`(!p).x`) when the place is only read. A held write view (`w`,
+a `!T` parameter) has no `!` written, and is read, or lent where a read
+view goes, as a bare name is.
+
+| Written | Where it goes | Write instead |
+|---|---|---|
+| `bump(!n)` | `bump(x: !Int)` | kept: `bump` may write `n` |
+| `!n + 1`, `arr[!i]`, `print(!n)` | read as a value | `n` |
+| `Opt.some(v: !n)` | an `Opt[Int]` | `n`, or `Opt[!Int]` to keep the view |
+| `rd(!n)` | `rd(x: ?Int)`, which only reads | `rd(?n)` |
+
+```rig
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub main()
+  n = 1
+  o = Opt[!Int].some(v: !n)
+  match !o
+    .some(v) => v += 1
+    .nothing => pass
+  print(n)
+```
+
+```output
+2
+```
+
+```rig reject
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub main()
+  n = 1
+  o = Opt.some(v: !n)
+  match !o
+    .some(v) => v += 1
+    .nothing => pass
+  print(n)
+```
+
+```error
+`!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt[!Int].some(v: !n)` to keep a write view of `n`, or `Opt.some(v: n)` to store a copy
+```
+
+```rig reject
+sub main()
+  n = 1
+  print(!n + 1)
+```
+
+```error
+`!n` here is read, not held: only its `Int` is read here. Write `n`
+```
+
+```rig reject
+fun rd(x: ?Int) -> Int
+  x
+
+sub main()
+  n = 1
+  print(rd(!n))
+```
+
+```error
+`!n` here is read, not held: `rd` only reads `n`; write `rd(?n)`
+```
 
 A `!x` view needs a binding that may change: a parameter (other than
 `!T`), a fixed binding, a capture, or a loop binding cannot be
