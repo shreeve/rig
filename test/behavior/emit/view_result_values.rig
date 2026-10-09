@@ -6,7 +6,8 @@
 # conditions, `if … as`, `?`, branches, loop values, and clones. The
 # value read is a copy, so the view taken to reach it ends there, and it
 # is read in argument order, also where a call evaluates its arguments
-# first. (A binding with no type holds a call's write view:
+# first. (A binding with no type holds a call's write view, and a
+# branching value's or a loop's each of whose values is one:
 # `test/behavior/ownership/write_view_result_binding_holds_view.rig`.)
 
 error Bad
@@ -132,7 +133,7 @@ sub main()
       wr(!y)
     _
       0
-  l = while true
+  l: Int = while true
     break wr(!y)
   print(t, m, l)
   print(ordered() catch 0)
