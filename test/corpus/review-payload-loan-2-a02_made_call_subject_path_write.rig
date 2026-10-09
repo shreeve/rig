@@ -1,0 +1,18 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+fun wrap(p: !P) -> WP
+  WP.a(!p)
+
+sub main()
+  p = P(t: Text("hello"))
+  match wrap(!p)
+    .a(w)
+      r = ?w.t[1..]
+      !w.t.add(" world, long enough to move the bytes")
+      print(r)
+    .b => pass

@@ -1,0 +1,15 @@
+enum WV
+  a(w: !Vec[Text])
+  b
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  e = WV.a(!v)
+  match e
+    .a(w)
+      for s in w
+        print(s)
+      print(w[1], w.len)
+    .b => pass

@@ -1,0 +1,24 @@
+enum WI
+  a(w: !Int)
+  b
+
+sub show(e: !WI)
+  match e
+    .a(w) if w > 5 => print("big", w)
+    .a(w)
+      r = ?w
+      print("small", w, r)
+    .b => print("none")
+  match !e
+    .a(v) => v += 1
+    .b => pass
+  match e
+    .a(w) => print(w)
+    .b => pass
+
+sub main()
+  x = 3
+  e = WI.a(!x)
+  show(!e)
+  show(!e)
+  print(x)

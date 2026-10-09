@@ -1,0 +1,28 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+  sub put(!self, s: Text)
+    match !self
+      .a(w) => w.t = <s
+      .b => pass
+
+  fun tail(?self) -> String
+    match self
+      .a(w) => ?w.t[1..]
+      .b => ""
+
+sub f(e: !WP)
+  match e
+    x
+      r = x.tail()
+      x.put(Text("other"))
+      print(r)
+
+sub main()
+  p = P(t: Text("hello"))
+  e = WP.a(!p)
+  f(!e)

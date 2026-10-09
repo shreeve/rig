@@ -1,0 +1,18 @@
+enum WS
+  a(s: ![]Text)
+  b
+
+struct H
+  e: WS
+
+fun mk(s: ![]Text) -> H from s
+  H(e: WS.a(!s))
+
+sub main()
+  v = [Text("hello"), Text("x")]
+  match mk(!v[..]).e
+    .a(s)
+      r = ?s[0][1..]
+      s[0] = Text("other")
+      print(r)
+    .b => pass

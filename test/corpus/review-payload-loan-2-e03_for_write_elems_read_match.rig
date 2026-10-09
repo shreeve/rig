@@ -1,0 +1,18 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+sub main()
+  p = P(t: Text("hello"))
+  v: Vec[WP] = Vec()
+  !v.push(WP.a(!p))
+  for x in !v
+    match x
+      .a(w)
+        r = ?w.t[1..]
+        w.t = Text("other")
+        print(r)
+      .b => pass

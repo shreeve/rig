@@ -1,0 +1,13 @@
+enum G[T]
+  a(v: T)
+  b
+
+sub main()
+  v = [Text("hello"), Text("x")]
+  e: G[![]Text] = G.a(!v[..])
+  match e
+    .a(s)
+      r = ?s[0][1..]
+      s[0] = Text("other")
+      print(r)
+    .b => pass

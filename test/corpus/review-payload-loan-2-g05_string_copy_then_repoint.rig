@@ -1,0 +1,12 @@
+enum WS
+  a(w: !String)
+  b
+
+sub main()
+  s: String = "hello"
+  e = WS.a(!s)
+  r = match e
+    .a(w) => w
+    .b => "none"
+  s = "bye"
+  print(r)

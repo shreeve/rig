@@ -1,0 +1,16 @@
+struct C
+  c: Cell[Int]
+
+enum WC
+  a(w: !Cell[Int])
+  b
+
+sub main()
+  k = Cell(1)
+  e = WC.a(!k)
+  match e
+    .a(w)
+      w.set(5)
+      print(w.get())
+    .b => pass
+  print(k.get())

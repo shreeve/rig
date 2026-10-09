@@ -1,0 +1,16 @@
+enum WI
+  a(w: !Int)
+  b
+
+sub main()
+  x = 1
+  e = WI.a(!x)
+  match e
+    .a(w)
+      i = 0
+      while i < 2
+        print(w)
+        i += 1
+    .b => pass
+  x = 7
+  print(x)

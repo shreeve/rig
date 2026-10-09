@@ -1,0 +1,20 @@
+enum WV
+  a(w: !Vec[Text])
+  b
+
+struct H
+  e: WV
+
+fun mk(v: !Vec[Text]) -> H from v
+  H(e: WV.a(!v))
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  match mk(!v).e
+    .a(w)
+      r = ?w[0][1..]
+      for _ in 0..50
+        !w.push(Text("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"))
+      print(r)
+    .b => pass

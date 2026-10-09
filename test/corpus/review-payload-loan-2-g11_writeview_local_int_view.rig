@@ -1,0 +1,6 @@
+sub main()
+  x = 1
+  w = !x
+  r = ?w
+  x = 5
+  print(r)
