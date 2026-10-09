@@ -1352,12 +1352,12 @@ pub const Parser = struct {
         };
     }
 
-    /// The operand that ends at `end` (past whitespace on its line), as
-    /// written, when it is short: a name, a literal, or a call or index
+    /// The operand that ends at `end` (past whitespace, line breaks
+    /// included), as written, when it is short: a name, a literal, or a call or index
     /// on one (`f(x)`, `a.b[i]`).
     fn operandBefore(src: []const u8, end: u32) ?[]const u8 {
         var e: usize = end;
-        while (e > 0 and (src[e - 1] == ' ' or src[e - 1] == '\t')) e -= 1;
+        while (e > 0 and (src[e - 1] == ' ' or src[e - 1] == '\t' or src[e - 1] == '\r' or src[e - 1] == '\n')) e -= 1;
         var s = e;
         while (s > 0) {
             const c = src[s - 1];

@@ -606,8 +606,16 @@ const Checker = struct {
             .drop => {
                 const name = ir.Drop.target(stmt);
                 // `<e` of anything but a name drops what it takes, as
-                // `_ = <e` does.
-                if (name != .src) return self.checkDiscard(name);
+                // `_ = <e` does; a lend made there is a view, which takes
+                // nothing.
+                if (name != .src) {
+                    const operand = ir.Move.operand(name);
+                    if (operand.isKind(.read) or operand.isKind(.write)) {
+                        _ = try self.synthExpr(operand);
+                        return self.errAt(stmt, "this expression does nothing as a statement: `{s}` moves a view nowhere, and a view owns nothing to drop", .{self.sourceText(name)});
+                    }
+                    return self.checkDiscard(name);
+                }
                 const ty = try self.synthExpr(name);
                 if (try self.payloadViewTaken(name, "drop")) return;
                 // Plain data owns nothing, and ends a loan only when it
@@ -699,7 +707,11 @@ const Checker = struct {
             if (self.isPoison(ty)) return;
             const owns_or_views = !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
             const shown = self.sourceText(operand);
-            if (owns_or_views and sema.handsOver(self.ctx, operand).kind == .place) {
+            const view_param = if (operand == .src) if (self.ctx.symbolOf(operand)) |sym| self.ctx.symbols.items[sym].kind == .param and sema.isReadOrWriteView(self.ctx, ty) else false else false;
+            if (view_param) {
+                // What a view parameter views, the caller owns.
+                try self.errAt(stmt, "this expression does nothing as a statement: `{s}` negates a value and discards it; a view parameter is not dropped, since the caller owns what it views", .{self.sourceText(stmt)});
+            } else if (owns_or_views and sema.handsOver(self.ctx, operand).kind == .place) {
                 // `<` takes a binding, or an optional field or element.
                 const takes = operand == .src or self.ctx.types.get(ty) == .optional;
                 if (takes) {
@@ -721,7 +733,7 @@ const Checker = struct {
             // closure gives none.
             if (stmt.isKind(.move)) {
                 const shown = self.sourceText(ir.Move.operand(stmt));
-                return self.errAt(stmt, "a closure's last line is its value, so `<{s}` there is no drop, and this closure gives no value; to drop `{s}` here, write `_ = <{s}`", .{ shown, shown, shown });
+                return self.errAt(stmt, "a closure's last line is its value, and so is the last line of a branch that ends it, so `<{s}` here is no drop, and this closure gives no value; to drop `{s}` here, write `_ = <{s}`", .{ shown, shown, shown });
             }
             if (stmt.kind() == null and self.ctx.types.get(ty) == .function)
                 return self.errAt(stmt, "`{s}` is a function; call it with `{s}()`", .{ self.text(stmt), self.text(stmt) });

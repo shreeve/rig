@@ -1,6 +1,7 @@
-# A closure's last line is its value, so `<x` there moves `x` out as the
-# closure's result rather than dropping it. A closure that gives no value
-# drops on its last line with `_ = <x`, or drops before it.
+# A closure's last line is its value, and so is the last line of a
+# branch that ends it, so `<x` there moves `x` out as the closure's
+# result rather than dropping it. A closure that gives no value drops
+# there with `_ = <x`, or drops before it.
 
 struct F
   n: Int
@@ -27,6 +28,15 @@ sub main()
     print(q.n)
     _ = <q
   )
+  each(|i|
+    q = F(n: i)
+    if i > 0
+      print(q.n)
+      <q
+    else
+      print(0)
+  )
 
-# errors: 1
-# error: 18:5: a closure's last line is its value, so `<q` there is no drop, and this closure gives no value; to drop `q` here, write `_ = <q`
+# errors: 2
+# error: 19:5: a closure's last line is its value, and so is the last line of a branch that ends it, so `<q` here is no drop, and this closure gives no value; to drop `q` here, write `_ = <q`
+# error: 35:7: so `<q` here is no drop

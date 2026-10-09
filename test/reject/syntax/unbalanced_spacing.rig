@@ -36,9 +36,11 @@ sub main()
   print(?xs[.. 2], ?xs[a ..], 0 ..a)
   n = a?? 0
   n =1
+  print(n
+    -1)
   print(c, s, n, half(4))
 
-# errors: 16
+# errors: 17
 # error: 23:16: `maybe(n) ?`: a postfix `?` touches what it follows; write `maybe(n)?`
 # error: 29:11: `a -1`: an operator has the same spacing on both sides; write `a - 1` to subtract, or `a, -1` to negate `1` as a value of its own
 # error: 29:16: `a- 1`: an operator has the same spacing on both sides; write `a - 1`
@@ -55,3 +57,4 @@ sub main()
 # error: 36:33: `0 ..a`: an operator has the same spacing on both sides; write `0..a` or `0 .. a`
 # error: 37:8: `a?? 0`: an operator has the same spacing on both sides; write `a ?? 0`
 # error: 38:5: `n =1`: an operator has the same spacing on both sides; write `n = 1`
+# error: 40:5: `n -1`: an operator has the same spacing on both sides; write `n - 1` to subtract, or `n, -1` to negate `1` as a value of its own

@@ -2220,8 +2220,10 @@ drops the value `mk()` makes. Where a value is expected, `<e` moves it
 there: in an operand, an argument, a binding's value, a `return` or
 `break` value, and on the last line of a `fun` or a closure (its value)
 or of a branch, arm, or loop `else` block whose value is used. A
-closure's last line is its value even where the closure gives none, so
-it drops there with `_ = <x`. `-x` always negates: a statement `-e`
+closure's last line is its value even where the closure gives none, and
+so is the last line of a branch that ends it, so it drops there with
+`_ = <x`. A statement `<?x` or `<!x` moves a view nowhere, and does
+nothing. `-x` always negates: a statement `-e`
 does nothing, and is rejected, with the drop to write where `e` holds
 something to drop.
 
