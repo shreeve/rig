@@ -277,8 +277,9 @@ scope ends. *(built)* A value no name holds is dropped where its
 statement ends ([§3](#3-temporaries)). *(built)*
 
 **4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
-view the context expects** ([§4](#4-one-lend-table)). A read lend may go
-unwritten where its view lasts only for the use: an argument, a
+view the context expects** ([§4](#4-one-lend-table)). `?` promises that
+nothing changes except a field whose type is a `Cell`. A read lend may
+go unwritten where its view lasts only for the use: an argument, a
 method's receiver, or a header's subject (sentence 1). A lend kept in a
 binding or a field is written, and so is every write lend. `!` lends any
 value to write, named or temporary: `!mk().pop()` lends the value

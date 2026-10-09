@@ -3212,7 +3212,12 @@ value declared after it: that value is dropped first.
 
 A lend hands over a view of a value without giving it up, and view
 parameter types say the same thing: `b: ?Wrap` reads, `b: !Wrap`
-writes. A write lend is always written. A read lend may go unwritten
+writes. `?` promises that nothing changes except a field whose type is
+a `Cell` (Core 4). Exactly: through a read view only a `Cell` changes,
+a field or an element whose type is a `Cell`, the `Cell` the view is
+itself (`?Cell[T]`), or one a shared handle there holds
+([Changes and shared storage](#changes-and-shared-storage),
+[§10](#cell)). A write lend is always written. A read lend may go unwritten
 where its view lasts only for the use: an argument to a view parameter
 (`balance_of(acct)` is `balance_of(?acct)`), a method's receiver
 ([§3](#structs)), the subject of a `for`, `if … as`, or `match`
