@@ -42,7 +42,7 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 ## Libraries
 
 - **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`struct File owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
-  Settled so far: iterators follow the convention `while !it.next() as x` (a `for` never calls user methods); containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
+  Settled so far: a `for x in it` over an iterator (a type with `next(!self) -> T?`) is the desugaring `while !it.next() as x`, which the checker walks exactly ([IDEAS.md](../IDEAS.md) §0.3); containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
 - **Text building in std.text**: functions that build new text into a `Text`, such as an upper-case copy, a replacement, and a join.
 - **A reactive library** in userland, grown from `examples/memo_canary.rig`.
 
