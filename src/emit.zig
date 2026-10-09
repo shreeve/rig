@@ -3175,10 +3175,16 @@ pub const Emitter = struct {
                 try self.w.writeAll("(");
                 try self.emitSubjectPtr(value, false);
                 try self.w.writeAll(".*) ");
-            } else {
-                try self.w.writeAll(if (named) "(" else "((");
+            } else if (named) {
+                try self.w.writeAll("(");
                 try self.emitBare(value);
-                try self.w.writeAll(if (named) ") " else ").*) ");
+                try self.w.writeAll(") ");
+            } else {
+                // Any other view, a field's or an element's included, is
+                // read through the pointer it is, once.
+                try self.w.writeAll("((");
+                try self.emitWriteViewPtr(value);
+                try self.w.writeAll(").*) ");
             }
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
