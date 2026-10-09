@@ -2570,16 +2570,25 @@ pub const Checker = struct {
         return true;
     }
 
-    /// The loans of a view of (a path inside) var `id`. Lending
-    /// through a read view copies that view; lending an owned value
-    /// or through a write view lends the var itself.
+    /// The loans of a view of (a path inside) var `id`, by what the var
+    /// is (docs/INTERNALS.md, "Lending a binding"):
+    /// - a write view, which may be written through (a `!T` parameter,
+    ///   capture, or local, and a binding of `if !o as w`,
+    ///   `while !o as w`, `for x in !v`, or `match !e`): a loan on the
+    ///   var, so nothing writes through it while the view lives, and the
+    ///   loans it holds;
+    /// - a read view, or a match binding that views its subject to read
+    ///   by a type that is no `?T` (a slice, a String, a type parameter):
+    ///   the loans it holds, as a copy of the view would;
+    /// - an owner: a loan on the var.
     fn lendOn(self: *Checker, id: VarId, loan: Loan) Error!Value {
         const v = self.vars.items[id];
         const held = self.flows.items[id].loans;
-        if (v.ref == .read or v.payload_view) return .{ .loans = held };
-        const one = try self.oneLoan(loan);
-        if (v.ref == .write) return .{ .loans = try self.unionLoans(one, held) };
-        return .{ .loans = one };
+        return switch (v.ref) {
+            .write => .{ .loans = try self.unionLoans(try self.oneLoan(loan), held) },
+            .read => .{ .loans = held },
+            .none => if (v.payload_view) .{ .loans = held } else .{ .loans = try self.oneLoan(loan) },
+        };
     }
 
     const MoveVerb = enum {
