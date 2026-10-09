@@ -1,0 +1,19 @@
+struct H
+  v: !Vec[Int]
+
+sub f(h1: !H, h2: !H, c: Bool)
+  n = 0
+  for x in (h1.v if c else h2.v)
+    for i in 0..100
+      !h1.v.push(i)
+    n += x
+  print(n)
+
+sub main()
+  v: Vec[Int] = Vec()
+  for i in 0..5
+    !v.push(i + 1)
+  u: Vec[Int] = Vec()
+  h1 = H(v: !v)
+  h2 = H(v: !u)
+  f(!h1, !h2, true)

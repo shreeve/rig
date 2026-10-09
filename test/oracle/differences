@@ -55,12 +55,6 @@ test/corpus/review-payload-loan-3-f04_for_write_moved_out.rig main prod-rejects 
 # not keep the loan through `break <t`.
 test/corpus/review-payload-loan-3-f04b_for_write_break_move.rig main prod-rejects ref-gap `!v.clear()` while `r = for t in !v` with `break <t` lives
 
-# A bare `if o as x` of a write view reads it (SPEC "if … as"): a write
-# through `x` takes `if !o as x`, and two such bindings never write
-# through one write view while the other's view lives.
-test/corpus/review-payload-loan-3-j04_writeparam_read_as_write_ok.rig f prod-rejects prod-strict `if o as x` of a `!((!P)?)` parameter, then `x.t = v`, which takes `if !o as x`
-test/corpus/review-payload-loan-3-j05_writeparam_read_as_second.rig f prod-rejects ref-gap two `if o as` bindings of one write view, one written while a view through the other lives
-
 # A match of a branch of write lends (`match (!e if c else !d)`) lends
 # every leaf for as long as its bindings' views live (Core s5), so a view
 # kept across loop passes keeps both lent, though the passes alternate.

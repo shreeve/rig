@@ -1,0 +1,17 @@
+fun f(v: !Vec[Int], d: !Vec[Int]) -> Int?
+  o: (!Vec[Int])? = !v
+  n = 0
+  for x in o ?? !d
+    if !o as w
+      for i in 0..100
+        !w.push(i)
+    n += x
+  print(n)
+  1
+
+sub main()
+  v: Vec[Int] = Vec()
+  for i in 0..5
+    !v.push(i + 1)
+  d: Vec[Int] = Vec()
+  _ = f(!v, !d)
