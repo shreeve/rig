@@ -1,0 +1,82 @@
+# A hint gives the whole path the sigil its context takes, by the type
+# expected there: `!` where a write view goes, `?` where a read view is
+# kept (a binding, a field, a result), and none where a value goes or a
+# read view is lent for an argument. A leaf of a value that branches
+# takes the branch's, as its other leaves show.
+
+struct Q
+  n: Int
+
+struct P
+  x: Int
+  a: [2]Int
+  q: Q
+  items: Vec[Int]
+
+struct W
+  r: ?Vec[Int]
+
+sub bump(n: !Int)
+  n += 1
+
+sub grow(v: !Vec[Int])
+  !v.push(1)
+
+sub bumpq(q: !Q)
+  q.n += 1
+
+fun count(v: ?Vec[Int]) -> Int
+  v.len
+
+fun items(p: ?P) -> ?Vec[Int] from p
+  (?p).items
+
+fun first(p: !P) -> !Int from p
+  (!p.a)[0]
+
+fun xof(p: !P) -> !Int from p
+  return (!p).x
+
+sub main()
+  p = P(x: 1, a: [1, 2], q: Q(n: 1), items: Vec())
+  c = p.x > 0
+  bump((!p).x)
+  grow((!p).items)
+  bumpq((!p).q)
+  bump((!p.a)[1])
+  print(count((?p).items), count((!p).items))
+  w: !Int = (!p).x
+  w += 1
+  ws: [1]!Int = [(!p).a[0]]
+  ws[0] = 3
+  k = W(r: (?p).items)
+  print(k.r.len)
+  m = (!p).q if c else !p.q
+  m.n += 1
+  print(p.x, items(?p).len, first(!p), xof(!p))
+
+# error: 32:3: type mismatch: expected `?Vec[Int]`, got `Vec[Int]`
+# error: 35:3: type mismatch: expected `!Int`, got `Int`
+# error: 38:10: type mismatch: expected `!Int`, got `Int`
+# error: 43:8: type mismatch: expected `!Int`, got `Int`
+# error: 44:8: type mismatch: expected `!Vec[Int]`, got `Vec[Int]`
+# error: 45:9: type mismatch: expected `!Q`, got `Q`
+# error: 46:8: type mismatch: expected `!Int`, got `Int`
+# error: 48:13: type mismatch: expected `!Int`, got `Int`
+# error: 50:18: type mismatch: expected `!Int`, got `Int`
+# error: 52:12: type mismatch: expected `?Vec[Int]`, got `Vec[Int]`
+# error: 54:24: `!p.q` here is read, not held: a `Q` goes here. Write `p.q` to copy the value; to keep a write view of `p.q`, the type here must be `!Q`
+# error: 32:4: `(?p).items`: write a lend on the whole path, not its base: `?p.items`
+# error: 35:4: `(!p.a)[0]`: write a lend on the whole path, not its base: `!p.a[0]`
+# error: 38:11: `(!p).x`: write a lend on the whole path, not its base: `return !p.x`
+# error: 43:9: `(!p).x`: write a lend on the whole path, not its base: `bump(!p.x)`
+# error: 44:9: `(!p).items`: write a lend on the whole path, not its base: `grow(!p.items)`
+# error: 45:10: `(!p).q`: write a lend on the whole path, not its base: `bumpq(!p.q)`
+# error: 46:9: `(!p.a)[1]`: write a lend on the whole path, not its base: `bump(!p.a[1])`
+# error: 47:16: `(?p).items`: write a lend on the whole path, not its base: `print(count(p.items), count(p.items))`
+# error: 47:35: `(!p).items`: write a lend on the whole path, not its base: `print(count(p.items), count(p.items))`
+# error: 48:14: `(!p).x`: write a lend on the whole path, not its base: `w: !Int = !p.x`
+# error: 50:19: `(!p).a`: write a lend on the whole path, not its base: `ws: [1]!Int = [!p.a[0]]`
+# error: 52:13: `(?p).items`: write a lend on the whole path, not its base: `k = W(r: ?p.items)`
+# error: 54:8: `(!p).q`: write a lend on the whole path, not its base: `m = !p.q if c else !p.q`
+# errors: 24

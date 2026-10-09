@@ -1,0 +1,57 @@
+# A field holding a function, called, is a path like any field: a lend
+# of a place as its base is rejected, through a lend, a moved lend, a
+# shared handle, an element, and an owned closure's field, wherever the
+# call's value goes. A method's receiver is not a path.
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun yes(n: Int) -> Bool
+  n > 0
+
+struct T
+  f: fun(Int) -> Int
+  g: fun(Int) -> Bool
+  ops: [2]fun(Int) -> Int
+
+struct W
+  t: T
+  ts: [2]T
+
+struct C
+  cb: *fun(Int) -> Int
+
+fun mk() -> T
+  T(f: double, g: yes, ops: [double, double])
+
+sub main()
+  t = mk()
+  w = W(t: mk(), ts: [mk(), mk()])
+  c = C(cb: *|k: Int| k + 1)
+  h = *mk()
+  arr = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+  print((!t).f(1), (?t).f(1))
+  y = (<(?t)).f(3)
+  z = (<(!t)).f(1) + 1
+  if (<(!t)).g(1)
+    print(y, z)
+  u = (<(?w.ts[1])).f(5) + 1
+  v: Int = (<(!w.t)).f(5)
+  print(u, v, (?c).cb(1), (!c).cb(2), (?h).f(1), (?w.ts[0]).f(2))
+  arr[(<(?t)).f(4)] = 1
+  print((!t).ops[1](5), arr)
+
+# error: 33:10: `(!t).f`: write a lend on the whole path, not its base: `print(t.f(1), t.f(1))`
+# error: 33:21: `(?t).f`: write a lend on the whole path, not its base: `print(t.f(1), t.f(1))`
+# error: 34:8: `(<(?t)).f`: write a lend on the whole path, not its base: `y = t.f(3)`
+# error: 35:8: `(<(!t)).f`: write a lend on the whole path, not its base: `z = t.f(1) + 1`
+# error: 36:7: `(<(!t)).g`: write a lend on the whole path, not its base: `if t.g(1)`
+# error: 38:8: `(<(?w.ts[1])).f`: write a lend on the whole path, not its base: `u = w.ts[1].f(5) + 1`
+# error: 39:13: `(<(!w.t)).f`: write a lend on the whole path, not its base: `v: Int = w.t.f(5)`
+# error: 40:16: `(?c).cb`: write a lend on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`
+# error: 40:28: `(!c).cb`: write a lend on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`
+# error: 40:40: `(?h).f`: write a lend on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`
+# error: 40:51: `(?w.ts[0]).f`: write a lend on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`
+# error: 41:8: `(<(?t)).f`: write a lend on the whole path, not its base: `arr[t.f(4)] = 1`
+# error: 42:10: `(!t).ops`: write a lend on the whole path, not its base: `print(t.ops[1](5), arr)`
+# errors: 13

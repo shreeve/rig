@@ -84,10 +84,15 @@ sub main()
   c = <(!p).o
   print(f, g, h, s, n, c)
 
+# error: 71:13: `for x in !xs` writes each element in place; `xs` must be a binding, or a field or element of one
+# error: 75:14: method `push` needs its receiver lent to write; use `!receiver.push(...)`
+# error: 76:16: method `insert` needs its receiver lent to write; use `!receiver.insert(...)`
+# error: 83:15: only a named array, Vec, or Text, or a field or element of one, can be sliced; bind this value to a name first
 # error: 40:4: `(!v)[0]`: write a lend on the whole path, not its base: `v[0] = 4`
 # error: 41:4: `(!q).x`: write a lend on the whole path, not its base: `q.x += 1`
 # error: 51:4: `(!p).x`: write a lend on the whole path, not its base: `p.x = 5`
 # error: 52:4: `(!arr)[i]`: write a lend on the whole path, not its base: `arr[i] += 7`
+# error: 53:4: `(!(!p).a)[0]`: write a lend on the whole path, not its base: `p.a[0] = 3`
 # error: 53:6: `(!p).a`: write a lend on the whole path, not its base: `p.a[0] = 3`
 # error: 54:4: `(!p).a`: write a lend on the whole path, not its base: `p.a[1] = 4`
 # error: 55:4: `(!qs)[0]`: write a lend on the whole path, not its base: `qs[0].n = 5`
@@ -109,4 +114,4 @@ sub main()
 # error: 82:9: `(!arr)[0..1]`: write a lend on the whole path, not its base: `s = ?arr[0..1]`
 # error: 83:15: `(!arr)[0..2]`: write a lend on the whole path, not its base: `n = total(!arr[0..2])`
 # error: 84:9: `(!p).o`: write a lend on the whole path, not its base: `c = <p.o`
-# errors: 25
+# errors: 30
