@@ -576,6 +576,10 @@ pub fn matchedType(ctx: *const SemContext, match: Sexp) ?TypeId {
 }
 
 pub fn matchMode(ctx: *const SemContext, match: Sexp) MatchMode {
+    return decide(ctx, match, .match_mode);
+}
+
+fn decideMatchMode(ctx: *const SemContext, match: Sexp) MatchMode {
     const scrutinee = ir.Match.subject(match);
     if (scrutinee.isKind(.write)) return .write;
     const ty = matchedType(ctx, match) orelse return .read;
@@ -598,6 +602,10 @@ pub fn matchGuarded(match: Sexp) bool {
 /// `match !x` binding of the whole value points at the place, and a
 /// `match <x` arm with alternatives drops the value from it.
 pub fn matchRereads(ctx: *const SemContext, match: Sexp) bool {
+    return decide(ctx, match, .match_rereads);
+}
+
+fn decideMatchRereads(ctx: *const SemContext, match: Sexp) bool {
     const mode = matchMode(ctx, match);
     for (ir.Match.arms(match)) |arm| {
         const pattern = ir.Arm.pattern(arm);
@@ -610,6 +618,10 @@ pub fn matchRereads(ctx: *const SemContext, match: Sexp) bool {
 /// Whether `match` evaluates its subject first, or holds the value it is
 /// a part of (`Header.held`), in a block around the match.
 pub fn matchBlock(ctx: *const SemContext, match: Sexp) bool {
+    return decide(ctx, match, .match_block);
+}
+
+fn decideMatchBlock(ctx: *const SemContext, match: Sexp) bool {
     return ctx.headerOf(match) == .held or matchGuarded(match) or matchesGenericView(ctx, match) or
         (matchRereads(ctx, match) and !subjectRereadable(lentPlace(ir.Match.subject(match))));
 }
@@ -643,6 +655,10 @@ fn matchesGenericView(ctx: *const SemContext, match: Sexp) bool {
 /// the pointer it is, or the value; null when it reads the subject again
 /// as it is written.
 pub fn subjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
+    return decide(ctx, match, .subject_hold);
+}
+
+fn decideSubjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
     const subject = lentPlace(ir.Match.subject(match));
     if (subjectRereadable(subject)) return null;
     const value = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
@@ -679,7 +695,7 @@ pub fn fieldIsPointee(ctx: *const SemContext, ty: TypeId) bool {
 /// type and its field's (`SemContext.payloadFieldOf`) are typecheck's:
 /// the field's type at the matched instance, so `v` of `Opt[?T]`'s
 /// `v: T` is the view the field holds.
-pub fn payloadByAddress(ctx: *const SemContext, b: Sexp, writes: bool, in_place: bool) bool {
+fn payloadByAddress(ctx: *const SemContext, b: Sexp, writes: bool, in_place: bool) bool {
     const field = ctx.payloadFieldOf(b) orelse return writes;
     if (!fieldIsPointee(ctx, field)) return false;
     if (writes) return true;
@@ -693,9 +709,43 @@ pub fn payloadByAddress(ctx: *const SemContext, b: Sexp, writes: bool, in_place:
 /// value of a type parameter (`sema.copies` is `depends`) that the match
 /// reads where its subject is (`in_place`, `matchesInPlace`), as
 /// `payloadByAddress` binds a payload. Any other is a copy in the arm.
-pub fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
+fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
     if (isPtrViewTy(ctx, ty)) return true;
     return in_place and !sema.isReadOrWriteView(ctx, ty) and sema.copies(ctx, ty) == .depends;
+}
+
+/// Whether payload binding `b` of `match` points at the field it binds
+/// (`payloadByAddress`), decided once.
+pub fn bindsByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
+    return decideAt(ctx, b, match, .payload_by_address);
+}
+
+fn decidePayloadByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
+    return payloadByAddress(ctx, b, matchMode(ctx, match) == .write, matchesInPlace(ctx, match));
+}
+
+/// Whether the catch-all binding `pattern` of a read `match` is captured by
+/// address where the match switches (`catchAllByAddress`), decided once.
+pub fn catchAllCaptured(ctx: *const SemContext, pattern: Sexp, match: Sexp) bool {
+    return decideAt(ctx, pattern, match, .catch_all_by_address);
+}
+
+fn decideCatchAllByAddress(ctx: *const SemContext, pattern: Sexp, match: Sexp) bool {
+    const sym = ctx.symbolOf(pattern) orelse return false;
+    const ty = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
+    return catchAllByAddress(ctx, ty, matchesInPlace(ctx, match));
+}
+
+/// Whether `match`'s subject is a view a call returns, held as a pointer:
+/// the match switches on it where it points, temporaries or not, and binds
+/// no copy of it.
+pub fn holdsView(ctx: *const SemContext, match: Sexp) bool {
+    return decide(ctx, match, .holds_view);
+}
+
+fn decideHoldsView(ctx: *const SemContext, match: Sexp) bool {
+    const subject = ir.Match.subject(match);
+    return !hasStorage(ctx, subject) and isPtrViewExpr(ctx, subject);
 }
 
 /// Whether a read `match` switches on its subject where it is, never on
@@ -704,6 +754,10 @@ pub fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) boo
 /// holds (`Header.held`), or is a view a call returns, switched on where
 /// it points. A payload captured by pointer is then the subject's own.
 pub fn matchesInPlace(ctx: *const SemContext, match: Sexp) bool {
+    return decide(ctx, match, .matches_in_place);
+}
+
+fn decideMatchesInPlace(ctx: *const SemContext, match: Sexp) bool {
     if (matchMode(ctx, match) != .read) return false;
     const subject = lentPlace(ir.Match.subject(match));
     if (ctx.headerOf(match) == .held) return true;
@@ -800,22 +854,46 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address => bool,
+        .match_mode => MatchMode,
+        .subject_hold => ?StorageBy,
     };
 }
 
-/// How `q` is answered from the facts as they stand.
-fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp) Answer(q) {
+/// How `q` is answered about a node, in the construct `at` it belongs to
+/// (`.nil` for a question about the node alone), from the facts as they
+/// stand.
+fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(q) {
+    const Node = struct {
+        fn of(comptime f: fn (*const SemContext, Sexp) Answer(q)) fn (*const SemContext, Sexp, Sexp) Answer(q) {
+            return struct {
+                fn decide(ctx: *const SemContext, e: Sexp, _: Sexp) Answer(q) {
+                    return f(ctx, e);
+                }
+            }.decide;
+        }
+    };
     return switch (q) {
-        .leaf_step => decideLeafStep,
-        .reaches_leaf => decideReachesLeaf,
+        .leaf_step => Node.of(decideLeafStep),
+        .reaches_leaf => Node.of(decideReachesLeaf),
+        .matches_in_place => Node.of(decideMatchesInPlace),
+        .match_mode => Node.of(decideMatchMode),
+        .match_rereads => Node.of(decideMatchRereads),
+        .match_block => Node.of(decideMatchBlock),
+        .subject_hold => Node.of(decideSubjectHold),
+        .holds_view => Node.of(decideHoldsView),
+        .catch_all_by_address => decideCatchAllByAddress,
+        .payload_by_address => decidePayloadByAddress,
     };
 }
+
+const no_answer = 255;
 
 fn encode(comptime q: sema.Question, a: Answer(q)) u8 {
     return switch (@typeInfo(Answer(q))) {
         .bool => @intFromBool(a),
         .@"enum" => @intFromEnum(a),
+        .optional => if (a) |v| @intFromEnum(v) else no_answer,
         else => comptime unreachable,
     };
 }
@@ -826,6 +904,7 @@ pub fn decided(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) ?Answ
     return switch (@typeInfo(Answer(q))) {
         .bool => a != 0,
         .@"enum" => @enumFromInt(a),
+        .optional => |o| if (a == no_answer) @as(Answer(q), null) else @as(o.child, @enumFromInt(a)),
         else => comptime unreachable,
     };
 }
@@ -833,9 +912,14 @@ pub fn decided(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) ?Answ
 /// The answer to `q` about `e`: the one recorded, or, the first time it
 /// is asked, the one the facts give now, which is recorded.
 fn decide(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) Answer(q) {
+    return decideAt(ctx, e, .nil, q);
+}
+
+/// `decide`, for a question about `e` within the construct `at`.
+fn decideAt(ctx: *const SemContext, e: Sexp, at: Sexp, comptime q: sema.Question) Answer(q) {
     if (decided(ctx, e, q)) |a| return a;
-    const a = decider(q)(ctx, e);
-    ctx.recordDecision(e, q, encode(q, a));
+    const a = decider(q)(ctx, e, at);
+    ctx.recordDecision(e, at, q, encode(q, a));
     return a;
 }
 
@@ -849,7 +933,7 @@ pub fn verifyDecisions(ctx: *const SemContext) void {
     var it = ctx.decided.map.iterator();
     while (it.next()) |entry| switch (entry.key_ptr.q) {
         inline else => |q| {
-            const now = encode(q, decider(q)(ctx, entry.value_ptr.node));
+            const now = encode(q, decider(q)(ctx, entry.value_ptr.node, entry.value_ptr.at));
             if (now != entry.value_ptr.answer) {
                 const lc = @import("diag.zig").lineCol(ctx.source, ctx.startOf(entry.value_ptr.node));
                 std.debug.panic("{d}:{d}: internal error: {s} was decided as {d}, but the facts now give {d}", .{ lc.line, lc.col, @tagName(q), entry.value_ptr.answer, now });
@@ -1077,6 +1161,21 @@ const Planner = struct {
         const ctx = p.ctx;
         const mode = matchMode(ctx, m);
         const subject = lentPlace(ir.Match.subject(m));
+        // How it binds is decided for every binding, which emit reads.
+        _ = holdsView(ctx, m);
+        _ = matchesInPlace(ctx, m);
+        _ = matchRereads(ctx, m);
+        _ = subjectHold(ctx, m);
+        for (ir.Match.arms(m)) |arm| {
+            const pattern = ir.Arm.pattern(arm);
+            if (pattern == .src) {
+                if (isCatchAll(ctx.source, pattern) and ctx.symbolOf(pattern) != null) _ = catchAllCaptured(ctx, pattern, m);
+            } else if (pattern.isKind(.variant_pattern)) {
+                for (ctx.payloadBindings(pattern) orelse continue) |b| if (b != .nil) {
+                    _ = bindsByAddress(ctx, b, m);
+                };
+            }
+        }
         if (ctx.headerOf(m) == .held) try p.record(m, .held, .owned, .construct);
         var reread = false;
         var temp = false;
@@ -1115,13 +1214,12 @@ const Planner = struct {
                 continue;
             }
             if (!pattern.isKind(.variant_pattern)) continue;
-            const in_place = matchesInPlace(ctx, m);
             var any = false;
             var by_addr = mode == .write;
             for (ctx.payloadBindings(pattern) orelse continue) |b| {
                 if (!p.isUsed(b)) continue;
                 any = true;
-                if (payloadByAddress(ctx, b, mode == .write, in_place)) by_addr = true;
+                if (bindsByAddress(ctx, b, m)) by_addr = true;
             }
             if (any) try p.record(arm, .payload, if (by_addr) .pointer else .copy, .arm);
         }

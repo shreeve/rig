@@ -4888,7 +4888,7 @@ pub const Checker = struct {
         // A view the subject yields, which the match reads where it points
         // (its tag, its payloads) after the header: one that carries a
         // loan on a temporary the header made reads it after its drop.
-        if (self.sema) |ctx| if (!sema.handsOver(ctx, scrut).hasStorage()) if (ctx.typeOf(scrut)) |ty| if (sema.viewHeldAsPointer(ctx, ty)) {
+        if (self.sema) |ctx| if (storage.holdsView(ctx, match)) {
             for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null) {
                 const temp = self.vars.items[l.root].name;
                 try self.err(l.pos, "this `match` reads the view its subject returns after its header drops the temporary `{s}` it points into; bind `{s}` to a name first", .{ temp, temp });

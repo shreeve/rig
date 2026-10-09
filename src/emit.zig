@@ -1018,6 +1018,12 @@ pub const Emitter = struct {
         if (fact.by != .owned) return self.unsupported(node, "a Zig temporary held other than its storage fact says");
     }
 
+    /// A decision a pass made before emit (`facts.Question`), which emit
+    /// only reads: one no pass made is an internal error.
+    fn need(self: *Emitter, answer: anytype, node: Sexp) Error!@typeInfo(@TypeOf(answer)).optional.child {
+        return answer orelse self.unsupported(node, "a decision no checker made: " ++ @typeName(@TypeOf(answer)));
+    }
+
     fn nextId(self: *Emitter) u32 {
         self.counter += 1;
         return self.counter;
@@ -2462,27 +2468,27 @@ pub const Emitter = struct {
         const scrut_ty = self.facts.matchedType(sexp);
         var info: MatchInfo = .{
             .match = sexp,
-            .mode = self.facts.pending.matchMode(sexp),
+            .mode = try self.need(self.facts.matchMode(sexp), sexp),
             .ty = scrut_ty,
             .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
             // `match ?t` / `match !t` switch on the value viewed.
             .subject = lentPlace(scrutinee),
             .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
-            .in_place = self.facts.pending.matchesInPlace(sexp),
+            .in_place = try self.need(self.facts.matchesInPlace(sexp), sexp),
         };
         // A subject with temporaries that reaches no place is matched as
         // a copy, which the checker records (`copiesHeader`).
-        const held_view = !self.hasStorage(scrutinee) and self.isPtrViewExpr(scrutinee);
+        const held_view = try self.need(self.facts.holdsView(sexp), sexp);
         if (info.mode != .consume and !held_view) _ = try self.copiesSubject(sexp, info.subject);
         const guarded = facts.syntax.matchGuarded(sexp);
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
         // subject is read again.
-        const rereads = self.facts.pending.matchRereads(sexp);
+        const rereads = try self.need(self.facts.matchRereads(sexp), sexp);
         // Evaluating the subject first, or holding the value it is a part
         // of (`Header.held`), takes a block around the match.
         const held = self.facts.headerOf(sexp) == .held;
-        const block = if (self.facts.pending.matchBlock(sexp)) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        const block = if (try self.need(self.facts.matchBlock(sexp), sexp)) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
         var held_mark: ?usize = null;
         defer if (held_mark) |m| self.hoisted.shrinkRetainingCapacity(m);
         if (block.len > 0) {
@@ -2556,7 +2562,7 @@ pub const Emitter = struct {
                 try self.w.writeAll("else => ");
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
                 switch (info.mode) {
-                    .read => if (named) try self.emitCapture(pattern, info.in_place),
+                    .read => if (named) try self.emitCapture(pattern),
                     .write => if (named) {
                         prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
                     },
@@ -2616,7 +2622,7 @@ pub const Emitter = struct {
     /// it is, an element by its address, a value no binding holds (a
     /// call's result, or what `match <` takes from one) into a local.
     fn evalSubject(self: *Emitter, info: *MatchInfo) Error!void {
-        const by = self.facts.pending.subjectHold(info.match) orelse {
+        const by = (try self.need(self.facts.subjectHold(info.match), info.match)) orelse {
             info.reread = try self.placeText(info.*);
             return;
         };
@@ -2795,7 +2801,7 @@ pub const Emitter = struct {
         const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
         const t = local.ty orelse return self.unsupported(pattern, "a catch-all binding of unknown type");
         if (info.mode == .write) return self.wholeAlias(pattern, try self.fmt("&{s}", .{subj}), used_in);
-        const by_addr = self.facts.pending.catchAllByAddress(t, info.in_place);
+        const by_addr = try self.need(self.facts.catchAllCaptured(pattern), pattern);
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));
         const expr = if (by_addr) try self.fmt("&{s}", .{subj}) else subj;
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
@@ -2903,7 +2909,6 @@ pub const Emitter = struct {
     /// Before a guard: the bindings of `pattern` that `guard` names, read
     /// from `subj` (for `match <x`, views of the value still in `x`).
     fn guardBindings(self: *Emitter, pattern: Sexp, guard: Sexp, info: MatchInfo, subj: []const u8) Error!void {
-        const writes = info.mode == .write;
         if (isCatchAll(self.source, pattern)) {
             const sym = self.facts.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
@@ -2919,7 +2924,7 @@ pub const Emitter = struct {
             const local = self.payloadLocal(b) orelse continue;
             // A write binds a pointer to each field, and a read one to a
             // field it views (`?F`) or reads in place.
-            const addr = self.facts.pending.payloadByAddress(b, writes, info.in_place);
+            const addr = try self.need(self.facts.bindsByAddress(b), b);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
             try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
         }
@@ -3041,10 +3046,10 @@ pub const Emitter = struct {
 
     /// `|name| ` for a payload or catch-all binding that the body uses:
     /// `|*name| ` for one that views the matched value where it is.
-    fn emitCapture(self: *Emitter, name_node: Sexp, in_place: bool) Error!void {
+    fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
         const t = local.ty orelse return self.unsupported(name_node, "a catch-all binding of unknown type");
-        const by_addr = self.facts.pending.catchAllByAddress(t, in_place);
+        const by_addr = try self.need(self.facts.catchAllCaptured(name_node), name_node);
         // A value captured by address is held as a pointer to it; a view
         // held as a pointer is that pointer.
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(name_node));
@@ -3072,11 +3077,11 @@ pub const Emitter = struct {
         var by_addr = writes;
         for (captures) |c| {
             if (self.usedPayloadLocal(c, used_in) == null) continue;
-            if (self.facts.pending.payloadByAddress(c, writes, info.in_place)) by_addr = true;
+            if (try self.need(self.facts.bindsByAddress(c), c)) by_addr = true;
         }
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
-            const addr = self.facts.pending.payloadByAddress(c, writes, info.in_place);
+            const addr = try self.need(self.facts.bindsByAddress(c), c);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
             try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });

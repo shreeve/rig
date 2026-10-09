@@ -144,6 +144,8 @@ const Checker = struct {
     /// no plain data views that copy, so it is usable within its arm only
     /// (`SymbolFlags.arm_view`).
     arm_local: bool = false,
+    /// The `match` whose arms are being checked.
+    matching: Sexp = .nil,
     /// A condition is being checked where nothing it makes can be held
     /// for the construct: a `while`'s, which runs again each iteration,
     /// a joined one, whose later parts may use earlier bindings, and a
@@ -2142,7 +2144,7 @@ const Checker = struct {
         // and may view a copy (`rejectHeaderCopy`).
         // (A view a call returns, held as a pointer, is matched where it
         // points, temporaries or not.)
-        const held_view = !subject_hands.hasStorage() and sema.viewHeldAsPointer(self.ctx, self.ctx.typeOf(subject) orelse scrutinee);
+        const held_view = storage.holdsView(self.ctx, node);
         if (mode != .consume and !held_view and !self.isPoison(scrutinee)) try self.rejectHeaderCopy(node, subject, sema.unwrapAccess(self.ctx, scrutinee));
         try self.recordUse(subject, switch (mode) {
             .read => .read,
@@ -2215,6 +2217,9 @@ const Checker = struct {
         const saved_arm_local = self.arm_local;
         defer self.arm_local = saved_arm_local;
         self.arm_local = mode == .read and !self.isPoison(scrutinee) and !storage.matchesInPlace(self.ctx, node);
+        const saved_matching = self.matching;
+        defer self.matching = saved_matching;
+        self.matching = node;
         var cov: MatchCoverage = .{};
         var arm_values: std.ArrayList(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
@@ -2581,10 +2586,10 @@ const Checker = struct {
                         // A binding that is no plain data of a copy of the
                         // subject, or captured as a copy, is usable in its
                         // arm only.
-                        const copied = self.arm_local or !storage.catchAllByAddress(self.ctx, scrutinee, true);
-                        if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
-                        if (mode == .read) try self.readBinding(scrutinee, pattern);
                         self.ctx.symbols.items[sym].ty = scrutinee;
+                        const copied = self.arm_local or (mode == .read and !storage.catchAllCaptured(self.ctx, pattern, self.matching));
+                        if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                        if (mode == .read) try self.readBinding(scrutinee, pattern, !self.arm_local and !copied);
                         try self.ctx.recordType(pattern, scrutinee);
                     }
                 }
@@ -2705,7 +2710,9 @@ const Checker = struct {
         for (binds, resolved.payload) |b, f| {
             // A field the pattern leaves out is read as a `_` field is.
             if (b == .nil) {
-                if (mode == .read) try self.readBinding(f.ty, name);
+                // Read where the match reads in place when no instance
+                // copies it.
+                if (mode == .read) try self.readBinding(f.ty, name, !self.arm_local and sema.copies(self.ctx, f.ty) == .depends);
                 continue;
             }
             // `match !e` binds a write view of each field; a field that
@@ -2721,11 +2728,11 @@ const Checker = struct {
                 try self.ctx.intern(.{ .read_view = f.ty })
             else
                 f.ty;
-            if (mode == .read) try self.readBinding(f.ty, b);
             try self.ctx.recordType(b, ty);
             if (!self.isPoison(f.ty)) try self.ctx.recordPayloadField(b, f.ty);
+            if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = ty;
+            if (mode == .read) try self.readBinding(f.ty, b, !self.arm_local and storage.bindsByAddress(self.ctx, b, self.matching));
             if (self.ctx.symbolOf(b)) |sym| {
-                self.ctx.symbols.items[sym].ty = ty;
                 // A binding that is no plain data of a copy of the
                 // subject is usable in its arm only.
                 if (self.arm_local and mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
@@ -2789,11 +2796,11 @@ const Checker = struct {
     /// fork. (Where the copy is
     /// consumed, the ownership checker requires an instance that owns
     /// nothing: `Var.payload_view`.)
-    fn readBinding(self: *Checker, ty: TypeId, b: Sexp) Error!void {
+    fn readBinding(self: *Checker, ty: TypeId, b: Sexp, by_address: bool) Error!void {
         if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty) or self.ctx.types.get(ty) == .slice) return;
         // Captured by address where the match reads in place, it copies
-        // nothing (`storage.catchAllByAddress`, `payloadByAddress`).
-        if (!self.arm_local and storage.catchAllByAddress(self.ctx, ty, true)) return;
+        // nothing (`storage.catchAllCaptured`, `storage.bindsByAddress`).
+        if (by_address) return;
         if (sema.maybeDropGlue(self.ctx, ty)) try self.requireOf(ty, .no_cell, self.startOf(b), "copies into a match binding a value");
     }
 

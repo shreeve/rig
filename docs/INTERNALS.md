@@ -1038,10 +1038,19 @@ and the checkers all act on are recorded as answered the first time a
 pass asks them (`sema.Question`, `SemContext.decided`): every later
 ask, emit's included, reads the record, so no two passes act on
 different answers. They are `leaf_step`, how the walk that reaches a
-value by address reaches a node (`storage.leafStep`), and
-`reaches_leaf`, whether a value is reached where its leaves are
-(`storage.reachesLeaf`), which the storage plan decides for every
-expression. At its end the plan asks each recorded question again from
+value by address reaches a node (`storage.leafStep`); `reaches_leaf`,
+whether a value is reached where its leaves are (`storage.reachesLeaf`),
+which the storage plan decides for every expression; and, for each
+`match`, how it reaches its subject (`match_mode`), whether it switches
+on it where it is (`matches_in_place`), reads it again
+(`match_rereads`), evaluates it first (`match_block`), holds it in
+`__rig_subject` (`subject_hold`), or switches where a view a call
+returns points (`holds_view`), and for each of its bindings whether it
+is captured by address (`catch_all_by_address`, `payload_by_address`, a
+question about the binding within its match). Typecheck's arm-local
+views and copy requirements, the ownership checker's check of a returned
+view, the storage plan, and emit all read the same records; the plan
+decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
 the facts as they then stand, and an answer that changed is an internal
 error (`storage.verifyDecisions`); then it seals the record, so a
 question asked later, by a classifier emit still calls, is answered but

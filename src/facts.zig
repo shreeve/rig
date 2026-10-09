@@ -34,6 +34,7 @@ const storage = @import("storage.zig");
 const resolve = @import("resolve.zig");
 
 const Sexp = parser.Sexp;
+const ir = parser.ir;
 const SemContext = sema.SemContext;
 
 pub const TypeId = sema.TypeId;
@@ -247,6 +248,35 @@ pub const Facts = struct {
     /// a recorded decision); null when it was never decided.
     pub fn reachesLeaf(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .reaches_leaf);
+    }
+    /// The decisions about a `match` the checkers made (`storage`): null
+    /// when none did.
+    pub fn matchMode(f: Facts, match: Sexp) ?MatchMode {
+        return storage.decided(f.c(), match, .match_mode);
+    }
+    pub fn matchesInPlace(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .matches_in_place);
+    }
+    pub fn matchRereads(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .match_rereads);
+    }
+    pub fn matchBlock(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .match_block);
+    }
+    /// How `__rig_subject` holds the subject (null inside: not at all).
+    pub fn subjectHold(f: Facts, match: Sexp) ??StorageBy {
+        return storage.decided(f.c(), match, .subject_hold);
+    }
+    pub fn holdsView(f: Facts, match: Sexp) ?bool {
+        return storage.decided(f.c(), match, .holds_view);
+    }
+    /// Whether a read match's catch-all binding is captured by address.
+    pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
+        return storage.decided(f.c(), pattern, .catch_all_by_address);
+    }
+    /// Whether a payload binding points at the field it binds.
+    pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
+        return storage.decided(f.c(), b, .payload_by_address);
     }
     /// Whether a binding is an integer constant the module folds.
     pub fn isConstInt(f: Facts, sym: SymbolId) bool {
@@ -466,27 +496,6 @@ pub const Pending = struct {
     pub fn viewsOptionalValue(p: Pending, value: Sexp) bool {
         return storage.viewsOptionalValue(p.c(), value);
     }
-    pub fn matchMode(p: Pending, match: Sexp) MatchMode {
-        return storage.matchMode(p.c(), match);
-    }
-    pub fn matchesInPlace(p: Pending, match: Sexp) bool {
-        return storage.matchesInPlace(p.c(), match);
-    }
-    pub fn matchRereads(p: Pending, match: Sexp) bool {
-        return storage.matchRereads(p.c(), match);
-    }
-    pub fn matchBlock(p: Pending, match: Sexp) bool {
-        return storage.matchBlock(p.c(), match);
-    }
-    pub fn subjectHold(p: Pending, match: Sexp) ?StorageBy {
-        return storage.subjectHold(p.c(), match);
-    }
-    pub fn payloadByAddress(p: Pending, b: Sexp, writes: bool, in_place: bool) bool {
-        return storage.payloadByAddress(p.c(), b, writes, in_place);
-    }
-    pub fn catchAllByAddress(p: Pending, ty: TypeId, in_place: bool) bool {
-        return storage.catchAllByAddress(p.c(), ty, in_place);
-    }
     pub fn hoistsArgs(p: Pending, call: Sexp) bool {
         return storage.hoistsArgs(p.c(), call);
     }
@@ -560,7 +569,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 25;
+const pending_budget = 18;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
@@ -697,6 +706,52 @@ test "Facts reads the leaf walk the storage plan decided" {
     // `r if k else mkr(5)`, with `mkr(5)` made there.
     try std.testing.expectEqual(1, reached);
     try std.testing.expectEqual(1, made);
+}
+
+test "Facts reads every match decision the plan made" {
+    const source =
+        \\enum E
+        \\  a(n: Int, t: Text)
+        \\  b
+        \\
+        \\sub main()
+        \\  e = E.a(n: 1, t: Text("x"))
+        \\  match e
+        \\    .a(n, t) if n > 0 => print(n, t)
+        \\    other => print(other)
+        \\
+    ;
+    const a = std.testing.allocator;
+    var p = parser.Parser.init(a, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    var ctx = try sema.check(a, source, tree, .{});
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+    const f = Facts.of(&ctx);
+    var nodes: std.ArrayList(Sexp) = .empty;
+    defer nodes.deinit(a);
+    try collect(a, tree, &nodes);
+    var matches: usize = 0;
+    for (nodes.items) |n| if (n.isKind(.match)) {
+        matches += 1;
+        try std.testing.expectEqual(MatchMode.read, f.matchMode(n).?);
+        // A name's value is matched where it is.
+        try std.testing.expect(f.matchesInPlace(n).?);
+        try std.testing.expect(f.matchBlock(n).?);
+        try std.testing.expect(!f.holdsView(n).?);
+        try std.testing.expect(f.matchRereads(n) != null and f.subjectHold(n) != null);
+        for (ir.Match.arms(n)) |arm| {
+            const pattern = ir.Arm.pattern(arm);
+            if (pattern == .src) try std.testing.expect(f.catchAllCaptured(pattern) != null);
+            if (pattern.isKind(.variant_pattern)) for (f.payloadBindings(pattern).?) |b| {
+                // `t` is a view of the Text where it is; `n` a copy.
+                const by_addr = f.bindsByAddress(b).?;
+                try std.testing.expectEqual(std.mem.eql(u8, source[b.src.pos..][0..b.src.len], "t"), by_addr);
+            };
+        }
+    };
+    try std.testing.expectEqual(1, matches);
 }
 
 fn collect(a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) !void {
