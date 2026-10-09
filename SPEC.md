@@ -2275,10 +2275,12 @@ there: in an operand, an argument, a binding's value, a `return` or
 or of a branch, arm, or loop `else` block whose value is used. A
 closure's last line is its value even where the closure gives none, and
 so is the last line of a branch that ends it, so it drops there with
-`_ = <x`. A statement `<?x` or `<!x` moves a view nowhere, and does
-nothing. `-x` always negates: a statement `-e`
-does nothing, and is rejected, with the drop to write where `e` holds
-something to drop.
+`_ = <x`. A statement `<?x` or `<!x` moves a view nowhere, and a view
+owns nothing to drop, so it does nothing, and is rejected. `-x` always
+negates: a statement `-e` does nothing, and is rejected, with the drop
+to write where `e` holds something `<e` drops: not a view parameter,
+a closure's capture, or a `for` element that views a slot of the Vec it
+walks, which `<` rejects.
 
 ```rig
 struct F
