@@ -354,6 +354,10 @@ pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
 /// array, or a Text is instead reached through the address of its
 /// leaf, which Zig follows for a field, an element, or a method.
 pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
+    return decide(ctx, e, .reaches_leaf);
+}
+
+fn decideReachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     if (sema.handsOver(ctx, e).kind != .branches) return false;
     if (ctx.useOf(e)) |use| if (use == .take) return false;
     const ty = typeOf(ctx, e) orelse return false;
@@ -400,6 +404,10 @@ pub const LeafStep = enum {
 };
 
 pub fn leafStep(ctx: *const SemContext, e: Sexp) LeafStep {
+    return decide(ctx, e, .leaf_step);
+}
+
+fn decideLeafStep(ctx: *const SemContext, e: Sexp) LeafStep {
     if (sema.isBranchingForm(e)) return switch (e.kind().?) {
         .@"if" => .@"if",
         .@"??", .@"catch" => .fallback,
@@ -785,6 +793,72 @@ fn lastValue(e: Sexp) Sexp {
 }
 
 // =============================================================================
+// Decisions: answered once, recorded
+// =============================================================================
+
+/// The type of the answer to `q`.
+pub fn Answer(comptime q: sema.Question) type {
+    return switch (q) {
+        .leaf_step => LeafStep,
+        .reaches_leaf => bool,
+    };
+}
+
+/// How `q` is answered from the facts as they stand.
+fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp) Answer(q) {
+    return switch (q) {
+        .leaf_step => decideLeafStep,
+        .reaches_leaf => decideReachesLeaf,
+    };
+}
+
+fn encode(comptime q: sema.Question, a: Answer(q)) u8 {
+    return switch (@typeInfo(Answer(q))) {
+        .bool => @intFromBool(a),
+        .@"enum" => @intFromEnum(a),
+        else => comptime unreachable,
+    };
+}
+
+/// The recorded answer to `q` about `e`, decoded; null when none is.
+pub fn decided(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) ?Answer(q) {
+    const a = ctx.decision(e, q) orelse return null;
+    return switch (@typeInfo(Answer(q))) {
+        .bool => a != 0,
+        .@"enum" => @enumFromInt(a),
+        else => comptime unreachable,
+    };
+}
+
+/// The answer to `q` about `e`: the one recorded, or, the first time it
+/// is asked, the one the facts give now, which is recorded.
+fn decide(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) Answer(q) {
+    if (decided(ctx, e, q)) |a| return a;
+    const a = decider(q)(ctx, e);
+    ctx.recordDecision(e, q, encode(q, a));
+    return a;
+}
+
+/// Ask every recorded question again, from the facts as they stand once the
+/// module is checked: an answer that changed after it was recorded is one
+/// two passes acted on differently, an internal error.
+pub fn verifyDecisions(ctx: *const SemContext) void {
+    ctx.decided.sealed = true;
+    // A module with errors is not emitted; its diagnostics come first.
+    if (ctx.hasErrors()) return;
+    var it = ctx.decided.map.iterator();
+    while (it.next()) |entry| switch (entry.key_ptr.q) {
+        inline else => |q| {
+            const now = encode(q, decider(q)(ctx, entry.value_ptr.node));
+            if (now != entry.value_ptr.answer) {
+                const lc = @import("diag.zig").lineCol(ctx.source, ctx.startOf(entry.value_ptr.node));
+                std.debug.panic("{d}:{d}: internal error: {s} was decided as {d}, but the facts now give {d}", .{ lc.line, lc.col, @tagName(q), entry.value_ptr.answer, now });
+            }
+        },
+    };
+}
+
+// =============================================================================
 // The plan
 // =============================================================================
 
@@ -800,6 +874,7 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < p.used.bit_length) p.used.set(s.origin);
     try p.walk(tree);
     try planConsumed(ctx, tree);
+    verifyDecisions(ctx);
 }
 
 /// Record the bindings a use may move out (`SemContext.consumed`): the
@@ -877,6 +952,9 @@ const Planner = struct {
             else => return,
         }
         const ctx = p.ctx;
+        // Whether a value is reached where its leaves are is decided for
+        // every expression, which emit reads wherever it takes an address.
+        _ = reachesLeaf(ctx, e);
         if (ctx.lendOf(e)) |lend| {
             if (lendsInsideOptional(lend)) try p.record(e, .lent, .pointer, .expression);
             try p.leaves(if (e.isKind(.read) or e.isKind(.write)) ir.get(e, .operand) else e);
@@ -912,7 +990,11 @@ const Planner = struct {
     /// place `e` reaches (`headerPoints`), or else its value.
     fn subjectHeader(p: *Planner, e: Sexp) !void {
         if (e == .nil or sema.firstStmtTemp(p.ctx, e) == null) return;
-        try p.record(e, .header_value, if (headerPoints(p.ctx, e)) .pointer else .copy, .header);
+        const points = headerPoints(p.ctx, e);
+        try p.record(e, .header_value, if (points) .pointer else .copy, .header);
+        // A value that branches over places yields the address of the leaf
+        // it takes.
+        if (points and sema.handsOver(p.ctx, e).kind == .branches and !isPtrViewExpr(p.ctx, e)) try p.leaf(e);
     }
 
     /// An `if` or `while` condition: each part of a joined one.
@@ -1048,10 +1130,15 @@ const Planner = struct {
     fn call(p: *Planner, c: Sexp) !void {
         const ctx = p.ctx;
         const callee = ctx.calleeOf(c);
+        const hoists = ctx.elemCallOf(callee) == null and hoistsArgs(ctx, c);
+        // A temporary array lent as a slice to a call that evaluates its
+        // arguments where they stand is lent where Zig holds it, which
+        // lives through the call.
+        if (!hoists) for (ir.Call.args(c)) |a| if (ctx.lendsTempArray(argValue(a))) try p.record(argValue(a), .zig_temp, .owned, .statement);
         if (ctx.elemCallOf(callee) != null) return;
         // A closure literal called where it is written is built first.
         if (callee.isKind(.lambda)) try p.record(callee, .invoked, .owned, .call);
-        if (!hoistsArgs(ctx, c)) return;
+        if (!hoists) return;
         if (receiverHold(ctx, c)) |hold| {
             const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(receiverOf(ctx, c).?);
             try p.record(recv, .receiver, hold.by(hasStorage(ctx, recv)), .call);
@@ -1151,7 +1238,11 @@ const Planner = struct {
 
     fn leaf(p: *Planner, e: Sexp) !void {
         switch (leafStep(p.ctx, e)) {
-            .place, .part, .lend, .made, .literal, .jump => {},
+            .place, .part, .lend, .jump => {},
+            // A value made here that no slot keeps, or a literal, is
+            // reached where Zig holds it.
+            .made => if (!p.ctx.dropsTemp(e)) try p.record(e, .zig_temp, .owned, .statement),
+            .literal => if (!isNoneLeaf(p.ctx, e)) try p.record(e, .zig_temp, .owned, .statement),
             .@"if" => {
                 try p.leaf(lastValue(ir.If.then(e)));
                 try p.leaf(lastValue(ir.If.@"else"(e)));

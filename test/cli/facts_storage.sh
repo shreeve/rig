@@ -44,6 +44,40 @@ expect_has "$(cat main.zig)" '__rig_ix_' "the index's storage"
 "$RIG" run main.rig >run.txt 2>err.txt || fail "rig run: $(cat err.txt)"
 expect_has "$(cat run.txt)" '4' "the program's output"
 
+# A value emit reaches by address where Zig holds it, in no slot, is a
+# fact too (`zig_temp`): a leaf made there no slot keeps, and a temporary
+# array lent to a call.
+cat >zig_temp.rig <<'EOF2'
+struct R unique
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+fun mkr(n: Int) -> R
+  R(n: n)
+
+fun sum(xs: []Int) -> Int
+  t = 0
+  for x in xs
+    t += x
+  t
+
+sub go(k: Bool)
+  r = mkr(1)
+  print((r if k else mkr(5)).get(), sum([1, 2, 3]))
+
+sub main()
+  go(true)
+  go(false)
+EOF2
+"$RIG" check --facts=storage zig_temp.rig >zt.txt 2>err.txt || fail "rig check --facts=storage: $(cat err.txt)"
+out=$(cat zt.txt)
+expect_has "$out" 'zig_temp call 18:22-18:28 "mkr(5)" owned statement' "a made leaf no slot keeps"
+expect_has "$out" 'zig_temp array 18:41-18:50 "[1, 2, 3]" owned statement' "a temporary array lent to a call"
+"$RIG" run zig_temp.rig >run.txt 2>err.txt || fail "rig run: $(cat err.txt)"
+expect_has "$(cat run.txt)" '5 6' "the program's output"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)
