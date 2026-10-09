@@ -1,0 +1,80 @@
+# release
+# A write lend `!x` keeps its write view where the slot's type is one:
+# a type spelled with `!T`, one the context expects, a parameter
+# declared `!T`, a write receiver, a read view (`?T`) it narrows to, and
+# a value whose type it gives (an array, an `if`). Each write below
+# reaches the value lent.
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct G[T]
+  r: T
+
+struct S
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  fun get(!self) -> !Int
+    !self.n
+
+fun wrap(x: !Int) -> Opt[!Int]
+  .some(v: !x)
+
+fun through[T](x: !T) -> !T
+  x
+
+sub add(x: !Int, k: Int)
+  x += k
+
+fun read(x: ?Int) -> Int
+  x
+
+sub main()
+  n = 0
+  o1 = Opt[!Int].some(v: !n)
+  match !o1
+    .some(v) => v += 1
+    .nothing => pass
+  o2: Opt[!Int] = .some(v: !n)
+  match !o2
+    .some(v) => v += 1
+    .nothing => pass
+  o3 = wrap(!n)
+  match !o3
+    .some(v) => v += 1
+    .nothing => pass
+  print(n)
+  g = G[!Int](r: !n)
+  g.r += 10
+  print(n)
+  w = through(!n)
+  w += 100
+  add(!n, 1000)
+  print(n, read(!n))
+  s = S(n: 1)
+  !s.bump()
+  q = !s.get()
+  q += 1
+  print(s.n)
+  a = [!n]
+  a[0] += 1
+  m = 0
+  c = n > 0
+  b = !n if c else !m
+  b += 1
+  print(n, m)
+  h: !Int = !m
+  h += 5
+  print(m)
+
+# expect:
+# 3
+# 13
+# 1113 1113
+# 3
+# 1115 0
+# 5

@@ -135,6 +135,9 @@ const Checker = struct {
     /// The argument being checked: a bare value there is lent to read
     /// where a view is expected (`lendView`).
     view_arg: Sexp = .nil,
+    /// The parameter or field the argument being checked fills, which a
+    /// diagnostic names (`ignoredWriteLend`).
+    slot: Slot = .{},
     /// The value a header makes and holds for its construct, of which
     /// its subject is a part (`Header.held`): it is no temporary of the
     /// header.
@@ -5513,7 +5516,7 @@ const Checker = struct {
         // A generic function's callee has the instance's signature.
         if (fty.function.ct_params.len > 0) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
         self.lend_call = true;
-        try self.checkArgs(args, f, info, name, callee.src.pos, .{ .origins = sym.origins });
+        try self.checkArgs(args, f, info, name, callee.src.pos, .{ .origins = sym.origins, .declared = fty.function.params });
         return f.returns;
     }
 
@@ -5834,6 +5837,34 @@ const Checker = struct {
         /// before those `checkArgs` checks.
         receiver: bool = false,
         origins: sema.Origins = .{},
+        /// The parameters as declared, before a generic call's
+        /// instance is substituted, when known: what a diagnostic says
+        /// a parameter would have to be (`Slot`).
+        declared: []const TypeId = &.{},
+    };
+
+    /// The parameter or field of a call or constructor that an argument
+    /// fills, as a diagnostic names it (`ignoredWriteLend`).
+    const Slot = struct {
+        /// The argument or field value.
+        value: Sexp = .nil,
+        /// The call or construction it is written in.
+        call: Sexp = .nil,
+        /// A field's: what the construction makes, as written
+        /// (`Opt.some`, `G[Int]`).
+        field: bool = false,
+        owner: []const u8 = "",
+        /// A call's parameters as declared (`CallSite.declared`).
+        params: []const TypeId = &.{},
+        /// The slot's type as declared, when known: `T` in a generic.
+        declared: TypeId = sema.type_invalid,
+        /// A field of a generic type's instance: the instance's
+        /// arguments, which a type parameter `declared` is one of.
+        subst: TypeSubst = .empty,
+        /// That instance's generic type, spelled at `type_node` in the
+        /// call (`Opt` in `Opt.some(v: x)`, `G[Int]` in `G[Int](r: x)`).
+        generic: SymbolId = sema.symbol_invalid,
+        type_node: Sexp = .nil,
     };
 
     /// Arguments against a signature: arity, types, keyword arguments
@@ -5842,6 +5873,9 @@ const Checker = struct {
     /// every complete call what fills each parameter (`CallParams`).
     fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
         const call = self.current_call;
+        const saved_slot = self.slot;
+        defer self.slot = saved_slot;
+        self.slot = .{ .call = call orelse .nil, .params = site.declared };
         const retains = self.callRetains(f, self.lend_recv);
         const lends = self.lend_call and !retains;
         self.lend_call = false;
@@ -5939,6 +5973,8 @@ const Checker = struct {
         }
         self.lent_temp = if (lends) arg else .nil;
         self.view_arg = arg;
+        self.slot.value = arg;
+        self.slot.declared = if (i < self.slot.params.len) self.slot.params[i] else f.params[i];
         // A closure literal lives for the call, so the call's result may
         // not hold it.
         const kept = sema.holdsCallable(self.ctx, f.returns);
@@ -6858,6 +6894,7 @@ const Checker = struct {
             .subst = subst,
             .foreign = foreign,
             .kind = .constructor,
+            .instance = result,
         });
         return result;
     }
@@ -6901,6 +6938,10 @@ const Checker = struct {
         subst: TypeSubst = TypeSubst.empty,
         foreign: ?ForeignFields = null,
         kind: enum { constructor, variant },
+        /// The call that constructs it, when not the call being checked.
+        call: Sexp = .nil,
+        /// The instance a generic type's constructor or variant makes.
+        instance: TypeId = sema.type_invalid,
     };
 
     /// Keyword arguments against named fields: each names a real field
@@ -6909,9 +6950,14 @@ const Checker = struct {
     /// `.some(7)`.
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
+        const saved_slot = self.slot;
+        defer self.slot = saved_slot;
+        self.slot = try self.fieldSlot(info);
         if (args.len == 1 and !args[0].isKind(.kwarg)) {
             if (soleField(fields)) |f| {
                 const ty = try self.fieldType(f, info);
+                self.slot.value = args[0];
+                self.slot.declared = f.ty;
                 try self.checkExpr(args[0], ty);
                 return self.checkLendsVisibly(args[0], ty, "the field writes through");
             }
@@ -6957,6 +7003,8 @@ const Checker = struct {
                 continue;
             };
             const ty = try self.fieldType(f, info);
+            self.slot.value = value;
+            self.slot.declared = f.ty;
             try self.checkExpr(value, ty);
             try self.checkLendsVisibly(value, ty, "the field writes through");
         }
@@ -6965,6 +7013,32 @@ const Checker = struct {
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
         }
+    }
+
+    /// The slot each field of a construction fills (`Slot`): the call,
+    /// what it makes as written, and, for a generic type's instance made
+    /// by a callee that names the type (`G(...)`, `G[Int](...)`,
+    /// `Opt.some(...)`), where the type is spelled.
+    fn fieldSlot(self: *Checker, info: FieldArgs) Error!Slot {
+        const call = if (info.call != .nil) info.call else self.current_call orelse return .{ .field = true, .owner = info.owner };
+        const callee = ir.Call.callee(call);
+        var slot: Slot = .{
+            .call = call,
+            .owner = self.sourceText(callee),
+            .field = true,
+            .subst = info.subst,
+        };
+        if (info.foreign != null or info.subst.isEmpty()) return slot;
+        const pn = switch (self.ctx.types.get(info.instance)) {
+            .parameterized_nominal => |pn| pn,
+            else => return slot,
+        };
+        slot.generic = pn.sym;
+        slot.type_node = switch (info.kind) {
+            .constructor => if (callee.isKind(.member)) .nil else callee,
+            .variant => if (callee.isKind(.member)) ir.Member.object(callee) else .nil,
+        };
+        return slot;
     }
 
     /// A constructor given positional arguments it cannot take: a type
@@ -7220,7 +7294,7 @@ const Checker = struct {
         }
         self.lend_call = true;
         self.lend_recv = f.params[0];
-        try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins });
+        try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins, .declared = resolved.fn_ty.params[1..] });
         return f.returns;
     }
 
@@ -7506,7 +7580,7 @@ const Checker = struct {
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
-                try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins });
+                try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
                 return f.returns;
             }
             if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });
@@ -7532,7 +7606,7 @@ const Checker = struct {
                 subst = (try self.inferTypeArgs(nt.id, args, .{ .payload = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
-            try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
+            try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant, .instance = ty });
             return ty;
         }
         try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ name, tname, try self.memberHint(nt.sym.fields orelse &.{}, name, .associated) });
@@ -8244,11 +8318,16 @@ const Checker = struct {
 
     /// Record how `e`, of type `actual`, adapts to the `expected` its
     /// context gives: a view copied out (`copiedOut`) is read through
-    /// (`recordRead`), and so is a write view lent where a read view
-    /// that copies its value is expected; a literal takes a concrete type.
+    /// (`recordRead`), but for a write lend written there, whose `!`
+    /// would be ignored (`ignoredWriteLend`); a write view lent where a
+    /// read view that copies its value is expected is read through too;
+    /// a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         const lifted = self.liftTarget(expected);
-        if (copiedOut(self.ctx, actual, expected)) return self.ctx.recordRead(e);
+        if (copiedOut(self.ctx, actual, expected)) {
+            if (self.hands(e).kind == .lend and self.ctx.types.get(actual) == .write_view) return self.ignoredWriteLend(e, expected);
+            return self.ctx.recordRead(e);
+        }
         if (self.ctx.types.get(actual) == .write_view) switch (self.ctx.types.get(lifted)) {
             .read_view => |inner| if (sema.lendByValue(self.ctx, inner)) return self.ctx.recordRead(e),
             else => {},
@@ -8264,6 +8343,85 @@ const Checker = struct {
         if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
         if (self.ctx.types.get(target) == .float) try self.checkWholeDivision(e);
         try self.checkFloatConstant(e, target);
+    }
+
+    /// `!x` where a plain value of type `expected` goes: the slot stores
+    /// or takes a copy, and a write lend there would be read and its `!`
+    /// ignored (Core §4). Rejected, with the two forms that say what is
+    /// meant: the slot made a write view, or a copy written as one.
+    fn ignoredWriteLend(self: *Checker, e: Sexp, expected: TypeId) Error!void {
+        try self.ctx.recordType(e, self.t().invalid_id);
+        // A `!` its operand's own check reported (one before a write
+        // method's temporary receiver) is reported once.
+        const sp = self.ctx.span(e);
+        for (self.ctx.diagnostics.items) |d| if (d.severity == .@"error" and d.module == 0 and d.pos >= sp.start and d.pos < sp.end) return;
+        const a = self.ctx.arena.allocator();
+        const operand = ir.Write.operand(e);
+        const place = self.sourceText(operand);
+        const ty = try self.tyName(expected);
+        const slot = self.slot;
+        const in_slot = sameExpr(e, slot.value) and slot.call != .nil;
+        // What takes the value, and the value written without the `!`.
+        const what = if (!in_slot)
+            try a.print("{s} `{s}` goes here", .{ article(ty), ty })
+        else
+            try a.print("`{s}` {s} {s} `{s}`", .{
+                if (slot.field) slot.owner else try self.calleeName(ir.Call.callee(slot.call)),
+                if (slot.field) "stores" else "takes",
+                article(ty),
+                ty,
+            });
+        const copy = if (in_slot) try self.spliced(slot.call, e, place) else place;
+        const copied = if (!in_slot) "to copy the value" else if (slot.field) "to store a copy" else "to pass a copy";
+        const head = "`{s}` here is read, not held: {s}. ";
+        // A write view of a value made here would not outlive its
+        // statement: the copy is what can be meant.
+        if (self.hands(operand).kind != .place) return self.errAt(e, head ++ "Write `{s}` {s}", .{ self.sourceText(e), what, copy, copied });
+        // A field of a generic type whose instance the call names or
+        // infers: the instance with a write view there.
+        if (in_slot and slot.field and slot.type_node != .nil) if (try self.viewInstance(slot)) |instance| {
+            const keep = try self.spliced(slot.call, slot.type_node, try self.tyName(instance));
+            return self.errAt(e, head ++ "Write `{s}` to keep a write view of `{s}`, or `{s}` {s}", .{ self.sourceText(e), what, keep, place, copy, copied });
+        };
+        const must = if (in_slot and !slot.field)
+            try a.print("to lend `{s}` to write, the parameter must be a `{s}`", .{ place, try self.tyName(try self.writeViewOf(if (slot.declared != sema.type_invalid) slot.declared else expected)) })
+        else
+            try a.print("to keep a write view of `{s}`, the {s} must be `{s}`", .{ place, if (in_slot) "field's type" else "type here", try self.tyName(try self.writeViewOf(expected)) });
+        return self.errAt(e, head ++ "Write `{s}` {s}; {s}", .{ self.sourceText(e), what, copy, copied, must });
+    }
+
+    /// The type that holds a write view where `ty` holds a value: `!T`,
+    /// and `(!T)?` for a `T?`.
+    fn writeViewOf(self: *Checker, ty: TypeId) Error!TypeId {
+        return switch (self.ctx.types.get(ty)) {
+            .optional => |inner| self.ctx.intern(.{ .optional = try self.writeViewOf(inner) }),
+            .fallible => |inner| self.ctx.intern(.{ .fallible = try self.writeViewOf(inner) }),
+            else => self.ctx.intern(.{ .write_view = ty }),
+        };
+    }
+
+    /// The instance of a field slot's generic type whose argument for
+    /// the type parameter the field is declared as is made a write view
+    /// (`Opt[!Int]` for `Opt[Int]`'s `v: T`).
+    fn viewInstance(self: *Checker, slot: Slot) Error!?TypeId {
+        const tv = switch (self.ctx.types.get(slot.declared)) {
+            .type_var => |tv| tv,
+            else => return null,
+        };
+        const k = std.mem.findScalar(SymbolId, slot.subst.params, tv) orelse return null;
+        const args = try self.ctx.arena.allocator().dupe(TypeId, slot.subst.args);
+        args[k] = try self.ctx.intern(.{ .write_view = args[k] });
+        return try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = slot.generic, .args = args } });
+    }
+
+    /// The source of `whole` with the part `part` written as `with`.
+    fn spliced(self: *Checker, whole: Sexp, part: Sexp, with: []const u8) Error![]const u8 {
+        var w = self.ctx.span(whole);
+        // A receiver's sigil is written before the call's own span.
+        if (whole.isKind(.call) and ir.Call.callee(whole).isKind(.member)) w.start = @min(w.start, self.ctx.span(ir.Member.object(ir.Call.callee(whole))).start);
+        const p = self.ctx.span(part);
+        if (p.start < w.start or p.end > w.end) return with;
+        return std.mem.concat(self.ctx.arena.allocator(), u8, &.{ self.ctx.source[w.start..p.start], with, self.ctx.source[p.end..w.end] });
     }
 
     /// An operator in literal arithmetic `e` that only integers have
@@ -8555,7 +8713,7 @@ const Checker = struct {
         }
         const decl_pos = if (resolved.nominal_sym == sema.symbol_invalid) sema.builtin_decl_pos else resolved.field.decl_pos;
         const module_id = if (resolved.nominal_sym == sema.symbol_invalid) 0 else self.ctx.symbols.items[resolved.nominal_sym].from.module_id;
-        try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .module_id = module_id, .pos = pos, .kind = .variant });
+        try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .module_id = module_id, .pos = pos, .kind = .variant, .call = call });
     }
 
     /// `Vec()` / `Vec(capacity: n)`.
@@ -9667,6 +9825,16 @@ fn isLiteralText(s: []const u8) bool {
     if (s[0] == '"' or s[0] == '\'') return true;
     if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return true;
     return sema.isIntLiteralText(s) or sema.isFloatLiteralText(s);
+}
+
+/// The article before a type's name in a diagnostic: "an `Int`",
+/// "a `Text`".
+fn article(name: []const u8) []const u8 {
+    if (name.len == 0) return "a";
+    return switch (name[0]) {
+        'A', 'E', 'I', 'O', 'a', 'e', 'i', 'o' => "an",
+        else => "a",
+    };
 }
 
 fn plural(n: usize) []const u8 {
