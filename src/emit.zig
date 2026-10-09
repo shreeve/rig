@@ -1018,6 +1018,12 @@ pub const Emitter = struct {
         if (fact.by != .owned) return self.unsupported(node, "a Zig temporary held other than its storage fact says");
     }
 
+    /// A decision a pass made before emit (`facts.Question`), which emit
+    /// only reads: one no pass made is an internal error.
+    fn need(self: *Emitter, answer: anytype, node: Sexp) Error!@typeInfo(@TypeOf(answer)).optional.child {
+        return answer orelse self.unsupported(node, "a decision no checker made: " ++ @typeName(@TypeOf(answer)));
+    }
+
     fn nextId(self: *Emitter) u32 {
         self.counter += 1;
         return self.counter;
@@ -1248,8 +1254,8 @@ pub const Emitter = struct {
     /// `storage.headerPoints`: the header over construct subject `e`
     /// makes temporaries, and its block yields the address of the place
     /// `e` reaches.
-    fn headerPoints(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.headerPoints(e);
+    fn headerPoints(self: *Emitter, e: Sexp) Error!bool {
+        return self.need(self.facts.headerPoints(e), e);
     }
 
     /// The address of the place a construct's subject `e` reaches, which
@@ -1259,7 +1265,7 @@ pub const Emitter = struct {
     /// writable when the construct `writes` it.
     fn emitSubjectPtr(self: *Emitter, e: Sexp, writes: bool) Error!void {
         const h = try self.openHeaderBy(e, .pointer);
-        switch (self.facts.pending.handsOver(e).kind) {
+        switch (try self.need(self.facts.handsOver(e), e)) {
             .place => {
                 const saved = self.read_place;
                 defer self.read_place = saved;
@@ -1283,7 +1289,7 @@ pub const Emitter = struct {
     /// is evaluated as a copy: it makes temporaries and reaches no place
     /// (`headerPoints`). The checker records the same (`copiesHeader`).
     fn copiesSubject(self: *Emitter, node: Sexp, e: Sexp) Error!bool {
-        const copies = self.hasTemps(e) and !self.headerPoints(e);
+        const copies = self.hasTemps(e) and !try self.headerPoints(e);
         if (copies != self.facts.copiesHeader(node)) return self.unsupported(node, "a header copy the checker did not record");
         return copies;
     }
@@ -1317,7 +1323,7 @@ pub const Emitter = struct {
                 if (body.isKind(.block)) try self.emitBlock(body) else try self.emitStmt(body);
             },
             else => {
-                if (self.discardsValue(sexp)) try self.w.writeAll("_ = ");
+                if (try self.discardsValue(sexp)) try self.w.writeAll("_ = ");
                 try self.emitExpr(sexp);
                 try self.w.writeAll(";");
             },
@@ -1326,7 +1332,7 @@ pub const Emitter = struct {
 
     /// True when `expr` in statement position produces a value that Zig
     /// requires to be used.
-    fn discardsValue(self: *Emitter, expr: Sexp) bool {
+    fn discardsValue(self: *Emitter, expr: Sexp) Error!bool {
         var e = expr;
         while (e.isKind(.propagate)) e = ir.Propagate.value(e);
         if (!e.isKind(.call)) return true;
@@ -1334,7 +1340,7 @@ pub const Emitter = struct {
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (self.facts.calleeOf(e).isKind(.lambda)) return true;
-        if (self.hoistsArgs(e)) return true;
+        if (try self.hoistsArgs(e)) return true;
         return !self.yieldsNothing(e);
     }
 
@@ -1377,7 +1383,7 @@ pub const Emitter = struct {
             // clone or move of a value that owns nothing is a copy.)
             var place = expr;
             if (place.isKind(.read) or place.isKind(.write) or place.isKind(.clone) or place.isKind(.move)) place = ir.get(place, .operand);
-            if (self.hasStorage(place) and !place.isKind(.index)) {
+            if ((try self.hasStorage(place)) and !place.isKind(.index)) {
                 try self.w.writeAll("_ = &");
                 try self.emitPlace(place);
                 return self.w.writeAll(";");
@@ -1631,7 +1637,7 @@ pub const Emitter = struct {
         const first = self.hoisted.items.len;
         const id = self.nextId();
         try self.w.writeAll("{ ");
-        if (!self.isPureArg(value)) {
+        if (!try self.isPureArg(value)) {
             const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
             try self.w.print("const {s}", .{name});
             if (ty) |t| {
@@ -1670,7 +1676,7 @@ pub const Emitter = struct {
     }
 
     fn hoistIndex(self: *Emitter, index: Sexp, id: u32) Error!void {
-        if (self.isPureArg(index)) return;
+        if (try self.isPureArg(index)) return;
         const name = try self.hiddenStorage(index, .index, .owned, .{ .pair = .{ id, @intCast(self.hoisted.items.len) } });
         try self.w.print("const {s}", .{name});
         if (self.typeOf(index)) |t| {
@@ -2266,17 +2272,9 @@ pub const Emitter = struct {
 
         const src_ty = self.typeOf(source);
         const is_vec = src_ty != null and self.isVecTy(src_ty.?);
-        // A Vec the loop consumes, or one its source expression creates,
-        // hands its elements over one at a time.
-        if (is_vec and (mode == .move or (!self.hasStorage(source) and self.kindOf(src_ty.?) != null))) {
-            return self.emitConsumingFor(sexp, lp, false);
-        }
-        // So does an array of values that move, which the loop takes.
-        if (src_ty != null and self.facts.types.get(src_ty.?) == .array and self.kindOf(self.facts.types.get(src_ty.?).array.elem) != null and
-            (mode == .move or !self.hasStorage(source)))
-        {
-            return self.emitConsumingFor(sexp, lp, true);
-        }
+        // A Vec or an array of values that move, which the loop takes or
+        // its source makes, hands its elements over one at a time.
+        if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_vec);
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.facts.headerOf(sexp);
@@ -2312,7 +2310,7 @@ pub const Emitter = struct {
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
         const array_ptr = by_ptr and !is_vec and src_ty != null and self.facts.types.get(self.peelViews(src_ty.?)) == .array;
-        if (owned) try self.w.print("&{s}", .{taken}) else if (self.headerPoints(source)) {
+        if (owned) try self.w.print("&{s}", .{taken}) else if (try self.headerPoints(source)) {
             // A place reached through temporaries is walked where it is.
             try self.emitSubjectPtr(source, mode == .write);
             if (!array_ptr) try self.w.writeAll(".*");
@@ -2462,27 +2460,27 @@ pub const Emitter = struct {
         const scrut_ty = self.facts.matchedType(sexp);
         var info: MatchInfo = .{
             .match = sexp,
-            .mode = self.facts.pending.matchMode(sexp),
+            .mode = try self.need(self.facts.matchMode(sexp), sexp),
             .ty = scrut_ty,
             .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
             // `match ?t` / `match !t` switch on the value viewed.
             .subject = lentPlace(scrutinee),
             .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
-            .in_place = self.facts.pending.matchesInPlace(sexp),
+            .in_place = try self.need(self.facts.matchesInPlace(sexp), sexp),
         };
         // A subject with temporaries that reaches no place is matched as
         // a copy, which the checker records (`copiesHeader`).
-        const held_view = !self.hasStorage(scrutinee) and self.isPtrViewExpr(scrutinee);
+        const held_view = try self.need(self.facts.holdsView(sexp), sexp);
         if (info.mode != .consume and !held_view) _ = try self.copiesSubject(sexp, info.subject);
         const guarded = facts.syntax.matchGuarded(sexp);
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
         // subject is read again.
-        const rereads = self.facts.pending.matchRereads(sexp);
+        const rereads = try self.need(self.facts.matchRereads(sexp), sexp);
         // Evaluating the subject first, or holding the value it is a part
         // of (`Header.held`), takes a block around the match.
         const held = self.facts.headerOf(sexp) == .held;
-        const block = if (self.facts.pending.matchBlock(sexp)) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        const block = if (try self.need(self.facts.matchBlock(sexp), sexp)) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
         var held_mark: ?usize = null;
         defer if (held_mark) |m| self.hoisted.shrinkRetainingCapacity(m);
         if (block.len > 0) {
@@ -2503,13 +2501,13 @@ pub const Emitter = struct {
         try self.w.writeAll("switch (");
         if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
             try self.w.writeAll(info.reread);
-        } else if (self.headerPoints(subject)) {
+        } else if (try self.headerPoints(subject)) {
             // A place reached through temporaries is switched on where it
             // is, so each payload captured by pointer is the place's own.
             try self.emitSubjectPtr(subject, info.mode == .write);
             try self.w.writeAll(".*");
             if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
-        } else if (info.mode == .write and self.facts.pending.handsOver(subject).kind == .place and throughElement(subject)) {
+        } else if (info.mode == .write and try self.need(self.facts.handsOver(subject), subject) == .place and throughElement(subject)) {
             // A place through an element that a write match writes is
             // switched on where it is (a Vec's element reads as a
             // value): `(&v.slot(i).*).*`.
@@ -2521,7 +2519,7 @@ pub const Emitter = struct {
             // A match on a call returning a view held by pointer
             // switches on the value it points to, where it is: a header
             // with temporaries yields the pointer, never the value.
-            const by_ptr = !self.hasStorage(subject) and self.isPtrViewExpr(subject);
+            const by_ptr = !(try self.hasStorage(subject)) and self.isPtrViewExpr(subject);
             const h = try self.openHeader(subject);
             if (by_ptr and h.label.len > 0) {
                 try self.emitWriteViewPtr(subject);
@@ -2556,7 +2554,7 @@ pub const Emitter = struct {
                 try self.w.writeAll("else => ");
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
                 switch (info.mode) {
-                    .read => if (named) try self.emitCapture(pattern, info.in_place),
+                    .read => if (named) try self.emitCapture(pattern),
                     .write => if (named) {
                         prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
                     },
@@ -2616,13 +2614,13 @@ pub const Emitter = struct {
     /// it is, an element by its address, a value no binding holds (a
     /// call's result, or what `match <` takes from one) into a local.
     fn evalSubject(self: *Emitter, info: *MatchInfo) Error!void {
-        const by = self.facts.pending.subjectHold(info.match) orelse {
+        const by = (try self.need(self.facts.subjectHold(info.match), info.match)) orelse {
             info.reread = try self.placeText(info.*);
             return;
         };
         const name = try self.hiddenStorage(info.match, .subject, by, .next);
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
-        if (self.hasStorage(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
+        if ((try self.hasStorage(value)) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
             try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
@@ -2631,7 +2629,7 @@ pub const Emitter = struct {
         // which the header's block yields, and a view a call returns
         // (`match get(e)`) as the pointer it is, never copied: the
         // bindings view the value it points to.
-        const points = self.headerPoints(value);
+        const points = try self.headerPoints(value);
         if (!info.subject.isKind(.move) and (points or self.isPtrViewExpr(value))) {
             try self.writeIndent(self.indent);
             try self.w.print("const {s} = ", .{name});
@@ -2795,7 +2793,7 @@ pub const Emitter = struct {
         const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
         const t = local.ty orelse return self.unsupported(pattern, "a catch-all binding of unknown type");
         if (info.mode == .write) return self.wholeAlias(pattern, try self.fmt("&{s}", .{subj}), used_in);
-        const by_addr = self.facts.pending.catchAllByAddress(t, info.in_place);
+        const by_addr = try self.need(self.facts.catchAllCaptured(pattern), pattern);
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));
         const expr = if (by_addr) try self.fmt("&{s}", .{subj}) else subj;
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
@@ -2903,7 +2901,6 @@ pub const Emitter = struct {
     /// Before a guard: the bindings of `pattern` that `guard` names, read
     /// from `subj` (for `match <x`, views of the value still in `x`).
     fn guardBindings(self: *Emitter, pattern: Sexp, guard: Sexp, info: MatchInfo, subj: []const u8) Error!void {
-        const writes = info.mode == .write;
         if (isCatchAll(self.source, pattern)) {
             const sym = self.facts.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
@@ -2919,7 +2916,7 @@ pub const Emitter = struct {
             const local = self.payloadLocal(b) orelse continue;
             // A write binds a pointer to each field, and a read one to a
             // field it views (`?F`) or reads in place.
-            const addr = self.facts.pending.payloadByAddress(b, writes, info.in_place);
+            const addr = try self.need(self.facts.bindsByAddress(b), b);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
             try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
         }
@@ -3041,10 +3038,10 @@ pub const Emitter = struct {
 
     /// `|name| ` for a payload or catch-all binding that the body uses:
     /// `|*name| ` for one that views the matched value where it is.
-    fn emitCapture(self: *Emitter, name_node: Sexp, in_place: bool) Error!void {
+    fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
         const t = local.ty orelse return self.unsupported(name_node, "a catch-all binding of unknown type");
-        const by_addr = self.facts.pending.catchAllByAddress(t, in_place);
+        const by_addr = try self.need(self.facts.catchAllCaptured(name_node), name_node);
         // A value captured by address is held as a pointer to it; a view
         // held as a pointer is that pointer.
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(name_node));
@@ -3072,11 +3069,11 @@ pub const Emitter = struct {
         var by_addr = writes;
         for (captures) |c| {
             if (self.usedPayloadLocal(c, used_in) == null) continue;
-            if (self.facts.pending.payloadByAddress(c, writes, info.in_place)) by_addr = true;
+            if (try self.need(self.facts.bindsByAddress(c), c)) by_addr = true;
         }
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
-            const addr = self.facts.pending.payloadByAddress(c, writes, info.in_place);
+            const addr = try self.need(self.facts.bindsByAddress(c), c);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
             try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });
@@ -3125,9 +3122,9 @@ pub const Emitter = struct {
         const sym = self.facts.symbolOf(name);
         // The header binds a copy of a value with temporaries that reaches
         // no place (`copiesHeader`); a place it reaches, the place's own.
-        const owns = value.isKind(.move) or (self.facts.pending.handsOver(value).kind == .made and !self.facts.isReadOrWriteView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
+        const owns = value.isKind(.move) or (try self.need(self.facts.handsOver(value), value) == .made and !self.facts.isReadOrWriteView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
         const copies = !owns and try self.copiesSubject(cond, value);
-        const points = self.headerPoints(value);
+        const points = try self.headerPoints(value);
         // A place, or a part of a value the `if` holds, is bound where it
         // stands, as `if ?o as x` binds it (`Header`).
         if (self.facts.headerOf(cond) != null) {
@@ -3146,7 +3143,7 @@ pub const Emitter = struct {
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = false } };
         }
         // Over a view of an optional, a viewed binding points into it.
-        if (self.viewsOptionalValue(value) and copies) {
+        if ((try self.viewsOptionalValue(value)) and copies) {
             // A view of a temporary the header drops: the optional is
             // read inside the header, and the binding views a copy of the
             // value inside, which the ownership checker lets nothing use
@@ -3166,7 +3163,7 @@ pub const Emitter = struct {
             try self.w.print("|{s}| ", .{tmp});
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = true } };
         }
-        if (self.viewsOptionalValue(value)) {
+        if (try self.viewsOptionalValue(value)) {
             // A name holding a view is emitted as the place it points to.
             // `o` and `<o` of a name holding the view are the place.
             const named = value == .src or (value.isKind(.move) and ir.Move.operand(value) == .src);
@@ -3221,8 +3218,8 @@ pub const Emitter = struct {
     }
 
     /// `storage.viewsOptionalValue`.
-    fn viewsOptionalValue(self: *Emitter, value: Sexp) bool {
-        return self.facts.pending.viewsOptionalValue(value);
+    fn viewsOptionalValue(self: *Emitter, value: Sexp) Error!bool {
+        return self.need(self.facts.viewsOptionalValue(value), value);
     }
 
     /// A view bound by `as`: `tmp` points at the value inside the
@@ -3941,7 +3938,7 @@ pub const Emitter = struct {
             },
             .call => if (self.facts.elemCallOf(self.facts.calleeOf(sexp))) |ec|
                 try self.emitElemCall(sexp, ec)
-            else if (self.hoistsArgs(sexp))
+            else if (try self.hoistsArgs(sexp))
                 try self.emitHoistedCall(sexp)
             else
                 try self.emitCallDirect(sexp),
@@ -4111,9 +4108,7 @@ pub const Emitter = struct {
         // dropped by the test.
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             const other = operands[1 - i];
-            if (!self.isNoneLeaf(other) or !self.dropsWhenTested(operands[i])) continue;
-            const t = self.typeOf(operands[i]) orelse continue;
-            if (self.kindOf(t) == null) continue;
+            if (!self.isNoneLeaf(other) or !try self.dropsWhenTested(operands[i])) continue;
             if (kind == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll("rig.isNone(");
             try self.emitBare(operands[i]);
@@ -4125,7 +4120,7 @@ pub const Emitter = struct {
             if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
             // A value made here that owns a resource is dropped once
             // tested.
-            const temp = self.dropsWhenTested(value) and self.kindOf(self.typeOf(value).?) != null;
+            const temp = try self.dropsWhenTested(value);
             if (kind == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
             try self.emitExpr(value);
@@ -4654,7 +4649,12 @@ pub const Emitter = struct {
                 try self.refuseHeldCell(e, ty);
                 try self.zigTemporary(e);
             },
-            .lend, .jump => {},
+            // A lend of an optional or fallible value whose payload is read
+            // by address would hand over a resource or a value of a type
+            // parameter from inside a view, which typecheck rejects: a
+            // payload captured from a lend has no storage a fact names.
+            .lend => return self.unsupported(e, "a payload captured by address from a lend"),
+            .jump => {},
         }
         try self.emitBare(e);
     }
@@ -5430,8 +5430,8 @@ pub const Emitter = struct {
         return self.facts.isTypeSym(id);
     }
     /// `storage.hoistsArgs`.
-    fn hoistsArgs(self: *Emitter, call: Sexp) bool {
-        return self.facts.pending.hoistsArgs(call);
+    fn hoistsArgs(self: *Emitter, call: Sexp) Error!bool {
+        return self.need(self.facts.hoistsArgs(call), call);
     }
 
     /// `storage.lentLiteral`.
@@ -5440,13 +5440,13 @@ pub const Emitter = struct {
     }
 
     /// `storage.consumedTemporary`.
-    fn consumedTemporary(self: *Emitter, call: Sexp) ?Sexp {
-        return self.facts.pending.consumedTemporary(call);
+    fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
+        return if (try self.need(self.facts.consumesReceiver(call), call)) self.facts.receiverOf(call) else null;
     }
 
     /// `storage.isPureArg`.
-    fn isPureArg(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.isPureArg(e);
+    fn isPureArg(self: *Emitter, e: Sexp) Error!bool {
+        return self.need(self.facts.isPureArg(e), e);
     }
 
     /// `storage.receiverOf`.
@@ -5457,13 +5457,13 @@ pub const Emitter = struct {
     /// Whether an operand tested against `none` or a bare `.variant` is
     /// a value made there that no slot holds, which the test drops. Any
     /// other operand is read where it is.
-    fn dropsWhenTested(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.handsOver(e).kind == .made and !self.facts.dropsTemp(e);
+    fn dropsWhenTested(self: *Emitter, e: Sexp) Error!bool {
+        return self.need(self.facts.dropsWhenTested(e), e);
     }
 
     /// `storage.hasStorage`.
-    fn hasStorage(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.hasStorage(e);
+    fn hasStorage(self: *Emitter, e: Sexp) Error!bool {
+        return self.need(self.facts.hasStorage(e), e);
     }
 
     /// `storage.receiverWrites`.
@@ -5475,7 +5475,7 @@ pub const Emitter = struct {
     /// into `__rig_recv_N` first, so it runs before them, as written: the
     /// address of a place, or a temporary value, dropped after the call.
     fn hoistReceiver(self: *Emitter, call: Sexp, id: u32) Error!void {
-        const hold = self.facts.pending.receiverHold(call) orelse return;
+        const hold = (try self.need(self.facts.receiverHold(call), call)) orelse return;
         // Lend sigils on a receiver are implicit in Zig's method calls.
         const recv = lentPlace(self.receiverOf(call).?);
         const writes = self.receiverWrites(call);
@@ -5559,12 +5559,12 @@ pub const Emitter = struct {
         try self.w.print("__rig_call_{d}: ", .{id});
         try self.openBrace();
         const first = self.hoisted.items.len;
-        if (self.consumedTemporary(call)) |recv| {
+        if (try self.consumedTemporary(call)) |recv| {
             try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .receiver, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
         } else try self.hoistReceiver(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
-            if (self.isPureArg(value)) continue;
+            if (try self.isPureArg(value)) continue;
             const slot: usize = if (slots) |ss| for (ss, 0..) |s, i| {
                 if (s == .arg and s.arg == ai) break i;
             } else ai else ai;
@@ -5586,7 +5586,9 @@ pub const Emitter = struct {
     /// written: a receiver the method consumes comes named.
     fn hoist(self: *Emitter, h_in: Hoisted, suffix: ?StorageSuffix, params: []const TypeId, slot: usize, fields: bool) Error!void {
         var h = h_in;
-        const hold = self.facts.pending.argumentHold(h.node);
+        // A consumed receiver (no suffix: its storage is named) is a value
+        // of its own; an argument is held as the plan decided.
+        const hold: facts.ArgumentHold = if (suffix == null) .value else try self.need(self.facts.argumentHold(h.node), h.node);
         if (hold == .closure or hold == .callable) {
             const fn_ty = self.facts.callableOf(h.node).?;
             if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, .owned, sx);
@@ -5657,9 +5659,6 @@ pub const Emitter = struct {
     }
 
     /// `storage.keptInSlot`.
-    fn keptInSlot(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.keptInSlot(e);
-    }
 
     /// The address of `e` in its statement's slot (`keptInSlot`).
     fn emitSlotAddress(self: *Emitter, e: Sexp) Error!void {
@@ -5817,7 +5816,7 @@ pub const Emitter = struct {
         try self.w.writeAll(".{");
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            if (self.printsByAddress(a)) {
+            if (try self.printsByAddress(a)) {
                 const saved_read = self.read_place;
                 defer self.read_place = saved_read;
                 self.read_place = true;
@@ -5830,18 +5829,8 @@ pub const Emitter = struct {
     /// Whether a `print`, `Text(...)`, or `add` argument `a` reads a
     /// place that owns storage, or is lent from one: a local, or a
     /// field or element of one (not a slice, which is a new value).
-    fn printsByAddress(self: *Emitter, a: Sexp) bool {
-        const place = switch (a) {
-            .src => self.localOf(a) != null and self.facts.callableOf(a) == null,
-            .list => switch (a.kind() orelse return false) {
-                .member => true,
-                .index => !ir.Index.index(a).isKind(.@".."),
-                else => false,
-            },
-            else => false,
-        };
-        const ty = self.typeOf(a) orelse return false;
-        return place and self.facts.pending.readByAddress(self.peelViews(ty));
+    fn printsByAddress(self: *Emitter, a: Sexp) Error!bool {
+        return self.need(self.facts.printsByAddress(a), a);
     }
 
     // =========================================================================
