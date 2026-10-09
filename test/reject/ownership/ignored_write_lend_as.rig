@@ -1,0 +1,22 @@
+# A write lend that is the base of an `if … as` or `while … as` header
+# only reads the place it reaches: the binding copies the value inside,
+# or views it to read. `!(!p).o as v` lends the value inside to write.
+
+struct P
+  o: Int?
+  vs: Vec[Int]?
+
+sub main()
+  p = P(o: 3, vs: Vec[Int]())
+  if (!p).o as v
+    print(v)
+  while (!p).o as v
+    print(v)
+    p.o = none
+  if (!p).vs as v
+    print(v.len)
+
+# error: 11:7: `!p` here is read, not held: `(!p).o` only reads the place it reaches. Write `p.o`
+# error: 13:10: `!p` here is read, not held: `(!p).o` only reads the place it reaches. Write `p.o`
+# error: 16:7: `!p` here is read, not held: `(!p).vs` only reads the place it reaches. Write `p.vs`
+# errors: 3

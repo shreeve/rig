@@ -1626,10 +1626,10 @@ const Checker = struct {
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
-        // The header binds the value inside: it takes the optional, and
-        // writes it through a write lend (`checkReachedLends`).
+        // The header binds the value inside: it takes the optional. It
+        // writes a path only through `!` or `<` on it, which mark it
+        // written (`checkReachedLends`); a path bound bare is read.
         try self.recordUse(expr, .take);
-        try self.markWritten(expr);
         // A part of a value made here is bound in that value, which the
         // `if` holds (`Header.held`).
         const saved_held = self.held_base;
