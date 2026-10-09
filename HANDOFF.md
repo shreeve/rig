@@ -191,15 +191,19 @@ and run the corpus after.
     `rig.viewed(` copy), `test/behavior/emit/generic_view_field_subject.rig`,
     `test/behavior/emit/generic_view_field_guard.rig`, and the escape
     `test/behavior/ownership/generic_view_field_escape.rig`.
-- **Addresses of Zig rvalues.** Emit still takes the address of a few
-  Zig rvalues no fact names: a `?self` method on a made value no slot
-  keeps, on a branching value with a made leaf, `emitLeafPtr`'s
-  `&@as(T, value)` fallback, labeled value blocks' yields, and a
-  temporary array lent to a call (docs/INTERNALS.md, Emit, "Addresses of
-  Zig temporaries"). They are latent: the checker keeps each view within
-  its statement, and Zig keeps the rvalue's slot today. Next: make the
-  chokepoint structural, so every `&` and `|*x|` targets a place, a
-  slot, or fact-named storage whose `life` the chokepoint checks.
+- **Addresses of Zig rvalues.** `emitLeafPtr`'s `&@as(T, value)` and a
+  temporary array lent to a call are the storage fact `zig_temp`. Emit
+  still takes the address of two kinds of Zig rvalue no fact names: a
+  `?self` method on a made value no slot keeps, or on a branching value
+  with a made leaf, and labeled value blocks' yields (docs/INTERNALS.md,
+  Emit, "Addresses of Zig temporaries"). They are latent: the checker
+  keeps each view within its statement, and Zig keeps the rvalue's slot
+  today. Next: make the chokepoint structural, so every `&` and `|*x|`
+  targets a place, a slot, or fact-named storage whose `life` the
+  chokepoint checks.
+- **Decisions emit still makes itself** are `Pending` in
+  `src/facts.zig`, which a unit test keeps from growing; each should
+  become a recorded node fact (`sema.Question`), as the leaf walk did.
 - **What a view could hold:** `carry` and `sema.viewReach`, and String
   values in Cells, generics, and closures.
 - **Evaluation order versus what is emitted:** call arguments, `print`

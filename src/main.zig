@@ -13,6 +13,7 @@ const ir = parser.ir;
 const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
+const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
 
@@ -618,7 +619,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     var links_libc = false;
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
-        var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, m.sema);
+        var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, emit_facts.Facts.of(m.sema));
         defer em.deinit();
         em.poison = env.sanitize();
         try em.emit(m.ir);
@@ -715,6 +716,7 @@ test {
     _ = diag;
     _ = modules;
     _ = emit;
+    _ = emit_facts;
     _ = sema;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");

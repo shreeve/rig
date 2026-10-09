@@ -1,0 +1,40 @@
+# `if … as` over a field or an element that holds a read view of an
+# optional reads the optional through the view once: emit used to
+# dereference a field's view twice, which Zig rejects.
+
+struct H
+  o: ?Text?
+
+sub show(h: ?H)
+  if h.o as t
+    print(t)
+
+sub showAll(hs: ?[2]H)
+  if hs[1].o as t
+    print(t)
+
+fun pick(hs: ?[2]H, i: Int) -> ?Text? from hs
+  hs[i].o
+
+sub main()
+  s: Text? = Text("hi")
+  e: Text? = none
+  h = H(o: ?s)
+  show(?h)
+  if h.o as u
+    print(u)
+  hs = [H(o: ?e), H(o: ?s)]
+  showAll(?hs)
+  if hs[0].o as t
+    print(t)
+  else
+    print("none")
+  if pick(?hs, 1) as t
+    print(t)
+
+# expect:
+# hi
+# hi
+# hi
+# none
+# hi
