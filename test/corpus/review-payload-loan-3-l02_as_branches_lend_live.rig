@@ -1,0 +1,14 @@
+struct P
+  t: Text
+
+sub main()
+  p = P(t: Text("hello"))
+  q = P(t: Text("bye"))
+  o1: (!P)? = !p
+  o2: (!P)? = !q
+  c = true
+  if (o1 if c else o2) as x
+    if !o1 as y
+      r = ?y.t[1..]
+      x.t = Text("other")
+      print(r)

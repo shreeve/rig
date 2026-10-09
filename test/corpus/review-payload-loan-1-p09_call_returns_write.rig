@@ -1,0 +1,19 @@
+enum E
+  a(t: Text)
+  b
+
+struct H
+  e: E
+
+fun get(h: !H) -> !E
+  !h.e
+
+sub main()
+  h = H(e: E.a(Text("hello")))
+  match !get(!h)
+    .a(t)
+      s = ?t[1..]
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass

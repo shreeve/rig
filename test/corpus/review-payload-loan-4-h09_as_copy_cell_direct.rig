@@ -1,0 +1,7 @@
+sub main()
+  x = Cell(1)
+  o: (!Cell[Int])? = !x
+  if o as k
+    k.set(5)
+    print(k.get())
+  print(x.get())

@@ -1,0 +1,8 @@
+sub main()
+  p = 5
+  o: (!Int)? = !p
+  if o as k
+    g = |?k| k + 1
+    if !o as w
+      w = 9
+    print(g())

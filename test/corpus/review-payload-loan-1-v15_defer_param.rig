@@ -1,0 +1,9 @@
+sub f(t: !Text)
+  defer !t.add("x")
+  s = ?t[1..]
+  print(s)
+
+sub main()
+  t = Text("hello")
+  f(!t)
+  print(t)

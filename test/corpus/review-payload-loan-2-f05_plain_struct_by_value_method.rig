@@ -1,0 +1,20 @@
+struct Pt
+  x: Int
+  y: Int
+
+  fun sum(self) -> Int
+    self.x + self.y
+
+enum WP
+  a(w: !Pt)
+  b
+
+sub main()
+  p = Pt(x: 1, y: 2)
+  e = WP.a(!p)
+  match e
+    .a(w)
+      print(w.sum(), w.x)
+      c = w
+      print(c.y)
+    .b => pass

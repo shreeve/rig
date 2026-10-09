@@ -1,0 +1,10 @@
+struct P
+  t: Text
+  n: Int
+
+sub main()
+  p = P(t: Text("hello"), n: 1)
+  o: (!P)? = !p
+  while o as y
+    print(y.t, y.n)
+    break

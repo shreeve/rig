@@ -29,12 +29,58 @@ test/corpus/review-place-b9-x022_fixed_wb_local.rig main prod-rejects core-gap `
 # and the compiler reads `<s` as moving out of `e`.
 test/corpus/review-take-p15.rig main prod-rejects core-gap `y = <s` of a `match !e` payload binding
 
+# A lend of a write-view binding (`if !o as w`, `match !e`) is a loan on
+# the binding, which ends with its scope (INTERNALS "Lending a binding");
+# the view also keeps the binding's own loan on what it views, which is
+# enough to keep that value from changing while the view lives (Core s7).
+test/corpus/review-assign-desugar-n33_repoint_at_outer_payload.rig main prod-rejects prod-strict `w = !p[0..1]` of a `match !o` binding re-points `w` past the arm
+test/corpus/review-syntax-b-2-v05_if_bang_as_escape_ok.rig f prod-rejects prod-strict `s = keep(r[1..])` of an `if !w as r` binding is used past the `if`
+test/corpus/review-syntax-b-2-v06_if_bang_as_escape_written.rig f prod-rejects prod-strict `s = keep(?r[1..])` of an `if !w as r` binding is used past the `if`
+test/corpus/review-syntax-b-2-v09_match_bang_escape_ok.rig main prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
+test/corpus/review-syntax-b-2-v11_if_bang_as_owned_escape.rig main prod-rejects prod-strict `s = keep(r[1..])` of an `if !o as r` binding is used past the `if`
+test/corpus/review-syntax-b-2-v12_match_bang_param_escape.rig f prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
+test/corpus/review-payload-loan-1-v01_return_write_of_payload.rig get prod-rejects prod-strict `!t` of a `match !e` binding returned as `!Text`
+test/corpus/review-payload-loan-1-v02_return_read_of_payload.rig head prod-rejects prod-strict `?t[..3]` of a `match !e` binding returned
+test/corpus/review-payload-loan-1-v04_if_as_return.rig head prod-rejects prod-strict `?t[..3]` of an `if !o as t` binding returned
+test/corpus/review-payload-loan-1-v08_return_whole_view_of_payload.rig peek prod-rejects prod-strict `?t` of a `match !e` binding returned
+test/corpus/review-payload-loan-1-w05_ifas_return_write.rig get prod-rejects prod-strict `!t` of an `if !o as t` binding returned
+test/corpus/review-payload-loan-1-w07_for_return_write.rig first prod-rejects prod-strict `!t` of a `for t in !v` binding returned
+test/corpus/review-payload-loan-3-f02_write_binding_break_out.rig main prod-rejects prod-strict a bare `break t` of a `match !e` binding, which must be written `<t`
+test/corpus/review-payload-loan-3-f02b_write_binding_break_move.rig main prod-rejects prod-strict `break <t` of a `match !e` binding moves out of the view of `e`
+test/corpus/review-payload-loan-3-f04_for_write_moved_out.rig main prod-rejects prod-strict a bare `break t` of a `for t in !v` binding, which must be written `<t`
+
+# A view of a write-view binding moved out of its construct keeps what
+# it views lent (Core s6): `!v.clear()` while `r`, a write view of an
+# element of `v`, is printed after, frees what `r` views. The oracle does
+# not keep the loan through `break <t`.
+test/corpus/review-payload-loan-3-f04b_for_write_break_move.rig main prod-rejects ref-gap `!v.clear()` while `r = for t in !v` with `break <t` lives
+
+# A bare `if o as x` of a write view reads it (SPEC "if … as"): a write
+# through `x` takes `if !o as x`, and two such bindings never write
+# through one write view while the other's view lives.
+test/corpus/review-payload-loan-3-j04_writeparam_read_as_write_ok.rig f prod-rejects prod-strict `if o as x` of a `!((!P)?)` parameter, then `x.t = v`, which takes `if !o as x`
+test/corpus/review-payload-loan-3-j05_writeparam_read_as_second.rig f prod-rejects ref-gap two `if o as` bindings of one write view, one written while a view through the other lives
+
+# A match of a branch of write lends (`match (!e if c else !d)`) lends
+# every leaf for as long as its bindings' views live (Core s5), so a view
+# kept across loop passes keeps both lent, though the passes alternate.
+test/corpus/review-payload-loan-4-e15_loop_hold_across.rig main prod-rejects prod-strict `keep = ?r.v[..]` held across passes of `match (!e if i % 2 == 0 else !d)`
+
+# A call whose write arguments can hold views may store one in another
+# (Core s7), so `f(!h1, !h2, true)` keeps `h1` lent while the result of
+# the call could hold what `h2` lent.
+test/corpus/review-payload-loan-4-n02_hint_followthrough_branch_part_fixed.rig main prod-rejects prod-strict `print(h1.w)` after `f(!h1, !h2, true)`, with `f(h1: !H, h2: !H)` able to store `h2.w` in `h1`
+test/corpus/review-payload-loan-4-n03_hint_followthrough_branch_part_alt.rig main prod-rejects prod-strict `print(h1.w)` after `f(!h1, !h2, true)`, with `f(h1: !H, h2: !H)` able to store `h2.w` in `h1`
+
 # A `defer` runs at its scope's exits, after the values declared after
 # it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also
 # checks deferred code where it is written, and its liveness counts
 # every use in deferred code, so a view whose last use comes before the
 # deferred code runs still holds its loan there.
 test/corpus/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
+test/corpus/review-payload-loan-1-p15_defer_write_after_view.rig main prod-rejects prod-strict `defer !t.add("x")` of a `match !e` binding before `s = ?t[1..]`, whose last use precedes the exit
+test/corpus/review-payload-loan-1-v15_defer_param.rig f prod-rejects prod-strict `defer !t.add("x")` of a `!Text` parameter before `s = ?t[1..]`, whose last use precedes the exit
+test/corpus/review-payload-loan-1-v15b_defer_ifas.rig main prod-rejects prod-strict `defer !t.add("x")` of an `if !o as t` binding before `s = ?t[1..]`, whose last use precedes the exit
 test/corpus/review-step45-k04_defer_elem_write.rig main prod-rejects prod-strict `defer !v[0].add("!")` before `x = ?v[0]`, whose last use precedes the exit
 test/corpus/review-step45-k04b_defer_push_plain.rig main prod-rejects prod-strict `defer !v.push(2)` before `x = ?v`, whose last use precedes the exit
 test/corpus/review-step45-r2-d08_repoint_defer_uses_w.rig main prod-rejects prod-strict the deferred `!w.add("d")` runs at the inner block's end, before `print(b)`
@@ -184,6 +230,7 @@ test/corpus/review-copies-2-q07l-write-catch-same-owner.rig main prod-rejects pr
 test/corpus/review-while-step-w48-grow-then-return-ok.rig run prod-rejects prod-strict `!v.push(2)` before a `return`, while the step reads `h`, a view of `v`
 test/corpus/review-while-step-w32-outer-repoint-after-grow-ok.rig main prod-rejects prod-strict `!v.push(2)` before `s` is re-pointed, where the step reads `s`
 step.vec.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
+test/corpus/review-payload-loan-1-v10_loop_outer_var.rig main prod-rejects prod-strict `!t.add("!")` in a loop, while `s`, declared before it, holds a view of `t` from the same pass
 step.vec.field.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.r`, a view of `v`
 step.vec.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.get()`, a view of `v`
 step.text.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`

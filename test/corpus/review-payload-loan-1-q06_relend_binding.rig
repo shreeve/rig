@@ -1,0 +1,16 @@
+enum E
+  a(t: Text)
+  b
+
+sub grow(t: !Text)
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+sub main()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      grow(t)
+      print(s)
+    .b => pass

@@ -1,0 +1,12 @@
+struct P
+  n: Int
+
+sub f(o: ?((!P)?))
+  if o as x
+    g = |?x| x.n
+    print(x.n, g(), [x][0].n)
+
+sub main()
+  p = P(n: 4)
+  o: (!P)? = !p
+  f(?o)

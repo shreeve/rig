@@ -1,0 +1,12 @@
+fun keep(s: String) -> String
+  s
+
+fun g() -> Int?
+  o: Text? = Text("hello")
+  s = keep(o?[1..])
+  o = none
+  print(s)
+  1
+
+sub main()
+  print(g())

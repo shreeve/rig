@@ -1,0 +1,14 @@
+struct P
+  t: Text
+
+struct H
+  w: !P
+
+sub main()
+  p = P(t: Text("hello"))
+  o: H? = H(w: !p)
+  if o as h
+    r = ?h.w.t[1..]
+    for _ in 0..50
+      !h.w.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(r)

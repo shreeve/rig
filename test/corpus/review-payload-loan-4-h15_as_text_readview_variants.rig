@@ -1,0 +1,17 @@
+struct H
+  o: (!Text)?
+
+sub f(h: ?H, a: ?((!Text)?), c: Bool)
+  if h.o as t
+    print(t, t.len)
+    g = |?t| t.len
+    print(g(), [t])
+  if (a if c else h.o) as t
+    print(t)
+
+sub main()
+  x = Text("hey")
+  y = Text("yo")
+  h = H(o: !x)
+  o: (!Text)? = !y
+  f(?h, ?o, true)

@@ -1,0 +1,14 @@
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      w1 = !t
+      w2 = !t
+      !w1.add("a")
+      !w2.add("b")
+      print(w1)
+    .b => pass

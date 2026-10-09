@@ -1,0 +1,29 @@
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+sub f(a: !E, b: !E, c: Bool)
+  match (a if c else b)
+    .a(r)
+      s = ?r.v[..]
+      match !a
+        .a(r2)
+          for i in 0..100
+            !r2.v.push(i)
+        .b => pass
+      print(s[0])
+    .b => pass
+
+sub main()
+  e = mk(1)
+  d = mk(2)
+  f(!e, !d, true)

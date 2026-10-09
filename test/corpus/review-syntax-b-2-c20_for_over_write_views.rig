@@ -1,0 +1,16 @@
+fun keep(s: String) -> String
+  s
+
+sub main()
+  a = Text("hello")
+  b = Text("world")
+  v: Vec[!Text] = Vec()
+  !v.push(!a)
+  !v.push(!b)
+  out: Vec[String] = Vec()
+  for w in v
+    !out.push(keep(w[1..]))
+  for w in !v
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(out)

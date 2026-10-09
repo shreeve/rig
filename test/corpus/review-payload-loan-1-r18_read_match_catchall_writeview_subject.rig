@@ -1,0 +1,10 @@
+sub f(e: !Text)
+  match e
+    x
+      r = ?x[1..]
+      x = Text("other")
+      print(r)
+
+sub main()
+  t = Text("hello")
+  f(!t)

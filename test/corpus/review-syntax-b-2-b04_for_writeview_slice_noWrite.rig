@@ -1,0 +1,9 @@
+sub f(w: !Text)
+  for b in w[1..]
+    print(b)
+  !w.add("x")
+
+sub main()
+  t = Text("hello")
+  f(!t)
+  print(t)

@@ -1,0 +1,24 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+fun get(e: !WP, d: ?P) -> ?P from e, d
+  match e
+    .a(w) => w
+    .b => d
+
+fun tail(e: !WP, d: ?P) -> String from e, d
+  match e
+    .a(w) => ?w.t[1..]
+    .b => ?d.t[..]
+
+sub main()
+  p = P(t: Text("hello"))
+  d = P(t: Text("d"))
+  e = WP.a(!p)
+  r = get(!e, ?d)
+  print(r.t)
+  print(tail(!e, ?d))

@@ -1,0 +1,11 @@
+struct P
+  t: Text
+
+fun name(p: ?P) -> ?Text
+  ?p.t
+
+sub main()
+  p = P(t: Text("hello"))
+  s = name(?p)[1..]
+  p.t = Text("x")
+  print(s)

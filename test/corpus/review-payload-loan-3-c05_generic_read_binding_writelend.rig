@@ -1,0 +1,19 @@
+enum Opt[T]
+  some(t: T)
+  none
+
+sub put[T](a: !T, b: T)
+  a = <b
+
+fun f[T](a: Opt[T], d: T) -> Int
+  o = <a
+  match o
+    .some(x)
+      r = ?x
+      put(!x, <d)
+      print(r)
+    .none => pass
+  0
+
+sub main()
+  print(f(Opt.some(Text("hello")), Text("bye")))

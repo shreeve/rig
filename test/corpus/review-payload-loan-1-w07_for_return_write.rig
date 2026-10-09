@@ -1,0 +1,12 @@
+fun first(v: !Vec[Text], d: !Text) -> !Text
+  for t in !v
+    return !t
+  !d
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  d = Text("d")
+  w = first(!v, !d)
+  !w.add("!")
+  print(w)

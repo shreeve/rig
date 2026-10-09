@@ -1,0 +1,14 @@
+fun keep(s: String) -> String
+  s
+
+struct H
+  t: Text
+
+  fun get(!self) -> !Text
+    !self.t
+
+sub main()
+  h = H(t: Text("hello"))
+  print(keep((!h).get()[1..]))
+  s = keep((!h).get()[1..])
+  print(s)

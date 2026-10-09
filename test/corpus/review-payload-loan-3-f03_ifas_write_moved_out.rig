@@ -1,0 +1,9 @@
+sub main()
+  o: Text? = Text("hello")
+  d = Text("dflt")
+  r = if !o as t
+    t
+  else
+    !d
+  o = none
+  print(r)

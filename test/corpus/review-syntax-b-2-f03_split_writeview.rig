@@ -1,0 +1,12 @@
+use std.text
+
+sub f(w: !Text)
+  it = text.split(w[0..], " ")
+  for _ in 0..50
+    !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  while (!it).next() as p
+    print(p)
+
+sub main()
+  t = Text("a b c")
+  f(!t)

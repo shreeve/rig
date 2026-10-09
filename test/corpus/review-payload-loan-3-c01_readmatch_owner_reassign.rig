@@ -1,0 +1,12 @@
+enum Opt
+  some(t: Text)
+  none
+
+sub main()
+  o = Opt.some(Text("hello"))
+  match o
+    .some(x)
+      r = ?x
+      o = Opt.none
+      print(r)
+    .none => pass

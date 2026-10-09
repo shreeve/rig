@@ -1,0 +1,13 @@
+enum WS
+  a(w: !String)
+  b
+
+sub main()
+  s: String = "hello"
+  e = WS.a(!s)
+  match e
+    .a(w)
+      r = ?w[1..]
+      print(w, r)
+    .b => pass
+  print(s)

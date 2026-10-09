@@ -1,0 +1,12 @@
+enum N
+  a(t: Text, u: Text)
+  b
+
+sub main()
+  e = N.a(Text("hello"), Text("world"))
+  match !e
+    .a(t, u)
+      s = ?t[1..]
+      !u.add("!")
+      print(s, u)
+    .b => pass

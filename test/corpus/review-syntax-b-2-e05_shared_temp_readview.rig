@@ -1,0 +1,9 @@
+fun keep(s: String) -> String
+  s
+
+fun id(r: ?*Text) -> ?*Text
+  r
+
+sub main()
+  s = keep(id(?*Text("hello"))[1..])
+  print(s)

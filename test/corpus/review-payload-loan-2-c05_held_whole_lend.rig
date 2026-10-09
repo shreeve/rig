@@ -1,0 +1,21 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+struct H
+  e: WP
+
+fun mk(p: !P) -> H from p
+  H(e: WP.a(!p))
+
+sub main()
+  p = P(t: Text("hello"))
+  match mk(!p).e
+    .a(w)
+      r = ?w
+      w.t = Text("other")
+      print(r.t)
+    .b => pass

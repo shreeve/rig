@@ -2926,7 +2926,7 @@ pub const Emitter = struct {
             // field it views (`?F`) or reads in place.
             const addr = try self.need(self.facts.bindsByAddress(b), b);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
-            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
+            try self.line("const {s} = {s}{s}.{f}.{f}{s};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name), if (self.facts.payloadReadsThroughWrite(b)) ".*" else "" });
         }
     }
 
@@ -2972,7 +2972,9 @@ pub const Emitter = struct {
     /// `payload` itself when `field` is empty (`&place` for the whole
     /// value of a `match !x`); `addr` takes the field's address, for a
     /// `match !x` binding that writes it.
-    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false };
+    /// `addr`: the binding points at the field; `deref`: it copies the
+    /// value the field's write view points at (`payloadReadsThroughWrite`).
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, deref: bool = false };
 
     /// A part of a value a `match <x` arm owns: a field, or the whole
     /// payload or value.
@@ -3084,7 +3086,7 @@ pub const Emitter = struct {
             const addr = try self.need(self.facts.bindsByAddress(c), c);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .deref = self.facts.payloadReadsThroughWrite(c) });
         }
         return out.items;
     }
@@ -3103,7 +3105,7 @@ pub const Emitter = struct {
         for (prelude.aliases) |a| {
             if (a.field.len == 0) {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
-            } else try self.line("const {s} = {s}{s}.{f};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field) });
+            } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field), if (a.deref) ".*" else "" });
         }
         for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
         for (prelude.owned) |o| {
@@ -3219,7 +3221,11 @@ pub const Emitter = struct {
         if (sym == null or !self.usage.used.contains(sym.?)) {
             try self.w.writeAll("|_| ");
         } else {
-            const local = try self.declare(.{ .sym = sym.?, .ty = ty }, self.srcText(name));
+            // A read binding of a write view to a value read by copy holds
+            // the write view, a pointer to that value
+            // (`Facts.readsThroughWrite`).
+            const through = if (self.optionalInner(value)) |inner| self.facts.readsThroughWrite(sym.?, inner) else null;
+            const local = try self.declare(.{ .sym = sym.?, .ty = ty, .is_ptr = through == .value }, self.srcText(name));
             try self.w.print("|{s}| ", .{local.zig_name});
         }
         return .{};
@@ -3236,13 +3242,28 @@ pub const Emitter = struct {
         const sym = self.facts.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
         const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(o.name));
+        // A read binding of a write view inside the optional is the read
+        // view of what it views: the write view itself, or the value it
+        // points at, copied out (`Facts.readsThroughWrite`).
+        const through: ?facts.ThroughWrite = if (self.optionalInner(ir.As.value(o.cond))) |inner| self.facts.readsThroughWrite(sym, inner) else null;
         if (o.copy) {
             const copy = try self.hiddenStorage(o.cond, .as_copy, .copy, .{ .copy_of = o.tmp });
             try self.line("var {s} = {s};", .{ copy, o.tmp });
             try self.poisonAtExit(copy);
+            if (through) |t| return self.line("const {s} = {s}{s};", .{ local.zig_name, copy, if (t == .value) ".*" else "" });
             return self.line("const {s} = &{s};", .{ local.zig_name, copy });
         }
+        if (through) |t| return self.line("const {s} = {s}.*{s};", .{ local.zig_name, o.tmp, if (t == .value) ".*" else "" });
         try self.line("const {s} = {s}{s};", .{ local.zig_name, o.tmp, if (local.is_ptr) "" else ".*" });
+    }
+
+    /// The type inside the optional `value` gives, through any views.
+    fn optionalInner(self: *Emitter, value: Sexp) ?TypeId {
+        const t = self.typeOf(value) orelse return null;
+        return switch (self.facts.types.get(self.peelViews(t))) {
+            .optional => |inner| inner,
+            else => null,
+        };
     }
 
     /// The owning local of a resource bound by `as`, dropped at the end

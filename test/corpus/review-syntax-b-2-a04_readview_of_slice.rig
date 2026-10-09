@@ -1,0 +1,10 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  xs = ?v[..]
+  r = ?xs
+  s = r[1..]
+  for i in 0..100
+    !v.push(i)
+  print(s)

@@ -1,0 +1,10 @@
+enum G[T]
+  a(v: T)
+  b
+
+sub main()
+  x: Int? = 3
+  e: G[!Int?] = G[!Int?].a(!x)
+  match e
+    .a(w) => print(w ?? 0)
+    .b => pass

@@ -1,0 +1,107 @@
+# Every form of lend of a `match !e` binding puts a loan on the binding,
+# which a write through it while the view is live conflicts with: a
+# `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
+# a struct, pushed to a Vec, or kept as an optional, and a view a `?self`
+# method returns.
+# oracle: capture reject C4
+# oracle: loop_over reject C4
+# oracle: if_as reject C4
+# oracle: stored reject C4
+# oracle: pushed reject C4
+# oracle: method reject C4
+# oracle: optional reject C4
+
+use std.text
+
+struct H
+  s: String
+
+struct R
+  t: Text
+
+  fun head(?self) -> String
+    ?self.t[..1]
+
+enum E
+  a(t: Text)
+  b
+
+enum ER
+  a(r: R)
+  b
+
+sub capture()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      f = |?t| t.len
+      !t.add("x")
+      print(f())
+    .b => pass
+
+sub loop_over()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      for c in ?t[..]
+        !t.add("x")
+        print(c)
+    .b => pass
+
+sub if_as()
+  e = E.a(Text("k=v"))
+  match !e
+    .a(t)
+      if text.cut(?t, "=") as kv
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(kv.after)
+    .b => pass
+
+sub stored()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      h = H(s: ?t[1..])
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(h.s)
+    .b => pass
+
+sub pushed()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      v: Vec[String] = Vec()
+      !v.push(?t[1..])
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(v)
+    .b => pass
+
+sub method()
+  e = ER.a(R(t: Text("hello")))
+  match !e
+    .a(r)
+      s = r.head()
+      !r.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub optional()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      o: String? = ?t
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(o)
+    .b => pass
+
+sub main()
+  capture()
+
+# error: 38:7: cannot lend `t` to write while a read loan is live
+# error: 47:9: cannot lend `t` to write while a read loan is live
+# error: 56:9: cannot lend `t` to write while a read loan is live
+# error: 65:7: cannot lend `t` to write while a read loan is live
+# error: 75:7: cannot lend `t` to write while a read loan is live
+# error: 84:7: cannot lend `r` to write while a read loan is live
+# error: 93:7: cannot lend `t` to write while a read loan is live
+# errors: 7

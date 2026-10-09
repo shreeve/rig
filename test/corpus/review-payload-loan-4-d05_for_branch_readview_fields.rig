@@ -1,0 +1,14 @@
+struct H
+  s: ![]Int
+
+sub f(h1: ?H, h2: ?H, c: Bool)
+  for x in (h1.s if c else h2.s)
+    x = 9
+
+sub main()
+  a = [1, 2]
+  b = [3, 4]
+  h1 = H(s: !a[..])
+  h2 = H(s: !b[..])
+  f(?h1, ?h2, true)
+  print(a)

@@ -1,0 +1,4 @@
+sub main()
+  t = Text("hello")
+  for b in t[1..]
+    print(b)

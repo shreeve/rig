@@ -1,0 +1,291 @@
+# A binding of `match !e` is a write view of the payload it binds, so a
+# lend of it is a loan on the binding, as a lend of any write view is
+# (`!T` parameters, `if !o as w`, `for x in !v`): while a view of it is
+# live, nothing writes through the binding. Each binding kind, payload
+# type, and lend is rejected at the write, a bare slice argument's
+# read lend too. (A read match's binding is a read view, which no write
+# goes through: a view of it keeps the binding's loans, which keep what
+# the subject views lent.)
+# oracle: slice reject C4
+# oracle: argument reject C4
+# oracle: whole reject C4
+# oracle: reassign reject C4
+# oracle: param reject C4
+# oracle: boxed_subject reject C4
+# oracle: named reject C4
+# oracle: box_payload reject C4
+# oracle: vec_payload reject C4
+# oracle: struct_payload reject C4
+# oracle: catch_all reject C4
+# oracle: nested reject C4
+# oracle: read_call reject C4
+# oracle: write_slice_payload reject C4
+# oracle: write_view_payload reject C4
+# oracle: held_subject reject C4
+# oracle: field_subject reject C4
+# oracle: bare_argument reject C4
+# oracle: read_match reject C4
+
+use std.text
+
+enum E
+  a(t: Text)
+  b
+
+enum N
+  a(t: Text, n: Int)
+  b
+
+enum B
+  a(b: Box[Text])
+  b
+
+enum V
+  a(xs: Vec[Int])
+  b
+
+struct P
+  t: Text
+  xs: Vec[Int]
+
+enum S
+  a(p: P)
+  b
+
+enum O
+  a(e: E)
+  b
+
+enum WS
+  a(s: ![]Text)
+  b
+
+enum WV
+  a(w: !Text)
+  b
+
+struct HE
+  e: E
+
+fun keep(s: String) -> String
+  s
+
+fun keepv(s: []Int) -> []Int
+  s
+
+sub slice()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub argument()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      s = keep(?t[1..])
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub whole()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      r = ?t
+      !t.add("x")
+      print(r)
+    .b => pass
+
+sub reassign()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      s = keep(?t[1..])
+      t = Text("other")
+      print(s)
+    .b => pass
+
+sub param(e: !E)
+  match !e
+    .a(t)
+      s = ?t[1..]
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub boxed_subject()
+  e = Box(E.a(Text("hello")))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub named()
+  e = N.a(t: Text("hello"), n: 1)
+  match !e
+    .a(t: x)
+      s = ?x[1..]
+      !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    _ => pass
+
+sub box_payload()
+  e = B.a(Box(Text("hello")))
+  match !e
+    .a(b)
+      s = keep(?b[1..])
+      b = Box(Text("other"))
+      print(s)
+    .b => pass
+
+sub vec_payload()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = V.a(<v)
+  match !e
+    .a(xs)
+      r = ?xs
+      !xs.push(2)
+      print(r.len)
+      s = ?xs[..]
+      !xs.push(3)
+      print(s)
+    .b => pass
+
+sub struct_payload()
+  e = S.a(P(t: Text("hello"), xs: Vec()))
+  match !e
+    .a(p)
+      s = ?p.t[1..]
+      !p.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+      r = ?p.xs[..]
+      !p.xs.push(1)
+      print(r)
+    .b => pass
+
+sub catch_all()
+  e = E.a(Text("hello"))
+  match !e
+    x
+      r = ?x
+      x = E.b
+      print(r)
+
+sub nested()
+  e = O.a(E.a(Text("hello")))
+  match !e
+    .a(i)
+      match !i
+        .a(t)
+          s = ?t[1..]
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+          print(s)
+        .b => pass
+    .b => pass
+
+sub read_call()
+  e = E.a(Text("  hello  "))
+  match !e
+    .a(t)
+      s = text.trim(?t)
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub write_slice_payload()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  e = WS.a(!v[..])
+  match !e
+    .a(s)
+      r = ?s[0]
+      s[0] = Text("other")
+      print(r)
+    .b => pass
+
+sub write_view_payload()
+  t = Text("hello")
+  e = WV.a(!t)
+  match !e
+    .a(w)
+      s = ?w[1..]
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub held_subject()
+  e = E.a(Text("hello"))
+  w = !e
+  match !w
+    .a(t)
+      s = ?t[1..]
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub field_subject()
+  h = HE(e: E.a(Text("hello")))
+  match !h.e
+    .a(t)
+      s = ?t[1..]
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+sub bare_argument(e: !E, f: !V)
+  match !e
+    .a(t)
+      s = keep(t[1..])
+      t = Text("other")
+      print(s)
+    .b => pass
+  match !f
+    .a(xs)
+      s = keepv(xs[..])
+      !xs.push(2)
+      print(s)
+    .b => pass
+
+sub read_match()
+  t = Text("hello")
+  g = WV.a(!t)
+  s = ""
+  match g
+    .a(w) => s = ?w[1..]
+    .b => pass
+  !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub main()
+  slice()
+
+# error: 81:7: cannot lend `t` to write while a read loan is live
+# error: 90:7: cannot lend `t` to write while a read loan is live
+# error: 99:7: cannot lend `t` to write while a read loan is live
+# error: 108:7: cannot reassign `t` while it is lent
+# error: 116:7: cannot lend `t` to write while a read loan is live
+# error: 125:7: cannot lend `t` to write while a read loan is live
+# error: 134:7: cannot lend `x` to write while a read loan is live
+# error: 143:7: cannot reassign `b` while it is lent
+# error: 154:7: cannot lend `xs` to write while a read loan is live
+# error: 157:7: cannot lend `xs` to write while a read loan is live
+# error: 166:7: cannot lend `p` to write while a read loan is live
+# error: 169:7: cannot lend `p` to write while a read loan is live
+# error: 178:7: cannot reassign `x` while it is lent
+# error: 188:11: cannot lend `t` to write while a read loan is live
+# error: 198:7: cannot lend `t` to write while a read loan is live
+# error: 209:7: cannot assign to `s[...]` while `s` is lent
+# error: 219:7: cannot lend `w` to write while a read loan is live
+# error: 229:7: cannot lend `t` to write while a read loan is live
+# error: 238:7: cannot lend `t` to write while a read loan is live
+# error: 246:7: cannot reassign `t` while it is lent
+# error: 252:7: cannot lend `xs` to write while a read loan is live
+# error: 263:4: use of `t` while a write loan is live
+# errors: 22

@@ -1,0 +1,19 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  c(w: ?P)
+  b
+
+sub main()
+  p = P(t: Text("hello"))
+  q = P(t: Text("q"))
+  e = WP.a(!p)
+  f = WP.c(?q)
+  match e
+    .a(w), .c(w) => print(w.t)
+    .b => pass
+  match f
+    .a(w), .c(w) => print(w.t)
+    .b => pass

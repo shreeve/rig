@@ -1,0 +1,20 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+struct H
+  e: WP
+
+  fun peek(?self) -> ?WP
+    ?self.e
+
+sub main()
+  p = P(t: Text("hello"))
+  h = H(e: WP.a(!p))
+  match h.peek()
+    .a(w)
+      print(w.t)
+    .b => pass

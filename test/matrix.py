@@ -7,7 +7,9 @@ for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
 stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
-`match` payload field that is itself a view (`viewpay.`), a
+`match` payload field that is itself a view (`viewpay.`), a lend of a
+binding that is a write view, then a write through it while the view
+is live or after (`lendw.`), a
 `while` step reading what its condition binds (`step.`), an assignment
 to a place a view reaches whose value holds a statement of its own
 (`target.`), and the
@@ -19,7 +21,8 @@ of a value that branches (`celltemp.`), each built in debug and with
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
-program that runs must also print what the payload holds, and a `loop.`
+program that runs must also print what the payload holds, a `lendw.`
+program what the view showed and what the write left, and a `loop.`
 program the trace of its steps, defers, and drops. A `cellmut.` or
 `celltemp.` program must be accepted, and print its trace in debug and
 again built with `--release`.
@@ -985,6 +988,186 @@ def viewpay_program(tname, sname, uname):
     shown = "\n".join(["2003", t["out"]] if u.get("arm") else [])
     want = f"{shown}\n" if shown else ""
     return "\n".join(out), want + f"2003\n{t['outd'] if u.get('arm') else t['out']}\n"
+
+
+# -----------------------------------------------------------------------------
+# A lend of a binding that is a write view (a `match !e` payload, `if !o as
+# b`, `for b in !v`, a `!T` parameter, a `|!b|` capture, a held `b = !x`,
+# a field of a write view), followed by a write through the binding while
+# the lend's view is live, or after its last use. A lend of a write view
+# is a loan on it (docs/INTERNALS.md, "Lending a binding"), so a write
+# while the view is live is rejected; a program that runs must print what
+# the view showed before the write, then what the write left. Cells are
+# `lendw.<binding>.<type>.<lend>.<when>`.
+# -----------------------------------------------------------------------------
+
+# Each type: its spelling, `mk()`'s body, each lend of the binding `@B`
+# with the statement that shows its view `s` and what that prints, the
+# write through `@B`, and the statement that shows `@B` after it, with
+# what it prints.
+_LW_GROW = "for i in 0..64\n  !@B.push(i)"
+LENDW_TYPES = {
+    "text": dict(ty="Text", mk='Text("hello")',
+                 lends=dict(whole=("?@B", "print(s)", "hello"), slice=("?@B[1..]", "print(s)", "ello"),
+                            call=("text.trim(?@B)", "print(s)", "hello")),
+                 write='for _ in 0..64\n  !@B.add("' + "z" * 64 + '")', show="print(@B.len)", out="4101"),
+    "vec": dict(ty="Vec[Int]", mk="xs: Vec[Int] = Vec()\n  !xs.push(1)\n  !xs.push(2)\n  !xs.push(3)\n  xs",
+                lends=dict(whole=("?@B", "print(s)", "[1, 2, 3]"), slice=("?@B[1..]", "print(s)", "[2, 3]"),
+                           call=("tail(?@B)", "print(s)", "[2, 3]")),
+                write=_LW_GROW, show="print(@B.len)", out="67"),
+    "box": dict(ty="Box[Text]", mk='Box(Text("hello"))',
+                lends=dict(whole=("?@B", "print(s)", "hello"), slice=("?@B[1..]", "print(s)", "ello"),
+                           call=("text.trim(?@B)", "print(s)", "hello")),
+                write='@B = Box(Text("other"))', show="print(@B)", out="other"),
+    "struct": dict(ty="P", mk="P(xs: tail3())",
+                   lends=dict(whole=("?@B", "print(s.xs)", "[1, 2, 3]"), slice=("?@B.xs[1..]", "print(s)", "[2, 3]"),
+                              call=("@B.rest()", "print(s)", "[2, 3]")),
+                   write=_LW_GROW.replace("@B.", "@B.xs."), show="print(@B.xs.len)", out="67"),
+}
+# Each binding: the declarations it needs, the lines before the body,
+# the lines opening it, the body's indent under them, the lines after
+# it, the binding's name when it is not `b`, for a parameter of `f`, the
+# parameter, the value `main` makes and lends `f`, and what `main` makes
+# first, and whether every program must be rejected (`rejected`).
+LENDW_BINDINGS = {
+    "match": dict(decls="enum E\n  a(x: TY)\n  z\n", setup=["e = E.a(mk())"],
+                  head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_param": dict(decls="enum E\n  a(x: TY)\n  z\n", param="e: !E", arg="E.a(mk())",
+                        head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "if_as": dict(setup=["o: TY? = mk()"], head=["if !o as b"], depth=2),
+    "for": dict(setup=["v: Vec[TY] = Vec()", "!v.push(mk())"], head=["for b in !v"], depth=2),
+    "param": dict(param="b: !TY", arg="mk()", head=[], depth=0),
+    "closure": dict(setup=["b = mk()"], head=["g = |!b|"], depth=2, after=["g()"]),
+    "held": dict(setup=["x = mk()", "b = !x"], head=[], depth=0),
+    "field": dict(decls="struct HW\n  w: !TY\n", setup=["x = mk()", "h = HW(w: !x)"], head=[], depth=0, name="h.w"),
+    # A read match binds a write view field as a read view, so every
+    # write through it is rejected, live view or not.
+    "read_match": dict(decls="enum E\n  a(x: !TY)\n  z\n", setup=["y = mk()", "e = E.a(!y)"],
+                       head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_match_param": dict(decls="enum E\n  a(x: !TY)\n  z\n", param="e: !E", arg="E.a(!z)", pre=["z = mk()"],
+                             head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    # The same of a part of a value made in the header.
+    "read_match_held": dict(decls="enum E\n  a(x: !TY)\n  z\n\nstruct HE\n  e: E\n\nfun mkh(y: !TY) -> HE from y\n  HE(e: E.a(!y))\n",
+                            setup=["y = mk()"], head=["match mkh(!y).e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+}
+# More binding kinds, from review 3 of the binding-access change: write
+# bindings of every subject and header, and read bindings of a write view
+# a payload or optional holds, every write through which is rejected.
+_LW_E = "enum E\n  a(x: TY)\n  z\n"
+_LW_EW = "enum E\n  a(x: !TY)\n  z\n"
+_LW_HH = "\nstruct HH\n  e: E\n"
+_LW_GET = _LW_HH + "\nfun get(h: !HH) -> !E\n  !h.e\n"
+_LW_O = "\nenum O\n  a(i: !E)\n  z\n"
+_LW_HW = "\nstruct HW\n  w: !E\n"
+_LW_TWO = ["e1 = E.a(mk())", "e2 = E.a(mk())", "c = true"]
+LENDW_BINDINGS.update({
+    "match_made": dict(decls=_LW_EW, setup=["y = mk()"], head=["match E.a(!y)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_named": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(x: b)"], depth=4, after=["  .z => pass"]),
+    "match_box": dict(decls=_LW_E, setup=["e = Box(E.a(mk()))"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_field": dict(decls=_LW_E + _LW_HH, setup=["h = HH(e: E.a(mk()))"], head=["match !h.e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_index": dict(decls=_LW_E, setup=["es: Vec[E] = Vec()", "!es.push(E.a(mk()))"], head=["match !es[0]", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_generic": dict(decls="enum G[T]\n  a(x: T)\n  z\n", setup=["e: G[TY] = G.a(mk())"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_wv_payload": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_guard": dict(decls=_LW_E, setup=["e = E.a(mk())", "c = true"], head=["match !e", "  .a(b) if c"], depth=4, after=["  _ => pass"]),
+    "match_nested": dict(decls=_LW_E + "\nenum O\n  a(i: E)\n  z\n", setup=["o = O.a(E.a(mk()))"], head=["match !o", "  .a(io)", "    match !io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"]),
+    "match_nested_wv": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match !o", "  .a(io)", "    match !io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"]),
+    "match_call": dict(decls=_LW_E + _LW_GET, setup=["h = HH(e: E.a(mk()))"], head=["match !get(!h)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    # A write view a call returns, or a branch of write lends, is lent on.
+    "match_call_lent_on": dict(decls=_LW_EW + _LW_GET, setup=["y = mk()", "h = HH(e: E.a(!y))"], head=["match get(!h)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_branch_lent_on": dict(decls=_LW_E, setup=["e1 = E.a(mk())", "e2 = E.z", "c = true"], head=["match (!e1 if c else !e2)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "while_as": dict(setup=["o: TY? = mk()", "n = 0"], head=["while !o as b"], depth=2, after=["  n += 1", "  break if n > 0"]),
+    "if_as_write_param": dict(param="o: !(TY?)", arg="mk()", argty="TY?", head=["if !o as b"], depth=2),
+    "if_as_field": dict(decls="struct HO\n  o: TY?\n", setup=["h = HO(o: mk())"], head=["if !h.o as b"], depth=2),
+    "if_as_payload": dict(decls="enum E\n  a(o: TY?)\n  z\n", setup=["e = E.a(mk())"], head=["match !e", "  .a(o)", "    if !o as b"], depth=6, after=["  .z => pass"]),
+    "for_index": dict(setup=["v: Vec[TY] = Vec()", "!v.push(mk())"], head=["for b, j in !v"], depth=2, after=["  _ = j"]),
+    "for_array": dict(setup=["v = [mk()]"], head=["for b in !v"], depth=2),
+    "closure_of_payload": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b0)", "    g = |!b0|"], depth=6, after=["    g()", "  .z => pass"], name="b0"),
+    "held_of_payload": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b0)", "    b = !b0"], depth=4, after=["  .z => pass"]),
+    "defer_arm": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b)", "    defer print(\"d\")"], depth=4, after=["  .z => pass"], prints="d\n"),
+    "read_box": dict(decls=_LW_EW, setup=["y = mk()", "e = Box(E.a(!y))"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_field": dict(decls=_LW_EW + _LW_HH, setup=["y = mk()", "h = HH(e: E.a(!y))"], head=["match h.e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_index": dict(decls=_LW_EW, setup=["y = mk()", "es: Vec[E] = Vec()", "!es.push(E.a(!y))"], head=["match es[0]", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_named": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)"], head=["match e", "  .a(x: b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_generic": dict(decls="enum G[T]\n  a(x: T)\n  z\n", setup=["y = mk()", "e: G[!TY] = G.a(!y)"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_guard": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)", "c = true"], head=["match e", "  .a(b) if c"], depth=4, after=["  _ => pass"], rejected=True),
+    "read_param": dict(decls=_LW_EW, param="e: ?E", arg="E.a(!z)", pre=["z = mk()"], lend="?", head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_shared": dict(decls=_LW_EW + _LW_HH, setup=["y = mk()", "h = *HH(e: E.a(!y))"], head=["match h.e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_nested": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match !o", "  .a(io)", "    match io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"], rejected=True),
+    "read_nested_read": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match o", "  .a(io)", "    match io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"], rejected=True),
+    "read_as_param": dict(param="o: ?((!TY)?)", arg="!z", argty="(!TY)?", pre=["z = mk()"], lend="?", head=["if o as b"], depth=2, rejected=True),
+    "read_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y"], head=["if o as b"], depth=2, rejected=True),
+    "read_while_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y", "n = 0"], head=["while o as b"], depth=2, after=["  n += 1", "  break if n > 0"], rejected=True),
+    "read_as_payload": dict(decls="enum E\n  a(o: (!TY)?)\n  z\n", setup=["y = mk()", "e = E.a(!y)"], head=["match e", "  .a(o)", "    if o as b"], depth=6, after=["  .z => pass"], rejected=True),
+    "read_catchall_param": dict(decls=_LW_EW, param="e: !E", arg="E.a(!z)", pre=["z = mk()"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    # A branch whose leaf is a place holding a write view reads it: the
+    # match neither writes through it nor copies it out
+    # (`sema.makesWriteView`, `sema.headerCopiesWriteView`).
+    "read_branch_readview_fields": dict(decls=_LW_E + _LW_HW, setup=_LW_TWO + ["h1 = HW(w: !e1)", "h2 = HW(w: !e2)", "r1 = ?h1", "r2 = ?h2"],
+                                        head=["match (r1.w if c else r2.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_coalesce_readview_field": dict(decls=_LW_E + "\nstruct HO\n  o: (!E)?\n", setup=_LW_TWO + ["h = HO(o: !e1)", "r = ?h"],
+                                         head=["match r.o ?? !e2", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_branch_handle_fields": dict(decls=_LW_E + _LW_HW, setup=_LW_TWO + ["h1 = *HW(w: !e1)", "h2 = *HW(w: !e2)"],
+                                      head=["match (h1.w if c else h2.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_branch_call_and_field": dict(decls=_LW_E + _LW_HW + "\nfun getw(e: !E) -> !E\n  e\n", setup=_LW_TWO + ["h1 = HW(w: !e1)", "r1 = ?h1"],
+                                       head=["match (getw(!e2) if c else r1.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_branch_bare_write_views": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1", "wb = !e2"],
+                                         head=["match (wa if c else wb)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_coalesce_local_write_view": dict(decls=_LW_E, setup=_LW_TWO + ["o: (!E)? = !e1"],
+                                           head=["match o ?? !e2", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    # The same, written through the place the branch copied the write
+    # view out of (`via`): a second writer, which main accepts.
+    "copied_branch_bare_write_views": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1", "wb = !e2"],
+                                           head=["match (wa if c else wb)", "  .a(b)"], depth=4, after=["  .z => pass"],
+                                           via=["match !wa", "  .a(x2)", "@WRITE", "  .z => pass"], rejected=True),
+    "copied_branch_write_view_and_lend": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1"],
+                                              head=["match (wa if c else !e2)", "  .a(b)"], depth=4, after=["  .z => pass"],
+                                              via=["match !wa", "  .a(x2)", "@WRITE", "  .z => pass"], rejected=True),
+    "copied_coalesce_local_write_view": dict(decls=_LW_E, setup=_LW_TWO + ["o: (!E)? = !e1"],
+                                             head=["match o ?? !e2", "  .a(b)"], depth=4, after=["  .z => pass"],
+                                             via=["if !o as w2", "  match !w2", "    .a(x2)", "@WRITE", "    .z => pass"], rejected=True),
+})
+
+
+def lendw_program(bname, tname, lname, when):
+    """The program for one lend-then-write cell, and what it must print."""
+    t = LENDW_TYPES[tname]
+    b = LENDW_BINDINGS[bname]
+    lend, show_s, out_s = t["lends"][lname]
+    name = b.get("name", "b")
+    fill = lambda x: x.replace("@B", name)
+    write = fill(t["write"]).split("\n")
+    if "via" in b:
+        # The write goes through the place `via` matches to write, as `x2`.
+        inner = t["write"].replace("@B", "x2").split("\n")
+        at = next(l for l in b["via"] if l.strip() == "@WRITE")
+        pad = " " * (b["via"][b["via"].index(at) - 1].index(".") + 2)
+        write = []
+        for l in b["via"]:
+            write += [pad + w for w in inner] if l.strip() == "@WRITE" else [l]
+    body = [f"s = {fill(lend)}"]
+    if when == "live":
+        body += write + [show_s, fill(t["show"])]
+    else:
+        body += [show_s] + write + [fill(t["show"])]
+    out = ["use std.text\n", "struct P\n  xs: Vec[Int]\n\n  fun rest(?self) -> []Int\n    ?self.xs[1..]\n",
+           "fun tail3() -> Vec[Int]\n  xs: Vec[Int] = Vec()\n  !xs.push(1)\n  !xs.push(2)\n  !xs.push(3)\n  xs\n",
+           "fun tail(v: ?Vec[Int]) -> []Int\n  ?v[1..]\n",
+           f"fun mk() -> {t['ty']}\n  {t['mk']}\n"]
+    if "decls" in b:
+        out.append(b["decls"].replace("TY", t["ty"]))
+    lines = [l.replace("TY", t["ty"]) for l in b.get("setup", [])] + b["head"]
+    lines += [" " * b["depth"] + l for l in body] + b.get("after", [])
+    if "param" in b:
+        out.append(f"sub f({b['param'].replace('TY', t['ty'])})\n" + indent(lines, 2) + "\n")
+        # `argty` types the value `main` makes, and `lend` lends it.
+        y = f"y: {b['argty']} = {b['arg']}" if "argty" in b else f"y = {b['arg']}"
+        out.append("sub main()\n" + indent(b.get("pre", []) + [y.replace("TY", t["ty"]), f"f({b.get('lend', '!')}y)"], 2) + "\n")
+    else:
+        out.append("sub main()\n" + indent(lines, 2) + "\n")
+    if b.get("rejected"):
+        # No run prints this: a program that runs fails the cell.
+        return "\n".join(out), "(rejected)\n"
+    return "\n".join(out), f"{out_s}\n{t['out']}\n" + b.get("prints", "")
 
 
 # -----------------------------------------------------------------------------
@@ -2048,6 +2231,18 @@ def main():
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
                         fh.write(sliceview_program(hname, ename, use, then))
+                    cells.append((ident, path))
+    for bname in LENDW_BINDINGS:
+        for t in LENDW_TYPES:
+            for lname in LENDW_TYPES[t]["lends"]:
+                for when in ("live", "after"):
+                    ident = f"lendw.{bname}.{t}.{lname}.{when}"
+                    if not wanted(ident):
+                        continue
+                    src, expects[ident] = lendw_program(bname, t, lname, when)
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(src)
                     cells.append((ident, path))
     for t in CELLMUT_TYPES:
         for a in CELLMUT_ACCESS:

@@ -1279,7 +1279,9 @@ fi
 # -----------------------------------------------------------------------------
 
 ALL="$WORK/all"
-cat "$RESULTS"/st/* 2>/dev/null | sort -t$'\t' -k2 >"$ALL"
+# `find` passes the files to `cat` in batches: a corpus run's thousands
+# of result paths would not fit one command line.
+find "$RESULTS/st" -type f -exec cat {} + 2>/dev/null | sort -t$'\t' -k2 >"$ALL"
 if [[ ! -s "$ALL" ]]; then
     echo "no test ran" >&2
     exit 2

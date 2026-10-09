@@ -1,0 +1,18 @@
+struct P
+  n: Int
+
+sub main()
+  p = P(n: 4)
+  op: (!P)? = !p
+  hh = |?op|
+    if op as x
+      return x.n
+    0
+  print(hh())
+  v = [P(n: 1), P(n: 2)]
+  s = |?v|
+    t = 0
+    for x in v
+      t += x.n
+    t
+  print(s())

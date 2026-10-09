@@ -1,0 +1,24 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+struct H
+  e: WP
+
+fun mk(p: !P) -> H from p
+  H(e: WP.a(!p))
+
+fun bump(t: !Text) -> Bool
+  !t.add("!")
+  true
+
+sub main()
+  p = P(t: Text("hello"))
+  match mk(!p).e
+    .a(w) if bump(!w.t) => print(w.t)
+    .a(w) => print(w.t)
+    .b => pass
+  print(p.t)

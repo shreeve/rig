@@ -1,0 +1,14 @@
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      w2 = <t
+      for _ in 0..50
+        !w2.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass

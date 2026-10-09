@@ -1,0 +1,12 @@
+struct H
+  t: Text
+
+fun get(h: !H) -> !Text
+  !h.t
+
+sub main()
+  h = H(t: Text("hello"))
+  s = get(!h)[1..]
+  for _ in 0..50
+    !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

@@ -1,0 +1,9 @@
+sub f(a: ?((!Int)?), b: ?((!Int)?))
+  if (a ?? b) as k
+    print(k)
+
+sub main()
+  p = 5
+  o1: (!Int)? = !p
+  o2: (!Int)? = none
+  f(?o2, ?o1)

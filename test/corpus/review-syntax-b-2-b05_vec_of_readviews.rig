@@ -1,0 +1,9 @@
+sub main()
+  t = Text("hello")
+  v: Vec[?Text] = Vec()
+  !v.push(?t)
+  s = v[0][1..]
+  !v.clear()
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

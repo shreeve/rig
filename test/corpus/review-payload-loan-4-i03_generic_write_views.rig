@@ -1,0 +1,37 @@
+struct P
+  n: Int
+
+enum G[T]
+  a(x: T)
+  b
+
+fun peek[T](g: ?G[T]) -> Int
+  match g
+    .a(_) => 1
+    .b => 0
+
+fun loopit[T](v: ?Vec[T]) -> Int
+  c = 0
+  for x in v
+    c += 1
+  c
+
+sub main()
+  p = P(n: 3)
+  g1: G[!P] = G[!P].a(!p)
+  print(peek(?g1))
+  match g1
+    .a(x) => print(x.n)
+    .b => pass
+  match !g1
+    .a(x) => x.n = 9
+    .b => pass
+  q = P(n: 5)
+  v: Vec[!P] = Vec()
+  !v.push(!q)
+  print(loopit(?v))
+  for x in v
+    print(x.n)
+  for x in !v
+    x.n = 6
+  print(q.n)

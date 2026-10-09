@@ -1,0 +1,13 @@
+enum WO
+  a(w: !Int?)
+  b
+
+sub main()
+  x: Int? = 3
+  e = WO.a(!x)
+  match e
+    .a(w)
+      if w as n
+        print(n)
+      print(w ?? 0)
+    .b => pass

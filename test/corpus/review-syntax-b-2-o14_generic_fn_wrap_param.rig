@@ -1,0 +1,16 @@
+fun keep(s: String) -> String
+  s
+
+struct Wrap[T]
+  x: T
+
+fun cut[T](w: ?Wrap[T]) -> T
+  w.x
+
+sub main()
+  t = Text("hello")
+  w = Wrap(x: ?t)
+  s = keep(cut(?w)[1..])
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

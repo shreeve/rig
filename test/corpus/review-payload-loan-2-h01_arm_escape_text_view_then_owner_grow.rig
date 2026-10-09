@@ -1,0 +1,14 @@
+enum WT
+  a(w: !Text)
+  b
+
+sub main()
+  x = Text("hello")
+  d = Text("d")
+  e = WT.a(!x)
+  r = match e
+    .a(w) => ?w[1..]
+    .b => ?d[..]
+  for _ in 0..50
+    !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(r)

@@ -1,0 +1,6 @@
+sub main()
+  h = *Text("hello")
+  r = ?h
+  s = r[1..]
+  h = *Text("other")
+  print(s)

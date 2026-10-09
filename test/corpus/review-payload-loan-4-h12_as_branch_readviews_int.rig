@@ -1,0 +1,11 @@
+sub f(a: ?((!Int)?), b: ?((!Int)?), c: Bool)
+  if (a if c else b) as k
+    g = |?k| k + 1
+    print(k, g(), [k, k])
+
+sub main()
+  p = 5
+  q = 6
+  o1: (!Int)? = !p
+  o2: (!Int)? = !q
+  f(?o1, ?o2, false)

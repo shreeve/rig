@@ -1,0 +1,15 @@
+fun keep(s: String) -> String
+  s
+
+struct H
+  t: Text
+
+fun get(h: !H) -> !Text
+  !h.t
+
+sub main()
+  h = H(t: Text("hello"))
+  s = keep(?get(!h)[1..])
+  print(s)
+  !h.t.add("x")
+  print(h.t)

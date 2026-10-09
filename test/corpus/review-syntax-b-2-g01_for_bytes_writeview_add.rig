@@ -1,0 +1,10 @@
+sub f(w: !Text)
+  for b in w
+    if b == 104
+      for _ in 0..50
+        !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(b)
+
+sub main()
+  t = Text("hello")
+  f(!t)

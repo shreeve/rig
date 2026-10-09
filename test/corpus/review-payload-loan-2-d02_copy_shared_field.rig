@@ -1,0 +1,17 @@
+struct S
+  n: Int
+
+enum WI
+  a(w: !Int)
+  b
+
+sub main()
+  s = *S(n: 1)
+  t = s
+  e = WI.a(!s.n)
+  match e
+    .a(w)
+      t.n = 5
+      print(w)
+    .b => pass
+  print(s.n)

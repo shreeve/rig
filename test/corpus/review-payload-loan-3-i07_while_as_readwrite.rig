@@ -1,0 +1,9 @@
+sub f(o: ?((!Int)?))
+  while o as k
+    print(k + 1)
+    break
+
+sub main()
+  n = 5
+  o: (!Int)? = !n
+  f(?o)

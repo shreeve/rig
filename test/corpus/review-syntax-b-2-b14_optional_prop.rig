@@ -1,0 +1,9 @@
+fun g(o: !Text?) -> Int?
+  s = o?[1..]
+  o = none
+  print(s)
+  1
+
+sub main()
+  x: Text? = Text("hello")
+  print(g(!x))

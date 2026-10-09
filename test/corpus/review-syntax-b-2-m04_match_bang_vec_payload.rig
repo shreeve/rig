@@ -1,0 +1,18 @@
+fun keepv(s: []Int) -> []Int
+  s
+
+enum V
+  a(v: Vec[Int])
+  b
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = V.a(<v)
+  match !e
+    .a(xs)
+      s = keepv(xs[..])
+      for i in 0..100
+        !xs.push(i)
+      print(s)
+    .b => print("b")

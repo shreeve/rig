@@ -1,0 +1,20 @@
+enum G[T]
+  a(v: T)
+  b
+
+sub main()
+  x = 3
+  e: G[!Int] = G[!Int].a(!x)
+  match e
+    .a(w) if w > 2 => print("big", w + 1)
+    .a(w) => print(w)
+    .b => pass
+  match !e
+    .a(w) => w = 10
+    .b => pass
+  match e
+    .a(w)
+      k = w * 2
+      print(k)
+    .b => pass
+  print(x)

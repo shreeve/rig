@@ -1,0 +1,21 @@
+struct Q
+  t: Text
+
+enum In
+  a(q: !Q)
+  z
+
+enum Out
+  a(i: !In)
+  z
+
+sub main()
+  q = Q(t: Text("hi"))
+  i = In.a(!q)
+  o = Out.a(!i)
+  match o
+    .a(w)
+      match w
+        .a(k) => print(k.t)
+        .z => pass
+    .z => pass

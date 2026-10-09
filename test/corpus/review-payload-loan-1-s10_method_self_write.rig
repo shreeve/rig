@@ -1,0 +1,22 @@
+struct R
+  t: Text
+
+  fun head(?self) -> String
+    ?self.t[..1]
+
+  sub grow(!self)
+    for _ in 0..50
+      !self.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+enum E
+  a(r: R)
+  b
+
+sub main()
+  e = E.a(R(t: Text("hello")))
+  match !e
+    .a(r)
+      s = r.head()
+      r.grow()
+      print(s)
+    .b => pass

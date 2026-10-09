@@ -1,0 +1,14 @@
+fun keep(s: String) -> String
+  s
+
+sub g(w: !Text)
+  !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+sub f(w: !Text)
+  s = keep(w[1..])
+  g(<w)
+  print(s)
+
+sub main()
+  t = Text("hello")
+  f(!t)

@@ -1,0 +1,19 @@
+fun keep(s: String) -> String
+  s
+
+fun keepv(s: []Int) -> []Int
+  s
+
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      s = keep(?t[1..])
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => print("b")

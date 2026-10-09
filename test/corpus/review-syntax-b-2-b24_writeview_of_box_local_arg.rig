@@ -1,0 +1,9 @@
+fun keep(s: String) -> String
+  s
+
+sub main()
+  b = Box(Text("hello"))
+  w = !b
+  s = keep(w[1..])
+  w = Box(Text("x"))
+  print(s)

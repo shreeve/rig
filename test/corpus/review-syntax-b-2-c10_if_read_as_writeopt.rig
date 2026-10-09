@@ -1,0 +1,10 @@
+sub f(w: !Text?)
+  s = ""
+  if ?w as r
+    s = r[1..]
+  w = none
+  print(s)
+
+sub main()
+  o: Text? = Text("hello")
+  f(!o)

@@ -1,0 +1,12 @@
+struct P
+  t: Text
+  n: Int
+
+sub f(x: ?(!P))
+  g = |?x| x.n
+  print(g(), x.t)
+
+sub main()
+  p = P(t: Text("hello"), n: 3)
+  w = !p
+  f(?w)

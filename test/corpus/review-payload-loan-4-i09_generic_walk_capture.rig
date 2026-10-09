@@ -1,0 +1,11 @@
+fun walk[T](v: ?Vec[T]) -> Int
+  c = 0
+  for x in v
+    f = |?x| 1
+    c += f()
+  c
+
+sub main()
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  print(walk(?w))

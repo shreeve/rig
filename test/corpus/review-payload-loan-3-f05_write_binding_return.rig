@@ -1,0 +1,15 @@
+enum E
+  a(t: Text)
+  b
+
+fun pick(e: !E, d: !Text) -> !Text
+  match !e
+    .a(t) => t
+    .b => d
+
+sub main()
+  e = E.a(Text("hello"))
+  d = Text("dflt")
+  r = pick(!e, !d)
+  e = E.b
+  print(r)

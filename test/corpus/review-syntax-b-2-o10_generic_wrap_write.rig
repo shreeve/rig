@@ -1,0 +1,13 @@
+fun keep(s: String) -> String
+  s
+
+struct Wrap[T]
+  x: T
+
+sub main()
+  t = Text("hello")
+  w = Wrap(x: !t)
+  s = keep(w.x[1..])
+  for _ in 0..50
+    !w.x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

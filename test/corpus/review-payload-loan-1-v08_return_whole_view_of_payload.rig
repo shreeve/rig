@@ -1,0 +1,13 @@
+enum E
+  a(t: Text)
+  b
+
+fun peek(e: !E, d: ?Text) -> ?Text
+  match !e
+    .a(t) => ?t
+    .b => d
+
+sub main()
+  e = E.a(Text("hello"))
+  d = Text("d")
+  print(peek(!e, ?d))

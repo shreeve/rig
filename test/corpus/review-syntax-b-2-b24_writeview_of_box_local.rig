@@ -1,0 +1,6 @@
+sub main()
+  b = Box(Text("hello"))
+  w = !b
+  s = w[1..]
+  w = Box(Text("x"))
+  print(s)

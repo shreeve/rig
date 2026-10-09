@@ -1,0 +1,15 @@
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  v: Vec[E] = Vec()
+  !v.push(E.a(Text("hello")))
+  for x in !v
+    match !x
+      .a(t)
+        s = ?t[1..]
+        for _ in 0..50
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass

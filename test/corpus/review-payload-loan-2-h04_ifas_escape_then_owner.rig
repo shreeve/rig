@@ -1,0 +1,10 @@
+sub main()
+  x = Text("hello")
+  o: (!Text)? = !x
+  d = Text("d")
+  r = ?d[..]
+  if o as w
+    r = ?w[1..]
+  for _ in 0..50
+    !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(r)

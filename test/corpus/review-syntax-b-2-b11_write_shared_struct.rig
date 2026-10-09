@@ -1,0 +1,11 @@
+struct S
+  t: Text
+
+sub f(h: !*S)
+  s = h.t[1..]
+  h = *S(t: Text("other"))
+  print(s)
+
+sub main()
+  x = *S(t: Text("hello"))
+  f(!x)

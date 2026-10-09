@@ -1,0 +1,7 @@
+sub main()
+  o: Text? = Text("hello")
+  s = ""
+  while o as r
+    s = r[1..]
+    o = none
+  print(s)

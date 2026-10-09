@@ -943,7 +943,12 @@ by pointer, including the binding of a catch-all arm and a binding a
 guard reads; a write view under `match !e` and `for x in !e`; the
 construct's own under `match <e` and a taken subject. A field that is
 itself a view, at the matched instance (`Opt[?T]`'s `v: T`,
-`payloadFieldOf`), is bound as the view it holds. (A payload of a
+`payloadFieldOf`), is bound as the view its access gives it ([Binding
+access](#binding-access)): a read match binds a write view as the read
+view of what it views (`!T` as `?T`, `![]T` as `[]T`), whatever its
+subject, unless it holds the value whole. Emit copies out the value a
+scalar's or view's read binding reads (`Facts.payloadReadsThroughWrite`),
+as a `?T` of one is a copy. (A payload of a
 type parameter is a copy, which each instance must allow; emit binds it
 by pointer where the match reads its subject in place,
 `storage.payloadByAddress`, and copies it out otherwise.)
@@ -1760,6 +1765,79 @@ owns a resource, with a note at the copy, and a type argument that
 holds a `?T`, `!T`, or slice, for a generic function and for a generic type with
 methods. A call site sees the instance's signature, so moves, lends,
 and the loans a result carries are checked there with the real types.
+
+### Binding access
+
+Whether a write may go through a binding is one fact, its *access*:
+`.write`, `.read`, or none for a binding that owns or copies what it
+binds. `sema.decideBindingAccess` decides it, by a positive list over
+every kind of binding, from how the binding reaches its value and what
+the value is:
+
+| Binding | `.write` | `.read` | none |
+|---|---|---|---|
+| a parameter, local, or closure capture | its type is `!T` or `![]T` (`w = !x`, `\|!x\|`, `\|<w\|` of one) | its type is `?T` | any other type |
+| `if … as x`, `while … as x` | a write view the header makes (`sema.makesWriteView`) | a value viewed where it is, or reached through a read view or handle | a copy, or a value taken (then by its type) |
+| `for x in` | `!v` | an element that does not copy | an element that copies, or one taken (then by its type) |
+| a `match` payload, named field, or catch-all | `match !e`, or a write view the subject makes (`sema.makesWriteView`), of a field that is no read view or slice; a write view field of an enum, error, integer, or Bool made there, which the match holds whole | a read match of anything else, whatever its subject: a place, a lend, a read view a call returns, a part of a value made in the header; a `?T` field | plain data a read copies; a slice; `match <e` (then by its type) |
+
+A header **makes a write view** (`sema.makesWriteView`), which it lends
+on, by a positive list: the subject is a write lend `!x`, or a value of
+a write view type whose every leaf (`yieldedLeaves`) is a write lend, a
+call's result, a write view taken with `<w`, or a jump (`getw(!e)`,
+`(!a if c else !b)`, `optw(!e) ?? !d`, `tryw(!e) catch !d`, `<slot`). Any other subject is read: a
+leaf that is a place is never written through, whether it is reached
+through a read view, a handle, or holds a write view itself.
+
+A header **copies a write view out of a place**
+(`sema.headerCopiesWriteView`), which typecheck rejects for `match` and
+`if … as` alike, when its subject is a branching value (`a if c else
+b`, `a ?? b`, `e catch h`, `e!`, `e?`) one of whose leaves is a place,
+or a part of one, of a type that holds a write view (`match (a if c else
+b)` of `!E` locals, `match o?` of a `(!E)?`, `match h1.w if c else
+h2.w`). The branch would read the leaf, copying the write view, which
+holds no loan on the place: a second writer.
+
+Typecheck records the access on the binding's symbol where it types the
+binding (`bindMatchView`, `checkOptionalBinding`, `checkFor`), and
+derives the type from it through one helper, `viewOfAccess`, for every
+kind of binding: a write view of what the binding reaches, a read view
+of it (a write view `!T` read as `?T`, `![]T` as `[]T`), or the value.
+In debug and test builds, `sema.checkBindingAccess` checks after type
+checking that every binding's type is the one its access gives
+(`.write` a write view; `.read` a read view, a slice, a String, or a
+type parameter's value read in place; none a value), reporting an
+internal error where one is not. `SemContext.bindingAccess` reads the fact, and gives a
+parameter's or local's from its type. Every pass reads it, and none
+decides a binding's mode another way (a unit test checks the sources):
+
+- **Ownership** lends by it (`lendTarget`): a lend of a var, or of a
+  path in it, puts a loan on the var and carries the loans the var holds
+  for `.write`; carries only the loans it holds for `.read`, as a copy
+  of the view does; and puts a loan on the var for any other var, one
+  that owns or copies its value, or a value no binding names.
+- **Storage** binds a payload by address for `.write`
+  (`payloadByAddress`).
+- **Emit** binds a `.read` binding of a write view, a match's payload
+  or an `as` binding's value inside, as the read view of what it views:
+  the write view itself, or the value it points at, copied out, for a
+  scalar or a view (`Facts.readsThroughWrite`).
+- **Diagnostics** of a write through a read binding name the binding
+  that writes (`readMatchHint`): `match !e`, `if !o as x`, a branch lent
+  to write, `if !o as x` for `o?`, or, for a part of a value made in the
+  header or any other value, that value bound to a name first.
+
+Desugared, `.a(t)` of `match !e` binds `t` as `w = !x` binds `w`: a
+write view, of the payload's field. So in the arm `s = ?t[1..]` lends a
+held write view: while `s` lives, `!t.add(x)` or `t = v` writes through
+`t` against a read loan of `t` (Core sentence 5), and `s` also keeps
+`t`'s own loan on `e`. As for every write view, a view of the binding
+lives no longer than the binding: a slice of a `match !e` binding stays
+in its arm, as one of an `if !o as w` binding stays in its `if`. A read
+match's binding is a read view of what it binds, whatever the subject,
+so nothing writes through it and two read matches never hold two
+writable copies of one write view; a view of it keeps only the
+binding's loan on the subject, and may leave the arm.
 
 ### Copies
 

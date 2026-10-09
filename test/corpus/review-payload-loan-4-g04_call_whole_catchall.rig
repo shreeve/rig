@@ -1,0 +1,13 @@
+enum F
+  a(n: Int)
+  b
+
+fun getf(f: !F) -> !F
+  f
+
+sub main()
+  f = F.a(5)
+  match getf(!f)
+    .b => pass
+    x => x = F.b
+  print(f)

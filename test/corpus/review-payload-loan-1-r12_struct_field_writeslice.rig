@@ -1,0 +1,10 @@
+struct H
+  s: ![]Text
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  h = H(s: !v[..])
+  r = ?h.s[0][1..]
+  h.s[0] = Text("other")
+  print(r)

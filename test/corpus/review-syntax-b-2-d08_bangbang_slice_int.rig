@@ -1,0 +1,10 @@
+sub f(x: !![]Int)
+  s = x[0..1]
+  x[0] = 9
+  print(s)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = !v[..]
+  f(!w)

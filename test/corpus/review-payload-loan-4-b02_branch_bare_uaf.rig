@@ -1,0 +1,22 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+sub f(a: !E, b: !E, c: Bool)
+  match a
+    .a(r0)
+      s = ?r0.t[..]
+      match (a if c else b)
+        .a(r) => !r.t.add("a much longer piece of text that forces the buffer to grow")
+        .b => pass
+      print(s)
+    .b => pass
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  d = E.a(r: Res(n: 2, t: Text("y")))
+  f(!e, !d, true)

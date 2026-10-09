@@ -1,0 +1,15 @@
+struct P
+  t: Text
+
+sub f(o: !((!P)?))
+  if o as x
+    r = ?x.t[1..]
+    o = none
+    x.t = Text("other")
+    print(r)
+
+sub main()
+  p = P(t: Text("hello"))
+  o: (!P)? = !p
+  f(!o)
+  print(p.t)

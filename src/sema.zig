@@ -49,6 +49,7 @@
 //! everything so one mistake doesn't cascade.
 
 const std = @import("std");
+const zig_builtin = @import("builtin");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 pub const diag = @import("diag.zig");
@@ -422,7 +423,10 @@ pub const SymbolFlags = packed struct(u16) {
     /// A `for` element that views a slot of the Vec the loop walks in
     /// place (`forViewsSlot`).
     slot_view: bool = false,
-    _: u3 = 0,
+    /// Typecheck decided the binding's access (`Symbol.access`, null
+    /// included): a `match`, `as`, or loop binding.
+    access_decided: bool = false,
+    _: u2 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -478,6 +482,10 @@ pub const Symbol = struct {
     origins: Origins = .{},
     /// A capture: the enclosing binding it captures.
     origin: SymbolId = symbol_invalid,
+    /// A `match`, `as`, or loop binding: whether a write may go through
+    /// it, or null for one that owns or copies its value, recorded once by
+    /// typecheck from `decideBindingAccess` (`SemContext.bindingAccess`).
+    access: ?Access = null,
     /// The previous symbol of the same name in the same scope, if any.
     prev_in_scope: SymbolId = symbol_invalid,
     /// A proxy (`proxyOf`): the other module's generic type or
@@ -1815,6 +1823,17 @@ pub const SemContext = struct {
         return self.facts.names.get(pos);
     }
 
+    /// Whether a write may go through binding `sym`, or null for one that
+    /// is no view (it owns or copies its value): the access typecheck
+    /// recorded (`Symbol.access`), or, for a parameter or local, the one
+    /// its type declares. The one fact of a binding's mode
+    /// (docs/INTERNALS.md, "Binding access").
+    pub fn bindingAccess(self: *const SemContext, sym: SymbolId) ?Access {
+        const s = self.symbols.items[sym];
+        if (s.access) |a| return a;
+        return decideBindingAccess(self, .{ .declared = s.ty });
+    }
+
     /// The type of an expression node.
     pub fn typeOf(self: *const SemContext, node: Sexp) ?TypeId {
         return self.facts.types.get(exprKey(node) orelse return null);
@@ -2461,8 +2480,38 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
+    if (zig_builtin.optimize == .debug or zig_builtin.is_test) try checkBindingAccess(&ctx);
     try storage.plan(&ctx, tree);
     return ctx;
+}
+
+/// Every binding whose access typecheck decided has the type that access
+/// gives it (`Checker.viewOfAccess`): `.write` a write view, `.read` a
+/// read view, a slice, a String, or a type parameter's value read where
+/// it is, and none a value, owned or copied. A binding typed some other
+/// way than from its access is a compiler bug, reported where the
+/// binding is declared (docs/INTERNALS.md, "Binding access"). Debug and
+/// test builds only, of a module typecheck accepted: after an error a
+/// binding may hold the type that error left.
+fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
+    if (ctx.hasErrors()) return;
+    for (ctx.symbols.items) |sym| {
+        if (!sym.flags.access_decided or sym.ty == ctx.types.unknown_id or sym.ty == ctx.types.invalid_id) continue;
+        const ty = ctx.types.get(sym.ty);
+        const agrees = if (sym.access) |a| switch (a) {
+            .write => ty == .write_view,
+            .read => switch (ty) {
+                .read_view, .slice, .string => true,
+                else => copies(ctx, sym.ty) == .depends,
+            },
+        } else switch (ty) {
+            .read_view, .write_view => false,
+            else => true,
+        };
+        if (agrees) continue;
+        const a = ctx.arena.allocator();
+        try ctx.err(sym.decl_pos, "internal error: binding `{s}` has type `{s}`, which its access ({s}) does not give", .{ sym.name, try formatTypeIn(ctx, a, sym.ty), if (sym.access) |x| @tagName(x) else "none" });
+    }
 }
 
 /// A local binding must be read: a name that is only ever assigned is
@@ -3838,6 +3887,102 @@ pub fn isInteger(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// A read or write view type: `?T`, `!T`.
+/// Whether a write may go through a view binding.
+pub const Access = enum { read, write };
+
+/// How a `match` reaches what its bindings bind.
+pub const MatchReach = enum {
+    /// `match !x`, or a write view the subject makes (a call's, or a
+    /// branch of write lends), lent on as `if … as` lends one on.
+    written,
+    /// A read match of a value another holds: a place, a lend, a read
+    /// view a call returns, a value that branches over places, or a
+    /// part of a value made in the header.
+    read,
+    /// A read match of a value made there, which it holds whole.
+    read_own,
+    /// `match <x`, or a value made there that owns: taken.
+    owned,
+};
+
+/// How an `if … as x` or `while … as x` reaches the value inside.
+pub const AsReach = enum {
+    /// `!o`, or a write view the header makes.
+    written,
+    /// Viewed where it is, or read through a view.
+    read,
+    /// Copied or taken.
+    copied,
+};
+
+/// What a binding is, for `decideBindingAccess`.
+pub const BindingSite = union(enum) {
+    /// A payload field of a `match`, or its catch-all: how the match
+    /// reaches the subject, and the type of the field or subject.
+    match: struct { reach: MatchReach, reached: TypeId },
+    /// `if … as x` / `while … as x`, and the type of the value inside.
+    as: struct { reach: AsReach, inner: TypeId },
+    /// A `for` element: whether the loop writes (`for x in !v`), takes
+    /// (`for x in <v`), or reads its elements, and the element's type.
+    loop: struct { mode: LoopMode, elem: TypeId },
+    /// A parameter, a local, or a closure capture, by its declared or
+    /// inferred type: a capture's is the lend its sigil writes
+    /// (`|?x|`, `|!x|`) or the value it copies or moves in.
+    declared: TypeId,
+};
+
+pub const LoopMode = enum { write, take, read };
+
+/// Whether a write may go through the binding `site` describes; null for
+/// one that is no view: it owns or copies what it binds. The one decider
+/// of a binding's mode (docs/INTERNALS.md, "Binding access"), by a
+/// positive list over every kind of binding. Typecheck derives the
+/// binding's type from it, ownership the loan a lend of it makes
+/// (`lendTarget`), and emit how it binds.
+pub fn decideBindingAccess(ctx: *const SemContext, site: BindingSite) ?Access {
+    return switch (site) {
+        // A parameter, local, or capture is the view its type is.
+        .declared => |ty| switch (ctx.types.get(ty)) {
+            .write_view => .write,
+            .read_view => .read,
+            else => null,
+        },
+        .as => |a| switch (a.reach) {
+            .written => .write,
+            .read => .read,
+            .copied => decideBindingAccess(ctx, .{ .declared = a.inner }),
+        },
+        .loop => |l| switch (l.mode) {
+            .write => .write,
+            .take => decideBindingAccess(ctx, .{ .declared = l.elem }),
+            // An element that copies is a copy; any other is viewed.
+            .read => if (copies(ctx, l.elem) == .no) .read else decideBindingAccess(ctx, .{ .declared = l.elem }),
+        },
+        .match => |m| switch (m.reach) {
+            .owned => decideBindingAccess(ctx, .{ .declared = m.reached }),
+            else => switch (ctx.types.get(m.reached)) {
+                .read_view => .read,
+                // A write view is written through only where the match
+                // writes, or holds the value whole: a read match of a
+                // value another holds never writes through its binding,
+                // whatever the subject.
+                .write_view => if (m.reach == .written or m.reach == .read_own) .write else .read,
+                // A slice is bound as the copy it is.
+                .slice => null,
+                // `match !e` views any other field to write. A read copies
+                // plain data and views anything else; a type parameter's
+                // value is viewed where the match reads a value another
+                // holds, and copied out of one it holds whole.
+                else => if (m.reach == .written) .write else switch (copies(ctx, m.reached)) {
+                    .yes => null,
+                    .no => .read,
+                    .depends => if (m.reach == .read) .read else null,
+                },
+            },
+        },
+    };
+}
+
 pub fn isReadOrWriteView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .read_view, .write_view => true,
@@ -6202,6 +6347,57 @@ pub fn valueLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) 
         return;
     }
     try out.append(a, node);
+}
+
+/// Whether header subject `subject` gives a write view it makes, which
+/// the header lends on (`match`, `if … as`): a write lend `!x`, or a
+/// value of a write view type whose every leaf (`yieldedLeaves`) is a
+/// write lend, a call's result, a write view taken with `<w`, or a jump
+/// that gives no value (`getw(!e)`, `(!a if c else !b)`,
+/// `optw(!e) ?? !d`, `tryw(!e) catch !d`, `<slot`). Any other subject, a place or a leaf that is
+/// one included, is only read. The one decider of a header that lends
+/// on a write view, by a positive list.
+pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!bool {
+    if (subject.isKind(.write)) return true;
+    const ty = ctx.typeOf(subject) orelse return false;
+    switch (ctx.types.get(ty)) {
+        .write_view => {
+            var leaves: std.ArrayList(Sexp) = .empty;
+            defer leaves.deinit(ctx.allocator);
+            try yieldedLeaves(ctx.allocator, ctx.source, subject, &leaves);
+            var made = false;
+            for (leaves.items) |leaf| {
+                if (leaf.isKind(.write) or leaf.isKind(.call) or leaf.isKind(.move)) {
+                    made = true;
+                } else if (handsOver(ctx, leaf).kind != .jump) return false;
+            }
+            return made;
+        },
+        else => return false,
+    }
+}
+
+/// The place leaf of header subject `subject` whose write view the
+/// header would copy out of it: a branching subject (`isBranchingForm`:
+/// `a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`) one of whose
+/// leaves (`valueLeaves`) is a place, or a part of one, of a type that
+/// holds a write view (`h1.w if c else h2.w`, `o?` of a `(!E)?`). A
+/// branch reads its leaves, so such a leaf would be a second writer that
+/// holds no loan on the place. Null for any other subject. The one
+/// decider, for `match` and `if … as` alike.
+pub fn headerCopiesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!?Sexp {
+    if (!isBranchingForm(subject)) return null;
+    var leaves: std.ArrayList(Sexp) = .empty;
+    defer leaves.deinit(ctx.allocator);
+    try valueLeaves(ctx.allocator, subject, &leaves);
+    for (leaves.items) |leaf| switch (handsOver(ctx, leaf).kind) {
+        .place, .part_of_made => {
+            const ty = ctx.typeOf(leaf) orelse continue;
+            if (holdsWriteView(ctx, ty)) return leaf;
+        },
+        .made, .lend, .branches, .jump, .none => {},
+    };
+    return null;
 }
 
 /// A value that is one of its operands: `a if c else b`, `a ?? b`,

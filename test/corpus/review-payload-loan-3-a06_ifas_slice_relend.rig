@@ -1,0 +1,9 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  o: ([]Int)? = ?v[..]
+  if o as s
+    t = ?s[..1]
+    !v.push(3)
+    print(t)

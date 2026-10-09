@@ -1,0 +1,18 @@
+enum F
+  a(n: Int)
+  b
+
+fun getf(f: !F) -> !F
+  f
+
+sub main()
+  f = F.a(5)
+  d = F.a(7)
+  c = false
+  match (!f if c else !d)
+    .a(n) if n > 6
+      n = n * 2
+    .a(n)
+      n = 0
+    .b => pass
+  print(f, d)

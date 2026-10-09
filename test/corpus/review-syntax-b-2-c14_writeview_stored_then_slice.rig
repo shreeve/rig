@@ -1,0 +1,13 @@
+fun keep(s: String) -> String
+  s
+
+struct W
+  f: !Text
+
+sub main()
+  t = Text("hello")
+  w = W(f: !t)
+  s = keep(w.f[1..])
+  for _ in 0..50
+    !w.f.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

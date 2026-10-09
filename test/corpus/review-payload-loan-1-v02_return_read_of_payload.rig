@@ -1,0 +1,14 @@
+enum E
+  a(t: Text)
+  b
+
+fun head(e: !E) -> String
+  match !e
+    .a(t)
+      !t.add("!")
+      ?t[..3]
+    .b => ""
+
+sub main()
+  e = E.a(Text("hello"))
+  print(head(!e))

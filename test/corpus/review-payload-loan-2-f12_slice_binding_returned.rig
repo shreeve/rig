@@ -1,0 +1,14 @@
+enum WS
+  a(s: ![]Int)
+  b
+
+fun first(e: !WS, d: []Int) -> []Int from e, d
+  match e
+    .a(s) => s
+    .b => d
+
+sub main()
+  a = [1, 2, 3]
+  d = [9]
+  e = WS.a(!a[..])
+  print(first(!e, d[..]))

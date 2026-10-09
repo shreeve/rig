@@ -1,0 +1,46 @@
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+error Bad
+  nope
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+fun getw(e: !E) -> !E
+  e
+
+fun tryw(e: !E, ok: Bool) -> (!E)!
+  return Bad.nope if not ok
+  e
+
+fun optw(e: !E, ok: Bool) -> (!E)?
+  return none if not ok
+  e
+
+struct H
+  e: E
+
+  fun ge(!self) -> !E
+    !self.e
+
+sub main()
+  h = H(e: mk(1))
+  match (!h).ge()
+    .a(r)
+      !r.v.push(5)
+    .b => pass
+  print(h.e)
+  match (!h).ge()
+    .a(r)
+      s = ?r.v[..]
+      h = H(e: mk(3))
+      print(s[0])
+    .b => pass

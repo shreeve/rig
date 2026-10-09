@@ -1,0 +1,12 @@
+enum WS
+  a(s: ![]Text)
+  b
+
+sub main()
+  v = [Text("hello"), Text("x")]
+  match WS.a(!v[..])
+    .a(s)
+      r = ?s[0][1..]
+      s[0] = Text("other")
+      print(r)
+    .b => pass

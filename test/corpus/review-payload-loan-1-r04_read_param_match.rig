@@ -1,0 +1,17 @@
+enum WS
+  a(s: ![]Text)
+  b
+
+sub f(e: ?WS)
+  match e
+    .a(s)
+      r = ?s[0][1..]
+      s[0] = Text("other")
+      print(r)
+    .b => pass
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  e = WS.a(!v[..])
+  f(?e)
