@@ -44,6 +44,16 @@ def hints(rig, path):
             yield int(m.group('l')), 'path', (m.group('path'), m.group('fix'))
 
 
+def column_map(old, new):
+    """Each 1-based column of `old` mapped to where it went in `new`."""
+    import difflib
+    out = {}
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        for i in range(i1, max(i2, i1 + 1)):
+            out[i + 1] = (j1 + (i - i1) if op == 'equal' else j1) + 1
+    return out
+
+
 def apply(lines, at, kind, fix):
     lines = list(lines)
     text = lines[at - 1]
@@ -82,10 +92,10 @@ def main():
             os.makedirs(home)
         target = os.path.join(home, os.path.basename(path))
         _, err0 = check(rig, path)
-        before = {}
+        original = set()
         for m in map(ERROR.match, err0.splitlines()):
             if m and os.path.basename(m.group('f')) == os.path.basename(path):
-                before.setdefault(int(m.group('l')), set()).add(m.group('m'))
+                original.add((int(m.group('l')), int(m.group('c')), m.group('m')))
         for at, kind, fix in hints(rig, path):
             count += 1
             lines, rows = apply(src, at, kind, fix)
@@ -95,9 +105,27 @@ def main():
             with open(target, 'w') as out:
                 out.write('\n'.join(lines))
             _, err = check(rig, target)
-            # An error the program draws at that line without the lend,
-            # which it drew there with it too, is its own, not the hint's.
-            left = [m.group('m') for m in map(ERROR.match, err.splitlines()) if m and int(m.group('l')) in rows and os.path.basename(m.group('f')) == os.path.basename(target) and 'never read' not in m.group('m') and m.group('m') not in before.get(at, ())]
+            # An error is the hint's unless the program drew it before, the
+            # same text at the same place: a rewritten line's columns are
+            # mapped through the rewrite. A lend-base error on another line
+            # is that line's own.
+            shift = len(rows) - 1
+            fixed = rows[-1]
+            cols = column_map(src[at - 1], lines[fixed - 1])
+            left = []
+            for m in map(ERROR.match, err.splitlines()):
+                if not m or os.path.basename(m.group('f')) != os.path.basename(target) or 'never read' in m.group('m'):
+                    continue
+                line, col, msg = int(m.group('l')), int(m.group('c')), m.group('m')
+                if line in rows:
+                    if line == fixed and any(l == at and cols.get(c) == col and t == msg for l, c, t in original):
+                        continue
+                    left.append(f'{line}:{col}: {msg}')
+                    continue
+                if 'write a lend on the whole path, not its base' in msg:
+                    continue
+                if (line - shift if line > at else line, col, msg) not in original:
+                    left.append(f'{line}:{col}: {msg}')
             if left:
                 bad.append(f'{path}:{at}: the hint `{fix if kind != "bind" else fix[2]}` draws: {left[0]}')
                 continue
