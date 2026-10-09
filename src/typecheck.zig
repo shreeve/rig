@@ -4483,18 +4483,37 @@ const Checker = struct {
     /// in a slot until its statement ends. A lend of a branching value
     /// that may be a name's value, or a part of a temporary, would copy
     /// that value into the slot, which a value that moves (an owner, or
-    /// a unique value such as one holding a Cell) must not be: each
-    /// branch is lent instead.
+    /// a unique value such as one holding a Cell) or a write view must
+    /// not be: each branch is lent instead.
     fn lendTemp(self: *Checker, operand: Sexp) Error!void {
+        return self.lendTempIn(operand, .nil);
+    }
+
+    /// `lendTemp` of `operand`, the object of the slice `whole` (or
+    /// `.nil`), which the hint writes with each branch lent.
+    fn lendTempIn(self: *Checker, operand: Sexp, whole: Sexp) Error!void {
         const base = if (self.hands(operand).hasStorage()) self.placeOf(operand).base else operand;
         if (base != .list) return;
         const ty = self.ctx.typeOf(base) orelse return;
-        if (sema.moves(self.ctx, ty) == .yes) if (self.namedLeaf(base)) |leaf| {
+        if (sema.moves(self.ctx, ty) == .yes or self.ctx.types.get(ty) == .write_view) if (self.namedLeaf(base)) |leaf| {
             const held = if (self.placeOf(leaf).root == .temporary) "a part of a temporary" else "a value a name holds";
-            try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, {s}, which lending the branching value would copy; lend what each branch reaches instead (`?a if c else ?b`, `if ?o as x`)", .{ self.sourceText(base), self.sourceText(leaf), held });
+            const fix = if (whole != .nil and sameNode(base, operand)) try self.eachLeafLent(whole, base) else "`?a if c else ?b`, `if ?o as x`";
+            try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, {s}, which lending the branching value would copy; lend what each branch reaches instead ({s})", .{ self.sourceText(base), self.sourceText(leaf), held, fix });
             return;
         };
         try self.ctx.recordTempDrop(base);
+    }
+
+    /// `whole` as written, with each leaf of the branching `base` lent to
+    /// read where it stands: `(?a if c else ?b)[1..]`.
+    fn eachLeafLent(self: *Checker, whole: Sexp, base: Sexp) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        var leaves: std.ArrayList(Sexp) = .empty;
+        defer leaves.deinit(self.ctx.allocator);
+        try sema.valueLeaves(self.ctx.allocator, base, &leaves);
+        const withs = try a.alloc([]const u8, leaves.items.len);
+        for (leaves.items, withs) |leaf, *w| w.* = try a.print("?{s}", .{self.sourceText(leaf)});
+        return a.print("`{s}`", .{try self.spliced(whole, leaves.items, withs)});
     }
 
     /// A leaf of `e` that is a value a name holds, where `e` hands over
@@ -5385,7 +5404,7 @@ const Checker = struct {
                     try self.errAt(e, "a slice of a Text views it; write `?{s}`", .{try self.plainText(e)});
                     return self.t().invalid_id;
                 }
-                if (lent and !self.placeOf(object).named()) try self.lendTemp(object);
+                if (lent and !self.placeOf(object).named()) try self.lendTempIn(object, e);
                 return self.t().string_id;
             },
             else => (try self.vecSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
@@ -5396,7 +5415,7 @@ const Checker = struct {
             try self.errAt(e, "a slice of an array or Vec views it; write `?{s}`", .{try self.plainText(e)});
             return self.t().invalid_id;
         }
-        if (!self.placeOf(object).named()) try self.lendTemp(object);
+        if (!self.placeOf(object).named()) try self.lendTempIn(object, e);
         return self.ctx.intern(.{ .slice = .{ .elem = elem } });
     }
 
