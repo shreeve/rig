@@ -104,8 +104,8 @@ sub main()
 # error: 68:10: `(?p).e`: write a lend on the whole path, not its base: `match ?p.e`
 # error: 71:14: `(!p).items`: write a lend on the whole path, not its base: `for x in !p.items`
 # error: 73:13: `(!p).items`: write a lend on the whole path, not its base: `for x in !p.items`
-# error: 75:4: `(!p).items`: write a lend on the whole path, not its base: `!p.items.push(3)`
-# error: 76:10: `(!p).s`: write a lend on the whole path, not its base: `print((!p.s).insert(1))`
+# error: 75:4: `(!p).items`: write a lend on the whole path, not its base
+# error: 76:10: `(!p).s`: write a lend on the whole path, not its base
 # error: 77:5: `(!qs)[1]`: write a lend on the whole path, not its base: `!qs[1].bump()`
 # error: 78:10: `(!arr)[0]`: write a lend on the whole path, not its base: `bump(!arr[0])`
 # error: 79:8: `(!p).x`: write a lend on the whole path, not its base: `f = p.x`

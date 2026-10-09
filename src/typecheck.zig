@@ -78,7 +78,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.result_hints.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
-    for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl);
+    for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
 }
 
 /// Where a binding that cannot be written got its value: a loop element
@@ -724,7 +724,7 @@ const Checker = struct {
             // The operand's own error is the one reported.
             if (self.isPoison(ty)) return;
             const owns_or_views = !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
-            const shown = self.sourceText(operand);
+            const shown = try self.plainText(operand);
             const view_param = if (operand == .src) if (self.ctx.symbolOf(operand)) |sym| self.ctx.symbols.items[sym].kind == .param and sema.isReadOrWriteView(self.ctx, ty) else false else false;
             if (view_param) {
                 // What a view parameter views, the caller owns.
@@ -750,7 +750,7 @@ const Checker = struct {
             // value is used, which a closure's last line is, though this
             // closure gives none.
             if (stmt.isKind(.move)) {
-                const shown = self.sourceText(ir.Move.operand(stmt));
+                const shown = try self.plainText(ir.Move.operand(stmt));
                 return self.errAt(stmt, "a closure's last line is its value, and so is the last line of a branch that ends it, so `<{s}` here is no drop, and this closure gives no value; to drop `{s}` here, write `_ = <{s}`", .{ shown, shown, shown });
             }
             if (stmt.kind() == null and self.ctx.types.get(ty) == .function)
@@ -1066,7 +1066,7 @@ const Checker = struct {
             const before = self.ctx.diagnostics.items.len;
             try self.checkExpr(rhs, inner);
             if (self.ctx.diagnostics.items.len > before and std.mem.startsWith(u8, self.ctx.diagnostics.items[before].message, "type mismatch")) {
-                const shown = self.sourceText(target);
+                const shown = try self.plainText(target);
                 try self.noteAt(target, "`{s} = v` writes the `{s}` that `{s}` views; `{s} = !m` points `{s}` at another place", .{ shown, try self.tyName(inner), shown, shown, shown });
             }
             return;
@@ -1329,7 +1329,7 @@ const Checker = struct {
                 switch (b.why) {
                     // A Cell reached through the handle changes in place.
                     .shared => if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
-                        const shown = self.sourceText(place.node);
+                        const shown = try self.plainText(place.node);
                         try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
                     } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{ through.head, through.tail }),
                     .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only", .{ through.head, through.tail }),
@@ -2081,7 +2081,7 @@ const Checker = struct {
         if (mode == .move) return false;
         const pos = self.startOf(source);
         if (self.ctx.types.get(elem) == .write_view) {
-            const shown = self.sourceText(inner_source);
+            const shown = try self.plainText(inner_source);
             try self.err(pos, "each element of `{s}` is a write view, which a loop binding cannot hold; loop over the indices and write `{s}[i]`", .{ shown, shown });
             return true;
         }
@@ -2120,7 +2120,7 @@ const Checker = struct {
                 // Vec's owner can do.
                 if (mode == .move) {
                     if (peeled == source_ty) return elem;
-                    const shown = self.sourceText(inner_source);
+                    const shown = try self.plainText(inner_source);
                     try self.err(pos, "`<{s}` would move the elements out of a Vec that `{s}` only views; loop over `?{s}` or `!{s}`, or move the Vec itself", .{ shown, shown, shown, shown });
                     return self.ctx.intern(.{ .read_view = elem });
                 }
@@ -2154,7 +2154,7 @@ const Checker = struct {
             else => {},
         }
         if ((try self.findMethod(source_ty, "next")) != null) {
-            try self.err(pos, "cannot iterate over `{s}`: `for` walks arrays, slices, Strings, and Vecs, and calls no method; to walk an iterator, bind it and loop: `it = {s}` then `while !it.next() as x`", .{ try self.tyName(source_ty), self.sourceText(stripSigil(source)) });
+            try self.err(pos, "cannot iterate over `{s}`: `for` walks arrays, slices, Strings, and Vecs, and calls no method; to walk an iterator, bind it and loop: `it = {s}` then `while !it.next() as x`", .{ try self.tyName(source_ty), try self.plainText(stripSigil(source)) });
             return self.t().invalid_id;
         }
         // `for b in ?t` walks the bytes of the String `?t` lends.
@@ -2243,7 +2243,7 @@ const Checker = struct {
         // `match <e` takes the fields of a value `e` owns.
         if (subject.isKind(.move)) if (self.ctx.typeOf(ir.Move.operand(subject))) |held| switch (self.ctx.types.get(held)) {
             .read_view, .write_view => {
-                const shown = self.sourceText(ir.Move.operand(subject));
+                const shown = try self.plainText(ir.Move.operand(subject));
                 if (self.ctx.types.get(held) == .write_view) {
                     try self.errAt(subject, "`match <{s}` consumes an owned value, and `{s}` is a write view (`{s}`); write the payload in place with `match !{s}`, or read it with `match {s}`", .{ shown, shown, try self.tyName(held), shown, shown });
                 } else try self.errAt(subject, "`match <{s}` consumes an owned value, and `{s}` is a view (`{s}`); match what it views with `match {s}`", .{ shown, shown, try self.tyName(held), shown });
@@ -2262,7 +2262,7 @@ const Checker = struct {
                 },
                 else => {
                     const place = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
-                    const shown = self.sourceText(place);
+                    const shown = try self.plainText(place);
                     if (mode == .consume) {
                         try self.errAt(subject, "a `match` reaches the value inside a box by lending the box: `match ?{s}` or `match !{s}`; to take the value out, bind it first: `v = <{s}.unbox()`", .{ shown, shown, shown });
                         scrutinee = inner;
@@ -3775,7 +3775,7 @@ const Checker = struct {
         const ty = try self.synthHandled(operand);
         if (self.isPoison(ty)) return ty;
         if (self.ctx.types.get(ty) == .fallible) {
-            const shown = self.sourceText(operand);
+            const shown = try self.plainText(operand);
             try self.errAt(operand, "`?` propagates `none`, and `{s}` fails with an error instead: propagate the failure with `{s}!`, or handle it with `catch`", .{ shown, shown });
             return self.ctx.types.get(ty).fallible;
         }
@@ -3795,7 +3795,7 @@ const Checker = struct {
             .drop => return self.noneNotReturned(operand, "a `drop` body cannot return `none` with `?`; take the value out with `if x as v` or `??`"),
             .caller, .infallible, .module => if (!self.returnsOptional(self.body.ret)) {
                 const name = self.body.name;
-                const shown = self.sourceText(operand);
+                const shown = try self.plainText(operand);
                 if (name == .nil) {
                     try self.errAt(operand, "use of `?` requires the enclosing function to return an optional (`-> T?`)", .{});
                 } else if (self.body.is_sub) {
@@ -3820,7 +3820,7 @@ const Checker = struct {
     /// resource: the view can lend the value inside, not give it up.
     fn viewGivesUp(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
         const place = if (operand.isKind(.move)) ir.Move.operand(operand) else operand;
-        const shown = self.sourceText(place);
+        const shown = try self.plainText(place);
         const sigil = if (self.ctx.types.get(ty) == .write_view and !place.isKind(.write)) "!" else "";
         const value = sema.unwrapViews(self.ctx, ty);
         const what = if (!sema.typeHasDropGlue(self.ctx, value) and sema.holdsWriteView(self.ctx, value)) "write view" else "resource";
@@ -4625,7 +4625,7 @@ const Checker = struct {
     /// the weak handle itself, so one held in a box or behind a handle
     /// is lent out first.
     fn weakReach(self: *Checker, obj: Sexp, obj_ty: TypeId, weak: TypeId, pos: u32) Error!void {
-        const shown = self.sourceText(stripSigil(obj));
+        const shown = try self.plainText(stripSigil(obj));
         const name = try self.tyName(weak);
         if (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty)) == .weak) {
             try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`: `if {s}.upgrade() as s`", .{ name, shown });
@@ -5303,7 +5303,7 @@ const Checker = struct {
             else => {},
         }
         if (sema.unwrapViews(self.ctx, obj_ty) == self.t().text_id) {
-            try self.errAt(object, "cannot index a value of type `{s}`; index its String view: `(?{s}[..])[i]`", .{ try self.tyName(obj_ty), self.sourceText(stripSigil(object)) });
+            try self.errAt(object, "cannot index a value of type `{s}`; index its String view: `(?{s}[..])[i]`", .{ try self.tyName(obj_ty), try self.plainText(stripSigil(object)) });
             return self.t().invalid_id;
         }
         try self.errAt(object, "cannot index a value of type `{s}`", .{try self.tyName(obj_ty)});
@@ -5708,7 +5708,7 @@ const Checker = struct {
         const from = try self.synthValue(arg);
         if (self.isPoison(from)) return target;
         if (self.enumValues(from)) |plain| {
-            const shown = self.sourceText(arg);
+            const shown = try self.plainText(arg);
             if (!plain) {
                 try self.errAt(arg, "`{s}(x)` takes a plain enum's value; `{s}` has variants with payloads, which have no integer value", .{ name, try self.tyName(sema.unwrapViews(self.ctx, from)) });
             } else if (self.ctx.types.get(target) != .int) {
@@ -7404,7 +7404,7 @@ const Checker = struct {
             if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
                 try self.err(pos, "a Vec has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
-                try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), self.sourceText(stripSigil(obj)) });
+                try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
@@ -7521,7 +7521,7 @@ const Checker = struct {
     fn misreachedWrite(self: *Checker, sigil: ?Sexp, place: Sexp, method: []const u8, ty: TypeId) Error!TypeId {
         const s = sigil orelse return ty;
         const what = if ((try self.moduleNamed(place)) != null) "a module" else "a type";
-        const shown = self.sourceText(place);
+        const shown = try self.plainText(place);
         const value = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
         if (value == self.t().bool_id) {
             try self.errAt(s, "`!` here reaches `{s}`, {s}, and `{s}.{s}(...)` makes a `Bool`; for negation use `not`", .{ shown, what, shown, method });
@@ -7683,7 +7683,7 @@ const Checker = struct {
         // A receiver `!` could not write (through a `*T` or `?T`, or of
         // a parameter) is reported as such, not with a `!` to add.
         if (!try self.requireAccess(self.placeOf(place), .lend_write, obj)) return false;
-        const shown = self.sourceText(place);
+        const shown = try self.plainText(place);
         const lent = if (sigilReaches(place)) try self.ctx.arena.allocator().print("!{s}", .{shown}) else try self.ctx.arena.allocator().print("!({s})", .{shown});
         try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `{s}.{s}(...)`", .{ method, lent, method });
         return false;
@@ -8011,7 +8011,7 @@ const Checker = struct {
     /// every change is marked by `!` (Core sentences 4 and 9), which
     /// lends the temporary to write.
     fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8, has_args: bool, returns: TypeId) Error!void {
-        const shown = self.sourceText(recv);
+        const shown = try self.plainText(recv);
         const a = self.ctx.arena.allocator();
         const lent = if (sigilReaches(recv)) try a.print("!{s}", .{shown}) else try a.print("!({s})", .{shown});
         const call = if (self.usesBoolValue(recv, returns)) try a.print("({s}).{s}", .{ lent, method }) else try a.print("{s}.{s}", .{ lent, method });
@@ -8291,7 +8291,7 @@ const Checker = struct {
         switch (self.ctx.types.get(actual)) {
             .array => |a| if (a.elem == elem) {
                 if (self.hands(e).hasStorage()) {
-                    const shown = self.sourceText(e);
+                    const shown = try self.plainText(e);
                     const sigil: u8 = if (want_write) '!' else '?';
                     try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; write `{c}{s}` or `{c}{s}[..]`", .{ try self.tyName(expected), try self.tyName(actual), sigil, shown, sigil, shown });
                     return true;
@@ -8326,7 +8326,7 @@ const Checker = struct {
             else => false,
         };
         if (!is_text) return false;
-        const shown = self.sourceText(stripSigil(e));
+        const shown = try self.plainText(stripSigil(e));
         try self.errAt(e, "type mismatch: expected `String`, got `{s}`; lend it as a String with `?{s}` or `?{s}[..]`", .{ try self.tyName(actual), shown, shown });
         return true;
     }
@@ -8350,7 +8350,7 @@ const Checker = struct {
         switch (self.ctx.types.get(expected)) {
             .read_view, .write_view => |inner| if (place.named() and place.sym != null and compatible(self.ctx, actual, inner)) {
                 const write = self.ctx.types.get(expected) == .write_view;
-                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend it to {s}: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), self.sourceText(e) });
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend it to {s}: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), try self.plainText(e) });
             },
             else => {},
         }
@@ -8587,17 +8587,19 @@ const Checker = struct {
     /// that branches (`(!a if c else !b).x`), which `lendOf` calls no
     /// lend, and a lend of a slice (`(?t[..])[0]`), whose written `!`
     /// only read is decided as any such read (`writeLendRead`).
-    fn checkLendBases(self: *Checker, n: Sexp, root: Sexp) Error!void {
+    fn checkLendBases(self: *Checker, n: Sexp, root: Sexp, in_block: bool, module_level: bool) Error!void {
         if (n != .list) return;
-        if (n.isKind(.member) or n.isKind(.index)) try self.lendBase(n, root);
+        if (n.isKind(.member) or n.isKind(.index)) try self.lendBase(n, root, in_block, module_level);
         // A statement's parts are hinted at as that statement: each of a
         // block's statements, and an expression a function, a closure, or
-        // a `match` arm has for its body.
+        // a `match` arm has for its body. Only a block's statement can
+        // have a binding put before it.
         const kind = n.kind() orelse .module;
         for (n.items()) |x| {
-            const own = kind == .block or
-                ((kind == .lambda or kind == .fun or kind == .sub or kind == .arm) and x == .list and !x.isKind(.block) and isBodyOf(n, x));
-            try self.checkLendBases(x, if (own) x else root);
+            const body = (kind == .lambda or kind == .fun or kind == .sub or kind == .arm) and x == .list and !x.isKind(.block) and isBodyOf(n, x);
+            if (kind == .block or body) {
+                try self.checkLendBases(x, x, kind == .block, false);
+            } else try self.checkLendBases(x, root, in_block, module_level);
         }
     }
 
@@ -8614,15 +8616,20 @@ const Checker = struct {
         return sameExpr(body, x);
     }
 
-    /// `e`, a field, element, or slice, in statement `root`: reported
-    /// where its object is a lend of a place (`checkLendBases`).
-    fn lendBase(self: *Checker, e: Sexp, root: Sexp) Error!void {
+    /// `e`, a field, element, or slice, in statement `root` (a block's
+    /// statement where `in_block`, or a module-level declaration):
+    /// reported where its object is a lend of a place (`checkLendBases`).
+    fn lendBase(self: *Checker, e: Sexp, root: Sexp, in_block: bool, module_level: bool) Error!void {
         const obj = ir.get(e, .object);
         const lend = self.lendOf(obj) orelse return;
         if (self.methods.contains(nodeId(e))) return;
-        // The receiver sigil the parser moved onto a call of a field
-        // holding functions (`!p.f[0]()`) is the call's to report.
-        if (isCallee(root, e) and self.isReceiverSigil(obj)) return;
+        if (isCallee(root, e)) {
+            // The receiver sigil the parser moved onto a call of a field
+            // holding functions (`!p.f[0]()`) is the call's to report, and
+            // so is a method the call did not find (`(!s).nope()`).
+            if (self.isReceiverSigil(obj)) return;
+            if (!self.namesField(obj, e)) return;
+        }
         var fix: LendBaseFix = .{ .c = self, .root = root };
         if (lendsSlice(lend)) {
             const ty = self.ctx.typeOf(obj) orelse return;
@@ -8633,28 +8640,40 @@ const Checker = struct {
         }
         try fix.collect(fix.root);
         const own = fix.edit(obj) orelse try fix.add(e, obj);
-        const shown = self.sourceText(e);
+        const shown = try oneLine(self.ctx.arena.allocator(), self.sourceText(e));
         const head = "`{s}`: write a lend on the whole path, not its base";
-        // A write through a read lend or a shared handle, or a lend its
-        // own check rejected, has no rewrite that compiles: that check
-        // says why.
-        if (own.writes or std.mem.findScalar(u8, own.open, '!') != null) if (lend.isKind(.read) or own.shared) {
-            return self.errAt(obj, head, .{shown});
-        };
-        const sp = self.ctx.span(obj);
-        for (self.ctx.diagnostics.items) |d| if (d.severity == .@"error" and !d.lint and d.module == 0 and d.pos > sp.start and d.pos < sp.end) {
-            return self.errAt(obj, head, .{shown});
-        };
-        // The line the path is on, or else the path.
+        // No rewrite compiles where the path writes through a read lend
+        // or a shared handle, takes a part that is no optional, or binds
+        // a temporary where no statement can go first; each says why.
+        if (own.writes and lend.isKind(.read) and !own.cell) return self.errAt(obj, head ++ "; and a read lend is not written through", .{shown});
+        if (own.shared and (own.writes or std.mem.findScalar(u8, own.open, '!') != null)) return self.errAt(obj, head ++ "; and nothing is written through a shared handle (`*T`), which other handles may see", .{shown});
+        if (own.taken and !own.temp and !own.optional) return self.errAt(obj, head ++ "; and `<` takes out only an optional field or element, leaving `none`", .{shown});
+        // The hint is the line the statement is on: a statement spread
+        // over lines, or a module-level value, which no plain path makes
+        // constant, gets none. A lend its own check rejected gets none,
+        // and so does a context no plain form fits.
         const src = self.ctx.source;
+        const sp = self.ctx.span(obj);
         var ws: parser.Span = .{ .start = own.at, .end = own.at };
         while (ws.start > 0 and src[ws.start - 1] != '\n') ws.start -= 1;
         while (ws.start < own.at and (src[ws.start] == ' ' or src[ws.start] == '\t')) ws.start += 1;
         while (ws.end < src.len and src[ws.end] != '\n') ws.end += 1;
-        if (own.to > ws.end or ws.end - ws.start > 100) ws = .{ .start = own.at, .end = own.to };
+        var stmt = self.ownSpan(root);
+        stmt.start = fix.start(root, stmt.start);
+        const spread = stmt.start < ws.start or std.mem.trimEnd(u8, src[stmt.start..@max(stmt.start, stmt.end)], " \t\n").len > ws.end - stmt.start;
+        if (own.none or own.to > ws.end or spread or module_level) return self.errAt(obj, head, .{shown});
+        // An error inside the lend, or in the path after it (a field it
+        // does not have, an index out of bounds, a method it lacks), is
+        // what the path still needs: it gets no rewrite.
+        for (self.ctx.diagnostics.items) |d| {
+            if (d.severity != .@"error" or d.lint or d.module != 0) continue;
+            if ((d.pos > sp.start and d.pos < sp.end) or (d.pos >= own.end and d.pos < own.reach)) return self.errAt(obj, head, .{shown});
+        }
         // A part of a temporary assigned, taken, or bound by a header: the
-        // temporary is bound to a name first.
+        // temporary is bound to a name first, in a statement put before
+        // this one, where one can go.
         if (own.temp and (own.assigned or own.header or own.taken)) {
+            if (!in_block or stmt.start != ws.start) return self.errAt(obj, head ++ "; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own", .{shown});
             const name = for ([_][]const u8{ "t", "tmp", "tmp1", "tmp2", "tmp3", "tmp4" }) |n| {
                 if (!hasCodeWord(src, n)) break n;
             } else "tmp5";
@@ -8669,6 +8688,16 @@ const Checker = struct {
         var out: std.ArrayList(u8) = .empty;
         try fix.write(&out, ws.start, ws.end);
         try self.errAt(obj, head ++ ": `{s}`", .{ shown, out.items });
+    }
+
+    /// Whether member `e` of `obj` names a data field of `obj`'s type: a
+    /// call of it calls the function the field holds, and its object is a
+    /// path's base, not a receiver.
+    fn namesField(self: *Checker, obj: Sexp, e: Sexp) bool {
+        if (!e.isKind(.member)) return true;
+        const ty = self.ctx.typeOf(obj) orelse return false;
+        if (self.isPoison(ty)) return false;
+        return sema.lookupDataFieldConst(self.ctx, sema.unwrapAccess(self.ctx, ty), self.text(ir.Member.name(e))) != null;
     }
 
     /// The lend the object of a path, `e`, is: `?x` or `!x`, also moved,
@@ -8744,10 +8773,19 @@ const Checker = struct {
             writes: bool = false,
             shared: bool = false,
             temp: bool = false,
+            /// Whether the path reaches a Cell, which changes through any
+            /// path; whether its value is an optional; and whether no
+            /// plain form fits its context (`valueSigil`).
+            cell: bool = false,
+            optional: bool = false,
+            none: bool = false,
             /// What goes before and after the whole path: the sigil its
             /// context takes, or nothing.
             open: []const u8 = "",
             close: []const u8 = "",
+            /// Where a slice on the way ends, which is lent as a whole
+            /// (`(?p.arr[0..2])[1]`), its parenthesis opened with `open`.
+            slice_to: u32 = 0,
             /// Where the whole path starts and ends, and the lend's span
             /// with its parentheses.
             at: u32 = 0,
@@ -8761,7 +8799,7 @@ const Checker = struct {
             if (n != .list or n.isKind(.lambda)) return;
             if (n.isKind(.member) or n.isKind(.index)) {
                 const obj = ir.get(n, .object);
-                if (f.c.lendOf(obj)) |lend| if (!lendsSlice(lend) and !f.c.methods.contains(nodeId(n)) and !(isCallee(f.root, n) and f.c.isReceiverSigil(obj))) {
+                if (f.c.lendOf(obj)) |lend| if (!lendsSlice(lend) and !f.c.methods.contains(nodeId(n)) and !(isCallee(f.root, n) and (f.c.isReceiverSigil(obj) or !f.c.namesField(obj, n)))) {
                     _ = try f.add(n, obj);
                 };
             }
@@ -8790,9 +8828,11 @@ const Checker = struct {
             while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
                 const o = ir.get(n, .object);
                 const o_ty = if (sameExpr(o, obj)) c.ctx.typeOf(place) else c.ctx.typeOf(o);
-                if (o_ty) |ty| if (c.ctx.types.get(sema.unwrapViews(c.ctx, ty)) == .shared) {
-                    x.shared = true;
-                };
+                if (o_ty) |ty| {
+                    const v = sema.unwrapViews(c.ctx, ty);
+                    if (c.ctx.types.get(v) == .shared) x.shared = true;
+                    if (cellElementType(c.ctx, v) != null or cellVecElement(c.ctx, v) != null) x.cell = true;
+                }
                 if (sameExpr(o, obj)) break;
             }
             // A part of a value made here, which no name holds: a view a
@@ -8801,8 +8841,9 @@ const Checker = struct {
                 const pt = c.ctx.typeOf(place);
                 x.temp = pt == null or !sema.isReadOrWriteView(c.ctx, pt.?);
             }
+            if (c.ctx.typeOf(top)) |tt| x.optional = c.ctx.types.get(tt) == .optional;
             const p = parentIn(f.root, top) orelse {
-                x.open = f.valueSigil(top, sigil);
+                f.setValueSigil(&x, top, sigil);
                 return f.spans(x, obj);
             };
             switch (p.kind() orelse .module) {
@@ -8810,8 +8851,10 @@ const Checker = struct {
                     x.assigned = true;
                     x.writes = true;
                 } else {
-                    x.open = f.valueSigil(top, sigil);
+                    f.setValueSigil(&x, top, sigil);
                 },
+                // A statement that drops: only a binding is dropped.
+                .drop => x.none = true,
                 .write => x.writes = true,
                 .move => {
                     x.writes = true;
@@ -8848,18 +8891,33 @@ const Checker = struct {
                         x.close = if (bool_used) ")" else "";
                     }
                 } else {
-                    x.open = f.valueSigil(top, sigil);
+                    f.setValueSigil(&x, top, sigil);
                 },
-                else => x.open = f.valueSigil(top, sigil),
+                else => f.setValueSigil(&x, top, sigil),
             }
             return f.spans(x, obj);
         }
 
-        /// The sigil a path read as a value takes from its context: `!`
-        /// where a write view is expected, `?` where a read view is and
-        /// is not lent implicitly (an argument), and none where a value
-        /// is. A leaf of a value that branches takes the branch's.
-        fn valueSigil(f: *LendBaseFix, top: Sexp, sigil: []const u8) []const u8 {
+        fn setValueSigil(f: *LendBaseFix, x: *Edit, top: Sexp, sigil: []const u8) void {
+            if (f.valueSigil(top, sigil)) |open| {
+                x.open = open;
+            } else x.none = true;
+        }
+
+        /// The sigil a path read as a value takes from its context, or
+        /// null where no plain form fits it:
+        /// - a slice of an array, a Vec, or a Text is a lend: `?` (`!`
+        ///   where a write view goes);
+        /// - where a write view is expected, `!`;
+        /// - where a read view is, `?`, but none for an argument a `?T`
+        ///   parameter takes (lent implicitly), or for a value that is a
+        ///   view already;
+        /// - where a value is, none if it copies, a clone `+` if it does
+        ///   not, and null if it is not the value expected;
+        /// - where nothing is expected, the lend's own sigil if the value
+        ///   is taken and does not copy, and none otherwise.
+        /// A leaf of a value that branches takes the branch's context.
+        fn valueSigil(f: *LendBaseFix, top: Sexp, sigil: []const u8) ?[]const u8 {
             const c = f.c;
             var at = top;
             while (parentIn(f.root, at)) |p| {
@@ -8871,16 +8929,35 @@ const Checker = struct {
                 if (!leaf) break;
                 at = p;
             }
-            if (c.expected.get(nodeId(at))) |want| {
-                switch (c.ctx.types.get(want)) {
+            // A path its own check rejected has no plain form to give.
+            const top_ty = c.ctx.typeOf(top) orelse return null;
+            if (c.isPoison(top_ty)) return null;
+            const copies = sema.copies(c.ctx, top_ty) == .yes;
+            const want_ty = c.expected.get(nodeId(at));
+            if (top.isKind(.index) and ir.Index.index(top).isKind(.@"..")) {
+                if (want_ty) |w| if (c.ctx.types.get(w) == .write_view or sema.writeSliceElem(c.ctx, w) != null) return "!";
+                return "?";
+            }
+            if (want_ty) |want| {
+                var inner = want;
+                var opt = false;
+                while (c.ctx.types.get(inner) == .optional) {
+                    inner = c.ctx.types.get(inner).optional;
+                    opt = true;
+                }
+                switch (c.ctx.types.get(inner)) {
                     .write_view => return "!",
-                    .read_view, .slice, .string => if (!sema.holdsWriteView(c.ctx, want)) {
-                        return if (f.implicitArg(at)) "" else "?";
+                    .read_view => return if (!opt and f.implicitArg(at)) "" else "?",
+                    .slice, .string => if (!sema.holdsWriteView(c.ctx, inner)) {
+                        if (sema.writeSliceElem(c.ctx, inner) != null) return "!";
+                        return if (compatible(c.ctx, top_ty, inner)) "" else "?";
                     },
                     else => {},
                 }
-                if (sema.holdsWriteView(c.ctx, want) and c.ctx.types.get(want) == .optional) return "!";
-                return "";
+                if (sema.holdsWriteView(c.ctx, want)) return "!";
+                if (!compatible(c.ctx, top_ty, want)) return null;
+                if (copies) return "";
+                return if (sema.cloneable(c.ctx, top_ty) != .no) "+" else null;
             }
             // A branch whose other leaves are lends takes their sigil.
             if (!sameExpr(at, top)) {
@@ -8892,12 +8969,12 @@ const Checker = struct {
                     if (l.isKind(.read)) return "?";
                 }
             }
-            // An untyped binding of a value that does not copy keeps the
-            // lend's sigil.
-            if (parentIn(f.root, at)) |p| if (p.isKind(.set) and ir.Set.type(p) == .nil and !sameExpr(ir.Set.target(p), at)) {
-                const ty = c.ctx.typeOf(at) orelse return "";
-                if (!c.isPoison(ty) and sema.copies(c.ctx, ty) != .yes) return sigil;
-            };
+            // A value taken that does not copy keeps the lend's sigil: a
+            // binding's, an element's.
+            if (!copies) {
+                const taken = c.ctx.useOf(at) == .take or if (parentIn(f.root, at)) |p| p.isKind(.set) or p.isKind(.array) else false;
+                if (taken) return sigil;
+            }
             return "";
         }
 
@@ -8923,11 +9000,35 @@ const Checker = struct {
             const top = x.top;
             const src = f.c.ctx.source;
             var ls = f.c.ctx.span(obj);
-            if (ls.start > 0 and ls.end < src.len and src[ls.start - 1] == '(' and src[ls.end] == ')') {
-                ls.start -= 1;
-                ls.end += 1;
+            // Every pair of parentheses around the lend alone, `((!p))`,
+            // but not a call's.
+            while (true) {
+                var i = ls.start;
+                while (i > 0 and isBlank(src[i - 1])) i -= 1;
+                var j = ls.end;
+                while (j < src.len and isBlank(src[j])) j += 1;
+                if (i == 0 or j >= src.len or src[i - 1] != '(' or src[j] != ')') break;
+                const k = i - 1;
+                if (k > 0 and (std.ascii.isAlphanumeric(src[k - 1]) or src[k - 1] == '_' or src[k - 1] == ')' or src[k - 1] == ']')) break;
+                ls = .{ .start = i - 1, .end = j + 1 };
             }
             const ts = f.c.ctx.span(top);
+            // A slice on the way below the top is lent as a whole: a lend
+            // of a slice is a view, kept as a path's base.
+            if (!f.bare) {
+                var n = x.top;
+                var slice: ?Sexp = null;
+                while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
+                    if (n.isKind(.index) and ir.Index.index(n).isKind(.@"..")) slice = n;
+                    if (sameExpr(ir.get(n, .object), obj)) break;
+                }
+                if (slice) |sl| if (!sameExpr(sl, x.top)) {
+                    const lend = f.c.lendOf(obj) orelse obj;
+                    const sig: []const u8 = if (x.writes and lend.isKind(.write)) "(!" else "(?";
+                    x.open = std.mem.concat(f.c.ctx.arena.allocator(), u8, &.{ x.open, sig }) catch x.open;
+                    x.slice_to = f.c.ctx.span(sl).end;
+                };
+            }
             x.at = @min(ts.start, ls.start);
             x.to = @max(ts.end, ls.end);
             x.reach = @max(x.reach, ls.end);
@@ -8969,20 +9070,26 @@ const Checker = struct {
             const src = f.c.ctx.source;
             const opened = try a.alloc(bool, f.edits.items.len);
             const closed = try a.alloc(bool, f.edits.items.len);
+            const sliced = try a.alloc(bool, f.edits.items.len);
             @memset(opened, false);
             @memset(closed, false);
+            @memset(sliced, false);
             var at = from;
             while (true) {
                 // The next point an edit changes, in source order: a
                 // sigil moved onto a path, a lend taken off it, or the
                 // parenthesis that closes a path.
-                const Step = enum { open, lend, close };
+                const Step = enum { open, lend, close, slice_close };
                 var next: ?struct { i: usize, step: Step } = null;
                 var pos: u32 = to + 1;
                 for (f.edits.items, 0..) |x, i| {
                     if (x.close.len > 0 and !closed[i] and x.to >= at and x.to <= to and x.to < pos) {
                         next = .{ .i = i, .step = .close };
                         pos = x.to;
+                    }
+                    if (x.slice_to != 0 and !sliced[i] and x.slice_to >= at and x.slice_to <= to and x.slice_to < pos) {
+                        next = .{ .i = i, .step = .slice_close };
+                        pos = x.slice_to;
                     }
                 }
                 for (f.edits.items, 0..) |x, i| {
@@ -9007,6 +9114,10 @@ const Checker = struct {
                     .close => {
                         try out.appendSlice(a, x.close);
                         closed[n.i] = true;
+                    },
+                    .slice_close => {
+                        try out.append(a, ')');
+                        sliced[n.i] = true;
                     },
                     .lend => {
                         if (f.named) |named| if (sameExpr(named.lend, x.lend)) {
@@ -9143,7 +9254,7 @@ const Checker = struct {
         const place_node = unlent(lend);
         const place = self.sourceText(place_node);
         const head = "`{s}` here is read, not held: {s}. ";
-        const shown = self.sourceText(e);
+        const shown = try self.plainText(e);
         const value_ty = switch (how) {
             .slot, .value => |slot_ty| slot_ty,
             else => sema.unwrapViews(self.ctx, self.ctx.typeOf(place_node) orelse self.t().invalid_id),
@@ -9570,7 +9681,7 @@ const Checker = struct {
         const ty = try self.synthExpr(pattern);
         const subject = sema.unwrapViews(self.ctx, scrutinee);
         const obj = ir.Member.object(pattern);
-        const shown = self.sourceText(pattern);
+        const shown = try self.plainText(pattern);
         const name = self.text(ir.Member.name(pattern));
         if (self.isPoison(ty) or self.isPoison(subject)) {
             cov.rejected = true;
@@ -10657,6 +10768,34 @@ fn resultCall(e: Sexp) ?Sexp {
 /// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
+}
+
+/// `text` on one line: each run of blanks with a line break in it is one
+/// space.
+fn oneLine(a: std.mem.Allocator, text: []const u8) Error![]const u8 {
+    if (std.mem.findScalar(u8, text, '\n') == null) return text;
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < text.len) : (i += 1) {
+        if (!isBlank(text[i])) {
+            try out.append(a, text[i]);
+            continue;
+        }
+        var j = i;
+        var broke = false;
+        while (j < text.len and isBlank(text[j])) : (j += 1) broke = broke or text[j] == '\n';
+        if (broke) {
+            const prev = if (out.items.len > 0) out.items[out.items.len - 1] else ' ';
+            const next = if (j < text.len) text[j] else ' ';
+            if (prev != '(' and prev != '[' and next != ')' and next != ']' and next != '.') try out.append(a, ' ');
+        } else try out.appendSlice(a, text[i..j]);
+        i = j - 1;
+    }
+    return out.items;
+}
+
+fn isBlank(c: u8) bool {
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r';
 }
 
 /// The id a node is recorded by.
