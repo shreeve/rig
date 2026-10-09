@@ -1,0 +1,40 @@
+# A statement `-x` negates `x` and discards it. Where `x` owns or views
+# something, the hint offers `<x` only where `<x` drops it: not for a
+# view parameter, a closure's capture, or a `for` element that views a
+# slot of the Vec it walks, which are each told why.
+
+sub each(f: ?sub(Int))
+  f(1)
+
+sub look(o: ?Vec[Int])
+  -o
+
+sub main()
+  v: Vec[Vec[Int]] = Vec()
+  !v.push(Vec[Int]())
+  r = ?v
+  -r
+  each(|?v, i|
+    -v
+    print(i)
+  )
+  each(|+v, i|
+    -v
+    print(i)
+  )
+  for x in ?v
+    -x
+  for x in v
+    -x
+  for y in !v
+    -y
+  print(v.len)
+
+# error: 10:3: this expression does nothing as a statement: `-o` negates a value and discards it; a view parameter is not dropped, since the caller owns what it views
+# error: 16:3: this expression does nothing as a statement; to drop `r` now, write `<r`
+# error: 18:5: this expression does nothing as a statement: `-v` negates a value and discards it; a closure keeps what it captures for every call, so `v` is not dropped here
+# error: 22:5: this expression does nothing as a statement: `-v` negates a value and discards it; a closure keeps what it captures for every call, so `v` is not dropped here
+# error: 26:5: this expression does nothing as a statement: `-x` negates a value and discards it; `x` views an element the loop walks, which is dropped with what holds it
+# error: 28:5: this expression does nothing as a statement: `-x` negates a value and discards it; `x` views an element the loop walks, which is dropped with what holds it
+# error: 30:5: this expression does nothing as a statement; to drop `y` now, write `<y`
+# errors: 7

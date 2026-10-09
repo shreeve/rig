@@ -727,10 +727,14 @@ const Checker = struct {
             if (self.isPoison(ty)) return;
             const owns_or_views = !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
             const shown = try self.plainText(operand);
-            const view_param = if (operand == .src) if (self.ctx.symbolOf(operand)) |sym| self.ctx.symbols.items[sym].kind == .param and sema.isReadOrWriteView(self.ctx, ty) else false else false;
-            if (view_param) {
-                // What a view parameter views, the caller owns.
-                try self.errAt(stmt, "this expression does nothing as a statement: `{s}` negates a value and discards it; a view parameter is not dropped, since the caller owns what it views", .{self.sourceText(stmt)});
+            // `<x` is offered only where it drops `x` (`sema.undroppable`,
+            // by which the ownership checker rejects it).
+            const negates = "this expression does nothing as a statement: `{s}` negates a value and discards it; ";
+            const why = sema.undroppable(self.ctx, operand);
+            if (why != null and (why.? == .view_param or owns_or_views)) switch (why.?) {
+                .view_param => try self.errAt(stmt, negates ++ "a view parameter is not dropped, since the caller owns what it views", .{self.sourceText(stmt)}),
+                .capture => try self.errAt(stmt, negates ++ "a closure keeps what it captures for every call, so `{s}` is not dropped here", .{ self.sourceText(stmt), shown }),
+                .loop_slot => try self.errAt(stmt, negates ++ "`{s}` views an element the loop walks, which is dropped with what holds it", .{ self.sourceText(stmt), shown }),
             } else if (owns_or_views and sema.handsOver(self.ctx, operand).kind == .place) {
                 // `<` takes a binding, or an optional field or element.
                 const takes = operand == .src or self.ctx.types.get(ty) == .optional;
@@ -1929,6 +1933,7 @@ const Checker = struct {
             if (self.ctx.symbolOf(binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
+                if (sema.forViewsSlot(self.ctx, node)) self.ctx.symbols.items[sym].flags.slot_view = true;
                 // An element of an array the loop takes is the body's own.
                 if (eff == .move and !source.isKind(.@"..")) try self.owned_bindings.put(self.ctx.allocator, sym, {});
                 if ((mode == .iter or mode == .read) and !source.isKind(.@"..") and self.hands(source).hasStorage() and !sema.isReadOrWriteView(self.ctx, elem_ty)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });

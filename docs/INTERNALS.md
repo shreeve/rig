@@ -1725,8 +1725,14 @@ a branching value's leaf that is not made there (the ownership
 checker), so only whole bindings move. One check is stricter than the
 fact and stays beside it: `payloadViewTaken` rejects `<y` of a binding
 a read `match` binds, which `moveSource` calls a binding, since `y`
-views the subject. Closures use outer locals only through captures, and never consume their captured
-resources; closures use outer locals only through captures, and never consume their captured
+views the subject. A statement `<x` of a binding drops it, except
+where `sema.undroppable` says it cannot: a view parameter, a capture,
+or a `for` element that views a slot of the Vec it walks
+(`sema.forViewsSlot`, which the type checker marks on the element,
+`slot_view`, and the ownership checker walks as a loop view). The
+ownership checker rejects such a `<x` by it, and the type checker's
+hint for a statement `-x` offers `<x` only where it drops. Closures use
+outer locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 view, directly or through what it views, a value dropped before it
 (declared later in the same scope), since the body could read it.
