@@ -1,0 +1,34 @@
+# A hint that writes a write call writes it as the call is used: the
+# long form `(!v).m(...)` where its value is used, and the short form
+# where it is discarded, so following a hint never draws the error that
+# a write call whose value is used puts its `!` in parentheses.
+
+struct Box2
+  v: Vec[Int]
+
+  fun take(!self) -> Int?
+    !self.v.pop()
+
+fun mk() -> Box2
+  Box2(v: Vec())
+
+sub main()
+  v: Vec[Int] = Vec()
+  w = !v
+  b = mk()
+  x = v.pop()
+  v.pop()
+  y = <v.pop()
+  z = ?v.pop()
+  q = w.pop()
+  s = mk().take()
+  print(x, y, z, q, s, b.v.len)
+
+# error: 10:5: write `(!self.v).pop()`: a write call whose value is used puts its `!` in parentheses
+# error: 19:9: method `pop` needs its receiver lent to write; use `(!receiver).pop(...)`
+# error: 20:5: method `pop` needs its receiver lent to write; use `!receiver.pop(...)`
+# error: 21:7: `pop` does not consume its receiver; it writes it: `(!v).pop(...)`, and its result needs no `<`
+# error: 22:7: `pop` writes its receiver: write `(!v).pop(...)`; to lend the call's result, write `?(v.pop(...))`
+# error: 23:7: write `(!w).pop()`: the call writes `w`
+# error: 24:7: `take` changes its receiver, a temporary no name holds; add `!`: `(!mk()).take()`
+# errors: 7

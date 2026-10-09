@@ -1671,6 +1671,14 @@ const Checker = struct {
         return value != self.t().void_id and !self.isDiscardedCall(recv);
     }
 
+    /// The write call a hint writes for `method` on the receiver `recv`,
+    /// written `place`: `!place.m`, or `(!place).m` where the call's
+    /// value is used (`usesValue`).
+    fn writeCall(self: *Checker, recv: Sexp, place: []const u8, method: []const u8, returns: TypeId) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        return if (self.usesValue(recv, returns)) a.print("(!{s}).{s}", .{ place, method }) else a.print("!{s}.{s}", .{ place, method });
+    }
+
     /// Whether `recv` is the receiver of a call whose value is
     /// discarded: the expression statement, or the operand of a `!`,
     /// `?`, or `catch` that is, or is that operand in turn.
@@ -1682,7 +1690,7 @@ const Checker = struct {
             .@"catch" => e = ir.Catch.value(e),
             .call => {
                 const callee = ir.Call.callee(e);
-                return callee.isKind(.member) and sameNode(ir.Member.object(callee), recv);
+                return callee.isKind(.member) and sameExpr(ir.Member.object(callee), recv);
             },
             else => return false,
         };
@@ -8028,8 +8036,7 @@ const Checker = struct {
             if (mode == .read) return false;
             const hint = if (returns == self.t().void_id) "" else try self.ctx.arena.allocator().print("; to lend the call's result, write `?({s}.{s}(...))`", .{ name, method });
             if (mode == .write) {
-                const call = if (self.usesValue(recv, returns)) try self.ctx.arena.allocator().print("(!{s}).{s}", .{ name, method }) else try self.ctx.arena.allocator().print("!{s}.{s}", .{ name, method });
-                try self.errAt(recv, "`{s}` writes its receiver: write `{s}(...)`{s}", .{ method, call, hint });
+                try self.errAt(recv, "`{s}` writes its receiver: write `{s}(...)`{s}", .{ method, try self.writeCall(recv, name, method, returns), hint });
             } else try self.errAt(recv, "`{s}` consumes its receiver: write `<{s}.{s}(...)`{s}", .{ method, name, method, hint });
         } else if (recv.isKind(.write)) switch (mode) {
             .write => {
@@ -8043,7 +8050,7 @@ const Checker = struct {
             } else try self.errAt(recv, "`{s}` does not write its receiver; remove the `!`", .{method}),
         } else switch (mode) {
             .value => return false,
-            .write => try self.errAt(recv, "`{s}` does not consume its receiver; it writes it: `!{s}.{s}(...)`, and its result needs no `<`", .{ method, name, method }),
+            .write => try self.errAt(recv, "`{s}` does not consume its receiver; it writes it: `{s}(...)`, and its result needs no `<`", .{ method, try self.writeCall(recv, name, method, returns) }),
             else => try self.errAt(recv, "`{s}` does not consume its receiver; remove the `<`: a call's result moves without it", .{method}),
         }
         return true;
@@ -8122,18 +8129,17 @@ const Checker = struct {
                         const leaf = self.namedLeaf(recv) orelse recv;
                         try self.errAt(recv, "method `{s}` writes its receiver, and `{s}` may be `{s}`, a value a name holds, which the call would write as a copy; call `{s}` on the name in each branch", .{ method, self.sourceText(recv), self.sourceText(leaf), method });
                     },
-                    .read_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write; got `?...`; use `!receiver.{s}(...)`", .{ method, method }),
-                    .move_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write; cannot move; use `!receiver.{s}(...)`", .{ method, method }),
+                    .read_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write; got `?...`; use `{s}(...)`", .{ method, try self.writeCall(recv, "receiver", method, returns) }),
+                    .move_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write; cannot move; use `{s}(...)`", .{ method, try self.writeCall(recv, "receiver", method, returns) }),
                     // A binding that already holds a write view (`x: !T`,
                     // `!self`) lends it visibly too.
                     .place => if (kind != .write_view and self.hands(recv).kind == .part_of_made) {
                         try self.writeOfTemporary(recv, method, has_args, returns);
                     } else if (kind != .write_view) {
-                        try self.err(pos, "method `{s}` needs its receiver lent to write; use `!receiver.{s}(...)`", .{ method, method });
+                        try self.err(pos, "method `{s}` needs its receiver lent to write; use `{s}(...)`", .{ method, try self.writeCall(recv, "receiver", method, returns) });
                     } else {
                         const name = self.sourceText(recv);
-                        const call = if (self.usesValue(recv, returns)) try self.ctx.arena.allocator().print("(!{s}).{s}", .{ name, method }) else try self.ctx.arena.allocator().print("!{s}.{s}", .{ name, method });
-                        try self.errAt(recv, "write `{s}({s})`: the call writes `{s}`", .{ call, if (has_args) "..." else "", name });
+                        try self.errAt(recv, "write `{s}({s})`: the call writes `{s}`", .{ try self.writeCall(recv, name, method, returns), if (has_args) "..." else "", name });
                     },
                 }
             },
