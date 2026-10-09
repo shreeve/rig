@@ -88,7 +88,10 @@ positions:
 `!` means "act": write, or fail. As in Ruby's `sort!` and Scheme's
 `set!`, it marks something that changes things. Rig spells negation
 `not`, so `!` never means "not". In every position the sigil touches
-what it marks: `?v`, `Int?`, `peek(?v)?`, `pop(!v)!`.
+what it marks: `?v`, `Int?`, `peek(?v)?`, `pop(!v)!`. A write call
+whose result is used goes in parentheses, `if (!set).insert(k)`, so
+its `!` never reads as "not"; one whose result is dropped is written
+`!set.insert(k)`.
 
 ```rig
 error Stack

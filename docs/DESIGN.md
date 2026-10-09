@@ -185,9 +185,9 @@ is, take a weak handle, negate it), so they keep the rule:
 `*Point.origin()` shares the new point. The exception comes with checks
 that keep it honest: a sigil before a method call must match the mode
 the method declares, so a `!` never stands before a method that only
-reads, where it would pass for negation, and a `!` call whose `Bool`
-value is used keeps its parentheses, `(!set).insert(k)`, so a leading
-`!` never reads as "not" ([SPEC §3](../SPEC.md#structs)).
+reads, where it would pass for negation, and a `!` call whose value is
+used keeps its parentheses, `(!set).insert(k)`, `x = (!v).pop()`, so a
+leading `!` never reads as "not" ([SPEC §3](../SPEC.md#structs)).
 
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,

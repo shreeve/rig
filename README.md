@@ -35,7 +35,9 @@ prints exactly the output shown under it.
 
 `!` means "act": write, or fail. As in Ruby's `sort!` and Scheme's
 `set!`, it marks something that changes things. Rig spells negation
-`not`, so `!` never means "not". Each sigil touches what it marks.
+`not`, so `!` never means "not". Each sigil touches what it marks. A
+write call whose result is used goes in parentheses, `if
+(!set).insert(k)`, so its `!` never reads as "not".
 
 ```rig
 error Stack

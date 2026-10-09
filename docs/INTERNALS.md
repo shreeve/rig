@@ -331,9 +331,8 @@ wrapper also makes the only rewrites that need to inspect the tree:
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
   a `<` before one that does not take `<self`, a `?` before one that
-  takes `!self` or `<self`, and a `!` call whose
-  value is a `Bool` where it starts a condition or an operand of
-  `and`, `or`, or `not`, written `(!set).insert(k)` there. A `for` source sigil
+  takes `!self` or `<self`, and a `!` call whose value is used,
+  written `(!set).insert(k)` there (`Checker.usesValue`). A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
 
 It also rejects a tree nested more than 1000 deep, since every later
@@ -1481,7 +1480,7 @@ ends with its statement; the loans of a moved value stay in force
 until the call or statement that consumes it ends, so a later argument
 of the same call cannot lend or move their roots, and so does a write
 loan any argument's value carries (a write view a method's result keeps
-of its receiver: `both(!b.firstw(), ?b)` is rejected). Likewise, an
+of its receiver: `both((!b).firstw(), ?b)` is rejected). Likewise, an
 argument that reads a place by value whose value shares storage the
 place owns (a Vec, a box, a handle, a struct holding one, or what a
 write view reaches: `print(v, grow(!v))`) leaves a read loan of the
