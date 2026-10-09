@@ -1,0 +1,9 @@
+struct H
+  w: !Text
+
+sub main()
+  x = Text("hello")
+  h = H(w: !x)
+  r = ?h.w[1..]
+  !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(r)

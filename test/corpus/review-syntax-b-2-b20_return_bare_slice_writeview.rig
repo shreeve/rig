@@ -1,0 +1,10 @@
+fun tail(w: !Text) -> String
+  !w.add("!")
+  w[1..]
+
+sub main()
+  t = Text("hello")
+  s = tail(!t)
+  print(s)
+  !t.add("x")
+  print(t)

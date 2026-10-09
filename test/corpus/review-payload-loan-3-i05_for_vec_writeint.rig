@@ -1,0 +1,13 @@
+sub show(v: ?Vec[!Int])
+  for x in v
+    print(x + 1)
+
+sub main()
+  a = 1
+  b = 2
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  !v.push(!b)
+  for x in v
+    print(x + 1)
+  show(?v)

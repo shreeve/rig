@@ -1,0 +1,13 @@
+enum E
+  a(s: String)
+  b
+
+sub main()
+  x = Text("hello")
+  e = E.a(?x)
+  match e
+    .a(s)
+      t = ?s[1..]
+      !x.add(" world, long enough to realloc")
+      print(t)
+    .b => pass

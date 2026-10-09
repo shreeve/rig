@@ -1,0 +1,283 @@
+# A lend of a `match !e` binding is a loan on the binding, which ends at
+# the last use of the view: the arm may read a view of the payload, and
+# write through the binding before the lend and after the view's last
+# use, for each kind of payload, subject, and lend. A read match's
+# binding, a write view by its type or not, is a read view, whose view
+# may leave the arm.
+# release
+# oracle: texts accept
+# oracle: vec accept
+# oracle: boxed accept
+# oracle: parts accept
+# oracle: whole accept
+# oracle: nested accept
+# oracle: param accept
+# oracle: subjects accept
+# oracle: slices accept
+# oracle: forms accept
+# oracle: whole_of accept
+# oracle: read_match accept
+
+use std.text
+
+enum E
+  a(t: Text)
+  b
+
+enum V
+  a(xs: Vec[Int])
+  b
+
+enum B
+  a(b: Box[Text])
+  b
+
+struct P
+  t: Text
+  xs: Vec[Int]
+
+  fun head(?self) -> String
+    ?self.t[..1]
+
+enum S
+  a(p: P)
+  b
+
+enum O
+  a(e: E)
+  b
+
+enum WS
+  a(s: ![]Text)
+  b
+
+enum WV
+  a(w: !Text)
+  b
+
+struct HE
+  e: E
+
+struct H
+  s: String
+
+fun keep(s: String) -> String
+  s
+
+sub texts()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      r = ?t[1..]
+      print(r)
+      !t.add("!")
+      s = keep(?t[1..])
+      print(s, ?t[..2])
+      !t.add("?")
+      u = ?t
+      print(u)
+    .b => pass
+  print(e)
+
+sub vec()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = V.a(<v)
+  match !e
+    .a(xs)
+      r = ?xs
+      print(r.len)
+      !xs.push(2)
+      s = ?xs[..]
+      print(s)
+      !xs.push(3)
+    .b => pass
+  print(e)
+
+sub boxed()
+  e = B.a(Box(Text("box")))
+  match !e
+    .a(b)
+      s = keep(?b[1..])
+      print(s)
+      b = Box(Text("new"))
+      print(?b[..1])
+    .b => pass
+  print(e)
+
+sub parts()
+  e = S.a(P(t: Text("part"), xs: Vec()))
+  match !e
+    .a(p)
+      s = ?p.t[1..]
+      print(s)
+      !p.t.add("s")
+      r = ?p.xs[..]
+      print(r)
+      !p.xs.push(4)
+      print(p.head(), p.t, p.xs)
+    .b => pass
+
+sub whole()
+  e = E.a(Text("whole"))
+  match !e
+    x
+      r = ?x
+      print(r)
+      x = E.b
+  print(e)
+
+sub nested()
+  e = O.a(E.a(Text("in")))
+  match !e
+    .a(i)
+      match !i
+        .a(t)
+          s = ?t[1..]
+          print(s)
+          !t.add("ner")
+        .b => pass
+      print(i)
+    .b => pass
+
+sub param(e: !E)
+  match !e
+    .a(t)
+      s = text.trim(?t)
+      print(s)
+      !t.add("+")
+    .b => pass
+
+sub subjects()
+  e = Box(E.a(Text("boxed")))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      print(s)
+      !t.add("!")
+    .b => pass
+  f = E.a(Text("held"))
+  w = !f
+  match !w
+    .a(t)
+      s = ?t[1..]
+      print(s)
+      !t.add("!")
+    .b => pass
+  h = HE(e: E.a(Text("field")))
+  match !h.e
+    .a(t)
+      s = ?t[1..]
+      print(s)
+      !t.add("!")
+    .b => pass
+  print(e, f, h.e)
+
+sub slices()
+  v: Vec[Text] = Vec()
+  !v.push(Text("slot"))
+  e = WS.a(!v[..])
+  match !e
+    .a(s)
+      r = ?s[0]
+      print(r)
+      s[0] = Text("other")
+    .b => pass
+  t = Text("view")
+  g = WV.a(!t)
+  match !g
+    .a(w)
+      s = ?w[1..]
+      print(s)
+      !w.add("!")
+    .b => pass
+  print(v, t)
+
+sub forms()
+  e = E.a(Text("k=v"))
+  match !e
+    .a(t)
+      f = |?t| t.len
+      print(f())
+      !t.add("1")
+      for c in ?t[..1]
+        print(c)
+      !t.add("2")
+      if text.cut(?t, "=") as kv
+        print(kv.after)
+      !t.add("3")
+      h = H(s: ?t[1..])
+      print(h.s)
+      !t.add("4")
+      o: String? = ?t
+      print(o)
+      !t.add("5")
+    .b => pass
+  print(e)
+
+fun whole_of(o: !E) -> ?E from o
+  match o
+    x => ?x
+
+sub read_match()
+  e = E.a(Text("read"))
+  r = whole_of(!e)
+  print(r)
+  t = Text("field")
+  g = WV.a(!t)
+  s = ""
+  match g
+    .a(w) => s = ?w[1..]
+    .b => pass
+  print(s)
+
+sub main()
+  texts()
+  vec()
+  boxed()
+  parts()
+  whole()
+  nested()
+  e = E.a(Text("  param  "))
+  param(!e)
+  print(e)
+  subjects()
+  slices()
+  forms()
+  read_match()
+
+# expect:
+# ello
+# ello! he
+# hello!?
+# .a(t: "hello!?")
+# 1
+# [1, 2]
+# .a(xs: [1, 2, 3])
+# ox
+# n
+# .a(b: "new")
+# art
+# []
+# p parts [4]
+# .a(t: "whole")
+# .b
+# n
+# .a(t: "inner")
+# param
+# .a(t: "  param  +")
+# oxed
+# eld
+# ield
+# .a(t: "boxed!") .a(t: "held!") .a(t: "field!")
+# slot
+# iew
+# ["other"] view!
+# 3
+# 107
+# v12
+# =v123
+# k=v1234
+# .a(t: "k=v12345")
+# .a(t: "read")
+# ield

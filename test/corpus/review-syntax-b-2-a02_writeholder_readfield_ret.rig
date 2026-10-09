@@ -1,0 +1,13 @@
+struct R
+  f: ?Text
+
+fun cut(r: !R) -> String
+  r.f[1..]
+
+sub main()
+  t = Text("hello")
+  r = R(f: ?t)
+  s = cut(!r)
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

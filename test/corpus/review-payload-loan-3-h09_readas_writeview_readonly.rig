@@ -1,0 +1,22 @@
+struct P
+  t: Text
+
+sub put(q: !P)
+  q.t = Text("other")
+
+fun show(q: ?P) -> Int
+  q.t.len
+
+sub f(o: ?((!P)?))
+  if o as x
+    r = ?x.t[1..]
+    print(r, x.t, show(?x))
+  while o as y
+    print(y.t)
+    break
+
+sub main()
+  p = P(t: Text("hello"))
+  o: (!P)? = !p
+  f(?o)
+  print(p.t)

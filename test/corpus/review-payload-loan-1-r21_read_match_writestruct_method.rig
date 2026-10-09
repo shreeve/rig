@@ -1,0 +1,17 @@
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+sub main()
+  p = P(t: Text("hello"))
+  e = WP.a(!p)
+  match e
+    .a(w)
+      r = ?w.t[1..]
+      for _ in 0..50
+        !w.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(r)
+    .b => pass

@@ -1,0 +1,18 @@
+struct Res
+  n: Int
+
+enum E
+  a(r: Res)
+  b
+
+struct H
+  w: !E
+
+sub f(h1: !H)
+  pass
+
+sub main()
+  e = E.a(r: Res(n: 1))
+  h1 = H(w: !e)
+  f(!h1)
+  print(h1.w)

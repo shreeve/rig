@@ -1,0 +1,14 @@
+enum WI
+  a(s: ![]Int)
+  b
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = WI.a(!v[..])
+  match e
+    .a(s)
+      r = ?s[0]
+      s[0] = 2
+      print(r)
+    .b => pass

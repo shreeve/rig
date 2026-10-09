@@ -1,0 +1,67 @@
+# A write view a `match` subject makes is lent on, as `if … as` lends one
+# on: a call's result, or a branch whose every leaf is a write lend, a
+# call's result, or a write view taken with `<w` (`sema.makesWriteView`),
+# through `if`, `??`, and `catch`, nested too. The bindings write
+# through it, as under `match !e`, and the lend keeps what it views lent
+# while they live.
+# release
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+error Bad
+  nope
+
+fun getw(e: !E) -> !E
+  e
+
+fun tryw(e: !E, ok: Bool) -> (!E)!
+  return Bad.nope if not ok
+  e
+
+fun optw(e: !E, ok: Bool) -> (!E)?
+  return none if not ok
+  e
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  match getw(!e)
+    .a(r) => r.n = 60
+    .b => pass
+  print(e)
+  f = E.a(r: Res(n: 2, t: Text("y")))
+  c = e == f
+  match (!e if c else !f)
+    .a(r)
+      r.n += 1
+      !r.t.add("!")
+    .b => pass
+  print(e, f)
+  g = E.a(r: Res(n: 3, t: Text("z")))
+  match (!e if c else (!f if c else !g))
+    .a(r) => r.n = 30
+    .b => pass
+  match tryw(!e, false) catch !f
+    .a(r) => r.n = 20
+    .b => pass
+  match optw(!e, true) ?? !f
+    .a(r) => r.n = 10
+    .b => pass
+  print(e, f, g)
+  wa = !f
+  wb = !g
+  match (<wa if c else <wb)
+    .a(r) => r.n = 40
+    .b => pass
+  print(f, g)
+
+# expect:
+# .a(r: Res(n: 60, t: "x"))
+# .a(r: Res(n: 60, t: "x")) .a(r: Res(n: 3, t: "y!"))
+# .a(r: Res(n: 10, t: "x")) .a(r: Res(n: 20, t: "y!")) .a(r: Res(n: 30, t: "z"))
+# .a(r: Res(n: 20, t: "y!")) .a(r: Res(n: 40, t: "z"))

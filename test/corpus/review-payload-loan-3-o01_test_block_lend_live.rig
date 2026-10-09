@@ -1,0 +1,15 @@
+enum E
+  a(t: Text)
+  z
+
+sub main()
+  pass
+
+test "lend"
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      !t.add(" and more and more and more text to realloc the buffer")
+      print(s)
+    .z => pass

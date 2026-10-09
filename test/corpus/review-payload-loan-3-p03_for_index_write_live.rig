@@ -1,0 +1,7 @@
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  for b, i in !v
+    s = ?b[1..]
+    !b.add(" and more and more and more text to realloc the buffer")
+    print(s, i)

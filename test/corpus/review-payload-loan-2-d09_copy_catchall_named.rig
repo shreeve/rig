@@ -1,0 +1,13 @@
+enum WI
+  a(w: !Int, n: Int)
+  b
+
+sub main()
+  x = 3
+  e = WI.a(w: !x, n: 4)
+  match e
+    .a(n: k, w: q) => print(q + k)
+    .b => pass
+  match e
+    .a(w: q) if q == 3 => print("three", q)
+    _ => print("other")

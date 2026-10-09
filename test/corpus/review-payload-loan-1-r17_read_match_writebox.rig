@@ -1,0 +1,13 @@
+enum WB
+  a(w: !Box[Text])
+  b
+
+sub main()
+  b = Box(Text("hello"))
+  e = WB.a(!b)
+  match e
+    .a(w)
+      r = ?w[1..]
+      w = Box(Text("other"))
+      print(r)
+    .b => pass

@@ -1,0 +1,10 @@
+struct Wrap[T]
+  x: T
+
+sub main()
+  t = Text("hello")
+  w = Wrap(x: ?t)
+  s = w.x[1..]
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

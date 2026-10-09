@@ -1,0 +1,94 @@
+# `if o as x` and `while o as x` of a `(!T)?` that the header reads,
+# where it stands or through a read view or handle, bind `x` as the read
+# view of what the write view views, as a read match binds a write view
+# field: `!P` as `?P`, `![]Int` as `[]Int`, and `!Int` as an Int copied
+# out. Such an `x` is read, passed where a read view goes, captured,
+# cloned, and put in an array, and `if !o as x` writes through it.
+# release
+
+struct P
+  t: Text
+  n: Int
+
+struct H
+  o: (!P)?
+
+fun show(q: ?P) -> Int
+  q.t.len
+
+fun total(a: []Int) -> Int
+  s = 0
+  for x in a
+    s += x
+  s
+
+sub params(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?))
+  if o as x
+    g = |?x| x.n
+    arr = [x]
+    print(g(), arr[0].n, show(x), ?x.t[1..])
+  if so as s
+    print(total(s), total(s[1..]), s.len)
+  if no as k
+    g = |?k| k == 5
+    h = |+k| k + 1
+    m: Int = k
+    arr = [k, k]
+    print(g(), h(), m, k + 1, arr[1])
+  while no as k
+    print(k * 2)
+    break
+  while o as x
+    print(x.t)
+    break
+
+sub field(h: ?H)
+  if h.o as x
+    g = |?x| x.n
+    print(g())
+
+sub main()
+  p = P(t: Text("hello"), n: 3)
+  o: (!P)? = !p
+  a = [1, 2, 3]
+  so: (![]Int)? = !a[..]
+  n = 5
+  no: (!Int)? = !n
+  params(?o, ?so, ?no)
+  if o as y
+    print(y.t, y.n)
+  while o as y
+    print(y.n)
+    break
+  q = P(t: Text("field"), n: 4)
+  h = H(o: !q)
+  if h.o as y
+    print(y.t)
+  field(?h)
+  r = P(t: Text("shared"), n: 6)
+  sh = *H(o: !r)
+  if sh.o as x
+    g = |?x| x.n
+    print(g())
+  tt = Text("abc")
+  to: (!Text)? = !tt
+  if to as t
+    print(t.len, ?t[1..])
+  if !o as w
+    w.n = 9
+    !w.t.add("!")
+  print(p.t, p.n)
+
+# expect:
+# 3 3 5 ello
+# 6 5 3
+# true 6 5 6 5
+# 10
+# hello
+# hello 3
+# 3
+# field
+# 4
+# 6
+# 3 bc
+# hello! 9

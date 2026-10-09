@@ -1,0 +1,14 @@
+enum WS
+  a(s: ![]Text)
+  b
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  e = WS.a(!v[..])
+  match e
+    .a(s)
+      r = ?s[0][1..]
+      !s[0].clear()
+      print(r)
+    .b => pass

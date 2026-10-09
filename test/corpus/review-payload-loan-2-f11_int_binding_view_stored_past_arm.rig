@@ -1,0 +1,12 @@
+enum WI
+  a(w: !Int)
+  b
+
+sub main()
+  x = 3
+  d = 0
+  e = WI.a(!x)
+  r = match e
+    .a(w) => ?w
+    .b => ?d
+  print(r)

@@ -1,0 +1,16 @@
+enum WT
+  a(w: !Text)
+  b
+
+fun peek(e: ?WT, d: ?Text) -> String from e, d
+  match e
+    .a(w) => ?w[1..]
+    .b => ?d[..]
+
+sub main()
+  x = Text("hello")
+  d = Text("d")
+  e = WT.a(!x)
+  r = peek(?e, ?d)
+  !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(r)

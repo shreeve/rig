@@ -1,0 +1,29 @@
+struct P
+  t: Text
+  n: Int
+
+fun show(q: ?P) -> Int
+  q.t.len
+
+fun total(a: []Int) -> Int
+  s = 0
+  for x in a
+    s += x
+  s
+
+sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?))
+  if o as x
+    print(x.t, x.n, x.n + 1)
+  if so as s
+    print(s[0], s.len)
+  if no as k
+    print(k)
+
+sub main()
+  p = P(t: Text("hello"), n: 3)
+  o: (!P)? = !p
+  a = [1, 2, 3]
+  so: (![]Int)? = !a[..]
+  n = 5
+  no: (!Int)? = !n
+  f(?o, ?so, ?no)

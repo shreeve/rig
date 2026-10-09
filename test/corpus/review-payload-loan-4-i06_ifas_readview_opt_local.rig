@@ -1,0 +1,8 @@
+struct P
+  n: Int
+
+sub main()
+  p = P(n: 3)
+  ov: (?P)? = ?p
+  if ov as y
+    print(y.n)

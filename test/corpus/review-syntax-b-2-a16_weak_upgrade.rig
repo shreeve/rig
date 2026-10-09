@@ -1,0 +1,8 @@
+sub main()
+  a = *Text("hello")
+  w = ~a
+  s = ""
+  if w.upgrade() as h
+    s = h[1..]
+  <a
+  print(s)

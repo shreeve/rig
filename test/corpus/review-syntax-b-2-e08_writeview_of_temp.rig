@@ -1,0 +1,12 @@
+fun keep(s: String) -> String
+  s
+
+fun mk() -> Text
+  Text("hello")
+
+fun wid(w: !Text) -> !Text
+  w
+
+sub main()
+  s = keep(wid(!mk())[1..])
+  print(s)

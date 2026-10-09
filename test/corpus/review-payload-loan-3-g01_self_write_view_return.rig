@@ -1,0 +1,19 @@
+struct S
+  t: Text
+  n: Int
+
+  fun tail(!self) -> String
+    self.n += 1
+    ?self.t[1..]
+
+  fun peek(?self) -> String
+    ?self.t[1..]
+
+  sub hold(!self)
+    r = ?self.t[1..]
+    self.t = Text("other")
+    print(r)
+
+sub main()
+  s = S(t: Text("hello"), n: 0)
+  print((!s).tail(), s.peek())

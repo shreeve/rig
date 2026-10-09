@@ -1,0 +1,14 @@
+enum G[T]
+  a(x: T)
+  b
+
+fun peek[T](g: ?G[T]) -> Int
+  match g
+    .a(x)
+      f = |?x| 1
+      f()
+    .b => 0
+
+sub main()
+  g2: G[Int] = G.a(4)
+  print(peek(?g2))

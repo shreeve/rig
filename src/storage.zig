@@ -717,8 +717,9 @@ pub fn fieldIsPointee(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
-/// Whether payload binding `b` points at the field it binds: a write
-/// binds a pointer to each field, and a read binds one to a field it
+/// Whether payload binding `b` points at the field it binds: a binding
+/// a write goes through (`SemContext.bindingAccess`, `match !e`) binds a
+/// pointer to each field, and a read binds one to a field it
 /// views (`?F` of a field that is no view), and to a field of a type
 /// parameter's value (`sema.copies` is `depends`) that the match reads
 /// where its subject is (`in_place`, `matchesInPlace`): what each
@@ -727,7 +728,9 @@ pub fn fieldIsPointee(ctx: *const SemContext, ty: TypeId) bool {
 /// type and its field's (`SemContext.payloadFieldOf`) are typecheck's:
 /// the field's type at the matched instance, so `v` of `Opt[?T]`'s
 /// `v: T` is the view the field holds.
-fn payloadByAddress(ctx: *const SemContext, b: Sexp, writes: bool, in_place: bool) bool {
+fn payloadByAddress(ctx: *const SemContext, b: Sexp, in_place: bool) bool {
+    const sym = ctx.symbolOf(b) orelse return false;
+    const writes = ctx.bindingAccess(sym) == .write;
     const field = ctx.payloadFieldOf(b) orelse return writes;
     if (!fieldIsPointee(ctx, field)) return false;
     if (writes) return true;
@@ -823,7 +826,7 @@ pub fn bindsByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
 }
 
 fn decidePayloadByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
-    return payloadByAddress(ctx, b, matchMode(ctx, match) == .write, matchesInPlace(ctx, match));
+    return payloadByAddress(ctx, b, matchesInPlace(ctx, match));
 }
 
 /// Whether the catch-all binding `pattern` of a read `match` is captured by

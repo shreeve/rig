@@ -2578,16 +2578,40 @@ pub const Checker = struct {
         return true;
     }
 
-    /// The loans of a view of (a path inside) var `id`. Lending
-    /// through a read view copies that view; lending an owned value
-    /// or through a write view lends the var itself.
+    /// The loans of a view of (a path inside) var `id`, by what the var
+    /// is (`lendTarget`).
     fn lendOn(self: *Checker, id: VarId, loan: Loan) Error!Value {
-        const v = self.vars.items[id];
         const held = self.flows.items[id].loans;
-        if (v.ref == .read or v.payload_view) return .{ .loans = held };
-        const one = try self.oneLoan(loan);
-        if (v.ref == .write) return .{ .loans = try self.unionLoans(one, held) };
-        return .{ .loans = one };
+        return switch (self.lendTarget(self.vars.items[id])) {
+            .write_view => .{ .loans = try self.unionLoans(try self.oneLoan(loan), held) },
+            .read_view => .{ .loans = held },
+            .owner => .{ .loans = try self.oneLoan(loan) },
+        };
+    }
+
+    const LendTarget = enum {
+        /// A loan on the var.
+        owner,
+        /// A loan on the var, so nothing writes through it while the view
+        /// lives, and the loans it holds.
+        write_view,
+        /// The loans it holds, as a copy of the view carries.
+        read_view,
+    };
+
+    /// What a lend of var `v` puts a loan on, from the binding's access
+    /// (`SemContext.bindingAccess`, docs/INTERNALS.md "Binding access"):
+    /// a binding a write may go through is a write view, one no write goes
+    /// through a read view, and any other var (one that owns or copies its
+    /// value, or a value no binding names) an owner.
+    fn lendTarget(self: *const Checker, v: Var) LendTarget {
+        const ctx = self.sema orelse return .owner;
+        const sym = v.sym orelse return .owner;
+        const access = ctx.bindingAccess(sym) orelse return .owner;
+        return switch (access) {
+            .write => .write_view,
+            .read => .read_view,
+        };
     }
 
     const MoveVerb = enum {

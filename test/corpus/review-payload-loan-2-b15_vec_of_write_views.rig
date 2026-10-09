@@ -1,0 +1,18 @@
+struct P
+  t: Text
+
+enum E
+  a(v: Vec[!P])
+  b
+
+sub main()
+  p = P(t: Text("hello"))
+  xs: Vec[!P] = Vec()
+  !xs.push(!p)
+  e = E.a(<xs)
+  match e
+    .a(v)
+      r = ?v[0].t[1..]
+      v[0].t = Text("other")
+      print(r)
+    .b => pass

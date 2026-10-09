@@ -1,0 +1,19 @@
+enum WI
+  a(w: !Int)
+  b
+
+struct Box2
+  v: ?Int
+
+sub main()
+  x = 3
+  e = WI.a(!x)
+  match e
+    .a(w)
+      g = |+w| print(w + 1)
+      g()
+      b = Box2(v: ?w)
+      print(b.v)
+      n: Int = w
+      print(n)
+    .b => pass

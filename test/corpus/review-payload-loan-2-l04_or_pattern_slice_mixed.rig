@@ -1,0 +1,16 @@
+enum WS
+  a(s: ![]Int)
+  c(s: []Int)
+  b
+
+sub main()
+  v = [1, 2]
+  u = [7, 8]
+  e = WS.a(!v[..])
+  f = WS.c(u[..])
+  match e
+    .a(s), .c(s) => print(s)
+    .b => pass
+  match f
+    .a(s), .c(s) => print(s)
+    .b => pass

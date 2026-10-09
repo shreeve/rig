@@ -1,0 +1,16 @@
+enum E
+  a(t: Text)
+  z
+
+sub main()
+  e = E.a(Text("hello"))
+  s = while true
+    match !e
+      .a(t)
+        r = ?t[1..]
+        break r
+      .z => break "z"
+  else
+    "none"
+  e = E.z
+  print(s)

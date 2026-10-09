@@ -1,0 +1,22 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun getw(e: !E) -> !E
+  e
+
+fun g(o: ?((!E)?)) -> Int?
+  match o?
+    .a(r) => r.n = 99
+    .b => pass
+  1
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  o: (!E)? = !e
+  _ = g(?o)
+  print(e)

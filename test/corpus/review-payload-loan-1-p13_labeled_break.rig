@@ -1,0 +1,19 @@
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  s = ""
+  :out while true
+    match !e
+      .a(t)
+        s = ?t[1..]
+        break :out
+      .b => pass
+  match !e
+    .a(t)
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    .b => pass
+  print(s)

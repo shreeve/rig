@@ -1,0 +1,12 @@
+struct P
+  t: Text
+  xs: Vec[Int]
+
+sub f(p: !P)
+  s = ?p.t[1..]
+  !p.xs.push(1)
+  print(s, p.xs.len)
+
+sub main()
+  p = P(t: Text("hello"), xs: Vec())
+  f(!p)

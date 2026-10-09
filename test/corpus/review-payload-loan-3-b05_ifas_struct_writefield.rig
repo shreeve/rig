@@ -1,0 +1,13 @@
+struct P
+  t: Text
+
+struct H
+  w: !P
+
+sub main()
+  p = P(t: Text("hello"))
+  o: H? = H(w: !p)
+  if o as h
+    r = ?h.w.t[1..]
+    h.w.t = Text("other")
+    print(r)

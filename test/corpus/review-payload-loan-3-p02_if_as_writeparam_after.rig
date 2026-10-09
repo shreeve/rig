@@ -1,0 +1,11 @@
+sub f(o: !(Text?))
+  if !o as b
+    s = ?b[1..]
+    print(s)
+    !b.add("!")
+    print(b)
+
+sub main()
+  y: Text? = Text("hello")
+  f(!y)
+  print(y ?? Text("none"))

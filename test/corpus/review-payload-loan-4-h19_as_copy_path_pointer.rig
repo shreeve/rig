@@ -1,0 +1,25 @@
+struct P
+  n: Int
+  t: Text
+
+sub f(a: ?((!P)?), b: ?((!P)?), sa: ?((![]Int)?), sb: ?((![]Int)?), c: Bool)
+  if (a if c else b) as x
+    g = |?x| x.n
+    print(x.n, x.t, g(), [x][0].n)
+  while (a if c else b) as x
+    print(x.t.len)
+    break
+  if (sa if c else sb) as s
+    g = |?s| s.len
+    print(s[0], g(), [s][0][1])
+
+sub main()
+  p = P(n: 4, t: Text("pp"))
+  q = P(n: 5, t: Text("qq"))
+  o1: (!P)? = !p
+  o2: (!P)? = !q
+  arr = [1, 2]
+  brr = [3, 4]
+  s1: (![]Int)? = !arr[..]
+  s2: (![]Int)? = !brr[..]
+  f(?o1, ?o2, ?s1, ?s2, false)

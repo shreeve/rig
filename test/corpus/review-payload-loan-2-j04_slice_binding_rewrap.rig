@@ -1,0 +1,15 @@
+enum WS
+  a(s: ![]Int)
+  b
+
+sub main()
+  v = [1, 2, 3]
+  e = WS.a(!v[..])
+  match e
+    .a(s)
+      f = WS.a(s)
+      match !f
+        .a(t) => t[0] = 9
+        .b => pass
+    .b => pass
+  print(v)

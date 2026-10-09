@@ -1,0 +1,15 @@
+enum Opt[T]
+  some(v: T)
+  none
+
+sub f[T](o: !Opt[T], x: T)
+  match !o
+    .some(v)
+      s = ?v
+      v = <x
+      print(s)
+    .none => pass
+
+sub main()
+  o = Opt.some(Text("hello"))
+  f(!o, Text("other"))

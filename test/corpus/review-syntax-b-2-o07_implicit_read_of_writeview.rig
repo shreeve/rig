@@ -1,0 +1,12 @@
+fun cut(r: ?Text) -> String
+  r[1..]
+
+sub f(w: !Text)
+  s = cut(w)
+  for _ in 0..50
+    !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub main()
+  t = Text("hello")
+  f(!t)

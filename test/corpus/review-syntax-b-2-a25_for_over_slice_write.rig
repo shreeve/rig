@@ -1,0 +1,9 @@
+sub f(w: !Text)
+  for b in w[1..]
+    if b == 101
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(b)
+
+sub main()
+  t = Text("hello")
+  f(!t)

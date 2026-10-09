@@ -1,0 +1,9 @@
+sub f(w: !Text)
+  s = ?w[1..]
+  defer print(s)
+  for _ in 0..50
+    !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+sub main()
+  t = Text("hello")
+  f(!t)

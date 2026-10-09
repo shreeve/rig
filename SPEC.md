@@ -2789,8 +2789,8 @@ A bare `match e` of a place only reads it, so moving a payload out of
 it is rejected; that takes `match <e`. So does a match of a view a call
 returns, of a branching value, or of a field or element of either. A call's result is taken, as
 `match <e` would take it ([§7](#temporaries)): `match make()` owns its
-payloads. Its bindings only read, too, even of a
-field or value that is itself a write view. A binding of `match <e`
+payloads, and a write view one holds is the match's own, which its
+binding writes through. A binding of `match <e`
 owns what it binds: a resource it holds may be written and lent for
 writing. A `Bool` is not matched with `!`: `match !flag` reads as
 negation and is rejected, as `!flag` is anywhere a `!Bool` is not
@@ -2799,8 +2799,25 @@ written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a view. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
 or `match !b` ([§10](#box)), and so is the value a handle holds,
-`match h`, which reads it. A read binding that is not plain data is a
-view (`?F`) of the field where it is, so it carries the subject's loan:
+`match h`, which reads it. A write view the subject makes, a call's
+result (`match get(!h)`) or a branch whose every leaf is a write lend,
+a call's result, or a write view taken with `<w`
+(`match (!a if c else !b)`, `match optw(!e) ?? !d`), is
+lent on, as `if … as` lends one on: its bindings write, as under
+`match !e`. A branch that reads a place holding a write view
+(`match (a if c else b)` of `!E` names, `match o?` of a `(!E)?`) would
+copy the write view out of it, and is rejected, for `match` and
+`if … as` alike: lend each leaf (`!a`), or match the place where it
+stands. Any other read match never writes
+through its bindings: whatever its subject (a place, a lend, a read
+view a call returns, or a part of a value made in the header), it binds
+a field that is itself a write view as the read view of what it views
+(`!T` as `?T`, `![]T` as `[]T`), as `if o as x` does, so nothing is
+written through it, whole or by a path. Write `match !e` to write
+through it; for a part of a value made in the header, bind that value
+to a name first (`h = mk(!p)`, then `match !h.e`). A read
+binding that is not plain data is a view (`?F`) of the field where it
+is, so it carries the subject's loan:
 a view of it may be returned, stored past the arm, or given as the
 match's value, for as long as the subject may be viewed. The subject may
 not change, move, or end while such a view is used; to keep what a

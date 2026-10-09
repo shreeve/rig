@@ -1,0 +1,15 @@
+enum WI
+  a(w: !Int)
+  b
+
+sub main()
+  x = 1
+  e = WI.a(!x)
+  match e
+    .a(w)
+      f = WI.a(w)
+      match !f
+        .a(t) => t = 9
+        .b => pass
+    .b => pass
+  print(x)

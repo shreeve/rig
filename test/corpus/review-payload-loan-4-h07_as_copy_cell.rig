@@ -1,0 +1,10 @@
+struct C
+  c: Cell[Int]
+
+sub main()
+  x = C(c: Cell(1))
+  o: (!C)? = !x
+  if o as k
+    k.c.set(5)
+    print(k.c.get())
+  print(x.c.get())

@@ -1,0 +1,11 @@
+struct S
+  t: Text
+
+sub main()
+  p = *S(t: Text("hello"))
+  q = +p
+  r = ?p.t
+  s = r[1..]
+  <q
+  <p
+  print(s)

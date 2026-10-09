@@ -1,0 +1,15 @@
+enum WI
+  a(w: !Int)
+  b
+
+fun get(e: !WI, d: ?Int) -> ?Int from e, d
+  match e
+    .a(w) => w
+    .b => d
+
+sub main()
+  x = 3
+  d = 0
+  e = WI.a(!x)
+  r = get(!e, ?d)
+  print(r)

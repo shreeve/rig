@@ -1,0 +1,7 @@
+sub main()
+  o: Text? = Text("hello")
+  if !o as t
+    defer !t.add("x")
+    s = ?t[1..]
+    print(s)
+  print(o ?? Text("none"))

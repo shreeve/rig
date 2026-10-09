@@ -1,0 +1,19 @@
+struct Res
+  n: Int
+  v: Vec[Int]
+
+fun mkr(n: Int) -> Res?
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  Res(n: n, v: <v)
+
+sub f(a: !(Res?), b: !(Res?), c: Bool)
+  if (a if c else b) as r
+    !r.v.push(7)
+  print(a, b)
+
+sub main()
+  e = mkr(1)
+  d = mkr(2)
+  f(!e, !d, true)
+  print(e)

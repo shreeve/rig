@@ -1,0 +1,11 @@
+struct S
+  b: Box[Text]
+
+sub f(w: !S)
+  s = w.b[1..]
+  w.b = Box(Text("other"))
+  print(s)
+
+sub main()
+  x = S(b: Box(Text("hello")))
+  f(!x)

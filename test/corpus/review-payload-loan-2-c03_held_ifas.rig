@@ -1,0 +1,15 @@
+struct P
+  t: Text
+
+struct H
+  o: (!P)?
+
+fun mk(p: !P) -> H from p
+  H(o: !p)
+
+sub main()
+  p = P(t: Text("hello"))
+  if mk(!p).o as w
+    r = ?w.t[1..]
+    w.t = Text("other")
+    print(r)

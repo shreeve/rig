@@ -1,0 +1,13 @@
+enum E
+  a(t: Text?)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  match !e
+    .a(o)
+      if o as u
+        s = ?u[1..]
+        o = none
+        print(s)
+    .b => pass

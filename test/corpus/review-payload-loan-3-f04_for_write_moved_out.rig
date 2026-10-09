@@ -1,0 +1,10 @@
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  d = Text("dflt")
+  r = for t in !v
+    break t
+  else
+    !d
+  !v.clear()
+  print(r)

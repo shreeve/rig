@@ -1,0 +1,29 @@
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+struct H
+  o: (!E)?
+
+sub f(h1: ?H, h2: ?H, c: Bool)
+  if (h1.o if c else h2.o) as x
+    match !x
+      .a(r) => r.n = 77
+      .b => pass
+
+sub main()
+  e = mk(1)
+  d = mk(2)
+  h1 = H(o: !e)
+  h2 = H(o: !d)
+  f(?h1, ?h2, true)
+  print(h1.o)

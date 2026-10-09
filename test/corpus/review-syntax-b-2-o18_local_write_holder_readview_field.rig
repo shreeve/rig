@@ -1,0 +1,11 @@
+struct R
+  f: ?Text
+
+sub main()
+  t = Text("hello")
+  u = Text("other")
+  r = R(f: ?t)
+  w = !r
+  s = w.f[1..]
+  w.f = ?u
+  print(s)

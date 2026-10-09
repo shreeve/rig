@@ -1,0 +1,11 @@
+fun keep(s: String) -> String
+  s
+
+sub f(a: !Text, b: !Text, c: Bool)
+  s = keep(?(a if c else b)[1..])
+  print(s)
+
+sub main()
+  x = Text("hello")
+  y = Text("world")
+  f(!x, !y, true)

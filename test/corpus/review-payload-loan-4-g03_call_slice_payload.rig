@@ -1,0 +1,17 @@
+enum F
+  a(s: ![]Int)
+  b
+
+fun getf(f: !F) -> !F
+  f
+
+sub main()
+  arr = [1, 2, 3]
+  f = F.a(!arr[..])
+  match getf(!f)
+    .a(s)
+      s[1] = 20
+    .b => pass
+  match f
+    .a(s) => print(s[1])
+    .b => pass

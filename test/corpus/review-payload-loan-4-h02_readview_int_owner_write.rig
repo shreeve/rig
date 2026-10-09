@@ -1,0 +1,5 @@
+sub main()
+  p = 5
+  x = ?p
+  p = 9
+  print(x)

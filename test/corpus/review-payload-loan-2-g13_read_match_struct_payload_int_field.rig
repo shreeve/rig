@@ -1,0 +1,16 @@
+struct P
+  n: Int
+
+enum WP
+  a(w: !P)
+  b
+
+sub main()
+  p = P(n: 1)
+  d = 0
+  e = WP.a(!p)
+  r = match e
+    .a(w) => ?w.n
+    .b => ?d
+  p.n = 5
+  print(r)

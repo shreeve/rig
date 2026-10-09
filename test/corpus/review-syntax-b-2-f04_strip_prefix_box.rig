@@ -1,0 +1,10 @@
+use std.text
+
+sub f(w: !Box[Text])
+  s = text.strip_prefix(w[0..], "he")
+  w = Box(Text("x"))
+  print(s)
+
+sub main()
+  t = Box(Text("hello"))
+  f(!t)

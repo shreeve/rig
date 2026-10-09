@@ -1,0 +1,36 @@
+struct P
+  n: Int
+  t: Text
+
+enum E
+  a(w: !P)
+  r(q: ?P)
+  b
+
+fun getw(e: !E) -> !E
+  e
+
+sub main()
+  p = P(n: 1, t: Text("x"))
+  e = E.a(!p)
+  f = |!e| match getw(!e)
+    .a(w)
+      w.n += 1
+      w.n
+    _ => 0
+  print(f())
+  print(f())
+  q = P(n: 7, t: Text("y"))
+  r = E.r(?q)
+  g = |?r| match r
+    .r(z) => z.n
+    _ => 0
+  print(g())
+  o: (!Int)? = none
+  k = 3
+  o = !k
+  h = |?o|
+    if o as x
+      return x + 1
+    0
+  print(h())

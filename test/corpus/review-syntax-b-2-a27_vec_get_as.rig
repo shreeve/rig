@@ -1,0 +1,8 @@
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  s = ""
+  if v.get(0) as r
+    s = r[1..]
+  !v.clear()
+  print(s)

@@ -1,0 +1,27 @@
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+fun pick(a: !E, b: !E, c: Bool) -> !E
+  return a if c else b
+
+sub main()
+  e = mk(1)
+  d = mk(2)
+  match pick(!e, !d, false)
+    .a(r)
+      match pick(!e, !d, true)
+        .a(r2) => !r2.v.push(3)
+        .b => pass
+      !r.v.push(7)
+    .b => pass
+  print(e, d)

@@ -1,0 +1,16 @@
+struct P
+  t: Text
+
+sub put(q: !P)
+  q.t = Text("other")
+
+sub f(o: ?((!P)?))
+  if o as x
+    r = ?x.t[1..]
+    x.t = Text("other")
+    print(r)
+
+sub main()
+  p = P(t: Text("hello"))
+  o: (!P)? = !p
+  f(?o)

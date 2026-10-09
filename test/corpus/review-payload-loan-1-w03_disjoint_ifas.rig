@@ -1,0 +1,10 @@
+struct P
+  t: Text
+  xs: Vec[Int]
+
+sub main()
+  o: P? = P(t: Text("hello"), xs: Vec())
+  if !o as p
+    s = ?p.t[1..]
+    !p.xs.push(1)
+    print(s, p.xs.len)

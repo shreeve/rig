@@ -1,0 +1,13 @@
+fun keep(s: String) -> String
+  s
+
+sub f(w: !Text?)
+  s = ""
+  if !w as r
+    !r.add("!")
+    s = keep(r[1..])
+  print(s)
+
+sub main()
+  o: Text? = Text("hello")
+  f(!o)

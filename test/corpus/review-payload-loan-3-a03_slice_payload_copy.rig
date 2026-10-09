@@ -1,0 +1,15 @@
+enum E
+  a(s: []Int)
+  b
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  e = E.a(?v[..])
+  match e
+    .a(s)
+      t = s
+      !v.push(3)
+      print(t)
+    .b => pass

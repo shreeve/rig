@@ -1,0 +1,13 @@
+enum Opt[T]
+  some(v: T)
+  none
+
+sub main()
+  o: Opt[Text] = Opt.some(Text("hello"))
+  match !o
+    .some(v)
+      s = ?v[1..]
+      for _ in 0..50
+        !v.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .none => pass

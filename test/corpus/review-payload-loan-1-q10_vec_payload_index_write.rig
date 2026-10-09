@@ -1,0 +1,14 @@
+enum V
+  a(xs: Vec[Text])
+  b
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  e = V.a(<v)
+  match !e
+    .a(xs)
+      s = ?xs[0][1..]
+      xs[0] = Text("other")
+      print(s)
+    .b => pass

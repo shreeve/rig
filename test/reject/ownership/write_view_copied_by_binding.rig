@@ -1,6 +1,8 @@
-# A match or loop binding copies what it binds. A copy of a write view
-# is a second writer, so it is refused where the matched value is only
-# read, and a loop walks such elements with `for x in !xs`.
+# A read match binds a write view a payload holds as a read view of what
+# it views, so nothing writes through it: passing it where a write view
+# goes names `match !x`. A loop binding copies what it binds, and a copy
+# of a write view would be a second writer, so a loop walks such
+# elements with `for x in !xs`.
 
 struct Holder
   v: Vec[Int]
@@ -27,5 +29,5 @@ sub main()
   for e in arr
     reset(e.t)
 
-# error: 20:8: cannot bind `t`: it holds a write view
-# error: 27:12: each element holds a write view, which a loop binding would copy
+# error: 22:20: type mismatch: expected `!Holder`, got `?Holder`; `t` is a read view of a field of `x`, which is reached through a read view, so nothing writes through it
+# error: 29:12: each element holds a write view, which a loop binding would copy

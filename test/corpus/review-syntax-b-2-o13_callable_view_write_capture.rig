@@ -1,0 +1,11 @@
+sub f(r: ?Text, g: ?sub())
+  s = r[1..]
+  g()
+  print(s)
+
+sub main()
+  t = Text("hello")
+  g = |!t|
+    for _ in 0..50
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  f(?t, g)

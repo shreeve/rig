@@ -237,7 +237,23 @@ store, and a result. And it uses a view of a read `match` payload in
 its arm, or returns or stores it, for each kind of type reached through
 each kind of subject, runs other code on the stack before reading it,
 and checks that a program that runs prints what the payload holds,
-since the sanitizer cannot see a stale stack slot. A `while` step
+since the sanitizer cannot see a stale stack slot. It lends a binding
+that is a write view (a `match !e` payload of every subject, named,
+guarded, nested, and of a write view a call returns or a branch of
+write lends; `if !o as b` and `while !o as b`; `for b in !v`, with an
+index and over an array; a `!T` parameter; a `|!b|` capture; a held
+`b = !x`; a field of a write view; a `defer` in the arm) of a Text, a
+Vec, a `Box[Text]`, or a struct holding a Vec, whole, sliced, or to a
+call or `?self` method, then writes through the binding while the view
+is live, or after its last use; a program that runs must print what the
+view showed before the write. A read binding of a write view (a read
+match's of every subject, a part of a value made in the header
+included, and `if o as b` and `while o as b` of a `(!T)?`) is written
+the same way, and so is a match of a branch that reads a place holding a
+write view (fields through a read view or handle, bare write views, a
+call beside a field, `??` of an optional write view), through the
+binding or through the place; every such program must be rejected
+(`lendw.`). A `while` step
 reads what its condition binds, a view or a struct holding one, while
 the body grows what it views on each way to the step (the body's end,
 `continue`, `continue :outer` from a nested `for`, `while`, or

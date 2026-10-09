@@ -1,0 +1,18 @@
+enum WI
+  a(w: !Int)
+  b
+
+struct H
+  e: WI
+
+fun mk(x: !Int) -> H from x
+  H(e: WI.a(!x))
+
+sub main()
+  x = 1
+  match mk(!x).e
+    .a(w)
+      r = ?w
+      w = 5
+      print(r)
+    .b => pass

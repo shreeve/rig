@@ -1,0 +1,8 @@
+sub main()
+  t = Text("hi")
+  o: (!Text)? = !t
+  if o as k
+    print(k)
+    if !o as w
+      !w.add(" there")
+    print(k)

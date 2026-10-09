@@ -1,0 +1,13 @@
+enum WI
+  a(w: !Int)
+  b
+
+sub main()
+  x = 1
+  e = WI.a(!x)
+  match e
+    .a(w)
+      g = |?w| print(w)
+      x = 5
+      g()
+    .b => pass

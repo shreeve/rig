@@ -1,0 +1,26 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+struct H
+  w: (!E)?
+
+fun f(h: ?H) -> Int?
+  match h.w?
+    .a(r0)
+      s = ?r0.t[..]
+      match h.w?
+        .a(r) => !r.t.add("a much longer piece of text that forces the buffer to grow")
+        .b => pass
+      print(s)
+    .b => pass
+  1
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  h = H(w: !e)
+  _ = f(?h)

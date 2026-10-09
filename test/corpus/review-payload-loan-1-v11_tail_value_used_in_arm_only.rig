@@ -1,0 +1,17 @@
+enum E
+  a(t: Text)
+  b
+
+fun keep(s: String) -> String
+  s
+
+sub main()
+  e = E.a(Text("hello"))
+  n = match !e
+    .a(t)
+      s = keep(?t[1..])
+      k = s.len
+      !t.add("!")
+      k
+    .b => 0
+  print(n, e)

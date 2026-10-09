@@ -1,0 +1,13 @@
+struct C
+  c: Cell[Int]
+
+sub f(o: ?((!C)?))
+  if o as k
+    k.c.set(5)
+    print(k.c.get())
+
+sub main()
+  x = C(c: Cell(1))
+  o: (!C)? = !x
+  f(?o)
+  print(x.c.get())

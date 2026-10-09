@@ -1,0 +1,15 @@
+enum E
+  a(t: Text)
+  z
+
+  sub grow(!self)
+    match !self
+      .a(t)
+        s = ?t[1..]
+        !t.add(" and more and more and more text to realloc the buffer")
+        print(s)
+      .z => pass
+
+sub main()
+  e = E.a(Text("hello"))
+  !e.grow()

@@ -1,0 +1,16 @@
+struct P
+  t: Text
+  n: Int
+
+fun show(q: ?P) -> Int
+  q.t.len
+
+sub main()
+  p = P(t: Text("hello"), n: 3)
+  o: (!P)? = !p
+  if o as x
+    print(show(x))
+  n = 5
+  no: (!Int)? = !n
+  if no as k
+    print(k + 1)

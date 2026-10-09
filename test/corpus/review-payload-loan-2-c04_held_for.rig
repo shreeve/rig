@@ -1,0 +1,17 @@
+struct P
+  t: Text
+
+struct H
+  ws: Vec[!P]
+
+fun mk(p: !P) -> H from p
+  v: Vec[!P] = Vec()
+  !v.push(!p)
+  H(ws: <v)
+
+sub main()
+  p = P(t: Text("hello"))
+  for w in mk(!p).ws
+    r = ?w.t[1..]
+    w.t = Text("other")
+    print(r)

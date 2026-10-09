@@ -1,0 +1,17 @@
+struct H
+  w: !Text
+
+enum E
+  a(h: H)
+  b
+
+sub main()
+  t = Text("hello")
+  e = E.a(H(w: !t))
+  match !e
+    .a(h)
+      s = ?h.w[1..]
+      for _ in 0..50
+        !h.w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass

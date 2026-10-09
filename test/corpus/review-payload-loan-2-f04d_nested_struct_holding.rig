@@ -1,0 +1,17 @@
+struct Q
+  t: Text
+
+struct H
+  q: !Q
+
+enum Out
+  a(h: !H)
+  z
+
+sub main()
+  q = Q(t: Text("hi"))
+  h = H(q: !q)
+  o = Out.a(!h)
+  match o
+    .a(w) => print(w.q.t)
+    .z => pass

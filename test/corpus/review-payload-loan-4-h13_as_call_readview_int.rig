@@ -1,0 +1,15 @@
+fun pick(a: ?((!Int)?)) -> ?((!Int)?)
+  a
+
+sub f(a: ?((!Int)?))
+  if pick(a) as k
+    g = |?k| k + 1
+    print(k, g(), [k])
+  while pick(a) as k
+    print(k + 2)
+    break
+
+sub main()
+  p = 5
+  o1: (!Int)? = !p
+  f(?o1)
