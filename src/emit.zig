@@ -4333,10 +4333,20 @@ pub const Emitter = struct {
         // A value that branches is indexed where the leaf it takes is.
         if (try self.reachesLeaf(base)) return self.emitMemberBase(base, base_ty);
         switch (how) {
-            .expr => try self.emitExpr(base),
+            .expr => try self.emitBaseExpr(base),
             .bare => try self.emitBare(base),
             .address => try self.emitAddressOf(base),
         }
+    }
+
+    /// `base` where a postfix follows it: a value that branches, moved
+    /// (`<(a if c else b)`), is emitted as Zig's `if`, which a postfix
+    /// would not reach whole, so it is parenthesized.
+    fn emitBaseExpr(self: *Emitter, base: Sexp) Error!void {
+        const parens = movesBranch(base);
+        if (parens) try self.w.writeAll("(");
+        try self.emitExpr(base);
+        if (parens) try self.w.writeAll(")");
     }
 
     /// `xs[a..b]` → `rig.slice(items, a, b)`, which checks the bounds;
@@ -4351,10 +4361,10 @@ pub const Emitter = struct {
         const saved_rt = self.rt_names;
         self.rt_names = false;
         if (self.isVecTy(ty)) {
-            try self.emitExpr(base);
+            try self.emitBaseExpr(base);
             try self.w.writeAll(".items()");
         } else if (self.textReach(ty)) |reach| {
-            try self.emitExpr(base);
+            try self.emitBaseExpr(base);
             try self.w.print("{s}.bytes()", .{reach});
         } else if (self.facts.types.get(ty) == .array) {
             // A read slice only reads through: a Vec element on the way
@@ -4525,7 +4535,7 @@ pub const Emitter = struct {
             try self.emitExpr(o);
             return self.w.writeAll(")");
         };
-        const needs_parens = if (o.kind()) |h| switch (h) {
+        const needs_parens = movesBranch(o) or if (o.kind()) |h| switch (h) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .propagate, .call, .array => true,
             else => false,
         } else false;
@@ -6756,6 +6766,14 @@ fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
 }
 
 const lentPlace = facts.syntax.lentPlace;
+
+/// Whether `e` moves a value that branches: `<(a if c else b)`, emitted
+/// as the branch itself.
+fn movesBranch(e: Sexp) bool {
+    if (!e.isKind(.move)) return false;
+    const o = ir.Move.operand(e);
+    return o.isKind(.@"if") or o.isKind(.@"??") or o.isKind(.@"catch") or o.isKind(.match) or o.isKind(.block) or o.isKind(.propagate) or o.isKind(.propagate_none);
+}
 
 const argValue = facts.syntax.argValue;
 
