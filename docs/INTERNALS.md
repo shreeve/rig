@@ -1043,8 +1043,11 @@ value by address reaches a node (`storage.leafStep`), and
 (`storage.reachesLeaf`), which the storage plan decides for every
 expression. At its end the plan asks each recorded question again from
 the facts as they then stand, and an answer that changed is an internal
-error (`storage.verifyDecisions`). Emit reads them through `Facts`, and
-one it finds unrecorded is an internal error.
+error (`storage.verifyDecisions`); then it seals the record, so a
+question asked later, by a classifier emit still calls, is answered but
+not recorded. Emit reads the decisions through `Facts`, and one it finds
+unrecorded is an internal error: every record comes from a pass that ran
+before the ownership checker.
 
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser
@@ -1932,8 +1935,14 @@ values are held in Zig (a view as a pointer or a copy, a mutable or a
 constant pointer, what `+x` lowers to). The node decisions emit still
 makes itself, with the classifiers the checkers also call, are listed
 in `Pending`, which a unit test of `facts.zig` keeps from growing: it
-fails if emit imports any other file of the compiler, reaches the
-context behind `Facts`, or keeps a `Pending` entry it no longer uses.
+reads `emit.zig` with Zig's tokenizer and fails if emit imports any
+other file of the compiler, reaches the context behind `Facts`, or keeps
+a `Pending` entry it no longer uses. `Facts` also answers a few node
+queries that combine recorded facts without a classifier of their own
+(`stmtTemps` and `firstStmtTemp` list the `dropsTemp` facts in the order
+the IR makes them; `receiverOf`, `argParams`, and `receiverWrites` read
+`callParamsOf`; `isNoneLeaf`, `textCall`, and `isTypeCallee` read
+symbols); a query that decides more than that belongs in `Pending`.
 
 - **Bindings** are `const` unless reassigned, written through, holding
   a value that moves (`sema.moves`, which a `Cell` does; its methods

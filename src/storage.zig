@@ -843,6 +843,9 @@ fn decide(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) Answer(q) 
 /// module is checked: an answer that changed after it was recorded is one
 /// two passes acted on differently, an internal error.
 pub fn verifyDecisions(ctx: *const SemContext) void {
+    ctx.decided.sealed = true;
+    // A module with errors is not emitted; its diagnostics come first.
+    if (ctx.hasErrors()) return;
     var it = ctx.decided.map.iterator();
     while (it.next()) |entry| switch (entry.key_ptr.q) {
         inline else => |q| {

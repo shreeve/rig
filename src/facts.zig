@@ -567,21 +567,26 @@ test "emit reads the checkers' decisions only through Facts" {
     // Emit imports no file that holds a classifier: sema.zig, storage.zig,
     // and resolve.zig are reached only through this one.
     const allowed = [_][]const u8{ "std", "parser.zig", "rig.zig", "facts.zig", "diag.zig" };
+    // Read as Zig reads it, so no spelling of an import slips past.
+    var tokens = std.zig.Tokenizer.init(emit_source);
     var imports: usize = 0;
-    var at: usize = 0;
-    const import = "@" ++ "import(\"";
-    while (std.mem.indexOfPos(u8, emit_source, at, import)) |i| {
-        at = i + import.len;
-        const end = std.mem.indexOfScalarPos(u8, emit_source, at, '"').?;
-        // An import written into the emitted program is a format string.
-        if (emit_source[i - 1] == '\\' or (i >= 2 and emit_source[i - 2] == '\\')) continue;
-        const name = emit_source[at..end];
-        if (std.mem.endsWith(u8, name, "\\")) continue;
+    while (true) {
+        const t = tokens.next();
+        if (t.tag == .eof) break;
+        if (t.tag != .builtin) continue;
+        const name = emit_source[t.loc.start..t.loc.end];
+        // Nothing reaches a struct's parent through a field of `Facts`.
+        if (std.mem.eql(u8, name, "@fieldParentPtr")) return error.TestUnexpectedResult;
+        if (!std.mem.eql(u8, name, "@import")) continue;
+        if (tokens.next().tag != .l_paren) return error.TestUnexpectedResult;
+        const arg = tokens.next();
+        if (arg.tag != .string_literal) return error.TestUnexpectedResult;
+        const file = emit_source[arg.loc.start + 1 .. arg.loc.end - 1];
         imports += 1;
         for (allowed) |a| {
-            if (std.mem.eql(u8, a, name)) break;
+            if (std.mem.eql(u8, a, file)) break;
         } else {
-            std.debug.print("emit.zig imports {s}, which only facts.zig may\n", .{name});
+            std.debug.print("emit.zig imports {s}, which only facts.zig may\n", .{file});
             return error.TestUnexpectedResult;
         }
     }

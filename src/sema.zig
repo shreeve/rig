@@ -844,8 +844,9 @@ pub const StorageLife = enum {
 /// recorded (`SemContext.decided`). Every later ask, emit's included,
 /// reads the record, so no two passes act on different answers; the
 /// storage plan asks each again at its end, from the facts as they then
-/// stand, and stops at one whose answer changed after it was recorded
-/// (`storage.verifyDecisions`). Emit only reads them (`Facts`).
+/// stand, stops at one whose answer changed after it was recorded
+/// (`storage.verifyDecisions`), and seals the record: nothing asked later
+/// is recorded. Emit only reads them (`Facts`).
 pub const Question = enum(u8) {
     /// How the walk that reaches a value by address reaches this node
     /// (`storage.LeafStep`).
@@ -863,6 +864,11 @@ pub const Decision = struct { node: Sexp, answer: u8 };
 /// reach, as a memo would.
 pub const Decided = struct {
     map: std.AutoHashMapUnmanaged(struct { node: u64, q: Question }, Decision) = .empty,
+    /// Set when the storage plan has verified every answer: a question
+    /// asked after that (by a classifier emit still calls, `Pending`) is
+    /// answered but not recorded, so a record always comes from a pass
+    /// the checkers ran.
+    sealed: bool = false,
 };
 
 /// The key of a storage fact: the expression or construct (`exprKey`)
@@ -1992,18 +1998,24 @@ pub const SemContext = struct {
     /// asked it.
     pub fn decision(self: *const SemContext, node: Sexp, q: Question) ?u8 {
         const d = self.decided.map.get(.{ .node = exprKey(node) orelse return null, .q = q }) orelse return null;
+        // Two nodes never share a key: the parser numbers each list node,
+        // and a rewrite that keeps a number replaces the node it took it
+        // from.
+        if (node == .list and d.node.list.items().ptr != node.list.items().ptr)
+            std.debug.panic("internal error: two nodes share the key of a decision ({s})", .{@tagName(q)});
         return d.answer;
     }
 
-    /// Record `answer` to `q` about `node`, the first time it is decided.
-    /// A memo: it changes no fact a pass reads but this one, so it is
-    /// written through a constant context, and a node no key names is
-    /// decided again where it is asked.
+    /// Record `answer` to `q` about `node`, the first time it is decided,
+    /// before the plan seals the record. A memo: it changes no fact a pass
+    /// reads but this one, so it is written through a constant context.
+    /// A node no key names is decided again where it is asked. Running out
+    /// of memory here stops the compiler, which keeps the questions
+    /// infallible for their many callers.
     pub fn recordDecision(self: *const SemContext, node: Sexp, q: Question, answer: u8) void {
+        if (self.decided.sealed) return;
         const key = exprKey(node) orelse return;
-        const gop = self.decided.map.getOrPut(self.allocator, .{ .node = key, .q = q }) catch std.debug.panic("out of memory", .{});
-        std.debug.assert(!gop.found_existing or gop.value_ptr.answer == answer);
-        gop.value_ptr.* = .{ .node = node, .answer = answer };
+        self.decided.map.put(self.allocator, .{ .node = key, .q = q }, .{ .node = node, .answer = answer }) catch std.debug.panic("out of memory", .{});
     }
 
     /// Emit holds a value of `node` in hidden storage `s`
