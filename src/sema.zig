@@ -6166,8 +6166,6 @@ pub fn yieldsThroughParts(e: Sexp) bool {
     };
 }
 
-/// A loop used as a value: a `while` or `for`, labeled or not, that a
-/// `break` with a value leaves.
 /// The values a loop used as a value gives, appended to `out`: the value
 /// of each `break` that leaves it (unlabeled in its own body, or naming
 /// its label from a nested loop), and its `else`'s tail. A closure's
@@ -6254,6 +6252,8 @@ pub fn yieldedLeaves(a: std.mem.Allocator, source: []const u8, node: Sexp, out: 
     if (!any) try out.append(a, node);
 }
 
+/// A loop used as a value: a `while` or `for`, labeled or not, that a
+/// `break` with a value leaves.
 pub fn hasValueBreaks(source: []const u8, e: Sexp) bool {
     var label: []const u8 = "";
     var loop = e;

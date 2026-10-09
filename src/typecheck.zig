@@ -179,10 +179,11 @@ const Checker = struct {
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
     /// Fields and elements reached through a write lend written as their
-    /// base (`(!p).x`, `(!arr)[0]`), and the paths written, assigned,
-    /// lent, or taken (`requireAccess`): one only read has its `!`
-    /// ignored (`checkReachedLends`).
+    /// base (`(!p).x`, `(!arr)[0]`): one only read has its `!` ignored
+    /// (`checkReachedLends`).
     reached_lends: std.ArrayList(ReachedLend) = .empty,
+    /// The node ids of the field and element paths written, assigned,
+    /// lent, or taken (`markWritten`).
     written_paths: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// The statement being checked (`checkStmt`), where a reached lend
     /// is noted.
@@ -244,9 +245,12 @@ const Checker = struct {
         parent: ?*LoopFrame,
     };
 
-    /// A loop used as a value: its `break` values and its `else` value.
+    /// A field or element `path` reached through `base`, a write lend
+    /// of type `ty` written there (`(!p).x`), in statement `stmt`: its
+    /// `!` is ignored unless `path` is written (`checkReachedLends`).
     const ReachedLend = struct { path: Sexp, base: Sexp, ty: TypeId, stmt: Sexp };
 
+    /// A loop used as a value: its `break` values and its `else` value.
     const LoopValue = struct {
         expected: ?TypeId,
         /// The type the values settle on, without `expected`.
@@ -9783,7 +9787,6 @@ fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
         else => true,
     };
 }
-
 
 /// `x` of `?x`, `!x`, or `<x`; any other node as it is.
 fn stripSigil(e: Sexp) Sexp {
