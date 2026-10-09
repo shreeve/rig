@@ -235,7 +235,12 @@ forms to `value`, an expression without blocks or closures (conditions,
   ending in `\`, except for a closure body that starts below its bar
   list inside brackets: that opens a *layout island*, laid out in
   blocks until the bracket closes or a line returns to the closure's
-  starting indentation;
+  starting indentation. The line that closes it starts with that
+  bracket, at the indentation of the line that opened the bracket;
+  a bracket that closes it on the body's last line, a closing line that
+  starts with anything else, and one at another indentation are
+  recorded beside the spacing rule's operators and reported, each with
+  the layout to write, once the source parses;
 - lets `else` continue the `if`, `while`, or `for` whose block just
   closed;
 - classifies keywords, the characters read by position, `if`, and

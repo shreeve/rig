@@ -114,9 +114,11 @@ sub main()
 
 **Closure bodies inside brackets.** A closure's body may be an indented
 block wherever the closure is written ([§11](#closures)). When its bar
-list ends a line inside `( )`, the body below is laid out in blocks as
-anywhere else; it ends where the bracket closes, or where a line comes
-back to the indentation of the line the closure started on.
+list ends a line inside `( )` or `[ ]`, the body below is laid out in
+blocks as anywhere else, and it ends with the bracket around it on a
+line of its own, at the indentation of the line that opened the
+bracket: the closure is the last thing the bracket holds. A one-line
+body stays on the bar list's line.
 
 ```rig
 sub each(n: Int, f: *sub(Int))
@@ -140,6 +142,24 @@ saw 2
 trailing 0
 trailing 1
 3
+```
+
+A bracket that ends the body's last line is rejected, with the layout
+to write:
+
+```rig reject
+sub each(n: Int, f: *sub(Int))
+  for i in 0..n
+    f(i)
+
+sub main()
+  each(2, *|i|
+    j = i * 2
+    print(j))
+```
+
+```error
+a closure body below its bar list ends with `)` on a line of its own: end this line before the `)`, and write `)` on the next line at the indentation of the line that opened it (column 3)
 ```
 
 ## 3. Names and keywords
