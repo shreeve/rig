@@ -8,4 +8,4 @@ sub main()
   q = p
   print(q.n)
 
-# error: bare use of `B` value `p` in binding would alias an owning value
+# error: `p` owns a `a.B`, which can't be copied by `=`: write `<p` to move it or `?p` to view it

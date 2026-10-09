@@ -11,5 +11,5 @@ sub main()
   h = g
   print(h.score)
 
-# error: 11:7: bare use of `Game` value `g` in binding would copy a unique value; use `<g` to move it
+# error: 11:7: `g` is a unique `Game`, which can't be copied by `=`: write `<g` to move it or `?g` to view it
 # errors: 1

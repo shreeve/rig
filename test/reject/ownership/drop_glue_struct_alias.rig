@@ -9,4 +9,4 @@ sub main()
   o2 = o1
   print(o2.cell.get())
 
-# error: bare use of `Owner` value `o1` in binding would alias an owning value
+# error: `o1` owns an `Owner`, which can't be copied by `=`: write `<o1` to move it, `+o1` to clone it, or `?o1` to view it

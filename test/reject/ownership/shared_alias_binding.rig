@@ -10,4 +10,4 @@ sub main()
   <rc2
   <rc
 
-# error: bare use of shared (`*T`) handle `rc` in binding would alias the handle
+# error: `rc` is a `*Wrap` handle, which can't be copied by `=`: write `<rc` to move it, `+rc` for another handle, or `?rc` to view it

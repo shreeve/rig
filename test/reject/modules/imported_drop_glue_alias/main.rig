@@ -8,4 +8,4 @@ sub main()
   b = a
   print(b.n)
 
-# error: would alias an owning value
+# error: `a` owns a `lib.Noisy`, which can't be copied by `=`: write `<a` to move it or `?a` to view it

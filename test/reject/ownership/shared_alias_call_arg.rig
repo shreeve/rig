@@ -12,4 +12,4 @@ sub main()
   use_rc(rc)
   <rc
 
-# error: bare use of shared (`*T`) handle `rc` in call argument would alias the handle
+# error: `use_rc` takes ownership of a `*Wrap`, and `rc` can't be copied: write `<rc` to move it or `+rc` for another handle; if `use_rc` only reads it, make its parameter a `?*Wrap`

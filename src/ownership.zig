@@ -567,6 +567,9 @@ pub const Checker = struct {
     binding: ?struct { name: []const u8, value: Sexp, rejected: bool = false } = null,
     /// Walking the arguments of a call the type checker rejected.
     in_rejected_call: bool = false,
+    /// The call whose arguments are being walked, for the diagnostic of
+    /// an argument that would copy a value that moves.
+    arg_call: ?Sexp = null,
     /// `checkNoImplicitCopy` is inside an expression whose context reads
     /// the value a view reaches (`SemContext.readsThrough`).
     copy_reads: bool = false,
@@ -3208,63 +3211,88 @@ pub const Checker = struct {
     /// or a field or element, which stays where it is.
     const Aliased = enum { name, field, element };
 
-    /// Whether `ty`, or the value an optional of it holds, is an array.
-    fn isArrayOf(self: *const Checker, ty: TypeId) bool {
-        var t = ty;
-        while (self.typeData(t) == .optional) t = self.typeData(t).optional;
-        return self.typeData(t) == .array;
+    /// A bare use that would copy a value that moves: say what holds the
+    /// value, and every way to write what is meant (move, clone, view).
+    fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
+        if (k == .generic) {
+            // Fine for plain data: each instantiation is checked.
+            if (ty) |t| try self.requirePlain(pos, t, false);
+            return;
+        }
+        const a = self.arena();
+        const ctx = self.sema orelse return;
+        const t = ty orelse return;
+        const shown = try sema.formatTypeIn(ctx, a, t);
+        const is_name = aliased == .name;
+        var fixes: std.ArrayList([]const u8) = .empty;
+        // A name moves; a part moves out only from an optional, which
+        // `<` leaves `none`.
+        if (is_name) {
+            try fixes.append(a, try a.print("`<{s}` to move it", .{what}));
+        } else if (self.typeData(t) == .optional) {
+            try fixes.append(a, try a.print("`<{s}` to take it out (leaving `none`)", .{what}));
+        }
+        switch (sema.cloneable(ctx, t)) {
+            .no => {},
+            .bump => try fixes.append(a, try a.print("`+{s}` for another handle", .{what})),
+            else => try fixes.append(a, try a.print("`+{s}` to {s}", .{ what, if (sink == .argument) "pass a clone" else "clone it" })),
+        }
+        if (sink == .binding) try fixes.append(a, try a.print("`?{s}` to view it", .{what}));
+        const callee = if (sink == .argument) self.ownerCallee(pos) else null;
+        var msg: std.ArrayList(u8) = .empty;
+        if (callee) |f| {
+            try msg.print(a, "`{s}` takes ownership of {s} `{s}`, and `{s}` can't be copied", .{ f, article(shown), shown, what });
+        } else {
+            const holds = switch (k) {
+                .shared, .weak => try a.print("is {s} `{s}` handle", .{ article(shown), shown }),
+                .unique => try a.print("is a unique `{s}`", .{shown}),
+                else => try a.print("owns {s} `{s}`", .{ article(shown), shown }),
+            };
+            const into = switch (sink) {
+                .binding => "by `=`",
+                .argument => "into an argument",
+                .field => "into a field",
+                .element => "into an array",
+                .allocation => "into a shared box",
+                .ret => "out by `return`",
+                .brk => "out by `break`",
+            };
+            try msg.print(a, "`{s}` {s}, which can't be copied {s}", .{ what, holds, into });
+        }
+        if (fixes.items.len > 0) {
+            try msg.appendSlice(a, ": write ");
+            for (fixes.items, 0..) |fix, n| {
+                if (n > 0) try msg.appendSlice(a, if (n + 1 < fixes.items.len) ", " else if (fixes.items.len > 2) ", or " else " or ");
+                try msg.appendSlice(a, fix);
+            }
+        } else {
+            try msg.appendSlice(a, if (aliased == .element) ", has no clone, and can't be moved out of what holds it" else ", has no clone, and can't be moved out of its parent");
+        }
+        if (callee) |f| try msg.print(a, "; if `{s}` only reads it, make its parameter {s} `?{s}`", .{ f, article(shown), shown });
+        try self.err(pos, "{s}", .{msg.items});
     }
 
-    fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
-        const where = sink.text();
-        const is_name = aliased == .name;
-        // Why a part cannot be moved out instead.
-        const stays = if (aliased == .element) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
-        // An array whose elements own is named by its type.
-        if (ty) |t| if (self.sema) |ctx| if (k == .drop_glue and self.isArrayOf(t)) {
-            const shown = try sema.formatTypeIn(ctx, self.arena(), t);
-            if (is_name) {
-                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy its owning elements, which both would drop. Use `<{s}` to move it", .{ shown, what, where, what });
-            } else try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy its owning elements; {s}", .{ shown, what, where, stays });
-            return;
-        };
-        switch (k) {
-            // Fine for plain data: each instantiation is checked.
-            .generic => if (ty) |t| try self.requirePlain(pos, t, false),
-            .shared, .weak => {
-                const kind = if (k == .shared) "shared (`*T`)" else "weak (`~T`)";
-                if (is_name) {
-                    try self.err(pos, "bare use of {s} handle `{s}` in {s} would alias the handle; use `<{s}` to move or `+{s}` to clone", .{ kind, what, where, what, what });
-                } else {
-                    try self.err(pos, "bare use of {s} handle `{s}` in {s} would alias the handle; use `+{s}` to clone", .{ kind, what, where, what });
-                }
-            },
-            .vec => if (is_name) {
-                try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer and double-free on scope exit; use `<{s}` to move ownership", .{ what, where, what });
-            } else {
-                try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer; {s}", .{ what, where, stays });
-            },
-            .box => if (is_name) {
-                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer and free its value twice; use `<{s}` to move ownership", .{ what, where, what });
-            } else {
-                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer; {s}. Lend it instead: `?{s}` or `!{s}`", .{ what, where, stays, what, what });
-            },
-            .text => if (is_name) {
-                try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer and free it twice; use `<{s}` to move ownership, or `+{s}` to copy the text", .{ what, where, what, what });
-            } else {
-                try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer; {s}. Lend it (`?{s}`) or copy the text (`+{s}`)", .{ what, where, stays, what, what });
-            },
-            .unique => |tname| if (is_name) {
-                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; use `<{s}` to move it", .{ tname, what, where, what });
-            } else {
-                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; a field or element cannot be moved out of what holds it", .{ tname, what, where });
-            },
-            .drop_glue => |tname| if (is_name) {
-                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<{s}` to move ownership", .{ tname, what, where, tname, what });
-            } else {
-                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue and {s}", .{ tname, what, where, tname, stays });
-            },
+    /// The function or method whose argument at `pos` is the one being
+    /// walked (`arg_call`), when it is declared: its parameter could be
+    /// a view. Null for a constructor, a closure, or a built-in method.
+    fn ownerCallee(self: *Checker, pos: u32) ?[]const u8 {
+        const call = self.arg_call orelse return null;
+        const ctx = self.sema orelse return null;
+        const inside = for (ir.Call.args(call)) |arg| {
+            const sp = ctx.span(arg);
+            if (pos >= sp.start and pos < sp.end) break true;
+        } else false;
+        if (!inside) return null;
+        const callee = ir.Call.callee(call);
+        if (callee == .src) {
+            const sym = ctx.symbolOf(callee) orelse return null;
+            return if (ctx.symbols.items[sym].kind == .function) self.text(callee) else null;
         }
+        if (!callee.isKind(.member) or self.namesType(callee) or self.callsFunctionField(call, callee)) return null;
+        var obj = ir.Member.object(callee);
+        if (obj.isKind(.write) or obj.isKind(.read) or obj.isKind(.move)) obj = ir.get(obj, .operand);
+        if (self.builtinName(self.exprType(obj)) != null) return null;
+        return self.text(ir.Member.name(callee));
     }
 
     // -------------------------------------------------------------------------
@@ -3854,6 +3882,9 @@ pub const Checker = struct {
         // was reported there.
         const saved_rejected = self.in_rejected_call;
         defer self.in_rejected_call = saved_rejected;
+        const saved_call = self.arg_call;
+        defer self.arg_call = saved_call;
+        self.arg_call = node;
         for (args, arg_values, 0..) |a, *v, i| {
             self.in_rejected_call = self.rejected(node);
             const found = self.errors_found;
@@ -5784,7 +5815,7 @@ pub const Checker = struct {
             .src => return self.text(e),
             .list => switch (e.kind() orelse return "expression") {
                 .member => return self.arena().print("{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
-                .index => return self.arena().print("{s}[...]", .{try self.placeText(ir.Index.object(e))}),
+                .index => return self.arena().print("{s}[{s}]", .{ try self.placeText(ir.Index.object(e)), self.spanText(ir.Index.index(e)) }),
                 // A sigil: the place it wraps.
                 .read, .write, .move, .clone, .share, .weak => return self.placeText(ir.get(e, .operand)),
                 // Any other value (`mk()`): as written.
@@ -6269,4 +6300,18 @@ test "module-level bindings are visible in functions but cannot be consumed" {
         \\  eat(<limit)
         \\
     , "cannot move module-level `limit` inside a function");
+}
+
+/// The article before a type's name in a message: "an `Int`", "an
+/// `R`" (said "ar").
+fn article(name: []const u8) []const u8 {
+    if (name.len == 0) return "a";
+    if (name.len == 1 or !std.ascii.isLower(name[1])) return switch (name[0]) {
+        'A', 'E', 'F', 'H', 'I', 'L', 'M', 'N', 'O', 'R', 'S', 'X' => "an",
+        else => "a",
+    };
+    return switch (name[0]) {
+        'A', 'E', 'I', 'O', 'a', 'e', 'i', 'o' => "an",
+        else => "a",
+    };
 }

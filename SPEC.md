@@ -798,7 +798,7 @@ sub main()
 ```
 
 ```error
-would copy a unique value; use `<a` to move it
+`a` is a unique `Seed`, which can't be copied by `=`: write `<a` to move it or `?a` to view it
 ```
 
 ---
@@ -3064,7 +3064,7 @@ sub main()
 ```
 
 ```error
-bare use of shared (`*T`) handle `a` in binding would alias the handle
+`a` is a `*Wrap` handle, which can't be copied by `=`: write `<a` to move it, `+a` for another handle, or `?a` to view it
 ```
 
 A view of a value that copies ([§2](#kinds-of-value)) is copied out

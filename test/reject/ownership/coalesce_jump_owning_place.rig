@@ -14,4 +14,4 @@ fun first(o: Res?) -> Int
 sub main()
   print(first(Res(id: 1)))
 
-# error: 11:7: bare use of `Res` value `o` in binding would alias an owning value; `Res` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<o` to move ownership
+# error: 11:7: `o` owns a `Res?`, which can't be copied by `=`: write `<o` to move it or `?o` to view it

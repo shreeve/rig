@@ -12,4 +12,4 @@ sub main()
   !v.push(*P(n: 7))
   eat(<v[0])
 
-# error: 13:8: cannot move out of `v[...]`: elements cannot be moved out of their container
+# error: 13:8: cannot move out of `v[0]`: elements cannot be moved out of their container

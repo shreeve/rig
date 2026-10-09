@@ -16,6 +16,6 @@ sub main()
   y = mko(0) ?? (e if c else g)
   print(y, f(none))
 
-# error: 16:18: bare use of `Text` value `e` in binding
-# error: 16:30: bare use of `Text` value `g` in binding
+# error: 16:18: `e` owns a `Text`, which can't be copied by `=`: write `<e` to move it, `+e` to clone it, or `?e` to view it
+# error: 16:30: `g` owns a `Text`, which can't be copied by `=`: write `<g` to move it, `+g` to clone it, or `?g` to view it
 # errors: 2

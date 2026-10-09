@@ -16,5 +16,5 @@ sub main()
   eat(o.inner)
   eat(o.inner)
 
-# error: 16:7: bare use of shared (`*T`) handle `o.inner` in call argument would alias the handle; use `+o.inner` to clone
-# error: 17:7: bare use of shared (`*T`) handle `o.inner` in call argument would alias the handle; use `+o.inner` to clone
+# error: 16:7: `eat` takes ownership of a `*Wrap`, and `o.inner` can't be copied: write `+o.inner` for another handle; if `eat` only reads it, make its parameter a `?*Wrap`
+# error: 17:7: `eat` takes ownership of a `*Wrap`, and `o.inner` can't be copied: write `+o.inner` for another handle; if `eat` only reads it, make its parameter a `?*Wrap`

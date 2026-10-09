@@ -15,5 +15,5 @@ sub main()
   j = <h.s
   print(k.n, j.n)
 
-# error: 13:8: cannot move out of `a[...]`: elements cannot be moved out of their container
+# error: 13:8: cannot move out of `a[0]`: elements cannot be moved out of their container
 # error: 15:8: cannot move out of `h.s`: `h` would still drop it

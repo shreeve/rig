@@ -13,6 +13,6 @@ sub main()
   print(n.v.len)
   print(a.v[0])
 
-# error: 12:8: bare use of `Box` value `a` in call argument would copy the box's pointer and free its value twice
-# error: 12:20: bare use of `Box` value `b` in call argument would copy the box's pointer and free its value twice
+# error: 12:8: `a` owns a `Box[N]`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone
+# error: 12:20: `b` owns a `Box[N]`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone
 # errors: 2

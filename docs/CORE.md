@@ -110,7 +110,7 @@ sub main()
 ```
 
 ```error
-use `<c`
+`c` is a unique `Cell[Int]`, which can't be copied by `=`: write `<c` to move it or `?c` to view it
 ```
 
 ## 2. The core, in ten sentences
@@ -390,7 +390,7 @@ sub main()
 ```
 
 ```error
-cannot assign to `a[...]` while `a` is lent
+cannot assign to `a[0]` while `a` is lent
 ```
 
 **7. A call passes on only the loans its signature shows.** A function

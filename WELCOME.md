@@ -654,7 +654,7 @@ sub main()
 ```
 
 ```error
-Use `<r` to move ownership
+`eat` takes ownership of a `Res`, and `r` can't be copied: write `<r` to move it; if `eat` only reads it, make its parameter a `?Res`
 ```
 
 **Rust's `?` on a failure.** `?` propagates `none`; a failure propagates

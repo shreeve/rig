@@ -32,7 +32,7 @@ sub main()
     R(n: 99)
   print(a.n, x.n, z.n)
 
-# error: 15:11: would alias an owning value
-# error: 19:13: would alias an owning value
+# error: 15:11: `r0` owns an `R`, which can't be copied out by `break`: write `<r0` to move it
+# error: 19:13: `r` owns an `R`, which can't be copied out by `break`: write `<r` to move it
 # error: use of `q` after move
 # errors: 3

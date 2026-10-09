@@ -11,5 +11,5 @@ sub main()
   p = Option.some(v)
   print(v.len)
 
-# error: 10:31: bare use of `Vec` value `v` in call argument
-# error: 11:19: bare use of `Vec` value `v` in call argument
+# error: 10:31: `v` owns a `Vec[Int]`, which can't be copied into an argument: write `<v` to move it or `+v` to pass a clone
+# error: 11:19: `some` takes ownership of a `Vec[Int]`, and `v` can't be copied: write `<v` to move it or `+v` to pass a clone; if `some` only reads it, make its parameter a `?Vec[Int]`

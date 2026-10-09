@@ -30,7 +30,7 @@ sub main()
   !t.add("d")
   print(s)
 
-# error: 24:3: cannot assign to `w[...]` while `w` is lent
+# error: 24:3: cannot assign to `w[0]` while `w` is lent
 # error: 26:22: cannot lend `v` to write while a read loan is live
 # error: 27:12: a view of the temporary `mk()` outlives its statement
 # error: 30:3: cannot lend `t` to write while a read loan is live

@@ -17,8 +17,8 @@ sub main()
   v[0] = Text("c")
   print(s)
 
-# error: 10:7: bare use of `Text` value `v[...]` in binding would copy the buffer pointer; an element cannot be moved out of its container
-# error: 11:8: bare use of `Text` value `v[...]` in call argument
+# error: 10:7: `v[0]` owns a `Text`, which can't be copied by `=`: write `+v[0]` to clone it or `?v[0]` to view it
+# error: 11:8: `take` takes ownership of a `Text`, and `v[0]` can't be copied: write `+v[0]` to pass a clone; if `take` only reads it, make its parameter a `?Text`
 # error: 13:3: cannot lend `v` to write while a read loan is live
-# error: 15:8: cannot move out of `v[...]`: elements cannot be moved out of their container
-# error: 17:3: cannot assign to `v[...]` while `v` is lent
+# error: 15:8: cannot move out of `v[0]`: elements cannot be moved out of their container
+# error: 17:3: cannot assign to `v[0]` while `v` is lent
