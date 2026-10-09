@@ -253,7 +253,12 @@ the same way, and so is a match of a branch that reads a place holding a
 write view (fields through a read view or handle, bare write views, a
 call beside a field, `??` of an optional write view), through the
 binding or through the place; every such program must be rejected
-(`lendw.`). A `while` step
+(`lendw.`). And it puts each header (`match`, `if … as`, `while … as`,
+`for`) over a subject that reaches a place holding a write view through
+a branch, at depth 1 and 2, through `?.`, `??`, and `catch`, for a `!W`
+parameter, a local write view, and a field of an owned holder, and
+writes through the place while a view of the binding lives; every such
+program must be rejected (`hdr.`). A `while` step
 reads what its condition binds, a view or a struct holding one, while
 the body grows what it views on each way to the step (the body's end,
 `continue`, `continue :outer` from a nested `for`, `while`, or
