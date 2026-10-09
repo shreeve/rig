@@ -2778,10 +2778,14 @@ written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a view. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
 or `match !b` ([§10](#box)), and so is the value a handle holds,
-`match h`, which reads it. A read match of a place binds a field that
-is itself a write view as the read view of what it views (`!T` as `?T`,
+`match h`, which reads it. A read match never writes through its
+bindings: whatever its subject (a place, a lend, a view a call returns,
+or a part of a value made in the header), it binds a field that is
+itself a write view as the read view of what it views (`!T` as `?T`,
 `![]T` as `[]T`), as `if o as x` does, so nothing is written through
-it, whole or by a path; write `match !e` to write through it. A read
+it, whole or by a path. Write `match !e` to write through it; for a
+part of a value made in the header, bind that value to a name first
+(`h = mk(!p)`, then `match !h.e`). A read
 binding that is not plain data is a view (`?F`) of the field where it
 is, so it carries the subject's loan:
 a view of it may be returned, stored past the arm, or given as the

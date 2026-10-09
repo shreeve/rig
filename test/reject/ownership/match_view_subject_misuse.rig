@@ -40,5 +40,5 @@ sub main()
 
 # error: 20:9: `match <s` consumes an owned value, and `s` is a write view (`!Slot`); write the payload in place with `match !s`, or read it with `match s`
 # error: 25:10: cannot lend to write through a read view `?Slot`
-# error: 31:10: cannot assign to `x`: `match s` reads `s`, and so do its bindings; to write through `x`, match with `match !s`
+# error: 31:10: cannot assign to `x`: it is a read view of `s`; to change it in place, match with `match !s`
 # error: 37:14: cannot assign to `p`: it is a read view of a field of `e`; to change the field in place, match with `match !e`

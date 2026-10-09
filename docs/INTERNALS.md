@@ -943,14 +943,12 @@ by pointer, including the binding of a catch-all arm and a binding a
 guard reads; a write view under `match !e` and `for x in !e`; the
 construct's own under `match <e` and a taken subject. A field that is
 itself a view, at the matched instance (`Opt[?T]`'s `v: T`,
-`payloadFieldOf`), is bound as the view it holds, except that a read
-match of a value another holds (`storage.matchesInPlace`, not a part of
-a value it holds) binds a write view as the read view of what it views
-(`!T` as `?T`, `![]T` as `[]T`, `readViewOfWrite`), as `if o as x` does:
-nothing is written through it, by a path or whole, and two read matches
-never hold two copies of one write view. Emit copies out the value a
-scalar's or view's binding reads (`Facts.payloadReadsThroughWrite`), as
-a `?T` of one is a copy. (A payload of a
+`payloadFieldOf`), is bound as the view its access gives it ([Binding
+access](#binding-access)): a read match binds a write view as the read
+view of what it views (`!T` as `?T`, `![]T` as `[]T`), whatever its
+subject, unless it holds the value whole. Emit copies out the value a
+scalar's or view's read binding reads (`Facts.payloadReadsThroughWrite`),
+as a `?T` of one is a copy. (A payload of a
 type parameter is a copy, which each instance must allow; emit binds it
 by pointer where the match reads its subject in place,
 `storage.payloadByAddress`, and copies it out otherwise.)
@@ -1585,33 +1583,6 @@ any lend of a view does. A lend of a place reached through a read view
 place's var holds, and no loan on the var (`walkThroughView`). The var
 is still held while the place's indexes run.
 
-**Lending a binding.** What a lend of a var, or of a path in it, puts a
-loan on follows from what the var is, one positive list (`lendTarget`):
-
-- **An owner** (a local, a parameter taken by value, an owned loop
-  element, a binding of `match <e`): a loan on the var.
-- **A write view**, which a write may go through (a `!T` or `![]T`
-  parameter or local, a `|!x|` capture, and a binding of `if !o as w`,
-  `while !o as w`, or `for x in !v`, and one of `match !e` whose type is
-  a write view, a catch-all's included): a loan on the var, and the
-  loans the var holds.
-- **A read view**, which no write goes through (a `?T`; a binding of a
-  read `match`, which binds a write view field as a read view, and a
-  catch-all of a `!E` subject, which only a `match !x` could write
-  through and typecheck rejects that; and a binding of `match !e` whose
-  type is a slice, a String, or a `?T`): the loans the var holds, as a
-  copy of the view carries.
-
-Desugared, `.a(t)` of `match !e` binds `t` as `w = !x` binds `w`: a
-write view, of the payload's field. So in the arm `s = ?t[1..]` lends a
-held write view: while `s` lives, `!t.add(x)` or `t = v` writes through
-`t` against a read loan of `t` (Core sentence 5), and `s` also keeps
-`t`'s own loan on `e`. As for every write view, a view of the binding
-lives no longer than the binding: a slice of a `match !e` binding stays
-in its arm, as one of an `if !o as w` binding stays in its `if`. A read
-match's binding is a read view of what it binds, so a view of it keeps
-only the binding's loan on the subject, and may leave the arm.
-
 **Liveness.** A loan held by a var is in force only while the var is
 live: while it may still be used. Before checking a function, one walk
 records the last source position each symbol is used at (a capture's
@@ -1794,6 +1765,54 @@ owns a resource, with a note at the copy, and a type argument that
 holds a `?T`, `!T`, or slice, for a generic function and for a generic type with
 methods. A call site sees the instance's signature, so moves, lends,
 and the loans a result carries are checked there with the real types.
+
+### Binding access
+
+Whether a write may go through a binding is one fact, its *access*:
+`.write`, `.read`, or none for a binding that owns or copies what it
+binds. `sema.decideBindingAccess` decides it, by a positive list over
+every kind of binding, from how the binding reaches its value and what
+the value is:
+
+| Binding | `.write` | `.read` | none |
+|---|---|---|---|
+| a parameter, local, or closure capture | its type is `!T` or `![]T` (`w = !x`, `\|!x\|`, `\|<w\|` of one) | its type is `?T` | any other type |
+| `if … as x`, `while … as x` | `!o`, or a write view the header makes | a value viewed where it is, or reached through a read view or handle | a copy, or a value taken (then by its type) |
+| `for x in` | `!v` | an element that does not copy | an element that copies, or one taken (then by its type) |
+| a `match` payload, named field, or catch-all | `match !e` of a field that is no read view or slice; a write view field of a value the match holds whole | a read match of anything else, whatever its subject: a place, a lend, a view a call returns, a part of a value made in the header; a `?T` field | plain data a read copies; a slice; `match <e` (then by its type) |
+
+Typecheck records the access on the binding's symbol where it types the
+binding (`bindMatchView`, `checkOptionalBinding`, `checkFor`), and
+derives the type from it: a write view of what the binding reaches, a
+read view of it (a write view `!T` read as `?T`, `![]T` as `[]T`), or
+the value. `SemContext.bindingAccess` reads the fact, and gives a
+parameter's or local's from its type. Every pass reads it, and none
+decides a binding's mode another way (a unit test checks the sources):
+
+- **Ownership** lends by it (`lendTarget`): a lend of a var, or of a
+  path in it, puts a loan on the var and carries the loans the var holds
+  for `.write`; carries only the loans it holds for `.read`, as a copy
+  of the view does; and puts a loan on the var for any other var, one
+  that owns or copies its value, or a value no binding names.
+- **Storage** binds a payload by address for `.write`
+  (`payloadByAddress`).
+- **Emit** copies out the value a `.read` binding of a write view of a
+  scalar or view reads (`Facts.payloadReadsThroughWrite`).
+- **Diagnostics** of a write through a read match's binding name the
+  match that writes (`readMatchHint`): `match !e`, or for a part of a
+  value made in the header, that value bound to a name first.
+
+Desugared, `.a(t)` of `match !e` binds `t` as `w = !x` binds `w`: a
+write view, of the payload's field. So in the arm `s = ?t[1..]` lends a
+held write view: while `s` lives, `!t.add(x)` or `t = v` writes through
+`t` against a read loan of `t` (Core sentence 5), and `s` also keeps
+`t`'s own loan on `e`. As for every write view, a view of the binding
+lives no longer than the binding: a slice of a `match !e` binding stays
+in its arm, as one of an `if !o as w` binding stays in its `if`. A read
+match's binding is a read view of what it binds, whatever the subject,
+so nothing writes through it and two read matches never hold two
+writable copies of one write view; a view of it keeps only the
+binding's loan on the subject, and may leave the arm.
 
 ### Copies
 

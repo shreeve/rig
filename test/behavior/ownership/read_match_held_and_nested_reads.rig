@@ -1,0 +1,110 @@
+# A read match binds a write view a payload holds as a read view of what
+# it views, whatever its subject: a part of a value made in the header,
+# a `?E` parameter, a view a method returns, or the binding of another
+# read match. It reads through it, in an arm and in a guard, copying out
+# an `!Int`'s value. To write, the made value is bound to a name first
+# and its part matched with `match !`.
+# release
+
+struct P
+  t: Text
+  n: Int
+
+enum WP
+  a(w: !P)
+  b
+
+enum WI
+  a(w: !Int)
+  b
+
+struct H
+  e: WP
+
+  fun peek(?self) -> ?WP
+    ?self.e
+
+struct HI
+  e: WI
+
+struct Q
+  t: Text
+
+enum In
+  a(q: !Q)
+  z
+
+enum Out
+  a(i: !In)
+  z
+
+fun mk(p: !P) -> H from p
+  H(e: WP.a(!p))
+
+fun mki(x: !Int) -> HI from x
+  HI(e: WI.a(!x))
+
+sub show(e: ?WI)
+  match e
+    .a(w) if w > 5 => print("big", w)
+    .a(w) => print("small", w)
+    .b => print("none")
+
+sub nested(o: !Out)
+  match o
+    .a(w)
+      match w
+        .a(k) => print(k.t)
+        .z => pass
+    .z => pass
+
+sub main()
+  p = P(t: Text("hello"), n: 2)
+  match mk(!p).e
+    .a(w)
+      r = ?w.t[1..]
+      print(r, w.n)
+    .b => pass
+  h = mk(!p)
+  match !h.e
+    .a(w)
+      w.n = 7
+      !w.t.add("!")
+    .b => pass
+  print(p.n, p.t)
+  x = 3
+  match mki(!x).e
+    .a(w) if w > 2 => print("big", w + 1)
+    .a(w) => print(w)
+    .b => pass
+  e = WI.a(!x)
+  show(?e)
+  match !e
+    .a(v) => v = 9
+    .b => pass
+  show(?e)
+  q = P(t: Text("peek"), n: 0)
+  g = H(e: WP.a(!q))
+  match g.peek()
+    .a(w) => print(w.t)
+    .b => pass
+  t = Q(t: Text("hi"))
+  i = In.a(!t)
+  o = Out.a(!i)
+  match o
+    .a(w)
+      match w
+        .a(k) => print(k.t)
+        .z => pass
+    .z => pass
+  nested(!o)
+
+# expect:
+# ello 2
+# 7 hello!
+# big 4
+# small 3
+# big 9
+# peek
+# hi
+# hi

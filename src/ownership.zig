@@ -232,10 +232,6 @@ const Var = struct {
     /// than taking it, and the binding is no copy. It views the var
     /// `alias_of`, or a value no var holds (`matched`).
     payload_view: bool = false,
-    /// A `payload_view` binding of `match !x`, which a write may go
-    /// through (`storage.matchMode`); a read match's never is, whatever
-    /// its type.
-    payload_writes: bool = false,
     /// Match payload binding: the var the scrutinee is, or is a field
     /// of, and the field's path (empty for the whole var).
     alias_of: ?VarId = null,
@@ -2583,7 +2579,7 @@ pub const Checker = struct {
     /// is (`lendTarget`).
     fn lendOn(self: *Checker, id: VarId, loan: Loan) Error!Value {
         const held = self.flows.items[id].loans;
-        return switch (lendTarget(self.vars.items[id])) {
+        return switch (self.lendTarget(self.vars.items[id])) {
             .write_view => .{ .loans = try self.unionLoans(try self.oneLoan(loan), held) },
             .read_view => .{ .loans = held },
             .owner => .{ .loans = try self.oneLoan(loan) },
@@ -2600,22 +2596,18 @@ pub const Checker = struct {
         read_view,
     };
 
-    /// What a lend of var `v` puts a loan on (docs/INTERNALS.md, "Lending
-    /// a binding"): a write view, which a write may go through (a `!T`
-    /// parameter, capture, or local, a binding of `if !o as w`,
-    /// `while !o as w`, or `for x in !v`, and one of `match !e` whose type
-    /// is a write view); a read view, which no write goes through (a
-    /// `?T`; a binding of a read match, which typecheck binds a write
-    /// view field as the read view of what it views, and a catch-all of a
-    /// `!E` subject, through which typecheck rejects a `match !x`; and a
-    /// binding of `match !e` whose type is a slice, a String, or a `?T`);
-    /// or an owner.
-    fn lendTarget(v: Var) LendTarget {
-        if (v.payload_view) return if (v.payload_writes and v.ref == .write) .write_view else .read_view;
-        return switch (v.ref) {
+    /// What a lend of var `v` puts a loan on, from the binding's access
+    /// (`SemContext.bindingAccess`, docs/INTERNALS.md "Binding access"):
+    /// a binding a write may go through is a write view, one no write goes
+    /// through a read view, and any other var (one that owns or copies its
+    /// value, or a value no binding names) an owner.
+    fn lendTarget(self: *const Checker, v: Var) LendTarget {
+        const ctx = self.sema orelse return .owner;
+        const sym = v.sym orelse return .owner;
+        const access = ctx.bindingAccess(sym) orelse return .owner;
+        return switch (access) {
             .write => .write_view,
             .read => .read_view,
-            .none => .owner,
         };
     }
 
@@ -4872,8 +4864,6 @@ pub const Checker = struct {
         /// The subject as written, when no var holds the value it reads
         /// (`Var.matched`); empty when the match takes it.
         shown: []const u8 = "",
-        /// The match lends its subject to write: `match !x`.
-        writes: bool = false,
     };
 
     /// Whether `match` takes its subject, and its bindings own what they
@@ -4881,13 +4871,6 @@ pub const Checker = struct {
     fn takesSubject(self: *const Checker, match: Sexp) bool {
         const ctx = self.sema orelse return ir.Match.subject(match).isKind(.move);
         return storage.matchMode(ctx, match) == .consume;
-    }
-
-    /// Whether `match` lends its subject to write, and its bindings write
-    /// through to it: `match !x` (`storage.matchMode`).
-    fn writesSubject(self: *const Checker, match: Sexp) bool {
-        const ctx = self.sema orelse return ir.Match.subject(match).isKind(.write);
-        return storage.matchMode(ctx, match) == .write;
     }
 
     /// Whether a `match` reads the value its subject `e` gives where
@@ -4918,7 +4901,7 @@ pub const Checker = struct {
         const saved_held = self.held;
         defer self.held = saved_held;
         if (header == .held) try self.holdBase(match);
-        var info: Scrutinee = .{ .writes = self.writesSubject(match) };
+        var info: Scrutinee = .{};
         var node = scrut;
         const written = scrut.isKind(.read) or scrut.isKind(.write);
         const lent = written or header == .viewed or header == .held;
@@ -5079,7 +5062,6 @@ pub const Checker = struct {
             // binding of a view type views by its type, and any other
             // (a `T` of a generic body) by this fact.
             v.payload_view = info.root != null or (info.shown.len > 0 and v.ref == .none);
-            v.payload_writes = v.payload_view and info.writes;
             if (info.root == null and v.payload_view) {
                 v.via = info.via;
                 v.matched = info.shown;

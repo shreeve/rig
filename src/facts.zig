@@ -279,17 +279,23 @@ pub const Facts = struct {
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
         return storage.decided(f.c(), b, .payload_by_address);
     }
+    /// Whether a write may go through binding `sym` (`.write`), only
+    /// a read (`.read`), or it is no view (`SemContext.bindingAccess`).
+    pub fn bindingAccess(f: Facts, sym: SymbolId) ?sema.Access {
+        return f.c().bindingAccess(sym);
+    }
     /// Whether a payload binding copies the value its field's write view
-    /// points at: a read match binds a `!T` field as `?T` (typecheck's
-    /// binding type), and a `?T` of a scalar or a view is a copy
+    /// points at: a binding only read (`bindingAccess`) of a field that is
+    /// a write view of a scalar or a view, whose read view is a copy
     /// (`sema.lendByValue`).
     pub fn payloadReadsThroughWrite(f: Facts, b: Sexp) bool {
         const ctx = f.c();
+        const sym = ctx.symbolOf(b) orelse return false;
+        if (ctx.bindingAccess(sym) != .read) return false;
         const field = ctx.payloadFieldOf(b) orelse return false;
-        const binding = ctx.bindingTypeOf(b) orelse return false;
-        if (ctx.types.get(field) != .write_view) return false;
-        return switch (ctx.types.get(binding)) {
-            .read_view => |inner| sema.lendByValue(ctx, inner),
+        return switch (ctx.types.get(field)) {
+            // A `![]T` is read as the `[]T` it holds.
+            .write_view => |inner| ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner),
             else => false,
         };
     }

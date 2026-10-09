@@ -478,6 +478,10 @@ pub const Symbol = struct {
     origins: Origins = .{},
     /// A capture: the enclosing binding it captures.
     origin: SymbolId = symbol_invalid,
+    /// A `match`, `as`, or loop binding: whether a write may go through
+    /// it, or null for one that owns or copies its value, recorded once by
+    /// typecheck from `decideBindingAccess` (`SemContext.bindingAccess`).
+    access: ?Access = null,
     /// The previous symbol of the same name in the same scope, if any.
     prev_in_scope: SymbolId = symbol_invalid,
     /// A proxy (`proxyOf`): the other module's generic type or
@@ -1813,6 +1817,17 @@ pub const SemContext = struct {
     /// The symbol named by the identifier at source position `pos`.
     pub fn symbolAt(self: *const SemContext, pos: u32) ?SymbolId {
         return self.facts.names.get(pos);
+    }
+
+    /// Whether a write may go through binding `sym`, or null for one that
+    /// is no view (it owns or copies its value): the access typecheck
+    /// recorded (`Symbol.access`), or, for a parameter or local, the one
+    /// its type declares. The one fact of a binding's mode
+    /// (docs/INTERNALS.md, "Binding access").
+    pub fn bindingAccess(self: *const SemContext, sym: SymbolId) ?Access {
+        const s = self.symbols.items[sym];
+        if (s.access) |a| return a;
+        return decideBindingAccess(self, .{ .declared = s.ty });
     }
 
     /// The type of an expression node.
@@ -3838,6 +3853,101 @@ pub fn isInteger(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// A read or write view type: `?T`, `!T`.
+/// Whether a write may go through a view binding.
+pub const Access = enum { read, write };
+
+/// How a `match` reaches what its bindings bind.
+pub const MatchReach = enum {
+    /// `match !x`: lent to write.
+    written,
+    /// A read match of a value another holds: a place, a lend, a view a
+    /// call returns, a value that branches, or a part of a value made in
+    /// the header.
+    read,
+    /// A read match of a value made there, which it holds whole.
+    read_own,
+    /// `match <x`, or a value made there that owns: taken.
+    owned,
+};
+
+/// How an `if … as x` or `while … as x` reaches the value inside.
+pub const AsReach = enum {
+    /// `!o`, or a write view the header makes.
+    written,
+    /// Viewed where it is, or read through a view.
+    read,
+    /// Copied or taken.
+    copied,
+};
+
+/// What a binding is, for `decideBindingAccess`.
+pub const BindingSite = union(enum) {
+    /// A payload field of a `match`, or its catch-all: how the match
+    /// reaches the subject, and the type of the field or subject.
+    match: struct { reach: MatchReach, reached: TypeId },
+    /// `if … as x` / `while … as x`, and the type of the value inside.
+    as: struct { reach: AsReach, inner: TypeId },
+    /// A `for` element: whether the loop writes (`for x in !v`), takes
+    /// (`for x in <v`), or reads its elements, and the element's type.
+    loop: struct { mode: LoopMode, elem: TypeId },
+    /// A parameter, a local, or a closure capture, by its declared or
+    /// inferred type: a capture's is the lend its sigil writes
+    /// (`|?x|`, `|!x|`) or the value it copies or moves in.
+    declared: TypeId,
+};
+
+pub const LoopMode = enum { write, take, read };
+
+/// Whether a write may go through the binding `site` describes; null for
+/// one that is no view: it owns or copies what it binds. The one decider
+/// of a binding's mode (docs/INTERNALS.md, "Binding access"), by a
+/// positive list over every kind of binding. Typecheck derives the
+/// binding's type from it, ownership the loan a lend of it makes
+/// (`lendTarget`), and emit how it binds.
+pub fn decideBindingAccess(ctx: *const SemContext, site: BindingSite) ?Access {
+    return switch (site) {
+        // A parameter, local, or capture is the view its type is.
+        .declared => |ty| switch (ctx.types.get(ty)) {
+            .write_view => .write,
+            .read_view => .read,
+            else => null,
+        },
+        .as => |a| switch (a.reach) {
+            .written => .write,
+            .read => .read,
+            .copied => decideBindingAccess(ctx, .{ .declared = a.inner }),
+        },
+        .loop => |l| switch (l.mode) {
+            .write => .write,
+            .take => decideBindingAccess(ctx, .{ .declared = l.elem }),
+            // An element that copies is a copy; any other is viewed.
+            .read => if (copies(ctx, l.elem) == .no) .read else decideBindingAccess(ctx, .{ .declared = l.elem }),
+        },
+        .match => |m| switch (m.reach) {
+            .owned => decideBindingAccess(ctx, .{ .declared = m.reached }),
+            else => switch (ctx.types.get(m.reached)) {
+                .read_view => .read,
+                // A write view is written through only where the match
+                // writes, or holds the value whole: a read match of a
+                // value another holds never writes through its binding,
+                // whatever the subject.
+                .write_view => if (m.reach == .written or m.reach == .read_own) .write else .read,
+                // A slice is bound as the copy it is.
+                .slice => null,
+                // `match !e` views any other field to write. A read copies
+                // plain data and views anything else; a type parameter's
+                // value is viewed where the match reads a value another
+                // holds, and copied out of one it holds whole.
+                else => if (m.reach == .written) .write else switch (copies(ctx, m.reached)) {
+                    .yes => null,
+                    .no => .read,
+                    .depends => if (m.reach == .read) .read else null,
+                },
+            },
+        },
+    };
+}
+
 pub fn isReadOrWriteView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .read_view, .write_view => true,
