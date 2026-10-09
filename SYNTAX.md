@@ -282,7 +282,7 @@ fun twice(n: Int) -> Int
 sub main()
   a = 5
   b = 3
-  print(a - b, a -b, a-b, twice(-b), twice (a) - b)
+  print(a - b, a - b, a-b, twice(-b), twice (a) - b)
 ```
 
 ```output
