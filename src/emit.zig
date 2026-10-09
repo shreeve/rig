@@ -4654,7 +4654,12 @@ pub const Emitter = struct {
                 try self.refuseHeldCell(e, ty);
                 try self.zigTemporary(e);
             },
-            .lend, .jump => {},
+            // A lend of an optional or fallible value whose payload is read
+            // by address would hand over a resource or a value of a type
+            // parameter from inside a view, which typecheck rejects: a
+            // payload captured from a lend has no storage a fact names.
+            .lend => return self.unsupported(e, "a payload captured by address from a lend"),
+            .jump => {},
         }
         try self.emitBare(e);
     }

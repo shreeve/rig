@@ -2164,6 +2164,12 @@ symbols); a query that decides more than that belongs in `Pending`.
   statement ends (it emits no lifetime markers), and the ownership
   checker confines every view of one to the statement.
 
+  A payload captured by address from a lend (`?o ?? d` of an optional
+  whose payload is read by address) would be an address no fact names,
+  but typecheck rejects every such lend, as handing over a resource or a
+  type parameter's value from inside a view; emit stops with an internal
+  error there.
+
   It still takes the address of a Zig rvalue in these places, which the
   ownership checker confines to the statement too, but which no storage
   fact names:
