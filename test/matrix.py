@@ -1050,6 +1050,54 @@ LENDW_BINDINGS = {
     "read_match_held": dict(decls="enum E\n  a(x: !TY)\n  z\n\nstruct HE\n  e: E\n\nfun mkh(y: !TY) -> HE from y\n  HE(e: E.a(!y))\n",
                             setup=["y = mk()"], head=["match mkh(!y).e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
 }
+# More binding kinds, from review 3 of the binding-access change: write
+# bindings of every subject and header, and read bindings of a write view
+# a payload or optional holds, every write through which is rejected.
+_LW_E = "enum E\n  a(x: TY)\n  z\n"
+_LW_EW = "enum E\n  a(x: !TY)\n  z\n"
+_LW_HH = "\nstruct HH\n  e: E\n"
+_LW_GET = _LW_HH + "\nfun get(h: !HH) -> !E\n  !h.e\n"
+_LW_O = "\nenum O\n  a(i: !E)\n  z\n"
+LENDW_BINDINGS.update({
+    "match_made": dict(decls=_LW_EW, setup=["y = mk()"], head=["match E.a(!y)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_named": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(x: b)"], depth=4, after=["  .z => pass"]),
+    "match_box": dict(decls=_LW_E, setup=["e = Box(E.a(mk()))"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_field": dict(decls=_LW_E + _LW_HH, setup=["h = HH(e: E.a(mk()))"], head=["match !h.e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_index": dict(decls=_LW_E, setup=["es: Vec[E] = Vec()", "!es.push(E.a(mk()))"], head=["match !es[0]", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_generic": dict(decls="enum G[T]\n  a(x: T)\n  z\n", setup=["e: G[TY] = G.a(mk())"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_wv_payload": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_guard": dict(decls=_LW_E, setup=["e = E.a(mk())", "c = true"], head=["match !e", "  .a(b) if c"], depth=4, after=["  _ => pass"]),
+    "match_nested": dict(decls=_LW_E + "\nenum O\n  a(i: E)\n  z\n", setup=["o = O.a(E.a(mk()))"], head=["match !o", "  .a(io)", "    match !io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"]),
+    "match_nested_wv": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match !o", "  .a(io)", "    match !io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"]),
+    "match_call": dict(decls=_LW_E + _LW_GET, setup=["h = HH(e: E.a(mk()))"], head=["match !get(!h)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    # A write view a call returns, or a branch of write lends, is lent on.
+    "match_call_lent_on": dict(decls=_LW_EW + _LW_GET, setup=["y = mk()", "h = HH(e: E.a(!y))"], head=["match get(!h)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_branch_lent_on": dict(decls=_LW_E, setup=["e1 = E.a(mk())", "e2 = E.z", "c = true"], head=["match (!e1 if c else !e2)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "while_as": dict(setup=["o: TY? = mk()", "n = 0"], head=["while !o as b"], depth=2, after=["  n += 1", "  break if n > 0"]),
+    "if_as_write_param": dict(param="o: !(TY?)", arg="mk()", argty="TY?", head=["if !o as b"], depth=2),
+    "if_as_field": dict(decls="struct HO\n  o: TY?\n", setup=["h = HO(o: mk())"], head=["if !h.o as b"], depth=2),
+    "if_as_payload": dict(decls="enum E\n  a(o: TY?)\n  z\n", setup=["e = E.a(mk())"], head=["match !e", "  .a(o)", "    if !o as b"], depth=6, after=["  .z => pass"]),
+    "for_index": dict(setup=["v: Vec[TY] = Vec()", "!v.push(mk())"], head=["for b, j in !v"], depth=2, after=["  _ = j"]),
+    "for_array": dict(setup=["v = [mk()]"], head=["for b in !v"], depth=2),
+    "closure_of_payload": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b0)", "    g = |!b0|"], depth=6, after=["    g()", "  .z => pass"], name="b0"),
+    "held_of_payload": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b0)", "    b = !b0"], depth=4, after=["  .z => pass"]),
+    "defer_arm": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b)", "    defer print(\"d\")"], depth=4, after=["  .z => pass"], prints="d\n"),
+    "read_box": dict(decls=_LW_EW, setup=["y = mk()", "e = Box(E.a(!y))"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_field": dict(decls=_LW_EW + _LW_HH, setup=["y = mk()", "h = HH(e: E.a(!y))"], head=["match h.e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_index": dict(decls=_LW_EW, setup=["y = mk()", "es: Vec[E] = Vec()", "!es.push(E.a(!y))"], head=["match es[0]", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_named": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)"], head=["match e", "  .a(x: b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_generic": dict(decls="enum G[T]\n  a(x: T)\n  z\n", setup=["y = mk()", "e: G[!TY] = G.a(!y)"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_guard": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)", "c = true"], head=["match e", "  .a(b) if c"], depth=4, after=["  _ => pass"], rejected=True),
+    "read_param": dict(decls=_LW_EW, param="e: ?E", arg="E.a(!z)", pre=["z = mk()"], lend="?", head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_shared": dict(decls=_LW_EW + _LW_HH, setup=["y = mk()", "h = *HH(e: E.a(!y))"], head=["match h.e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_nested": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match !o", "  .a(io)", "    match io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"], rejected=True),
+    "read_nested_read": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match o", "  .a(io)", "    match io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"], rejected=True),
+    "read_as_param": dict(param="o: ?((!TY)?)", arg="!z", argty="(!TY)?", pre=["z = mk()"], lend="?", head=["if o as b"], depth=2, rejected=True),
+    "read_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y"], head=["if o as b"], depth=2, rejected=True),
+    "read_while_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y", "n = 0"], head=["while o as b"], depth=2, after=["  n += 1", "  break if n > 0"], rejected=True),
+    "read_as_payload": dict(decls="enum E\n  a(o: (!TY)?)\n  z\n", setup=["y = mk()", "e = E.a(!y)"], head=["match e", "  .a(o)", "    if o as b"], depth=6, after=["  .z => pass"], rejected=True),
+    "read_catchall_param": dict(decls=_LW_EW, param="e: !E", arg="E.a(!z)", pre=["z = mk()"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+})
 
 
 def lendw_program(bname, tname, lname, when):
@@ -1075,13 +1123,15 @@ def lendw_program(bname, tname, lname, when):
     lines += [" " * b["depth"] + l for l in body] + b.get("after", [])
     if "param" in b:
         out.append(f"sub f({b['param'].replace('TY', t['ty'])})\n" + indent(lines, 2) + "\n")
-        out.append("sub main()\n" + indent(b.get("pre", []) + [f"y = {b['arg']}", "f(!y)"], 2) + "\n")
+        # `argty` types the value `main` makes, and `lend` lends it.
+        y = f"y: {b['argty']} = {b['arg']}" if "argty" in b else f"y = {b['arg']}"
+        out.append("sub main()\n" + indent(b.get("pre", []) + [y.replace("TY", t["ty"]), f"f({b.get('lend', '!')}y)"], 2) + "\n")
     else:
         out.append("sub main()\n" + indent(lines, 2) + "\n")
     if b.get("rejected"):
         # No run prints this: a program that runs fails the cell.
         return "\n".join(out), "(rejected)\n"
-    return "\n".join(out), f"{out_s}\n{t['out']}\n"
+    return "\n".join(out), f"{out_s}\n{t['out']}\n" + b.get("prints", "")
 
 
 # -----------------------------------------------------------------------------
