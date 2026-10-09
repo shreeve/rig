@@ -2911,7 +2911,7 @@ pub const Emitter = struct {
             const local = self.payloadLocal(b) orelse continue;
             // A write binds a pointer to each field, and a read one to a
             // field it views (`?F`) or reads in place.
-            const addr = storage.payloadByAddress(self.sema, local.ty, f, writes, info.in_place);
+            const addr = storage.payloadByAddress(self.sema, b, writes, info.in_place);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
             try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
         }
@@ -3061,13 +3061,13 @@ pub const Emitter = struct {
         // A capture is by address when a binding views or writes its
         // field, and a copy otherwise.
         var by_addr = writes;
-        for (captures, fields) |c, f| {
-            const local = self.usedPayloadLocal(c, used_in) orelse continue;
-            if (storage.payloadByAddress(self.sema, local.ty, f, writes, info.in_place)) by_addr = true;
+        for (captures) |c| {
+            if (self.usedPayloadLocal(c, used_in) == null) continue;
+            if (storage.payloadByAddress(self.sema, c, writes, info.in_place)) by_addr = true;
         }
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
-            const addr = storage.payloadByAddress(self.sema, local.ty, f, writes, info.in_place);
+            const addr = storage.payloadByAddress(self.sema, c, writes, info.in_place);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
             try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });

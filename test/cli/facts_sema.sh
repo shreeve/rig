@@ -17,6 +17,20 @@ expect_has "$out" 'scopes block 2:3-5:1' "a scope"
 "$RIG" check --facts=sema main.rig >again.txt 2>/dev/null
 cmp -s facts.txt again.txt || fail "two dumps of one program differ"
 
+cat >payload.rig <<'EOF2'
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub main()
+  t = Text("t")
+  match Opt.some(v: ?t)
+    .some(v) => print(v)
+    .nothing => pass
+EOF2
+"$RIG" check --facts=sema payload.rig >payload.txt 2>err.txt || fail "rig check --facts=sema payload.rig: $(cat err.txt)"
+expect_has "$(cat payload.txt)" 'payload_fields leaf 8:11-8:12 "v" ?Text' "a payload field's type at the instance"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)
