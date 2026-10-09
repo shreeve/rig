@@ -120,6 +120,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
+| `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`) |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
 | `src/main.zig` | the CLI |
@@ -1907,6 +1908,18 @@ chooses a representation; everything it needs to know about names and
 types comes from the facts table, never from name matching, and every
 type it writes is spelled from a sema `TypeId`. A construct it cannot
 lower is an internal error: sema must have rejected it.
+
+Emit reads sema through `Facts` (`src/facts.zig`), and imports neither
+`sema.zig` nor `storage.zig`, so the classifiers there are out of its
+reach: every decision that affects ownership or memory is made before
+emit runs, recorded, and read. `Facts` offers the facts table, the
+storage facts, and the questions about a type whose answer is how its
+values are held in Zig (a view as a pointer or a copy, a mutable or a
+constant pointer, what `+x` lowers to). The node decisions emit still
+makes itself, with the classifiers the checkers also call, are listed
+in `Pending`, which a unit test of `facts.zig` keeps from growing: it
+fails if emit imports any other file of the compiler, reaches the
+context behind `Facts`, or keeps a `Pending` entry it no longer uses.
 
 - **Bindings** are `const` unless reassigned, written through, holding
   a value that moves (`sema.moves`, which a `Cell` does; its methods
