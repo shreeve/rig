@@ -2931,7 +2931,8 @@ reads, so a binding with no type reads the value a name's, field's, or
 element's write view sees when that value copies (`x = h.w`), and holds
 a write view a call yields, which is a value, not a place ([View
 places](#view-places)). A value that does not copy is not copied out of
-a view: lend it on, as `?T` or `!T`.
+a view: lend it on, as `?T` or `!T`. A write lend written where the
+value is expected, `!x`, is rejected instead ([Lending](#lending)).
 
 ```rig
 fun slot(a: !Int) -> !Int
@@ -3199,6 +3200,49 @@ So `sort.sort(!v)` works on a Vec as it does on an array, and one `fun
 area(s: ?Shape)` takes `?s` of a `Shape`, a `Box[Shape]`, and a
 `*Shape` ([§9](#shared-handles), [§10](#box)). A slice `x[a..b]` is the
 same lend, of part of `x` ([§2](#slices)).
+
+Where the context expects a plain value, not a view, `!x` would be read
+and its `!` ignored, so it is rejected: an `Int` parameter, a field
+whose generic type is inferred as `Opt[Int]` (`Opt.some(v: !n)`), an
+array element beside an `Int` (`[!n, 3]`), or a typed binding. A type
+that says `!T` keeps the write view (`Opt[!Int].some(v: !n)`, a `!T`
+parameter), and `n` alone is a copy.
+
+```rig
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub main()
+  n = 1
+  o = Opt[!Int].some(v: !n)
+  match !o
+    .some(v) => v += 1
+    .nothing => pass
+  print(n)
+```
+
+```output
+2
+```
+
+```rig reject
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub main()
+  n = 1
+  o = Opt.some(v: !n)
+  match !o
+    .some(v) => v += 1
+    .nothing => pass
+  print(n)
+```
+
+```error
+`!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt[!Int].some(v: !n)` to keep a write view of `n`, or `Opt.some(v: n)` to store a copy
+```
 
 A `!x` view needs a binding that may change: a parameter (other than
 `!T`), a fixed binding, a capture, or a loop binding cannot be

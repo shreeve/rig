@@ -689,7 +689,10 @@ ada
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain struct, array, or optional as a number is, and the
 copy carries no loan but those of the views it holds, as with a call's
-`?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
+`?Int` result. *(built)* A write lend written there, `!x` where a
+plain value goes, would be read and its `!` ignored, so it is rejected:
+a type that says `!T` keeps the view, and `x` alone is the copy.
+*(built)* A slice `x[a..b]` is the same lend, of
 part of `x`. So `sort.sort(!v)` works on a `Vec` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `Box[Shape]`, and a
 `*Shape`.

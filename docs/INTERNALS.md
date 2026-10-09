@@ -1635,7 +1635,7 @@ and each desugars into forms the checker already walks:
 
 | Form | Desugars to |
 |---|---|
-| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`) |
+| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write lend written there (`f(!n)`, `Opt.some(v: !n)`) is rejected instead, since its `!` would be ignored (`Checker.ignoredWriteLend`, in `recordAdapted`) |
 | `x = w`, `x = h.w`, `x = ws[i]` with a `!T` of a `T` that copies | `x: T = w` |
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
