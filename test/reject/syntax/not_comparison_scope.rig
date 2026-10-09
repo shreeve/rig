@@ -1,0 +1,54 @@
+# `not` applies to the whole comparison after it, which reads as
+# `(not a) > b` too: a comparison directly under `not` is written in
+# parentheses, or flipped where the flip means the same (integers,
+# text, and any `==`), wherever `not` stands.
+
+struct Item
+  qty: Int
+  price: Float
+  name: String
+
+sub ordered(it: ?Item)
+  print(not it.qty > 3)
+  print(not it.qty <= 3)
+
+sub equality(a: Int, b: Float)
+  print(not a == 2)
+  print(not b != 1.5)
+
+sub floats(it: ?Item)
+  print(not it.price < 2.5)
+
+sub text(it: ?Item)
+  print(not it.name >= "m")
+
+sub joined(a: Int, b: Bool)
+  if not a > 1 and b
+    print(1)
+  while b or not a < 0
+    break
+  print(1) if b and not (a) > (2)
+
+sub nested(a: Int)
+  print(not not a == 1)
+
+sub main()
+  it = Item(qty: 4, price: 1.0, name: "x")
+  ordered(?it)
+  equality(1, 2.0)
+  floats(?it)
+  text(?it)
+  joined(1, true)
+  nested(1)
+
+# error: 12:9: write `it.qty <= 3`, or `not (it.qty > 3)`: `not` applies to the whole comparison
+# error: 13:9: write `it.qty > 3`, or `not (it.qty <= 3)`
+# error: 16:9: write `a != 2`, or `not (a == 2)`
+# error: 17:9: write `b == 1.5`, or `not (b != 1.5)`
+# error: 20:9: write `not (it.price < 2.5)`: `not` applies to the whole comparison
+# error: 23:9: write `it.name < "m"`, or `not (it.name >= "m")`
+# error: 26:6: write `a <= 1`, or `not (a > 1)`
+# error: 28:14: write `a >= 0`, or `not (a < 0)`
+# error: 30:21: write `(a) <= (2)`, or `not ((a) > (2))`
+# error: 33:13: write `a != 1`, or `not (a == 1)`
+# errors: 10

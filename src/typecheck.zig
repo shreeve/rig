@@ -3224,6 +3224,7 @@ const Checker = struct {
             },
             .not => blk: {
                 try self.checkExpr(ir.Not.operand(e), self.t().bool_id);
+                try self.checkNotScope(e);
                 break :blk self.t().bool_id;
             },
             .neg => self.synthNeg(e),
@@ -3326,6 +3327,52 @@ const Checker = struct {
         }
         if (a != b) try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
         return self.t().bool_id;
+    }
+
+    /// `not` applies to the whole comparison after it: `not a > b` is
+    /// `not (a > b)`, which reads as `(not a) > b` too. So a comparison
+    /// directly under `not` is written in parentheses, or flipped where
+    /// the flip means the same: `a <= b` for integers and text, `a != b`
+    /// for any `==`. (`not (a > b)` is not `a <= b` for a Float NaN.)
+    fn checkNotScope(self: *Checker, e: Sexp) Error!void {
+        const operand = ir.Not.operand(e);
+        const op: []const u8, const flipped: []const u8 = switch (operand.kind() orelse return) {
+            .@"==" => .{ "==", "!=" },
+            .@"!=" => .{ "!=", "==" },
+            .@"<" => .{ "<", ">=" },
+            .@">" => .{ ">", "<=" },
+            .@"<=" => .{ "<=", ">" },
+            .@">=" => .{ ">=", "<" },
+            else => return,
+        };
+        const whole = self.ctx.span(e);
+        const cmp = self.ctx.span(operand);
+        // Written in parentheses: `not` ends past its operand, at `)`.
+        if (whole.end > cmp.end) return;
+        const a = self.ctx.arena.allocator();
+        const shown = self.sourceText(operand);
+        const equality = op[0] == '=' or op[0] == '!';
+        const exact = equality or (self.flipsExactly(ir.get(operand, .left)) and self.flipsExactly(ir.get(operand, .right)));
+        // The operator, between the two sides' spans (and any
+        // parentheses around them).
+        const gap_start = self.ctx.span(ir.get(operand, .left)).end;
+        const gap_end = self.ctx.span(ir.get(operand, .right)).start;
+        const at = if (exact and gap_start <= gap_end) std.mem.find(u8, self.ctx.source[gap_start..gap_end], op) else null;
+        if (at) |i| {
+            const o = gap_start + i;
+            const flip = try std.mem.concat(a, u8, &.{ self.ctx.source[cmp.start..o], flipped, self.ctx.source[o + op.len .. cmp.end] });
+            return self.errAt(e, "write `{s}`, or `not ({s})`: `not` applies to the whole comparison", .{ flip, shown });
+        }
+        try self.errAt(e, "write `not ({s})`: `not` applies to the whole comparison", .{shown});
+    }
+
+    /// Whether a side of an ordering keeps its meaning when the ordering
+    /// is flipped (`not (a > b)` is `a <= b`): an integer or text, which
+    /// are totally ordered, unlike a Float.
+    fn flipsExactly(self: *Checker, side: Sexp) bool {
+        const ty = self.ctx.typeOf(side) orelse return false;
+        const v = sema.unwrapViews(self.ctx, ty);
+        return sema.isInteger(self.ctx, v) or self.isBytes(v);
     }
 
     /// A String or a `[]U8`: bytes ordered as text is.

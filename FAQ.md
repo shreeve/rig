@@ -39,6 +39,8 @@ a compile error instead: `if !done`, `!q.is_empty()`, and a `!` call
 returning a `Bool` that starts a condition or is an operand of `and`,
 `or`, or `not` without parentheses
 ([receiver sigils](SPEC.md#structs), [operators](SPEC.md#operators)).
+For the same reason, a comparison under `not` takes parentheses:
+`not (a > b)`, never `not a > b`.
 
 ## Why indentation?
 

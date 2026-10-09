@@ -2199,6 +2199,13 @@ negation: a `!x` whose `Bool` value would be read (a condition, an
 operand, a binding, an argument) is rejected. It is valid only where a
 `!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
 
+`not` binds looser than a comparison and tighter than `and` and `or`:
+`not a and b` is `(not a) and b`. Since `not a > b` could be read as
+`(not a) > b`, a comparison directly under `not` is written in
+parentheses, `not (a > b)`, or flipped: the diagnostic offers `a <= b`
+where that means the same, for integers, text, and any `==` or `!=`,
+though not for a `Float`, which may be NaN.
+
 ```rig reject
 sub main()
   done = false
@@ -2222,6 +2229,20 @@ sub main()
 -3 -1 3 28 6
 true true true
 1
+```
+
+```rig reject
+struct Item
+  qty: Int
+
+sub main()
+  it = Item(qty: 4)
+  if not it.qty > 3
+    print("few")
+```
+
+```error
+write `it.qty <= 3`, or `not (it.qty > 3)`: `not` applies to the whole comparison
 ```
 
 ```rig reject
