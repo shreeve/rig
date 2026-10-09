@@ -1,6 +1,8 @@
-# A write view may be lent where a read view is expected. A read
+# A held write view may be lent where a read view is expected. A read
 # view of a scalar, or of an optional one, is a copy of the value, so
-# the write view is read through there.
+# the write view is read through there. (A written `!x` there only
+# reads, and is rejected: test/reject/ownership/
+# ignored_write_lend_read_view.rig.)
 
 fun peek(m: ?(Int?)) -> Int
   m ?? 0
@@ -12,8 +14,11 @@ sub main()
   x: Int? = 3
   n: Int = 4
   k: Int = 5
-  print(peek(!x), twice(!n))
-  g: [2]?Int = [!n, !k]
+  wx = !x
+  wn = !n
+  wk = !k
+  print(peek(wx), twice(wn))
+  g: [2]?Int = [wn, wk]
   print(g[0], g[1])
 
 # expect:

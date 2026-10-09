@@ -1,0 +1,45 @@
+# A written `!x` where only a read view goes lends nothing to write:
+# a `?T` parameter, field, or binding, a `[]T` or a String parameter,
+# and a `?self` receiver. It is rejected with `?x`, which lends to
+# read. A held write view (`w`) passes there as it is.
+
+struct P
+  x: Int
+
+  fun get(?self) -> Int
+    self.x
+
+struct G[T]
+  r: T
+
+fun rd(x: ?Int) -> Int
+  x
+
+fun total(xs: []Int) -> Int
+  xs[0]
+
+fun len(s: String) -> Int
+  s.len
+
+sub main()
+  n = 1
+  p = P(x: 1)
+  arr = [1, 2]
+  t = Text("ab")
+  w = !n
+  print(rd(w))
+  print(rd(!n))
+  h: ?Int = !n
+  g = G[?Int](r: !n)
+  print(total(!arr[0..2]), total(!arr))
+  print(len(!t))
+  print((!p).get(), h, g.r)
+
+# error: 31:12: `!n` here is read, not held: `rd` only reads `n`; write `rd(?n)`
+# error: 32:13: `!n` here is read, not held: a `?Int` only reads `n`; write `?n`
+# error: 33:18: `!n` here is read, not held: `G[?Int]` only reads `n`; write `G[?Int](r: ?n)`
+# error: 34:15: `!arr[0..2]` here is read, not held: `total` only reads `arr[0..2]`; write `total(?arr[0..2])`
+# error: 34:34: `!arr` here is read, not held: `total` only reads `arr`; write `total(?arr)`
+# error: 35:13: `!t` here is read, not held: `len` only reads `t`; write `len(?t)`
+# error: 36:10: `!p` here is read, not held: `get` only reads `p`; write `p.get()`
+# errors: 7

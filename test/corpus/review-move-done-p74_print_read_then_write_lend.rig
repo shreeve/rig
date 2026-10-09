@@ -3,8 +3,12 @@
 struct S
   n: Int
 
+fun bump(s: !S) -> Int
+  s.n += 1
+  s.n
+
 sub main()
   s = S(n: 1)
-  print((?s).n, (!s).n)
+  print((?s).n, bump(!s))
 
 # oracle: main accept

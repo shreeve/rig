@@ -1,5 +1,5 @@
 # A Text is indexed through its String view, and lent as a String to
-# read, whatever sigil it was written with.
+# read with `?t`: a written `!t` there only reads.
 
 sub f(s: String)
   print(s)
@@ -10,5 +10,5 @@ sub main()
   f(!t)
 
 # error: 9:9: cannot index a value of type `Text`; index its String view: `(?t[..])[i]`
-# error: 10:5: type mismatch: expected `String`, got `!Text`; lend it as a String with `?t` or `?t[..]`
+# error: 10:5: `!t` here is read, not held: `f` only reads `t`; write `f(?t)`
 # errors: 2

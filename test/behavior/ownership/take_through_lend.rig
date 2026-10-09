@@ -1,6 +1,6 @@
 # `<` through a lend takes an optional field or element, leaving `none`,
 # since the take writes the place it reaches; a plain field is read
-# through it with no `<` (`test/reject/ownership/move_through_lend.rig`
+# with no `<` (`test/reject/ownership/move_through_lend.rig`
 # and `move_part_that_copies.rig` have the moves rejected).
 
 struct S
@@ -14,7 +14,7 @@ sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   s = S(n: 2, o: <v)
-  n = (!s).n
+  n = s.n
   t = take(!s)
   print(n, t, s.o)
 

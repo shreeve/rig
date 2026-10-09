@@ -6124,6 +6124,77 @@ pub fn yieldsThroughParts(e: Sexp) bool {
 
 /// A loop used as a value: a `while` or `for`, labeled or not, that a
 /// `break` with a value leaves.
+/// The values a loop used as a value gives, appended to `out`: the value
+/// of each `break` that leaves it (unlabeled in its own body, or naming
+/// its label from a nested loop), and its `else`'s tail. A closure's
+/// body is another function's, so a `break` there leaves no loop here.
+pub fn loopValues(a: std.mem.Allocator, source: []const u8, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    var label: []const u8 = "";
+    var loop = e;
+    if (e.isKind(.labeled)) {
+        label = identAt(source, ir.Labeled.label(e)) orelse "";
+        loop = ir.Labeled.stmt(e);
+    }
+    if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return;
+    try breakValues(a, source, ir.get(loop, .body), label, false, out);
+    const else_ = ir.get(loop, .@"else");
+    if (else_ != .nil) {
+        const tail = tailOf(else_);
+        if (tail != .nil) try out.append(a, tail);
+    }
+}
+
+/// The values of the `break`s in `e` that leave the loop labeled `label`
+/// (`nested`: from inside a loop within it, so only by its label), the
+/// walk `breaksOut` makes.
+fn breakValues(a: std.mem.Allocator, source: []const u8, e: Sexp, label: []const u8, nested: bool, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    const h = e.kind() orelse return;
+    switch (h) {
+        .@"break" => {
+            const value = ir.Break.value(e);
+            if (value == .nil) return;
+            const l = ir.Break.label(e);
+            const leaves = if (l == .nil) !nested else label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
+            if (leaves) try out.append(a, value);
+            return;
+        },
+        .lambda => return,
+        .@"while", .@"for" => {
+            try breakValues(a, source, ir.get(e, .@"else"), label, nested, out);
+            if (label.len > 0) try breakValues(a, source, ir.get(e, .body), label, true, out);
+            return;
+        },
+        else => {},
+    }
+    for (rig.children(e)) |c| try breakValues(a, source, c, label, nested, out);
+}
+
+/// The leaves of the value `node` gives, appended to `out`, through
+/// every form that gives one of its parts: the tails of an `if`, a
+/// `match`, and a block, the operands of `??`, `catch`, `e!`, and `e?`
+/// (`valueParts`), and the values of a loop used as a value
+/// (`loopValues`). Any other node is its own leaf. The one walk of what
+/// a value may be, at its leaves: a branching value and a loop alike.
+pub fn yieldedLeaves(a: std.mem.Allocator, source: []const u8, node: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    switch (node.kind() orelse return out.append(a, node)) {
+        .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) {
+            var values: std.ArrayList(Sexp) = .empty;
+            defer values.deinit(a);
+            try loopValues(a, source, node, &values);
+            for (values.items) |v| try yieldedLeaves(a, source, v, out);
+            return;
+        },
+        else => {},
+    }
+    var parts = valueParts(node);
+    var any = false;
+    while (parts.next()) |p| {
+        any = true;
+        if (p.node != .nil) try yieldedLeaves(a, source, p.node, out);
+    }
+    if (!any) try out.append(a, node);
+}
+
 pub fn hasValueBreaks(source: []const u8, e: Sexp) bool {
     var label: []const u8 = "";
     var loop = e;

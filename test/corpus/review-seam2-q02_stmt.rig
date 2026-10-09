@@ -43,5 +43,5 @@ fun clobber(n: Int) -> Int
 sub main()
   !mk(1)
   _ = !mk(2)
-  x = (!mk(3)).n
+  x = (?mk(3)).n
   print(x)

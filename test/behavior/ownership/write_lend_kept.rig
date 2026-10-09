@@ -1,8 +1,8 @@
 # release
 # A write lend `!x` keeps its write view where the slot's type is one:
 # a type spelled with `!T`, one the context expects, a parameter
-# declared `!T`, a write receiver, a read view (`?T`) it narrows to, and
-# a value whose type it gives (an array, an `if`, a loop's `break`s).
+# declared `!T`, a write receiver, and a value whose type it gives (an
+# array, an `if`, a loop's `break`s). A `?T` slot takes `?n`.
 # Each write below reaches the value lent.
 
 enum Opt[T]
@@ -54,7 +54,7 @@ sub main()
   w = through(!n)
   w += 100
   add(!n, 1000)
-  print(n, read(!n))
+  print(n, read(?n))
   s = S(n: 1)
   !s.bump()
   q = !s.get()
