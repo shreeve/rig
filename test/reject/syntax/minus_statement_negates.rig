@@ -1,5 +1,5 @@
-# A statement `-x` drops a name. Any other operand would be negated and
-# the value thrown away, in every place a statement stands.
+# A statement `-e` negates a value and throws it away, in every place a
+# statement stands; a drop is written `<x`.
 
 fun f() -> Int
   3
@@ -33,12 +33,12 @@ sub main()
   print(a, b, p.n)
 
 # errors: 9
-# error: 14:3: a statement `-e` drops a name; `-f()` would negate a value and discard it
-# error: 21:3: a statement `-e` drops a name; `-f()` would negate a value and discard it
-# error: 22:3: a statement `-e` drops a name; `-(a + b)` would negate a value and discard it
-# error: 23:3: a statement `-e` drops a name; `-p.get()` would negate a value and discard it
-# error: 24:4: a statement `-e` drops a name; `-f()` would negate a value and discard it
-# error: 25:3: a statement `-e` drops a name
-# error: 26:9: a statement `-e` drops a name
-# error: 28:10: a statement `-e` drops a name
-# error: 31:5: a statement `-e` drops a name
+# error: 14:3: this expression does nothing as a statement: `-f()` negates a value and discards it
+# error: 21:3: this expression does nothing as a statement: `-f()` negates a value and discards it
+# error: 22:3: this expression does nothing as a statement: `-(a + b)` negates a value and discards it
+# error: 23:3: this expression does nothing as a statement: `-p.get()` negates a value and discards it
+# error: 24:4: this expression does nothing as a statement: `-f()` negates a value and discards it
+# error: 25:3: `-f()` negates a value and discards it
+# error: 26:9: this expression does nothing as a statement: `-f()` negates
+# error: 28:10: this expression does nothing as a statement: `-f()` negates
+# error: 31:5: this expression does nothing as a statement: `-f()` negates

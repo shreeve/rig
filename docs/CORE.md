@@ -213,9 +213,10 @@ sub main()
 1
 ```
 
-**2. `<x` moves, `+x` makes a new owner, `-x` drops now.** `+x` is a
-copy, a count bump, or a deep copy, as the type says; a `unique` type,
-one with a `drop` body, or one holding a write view has none. *(built;*
+**2. `<x` moves, `+x` makes a new owner.** A statement `<x` moves `x`
+nowhere, so it drops now. `+x` is a copy, a count bump, or a deep
+copy, as the type says; a `unique` type, one with a `drop` body, or one
+holding a write view has none. *(built;*
 a deep copy of a type declared in another module, or of one holding a
 `Signal`, is *planned*.*)*
 
@@ -982,8 +983,8 @@ last
 These are single documented syntax rules, not ownership. Every other
 rule in SYNTAX is syntax too.
 
-- **`-x`:** as a statement, `-name` drops; as a value, `-x` negates. A
-  statement `-f()`, or `-n` of plain data, is rejected. *(built)*
+- **`-x`** always negates. A statement `-x` does nothing and is
+  rejected; a drop is written `<x` (sentence 2). *(built)*
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`, and
   `!mk().pop()` applies it to `mk()`. *(built)*
 - **`const x = e`:** a binding that never changes. *(built)*
@@ -1004,7 +1005,7 @@ sub main()
 ```
 
 ```error
-a statement `-e` drops a name
+`-count()` negates a value and discards it
 ```
 
 ```rig reject

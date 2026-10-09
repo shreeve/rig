@@ -260,7 +260,7 @@ one. Whitespace never decides which: a character's position does.
 | `a < b`, `a <b`, `a<b` | comparison |
 | `x = <y`, `f(<y)` | a move |
 | `a - 1`, `a -1`, `a-1` | subtraction |
-| `f(-x)`, `-x` | negation; `-x` as a whole statement drops `x` |
+| `f(-x)`, `-x` | negation |
 | `f(x)`, `f (x)`, `a[i]`, `a.b` | a call, an index or compile-time arguments ([§11](#compile-time-arguments)), member access |
 | `(x)`, `[1, 2]`, `.red` | grouping, an array literal, an enum literal |
 | `T?`, `T!`, `f()!`, `x?` | suffixes: optional, fallible, propagate a failure or `none` |
@@ -826,7 +826,9 @@ A statement is one of:
 - an expression: a call, a propagation (`f()!`), a `catch`, or a block
   form (`if`, `while`, `for`, `match`);
 - a binding or assignment ([§9](#9-bindings-and-assignment));
-- a drop, `-x`;
+- a drop, `<x`: a move to nowhere, which drops what it takes now
+  (`<x`, `<s.f`); where a value is used (a `fun`'s last line, a closure's,
+  a branch whose value is used), `<x` moves the value there;
 - `pass`, which does nothing;
 - `return`, `return e`, `break`, `break e`, `break :label`,
   `continue`, `continue :label`;
@@ -1373,11 +1375,12 @@ the same sigil means the same thing in every position:
 | `match` subject | `match e` | `match !e` | `match <e` | | |
 | closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
 | assignment | | | `a = <b` | | |
+| statement (drop now) | | | `<x` | | |
 
 `*x` moves a value into a new shared handle (`*<x` for a named owning
-value, `*Point(x: 1)` for a new one). `-x` as a whole statement drops
-`x`; where a value is expected, it negates. A sigil may reach into a
-place: `+p.a` clones the handle in a field, `<p.f` takes an optional
+value, `*Point(x: 1)` for a new one). `<x` alone on a line drops `x`
+now; where a value is expected, it moves it there. A sigil may reach
+into a place: `+p.a` clones the handle in a field, `<p.f` takes an optional
 field, and `?xs[0]` lends an element. [SPEC §7](SPEC.md#7-ownership)
 says what each does.
 

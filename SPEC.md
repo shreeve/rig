@@ -1808,7 +1808,7 @@ though one that holds a write view writes through it
 
 Every local must be read. Any use counts: an argument, an operand, a
 view `?x` or `!x`, a move `<x`, a clone, a field access, a closure
-capture, a drop `-x`. Assigning does not: a local that is only ever
+capture, a drop `<x`. Assigning does not: a local that is only ever
 assigned, like a misspelled `totl = 5`, is rejected. A name bound by
 `for`, a match pattern, `as`, or `catch |e|` must be read too, or be
 `_`. Discard a value on purpose with `_ = e`. A value with drop glue
@@ -2210,26 +2210,47 @@ sub main()
 negative 11
 ```
 
-A statement `-x` drops `x`; `-x` where a value is expected negates.
-A value is expected in an operand, an argument, a binding's value, a
-`break` value, and on the last line of a `fun` (the function's value)
-or of a branch (a loop's `else` block too) whose value is used, so `-x` there is negation, and one whose `x` is not a
-number is rejected with a pointer to dropping it before the last line.
-Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected,
-and so is any other statement `-e`, such as `-f()` or `-(a + b)`, which
-would negate a value and discard it.
+A statement `<e` moves `e` nowhere, so what it takes is dropped now
+([Drop](#drop)): `<x` drops the binding `x`, `<s.f` and `<v[i]` take an
+optional field or element and drop it, leaving `none`, and `<mk()`
+drops the value `mk()` makes. Where a value is expected, `<e` moves it
+there: in an operand, an argument, a binding's value, a `return` or
+`break` value, and on the last line of a `fun` or a closure (its value)
+or of a branch, arm, or loop `else` block whose value is used. A
+closure's last line is its value even where the closure gives none, so
+it drops there with `_ = <x`. `-x` always negates: a statement `-e`
+does nothing, and is rejected, with the drop to write where `e` holds
+something to drop.
 
-```rig reject
+```rig
+struct F
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
 struct S
-  r: Vec[Int]
+  f: F?
 
 sub main()
-  s = S(r: Vec())
-  -s.r
+  s = S(f: F(n: 1))
+  <s.f
+  print(s.f == none)
+```
+
+```output
+drop 1
+true
+```
+
+```rig reject
+sub main()
+  v: Vec[Int] = Vec()
+  -v
 ```
 
 ```error
-only a binding is dropped with `-x`
+to drop `v` now, write `<v`
 ```
 
 A statement must have some use. An expression whose value is used (the
@@ -2909,7 +2930,7 @@ happens:
 | `?x` | lend to read | a read view; `x` keeps ownership |
 | `!x` | lend to write | a write view, the only view while it lives |
 | `+x` | clone | a new owner, as the type says ([Clone](#clone)) |
-| `-x` | drop | release `x` now |
+| `<x` (a statement) | drop | release `x` now |
 | `*x` | share | move `x` into a new shared box ([§9](#9-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§9](#9-shared-and-weak-handles)) |
 
@@ -2997,7 +3018,7 @@ sub main()
 
 ### Moves
 
-> **Core 2:** `<x` moves, `+x` makes a new owner, `-x` drops now.
+> **Core 2:** `<x` moves, `+x` makes a new owner. A statement `<x` moves `x` nowhere, so it drops now.
 
 A value moves when it is passed to a parameter of owning type, bound to
 another name, stored in a field, or returned. Write `<x` when `x`
@@ -3137,15 +3158,15 @@ statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
 
 > **Core 3:** An owner that is not moved is dropped where its scope ends.
 
-`-x` as a statement releases `x` now; afterwards `x` cannot be used.
-Every owning local and parameter that is still live is dropped
-automatically when its block ends, including on early `return`,
-`break`, and `continue`, and on every path through branches. So `-x`
-is only needed to release something early, or to end a view a
-binding holds. A view parameter cannot be dropped: the caller owns
-what it views. Plain data owns nothing, so `-n` of an `Int` or a struct of
-numbers drops nothing, and is rejected. A String may view a `Text`
-(§10), so `-s` of a String, or of a struct holding one, ends the loan
+A statement `<x` moves `x` nowhere, so it releases `x` now; afterwards
+`x` cannot be used. Every owning local and parameter that is still live
+is dropped automatically when its block ends, including on early
+`return`, `break`, and `continue`, and on every path through branches.
+So a drop is only needed to release something early, or to end a view
+a binding holds. A view parameter cannot be dropped: the caller owns
+what it views. Plain data owns nothing, so `<n` of an `Int` or a struct
+of numbers drops nothing, and is rejected. A String may view a `Text`
+(§10), so `<s` of a String, or of a struct holding one, ends the loan
 it carries.
 
 ```rig
@@ -3449,7 +3470,7 @@ deferred code, and the drop at scope exit of a value whose drop runs a
 `drop` body (its own, or one of a value it holds and drops), which could
 read the view. Any other drop only releases memory, so a `Vec[?T]`, or
 a struct holding views without a `drop` body, keeps their loans only
-until its last use. The binding's block ending, `-r`, or reassigning it
+until its last use. The binding's block ending, `<r`, or reassigning it
 also end the view.
 
 ```rig

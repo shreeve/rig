@@ -696,8 +696,13 @@ const Checker = struct {
             const operand = ir.Neg.operand(stmt);
             const ty = try self.synthQuiet(operand);
             const owns_or_views = self.isPoison(ty) or !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
+            const shown = self.sourceText(operand);
             if (owns_or_views and sema.handsOver(self.ctx, operand).kind == .place) {
-                try self.errAt(stmt, "this expression does nothing as a statement; to drop `{s}` now, write `<{s}`", .{ self.sourceText(operand), self.sourceText(operand) });
+                // `<` takes a binding, or an optional field or element.
+                const takes = operand == .src or self.isPoison(ty) or self.ctx.types.get(ty) == .optional;
+                if (takes) {
+                    try self.errAt(stmt, "this expression does nothing as a statement; to drop `{s}` now, write `<{s}`", .{ shown, shown });
+                } else try self.errAt(stmt, "this expression does nothing as a statement; `{s}` is dropped with what holds it, or replaced by assigning to it", .{shown});
             } else try self.errAt(stmt, "this expression does nothing as a statement: `{s}` negates a value and discards it", .{self.sourceText(stmt)});
             return;
         }
@@ -709,6 +714,13 @@ const Checker = struct {
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
         if (!hasEffect(stmt)) {
+            // A statement `<e` is a drop everywhere but on a line whose
+            // value is used, which a closure's last line is, though this
+            // closure gives none.
+            if (stmt.isKind(.move)) {
+                const shown = self.sourceText(ir.Move.operand(stmt));
+                return self.errAt(stmt, "a closure's last line is its value, so `<{s}` there is no drop, and this closure gives no value; to drop `{s}` here, write `_ = <{s}`", .{ shown, shown, shown });
+            }
             if (stmt.kind() == null and self.ctx.types.get(ty) == .function)
                 return self.errAt(stmt, "`{s}` is a function; call it with `{s}()`", .{ self.text(stmt), self.text(stmt) });
             return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});

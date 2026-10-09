@@ -1,4 +1,4 @@
-# `-a` on a payload of `match <s` that owns a resource drops it now.
+# `<a` on a payload of `match <s` that owns a resource drops it now.
 
 struct B
   n: Int

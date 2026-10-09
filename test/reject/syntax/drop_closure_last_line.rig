@@ -1,0 +1,32 @@
+# A closure's last line is its value, so `<x` there moves `x` out as the
+# closure's result rather than dropping it. A closure that gives no value
+# drops on its last line with `_ = <x`, or drops before it.
+
+struct F
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub each(f: ?sub(Int))
+  f(1)
+
+sub main()
+  each(|i|
+    q = F(n: i)
+    print(q.n)
+    <q
+  )
+  each(|i|
+    q = F(n: i)
+    <q
+    print(i)
+  )
+  each(|i|
+    q = F(n: i)
+    print(q.n)
+    _ = <q
+  )
+
+# errors: 1
+# error: 18:5: a closure's last line is its value, so `<q` there is no drop, and this closure gives no value; to drop `q` here, write `_ = <q`

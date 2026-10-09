@@ -13,11 +13,10 @@ where it happens, so memory safety reads more cleanly than in Rust:
 
 | Sigil | Meaning |
 |---|---|
-| `<x` | move |
+| `<x` | move; as a statement, drop now |
 | `?x` / `?T` | lend to read / read view |
 | `!x` / `!T` | lend to write / write view |
 | `+x` | clone |
-| `-x` | drop now |
 | `*x` / `*T` | shared (refcounted) |
 | `~x` / `~T` | weak |
 | `expr!` / `T!` | propagate failure / fallible type |

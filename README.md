@@ -4,8 +4,8 @@ Rig is a small, fast systems language that aims for the readability of
 Python and Ruby and the memory safety of Rust, without a garbage
 collector. Blocks are indented, most code carries no annotations at
 all, and the places where ownership matters are marked by a handful of
-one-character sigils: `<x` moves, `?x` lends, `+x` clones, `-x`
-drops. The compiler checks every one of them, then lowers the program
+one-character sigils: `<x` moves, `?x` lends, `+x` clones, and `<x`
+alone on a line drops. The compiler checks every one of them, then lowers the program
 to [Zig](https://ziglang.org) 0.17, which does the optimizing, code
 generation, and linking.
 
@@ -124,7 +124,8 @@ config released
 ```
 
 `*Config(...)` puts the value in a reference-counted box, `+a` makes
-another owner (a visible refcount bump), and `-a` drops one now. The
+another owner (a visible refcount bump), and `<a` alone on a line moves
+`a` nowhere, so it drops that owner now. The
 value goes when its last owner does.
 
 ### Generics
@@ -184,11 +185,10 @@ libraries are written in Rig itself (see
 
 | Sigil | In an expression | In a type |
 |---|---|---|
-| `<` | `<x` move `x` | |
+| `<` | `<x` move `x`; as a statement, drop it now | |
 | `?` | `?x` lend to read; `x?` propagate `none` | `?T` read view; `T?` optional |
 | `!` | `!x` lend to write; `f()!` propagate failure | `!T` write view; `T!` fallible |
 | `+` | `+x` clone (a new owner) | |
-| `-` | `-x` drop now (as a statement) | |
 | `*` | `*x` share: move into a counted box | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
 

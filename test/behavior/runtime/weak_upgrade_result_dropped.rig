@@ -1,5 +1,5 @@
 # The `*T?` returned by `w.upgrade()` owns a strong handle: `m` keeps
-# the Noisy alive after `-rc` and drops it at scope exit.
+# the Noisy alive after `<rc` and drops it at scope exit.
 
 struct Noisy
   id: Int

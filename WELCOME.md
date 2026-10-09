@@ -39,22 +39,22 @@ happens, as a one-character **sigil**:
 | `?x` | lend `x` to read | `&x` | `x` or `&x` |
 | `!x` | lend `x` to write | `&mut x` | `&x` |
 | `+x` | clone: a new owner | `x.clone()`, `Rc::clone(&x)` | copy, or a manual refcount bump |
-| `-x` | drop now | `drop(x)` | `x.deinit()` |
+| `<x` alone on a line | drop now | `drop(x)` | `x.deinit()` |
 | `*x` | move into a shared, counted box | `Rc::new(x)` | a hand-written refcounted box |
 | `~x` | weak handle | `Rc::downgrade(&x)` | a hand-written weak count |
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
 **Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
-and `!x` lend it, `<x` moves it, `+x` clones it, `-x` drops it, `*x`
-and `~x` make handles), and a suffix `?` or `!` is control flow (`e?`
+and `!x` lend it, `<x` moves it, `+x` clones it, `*x` and `~x` make
+handles), and a suffix `?` or `!` is control flow (`e?`
 passes `none` up, `e!` passes a failure up). Types follow suit: `?T`
 and `!T` are views, `*T` a shared handle and `~T` a weak one, while
 `T?` is an optional and `T!` a `T` that may fail. Rig has no `!` for
 "not": logical negation is `not`, so `!v.pop()` lends `v` to write,
 and never negates (`if !done` is an error that says to use `not`; see
-[below](#habits-that-trip-people-up)). The one look-alike is `-`: only
-`-name` standing alone as a statement drops; as a value, `-n` is
+[below](#habits-that-trip-people-up)). A move to nowhere is a drop:
+`<x` standing alone as a statement drops `x` now, and `-n` is only ever
 arithmetic negation (`y = -n`):
 
 ```rig
@@ -186,7 +186,8 @@ closing cfg.toml
 
 `<log` moves the file into `archive`, which owns it and closes it on
 return. `*File(...)` puts a file in a reference-counted box, `+cfg`
-makes a second owner, `-cfg` drops the first now, and the file closes
+makes a second owner, `<cfg` alone on its line moves the first owner
+nowhere, so it drops now, and the file closes
 when `cfg2`, its last owner, goes out of scope.
 
 ### Optionals and errors
@@ -299,7 +300,7 @@ support file.
 | growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec[T]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
 | closure argument | `f: &dyn Fn(i64) -> i64` | a context pointer and a function | `f: ?fun(Int) -> Int` |
-| drop early | `drop(x)` | `x.deinit()` | `-x` |
+| drop early | `drop(x)` | `x.deinit()` | `<x` alone on a line |
 | destructor | `impl Drop` | `deinit` + `defer` | `drop(!self)` |
 | cleanup | a scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
 | unsafe | `unsafe { }` | (everything) | a `raw` block |
@@ -415,7 +416,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | memory | `malloc`, `free` | a garbage collector | a garbage collector | owners, released where their scope ends |
 
 A Rig program frees what it allocates at a point you can see: when its
-owner's scope ends, or where `-x` drops it. There is no collector, and
+owner's scope ends, or where a statement `<x` drops it. There is no collector, and
 a Debug build reports any allocation still live when `main` returns.
 
 ## Habits that trip people up

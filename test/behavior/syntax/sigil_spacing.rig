@@ -1,8 +1,8 @@
 # The same character is an infix operator when spaced (`a < x`, `a * b`,
 # `a + b`, `a % b`, `a - b`) and an ownership sigil when tight against its
 # operand at expression start (`<s`, `*Wrap`, `+s`, `?box`). `-x` is
-# negation in an expression and a drop at statement start; `@name(...)`
-# is a builtin call.
+# negation, and `<x` alone on a line drops `x`; `@name(...)` is a
+# builtin call.
 
 struct Wrap
   v: Int

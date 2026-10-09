@@ -1,5 +1,5 @@
-# `=> -name` in a match used as a statement drops `name` in that arm; in
-# a match whose value is used, it is negation.
+# `=> <name` in a match used as a statement drops `name` in that arm;
+# `-a` is negation, also as the value of an arm whose match is used.
 
 struct N
   id: Int

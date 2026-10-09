@@ -1,4 +1,4 @@
-# `-f` on a closure that owns its captures releases them now; a closure
+# `<f` on a closure that owns its captures releases them now; a closure
 # that is not dropped releases them at scope exit.
 
 struct B

@@ -108,7 +108,7 @@ For a value `x` of type `T`:
 | `?x` | `?T` | shared, read-only loan | none: checked statically |
 | `!x` | `!T` | exclusive, writable loan | none: checked statically |
 | `+x` | `T` | a new owner (`T` is plain data or a handle) | a count bump for a handle |
-| `-x` | (statement) | release now | runs the drop glue |
+| `<x` as a statement | (none) | release now: a move to nowhere | runs the drop glue |
 | `*x` | `*T` | move into a new counted box | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
@@ -139,6 +139,13 @@ T!   suffix, type         fallible: T or an error
 e!   suffix, expression   propagate the failure of a T!
 e?   suffix, expression   propagate the absence of a T?
 ```
+
+Each of the two carries one idea in all four positions. `?` is "maybe,
+just look": a read lend, a read view, an optional, and passing `none`
+up. `!` is "for real, act": a write lend, a write view, a type that can
+fail, and passing a failure up. As in Ruby's `sort!` and Scheme's
+`set!`, `!` marks what changes things, so it is never "not": Rig spells
+negation `not`.
 
 Keeping absence and failure in suffix position is what lets `!` and
 `?` serve both families unambiguously: `-> !User` returns a write
@@ -195,7 +202,9 @@ reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
 is lent (`for x in ?v`), and a `match` says the same of its subject (`match !e`
 writes the payload in place, `match <e` takes it). Receivers are
 `?self`, `!self`, and `<self`, the only place a sigil may prefix a
-parameter name. A move-assignment is `a = <b`.
+parameter name. A move-assignment is `a = <b`, and a move to nowhere,
+`<x` alone on a line, is a drop: releasing a value early needs no sigil
+of its own, so `-` means only negation.
 
 Here the algebra is at work in one small program:
 
@@ -234,7 +243,7 @@ drop 1
 The costs are where the sigils are. Moves, views, and plain values
 cost what they cost in Zig or C. Reference counting happens only behind
 `*T`, and each count change is written: `*x` allocates, `+x` bumps,
-`-x` and scope exit release. Views are never counted. Drop glue is
+a statement `<x` and scope exit release. Views are never counted. Drop glue is
 ordinary code the compiler generates, run at points you can see.
 
 ## Why these choices
@@ -479,8 +488,8 @@ truth for both syntax and IR shape, and every later pass walks the same
 tree by tag. The grammar has no LALR conflicts. A character that both
 starts and continues an operand (`-x` and `a - b`, `f(x)` and `(x)`)
 is one token, which the parser tells apart by where it stands; the few
-decisions its state cannot make (ternary versus guard, closure bars, a
-drop statement) are made in a small lexer rewriter that sees the token
+decisions its state cannot make (ternary versus guard, closure bars)
+are made in a small lexer rewriter that sees the token
 before and can look ahead on the line. Whitespace inside an expression
 decides none of them, and a prefix sigil touches its operand, so a
 spacing can be wrong but never mean something else. Lisp's influence

@@ -1,4 +1,4 @@
-# A String may view a Text, so a statement `-s` of a String, or of a
+# A String may view a Text, so a statement `<s` of a String, or of a
 # struct or iterator holding Strings, ends the loan it carries: the
 # Text may then change.
 

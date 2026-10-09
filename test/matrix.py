@@ -538,7 +538,7 @@ TARGET_ACTS = {
     "grow": dict(lines=["grow(!v)"]),
     "read": dict(lines=["v.len"]),
     "move": dict(lines=["sink(<v)"]),
-    "drop": dict(lines=["-v", "3"]),
+    "drop": dict(lines=["<v", "3"]),
     "other": dict(lines=["grow(!x)"], stores=201),
     "local": dict(lines=["y: Vec[Int] = Vec()", "!y.push(1)", "grow(!y)"], stores=201),
     "repoint_local": dict(lines=["MAKE_y", "REPOINT_y", "3"]),
