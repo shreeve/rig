@@ -1,0 +1,19 @@
+# A write lend a construction's field ignores is reported once: the
+# construction, built without the view, is not reported again where a
+# `Opt[!Int]` is expected of it.
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub takeo(o: Opt[!Int])
+  match o
+    .some(v) => print(v)
+    .nothing => pass
+
+sub main()
+  n = 1
+  takeo(Opt.some(v: !n))
+
+# error: 16:21: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt[!Int].some(v: !n)` to keep a write view of `n`, or `Opt.some(v: n)` to store a copy
+# errors: 1

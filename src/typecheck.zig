@@ -67,6 +67,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .body = .{ .ret = ctx.types.void_id },
     };
     defer c.arg_types.deinit(ctx.allocator);
+    defer c.view_loops.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
     defer c.loop_pairs.deinit(ctx.allocator);
     defer c.owned_bindings.deinit(ctx.allocator);
@@ -138,6 +139,9 @@ const Checker = struct {
     /// The parameter or field the argument being checked fills, which a
     /// diagnostic names (`ignoredWriteLend`).
     slot: Slot = .{},
+    /// A construction a field of which `writeLendRead` rejected: its own
+    /// type, built without the view, is not reported again.
+    ignored_in: Sexp = .nil,
     /// The value a header makes and holds for its construct, of which
     /// its subject is a part (`Header.held`): it is no temporary of the
     /// header.
@@ -172,6 +176,9 @@ const Checker = struct {
     loop_value: ?*LoopValue = null,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
+    /// Loops used as values with no type given whose every value yields
+    /// a write view (`yieldsWriteView`), as an `if`'s branches may.
+    view_loops: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// A loop element or `as` binding that copies from a place: the
     /// place, named when the binding is written (`checkBindingWritable`).
     copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
@@ -862,7 +869,7 @@ const Checker = struct {
             // reaches when that copies (`sema.copiedThrough`). A read view
             // is copied, but one of a scalar binds the scalar
             // (`readValue`).
-            const holds_write_view = self.ctx.types.get(rhs_ty) == .write_view and yieldsWriteView(rhs);
+            const holds_write_view = self.ctx.types.get(rhs_ty) == .write_view and self.yieldsWriteView(rhs);
             if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, bindingValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
@@ -1645,8 +1652,8 @@ const Checker = struct {
                     try self.ctx.recordType(expr, self.t().invalid_id);
                     inner = self.t().invalid_id;
                 } else inner = try self.ctx.intern(.{ .read_view = inner });
-            } else _ = try self.readThrough(expr, ty, sema.unwrapViews(self.ctx, ty));
-        } else _ = try self.readThrough(expr, ty, sema.unwrapViews(self.ctx, ty));
+            } else _ = try self.reachThrough(expr, ty, sema.unwrapViews(self.ctx, ty));
+        } else _ = try self.reachThrough(expr, ty, sema.unwrapViews(self.ctx, ty));
         // A place whose value is not plain data is bound where it stands,
         // as `if ?o as x` binds it; a part of a made value where the `if`
         // holds that value (docs/INTERNALS.md, "Header subjects").
@@ -1925,6 +1932,14 @@ const Checker = struct {
         if (loop.isKind(.@"while")) try self.checkWhile(loop) else try self.checkFor(loop);
         const ty = if (expected) |e| e else self.canonical(lv.ty orelse self.t().invalid_id);
         if (expected == null) for (lv.values.items) |v| try self.adaptLiteral(v.node, v.ty, ty);
+        // Its values all write views a lend or a call hands over, the loop
+        // hands one over too, as an `if` whose branches do.
+        if (expected == null and self.ctx.types.get(ty) == .write_view and lv.values.items.len > 0 and node.list.id != 0) {
+            const all = for (lv.values.items) |v| {
+                if (!self.yieldsWriteView(v.node)) break false;
+            } else true;
+            if (all) try self.view_loops.put(self.ctx.allocator, node.list.id, {});
+        }
         if (used and ty == self.t().void_id) try self.errAt(node, "a loop used as a value cannot yield `Void`", .{});
         try self.ctx.recordType(loop, ty);
         return ty;
@@ -3813,6 +3828,8 @@ const Checker = struct {
         else
             try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
+        // `?!x` only reads what `!x` lends.
+        if (kind == .read and try self.writeLendRead(operand, inner, .lent_to_read)) return self.t().invalid_id;
         const place = self.placeOf(operand);
         if (place.cell_vec_elem != null) {
             try self.errAt(operand, "cannot lend an element of a Cell's Vec: the cell may change while the view lives; copy the element out with `c[i]`", .{});
@@ -4295,9 +4312,17 @@ const Checker = struct {
     }
 
     /// `value`, the value `e` of type `ty` gives where it is read; when
-    /// that is what a view reaches, `e` reads through it (`recordRead`).
+    /// that is what a view reaches, `e` reads through it (`readOf`).
     fn readThrough(self: *Checker, e: Sexp, ty: TypeId, value: TypeId) Error!TypeId {
-        if (value != ty) try self.ctx.recordRead(e);
+        if (value != ty) try self.readOf(e, ty, .{ .value = value });
+        return value;
+    }
+
+    /// `e`, of type `ty`, a view through which a place is reached (an
+    /// element of a viewed slice or String, a header's optional): read
+    /// through, as no value but the place it reaches.
+    fn reachThrough(self: *Checker, e: Sexp, ty: TypeId, value: TypeId) Error!TypeId {
+        if (value != ty) try self.readOf(e, ty, .reach);
         return value;
     }
 
@@ -5200,11 +5225,11 @@ const Checker = struct {
                 return a.elem;
             },
             .slice => |s| {
-                _ = try self.readThrough(object, obj_ty, sema.unwrapViews(self.ctx, obj_ty));
+                _ = try self.reachThrough(object, obj_ty, sema.unwrapViews(self.ctx, obj_ty));
                 return s.elem;
             },
             .string => {
-                _ = try self.readThrough(object, obj_ty, sema.unwrapViews(self.ctx, obj_ty));
+                _ = try self.reachThrough(object, obj_ty, sema.unwrapViews(self.ctx, obj_ty));
                 return self.byteType();
             },
             // A Vec's element is a place, as a field is: what its context
@@ -5256,7 +5281,7 @@ const Checker = struct {
         const peeled = textOrBoxed(self.ctx, sema.unwrapViews(self.ctx, obj_ty));
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
             .string, .slice => {
-                _ = try self.readThrough(object, obj_ty, peeled);
+                _ = try self.reachThrough(object, obj_ty, peeled);
                 try self.checkSliceBounds(range, null);
                 // A `![]T` is lent like the array it views: a read
                 // slice of it keeps it from being written meanwhile.
@@ -5748,6 +5773,7 @@ const Checker = struct {
                 continue;
             }
             const ty = try self.synthReadTemp(a);
+            if (try self.writeLendRead(a, ty, .{ .value = sema.unwrapViews(self.ctx, ty) })) continue;
             // An integer literal is written as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
             switch (self.ctx.types.get(ty)) {
@@ -5909,9 +5935,14 @@ const Checker = struct {
         /// arguments, which a type parameter `declared` is one of.
         subst: TypeSubst = .empty,
         /// That instance's generic type, spelled at `type_node` in the
-        /// call (`Opt` in `Opt.some(v: x)`, `G[Int]` in `G[Int](r: x)`).
+        /// call (`Opt` in `Opt.some(v: x)`, `G[Int]` in `G[Int](r: x)`),
+        /// and the type parameters a field filled by an ignored lend is
+        /// declared as, which would be write views (`viewInstance`).
         generic: SymbolId = sema.symbol_invalid,
         type_node: Sexp = .nil,
+        views: []const usize = &.{},
+        /// The arguments whose `!` their slots ignore (`plainSlotLends`).
+        lends: []const Sexp = &.{},
     };
 
     /// Arguments against a signature: arity, types, keyword arguments
@@ -5922,7 +5953,7 @@ const Checker = struct {
         const call = self.current_call;
         const saved_slot = self.slot;
         defer self.slot = saved_slot;
-        self.slot = .{ .call = call orelse .nil, .params = site.declared };
+        self.slot = .{ .call = call orelse .nil, .params = site.declared, .lends = try self.argLends(args, f, info) };
         const retains = self.callRetains(f, self.lend_recv);
         const lends = self.lend_call and !retains;
         self.lend_call = false;
@@ -6005,6 +6036,43 @@ const Checker = struct {
         const out = try self.ctx.arena.allocator().alloc(sema.ArgSlot, slots.len);
         for (slots, out) |s, *o| o.* = s.?;
         try self.ctx.recordCallSlots(call_node, out);
+    }
+
+    /// A method's parameters as its type declares them, after the first
+    /// `skip`, when the type is this module's: the declaration's own
+    /// types, a type parameter of the receiver's included.
+    fn declaredParams(self: *Checker, m: Field, module: ?u32, skip: usize) ?[]const TypeId {
+        if (module != null) return null;
+        const params = switch (self.ctx.types.get(m.ty)) {
+            .function => |f| f.params,
+            else => return null,
+        };
+        return if (params.len >= skip) params[skip..] else null;
+    }
+
+    /// The arguments of a call to `f` whose `!` their parameters ignore
+    /// (`plainSlotLends`), by position or by name.
+    fn argLends(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo) Error![]const Sexp {
+        const a = self.ctx.arena.allocator();
+        const values = try a.alloc(Sexp, args.len);
+        const types = try a.alloc(TypeId, args.len);
+        for (args, values, types, 0..) |arg, *v, *ty, i| {
+            v.* = .nil;
+            ty.* = sema.type_invalid;
+            if (arg.isKind(.kwarg)) {
+                const names = info.names orelse continue;
+                const k = for (names, 0..) |n, j| {
+                    if (std.mem.eql(u8, n, self.text(ir.Kwarg.name(arg)))) break j;
+                } else continue;
+                if (k >= f.params.len) continue;
+                v.* = ir.Kwarg.value(arg);
+                ty.* = f.params[k];
+            } else if (i < f.params.len) {
+                v.* = arg;
+                ty.* = f.params[i];
+            }
+        }
+        return self.plainSlotLends(values, types);
     }
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, lends: bool) Error!void {
@@ -6491,6 +6559,12 @@ const Checker = struct {
         if (self.arg_types.get(e.list.id)) |ty| return ty;
         var ty = try self.synthQuiet(e);
         if (self.literalResult(e)) |lit| ty = lit;
+        // A write lend written here binds the value it reaches where that
+        // is copied out, as the slot then reads it (`writeLendRead`), and
+        // the view only where no copy could be meant.
+        if (self.writtenWriteLend(e, ty) != null) if (sema.copiedThrough(self.ctx, ty)) |value| {
+            ty = value;
+        };
         try self.arg_types.put(self.ctx.allocator, e.list.id, ty);
         return ty;
     }
@@ -6999,7 +7073,7 @@ const Checker = struct {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
         const saved_slot = self.slot;
         defer self.slot = saved_slot;
-        self.slot = try self.fieldSlot(info);
+        self.slot = try self.fieldSlot(info, args, fields);
         if (args.len == 1 and !args[0].isKind(.kwarg)) {
             if (soleField(fields)) |f| {
                 const ty = try self.fieldType(f, info);
@@ -7066,7 +7140,7 @@ const Checker = struct {
     /// what it makes as written, and, for a generic type's instance made
     /// by a callee that names the type (`G(...)`, `G[Int](...)`,
     /// `Opt.some(...)`), where the type is spelled.
-    fn fieldSlot(self: *Checker, info: FieldArgs) Error!Slot {
+    fn fieldSlot(self: *Checker, info: FieldArgs, args: []const Sexp, fields: []const Field) Error!Slot {
         const call = if (info.call != .nil) info.call else self.current_call orelse return .{ .field = true, .owner = info.owner };
         const callee = ir.Call.callee(call);
         var slot: Slot = .{
@@ -7075,7 +7149,34 @@ const Checker = struct {
             .field = true,
             .subst = info.subst,
         };
+        // The fields each argument fills, and their types.
+        const a = self.ctx.arena.allocator();
+        const values = try a.alloc(Sexp, args.len);
+        const types = try a.alloc(TypeId, args.len);
+        const declared = try a.alloc(TypeId, args.len);
+        for (args, values, types, declared) |arg, *v, *ty, *d| {
+            v.* = .nil;
+            ty.* = sema.type_invalid;
+            d.* = sema.type_invalid;
+            const f = if (arg.isKind(.kwarg)) findDataField(fields, self.text(ir.Kwarg.name(arg))) else if (args.len == 1) soleField(fields) else null;
+            const field = f orelse continue;
+            v.* = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
+            ty.* = try self.fieldType(field, info);
+            d.* = field.ty;
+        }
+        slot.lends = try self.plainSlotLends(values, types);
         if (info.foreign != null or info.subst.isEmpty()) return slot;
+        var views: std.ArrayList(usize) = .empty;
+        for (values, declared) |v, d| {
+            if (v == .nil or !containsExpr(slot.lends, v)) continue;
+            const tv = switch (self.ctx.types.get(d)) {
+                .type_var => |tv| tv,
+                else => continue,
+            };
+            const k = std.mem.findScalar(SymbolId, info.subst.params, tv) orelse continue;
+            if (std.mem.indexOfScalar(usize, views.items, k) == null) try views.append(a, k);
+        }
+        slot.views = views.items;
         const pn = switch (self.ctx.types.get(info.instance)) {
             .parameterized_nominal => |pn| pn,
             else => return slot,
@@ -7341,7 +7442,7 @@ const Checker = struct {
         }
         self.lend_call = true;
         self.lend_recv = f.params[0];
-        try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins, .declared = resolved.fn_ty.params[1..] });
+        try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
         return f.returns;
     }
 
@@ -7754,7 +7855,7 @@ const Checker = struct {
                 // A generic function's callee has the instance's signature.
                 try self.noteCallee(f);
                 self.lend_call = true;
-                try self.checkArgs(args, f, info, qualified, pos, .{ .origins = found.sym.origins });
+                try self.checkArgs(args, f, info, qualified, pos, .{ .origins = found.sym.origins, .declared = fty.function.params });
                 return f.returns;
             },
             .nominal_type => if (ct == null) return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return self.badCall(args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
@@ -7993,6 +8094,7 @@ const Checker = struct {
         // reported the missing `!` / `catch`.
         const at = self.ctx.types.get(actual);
         if (at == .fallible and compatible(self.ctx, at.fallible, expected)) return;
+        if (sameExpr(e, self.ignored_in)) return;
         if (resultCall(e)) |call| if (call.list.id != 0) if (self.result_hints.get(call.list.id)) |hint| {
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; {s}", .{ try self.tyName(expected), try self.tyName(actual), hint });
         };
@@ -8365,18 +8467,13 @@ const Checker = struct {
 
     /// Record how `e`, of type `actual`, adapts to the `expected` its
     /// context gives: a view copied out (`copiedOut`) is read through
-    /// (`recordRead`), but for a write lend written there, whose `!`
-    /// would be ignored (`ignoredWriteLend`); a write view lent where a
-    /// read view that copies its value is expected is read through too;
-    /// a literal takes a concrete type.
+    /// (`readOf`), and so is a write view lent where a read view that
+    /// copies its value is expected; a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         const lifted = self.liftTarget(expected);
-        if (copiedOut(self.ctx, actual, expected)) {
-            if (self.hands(e).kind == .lend and self.ctx.types.get(actual) == .write_view) return self.ignoredWriteLend(e, expected);
-            return self.ctx.recordRead(e);
-        }
+        if (copiedOut(self.ctx, actual, expected)) return self.readOf(e, actual, .{ .slot = expected });
         if (self.ctx.types.get(actual) == .write_view) switch (self.ctx.types.get(lifted)) {
-            .read_view => |inner| if (sema.lendByValue(self.ctx, inner)) return self.ctx.recordRead(e),
+            .read_view => |inner| if (sema.lendByValue(self.ctx, inner)) return self.readOf(e, actual, .narrow),
             else => {},
         };
         if (actual != self.t().int_literal_id and actual != self.t().float_literal_id) return;
@@ -8392,23 +8489,93 @@ const Checker = struct {
         try self.checkFloatConstant(e, target);
     }
 
-    /// `!x` where a plain value of type `expected` goes: the slot stores
-    /// or takes a copy, and a write lend there would be read and its `!`
-    /// ignored (Core §4). Rejected, with the two forms that say what is
-    /// meant: the slot made a write view, or a copy written as one.
-    fn ignoredWriteLend(self: *Checker, e: Sexp, expected: TypeId) Error!void {
+    fn yieldsWriteView(self: *const Checker, e: Sexp) bool {
+        return yieldsWriteViewIn(self, e);
+    }
+
+    /// How a view is read as the value it reaches (`readOf`).
+    const ViewRead = union(enum) {
+        /// Copied out into a slot that stores or takes this plain type
+        /// (`recordAdapted`).
+        slot: TypeId,
+        /// Read as this value: an operand, an index, a bound, a printed
+        /// value.
+        value: TypeId,
+        /// Lent on to read: `?!x`.
+        lent_to_read,
+        /// Lent where a read view of a value that copies goes (`rd(!n)`
+        /// for `rd(x: ?Int)`), which narrows it. A written `!` is kept
+        /// here, an open question for the design owner.
+        narrow,
+        /// Through it a place is reached, not read as a value.
+        reach,
+    };
+
+    /// Record that `e`, a view of type `ty`, is read through (`recordRead`),
+    /// the one place type checking records it: a read as a value is first
+    /// decided by `writeLendRead`.
+    fn readOf(self: *Checker, e: Sexp, ty: TypeId, how: ViewRead) Error!void {
+        switch (how) {
+            .slot, .value, .lent_to_read => if (try self.writeLendRead(e, ty, how)) return,
+            .narrow, .reach => {},
+        }
+        try self.ctx.recordRead(e);
+    }
+
+    /// The write lend written at `e`, of type `ty`: `!x`, or `<!x`, which
+    /// moves the view `!x` makes. Its `!` says the view is held to write.
+    /// Null for anything else, a held write view included (`w`, `h.w`, a
+    /// `!T` parameter), which is read as a bare name is (Core sentence 1).
+    fn writtenWriteLend(self: *Checker, e: Sexp, ty: TypeId) ?Sexp {
+        if (self.ctx.types.get(ty) != .write_view) return null;
+        return switch (self.hands(e).kind) {
+            .lend => e,
+            .made => if (e.isKind(.move)) self.writtenWriteLend(ir.Move.operand(e), self.ctx.typeOf(ir.Move.operand(e)) orelse return null) else null,
+            else => null,
+        };
+    }
+
+    /// Whether `e`, of type `ty`, read as a value `how` says, is a write
+    /// lend written there (`writtenWriteLend`): its `!` would be ignored,
+    /// so it is rejected (Core §4), and reported here. The one decider
+    /// for every read of a view as a value (`readOf`), `print`'s values,
+    /// and `?!x`; inference binds such a lend as the slot then reads it
+    /// (`argType`).
+    fn writeLendRead(self: *Checker, e: Sexp, ty: TypeId, how: ViewRead) Error!bool {
+        const lend = self.writtenWriteLend(e, ty) orelse return false;
         try self.ctx.recordType(e, self.t().invalid_id);
         // A `!` its operand's own check reported (one before a write
         // method's temporary receiver) is reported once.
         const sp = self.ctx.span(e);
-        for (self.ctx.diagnostics.items) |d| if (d.severity == .@"error" and d.module == 0 and d.pos >= sp.start and d.pos < sp.end) return;
+        for (self.ctx.diagnostics.items) |d| if (d.severity == .@"error" and d.module == 0 and d.pos >= sp.start and d.pos < sp.end) return true;
+        try self.ignoredWriteLend(e, lend, how);
+        return true;
+    }
+
+    /// The diagnostic for `e`, a write lend written where it is read as a
+    /// value (`writeLendRead`), with the forms that say what is meant: a
+    /// slot whose type holds the write view, or a copy written as one.
+    fn ignoredWriteLend(self: *Checker, e: Sexp, lend: Sexp, how: ViewRead) Error!void {
         const a = self.ctx.arena.allocator();
-        const operand = ir.Write.operand(e);
-        const place = self.sourceText(operand);
-        const ty = try self.tyName(expected);
+        const place_node = unlent(lend);
+        const place = self.sourceText(place_node);
+        const head = "`{s}` here is read, not held: {s}. ";
+        const shown = self.sourceText(e);
+        const value_ty = switch (how) {
+            .slot, .value => |slot_ty| slot_ty,
+            else => sema.unwrapViews(self.ctx, self.ctx.typeOf(place_node) orelse self.t().invalid_id),
+        };
+        const ty = try self.tyName(value_ty);
+        switch (how) {
+            .slot => {},
+            .lent_to_read => return self.errAt(e, head ++ "Write `?{s}`", .{ shown, "`?` lends it on to read", place }),
+            else => return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("only its `{s}` is read here", .{ty}), place }),
+        }
         const slot = self.slot;
-        const in_slot = sameExpr(e, slot.value) and slot.call != .nil;
-        // What takes the value, and the value written without the `!`.
+        const in_slot = sameExpr(e, slot.value) and slot.call != .nil and argOf(slot.call, e);
+        if (in_slot and slot.field) self.ignored_in = slot.call;
+        // What takes the value, and the value written without the `!`s
+        // the slots of the call ignore.
         const what = if (!in_slot)
             try a.print("{s} `{s}` goes here", .{ article(ty), ty })
         else
@@ -8418,23 +8585,79 @@ const Checker = struct {
                 article(ty),
                 ty,
             });
-        const copy = if (in_slot) try self.spliced(slot.call, e, place) else place;
+        const copy = if (in_slot) try self.withoutLends(slot.call, slot.lends, e) else place;
         const copied = if (!in_slot) "to copy the value" else if (slot.field) "to store a copy" else "to pass a copy";
-        const head = "`{s}` here is read, not held: {s}. ";
         // A write view of a value made here would not outlive its
         // statement: the copy is what can be meant.
-        if (self.hands(operand).kind != .place) return self.errAt(e, head ++ "Write `{s}` {s}", .{ self.sourceText(e), what, copy, copied });
+        if (self.hands(place_node).kind != .place) return self.errAt(e, head ++ "Write `{s}` {s}", .{ shown, what, copy, copied });
         // A field of a generic type whose instance the call names or
-        // infers: the instance with a write view there.
+        // infers: the instance with a write view where these fields are.
         if (in_slot and slot.field and slot.type_node != .nil) if (try self.viewInstance(slot)) |instance| {
-            const keep = try self.spliced(slot.call, slot.type_node, try self.tyName(instance));
-            return self.errAt(e, head ++ "Write `{s}` to keep a write view of `{s}`, or `{s}` {s}", .{ self.sourceText(e), what, keep, place, copy, copied });
+            const keep = try self.spliced(slot.call, &.{slot.type_node}, &.{try self.tyName(instance)});
+            return self.errAt(e, head ++ "Write `{s}` to keep a write view of `{s}`, or `{s}` {s}", .{ shown, what, keep, place, copy, copied });
         };
         const must = if (in_slot and !slot.field)
-            try a.print("to lend `{s}` to write, the parameter must be a `{s}`", .{ place, try self.tyName(try self.writeViewOf(if (slot.declared != sema.type_invalid) slot.declared else expected)) })
+            try a.print("to lend `{s}` to write, the parameter must be a `{s}`", .{ place, try self.tyName(try self.writeViewOf(if (slot.declared != sema.type_invalid) slot.declared else value_ty)) })
         else
-            try a.print("to keep a write view of `{s}`, the {s} must be `{s}`", .{ place, if (in_slot) "field's type" else "type here", try self.tyName(try self.writeViewOf(expected)) });
-        return self.errAt(e, head ++ "Write `{s}` {s}; {s}", .{ self.sourceText(e), what, copy, copied, must });
+            try a.print("to keep a write view of `{s}`, the {s} must be `{s}`", .{ place, if (in_slot) "field's type" else "type here", try self.tyName(try self.writeViewOf(value_ty)) });
+        return self.errAt(e, head ++ "Write `{s}` {s}; {s}", .{ shown, what, copy, copied, must });
+    }
+
+    /// The place a write lend lends, every `!` and `<` written before it
+    /// taken off (`!!n`, `<!n`: `n`).
+    fn unlent(e: Sexp) Sexp {
+        var node = e;
+        while (node.isKind(.write) or node.isKind(.move)) node = ir.get(node, .operand);
+        return node;
+    }
+
+    fn containsExpr(list: []const Sexp, e: Sexp) bool {
+        for (list) |x| if (sameExpr(x, e)) return true;
+        return false;
+    }
+
+    /// Whether `value` is one of `call`'s arguments, by position or by name.
+    fn argOf(call: Sexp, value: Sexp) bool {
+        if (!call.isKind(.call)) return false;
+        for (ir.Call.args(call)) |arg| {
+            const v = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
+            if (sameExpr(v, value)) return true;
+        }
+        return false;
+    }
+
+    /// `call` as written with each of `lends`, arguments whose slots
+    /// ignore their `!`, written as the place it lends; `e` is one.
+    fn withoutLends(self: *Checker, call: Sexp, lends: []const Sexp, e: Sexp) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        var parts: std.ArrayList(Sexp) = .empty;
+        var withs: std.ArrayList([]const u8) = .empty;
+        var has_e = false;
+        for (lends) |l| {
+            if (sameExpr(l, e)) has_e = true;
+            try parts.append(a, l);
+            try withs.append(a, self.sourceText(unlent(l)));
+        }
+        if (!has_e) {
+            try parts.append(a, e);
+            try withs.append(a, self.sourceText(unlent(e)));
+        }
+        return self.spliced(call, parts.items, withs.items);
+    }
+
+    /// The arguments of a call or construction written `!x` (or `<!x`)
+    /// whose slot type holds no write view: each would be read, its `!`
+    /// ignored, which a diagnostic's suggested copy writes without.
+    /// `types[i]` is the slot of `values[i]`.
+    fn plainSlotLends(self: *Checker, values: []const Sexp, types: []const TypeId) Error![]const Sexp {
+        var out: std.ArrayList(Sexp) = .empty;
+        for (values, types) |v, ty| {
+            const written = v.isKind(.write) or (v.isKind(.move) and ir.Move.operand(v).isKind(.write));
+            if (!written) continue;
+            if (sema.holdsWriteView(self.ctx, ty)) continue;
+            try out.append(self.ctx.arena.allocator(), v);
+        }
+        return out.items;
     }
 
     /// The type that holds a write view where `ty` holds a value: `!T`,
@@ -8447,29 +8670,51 @@ const Checker = struct {
         };
     }
 
-    /// The instance of a field slot's generic type whose argument for
-    /// the type parameter the field is declared as is made a write view
-    /// (`Opt[!Int]` for `Opt[Int]`'s `v: T`).
+    /// The instance of a field slot's generic type with a write view for
+    /// each type parameter a field filled by an ignored lend is declared
+    /// as (`Opt[!Int]` for `Opt[Int]`'s `v: T`). Null where the type
+    /// could not take one: a builtin, or a type with methods, which are
+    /// checked for a `T` that holds no view.
     fn viewInstance(self: *Checker, slot: Slot) Error!?TypeId {
-        const tv = switch (self.ctx.types.get(slot.declared)) {
-            .type_var => |tv| tv,
-            else => return null,
-        };
-        const k = std.mem.findScalar(SymbolId, slot.subst.params, tv) orelse return null;
+        if (slot.views.len == 0) return null;
+        const sym = self.ctx.symbols.items[slot.generic];
+        if (sym.decl_pos == sema.builtin_decl_pos) return null;
+        for (sym.fields orelse &.{}) |f| if (f.is_method and !f.is_drop_method) return null;
         const args = try self.ctx.arena.allocator().dupe(TypeId, slot.subst.args);
-        args[k] = try self.ctx.intern(.{ .write_view = args[k] });
+        for (slot.views) |k| args[k] = try self.ctx.intern(.{ .write_view = args[k] });
         return try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = slot.generic, .args = args } });
     }
 
-    /// The source of `whole` with the part `part` written as `with`.
-    fn spliced(self: *Checker, whole: Sexp, part: Sexp, with: []const u8) Error![]const u8 {
+    /// The source of `whole` with each of `parts`, which it contains and
+    /// which do not overlap, written as the matching `withs`.
+    fn spliced(self: *Checker, whole: Sexp, parts: []const Sexp, withs: []const []const u8) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
         var w = self.ctx.span(whole);
         // A receiver's sigil is written before the call's own span.
         if (whole.isKind(.call) and ir.Call.callee(whole).isKind(.member)) w.start = @min(w.start, self.ctx.span(ir.Member.object(ir.Call.callee(whole))).start);
-        const p = self.ctx.span(part);
-        if (p.start < w.start or p.end > w.end) return with;
-        return std.mem.concat(self.ctx.arena.allocator(), u8, &.{ self.ctx.source[w.start..p.start], with, self.ctx.source[p.end..w.end] });
+        const order = try a.alloc(usize, parts.len);
+        for (order, 0..) |*o, i| o.* = i;
+        std.mem.sort(usize, order, SpanOrder{ .ctx = self.ctx, .parts = parts }, SpanOrder.less);
+        var out: std.ArrayList(u8) = .empty;
+        var at = w.start;
+        for (order) |i| {
+            const p = self.ctx.span(parts[i]);
+            if (p.start < at or p.end > w.end) continue;
+            try out.appendSlice(a, self.ctx.source[at..p.start]);
+            try out.appendSlice(a, withs[i]);
+            at = p.end;
+        }
+        try out.appendSlice(a, self.ctx.source[at..w.end]);
+        return out.items;
     }
+
+    const SpanOrder = struct {
+        ctx: *SemContext,
+        parts: []const Sexp,
+        fn less(o: SpanOrder, x: usize, y: usize) bool {
+            return o.ctx.span(o.parts[x]).start < o.ctx.span(o.parts[y]).start;
+        }
+    };
 
     /// An operator in literal arithmetic `e` that only integers have
     /// (bitwise, shift, wrapping), whose literals cannot take a float
@@ -9377,20 +9622,21 @@ fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether `e` hands over a write view to a binding: a call's result,
-/// `!x`, `<w`, or a jump, or a branching value, `match`, or block each
-/// of whose values does.
-fn yieldsWriteView(e: Sexp) bool {
+/// `!x`, `<w`, or a jump, or a branching value, `match`, block, or loop
+/// used as a value (`Checker.view_loops`) each of whose values does.
+fn yieldsWriteViewIn(c: *const Checker, e: Sexp) bool {
     switch (e.kind() orelse return false) {
         .call, .write, .move, .@"return", .@"break", .@"continue" => return true,
         .@"if", .match, .block, .@"??", .@"catch", .propagate, .propagate_none => {
             var parts = sema.valueParts(e);
             var any = false;
             while (parts.next()) |p| {
-                if (!yieldsWriteView(p.node)) return false;
+                if (!yieldsWriteViewIn(c, p.node)) return false;
                 any = true;
             }
             return any;
         },
+        .@"while", .@"for", .labeled => return e.list.id != 0 and c.view_loops.contains(e.list.id),
         else => return false,
     }
 }
@@ -10374,4 +10620,43 @@ test "check: each distinct instance of a generic function is recorded once" {
     try expectClean(&r.ctx);
     // `size[Int]`, spelled and inferred, and `size[P]`.
     try std.testing.expectEqual(2, r.ctx.fn_instances.items.len);
+}
+
+test "check: every read of a view as a value is decided by writeLendRead" {
+    // `readOf` is the one place type checking records that a view is read
+    // as the value it reaches, and it asks `writeLendRead` first. Another
+    // call of `recordRead` would read a written `!x` as a value with its
+    // `!` ignored, past the decider.
+    const needle = "ctx." ++ "recordRead(";
+    const src = @embedFile("typecheck.zig");
+    try std.testing.expectEqual(1, std.mem.count(u8, src, needle));
+    const at = std.mem.indexOf(u8, src, needle).?;
+    const fn_at = std.mem.lastIndexOf(u8, src[0..at], "    fn ").?;
+    try std.testing.expect(std.mem.startsWith(u8, src[fn_at..], "    fn readOf("));
+    try std.testing.expect(std.mem.indexOf(u8, src[fn_at..at], "self.writeLendRead(") != null);
+    // Every pass after type checking reads the fact; none records it.
+    for ([_][]const u8{ @embedFile("emit.zig"), @embedFile("ownership.zig"), @embedFile("storage.zig"), @embedFile("resolve.zig") }) |other| {
+        try std.testing.expectEqual(0, std.mem.count(u8, other, needle));
+    }
+}
+
+test "check: a written write lend read as a value is rejected" {
+    var r = try checkSource(std.testing.allocator,
+        \\fun f(x: Int) -> Int
+        \\  x
+        \\
+        \\sub main()
+        \\  n = 1
+        \\  a = f(!n)
+        \\  b = !n + 1
+        \\  print(!n, a, b)
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    var count: usize = 0;
+    for (r.ctx.diagnostics.items) |d| {
+        if (d.severity == .@"error" and std.mem.indexOf(u8, d.message, "here is read, not held") != null) count += 1;
+    }
+    try std.testing.expectEqual(3, count);
 }

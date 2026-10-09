@@ -23,4 +23,4 @@ fun mkb() -> Box[S]
 sub main()
   !mkb().bump()
   !mkb().items.push(3)
-  print(!mkb().n)
+  print(?mkb().n)

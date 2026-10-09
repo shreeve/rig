@@ -1,6 +1,8 @@
 # A generic function's body is checked for a `T` that holds no view,
 # so a type argument cannot be a view, or hold one: take `?T` or `!T`
-# in the signature instead.
+# in the signature instead. (A `!p` of a value that copies binds `T`
+# to the value, whose `!` is then ignored: test/reject/ownership/
+# ignored_write_lend.rig.)
 
 struct P
   n: Int
@@ -13,9 +15,10 @@ fun show[T](x: ?T) -> Int
 
 sub main()
   p = P(n: 1)
+  v: Vec[Int] = Vec()
   q = same(?p)
-  r = same(!p)
+  r = same(!v)
   print(show(?p))
 
-# error: 16:7: `same[?P]` cannot use `T = ?P`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice
-# error: 17:7: `same[!P]` cannot use `T = !P`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice
+# error: 19:7: `same[?P]` cannot use `T = ?P`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice
+# error: 20:7: `same[!Vec[Int]]` cannot use `T = !Vec[Int]`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice

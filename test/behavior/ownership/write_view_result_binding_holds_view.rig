@@ -1,7 +1,7 @@
 # A binding holds the write view its initializer hands over, with or
-# without a type (Core §6, view places): a call's or a branching value's
-# `!Int` is held, so assigning the binding writes through to what the
-# call was lent, as `w: !Int = slot(!n)` does. A bare name of type `!Int`
+# without a type (Core §6, view places): a call's, a branching value's,
+# or a loop value's `!Int` is held, so assigning the binding writes
+# through to what the call was lent, as `w: !Int = slot(!n)` does. A bare name of type `!Int`
 # copies the value it reaches.
 
 fun slot(a: !Int) -> !Int
@@ -33,7 +33,7 @@ sub main()
   l = while true
     break slot(!n)
   l = 1
-  print(n, m, l)
+  print(n, m)
 
 # expect:
 # 6
@@ -41,4 +41,4 @@ sub main()
 # 12 13
 # 12 40
 # 12
-# 12 0 1
+# 1 0
