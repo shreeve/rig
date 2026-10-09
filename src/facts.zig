@@ -278,6 +278,10 @@ pub const Facts = struct {
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
         return storage.decided(f.c(), b, .payload_by_address);
     }
+    /// Whether a `for` consumes its source (`storage.forConsumes`).
+    pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
+        return storage.decided(f.c(), loop, .for_consumes);
+    }
     /// Whether a binding is an integer constant the module folds.
     pub fn isConstInt(f: Facts, sym: SymbolId) bool {
         return f.c().const_ints.contains(sym);

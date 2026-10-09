@@ -5112,9 +5112,12 @@ pub const Checker = struct {
         // The source is a header: its temporaries end with it, before
         // the loop walks what it gives.
         const drops = self.stmt_drops.items.len;
+        // A source the loop consumes (`storage.forConsumes`) is taken,
+        // as emit hands its elements over.
+        const consumes = if (self.sema) |ctx| storage.forConsumes(ctx, node) else false;
         if (mode == .move) {
             spec.moved = (try self.walkMove(source)).loans;
-        } else if (header == .taken) {
+        } else if (header == .taken or consumes) {
             spec.moved = (try self.walkConsumed(source, .binding)).loans;
         } else {
             spec.elem_view = true;

@@ -714,6 +714,25 @@ fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
     return in_place and !sema.isReadOrWriteView(ctx, ty) and sema.copies(ctx, ty) == .depends;
 }
 
+/// Whether `for` loop `loop` consumes its source, handing its elements
+/// over one at a time: a Vec it takes (`for x in <v`) or that its source
+/// makes and that owns resources, or an array of values that move, which
+/// it takes or its source makes. Decided once: emit lowers the loop so,
+/// the plan makes its iterator and elements, and the ownership checker
+/// walks the source as taken.
+pub fn forConsumes(ctx: *const SemContext, loop: Sexp) bool {
+    return decide(ctx, loop, .for_consumes);
+}
+
+fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
+    const mode = ir.For.mode(loop).tag;
+    const source = ir.For.source(loop);
+    if (source.isKind(.@"..")) return false;
+    const t = typeOf(ctx, source) orelse return false;
+    if (isVecTy(ctx, t)) return mode == .move or (!hasStorage(ctx, source) and owns(ctx, t));
+    return ctx.types.get(t) == .array and owns(ctx, ctx.types.get(t).array.elem) and (mode == .move or !hasStorage(ctx, source));
+}
+
 /// Whether payload binding `b` of `match` points at the field it binds
 /// (`payloadByAddress`), decided once.
 pub fn bindsByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
@@ -854,7 +873,7 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes => bool,
         .match_mode => MatchMode,
         .subject_hold => ?StorageBy,
     };
@@ -884,6 +903,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .holds_view => Node.of(decideHoldsView),
         .catch_all_by_address => decideCatchAllByAddress,
         .payload_by_address => decidePayloadByAddress,
+        .for_consumes => Node.of(decideForConsumes),
     };
 }
 
@@ -1128,7 +1148,6 @@ const Planner = struct {
 
     fn forLoop(p: *Planner, loop: Sexp) !void {
         const ctx = p.ctx;
-        const mode = ir.For.mode(loop).tag;
         const source = ir.For.source(loop);
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);
@@ -1136,14 +1155,7 @@ const Planner = struct {
             try p.header(ir.@"..".left(source));
             return p.header(ir.@"..".right(source));
         }
-        const src_ty = typeOf(ctx, source);
-        const is_vec = src_ty != null and isVecTy(ctx, src_ty.?);
-        const consuming = if (src_ty) |t|
-            (is_vec and (mode == .move or (!hasStorage(ctx, source) and owns(ctx, t)))) or
-                (ctx.types.get(t) == .array and owns(ctx, ctx.types.get(t).array.elem) and (mode == .move or !hasStorage(ctx, source)))
-        else
-            false;
-        if (consuming) {
+        if (forConsumes(ctx, loop)) {
             try p.record(loop, .iterator, .owned, .construct);
             try p.record(loop, .element, .owned, .iteration);
             return p.header(source);

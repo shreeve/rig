@@ -1047,7 +1047,12 @@ on it where it is (`matches_in_place`), reads it again
 `__rig_subject` (`subject_hold`), or switches where a view a call
 returns points (`holds_view`), and for each of its bindings whether it
 is captured by address (`catch_all_by_address`, `payload_by_address`, a
-question about the binding within its match). Typecheck's arm-local
+question about the binding within its match); and for each `for`,
+whether it consumes its source (`for_consumes`: a Vec it takes or its
+source makes that owns resources, or an array of values that move,
+which it takes or its source makes), which emit lowers to a consuming
+loop, the plan gives an iterator and elements, and the ownership checker
+walks as taking the source. Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from

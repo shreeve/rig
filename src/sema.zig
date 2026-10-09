@@ -888,6 +888,9 @@ pub const Question = enum(u8) {
     /// Of a payload binding: whether it points at the field it binds
     /// (`storage.bindsByAddress`).
     payload_by_address,
+    /// Of a `for`: whether it consumes its source, handing its elements
+    /// over one at a time (`storage.forConsumes`).
+    for_consumes,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.

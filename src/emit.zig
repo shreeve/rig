@@ -2272,17 +2272,9 @@ pub const Emitter = struct {
 
         const src_ty = self.typeOf(source);
         const is_vec = src_ty != null and self.isVecTy(src_ty.?);
-        // A Vec the loop consumes, or one its source expression creates,
-        // hands its elements over one at a time.
-        if (is_vec and (mode == .move or (!self.hasStorage(source) and self.kindOf(src_ty.?) != null))) {
-            return self.emitConsumingFor(sexp, lp, false);
-        }
-        // So does an array of values that move, which the loop takes.
-        if (src_ty != null and self.facts.types.get(src_ty.?) == .array and self.kindOf(self.facts.types.get(src_ty.?).array.elem) != null and
-            (mode == .move or !self.hasStorage(source)))
-        {
-            return self.emitConsumingFor(sexp, lp, true);
-        }
+        // A Vec or an array of values that move, which the loop takes or
+        // its source makes, hands its elements over one at a time.
+        if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_vec);
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.facts.headerOf(sexp);
