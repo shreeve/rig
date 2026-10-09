@@ -1046,6 +1046,9 @@ LENDW_BINDINGS = {
                        head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
     "read_match_param": dict(decls="enum E\n  a(x: !TY)\n  z\n", param="e: !E", arg="E.a(!z)", pre=["z = mk()"],
                              head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    # The same of a part of a value made in the header.
+    "read_match_held": dict(decls="enum E\n  a(x: !TY)\n  z\n\nstruct HE\n  e: E\n\nfun mkh(y: !TY) -> HE from y\n  HE(e: E.a(!y))\n",
+                            setup=["y = mk()"], head=["match mkh(!y).e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
 }
 
 

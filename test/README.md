@@ -244,7 +244,8 @@ write view) of a Text, a Vec, a `Box[Text]`, or a struct holding a Vec,
 whole, sliced, or to a call or `?self` method, then writes through the
 binding while the view is live, or after its last use; a program that
 runs must print what the view showed before the write. A read match's
-binding of a write view field, of a local or a `!E` parameter, is
+binding of a write view field, of a local, a `!E` parameter, or a part
+of a value made in the header, is
 written the same way, and every such program must be rejected
 (`lendw.`). A `while` step
 reads what its condition binds, a view or a struct holding one, while
