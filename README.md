@@ -289,10 +289,12 @@ bin/rig clean                          # remove the cache of built programs
 ```
 
 `rig run`, `build`, and `test` build each program in a directory of
-its own under `~/.cache/rig` (or `$XDG_CACHE_HOME/rig`, or
-`$RIG_OUT_DIR` when set). At most once a day they remove the
-directories there that no build has used for 5 days; `rig clean`
-removes them all. A `$RIG_OUT_DIR` is never trimmed.
+its own under `~/.cache/rig` (or `$XDG_CACHE_HOME/rig`, when that is an
+absolute path; or `$RIG_OUT_DIR` when set). At most once a day they
+remove the program directories there that no build has used for 5
+days, and say how many; `rig clean` removes them all. Both leave a
+program that is still running, and anything rig did not make, alone.
+A `$RIG_OUT_DIR` is never trimmed.
 
 Debug builds (the default) check for memory leaks: a program that
 leaks reports how many allocations it lost and exits 1; set

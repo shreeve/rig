@@ -30,7 +30,7 @@ const usage =
     \\  build     Check and build a native executable
     \\  test      Check, build, and run the program's `test` blocks
     \\  emit      Check, then print the root module's Zig to stdout
-    \\  clean     Remove the cache of built programs (see RIG_OUT_DIR)
+    \\  clean     Remove the programs rig built in its cache (see RIG_OUT_DIR)
     \\
     \\Options:
     \\  --facts                Print the root module's syntax facts after
@@ -59,7 +59,8 @@ const usage =
     \\                   build cache (default: a per-project directory
     \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig,
     \\                   where run, build, and test, at most once a
-    \\                   day, remove the directories unused for 5 days)
+    \\                   day, remove the directories unused for 5 days;
+    \\                   a relative XDG_CACHE_HOME or HOME is ignored)
     \\  RIG_BUILD_STORE  A store shared by every program and checkout:
     \\                   run, build, and test write the package to a
     \\                   directory in it named by a hash of everything
@@ -719,10 +720,12 @@ fn outputDir(allocator: std.mem.Allocator, env: Env, root: *const modules.Module
 
 /// Where `rig run` and `rig build` keep each program's package when
 /// `$RIG_OUT_DIR` names no directory: `$XDG_CACHE_HOME/rig`, or
-/// `~/.cache/rig`. Null with neither variable set.
+/// `~/.cache/rig`. A variable that is not an absolute path is ignored,
+/// as the XDG Base Directory spec says, so a relative one never names a
+/// directory under the current one. Null with neither usable.
 fn cacheHome(allocator: std.mem.Allocator, env: Env) !?[]const u8 {
-    if (env.get("XDG_CACHE_HOME")) |x| return try std.fs.path.join(allocator, &.{ x, "rig" });
-    if (env.get("HOME")) |home| return try std.fs.path.join(allocator, &.{ home, ".cache", "rig" });
+    if (env.get("XDG_CACHE_HOME")) |x| if (std.fs.path.isAbsolute(x)) return try std.fs.path.join(allocator, &.{ x, "rig" });
+    if (env.get("HOME")) |home| if (std.fs.path.isAbsolute(home)) return try std.fs.path.join(allocator, &.{ home, ".cache", "rig" });
     return null;
 }
 
@@ -731,67 +734,160 @@ fn cacheHome(allocator: std.mem.Allocator, env: Env) !?[]const u8 {
 const cache_keep_days = 5;
 const cache_trim_days = 1;
 
-/// Remove the package directories in the cache home `home` that no run
-/// or build has used (`setTimestampsNow`) for `cache_keep_days`, all but
-/// `current`. A stamp, `.trimmed`, records the last trim, so this reads
-/// the directory at most once in `cache_trim_days`. Each directory is
-/// renamed out of the way in one step and then deleted, so a build never
-/// meets one half removed. A failure here never fails the build.
-fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current: []const u8) void {
-    const cwd = std.Io.Dir.cwd();
-    const now = std.Io.Timestamp.now(io, .real);
-    const day: i96 = std.time.ns_per_day;
-    const stamp = std.fs.path.join(allocator, &.{ home, ".trimmed" }) catch return;
-    if (cwd.statFile(io, stamp, .{})) |st| {
-        if (st.mtime.durationTo(now).nanoseconds < cache_trim_days * day) return;
-        cwd.setTimestampsNow(io, stamp, .{}) catch return;
-    } else |_| {
-        const file = cwd.createFile(io, stamp, .{}) catch return;
-        file.close(io);
+/// What rig itself makes in the cache home, the only entries the trim
+/// and `rig clean` remove. Anything else there is left alone.
+const CacheEntry = enum {
+    /// A program's package (`outputDir`): a directory named
+    /// `<name>-<16 hex digits>` that holds the runtime rig writes.
+    package,
+    /// A package being removed: a directory `.trash-<16 hex digits>`.
+    trash,
+    /// The file `.trimmed`, whose time is the last trim's.
+    stamp,
+
+    /// The kind of the entry `name` of `dir`, or null for anything rig
+    /// did not make, a symbolic link included.
+    fn of(dir: std.Io.Dir, io: std.Io, name: []const u8, kind: std.Io.File.Kind) ?CacheEntry {
+        if (kind == .file and eql(name, ".trimmed")) return .stamp;
+        if (kind != .directory) return null;
+        if (std.mem.startsWith(u8, name, ".trash-") and hexTail(name, ".trash-".len)) return .trash;
+        if (name.len <= 17 or name[name.len - 17] != '-' or !hexTail(name, name.len - 16)) return null;
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
+        const runtime = std.fmt.bufPrint(&buffer, "{s}/{s}", .{ name, emit.runtime_filename }) catch return null;
+        const st = dir.statFile(io, runtime, .{ .follow_symlinks = false }) catch return null;
+        return if (st.kind == .file) .package else null;
     }
-    var d = cwd.openDir(io, home, .{ .iterate = true }) catch return;
+
+    /// Whether `name` from `start` on is exactly 16 hex digits.
+    fn hexTail(name: []const u8, start: usize) bool {
+        if (name.len != start + 16) return false;
+        for (name[start..]) |c| if (!std.ascii.isHex(c)) return false;
+        return true;
+    }
+};
+
+/// Whether the package directory `name` of `dir` holds the file a
+/// program `rig run` started creates (`.started-*`), and has not yet
+/// removed: a run in progress uses it.
+fn runInProgress(dir: std.Io.Dir, io: std.Io, name: []const u8) bool {
+    var d = dir.openDir(io, name, .{ .iterate = true }) catch return false;
     defer d.close(io);
-    var old: std.ArrayList([]const u8) = .empty;
     var it = d.iterate();
-    while (it.next(io) catch return) |entry| {
-        if (entry.kind != .directory or eql(entry.name, current)) continue;
-        // What an interrupted trim left.
-        const trash = std.mem.startsWith(u8, entry.name, ".trash-");
-        if (!trash and !isPackageDir(entry.name)) continue;
-        const st = d.statFile(io, entry.name, .{}) catch continue;
-        if (!trash and st.mtime.durationTo(now).nanoseconds < cache_keep_days * day) continue;
-        old.append(allocator, allocator.dupe(u8, entry.name) catch return) catch return;
-    }
-    for (old.items) |name| {
-        var gone = name;
-        if (!std.mem.startsWith(u8, name, ".trash-")) {
-            var tag: [8]u8 = undefined;
-            io.random(&tag);
-            gone = allocator.print(".trash-{x}", .{&tag}) catch return;
-            d.rename(name, d, gone, io) catch continue;
-        }
-        d.deleteTree(io, gone) catch {};
-    }
+    while (it.next(io) catch return true) |entry| if (std.mem.startsWith(u8, entry.name, ".started-")) return true;
+    return false;
 }
 
-/// Whether `name` is a package directory `outputDir` makes: a program's
-/// name, `-`, and 16 hex digits.
-fn isPackageDir(name: []const u8) bool {
-    const n = 17;
-    if (name.len <= n or name[name.len - n] != '-') return false;
-    for (name[name.len - n + 1 ..]) |c| if (!std.ascii.isHex(c)) return false;
+/// Whether the package `name` of `dir` may go now: no run or build has
+/// used it for `cache_keep_days` (a time in the future, after a clock
+/// was set back, counts as old), and no run is in progress in it.
+fn unused(dir: std.Io.Dir, io: std.Io, name: []const u8, now: std.Io.Timestamp) bool {
+    const st = dir.statFile(io, name, .{ .follow_symlinks = false }) catch return false;
+    const age = st.mtime.durationTo(now).nanoseconds;
+    if (age >= 0 and age < cache_keep_days * std.time.ns_per_day) return false;
+    return !runInProgress(dir, io, name);
+}
+
+/// Remove `name` of `dir` (a package or trash), renaming a package out
+/// of the way in one step first, so a build never meets one half
+/// removed. Whether it was removed.
+fn removeEntry(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []const u8, kind: CacheEntry) bool {
+    switch (kind) {
+        .stamp => {
+            dir.deleteFile(io, name) catch return false;
+            return true;
+        },
+        .trash => {},
+        .package => {
+            var tag: [8]u8 = undefined;
+            io.random(&tag);
+            const gone = allocator.print(".trash-{x}", .{&tag}) catch return false;
+            dir.rename(name, dir, gone, io) catch return false;
+            dir.deleteTree(io, gone) catch {};
+            return true;
+        },
+    }
+    dir.deleteTree(io, name) catch return false;
     return true;
 }
 
-/// `rig clean`: remove the cache home, every program's package and Zig
-/// cache. `$RIG_OUT_DIR` and `$RIG_BUILD_STORE` are their callers'.
-fn clean(allocator: std.mem.Allocator, io: std.Io, env: Env) void {
-    const home = (cacheHome(allocator, env) catch fatal("error: out of memory", .{})) orelse fatal("error: set XDG_CACHE_HOME or HOME to name the cache", .{});
+/// Remove the package directories in the cache home `home` that no run
+/// or build has used (`setTimestampsNow`) for `cache_keep_days`, all but
+/// `current` and any a run is still using, and what an interrupted trim
+/// left. A stamp, `.trimmed`, records the last trim, so this reads the
+/// directory at most once in `cache_trim_days`; a stamp dated in the
+/// future counts as old. Each package is checked again just before it
+/// goes, since a build may have used it meanwhile. One line on stderr
+/// says how many went. A failure here never fails the build.
+fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current: []const u8) void {
     const cwd = std.Io.Dir.cwd();
-    if (cwd.statFile(io, home, .{})) |_| {
-        cwd.deleteTree(io, home) catch |err| fatal("error: cannot remove `{s}`: {s}", .{ home, @errorName(err) });
-        printOut(io, "rig: removed {s}\n", .{home});
-    } else |_| printOut(io, "rig: {s} is already empty\n", .{home});
+    const now = std.Io.Timestamp.now(io, .real);
+    var d = cwd.openDir(io, home, .{ .iterate = true }) catch return;
+    defer d.close(io);
+    if (d.statFile(io, ".trimmed", .{ .follow_symlinks = false })) |st| {
+        if (st.kind != .file) return;
+        const age = st.mtime.durationTo(now).nanoseconds;
+        if (age >= 0 and age < cache_trim_days * std.time.ns_per_day) return;
+        d.setTimestampsNow(io, ".trimmed", .{ .follow_symlinks = false }) catch return;
+    } else |_| {
+        const file = d.createFile(io, ".trimmed", .{}) catch return;
+        file.close(io);
+    }
+    var old: std.ArrayList(struct { name: []const u8, kind: CacheEntry }) = .empty;
+    var it = d.iterate();
+    while (it.next(io) catch return) |entry| {
+        if (eql(entry.name, current)) continue;
+        const kind = CacheEntry.of(d, io, entry.name, entry.kind) orelse continue;
+        if (kind == .stamp or (kind == .package and !unused(d, io, entry.name, now))) continue;
+        old.append(allocator, .{ .name = allocator.dupe(u8, entry.name) catch return, .kind = kind }) catch return;
+    }
+    var removed: usize = 0;
+    for (old.items) |e| {
+        if (e.kind == .package and !unused(d, io, e.name, now)) continue;
+        if (removeEntry(allocator, io, d, e.name, e.kind) and e.kind == .package) removed += 1;
+    }
+    if (removed > 0) std.debug.print("rig: removed {d} package{s} unused for {d} days from {s}\n", .{ removed, if (removed == 1) "" else "s", cache_keep_days, home });
+}
+
+/// `rig clean`: remove what rig made in the cache home, every program's
+/// package and Zig cache, but a package a run is still using; then the
+/// cache home itself if nothing else is in it. `$RIG_OUT_DIR` and
+/// `$RIG_BUILD_STORE` are their callers'.
+fn clean(allocator: std.mem.Allocator, io: std.Io, env: Env) void {
+    const home = (cacheHome(allocator, env) catch fatal("error: out of memory", .{})) orelse fatal("error: set XDG_CACHE_HOME or HOME to an absolute path to name the cache", .{});
+    const cwd = std.Io.Dir.cwd();
+    var d = cwd.openDir(io, home, .{ .iterate = true, .follow_symlinks = false }) catch {
+        printOut(io, "rig: nothing to clean in {s}\n", .{home});
+        return;
+    };
+    var found: std.ArrayList(struct { name: []const u8, kind: CacheEntry }) = .empty;
+    var others = false;
+    var it = d.iterate();
+    while (it.next(io) catch |err| fatal("error: cannot read `{s}`: {s}", .{ home, @errorName(err) })) |entry| {
+        const kind = CacheEntry.of(d, io, entry.name, entry.kind) orelse {
+            others = true;
+            continue;
+        };
+        found.append(allocator, .{ .name = allocator.dupe(u8, entry.name) catch fatal("error: out of memory", .{}), .kind = kind }) catch fatal("error: out of memory", .{});
+    }
+    var removed: usize = 0;
+    var running: usize = 0;
+    for (found.items) |e| {
+        if (e.kind == .package and runInProgress(d, io, e.name)) {
+            running += 1;
+            continue;
+        }
+        if (removeEntry(allocator, io, d, e.name, e.kind)) {
+            if (e.kind == .package) removed += 1;
+        } else others = true;
+    }
+    d.close(io);
+    printOut(io, "rig: removed {d} package{s} from {s}\n", .{ removed, if (removed == 1) "" else "s", home });
+    if (running > 0) printOut(io, "rig: kept {d} package{s} a run is using\n", .{ running, if (running == 1) "" else "s" });
+    if (others or running > 0) {
+        if (others) printOut(io, "rig: kept {s}, which holds files rig did not make\n", .{home});
+        return;
+    }
+    cwd.deleteDir(io, home) catch {};
 }
 
 // The unit tests of every compiler file, and of the runtime.
