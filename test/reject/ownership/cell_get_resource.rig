@@ -10,4 +10,4 @@ sub main()
   copy = c.get()
   print(0)
 
-# error: `Cell.get` returns `T` by value but `T = *User` has drop glue
+# error: `Cell.get` returns a copy of the value, and a `*User` owns what it must release, so it can't be copied; write `cell.replace(<new)`, which puts `new` in and hands back the old value

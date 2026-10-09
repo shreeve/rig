@@ -764,7 +764,7 @@ const Checker = struct {
             return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});
         }
         if ((try self.needsCleanup(ty, self.startOf(stmt), "discards a value"))) {
-            try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
+            try self.errAt(stmt, "this statement makes a `{s}`, which owns what it must release, and does not use it; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
         }
     }
 
@@ -1337,7 +1337,7 @@ const Checker = struct {
                     .shared => if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
                         const shown = try self.plainText(place.node);
                         try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
-                    } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{ through.head, through.tail }),
+                    } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{ through.head, through.tail }),
                     .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only", .{ through.head, through.tail }),
                     .string => try self.err(b.pos, "cannot {s} a byte of a String{s}; a String is read-only", .{ verb.head, verb.tail }),
                     .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
@@ -2304,7 +2304,7 @@ const Checker = struct {
             switch (self.ctx.types.get(scrutinee)) {
                 .read_view => scrutinee = try self.ctx.intern(.{ .read_view = inner }),
                 .write_view => if (sema.accessThroughShared(self.ctx, scrutinee)) {
-                    try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and use an interior-mutable `Cell[T]` for mutation through shared ownership", .{ self.sourceText(ir.Write.operand(subject)), self.sourceText(ir.Write.operand(subject)) });
+                    try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and to change a value that handles share, hold it in a `Cell[T]`", .{ self.sourceText(ir.Write.operand(subject)), self.sourceText(ir.Write.operand(subject)) });
                     scrutinee = self.t().invalid_id;
                 } else {
                     scrutinee = try self.ctx.intern(.{ .write_view = inner });
@@ -3991,7 +3991,7 @@ const Checker = struct {
         // `?f` of a stack closure lends it as a callable view.
         if (self.closureBinding(operand)) {
             if (kind == .read) return sema.callableOfFn(self.ctx, inner);
-            try self.errAt(e, "a call never changes a closure's environment, so a closure is lent to read: write `?{s}`", .{self.sourceText(operand)});
+            try self.errAt(e, "a call never changes what a closure captures, so a closure is lent to read: write `?{s}`", .{self.sourceText(operand)});
             return self.t().invalid_id;
         }
         // Anywhere but where a `!Bool` is expected, `!flag` is read as
@@ -7612,7 +7612,7 @@ const Checker = struct {
             }
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
-                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns `T` by value but `T = {s}` {s}; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "has drop glue" else self.movesBecause(elem) });
+                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns a copy of the value, and a `{s}` {s}, so it can't be copied; write `cell.replace(<new)`, which puts `new` in and hands back the old value", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "owns what it must release" else self.movesBecause(elem) });
                 }
             }
         }
@@ -8223,7 +8223,7 @@ const Checker = struct {
             },
             .write => {
                 if (kind == .read_view) return self.err(pos, "method `{s}` needs its receiver lent to write; a read view cannot become a write view", .{method});
-                if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{method});
+                if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{method});
                 switch (shape) {
                     .write_explicit => {},
                     // A value made here, or a part of one, is a temporary
@@ -10431,7 +10431,7 @@ const Checker = struct {
             },
             .function => if (sym.flags.closure) {
                 if (kind == .read) return sema.callableOfFn(self.ctx, ty);
-                try self.err(pos, "a call never changes a closure's environment, so a closure is lent to read; capture it with `|?{s}|`", .{name});
+                try self.err(pos, "a call never changes what a closure captures, so a closure is lent to read; capture it with `|?{s}|`", .{name});
                 return self.t().invalid_id;
             },
             else => {},

@@ -11,4 +11,4 @@ sub main()
     inner()
   outer()
 
-# error: 10:15: cannot move-capture captured resource `b`
+# error: 10:15: cannot move-capture captured `b`; the closure keeps what it captures for every call. Use `+b` for another handle, `~b` for a weak one, or call its methods

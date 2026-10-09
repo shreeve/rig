@@ -2110,7 +2110,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
         if (sema.isPlainData(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
-        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`), or a type declared `unique`; got `{s}`", .{arg});
+        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
         // A Vec holds any value, views included: its elements move in

@@ -2114,7 +2114,7 @@ pub const Checker = struct {
 
     /// A closure binding used as a value.
     fn errClosureValue(self: *Checker, pos: u32, name: []const u8) Error!void {
-        try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, lend it to a call as `?{s}`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name, name });
+        try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or copied; call it as `{s}()`, lend it to a call as `?{s}`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name, name });
     }
 
     /// `?f` of closure binding `id`: a read loan on the closure, and the
@@ -2917,7 +2917,7 @@ pub const Checker = struct {
                 try self.err(pos, "cannot {s} captured view `{s}`; the closure holds it for every call. Use it through the view, or pass it to a call", .{ op, v.name });
                 return true;
             }
-            try self.err(pos, "cannot {s} captured resource `{s}`; closure captures are owned by the closure environment, which may be invoked again. Use `+{s}` to clone a fresh handle, `~{s}` for a weak reference, or call its methods", .{ op, v.name, v.name, v.name });
+            try self.err(pos, "cannot {s} captured `{s}`; the closure keeps what it captures for every call. Use `+{s}` for another handle, `~{s}` for a weak one, or call its methods", .{ op, v.name, v.name, v.name });
             return true;
         }
         return false;
@@ -3003,7 +3003,7 @@ pub const Checker = struct {
             .capture => if (v.ref != .none)
                 self.err(pos, "cannot drop captured view `{s}`; the closure holds it for every call. Use it through the view, or pass it to a call", .{name})
             else if (v.capture_resource)
-                self.err(pos, "cannot drop captured resource `{s}`; closure captures are owned by the closure environment, which may be invoked again. Use `+{s}` to clone a fresh handle, `~{s}` for a weak reference, or call its methods", .{ name, name, name })
+                self.err(pos, "cannot drop captured `{s}`; the closure keeps what it captures for every call. Use `+{s}` for another handle, `~{s}` for a weak one, or call its methods", .{ name, name, name })
             else
                 self.err(pos, "cannot drop captured `{s}`; the closure keeps what it captures for every call", .{name}),
             .loop_slot => self.err(pos, "cannot drop loop view `{s}`; " ++ loop_view_rule, .{name}),
@@ -3058,11 +3058,11 @@ pub const Checker = struct {
                 // a captured view passed to a call is lent for the call.
                 const copied = v.ref == .read or self.copies(v.ty) or (sink == .argument and v.ref != .none);
                 if (v.capture_resource and !copied and v.ref == .write) {
-                    try self.err(pos, "bare use of captured write view `{s}` in {s} would hand the write view, which is unique, out of the closure environment, again at each call; use it inside the closure instead", .{ name, sink.text() });
+                    try self.err(pos, "`{s}` is a write view the closure captures, and a {s} would hand it out of the closure at each call, though a write view has one holder; use it inside the closure instead", .{ name, sink.text() });
                     return;
                 }
                 if (v.capture_resource and !copied) {
-                    try self.err(pos, "bare use of captured resource `{s}` in {s} would smuggle the handle out of the closure environment; use `+{s}` to clone a fresh handle, or `~{s}` for a weak reference", .{ name, sink.text(), name, name });
+                    try self.err(pos, "`{s}` is a handle the closure captures and keeps for every call, so a {s} can't take it; write `+{s}` for another handle, or `~{s}` for a weak one", .{ name, sink.text(), name, name });
                     return;
                 }
                 if (top_return) return;

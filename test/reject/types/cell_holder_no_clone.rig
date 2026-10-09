@@ -19,4 +19,4 @@ sub main()
 # error: 11:8: `+x` cannot clone a `Cell[Int]`: it is unique
 # error: 12:15: `[n of x]` copies its element into every slot; `Counter` is unique, so it cannot be copied
 # error: 14:11: `get` would copy an element out of a `[2]Counter`
-# error: 16:11: `Cell.get` returns `T` by value but `T = Counter` is unique
+# error: 16:11: `Cell.get` returns a copy of the value, and a `Counter` is unique, so it can't be copied; write `cell.replace(<new)`, which puts `new` in and hands back the old value

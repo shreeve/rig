@@ -8,4 +8,4 @@ sub main()
     print("dropped")
   bump()
 
-# error: cannot drop captured resource `sig`
+# error: cannot drop captured `sig`; the closure keeps what it captures for every call. Use `+sig` for another handle, `~sig` for a weak one, or call its methods
