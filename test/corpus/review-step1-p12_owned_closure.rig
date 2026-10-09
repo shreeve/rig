@@ -8,6 +8,6 @@ sub main()
   again = +cb
   again()
   cb()
-  -cb
+  <cb
   again()
   print("end")

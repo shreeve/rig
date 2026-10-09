@@ -10,5 +10,5 @@ sub main()
   b = Box(5)
   s = S(own: Text("own"), see: ?v, box: ?b)
   c = +s
-  -s
+  <s
   print(c.own, c.see, c.box)

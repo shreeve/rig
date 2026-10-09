@@ -1,6 +1,5 @@
-# `-x` on the last line of a `fun` is its value, so it negates; a
-# value that is not a number there is reported as such, with the way to
-# drop it.
+# `-x` always negates: on the last line of a `fun` or of a block whose
+# value is used, a value that is not a number is reported as such.
 
 fun total(v: Vec[Int]) -> Int
   print(v.len)
@@ -16,5 +15,5 @@ fun pick(c: Bool, v: Vec[Int]) -> Int
 sub main()
   print(total(Vec()), pick(true, Vec()))
 
-# error: 7:3: `-v` here is the function's value, and negation needs a number; to drop `v`, drop it before the last line
-# error: 13:5: `-v` here is the value of its block, and negation needs a number
+# error: 6:4: operator `-` requires a numeric operand; got `Vec[Int]`
+# error: 12:6: operator `-` requires a numeric operand; got `Vec[Int]`

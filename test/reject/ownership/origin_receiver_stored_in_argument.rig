@@ -16,7 +16,7 @@ sub main()
   s = Src(items: Vec())
   !s.items.push(5)
   s.put(!h)
-  -s
+  <s
   print(h.r[0])
 
 # error: 19:4: cannot drop `s` while it is lent

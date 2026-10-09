@@ -1078,8 +1078,8 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
 }
 
 /// Record the bindings a use may move out (`SemContext.consumed`): the
-/// name `<x` or `-x` takes, a `for x in <v` source, a `|<x|` capture,
-/// and a bare name at a tail of a value that leaves its scope
+/// name `<x` takes, as a move or a drop, a `for x in <v` source, a
+/// `|<x|` capture, and a bare name at a tail of a value that leaves its scope
 /// (`sema.eachTailPart`): `return x`, `break x`, a function's or a
 /// closure's last value, and a value `if`, `match`, `??`, `catch`, loop,
 /// or block. Whether such a use moves is the ownership checker's
@@ -1092,7 +1092,7 @@ fn planConsumed(ctx: *SemContext, e: Sexp) !void {
     };
     switch (head) {
         .move => try consumeName(ctx, ir.Move.operand(e)),
-        .drop => try consumeName(ctx, ir.Drop.name(e)),
+        .drop => try consumeName(ctx, ir.Drop.target(e)),
         .@"return" => try consumeTail(ctx, ir.Return.value(e)),
         .@"break" => try consumeTail(ctx, ir.Break.value(e)),
         .@"for" => {

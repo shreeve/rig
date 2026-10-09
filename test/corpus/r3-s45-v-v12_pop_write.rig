@@ -4,5 +4,5 @@ sub main()
   !v.push(!a)
   if (!v).pop() as w
     w = 4
-  -v
+  <v
   print(a)

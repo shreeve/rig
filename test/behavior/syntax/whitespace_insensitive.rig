@@ -1,9 +1,11 @@
-# Whitespace around an infix operator means nothing: a character that
-# several forms share is read by position. After a value it continues
-# the value (an infix operator, a call, an index, a member, a suffix);
-# anywhere else it starts an operand (a prefix sigil, which touches its
-# operand, grouping, an array literal, an enum literal, a closure's bar
-# list).
+# A character that several forms share is read by position, not by
+# spacing. After a value it continues the value (an infix operator, a
+# call, an index, a member, a suffix); anywhere else it starts an operand
+# (a prefix sigil, grouping, an array literal, an enum literal, a
+# closure's bar list). An infix operator may be spaced on both sides or
+# neither, and a space before a call's or an index's bracket changes
+# nothing; the spacing that would read two ways is rejected, in
+# reject/syntax/unbalanced_spacing.rig.
 
 N = 4
 
@@ -24,39 +26,38 @@ fun maybe(n: Int) -> Int?
   n if n > 0 else none
 
 fun half(n: Int) -> Int?
-  m = maybe(n) ?
+  m = maybe(n)?
   m / 2
 
 sub main()
   a = 7
   b = 3
-  print(a -1, a - 1, a-1, a- 1)
-  print(a *b, a * b, a*b, a +b, a+ b, a <b, a< b, a < b)
+  print(a - 1, a-1, a - -1, a*-b)
+  print(a * b, a*b, a + b, a+b, a < b, a<b, a<-b)
   print(twice (5), twice(5), (twice) (5))
   xs = [10, 20, 30]
   print(xs [1], xs[1], [1, 2] [0])
   w = Wrap [Int](v: 3)
-  print(w.get (), w . get(), w .get())
-  c: Color = . green
+  print(w.get (), w.get())
+  c: Color = .green
   print(c, c == .green, -a, 0 - a)
-  s: [N -1]Int = [N - 1 of 0]
+  s: [N - 1]Int = [N-1 of 0]
   print(s, s.len)
   v = Vec[Int]()
   !v.push (1)
-  !v .push(2)
-  print(v.len, v [0])
+  print(v.len, v [0], ?xs[1 .. 3], ?xs[1..])
   f = | +b , x : Int | x + b
   print(f(1), half(8), half(-1))
   print(a | b, a|b, a & b)
 
 # expect:
-# 6 6 6 6
-# 21 21 21 10 10 false false false
+# 6 6 8 -21
+# 21 21 10 10 false false false
 # 10 10 10
 # 20 20 1
-# 3 3 3
+# 3 3
 # .green true -7 -7
 # [0, 0, 0] 3
-# 2 1
+# 1 1 [20, 30] [20, 30]
 # 4 4 none
 # 7 7 3

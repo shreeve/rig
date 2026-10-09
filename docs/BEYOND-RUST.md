@@ -37,6 +37,11 @@ are four ideas to learn. In Rig they are one: a view, read or write,
 of a value, of part of an array or `Vec`, or of a `Text`'s bytes. The
 same rules cover all of them ([CORE §4](CORE.md#4-one-lend-table)).
 
+**A drop is a move.** Rust's `drop(x)` moves `x` into a function that
+does nothing with it. Rig says the same with no function: `<x` alone on
+a line moves `x` nowhere, so it drops now
+([CORE sentence 2](CORE.md#2-the-core-in-ten-sentences)).
+
 **Precise words show where the model is not yet uniform.** In Rust's
 vocabulary, a rule that treats two kinds of reference differently goes
 unnoticed. In Rig's, it stands out as "a view that is not like the

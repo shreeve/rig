@@ -6,5 +6,5 @@ sub main()
   cb()
   again = +cb
   again()
-  -cb
+  <cb
   again()

@@ -18,7 +18,7 @@ sub main()
   a = Box(Node(key: 2, left: none))
   print(f.key)
   r = ?a
-  -a
+  <a
   print(r.key)
 
 # error: 14:5: cannot reassign `root` while it is lent

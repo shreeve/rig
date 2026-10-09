@@ -35,7 +35,7 @@ sub main()
   rt = ?t
   k = |<rt| print("handle", rt.n)
   k()
-  -k
+  <k
   print("after", t.n)
 
 # expect:

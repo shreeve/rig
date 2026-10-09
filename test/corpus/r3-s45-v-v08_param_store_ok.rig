@@ -6,6 +6,6 @@ sub main()
   v: Vec[?Int] = Vec()
   keep(!v, ?a)
   print(v[0])
-  -v
+  <v
   a = 2
   print(a)

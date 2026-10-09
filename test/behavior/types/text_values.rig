@@ -47,7 +47,7 @@ sub main()
   print(take(<a))
   a = Text("reborn")
   print(a)
-  -b
+  <b
   print("done")
 
 # expect:

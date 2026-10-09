@@ -3,7 +3,7 @@
 
 fun renew(t: Text) -> Text
   r = Text(t)
-  -t
+  <t
   r
 
 sub main()

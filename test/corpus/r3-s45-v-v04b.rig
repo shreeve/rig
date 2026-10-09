@@ -4,5 +4,5 @@ sub main()
   v: [2]!Int = [!a, !b]
   v[0] = 10
   v[1] += 5
-  -v
+  <v
   print(a, b)

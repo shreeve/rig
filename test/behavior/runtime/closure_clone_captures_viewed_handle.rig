@@ -18,7 +18,7 @@ sub main()
   fs: Vec[*fun() -> Int] = Vec()
   for b in ?v
     !fs.push(*|+b| b.n * 10)
-  -v
+  <v
   print("vec gone")
   for f in ?fs
     print(f())

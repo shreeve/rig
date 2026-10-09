@@ -20,8 +20,8 @@ sub main()
   wf: ~fun(Int) -> Int = ~f
   print(b, w, f, wf)
   print(H(f: twice, n: 3), [twice])
-  -b
-  -f
+  <b
+  <f
   print(w, wf)
 
 # expect:

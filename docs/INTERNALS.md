@@ -180,11 +180,19 @@ operand. A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its
 operand, or the lexer rejects it (`detached_prefix`), so no spacing
 reads as another form: `a < - b` is an error, not `a < -b`. After a
 type's `]` (`[2]?Int`) the lexer cannot tell a prefix from a suffix, so
-the Parser wrapper checks the touch on the type's node.
+the Parser wrapper checks the touch on the type's node. The lexer also
+records every operator spaced so that it could read as another form
+(`Lexer.checkSpacing`): an infix operator after a value with whitespace
+on one side only (`a <b`, `a- 1`), a postfix `?` or `!` apart from what
+it follows, a member `.` with whitespace beside it on its line, an enum
+literal's `.` apart from its name, and a range's `..` apart from its
+only bound. The label of a jump (`break :a !n`) ends no operand there.
+The Parser wrapper reports them, each with the text to write, once the
+source parses and the tree is rewritten, so a parse error, or a type's
+detached sigil, is the one reported.
 
 | Source | Tokens | Rule |
 |---|---|---|
-| `-x` vs `a - b`, `-x + 1` | `DROP_STMT` vs `-` | `-name` as a whole statement (a line, after `=>`, `defer`, or `errdefer`, or after a label) is a drop |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | after a value, bitwise or; otherwise a bar list, whose closing bar is the one the opening probe found |
 | `\|\| body` vs `a \|\| b` | `BAR_EMPTY` vs an error | where an operand starts, an empty bar list; after a value, rejected with a hint (`or`, or `??` before a literal) |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
@@ -227,7 +235,12 @@ forms to `value`, an expression without blocks or closures (conditions,
   ending in `\`, except for a closure body that starts below its bar
   list inside brackets: that opens a *layout island*, laid out in
   blocks until the bracket closes or a line returns to the closure's
-  starting indentation;
+  starting indentation. The line that closes it starts with that
+  bracket, at the indentation of the line that opened the bracket;
+  a bracket that closes it on the body's last line, a closing line that
+  starts with anything else, and one at another indentation are
+  recorded beside the spacing rule's operators and reported, each with
+  the layout to write, once the source parses;
 - lets `else` continue the `if`, `while`, or `for` whose block just
   closed;
 - classifies keywords, the characters read by position, `if`, and
@@ -272,9 +285,21 @@ wrapper also makes the only rewrites that need to inspect the tree:
   parameter list, and a capture after a parameter is an error;
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
   `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
-- a `-name` statement whose value is used (the last line of a `fun`, a
-  `break` value, or the last line of a branch, arm, or loop `else` block
-  whose value is used) becomes `(neg name)` instead of `(drop name)`;
+- a statement `<e` whose value is not used is a drop, a move to
+  nowhere: a block's statement, a `defer` or `errdefer` body, an arm's
+  body, or a labeled statement that is `(move x)` of a name becomes
+  `(drop x)`, keeping its node id, and `(move e)` of anything else
+  becomes `(drop (move e))`. Where the value is used (the last line of
+  a `fun` or a closure, a binding's, `return`'s, or `break`'s value, or
+  the last line of a branch, arm, `catch` handler, labeled loop, `raw`
+  block, or loop `else` block whose value is used) it stays the move.
+  So `(drop x)` is the only drop of a binding every pass knows, and
+  `(drop (move e))` is read exactly as `_ = <e`: typecheck's
+  `checkDiscard`, the ownership checker's discard binding, and emit's
+  `emitDiscard` serve both, and the reference checker takes the value
+  as it takes `_ = e`'s. A closure's last line is its value, so a
+  statement `(move e)` reaches the checker only there, in a closure that
+  gives no value, which rejects it with the `_ = <e` to write;
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
   the grammar reads the jump after the whole chain;
@@ -687,7 +712,7 @@ value made where it is only read (`readLeaf`: a `print` or `Text`
 argument, an `==` operand, a `?self` receiver, the object of a field
 or element read) is bound to a hidden name `_t` at the start of its
 statement and dropped at its end: `print(mk().n)` is `_t = mk()`,
-`print(_t.n)`, `-_t`, with the drop also on every path out of the
+`print(_t.n)`, `<_t`, with the drop also on every path out of the
 statement. A read passes through `a if c else b`, `??`, `catch`, `e!`,
 and `e?` (`sema.valueLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
@@ -697,11 +722,11 @@ owning or not (`lendTemp`), and so does a `?self` receiver made here,
 or a field or element of one, whose method may keep a view of it (a
 result that may hold a view, or a call that may store one,
 `callRetains`): `r = mk().arr()` is `_t = mk()`, `r = P.arr(?_t)`,
-`-_t`, plain data too, so the view may be used until the statement
+`<_t`, plain data too, so the view may be used until the statement
 ends. A write lend of a temporary or a part of one (`!mk()`,
 `!mk().items`, a `!self` receiver `!mk().pop()`, a slice `!mk()[..]`)
 is recorded the same way, always (`lendsToWrite`): `print(!mk().pop())`
-is `_t = mk()`, `print(S.pop(!_t))`, `-_t`. A write method called on a
+is `_t = mk()`, `print(S.pop(!_t))`, `<_t`. A write method called on a
 temporary with no `!` is rejected, with the hint to add it
 (`writeOfTemporary`); a branching value that may be a name's is lent
 leaf by leaf, never as one temporary, since the write would reach a
@@ -716,9 +741,9 @@ body, or through a live value that views the holder (`holdsPastDrop`,
 Core sentence 6). A receiver that branches lends each leaf where it is instead
 (`receiverLeaves`). A change to a Cell through a temporary lands in its
 hidden binding, whatever the type: `mk().c.set(v)` is `_t = mk()`,
-`Cell.set(?_t.c, v)`, `-_t`, and so is a `?self` method on a value
+`Cell.set(?_t.c, v)`, `<_t`, and so is a `?self` method on a value
 whose type holds a Cell (`mk().hit()` is `_t = mk()`, `N.hit(?_t)`,
-`-_t`), a Cell member's or `c[i] = e`'s, and a read lend's
+`<_t`), a Cell member's or `c[i] = e`'s, and a read lend's
 (`keepsCellChange`, `lendTemp`). A value that branches, reached where
 its leaves are (`storage.reachesLeaf`), whose type holds a Cell, is
 lent leaf by leaf, each value made here in its own hidden binding
@@ -742,7 +767,7 @@ scope it opens for its name (`holdPartTemps`), so a view of it is
 checked against the statement's end, where it is dropped, not the
 handler's. An arm is a block of one statement: `pat => s` is `pat`
 followed by the block `s`, so `.has(x) => f(?mk(?x))` is `.has(x)`,
-`_t = mk(?x)`, `f(?_t)`, `-_t`, with `_t` dropped where the arm ends,
+`_t = mk(?x)`, `f(?_t)`, `<_t`, with `_t` dropped where the arm ends,
 inside the scope of `x` (emit's slot is the prong's, `emitBodyWith` or
 `emitYieldBlock`; the checker walks the body as the arm's statement,
 `walkTailStmt`). A handler and an arm differ because of what takes
@@ -754,7 +779,7 @@ line), so nothing past an arm can view what the arm made. A jump out of
 a statement ends the loans the statement took for its own end, as the
 statement does. A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
-`if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
+`if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `<_t`, `if _o as x`,
 so a binding that still views `_t` is reported where the header ends.
 A value made in a `match` subject (`sema.handsOver`: a call's result,
 or a branching value whose every leaf is made there) that cannot be
@@ -1569,7 +1594,7 @@ emit takes; when the value is consumed, the checker moves it there, as
 `<x` would, before the scopes the value leaves run their defers (a name
 the value declares itself, or one the function returns). Which bindings
 a use may move is one fact, `SemContext.consumed` (`storage.plan`): the
-name of `<x` and `-x`, a `for x in <v` source, a `|<x|` capture, and a
+name of `<x`, as a move or a drop, a `for x in <v` source, a `|<x|` capture, and a
 tail name of `return`, `break`, a function's or closure's last value,
 and every value that yields through its parts. Emit arms the drop of
 each such binding behind an alive flag (`resourceGuard`), and the

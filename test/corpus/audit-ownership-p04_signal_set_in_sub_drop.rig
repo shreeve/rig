@@ -5,6 +5,7 @@ sub main()
     count.set(count.get() + 1)
     if sig.upgrade() as s
       if s.get() < 3
-        s.set(s.get() + 1))
+        s.set(s.get() + 1)
+  )
   sig.set(1)
   print(sig.get(), count.get())

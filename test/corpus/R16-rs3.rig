@@ -8,6 +8,7 @@ sub main()
   r = Res(id: 1)
   r = Res(id: 2)
   f = |!r|
-    -r
+    <r
+    print("dropped")
   f()
   print("end")

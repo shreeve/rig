@@ -7,5 +7,5 @@ struct Res
 sub main()
   x = 3
   match x
-    3 => -x
+    3 => <x
     _ => print(x)

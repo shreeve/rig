@@ -11,5 +11,5 @@ pub fun keep[a](x: T) -> T
   x
 
 pub fun first[T](a: T, b: T) -> T
-  -b
+  <b
   a

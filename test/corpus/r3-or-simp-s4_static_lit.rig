@@ -7,5 +7,5 @@ fun label(k: Int, name: String) -> String
 sub main()
   t = Text("x")
   s = label(1, ?t)
-  -t
+  <t
   print(s)

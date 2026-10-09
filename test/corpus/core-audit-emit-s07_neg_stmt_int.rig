@@ -1,5 +1,5 @@
 # `-x` as a statement on an Int: Python/C habit, a no-op expression.
 sub main()
   x = 5
-  -x
+  <x
   print("after")

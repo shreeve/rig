@@ -7,5 +7,5 @@ sub main()
   !v.push(!a)
   bump(!v[0])
   bump(v[0])
-  -v
+  <v
   print(a)

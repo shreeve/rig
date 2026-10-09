@@ -1,0 +1,76 @@
+# A statement `<e` moves `e` nowhere, so what it takes is dropped now: a
+# binding, an optional field or element (left `none`), or a value a call
+# makes. Where a value is used (a function's last line, a branch whose
+# value is bound, a closure's last line), `<e` moves the value there.
+
+struct F
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  f: F?
+  g: F
+
+fun mk(n: Int) -> F
+  F(n: n)
+
+fun pass_on(x: F) -> F
+  <x
+
+fun neg(n: Int) -> Int
+  -n
+
+sub main()
+  a = F(n: 1)
+  <a
+  s = S(f: F(n: 2), g: F(n: 3))
+  <s.f
+  print("field", s.f == none)
+  <mk(4)
+  v: Vec[F?] = Vec()
+  !v.push(mk(5))
+  <v[0]
+  print("element", v[0] == none)
+  b = mk(6)
+  <b if neg(1) < 0
+  c = mk(7)
+  match c.n
+    7 => <c
+    _ => pass
+  d = mk(8)
+  e = mk(9)
+  k = true
+  x = if k
+    <d
+  else
+    <e
+  print("kept", x.n)
+  y = pass_on(mk(10))
+  print("passed", y.n)
+  f = |n: Int|
+    q = mk(n)
+    <q
+  w = f(11)
+  print("closure", w.n)
+  print("end")
+
+# expect:
+# drop 1
+# drop 2
+# field true
+# drop 4
+# drop 5
+# element true
+# drop 6
+# drop 7
+# kept 8
+# passed 10
+# closure 11
+# end
+# drop 11
+# drop 10
+# drop 8
+# drop 9
+# drop 3

@@ -9,5 +9,5 @@ sub main()
   !tags.push(Tag(name: label(3)))
   !tags.push(Tag(name: "x"))
   first = tags[0].name
-  -tags
+  <tags
   print(first)

@@ -14,7 +14,7 @@ sub main()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += h.s[0]
-    -v
+    <v
     v = Vec()
     !v.push(2)
   print(k)

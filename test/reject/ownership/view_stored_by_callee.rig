@@ -16,7 +16,7 @@ sub main()
   b = Wrap(payload: 2, log: Vec())
   v = View(box: ?a)
   put(!v, ?b)
-  -b
+  <b
   print(v.box.payload)
 
 # error: cannot drop `b` while it is lent

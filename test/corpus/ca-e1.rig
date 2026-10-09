@@ -41,7 +41,8 @@ sub main()
   !t.vals.push(5)
   sum = 0
   t.each(|!sum, n|
-    sum += n)
+    sum += n
+  )
   print(sum)
   print(apply(x: 4, f: |a| a + 1))
   one = |a: Int| a + 1

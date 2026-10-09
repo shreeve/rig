@@ -9,6 +9,6 @@ sub main()
   !ws.push(<w)
   t = Text("x")
   put(!ws[0], ?t)
-  -ws
-  -t
+  <ws
+  <t
   print(inner)

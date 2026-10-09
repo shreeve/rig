@@ -9,5 +9,5 @@ fun neg(x: Int) -> Int
 sub main()
   r = R(n: 1)
   x = 4
-  -x
+  <x
   print(neg(3))

@@ -5,5 +5,5 @@ sub main()
   !v.push(!a)
   v[0] = !c
   v[0] = 7
-  -v
+  <v
   print(a, c)

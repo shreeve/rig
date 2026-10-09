@@ -15,4 +15,5 @@ sub main()
     defer print("defer ran")
     v = Vec[String]()
     !v.push("x")
-    fail(n)! + v.len))
+    fail(n)! + v.len
+  ))

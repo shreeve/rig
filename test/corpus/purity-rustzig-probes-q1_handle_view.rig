@@ -8,5 +8,5 @@ fun peek(u: ?U) -> ?U
 sub main()
   h = *U(name: "a", n: 1)
   r = peek(?h)
-  -h
+  <h
   print(r.n)

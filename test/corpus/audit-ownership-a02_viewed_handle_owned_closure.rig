@@ -9,5 +9,5 @@ sub main()
   r = ?h
   f = *|<r| print("in closure", r.n)
   f()
-  -f
+  <f
   print("after", h.n)

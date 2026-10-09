@@ -1,4 +1,4 @@
-# A String may view a Text, so a statement `-s` of a String, or of a
+# A String may view a Text, so a statement `<s` of a String, or of a
 # struct or iterator holding Strings, ends the loan it carries: the
 # Text may then change.
 
@@ -22,19 +22,19 @@ sub main()
   t = Text("abc")
   s = ?t[..2]
   print(s)
-  -s
+  <s
   !t.add("d")
   it = split(?t)
   if !it.next() as first
     print(first)
-  -it
+  <it
   !t.add("e")
   p = Pair(a: ?t[1..], b: 1)
   print(p.a, p.b)
-  -p
+  <p
   !t.clear()
   lit = "hi"
-  -lit
+  <lit
   print(t.len)
 
 # expect:

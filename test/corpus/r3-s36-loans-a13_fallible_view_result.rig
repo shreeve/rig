@@ -18,5 +18,5 @@ sub main()
   x = R(n: 1)
   r = pick(?x, true) catch return
   s = find(?x, true) ?? return
-  -x
+  <x
   print(r.n, s.n)

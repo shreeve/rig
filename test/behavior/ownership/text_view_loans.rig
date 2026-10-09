@@ -26,7 +26,7 @@ sub main()
   !words.push(?t[6..10])
   !words.push("literal")
   print(words, words.len)
-  -words
+  <words
   !t.add("!")
   l = longer(head(?t, 3), "zz")
   show = |+l| print("show", l)
@@ -34,7 +34,7 @@ sub main()
   u = <t
   print(u)
   free = longer("x", "yy")
-  -u
+  <u
   print(free)
 
 # expect:

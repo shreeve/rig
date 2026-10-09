@@ -9,7 +9,7 @@ sub main()
   cb: *sub() = *|<v| print(v.len)
   cb()
   again = +cb
-  -cb
+  <cb
   again()
 
 # expect:

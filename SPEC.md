@@ -1808,7 +1808,7 @@ though one that holds a write view writes through it
 
 Every local must be read. Any use counts: an argument, an operand, a
 view `?x` or `!x`, a move `<x`, a clone, a field access, a closure
-capture, a drop `-x`. Assigning does not: a local that is only ever
+capture, a drop `<x`. Assigning does not: a local that is only ever
 assigned, like a misspelled `totl = 5`, is rejected. A name bound by
 `for`, a match pattern, `as`, or `catch |e|` must be read too, or be
 `_`. Discard a value on purpose with `_ = e`. A value with drop glue
@@ -1952,7 +1952,10 @@ sub main()
 ### Operators
 
 The operators and their precedence are in
-[SYNTAX §6](SYNTAX.md#6-operators-and-precedence). A receiver sigil
+[SYNTAX §6](SYNTAX.md#6-operators-and-precedence), and how they are
+spaced in [SYNTAX §5](SYNTAX.md#5-prefixes-infixes-and-suffixes): an
+infix operator has the same spacing on both sides, and a sigil touches
+what it marks. A receiver sigil
 applies to a method's receiver ([§3](#structs)); a call of a field
 holding functions (`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil
 there is rejected.
@@ -2210,26 +2213,49 @@ sub main()
 negative 11
 ```
 
-A statement `-x` drops `x`; `-x` where a value is expected negates.
-A value is expected in an operand, an argument, a binding's value, a
-`break` value, and on the last line of a `fun` (the function's value)
-or of a branch (a loop's `else` block too) whose value is used, so `-x` there is negation, and one whose `x` is not a
-number is rejected with a pointer to dropping it before the last line.
-Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected,
-and so is any other statement `-e`, such as `-f()` or `-(a + b)`, which
-would negate a value and discard it.
+A statement `<e` moves `e` nowhere, so what it takes is dropped now
+([Drop](#drop)): `<x` drops the binding `x`, `<s.f` and `<v[i]` take an
+optional field or element and drop it, leaving `none`, and `<mk()`
+drops the value `mk()` makes. Where a value is expected, `<e` moves it
+there: in an operand, an argument, a binding's value, a `return` or
+`break` value, and on the last line of a `fun` or a closure (its value)
+or of a branch, arm, or loop `else` block whose value is used. A
+closure's last line is its value even where the closure gives none, and
+so is the last line of a branch that ends it, so it drops there with
+`_ = <x`. A statement `<?x` or `<!x` moves a view nowhere, and does
+nothing. `-x` always negates: a statement `-e`
+does nothing, and is rejected, with the drop to write where `e` holds
+something to drop.
 
-```rig reject
+```rig
+struct F
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
 struct S
-  r: Vec[Int]
+  f: F?
 
 sub main()
-  s = S(r: Vec())
-  -s.r
+  s = S(f: F(n: 1))
+  <s.f
+  print(s.f == none)
+```
+
+```output
+drop 1
+true
+```
+
+```rig reject
+sub main()
+  v: Vec[Int] = Vec()
+  -v
 ```
 
 ```error
-only a binding is dropped with `-x`
+to drop `v` now, write `<v`
 ```
 
 A statement must have some use. An expression whose value is used (the
@@ -2909,7 +2935,7 @@ happens:
 | `?x` | lend to read | a read view; `x` keeps ownership |
 | `!x` | lend to write | a write view, the only view while it lives |
 | `+x` | clone | a new owner, as the type says ([Clone](#clone)) |
-| `-x` | drop | release `x` now |
+| `<x` (a statement) | drop | release `x` now |
 | `*x` | share | move `x` into a new shared box ([§9](#9-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§9](#9-shared-and-weak-handles)) |
 
@@ -2997,7 +3023,7 @@ sub main()
 
 ### Moves
 
-> **Core 2:** `<x` moves, `+x` makes a new owner, `-x` drops now.
+> **Core 2:** `<x` moves, `+x` makes a new owner. A statement `<x` moves `x` nowhere, so it drops now.
 
 A value moves when it is passed to a parameter of owning type, bound to
 another name, stored in a field, or returned. Write `<x` when `x`
@@ -3137,15 +3163,15 @@ statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
 
 > **Core 3:** An owner that is not moved is dropped where its scope ends.
 
-`-x` as a statement releases `x` now; afterwards `x` cannot be used.
-Every owning local and parameter that is still live is dropped
-automatically when its block ends, including on early `return`,
-`break`, and `continue`, and on every path through branches. So `-x`
-is only needed to release something early, or to end a view a
-binding holds. A view parameter cannot be dropped: the caller owns
-what it views. Plain data owns nothing, so `-n` of an `Int` or a struct of
-numbers drops nothing, and is rejected. A String may view a `Text`
-(§10), so `-s` of a String, or of a struct holding one, ends the loan
+A statement `<x` moves `x` nowhere, so it releases `x` now; afterwards
+`x` cannot be used. Every owning local and parameter that is still live
+is dropped automatically when its block ends, including on early
+`return`, `break`, and `continue`, and on every path through branches.
+So a drop is only needed to release something early, or to end a view
+a binding holds. A view parameter cannot be dropped: the caller owns
+what it views. Plain data owns nothing, so `<n` of an `Int` or a struct
+of numbers drops nothing, and is rejected. A String may view a `Text`
+(§10), so `<s` of a String, or of a struct holding one, ends the loan
 it carries.
 
 ```rig
@@ -3159,7 +3185,7 @@ sub run(early: Bool)
   a = Noisy(id: 1)
   b = Noisy(id: 2)
   if early
-    -b
+    <b
     print("dropped b early")
   print("end of run")
 
@@ -3188,7 +3214,12 @@ value declared after it: that value is dropped first.
 
 A lend hands over a view of a value without giving it up, and view
 parameter types say the same thing: `b: ?Wrap` reads, `b: !Wrap`
-writes. A write lend is always written. A read lend may go unwritten
+writes. `?` promises that nothing changes except a field whose type is
+a `Cell` (Core 4). Exactly: through a read view only a `Cell` changes,
+a field or an element whose type is a `Cell`, the `Cell` the view is
+itself (`?Cell[T]`), or one a shared handle there holds
+([Changes and shared storage](#changes-and-shared-storage),
+[§10](#cell)). A write lend is always written. A read lend may go unwritten
 where its view lasts only for the use: an argument to a view parameter
 (`balance_of(acct)` is `balance_of(?acct)`), a method's receiver
 ([§3](#structs)), the subject of a `for`, `if … as`, or `match`
@@ -3449,7 +3480,7 @@ deferred code, and the drop at scope exit of a value whose drop runs a
 `drop` body (its own, or one of a value it holds and drops), which could
 read the view. Any other drop only releases memory, so a `Vec[?T]`, or
 a struct holding views without a `drop` body, keeps their loans only
-until its last use. The binding's block ending, `-r`, or reassigning it
+until its last use. The binding's block ending, `<r`, or reassigning it
 also end the view.
 
 ```rig
@@ -3696,7 +3727,7 @@ sub main()
   x = Wrap(payload: 1)
   y = Wrap(payload: 2)
   r = first(?x, ?y)
-  -y
+  <y
   print(r.payload)
 ```
 
@@ -4276,7 +4307,7 @@ struct User
 sub main()
   a = *User(name: "ada")
   b = +a
-  -a
+  <a
   print(b.name)
   print("end")
 ```
@@ -4345,7 +4376,7 @@ sub main()
   rc = *Node(id: 7)
   w = ~rc
   show(?w)
-  -rc
+  <rc
   show(?w)
 ```
 
@@ -4735,7 +4766,7 @@ sub main()
   names: Vec[String] = Vec()
   !names.push(w)
   print(w, e, names)
-  -names
+  <names
   !t.add("!")
   print(t)
 ```
@@ -4835,7 +4866,8 @@ sub main()
   sig: *Signal[Int] = *Signal(0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
-      print("now", s.get()))
+      print("now", s.get())
+  )
   sig.set(7)
   sig.set(9)
 ```
@@ -5007,7 +5039,7 @@ sub main()
   w: ~fun(Int) -> Int = ~f
   if w.upgrade() as g
     print(g(1))
-  -f
+  <f
   print(w.upgrade() == none)
 ```
 
@@ -5128,8 +5160,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
 
 sub main()
   c: Vec[Int] = Vec()
-  each(?c, |!c, n|
-    !c.push(n))
+  each(?c, |!c, n| !c.push(n))
 ```
 
 ```error

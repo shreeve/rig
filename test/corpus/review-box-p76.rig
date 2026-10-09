@@ -13,5 +13,5 @@ sub main()
   match ?t
     .lit(l) => print(l.n)
     .neg(a)
-      -t
+      <t
       print(a)

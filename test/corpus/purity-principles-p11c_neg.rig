@@ -1,4 +1,4 @@
 sub main()
   n = 5
-  -n
+  <n
   print("ok")

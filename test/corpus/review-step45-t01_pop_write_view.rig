@@ -4,7 +4,7 @@ sub main()
   w: Vec[!Int] = Vec()
   !w.push(!a)
   x = !w.pop()
-  -w
+  <w
   a = 10
   if <x as p
     p = 5

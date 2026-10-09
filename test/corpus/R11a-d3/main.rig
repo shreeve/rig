@@ -10,5 +10,5 @@ sub main()
   a = Res(n: 1)
   b = Res(n: 2)
   p = lib.pick(?a, ?b)
-  -b
+  <b
   print(p.n)

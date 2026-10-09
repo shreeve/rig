@@ -12,5 +12,6 @@ sub main()
   v = View(w: ?a)
   v = View(w: ?a)
   run(|!v, w|
-    v.w = w)
+    v.w = w
+  )
   print(v.w.len)

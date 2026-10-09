@@ -2972,7 +2972,16 @@ pub const Checker = struct {
     }
 
     fn walkDrop(self: *Checker, node: Sexp) Error!void {
-        const target = ir.Drop.name(node);
+        const target = ir.Drop.target(node);
+        // `<e` of anything but a name drops what it takes, as `_ = <e`
+        // does (`walkSet`).
+        if (target != .src) {
+            const saved = self.binding;
+            defer self.binding = saved;
+            self.binding = .{ .name = "_", .value = target };
+            _ = try self.walkConsumed(target, .binding);
+            return;
+        }
         const pos = target.src.pos;
         const name = self.text(target);
         const id = self.find(name) orelse return;
@@ -6114,7 +6123,7 @@ test "a view chosen by if keeps both roots lent" {
         \\    ?a
         \\  else
         \\    ?b
-        \\  -b
+        \\  <b
         \\  look(r)
         \\
     , "cannot drop `b` while it is lent");
@@ -6128,7 +6137,7 @@ test "a view returned from a call views the argument" {
         \\sub main()
         \\  h = make()
         \\  r = view(?h)
-        \\  -h
+        \\  <h
         \\  look(r)
         \\
     , "cannot drop `h` while it is lent");
@@ -6166,7 +6175,7 @@ test "a method receiver is lent for the whole call" {
 test "dropping a view parameter is rejected" {
     try expectError(
         \\sub kill(rc: ?Wrap)
-        \\  -rc
+        \\  <rc
         \\
     , "cannot drop view parameter `rc`");
 }

@@ -1,0 +1,33 @@
+# A statement `-x` negates `x` and throws the result away, so it does
+# nothing. Where `x` owns or views something, the diagnostic says how to
+# drop it: `<x` for a binding or an optional field or element, which `<`
+# takes; any other field or element is dropped with what holds it. A
+# view parameter is not dropped: the caller owns what it views.
+
+struct S
+  r: Vec[Int]
+  o: Vec[Int]?
+  n: Int
+
+sub look(x: ?Vec[Int])
+  -x
+
+sub main()
+  look(Vec[Int]())
+  s = S(r: Vec(), o: none, n: 1)
+  v: Vec[Int] = Vec()
+  a = [1, 2]
+  -v
+  -s.o
+  -s.r
+  -a[0]
+  -s.n
+  print(s.n, a, v.len)
+
+# errors: 6
+# error: 13:3: this expression does nothing as a statement: `-x` negates a value and discards it; a view parameter is not dropped, since the caller owns what it views
+# error: 20:3: this expression does nothing as a statement; to drop `v` now, write `<v`
+# error: 21:3: this expression does nothing as a statement; to drop `s.o` now, write `<s.o`
+# error: 22:3: this expression does nothing as a statement; `s.r` is dropped with what holds it, or replaced by assigning to it
+# error: 23:3: this expression does nothing as a statement: `-a[0]` negates a value and discards it
+# error: 24:3: this expression does nothing as a statement: `-s.n` negates a value and discards it

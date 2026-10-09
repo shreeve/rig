@@ -4,5 +4,5 @@ struct Wrap[T]
 sub main()
   v = Vec[Int]()
   w = Wrap(?v)
-  -v
+  <v
   print(w)

@@ -4,8 +4,8 @@ Rig is a small, fast systems language that aims for the readability of
 Python and Ruby and the memory safety of Rust, without a garbage
 collector. Blocks are indented, most code carries no annotations at
 all, and the places where ownership matters are marked by a handful of
-one-character sigils: `<x` moves, `?x` lends, `+x` clones, `-x`
-drops. The compiler checks every one of them, then lowers the program
+one-character sigils: `<x` moves, `?x` lends, `+x` clones, and `<x`
+alone on a line drops. The compiler checks every one of them, then lowers the program
 to [Zig](https://ziglang.org) 0.17, which does the optimizing, code
 generation, and linking.
 
@@ -23,6 +23,56 @@ New to Rig? [WELCOME.md](WELCOME.md) is the guide for programmers
 coming from Rust, Zig, C, Python, Ruby, JavaScript, or Go. Every
 example in this README is compiled and run by the test suite, and
 prints exactly the output shown under it.
+
+### `?` and `!`
+
+`?` and `!` each carry one idea, in four positions:
+
+| | before a value | before a type | after a type | after an expression |
+|---|---|---|---|---|
+| `?` "maybe, just look" | `?x` lend to read | `?T` read view | `T?` optional | `e?` pass `none` up |
+| `!` "for real, act" | `!x` lend to write | `!T` write view | `T!` can fail | `e!` pass a failure up |
+
+`!` means "act": write, or fail. As in Ruby's `sort!` and Scheme's
+`set!`, it marks something that changes things. Rig spells negation
+`not`, so `!` never means "not". Each sigil touches what it marks.
+
+```rig
+error Stack
+  empty
+
+fun peek(v: ?Vec[Int]) -> Int?
+  return none if v.len == 0
+  v[v.len - 1]
+
+fun pop(v: !Vec[Int]) -> Int!
+  return Stack.empty if v.len == 0
+  !v.pop() ?? 0
+
+fun next(v: ?Vec[Int]) -> Int?
+  peek(?v)? + 1
+
+fun drain(v: !Vec[Int]) -> Int!
+  pop(!v)! + pop(!v)!
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  print(next(?v))
+  print(drain(!v) catch -1)
+  print(next(?v), drain(!v) catch -1)
+```
+
+```output
+3
+3
+none -1
+```
+
+`peek` lends `v` to read and gives an `Int?`; `next` passes its `none`
+up with `?`. `pop` lends `v` to write and gives an `Int!`; `drain`
+passes its failure up with `!`, which `catch` turns into `-1`.
 
 ### Hello
 
@@ -114,7 +164,7 @@ struct Config
 sub main()
   a = *Config(level: 3)
   b = +a
-  -a
+  <a
   print("still here:", b.level)
 ```
 
@@ -124,7 +174,8 @@ config released
 ```
 
 `*Config(...)` puts the value in a reference-counted box, `+a` makes
-another owner (a visible refcount bump), and `-a` drops one now. The
+another owner (a visible refcount bump), and `<a` alone on a line moves
+`a` nowhere, so it drops that owner now. The
 value goes when its last owner does.
 
 ### Generics
@@ -162,7 +213,8 @@ sub main()
   clicks.subscribe(*|~clicks, +total|
     if clicks.upgrade() as c
       total.set(total.get() + c.get())
-      print("clicks", c.get(), "total", total.get()))
+      print("clicks", c.get(), "total", total.get())
+  )
   clicks.set(1)
   clicks.set(2)
 ```
@@ -184,17 +236,17 @@ libraries are written in Rig itself (see
 
 | Sigil | In an expression | In a type |
 |---|---|---|
-| `<` | `<x` move `x` | |
+| `<` | `<x` move `x`; as a statement, drop it now | |
 | `?` | `?x` lend to read; `x?` propagate `none` | `?T` read view; `T?` optional |
 | `!` | `!x` lend to write; `f()!` propagate failure | `!T` write view; `T!` fallible |
 | `+` | `+x` clone (a new owner) | |
-| `-` | `-x` drop now (as a statement) | |
 | `*` | `*x` share: move into a counted box | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
 
 A sigil is a prefix where an operand starts, and an operator after a
-value, so `a < b` is still a comparison and `a * b` a product, however
-an infix operator is spaced; a prefix sigil touches its operand. The
+value, so `a < b` is still a comparison and `a * b` a product. A sigil
+touches what it marks, and an infix operator has the same spacing on
+both sides: `a < b` or `a<b`, never `a <b`. The
 [Core](docs/CORE.md) states what they mean in ten sentences, the
 [syntax guide](SYNTAX.md#5-prefixes-infixes-and-suffixes) shows the
 forms, the [language reference](SPEC.md) covers every rule, and

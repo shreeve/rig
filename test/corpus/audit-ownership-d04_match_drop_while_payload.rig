@@ -20,6 +20,6 @@ sub main()
   s: Slot = .full(t: *Tok(n: 1))
   match s
     .full(t)
-      -s
+      <s
       print(t.n)
     _ => print("other")

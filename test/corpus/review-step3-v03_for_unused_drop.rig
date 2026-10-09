@@ -3,7 +3,7 @@ sub main()
   !v.push(1)
   !v.push(2)
   for _ in v
-    -v
+    <v
     break
   t = Text("abc")
   for _ in t

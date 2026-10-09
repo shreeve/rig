@@ -10,5 +10,5 @@ sub main()
   view = View(w: ?v)
   f: fun() -> Int = |<view| view.w.len
   print(f())
-  -v
+  <v
   print("after")

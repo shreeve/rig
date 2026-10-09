@@ -10,7 +10,7 @@ sub main()
     print(r)
     v.n = 2
   if ?r as v
-    -r
+    <r
     print(v.n)
   if !r as v
     r = none
@@ -21,5 +21,5 @@ sub main()
   out = 0
   if ?r as v
     s = v
-    -r
+    <r
     print(s.n)

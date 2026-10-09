@@ -4,7 +4,7 @@ sub main()
   v: Vec[?Int] = Vec()
   !v.push(?a)
   !v.push(?b)
-  -v
+  <v
   a = 5
   b = 6
   print(a, b)

@@ -1,4 +1,4 @@
-# `-f` on a closure that owns its captures releases them now; a closure
+# `<f` on a closure that owns its captures releases them now; a closure
 # that is not dropped releases them at scope exit.
 
 struct B
@@ -11,13 +11,13 @@ sub main()
   b = B(n: 1)
   f = |<b| print("has", b.n)
   f()
-  -f
+  <f
   print("after drop")
   c = *B(n: 2)
   g = |+c| print("clone", c.n)
   g()
   if c.n > 5
-    -g
+    <g
   print("end")
 
 # expect:

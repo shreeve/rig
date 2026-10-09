@@ -5,5 +5,5 @@ sub main()
   w: Vec[?Vec[Text]] = Vec()
   !w.push(?v)
   c = +w
-  -w
+  <w
   print(c)

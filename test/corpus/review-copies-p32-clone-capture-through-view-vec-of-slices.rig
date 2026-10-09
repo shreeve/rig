@@ -6,6 +6,6 @@ sub main()
   !x.push(?a[..2])
   r = ?x
   f = |+r| r[0][1]
-  -x
+  <x
   a[1] = 9
   print(f())

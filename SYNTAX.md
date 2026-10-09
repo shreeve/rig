@@ -114,9 +114,11 @@ sub main()
 
 **Closure bodies inside brackets.** A closure's body may be an indented
 block wherever the closure is written ([§11](#closures)). When its bar
-list ends a line inside `( )`, the body below is laid out in blocks as
-anywhere else; it ends where the bracket closes, or where a line comes
-back to the indentation of the line the closure started on.
+list ends a line inside `( )` or `[ ]`, the body below is laid out in
+blocks as anywhere else, and it ends with the bracket around it on a
+line of its own, at the indentation of the line that opened the
+bracket: the closure is the last thing the bracket holds. A one-line
+body stays on the bar list's line.
 
 ```rig
 sub each(n: Int, f: *sub(Int))
@@ -127,9 +129,9 @@ sub main()
   total: *Cell[Int] = *Cell(0)
   each(3, *|+total, i|
     total.set(total.get() + i)
-    print("saw", i))
-  each(2, *|i|
-    print("trailing", i))
+    print("saw", i)
+  )
+  each(2, *|i| print("trailing", i))
   print(total.get())
 ```
 
@@ -140,6 +142,24 @@ saw 2
 trailing 0
 trailing 1
 3
+```
+
+A bracket that ends the body's last line is rejected, with the layout
+to write:
+
+```rig reject
+sub each(n: Int, f: *sub(Int))
+  for i in 0..n
+    f(i)
+
+sub main()
+  each(2, *|i|
+    j = i * 2
+    print(j))
+```
+
+```error
+a closure body below its bar list ends with `)` on a line of its own: end this line before the `)`, and write `)` on the next line at the indentation of the line that opened it (column 3)
 ```
 
 ## 3. Names and keywords
@@ -248,7 +268,8 @@ tab	here it's raw: \n quote: 'x'
 
 The characters `<` `+` `-` `*` `?` `!` `|` are both operators and
 prefixes, and `(`, `[`, and `.` both continue a value and start a new
-one. Whitespace never decides which: a character's position does.
+one. Whitespace never decides which: a character's position does, and
+spacing that would read as the other form is rejected.
 
 > After a value (a name, a literal, `)`, `]`, or a `?` or `!` suffix), a
 > character continues that value: it is an infix operator, a suffix, a
@@ -257,10 +278,10 @@ one. Whitespace never decides which: a character's position does.
 
 | Source | Reads as |
 |---|---|
-| `a < b`, `a <b`, `a<b` | comparison |
+| `a < b`, `a<b` | comparison |
 | `x = <y`, `f(<y)` | a move |
-| `a - 1`, `a -1`, `a-1` | subtraction |
-| `f(-x)`, `-x` | negation; `-x` as a whole statement drops `x` |
+| `a - 1`, `a-1` | subtraction |
+| `f(-x)`, `-x` | negation |
 | `f(x)`, `f (x)`, `a[i]`, `a.b` | a call, an index or compile-time arguments ([§11](#compile-time-arguments)), member access |
 | `(x)`, `[1, 2]`, `.red` | grouping, an array literal, an enum literal |
 | `T?`, `T!`, `f()!`, `x?` | suffixes: optional, fallible, propagate a failure or `none` |
@@ -270,10 +291,24 @@ A prefix sigil says how a value is held, and a suffix `?` or `!` is
 control flow: Rig has no `!` for "not" (that is `not`), so `!v.pop()`
 lends `v` to write ([WELCOME](WELCOME.md#the-central-idea)).
 
-So spacing around an infix operator means nothing, and a prefix sigil
-(`<` `+` `-` `*` `?` `!` `~`) touches its operand, in an expression and
-in a type: `-b`, `<x`, `*T`. One with whitespace after it is rejected,
-so `a <- b`, which Rig does not have, is not quietly `a < -b`:
+So a sigil touches what it marks, and spacing shows how a line reads:
+
+- An infix operator has the same spacing on both sides, `a < b` or
+  `a<b`, never `a <b` or `a< b`. This holds for every operator between
+  two values: arithmetic, comparisons, `??`, `..`, the bitwise
+  operators, and `=` and the compound assignments.
+- A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in
+  an expression and in a type: `-b`, `<x`, `*T`, `[]?T`.
+- A postfix `?` or `!` touches what it follows: `f()!`, `x?`, `T?`.
+- A member `.` touches both sides, `w.get()`; inside brackets a chain
+  may go on at the start of the next line. An enum literal's `.`
+  touches its name, `.red`, and a range with one bound touches it,
+  `xs[a..]`, `xs[..b]`.
+
+Spacing that breaks one of these is rejected, with the text to write,
+so `a <b` (a comparison, or a forgotten comma before a move?) and
+`a <- b`, which Rig does not have, never pass for something else.
+Around a call's or an index's bracket, spacing changes nothing.
 
 ```rig
 fun twice(n: Int) -> Int
@@ -282,11 +317,22 @@ fun twice(n: Int) -> Int
 sub main()
   a = 5
   b = 3
-  print(a - b, a -b, a-b, twice(-b), twice (a) - b)
+  print(a - b, a-b, twice(-b), twice (a) - b)
 ```
 
 ```output
-2 2 2 -6 7
+2 2 -6 7
+```
+
+```rig reject
+sub main()
+  a = 5
+  b = 3
+  print(a -b)
+```
+
+```error
+`a -b`: an operator has the same spacing on both sides; write `a - b` to subtract, or `a, -b` to negate `b` as a value of its own
 ```
 
 ```rig reject
@@ -826,7 +872,9 @@ A statement is one of:
 - an expression: a call, a propagation (`f()!`), a `catch`, or a block
   form (`if`, `while`, `for`, `match`);
 - a binding or assignment ([§9](#9-bindings-and-assignment));
-- a drop, `-x`;
+- a drop, `<x`: a move to nowhere, which drops what it takes now
+  (`<x`, `<s.f`); where a value is used (a `fun`'s last line, a closure's,
+  a branch whose value is used), `<x` moves the value there;
 - `pass`, which does nothing;
 - `return`, `return e`, `break`, `break e`, `break :label`,
   `continue`, `continue :label`;
@@ -1339,7 +1387,7 @@ sub main()
   b = Cell[Held](*none)
   print(a.replace(none) == none)
   old = b.replace(*none)
-  -old
+  <old
 ```
 
 ```output
@@ -1373,11 +1421,12 @@ the same sigil means the same thing in every position:
 | `match` subject | `match e` | `match !e` | `match <e` | | |
 | closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
 | assignment | | | `a = <b` | | |
+| statement (drop now) | | | `<x` | | |
 
 `*x` moves a value into a new shared handle (`*<x` for a named owning
-value, `*Point(x: 1)` for a new one). `-x` as a whole statement drops
-`x`; where a value is expected, it negates. A sigil may reach into a
-place: `+p.a` clones the handle in a field, `<p.f` takes an optional
+value, `*Point(x: 1)` for a new one). `<x` alone on a line drops `x`
+now; where a value is expected, it moves it there. A sigil may reach
+into a place: `+p.a` clones the handle in a field, `<p.f` takes an optional
 field, and `?xs[0]` lends an element. [SPEC §7](SPEC.md#7-ownership)
 says what each does.
 

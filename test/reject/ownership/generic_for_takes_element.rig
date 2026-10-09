@@ -22,7 +22,7 @@ fun copyall[T](v: ?Vec[T]) -> Vec[T]
 
 sub dropall[T](v: ?Vec[T])
   for x in v
-    -x
+    <x
 
 fun first[T](v: ?Vec[T], d: T) -> T
   for x in v

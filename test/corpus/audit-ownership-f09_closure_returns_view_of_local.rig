@@ -20,5 +20,5 @@ sub main()
   x = Tok(n: 1)
   get = |?x| x
   r = get()
-  -x
+  <x
   print(r.n)

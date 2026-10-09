@@ -9,7 +9,7 @@ are coming from another language, start with [WELCOME.md](WELCOME.md).
 No. Numbers, strings, and structs, enums, and arrays made of them are
 plain values (a struct holding a `Vec` owns it), and views (`?T`,
 `!T`) are checked at compile time and cost nothing at run time. Counting happens only behind a shared handle `*T`, where
-every count change is written (`*x`, `+x`, `-x`); a heap value with one
+every count change is written (`*x`, `+x`, `<x`); a heap value with one
 owner is a `Box[T]`, which counts nothing
 ([cost model](docs/DESIGN.md#cost-model)).
 

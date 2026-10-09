@@ -31,7 +31,7 @@ sub boxes()
   b = Box(E.a(r: Res(n: 2, t: Text("b"))))
   match b
     .a(r)
-      -b
+      <b
       print(r.n)
     .b => pass
 

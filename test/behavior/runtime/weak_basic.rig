@@ -8,8 +8,8 @@ sub main()
   rc = *Node(value: 7)
   w  = ~rc
   print(rc.value)
-  -rc
-  -w
+  <rc
+  <w
   print("done")
 
 # expect:

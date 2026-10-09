@@ -1,6 +1,6 @@
 sub f(x: Int, c: Bool)
   if c
-    -x
+    <x
   else
     x + 1
 

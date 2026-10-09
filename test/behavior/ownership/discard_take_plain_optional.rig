@@ -1,0 +1,58 @@
+# A discarded take of an optional field or element, a statement `<e` or
+# `_ = <e`, leaves `none` whatever the optional holds: plain data, a
+# plain struct, or a view, through the owner, a write view, a `!self`
+# receiver, or a `defer`, as a take whose value is bound does.
+
+struct P
+  x: Int
+
+struct S
+  n: Int?
+  p: P?
+  s: String?
+
+  sub clear(!self)
+    <self.n
+    _ = <self.p
+
+sub take_through(w: !S)
+  <w.n
+  <w.s
+
+sub main()
+  t = "abc"
+  a = S(n: 1, p: P(x: 2), s: ?t)
+  <a.n
+  <a.p
+  <a.s
+  print(a.n == none, a.p == none, a.s == none)
+  b = S(n: 1, p: P(x: 2), s: ?t)
+  _ = <b.n
+  _ = <b.p
+  _ = <b.s
+  print(b.n == none, b.p == none, b.s == none)
+  c = S(n: 1, p: P(x: 2), s: ?t)
+  take_through(!c)
+  print(c.n == none, c.p == none, c.s == none)
+  d = S(n: 1, p: P(x: 2), s: none)
+  !d.clear()
+  print(d.n == none, d.p == none)
+  e = S(n: 1, p: none, s: none)
+  if true
+    defer <e.n
+    print("in", e.n == none)
+  print("after", e.n == none)
+  v: Vec[Int?] = Vec()
+  !v.push(3)
+  <v[0]
+  print(v[0] == none)
+
+# release
+# expect:
+# true true true
+# true true true
+# true false true
+# true true
+# in false
+# after true
+# true

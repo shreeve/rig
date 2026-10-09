@@ -46,21 +46,21 @@ sub write_receiver(h: !Holder)
   s = Src(items: Vec())
   !s.items.push(5)
   !s.putw(!h)
-  -s
+  <s
   print(h.r[0])
 
 sub view_of_self(t: ?Src)
   v = VH(s: t)
   s = Src(items: Vec())
   s.me(!v)
-  -s
+  <s
   print(v.s.items.len)
 
 sub nested_field(h: !Holder)
   o = Outer(b: Src(items: Vec()))
   !o.b.items.push(5)
   o.b.put(!h)
-  -o
+  <o
   print(h.r[0])
 
 sub element(h: !Holder)
@@ -74,7 +74,7 @@ sub through_handle(h: !Holder)
   !v.push(5)
   s = *Src(items: <v)
   s.put(!h)
-  -s
+  <s
   print(h.r[0])
 
 sub consumed(h: !Holder)
@@ -82,7 +82,7 @@ sub consumed(h: !Holder)
   !y.push(9)
   hv = HV(r: ?y[..])
   <hv.give(!h)
-  -y
+  <y
   print(h.r[0])
 
 sub temporary(h: !Holder)

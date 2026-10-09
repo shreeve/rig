@@ -6,5 +6,5 @@ sub main()
   t = Text("t")
   !w.push(?t)
   w = !other
-  -t
+  <t
   print(inner)

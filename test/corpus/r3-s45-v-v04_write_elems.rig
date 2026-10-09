@@ -6,5 +6,5 @@ sub main()
   !v.push(!b)
   v[0] = 10
   v[1] += 5
-  -v
+  <v
   print(a, b)

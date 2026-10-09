@@ -9,7 +9,7 @@ fun f(o: Int?) -> Int
   r = R(n: 1)
   b = ?r
   k = o ?? return 0
-  -r
+  <r
   print(b.n, k)
   k
 

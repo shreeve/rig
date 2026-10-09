@@ -1,5 +1,5 @@
 # A loop's value is used, so `-y` as a `break` value, or as the last
-# line of a loop's `else` block, is negation, not a drop.
+# line of a loop's `else` block, is negation.
 
 fun first(y: Int) -> Int
   x = while true

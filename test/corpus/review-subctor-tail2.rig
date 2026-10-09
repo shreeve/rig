@@ -8,7 +8,7 @@ sub t1()!
 sub t2()!
   v = Vec[Int]()
   !v.push(1)
-  -v
+  <v
 
 sub t3(n: Int)!
   i = 0

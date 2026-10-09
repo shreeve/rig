@@ -5,9 +5,9 @@ struct Counter
 
 sub main()
   a = Counter(hits: Cell(1))
-  -a
+  <a
   r = random.Random.seeded(3)
-  -r
+  <r
   c = Cell(3)
-  -c
+  <c
   print("ok")

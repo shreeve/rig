@@ -5,7 +5,7 @@ struct R
 
 fun f() -> R
   r = R(n: 1)
-  defer -r
+  defer <r
   r
 
 sub main()

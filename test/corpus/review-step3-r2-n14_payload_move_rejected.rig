@@ -15,7 +15,7 @@ sub main()
     .a(r) => eat(<r)
     .b => pass
   match e
-    .a(r) => -r
+    .a(r) => <r
     .b => pass
   match e
     .a(r) => eat(r)

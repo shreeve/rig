@@ -16,7 +16,7 @@ fun f(ok: Bool) -> Int!
   r = ?x
   defer r = ?keep
   k = maybe(ok)!
-  -x
+  <x
   print(r[0] + k)
   k
 

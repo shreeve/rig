@@ -18,8 +18,6 @@ sub main()
     b: Vec[Int] = Vec()
     !b.push(1)
     !b.push(2)
-    fill(!v, |?b, o|
-      !o.set(b))
-    fill(!v, |?b, o|
-      put(o, b))
+    fill(!v, |?b, o| !o.set(b))
+    fill(!v, |?b, o| put(o, b))
   print(v.w.len)

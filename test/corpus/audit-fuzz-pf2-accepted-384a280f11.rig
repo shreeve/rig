@@ -11,7 +11,8 @@ sub run(f: *sub())
 sub main()
   run(*||
     x: Int = 1
-    print(x, g(a: 1, b: 2)))
+    print(x, g(a: 1, b: 2))
+  )
 
 # expect:
 # 1 12

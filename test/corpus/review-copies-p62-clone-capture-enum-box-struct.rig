@@ -26,15 +26,15 @@ sub main()
   f = |+e| elen(?e)
   e = E.n(h: *N(v: 1))
   g = |+e| elen(?e)
-  -e
+  <e
   b = Box(Text("boxed"))
   h = |+b| b.len
-  -b
+  <b
   r = R(name: Text("rec"), hs: Vec())
   !r.hs.push(*N(v: 2))
   k = *|+r| r.name.len + r.hs[0].v
-  -r
+  <r
   k2 = +k
   print(f(), g(), h(), k(), k2())
-  -k
+  <k
   print(k2())

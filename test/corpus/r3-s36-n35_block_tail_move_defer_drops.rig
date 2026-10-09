@@ -3,7 +3,7 @@ sub main()
   x = if c
     v: Vec[Int] = Vec()
     !v.push(1)
-    defer -v
+    defer <v
     v
   else
     Vec()

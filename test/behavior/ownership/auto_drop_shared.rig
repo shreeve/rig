@@ -1,4 +1,4 @@
-# A shared handle with no explicit `-rc` is dropped automatically at
+# A shared handle with no explicit `<rc` is dropped automatically at
 # scope exit, exactly once (the drop body runs after the last use).
 
 struct Counter

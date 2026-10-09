@@ -38,8 +38,8 @@ sub main()
   a1 = child(?a, "a1")
   print("depth", a1.name, depth(?a1))
   print("root has", root.children.len, "children")
-  -a
-  -b
+  <a
+  <b
   print("a1 still has a parent:", has_parent(?a1))
-  -root
+  <root
   print("a1 after root dropped:", has_parent(?a1))

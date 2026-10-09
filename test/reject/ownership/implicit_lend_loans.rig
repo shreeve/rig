@@ -23,7 +23,7 @@ fun mk() -> Bag
 sub one()
   b = Bag(v: Vec())
   r = keep(b)
-  -b
+  <b
   print(r.v.len)
 
 sub two()

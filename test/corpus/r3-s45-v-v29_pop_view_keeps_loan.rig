@@ -3,6 +3,6 @@ sub main()
   v: Vec[?Int] = Vec()
   !v.push(?a)
   r = (!v).pop()
-  -v
+  <v
   a = 2
   print(r)

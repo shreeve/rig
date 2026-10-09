@@ -23,7 +23,7 @@ sub main()
   y = *Box(Text("handle"))
   z = ?y[..1]
   print(u, v, x, z)
-  -h
+  <h
   print(g)
 
 # expect:

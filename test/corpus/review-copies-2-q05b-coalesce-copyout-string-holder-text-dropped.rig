@@ -15,5 +15,5 @@ sub main()
   b = N(s: "zz", k: 2)
   o: (?N)? = ?n
   c: N = o ?? ?b
-  -t
+  <t
   print(c.s, c.k)
