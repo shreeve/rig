@@ -29,5 +29,5 @@ sub main()
   for x in !mk(1).vs()
     x += 1
 
-# error: 25:4: `pop` changes its receiver, a temporary no name holds; the `!` here lends what `pop` returns, not its receiver: write `!(mkopt(n)?).pop()`
+# error: 25:4: `pop` changes its receiver, a temporary no name holds; the `!` here lends what `pop` returns, not its receiver: write `(!(mkopt(n)?)).pop()`
 # error: 29:13: `vs` changes its receiver, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of the receiver: bind `mk(1)` to a name first

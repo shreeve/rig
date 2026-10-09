@@ -929,11 +929,13 @@ does not take `!self` is rejected (it reads as negation, which is
 `not`), `<` before one that does not take `<self`, `?` before one that
 takes `!self` or `<self`, and any of them before a function with no
 receiver (`Point.origin()`). A
-write call whose `Bool` value is used is written in the long form,
-`(!set).insert(k)`, wherever the value goes (a condition, an operand,
-a binding, an argument, a return value), so its `!` never reads as
-negation. The short form stays for a call whose value is discarded: a
-statement `!set.insert(k)`, alone or under `!` or `catch`.
+write call whose value is used, whatever its type, is written in the
+long form, `(!set).insert(k)`, wherever the value goes (a condition, an
+`as` header, an operand, a binding, an argument, a return value, a
+function's or a closure's last line, a `match` subject, `??`), so its
+`!` never reads as negation: `x = (!v).pop()`, `while (!it).next() as
+x`. The short form stays for a call whose value is discarded: a
+statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`.
 
 ```rig
 struct Tally
@@ -1013,7 +1015,19 @@ sub main()
 ```
 
 ```error
-a write call whose `Bool` value is used is written `(!t).insert(...)`, so its `!` never reads as negation
+write `(!t).insert(1)`: a write call whose value is used puts its `!` in parentheses
+```
+
+```rig reject
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  x = !v.pop()
+  print(x)
+```
+
+```error
+write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
 ```
 
 ```rig
@@ -5440,7 +5454,7 @@ sub main()
 
 An `if` or `while` condition may join several bindings, and `Bool`
 conditions among them, with `and`: `if a as x and b as y`,
-`if a as x and x > 3`, `while !q.pop() as n and n > 0`. `as` binds
+`if a as x and x > 3`, `while (!q).pop() as n and n > 0`. `as` binds
 tighter than `and`, and the parts run in order, each only when the ones
 before it held. Each binding is visible to the parts after it and to
 the body, not to `else`, which runs when any part fails (and a loop

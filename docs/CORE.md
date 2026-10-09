@@ -990,8 +990,10 @@ rule in SYNTAX is syntax too.
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`, and
   `!mk().pop()` applies it to `mk()`. *(built)*
 - **`const x = e`:** a binding that never changes. *(built)*
-- **A write call whose `Bool` value is used** is written
-  `(!s).insert(k)`, everywhere. *(built)*
+- **A write call whose value is used** is written `(!s).insert(k)`,
+  everywhere: a condition, an `as` header, an operand, a binding, an
+  argument, a result. The short form `!s.insert(k)` stands only where
+  the value is discarded. *(built)*
 - **Labels**, the `catch` forms, `pass`, and `??`.
 - **Habits from other languages that keep Rig's meaning,** documented
   rather than changed: integer `/` and `%` truncate as in C; `u?.n`
@@ -1027,7 +1029,7 @@ sub main()
 ```
 
 ```error
-(!s).insert(...)
+write `(!s).insert(1)`: a write call whose value is used puts its `!` in parentheses
 ```
 
 ## 9. Inside the compiler

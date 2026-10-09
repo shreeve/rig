@@ -1368,7 +1368,7 @@ def celltemp_ops(t):
             ops["hit"] = (lambda x: f"{R(x)}.hit()", None, lambda s: (s + 1, None))
             ops["bumped"] = (None, lambda x: f"{R(x)}.bumped()", lambda s: (s + 1, s + 1))
             ops["me"] = (None, lambda x: f"{R(x)}.me(){inner}.get()", lambda s: (s + 1, s + 1))
-            ops["bumpw"] = (None, lambda x: f"!{R(x)}.bumpw()", lambda s: (s + 1000, s + 1000))
+            ops["bumpw"] = (None, lambda x: f"(!{R(x)}).bumpw()", lambda s: (s + 1000, s + 1000))
         ops["look"] = (None, lambda x: f"look(?{x})", lambda s: (s + 10, s + 10))
         ops["poke"] = (None, lambda x: f"poke(!{x})", lambda s: (s + 100, s + 100))
     else:
@@ -1381,7 +1381,7 @@ def celltemp_ops(t):
         if t["recv"] is not None:
             ops["hit"] = (lambda x: f"{R(x)}.hit()", None, lambda s: (s + [1], None))
             ops["me"] = (None, lambda x: f"{R(x)}.me(){inner}.len", lambda s: (s + [1], len(s) + 1))
-            ops["bumpw"] = (None, lambda x: f"!{R(x)}.bumpw()", lambda s: (s + [1000], len(s) + 1))
+            ops["bumpw"] = (None, lambda x: f"(!{R(x)}).bumpw()", lambda s: (s + [1000], len(s) + 1))
         ops["look"] = (None, lambda x: f"look(?{x})", lambda s: (s + [10], len(s) + 1))
         ops["poke"] = (None, lambda x: f"poke(!{x})", lambda s: (s + [100], len(s) + 1))
     return ops

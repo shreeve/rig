@@ -1657,12 +1657,14 @@ const Checker = struct {
         return at + 2 >= src.len or !(std.ascii.isAlphanumeric(src[at + 2]) or src[at + 2] == '_');
     }
 
-    /// Whether the call on `recv`, returning `returns`, has a `Bool`
-    /// value that is used: such a write call is written `(!s).m(...)`.
-    fn usesBoolValue(self: *Checker, recv: Sexp, returns: TypeId) bool {
+    /// Whether the call on `recv`, returning `returns`, has a value that
+    /// is used: anywhere but a statement, alone or under `!`, `?`, or
+    /// `catch` (`isDiscardedCall`). Such a write call is written
+    /// `(!s).m(...)`, so its `!` never reads as negation.
+    fn usesValue(self: *Checker, recv: Sexp, returns: TypeId) bool {
         const result = self.ctx.types.get(returns);
         const value = if (result == .fallible) result.fallible else returns;
-        return value == self.t().bool_id and !self.isDiscardedCall(recv);
+        return value != self.t().void_id and !self.isDiscardedCall(recv);
     }
 
     /// Whether `recv` is the receiver of a call whose value is
@@ -8008,7 +8010,7 @@ const Checker = struct {
     /// `?p.m(...)`, `!p.m(...)`, and `<p.m(...)` (see
     /// `Parser.receiverSigil`): the sigil is the receiver mode of `m`, so
     /// a `!` before a method that only reads is the habit of `!` as
-    /// negation, and a `!` call whose `Bool` value is used is written
+    /// negation, and a `!` call whose value is used is written
     /// `(!p).m(...)` so it never reads as one. A `?` spells out the read
     /// receiver a call takes anyway. Returns whether it reported an
     /// error.
@@ -8021,13 +8023,15 @@ const Checker = struct {
             if (mode == .read) return false;
             const hint = if (returns == self.t().void_id) "" else try self.ctx.arena.allocator().print("; to lend the call's result, write `?({s}.{s}(...))`", .{ name, method });
             if (mode == .write) {
-                const call = if (self.usesBoolValue(recv, returns)) try self.ctx.arena.allocator().print("(!{s}).{s}", .{ name, method }) else try self.ctx.arena.allocator().print("!{s}.{s}", .{ name, method });
+                const call = if (self.usesValue(recv, returns)) try self.ctx.arena.allocator().print("(!{s}).{s}", .{ name, method }) else try self.ctx.arena.allocator().print("!{s}.{s}", .{ name, method });
                 try self.errAt(recv, "`{s}` writes its receiver: write `{s}(...)`{s}", .{ method, call, hint });
             } else try self.errAt(recv, "`{s}` consumes its receiver: write `<{s}.{s}(...)`{s}", .{ method, name, method, hint });
         } else if (recv.isKind(.write)) switch (mode) {
             .write => {
-                if (!self.usesBoolValue(recv, returns)) return false;
-                try self.errAt(recv, "a write call whose `Bool` value is used is written `(!{s}).{s}(...)`, so its `!` never reads as negation", .{ name, method });
+                if (!self.usesValue(recv, returns)) return false;
+                const long = try self.ctx.arena.allocator().print("({s})", .{self.sourceText(recv)});
+                const call = if (self.current_call) |c| try self.spliced(c, &.{recv}, &.{long}) else try self.ctx.arena.allocator().print("{s}.{s}(...)", .{ long, method });
+                try self.errAt(recv, "write `{s}`: a write call whose value is used puts its `!` in parentheses", .{call});
             },
             else => if (returns == self.t().bool_id) {
                 try self.errAt(recv, "`{s}` does not write its receiver; for negation use `not`", .{method});
@@ -8056,7 +8060,7 @@ const Checker = struct {
         const shown = try self.plainText(recv);
         const a = self.ctx.arena.allocator();
         const lent = if (sigilReaches(recv)) try a.print("!{s}", .{shown}) else try a.print("!({s})", .{shown});
-        const call = if (self.usesBoolValue(recv, returns)) try a.print("({s}).{s}", .{ lent, method }) else try a.print("{s}.{s}", .{ lent, method });
+        const call = if (self.usesValue(recv, returns)) try a.print("({s}).{s}", .{ lent, method }) else try a.print("{s}.{s}", .{ lent, method });
         const args = if (has_args) "..." else "";
         // A `!` that is there but does not reach the receiver.
         const outer = self.outer_write;
@@ -8123,7 +8127,7 @@ const Checker = struct {
                         try self.err(pos, "method `{s}` needs its receiver lent to write; use `!receiver.{s}(...)`", .{ method, method });
                     } else {
                         const name = self.sourceText(recv);
-                        const call = if (self.usesBoolValue(recv, returns)) try self.ctx.arena.allocator().print("(!{s}).{s}", .{ name, method }) else try self.ctx.arena.allocator().print("!{s}.{s}", .{ name, method });
+                        const call = if (self.usesValue(recv, returns)) try self.ctx.arena.allocator().print("(!{s}).{s}", .{ name, method }) else try self.ctx.arena.allocator().print("!{s}.{s}", .{ name, method });
                         try self.errAt(recv, "write `{s}({s})`: the call writes `{s}`", .{ call, if (has_args) "..." else "", name });
                     },
                 }
