@@ -1952,7 +1952,10 @@ sub main()
 ### Operators
 
 The operators and their precedence are in
-[SYNTAX §6](SYNTAX.md#6-operators-and-precedence). A receiver sigil
+[SYNTAX §6](SYNTAX.md#6-operators-and-precedence), and how they are
+spaced in [SYNTAX §5](SYNTAX.md#5-prefixes-infixes-and-suffixes): an
+infix operator has the same spacing on both sides, and a sigil touches
+what it marks. A receiver sigil
 applies to a method's receiver ([§3](#structs)); a call of a field
 holding functions (`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil
 there is rejected.

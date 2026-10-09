@@ -248,7 +248,8 @@ tab	here it's raw: \n quote: 'x'
 
 The characters `<` `+` `-` `*` `?` `!` `|` are both operators and
 prefixes, and `(`, `[`, and `.` both continue a value and start a new
-one. Whitespace never decides which: a character's position does.
+one. Whitespace never decides which: a character's position does, and
+spacing that would read as the other form is rejected.
 
 > After a value (a name, a literal, `)`, `]`, or a `?` or `!` suffix), a
 > character continues that value: it is an infix operator, a suffix, a
@@ -257,9 +258,9 @@ one. Whitespace never decides which: a character's position does.
 
 | Source | Reads as |
 |---|---|
-| `a < b`, `a <b`, `a<b` | comparison |
+| `a < b`, `a<b` | comparison |
 | `x = <y`, `f(<y)` | a move |
-| `a - 1`, `a -1`, `a-1` | subtraction |
+| `a - 1`, `a-1` | subtraction |
 | `f(-x)`, `-x` | negation |
 | `f(x)`, `f (x)`, `a[i]`, `a.b` | a call, an index or compile-time arguments ([§11](#compile-time-arguments)), member access |
 | `(x)`, `[1, 2]`, `.red` | grouping, an array literal, an enum literal |
@@ -270,10 +271,24 @@ A prefix sigil says how a value is held, and a suffix `?` or `!` is
 control flow: Rig has no `!` for "not" (that is `not`), so `!v.pop()`
 lends `v` to write ([WELCOME](WELCOME.md#the-central-idea)).
 
-So spacing around an infix operator means nothing, and a prefix sigil
-(`<` `+` `-` `*` `?` `!` `~`) touches its operand, in an expression and
-in a type: `-b`, `<x`, `*T`. One with whitespace after it is rejected,
-so `a <- b`, which Rig does not have, is not quietly `a < -b`:
+So a sigil touches what it marks, and spacing shows how a line reads:
+
+- An infix operator has the same spacing on both sides, `a < b` or
+  `a<b`, never `a <b` or `a< b`. This holds for every operator between
+  two values: arithmetic, comparisons, `??`, `..`, the bitwise
+  operators, and `=` and the compound assignments.
+- A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in
+  an expression and in a type: `-b`, `<x`, `*T`, `[]?T`.
+- A postfix `?` or `!` touches what it follows: `f()!`, `x?`, `T?`.
+- A member `.` touches both sides, `w.get()`; inside brackets a chain
+  may go on at the start of the next line. An enum literal's `.`
+  touches its name, `.red`, and a range with one bound touches it,
+  `xs[a..]`, `xs[..b]`.
+
+Spacing that breaks one of these is rejected, with the text to write,
+so `a <b` (a comparison, or a forgotten comma before a move?) and
+`a <- b`, which Rig does not have, never pass for something else.
+Around a call's or an index's bracket, spacing changes nothing.
 
 ```rig
 fun twice(n: Int) -> Int
@@ -282,11 +297,22 @@ fun twice(n: Int) -> Int
 sub main()
   a = 5
   b = 3
-  print(a - b, a - b, a-b, twice(-b), twice (a) - b)
+  print(a - b, a-b, twice(-b), twice (a) - b)
 ```
 
 ```output
-2 2 2 -6 7
+2 2 -6 7
+```
+
+```rig reject
+sub main()
+  a = 5
+  b = 3
+  print(a -b)
+```
+
+```error
+`a -b`: an operator has the same spacing on both sides; write `a - b` to subtract, or `a, -b` to negate `b` as a value of its own
 ```
 
 ```rig reject

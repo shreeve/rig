@@ -24,6 +24,56 @@ coming from Rust, Zig, C, Python, Ruby, JavaScript, or Go. Every
 example in this README is compiled and run by the test suite, and
 prints exactly the output shown under it.
 
+### `?` and `!`
+
+`?` and `!` each carry one idea, in four positions:
+
+| | before a value | before a type | after a type | after an expression |
+|---|---|---|---|---|
+| `?` "maybe, just look" | `?x` lend to read | `?T` read view | `T?` optional | `e?` pass `none` up |
+| `!` "for real, act" | `!x` lend to write | `!T` write view | `T!` can fail | `e!` pass a failure up |
+
+`!` means "act": write, or fail. As in Ruby's `sort!` and Scheme's
+`set!`, it marks something that changes things. Rig spells negation
+`not`, so `!` never means "not". Each sigil touches what it marks.
+
+```rig
+error Stack
+  empty
+
+fun peek(v: ?Vec[Int]) -> Int?
+  return none if v.len == 0
+  v[v.len - 1]
+
+fun pop(v: !Vec[Int]) -> Int!
+  return Stack.empty if v.len == 0
+  !v.pop() ?? 0
+
+fun next(v: ?Vec[Int]) -> Int?
+  peek(?v)? + 1
+
+fun drain(v: !Vec[Int]) -> Int!
+  pop(!v)! + pop(!v)!
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  print(next(?v))
+  print(drain(!v) catch -1)
+  print(next(?v), drain(!v) catch -1)
+```
+
+```output
+3
+3
+none -1
+```
+
+`peek` lends `v` to read and gives an `Int?`; `next` passes its `none`
+up with `?`. `pop` lends `v` to write and gives an `Int!`; `drain`
+passes its failure up with `!`, which `catch` turns into `-1`.
+
 ### Hello
 
 ```rig
@@ -193,8 +243,9 @@ libraries are written in Rig itself (see
 | `~` | `~x` weak handle | `~T` weak handle |
 
 A sigil is a prefix where an operand starts, and an operator after a
-value, so `a < b` is still a comparison and `a * b` a product, however
-an infix operator is spaced; a prefix sigil touches its operand. The
+value, so `a < b` is still a comparison and `a * b` a product. A sigil
+touches what it marks, and an infix operator has the same spacing on
+both sides: `a < b` or `a<b`, never `a <b`. The
 [Core](docs/CORE.md) states what they mean in ten sentences, the
 [syntax guide](SYNTAX.md#5-prefixes-infixes-and-suffixes) shows the
 forms, the [language reference](SPEC.md) covers every rule, and

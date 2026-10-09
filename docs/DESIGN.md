@@ -491,8 +491,9 @@ is one token, which the parser tells apart by where it stands; the few
 decisions its state cannot make (ternary versus guard, closure bars)
 are made in a small lexer rewriter that sees the token
 before and can look ahead on the line. Whitespace inside an expression
-decides none of them, and a prefix sigil touches its operand, so a
-spacing can be wrong but never mean something else. Lisp's influence
+decides none of them: a sigil touches what it marks, and an infix
+operator has the same spacing on both sides, so a spacing can be wrong
+but never mean something else. Lisp's influence
 on Rig is this IR, not its syntax.
 
 ### Substrate, not a reactive framework

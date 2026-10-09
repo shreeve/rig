@@ -47,8 +47,8 @@ happens, as a one-character **sigil**:
 
 **Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
 and `!x` lend it, `<x` moves it, `+x` clones it, `*x` and `~x` make
-handles), and a suffix `?` or `!` is control flow (`e?`
-passes `none` up, `e!` passes a failure up). Types follow suit: `?T`
+handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
+up, `e!` passes a failure up). Types follow suit: `?T`
 and `!T` are views, `*T` a shared handle and `~T` a weak one, while
 `T?` is an optional and `T!` a `T` that may fail. Rig has no `!` for
 "not": logical negation is `not`, so `!v.pop()` lends `v` to write,
@@ -76,6 +76,52 @@ sub main()
 Suffixes read left to right, and a view covers the whole type after
 it: `S?!` is an `S?` that may fail, `?D?` a view of a `D?`, and
 `(?D)?` an optional view of a `D`.
+
+**`?` and `!`, one idea each.** The two carry one idea each, in four
+positions:
+
+| | before a value | before a type | after a type | after an expression |
+|---|---|---|---|---|
+| `?` "maybe, just look" | `?x` lend to read | `?T` read view | `T?` optional | `e?` pass `none` up |
+| `!` "for real, act" | `!x` lend to write | `!T` write view | `T!` can fail | `e!` pass a failure up |
+
+`!` means "act": write, or fail. As in Ruby's `sort!` and Scheme's
+`set!`, it marks something that changes things. Rig spells negation
+`not`, so `!` never means "not". In every position the sigil touches
+what it marks: `?v`, `Int?`, `peek(?v)?`, `pop(!v)!`.
+
+```rig
+error Stack
+  empty
+
+fun peek(v: ?Vec[Int]) -> Int?
+  return none if v.len == 0
+  v[v.len - 1]
+
+fun pop(v: !Vec[Int]) -> Int!
+  return Stack.empty if v.len == 0
+  !v.pop() ?? 0
+
+fun next(v: ?Vec[Int]) -> Int?
+  peek(?v)? + 1
+
+fun drain(v: !Vec[Int]) -> Int!
+  pop(!v)! + pop(!v)!
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  print(next(?v))
+  print(drain(!v) catch -1)
+  print(next(?v), drain(!v) catch -1)
+```
+
+```output
+3
+3
+none -1
+```
 
 **You lend a view; the compiler remembers the loan.**
 

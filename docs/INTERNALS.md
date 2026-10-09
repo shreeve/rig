@@ -180,7 +180,16 @@ operand. A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its
 operand, or the lexer rejects it (`detached_prefix`), so no spacing
 reads as another form: `a < - b` is an error, not `a < -b`. After a
 type's `]` (`[2]?Int`) the lexer cannot tell a prefix from a suffix, so
-the Parser wrapper checks the touch on the type's node.
+the Parser wrapper checks the touch on the type's node. The lexer also
+records every operator spaced so that it could read as another form
+(`Lexer.checkSpacing`): an infix operator after a value with whitespace
+on one side only (`a <b`, `a- 1`), a postfix `?` or `!` apart from what
+it follows, a member `.` with whitespace beside it on its line, an enum
+literal's `.` apart from its name, and a range's `..` apart from its
+only bound. The label of a jump (`break :a !n`) ends no operand there.
+The Parser wrapper reports them, each with the text to write, once the
+source parses and the tree is rewritten, so a parse error, or a type's
+detached sigil, is the one reported.
 
 | Source | Tokens | Rule |
 |---|---|---|
