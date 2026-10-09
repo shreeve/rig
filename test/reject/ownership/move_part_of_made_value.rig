@@ -3,8 +3,8 @@
 # whatever its type and whatever form carries the move. One that copies
 # is read with no `<`; one that moves is reached by binding the value to
 # a name first. A branching value's leaf follows the same rule, and so
-# does a part reached through a lend of a made value, or through a
-# handle made there, whose box other handles may see.
+# does a part reached through a write view a call returns of a made
+# value, or through a handle made there, whose box other handles may see.
 # oracle: owning reject C3
 # oracle: copying reject C3
 # oracle: for_owning reject C3
@@ -83,9 +83,8 @@ fun made_optional() -> Int?
   x
 
 sub through_lend()
-  a = <(!mk()).o
   b = <gw(!mk()).o
-  print(a, b)
+  print(b)
 
 fun through_handle(w: ~S) -> Int?
   x = <(w.upgrade()?.o)
@@ -121,7 +120,6 @@ sub main()
 # error: 79:5: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first
 # error: 82:8: cannot take out of a temporary: nothing would see it emptied; bind it to a name first
 # error: 86:7: cannot take out of a temporary: nothing would see it emptied; bind it to a name first
-# error: 87:7: cannot take out of a temporary: nothing would see it emptied; bind it to a name first
-# error: 91:7: cannot take out of `w.upgrade()?.o`: it is reached through the shared handle `w.upgrade()?`, and other handles may still use it
-# error: 92:7: cannot move out of `w.upgrade()?.v`: it is reached through the shared handle `w.upgrade()?`, and other handles may still use it
-# errors: 19
+# error: 90:7: cannot take out of `w.upgrade()?.o`: it is reached through the shared handle `w.upgrade()?`, and other handles may still use it
+# error: 91:7: cannot move out of `w.upgrade()?.v`: it is reached through the shared handle `w.upgrade()?`, and other handles may still use it
+# errors: 18

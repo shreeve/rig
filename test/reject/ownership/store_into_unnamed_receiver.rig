@@ -2,8 +2,8 @@
 # whatever the syntax: a write method's receiver that is no named place
 # (a write view a call returns, a branching receiver, one whose
 # arguments run first, a field of a returned view), and an assignment's
-# target that starts from a value no var holds (a lend `(!h).r`, a
-# write view a call returns `wrap(!h).r`, an element of one). Each view
+# target that starts from a value no var holds (a write view a call
+# returns, `wrap(!h).r`, an element of one). Each view
 # stored here outlives `s`, whose block ends first.
 # oracle: recv_part reject C5
 # oracle: assign_view reject C5
@@ -67,19 +67,6 @@ sub recv_part()
     s = mk(4)
     (!wrap(!h).rs).push(?s.t)
 
-sub assign_lend()
-  h = mkh()
-  if f(1) == 1
-    s = mk(5)
-    (!h).r = ?s.t
-
-sub assign_lend_elem()
-  h = mkh()
-  !h.rs.push("a")
-  if f(1) == 1
-    s = mk(6)
-    (!h).rs[0] = ?s.t
-
 sub assign_view()
   h = mkh()
   if f(1) == 1
@@ -100,8 +87,6 @@ sub main()
 # error: 56:28: `s` does not live long enough
 # error: 62:23: `s` does not live long enough
 # error: 68:25: `s` does not live long enough
-# error: 74:14: `s` does not live long enough
-# error: 81:18: `s` does not live long enough
-# error: 87:18: `s` does not live long enough
-# error: 94:19: `s` does not live long enough
-# errors: 8
+# error: 74:18: `s` does not live long enough
+# error: 81:19: `s` does not live long enough
+# errors: 6

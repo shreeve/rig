@@ -1,0 +1,28 @@
+# release
+# A value that branches over lends, moved (`<(!p if c else !q)`), is the
+# view of the place the branch took: a field or element of it is
+# reached through that place, read or written.
+
+struct P
+  x: Int
+  a: [2]Int
+
+sub main()
+  c = 1 > 0
+  p = P(x: 1, a: [1, 2])
+  q = P(x: 3, a: [3, 4])
+  (<(!p if c else !q)).x = 5
+  (<(!q if c else !p)).a[1] += 10
+  y = (<(?p if not c else ?q)).x
+  arr = [1, 2]
+  b = [3, 4]
+  z = (<(?arr if c else ?b))[1]
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w: Vec[Int] = Vec()
+  !w.push(8)
+  u = (<(?v if not c else ?w))[0]
+  print(p.x, q.a, y, z, u)
+
+# expect:
+# 5 [3, 14] 3 2 8

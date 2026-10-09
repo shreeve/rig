@@ -1,14 +1,14 @@
-# `<` through a lend takes an optional field or element, leaving `none`,
-# since the take writes the place it reaches; a plain field is read
-# with no `<` (`test/reject/ownership/move_through_lend.rig`
-# and `move_part_that_copies.rig` have the moves rejected).
+# `<` through a write view takes an optional field or element, leaving
+# `none`, since the take writes the place it reaches; a plain field is
+# read with no `<` (`test/reject/ownership/move_through_lend.rig` and
+# `move_part_that_copies.rig` have the moves rejected).
 
 struct S
   n: Int
   o: Vec[Int]?
 
 fun take(p: !S) -> Vec[Int]?
-  <(!p).o
+  <p.o
 
 sub main()
   v: Vec[Int] = Vec()

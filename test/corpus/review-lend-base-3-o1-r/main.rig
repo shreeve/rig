@@ -1,0 +1,12 @@
+use lib
+
+struct T
+  n: Int
+
+  fun make(n: Int) -> T
+    T(n: n)
+
+sub main()
+  y = ?lib.twice(3)
+  t = ?T.make(4)
+  print(y, t.n)

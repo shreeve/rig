@@ -1,0 +1,10 @@
+struct Box[T]
+  val: T
+  n: Int
+
+  fun get(?self) -> Int
+    (?self).n
+
+sub main()
+  b = Box[Int](val: 1, n: 2)
+  print(b.get())

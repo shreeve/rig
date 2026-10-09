@@ -1,0 +1,39 @@
+struct Set
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    !self.items.push(k)
+    true
+
+  fun count(?self) -> Int
+    self.items.len
+
+  sub put[k: Int](!self, x: Int)
+    !self.items.push(x * k)
+
+struct Q
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  fun get(?self) -> Int
+    self.n
+
+struct P
+  x: Int
+  o: Int?
+  a: [2]Int
+  v: Vec[Int]
+  q: Q
+  s: Set
+
+fun mk() -> P
+  P(x: 1, o: 3, a: [1, 2], v: Vec(), q: Q(n: 1), s: Set(items: Vec()))
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  (<(!v[..]))[1] += 5
+  print(v)

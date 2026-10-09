@@ -1,0 +1,12 @@
+struct Bag[T]
+  items: Vec[T]
+
+fun total(b: ?Bag[Int]) -> Int
+  t = 0
+  for x in (?b).items
+    t += x
+  t
+
+sub main()
+  b = Bag[Int](items: Vec())
+  print(total(?b))

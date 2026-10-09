@@ -1,0 +1,31 @@
+struct P
+  x: Int
+  o: Int?
+  arr: [3]Int
+  items: Vec[Int]
+  f: fun(Int) -> Int
+
+  fun get(?self) -> Int
+    self.x
+
+  sub bump(!self)
+    self.x += 100
+
+fun dbl(n: Int) -> Int
+  n * 2
+
+sub inc(n: !Int)
+  n += 1
+
+fun mk(n: Int) -> P
+  P(x: n, o: n, arr: [n, n, n], items: Vec[Int](), f: dbl)
+
+sub main()
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  (<(!p if d else !q)).o = none
+  print(p.x, q.x, p.o ?? 0, q.o ?? 0, p.arr[0], p.arr[1], q.arr[0], q.arr[1], p.items.len, q.items.len)

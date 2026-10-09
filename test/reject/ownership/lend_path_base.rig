@@ -1,0 +1,117 @@
+# A lend is never the base of a path: `(!p).x`, `(?v).len`, and
+# `(!arr)[0..1]` are rejected wherever they stand, each once, with the
+# statement written as it should be. The lend goes on the whole path
+# (`!p.items.push(3)`, `if !o[0] as w`, `match !p.e`, `for x in !p.items`,
+# `?arr[0..1]`), and an assignment or a read needs none (`p.x = 5`,
+# `arr[i] += 7`, `v.len`).
+
+enum E
+  a(n: Int)
+  b
+
+struct Set
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    !self.items.push(k)
+    true
+
+struct Q
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct P
+  x: Int
+  o: Int?
+  e: E
+  items: Vec[Int]
+  a: [2]Int
+  s: Set
+
+sub bump(n: !Int)
+  n += 1
+
+fun total(xs: ![]Int) -> Int
+  xs[0] + xs[1]
+
+sub set(v: !Vec[Int], q: !P)
+  (!v)[0] = 4
+  (!q).x += 1
+
+sub main()
+  p = P(x: 1, o: 2, e: E.a(n: 1), items: Vec(), a: [1, 2], s: Set(items: Vec()))
+  arr = [1, 2]
+  o: [2]Int? = [5, none]
+  qs = [Q(n: 1), Q(n: 2)]
+  v: Vec[Int] = Vec()
+  t = "hi"
+  i = 1
+  (!p).x = 5
+  (!arr)[i] += 7
+  (!(!p).a)[0] = 3
+  (!p).a[1] = 4
+  (!qs)[0].n = 5
+  if !(!o)[0] as w
+    w += 1
+  if <(!o)[0] as m
+    print(m)
+  if (!p).o as k
+    print(k)
+  while (!p).o as k
+    print(k)
+    p.o = none
+  match !(!p).e
+    .a(n) => n += 1
+    .b => pass
+  match (?p).e
+    .a(n) => print(n)
+    .b => pass
+  for x in !(!p).items
+    x += 1
+  for x in (!p).items
+    print(x)
+  (!p).items.push(3)
+  print((!p).s.insert(1))
+  !(!qs)[1].bump()
+  bump(!(!arr)[0])
+  f = (!p).x
+  g = (?v).len
+  h = (!t).len
+  s = ?(!arr)[0..1]
+  n = total(!(!arr)[0..2])
+  c = <(!p).o
+  print(f, g, h, s, n, c)
+
+# error: 71:13: `for x in !xs` writes each element in place; `xs` must be a binding, or a field or element of one
+# error: 75:14: method `push` needs its receiver lent to write; use `!receiver.push(...)`
+# error: 76:16: method `insert` needs its receiver lent to write; use `!receiver.insert(...)`
+# error: 83:15: only a named array, Vec, or Text, or a field or element of one, can be sliced; bind this value to a name first
+# error: 40:4: `(!v)[0]`: write a lend on the whole path, not its base: `v[0] = 4`
+# error: 41:4: `(!q).x`: write a lend on the whole path, not its base: `q.x += 1`
+# error: 51:4: `(!p).x`: write a lend on the whole path, not its base: `p.x = 5`
+# error: 52:4: `(!arr)[i]`: write a lend on the whole path, not its base: `arr[i] += 7`
+# error: 53:4: `(!(!p).a)[0]`: write a lend on the whole path, not its base: `p.a[0] = 3`
+# error: 53:6: `(!p).a`: write a lend on the whole path, not its base: `p.a[0] = 3`
+# error: 54:4: `(!p).a`: write a lend on the whole path, not its base: `p.a[1] = 4`
+# error: 55:4: `(!qs)[0]`: write a lend on the whole path, not its base: `qs[0].n = 5`
+# error: 56:8: `(!o)[0]`: write a lend on the whole path, not its base: `if !o[0] as w`
+# error: 58:8: `(!o)[0]`: write a lend on the whole path, not its base: `if <o[0] as m`
+# error: 60:7: `(!p).o`: write a lend on the whole path, not its base: `if !p.o as k`
+# error: 62:10: `(!p).o`: write a lend on the whole path, not its base: `while !p.o as k`
+# error: 65:11: `(!p).e`: write a lend on the whole path, not its base: `match !p.e`
+# error: 68:10: `(?p).e`: write a lend on the whole path, not its base: `match ?p.e`
+# error: 71:14: `(!p).items`: write a lend on the whole path, not its base: `for x in !p.items`
+# error: 73:13: `(!p).items`: write a lend on the whole path, not its base: `for x in !p.items`
+# error: 75:4: `(!p).items`: write a lend on the whole path, not its base
+# error: 76:10: `(!p).s`: write a lend on the whole path, not its base
+# error: 77:5: `(!qs)[1]`: write a lend on the whole path, not its base: `!qs[1].bump()`
+# error: 78:10: `(!arr)[0]`: write a lend on the whole path, not its base: `bump(!arr[0])`
+# error: 79:8: `(!p).x`: write a lend on the whole path, not its base: `f = p.x`
+# error: 80:8: `(?v).len`: write a lend on the whole path, not its base: `g = v.len`
+# error: 81:8: `(!t).len`: write a lend on the whole path, not its base: `h = t.len`
+# error: 82:9: `(!arr)[0..1]`: write a lend on the whole path, not its base: `s = ?arr[0..1]`
+# error: 83:15: `(!arr)[0..2]`: write a lend on the whole path, not its base: `n = total(!arr[0..2])`
+# error: 84:9: `(!p).o`: write a lend on the whole path, not its base: `c = <p.o`
+# errors: 30

@@ -1,0 +1,26 @@
+struct P
+  x: Int
+  o: Int?
+  items: Vec[Int]
+  s: Text
+  arr: [3]Int
+
+fun mk() -> P
+  P(x: 1, o: 2, items: Vec[Int](), s: Text("hi"), arr: [1, 2, 3])
+
+fun own(v: Vec[Int]) -> Int
+  v.len
+
+fun gid[T](x: T) -> T
+  x
+
+fun cnt(v: ?Vec[Int]) -> Int
+  v.len
+
+sub main()
+  p = mk()
+  c = true
+  _ = c
+  y = gid((?p).x)
+  print(y)
+  print(p.x, p.items.len)

@@ -3289,8 +3289,7 @@ wherever `x` is only read. A written `!x` binds a generic's `T` to the
 value it reaches where that copies, so `Opt.some(v: !n)` would store an
 `Int`, and is rejected: write `Opt.some(v: n)` to store a copy, or
 `Opt[!Int].some(v: !n)` to keep the write view. A value that branches
-or loops is decided at each of its leaves, and the base of a field or
-element (`(!p).x`) when the place is only read. A held write view (`w`,
+or loops is decided at each of its leaves. A held write view (`w`,
 a `!T` parameter) has no `!` written, and is read, or lent where a read
 view goes, as a bare name is.
 
@@ -3408,6 +3407,59 @@ sub main()
 
 ```error
 a view of the temporary `Wrap(n: 1)` outlives its statement, which drops it; bind the value to a name first
+```
+
+A lend of a place is never the base of a path: `(!p).x`, `(?arr)[0]`,
+`(!v)[0..2]`, the lend moved, `(<(!p)).x`, and a field holding
+functions, `(!t).ops[1](5)`, are rejected wherever they stand, a
+closure's or a function's last value included. The lend goes on the
+whole path (`!p.items.push(3)`, `if !arr[0] as v`, `match !p.e`,
+`?arr[0..1]`, `x = ?p.items`), and an assignment or a read needs none
+(`p.x = 5`, `arr[i] += 7`, `v.len`). A part of a temporary is not
+assigned to or bound by a header: bind the value to a name first. A
+read lend is not written through, `(?p).x = 5`. Three forms are not this
+rule's: a method's receiver, `(!s).insert(k)`
+([SYNTAX §5](SYNTAX.md#receiver-sigils)); a value that branches,
+`(!a if c else !b).x`, whose lends pick the place its path reaches; and
+a lend of a slice, `(?t[..])[0]`, which makes the view the path
+indexes. A written `!` on such a slice the path only reads,
+`(!arr[..])[0]`, is rejected as any `!` only read is: write
+`(?arr[..])[0]`.
+
+```rig
+struct P
+  x: Int
+  o: Int?
+
+sub main()
+  p = P(x: 1, o: 2)
+  q = P(x: 3, o: none)
+  arr = [1, 2]
+  p.x = 5
+  arr[1] += 7
+  if !p.o as v
+    v += 1
+  c = true
+  (!p if c else !q).x += 1
+  print(p.x, p.o, q.x, arr)
+  t = Text("abc")
+  print((?t[1..])[0], (?arr[1..]).len)
+```
+
+```output
+6 3 3 [1, 9]
+98 1
+```
+
+```rig reject
+sub main()
+  arr = [1, 2]
+  (!arr)[0] += 7
+  print(arr)
+```
+
+```error
+`(!arr)[0]`: write a lend on the whole path, not its base: `arr[0] += 7`
 ```
 
 #### Write views
@@ -4122,8 +4174,8 @@ optional is neither ended nor emptied, so `<` on it is rejected
 `<(a if c else b)` and `<o?` are rejected, and written
 `<a if c else <b` and `(<o)?`. A path that passes through a value of a
 view type (`!T`, `?T`, a slice) or a handle reaches its place through
-it, whatever its syntax: `(!p).f`, `(?a if c else ?b).f`, and
-`wrap(!p).f` of a call returning a `!T`. Through a write view an
+it, whatever its syntax: `w.f` of a held `w: !T`, `(?a if c else ?b).f`,
+and `wrap(!p).f` of a call returning a `!T`. Through a write view an
 optional is taken there; through a `?T` or a handle nothing is, since
 the take writes the place. Nothing else is moved out through any of
 them (`replace(!p.f, v)` exchanges it).

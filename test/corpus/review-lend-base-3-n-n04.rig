@@ -1,0 +1,7 @@
+sub setf[T](xs: ![]T, v: T)
+  (!xs[..])[0] = v
+
+sub main()
+  a = [3, 4]
+  setf(!a[..], 9)
+  print(a[0])

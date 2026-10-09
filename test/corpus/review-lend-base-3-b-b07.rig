@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main()
+  p = P(x: 1)
+  raw
+    (!p).x = 4
+  print(p.x)

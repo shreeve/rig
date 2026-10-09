@@ -800,7 +800,7 @@ and emit all ask it, and none decides it again from syntax. Its
 
 | Kind | What it is |
 |---|---|
-| `place` | a name of a binding or a constant (a function, a module's constant, `Enum.variant`), or a field or element path from a place, a lend, or a view (`v`, `p.f`, `xs[i]`, `(?v).f`, `mk_ref().f` where `mk_ref()` is a `?T`) |
+| `place` | a name of a binding or a constant (a function, a module's constant, `Enum.variant`), or a field or element path from a place, a lend of a slice, or a view (`v`, `p.f`, `xs[i]`, `(?t[..])[0]`, `mk_ref().f` where `mk_ref()` is a `?T`) |
 | `part_of_made` | a field or element path from a value that is no place (`mk().v[0]`, `[a, b][1]`, `(a if c else b).f`): a part of a temporary |
 | `made` | a call, a constructor, `+x`, `*x`, `~x`, `<x`, an array, a closure, an operator's result, a literal, `none`, an enum literal, a `match`, a block, a loop's value, and a branching value every leaf of which is made there or jumps |
 | `lend` | `?x`, `!x`, and their slices |
@@ -822,7 +822,34 @@ operand it passes through, or the optional `e?` unwraps.
 values, and `sema.yieldsValue(source, s)` whether a statement gives a
 value. Whether a receiver needs `!`, `<`, or nothing follows from what
 it hands over too (`receiverShape`); the receiver sigil itself is
-syntax (Core §8). The suite's `classify` check fails on any classifier
+syntax (Core §8).
+
+A lend of a place is never the base of a path. One walk over each typed
+declaration (`Checker.checkLendBases`) visits every field, element, and
+slice node once, after typing, so no typing routine can route a path
+around the rule.
+- **The base.** What a path's object is comes from one fact, `Checker.lendOf`: what the object hands over (`handsOver`), a `lend`, or a `<` of one, recorded once.
+- **The non-cases.** They are positive facts:
+  - a member a call resolved as a method (`Checker.methods`, recorded where `synthMemberCall` resolves one) is a receiver, so a field holding functions, called, is a path;
+  - a value that branches is no lend;
+  - a lend of a slice makes the view the path reaches. A written `!` on one that the path only reads is decided by `Checker.writeLendRead`, as any read of a written lend is.
+- **The hint.** `LendBaseFix` rewrites the path's line. The whole path takes the sigil its context takes, read from what typing recorded: the type each expression was checked against (`Checker.expected`), a method's receiver mode, and the value tails a function, a closure, or a block uses (`Checker.value_tails`).
+- **The error is always reported.** A rewrite is the source line the path is on. The sigil the whole path takes comes from the type expected there:
+  - `!` for a write view;
+  - `?` for a read view, but none for an argument a `?T` parameter takes;
+  - `?` for a slice of an array, a Vec, or a Text;
+  - none for a value that copies, and `+` for one that does not;
+  - the lend's own sigil for a value taken where no type is expected.
+
+  There is no rewrite, and the message says why where it can, when the path:
+  - writes through a read lend or a shared handle;
+  - takes a part that is no optional;
+  - binds a temporary where no statement can go first;
+  - has an error of its own, in its lend or after it;
+  - is spread over lines or at module level;
+  - meets a context no plain form fits.
+- **The suite enforces the hints.** `test/hints.py` applies each hint in every reject test, and fails if the program then draws an error it did not draw before, at the same place with the same text. The rewritten line's columns are mapped through the rewrite.
+The suite's `classify` check fails on any classifier
 of this kind left outside `handsOver`.
 
 What a context does with a value is recorded as its `Use`
@@ -1713,7 +1740,7 @@ and each desugars into forms the checker already walks:
 
 | Form | Desugars to |
 |---|---|
-| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write lend written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`, `(!p).x`), is rejected instead, since its `!` would lend nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeLendRead` first, and `print`, `?!x`, a read view's slot, a `?self` receiver, a path's base (`checkReachedLends`), and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
+| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write lend written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would lend nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeLendRead` first, and `print`, `?!x`, a read view's slot, a `?self` receiver, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
 | `x = w`, `x = h.w`, `x = ws[i]` with a `!T` of a `T` that copies | `x: T = w` |
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |

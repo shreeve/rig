@@ -1,0 +1,17 @@
+struct Q
+  x: Int
+
+  sub bump(!self)
+    self.x += 1
+
+sub inc(n: !Int)
+  n += 1
+
+sub main()
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  defer (!arr[..])[3] = 0
+  print(arr[3])
+  print(arr[0], arr[1], qs[0].x, qs[1].x)

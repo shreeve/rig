@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  p = lib.P(x: 1, items: Vec())
+  lib.setx(!p)
+  print(lib.getx(?p))

@@ -1,0 +1,10 @@
+struct Bag[T]
+  items: Vec[T]
+  n: Int
+
+  fun first(?self) -> Int
+    (?self).n
+
+sub main()
+  b = Bag[Int](items: Vec(), n: 2)
+  print(b.first())

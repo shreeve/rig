@@ -1,0 +1,21 @@
+struct P
+  arr: [4]Int
+  v: Vec[Int]
+  s: Text
+
+fun sum(xs: ?[]Int) -> Int
+  t = 0
+  for x in xs
+    t += x
+  t
+
+sub main()
+  arr = [1, 2, 3, 4]
+  v = Vec[Int]()
+  !v.push(5)
+  !v.push(6)
+  s = Text("abcdef")
+  p = P(arr: [1, 2, 3, 4], v: Vec[Int](), s: Text("xyz"))
+  y = (?arr)[0..2]
+  print(y[1])
+  print(arr[0], v.len, s, p.arr[0])

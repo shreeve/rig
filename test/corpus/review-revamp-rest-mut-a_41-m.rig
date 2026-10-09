@@ -26,7 +26,7 @@ sub main()
     eat(<a)
   v: Vec[Int] = Vec()
   !v.push(1)
-  n = (?v).len if true else 0
+  n = v.len if true else 0
   w = ?v if n > 0 else ?v
   print(w.len)
   if n > 5

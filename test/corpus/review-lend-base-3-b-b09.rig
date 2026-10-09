@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main()
+  p = P(x: 1)
+  while (?p).x < 3
+    p.x += 1
+  print(p.x)

@@ -28,7 +28,7 @@ sub main()
   for x in s.arr
     print(x)
   h = *S(n: 5, p: P(x: 6), arr: [0, 0])
-  print(q.n, j, ret(?s), h.n, (?s).n)
+  print(q.n, j, ret(?s), h.n, s.n)
   print(s.n)
 
 # oracle: show accept

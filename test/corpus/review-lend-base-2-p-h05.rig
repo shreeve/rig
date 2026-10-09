@@ -1,0 +1,25 @@
+struct Q
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct P
+  x: Int
+  o: [2]Int?
+  a: [2]Int
+  v: Vec[Int]
+  qs: [2]Q
+  t: Text
+
+fun mk() -> P
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: Text("hey"))
+
+sub main()
+  p = mk()
+  for q in !(!p.qs[..])
+    q.n += 1
+  print(p.qs[0].n)

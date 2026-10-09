@@ -1,0 +1,15 @@
+struct N
+  v: Int
+
+sub main()
+  v = Vec[Int]()
+  !v.push(1)
+  !v.push(2)
+  t = Text("ab")
+  c: Cell[Int] = Cell(1)
+  h = *N(v: 5)
+  wk = ~h
+  arr = [3, 1, 2]
+  y = (!v).remove(0)
+  print(y)
+  print(v.len, t, c.get(), h.v, arr[0])

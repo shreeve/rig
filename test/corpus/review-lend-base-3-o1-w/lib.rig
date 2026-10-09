@@ -1,0 +1,5 @@
+pub fun twice(n: Int) -> Int
+  n * 2
+
+pub fun ok(n: Int) -> Bool
+  n > 0

@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun mk(p: !P) -> Int
+  errdefer (!p).x = 0
+  p.x
+
+sub main()
+  p = P(x: 1)
+  print(mk(!p))

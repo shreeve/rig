@@ -1,0 +1,29 @@
+struct Q
+  n: Int
+
+struct P
+  x: Int
+  a: [2]Int
+  q: Q
+
+fun mk() -> P
+  P(x: 1, a: [1, 2], q: Q(n: 1))
+
+fun gid[T](x: T) -> T
+  x
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+struct Bx[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+  fun with[k: Int](?self, x: T) -> T
+    x
+
+sub main()
+  p = mk()
+  print(gid(gid((?p.a)[1])))

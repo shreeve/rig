@@ -67,8 +67,10 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .body = .{ .ret = ctx.types.void_id },
     };
     defer c.arg_types.deinit(ctx.allocator);
-    defer c.reached_lends.deinit(ctx.allocator);
-    defer c.written_paths.deinit(ctx.allocator);
+    defer c.methods.deinit(ctx.allocator);
+    defer c.expected.deinit(ctx.allocator);
+    defer c.value_tails.deinit(ctx.allocator);
+    defer c.lend_of.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
     defer c.loop_pairs.deinit(ctx.allocator);
     defer c.owned_bindings.deinit(ctx.allocator);
@@ -76,7 +78,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.result_hints.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
-    try c.checkReachedLends();
+    for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
 }
 
 /// Where a binding that cannot be written got its value: a loop element
@@ -180,16 +182,16 @@ const Checker = struct {
     loop_value: ?*LoopValue = null,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
-    /// Fields and elements reached through a write lend written as their
-    /// base (`(!p).x`, `(!arr)[0]`): one only read has its `!` ignored
-    /// (`checkReachedLends`).
-    reached_lends: std.ArrayList(ReachedLend) = .empty,
-    /// The node ids of the field and element paths written, assigned,
-    /// lent, or taken (`markWritten`).
-    written_paths: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The statement being checked (`checkStmt`), where a reached lend
-    /// is noted.
-    stmt: Sexp = .nil,
+    /// What typing found that the walk over paths reads
+    /// (`checkLendBases`): the members a call resolved as a method, with
+    /// how it takes its receiver and what it returns; the type each
+    /// expression was checked against; the values that are a function's,
+    /// a closure's, or a block's last value, which are used; and the
+    /// lend each path's object is (`lendOf`).
+    methods: std.AutoHashMapUnmanaged(parser.NodeId, MethodFact) = .empty,
+    expected: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
+    value_tails: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    lend_of: std.AutoHashMapUnmanaged(parser.NodeId, ?Sexp) = .empty,
     /// A loop element or `as` binding that copies from a place: the
     /// place, named when the binding is written (`checkBindingWritable`).
     copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
@@ -247,10 +249,9 @@ const Checker = struct {
         parent: ?*LoopFrame,
     };
 
-    /// A field or element `path` reached through `base`, a write lend
-    /// of type `ty` written there (`(!p).x`), in statement `stmt`: its
-    /// `!` is ignored unless `path` is written (`checkReachedLends`).
-    const ReachedLend = struct { path: Sexp, base: Sexp, ty: TypeId, stmt: Sexp };
+    /// A member a call resolved as a method: how it takes its receiver,
+    /// and what it returns.
+    const MethodFact = struct { receiver: sema.MethodReceiver, returns: TypeId };
 
     /// A loop used as a value: its `break` values and its `else` value.
     const LoopValue = struct {
@@ -529,7 +530,7 @@ const Checker = struct {
         const ret = context.ret;
         const wants_value = !context.is_sub and ret != self.t().void_id;
         if (!body.isKind(.block)) {
-            if (wants_value) try self.checkExpr(body, ret) else try self.checkStmt(body);
+            if (wants_value) try self.checkTail(body, ret) else try self.checkStmt(body);
             return;
         }
         const prev = self.enter(body);
@@ -570,21 +571,38 @@ const Checker = struct {
                     try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
                     continue;
                 }
-                try self.checkExpr(s, ret);
+                try self.checkTail(s, ret);
             } else {
                 try self.checkStmt(s);
             }
         }
     }
 
+    /// A function's last value, which is used (`value_tails`).
+    fn checkTail(self: *Checker, e: Sexp, ret: TypeId) Error!void {
+        try self.noteValueTail(e);
+        try self.checkExpr(e, ret);
+    }
+
+    /// A closure's or a block's last value, which is used.
+    fn synthTail(self: *Checker, e: Sexp, expected: ?TypeId) Error!TypeId {
+        try self.noteValueTail(e);
+        if (expected) |ty| {
+            try self.checkExpr(e, ty);
+            return ty;
+        }
+        return self.synthExpr(e);
+    }
+
     // =========================================================================
     // Statements
     // =========================================================================
 
+    fn noteValueTail(self: *Checker, e: Sexp) Error!void {
+        if (e == .list) try self.value_tails.put(self.ctx.allocator, nodeId(e), {});
+    }
+
     fn checkStmt(self: *Checker, stmt: Sexp) Error!void {
-        const saved_stmt = self.stmt;
-        self.stmt = stmt;
-        defer self.stmt = saved_stmt;
         const head = stmt.kind() orelse return self.checkExprStmt(stmt);
         if (self.isValueLoop(stmt)) {
             try self.errAt(stmt, "the value of this loop is not used; bind it (`x = for ...`) or `break` without a value", .{});
@@ -706,7 +724,7 @@ const Checker = struct {
             // The operand's own error is the one reported.
             if (self.isPoison(ty)) return;
             const owns_or_views = !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
-            const shown = self.sourceText(operand);
+            const shown = try self.plainText(operand);
             const view_param = if (operand == .src) if (self.ctx.symbolOf(operand)) |sym| self.ctx.symbols.items[sym].kind == .param and sema.isReadOrWriteView(self.ctx, ty) else false else false;
             if (view_param) {
                 // What a view parameter views, the caller owns.
@@ -732,7 +750,7 @@ const Checker = struct {
             // value is used, which a closure's last line is, though this
             // closure gives none.
             if (stmt.isKind(.move)) {
-                const shown = self.sourceText(ir.Move.operand(stmt));
+                const shown = try self.plainText(ir.Move.operand(stmt));
                 return self.errAt(stmt, "a closure's last line is its value, and so is the last line of a branch that ends it, so `<{s}` here is no drop, and this closure gives no value; to drop `{s}` here, write `_ = <{s}`", .{ shown, shown, shown });
             }
             if (stmt.kind() == null and self.ctx.types.get(ty) == .function)
@@ -1048,7 +1066,7 @@ const Checker = struct {
             const before = self.ctx.diagnostics.items.len;
             try self.checkExpr(rhs, inner);
             if (self.ctx.diagnostics.items.len > before and std.mem.startsWith(u8, self.ctx.diagnostics.items[before].message, "type mismatch")) {
-                const shown = self.sourceText(target);
+                const shown = try self.plainText(target);
                 try self.noteAt(target, "`{s} = v` writes the `{s}` that `{s}` views; `{s} = !m` points `{s}` at another place", .{ shown, try self.tyName(inner), shown, shown, shown });
             }
             return;
@@ -1293,8 +1311,6 @@ const Checker = struct {
     /// from must be one that may change (`requireBinding`). A diagnostic
     /// with no better position is at `at`. False after a diagnostic.
     fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
-        try self.markWritten(place.node);
-        try self.markWritten(at);
         if (access == .set_cell) return self.requireCellPlace(place, at);
         // A name or value passed where a `!T` goes is the view itself.
         if (access == .pass_write and place.steps == 0) return true;
@@ -1313,7 +1329,7 @@ const Checker = struct {
                 switch (b.why) {
                     // A Cell reached through the handle changes in place.
                     .shared => if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
-                        const shown = self.sourceText(place.node);
+                        const shown = try self.plainText(place.node);
                         try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
                     } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{ through.head, through.tail }),
                     .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only", .{ through.head, through.tail }),
@@ -1399,7 +1415,7 @@ const Checker = struct {
                 // is read through too.
                 const from = self.copied_from.get(id) orelse return true;
                 if (from.kind != .match_copy and from.kind != .match_read) return true;
-                const shown = self.sourceText(from.place);
+                const shown = try self.plainText(from.place);
                 try self.err(pos, "cannot {s} `{s}`{s}: `match {s}{s}` reads `{s}`, and so do its bindings; to write through `{s}`, match with `match !{s}`", .{ verb.head, name, verb.tail, if (from.kind == .match_read) "?" else "", shown, shown, name, shown });
                 return false;
             },
@@ -1410,7 +1426,7 @@ const Checker = struct {
                 const owned = sym.flags.as_bound or self.owned_bindings.contains(id);
                 if (!whole and owned and sema.moves(self.ctx, sym.ty) == .yes) return true;
                 if (self.copied_from.get(id)) |from| {
-                    const shown = self.sourceText(from.place);
+                    const shown = try self.plainText(from.place);
                     switch (from.kind) {
                         .loop => try self.err(pos, "cannot {s} `{s}`{s}: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb.head, name, verb.tail, shown, name, shown }),
                         .as => try self.err(pos, "cannot {s} `{s}`{s}: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb.head, name, verb.tail, shown, shown, name }),
@@ -1673,9 +1689,7 @@ const Checker = struct {
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
-        // The header binds the value inside: it takes the optional. It
-        // writes a path only through `!` or `<` on it, which mark it
-        // written (`checkReachedLends`); a path bound bare is read.
+        // The header binds the value inside: it takes the optional.
         try self.recordUse(expr, .take);
         // A part of a value made here is bound in that value, which the
         // `if` holds (`Header.held`).
@@ -2067,7 +2081,7 @@ const Checker = struct {
         if (mode == .move) return false;
         const pos = self.startOf(source);
         if (self.ctx.types.get(elem) == .write_view) {
-            const shown = self.sourceText(inner_source);
+            const shown = try self.plainText(inner_source);
             try self.err(pos, "each element of `{s}` is a write view, which a loop binding cannot hold; loop over the indices and write `{s}[i]`", .{ shown, shown });
             return true;
         }
@@ -2106,7 +2120,7 @@ const Checker = struct {
                 // Vec's owner can do.
                 if (mode == .move) {
                     if (peeled == source_ty) return elem;
-                    const shown = self.sourceText(inner_source);
+                    const shown = try self.plainText(inner_source);
                     try self.err(pos, "`<{s}` would move the elements out of a Vec that `{s}` only views; loop over `?{s}` or `!{s}`, or move the Vec itself", .{ shown, shown, shown, shown });
                     return self.ctx.intern(.{ .read_view = elem });
                 }
@@ -2140,7 +2154,7 @@ const Checker = struct {
             else => {},
         }
         if ((try self.findMethod(source_ty, "next")) != null) {
-            try self.err(pos, "cannot iterate over `{s}`: `for` walks arrays, slices, Strings, and Vecs, and calls no method; to walk an iterator, bind it and loop: `it = {s}` then `while !it.next() as x`", .{ try self.tyName(source_ty), self.sourceText(stripSigil(source)) });
+            try self.err(pos, "cannot iterate over `{s}`: `for` walks arrays, slices, Strings, and Vecs, and calls no method; to walk an iterator, bind it and loop: `it = {s}` then `while !it.next() as x`", .{ try self.tyName(source_ty), try self.plainText(stripSigil(source)) });
             return self.t().invalid_id;
         }
         // `for b in ?t` walks the bytes of the String `?t` lends.
@@ -2229,7 +2243,7 @@ const Checker = struct {
         // `match <e` takes the fields of a value `e` owns.
         if (subject.isKind(.move)) if (self.ctx.typeOf(ir.Move.operand(subject))) |held| switch (self.ctx.types.get(held)) {
             .read_view, .write_view => {
-                const shown = self.sourceText(ir.Move.operand(subject));
+                const shown = try self.plainText(ir.Move.operand(subject));
                 if (self.ctx.types.get(held) == .write_view) {
                     try self.errAt(subject, "`match <{s}` consumes an owned value, and `{s}` is a write view (`{s}`); write the payload in place with `match !{s}`, or read it with `match {s}`", .{ shown, shown, try self.tyName(held), shown, shown });
                 } else try self.errAt(subject, "`match <{s}` consumes an owned value, and `{s}` is a view (`{s}`); match what it views with `match {s}`", .{ shown, shown, try self.tyName(held), shown });
@@ -2248,7 +2262,7 @@ const Checker = struct {
                 },
                 else => {
                     const place = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
-                    const shown = self.sourceText(place);
+                    const shown = try self.plainText(place);
                     if (mode == .consume) {
                         try self.errAt(subject, "a `match` reaches the value inside a box by lending the box: `match ?{s}` or `match !{s}`; to take the value out, bind it first: `v = <{s}.unbox()`", .{ shown, shown, shown });
                         scrutinee = inner;
@@ -2420,7 +2434,7 @@ const Checker = struct {
         if (from.kind != .match_copy and from.kind != .match_read) return false;
         if (self.ctx.types.get(self.ctx.symbols.items[sym].ty) != .read_view) return false;
         const name = self.text(e);
-        const shown = self.sourceText(from.place);
+        const shown = try self.plainText(from.place);
         const place = self.placeOf(from.place);
         const lent = from.kind == .match_read or place.indirect or if (self.ctx.typeOf(from.place)) |ty| sema.isReadOrWriteView(self.ctx, ty) else false;
         const shared = if (self.ctx.typeOf(place.base)) |ty| self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .shared else false;
@@ -3642,12 +3656,7 @@ const Checker = struct {
         const prev = self.enter(node);
         defer self.scope = prev;
         for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
-        const last = stmts[stmts.len - 1];
-        if (expected) |e| {
-            try self.checkExpr(last, e);
-            return e;
-        }
-        return self.synthExpr(last);
+        return self.synthTail(stmts[stmts.len - 1], expected);
     }
 
     /// `a ?? b`: the value inside optional `a`, or `b` when `a` is `none`.
@@ -3766,7 +3775,7 @@ const Checker = struct {
         const ty = try self.synthHandled(operand);
         if (self.isPoison(ty)) return ty;
         if (self.ctx.types.get(ty) == .fallible) {
-            const shown = self.sourceText(operand);
+            const shown = try self.plainText(operand);
             try self.errAt(operand, "`?` propagates `none`, and `{s}` fails with an error instead: propagate the failure with `{s}!`, or handle it with `catch`", .{ shown, shown });
             return self.ctx.types.get(ty).fallible;
         }
@@ -3786,7 +3795,7 @@ const Checker = struct {
             .drop => return self.noneNotReturned(operand, "a `drop` body cannot return `none` with `?`; take the value out with `if x as v` or `??`"),
             .caller, .infallible, .module => if (!self.returnsOptional(self.body.ret)) {
                 const name = self.body.name;
-                const shown = self.sourceText(operand);
+                const shown = try self.plainText(operand);
                 if (name == .nil) {
                     try self.errAt(operand, "use of `?` requires the enclosing function to return an optional (`-> T?`)", .{});
                 } else if (self.body.is_sub) {
@@ -3811,7 +3820,7 @@ const Checker = struct {
     /// resource: the view can lend the value inside, not give it up.
     fn viewGivesUp(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
         const place = if (operand.isKind(.move)) ir.Move.operand(operand) else operand;
-        const shown = self.sourceText(place);
+        const shown = try self.plainText(place);
         const sigil = if (self.ctx.types.get(ty) == .write_view and !place.isKind(.write)) "!" else "";
         const value = sema.unwrapViews(self.ctx, ty);
         const what = if (!sema.typeHasDropGlue(self.ctx, value) and sema.holdsWriteView(self.ctx, value)) "write view" else "resource";
@@ -4162,9 +4171,6 @@ const Checker = struct {
     /// (`rejectMadeParts`); the ownership checker decides the rest.
     fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Move.operand(e);
-        // `<` takes the place it reaches: a field or element reached
-        // through a write lend is not only read (`checkReachedLends`).
-        try self.markWritten(operand);
         const ty = try self.synthExpr(operand);
         if (try self.payloadViewTaken(operand, "move")) return self.t().invalid_id;
         if (self.isPoison(ty)) return ty;
@@ -4619,7 +4625,7 @@ const Checker = struct {
     /// the weak handle itself, so one held in a box or behind a handle
     /// is lent out first.
     fn weakReach(self: *Checker, obj: Sexp, obj_ty: TypeId, weak: TypeId, pos: u32) Error!void {
-        const shown = self.sourceText(stripSigil(obj));
+        const shown = try self.plainText(stripSigil(obj));
         const name = try self.tyName(weak);
         if (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty)) == .weak) {
             try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`: `if {s}.upgrade() as s`", .{ name, shown });
@@ -4628,7 +4634,6 @@ const Checker = struct {
 
     /// Member `e` of `obj`, a value of type `obj_ty`.
     fn memberOf(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!TypeId {
-        try self.noteReachedLend(e, obj, obj_ty);
         const field_node = ir.Member.name(e);
         const field = self.text(field_node);
         const pos = srcPos(field_node, self.startOf(obj));
@@ -5250,7 +5255,6 @@ const Checker = struct {
     /// Element `e` (an `index` node) of a value of type `obj_ty`.
     fn indexInto(self: *Checker, e: Sexp, obj_ty: TypeId) Error!TypeId {
         const object = ir.get(e, .object);
-        try self.noteReachedLend(e, object, obj_ty);
         if (e.isKind(.inst)) {
             for (ir.Inst.args(e)) |a| _ = try self.synthQuiet(a);
             if (self.isPoison(obj_ty)) return obj_ty;
@@ -5299,7 +5303,7 @@ const Checker = struct {
             else => {},
         }
         if (sema.unwrapViews(self.ctx, obj_ty) == self.t().text_id) {
-            try self.errAt(object, "cannot index a value of type `{s}`; index its String view: `(?{s}[..])[i]`", .{ try self.tyName(obj_ty), self.sourceText(stripSigil(object)) });
+            try self.errAt(object, "cannot index a value of type `{s}`; index its String view: `(?{s}[..])[i]`", .{ try self.tyName(obj_ty), try self.plainText(stripSigil(object)) });
             return self.t().invalid_id;
         }
         try self.errAt(object, "cannot index a value of type `{s}`", .{try self.tyName(obj_ty)});
@@ -5328,8 +5332,6 @@ const Checker = struct {
         const obj_ty = if (lent and !self.hands(object).hasStorage()) try self.synthExpr(object) else try self.synthOperand(object);
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
-        // A read slice only reads what a write lend of its base reaches.
-        if (try self.writeLendRead(object, obj_ty, .{ .path = e })) return self.t().invalid_id;
         // What the slice lends, which the ownership checker reads.
         if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(e, lend);
         // A boxed Text is sliced through its box.
@@ -5341,7 +5343,7 @@ const Checker = struct {
                 // A `![]T` is lent like the array it views: a read
                 // slice of it keeps it from being written meanwhile.
                 if (!lent and sema.writeSliceElem(self.ctx, obj_ty) != null) {
-                    try self.errAt(e, "a slice of a `![]T` views it; write `?{s}` or `!{s}`", .{ self.sourceText(e), self.sourceText(e) });
+                    try self.errAt(e, "a slice of a `![]T` views it; write `?{s}` or `!{s}`", .{ try self.plainText(e), try self.plainText(e) });
                     return self.t().invalid_id;
                 }
                 return peeled;
@@ -5353,7 +5355,7 @@ const Checker = struct {
                 // A slice of a view of a Text views what it lends, as a
                 // slice of a String does.
                 if (!lent and !sema.isReadOrWriteView(self.ctx, obj_ty)) {
-                    try self.errAt(e, "a slice of a Text views it; write `?{s}`", .{self.sourceText(e)});
+                    try self.errAt(e, "a slice of a Text views it; write `?{s}`", .{try self.plainText(e)});
                     return self.t().invalid_id;
                 }
                 if (lent and !self.placeOf(object).named()) try self.lendTemp(object);
@@ -5364,7 +5366,7 @@ const Checker = struct {
         const len: ?u64 = if (self.ctx.types.get(peeled) == .array) sema.arrayLen(self.ctx, self.ctx.types.get(peeled).array) else null;
         try self.checkSliceBounds(range, len);
         if (!lent) {
-            try self.errAt(e, "a slice of an array or Vec views it; write `?{s}`", .{self.sourceText(e)});
+            try self.errAt(e, "a slice of an array or Vec views it; write `?{s}`", .{try self.plainText(e)});
             return self.t().invalid_id;
         }
         if (!self.placeOf(object).named()) try self.lendTemp(object);
@@ -5706,7 +5708,7 @@ const Checker = struct {
         const from = try self.synthValue(arg);
         if (self.isPoison(from)) return target;
         if (self.enumValues(from)) |plain| {
-            const shown = self.sourceText(arg);
+            const shown = try self.plainText(arg);
             if (!plain) {
                 try self.errAt(arg, "`{s}(x)` takes a plain enum's value; `{s}` has variants with payloads, which have no integer value", .{ name, try self.tyName(sema.unwrapViews(self.ctx, from)) });
             } else if (self.ctx.types.get(target) != .int) {
@@ -7332,8 +7334,8 @@ const Checker = struct {
             return obj_ty;
         }
 
-        if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return ty;
-        if (ct == null) if (try self.textCall(callee, obj, obj_ty, method, pos, args)) |ty| return ty;
+        if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, if (std.meta.stringToEnum(sema.ElemOp, method) == .read) .read else .write, ty);
+        if (ct == null) if (try self.textCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .write, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -7358,7 +7360,7 @@ const Checker = struct {
                     }
                     const result = try self.ctx.intern(.{ .optional = try self.ctx.intern(.{ .shared = inner }) });
                     try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{obj_ty}), .returns = result, .is_sub = false });
-                    return result;
+                    return self.noteMethod(callee, .read, result);
                 },
                 .shared => if (!sema.hasMethodNamed(self.ctx, obj_ty, method)) {
                     return self.badCall(args, pos, "`upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.", .{});
@@ -7376,11 +7378,11 @@ const Checker = struct {
 
         if (cellVecElement(self.ctx, obj_ty)) |elem| if (try self.cellVecCall(callee, obj_ty, elem, pos, args)) |ty| {
             if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "changes a Cell through any path to it");
-            return ty;
+            return self.noteMethod(callee, .read, ty);
         };
         if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| {
             _ = try self.checkReceiverSigil(obj, .read, ty, method);
-            return ty;
+            return self.noteMethod(callee, .read, ty);
         };
 
         const resolved = resolved_method orelse {
@@ -7402,7 +7404,7 @@ const Checker = struct {
             if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
                 try self.err(pos, "a Vec has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
-                try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), self.sourceText(stripSigil(obj)) });
+                try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
@@ -7415,6 +7417,7 @@ const Checker = struct {
             return self.skipCall(args);
         };
         const receiver = resolved.field.receiver;
+        _ = try self.noteMethod(callee, receiver, resolved.fn_ty.returns);
         try self.noteCallee(resolved.fn_ty);
         const misplaced_sigil = receiver != .none and try self.checkReceiverSigil(obj, receiver, resolved.fn_ty.returns, method);
         switch (receiver) {
@@ -7501,6 +7504,15 @@ const Checker = struct {
         return f.returns;
     }
 
+    /// Records `callee` as the member a call resolved as a method, which
+    /// takes its receiver as `receiver` and returns `returns`: its object
+    /// is the receiver, no path's base (`checkLendBases`). Returns
+    /// `returns`.
+    fn noteMethod(self: *Checker, callee: Sexp, receiver: sema.MethodReceiver, returns: TypeId) Error!TypeId {
+        if (callee == .list) try self.methods.put(self.ctx.allocator, nodeId(callee), .{ .receiver = receiver, .returns = returns });
+        return returns;
+    }
+
     /// `sigil`, a `!` the receiver-sigil rule moved onto `place`, a module
     /// or type through which a function is called, so it reaches no
     /// value: reported, with the form that lends the value the call
@@ -7509,7 +7521,7 @@ const Checker = struct {
     fn misreachedWrite(self: *Checker, sigil: ?Sexp, place: Sexp, method: []const u8, ty: TypeId) Error!TypeId {
         const s = sigil orelse return ty;
         const what = if ((try self.moduleNamed(place)) != null) "a module" else "a type";
-        const shown = self.sourceText(place);
+        const shown = try self.plainText(place);
         const value = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
         if (value == self.t().bool_id) {
             try self.errAt(s, "`!` here reaches `{s}`, {s}, and `{s}.{s}(...)` makes a `Bool`; for negation use `not`", .{ shown, what, shown, method });
@@ -7671,7 +7683,7 @@ const Checker = struct {
         // A receiver `!` could not write (through a `*T` or `?T`, or of
         // a parameter) is reported as such, not with a `!` to add.
         if (!try self.requireAccess(self.placeOf(place), .lend_write, obj)) return false;
-        const shown = self.sourceText(place);
+        const shown = try self.plainText(place);
         const lent = if (sigilReaches(place)) try self.ctx.arena.allocator().print("!{s}", .{shown}) else try self.ctx.arena.allocator().print("!({s})", .{shown});
         try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `{s}.{s}(...)`", .{ method, lent, method });
         return false;
@@ -7999,7 +8011,7 @@ const Checker = struct {
     /// every change is marked by `!` (Core sentences 4 and 9), which
     /// lends the temporary to write.
     fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8, has_args: bool, returns: TypeId) Error!void {
-        const shown = self.sourceText(recv);
+        const shown = try self.plainText(recv);
         const a = self.ctx.arena.allocator();
         const lent = if (sigilReaches(recv)) try a.print("!{s}", .{shown}) else try a.print("!({s})", .{shown});
         const call = if (self.usesBoolValue(recv, returns)) try a.print("({s}).{s}", .{ lent, method }) else try a.print("{s}.{s}", .{ lent, method });
@@ -8109,6 +8121,7 @@ const Checker = struct {
         // there: a typed binding, an argument, a field, an element, a
         // result.
         try self.recordUse(e, .take);
+        if (e == .list and self.ctx.quiet == 0) try self.expected.put(self.ctx.allocator, nodeId(e), expected);
         const prev_lent = self.lent_write;
         defer self.lent_write = prev_lent;
         if (e.isKind(.write) and self.ctx.types.get(expected) == .write_view) self.lent_write = e;
@@ -8278,7 +8291,7 @@ const Checker = struct {
         switch (self.ctx.types.get(actual)) {
             .array => |a| if (a.elem == elem) {
                 if (self.hands(e).hasStorage()) {
-                    const shown = self.sourceText(e);
+                    const shown = try self.plainText(e);
                     const sigil: u8 = if (want_write) '!' else '?';
                     try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; write `{c}{s}` or `{c}{s}[..]`", .{ try self.tyName(expected), try self.tyName(actual), sigil, shown, sigil, shown });
                     return true;
@@ -8313,7 +8326,7 @@ const Checker = struct {
             else => false,
         };
         if (!is_text) return false;
-        const shown = self.sourceText(stripSigil(e));
+        const shown = try self.plainText(stripSigil(e));
         try self.errAt(e, "type mismatch: expected `String`, got `{s}`; lend it as a String with `?{s}` or `?{s}[..]`", .{ try self.tyName(actual), shown, shown });
         return true;
     }
@@ -8337,7 +8350,7 @@ const Checker = struct {
         switch (self.ctx.types.get(expected)) {
             .read_view, .write_view => |inner| if (place.named() and place.sym != null and compatible(self.ctx, actual, inner)) {
                 const write = self.ctx.types.get(expected) == .write_view;
-                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend it to {s}: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), self.sourceText(e) });
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend it to {s}: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), try self.plainText(e) });
             },
             else => {},
         }
@@ -8564,47 +8577,574 @@ const Checker = struct {
         return true;
     }
 
-    /// `e`, a field or element of `obj`, of type `obj_ty`: noted when `obj`
-    /// is a write lend written there (`checkReachedLends`).
-    fn noteReachedLend(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!void {
-        if (self.ctx.quiet > 0 or e != .list or e.list.id == 0) return;
-        if (self.writtenWriteLend(obj, obj_ty) == null) return;
-        try self.reached_lends.append(self.ctx.allocator, .{ .path = e, .base = obj, .ty = obj_ty, .stmt = self.stmt });
-    }
-
-    /// Each field or element path within `node`, which an access writes,
-    /// assigns, lends, or takes.
-    fn markWritten(self: *Checker, node: Sexp) Error!void {
-        var n = node;
-        while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
-            if (n.list.id != 0) try self.written_paths.put(self.ctx.allocator, n.list.id, {});
+    /// Every path in `decl` with a lend of a place as its base (`(!p).x`,
+    /// `(?arr)[0]`, `(<(!p)).x`, `(?t).f(1)`): reported, in one walk over
+    /// the typed tree that visits each field, element, and slice once, so
+    /// no typing routine can route a path around the rule. The lend goes
+    /// on the whole path (`!p.x`), and an assignment shows the write
+    /// itself (`p.x = 5`). What a base is comes from `lendOf`. Not this
+    /// rule's: a method's receiver (the positive fact `methods`), a value
+    /// that branches (`(!a if c else !b).x`), which `lendOf` calls no
+    /// lend, and a lend of a slice (`(?t[..])[0]`), whose written `!`
+    /// only read is decided as any such read (`writeLendRead`).
+    fn checkLendBases(self: *Checker, n: Sexp, root: Sexp, in_block: bool, module_level: bool) Error!void {
+        if (n != .list) return;
+        if (n.isKind(.member) or n.isKind(.index)) try self.lendBase(n, root, in_block, module_level);
+        // A statement's parts are hinted at as that statement: each of a
+        // block's statements, and an expression a function, a closure, or
+        // a `match` arm has for its body. Only a block's statement can
+        // have a binding put before it.
+        const kind = n.kind() orelse .module;
+        for (n.items()) |x| {
+            const body = (kind == .lambda or kind == .fun or kind == .sub or kind == .arm) and x == .list and !x.isKind(.block) and isBodyOf(n, x);
+            if (kind == .block or body) {
+                try self.checkLendBases(x, x, kind == .block, false);
+            } else try self.checkLendBases(x, root, in_block, module_level);
         }
     }
 
-    /// Each field or element reached through a write lend written as its
-    /// base and never written, assigned, lent, or taken: only read, it has
-    /// its `!` ignored (`writeLendRead`). Where an error other than a
-    /// lint was reported in the statement's own part (`ownSpan`), the
-    /// write was rejected there, and it is not reported again as only a
-    /// read. The errors go among the others in source order.
-    fn checkReachedLends(self: *Checker) Error!void {
-        const from = self.ctx.diagnostics.items.len;
-        std.mem.sort(ReachedLend, self.reached_lends.items, self, struct {
-            fn before(c: *Checker, a: ReachedLend, b: ReachedLend) bool {
-                return c.startOf(a.base) < c.startOf(b.base);
+    /// Whether `x` is the body of `n`: a function's, a closure's, or an
+    /// arm's.
+    fn isBodyOf(n: Sexp, x: Sexp) bool {
+        const body = switch (n.kind() orelse return false) {
+            .lambda => ir.Lambda.body(n),
+            .fun => ir.get(n, .body),
+            .sub => ir.get(n, .body),
+            .arm => ir.get(n, .body),
+            else => return false,
+        };
+        return sameExpr(body, x);
+    }
+
+    /// `e`, a field, element, or slice, in statement `root` (a block's
+    /// statement where `in_block`, or a module-level declaration):
+    /// reported where its object is a lend of a place (`checkLendBases`).
+    fn lendBase(self: *Checker, e: Sexp, root: Sexp, in_block: bool, module_level: bool) Error!void {
+        const obj = ir.get(e, .object);
+        const lend = self.lendOf(obj) orelse return;
+        if (self.methods.contains(nodeId(e))) return;
+        if (isCallee(root, e)) {
+            // The receiver sigil the parser moved onto a call of a field
+            // holding functions (`!p.f[0]()`) is the call's to report, and
+            // so is a method the call did not find (`(!s).nope()`).
+            if (self.isReceiverSigil(obj)) return;
+            if (!self.namesField(obj, e)) return;
+        }
+        var fix: LendBaseFix = .{ .c = self, .root = root };
+        if (lendsSlice(lend)) {
+            const ty = self.ctx.typeOf(obj) orelse return;
+            if (self.writtenWriteLend(obj, ty) == null) return;
+            if ((try fix.useOf(e, obj)).writes) return;
+            _ = try self.writeLendRead(obj, ty, .{ .path = e });
+            return;
+        }
+        try fix.collect(fix.root);
+        const own = fix.edit(obj) orelse try fix.add(e, obj);
+        const shown = try oneLine(self.ctx.arena.allocator(), self.sourceText(e));
+        const head = "`{s}`: write a lend on the whole path, not its base";
+        // No rewrite compiles where the path writes through a read lend
+        // or a shared handle, takes a part that is no optional, or binds
+        // a temporary where no statement can go first; each says why.
+        if (own.writes and lend.isKind(.read) and !own.cell) return self.errAt(obj, head ++ "; and a read lend is not written through", .{shown});
+        if (own.shared and (own.writes or std.mem.findScalar(u8, own.open, '!') != null)) return self.errAt(obj, head ++ "; and nothing is written through a shared handle (`*T`), which other handles may see", .{shown});
+        if (own.taken and !own.temp and !own.optional) return self.errAt(obj, head ++ "; and `<` takes out only an optional field or element, leaving `none`", .{shown});
+        // The hint is the line the statement is on: a statement spread
+        // over lines, or a module-level value, which no plain path makes
+        // constant, gets none. A lend its own check rejected gets none,
+        // and so does a context no plain form fits.
+        const src = self.ctx.source;
+        const sp = self.ctx.span(obj);
+        var ws: parser.Span = .{ .start = own.at, .end = own.at };
+        while (ws.start > 0 and src[ws.start - 1] != '\n') ws.start -= 1;
+        while (ws.start < own.at and (src[ws.start] == ' ' or src[ws.start] == '\t')) ws.start += 1;
+        while (ws.end < src.len and src[ws.end] != '\n') ws.end += 1;
+        var stmt = self.ownSpan(root);
+        stmt.start = fix.start(root, stmt.start);
+        const spread = stmt.start < ws.start or std.mem.trimEnd(u8, src[stmt.start..@max(stmt.start, stmt.end)], " \t\n").len > ws.end - stmt.start;
+        if (own.none or own.to > ws.end or spread or module_level) return self.errAt(obj, head, .{shown});
+        // An error inside the lend, or in the path after it (a field it
+        // does not have, an index out of bounds, a method it lacks), is
+        // what the path still needs: it gets no rewrite.
+        for (self.ctx.diagnostics.items) |d| {
+            if (d.severity != .@"error" or d.lint or d.module != 0) continue;
+            if ((d.pos > sp.start and d.pos < sp.end) or (d.pos >= own.end and d.pos < own.reach)) return self.errAt(obj, head, .{shown});
+        }
+        // A part of a temporary assigned, taken, or bound by a header: the
+        // temporary is bound to a name first, in a statement put before
+        // this one, where one can go.
+        if (own.temp and (own.assigned or own.header or own.taken)) {
+            if (!in_block or stmt.start != ws.start) return self.errAt(obj, head ++ "; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own", .{shown});
+            const name = for ([_][]const u8{ "t", "tmp", "tmp1", "tmp2", "tmp3", "tmp4" }) |n| {
+                if (!hasCodeWord(src, n)) break n;
+            } else "tmp5";
+            fix.named = .{ .lend = obj, .name = name };
+            var out: std.ArrayList(u8) = .empty;
+            try fix.write(&out, ws.start, ws.end);
+            var made: std.ArrayList(u8) = .empty;
+            const bs = self.ctx.span(own.place);
+            try fix.write(&made, bs.start, bs.end);
+            return self.errAt(obj, head ++ "; to change or bind a part of a temporary, bind it to a name first: `{s} = {s}`, then `{s}`", .{ shown, name, made.items, out.items });
+        }
+        var out: std.ArrayList(u8) = .empty;
+        try fix.write(&out, ws.start, ws.end);
+        try self.errAt(obj, head ++ ": `{s}`", .{ shown, out.items });
+    }
+
+    /// Whether member `e` of `obj` names a data field of `obj`'s type: a
+    /// call of it calls the function the field holds, and its object is a
+    /// path's base, not a receiver.
+    fn namesField(self: *Checker, obj: Sexp, e: Sexp) bool {
+        if (!e.isKind(.member)) return true;
+        const ty = self.ctx.typeOf(obj) orelse return false;
+        if (self.isPoison(ty)) return false;
+        return sema.lookupDataFieldConst(self.ctx, sema.unwrapAccess(self.ctx, ty), self.text(ir.Member.name(e))) != null;
+    }
+
+    /// The lend the object of a path, `e`, is: `?x` or `!x`, also moved,
+    /// `<(!p)` (Core §4: a moved lend is the view it lends), by what `e`
+    /// hands over (`sema.handsOver`), recorded the first time it is asked
+    /// (`lend_of`). Null for anything else, a value that branches among
+    /// them.
+    fn lendOf(self: *Checker, e: Sexp) ?Sexp {
+        if (e != .list) return null;
+        const id = nodeId(e);
+        if (self.lend_of.get(id)) |known| return known;
+        const lend = self.lendUnder(e);
+        self.lend_of.put(self.ctx.allocator, id, lend) catch {};
+        return lend;
+    }
+
+    /// The place `lend` lends, under every sigil and every `<` of a lend
+    /// on the way: `p` in `!(<(!p))`.
+    fn lentThrough(self: *Checker, lend: Sexp) Sexp {
+        var e = lentPlace(lend);
+        while (e.isKind(.move)) {
+            const inner = self.lendOf(e) orelse break;
+            e = lentPlace(inner);
+        }
+        return e;
+    }
+
+    fn lendUnder(self: *const Checker, e: Sexp) ?Sexp {
+        return switch (self.hands(e).kind) {
+            .lend => e,
+            .made => if (e.isKind(.move)) self.lendUnder(ir.Move.operand(e)) else null,
+            else => null,
+        };
+    }
+
+    /// `e`'s source with each lend that is a path's base taken off,
+    /// for a diagnostic that names the place (`!p.o as v`).
+    fn plainText(self: *Checker, e: Sexp) Error![]const u8 {
+        var fix: LendBaseFix = .{ .c = self, .root = e, .bare = true };
+        try fix.collect(e);
+        if (fix.edits.items.len == 0) return self.sourceText(e);
+        var out: std.ArrayList(u8) = .empty;
+        const sp = self.ctx.span(e);
+        try fix.write(&out, fix.start(e, sp.start), sp.end);
+        return out.items;
+    }
+
+    /// The source of a statement with every lend written as a path's
+    /// base (`lendBase`) taken off it, the whole path given the sigil its
+    /// context takes (`useOf`).
+    const LendBaseFix = struct {
+        c: *Checker,
+        root: Sexp,
+        edits: std.ArrayList(Edit) = .empty,
+        /// A temporary the hint binds to a name first, written as it.
+        named: ?struct { lend: Sexp, name: []const u8 } = null,
+        /// Every path written bare, its sigil dropped (`plainText`).
+        bare: bool = false,
+
+        const Edit = struct {
+            lend: Sexp,
+            /// The place lent, under its sigils and `<`.
+            place: Sexp,
+            top: Sexp,
+            /// Whether the whole path is assigned to, a header's subject,
+            /// taken (`<`), written as it stands (assigned, lent to write,
+            /// taken, a `for` source written, or a write method's
+            /// receiver), reached through a shared handle, or part of a
+            /// temporary.
+            assigned: bool = false,
+            header: bool = false,
+            taken: bool = false,
+            writes: bool = false,
+            shared: bool = false,
+            temp: bool = false,
+            /// Whether the path reaches a Cell, which changes through any
+            /// path; whether its value is an optional; and whether no
+            /// plain form fits its context (`valueSigil`).
+            cell: bool = false,
+            optional: bool = false,
+            none: bool = false,
+            /// What goes before and after the whole path: the sigil its
+            /// context takes, or nothing.
+            open: []const u8 = "",
+            close: []const u8 = "",
+            /// Where a slice on the way ends, which is lent as a whole
+            /// (`(?p.arr[0..2])[1]`), its parenthesis opened with `open`.
+            slice_to: u32 = 0,
+            /// Where the whole path starts and ends, and the lend's span
+            /// with its parentheses.
+            at: u32 = 0,
+            to: u32 = 0,
+            reach: u32 = 0,
+            start: u32 = 0,
+            end: u32 = 0,
+        };
+
+        fn collect(f: *LendBaseFix, n: Sexp) Error!void {
+            if (n != .list or n.isKind(.lambda)) return;
+            if (n.isKind(.member) or n.isKind(.index)) {
+                const obj = ir.get(n, .object);
+                if (f.c.lendOf(obj)) |lend| if (!lendsSlice(lend) and !f.c.methods.contains(nodeId(n)) and !(isCallee(f.root, n) and (f.c.isReceiverSigil(obj) or !f.c.namesField(obj, n)))) {
+                    _ = try f.add(n, obj);
+                };
             }
-        }.before);
-        for (self.reached_lends.items) |r| {
-            if (self.written_paths.contains(r.path.list.id)) continue;
-            const own = self.ownSpan(if (r.stmt == .nil) r.path else r.stmt);
-            const rejected = for (self.ctx.diagnostics.items[0..from]) |d| {
-                if (d.severity == .@"error" and !d.lint and d.module == 0 and d.pos >= own.start and d.pos < own.end) break true;
-            } else false;
-            if (rejected) continue;
-            _ = try self.writeLendRead(r.base, r.ty, .{ .path = r.path });
+            for (n.items()) |x| try f.collect(x);
         }
-        try self.ctx.placeInOrder(from);
-    }
+
+        /// What the whole path that `path` with base `obj` starts is to
+        /// its context, and the sigil that context takes: the facts typing
+        /// recorded (the type expected there, a method's receiver mode, a
+        /// value tail) and the tree around it.
+        fn useOf(f: *LendBaseFix, path: Sexp, obj: Sexp) Error!Edit {
+            const c = f.c;
+            var top = path;
+            while (parentIn(f.root, top)) |p| {
+                if (!(p.isKind(.member) or p.isKind(.index)) or !sameExpr(ir.get(p, .object), top) or c.methods.contains(nodeId(p))) break;
+                top = p;
+            }
+            const lend = c.lendOf(obj) orelse obj;
+            const place = c.lentThrough(lend);
+            var x: Edit = .{ .lend = obj, .place = place, .top = top };
+            const sigil: []const u8 = if (lend.isKind(.write)) "!" else "?";
+            x.reach = c.ctx.span(top).end;
+            if (f.bare) return f.spans(x, obj);
+            // Reached through a shared handle on the way.
+            var n = top;
+            while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
+                const o = ir.get(n, .object);
+                const o_ty = if (sameExpr(o, obj)) c.ctx.typeOf(place) else c.ctx.typeOf(o);
+                if (o_ty) |ty| {
+                    const v = sema.unwrapViews(c.ctx, ty);
+                    if (c.ctx.types.get(v) == .shared) x.shared = true;
+                    if (cellElementType(c.ctx, v) != null or cellVecElement(c.ctx, v) != null) x.cell = true;
+                }
+                if (sameExpr(o, obj)) break;
+            }
+            // A part of a value made here, which no name holds: a view a
+            // call returns is not one.
+            if (c.hands(place).kind != .place) {
+                const pt = c.ctx.typeOf(place);
+                x.temp = pt == null or !sema.isReadOrWriteView(c.ctx, pt.?);
+            }
+            if (c.ctx.typeOf(top)) |tt| x.optional = c.ctx.types.get(tt) == .optional;
+            const p = parentIn(f.root, top) orelse {
+                f.setValueSigil(&x, top, sigil);
+                return f.spans(x, obj);
+            };
+            switch (p.kind() orelse .module) {
+                .set => if (sameExpr(ir.Set.target(p), top)) {
+                    x.assigned = true;
+                    x.writes = true;
+                } else {
+                    f.setValueSigil(&x, top, sigil);
+                },
+                // A statement that drops: only a binding is dropped.
+                .drop => x.none = true,
+                .write => x.writes = true,
+                .move => {
+                    x.writes = true;
+                    x.taken = true;
+                },
+                .read => {},
+                // A header's subject: its binding takes the lend's sigil.
+                .match => if (sameExpr(ir.Match.subject(p), top)) {
+                    x.header = true;
+                    x.open = sigil;
+                },
+                .as => if (sameExpr(ir.As.value(p), top)) {
+                    x.header = true;
+                    x.open = sigil;
+                },
+                // A `for` walks a binding's place, or a field or element of
+                // one, in place: none of a value that branches.
+                .@"for" => if (sameExpr(ir.For.source(p), top)) {
+                    x.header = true;
+                    if (ir.For.mode(p).tag == .iter) x.open = sigil;
+                    x.writes = ir.For.mode(p).tag == .write;
+                    if (c.hands(place).kind != .place) x.none = true;
+                },
+                // A method's receiver: lent to write where the method
+                // writes it (in parentheses where the call's `Bool` value
+                // is used), and bare otherwise.
+                .member => if (c.methods.get(nodeId(p))) |m| {
+                    x.reach = c.ctx.span(p).end;
+                    if (m.receiver == .write) {
+                        x.writes = true;
+                        const call = parentIn(f.root, p) orelse p;
+                        const ret = c.ctx.types.get(m.returns);
+                        const value = if (ret == .fallible) ret.fallible else m.returns;
+                        const used = !sameExpr(call, f.root) or c.value_tails.contains(nodeId(call));
+                        const bool_used = value == c.t().bool_id and used;
+                        x.open = if (bool_used) "(!" else "!";
+                        x.close = if (bool_used) ")" else "";
+                    }
+                } else {
+                    f.setValueSigil(&x, top, sigil);
+                },
+                else => f.setValueSigil(&x, top, sigil),
+            }
+            return f.spans(x, obj);
+        }
+
+        fn setValueSigil(f: *LendBaseFix, x: *Edit, top: Sexp, sigil: []const u8) void {
+            if (f.valueSigil(top, sigil)) |open| {
+                x.open = open;
+            } else x.none = true;
+        }
+
+        /// The sigil a path read as a value takes from its context, or
+        /// null where no plain form fits it:
+        /// - a slice of an array, a Vec, or a Text is a lend: `?` (`!`
+        ///   where a write view goes);
+        /// - where a write view is expected, `!`;
+        /// - where a read view is, `?`, but none for an argument a `?T`
+        ///   parameter takes (lent implicitly), or for a value that is a
+        ///   view already;
+        /// - where a value is, none if it copies, a clone `+` if it does
+        ///   not, and null if it is not the value expected;
+        /// - where nothing is expected, the lend's own sigil if the value
+        ///   is taken and does not copy, and none otherwise.
+        /// A leaf of a value that branches takes the branch's context.
+        fn valueSigil(f: *LendBaseFix, top: Sexp, sigil: []const u8) ?[]const u8 {
+            const c = f.c;
+            var at = top;
+            while (parentIn(f.root, at)) |p| {
+                const leaf = switch (p.kind() orelse break) {
+                    .@"if" => !sameExpr(ir.If.cond(p), at),
+                    .@"??", .@"catch" => true,
+                    else => false,
+                };
+                if (!leaf) break;
+                at = p;
+            }
+            // A path its own check rejected has no plain form to give.
+            const top_ty = c.ctx.typeOf(top) orelse return null;
+            if (c.isPoison(top_ty)) return null;
+            const copies = sema.copies(c.ctx, top_ty) == .yes;
+            const want_ty = c.expected.get(nodeId(at));
+            if (top.isKind(.index) and ir.Index.index(top).isKind(.@"..")) {
+                if (want_ty) |w| if (c.ctx.types.get(w) == .write_view or sema.writeSliceElem(c.ctx, w) != null) return "!";
+                return "?";
+            }
+            if (want_ty) |want| {
+                var inner = want;
+                var opt = false;
+                while (c.ctx.types.get(inner) == .optional) {
+                    inner = c.ctx.types.get(inner).optional;
+                    opt = true;
+                }
+                switch (c.ctx.types.get(inner)) {
+                    .write_view => return "!",
+                    .read_view => return if (!opt and f.implicitArg(at)) "" else "?",
+                    .slice, .string => if (!sema.holdsWriteView(c.ctx, inner)) {
+                        if (sema.writeSliceElem(c.ctx, inner) != null) return "!";
+                        return if (compatible(c.ctx, top_ty, inner)) "" else "?";
+                    },
+                    else => {},
+                }
+                if (sema.holdsWriteView(c.ctx, want)) return "!";
+                if (!compatible(c.ctx, top_ty, want)) return null;
+                if (copies) return "";
+                return if (sema.cloneable(c.ctx, top_ty) != .no) "+" else null;
+            }
+            // A branch whose other leaves are lends takes their sigil.
+            if (!sameExpr(at, top)) {
+                var leaves: std.ArrayList(Sexp) = .empty;
+                defer leaves.deinit(c.ctx.allocator);
+                sema.yieldedLeaves(c.ctx.allocator, c.ctx.source, at, &leaves) catch return "";
+                for (leaves.items) |l| {
+                    if (l.isKind(.write)) return "!";
+                    if (l.isKind(.read)) return "?";
+                }
+            }
+            // A value taken that does not copy keeps the lend's sigil: a
+            // binding's, an element's.
+            if (!copies) {
+                const taken = c.ctx.useOf(at) == .take or if (parentIn(f.root, at)) |p| p.isKind(.set) or p.isKind(.array) else false;
+                if (taken) return sigil;
+            }
+            return "";
+        }
+
+        /// Whether `e` is an argument of a call of a function or a method,
+        /// where a read view is lent without a written `?`; a type's
+        /// constructor stores it.
+        fn implicitArg(f: *LendBaseFix, e: Sexp) bool {
+            var p = parentIn(f.root, e) orelse return false;
+            if (p.isKind(.kwarg)) p = parentIn(f.root, p) orelse return false;
+            if (!p.isKind(.call)) return false;
+            const callee = ir.Call.callee(p);
+            if (sameExpr(callee, e)) return false;
+            if (f.c.methods.contains(nodeId(callee))) return true;
+            const ty = f.c.ctx.typeOf(callee) orelse return false;
+            return switch (f.c.ctx.types.get(sema.unwrapViews(f.c.ctx, ty))) {
+                .function => true,
+                else => sema.ownedClosureFn(f.c.ctx, ty) != null,
+            };
+        }
+
+        fn spans(f: *const LendBaseFix, edit_: Edit, obj: Sexp) Edit {
+            var x = edit_;
+            const top = x.top;
+            const src = f.c.ctx.source;
+            var ls = f.c.ctx.span(obj);
+            // Every pair of parentheses around the lend alone, `((!p))`,
+            // but not a call's.
+            while (true) {
+                var i = ls.start;
+                while (i > 0 and isBlank(src[i - 1])) i -= 1;
+                var j = ls.end;
+                while (j < src.len and isBlank(src[j])) j += 1;
+                if (i == 0 or j >= src.len or src[i - 1] != '(' or src[j] != ')') break;
+                const k = i - 1;
+                if (k > 0 and (std.ascii.isAlphanumeric(src[k - 1]) or src[k - 1] == '_' or src[k - 1] == ')' or src[k - 1] == ']')) break;
+                ls = .{ .start = i - 1, .end = j + 1 };
+            }
+            const ts = f.c.ctx.span(top);
+            // A slice on the way below the top is lent as a whole: a lend
+            // of a slice is a view, kept as a path's base.
+            if (!f.bare) {
+                var n = x.top;
+                var slice: ?Sexp = null;
+                while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
+                    if (n.isKind(.index) and ir.Index.index(n).isKind(.@"..")) slice = n;
+                    if (sameExpr(ir.get(n, .object), obj)) break;
+                }
+                // Only a place is sliced: a value that branches is not.
+                if (slice != null and f.c.hands(x.place).kind != .place) x.none = true;
+                if (slice) |sl| if (!sameExpr(sl, x.top)) {
+                    const lend = f.c.lendOf(obj) orelse obj;
+                    const sig: []const u8 = if (x.writes and lend.isKind(.write)) "(!" else "(?";
+                    x.open = std.mem.concat(f.c.ctx.arena.allocator(), u8, &.{ x.open, sig }) catch x.open;
+                    x.slice_to = f.c.ctx.span(sl).end;
+                };
+            }
+            x.at = @min(ts.start, ls.start);
+            x.to = @max(ts.end, ls.end);
+            x.reach = @max(x.reach, ls.end);
+            x.start = ls.start;
+            x.end = ls.end;
+            return x;
+        }
+
+        fn add(f: *LendBaseFix, path: Sexp, obj: Sexp) Error!Edit {
+            const x = try f.useOf(path, obj);
+            try f.edits.append(f.c.ctx.arena.allocator(), x);
+            return x;
+        }
+
+        fn edit(f: *const LendBaseFix, lend: Sexp) ?Edit {
+            for (f.edits.items) |x| if (sameExpr(x.lend, lend)) return x;
+            return null;
+        }
+
+        /// Where `n` starts: the first of its parts, which a sigil the
+        /// tree moved inward (`!v[0].bump()`) may start before it.
+        fn start(f: *const LendBaseFix, n: Sexp, from: u32) u32 {
+            var s = from;
+            if (n == .list and !n.isKind(.lambda)) {
+                if (n.list.len > 1) s = @min(s, f.c.ctx.span(n).start);
+                for (n.items()) |x| s = f.start(x, s);
+            } else if (n == .src) s = @min(s, n.src.pos);
+            return s;
+        }
+
+        /// The source from `from` to `to`, each edit within it applied.
+        fn write(f: *const LendBaseFix, out: *std.ArrayList(u8), from: u32, to: u32) Error!void {
+            return f.writeWithin(out, from, to, null);
+        }
+
+        /// `write`, inside the edit at `inside`, whose lend is not met again.
+        fn writeWithin(f: *const LendBaseFix, out: *std.ArrayList(u8), from: u32, to: u32, inside: ?usize) Error!void {
+            const a = f.c.ctx.arena.allocator();
+            const src = f.c.ctx.source;
+            const opened = try a.alloc(bool, f.edits.items.len);
+            const closed = try a.alloc(bool, f.edits.items.len);
+            const sliced = try a.alloc(bool, f.edits.items.len);
+            @memset(opened, false);
+            @memset(closed, false);
+            @memset(sliced, false);
+            var at = from;
+            while (true) {
+                // The next point an edit changes, in source order: a
+                // sigil moved onto a path, a lend taken off it, or the
+                // parenthesis that closes a path.
+                const Step = enum { open, lend, close, slice_close };
+                var next: ?struct { i: usize, step: Step } = null;
+                var pos: u32 = to + 1;
+                for (f.edits.items, 0..) |x, i| {
+                    if (x.close.len > 0 and !closed[i] and x.to >= at and x.to <= to and x.to < pos) {
+                        next = .{ .i = i, .step = .close };
+                        pos = x.to;
+                    }
+                    if (x.slice_to != 0 and !sliced[i] and x.slice_to >= at and x.slice_to <= to and x.slice_to < pos) {
+                        next = .{ .i = i, .step = .slice_close };
+                        pos = x.slice_to;
+                    }
+                }
+                for (f.edits.items, 0..) |x, i| {
+                    if (x.open.len > 0 and !opened[i] and x.at >= at and x.at < to and x.at <= pos) {
+                        next = .{ .i = i, .step = .open };
+                        pos = x.at;
+                    }
+                }
+                for (f.edits.items, 0..) |x, i| if (i != inside and x.start >= at and x.end <= to and x.start < pos) {
+                    next = .{ .i = i, .step = .lend };
+                    pos = x.start;
+                };
+                const n = next orelse break;
+                const x = f.edits.items[n.i];
+                try out.appendSlice(a, src[at..pos]);
+                at = pos;
+                switch (n.step) {
+                    .open => {
+                        try out.appendSlice(a, x.open);
+                        opened[n.i] = true;
+                    },
+                    .close => {
+                        try out.appendSlice(a, x.close);
+                        closed[n.i] = true;
+                    },
+                    .slice_close => {
+                        try out.append(a, ')');
+                        sliced[n.i] = true;
+                    },
+                    .lend => {
+                        if (f.named) |named| if (sameExpr(named.lend, x.lend)) {
+                            try out.appendSlice(a, named.name);
+                            at = x.end;
+                            continue;
+                        };
+                        // What a postfix would not bind is kept in
+                        // parentheses: `(a if c else b).len`.
+                        const base = x.place;
+                        const bs = f.c.ctx.span(base);
+                        const parens = !postfixBinds(base) and src[bs.start] != '(';
+                        if (parens) try out.append(a, '(');
+                        try f.writeWithin(out, bs.start, bs.end, n.i);
+                        if (parens) try out.append(a, ')');
+                        at = x.end;
+                    },
+                }
+            }
+            try out.appendSlice(a, src[at..to]);
+        }
+    };
 
     /// The part of statement `s` that is not another statement's: all of
     /// a simple statement, and the header of a loop, an `if`, or a
@@ -8638,8 +9178,8 @@ const Checker = struct {
         read_view: TypeId,
         /// A method's receiver it takes as a read view (`?self`).
         read_receiver: []const u8,
-        /// The base of this path, which only reads the place it reaches
-        /// (`(!p).x`, `(!arr)[0]`, `(!s).len`).
+        /// The base of this path, which only reads what it reaches: a
+        /// lend of a slice (`(!arr[..])[0]`, `lendBase`).
         path: Sexp,
         /// A held write view lent where a read view of a value that
         /// copies goes, which narrows it: no `!` is written there.
@@ -8665,11 +9205,7 @@ const Checker = struct {
     /// `!T` parameter), which is read as a bare name is (Core sentence 1).
     fn writtenWriteLend(self: *Checker, e: Sexp, ty: TypeId) ?Sexp {
         if (self.ctx.types.get(ty) != .write_view) return null;
-        return switch (self.hands(e).kind) {
-            .lend => e,
-            .made => if (e.isKind(.move)) self.writtenWriteLend(ir.Move.operand(e), self.ctx.typeOf(ir.Move.operand(e)) orelse return null) else null,
-            else => null,
-        };
+        return self.lendUnder(e);
     }
 
     /// Whether `e`, of type `ty`, read as a value `how` says, is a write
@@ -8723,7 +9259,7 @@ const Checker = struct {
         const place_node = unlent(lend);
         const place = self.sourceText(place_node);
         const head = "`{s}` here is read, not held: {s}. ";
-        const shown = self.sourceText(e);
+        const shown = try self.plainText(e);
         const value_ty = switch (how) {
             .slot, .value => |slot_ty| slot_ty,
             else => sema.unwrapViews(self.ctx, self.ctx.typeOf(place_node) orelse self.t().invalid_id),
@@ -8745,14 +9281,17 @@ const Checker = struct {
                 const fix = if (in_slot) try self.spliced(slot.call, &.{e}, &.{lent}) else lent;
                 return self.errAt(e, "`{s}` here is read, not held: {s} only reads `{s}`; write `{s}`", .{ shown, owner, place, fix });
             },
+            .path => |path| {
+                // The slice lent to read: `(?arr[..])[0]`.
+                const ps = self.ctx.span(path);
+                const ls = self.ctx.span(lend);
+                const fix = if (ls.start >= ps.start and ls.end <= ps.end) try std.mem.concat(a, u8, &.{ self.ctx.source[ps.start..ls.start], "?", place, self.ctx.source[ls.end..ps.end] }) else try a.print("?{s}", .{place});
+                return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("`{s}` only reads the place it reaches", .{self.sourceText(path)}), fix });
+            },
             .read_receiver => |method| {
                 const call = self.current_call orelse Sexp.nil;
                 const fix = if (call != .nil) try self.unparenthesized(call, e, place) else try a.print("{s}.{s}(...)", .{ place, method });
                 return self.errAt(e, "`{s}` here is read, not held: `{s}` only reads `{s}`; write `{s}`", .{ shown, method, place, fix });
-            },
-            .path => |path| {
-                const fix = try self.unparenthesized(path, e, place);
-                return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("`{s}` only reads the place it reaches", .{self.sourceText(path)}), fix });
             },
             else => return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("only its `{s}` is read here", .{ty}), place }),
         }
@@ -9147,7 +9686,7 @@ const Checker = struct {
         const ty = try self.synthExpr(pattern);
         const subject = sema.unwrapViews(self.ctx, scrutinee);
         const obj = ir.Member.object(pattern);
-        const shown = self.sourceText(pattern);
+        const shown = try self.plainText(pattern);
         const name = self.text(ir.Member.name(pattern));
         if (self.isPoison(ty) or self.isPoison(subject)) {
             cov.rejected = true;
@@ -9578,12 +10117,12 @@ const Checker = struct {
                     break :blk self.t().void_id;
                 } else blk: {
                     try self.recordUse(last, .take);
-                    break :blk try self.synthExpr(last);
+                    break :blk try self.synthTail(last, null);
                 };
             }
         } else {
             try self.recordUse(body, .take);
-            ret = try self.synthExpr(body);
+            ret = try self.synthTail(body, null);
         }
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
@@ -10234,6 +10773,98 @@ fn resultCall(e: Sexp) ?Sexp {
 /// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
+}
+
+/// `text` on one line: each run of blanks with a line break in it is one
+/// space.
+fn oneLine(a: std.mem.Allocator, text: []const u8) Error![]const u8 {
+    if (std.mem.findScalar(u8, text, '\n') == null) return text;
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < text.len) : (i += 1) {
+        if (!isBlank(text[i])) {
+            try out.append(a, text[i]);
+            continue;
+        }
+        var j = i;
+        var broke = false;
+        while (j < text.len and isBlank(text[j])) : (j += 1) broke = broke or text[j] == '\n';
+        if (broke) {
+            const prev = if (out.items.len > 0) out.items[out.items.len - 1] else ' ';
+            const next = if (j < text.len) text[j] else ' ';
+            if (prev != '(' and prev != '[' and next != ')' and next != ']' and next != '.') try out.append(a, ' ');
+        } else try out.appendSlice(a, text[i..j]);
+        i = j - 1;
+    }
+    return out.items;
+}
+
+fn isBlank(c: u8) bool {
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r';
+}
+
+/// The id a node is recorded by.
+fn nodeId(e: Sexp) parser.NodeId {
+    return if (e == .list) e.list.id else 0;
+}
+
+/// Whether `lend` lends a slice, the view it makes (`?t[..]`).
+fn lendsSlice(lend: Sexp) bool {
+    const lent = lentPlace(lend);
+    return lent.isKind(.index) and ir.Index.index(lent).isKind(.@"..");
+}
+
+/// Whether a postfix written after `e` binds to all of it: a name, a
+/// field, an element, or a call.
+fn postfixBinds(e: Sexp) bool {
+    return e == .src or e.isKind(.member) or e.isKind(.index) or e.isKind(.call);
+}
+
+/// The node within `root` that holds `target` as a child, outside the
+/// closures in it.
+fn parentIn(root: Sexp, target: Sexp) ?Sexp {
+    if (root != .list or root.isKind(.lambda)) return null;
+    for (root.items()) |c| {
+        if (sameExpr(c, target)) return root;
+        if (parentIn(c, target)) |p| return p;
+    }
+    return null;
+}
+
+/// Whether member `m` within `root` names the method a call calls, with
+/// or without compile-time arguments (`(!w).put[2](3)`).
+fn isCallee(root: Sexp, m: Sexp) bool {
+    if (!m.isKind(.member)) return false;
+    var callee = m;
+    var p = parentIn(root, m) orelse return false;
+    if ((p.isKind(.index) or p.isKind(.inst)) and sameExpr(ir.get(p, .object), m)) {
+        callee = p;
+        p = parentIn(root, p) orelse return false;
+    }
+    return p.isKind(.call) and sameExpr(ir.Call.callee(p), callee);
+}
+
+/// Whether the code of `src`, its comments aside, holds `word` as a
+/// whole name: a name a hint may bind is declared nowhere in the module.
+fn hasCodeWord(src: []const u8, word: []const u8) bool {
+    var lines = std.mem.splitScalar(u8, src, '\n');
+    while (lines.next()) |line| {
+        const code = if (std.mem.findScalar(u8, line, '#')) |h| line[0..h] else line;
+        if (hasWord(code, word)) return true;
+    }
+    return false;
+}
+
+/// Whether `text` holds `word` as a whole name.
+fn hasWord(text: []const u8, word: []const u8) bool {
+    var i: usize = 0;
+    while (std.mem.findPos(u8, text, i, word)) |at| : (i = at + 1) {
+        const before = at == 0 or !(std.ascii.isAlphanumeric(text[at - 1]) or text[at - 1] == '_');
+        const end = at + word.len;
+        const after = end == text.len or !(std.ascii.isAlphanumeric(text[end]) or text[end] == '_');
+        if (before and after) return true;
+    }
+    return false;
 }
 
 /// `a` and `b` are the same parsed expression: a list node, or a leaf at

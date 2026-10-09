@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+test "lend base"
+  p = P(x: 1)
+  (!p).x = 4
+  assert(p.x == 4)
+
+sub main()
+  print(1)

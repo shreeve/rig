@@ -1,0 +1,116 @@
+# A lend of a place is never the base of a path in any context: a
+# closure's expression body, a closure's or a block's last value, and a
+# function's last value, each its own statement for the hint. A lend
+# moved, `<(!p)`, is the lend. A written `!` on a slice only read, a
+# field holding functions indexed and called, a read lend written
+# through, and a write through a shared handle are reported too, each
+# once, with a hint that compiles or none.
+
+struct Set
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    !self.items.push(k)
+    true
+
+struct Q
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+struct P
+  x: Int
+  o: Int?
+  a: [2]Int
+  v: Vec[Int]
+  q: Q
+  s: Set
+  items: Vec[Int]
+
+fun double(n: Int) -> Int
+  n * 2
+
+struct Table
+  ops: [2]fun(Int) -> Int
+
+fun twice(n: !Int) -> Int
+  n * 2
+
+fun mk() -> P
+  P(x: 1, o: 3, a: [1, 2], v: Vec(), q: Q(n: 1), s: Set(items: Vec()), items: Vec())
+
+fun last(p: !P) -> Int
+  (!p).x
+
+fun last_bool(p: !P) -> Bool
+  (!p).s.insert(1)
+
+fun last_moved(p: !P) -> Int
+  (<(!p)).a[0]
+
+sub main()
+  p = mk()
+  q = mk()
+  c = p.x > 0
+  arr = [1, 2]
+  f1 = |!p| (!p.v)[0]
+  f2 = |!p| twice(!(!p.a)[1])
+  f3 = |!p| (!p).q.get()
+  f4 = |!p| (<(!p)).x
+  f5 = |!p|
+    k = 1
+    (!p).a[k]
+  y = if c
+    (!p).x
+  else
+    (<(?q)).x
+  print(f1(), f2(), f3(), f4(), f5(), y, last(!p), last_bool(!p), last_moved(!p))
+  (<(!p)).x = 5
+  (<(!arr))[0] = 7
+  z = <(<(!p)).o
+  n = (<(?p)).a.len
+  w = (!arr[..])[0]
+  m = (!arr[..]).len
+  match (!arr[..])[0]
+    1 => print(1)
+    _ => pass
+  t = Table(ops: [double, double])
+  print((!t).ops[1](5))
+  x = (?p).items
+  (?p).x = 5
+  (?p).s.insert(1)
+  h = *mk()
+  (!h).x = 5
+  (!h).v.push(4)
+  print(z, n, w, m, x)
+
+# error: 47:10: method `insert` needs its receiver lent to write; use `!receiver.insert(...)`
+# error: 81:4: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
+# error: 82:10: method `insert` needs its receiver lent to write; use `!receiver.insert(...)`
+# error: 84:3: cannot assign through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.
+# error: 85:10: method `push` needs its receiver lent to write; use `!receiver.push(...)`
+# error: 44:4: `(!p).x`: write a lend on the whole path, not its base: `p.x`
+# error: 47:4: `(!p).s`: write a lend on the whole path, not its base
+# error: 50:4: `(<(!p)).a`: write a lend on the whole path, not its base: `p.a[0]`
+# error: 57:14: `(!p.v)[0]`: write a lend on the whole path, not its base: `f1 = |!p| p.v[0]`
+# error: 58:21: `(!p.a)[1]`: write a lend on the whole path, not its base: `f2 = |!p| twice(!p.a[1])`
+# error: 59:14: `(!p).q`: write a lend on the whole path, not its base: `f3 = |!p| p.q.get()`
+# error: 60:14: `(<(!p)).x`: write a lend on the whole path, not its base: `f4 = |!p| p.x`
+# error: 63:6: `(!p).a`: write a lend on the whole path, not its base: `p.a[k]`
+# error: 65:6: `(!p).x`: write a lend on the whole path, not its base: `p.x`
+# error: 67:6: `(<(?q)).x`: write a lend on the whole path, not its base: `q.x`
+# error: 69:4: `(<(!p)).x`: write a lend on the whole path, not its base: `p.x = 5`
+# error: 70:4: `(<(!arr))[0]`: write a lend on the whole path, not its base: `arr[0] = 7`
+# error: 71:9: `(<(!p)).o`: write a lend on the whole path, not its base: `z = <p.o`
+# error: 72:8: `(<(?p)).a`: write a lend on the whole path, not its base: `n = p.a.len`
+# error: 73:8: `!arr[..]` here is read, not held: `(!arr[..])[0]` only reads the place it reaches. Write `(?arr[..])[0]`
+# error: 74:8: `!arr[..]` here is read, not held: `(!arr[..]).len` only reads the place it reaches. Write `(?arr[..]).len`
+# error: 75:10: `!arr[..]` here is read, not held: `(!arr[..])[0]` only reads the place it reaches. Write `(?arr[..])[0]`
+# error: 79:10: `(!t).ops`: write a lend on the whole path, not its base: `print(t.ops[1](5))`
+# error: 80:8: `(?p).items`: write a lend on the whole path, not its base: `x = ?p.items`
+# error: 81:4: `(?p).x`: write a lend on the whole path, not its base; and a read lend is not written through
+# error: 82:4: `(?p).s`: write a lend on the whole path, not its base; and a read lend is not written through
+# error: 84:4: `(!h).x`: write a lend on the whole path, not its base; and nothing is written through a shared handle (`*T`), which other handles may see
+# error: 85:4: `(!h).v`: write a lend on the whole path, not its base; and nothing is written through a shared handle (`*T`), which other handles may see
+# errors: 28

@@ -1,0 +1,18 @@
+fun double(n: Int) -> Int
+  n * 2
+
+fun yes(n: Int) -> Bool
+  n > 0
+
+struct T
+  f: fun(Int) -> Int
+  g: fun(Int) -> Bool
+  n: Int
+
+struct W
+  t: T
+  ts: [2]T
+
+sub main()
+  t = T(f: double, g: yes, n: 1)
+  print((<(!t)).f(1) + 1)

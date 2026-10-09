@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+sub main()
+  p = P(x: 1)
+  f = |q: !P| |r: !P| (!r).x = 9
+  g = f(!p)
+  g(!p)
+  print(p.x)

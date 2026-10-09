@@ -1,0 +1,20 @@
+struct Bag[T]
+  items: Vec[T]
+  n: Int
+
+  sub add(!self, x: T)
+    (!self.items).push(<x)
+    self.n += 1
+
+  fun count(?self) -> Int
+    self.items.len + self.n
+
+sub fill[T](b: !Bag[T], x: T, y: T)
+  (!b).add(<x)
+  !b.add(<y)
+
+sub main()
+  b = Bag[Int](items: Vec(), n: 0)
+  fill(!b, 3, 4)
+  (!b).add(5)
+  print((?b).count(), b.items.len)
