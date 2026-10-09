@@ -1,0 +1,56 @@
+# A label repeated inside a loop of the same name means the innermost:
+# its `break :a 5` gives the inner loop's value, not the outer one's,
+# and the outer loop is used as a value only by the `break`s that leave
+# it. An inner loop's `else` runs after that loop, so its `break :a`
+# leaves the outer loop.
+
+fun first(n: Int) -> Int
+  :a while true
+    :a while true
+      break :a
+    if n > 0
+      return n
+
+sub main()
+  n = 1
+  m = 2
+  c = n > 0
+  k = if c
+    :a while true
+      j = if c
+        :a while true
+          break :a 5
+      else
+        6
+      print(j)
+      break :a !n
+  else
+    !m
+  k += 10
+  print(n, m)
+  :a while true
+    j = if c
+      :a while true
+        break :a 7
+    else
+      8
+    print(j)
+    break :a
+  l = if c
+    :a for i in 0..3
+      :a for x in 0..2
+        if x > 5
+          break :a
+      else
+        break :a i + 20
+    else
+      0
+  else
+    1
+  print(l, first(3))
+
+# expect:
+# 5
+# 11 2
+# 7
+# 20 3

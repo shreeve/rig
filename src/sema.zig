@@ -5395,7 +5395,9 @@ pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
 /// Whether `e` holds a `break` (with a value, when `valued`) that leaves
 /// the loop whose body it is: an unlabeled one outside nested loops, or
 /// one naming the loop's `label`, outside closures. A nested loop's
-/// `else` runs after that loop, so its jumps are the outer loop's.
+/// `else` runs after that loop, so its jumps are the outer loop's. A
+/// nested construct labeled `label` too is the one its jumps name
+/// (`shadows`).
 pub fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool, valued: bool) bool {
     const h = e.kind() orelse return false;
     switch (h) {
@@ -5409,6 +5411,10 @@ pub fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool, v
         .@"while", .@"for" => {
             if (breaksOut(source, ir.get(e, .@"else"), label, nested, valued)) return true;
             return label.len > 0 and breaksOut(source, ir.get(e, .body), label, true, valued);
+        },
+        .labeled => if (shadows(source, e, label)) |stmt| {
+            if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) return breaksOut(source, ir.get(stmt, .@"else"), label, nested, valued);
+            return breaksOut(source, stmt, "", nested, valued);
         },
         else => {},
     }
@@ -6164,9 +6170,24 @@ fn breakValues(a: std.mem.Allocator, source: []const u8, e: Sexp, label: []const
             if (label.len > 0) try breakValues(a, source, ir.get(e, .body), label, true, out);
             return;
         },
+        .labeled => if (shadows(source, e, label)) |stmt| {
+            if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) return breakValues(a, source, ir.get(stmt, .@"else"), label, nested, out);
+            return breakValues(a, source, stmt, "", nested, out);
+        },
         else => {},
     }
     for (rig.children(e)) |c| try breakValues(a, source, c, label, nested, out);
+}
+
+/// The statement `e`, a `(labeled name stmt)` inside the construct
+/// labeled `label`, labels when it repeats that label, so a
+/// `break :label` within it leaves `e`, the innermost so named: of a
+/// labeled loop only the `else`, which runs after the loop, can still
+/// leave the outer construct, and of a labeled `match` or `raw` block
+/// only an unlabeled `break`. Null when `e` has another label.
+fn shadows(source: []const u8, e: Sexp, label: []const u8) ?Sexp {
+    if (label.len == 0 or !std.mem.eql(u8, identAt(source, ir.Labeled.label(e)) orelse "", label)) return null;
+    return ir.Labeled.stmt(e);
 }
 
 /// The leaves of the value `node` gives, appended to `out`, through
