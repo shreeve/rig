@@ -161,9 +161,10 @@ for _ in $(seq 600); do
 done
 [[ -n "$sleeping" ]] || fail "the sleeper made no package"
 # The run holds its lock file open to read and write, which Linux NFS
-# requires of a lock (where lsof is there to show it).
+# requires of a lock (where lsof is there to show it; Linux lsof appends
+# the lock kind to the mode, as in `3uR`).
 if command -v lsof >/dev/null; then
-    lsof -p "$runner" 2>/dev/null | grep -E "[0-9]+u .*$sleeping/\.lock$" >/dev/null ||
+    lsof -p "$runner" 2>/dev/null | grep -E "[0-9]+u[a-zA-Z]? .*$sleeping/\.lock$" >/dev/null ||
         fail "the run does not hold its lock file open to read and write: $(lsof -p "$runner" 2>/dev/null | grep lock)"
 fi
 touch -t "$(ago 9)" "$sleeping"
