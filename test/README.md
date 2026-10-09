@@ -407,7 +407,7 @@ or another, by this compiler or another that emits the same package, is
 not built again; a new branch's first run rebuilds only the programs
 whose package it changed. Zig still checks every input of a cached
 build. A run with no filter removes the entries no run has used for
-`RIG_BUILD_STORE_DAYS` days (default 7), each renamed into the store's
+`RIG_BUILD_STORE_DAYS` days (default 2), each renamed into the store's
 trash in one step and then deleted. `test/matrix.py` builds in the
 same store. One run at a time uses an output directory; a second run waits
 for the first, unless `RIG_TEST_OUT` gives it a directory of its own.
@@ -472,7 +472,7 @@ reached`), or one during which something its key names changed: after
 the run, the key is computed again and must be the same, and `test/run`,
 `src/main.zig`, and `bin/rig` (which a `zig build` replaces) must be the
 ones the run started with. A run with no filter removes the records no
-run has used for `RIG_BUILD_STORE_DAYS` days. The CLI tests run with
+run has used for `RIG_BUILD_STORE_DAYS` days (default 2). The CLI tests run with
 `RIG_RESULTS_CACHE` empty, so they neither fill nor prune the shared
 cache. `test/cli/results_cache.sh` checks that a changed expectation,
 runtime, libc link, driver, harness, Zig, or setting is never carried

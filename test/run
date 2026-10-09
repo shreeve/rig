@@ -30,7 +30,7 @@
 # rig-build-store in the repository's git directory, shared by its
 # worktrees; empty builds each in its test's output directory),
 # RIG_BUILD_STORE_DAYS (a run with no filter removes the store's builds
-# and the results cache's entries unused for longer, default 7),
+# and the results cache's entries unused for longer, default 2),
 # RIG_RESULTS_CACHE (where passing runs are recorded, default
 # rig-results-cache in the repository's git directory; empty records
 # nothing, and --delta then runs everything), RIG_SANITIZE (0 builds the
@@ -682,7 +682,7 @@ if [[ -z "${RIG_BUILD_STORE+set}" ]]; then
         RIG_BUILD_STORE=$common/rig-build-store
     fi
 fi
-STORE_DAYS=${RIG_BUILD_STORE_DAYS:-7}
+STORE_DAYS=${RIG_BUILD_STORE_DAYS:-2}
 [[ $STORE_DAYS =~ ^[0-9]+$ ]] || { echo "RIG_BUILD_STORE_DAYS takes a number of days" >&2; exit 2; }
 export RIG_BUILD_STORE
 # Passing runs are recorded in the results cache beside the store, shared

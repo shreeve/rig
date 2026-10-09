@@ -85,7 +85,7 @@ input of a cached build. Zig keys a cached build by its root's path,
 taken relative to the current directory unless it lies inside the
 cache, so the package lives inside the cache, and a build from any
 directory finds it. Each use rewrites the entry's `used` file, by which
-`./test/run` removes entries unused for a week, each renamed out of the
+`./test/run` removes entries unused for 2 days (`RIG_BUILD_STORE_DAYS`), each renamed out of the
 store in one step before it is deleted, so no build sees half an entry.
 An entry whose manifests (`h/`) outlived the binary they name (no
 executable named after the root in `o/`) sends Zig to run a binary that
