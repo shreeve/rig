@@ -1033,11 +1033,10 @@ const Planner = struct {
                 continue;
             }
             if (!pattern.isKind(.variant_pattern)) continue;
-            const fields = variantPayload(ctx, ty orelse continue, srcText(ctx, ir.VariantPattern.name(pattern))) orelse continue;
             const in_place = matchesInPlace(ctx, m);
             var any = false;
             var by_addr = mode == .write;
-            for (ir.VariantPattern.bindings(pattern), fields) |b, _| {
+            for (ctx.payloadBindings(pattern) orelse continue) |b| {
                 if (!p.isUsed(b)) continue;
                 any = true;
                 if (payloadByAddress(ctx, b, mode == .write, in_place)) by_addr = true;

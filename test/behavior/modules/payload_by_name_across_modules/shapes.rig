@@ -1,0 +1,10 @@
+pub enum Shape
+  rect(w: Int, h: Int, label: Text)
+  point
+
+pub enum Pair[A, B]
+  both(a: A, b: B)
+  neither
+
+pub fun wrap(x: ?Text, n: Int) -> Pair[?Text, Int] from x
+  Pair.both(a: x, b: n)

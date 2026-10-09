@@ -2243,7 +2243,7 @@ const Checker = struct {
             }
             if (viewed) |v| {
                 if (pattern.isKind(.variant_pattern)) {
-                    for (ir.VariantPattern.bindings(pattern)) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
+                    for (self.ctx.payloadBindings(pattern) orelse &.{}) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
                 } else if (pattern == .src) if (self.ctx.symbolOf(pattern)) |sym| {
                     var whole = v;
                     whole.whole = true;
@@ -2251,7 +2251,7 @@ const Checker = struct {
                 };
             }
             if (mode == .consume) {
-                const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else (&pattern)[0..1];
+                const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else (&pattern)[0..1];
                 for (binds) |b| if (self.ctx.symbolOf(b)) |sym| try self.owned_bindings.put(self.ctx.allocator, sym, {});
             }
             if (read_only) try self.rejectWriteViewBindings(pattern);
@@ -2432,7 +2432,7 @@ const Checker = struct {
             const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
             for (alts) |alt| {
                 if (alt == .src and self.viewsMatched(alt)) return true;
-                if (alt.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(alt)) |b| if (b == .src and self.viewsMatched(b)) return true;
+                if (alt.isKind(.variant_pattern)) for (self.ctx.payloadBindings(alt) orelse &.{}) |b| if (b == .src and self.viewsMatched(b)) return true;
             }
         }
         return false;
@@ -2448,7 +2448,7 @@ const Checker = struct {
     fn patternBinds(self: *Checker, pattern: Sexp, sym: SymbolId) bool {
         if (pattern == .src) return self.ctx.symbolOf(pattern) == sym;
         if (!pattern.isKind(.variant_pattern)) return false;
-        for (ir.VariantPattern.bindings(pattern)) |b| if (b == .src and self.ctx.symbolOf(b) == sym) return true;
+        for (self.ctx.payloadBindings(pattern) orelse &.{}) |b| if (b == .src and self.ctx.symbolOf(b) == sym) return true;
         return false;
     }
 
@@ -2463,7 +2463,8 @@ const Checker = struct {
                 continue;
             }
             if (!alt.isKind(.variant_pattern)) continue;
-            for (ir.VariantPattern.bindings(alt)) |b| {
+            for (ir.VariantPattern.bindings(alt)) |bound| {
+                const b = sema.bindingName(bound);
                 if (b == .src and std.mem.eql(u8, self.text(b), "_")) continue;
                 if (!named) try self.errAt(b, "an arm with alternatives cannot bind names: which alternative matched would decide what they hold; write `_`, or give each alternative an arm of its own", .{});
                 named = true;
@@ -2667,7 +2668,7 @@ const Checker = struct {
     }
 
     fn rejectWriteViewBindings(self: *Checker, pattern: Sexp) Error!void {
-        const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else &.{pattern};
+        const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else &.{pattern};
         for (binds) |b| {
             const sym = self.ctx.symbolOf(b) orelse continue;
             if (!sema.holdsWriteView(self.ctx, self.ctx.symbols.items[sym].ty)) continue;
@@ -2679,37 +2680,34 @@ const Checker = struct {
         const name = ir.VariantPattern.name(pattern);
         const vname = self.text(name);
         const vpos = name.src.pos;
-        for (ir.VariantPattern.bindings(pattern)) |b| if (b.isKind(.kwarg)) {
-            try self.errAt(b, "binding a payload field by name is not supported yet; bind the fields in order: `.{s}(a, b)`", .{vname});
-            try self.recordCovered(vname, vpos, covered);
-            for (ir.VariantPattern.bindings(pattern)) |c| {
-                const leaf = if (c.isKind(.kwarg)) ir.Kwarg.value(c) else c;
-                if (self.ctx.symbolOf(leaf)) |sym| self.ctx.symbols.items[sym].ty = self.t().invalid_id;
-            }
-            return;
-        };
+        const bindings = ir.VariantPattern.bindings(pattern);
         try self.recordCovered(vname, vpos, covered);
         if (sema.unwrapViews(self.ctx, scrutinee) == self.t().any_error_id) {
             try self.err(vpos, "an error has no payload to destructure; match it as `.{s}`", .{vname});
+            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         }
         const resolved = (try sema.lookupVariant(self.ctx, scrutinee, vname)) orelse {
             try self.reportMissingVariant(scrutinee, vname, vpos);
-            for (ir.VariantPattern.bindings(pattern)) |b| self.poisonBinding(b);
+            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         };
-        const bindings = ir.VariantPattern.bindings(pattern);
         if (resolved.payload.len == 0) {
             if (bindings.len > 0) try self.err(vpos, "variant `{s}` has no payload to destructure", .{vname});
+            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
         }
-        if (bindings.len != resolved.payload.len) {
-            try self.err(vpos, "variant `{s}` has {d} payload field{s}, pattern destructures {d}", .{
-                vname, resolved.payload.len, plural(resolved.payload.len), bindings.len,
-            });
+        const binds = (try self.fieldBindings(pattern, resolved.payload)) orelse {
+            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
-        }
-        for (bindings, resolved.payload) |b, f| {
+        };
+        try self.ctx.recordPayloadBindings(pattern, binds);
+        for (binds, resolved.payload) |b, f| {
+            // A field the pattern leaves out is read as a `_` field is.
+            if (b == .nil) {
+                if (mode == .read) try self.readBinding(f.ty, name);
+                continue;
+            }
             // `match !e` binds a write view of each field; a field that
             // is a view or a slice (a view) is bound as it is.
             // A read binds a copy of a plain payload and a view of any
@@ -2733,6 +2731,55 @@ const Checker = struct {
                 if (self.arm_local and mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
             }
         }
+    }
+
+    /// The binding of each of `fields`, in field order, that the variant
+    /// pattern `pattern` writes. A pattern binds a variant's fields either
+    /// in order, all of them, or by name, any of them, and `.nil` stands
+    /// for a field it leaves out (`sema.SemContext.payloadBindings`).
+    /// Null after reporting a pattern that does neither.
+    fn fieldBindings(self: *Checker, pattern: Sexp, fields: []const Field) Error!?[]const Sexp {
+        const name = ir.VariantPattern.name(pattern);
+        const vname = self.text(name);
+        const bindings = ir.VariantPattern.bindings(pattern);
+        var named: usize = 0;
+        for (bindings) |b| {
+            if (b.isKind(.kwarg)) named += 1;
+        }
+        if (named == 0) {
+            if (bindings.len == fields.len) return bindings;
+            try self.err(name.src.pos, "variant `{s}` has {d} payload field{s}, pattern destructures {d}; bind them all in order, or the ones you need by name: `.{s}({s}: x)`", .{
+                vname, fields.len, plural(fields.len), bindings.len, vname, fields[0].name,
+            });
+            return null;
+        }
+        if (named < bindings.len) {
+            try self.err(name.src.pos, "`.{s}` binds its fields both in order and by name; a pattern binds a variant's fields either in order, all of them, or by name, any of them", .{vname});
+            return null;
+        }
+        const binds = try self.ctx.arena.allocator().alloc(Sexp, fields.len);
+        @memset(binds, .nil);
+        var ok = true;
+        for (bindings) |b| {
+            const field = ir.Kwarg.name(b);
+            const fname = self.text(field);
+            const i = for (fields, 0..) |f, i| {
+                if (std.mem.eql(u8, f.name, fname)) break i;
+            } else {
+                const likely = memberSuggest(fields, fname, .field);
+                try self.err(field.src.pos, "no field `{s}` on variant `{s}`{s}", .{ fname, vname, try likely.hint(self.ctx.arena.allocator()) });
+                ok = false;
+                continue;
+            };
+            if (binds[i] != .nil) {
+                try self.err(field.src.pos, "field `{s}` is bound twice", .{fname});
+                try self.note(self.startOf(binds[i]), "first bound here", .{});
+                ok = false;
+                continue;
+            }
+            binds[i] = ir.Kwarg.value(b);
+        }
+        return if (ok) binds else null;
     }
 
     /// A read match binds `b`, a payload or the whole matched value, of

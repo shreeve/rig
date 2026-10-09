@@ -1234,8 +1234,7 @@ const Lowerer = struct {
         switch (pattern) {
             .src => if (self.bindsName(pattern)) try self.bindHeld(pattern, h, h.ty),
             .list => switch (pattern.kind() orelse return abstain("an unusual pattern")) {
-                .variant_pattern => for (ir.VariantPattern.bindings(pattern), 0..) |b, i| {
-                    if (b != .src) return abstain("a payload bound by field name");
+                .variant_pattern => for (self.ctx.payloadBindings(pattern) orelse &.{}, 0..) |b, i| {
                     try self.bindHeld(b, h, self.payloadOf(h.ty, pattern, i));
                 },
                 .alt_pattern => for (ir.AltPattern.alts(pattern)) |alt| {

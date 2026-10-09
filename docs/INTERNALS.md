@@ -430,8 +430,8 @@ A few kinds serve more than one surface form:
 - `arm`'s `guard` is the condition of `pattern if cond =>`, or `_`; its
   `pattern` is `(alt_pattern p...)` for alternatives (`1, 2 =>`). A
   `variant_pattern` binding is a name, or `(kwarg field name)` for a
-  field bound by name (`.rect(w: a)`), which the checker rejects as
-  not supported yet. A pattern `E.name` or `m.E.name` is a `member`,
+  field bound by name (`.rect(w: a)`); which field each binds is the
+  fact `payloadBindings`. A pattern `E.name` or `m.E.name` is a `member`,
   which the checker accepts only when sema recorded it as a member of
   an error set (`E` names the set, through a module or an alias; not a
   module's constant or a value's field) that the subject can hold.
@@ -1018,6 +1018,7 @@ instead of re-deriving it by name:
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
 | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is a `lendOf` `text`, walked as `?t[..]` |
+| `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 **The lend table.** Which views a value lends (Core §4) is decided in

@@ -2605,6 +2605,50 @@ big circle small shape point
 even 4
 ```
 
+A pattern binds a variant's fields either in order, all of them, or by
+name, any of them; it doesn't mix the two. A field a pattern leaves out
+is not bound: it stays with the subject, or under `match <e` it is
+dropped at the end of the arm, as a `_` field is.
+
+```rig
+enum Shape
+  rect(w: Int, h: Int, label: Text)
+  point
+
+sub main()
+  s: Shape = .rect(w: 3, h: 4, label: Text("box"))
+  match s
+    .rect(h: tall) if tall > 3 => print("tall", tall)
+    .rect(w, h, _) => print(w * h)
+    .point => pass
+  match !s
+    .rect(label: l, w: w)
+      w = 30
+      l = Text("wide")
+    .point => pass
+  match <s
+    .rect(label: l) => print(l)
+    .point => pass
+```
+
+```output
+tall 4
+wide
+```
+
+```rig reject
+enum Shape
+  rect(w: Int, h: Int)
+
+sub main()
+  match Shape.rect(w: 1, h: 2)
+    .rect(w, h: b) => print(w, b)
+```
+
+```error
+`.rect` binds its fields both in order and by name
+```
+
 A range pattern is half-open like every range, so `0..10` matches 0
 through 9, and its end may be one past the type's largest value:
 `100..256` covers the rest of a `U8`.
@@ -6133,7 +6177,6 @@ The rest parse, and the checker rejects them as not supported yet
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain data `` |
-| a payload field bound by name, `.rect(w: a, h: b)` | `` binding a payload field by name is not supported yet `` |
 
 ```rig reject
 sub main()

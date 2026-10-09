@@ -1,0 +1,39 @@
+# A consuming match that binds fields by name consumes its subject
+# whole, and a read view of a field bound by name ends where the subject
+# changes, as one bound in order does.
+
+struct B
+  n: Int
+
+enum Bag
+  two(a: *B, t: Text)
+  empty
+
+fun label(e: ?Bag, d: ?Text) -> ?Text from e, d
+  match e
+    .two(t: t) => ?t
+    _ => d
+
+sub main()
+  x: Bag = .two(a: *B(n: 1), t: Text("x"))
+  match <x
+    .two(t: t) => print(t)
+    _ => pass
+  print(x)
+  y: Bag = .two(a: *B(n: 2), t: Text("y"))
+  d = Text("")
+  v = label(?y, ?d)
+  y = .empty
+  print(v)
+  z: Bag = .two(a: *B(n: 3), t: Text("z"))
+  match z
+    .two(t: t)
+      w = ?t
+      z = .empty
+      print(w)
+    _ => pass
+
+# error: 22:9: use of `x` after move
+# error: 26:3: cannot reassign `y` while it is lent
+# error: 32:7: cannot reassign `z` while it is lent
+# errors: 3
