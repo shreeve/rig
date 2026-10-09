@@ -1,0 +1,12 @@
+sub main()
+  o: Text? = Text("hello")
+  s = ""
+  n = 0
+  while !o as w
+    if n == 1
+      print(s)
+      break
+    s = ?w[1..]
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    n += 1

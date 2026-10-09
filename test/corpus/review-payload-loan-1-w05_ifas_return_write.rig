@@ -1,0 +1,11 @@
+fun get(o: !Text?, d: !Text) -> !Text
+  if !o as t
+    return !t
+  !d
+
+sub main()
+  o: Text? = Text("hello")
+  d = Text("d")
+  w = get(!o, !d)
+  !w.add("!")
+  print(w)

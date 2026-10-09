@@ -1,0 +1,15 @@
+enum E
+  a(t: Text)
+  b
+
+fun get(e: !E, d: !Text) -> !Text
+  match !e
+    .a(t) => !t
+    .b => !d
+
+sub main()
+  e = E.a(Text("hello"))
+  d = Text("d")
+  w = get(!e, !d)
+  !w.add("!")
+  print(w)

@@ -1,0 +1,15 @@
+enum E
+  a(t: Text)
+  b
+
+fun pass_through[T](x: ?T) -> ?T
+  x
+
+sub main()
+  e = E.a(Text("hello"))
+  match !e
+    .a(t)
+      s = pass_through(?t)
+      t = Text("other")
+      print(s)
+    .b => pass

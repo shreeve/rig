@@ -1,0 +1,19 @@
+struct P
+  t: Text
+  xs: Vec[Int]
+
+enum S
+  a(p: P)
+  b
+
+sub main()
+  e = S.a(P(t: Text("hello"), xs: Vec()))
+  match !e
+    x
+      match !x
+        .a(p: q)
+          s = ?q.t[1..]
+          for _ in 0..50
+            !q.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+          print(s)
+        .b => pass

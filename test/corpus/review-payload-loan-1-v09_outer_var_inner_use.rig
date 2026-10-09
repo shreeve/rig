@@ -1,0 +1,14 @@
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  s = ""
+  match !e
+    .a(t)
+      s = ?t[1..]
+      print(s)
+      !t.add("!")
+    .b => pass
+  print(e)

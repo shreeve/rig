@@ -1,0 +1,14 @@
+enum WV
+  a(w: !Text)
+  b
+
+sub main()
+  t = Text("hello")
+  g = WV.a(!t)
+  match <g
+    .a(w)
+      s = ?w[1..]
+      for _ in 0..50
+        !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass

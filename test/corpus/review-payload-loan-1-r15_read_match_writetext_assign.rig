@@ -1,0 +1,13 @@
+enum WT
+  a(w: !Text)
+  b
+
+sub main()
+  t = Text("hello")
+  e = WT.a(!t)
+  match e
+    .a(w)
+      r = ?w[1..]
+      w = Text("other")
+      print(r)
+    .b => pass

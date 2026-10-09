@@ -1,0 +1,8 @@
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  o: (![]Text)? = !v[..]
+  if o as s
+    r = ?s[0][1..]
+    s[0] = Text("other")
+    print(r)
