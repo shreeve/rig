@@ -230,7 +230,13 @@ store, and a result. And it uses a view of a read `match` payload in
 its arm, or returns or stores it, for each kind of type reached through
 each kind of subject, runs other code on the stack before reading it,
 and checks that a program that runs prints what the payload holds,
-since the sanitizer cannot see a stale stack slot. A `while` step
+since the sanitizer cannot see a stale stack slot. It lends a binding
+that is a write view (a `match !e` payload, `if !o as b`, `for b in
+!v`, a `!T` parameter, a `|!b|` capture, a held `b = !x`, a field of a
+write view) of a Text, a Vec, a `Box[Text]`, or a struct holding a Vec,
+whole, sliced, or to a call or `?self` method, then writes through the
+binding while the view is live, or after its last use; a program that
+runs must print what the view showed before the write (`lendw.`). A `while` step
 reads what its condition binds, a view or a struct holding one, while
 the body grows what it views on each way to the step (the body's end,
 `continue`, `continue :outer` from a nested `for`, `while`, or
