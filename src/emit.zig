@@ -5819,7 +5819,7 @@ pub const Emitter = struct {
         try self.w.writeAll(".{");
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            if (self.printsByAddress(a)) {
+            if (try self.printsByAddress(a)) {
                 const saved_read = self.read_place;
                 defer self.read_place = saved_read;
                 self.read_place = true;
@@ -5832,18 +5832,8 @@ pub const Emitter = struct {
     /// Whether a `print`, `Text(...)`, or `add` argument `a` reads a
     /// place that owns storage, or is lent from one: a local, or a
     /// field or element of one (not a slice, which is a new value).
-    fn printsByAddress(self: *Emitter, a: Sexp) bool {
-        const place = switch (a) {
-            .src => self.localOf(a) != null and self.facts.callableOf(a) == null,
-            .list => switch (a.kind() orelse return false) {
-                .member => true,
-                .index => !ir.Index.index(a).isKind(.@".."),
-                else => false,
-            },
-            else => false,
-        };
-        const ty = self.typeOf(a) orelse return false;
-        return place and self.facts.pending.readByAddress(self.peelViews(ty));
+    fn printsByAddress(self: *Emitter, a: Sexp) Error!bool {
+        return self.need(self.facts.printsByAddress(a), a);
     }
 
     // =========================================================================

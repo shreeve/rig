@@ -1052,7 +1052,12 @@ whether it consumes its source (`for_consumes`: a Vec it takes or its
 source makes that owns resources, or an array of values that move,
 which it takes or its source makes), which emit lowers to a consuming
 loop, the plan gives an iterator and elements, and the ownership checker
-walks as taking the source. Typecheck's arm-local
+walks as taking the source; and for each argument of `print`,
+`Text(...)`, or `add`, whether it is read where it is, by address
+(`print_by_address`: a function's binding, or a field or element, not a
+slice, of a type read by address), which emit passes as an address. The
+ownership checker holds every place an argument reads in place while the
+later arguments run (`holdRead`), a rule of loans that covers these. Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from

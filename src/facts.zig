@@ -278,6 +278,11 @@ pub const Facts = struct {
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
         return storage.decided(f.c(), b, .payload_by_address);
     }
+    /// Whether a `print`, `Text(...)`, or `add` argument is read by address
+    /// (`storage.printsByAddress`).
+    pub fn printsByAddress(f: Facts, a: Sexp) ?bool {
+        return storage.decided(f.c(), a, .print_by_address);
+    }
     /// Whether a `for` consumes its source (`storage.forConsumes`).
     pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
         return storage.decided(f.c(), loop, .for_consumes);
@@ -539,9 +544,6 @@ pub const Pending = struct {
     pub fn actsBeforeStore(_: Pending, target: Sexp, value: Sexp) bool {
         return storage.actsBeforeStore(target, value);
     }
-    pub fn readByAddress(p: Pending, ty: TypeId) bool {
-        return sema.readByAddress(p.c(), ty);
-    }
 };
 
 /// The syntax helpers emit shares with the checkers: functions of the IR
@@ -573,7 +575,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 18;
+const pending_budget = 17;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");

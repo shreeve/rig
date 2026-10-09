@@ -714,6 +714,33 @@ fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
     return in_place and !sema.isReadOrWriteView(ctx, ty) and sema.copies(ctx, ty) == .depends;
 }
 
+/// Whether a `print`, `Text(...)`, or `add` argument `a` is read where it
+/// is, by address: a place that owns storage, or a view of one (a
+/// function's binding, or a field or element of a value, not a slice,
+/// which is a new value). Plain data is copied whole where it is read.
+/// Decided once: emit passes its address, and the ownership checker holds
+/// the place it reads while the later arguments run (`holdRead`).
+pub fn printsByAddress(ctx: *const SemContext, a: Sexp) bool {
+    return decide(ctx, a, .print_by_address);
+}
+
+fn decidePrintsByAddress(ctx: *const SemContext, a: Sexp) bool {
+    const place = switch (a) {
+        .src => if (ctx.symbolOf(a)) |id| switch (ctx.symbols.items[id].kind) {
+            .param, .local, .capture => ctx.symbols.items[id].scope != sema.module_scope and ctx.callableOf(a) == null,
+            else => false,
+        } else false,
+        .list => switch (a.kind() orelse return false) {
+            .member => true,
+            .index => !ir.Index.index(a).isKind(.@".."),
+            else => false,
+        },
+        else => false,
+    };
+    const ty = typeOf(ctx, a) orelse return false;
+    return place and sema.readByAddress(ctx, sema.unwrapViews(ctx, ty));
+}
+
 /// Whether `for` loop `loop` consumes its source, handing its elements
 /// over one at a time: a Vec it takes (`for x in <v`) or that its source
 /// makes and that owns resources, or an array of values that move, which
@@ -873,7 +900,7 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address => bool,
         .match_mode => MatchMode,
         .subject_hold => ?StorageBy,
     };
@@ -904,6 +931,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .catch_all_by_address => decideCatchAllByAddress,
         .payload_by_address => decidePayloadByAddress,
         .for_consumes => Node.of(decideForConsumes),
+        .print_by_address => Node.of(decidePrintsByAddress),
     };
 }
 
@@ -1070,7 +1098,13 @@ const Planner = struct {
             // method.
             .member => try p.leaves(lentPlace(ir.Member.object(e))),
             .index => try p.leaves(ir.Index.object(e)),
-            .call => try p.call(e),
+            .call => {
+                // How `print` and the Text operations read each argument.
+                if (isPrintCall(ctx, e) or textCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
+                    _ = printsByAddress(ctx, a);
+                };
+                try p.call(e);
+            },
             .set => try p.assignment(e),
             .@"for" => try p.forLoop(e),
             .match => try p.match(e),

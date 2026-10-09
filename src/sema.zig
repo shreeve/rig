@@ -891,6 +891,9 @@ pub const Question = enum(u8) {
     /// Of a `for`: whether it consumes its source, handing its elements
     /// over one at a time (`storage.forConsumes`).
     for_consumes,
+    /// Of a `print`, `Text(...)`, or `add` argument: whether it is read
+    /// by address (`storage.printsByAddress`).
+    print_by_address,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.
