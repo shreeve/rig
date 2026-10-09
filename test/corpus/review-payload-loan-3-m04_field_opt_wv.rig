@@ -1,0 +1,11 @@
+struct P
+  t: Text
+
+struct H
+  o: (!P)?
+
+sub main()
+  p = P(t: Text("hello"))
+  h = H(o: !p)
+  if h.o as y
+    print(y.t)

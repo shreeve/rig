@@ -1,0 +1,17 @@
+struct P
+  t: Text
+
+struct H
+  o: (!P)?
+
+fun show(q: ?P) -> Int
+  q.t.len
+
+sub f(h: ?H)
+  if h.o as x
+    print(show(x))
+
+sub main()
+  p = P(t: Text("hello"))
+  h = H(o: !p)
+  f(?h)

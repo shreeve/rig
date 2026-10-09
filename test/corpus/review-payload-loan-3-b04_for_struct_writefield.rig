@@ -1,0 +1,14 @@
+struct P
+  t: Text
+
+struct H
+  w: !P
+
+sub main()
+  p = P(t: Text("hello"))
+  hs: Vec[H] = Vec()
+  !hs.push(H(w: !p))
+  for h in hs
+    r = ?h.w.t[1..]
+    h.w.t = Text("other")
+    print(r)

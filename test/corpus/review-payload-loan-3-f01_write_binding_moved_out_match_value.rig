@@ -1,0 +1,13 @@
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  d = Text("dflt")
+  r = match !e
+    .a(t) => t
+    .b => !d
+  e = E.b
+  !r.add("x")
+  print(r)

@@ -1,0 +1,15 @@
+enum E
+  a(t: Text)
+  b
+
+sub main()
+  e = E.a(Text("hello"))
+  d = Text("dflt")
+  r = while true
+    match !e
+      .a(t) => break <t
+      .b => break !d
+  else
+    !d
+  e = E.b
+  print(r)

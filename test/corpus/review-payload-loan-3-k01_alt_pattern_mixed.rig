@@ -1,0 +1,9 @@
+enum E
+  a(w: !Int)
+  b(w: Int)
+
+sub main()
+  n = 5
+  e = E.a(!n)
+  match e
+    .a(w), .b(w) => print(w + 1)

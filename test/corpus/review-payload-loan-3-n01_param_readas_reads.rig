@@ -1,0 +1,33 @@
+struct P
+  t: Text
+  n: Int
+  xs: Vec[Int]
+
+sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?), to: ?((!Text)?))
+  if o as x
+    print(x.t.len, x.n, x.xs.len, x.xs[0], x.t == "hello", x.n > 2)
+    for e in x.xs
+      print(e)
+    g = |?x| x.n
+    print(g())
+  if so as s
+    print(s.len, s[1], s[0] == 1)
+    for e in s
+      print(e)
+  if no as k
+    print(k, k == 5, k > 3)
+  if to as t
+    print(t, t.len, t == "abc", ?t[1..])
+
+sub main()
+  xs: Vec[Int] = Vec()
+  !xs.push(7)
+  p = P(t: Text("hello"), n: 3, xs: <xs)
+  o: (!P)? = !p
+  a = [1, 2, 3]
+  so: (![]Int)? = !a[..]
+  n = 5
+  no: (!Int)? = !n
+  tt = Text("abc")
+  to: (!Text)? = !tt
+  f(?o, ?so, ?no, ?to)

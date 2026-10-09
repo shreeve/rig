@@ -45,6 +45,21 @@ test/corpus/review-payload-loan-1-v04_if_as_return.rig head prod-rejects prod-st
 test/corpus/review-payload-loan-1-v08_return_whole_view_of_payload.rig peek prod-rejects prod-strict `?t` of a `match !e` binding returned
 test/corpus/review-payload-loan-1-w05_ifas_return_write.rig get prod-rejects prod-strict `!t` of an `if !o as t` binding returned
 test/corpus/review-payload-loan-1-w07_for_return_write.rig first prod-rejects prod-strict `!t` of a `for t in !v` binding returned
+test/corpus/review-payload-loan-3-f02_write_binding_break_out.rig main prod-rejects prod-strict a bare `break t` of a `match !e` binding, which must be written `<t`
+test/corpus/review-payload-loan-3-f02b_write_binding_break_move.rig main prod-rejects prod-strict `break <t` of a `match !e` binding moves out of the view of `e`
+test/corpus/review-payload-loan-3-f04_for_write_moved_out.rig main prod-rejects prod-strict a bare `break t` of a `for t in !v` binding, which must be written `<t`
+
+# A view of a write-view binding moved out of its construct keeps what
+# it views lent (Core s6): `!v.clear()` while `r`, a write view of an
+# element of `v`, is printed after, frees what `r` views. The oracle does
+# not keep the loan through `break <t`.
+test/corpus/review-payload-loan-3-f04b_for_write_break_move.rig main prod-rejects ref-gap `!v.clear()` while `r = for t in !v` with `break <t` lives
+
+# A bare `if o as x` of a write view reads it (SPEC "if … as"): a write
+# through `x` takes `if !o as x`, and two such bindings never write
+# through one write view while the other's view lives.
+test/corpus/review-payload-loan-3-j04_writeparam_read_as_write_ok.rig f prod-rejects prod-strict `if o as x` of a `!((!P)?)` parameter, then `x.t = v`, which takes `if !o as x`
+test/corpus/review-payload-loan-3-j05_writeparam_read_as_second.rig f prod-rejects ref-gap two `if o as` bindings of one write view, one written while a view through the other lives
 
 # A `defer` runs at its scope's exits, after the values declared after
 # it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also

@@ -1,0 +1,17 @@
+struct P
+  t: Text
+  n: Int
+
+sub f(o: ?((!P)?), no: ?((!Int)?), so: ?((![]Int)?))
+  if o as x
+    defer print(x.n)
+    print(0)
+
+sub main()
+  p = P(t: Text("hello"), n: 3)
+  o: (!P)? = !p
+  n = 5
+  no: (!Int)? = !n
+  a = [1, 2, 3]
+  so: (![]Int)? = !a[..]
+  f(?o, ?no, ?so)

@@ -1,0 +1,20 @@
+struct P
+  t: Text
+  n: Int
+  xs: Vec[Int]
+
+sub main()
+  xs: Vec[Int] = Vec()
+  !xs.push(7)
+  p = P(t: Text("hello"), n: 3, xs: <xs)
+  o: (!P)? = !p
+  if o as x
+    print(x.n, x.xs.len)
+  a = [1, 2, 3]
+  so: (![]Int)? = !a[..]
+  if so as s
+    print(s.len, s[1])
+  tt = Text("abc")
+  to: (!Text)? = !tt
+  if to as t
+    print(t.len, ?t[1..])

@@ -1,0 +1,16 @@
+struct P
+  t: Text
+
+enum E
+  a(w: !P)
+  b
+
+sub main()
+  p = P(t: Text("hello"))
+  match E.a(!p)
+    .a(w)
+      r = ?w.t[1..]
+      w.t = Text("x")
+      print(r)
+    .b => pass
+  print(p.t)

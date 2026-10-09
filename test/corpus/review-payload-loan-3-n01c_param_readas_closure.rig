@@ -1,0 +1,13 @@
+struct P
+  t: Text
+  n: Int
+
+sub f(o: ?((!P)?))
+  if o as x
+    g = |?x| x.n
+    print(g())
+
+sub main()
+  p = P(t: Text("hello"), n: 3)
+  o: (!P)? = !p
+  f(?o)

@@ -1,0 +1,21 @@
+struct P
+  t: Text
+  n: Int
+
+enum E
+  a(w: !P, k: !Int, s: ![]Int)
+  z
+
+sub main()
+  p = P(t: Text("hello"), n: 3)
+  n = 5
+  a = [1, 2, 3]
+  e = E.a(w: !p, k: !n, s: !a[..])
+  match e
+    .a(w, k, s)
+      g = |?w| w.n
+      h = |?k| k + 1
+      j = |?s| s.len
+      arr = [k, k]
+      print(g(), h(), j(), arr[1], w.t)
+    .z => pass

@@ -1,0 +1,13 @@
+struct P
+  t: Text
+  n: Int
+
+struct H
+  o: (!P)?
+
+sub main()
+  p = P(t: Text("hello"), n: 3)
+  h = *H(o: !p)
+  if h.o as x
+    g = |?x| x.n
+    print(g())

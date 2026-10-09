@@ -1,0 +1,15 @@
+struct P
+  t: Text
+
+struct H
+  w: !P
+
+sub f(h: ?H)
+  r = ?h.w.t[1..]
+  h.w.t = Text("other")
+  print(r)
+
+sub main()
+  p = P(t: Text("hello"))
+  h = H(w: !p)
+  f(?h)
