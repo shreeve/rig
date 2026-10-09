@@ -694,12 +694,14 @@ const Checker = struct {
         // written `<x`.
         if (stmt.isKind(.neg)) {
             const operand = ir.Neg.operand(stmt);
-            const ty = try self.synthQuiet(operand);
-            const owns_or_views = self.isPoison(ty) or !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
+            const ty = try self.synthExpr(operand);
+            // The operand's own error is the one reported.
+            if (self.isPoison(ty)) return;
+            const owns_or_views = !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
             const shown = self.sourceText(operand);
             if (owns_or_views and sema.handsOver(self.ctx, operand).kind == .place) {
                 // `<` takes a binding, or an optional field or element.
-                const takes = operand == .src or self.isPoison(ty) or self.ctx.types.get(ty) == .optional;
+                const takes = operand == .src or self.ctx.types.get(ty) == .optional;
                 if (takes) {
                     try self.errAt(stmt, "this expression does nothing as a statement; to drop `{s}` now, write `<{s}`", .{ shown, shown });
                 } else try self.errAt(stmt, "this expression does nothing as a statement; `{s}` is dropped with what holds it, or replaced by assigning to it", .{shown});
