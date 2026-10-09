@@ -6352,9 +6352,9 @@ pub fn valueLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) 
 /// Whether header subject `subject` gives a write view it makes, which
 /// the header lends on (`match`, `if … as`): a write lend `!x`, or a
 /// value of a write view type whose every leaf (`yieldedLeaves`) is a
-/// write lend, a call's result, or a jump that gives no value
-/// (`getw(!e)`, `(!a if c else !b)`, `optw(!e) ?? !d`,
-/// `tryw(!e) catch !d`). Any other subject, a place or a leaf that is
+/// write lend, a call's result, a write view taken with `<w`, or a jump
+/// that gives no value (`getw(!e)`, `(!a if c else !b)`,
+/// `optw(!e) ?? !d`, `tryw(!e) catch !d`, `<slot`). Any other subject, a place or a leaf that is
 /// one included, is only read. The one decider of a header that lends
 /// on a write view, by a positive list.
 pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!bool {
@@ -6367,7 +6367,7 @@ pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.E
             try yieldedLeaves(ctx.allocator, ctx.source, subject, &leaves);
             var made = false;
             for (leaves.items) |leaf| {
-                if (leaf.isKind(.write) or leaf.isKind(.call)) {
+                if (leaf.isKind(.write) or leaf.isKind(.call) or leaf.isKind(.move)) {
                     made = true;
                 } else if (handsOver(ctx, leaf).kind != .jump) return false;
             }

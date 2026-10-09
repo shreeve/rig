@@ -1784,8 +1784,8 @@ the value is:
 A header **makes a write view** (`sema.makesWriteView`), which it lends
 on, by a positive list: the subject is a write lend `!x`, or a value of
 a write view type whose every leaf (`yieldedLeaves`) is a write lend, a
-call's result, or a jump (`getw(!e)`, `(!a if c else !b)`,
-`optw(!e) ?? !d`, `tryw(!e) catch !d`). Any other subject is read: a
+call's result, a write view taken with `<w`, or a jump (`getw(!e)`,
+`(!a if c else !b)`, `optw(!e) ?? !d`, `tryw(!e) catch !d`, `<slot`). Any other subject is read: a
 leaf that is a place is never written through, whether it is reached
 through a read view, a handle, or holds a write view itself.
 
