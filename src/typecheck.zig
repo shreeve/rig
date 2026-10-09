@@ -1436,7 +1436,7 @@ const Checker = struct {
                     switch (from.kind) {
                         .loop => try self.err(pos, "cannot {s} `{s}`{s}: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb.head, name, verb.tail, shown, name, shown }),
                         .as => try self.err(pos, "cannot {s} `{s}`{s}: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb.head, name, verb.tail, shown, shown, name }),
-                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`{s}: it is {s} of {s}`{s}`; to change {s} in place, match with `match !{s}`", .{ verb.head, name, verb.tail, if (from.kind == .match_copy and sema.moves(self.ctx, sym.ty) != .yes) "a copy" else "a read view", if (from.whole) "" else "a field of ", shown, if (from.whole) "it" else "the field", shown }),
+                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`{s}: it is {s} of {s}`{s}`; to change {s} in place, match with `match !{s}`", .{ verb.head, name, verb.tail, if (from.kind == .match_copy and sema.moves(self.ctx, sym.ty) != .yes and self.ctx.types.get(sym.ty) != .read_view) "a copy" else "a read view", if (from.whole) "" else "a field of ", shown, if (from.whole) "it" else "the field", shown }),
                     }
                     return false;
                 }
@@ -2773,7 +2773,10 @@ const Checker = struct {
         const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else &.{pattern};
         for (binds) |b| {
             const sym = self.ctx.symbolOf(b) orelse continue;
-            if (!sema.holdsWriteView(self.ctx, self.ctx.symbols.items[sym].ty)) continue;
+            // A payload is judged by the field it binds, which a read match
+            // binds as a read view of a write view it holds.
+            const ty = self.ctx.payloadFieldOf(b) orelse self.ctx.symbols.items[sym].ty;
+            if (!sema.holdsWriteView(self.ctx, ty)) continue;
             try self.errAt(b, "cannot bind `{s}`: it holds a write view, and the matched value is reached through a read view or shared handle, which cannot write", .{self.text(b)});
         }
     }
@@ -2818,13 +2821,18 @@ const Checker = struct {
             // other, where the matched value is: a place, a lend, or a
             // value the match holds (Core s1, docs/INTERNALS.md "Header
             // subjects").
+            // A field that is a write view, which a read match reads
+            // where another value holds it (`storage.matchesInPlace`, not
+            // a part of a value the match holds), is bound as the read
+            // view of what it views (`!T` as `?T`, `![]T` as `[]T`):
+            // nothing writes through it, by a path or whole, and no second
+            // copy of the write view is made.
             const view = !sema.isReadOrWriteView(self.ctx, f.ty) and self.ctx.types.get(f.ty) != .slice and !self.isPoison(f.ty);
             const ty = if (mode == .write and view)
                 try self.ctx.intern(.{ .write_view = f.ty })
             else if (mode == .read and view and sema.copies(self.ctx, f.ty) == .no)
                 try self.ctx.intern(.{ .read_view = f.ty })
-            else
-                f.ty;
+            else if (mode == .read and self.readsHeldWriteViews()) try self.readViewOfWrite(f.ty) else f.ty;
             try self.ctx.recordType(b, ty);
             if (!self.isPoison(f.ty)) try self.ctx.recordPayloadField(b, f.ty);
             if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = ty;
@@ -2835,6 +2843,26 @@ const Checker = struct {
                 if (self.arm_local and mode == .read and view and sema.copies(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
             }
         }
+    }
+
+    /// Whether the read match being checked reads its subject where a
+    /// value another holds is (`storage.matchesInPlace`), not a part of a
+    /// value it holds itself (`Header.held`).
+    fn readsHeldWriteViews(self: *Checker) bool {
+        if (self.matching == .nil) return false;
+        return storage.matchesInPlace(self.ctx, self.matching) and self.ctx.headerOf(self.matching) != .held;
+    }
+
+    /// The read view of what write view `ty` views (`!T` as `?T`, `![]T`
+    /// as `[]T`); any other type as it is.
+    fn readViewOfWrite(self: *Checker, ty: TypeId) Error!TypeId {
+        return switch (self.ctx.types.get(ty)) {
+            .write_view => |inner| switch (self.ctx.types.get(inner)) {
+                .slice => inner,
+                else => try self.ctx.intern(.{ .read_view = inner }),
+            },
+            else => ty,
+        };
     }
 
     /// The binding of each of `fields`, in field order, that the variant

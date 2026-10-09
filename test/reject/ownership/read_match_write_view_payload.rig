@@ -1,0 +1,145 @@
+# A read `match` binds a payload field that is a write view as the read
+# view of what it views (`!P` as `?P`, `!Vec[T]` as `?Vec[T]`, `![]T` as
+# `[]T`), as `if o as x` binds one: no write goes through the binding,
+# whole or by a path (a field, an element, a method), whether or not a
+# view of it is live, and two read matches cannot alias one write view.
+# Write `match !e` to write through it.
+
+struct P
+  t: Text
+
+enum WP
+  a(w: !P)
+  b
+
+enum WV
+  a(w: !Vec[Text])
+  b
+
+enum WS
+  a(s: ![]Text)
+  b
+
+enum WN
+  a(s: ![]Vec[Int])
+  b
+
+enum WI
+  a(s: ![]Int)
+  b
+
+enum WT
+  a(w: !Text)
+  b
+
+sub field_assign(e: WP)
+  match e
+    .a(w)
+      r = ?w.t[1..]
+      w.t = Text("other")
+      print(r)
+    .b => pass
+
+sub field_method(e: WP)
+  match e
+    .a(w)
+      r = ?w.t[1..]
+      !w.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(r)
+    .b => pass
+
+sub param_subject(e: !WP)
+  match e
+    .a(w)
+      r = ?w.t[1..]
+      !w.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(r)
+    .b => pass
+
+sub vec_index(e: WV)
+  match e
+    .a(w)
+      r = ?w[0][1..]
+      w[0] = Text("other")
+      print(r)
+    .b => pass
+
+sub slice_index(e: WS)
+  match e
+    .a(s)
+      r = ?s[0][1..]
+      s[0] = Text("other")
+      print(r)
+    .b => pass
+
+sub slice_method(e: WS)
+  match e
+    .a(s)
+      r = ?s[0][1..]
+      !s[0].add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(r)
+    .b => pass
+
+sub slice_push(e: WN)
+  match e
+    .a(s)
+      r = ?s[0][..]
+      !s[0].push(2)
+      print(r)
+    .b => pass
+
+sub slice_clear(e: WS)
+  match e
+    .a(s)
+      r = ?s[0][1..]
+      !s[0].clear()
+      print(r)
+    .b => pass
+
+sub slice_int(e: WI)
+  match e
+    .a(s)
+      r = ?s[0]
+      s[0] = 2
+      print(r)
+    .b => pass
+
+sub whole(e: WT)
+  match e
+    .a(w)
+      !w.add("x")
+    .b => pass
+
+sub two_matches(e: WS)
+  r = ""
+  match e
+    .a(s)
+      r = ?s[0][1..]
+    .b => pass
+  match e
+    .a(s)
+      s[0] = Text("other")
+    .b => pass
+  print(r)
+
+sub no_lend(e: WP)
+  match e
+    .a(w) => w.t = Text("other")
+    .b => pass
+
+sub main()
+  pass
+
+# error: 39:7: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
+# error: 47:8: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate
+# error: 55:8: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate
+# error: 63:7: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
+# error: 71:7: cannot assign through a slice; a `[]T` is read-only
+# error: 79:8: cannot lend to write through a slice; a `[]T` is read-only
+# error: 87:8: cannot lend to write through a slice; a `[]T` is read-only
+# error: 95:8: cannot lend to write through a slice; a `[]T` is read-only
+# error: 103:7: cannot assign through a slice; a `[]T` is read-only
+# error: 110:8: cannot lend to write through a read view `?Text`
+# error: 121:7: cannot assign through a slice; a `[]T` is read-only
+# error: 127:14: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
+# errors: 12

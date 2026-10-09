@@ -279,6 +279,20 @@ pub const Facts = struct {
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
         return storage.decided(f.c(), b, .payload_by_address);
     }
+    /// Whether a payload binding copies the value its field's write view
+    /// points at: a read match binds a `!T` field as `?T` (typecheck's
+    /// binding type), and a `?T` of a scalar or a view is a copy
+    /// (`sema.lendByValue`).
+    pub fn payloadReadsThroughWrite(f: Facts, b: Sexp) bool {
+        const ctx = f.c();
+        const field = ctx.payloadFieldOf(b) orelse return false;
+        const binding = ctx.bindingTypeOf(b) orelse return false;
+        if (ctx.types.get(field) != .write_view) return false;
+        return switch (ctx.types.get(binding)) {
+            .read_view => |inner| sema.lendByValue(ctx, inner),
+            else => false,
+        };
+    }
     /// Whether a `print`, `Text(...)`, or `add` argument is read by address
     /// (`storage.printsByAddress`).
     pub fn printsByAddress(f: Facts, a: Sexp) ?bool {

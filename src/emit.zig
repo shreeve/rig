@@ -2926,7 +2926,7 @@ pub const Emitter = struct {
             // field it views (`?F`) or reads in place.
             const addr = try self.need(self.facts.bindsByAddress(b), b);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
-            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
+            try self.line("const {s} = {s}{s}.{f}.{f}{s};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name), if (self.facts.payloadReadsThroughWrite(b)) ".*" else "" });
         }
     }
 
@@ -2972,7 +2972,9 @@ pub const Emitter = struct {
     /// `payload` itself when `field` is empty (`&place` for the whole
     /// value of a `match !x`); `addr` takes the field's address, for a
     /// `match !x` binding that writes it.
-    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false };
+    /// `addr`: the binding points at the field; `deref`: it copies the
+    /// value the field's write view points at (`payloadReadsThroughWrite`).
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, deref: bool = false };
 
     /// A part of a value a `match <x` arm owns: a field, or the whole
     /// payload or value.
@@ -3084,7 +3086,7 @@ pub const Emitter = struct {
             const addr = try self.need(self.facts.bindsByAddress(c), c);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .deref = self.facts.payloadReadsThroughWrite(c) });
         }
         return out.items;
     }
@@ -3103,7 +3105,7 @@ pub const Emitter = struct {
         for (prelude.aliases) |a| {
             if (a.field.len == 0) {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
-            } else try self.line("const {s} = {s}{s}.{f};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field) });
+            } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field), if (a.deref) ".*" else "" });
         }
         for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
         for (prelude.owned) |o| {

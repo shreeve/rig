@@ -943,7 +943,14 @@ by pointer, including the binding of a catch-all arm and a binding a
 guard reads; a write view under `match !e` and `for x in !e`; the
 construct's own under `match <e` and a taken subject. A field that is
 itself a view, at the matched instance (`Opt[?T]`'s `v: T`,
-`payloadFieldOf`), is bound as the view it holds. (A payload of a
+`payloadFieldOf`), is bound as the view it holds, except that a read
+match of a value another holds (`storage.matchesInPlace`, not a part of
+a value it holds) binds a write view as the read view of what it views
+(`!T` as `?T`, `![]T` as `[]T`, `readViewOfWrite`), as `if o as x` does:
+nothing is written through it, by a path or whole, and two read matches
+never hold two copies of one write view. Emit copies out the value a
+scalar's or view's binding reads (`Facts.payloadReadsThroughWrite`), as
+a `?T` of one is a copy. (A payload of a
 type parameter is a copy, which each instance must allow; emit binds it
 by pointer where the match reads its subject in place,
 `storage.payloadByAddress`, and copies it out otherwise.)
@@ -1589,10 +1596,11 @@ loan on follows from what the var is, one positive list (`lendTarget`):
   a write view, a catch-all's included): a loan on the var, and the
   loans the var holds.
 - **A read view**, which no write goes through (a `?T`; a binding of a
-  read `match`, whatever its type, since a write through one is
-  rejected: a `!T` field it binds, or a catch-all of a `!T` subject; and
-  one of `match !e` whose type is a slice, a String, or a `?T`): the
-  loans the var holds, as a copy of the view carries.
+  read `match`, which binds a write view field as a read view, and a
+  catch-all of a `!E` subject, which only a `match !x` could write
+  through and typecheck rejects that; and a binding of `match !e` whose
+  type is a slice, a String, or a `?T`): the loans the var holds, as a
+  copy of the view carries.
 
 Desugared, `.a(t)` of `match !e` binds `t` as `w = !x` binds `w`: a
 write view, of the payload's field. So in the arm `s = ?t[1..]` lends a

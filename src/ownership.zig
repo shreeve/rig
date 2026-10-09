@@ -2605,9 +2605,11 @@ pub const Checker = struct {
     /// parameter, capture, or local, a binding of `if !o as w`,
     /// `while !o as w`, or `for x in !v`, and one of `match !e` whose type
     /// is a write view); a read view, which no write goes through (a
-    /// `?T`, a binding of a read match whatever its type, and one of
-    /// `match !e` whose type is a slice, a String, or a `?T`); or an
-    /// owner.
+    /// `?T`; a binding of a read match, which typecheck binds a write
+    /// view field as the read view of what it views, and a catch-all of a
+    /// `!E` subject, through which typecheck rejects a `match !x`; and a
+    /// binding of `match !e` whose type is a slice, a String, or a `?T`);
+    /// or an owner.
     fn lendTarget(v: Var) LendTarget {
         if (v.payload_view) return if (v.payload_writes and v.ref == .write) .write_view else .read_view;
         return switch (v.ref) {
