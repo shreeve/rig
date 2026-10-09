@@ -371,7 +371,8 @@ sub main()
 
 `xs[a..b]` is the part of `xs` from index `a` up to, not including,
 `b`. Of a `String` it is a `String`. Of an array or a `Vec` it is
-written `?xs[a..b]`: a `[]T`, a read view of the elements, which lends
+written `?xs[a..b]`, or with no `?` as an argument, as `xs` itself is
+lent: a `[]T`, a read view of the elements, which lends
 part of `xs` ([§7](#lending)), so `xs` cannot be
 written, moved, or dropped while the slice is in use, and the slice
 cannot outlive it. A `[]T` has `.len` and `get(i)`, is indexed and
@@ -423,8 +424,12 @@ function's own, so a view of it cannot be returned.
 Where a `[]T` is expected, `?a` of an array or a Vec means `?a[..]`,
 and where a `![]T` is expected, `!a` means `!a[..]`, also through a box
 or a read view ([§7](#lending) has every lend). As an argument the `?`
-may go unwritten (`total(a)` is `total(?a)`); anywhere else, such as a
-binding or a field, the lend is written. A temporary array, a literal,
+may go unwritten (`total(a)` is `total(?a)`), and a slice is lent the
+way its name is (`total(a[1..])` is `total(?a[1..])`); anywhere else,
+such as a binding or a field, the lend is written. A slice argument
+whose parameter takes no read view is rejected: `!a[1..]` lends it to
+write where a `![]T` goes, and a parameter that owns its value takes a
+copy (`Text(?t[1..])`). A temporary array, a literal,
 a fill, or a call's result, passed as a `[]T` argument is lent as a
 temporary of its statement: it lives until the statement ends, so a
 call that returns a view of it is rejected where the view outlives the
@@ -453,6 +458,40 @@ sub main()
 6 9 6
 [7, 8, 3]
 [0, 0, 0]
+```
+
+```rig
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun size(s: String) -> Int
+  s.len
+
+sub main()
+  a = [1, 2, 3, 4]
+  t = Text("hello")
+  print(total(a[1..3]), total(?a[1..3]), size(t[1..]))
+```
+
+```output
+5 5 4
+```
+
+```rig reject
+sub zero(s: ![]Int)
+  !s.fill(0)
+
+sub main()
+  a = [1, 2, 3]
+  zero(a[1..])
+  print(a)
+```
+
+```error
+`zero` writes the elements of `a[1..]`, and a slice is lent to read unless it is written `!`; write `zero(!a[1..])`
 ```
 
 ```rig reject
@@ -3221,7 +3260,8 @@ itself (`?Cell[T]`), or one a shared handle there holds
 ([Changes and shared storage](#changes-and-shared-storage),
 [§10](#cell)). A write lend is always written. A read lend may go unwritten
 where its view lasts only for the use: an argument to a view parameter
-(`balance_of(acct)` is `balance_of(?acct)`), a method's receiver
+(`balance_of(acct)` is `balance_of(?acct)`, and a slice is lent the
+way its name is: `total(w[1..3])` is `total(?w[1..3])`), a method's receiver
 ([§3](#structs)), the subject of a `for`, `if … as`, or `match`
 ([§6](#6-control-flow)), and a held view or a function name lent on to
 read ([§11](#callable-views)). A lend kept in a binding or a field is
@@ -3277,7 +3317,8 @@ are rejected. A local binding is no constant, whatever it holds:
 So `sort.sort(!v)` works on a Vec as it does on an array, and one `fun
 area(s: ?Shape)` takes `?s` of a `Shape`, a `Box[Shape]`, and a
 `*Shape` ([§9](#shared-handles), [§10](#box)). A slice `x[a..b]` is the
-same lend, of part of `x` ([§2](#slices)).
+same lend, of part of `x` ([§2](#slices)), and as an argument it goes
+unwritten where `x` does.
 
 A written `!` must lend to write
 ([Core 4](docs/CORE.md#2-the-core-in-ten-sentences)): `!x` is kept only

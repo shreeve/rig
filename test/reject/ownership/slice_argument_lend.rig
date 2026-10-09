@@ -1,0 +1,38 @@
+# A slice argument is lent to read as `?xs[a..b]` is: it keeps what it
+# slices lent while its view is used, a later argument cannot write
+# what it slices, and a view of a temporary's slice ends with its
+# statement.
+
+fun keep(xs: []Int) -> []Int
+  xs
+
+fun grow(xs: []Int, v: !Vec[Int]) -> Int
+  !v.push(1)
+  xs.len
+
+fun word(s: String) -> String
+  s
+
+fun mk() -> [3]Int
+  [1, 2, 3]
+
+sub main()
+  w = [1, 2, 3, 4]
+  v: Vec[Int] = Vec()
+  t = Text("abc")
+  r = keep(w[1..3])
+  w[0] = 9
+  print(r)
+  print(grow(v[..], !v))
+  m = keep(mk()[..])
+  print(m)
+  s = word(t[1..])
+  !t.add("d")
+  print(s)
+
+# error: 24:3: cannot assign to `w[...]` while `w` is lent
+# error: 26:22: cannot lend `v` to write while a read loan is live
+# error: 27:12: a view of the temporary `mk()` outlives its statement
+# error: 30:3: cannot lend `t` to write while a read loan is live
+# errors: 4
+# oracle: main reject C4

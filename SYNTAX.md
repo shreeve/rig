@@ -1296,6 +1296,7 @@ as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
 | `s[a..b]` | a slice of a String, itself a String |
 | `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or Vec |
 | `?t[a..b]` | a lend of part of a Text: a String viewing it |
+| `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a String: a slice argument is lent as its name is |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
 | `?t` where a String is expected | `?t[..]` of a Text |

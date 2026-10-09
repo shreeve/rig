@@ -137,8 +137,10 @@ const Checker = struct {
     /// The argument being checked, when the call keeps no view of its
     /// arguments: a temporary array there may be lent as a `[]T`.
     lent_temp: Sexp = .nil,
-    /// The argument being checked: a bare value there is lent to read
-    /// where a view is expected (`lendView`).
+    /// The argument being checked, or a generic call's type parameters
+    /// inferred from: a bare value there is lent to read where a view is
+    /// expected (`lendView`), and a slice there is lent as `?xs[a..b]`
+    /// would be (`synthSlice`).
     view_arg: Sexp = .nil,
     /// The parameter or field the argument being checked fills, which a
     /// diagnostic names (`ignoredWriteLend`).
@@ -5323,13 +5325,23 @@ const Checker = struct {
     /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
     /// String gives a String viewing what it views, and a `[]T` a `[]T`
     /// viewing the same elements. An array or a `Vec` of plain data gives
-    /// a `[]T`, and a Text a String, only as `?xs[a..b]` (`lent`):
-    /// the slice is a read view of `xs`.
-    fn synthSlice(self: *Checker, e: Sexp, lent: bool) Error!TypeId {
+    /// a `[]T`, and a Text a String, only as `?xs[a..b]` (`lent`), or as
+    /// an argument, where it is lent as `?xs[a..b]` would be and its
+    /// context decides whether it takes the view (`lendView`): the slice
+    /// is a read view of `xs`.
+    fn synthSlice(self: *Checker, e: Sexp, written: bool) Error!TypeId {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
-        // A slice of a temporary is reported below, once.
-        const obj_ty = if (lent and !self.hands(object).hasStorage()) try self.synthExpr(object) else try self.synthOperand(object);
+        const arg = !written and sameExpr(e, self.view_arg);
+        // A slice of a temporary is reported below, once. An argument's
+        // is lent only where the slice lends what it slices.
+        const obj_ty = if (self.hands(object).hasStorage() or !(written or arg)) try self.synthOperand(object) else if (written) try self.synthExpr(object) else blk: {
+            if (try self.rejectSharedTemporary(object)) break :blk self.t().invalid_id;
+            const ty = try self.synthExpr(object);
+            if (!self.isPoison(ty) and !self.sliceLendsObject(ty)) try self.rejectResourceTemporary(object, ty);
+            break :blk ty;
+        };
+        const lent = written or (arg and !self.isPoison(obj_ty) and self.sliceLendsObject(obj_ty));
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
         // What the slice lends, which the ownership checker reads.
@@ -5342,7 +5354,7 @@ const Checker = struct {
                 try self.checkSliceBounds(range, null);
                 // A `![]T` is lent like the array it views: a read
                 // slice of it keeps it from being written meanwhile.
-                if (!lent and sema.writeSliceElem(self.ctx, obj_ty) != null) {
+                if (!lent and self.sliceLendsObject(obj_ty)) {
                     try self.errAt(e, "a slice of a `![]T` views it; write `?{s}` or `!{s}`", .{ try self.plainText(e), try self.plainText(e) });
                     return self.t().invalid_id;
                 }
@@ -5354,7 +5366,7 @@ const Checker = struct {
                 try self.checkSliceBounds(range, null);
                 // A slice of a view of a Text views what it lends, as a
                 // slice of a String does.
-                if (!lent and !sema.isReadOrWriteView(self.ctx, obj_ty)) {
+                if (!lent and self.sliceLendsObject(obj_ty)) {
                     try self.errAt(e, "a slice of a Text views it; write `?{s}`", .{try self.plainText(e)});
                     return self.t().invalid_id;
                 }
@@ -5371,6 +5383,27 @@ const Checker = struct {
         }
         if (!self.placeOf(object).named()) try self.lendTemp(object);
         return self.ctx.intern(.{ .slice = .{ .elem = elem } });
+    }
+
+    /// Whether a slice of a value of type `obj_ty` lends that value, as
+    /// `?xs[a..b]` (Core §4): a slice of an array, a Vec, a Text, or a
+    /// `![]T`. A slice of a String or a `[]T`, or of a view of a Text,
+    /// views what that value views, and is a value of its own.
+    fn sliceLendsObject(self: *Checker, obj_ty: TypeId) bool {
+        if (sema.writeSliceElem(self.ctx, obj_ty) != null) return true;
+        return switch (self.ctx.types.get(textOrBoxed(self.ctx, sema.unwrapViews(self.ctx, obj_ty)))) {
+            .string, .slice => false,
+            .text => !sema.isReadOrWriteView(self.ctx, obj_ty),
+            else => true,
+        };
+    }
+
+    /// Whether `e` is a slice written with no lend that an argument
+    /// lends, as `?e` would (`synthSlice`).
+    fn slicedArg(self: *Checker, e: Sexp) bool {
+        if (!rig.isRangeIndex(e) or !sameExpr(e, self.view_arg)) return false;
+        const ty = self.ctx.typeOf(ir.Index.object(e)) orelse return false;
+        return !self.isPoison(ty) and self.sliceLendsObject(ty);
     }
 
     /// A slice's bounds are integers: of one type when both are given,
@@ -5680,14 +5713,19 @@ const Checker = struct {
 
     /// The arguments of a call that cannot be checked: each is checked
     /// on its own, and nothing that needs a parameter's type (`[]` has
-    /// none) is reported.
+    /// none, and whether a slice is lent depends on it) is reported.
     fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
         const saved = self.under_poison;
-        defer self.under_poison = saved;
+        const saved_view = self.view_arg;
+        defer {
+            self.under_poison = saved;
+            self.view_arg = saved_view;
+        }
         self.under_poison = true;
         for (args) |a| {
             const e = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
             if (e.isKind(.array) and ir.Array.elems(e).len == 0) continue;
+            self.view_arg = e;
             _ = try self.synthExpr(e);
         }
     }
@@ -6612,6 +6650,10 @@ const Checker = struct {
     fn argType(self: *Checker, e: Sexp) Error!TypeId {
         self.tentative += 1;
         defer self.tentative -= 1;
+        // A slice there is lent as it is where the argument is checked.
+        const saved_view = self.view_arg;
+        defer self.view_arg = saved_view;
+        self.view_arg = e;
         if (e != .list or e.list.id == 0) return self.synthQuiet(e);
         if (self.arg_types.get(e.list.id)) |ty| return ty;
         var ty = try self.synthQuiet(e);
@@ -8220,7 +8262,12 @@ const Checker = struct {
             .write_view => |inner| .{ .write, inner },
             else => .{ .read, actual },
         };
-        var lend = sema.lendsAs(self.ctx, from, kind, expected) orelse return false;
+        // A slice argument is lent the way its name is: `total(w[1..3])`
+        // is `total(?w[1..3])`, whose slice `synthSlice` made, so the
+        // view goes where its own type does.
+        const sliced = self.slicedArg(e);
+        var lend = (if (sliced) sliceArgLend(self.ctx, actual, expected) else sema.lendsAs(self.ctx, from, kind, expected)) orelse
+            return sliced and try self.sliceArgRejected(e, actual, expected);
         const view = sema.isReadOrWriteView(self.ctx, actual);
         // A bare value where a view argument goes is lent to read where it
         // is, as `?e` would lend it (Core sentence 1): a place, or a value
@@ -8234,7 +8281,8 @@ const Checker = struct {
                 .place, .part_of_made, .made => {},
                 .lend, .branches, .jump, .none => return false,
             }
-            if (try self.lendsToRead(e, from, self.placeOf(e))) {
+            // A slice held its own temporary, as `?xs[a..b]` does.
+            if (sliced or try self.lendsToRead(e, from, self.placeOf(e))) {
                 lend.implicit = true;
                 try self.ctx.recordImplicitLend(e);
                 try self.ctx.recordLend(e, lend);
@@ -8276,6 +8324,44 @@ const Checker = struct {
             };
         }
         try self.ctx.recordLend(e, lend);
+        return true;
+    }
+
+    /// A slice argument (`slicedArg`) where its context takes no read
+    /// view of that type: lent to write, `!xs[a..b]`, where a `![]T`
+    /// goes, and a copy where a value of its own does. True when
+    /// reported; any other type is a mismatch, as for `?xs[a..b]`.
+    fn sliceArgRejected(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        const a = self.ctx.arena.allocator();
+        const slot = self.slot;
+        const in_call = sameExpr(e, slot.value) and slot.call != .nil and !slot.field and argOf(slot.call, e);
+        const shown = try self.plainText(e);
+        const callee = if (in_call) try a.print("`{s}`", .{try self.calleeName(ir.Call.callee(slot.call))}) else "the call";
+        const object = try self.plainText(ir.Index.object(e));
+        if (sema.writeSliceElem(self.ctx, expected)) |elem| {
+            if (self.ctx.types.get(actual) != .slice or self.ctx.types.get(actual).slice.elem != elem) return false;
+            const lent = try a.print("!{s}", .{shown});
+            const fix = if (in_call) try self.spliced(slot.call, &.{e}, &.{lent}) else lent;
+            try self.errAt(e, "{s} writes the elements of `{s}`, and a slice is lent to read unless it is written `!`; write `{s}`", .{ callee, shown, fix });
+            return true;
+        }
+        if (actual == self.t().string_id and self.liftTarget(expected) == self.t().text_id) {
+            const copy = try a.print("Text(?{s})", .{shown});
+            const fix = if (in_call) try self.spliced(slot.call, &.{e}, &.{copy}) else copy;
+            try self.errAt(e, "{s} takes a `Text`, which owns its bytes, and `{s}` only views `{s}`'s; write `{s}` to pass a copy", .{ callee, shown, object, fix });
+            return true;
+        }
+        const elem = switch (self.ctx.types.get(actual)) {
+            .slice => |sl| sl.elem,
+            else => return false,
+        };
+        const target = self.liftTarget(expected);
+        const owns = switch (self.ctx.types.get(target)) {
+            .array => |arr| arr.elem == elem,
+            else => vecElementType(self.ctx, target) == elem,
+        };
+        if (!owns) return false;
+        try self.errAt(e, "{s} takes a `{s}`, which owns its elements, and `{s}` only views `{s}`'s", .{ callee, try self.tyName(expected), shown, object });
         return true;
     }
 
@@ -10581,6 +10667,14 @@ fn isArithmetic(e: Sexp) bool {
 /// `Text` for a type that reaches a Text through boxes and handles
 /// (`sema.unwrapAccess`), which is viewed through them; any other type as
 /// it is.
+/// What a slice argument (`Checker.slicedArg`) of type `actual` lends
+/// where a `view` is expected: the view it is, which goes where its own
+/// type does (a `[]T` or a String, or an optional of one). Null
+/// elsewhere.
+fn sliceArgLend(ctx: *const SemContext, actual: TypeId, view: TypeId) ?sema.Lend {
+    return if (compatible(ctx, actual, view)) .{ .view = view } else null;
+}
+
 fn textOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.unwrapAccess(ctx, ty) == ctx.types.text_id) ctx.types.text_id else ty;
 }

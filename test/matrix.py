@@ -356,6 +356,12 @@ CONTEXTS = {
                                      recv={"drop": "me()", "shared": "me()"}),
     "recv_view_held_then_write": dict(inline="x = (E).M", after="print(poke(!W), x.v)", write=True,
                                       recv={"drop": "me()", "shared": "me()"}),
+    # A slice of the value, written with no lend, as an argument where a
+    # `[]T` or a String goes: it is lent the way its name is, as
+    # `?(E)[..1]`, also while a later argument writes what it slices.
+    "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("vec", "array", "text", "string")),
+    "slice_arg_then_write": dict(inline="print(both(E[..1], poke(!W)))", slice=True, write=True,
+                                 types=("vec", "array", "text", "string")),
 }
 
 # How `poke` changes a value of each type: it grows the buffer, or
@@ -1619,6 +1625,10 @@ def program(tname, fname, cname):
     if ctx.get("temp"):
         out.append(f"fun pass_t(x: {ty}, t: ?Text) -> {ty}\n  x\n")
         out.append(f"fun some_t(x: {ty}, t: ?Text) -> {ty}?\n  x\n")
+    if ctx.get("slice"):
+        view = "String" if tname in ("text", "string") else "[]Int"
+        out.append(f"fun sliced(x: {view}) -> Int\n  x.len\n")
+        out.append(f"fun both(x: {view}, k: Int) -> Int\n  x.len + k\n")
     if ctx.get("write"):
         out.append(f"fun poke(x: !{ty}) -> Int\n  {POKES[tname]}\n  0\n")
         out.append(f"fun pokev(x: !{ty}) -> {ty}\n  n = poke(!x)\n  mk(n + 9)\n")
@@ -1645,6 +1655,9 @@ def program(tname, fname, cname):
             text = text.replace("!W", "!" + WRITE_TARGETS.get(fname, "a"))
         e = form
         if cname in ("lend_arg", "for_source") and " " in e:
+            e = f"({e})"
+        # A slice's object is a path, or in parentheses.
+        if ctx.get("slice") and not re.fullmatch(r"[\w.]+", e):
             e = f"({e})"
         # `@POKE` and `@POKY` stand for the type's change through the loop
         # or match binding, or `pass`; they are replaced before `E` is.

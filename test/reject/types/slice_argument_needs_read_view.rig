@@ -1,0 +1,46 @@
+# A slice argument is lent to read where its parameter takes the read
+# view it makes: a `[]T`, a String, or an optional of one. Anywhere else
+# it says what to write: `!xs[a..b]` where a `![]T` goes, a copy where a
+# value of its own does. A slice is written with its lend everywhere but
+# an argument: a binding, a field, a result.
+
+sub zero(xs: ![]Int)
+  xs[0] = 0
+
+fun own(v: Vec[Int]) -> Int
+  v.len
+
+fun pair(a: [2]Int) -> Int
+  a[0]
+
+fun name(t: Text) -> Int
+  t.len
+
+fun view(xs: ?[]Int) -> Int
+  xs.len
+
+struct S
+  xs: []Int
+
+fun back(a: ?[4]Int) -> []Int
+  a[1..]
+
+sub main()
+  w = [1, 2, 3, 4]
+  v: Vec[Int] = Vec()
+  t = Text("abc")
+  zero(w[1..])
+  print(own(v[..]), pair(w[..2]), name(t[1..]), view(w[..]))
+  s = w[1..]
+  k = S(xs: w[..2])
+  print(s, k.xs, back(?w), t)
+
+# error: 32:8: `zero` writes the elements of `w[1..]`, and a slice is lent to read unless it is written `!`; write `zero(!w[1..])`
+# error: 33:13: `own` takes a `Vec[Int]`, which owns its elements, and `v[..]` only views `v`'s
+# error: 33:26: `pair` takes a `[2]Int`, which owns its elements, and `w[..2]` only views `w`'s
+# error: 33:40: `name` takes a `Text`, which owns its bytes, and `t[1..]` only views `t`'s; write `name(Text(?t[1..]))` to pass a copy
+# error: 33:54: type mismatch: expected `?[]Int`, got `[]Int`
+# error: 34:7: a slice of an array or Vec views it; write `?w[1..]`
+# error: 35:13: a slice of an array or Vec views it; write `?w[..2]`
+# error: 26:3: a slice of an array or Vec views it; write `?a[1..]`
+# errors: 8

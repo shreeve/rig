@@ -1047,7 +1047,7 @@ instead of re-deriving it by name:
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
 | `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a value that copies where it is expected (`copiedThrough`), an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
-| `lendOf(node)` | for a node lent where a view of another type is expected: the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a Text's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a Text's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `lendOf(node)` | for a node lent where a view of another type is expected, or a slice argument lent as the view it is (below): the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a Text's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a Text's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
 | `lendsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
@@ -1084,6 +1084,24 @@ lends its bytes, a `String`), `read_only` (a `![]T` is lent on as a
 `?fun(...)`). No rows is the first row, `?T` of a `T`. Typecheck asks it
 where a value meets an expected view (`lendView`) and records the rows
 it used (`lendOf`); the ownership checker and emit read that record.
+
+**A read lend left unwritten.** Where a view argument goes, a bare
+value is lent to read where it is, as `?e` would lend it (Core sentence
+1). One branch of `lendView` decides it, for the argument being checked
+(`Checker.view_arg`), and records the lend as implicit
+(`Lend.implicit`, and the use `lend`, `recordImplicitLend`). A slice is
+lent the way its name is: a slice argument written with no lend,
+`xs[a..b]` of an array, a Vec, a Text, or a `![]T`
+(`sliceLendsObject`), desugars to `?xs[a..b]` where its parameter
+takes the read view that makes (a `[]T` or a String, or an optional of
+one). `synthSlice` types it as that lend, whose own rows are the
+slice's (`sliceLendOf`), and the same branch records it implicit with no
+rows: it is the view already. The ownership checker walks an implicit
+lend with no rows as `?e` (`walkImplicitLend`), so the slice is walked
+exactly as `?xs[a..b]` is, and emit writes it as it writes
+`?xs[a..b]`: the slice. Where the parameter takes a write view or a
+value of its own, the argument is rejected with what to write
+(`sliceArgRejected`); a slice anywhere else is written with its lend.
 
 **Decisions.** A few questions about a node that emit, the storage plan,
 and the checkers all act on are recorded as answered the first time a
