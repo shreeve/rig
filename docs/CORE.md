@@ -283,7 +283,10 @@ binding or a field is written, and so is every write lend. `!` lends any
 value to write, named or temporary: `!mk().pop()` lends the value
 `mk()` makes, which lives until its statement ends ([§3](#3-temporaries)),
 so every change is still marked by `!`. *(built* for the rows of §4
-marked built.*)*
+marked built.*)* A written `!` must lend to write: `!x` is rejected
+wherever `x` is only read: an operand, an index, `print`, a copy, or an
+argument the callee only reads. Write `x` to copy it, `?x` to lend it to
+read, or `!T` in the type to keep the write view. *(built)*
 
 ```rig
 sub grow(v: !Vec[Int])
@@ -671,7 +674,8 @@ ada
 
 ## 4. One lend table
 
-`?x` and `!x` lend the view the context expects:
+`?x` and `!x` lend the view the context expects; where the context
+takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 
 | Owner `x` | `?x` lends | `!x` lends | Status |
 |---|---|---|---|
