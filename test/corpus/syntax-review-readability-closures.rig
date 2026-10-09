@@ -37,5 +37,6 @@ sub main()
   seen = 0
   _ = sum_by(?xs, |!seen, x|
     seen += 1
-    x)
+    x
+  )
   print(seen)

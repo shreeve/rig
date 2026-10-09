@@ -4859,7 +4859,8 @@ sub main()
   sig: *Signal[Int] = *Signal(0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
-      print("now", s.get()))
+      print("now", s.get())
+  )
   sig.set(7)
   sig.set(9)
 ```
@@ -5152,8 +5153,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
 
 sub main()
   c: Vec[Int] = Vec()
-  each(?c, |!c, n|
-    !c.push(n))
+  each(?c, |!c, n| !c.push(n))
 ```
 
 ```error

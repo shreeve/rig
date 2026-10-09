@@ -17,7 +17,8 @@ sub main()
   sig: *Signal[Int] = *Signal(0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
-      print("got", s.get()))
+      print("got", s.get())
+  )
   sig.set(4)
 
   total: *Cell[Int] = *Cell(0)
@@ -31,28 +32,30 @@ sub main()
     if i == 0
       print("zero")
     else
-      print("one"))
+      print("one")
+  )
 
   twice(*||
-    each_n(2, *|i|
-      print("inner", i))
-    print("outer"))
+    each_n(2, *|i| print("inner", i))
+    print("outer")
+  )
 
   handlers: Vec[*sub()] = Vec()
   !handlers.push(*|+total|
     n = total.get()
-    print("handler", n))
+    print("handler", n)
+  )
   for h in ?handlers
     h()
 
   n = 3
   r = (|+n|
     m = n * 2
-    m + 1)()
+    m + 1
+  )()
   print(r)
 
-  each_n(2, *|i|
-    print("trailing", i))
+  each_n(2, *|i| print("trailing", i))
 
 # expect:
 # got 4

@@ -25,15 +25,19 @@ fun fail(n: Int) -> Int!
 sub main()
   print(lead("hi", |s|
     a = R(n: 1)
-    R(n: Int(first(s)?) + a.n)))
+    R(n: Int(first(s)?) + a.n)
+  ))
   print(lead("", |s|
     a = R(n: 2)
-    R(n: Int(first(s)?) + a.n)))
+    R(n: Int(first(s)?) + a.n)
+  ))
   print(nested("x", |s|
     g: *fun(Int) -> Int! = *|k| fail(k)! + 1
-    g(s.len - 1)! + 100))
+    g(s.len - 1)! + 100
+  ))
   print(nested("xy", |s|
     g: *fun(Int) -> Int! = *|k| fail(k)! + 1
-    g(s.len - 1)! + 100))
+    g(s.len - 1)! + 100
+  ))
   k: *fun(Int) -> U8? = *|n| first("abc"[n..])?
   print(k(1) ?? 0)

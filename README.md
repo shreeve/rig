@@ -213,7 +213,8 @@ sub main()
   clicks.subscribe(*|~clicks, +total|
     if clicks.upgrade() as c
       total.set(total.get() + c.get())
-      print("clicks", c.get(), "total", total.get()))
+      print("clicks", c.get(), "total", total.get())
+  )
   clicks.set(1)
   clicks.set(2)
 ```

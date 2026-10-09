@@ -22,7 +22,8 @@ sub main()
   !v.push(3)
   total = 0
   each(?v, |!total, n|
-    total += n)
+    total += n
+  )
   print(total)
   g = ?add_k
   print(g(10))

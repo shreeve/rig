@@ -15,7 +15,8 @@ sub main()
   a: Vec[Int] = Vec()
   v = View(w: ?a)
   run(|!v, w|
-    v.w = w)
+    v.w = w
+  )
   set = |!v, w: ?Vec[Int]|
     v = View(w: w)
   if true
@@ -29,5 +30,5 @@ sub main()
   print(v.w.len)
 
 # error: 18:5: cannot store a view of `w` through captured `v`
-# error: 20:5: cannot store a view of `w` through captured `v`
-# error: 28:3: cannot lend `b` to write while a read loan is live
+# error: 21:5: cannot store a view of `w` through captured `v`
+# error: 29:3: cannot lend `b` to write while a read loan is live

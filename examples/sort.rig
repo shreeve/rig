@@ -32,7 +32,8 @@ sub main()
   compares = 0
   sort(!nums[..], |!compares, a, b|
     compares += 1
-    a < b)
+    a < b
+  )
   print(nums, compares)
 
   words = ["pear", "fig", "apple"]

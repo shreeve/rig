@@ -127,9 +127,9 @@ sub main()
   total: *Cell[Int] = *Cell(0)
   each(3, *|+total, i|
     total.set(total.get() + i)
-    print("saw", i))
-  each(2, *|i|
-    print("trailing", i))
+    print("saw", i)
+  )
+  each(2, *|i| print("trailing", i))
   print(total.get())
 ```
 

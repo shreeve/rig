@@ -100,7 +100,8 @@ fun method() -> Int!
 
 fun caught() -> Int
   take(B(n: 11), fail(1) catch |_|
-    return -5)
+    return -5
+  )
   0
 
 fun ok() -> Int!
