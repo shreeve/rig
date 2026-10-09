@@ -39,6 +39,9 @@ const SemContext = sema.SemContext;
 
 pub const TypeId = sema.TypeId;
 pub const SymbolId = sema.SymbolId;
+
+/// How a read binding of a write view is bound (`Facts.readsThroughWrite`).
+pub const ThroughWrite = enum { pointer, value };
 pub const Wide = sema.Wide;
 pub const Type = sema.Type;
 pub const TypeStore = sema.TypeStore;
@@ -284,20 +287,28 @@ pub const Facts = struct {
     pub fn bindingAccess(f: Facts, sym: SymbolId) ?sema.Access {
         return f.c().bindingAccess(sym);
     }
+    /// How binding `sym`, which binds a value of type `reached`, reads
+    /// through a write view: `reached` is one, and the binding only reads
+    /// (`bindingAccess`), so it is bound as the read view of what that
+    /// write view views. `.pointer`: the write view itself (a `?P`, or a
+    /// `[]T` of a `![]T`); `.value`: the value it points at, copied out, as
+    /// a `?T` of a scalar or a view is a copy (`sema.lendByValue`). Null
+    /// for any other binding.
+    pub fn readsThroughWrite(f: Facts, sym: SymbolId, reached: TypeId) ?ThroughWrite {
+        const ctx = f.c();
+        if (ctx.bindingAccess(sym) != .read) return null;
+        return switch (ctx.types.get(reached)) {
+            .write_view => |inner| if (ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner)) .value else .pointer,
+            else => null,
+        };
+    }
     /// Whether a payload binding copies the value its field's write view
-    /// points at: a binding only read (`bindingAccess`) of a field that is
-    /// a write view of a scalar or a view, whose read view is a copy
-    /// (`sema.lendByValue`).
+    /// points at (`readsThroughWrite`).
     pub fn payloadReadsThroughWrite(f: Facts, b: Sexp) bool {
         const ctx = f.c();
         const sym = ctx.symbolOf(b) orelse return false;
-        if (ctx.bindingAccess(sym) != .read) return false;
         const field = ctx.payloadFieldOf(b) orelse return false;
-        return switch (ctx.types.get(field)) {
-            // A `![]T` is read as the `[]T` it holds.
-            .write_view => |inner| ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner),
-            else => false,
-        };
+        return f.readsThroughWrite(sym, field) == .value;
     }
     /// Whether a `print`, `Text(...)`, or `add` argument is read by address
     /// (`storage.printsByAddress`).

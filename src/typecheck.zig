@@ -72,6 +72,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.value_tails.deinit(ctx.allocator);
     defer c.lend_of.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
+    defer c.read_subjects.deinit(ctx.allocator);
     defer c.loop_pairs.deinit(ctx.allocator);
     defer c.owned_bindings.deinit(ctx.allocator);
     defer c.literal_results.deinit(ctx.allocator);
@@ -159,6 +160,10 @@ const Checker = struct {
     arm_local: bool = false,
     /// The `match` whose arms are being checked.
     matching: Sexp = .nil,
+    /// A read match's binding whose subject has no storage, `copied_from`
+    /// records none for: the subject, for the hint that names the match
+    /// that writes (`readMatchHint`).
+    read_subjects: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
     /// The access `loopElement` decided for the element binding of the
     /// `for` being checked, which `checkFor` records.
     loop_access: ?sema.Access = null,
@@ -1783,7 +1788,7 @@ const Checker = struct {
         if (!viewed and self.held_base != .nil) try self.releaseHeld();
         if (viewed) reach = .read;
         const access = self.asAccess(reach, inner);
-        inner = try self.asBindingType(access, inner);
+        inner = try self.viewOfAccess(access, inner);
         // What the binding views, unless it owns a value made here or
         // taken with `<`, may be a copy (`rejectHeaderCopy`).
         const owns = expr.isKind(.move) or (self.hands(expr).kind == .made and !through_view);
@@ -1791,7 +1796,10 @@ const Checker = struct {
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].access = access;
+            self.ctx.symbols.items[sym].flags.access_decided = true;
             self.ctx.symbols.items[sym].ty = inner;
+            // A read binding of a place's value, which `if !o as x` writes.
+            if (access == .read and viewed) try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
             try self.ctx.recordType(name, inner);
             if (!through_view and !viewed and self.hands(expr).hasStorage()) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
         }
@@ -1961,6 +1969,7 @@ const Checker = struct {
             defer self.scope = prev;
             if (self.ctx.symbolOf(binding)) |sym| {
                 self.ctx.symbols.items[sym].access = if (self.isPoison(elem_ty)) null else self.loop_access;
+                self.ctx.symbols.items[sym].flags.access_decided = true;
                 self.ctx.symbols.items[sym].ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
                 if (sema.forViewsSlot(self.ctx, node)) self.ctx.symbols.items[sym].flags.slot_view = true;
@@ -2117,7 +2126,7 @@ const Checker = struct {
         if (self.isPoison(elem)) return elem;
         const access = sema.decideBindingAccess(self.ctx, .{ .loop = .{ .mode = mode, .elem = elem } });
         self.loop_access = access;
-        return self.asBindingType(access, elem);
+        return self.viewOfAccess(access, elem);
     }
 
     /// Whether a loop over elements that hold a write view, which a
@@ -2379,6 +2388,14 @@ const Checker = struct {
                 const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else (&pattern)[0..1];
                 for (binds) |b| if (self.ctx.symbolOf(b)) |sym| try self.owned_bindings.put(self.ctx.allocator, sym, {});
             }
+            // Every read match's binding, for the hint that names the
+            // match that writes (`readMatchHint`).
+            if (mode == .read and viewed == null) {
+                const shown_subject = if (subject.isKind(.read)) ir.Read.operand(subject) else subject;
+                if (pattern.isKind(.variant_pattern)) {
+                    for (self.ctx.payloadBindings(pattern) orelse &.{}) |b| if (self.ctx.symbolOf(b)) |sym| try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = shown_subject, .kind = .match_read });
+                } else if (pattern == .src) if (self.ctx.symbolOf(pattern)) |sym| try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = shown_subject, .kind = .match_read, .whole = true });
+            }
             if (guard != .nil) {
                 try self.checkExpr(guard, self.t().bool_id);
                 if (findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
@@ -2470,7 +2487,11 @@ const Checker = struct {
         const id = sym orelse return "";
         const s = self.ctx.symbols.items[id];
         if (s.access != .read) return "";
-        const from = self.copied_from.get(id) orelse return "";
+        if (self.read_subjects.get(id)) |from| if (from.kind == .as) {
+            const shown = try self.plainText(from.place);
+            return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`: to write through it, bind it with `if !{s} as {s}`", .{ s.name, shown, shown, s.name });
+        };
+        const from = self.copied_from.get(id) orelse self.read_subjects.get(id) orelse return "";
         if (from.kind != .match_copy and from.kind != .match_read) return "";
         return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`: to write through it, {s}", .{ s.name, if (from.whole) "" else "a field of ", try self.plainText(from.place), try self.writeMatchAdvice(from.place) });
     }
@@ -2479,12 +2500,29 @@ const Checker = struct {
     /// `match !subject`, or, for a part of a value made in the header,
     /// that value bound to a name first.
     fn writeMatchAdvice(self: *Checker, subject: Sexp) Error![]const u8 {
-        if (self.hands(subject).kind == .part_of_made) {
-            var base = subject;
-            while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
-            return self.ctx.arena.allocator().print("bind `{s}` to a name first, then match its part with `match !`", .{try self.plainText(base)});
+        const a = self.ctx.arena.allocator();
+        switch (self.hands(subject).kind) {
+            // A part of a value made in the header: the value is named
+            // first.
+            .part_of_made => {
+                var base = subject;
+                while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+                return a.print("bind `{s}` to a name first, then match its part with `match !`", .{try self.plainText(base)});
+            },
+            .place, .lend => if (self.placeOf(subject).named()) return a.print("match with `match !{s}`", .{try self.plainText(subject)}),
+            // Each branch is lent to write: `match (!a if c else !b)`; the
+            // value inside an optional is lent to write with `if !o as x`.
+            .branches => if (subject.isKind(.@"if")) {
+                return "lend each branch to write: `match (!a if c else !b)`";
+            } else if (subject.isKind(.propagate_none)) {
+                return a.print("lend the value inside to write first, `if !{s} as x`, then match it with `match !x`", .{try self.plainText(ir.PropagateNone.value(subject))});
+            },
+            .made, .jump, .none => {},
         }
-        return self.ctx.arena.allocator().print("match with `match !{s}`", .{try self.plainText(subject)});
+        // A call that returns a read view writes nothing; one that
+        // returns a write view is matched as it is.
+        if (subject.isKind(.call)) return "match a write view instead: a place with `match !`, or a call that returns one";
+        return a.print("bind `{s}` to a name first, then match it with `match !`", .{try self.plainText(subject)});
     }
 
     /// Report `e` when it is a read match's binding of a payload that is
@@ -2873,8 +2911,13 @@ const Checker = struct {
             .read => blk: {
                 if (self.matching == .nil) break :blk .read;
                 const subject = ir.Match.subject(self.matching);
-                if (self.hands(subject).kind != .made) break :blk .read;
                 const ty = self.ctx.typeOf(subject) orelse break :blk .read;
+                const subject_hands = self.hands(subject);
+                // A write view the subject makes, a call's or a branch of
+                // write lends (`match (!a if c else !b)`), is lent on, as
+                // `if … as` lends one on.
+                if (self.ctx.types.get(ty) == .write_view and !subject_hands.hasStorage()) break :blk .written;
+                if (subject_hands.kind != .made) break :blk .read;
                 break :blk if (sema.isReadOrWriteView(self.ctx, ty)) .read else .read_own;
             },
         };
@@ -2892,6 +2935,7 @@ const Checker = struct {
         const ty = try self.viewOfAccess(access, reached);
         if (self.ctx.symbolOf(b)) |sym| {
             self.ctx.symbols.items[sym].access = access;
+            self.ctx.symbols.items[sym].flags.access_decided = true;
             self.ctx.symbols.items[sym].ty = ty;
         }
         return ty;
@@ -2905,19 +2949,11 @@ const Checker = struct {
         return sema.decideBindingAccess(self.ctx, .{ .as = .{ .reach = reach, .inner = inner } });
     }
 
-    /// The type access `access` gives the binding of `if … as` or
-    /// `while … as` of a value of type `inner`: a write view of it, a
-    /// read view of it, or, with no access, the copy or the value taken.
-    fn asBindingType(self: *Checker, access: ?sema.Access, inner: TypeId) Error!TypeId {
-        const a = access orelse return inner;
-        return switch (a) {
-            .write => if (self.ctx.types.get(inner) == .write_view) inner else try self.ctx.intern(.{ .write_view = inner }),
-            .read => if (self.ctx.types.get(inner) == .read_view) inner else try self.ctx.intern(.{ .read_view = inner }),
-        };
-    }
-
-    /// The type of a binding with access `access` of a value of type
-    /// `reached`.
+    /// The type a binding with access `access` (`sema.decideBindingAccess`)
+    /// has, of a value of type `reached`: a write view of it; a read view
+    /// of it, a write view `!T` read as `?T` and `![]T` as `[]T`; or, with
+    /// no access, the value, copied or owned. The one place any binding's
+    /// type is built from its access: a match's, an `as`'s, and a loop's.
     fn viewOfAccess(self: *Checker, access: ?sema.Access, reached: TypeId) Error!TypeId {
         const a = access orelse return reached;
         return switch (a) {
@@ -11720,8 +11756,23 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
         at += decide.len;
     }
     // The access is recorded where each binding's type is: in
-    // `checkOptionalBinding`, `checkFor`, and `bindMatchView`.
+    // `checkOptionalBinding`, `checkFor`, and `bindMatchView`, each also
+    // marking it decided for the check that the two agree
+    // (`sema.checkBindingAccess`).
     try std.testing.expectEqual(3, std.mem.count(u8, tc, record));
+    try std.testing.expectEqual(3, std.mem.count(u8, tc, "flags.access_decided" ++ " = true"));
+    // One helper builds a binding's type from its access, for every kind
+    // of binding: `viewOfAccess`, called from the three binding sites.
+    const derive = "self." ++ "viewOfAccess(";
+    try std.testing.expectEqual(3, std.mem.count(u8, tc, derive));
+    at = 0;
+    for ([_][]const u8{ "    fn checkOptionalBinding(", "    fn loopElement(", "    fn bindMatchView(" }) |want| {
+        at = std.mem.indexOfPos(u8, tc, at, derive).?;
+        const fn_at = std.mem.lastIndexOf(u8, tc[0..at], "    fn ").?;
+        try std.testing.expect(std.mem.startsWith(u8, tc[fn_at..], want));
+        at += derive.len;
+    }
+    try std.testing.expectEqual(0, std.mem.count(u8, tc, "asBinding" ++ "Type("));
     // The decider is sema's alone.
     try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "decideBindingAccess("));
     for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("resolve.zig") }) |other| {

@@ -1,0 +1,35 @@
+# A write view a `match` subject makes, a call's result or a branch of
+# write lends, is lent on, as `if … as` lends one on: the bindings write
+# through it, as under `match !e`, and the lend keeps what it views lent
+# while they live. A value made there that moves is taken instead.
+# release
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun getw(e: !E) -> !E
+  e
+
+sub main()
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  match getw(!e)
+    .a(r) => r.n = 60
+    .b => pass
+  print(e)
+  f = E.a(r: Res(n: 2, t: Text("y")))
+  c = e == f
+  match (!e if c else !f)
+    .a(r)
+      r.n += 1
+      !r.t.add("!")
+    .b => pass
+  print(e, f)
+
+# expect:
+# .a(r: Res(n: 60, t: "x"))
+# .a(r: Res(n: 60, t: "x")) .a(r: Res(n: 3, t: "y!"))

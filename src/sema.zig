@@ -49,6 +49,7 @@
 //! everything so one mistake doesn't cascade.
 
 const std = @import("std");
+const zig_builtin = @import("builtin");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 pub const diag = @import("diag.zig");
@@ -422,7 +423,10 @@ pub const SymbolFlags = packed struct(u16) {
     /// A `for` element that views a slot of the Vec the loop walks in
     /// place (`forViewsSlot`).
     slot_view: bool = false,
-    _: u3 = 0,
+    /// Typecheck decided the binding's access (`Symbol.access`, null
+    /// included): a `match`, `as`, or loop binding.
+    access_decided: bool = false,
+    _: u2 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -2476,8 +2480,38 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
+    if (zig_builtin.optimize == .debug or zig_builtin.is_test) try checkBindingAccess(&ctx);
     try storage.plan(&ctx, tree);
     return ctx;
+}
+
+/// Every binding whose access typecheck decided has the type that access
+/// gives it (`Checker.viewOfAccess`): `.write` a write view, `.read` a
+/// read view, a slice, a String, or a type parameter's value read where
+/// it is, and none a value, owned or copied. A binding typed some other
+/// way than from its access is a compiler bug, reported where the
+/// binding is declared (docs/INTERNALS.md, "Binding access"). Debug and
+/// test builds only, of a module typecheck accepted: after an error a
+/// binding may hold the type that error left.
+fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
+    if (ctx.hasErrors()) return;
+    for (ctx.symbols.items) |sym| {
+        if (!sym.flags.access_decided or sym.ty == ctx.types.unknown_id or sym.ty == ctx.types.invalid_id) continue;
+        const ty = ctx.types.get(sym.ty);
+        const agrees = if (sym.access) |a| switch (a) {
+            .write => ty == .write_view,
+            .read => switch (ty) {
+                .read_view, .slice, .string => true,
+                else => copies(ctx, sym.ty) == .depends,
+            },
+        } else switch (ty) {
+            .read_view, .write_view => false,
+            else => true,
+        };
+        if (agrees) continue;
+        const a = ctx.arena.allocator();
+        try ctx.err(sym.decl_pos, "internal error: binding `{s}` has type `{s}`, which its access ({s}) does not give", .{ sym.name, try formatTypeIn(ctx, a, sym.ty), if (sym.access) |x| @tagName(x) else "none" });
+    }
 }
 
 /// A local binding must be read: a name that is only ever assigned is
@@ -3858,11 +3892,12 @@ pub const Access = enum { read, write };
 
 /// How a `match` reaches what its bindings bind.
 pub const MatchReach = enum {
-    /// `match !x`: lent to write.
+    /// `match !x`, or a write view the subject makes (a call's, or a
+    /// branch of write lends), lent on as `if … as` lends one on.
     written,
-    /// A read match of a value another holds: a place, a lend, a view a
-    /// call returns, a value that branches, or a part of a value made in
-    /// the header.
+    /// A read match of a value another holds: a place, a lend, a read
+    /// view a call returns, a value that branches over places, or a
+    /// part of a value made in the header.
     read,
     /// A read match of a value made there, which it holds whole.
     read_own,

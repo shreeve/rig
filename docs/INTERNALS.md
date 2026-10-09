@@ -1779,13 +1779,18 @@ the value is:
 | a parameter, local, or closure capture | its type is `!T` or `![]T` (`w = !x`, `\|!x\|`, `\|<w\|` of one) | its type is `?T` | any other type |
 | `if … as x`, `while … as x` | `!o`, or a write view the header makes | a value viewed where it is, or reached through a read view or handle | a copy, or a value taken (then by its type) |
 | `for x in` | `!v` | an element that does not copy | an element that copies, or one taken (then by its type) |
-| a `match` payload, named field, or catch-all | `match !e` of a field that is no read view or slice; a write view field of a value the match holds whole | a read match of anything else, whatever its subject: a place, a lend, a view a call returns, a part of a value made in the header; a `?T` field | plain data a read copies; a slice; `match <e` (then by its type) |
+| a `match` payload, named field, or catch-all | `match !e`, or a write view the subject makes (a call's, or a branch of write lends: `match (!a if c else !b)`), of a field that is no read view or slice; a write view field of a value the match holds whole | a read match of anything else, whatever its subject: a place, a lend, a read view a call returns, a part of a value made in the header; a `?T` field | plain data a read copies; a slice; `match <e` (then by its type) |
 
 Typecheck records the access on the binding's symbol where it types the
 binding (`bindMatchView`, `checkOptionalBinding`, `checkFor`), and
-derives the type from it: a write view of what the binding reaches, a
-read view of it (a write view `!T` read as `?T`, `![]T` as `[]T`), or
-the value. `SemContext.bindingAccess` reads the fact, and gives a
+derives the type from it through one helper, `viewOfAccess`, for every
+kind of binding: a write view of what the binding reaches, a read view
+of it (a write view `!T` read as `?T`, `![]T` as `[]T`), or the value.
+In debug and test builds, `sema.checkBindingAccess` checks after type
+checking that every binding's type is the one its access gives
+(`.write` a write view; `.read` a read view, a slice, a String, or a
+type parameter's value read in place; none a value), reporting an
+internal error where one is not. `SemContext.bindingAccess` reads the fact, and gives a
 parameter's or local's from its type. Every pass reads it, and none
 decides a binding's mode another way (a unit test checks the sources):
 
@@ -1796,11 +1801,14 @@ decides a binding's mode another way (a unit test checks the sources):
   that owns or copies its value, or a value no binding names.
 - **Storage** binds a payload by address for `.write`
   (`payloadByAddress`).
-- **Emit** copies out the value a `.read` binding of a write view of a
-  scalar or view reads (`Facts.payloadReadsThroughWrite`).
-- **Diagnostics** of a write through a read match's binding name the
-  match that writes (`readMatchHint`): `match !e`, or for a part of a
-  value made in the header, that value bound to a name first.
+- **Emit** binds a `.read` binding of a write view, a match's payload
+  or an `as` binding's value inside, as the read view of what it views:
+  the write view itself, or the value it points at, copied out, for a
+  scalar or a view (`Facts.readsThroughWrite`).
+- **Diagnostics** of a write through a read binding name the binding
+  that writes (`readMatchHint`): `match !e`, `if !o as x`, a branch lent
+  to write, `if !o as x` for `o?`, or, for a part of a value made in the
+  header or any other value, that value bound to a name first.
 
 Desugared, `.a(t)` of `match !e` binds `t` as `w = !x` binds `w`: a
 write view, of the payload's field. So in the arm `s = ?t[1..]` lends a
