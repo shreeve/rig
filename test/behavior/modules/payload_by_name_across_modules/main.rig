@@ -1,0 +1,28 @@
+# A pattern binds the fields of an imported enum's variant by name, as
+# it binds its own enum's.
+use shapes
+
+fun height(s: ?shapes.Shape) -> Int
+  match s
+    .rect(h: h) => h
+    .point => 0
+
+fun first(x: ?Text, d: ?Text) -> ?Text from x, d
+  match shapes.wrap(x, 2)
+    .both(a: v) => v
+    .neither => d
+
+sub main()
+  s = shapes.Shape.rect(w: 3, h: 4, label: Text("box"))
+  print(height(?s))
+  match <s
+    .rect(label: l) => print(l)
+    .point => pass
+  t = Text("t")
+  d = Text("d")
+  print(first(?t, ?d))
+
+# expect:
+# 4
+# box
+# t
