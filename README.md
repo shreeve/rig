@@ -293,7 +293,8 @@ its own under `~/.cache/rig` (or `$XDG_CACHE_HOME/rig`, when that is an
 absolute path; or `$RIG_OUT_DIR` when set). At most once a day they
 remove the program directories there that no build has used for 5
 days, and say how many; `rig clean` removes them all. Both leave a
-program that is still running, and anything rig did not make, alone.
+program that a run, build, or test is still using, anything rig did
+not make, and a cache directory without rig's `CACHEDIR.TAG`, alone.
 A `$RIG_OUT_DIR` is never trimmed.
 
 Debug builds (the default) check for memory leaks: a program that
