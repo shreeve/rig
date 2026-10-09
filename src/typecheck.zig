@@ -8870,10 +8870,13 @@ const Checker = struct {
                     x.header = true;
                     x.open = sigil;
                 },
+                // A `for` walks a binding's place, or a field or element of
+                // one, in place: none of a value that branches.
                 .@"for" => if (sameExpr(ir.For.source(p), top)) {
                     x.header = true;
                     if (ir.For.mode(p).tag == .iter) x.open = sigil;
                     x.writes = ir.For.mode(p).tag == .write;
+                    if (c.hands(place).kind != .place) x.none = true;
                 },
                 // A method's receiver: lent to write where the method
                 // writes it (in parentheses where the call's `Bool` value
@@ -9022,6 +9025,8 @@ const Checker = struct {
                     if (n.isKind(.index) and ir.Index.index(n).isKind(.@"..")) slice = n;
                     if (sameExpr(ir.get(n, .object), obj)) break;
                 }
+                // Only a place is sliced: a value that branches is not.
+                if (slice != null and f.c.hands(x.place).kind != .place) x.none = true;
                 if (slice) |sl| if (!sameExpr(sl, x.top)) {
                     const lend = f.c.lendOf(obj) orelse obj;
                     const sig: []const u8 = if (x.writes and lend.isKind(.write)) "(!" else "(?";
