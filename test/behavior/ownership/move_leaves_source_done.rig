@@ -39,7 +39,8 @@ sub main()
   o = <s.o
   print(m, o, s.n, s.o)
   s.o = 3
-  t = <(!s).o
+  w = !s
+  t = <w.o
   print(t, s.o)
   v: Vec[Int?] = Vec()
   !v.push(5)

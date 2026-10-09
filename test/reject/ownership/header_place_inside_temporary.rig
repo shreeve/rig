@@ -1,5 +1,5 @@
 # A header subject that is a place inside a view of a value the header
-# makes (`id(?mk()).e`, `(?mk()).e`) lives in a temporary the header
+# makes (`id(?mk()).e`, `mk().e`) lives in a temporary the header
 # ends, so emit evaluates the header as a copy, never as a pointer into
 # the temporary (`storage.headerPoints`), and the header is rejected at
 # the temporary, in every header form, plain data bound or not. Lifting
@@ -30,7 +30,7 @@ fun idh(s: ?*S) -> ?S from s
   s
 
 sub main()
-  match (?mk()).e
+  match mk().e
     .a(n) => print("lend", n)
     .b => print("b")
   match id(?mk()).e
@@ -51,7 +51,7 @@ sub main()
   for x in idh(?mkh(7)).xs
     print("for", x)
 
-# error: 33:11: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first
+# error: 33:9: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first
 # error: 36:13: bind the argument to a name first
 # error: 39:16: bind the argument to a name first
 # error: 41:10: bind the argument to a name first

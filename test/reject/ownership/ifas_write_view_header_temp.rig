@@ -5,10 +5,13 @@
 struct O
   o: !Box[Int]?
 
+fun id(o: !O) -> !O
+  o
+
 sub main()
   b: Box[Int]? = Box(5)
-  if (!O(o: !b)).o as x
+  if id(!O(o: !b)).o as x
     print(x)
 
-# error: 10:6: `as` over a write view in a header that makes a temporary, `O(o: !b)`, which ends with the header: bind it to a name first, then lend the value inside with `!`
+# error: 13:6: `as` over a write view in a header that makes a temporary, `O(o: !b)`, which ends with the header: bind it to a name first, then lend the value inside with `!`
 # errors: 1

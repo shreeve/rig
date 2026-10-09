@@ -1,4 +1,4 @@
-# aside (pre-existing, not this branch): a copied-out read of `(?s).n`
+# aside (pre-existing, not this branch): a copied-out read of `id(?s).n`
 # keeps `s` lent for the rest of the call's arguments
 struct S
   n: Int
@@ -7,8 +7,11 @@ fun bump(s: !S) -> Int
   s.n += 1
   s.n
 
+fun id(s: ?S) -> ?S
+  s
+
 sub main()
   s = S(n: 1)
-  print((?s).n, bump(!s))
+  print(id(?s).n, bump(!s))
 
 # oracle: main accept

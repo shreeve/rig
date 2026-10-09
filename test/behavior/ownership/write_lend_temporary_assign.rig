@@ -1,7 +1,8 @@
-# An assignment through a temporary lent to write stores in the
-# temporary (Core sentence 4, §6). Its value is made first, so its own
-# temporaries are older: the statement drops the holder first, whose
-# `drop` still sees the value it holds. `clobber` reuses the stack.
+# A store into a temporary lent to write, through a write method or a
+# write view a call returns, stores in the temporary (Core sentence 4,
+# §6). Its value is made first, so its own temporaries are older: the
+# statement drops the holder first, whose `drop` still sees the value it
+# holds. `clobber` reuses the stack.
 
 struct S
   n: Int
@@ -16,6 +17,9 @@ struct H
 
   fun me(!self) -> !H
     self
+
+  sub set(!self, r: String)
+    self.r = r
 
   drop(!self)
     print("dropH sees", self.r, self.rs)
@@ -34,15 +38,12 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  (!mkh()).r = ?mk(1).t
   wrap(!mkh()).r = ?mk(2).t
   (!mkh().me()).r = ?mk(3).t
-  (!mkh()).r = "lit"
+  !mkh().set("lit")
   print("end", clobber(1))
 
 # expect:
-# dropH sees text 1 []
-# dropS 1
 # dropH sees text 2 []
 # dropS 2
 # dropH sees text 3 []

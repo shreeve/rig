@@ -67,8 +67,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .body = .{ .ret = ctx.types.void_id },
     };
     defer c.arg_types.deinit(ctx.allocator);
-    defer c.reached_lends.deinit(ctx.allocator);
-    defer c.written_paths.deinit(ctx.allocator);
+    defer c.lend_bases.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
     defer c.loop_pairs.deinit(ctx.allocator);
     defer c.owned_bindings.deinit(ctx.allocator);
@@ -76,7 +75,6 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.result_hints.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
-    try c.checkReachedLends();
 }
 
 /// Where a binding that cannot be written got its value: a loop element
@@ -180,16 +178,17 @@ const Checker = struct {
     loop_value: ?*LoopValue = null,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
-    /// Fields and elements reached through a write lend written as their
-    /// base (`(!p).x`, `(!arr)[0]`): one only read has its `!` ignored
-    /// (`checkReachedLends`).
-    reached_lends: std.ArrayList(ReachedLend) = .empty,
-    /// The node ids of the field and element paths written, assigned,
-    /// lent, or taken (`markWritten`).
-    written_paths: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The statement being checked (`checkStmt`), where a reached lend
-    /// is noted.
+    /// The statement being checked (`checkStmt`), which a hint rewrites
+    /// (`lendBase`).
     stmt: Sexp = .nil,
+    /// While a hint types a path that has a lend as its base, to find the
+    /// method it is the receiver of: the lend is not reported again.
+    typing_lend_base: bool = false,
+    /// The paths reported for a lend as their base, with a method they
+    /// are the receiver of (`inLendBase`).
+    lend_bases: std.ArrayList(parser.Span) = .empty,
+    /// Whether the last error was dropped (`inLendBase`).
+    dropped_error: bool = false,
     /// A loop element or `as` binding that copies from a place: the
     /// place, named when the binding is written (`checkBindingWritable`).
     copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
@@ -247,11 +246,6 @@ const Checker = struct {
         parent: ?*LoopFrame,
     };
 
-    /// A field or element `path` reached through `base`, a write lend
-    /// of type `ty` written there (`(!p).x`), in statement `stmt`: its
-    /// `!` is ignored unless `path` is written (`checkReachedLends`).
-    const ReachedLend = struct { path: Sexp, base: Sexp, ty: TypeId, stmt: Sexp };
-
     /// A loop used as a value: its `break` values and its `else` value.
     const LoopValue = struct {
         expected: ?TypeId,
@@ -278,19 +272,34 @@ const Checker = struct {
     };
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
+        if (self.inLendBase(pos)) return;
         return self.ctx.err(pos, fmt, args);
     }
 
     fn note(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
+        if (self.dropped_error) return;
         return self.ctx.note(pos, fmt, args);
     }
 
     fn errAt(self: *Checker, node: Sexp, comptime fmt: []const u8, args: anytype) Error!void {
+        if (self.inLendBase(self.startOf(node))) return;
         return self.ctx.errAt(node, fmt, args);
     }
 
     fn noteAt(self: *Checker, node: Sexp, comptime fmt: []const u8, args: anytype) Error!void {
+        if (self.dropped_error) return;
         return self.ctx.noteAt(node, fmt, args);
+    }
+
+    /// Whether an error at `pos` falls in a path already reported for a
+    /// lend as its base (`lendBase`), the one error that mistake gets:
+    /// what the path then fails as a place or a receiver is not
+    /// reported again. The notes of an error dropped are dropped too.
+    fn inLendBase(self: *Checker, pos: u32) bool {
+        self.dropped_error = for (self.lend_bases.items) |sp| {
+            if (pos >= sp.start and pos < sp.end) break true;
+        } else false;
+        return self.dropped_error;
     }
 
     /// Where a node starts in the source.
@@ -529,7 +538,7 @@ const Checker = struct {
         const ret = context.ret;
         const wants_value = !context.is_sub and ret != self.t().void_id;
         if (!body.isKind(.block)) {
-            if (wants_value) try self.checkExpr(body, ret) else try self.checkStmt(body);
+            if (wants_value) try self.checkTail(body, ret) else try self.checkStmt(body);
             return;
         }
         const prev = self.enter(body);
@@ -570,11 +579,19 @@ const Checker = struct {
                     try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
                     continue;
                 }
-                try self.checkExpr(s, ret);
+                try self.checkTail(s, ret);
             } else {
                 try self.checkStmt(s);
             }
         }
+    }
+
+    /// A function's last value, a statement of its own.
+    fn checkTail(self: *Checker, e: Sexp, ret: TypeId) Error!void {
+        const saved_stmt = self.stmt;
+        self.stmt = e;
+        defer self.stmt = saved_stmt;
+        try self.checkExpr(e, ret);
     }
 
     // =========================================================================
@@ -1258,8 +1275,6 @@ const Checker = struct {
     /// from must be one that may change (`requireBinding`). A diagnostic
     /// with no better position is at `at`. False after a diagnostic.
     fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
-        try self.markWritten(place.node);
-        try self.markWritten(at);
         if (access == .set_cell) return self.requireCellPlace(place, at);
         // A name or value passed where a `!T` goes is the view itself.
         if (access == .pass_write and place.steps == 0) return true;
@@ -1638,9 +1653,7 @@ const Checker = struct {
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
-        // The header binds the value inside: it takes the optional. It
-        // writes a path only through `!` or `<` on it, which mark it
-        // written (`checkReachedLends`); a path bound bare is read.
+        // The header binds the value inside: it takes the optional.
         try self.recordUse(expr, .take);
         // A part of a value made here is bound in that value, which the
         // `if` holds (`Header.held`).
@@ -4085,6 +4098,7 @@ const Checker = struct {
         const obj_ty = if (!self.hands(object).hasStorage()) try self.synthExpr(object) else try self.synthOperand(object);
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
+        try self.lendBase(slice, object);
         if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(slice, lend);
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
@@ -4134,9 +4148,6 @@ const Checker = struct {
     /// (`rejectMadeParts`); the ownership checker decides the rest.
     fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Move.operand(e);
-        // `<` takes the place it reaches: a field or element reached
-        // through a write lend is not only read (`checkReachedLends`).
-        try self.markWritten(operand);
         const ty = try self.synthExpr(operand);
         if (try self.payloadViewTaken(operand, "move")) return self.t().invalid_id;
         if (self.isPoison(ty)) return ty;
@@ -4600,7 +4611,7 @@ const Checker = struct {
 
     /// Member `e` of `obj`, a value of type `obj_ty`.
     fn memberOf(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!TypeId {
-        try self.noteReachedLend(e, obj, obj_ty);
+        try self.lendBase(e, obj);
         const field_node = ir.Member.name(e);
         const field = self.text(field_node);
         const pos = srcPos(field_node, self.startOf(obj));
@@ -5222,7 +5233,7 @@ const Checker = struct {
     /// Element `e` (an `index` node) of a value of type `obj_ty`.
     fn indexInto(self: *Checker, e: Sexp, obj_ty: TypeId) Error!TypeId {
         const object = ir.get(e, .object);
-        try self.noteReachedLend(e, object, obj_ty);
+        try self.lendBase(e, object);
         if (e.isKind(.inst)) {
             for (ir.Inst.args(e)) |a| _ = try self.synthQuiet(a);
             if (self.isPoison(obj_ty)) return obj_ty;
@@ -5300,8 +5311,7 @@ const Checker = struct {
         const obj_ty = if (lent and !self.hands(object).hasStorage()) try self.synthExpr(object) else try self.synthOperand(object);
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
-        // A read slice only reads what a write lend of its base reaches.
-        if (try self.writeLendRead(object, obj_ty, .{ .path = e })) return self.t().invalid_id;
+        try self.lendBase(e, object);
         // What the slice lends, which the ownership checker reads.
         if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(e, lend);
         // A boxed Text is sliced through its box.
@@ -8536,47 +8546,250 @@ const Checker = struct {
         return true;
     }
 
-    /// `e`, a field or element of `obj`, of type `obj_ty`: noted when `obj`
-    /// is a write lend written there (`checkReachedLends`).
-    fn noteReachedLend(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!void {
-        if (self.ctx.quiet > 0 or e != .list or e.list.id == 0) return;
-        if (self.writtenWriteLend(obj, obj_ty) == null) return;
-        try self.reached_lends.append(self.ctx.allocator, .{ .path = e, .base = obj, .ty = obj_ty, .stmt = self.stmt });
+    /// Reports `e`, a field, element, or slice of `obj`, where it has a
+    /// lend of a place as its base (`(!p).x`, `(?arr)[0]`, `(!v)[0..2]`), which no
+    /// path has (`lendsPlace`): the lend goes on the whole path (`!p.x`),
+    /// and an assignment shows the write itself (`p.x = 5`). Reported,
+    /// with the statement rewritten that way (`LendBaseFix`). A method's
+    /// receiver (`(!s).insert(k)`) is not a path's base, a value that
+    /// branches (`(!a if c else !b).x`), which picks the place its path
+    /// reaches, is not a lend, and a lend of a slice (`(?t[..])[0]`)
+    /// makes the view the path reaches.
+    fn lendBase(self: *Checker, e: Sexp, obj: Sexp) Error!void {
+        if (!lendsPlace(self, obj) or self.typing_lend_base) return;
+        const root = if (self.stmt != .nil) self.stmt else e;
+        // A field holding functions, called (`!p.f[0]()`), is reported
+        // as the call's.
+        if (isCallee(root, e)) return;
+        // A lend its own check rejected is reported once.
+        const sp = self.ctx.span(obj);
+        for (self.ctx.diagnostics.items) |d| if (d.severity == .@"error" and !d.lint and d.module == 0 and d.pos >= sp.start and d.pos < sp.end) return;
+        var fix: LendBaseFix = .{ .c = self, .root = root };
+        try fix.collect(fix.root);
+        // The statement's own part on its first line, or else the path.
+        const src = self.ctx.source;
+        var ws = self.ownSpan(fix.root);
+        ws.start = fix.start(fix.root, ws.start);
+        if (std.mem.findScalar(u8, src[ws.start..ws.end], '\n')) |nl| ws.end = ws.start + @as(u32, @intCast(nl));
+        const own = fix.edit(obj) orelse return;
+        if (own.at < ws.start or own.to > ws.end or ws.end - ws.start > 100) ws = .{ .start = own.at, .end = own.to };
+        const base = lentPlace(obj);
+        const temp = own.assigned and self.hands(base).kind != .place;
+        const name: []const u8 = if (!temp) "" else for ([_][]const u8{ "t", "tmp", "tmp1", "tmp2" }) |n| {
+            if (!hasWord(src[ws.start..ws.end], n) and self.lookupAt(self.scope, n, sp.start) == null) break n;
+        } else "tmp3";
+        if (temp) fix.named = .{ .lend = obj, .name = name };
+        var out: std.ArrayList(u8) = .empty;
+        try fix.write(&out, ws.start, ws.end);
+        if (temp) {
+            var made: std.ArrayList(u8) = .empty;
+            const bs = self.ctx.span(base);
+            try fix.write(&made, bs.start, bs.end);
+            try self.errAt(obj, "`{s}`: write a lend on the whole path, not its base; to assign into a temporary, bind it to a name first: `{s} = {s}`, then `{s}`", .{ self.sourceText(e), name, made.items, out.items });
+        } else try self.errAt(obj, "`{s}`: write a lend on the whole path, not its base: `{s}`", .{ self.sourceText(e), out.items });
+        if (self.ctx.quiet == 0) try self.lend_bases.append(self.ctx.allocator, .{ .start = own.at, .end = own.reach });
     }
 
-    /// Each field or element path within `node`, which an access writes,
-    /// assigns, lends, or takes.
-    fn markWritten(self: *Checker, node: Sexp) Error!void {
-        var n = node;
-        while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
-            if (n.list.id != 0) try self.written_paths.put(self.ctx.allocator, n.list.id, {});
-        }
-    }
+    /// The source of a statement with every lend written as a path's
+    /// base (`lendBase`) taken off it, its sigil moved onto the whole
+    /// path where its context takes one: a `match`, `as`, or bare `for`
+    /// subject, and a write method's receiver.
+    const LendBaseFix = struct {
+        c: *Checker,
+        root: Sexp,
+        edits: std.ArrayList(Edit) = .empty,
+        /// A temporary the hint binds to a name first, written as it.
+        named: ?struct { lend: Sexp, name: []const u8 } = null,
 
-    /// Each field or element reached through a write lend written as its
-    /// base and never written, assigned, lent, or taken: only read, it has
-    /// its `!` ignored (`writeLendRead`). Where an error other than a
-    /// lint was reported in the statement's own part (`ownSpan`), the
-    /// write was rejected there, and it is not reported again as only a
-    /// read. The errors go among the others in source order.
-    fn checkReachedLends(self: *Checker) Error!void {
-        const from = self.ctx.diagnostics.items.len;
-        std.mem.sort(ReachedLend, self.reached_lends.items, self, struct {
-            fn before(c: *Checker, a: ReachedLend, b: ReachedLend) bool {
-                return c.startOf(a.base) < c.startOf(b.base);
+        const Edit = struct {
+            lend: Sexp,
+            top: Sexp,
+            /// Whether the whole path is assigned to.
+            assigned: bool,
+            /// What goes before and after the whole path: the lend's
+            /// sigil, moved, or nothing.
+            open: []const u8 = "",
+            close: []const u8 = "",
+            /// Where the whole path starts and ends, where the method it
+            /// is the receiver of is named, and the lend's span with its
+            /// parentheses.
+            at: u32,
+            to: u32,
+            reach: u32,
+            start: u32,
+            end: u32,
+        };
+
+        fn collect(f: *LendBaseFix, n: Sexp) Error!void {
+            if (n != .list or n.isKind(.lambda)) return;
+            if ((n.isKind(.member) or n.isKind(.index)) and !isCallee(f.root, n)) {
+                const obj = ir.get(n, .object);
+                if (lendsPlace(f.c, obj)) try f.add(n, obj);
             }
-        }.before);
-        for (self.reached_lends.items) |r| {
-            if (self.written_paths.contains(r.path.list.id)) continue;
-            const own = self.ownSpan(if (r.stmt == .nil) r.path else r.stmt);
-            const rejected = for (self.ctx.diagnostics.items[0..from]) |d| {
-                if (d.severity == .@"error" and !d.lint and d.module == 0 and d.pos >= own.start and d.pos < own.end) break true;
-            } else false;
-            if (rejected) continue;
-            _ = try self.writeLendRead(r.base, r.ty, .{ .path = r.path });
+            for (n.items()) |x| try f.collect(x);
         }
-        try self.ctx.placeInOrder(from);
-    }
+
+        fn add(f: *LendBaseFix, path: Sexp, obj: Sexp) Error!void {
+            var top = path;
+            while (parentIn(f.root, top)) |p| {
+                if (!(p.isKind(.member) or p.isKind(.index)) or !sameExpr(ir.get(p, .object), top) or isCallee(f.root, p)) break;
+                top = p;
+            }
+            const sigil: []const u8 = if (obj.isKind(.write)) "!" else "?";
+            var open: []const u8 = "";
+            var close: []const u8 = "";
+            var assigned = false;
+            var reach = f.c.ctx.span(top).end;
+            if (parentIn(f.root, top)) |p| switch (p.kind() orelse .module) {
+                .set => assigned = sameExpr(ir.Set.target(p), top),
+                .match => if (sameExpr(ir.Match.subject(p), top)) {
+                    open = sigil;
+                },
+                .as => if (sameExpr(ir.As.value(p), top)) {
+                    open = sigil;
+                },
+                .@"for" => if (sameExpr(ir.For.source(p), top) and ir.For.mode(p).tag == .iter) {
+                    open = sigil;
+                },
+                // A method's receiver: lent to write where the method
+                // writes it (in parentheses where the call's `Bool` value
+                // is used), and bare otherwise.
+                .member => if (try f.receiverMode(top, p)) |m| {
+                    reach = f.c.ctx.span(p).end;
+                    if (m.writes) {
+                        open = if (m.bool_used) "(!" else "!";
+                        close = if (m.bool_used) ")" else "";
+                    }
+                } else {
+                    reach = f.c.ctx.span(p).end;
+                    if (obj.isKind(.write)) open = "!";
+                },
+                else => {},
+            };
+            const src = f.c.ctx.source;
+            var ls = f.c.ctx.span(obj);
+            if (ls.start > 0 and ls.end < src.len and src[ls.start - 1] == '(' and src[ls.end] == ')') {
+                ls.start -= 1;
+                ls.end += 1;
+            }
+            const ts = f.c.ctx.span(top);
+            try f.edits.append(f.c.ctx.arena.allocator(), .{
+                .lend = obj,
+                .top = top,
+                .assigned = assigned,
+                .open = open,
+                .close = close,
+                .at = @min(ts.start, ls.start),
+                .to = @max(ts.end, ls.end),
+                .reach = @max(reach, ls.end),
+                .start = ls.start,
+                .end = ls.end,
+            });
+        }
+
+        /// How the method `callee` names takes `recv`, a path with a lend
+        /// as its base, typed as it would be without that rule; null when
+        /// it names no method this finds.
+        fn receiverMode(f: *LendBaseFix, recv: Sexp, callee: Sexp) Error!?struct { writes: bool, bool_used: bool } {
+            const saved = f.c.typing_lend_base;
+            f.c.typing_lend_base = true;
+            const ty = try f.c.synthQuiet(recv);
+            f.c.typing_lend_base = saved;
+            if (f.c.isPoison(ty)) return null;
+            const m = (try f.c.findMethod(ty, f.c.text(ir.Member.name(callee)))) orelse return null;
+            const call = parentIn(f.root, callee) orelse return null;
+            const ret = f.c.ctx.types.get(m.fn_ty.returns);
+            const value = if (ret == .fallible) ret.fallible else m.fn_ty.returns;
+            return .{ .writes = m.field.receiver == .write, .bool_used = value == f.c.t().bool_id and !sameExpr(call, f.root) };
+        }
+
+        fn edit(f: *const LendBaseFix, lend: Sexp) ?Edit {
+            for (f.edits.items) |x| if (sameExpr(x.lend, lend)) return x;
+            return null;
+        }
+
+        /// Where `n` starts: the first of its parts, which a sigil the
+        /// tree moved inward (`!v[0].bump()`) may start before it.
+        fn start(f: *const LendBaseFix, n: Sexp, from: u32) u32 {
+            var s = from;
+            if (n == .list and !n.isKind(.lambda)) {
+                if (n.list.len > 1) s = @min(s, f.c.ctx.span(n).start);
+                for (n.items()) |x| s = f.start(x, s);
+            } else if (n == .src) s = @min(s, n.src.pos);
+            return s;
+        }
+
+        /// The source from `from` to `to`, each edit within it applied.
+        fn write(f: *const LendBaseFix, out: *std.ArrayList(u8), from: u32, to: u32) Error!void {
+            return f.writeWithin(out, from, to, null);
+        }
+
+        /// `write`, inside the edit at `inside`, whose lend is not met again.
+        fn writeWithin(f: *const LendBaseFix, out: *std.ArrayList(u8), from: u32, to: u32, inside: ?usize) Error!void {
+            const a = f.c.ctx.arena.allocator();
+            const src = f.c.ctx.source;
+            const opened = try a.alloc(bool, f.edits.items.len);
+            const closed = try a.alloc(bool, f.edits.items.len);
+            @memset(opened, false);
+            @memset(closed, false);
+            var at = from;
+            while (true) {
+                // The next point an edit changes, in source order: a
+                // sigil moved onto a path, a lend taken off it, or the
+                // parenthesis that closes a path.
+                const Step = enum { open, lend, close };
+                var next: ?struct { i: usize, step: Step } = null;
+                var pos: u32 = to + 1;
+                for (f.edits.items, 0..) |x, i| {
+                    if (x.close.len > 0 and !closed[i] and x.to >= at and x.to <= to and x.to < pos) {
+                        next = .{ .i = i, .step = .close };
+                        pos = x.to;
+                    }
+                }
+                for (f.edits.items, 0..) |x, i| {
+                    if (x.open.len > 0 and !opened[i] and x.at >= at and x.at < to and x.at <= pos) {
+                        next = .{ .i = i, .step = .open };
+                        pos = x.at;
+                    }
+                }
+                for (f.edits.items, 0..) |x, i| if (i != inside and x.start >= at and x.end <= to and x.start < pos) {
+                    next = .{ .i = i, .step = .lend };
+                    pos = x.start;
+                };
+                const n = next orelse break;
+                const x = f.edits.items[n.i];
+                try out.appendSlice(a, src[at..pos]);
+                at = pos;
+                switch (n.step) {
+                    .open => {
+                        try out.appendSlice(a, x.open);
+                        opened[n.i] = true;
+                    },
+                    .close => {
+                        try out.appendSlice(a, x.close);
+                        closed[n.i] = true;
+                    },
+                    .lend => {
+                        if (f.named) |named| if (sameExpr(named.lend, x.lend)) {
+                            try out.appendSlice(a, named.name);
+                            at = x.end;
+                            continue;
+                        };
+                        // What a postfix would not bind is kept in
+                        // parentheses: `(a if c else b).len`.
+                        const base = lentPlace(x.lend);
+                        const bs = f.c.ctx.span(base);
+                        const parens = !postfixBinds(base) and src[bs.start] != '(';
+                        if (parens) try out.append(a, '(');
+                        try f.writeWithin(out, bs.start, bs.end, n.i);
+                        if (parens) try out.append(a, ')');
+                        at = x.end;
+                    },
+                }
+            }
+            try out.appendSlice(a, src[at..to]);
+        }
+    };
 
     /// The part of statement `s` that is not another statement's: all of
     /// a simple statement, and the header of a loop, an `if`, or a
@@ -8610,9 +8823,6 @@ const Checker = struct {
         read_view: TypeId,
         /// A method's receiver it takes as a read view (`?self`).
         read_receiver: []const u8,
-        /// The base of this path, which only reads the place it reaches
-        /// (`(!p).x`, `(!arr)[0]`, `(!s).len`).
-        path: Sexp,
         /// A held write view lent where a read view of a value that
         /// copies goes, which narrows it: no `!` is written there.
         narrow,
@@ -8625,7 +8835,7 @@ const Checker = struct {
     /// decided by `writeLendRead`.
     fn readOf(self: *Checker, e: Sexp, ty: TypeId, how: ViewRead) Error!void {
         switch (how) {
-            .slot, .value, .lent_to_read, .read_view, .read_receiver, .path => if (try self.writeLendRead(e, ty, how)) return,
+            .slot, .value, .lent_to_read, .read_view, .read_receiver => if (try self.writeLendRead(e, ty, how)) return,
             .narrow, .reach => {},
         }
         try self.ctx.recordRead(e);
@@ -8721,10 +8931,6 @@ const Checker = struct {
                 const call = self.current_call orelse Sexp.nil;
                 const fix = if (call != .nil) try self.unparenthesized(call, e, place) else try a.print("{s}.{s}(...)", .{ place, method });
                 return self.errAt(e, "`{s}` here is read, not held: `{s}` only reads `{s}`; write `{s}`", .{ shown, method, place, fix });
-            },
-            .path => |path| {
-                const fix = try self.unparenthesized(path, e, place);
-                return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("`{s}` only reads the place it reaches", .{self.sourceText(path)}), fix });
             },
             else => return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("only its `{s}` is read here", .{ty}), place }),
         }
@@ -10206,6 +10412,57 @@ fn resultCall(e: Sexp) ?Sexp {
 /// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
+}
+
+/// Whether `obj`, the object of a path, is a lend of a place, which
+/// adds nothing over the bare path. A lend of a slice (`(?t[..])[0]`)
+/// makes the view it is, as a call makes its result.
+fn lendsPlace(c: *const Checker, obj: Sexp) bool {
+    if (c.hands(obj).kind != .lend) return false;
+    const lent = lentPlace(obj);
+    return !(lent.isKind(.index) and ir.Index.index(lent).isKind(.@".."));
+}
+
+/// Whether a postfix written after `e` binds to all of it: a name, a
+/// field, an element, or a call.
+fn postfixBinds(e: Sexp) bool {
+    return e == .src or e.isKind(.member) or e.isKind(.index) or e.isKind(.call);
+}
+
+/// The node within `root` that holds `target` as a child, outside the
+/// closures in it.
+fn parentIn(root: Sexp, target: Sexp) ?Sexp {
+    if (root != .list or root.isKind(.lambda)) return null;
+    for (root.items()) |c| {
+        if (sameExpr(c, target)) return root;
+        if (parentIn(c, target)) |p| return p;
+    }
+    return null;
+}
+
+/// Whether member `m` within `root` names the method a call calls, with
+/// or without compile-time arguments (`(!w).put[2](3)`).
+fn isCallee(root: Sexp, m: Sexp) bool {
+    if (!m.isKind(.member)) return false;
+    var callee = m;
+    var p = parentIn(root, m) orelse return false;
+    if (p.isKind(.index) and sameExpr(ir.get(p, .object), m)) {
+        callee = p;
+        p = parentIn(root, p) orelse return false;
+    }
+    return p.isKind(.call) and sameExpr(ir.Call.callee(p), callee);
+}
+
+/// Whether `text` holds `word` as a whole name.
+fn hasWord(text: []const u8, word: []const u8) bool {
+    var i: usize = 0;
+    while (std.mem.findPos(u8, text, i, word)) |at| : (i = at + 1) {
+        const before = at == 0 or !(std.ascii.isAlphanumeric(text[at - 1]) or text[at - 1] == '_');
+        const end = at + word.len;
+        const after = end == text.len or !(std.ascii.isAlphanumeric(text[end]) or text[end] == '_');
+        if (before and after) return true;
+    }
+    return false;
 }
 
 /// `a` and `b` are the same parsed expression: a list node, or a leaf at

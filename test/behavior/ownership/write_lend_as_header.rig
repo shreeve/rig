@@ -1,25 +1,24 @@
 # An `if … as` or `while … as` header writes the value inside an
 # optional through `!` on the header, takes it with `<`, or reads it
-# bare; a write lend as the base of the path is kept where `!` or `<`
-# writes through it.
+# bare.
 
 struct P
   o: Int?
 
 sub main()
   p = P(o: 3)
-  if !(!p).o as v
+  if !p.o as v
     v += 1
   print(p.o ?? 0)
   if !p.o as v
     v += 10
   print(p.o ?? 0)
-  while !(!p).o as v
+  while !p.o as v
     v += 1
     if v > 15
       break
   print(p.o ?? 0)
-  if <(!p).o as v
+  if <p.o as v
     print(v)
   print(p.o ?? 0)
   o: Int? = 1

@@ -1,6 +1,5 @@
 # A store reached through a write loan that no named place gives (a
-# write view a call returns, a branching receiver, a lend as an
-# assignment's target) holds the viewed value, as a name would
+# write view a call returns, a branching receiver) holds the viewed value, as a name would
 # (`test/reject/ownership/store_into_unnamed_receiver.rig`): values that
 # outlive the holder may be stored there.
 
@@ -32,10 +31,9 @@ sub main()
   wrap(!h).keep(?t)
   (!a if c else !b).keep(?u)
   (!wrap(!h).rs).push(?u)
-  (!a).r = ?t
   wrap(!b).r = ?u
   wv(!v)[0].r = ?t
-  print(h.rs, a.rs, b.rs, a.r, b.r, v[0].r)
+  print(h.rs, a.rs, b.rs, b.r, v[0].r)
 
 # expect:
-# ["one", "two"] ["two"] [] one two one
+# ["one", "two"] ["two"] [] two one

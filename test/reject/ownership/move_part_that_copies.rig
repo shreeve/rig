@@ -67,8 +67,8 @@ fun write_part(s: !S) -> Int
 sub through_views()
   k = 0
   s = mk(!k)
-  a = <(?s).n
-  b = <(!s).n
+  a = <rv(?s).n
+  b = <wv(!s).n
   print(a, b, read_part(?s), write_part(!s))
 
 sub through_handle()
@@ -116,6 +116,12 @@ sub main()
   forms()
   for_part()
 
+fun rv(s: ?S) -> ?S
+  s
+
+fun wv(s: !S) -> !S
+  s
+
 # error: 40:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it
 # error: 41:8: cannot move out of `s.p`: it copies
 # error: 42:8: cannot move out of `s.p.x`: it copies
@@ -128,8 +134,8 @@ sub main()
 # error: 58:8: cannot move out of `sl[...]`: it copies
 # error: 62:4: cannot move out of `s.n`: it copies
 # error: 65:4: cannot move out of `s.p.x`: it copies
-# error: 70:8: cannot move out of `(?s).n`: it copies
-# error: 71:8: cannot move out of `(!s).n`: it copies
+# error: 70:8: cannot move out of `rv(?s).n`: it copies
+# error: 71:8: cannot move out of `wv(!s).n`: it copies
 # error: 77:8: cannot move out of `h.n`: it copies
 # error: 81:11: cannot move out of `s.n`: it copies
 # error: 86:9: cannot move out of `s.n`: it copies

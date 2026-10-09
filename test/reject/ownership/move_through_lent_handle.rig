@@ -1,13 +1,12 @@
-# A path through a lend of a shared handle reaches the handle's value,
-# which other handles may still use: nothing is moved out of it, and the
-# diagnostic names the handle.
+# A path through a shared handle reaches the handle's value, which other
+# handles may still use: nothing is moved out of it.
 
 struct S
   items: Vec[Int]
 
 sub main()
   h = *S(items: Vec())
-  x = <(?h).items
+  x = <h.items
   print(x)
 
-# error: 10:8: cannot move out of `(?h).items`: it is reached through the shared handle `h`, and other handles may still use it
+# error: 9:8: cannot move out of `h.items`: it is reached through a shared handle and other handles may still use it

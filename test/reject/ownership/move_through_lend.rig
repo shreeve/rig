@@ -1,6 +1,6 @@
 # A field or element path that reaches its place through a view, by the
-# type of a value on the path (`!S`, `?S`, a write view a call returns,
-# a branching value of lends), lets `<` move nothing out of it, as
+# type of a value on the path (`!S`, `?S`, a view a call returns, a
+# branching value of lends), lets `<` move nothing out of it, as
 # `<v.items` through a view `v` does not: the part stays owned by the
 # value viewed, a name, a parameter's caller's value, or a temporary.
 # Exchange it instead.
@@ -20,11 +20,14 @@ fun mk(n: Int) -> S
 fun wrap(s: !S) -> !S
   s
 
+fun rd(s: ?S) -> ?S
+  s
+
 fun f(n: Int) -> Int
   n
 
 sub steal(p: !S)
-  x = <(!p).items
+  x = <p.items
   print(x)
 
 sub from_branch()
@@ -48,22 +51,26 @@ sub from_call()
 
 sub main()
   s = mk(1)
-  x = <(!s).items
-  y = <(?s).items
-  z = <(?mk(2)).items
+  ws = !s
+  x = <ws.items
+  rs = ?s
+  y = <rs.items
+  z = <rd(?mk(2)).items
   v: Vec[Vec[Int]] = Vec()
   !v.push(Vec())
-  w = <(?v)[0]
-  u = <(!v)[0]
+  rv = ?v
+  w = <rv[0]
+  wv = !v
+  u = <wv[0]
   print(x, y, z, w, u)
 
-# error: 27:8: cannot move out of `(!p).items`: it is reached through `!p`, a view; exchange it instead: `replace(!p.items, v)`
-# error: 34:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view
-# error: 41:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view
-# error: 46:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view
-# error: 51:8: cannot move out of `(!s).items`: it is reached through `!s`, a view
-# error: 52:8: cannot move out of `(?s).items`: it is reached through `?s`, a view
-# error: 53:8: cannot move out of `(?mk(2)).items`: it is reached through `?mk(2)`, a view
-# error: 56:8: cannot move out of `(?v)[0]`: it is reached through `?v`, a view
-# error: 57:8: cannot move out of `(!v)[0]`: it is reached through `!v`, a view
+# error: 30:8: cannot move out of `p.items`: `p` is a view; exchange it instead: `replace(!p.items, v)`
+# error: 37:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view
+# error: 44:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view
+# error: 49:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view
+# error: 55:8: cannot move out of `ws.items`: `ws` is a view
+# error: 57:8: cannot move out of `rs.items`: `rs` is a view
+# error: 58:8: cannot move out of `rd(?mk(2)).items`: it is reached through `rd(?mk(2))`, a view
+# error: 62:8: cannot move out of `rv[...]`: `rv` is a view
+# error: 64:8: cannot move out of `wv[...]`: `wv` is a view
 # errors: 9
