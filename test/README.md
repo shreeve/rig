@@ -40,7 +40,7 @@ each test's output, `RIG_BUILD_STORE` where programs build (see
 | Path | Contract |
 |---|---|
 | `test/behavior/<area>/<name>.rig` | the program runs, exits 0, has no leaks or use of freed memory, and its stdout equals the `# expect:` block |
-| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors) |
+| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors); each hint of a lend of a place as a path's base, applied alone, draws no error the program did not draw (`test/hints.py`) |
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |

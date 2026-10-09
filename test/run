@@ -294,6 +294,16 @@ check_reject() {
         REASON="diagnostic has no file:line:col: $(head -1 <<<"$out")"
         return 1
     fi
+    # A lend of a place as a path's base: every hint it gives compiles
+    # (test/hints.py).
+    if grep -qE 'write a lend on the whole path, not its base|only reads the place it reaches' <<<"$out"; then
+        local hints
+        if ! hints=$(python3 "$ROOT/test/hints.py" "$RIG" "$entry" 2>&1); then
+            REASON="a hint does not compile: $(head -1 <<<"$hints")"
+            echo "$hints" >>"$log"
+            return 1
+        fi
+    fi
     return 0
 }
 
