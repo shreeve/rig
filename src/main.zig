@@ -831,8 +831,8 @@ fn openCacheHome(io: std.Io, home: []const u8, why: *[]const u8) ?std.Io.Dir {
 }
 
 /// Write rig's tag in the cache home `home` when rig makes it, or when
-/// it holds nothing but rig's own entries (a home an earlier rig made
-/// before it wrote tags). A home with anything else in it, or that is a
+/// it holds rig's packages or stamp and nothing else (a home an earlier
+/// rig made before it wrote tags). A home with anything else in it, or that is a
 /// link, stays untagged, so the trim and `rig clean` leave it alone.
 fn tagCacheHome(io: std.Io, home: []const u8) void {
     const cwd = std.Io.Dir.cwd();
@@ -845,9 +845,16 @@ fn tagCacheHome(io: std.Io, home: []const u8) void {
     var d = cwd.openDir(io, home, .{ .iterate = true, .follow_symlinks = false }) catch return;
     defer d.close(io);
     if (d.statFile(io, cache_tag_name, .{ .follow_symlinks = false })) |_| return else |_| {}
+    // Proof that rig made it: at least one package or rig's stamp, and
+    // nothing else. Trash, known by its name alone, and an empty
+    // directory prove nothing.
+    var proof = false;
     var it = d.iterate();
-    while (it.next(io) catch return) |entry| if (CacheEntry.of(d, io, entry.name, entry.kind) == null) return;
-    writeTag(io, home);
+    while (it.next(io) catch return) |entry| switch (CacheEntry.of(d, io, entry.name, entry.kind) orelse return) {
+        .package, .stamp => proof = true,
+        .trash, .tag => return,
+    };
+    if (proof) writeTag(io, home);
 }
 
 fn writeTag(io: std.Io, home: []const u8) void {
@@ -869,8 +876,8 @@ fn holdPackage(allocator: std.mem.Allocator, io: std.Io, dir: []const u8) void {
     const cwd = std.Io.Dir.cwd();
     const path = std.fs.path.join(allocator, &.{ dir, package_lock }) catch return;
     for (0..8) |_| {
-        cwd.createDirPath(io, dir) catch return;
-        const f = cwd.createFile(io, path, .{ .truncate = false }) catch return;
+        cwd.createDirPath(io, dir) catch continue;
+        const f = openLock(io, cwd, path) orelse continue;
         f.lock(io, .shared) catch {
             f.close(io);
             break;
@@ -886,6 +893,17 @@ fn holdPackage(allocator: std.mem.Allocator, io: std.Io, dir: []const u8) void {
     cwd.setTimestampsNow(io, dir, .{}) catch {};
 }
 
+/// The lock file at `path` of `dir`, opened to read and write (Linux NFS
+/// takes a lock only in the mode a file is open for), made if missing,
+/// and never through a link. Null if it cannot be opened.
+fn openLock(io: std.Io, dir: std.Io.Dir, path: []const u8) ?std.Io.File {
+    for (0..2) |_| {
+        if (dir.openFile(io, path, .{ .mode = .read_write, .follow_symlinks = false })) |f| return f else |err| if (err != error.FileNotFound) return null;
+        if (dir.createFile(io, path, .{ .read = true, .exclusive = true })) |f| return f else |err| if (err != error.PathAlreadyExists) return null;
+    }
+    return null;
+}
+
 /// The lock file of the package `name` of `dir`, locked exclusively, or
 /// null when a run, build, or test holds it (or it is no regular file).
 /// `error.FileLocksUnsupported` where the system has no file locks: no
@@ -896,16 +914,22 @@ fn lockForRemoval(io: std.Io, dir: std.Io.Dir, name: []const u8, created: *bool)
     var pd = dir.openDir(io, name, .{ .follow_symlinks = false }) catch return null;
     defer pd.close(io);
     created.* = false;
-    if (pd.createFile(io, package_lock, .{ .exclusive = true })) |f| {
+    if (pd.createFile(io, package_lock, .{ .read = true, .exclusive = true })) |f| {
         f.close(io);
         created.* = true;
     } else |_| {}
-    const f = pd.openFile(io, package_lock, .{ .follow_symlinks = false }) catch return null;
+    const f = openLock(io, pd, package_lock) orelse return null;
     const locked = f.tryLock(io, .exclusive) catch |err| {
         f.close(io);
         return if (err == error.FileLocksUnsupported) error.FileLocksUnsupported else null;
     };
-    if (!locked) {
+    // Still the package at `name`, not one a run made there after
+    // another trim renamed this one away.
+    const held = f.stat(io) catch null;
+    var lock_path: [std.fs.max_path_bytes]u8 = undefined;
+    const at = std.fmt.bufPrint(&lock_path, "{s}/{s}", .{ name, package_lock }) catch null;
+    const now = if (at) |path| dir.statFile(io, path, .{ .follow_symlinks = false }) catch null else null;
+    if (!locked or held == null or now == null or held.?.inode != now.?.inode) {
         f.close(io);
         return null;
     }

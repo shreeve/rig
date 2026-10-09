@@ -50,6 +50,21 @@ hold() {
     until grep -q held held.txt 2>/dev/null; do sleep 0.1; done
 }
 
+# An existing home is tagged only on proof that rig made it, a package
+# or rig's stamp: not when it is empty, nor when it holds only entries
+# named like rig's trash, which the trim would then delete.
+mkdir -p "$home/.trash-0123456789abcdef"
+echo mine >"$home/.trash-0123456789abcdef/notes.txt"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run in a home of trash: $out"
+[[ ! -e "$home/CACHEDIR.TAG" ]] || fail "rig tagged a home holding only trash-named entries"
+[[ -f "$home/.trash-0123456789abcdef/notes.txt" ]] || fail "rig removed a trash-named directory it did not make"
+rm -rf "$home" && mkdir -p "$home"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run in an empty home: $out"
+[[ ! -e "$home/CACHEDIR.TAG" ]] || fail "rig tagged an empty home"
+rm -rf "$home"
+
 # A home with something rig did not make, and no tag: nothing in it is
 # touched, and it gets no tag.
 package old-0123456789abcdef 9
@@ -103,6 +118,16 @@ done
 mine=$(ls -d "$home"/hello-* 2>/dev/null)
 [[ -d "$mine" && -f "$mine/.lock" ]] || fail "run wrote no package with a lock file"
 
+# A `.lock` that is a link is never followed: the run goes on unlocked,
+# and what the link names is untouched.
+echo keep >elsewhere/target
+mv "$mine/.lock" "$mine/.lock.real"
+ln -s "$PWD/elsewhere/target" "$mine/.lock"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run with a linked lock file: $out"
+[[ -L "$mine/.lock" && "$(cat elsewhere/target)" == keep ]] || fail "the run followed a linked lock file"
+rm "$mine/.lock" && mv "$mine/.lock.real" "$mine/.lock"
+
 # A trim less than a day ago: no other trim yet.
 package stale-0123456789abcdef 9
 out=$("$RIG" run hello.rig 2>&1); rc=$?
@@ -135,6 +160,12 @@ for _ in $(seq 600); do
     sleep 0.1
 done
 [[ -n "$sleeping" ]] || fail "the sleeper made no package"
+# The run holds its lock file open to read and write, which Linux NFS
+# requires of a lock (where lsof is there to show it).
+if command -v lsof >/dev/null; then
+    lsof -p "$runner" 2>/dev/null | grep -E "[0-9]+u .*$sleeping/\.lock$" >/dev/null ||
+        fail "the run does not hold its lock file open to read and write: $(lsof -p "$runner" 2>/dev/null | grep lock)"
+fi
 touch -t "$(ago 9)" "$sleeping"
 trimmed 2
 out=$("$RIG" run hello.rig 2>&1); rc=$?

@@ -51,10 +51,11 @@ to `$RIG_OUT_DIR` when it is set, otherwise to
 `~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`, which,
 like `$HOME`, counts only as an absolute path), the cache home. Rig
 writes a `CACHEDIR.TAG` in a cache home it makes, or in one that holds
-nothing but its own entries, and the trim and `rig clean` act only on
+its packages or its stamp and nothing else, and the trim and `rig clean` act only on
 a home that holds the tag and is no link. Before a build writes its
 package there, it takes a shared lock on the package's `.lock` file
-and holds it until it exits (the system releases it however the
+(opened to read and write, as Linux NFS requires, and never through a
+link) and holds it until it exits (the system releases it however the
 process ends), then sets the directory's time to now. At most once a
 day, as the stamp `.trimmed` in the cache home records (a stamp dated
 in the future counts as old), `run`, `build`, and `test` remove the
