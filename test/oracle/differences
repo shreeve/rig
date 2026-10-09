@@ -29,6 +29,17 @@ test/corpus/review-place-b9-x022_fixed_wb_local.rig main prod-rejects core-gap `
 # and the compiler reads `<s` as moving out of `e`.
 test/corpus/review-take-p15.rig main prod-rejects core-gap `y = <s` of a `match !e` payload binding
 
+# A lend of a write-view binding (`if !o as w`, `match !e`) is a loan on
+# the binding, which ends with its scope (INTERNALS "Lending a binding");
+# the view also keeps the binding's own loan on what it views, which is
+# enough to keep that value from changing while the view lives (Core s7).
+test/corpus/review-assign-desugar-n33_repoint_at_outer_payload.rig main prod-rejects prod-strict `w = !p[0..1]` of a `match !o` binding re-points `w` past the arm
+test/corpus/review-syntax-b-2-v05_if_bang_as_escape_ok.rig f prod-rejects prod-strict `s = keep(r[1..])` of an `if !w as r` binding is used past the `if`
+test/corpus/review-syntax-b-2-v06_if_bang_as_escape_written.rig f prod-rejects prod-strict `s = keep(?r[1..])` of an `if !w as r` binding is used past the `if`
+test/corpus/review-syntax-b-2-v09_match_bang_escape_ok.rig main prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
+test/corpus/review-syntax-b-2-v11_if_bang_as_owned_escape.rig main prod-rejects prod-strict `s = keep(r[1..])` of an `if !o as r` binding is used past the `if`
+test/corpus/review-syntax-b-2-v12_match_bang_param_escape.rig f prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
+
 # A `defer` runs at its scope's exits, after the values declared after
 # it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also
 # checks deferred code where it is written, and its liveness counts
