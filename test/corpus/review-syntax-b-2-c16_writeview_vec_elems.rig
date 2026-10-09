@@ -1,0 +1,11 @@
+fun keep(s: String) -> String
+  s
+
+sub main()
+  t = Text("hello")
+  v: Vec[!Text] = Vec()
+  !v.push(!t)
+  s = keep(v[0][1..])
+  for _ in 0..50
+    !v[0].add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

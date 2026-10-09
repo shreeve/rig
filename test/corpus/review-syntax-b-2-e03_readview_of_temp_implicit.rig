@@ -1,0 +1,12 @@
+fun keep(s: String) -> String
+  s
+
+fun mk() -> Text
+  Text("hello")
+
+fun id(r: ?Text) -> ?Text
+  r
+
+sub main()
+  s = keep(id(mk())[1..])
+  print(s)

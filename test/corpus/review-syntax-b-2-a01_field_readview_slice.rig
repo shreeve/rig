@@ -1,0 +1,10 @@
+struct R
+  f: ?Text
+
+sub main()
+  t = Text("hello")
+  r = R(f: ?t)
+  s = r.f[1..]
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

@@ -1,0 +1,5 @@
+sub main()
+  t = Text("hello")
+  h = *(?t[..])
+  s = h[1..]
+  print(s)

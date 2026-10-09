@@ -1,0 +1,19 @@
+fun keep(s: String) -> String
+  s
+
+struct W
+  f: !Text
+
+struct V
+  w: W
+
+sub g(v: !V)
+  s = keep(v.w.f[1..])
+  for _ in 0..50
+    !v.w.f.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub main()
+  t = Text("hello")
+  v = V(w: W(f: !t))
+  g(!v)

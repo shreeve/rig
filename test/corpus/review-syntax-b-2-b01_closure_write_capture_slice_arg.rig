@@ -1,0 +1,11 @@
+fun keep(s: String) -> String
+  s
+
+sub main()
+  t = Text("hello")
+  f = |!t|
+    s = keep(t[1..])
+    for _ in 0..50
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+  f()

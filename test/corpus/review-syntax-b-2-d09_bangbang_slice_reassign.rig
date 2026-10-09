@@ -1,0 +1,12 @@
+sub f(x: !![]Int, y: ![]Int)
+  s = x[0..1]
+  x = y
+  print(s)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  u: Vec[Int] = Vec()
+  !u.push(2)
+  w = !v[..]
+  f(!w, !u[..])

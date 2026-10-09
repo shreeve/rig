@@ -1,0 +1,9 @@
+sub f(w: !Box[Text])
+  for b in w
+    if b == 104
+      w = Box(Text("x"))
+    print(b)
+
+sub main()
+  t = Box(Text("hello"))
+  f(!t)

@@ -1,0 +1,14 @@
+struct R
+  xs: []Int
+
+sub g(w: !R, u: []Int)
+  s = w.xs[1..]
+  w.xs = u
+  print(s)
+
+sub main()
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+  r = R(xs: ?a[..])
+  g(!r, ?b[..])
+  print(r.xs)

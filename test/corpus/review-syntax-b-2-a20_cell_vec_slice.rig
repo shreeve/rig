@@ -1,0 +1,9 @@
+sub main()
+  c = *Cell[Vec[Int]](Vec())
+  c.push(1)
+  c.push(2)
+  s = ?c[1..]
+  d = +c
+  for i in 0..100
+    d.push(i)
+  print(s)

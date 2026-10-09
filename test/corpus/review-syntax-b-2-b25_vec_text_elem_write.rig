@@ -1,0 +1,12 @@
+sub f(v: !Vec[Text])
+  s = keep(v[0][1..])
+  !v.clear()
+  print(s)
+
+fun keep(s: String) -> String
+  s
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  f(!v)

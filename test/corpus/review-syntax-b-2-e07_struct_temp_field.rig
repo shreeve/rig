@@ -1,0 +1,18 @@
+fun keep(s: String) -> String
+  s
+
+fun mk() -> Text
+  Text("hello")
+
+fun id(r: ?Text) -> ?Text
+  r
+
+struct H
+  t: Text
+
+fun name(h: ?H) -> ?Text
+  ?h.t
+
+sub main()
+  s = keep(name(?H(t: Text("hello")))[1..])
+  print(s)

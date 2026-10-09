@@ -1,0 +1,12 @@
+sub f(w: !Vec[Int])
+  for x in w
+    if x == 1
+      for i in 0..100
+        !w.push(i)
+    print(x)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  f(!v)

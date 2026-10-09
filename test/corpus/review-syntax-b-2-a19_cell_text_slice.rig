@@ -1,0 +1,6 @@
+sub main()
+  c = *Cell(Text("hello"))
+  s = ?c[1..]
+  d = +c
+  d.set(Text("x"))
+  print(s)

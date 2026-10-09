@@ -1,0 +1,11 @@
+struct W
+  f: !Text
+
+sub main()
+  t = Text("hello")
+  w = W(f: !t)
+  for b in w.f
+    if b == 104
+      for _ in 0..50
+        !w.f.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(b)

@@ -1,0 +1,9 @@
+sub f(r: ?Text, h: *Text)
+  s = r[1..]
+  <h
+  print(s)
+
+sub main()
+  a = *Text("hello")
+  b = +a
+  f(?a, <b)

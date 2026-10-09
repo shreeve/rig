@@ -1,0 +1,6 @@
+sub main()
+  o: Text? = Text("hello")
+  if o as r
+    s = r[1..]
+    o = none
+    print(s)

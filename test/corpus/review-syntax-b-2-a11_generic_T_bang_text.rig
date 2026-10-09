@@ -1,0 +1,9 @@
+fun cut[T](x: T) -> String
+  x[1..]
+
+sub main()
+  t = Text("hello")
+  s = cut(!t)
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

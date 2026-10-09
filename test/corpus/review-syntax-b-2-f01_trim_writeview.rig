@@ -1,0 +1,11 @@
+use std.text
+
+sub f(w: !Text)
+  s = text.trim(w)
+  for _ in 0..50
+    !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub main()
+  t = Text(" hello ")
+  f(!t)

@@ -1,0 +1,7 @@
+sub main()
+  t = Text("hello")
+  f = |?t| t[1..]
+  s = f()
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

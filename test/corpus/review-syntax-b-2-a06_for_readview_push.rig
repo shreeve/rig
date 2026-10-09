@@ -1,0 +1,9 @@
+sub main()
+  texts: Vec[Text] = Vec()
+  !texts.push(Text("hello"))
+  !texts.push(Text("world"))
+  out: Vec[String] = Vec()
+  for t in ?texts
+    !out.push(t[1..])
+  !texts.clear()
+  print(out)

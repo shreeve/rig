@@ -1,0 +1,9 @@
+sub f(w: ![]Text)
+  u = ?w[0][1..]
+  w[0] = Text("other")
+  print(u)
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello"))
+  f(!v[..])

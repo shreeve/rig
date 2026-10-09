@@ -1,0 +1,6 @@
+fun mk() -> Text
+  Text("hello")
+
+sub main()
+  s = mk()[1..]
+  print(s)

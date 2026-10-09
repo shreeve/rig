@@ -1,0 +1,13 @@
+struct R
+  f: String
+
+sub g(w: !R)
+  s = w.f[1..]
+  w.f = "other"
+  print(s)
+
+sub main()
+  t = Text("hello")
+  r = R(f: ?t[..])
+  g(!r)
+  print(r.f)

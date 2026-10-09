@@ -1,0 +1,13 @@
+struct H
+  t: Text
+
+  fun go(!self) -> Int
+    s = self.t[1..]
+    for _ in 0..50
+      !self.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+    0
+
+sub main()
+  h = H(t: Text("hello"))
+  print((!h).go())

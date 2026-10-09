@@ -1,0 +1,9 @@
+fun keep(s: String) -> String
+  s
+
+sub main()
+  c = *Cell(Text("hello"))
+  d = +c
+  s = keep(c)
+  d.set(Text("x"))
+  print(s)

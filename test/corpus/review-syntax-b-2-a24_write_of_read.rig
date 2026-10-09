@@ -1,0 +1,8 @@
+sub main()
+  t = Text("hello")
+  u = Text("other")
+  r = ?t
+  w = !r
+  s = w[1..]
+  w = ?u
+  print(s, r)

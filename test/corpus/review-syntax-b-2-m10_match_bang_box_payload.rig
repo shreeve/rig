@@ -1,0 +1,15 @@
+fun keep(s: String) -> String
+  s
+
+enum B
+  a(b: Box[Text])
+  z
+
+sub main()
+  e = B.a(Box(Text("hello")))
+  match !e
+    .a(b)
+      s = keep(b[1..])
+      b = Box(Text("other"))
+      print(s)
+    .z => print("z")
