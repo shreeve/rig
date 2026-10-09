@@ -897,6 +897,15 @@ pub const Question = enum(u8) {
     /// Of an operand of `==` or `!=` beside `none` or a bare `.variant`:
     /// whether the test drops it (`storage.dropsWhenTested`).
     drops_when_tested,
+    /// What an expression hands over (`handsOver`'s kind), which the plan
+    /// decides for every expression (`storage.handsKind`).
+    hands,
+    /// Of a header's subject: whether its block yields the address of the
+    /// place the subject reaches (`storage.headerPoints`).
+    header_points,
+    /// Of an `as` value: whether the binding views the value inside the
+    /// optional (`storage.viewsOptionalValue`).
+    views_optional_value,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.

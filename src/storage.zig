@@ -488,6 +488,10 @@ fn pathBase(e: Sexp) Sexp {
 /// inside a view of one (`id(?mk()).e`) has no place that outlives the
 /// header, and the header yields its value.
 pub fn headerPoints(ctx: *const SemContext, e: Sexp) bool {
+    return decide(ctx, e, .header_points);
+}
+
+fn decideHeaderPoints(ctx: *const SemContext, e: Sexp) bool {
     if (e == .nil or sema.firstStmtTemp(ctx, e) == null) return false;
     return reachesPlace(ctx, e);
 }
@@ -548,6 +552,10 @@ fn startsOutsideHeader(ctx: *const SemContext, e: Sexp) bool {
 /// Whether `if o as x` over `value` views the value inside the
 /// optional rather than copying it (`checkOptionalBinding`).
 pub fn viewsOptionalValue(ctx: *const SemContext, value: Sexp) bool {
+    return decide(ctx, value, .views_optional_value);
+}
+
+fn decideViewsOptionalValue(ctx: *const SemContext, value: Sexp) bool {
     const ty = typeOf(ctx, value) orelse return false;
     return isPtrViewTy(ctx, ty) and !ctx.readsThrough(value);
 }
@@ -741,6 +749,16 @@ fn decidePrintsByAddress(ctx: *const SemContext, a: Sexp) bool {
     return place and sema.readByAddress(ctx, sema.unwrapViews(ctx, ty));
 }
 
+/// What expression `e` hands over (`sema.handsOver`'s kind), decided by
+/// the plan for every expression, for emit to read.
+pub fn handsKind(ctx: *const SemContext, e: Sexp) sema.Hands.Kind {
+    return decide(ctx, e, .hands);
+}
+
+fn decideHands(ctx: *const SemContext, e: Sexp) sema.Hands.Kind {
+    return sema.handsOver(ctx, e).kind;
+}
+
 /// Whether `e`, an operand of `==` or `!=` beside `none` or a bare
 /// `.variant`, is a value made here that moves and that no statement slot
 /// keeps, which the test drops where it reads it (`rig.isNone`,
@@ -914,8 +932,9 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value => bool,
         .match_mode => MatchMode,
+        .hands => sema.Hands.Kind,
         .subject_hold => ?StorageBy,
     };
 }
@@ -947,6 +966,9 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .for_consumes => Node.of(decideForConsumes),
         .print_by_address => Node.of(decidePrintsByAddress),
         .drops_when_tested => Node.of(decideDropsWhenTested),
+        .hands => Node.of(decideHands),
+        .header_points => Node.of(decideHeaderPoints),
+        .views_optional_value => Node.of(decideViewsOptionalValue),
     };
 }
 
@@ -1102,11 +1124,20 @@ const Planner = struct {
         // Whether a value is reached where its leaves are is decided for
         // every expression, which emit reads wherever it takes an address.
         _ = reachesLeaf(ctx, e);
+        _ = handsKind(ctx, e);
         if (ctx.lendOf(e)) |lend| {
             if (lendsInsideOptional(lend)) try p.record(e, .lent, .pointer, .expression);
             try p.leaves(if (e.isKind(.read) or e.isKind(.write)) ir.get(e, .operand) else e);
         }
         if (e != .list) return;
+        // Whether each header's block yields an address is decided for
+        // its subject, which emit reads.
+        const subject = headerSubject(e);
+        if (subject != .nil) {
+            _ = headerPoints(ctx, subject);
+            if (subject.isKind(.move)) _ = headerPoints(ctx, ir.Move.operand(subject));
+            if (e.isKind(.as)) _ = viewsOptionalValue(ctx, subject);
+        }
         switch (e.kind() orelse return) {
             // A value read where its leaves are is reached through the
             // address of the leaf it takes, for a field, an element, or a

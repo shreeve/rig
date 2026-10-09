@@ -1061,7 +1061,12 @@ later arguments run (`holdRead`), a rule of loans that covers these;
 and for each operand of `==` or `!=` beside `none` or a bare `.variant`,
 whether the test drops it (`drops_when_tested`: a value made there that
 moves and that no statement slot keeps, which `rig.isNone` or
-`rig.isVariantDiscard` drops where it reads it). Typecheck's arm-local
+`rig.isVariantDiscard` drops where it reads it); `hands`, what an
+expression hands over (`sema.handsOver`'s kind), which the plan decides
+for every expression, as `reaches_leaf`; and for each header, whether
+its block yields the address of the place its subject reaches
+(`header_points`), and for an `as`, whether its binding views the value
+inside the optional (`views_optional_value`). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from

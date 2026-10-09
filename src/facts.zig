@@ -63,6 +63,7 @@ pub const TypedInt = sema.TypedInt;
 pub const ValueParts = sema.ValueParts;
 pub const ArgSlot = sema.ArgSlot;
 pub const Instance = sema.Instance;
+pub const HandsKind = sema.Hands.Kind;
 pub const LeafStep = storage.LeafStep;
 pub const MatchMode = storage.MatchMode;
 pub const ReceiverHold = storage.ReceiverHold;
@@ -288,6 +289,27 @@ pub const Facts = struct {
     pub fn dropsWhenTested(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .drops_when_tested);
     }
+    /// What an expression hands over (`sema.handsOver`), as the plan
+    /// decided it for every expression.
+    pub fn handsOver(f: Facts, e: Sexp) ?HandsKind {
+        return storage.decided(f.c(), e, .hands);
+    }
+    /// Whether `e` is read from storage, not made for its context: a
+    /// place, a part of a value made here, or a lend (`Hands.hasStorage`).
+    pub fn hasStorage(f: Facts, e: Sexp) ?bool {
+        const kind = f.handsOver(e) orelse return null;
+        return (sema.Hands{ .kind = kind }).hasStorage();
+    }
+    /// Whether a header's block yields the address of the place its
+    /// subject reaches (`storage.headerPoints`).
+    pub fn headerPoints(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .header_points);
+    }
+    /// Whether an `as` binding views the value inside the optional
+    /// (`storage.viewsOptionalValue`).
+    pub fn viewsOptionalValue(f: Facts, value: Sexp) ?bool {
+        return storage.decided(f.c(), value, .views_optional_value);
+    }
     /// Whether a `for` consumes its source (`storage.forConsumes`).
     pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
         return storage.decided(f.c(), loop, .for_consumes);
@@ -498,17 +520,8 @@ pub const Pending = struct {
         return @ptrCast(@alignCast(p.sema_context));
     }
 
-    pub fn handsOver(p: Pending, e: Sexp) sema.Hands {
-        return sema.handsOver(p.c(), e);
-    }
     pub fn madeLeaves(p: Pending, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
         return storage.madeLeaves(p.c(), a, e, out);
-    }
-    pub fn headerPoints(p: Pending, e: Sexp) bool {
-        return storage.headerPoints(p.c(), e);
-    }
-    pub fn viewsOptionalValue(p: Pending, value: Sexp) bool {
-        return storage.viewsOptionalValue(p.c(), value);
     }
     pub fn hoistsArgs(p: Pending, call: Sexp) bool {
         return storage.hoistsArgs(p.c(), call);
@@ -524,9 +537,6 @@ pub const Pending = struct {
     }
     pub fn keptInSlot(p: Pending, e: Sexp) bool {
         return storage.keptInSlot(p.c(), e);
-    }
-    pub fn hasStorage(p: Pending, e: Sexp) bool {
-        return storage.hasStorage(p.c(), e);
     }
     pub fn isPureArg(p: Pending, e: Sexp) bool {
         return storage.isPureArg(p.c(), e);
@@ -580,7 +590,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 17;
+const pending_budget = 13;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
