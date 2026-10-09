@@ -1033,6 +1033,19 @@ lends its bytes, a `String`), `read_only` (a `![]T` is lent on as a
 where a value meets an expected view (`lendView`) and records the rows
 it used (`lendOf`); the ownership checker and emit read that record.
 
+**Decisions.** A few questions about a node that emit, the storage plan,
+and the checkers all act on are recorded as answered the first time a
+pass asks them (`sema.Question`, `SemContext.decided`): every later
+ask, emit's included, reads the record, so no two passes act on
+different answers. They are `leaf_step`, how the walk that reaches a
+value by address reaches a node (`storage.leafStep`), and
+`reaches_leaf`, whether a value is reached where its leaves are
+(`storage.reachesLeaf`), which the storage plan decides for every
+expression. At its end the plan asks each recorded question again from
+the facts as they then stand, and an answer that changed is an internal
+error (`storage.verifyDecisions`). Emit reads them through `Facts`, and
+one it finds unrecorded is an internal error.
+
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser
 wrapper's rewrites keep the number (the `captures` node it builds gets
@@ -1098,6 +1111,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `index`, `slot` | `__rig_new`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then finds its place (`storage.actsBeforeStore`) | owned, owned, pointer | assignment |
+| `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
 holds a copy of a value still held where it was, so a view of the
@@ -2130,22 +2144,29 @@ context behind `Facts`, or keeps a `Pending` entry it no longer uses.
   (`rig.poison`), after its drop, so a view that outlives it reads
   garbage: a dynamic check of the class that sees the stack.
 
-  Emit still takes the address of a Zig rvalue in these places, which
-  the ownership checker confines to the statement and Zig keeps today
-  (it emits no lifetime markers), but which no storage fact names:
+  Emit takes the address of a value Zig holds, in no slot, in two
+  places the storage facts name (`zig_temp`, through
+  `Emitter.zigTemporary`, which requires the fact): `emitLeafPtr`'s
+  `&@as(T, value)` for a leaf made there that no slot keeps, whose type
+  holds no Cell (`refuseHeldCell`), or a literal, and the payload a
+  branch captures by address from such a value; and a temporary array
+  lent as a slice to a call that keeps no view of it (`lendsTempArray`)
+  and evaluates its arguments where they stand. Zig keeps each until its
+  statement ends (it emits no lifetime markers), and the ownership
+  checker confines every view of one to the statement.
+
+  It still takes the address of a Zig rvalue in these places, which the
+  ownership checker confines to the statement too, but which no storage
+  fact names:
 
   - a `?self` method on a branching value with a leaf made there, which
     `reachesLeaf` does not reach, so the receiver is a copy:
     `(@as(Q, if (c) mkq(5) else b)).me()` (never of an
     interior-mutable `Q`: a type that holds a Cell is read by address,
     so `reachesLeaf` reaches it, and each leaf made there is in its
-    slot);
-  - `emitLeafPtr`'s fallback, `&@as(T, value)`, for a leaf made there
-    whose type holds no Cell (`refuseHeldCell`);
+    slot), or on a value made there that no slot keeps, `(mkq(6)).me()`;
   - the values the labeled value blocks (`__rig_blk_N`, `__rig_if_N`)
-    yield, where an address of them is taken;
-  - a temporary array lent as a slice to a call that keeps no view of
-    it (`lendsTempArray`), which Zig keeps through the call.
+    yield, where an address of them is taken other than as a leaf.
 
   The next structural step (HANDOFF, weak spots) is a structural
   chokepoint: every `&` and `|*x|` emit writes targets a place, a

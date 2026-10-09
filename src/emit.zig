@@ -997,9 +997,9 @@ pub const Emitter = struct {
             .new_value => "__rig_new",
             .index => "__rig_ix",
             .slot => "__rig_slot",
-            // The storage of these is another's: the header's value, or
-            // the capture it copies.
-            .header_copy, .as_copy => "",
+            // The storage of these is another's: the header's value, the
+            // capture it copies, or Zig's (`zigTemporary`).
+            .header_copy, .as_copy, .zig_temp => "",
         };
         return switch (suffix) {
             .next => self.fmt("{s}_{d}", .{ base, self.nextId() }),
@@ -1008,6 +1008,14 @@ pub const Emitter = struct {
             .fresh => self.fresh(base),
             .copy_of => |of| self.fmt("{s}_v", .{of}),
         };
+    }
+
+    /// Take the address of `node`, a value Zig holds for its statement in
+    /// no slot: the storage facts must record it (`zig_temp`), so the
+    /// checker knew emit reaches it there.
+    fn zigTemporary(self: *Emitter, node: Sexp) Error!void {
+        const fact = self.facts.storageOf(node, .zig_temp) orelse return self.unsupported(node, "an address of a value Zig holds that the storage facts do not record");
+        if (fact.by != .owned) return self.unsupported(node, "a Zig temporary held other than its storage fact says");
     }
 
     fn nextId(self: *Emitter) u32 {
@@ -4078,7 +4086,7 @@ pub const Emitter = struct {
     /// the branching expression, which may be a constant.
     fn emitAddressOf(self: *Emitter, place: Sexp) Error!void {
         if (self.hoistedOf(place)) |h| return self.w.print("{s}{s}", .{ if (h.ptr) "" else "&", h.name });
-        if (self.reachesLeaf(place)) return self.emitLeafPtr(place, self.typeOf(place).?);
+        if (try self.reachesLeaf(place)) return self.emitLeafPtr(place, self.typeOf(place).?);
         if (place == .src) if (self.localOf(place)) |local| {
             if (local.is_ptr) return self.w.writeAll(local.zig_name);
         };
@@ -4321,7 +4329,7 @@ pub const Emitter = struct {
             return self.w.writeAll(local.zig_name);
         };
         // A value that branches is indexed where the leaf it takes is.
-        if (self.reachesLeaf(base)) return self.emitMemberBase(base, base_ty);
+        if (try self.reachesLeaf(base)) return self.emitMemberBase(base, base_ty);
         switch (how) {
             .expr => try self.emitExpr(base),
             .bare => try self.emitBare(base),
@@ -4498,7 +4506,7 @@ pub const Emitter = struct {
         };
         // A value that branches, read where its leaves are, is reached
         // through the address of the leaf it takes, never a copy.
-        if (self.reachesLeaf(o)) {
+        if (try self.reachesLeaf(o)) {
             if (self.hoistedOf(o)) |h| return self.w.writeAll(h.name);
             return self.emitLeafPtr(o, self.typeOf(o).?);
         }
@@ -4527,9 +4535,10 @@ pub const Emitter = struct {
         if (o.isKind(.call) and o_ty != null and self.isPtrViewTy(o_ty.?) and !self.isStructLike(o_ty.?)) try self.w.writeAll(".*");
     }
 
-    /// `storage.reachesLeaf`.
-    fn reachesLeaf(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.reachesLeaf(e);
+    /// Whether `e` is reached where its leaves are: the recorded decision
+    /// (`storage.reachesLeaf`).
+    fn reachesLeaf(self: *Emitter, e: Sexp) Error!bool {
+        return self.facts.reachesLeaf(e) orelse self.unsupported(e, "a value no checker decided how to reach");
     }
 
     /// The address of the value `e`, of type `ty`, takes: for a value
@@ -4543,7 +4552,7 @@ pub const Emitter = struct {
     /// holds a Cell is kept in its slot (`storage.madeLeaves`), since a
     /// change may land in it.
     fn emitLeafPtr(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
-        switch (self.facts.pending.leafStep(e)) {
+        switch (self.facts.leafStep(e) orelse return self.unsupported(e, "a value reached by address that no checker walked")) {
             .@"if" => {
                 try self.w.writeAll("(");
                 try self.emitIfYieldAs(e, .leaf_ptr, ty);
@@ -4598,6 +4607,7 @@ pub const Emitter = struct {
                     try self.emitTypeTy(ty);
                     return self.w.writeAll(")");
                 }
+                try self.zigTemporary(e);
                 try self.w.writeAll("&");
                 try self.writeAsOpen(ty);
                 try self.emitBare(e);
@@ -4611,6 +4621,7 @@ pub const Emitter = struct {
                     return self.w.writeAll(")");
                 }
                 try self.refuseHeldCell(e, ty);
+                try self.zigTemporary(e);
                 try self.w.writeAll("&");
                 try self.writeAsOpen(ty);
                 try self.emitBare(e);
@@ -4626,13 +4637,17 @@ pub const Emitter = struct {
     /// statement's slot keeps there.
     fn emitPayloadHolder(self: *Emitter, e: Sexp) Error!void {
         const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped optional");
-        switch (self.facts.pending.leafStep(e)) {
+        switch (self.facts.leafStep(e) orelse return self.unsupported(e, "a value reached by address that no checker walked")) {
             .@"if", .fallback, .unwrap, .place, .part, .literal => {
                 try self.w.writeAll("(");
                 try self.emitLeafPtr(e, ty);
                 return self.w.writeAll(").*");
             },
-            .made => if (!self.facts.dropsTemp(e)) try self.refuseHeldCell(e, ty),
+            // The payload is captured by address where Zig holds it.
+            .made => if (!self.facts.dropsTemp(e)) {
+                try self.refuseHeldCell(e, ty);
+                try self.zigTemporary(e);
+            },
             .lend, .jump => {},
         }
         try self.emitBare(e);
@@ -5002,7 +5017,10 @@ pub const Emitter = struct {
                 try self.emitElems(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
-                    if (self.facts.lendsTempArray(a)) try self.w.writeAll("&");
+                    if (self.facts.lendsTempArray(a)) {
+                        try self.zigTemporary(a);
+                        try self.w.writeAll("&");
+                    }
                     try self.emitBare(a);
                 }
             },
@@ -5340,6 +5358,8 @@ pub const Emitter = struct {
         // A temporary array lent as a slice: its address, which lives
         // through the call.
         if (self.facts.lendsTempArray(value)) {
+            // Where Zig holds it, unless the call evaluated it first.
+            if (self.hoistedOf(value) == null) try self.zigTemporary(value);
             try self.w.writeAll("&");
             return self.emitBare(value);
         }

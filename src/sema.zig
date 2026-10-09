@@ -795,6 +795,12 @@ pub const StorageKind = enum {
     index,
     /// The place an assignment stores to, found once (`__rig_slot`).
     slot,
+    /// A value made here whose address emit takes where Zig holds it, in
+    /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
+    /// `made`, and not `dropsTemp`), or a literal, reached by address.
+    /// No name of its own: the storage is Zig's, which keeps it until its
+    /// statement ends.
+    zig_temp,
 };
 
 /// How a hidden storage location holds what it holds.
@@ -831,6 +837,32 @@ pub const StorageLife = enum {
     call,
     /// Until its assignment's store.
     assignment,
+};
+
+/// A question about a node whose answer emit, the storage plan, and the
+/// checkers all act on: decided once, the first time a pass asks it, and
+/// recorded (`SemContext.decided`). Every later ask, emit's included,
+/// reads the record, so no two passes act on different answers; the
+/// storage plan asks each again at its end, from the facts as they then
+/// stand, and stops at one whose answer changed after it was recorded
+/// (`storage.verifyDecisions`). Emit only reads them (`Facts`).
+pub const Question = enum(u8) {
+    /// How the walk that reaches a value by address reaches this node
+    /// (`storage.LeafStep`).
+    leaf_step,
+    /// Whether this value is reached where its leaves are
+    /// (`storage.reachesLeaf`).
+    reaches_leaf,
+};
+
+/// A recorded answer to a `Question`, with the node it is about.
+pub const Decision = struct { node: Sexp, answer: u8 };
+
+/// The `Question`s decided so far. Held behind a pointer, so a pass that
+/// reads the context as constant still records the answer it is first to
+/// reach, as a memo would.
+pub const Decided = struct {
+    map: std.AutoHashMapUnmanaged(struct { node: u64, q: Question }, Decision) = .empty,
 };
 
 /// The key of a storage fact: the expression or construct (`exprKey`)
@@ -1463,6 +1495,8 @@ pub const SemContext = struct {
     storage: std.AutoHashMapUnmanaged(StorageKey, Storage) = .empty,
     /// The values expression statements discard (`discardsValue`).
     discards: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The node `Question`s decided so far, each once.
+    decided: *Decided,
     /// The `from` clause of each function and method that writes one
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
@@ -1474,7 +1508,9 @@ pub const SemContext = struct {
             .source = source,
             .arena = std.heap.ArenaAllocator.init(allocator),
             .types = try TypeStore.init(allocator),
+            .decided = try allocator.create(Decided),
         };
+        ctx.decided.* = .{};
         try ctx.symbols.append(allocator, .{
             .name = "",
             .kind = .local,
@@ -1526,6 +1562,8 @@ pub const SemContext = struct {
         self.plain_reqs.deinit(self.allocator);
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
+        self.decided.map.deinit(self.allocator);
+        self.allocator.destroy(self.decided);
         self.arena.deinit();
     }
 
@@ -1948,6 +1986,24 @@ pub const SemContext = struct {
     /// The built-in element method a call's callee (`member`) names.
     pub fn elemCallOf(self: *const SemContext, callee: Sexp) ?ElemCall {
         return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
+    }
+
+    /// The recorded answer to `q` about `node`; null when no pass has
+    /// asked it.
+    pub fn decision(self: *const SemContext, node: Sexp, q: Question) ?u8 {
+        const d = self.decided.map.get(.{ .node = exprKey(node) orelse return null, .q = q }) orelse return null;
+        return d.answer;
+    }
+
+    /// Record `answer` to `q` about `node`, the first time it is decided.
+    /// A memo: it changes no fact a pass reads but this one, so it is
+    /// written through a constant context, and a node no key names is
+    /// decided again where it is asked.
+    pub fn recordDecision(self: *const SemContext, node: Sexp, q: Question, answer: u8) void {
+        const key = exprKey(node) orelse return;
+        const gop = self.decided.map.getOrPut(self.allocator, .{ .node = key, .q = q }) catch std.debug.panic("out of memory", .{});
+        std.debug.assert(!gop.found_existing or gop.value_ptr.answer == answer);
+        gop.value_ptr.* = .{ .node = node, .answer = answer };
     }
 
     /// Emit holds a value of `node` in hidden storage `s`

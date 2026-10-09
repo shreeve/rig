@@ -237,6 +237,17 @@ pub const Facts = struct {
     pub fn storageOf(f: Facts, node: Sexp, kind: StorageKind) ?Storage {
         return f.c().storageOf(node, kind);
     }
+    /// How the walk that reaches a value by address reaches `e`
+    /// (`storage.leafStep`, a recorded decision); null when no checker
+    /// walked it.
+    pub fn leafStep(f: Facts, e: Sexp) ?LeafStep {
+        return storage.decided(f.c(), e, .leaf_step);
+    }
+    /// Whether `e` is reached where its leaves are (`storage.reachesLeaf`,
+    /// a recorded decision); null when it was never decided.
+    pub fn reachesLeaf(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .reaches_leaf);
+    }
     /// Whether a binding is an integer constant the module folds.
     pub fn isConstInt(f: Facts, sym: SymbolId) bool {
         return f.c().const_ints.contains(sym);
@@ -446,12 +457,6 @@ pub const Pending = struct {
     pub fn handsOver(p: Pending, e: Sexp) sema.Hands {
         return sema.handsOver(p.c(), e);
     }
-    pub fn leafStep(p: Pending, e: Sexp) LeafStep {
-        return storage.leafStep(p.c(), e);
-    }
-    pub fn reachesLeaf(p: Pending, e: Sexp) bool {
-        return storage.reachesLeaf(p.c(), e);
-    }
     pub fn madeLeaves(p: Pending, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
         return storage.madeLeaves(p.c(), a, e, out);
     }
@@ -555,7 +560,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 27;
+const pending_budget = 25;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
@@ -641,6 +646,52 @@ test "Facts answers as the context it was made from" {
     }
     // `mk(2)` is a temporary its statement drops.
     try std.testing.expectEqual(1, temps);
+}
+
+test "Facts reads the leaf walk the storage plan decided" {
+    const source =
+        \\struct R unique
+        \\  n: Int
+        \\
+        \\  fun get(?self) -> Int
+        \\    self.n
+        \\
+        \\fun mkr(n: Int) -> R
+        \\  R(n: n)
+        \\
+        \\sub go(k: Bool)
+        \\  r = mkr(1)
+        \\  print((r if k else mkr(5)).get())
+        \\
+    ;
+    const a = std.testing.allocator;
+    var p = parser.Parser.init(a, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    var ctx = try sema.check(a, source, tree, .{});
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+    const f = Facts.of(&ctx);
+    var nodes: std.ArrayList(Sexp) = .empty;
+    defer nodes.deinit(a);
+    try collect(a, tree, &nodes);
+    var reached: usize = 0;
+    var made: usize = 0;
+    for (nodes.items) |n| {
+        // Decided for every expression.
+        if (n == .src or (n == .list and n.list.id != 0)) {
+            const r = f.reachesLeaf(n) orelse return error.TestUnexpectedResult;
+            if (r) reached += 1;
+        }
+        if (f.leafStep(n)) |step| if (step == .made) {
+            made += 1;
+            // Reached where Zig holds it: a fact names it.
+            try std.testing.expectEqual(StorageBy.owned, (f.storageOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
+        };
+    }
+    // `r if k else mkr(5)`, with `mkr(5)` made there.
+    try std.testing.expectEqual(1, reached);
+    try std.testing.expectEqual(1, made);
 }
 
 fn collect(a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) !void {
