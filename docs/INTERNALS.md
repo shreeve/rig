@@ -1057,7 +1057,11 @@ walks as taking the source; and for each argument of `print`,
 (`print_by_address`: a function's binding, or a field or element, not a
 slice, of a type read by address), which emit passes as an address. The
 ownership checker holds every place an argument reads in place while the
-later arguments run (`holdRead`), a rule of loans that covers these. Typecheck's arm-local
+later arguments run (`holdRead`), a rule of loans that covers these;
+and for each operand of `==` or `!=` beside `none` or a bare `.variant`,
+whether the test drops it (`drops_when_tested`: a value made there that
+moves and that no statement slot keeps, which `rig.isNone` or
+`rig.isVariantDiscard` drops where it reads it). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from

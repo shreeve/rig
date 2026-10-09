@@ -894,6 +894,9 @@ pub const Question = enum(u8) {
     /// Of a `print`, `Text(...)`, or `add` argument: whether it is read
     /// by address (`storage.printsByAddress`).
     print_by_address,
+    /// Of an operand of `==` or `!=` beside `none` or a bare `.variant`:
+    /// whether the test drops it (`storage.dropsWhenTested`).
+    drops_when_tested,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.

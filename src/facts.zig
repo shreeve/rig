@@ -283,6 +283,11 @@ pub const Facts = struct {
     pub fn printsByAddress(f: Facts, a: Sexp) ?bool {
         return storage.decided(f.c(), a, .print_by_address);
     }
+    /// Whether a test against `none` or a `.variant` drops its operand
+    /// (`storage.dropsWhenTested`).
+    pub fn dropsWhenTested(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .drops_when_tested);
+    }
     /// Whether a `for` consumes its source (`storage.forConsumes`).
     pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
         return storage.decided(f.c(), loop, .for_consumes);

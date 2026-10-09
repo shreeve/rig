@@ -4108,9 +4108,7 @@ pub const Emitter = struct {
         // dropped by the test.
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             const other = operands[1 - i];
-            if (!self.isNoneLeaf(other) or !self.dropsWhenTested(operands[i])) continue;
-            const t = self.typeOf(operands[i]) orelse continue;
-            if (self.kindOf(t) == null) continue;
+            if (!self.isNoneLeaf(other) or !try self.dropsWhenTested(operands[i])) continue;
             if (kind == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll("rig.isNone(");
             try self.emitBare(operands[i]);
@@ -4122,7 +4120,7 @@ pub const Emitter = struct {
             if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
             // A value made here that owns a resource is dropped once
             // tested.
-            const temp = self.dropsWhenTested(value) and self.kindOf(self.typeOf(value).?) != null;
+            const temp = try self.dropsWhenTested(value);
             if (kind == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
             try self.emitExpr(value);
@@ -5459,8 +5457,8 @@ pub const Emitter = struct {
     /// Whether an operand tested against `none` or a bare `.variant` is
     /// a value made there that no slot holds, which the test drops. Any
     /// other operand is read where it is.
-    fn dropsWhenTested(self: *Emitter, e: Sexp) bool {
-        return self.facts.pending.handsOver(e).kind == .made and !self.facts.dropsTemp(e);
+    fn dropsWhenTested(self: *Emitter, e: Sexp) Error!bool {
+        return self.need(self.facts.dropsWhenTested(e), e);
     }
 
     /// `storage.hasStorage`.

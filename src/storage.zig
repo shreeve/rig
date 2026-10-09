@@ -741,6 +741,20 @@ fn decidePrintsByAddress(ctx: *const SemContext, a: Sexp) bool {
     return place and sema.readByAddress(ctx, sema.unwrapViews(ctx, ty));
 }
 
+/// Whether `e`, an operand of `==` or `!=` beside `none` or a bare
+/// `.variant`, is a value made here that moves and that no statement slot
+/// keeps, which the test drops where it reads it (`rig.isNone`,
+/// `rig.isVariantDiscard`). Decided once, for emit and the plan.
+pub fn dropsWhenTested(ctx: *const SemContext, e: Sexp) bool {
+    return decide(ctx, e, .drops_when_tested);
+}
+
+fn decideDropsWhenTested(ctx: *const SemContext, e: Sexp) bool {
+    if (sema.handsOver(ctx, e).kind != .made or ctx.dropsTemp(e)) return false;
+    const ty = typeOf(ctx, e) orelse return false;
+    return owns(ctx, ty);
+}
+
 /// Whether `for` loop `loop` consumes its source, handing its elements
 /// over one at a time: a Vec it takes (`for x in <v`) or that its source
 /// makes and that owns resources, or an array of values that move, which
@@ -900,7 +914,7 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested => bool,
         .match_mode => MatchMode,
         .subject_hold => ?StorageBy,
     };
@@ -932,6 +946,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .payload_by_address => decidePayloadByAddress,
         .for_consumes => Node.of(decideForConsumes),
         .print_by_address => Node.of(decidePrintsByAddress),
+        .drops_when_tested => Node.of(decideDropsWhenTested),
     };
 }
 
@@ -1098,6 +1113,9 @@ const Planner = struct {
             // method.
             .member => try p.leaves(lentPlace(ir.Member.object(e))),
             .index => try p.leaves(ir.Index.object(e)),
+            .@"==", .@"!=" => for ([2]Sexp{ ir.get(e, .left), ir.get(e, .right) }) |operand| {
+                _ = dropsWhenTested(ctx, operand);
+            },
             .call => {
                 // How `print` and the Text operations read each argument.
                 if (isPrintCall(ctx, e) or textCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
