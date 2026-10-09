@@ -1026,8 +1026,9 @@ LENDW_TYPES = {
 }
 # Each binding: the declarations it needs, the lines before the body,
 # the lines opening it, the body's indent under them, the lines after
-# it, the binding's name when it is not `b`, and, for a parameter of `f`,
-# the parameter and the value `main` makes and lends `f`.
+# it, the binding's name when it is not `b`, for a parameter of `f`, the
+# parameter, the value `main` makes and lends `f`, and what `main` makes
+# first, and whether every program must be rejected (`rejected`).
 LENDW_BINDINGS = {
     "match": dict(decls="enum E\n  a(x: TY)\n  z\n", setup=["e = E.a(mk())"],
                   head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
@@ -1039,6 +1040,12 @@ LENDW_BINDINGS = {
     "closure": dict(setup=["b = mk()"], head=["g = |!b|"], depth=2, after=["g()"]),
     "held": dict(setup=["x = mk()", "b = !x"], head=[], depth=0),
     "field": dict(decls="struct HW\n  w: !TY\n", setup=["x = mk()", "h = HW(w: !x)"], head=[], depth=0, name="h.w"),
+    # A read match binds a write view field as a read view, so every
+    # write through it is rejected, live view or not.
+    "read_match": dict(decls="enum E\n  a(x: !TY)\n  z\n", setup=["y = mk()", "e = E.a(!y)"],
+                       head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    "read_match_param": dict(decls="enum E\n  a(x: !TY)\n  z\n", param="e: !E", arg="E.a(!z)", pre=["z = mk()"],
+                             head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
 }
 
 
@@ -1065,9 +1072,12 @@ def lendw_program(bname, tname, lname, when):
     lines += [" " * b["depth"] + l for l in body] + b.get("after", [])
     if "param" in b:
         out.append(f"sub f({b['param'].replace('TY', t['ty'])})\n" + indent(lines, 2) + "\n")
-        out.append(f"sub main()\n  y = {b['arg']}\n  f(!y)\n")
+        out.append("sub main()\n" + indent(b.get("pre", []) + [f"y = {b['arg']}", "f(!y)"], 2) + "\n")
     else:
         out.append("sub main()\n" + indent(lines, 2) + "\n")
+    if b.get("rejected"):
+        # No run prints this: a program that runs fails the cell.
+        return "\n".join(out), "(rejected)\n"
     return "\n".join(out), f"{out_s}\n{t['out']}\n"
 
 
