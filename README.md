@@ -16,9 +16,10 @@ generation, and linking.
 
 ## A short tour
 
-Rig's whole ownership model fits on one page,
-[docs/CORE.md](docs/CORE.md). Read it before the syntax guide and the
-language reference, which give the details.
+[docs/QUICK.md](docs/QUICK.md) is a short guide to the sigils. Rig's
+whole ownership model fits on one page, [docs/CORE.md](docs/CORE.md).
+Read it before the syntax guide and the language reference, which give
+the details.
 New to Rig? [WELCOME.md](WELCOME.md) is the guide for programmers
 coming from Rust, Zig, C, Python, Ruby, JavaScript, or Go. Every
 example in this README is compiled and run by the test suite, and
