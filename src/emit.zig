@@ -1371,28 +1371,7 @@ pub const Emitter = struct {
                 else => self.unsupported(sexp, "this binding target"),
             };
         }
-        if (std.mem.eql(u8, self.srcText(target), "_")) {
-            // A discarded resource is dropped at once.
-            if (self.typeOf(expr)) |t| if (self.kindOf(t) != null) {
-                try self.w.writeAll("rig.discard(");
-                try self.emitBare(expr);
-                return self.w.writeAll(");");
-            };
-            // A named place is discarded by address: it may be used
-            // elsewhere, and Zig rejects discarding a used name. (A
-            // clone or move of a value that owns nothing is a copy.)
-            var place = expr;
-            if (place.isKind(.read) or place.isKind(.write) or place.isKind(.clone) or place.isKind(.move)) place = ir.get(place, .operand);
-            if ((try self.hasStorage(place)) and !place.isKind(.index)) {
-                try self.w.writeAll("_ = &");
-                try self.emitPlace(place);
-                return self.w.writeAll(";");
-            }
-            try self.w.writeAll("_ = ");
-            try self.emitBare(expr);
-            try self.w.writeAll(";");
-            return;
-        }
+        if (std.mem.eql(u8, self.srcText(target), "_")) return self.emitDiscard(expr);
         // Sema decides whether the name declares a binding or
         // reassigns one.
         const sym = self.facts.symbolOf(target) orelse return self.unsupported(target, "an unresolved binding");
@@ -1402,6 +1381,30 @@ pub const Emitter = struct {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
             try self.emitRebind(local.*, expr, self.facts.repoints(sexp));
         }
+    }
+
+    /// `_ = expr`, and a statement `<e` of anything but a name, which
+    /// drops what it takes.
+    fn emitDiscard(self: *Emitter, expr: Sexp) Error!void {
+        // A discarded resource is dropped at once.
+        if (self.typeOf(expr)) |t| if (self.kindOf(t) != null) {
+            try self.w.writeAll("rig.discard(");
+            try self.emitBare(expr);
+            return self.w.writeAll(");");
+        };
+        // A named place is discarded by address: it may be used
+        // elsewhere, and Zig rejects discarding a used name. (A
+        // clone or move of a value that owns nothing is a copy.)
+        var place = expr;
+        if (place.isKind(.read) or place.isKind(.write) or place.isKind(.clone) or place.isKind(.move)) place = ir.get(place, .operand);
+        if ((try self.hasStorage(place)) and !place.isKind(.index)) {
+            try self.w.writeAll("_ = &");
+            try self.emitPlace(place);
+            return self.w.writeAll(";");
+        }
+        try self.w.writeAll("_ = ");
+        try self.emitBare(expr);
+        try self.w.writeAll(";");
     }
 
     /// A new binding.
@@ -1781,9 +1784,12 @@ pub const Emitter = struct {
         if (local.is_ptr) try self.w.writeAll(".*");
     }
 
-    /// `-x`: drop now.
+    /// `<x` as a statement: drop now. `<e` of anything but a name drops
+    /// what it takes, as `_ = <e` does.
     fn emitDrop(self: *Emitter, sexp: Sexp) Error!void {
-        const local = self.localOf(ir.Drop.name(sexp)) orelse return self.unsupported(sexp, "this drop");
+        const target = ir.Drop.target(sexp);
+        if (target != .src) return self.emitDiscard(target);
+        const local = self.localOf(target) orelse return self.unsupported(sexp, "this drop");
         if (local.kind) |kind| {
             if (local.guard == .flag) try self.w.print("{s} = false; ", .{local.flag});
             try self.writeDrop(local.zig_name, kind);

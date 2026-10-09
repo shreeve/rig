@@ -2972,7 +2972,16 @@ pub const Checker = struct {
     }
 
     fn walkDrop(self: *Checker, node: Sexp) Error!void {
-        const target = ir.Drop.name(node);
+        const target = ir.Drop.target(node);
+        // `<e` of anything but a name drops what it takes, as `_ = <e`
+        // does (`walkSet`).
+        if (target != .src) {
+            const saved = self.binding;
+            defer self.binding = saved;
+            self.binding = .{ .name = "_", .value = target };
+            _ = try self.walkConsumed(target, .binding);
+            return;
+        }
         const pos = target.src.pos;
         const name = self.text(target);
         const id = self.find(name) orelse return;

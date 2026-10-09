@@ -313,9 +313,6 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //     `|x| ...` starts a closure's bar list; after a value `|` is
 //     bitwise or.
 //
-//     `-x` at the start of a statement (or a match arm) that is nothing
-//     but `-name` is a drop; otherwise `-x` is negation.
-//
 //     A prefix sigil touches its operand: `- b` and `< x` are errors,
 //     so `a <- b` is not quietly `a < -b`. After a type's `]` the
 //     parser decides (`[2]?T`), and the Parser wrapper checks the touch.
@@ -747,7 +744,6 @@ pub const Lexer = struct {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
-            .minus => if (!after_value and self.stmtStart() and self.isWholeDropStatement()) .drop_stmt else .minus,
             .at => if (self.isBuiltinCall()) .at else return self.fail(.pin_sigil, tok.pos),
             .bar => if (self.isCaptureBar(tok, after_value)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
@@ -847,21 +843,6 @@ pub const Lexer = struct {
         if (self.nextCat() != .colon) return null;
         if (self.inParens()) return .kwarg_name;
         return if (self.in_members[self.depth] and (self.stmtStart() or self.last_cat == .@"pub")) .ident else null;
-    }
-
-    /// `-name` is a whole statement, a drop: after `-` comes a name and
-    /// then the end of the line, a comment, or a postfix guard. Anywhere
-    /// else, `-x` is negation.
-    fn isWholeDropStatement(self: *const Lexer) bool {
-        var probe = self.base;
-        const name = probe.next();
-        if (name.cat != .ident or keyword(self.base.text(name)) != null) return false;
-        const after = probe.next();
-        return switch (after.cat) {
-            .newline, .eof, .comment => true,
-            .ident => std.mem.eql(u8, self.base.text(after), "if"),
-            else => false,
-        };
     }
 
     /// `@name(...)` is a builtin call; `@name` alone is the reserved pin
@@ -1123,9 +1104,6 @@ pub const Parser = struct {
     /// `(move place)` receivers written in front of the call
     /// (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The node ids of the `-name` lines rewritten to `(neg name)`
-    /// because their value is used, and whether it is a function's value.
-    value_tails: std.AutoHashMapUnmanaged(parser.NodeId, bool) = .empty,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -1583,11 +1561,14 @@ pub const Parser = struct {
     //       (lambda _ ((cap_clone v) a) _ body)  →  (lambda (captures (cap_clone v)) (a) _ body)
     //   * `for` source sigils move into the mode slot:
     //       (for iter x _ (read xs) body _)  →  (for read x _ xs body _)
-    //   * a `-name` statement whose value is used is negation, not a drop:
-    //     the last statement of a `fun` body, a `break` value, or the last
-    //     statement of a branch, arm, `catch` handler, or loop `else`
-    //     block whose value is used, becomes (neg name). (A
-    //     closure has no declared result, so its body is not rewritten.)
+    //   * a statement `<e` whose value is not used drops now: a block's
+    //     statement, a `defer` or `errdefer` body, an arm's body, or a
+    //     labeled statement becomes (drop x) for a name, and
+    //     (drop (move e)) for anything else; the last statement of a
+    //     `fun` body, a closure body, a `break` or `return` value, a
+    //     binding's value, or a branch, arm, `catch` handler, or loop
+    //     `else` block whose value is used keeps its (move e):
+    //       (block (move x))  →  (block (drop x))
     //   * a jump fallback belongs to the nearest `??` (the grammar reads
     //     it at the level of `catch`, after the chain before it):
     //       (?? (?? a b) (return v))  →  (?? a (?? b (return v)))
@@ -1615,7 +1596,15 @@ pub const Parser = struct {
         switch (out.kind() orelse return out) {
             .module => self.moduleConsts(out),
             .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.pubMembers(out),
-            .lambda => try self.splitBars(out, walked),
+            .lambda => {
+                try self.splitBars(out, walked);
+                // A closure's value is its body's last line.
+                try self.valueTail(&walked[ir.slot(.lambda, .body)]);
+            },
+            .block => for (walked[1..]) |*stmt| try self.dropStatement(stmt),
+            .@"defer", .@"errdefer" => try self.dropStatement(&walked[ir.slot(.@"defer", .body)]),
+            .arm => try self.dropStatement(&walked[ir.slot(.arm, .body)]),
+            .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
             .@"??" => return self.nearestFallback(out),
             .read, .write, .move => return self.receiverSigil(out),
             .share => try self.noteParenSuffix(out),
@@ -1627,14 +1616,14 @@ pub const Parser = struct {
             // The body's value is returned.
             .fun => {
                 try self.paramList(out);
-                if (ir.Fun.returns(out) != .nil) try self.valueTail(ir.Fun.body(out), true);
+                if (ir.Fun.returns(out) != .nil) try self.valueTail(&walked[ir.slot(.fun, .body)]);
             },
             .sub, .extern_fun, .extern_sub => try self.paramList(out),
             // The expression's value is bound or returned.
-            .set => try self.valueTail(ir.Set.value(out), false),
-            .@"return" => try self.valueTail(ir.Return.value(out), false),
+            .set => try self.valueTail(&walked[ir.slot(.set, .value)]),
+            .@"return" => try self.valueTail(&walked[ir.slot(.@"return", .value)]),
             // A loop's value is always used.
-            .@"break" => try self.valueTail(ir.Break.value(out), false),
+            .@"break" => try self.valueTail(&walked[ir.slot(.@"break", .value)]),
             else => {},
         }
         return out;
@@ -1926,38 +1915,55 @@ pub const Parser = struct {
         items[ir.slot(.lambda, .params)] = if (params.items.len > 0) .{ .list = parser.List.withId(params.items, bars.list.id) } else .nil;
     }
 
-    /// `sexp` (already walked, so its lists are freshly allocated) is in
-    /// value position, `function` when it is a function's body: a
-    /// trailing `(drop x)` there is `(neg x)`.
-    fn valueTail(self: *Parser, sexp: Sexp, function: bool) std.mem.Allocator.Error!void {
-        const kind = sexp.kind() orelse return;
-        const items = @constCast(sexp.items());
-        switch (kind) {
-            .drop => {
-                items[0] = .{ .tag = .neg };
-                try self.value_tails.put(self.allocator(), sexp.list.id, function);
-            },
-            .block => {
-                const stmts = ir.Block.stmts(sexp);
-                if (stmts.len > 0) try self.valueTail(stmts[stmts.len - 1], function);
-            },
-            .@"if" => {
-                try self.valueTail(ir.If.then(sexp), false);
-                try self.valueTail(ir.If.@"else"(sexp), false);
-            },
-            .match => for (ir.Match.arms(sexp)) |arm| try self.valueTail(ir.Arm.body(arm), false),
-            .@"catch" => try self.valueTail(ir.Catch.handler(sexp), false),
-            .@"while" => try self.valueTail(ir.While.@"else"(sexp), false),
-            .@"for" => try self.valueTail(ir.For.@"else"(sexp), false),
-            else => {},
+    /// A statement `<e` drops what it moves: `(move x)` of a name becomes
+    /// `(drop x)`, keeping its node id; `(move e)` of anything else is
+    /// held by a new `(drop (move e))`, so that every pass reads the move
+    /// as `_ = <e` reads it. `valueTail` undoes it where the value is used.
+    fn dropStatement(self: *Parser, slot: *Sexp) std.mem.Allocator.Error!void {
+        if (!slot.isKind(.move)) return;
+        const operand = ir.Move.operand(slot.*);
+        if (operand == .src and isBindingName(self.base.source, operand)) {
+            @constCast(slot.items())[0] = .{ .tag = .drop };
+            return;
         }
+        slot.* = try self.base.newNode(.drop, &.{slot.*}, self.span(slot.*));
     }
 
-    /// For a `-name` line that is a value (`valueTail`): whether it is a
-    /// function's value; null for any other node.
-    pub fn valueTailOf(self: *const Parser, node: Sexp) ?bool {
-        if (node != .list) return null;
-        return self.value_tails.get(node.list.id);
+    /// A name a binding may have: not a literal, `true`, or `false`.
+    fn isBindingName(source: []const u8, leaf: Sexp) bool {
+        const text = leaf.getText(source);
+        if (text.len == 0 or !isIdentStart(text[0])) return false;
+        return keyword(text) == null;
+    }
+
+    /// `slot` (already walked, so its lists are freshly allocated) is in
+    /// value position: a drop `dropStatement` made of its last statement
+    /// is the move again.
+    fn valueTail(self: *Parser, slot: *Sexp) std.mem.Allocator.Error!void {
+        const kind = slot.kind() orelse return;
+        const items = @constCast(slot.items());
+        switch (kind) {
+            .drop => {
+                const target = ir.Drop.target(slot.*);
+                if (target == .list) {
+                    slot.* = target;
+                } else {
+                    items[0] = .{ .tag = .move };
+                }
+            },
+            .block => if (items.len > 1) try self.valueTail(&items[items.len - 1]),
+            .@"if" => {
+                try self.valueTail(&items[ir.slot(.@"if", .then)]);
+                try self.valueTail(&items[ir.slot(.@"if", .@"else")]);
+            },
+            .match => for (ir.Match.arms(slot.*)) |arm| try self.valueTail(&@constCast(arm.items())[ir.slot(.arm, .body)]),
+            .@"catch" => try self.valueTail(&items[ir.slot(.@"catch", .handler)]),
+            .@"while" => try self.valueTail(&items[ir.slot(.@"while", .@"else")]),
+            .@"for" => try self.valueTail(&items[ir.slot(.@"for", .@"else")]),
+            .labeled => try self.valueTail(&items[ir.slot(.labeled, .stmt)]),
+            .raw_block => try self.valueTail(&items[ir.slot(.raw_block, .body)]),
+            else => {},
+        }
     }
 
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.
@@ -2050,7 +2056,7 @@ test "`name:` is a keyword argument inside ( ), a name inside [ ]" {
 
 test "a statement label ends no operand" {
     try expectCats(":a if x", &.{ .colon, .ident, .@"if", .ident });
-    try expectCats(":a -x", &.{ .colon, .ident, .drop_stmt, .ident });
+    try expectCats(":a -x", &.{ .colon, .ident, .minus, .ident });
 }
 
 test "a `while` header's first `:` starts its step; another after a jump is a label's" {
@@ -2060,14 +2066,13 @@ test "a `while` header's first `:` starts its step; another after a jump is a la
     try expectCats("x = a ?? break :b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .colon, .ident });
 }
 
-test "minus: infix, negation, drop" {
+test "minus: infix or negation, never a drop" {
     try expectCats("a - b", &.{ .ident, .minus, .ident });
-    try expectCats("a -b", &.{ .ident, .minus, .ident });
-    try expectCats("-x", &.{ .drop_stmt, .ident });
+    try expectCats("-x", &.{ .minus, .ident });
     try expectCats("- x", &.{.err});
     try expectCats("-x + 1", &.{ .minus, .ident, .plus, .integer });
     try expectCats("y = -x", &.{ .ident, .assign, .minus, .ident });
-    try expectCats("defer -x", &.{ .@"defer", .drop_stmt, .ident });
+    try expectCats("defer -x", &.{ .@"defer", .minus, .ident });
 }
 
 test "if: block, guard, ternary" {
@@ -2261,7 +2266,7 @@ test "parser: every form parses" {
         \\  x += 1
         \\  x <<= 2
         \\  z = <w
-        \\  -z
+        \\  <z
         \\  if x > 1
         \\    print(x, y)
         \\  else if not (x < 0 and true)

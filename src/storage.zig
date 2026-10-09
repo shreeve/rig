@@ -1092,7 +1092,7 @@ fn planConsumed(ctx: *SemContext, e: Sexp) !void {
     };
     switch (head) {
         .move => try consumeName(ctx, ir.Move.operand(e)),
-        .drop => try consumeName(ctx, ir.Drop.name(e)),
+        .drop => try consumeName(ctx, ir.Drop.target(e)),
         .@"return" => try consumeTail(ctx, ir.Return.value(e)),
         .@"break" => try consumeTail(ctx, ir.Break.value(e)),
         .@"for" => {

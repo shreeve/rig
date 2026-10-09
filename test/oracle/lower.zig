@@ -810,9 +810,14 @@ const Lowerer = struct {
         try self.emit(.{ .pos = pos, .what = .move, .moves = try self.list(v), .def = x });
     }
 
-    /// `-x` drops `x` now (Core s2).
+    /// A statement `<x` drops `x` now (Core s2); `<e` of anything but a
+    /// name drops what it takes, as `_ = <e` does.
     fn dropStmt(self: *Lowerer, s: Sexp) Error!void {
-        const name = ir.Drop.name(s);
+        const name = ir.Drop.target(s);
+        if (name != .src) {
+            _ = try self.eval(name, .take, null);
+            return;
+        }
         const x = self.varOf(name) orelse return abstain("a drop of something not a local");
         const xv = self.f.vars.items[x];
         // What a parameter views, the caller owns (SPEC §7 "Drop").

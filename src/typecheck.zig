@@ -604,13 +604,16 @@ const Checker = struct {
                 for (ir.Block.stmts(stmt)) |c| try self.checkStmt(c);
             },
             .drop => {
-                const name = ir.Drop.name(stmt);
+                const name = ir.Drop.target(stmt);
+                // `<e` of anything but a name drops what it takes, as
+                // `_ = <e` does.
+                if (name != .src) return self.checkDiscard(name);
                 const ty = try self.synthExpr(name);
                 if (try self.payloadViewTaken(name, "drop")) return;
                 // Plain data owns nothing, and ends a loan only when it
                 // may hold a view (a String may view a Text).
                 if (!self.isPoison(ty) and sema.isPlainData(self.ctx, ty) and !sema.mayHoldView(self.ctx, ty)) {
-                    try self.errAt(stmt, "`-{s}` drops nothing: `{s}` is plain data", .{ self.text(name), self.text(name) });
+                    try self.errAt(stmt, "`<{s}` drops nothing: `{s}` is plain data", .{ self.text(name), self.text(name) });
                 }
             },
             .@"break" => try self.checkBreak(stmt),
@@ -687,10 +690,15 @@ const Checker = struct {
     /// over (`!`, `?`), or handle a failure. One that only reads a value
     /// and drops it is a mistake; a function name was meant as a call.
     fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
-        // `-s.f` / `-v[i]` alone on a line reads like a drop, which only
-        // a binding takes.
-        if (stmt.isKind(.neg) and (ir.Neg.operand(stmt).isKind(.member) or ir.Neg.operand(stmt).isKind(.index))) {
-            try self.errAt(stmt, "only a binding is dropped with `-x`; `{s}` is dropped with what holds it, or replaced by assigning to it", .{self.sourceText(ir.Neg.operand(stmt))});
+        // A statement `-x` negates `x` and discards the result; a drop is
+        // written `<x`.
+        if (stmt.isKind(.neg)) {
+            const operand = ir.Neg.operand(stmt);
+            const ty = try self.synthQuiet(operand);
+            const owns_or_views = self.isPoison(ty) or !sema.isPlainData(self.ctx, ty) or sema.mayHoldView(self.ctx, ty);
+            if (owns_or_views and sema.handsOver(self.ctx, operand).kind == .place) {
+                try self.errAt(stmt, "this expression does nothing as a statement; to drop `{s}` now, write `<{s}`", .{ self.sourceText(operand), self.sourceText(operand) });
+            } else try self.errAt(stmt, "this expression does nothing as a statement: `{s}` negates a value and discards it", .{self.sourceText(stmt)});
             return;
         }
         const saved = self.discarded;
@@ -698,12 +706,6 @@ const Checker = struct {
         self.discarded = stmt;
         try self.ctx.recordDiscard(stmt);
         const ty = try self.synthExpr(stmt);
-        // A statement `-name` is a drop; any other `-e` there would negate
-        // a value and throw it away.
-        if (stmt.isKind(.neg)) {
-            if (!self.isPoison(ty)) try self.errAt(stmt, "a statement `-e` drops a name; `{s}` would negate a value and discard it", .{self.sourceText(stmt)});
-            return;
-        }
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
         if (!hasEffect(stmt)) {
@@ -781,6 +783,13 @@ const Checker = struct {
     }
 
     // ---- bindings and assignment --------------------------------------------
+
+    /// `_ = e`, and a statement `<e` that drops what it takes: `e` is
+    /// taken, and dropped at the statement's end.
+    fn checkDiscard(self: *Checker, value: Sexp) Error!void {
+        try self.recordUse(value, .take);
+        _ = try self.synthExpr(value);
+    }
 
     fn checkSet(self: *Checker, node: Sexp) Error!void {
         const kind = rig.bindingKindOf(ir.Set.op(node));
@@ -3441,13 +3450,6 @@ const Checker = struct {
             .float, .int_literal, .float_literal => {},
             .type_var => |tv| try self.require(tv, .signed, self.startOf(operand), "-"),
             else => {
-                // A `-name` line that gives a block's value negates; it
-                // reads like a drop.
-                if (self.ctx.parser) |p| if (p.valueTailOf(e)) |function| {
-                    const name = self.text(operand);
-                    try self.errAt(e, "`-{s}` here is {s}, and negation needs a number; to drop `{s}`, drop it before the last line", .{ name, if (function) "the function's value" else "the value of its block", name });
-                    return self.t().invalid_id;
-                };
                 try self.errAt(operand, "operator `-` requires a numeric operand; got `{s}`", .{try self.tyName(ty)});
                 return self.t().invalid_id;
             },
