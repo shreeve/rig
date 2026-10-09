@@ -46,13 +46,13 @@ fun view(t: !Text) -> String
 sub main()
   t = Text("one\r\ntwo\nthree")
   it = lines(?t)
-  a = !it.next()
-  b = !it.next()
+  a = (!it).next()
+  b = (!it).next()
   print(a, b)
-  while !it.next() as line
+  while (!it).next() as line
     print(line)
   more = lines("x\ny\nz")
-  print(!more.next() ?? "?", !more.next() ?? "?", !more.next() ?? "?", !more.next() ?? "done")
+  print((!more).next() ?? "?", (!more).next() ?? "?", (!more).next() ?? "?", (!more).next() ?? "done")
   c = cut(?t, "\n") ?? Cut(before: "", after: "")
   print(c.before.len, c.after)
   !t.add("!")

@@ -319,7 +319,7 @@ fun start() -> Counter
   Counter(n: 41)
 
 sub main()
-  print(!start().next())
+  print((!start()).next())
 ```
 
 ```output
@@ -438,8 +438,8 @@ sub main()
   !v.push(Item(n: 1))
   !v.push(Item(n: 2))
   c = Cursor(items: ?v, i: 0)
-  a = !c.next()
-  b = !c.next()
+  a = (!c).next()
+  b = (!c).next()
   print(a.n, b.n)
 ```
 

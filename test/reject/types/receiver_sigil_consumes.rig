@@ -6,7 +6,7 @@ struct Stack
   fun top(?self) -> Int?
     self.items.get(0)
   fun pop(!self) -> Int?
-    !self.items.pop()
+    (!self.items).pop()
 
 sub main()
   s = Stack(items: Vec())

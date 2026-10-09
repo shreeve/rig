@@ -37,7 +37,7 @@ sub main()
   print(b, rest)
   w = W[Int](x: 4)
   head: Box[Node]? = none
-  print(!w.grab(), w)
+  print((!w).grab(), w)
 
 # expect:
 # 5 [none]

@@ -2,10 +2,10 @@ use std.random
 
 fun roll(r: random.Random) -> Int
   x = r
-  !x.int(1, 1000000)
+  (!x).int(1, 1000000)
 
 sub main()
   r = random.Random.new()
   print(roll(r) == roll(r))
   a = r
-  print(!a.next() == !r.next())
+  print((!a).next() == (!r).next())

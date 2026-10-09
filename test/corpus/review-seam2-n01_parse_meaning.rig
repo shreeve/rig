@@ -13,6 +13,6 @@ fun wrap(s: !S) -> !S
 
 sub main()
   s = S(n: 1)
-  x = !wrap(!s).all().n
+  x = (!wrap(!s)).all().n
   x += 10
   print(s.n)

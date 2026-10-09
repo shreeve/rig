@@ -5,7 +5,7 @@ sub main()
   v: Vec[*sub()] = Vec()
   !v.push(*|| print("one"))
   !v.push(*|| print("two"))
-  f = !v.pop()
+  f = (!v).pop()
   print(v.len)
   if <f as g
     g()

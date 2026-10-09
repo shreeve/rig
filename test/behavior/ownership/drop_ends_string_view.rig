@@ -25,7 +25,7 @@ sub main()
   <s
   !t.add("d")
   it = split(?t)
-  if !it.next() as first
+  if (!it).next() as first
     print(first)
   <it
   !t.add("e")

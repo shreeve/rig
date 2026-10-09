@@ -46,7 +46,7 @@ fun wrap(h: !H) -> !H
   h
 
 sub stores_view()
-  !mkw().keep(!mk(1).at())
+  !mkw().keep((!mk(1)).at())
 
 sub stores_string()
   !mkh().keep(?mk(1).t)
@@ -63,7 +63,7 @@ sub stores_through_bang()
 sub main()
   stores_view()
 
-# error: 49:16: a view of the temporary `mk(1)` is held by `mk
+# error: 49:17: a view of the temporary `mk(1)` is held by `mk
 # error: 52:16: a view of the temporary `mk(1)` is held by `mk
 # error: 55:19: a view of the temporary `mk(1)` is held by `mk
 # error: 61:20: `s` does not live long enough

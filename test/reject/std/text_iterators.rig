@@ -6,7 +6,7 @@ sub main()
   it = text.split("a b", " ")
   print(it.rest)
   s = text.Split(rest: "a", sep: "", done: false)
-  print(it.next(), !s.next())
+  print(it.next(), (!s).next())
 
 # error: 7:12: field `rest` of `std.text.Split` is private to the standard library's module `std.text`
 # error: 8:12: only the standard library's module `std.text` can construct `std.text.Split`: its fields `rest`, `sep`, `done` are private

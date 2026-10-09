@@ -8,12 +8,12 @@ use std.random
 
 sub main()
   for r in [random.Random.seeded(1), random.Random.seeded(2)]
-    print(!r.next() % 10)
+    print((!r).next() % 10)
   a = [random.Random.seeded(1), random.Random.seeded(2)]
   for r in !a
-    print(!r.next() % 10)
+    print((!r).next() % 10)
   for r in a
     print(r)
-  print(!a[0].next() % 10)
+  print((!a[0]).next() % 10)
   !a.swap(0, 1)
   print(a)

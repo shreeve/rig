@@ -57,7 +57,7 @@ sub main()
   print(n, read(?n))
   s = S(n: 1)
   !s.bump()
-  q = !s.get()
+  q = (!s).get()
   q += 1
   print(s.n)
   a = [!n]

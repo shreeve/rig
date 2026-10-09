@@ -10,5 +10,5 @@ struct S
 
 sub main()
   s = S(n: 1)
-  print(!s.take() catch -1)
-  print(!s.take() catch -1)
+  print((!s).take() catch -1)
+  print((!s).take() catch -1)

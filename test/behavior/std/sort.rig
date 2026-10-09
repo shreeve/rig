@@ -46,8 +46,8 @@ sub main()
     v: Vec[Int] = Vec()
     ps: Vec[P] = Vec()
     for i in 0..n
-      !v.push(!r.int(-50, 50))
-      !ps.push(P(key: !r.int(0, 8), id: i))
+      !v.push((!r).int(-50, 50))
+      !ps.push(P(key: (!r).int(0, 8), id: i))
     sort.sort(!v[..])
     sort.sort_by(!ps[..], |x, y| x.key < y.key)
     ok = ok and sorted(?v[..]) and stable(?ps[..]) and v.len == n

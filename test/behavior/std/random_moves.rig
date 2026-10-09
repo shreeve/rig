@@ -4,14 +4,14 @@ use std.random
 
 fun roll(r: random.Random) -> Int
   g = <r
-  !g.int(1, 7)
+  (!g).int(1, 7)
 
 sub main()
   r = random.Random.seeded(5)
   a = <r
-  first = !a.next()
-  child = !a.fork()
-  print(!child.next() != !a.next(), first != 0)
+  first = (!a).next()
+  child = (!a).fork()
+  print((!child).next() != (!a).next(), first != 0)
   n = roll(<a)
   print(n >= 1 and n <= 6)
 

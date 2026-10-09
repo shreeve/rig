@@ -5,7 +5,7 @@ fun firsts(s: []random.Random) -> random.Random
 
 sub adv(w: ![]random.Random)
   for r in !w
-    print(!r.next() % 100)
+    print((!r).next() % 100)
   x = w[0]
   print(x)
 

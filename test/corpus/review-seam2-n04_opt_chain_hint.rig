@@ -24,10 +24,10 @@ fun mkerr(n: Int) -> S!
   S(n: n)
 
 fun go(n: Int) -> Int?
-  !(mkopt(n)?).pop()
+  (!(mkopt(n)?)).pop()
 
 fun go2(n: Int) -> Int!
-  !(mkerr(n)!).pop()
+  (!(mkerr(n)!)).pop()
 
 sub main()
   print(go(1) ?? -1, go(0) ?? -1)

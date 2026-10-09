@@ -58,5 +58,5 @@ fun mkt(k: Int) -> T
   T(k: k)
 
 sub main()
-  print(!mkt(1).two(b: !mk(2).pop(), a: !mk(3).at()))
-  print(!mkt(10).two(b: clobber(5), a: !mkt(20).k))
+  print((!mkt(1)).two(b: (!mk(2)).pop(), a: (!mk(3)).at()))
+  print((!mkt(10)).two(b: clobber(5), a: !mkt(20).k))

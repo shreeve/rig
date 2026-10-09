@@ -8,10 +8,10 @@ struct Game
 sub main()
   c = Cell(random.Random.seeded(1))
   r = c.replace(random.Random.seeded(2))
-  print(!r.next())
+  print((!r).next())
   g = Game(rng: random.Random.seeded(7), score: 3)
   h = <g
-  print(h.score, !h.rng.next() != 0)
+  print(h.score, (!h.rng).next() != 0)
 
 # expect:
 # 10451216379200822465

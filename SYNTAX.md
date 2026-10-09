@@ -409,7 +409,7 @@ struct Stack
     !self.items.push(k)
 
   fun pop(!self) -> Int?
-    !self.items.pop()
+    (!self.items).pop()
 
   fun total(<self) -> Int
     sum = 0
@@ -422,7 +422,7 @@ sub main()
   !s.push(1)
   !s.push(2)
   !s.items.push(3)
-  print(!s.pop() ?? 0)
+  print((!s).pop() ?? 0)
   print(<s.total())
 ```
 

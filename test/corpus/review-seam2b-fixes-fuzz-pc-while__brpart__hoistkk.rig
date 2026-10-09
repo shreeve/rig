@@ -112,6 +112,6 @@ fun f2(n: Int) -> Int
 sub main()
   c = f(1) == 1
   i = 0
-  while i < 2 and !(mkpair(3) if c else mkpair(5)).b.kk.put2v(b: f(2), a: f(3)) > 0
+  while i < 2 and (!(mkpair(3) if c else mkpair(5)).b.kk).put2v(b: f(2), a: f(3)) > 0
     i += 1
   print("--- end", c)

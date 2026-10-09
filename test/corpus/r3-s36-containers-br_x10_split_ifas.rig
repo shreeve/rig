@@ -17,5 +17,5 @@ struct Split
 sub main()
   t = Text("a,b,c")
   s = Split(rest: ?t, sep: ",", done: false)
-  while !s.next() as p
+  while (!s).next() as p
     print(p)

@@ -42,7 +42,7 @@ fun clobber(n: Int) -> Int
 
 sub main()
   w = 0
-  f = || print(!mk(1).pop())
+  f = || print((!mk(1)).pop())
   f()
-  g = *|| print(!mk(2).pop())
+  g = *|| print((!mk(2)).pop())
   g()

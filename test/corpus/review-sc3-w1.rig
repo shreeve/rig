@@ -9,7 +9,7 @@ sub main()
   for n in 1..8
     !xs.push(*Res(id: n))
   keep: Vec[*Res] = Vec()
-  found = while !xs.pop() as r and r.id > 1
+  found = while (!xs).pop() as r and r.id > 1
     if r.id == 6
       continue
     if r.id == 3

@@ -64,7 +64,7 @@ sub main()
   !v.push(2)
   done = false
   while not done
-    print(!v.pop() ?? 0)
+    print((!v).pop() ?? 0)
     done = v.len == 0
 ```
 
@@ -100,7 +100,7 @@ fun peek(v: ?Vec[Int]) -> Int?
 
 fun pop(v: !Vec[Int]) -> Int!
   return Stack.empty if v.len == 0
-  !v.pop() ?? 0
+  (!v).pop() ?? 0
 
 fun next(v: ?Vec[Int]) -> Int?
   peek(?v)? + 1

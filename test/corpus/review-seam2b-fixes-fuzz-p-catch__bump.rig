@@ -93,14 +93,14 @@ fun f(n: Int) -> Int
 sub viatemp()
   c = f(1) == 1
   k = 3
-  print(!(mkf(7) catch mk(8)).bump())
+  print((!(mkf(7) catch mk(8))).bump())
   print(c, k)
 
 sub vianame()
   c = f(1) == 1
   k = 3
   tt = (mkf(7) catch mk(8))
-  print(!tt.bump())
+  print((!tt).bump())
   print(c, k)
 
 sub main()

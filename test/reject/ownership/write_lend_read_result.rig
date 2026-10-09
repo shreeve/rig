@@ -81,7 +81,7 @@ sub stored()
 
 sub receiver()
   b = Bag(items: items(), count: 0)
-  r = !b.first()
+  r = (!b).first()
   b.count += 1
   print(r.n)
 

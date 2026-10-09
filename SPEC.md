@@ -1523,7 +1523,7 @@ struct Shelf[T]
     !self.items.push(<x)
 
   fun take(!self) -> T?
-    !self.items.pop()
+    (!self.items).pop()
 
 fun pick[T](a: T, b: T, first: Bool) -> T
   if first
@@ -1536,7 +1536,7 @@ sub main()
   s = Shelf[*Track](items: Vec())
   !s.add(*Track(title: "intro"))
   !s.add(*Track(title: "outro"))
-  if !s.take() as last
+  if (!s).take() as last
     print("took", last.title)
   print("left", s.items.len, pick(1, 2, true))
 ```
@@ -3426,7 +3426,7 @@ sub grow(b: !Wrap)
 
 sub main()
   grow(!Wrap(n: 1))
-  print(!Wrap(n: 5).next())
+  print((!Wrap(n: 5)).next())
 ```
 
 ```output
@@ -3840,7 +3840,7 @@ struct Bag
 sub main()
   b = Bag(items: Vec(), taken: 0)
   !b.items.push(4)
-  r = !b.take()
+  r = (!b).take()
   print(b.taken, b.items.len)
   print(r)
 ```
@@ -3992,9 +3992,9 @@ sub add(n: !Int, k: Int)
 
 sub main()
   !counter().bump()
-  print(!counter().bump(), counter().log.len)
-  add(!counter().at(), 10)
-  print(!counter().at() + 1)
+  print((!counter()).bump(), counter().log.len)
+  add((!counter()).at(), 10)
+  print((!counter()).at() + 1)
 ```
 
 ```output
@@ -4252,7 +4252,7 @@ sub main()
   for v in [1, 2, 3]
     !s.push(v)
   !s.reverse()
-  print(!s.pop(), !s.pop(), !s.pop(), !s.pop())
+  print((!s).pop(), (!s).pop(), (!s).pop(), (!s).pop())
 ```
 
 ```output
@@ -4624,7 +4624,7 @@ sub main()
   nums: Vec[Int] = Vec()
   !nums.push(3)
   !nums.push(4)
-  while !nums.pop() as n
+  while (!nums).pop() as n
     total.set(total.get() + n * 100)
   print(total.get(), steps.len)
 ```
@@ -4639,7 +4639,7 @@ sub main()
   !v.push("b")
   !v.insert(0, "a")
   !v.insert(v.len, "c")
-  gone = !v.remove(1)
+  gone = (!v).remove(1)
   print(gone, v)
 ```
 
@@ -4666,7 +4666,7 @@ sub main()
   bs: Vec[*B] = Vec()
   !bs.push(*B(n: 1))
   !bs.push(*B(n: 2))
-  if !bs.pop() as last
+  if (!bs).pop() as last
     print("popped", last.n)
   print("left", bs.len)
 ```
@@ -5469,7 +5469,7 @@ sub main()
   for n in 1..6
     !xs.push(n)
   total = 0
-  while !xs.pop() as n and n > 2
+  while (!xs).pop() as n and n > 2
     total += n
   print(total, xs.len)
 ```

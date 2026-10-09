@@ -112,6 +112,6 @@ fun f2(n: Int) -> Int
 sub main()
   c = f(1) == 1
   a2 = [0, 0]
-  a2[f(1)] = !(mkpair(3) if c else mkpair(5)).b.kk.put2v(b: f(2), a: f(3))
+  a2[f(1)] = (!(mkpair(3) if c else mkpair(5)).b.kk).put2v(b: f(2), a: f(3))
   print(a2)
   print("--- end", c)

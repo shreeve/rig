@@ -8,7 +8,7 @@ struct B
 
   sub set(!self, k: Int)
     self.v[0] = match k
-      0 => !self.grow()
+      0 => (!self).grow()
       _ => 3
 
 sub main()

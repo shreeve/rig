@@ -170,7 +170,7 @@ sub main()
   # Map[String, Int] and Map[Int, *Node] (owned values, drop glue).
   counts: Map[String, Int] = Map[String, Int].new()
   for w in split("a b a c b a", " ")
-    _ = !counts.put(w, (counts.get(?w) ?? 0) + 1)
+    _ = (!counts).put(w, (counts.get(?w) ?? 0) + 1)
   a = "a"
   zz = "zz"
   c = "c"
@@ -179,12 +179,12 @@ sub main()
     print(k, counts.get(?k))
 
   nodes: Map[Int, *Node] = Map[Int, *Node].new()
-  _ = !nodes.put(1, *Node(id: 1))
-  _ = !nodes.put(2, *Node(id: 2))
-  if !nodes.put(1, *Node(id: 10)) as replaced
+  _ = (!nodes).put(1, *Node(id: 1))
+  _ = (!nodes).put(2, *Node(id: 2))
+  if (!nodes).put(1, *Node(id: 10)) as replaced
     print("replaced", replaced.id)
   two = 2
-  if !nodes.remove(?two) as gone
+  if (!nodes).remove(?two) as gone
     print("removed", gone.id)
   one = 1
   if nodes.get(?one) as copy
@@ -198,7 +198,7 @@ sub main()
     !key.push(w)
     probe = Text.new()
     !probe.push(w)
-    _ = !byname.put(<key, (byname.get(?probe) ?? 0) + 1)
+    _ = (!byname).put(<key, (byname.get(?probe) ?? 0) + 1)
   probe = Text.new()
   !probe.push("x")
   print(byname.len(), byname.get(?probe))

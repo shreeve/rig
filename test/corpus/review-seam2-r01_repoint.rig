@@ -43,6 +43,6 @@ fun clobber(n: Int) -> Int
 sub main()
   n = 1
   w = !n
-  w = !mk(5).at()
+  w = (!mk(5)).at()
   print(clobber(9))
   print(w)

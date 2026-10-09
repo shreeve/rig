@@ -28,7 +28,7 @@ sub main()
   name(.red)
   name(.blue)
   c = Countdown(n: 3)
-  while !c.next() as _
+  while (!c).next() as _
     pass
   print(c.n)
   i = 0

@@ -68,5 +68,5 @@ fun f(n: Int) -> Int
   n
 
 sub main()
-  !mkh().me().keep(?mk(1).t)
+  (!mkh()).me().keep(?mk(1).t)
   print("end")

@@ -12,7 +12,7 @@ struct S
 sub main()
   s = S(es: Vec())
   !s.es.push(E.a(t: Text("hi")))
-  match !(!s).at(?Text("a"))
+  match (!(!s)).at(?Text("a"))
     .a(t) if t.len > 0
       for _ in 0..40
         !t.add("xxxxxxxx")

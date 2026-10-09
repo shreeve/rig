@@ -90,21 +90,21 @@ sub push_one[T](v: !Vec[T], x: T)
   !v.push(x)
 
 fun first_of(v: !Vec[Int]) -> Int?
-  !v.pop()?
+  (!v).pop()?
 
 fun top() -> Int?
-  x = !mkv().pop()?
+  x = (!mkv()).pop()?
   x + 100
 
 fun fails() -> Int!
-  !mkb(200).tryit()!
+  (!mkb(200)).tryit()!
 
 sub main()
   !Wrap(v: 1).set(2)
-  print(!Wrap(v: 1).swap_in(5))
+  print((!Wrap(v: 1)).swap_in(5))
   Wrap(v: 7).again()
   !mkc().bump()
-  print(!mkc().pop())
+  print((!mkc()).pop())
   !Text("a").add("b")
   print(sorted(!mka()[..]), sorted(!mkv()[..]), sorted(!mka()))
   sort.sort(!mka())
@@ -115,14 +115,14 @@ sub main()
   total = 0
   !mkb(5).each(|!total, k: Int| total += k)
   print(total)
-  print(!mkb(10).tryit() catch 0)
+  print((!mkb(10)).tryit() catch 0)
   print(fails() catch -1)
   c = total > 0
   !(mkb(20) if c else mkb(30)).each(|k| print("k", k))
   s = Wrap(v: 40)
-  print(!(+s).swap_in(41), s.v)
+  print((!(+s)).swap_in(41), s.v)
   defer !mkb(50).each(|k| print("deferred", k))
-  defer print(!mkb(60).tryit() catch 0)
+  defer print((!mkb(60)).tryit() catch 0)
   print("end")
 
 # expect:

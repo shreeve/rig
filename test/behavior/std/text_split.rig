@@ -5,7 +5,7 @@ use std.text
 sub parts(s: String, sep: String)
   it = text.split(s, sep)
   n = 0
-  while !it.next() as part
+  while (!it).next() as part
     print("[" , part, "]")
     n += 1
   print(n, "parts, one more than", text.count(s, sep), "separators")
@@ -13,7 +13,7 @@ sub parts(s: String, sep: String)
 sub each_line(s: String)
   ls = text.lines(s)
   n = 0
-  while !ls.next() as l
+  while (!ls).next() as l
     crs = text.count(l, "\r")
     print(n, l.len, "[", l if crs == 0 else "...", "]", crs)
     n += 1
@@ -22,7 +22,7 @@ sub each_line(s: String)
 sub each_word(s: String)
   ws = text.words(s)
   n = 0
-  while !ws.next() as w
+  while (!ws).next() as w
     print("<", w, ">")
     n += 1
   print(n, "words")
@@ -50,9 +50,9 @@ sub main()
 
   # An iterator is a value: a second one walks the same String anew.
   it = text.split("x-y", "-")
-  first = !it.next() ?? "?"
+  first = (!it).next() ?? "?"
   again = text.split("x-y", "-")
-  print(first, !it.next() ?? "?", !it.next() ?? "done", !again.next() ?? "?")
+  print(first, (!it).next() ?? "?", (!it).next() ?? "done", (!again).next() ?? "?")
 
 # expect:
 # [ a ]

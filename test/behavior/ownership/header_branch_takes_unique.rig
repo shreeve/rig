@@ -20,7 +20,7 @@ sub loops(f: Bool)
   b = pair(3)
   for r in (<a if f else <b)
     new g = <r
-    print(!g.next() % 1000 >= 0)
+    print((!g).next() % 1000 >= 0)
 
 sub matches(f: Bool)
   x = E.a(d: Die(r: random.Random.seeded(5)))
@@ -28,7 +28,7 @@ sub matches(f: Bool)
   match (<x if f else <y)
     .a(d)
       new e = <d
-      print(!e.r.next() % 1000 >= 0)
+      print((!e.r).next() % 1000 >= 0)
     .b => pass
 
 sub main()

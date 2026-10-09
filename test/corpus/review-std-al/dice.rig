@@ -2,7 +2,7 @@ use std.random as rnd
 use std.time as t
 
 pub fun roll(r: !rnd.Random, n: Int = 6) -> Int
-  !r.int(1, n + 1)
+  (!r).int(1, n + 1)
 
 pub sub wait(ns: Int = t.MS)
   t.sleep(ns)

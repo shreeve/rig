@@ -14,7 +14,7 @@ struct Words
 sub main()
   w = Words(s: "  the quick  fox ")
   n = 0
-  while !w.next() as x
+  while (!w).next() as x
     print(x)
     n += 1
   print(n)

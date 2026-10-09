@@ -41,6 +41,6 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  defer print(!mk(1).pop())
+  defer print((!mk(1)).pop())
   defer !mk(2).bump()
   print("body", clobber(3))

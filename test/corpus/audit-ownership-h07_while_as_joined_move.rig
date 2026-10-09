@@ -21,6 +21,6 @@ sub main()
   !v.push(*Tok(n: 1))
   !v.push(*Tok(n: 5))
   !v.push(*Tok(n: 2))
-  while !v.pop() as t and t.n < 5
+  while (!v).pop() as t and t.n < 5
     eat(<t)
   print("left", v.len)

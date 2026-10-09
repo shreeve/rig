@@ -21,6 +21,6 @@ sub main()
   !v.push(*Tok(n: 1))
   !v.push(*Tok(n: 2))
   keep: Vec[*Tok] = Vec()
-  while !v.pop() as t
+  while (!v).pop() as t
     !keep.push(<t)
   print(keep.len)

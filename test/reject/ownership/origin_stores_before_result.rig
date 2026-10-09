@@ -19,7 +19,7 @@ sub main()
   if true
     w: Vec[Item] = Vec()
     !w.push(Item(n: 2))
-    r = !c.next(?w)
+    r = (!c).next(?w)
   print(r.n)
 
 # error: `w` does not live long enough

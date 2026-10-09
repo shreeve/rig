@@ -40,7 +40,7 @@ sub growu(u: !U)
   print(u.n)
 
 sub g(lib: !U)
-  print(!lib.me().bump())
+  print((!lib).me().bump())
 
 sub main()
   u = U(n: 1)

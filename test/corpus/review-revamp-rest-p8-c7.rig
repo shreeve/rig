@@ -14,7 +14,7 @@ fun mk(n: Int) -> Vec[Int]!
   v
 
 fun run(ps: ![2]P, i: !Int) -> Int!
-  !ps[i].use(mk(1)!, mk(2)!)
+  (!ps[i]).use(mk(1)!, mk(2)!)
 
 sub main()
   ps = [P(n: 1), P(n: 2)]

@@ -25,8 +25,8 @@ sub main()
   b = P(x: 2)
   v = q.pick(true) catch ?b
   print(v.x)
-  w = !q.wpick(true) catch !b
+  w = (!q).wpick(true) catch !b
   w.x = 40
-  u = !q.wpick(false) catch !b
+  u = (!q).wpick(false) catch !b
   u.x = 20
   print(q.p.x, b.x)

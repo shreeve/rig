@@ -51,13 +51,13 @@ fun opt(n: Int) -> Int?
 
 sub main()
   c = f(1) == 1
-  print(c and !mk(1).pop() > 1, not c and !mk(2).pop() > 1, c or !mk(3).pop() > 0)
-  x = !mk(4).pop() if c else !mk(5).pop()
+  print(c and (!mk(1)).pop() > 1, not c and (!mk(2)).pop() > 1, c or (!mk(3)).pop() > 0)
+  x = (!mk(4)).pop() if c else (!mk(5)).pop()
   print(x)
-  y = opt(0) ?? !mk(6).pop()
-  z = opt(7) ?? !mk(8).pop()
+  y = opt(0) ?? (!mk(6)).pop()
+  z = opt(7) ?? (!mk(8)).pop()
   print(y, z)
   i = 0
-  while i < 2 and !mk(10 + i).pop() > 0
+  while i < 2 and (!mk(10 + i)).pop() > 0
     i += 1
   print(i)

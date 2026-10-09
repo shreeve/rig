@@ -41,4 +41,4 @@ sub growu(u: !U)
 
 sub main()
   print(!Wrap[Int].make(3).bump())
-  print(!(Wrap[Int].make(3)).bump())
+  print((!(Wrap[Int].make(3))).bump())

@@ -18,5 +18,5 @@ sub main()
   !b.items.push(4)
   !b.items.push(5)
   it = b.iter()
-  while !it.next() as x
+  while (!it).next() as x
     print(x)

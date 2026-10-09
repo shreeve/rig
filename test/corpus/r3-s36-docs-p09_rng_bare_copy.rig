@@ -4,4 +4,4 @@ use std.random
 sub main()
   r = random.Random.seeded(1)
   s = r
-  print(!s.next())
+  print((!s).next())

@@ -5,7 +5,7 @@ fun remove_at[T](v: !Vec[T], i: Int) -> T?
   j = i
   while j + 1 < v.len : j += 1
     !v.swap(j, j + 1)
-  !v.pop()
+  (!v).pop()
 
 sub insert_at[T](v: !Vec[T], i: Int, x: T)
   !v.push(<x)

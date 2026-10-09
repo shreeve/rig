@@ -14,7 +14,7 @@ sub main()
       v = Vec[P]()
       i = 0
       while i < n : i += 1
-        !v.push(P(k: !r.int(0, mk), id: i))
+        !v.push(P(k: (!r).int(0, mk), id: i))
       sort.sort_by(!v[..], |a, b| a.k < b.k)
       j = 1
       while j < v.len : j += 1

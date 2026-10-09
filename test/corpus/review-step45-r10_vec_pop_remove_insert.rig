@@ -4,8 +4,8 @@ sub main()
   !v.push(Text("a"))
   !v.push(Text("b"))
   !v.insert(0, Text("z"))
-  x = !v.remove(1)
-  if !v.pop() as y
+  x = (!v).remove(1)
+  if (!v).pop() as y
     print(x, y, v)
   w: Vec[Box[Text]] = Vec()
   !w.push(Box(Text("q")))

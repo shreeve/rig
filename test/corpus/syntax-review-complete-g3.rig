@@ -23,6 +23,6 @@ sub main()
   !m.es.push(Box(value: Val(n: 1)))
   if m.find(1) as v
     print(v.n)
-  if !m.find_mut(1) as w
+  if (!m).find_mut(1) as w
     w.n = 7
   print(m.es.len)

@@ -4,7 +4,7 @@
 use std.random
 
 fun step(r: !random.Random) -> U64
-  !r.next()
+  (!r).next()
 
 sub show(r: ?random.Random)
   print("view")
@@ -12,7 +12,7 @@ sub show(r: ?random.Random)
 sub main()
   a: [2]random.Random = [random.Random.seeded(1), random.Random.seeded(2)]
   for r in !a
-    print(!r.next() != 0)
+    print((!r).next() != 0)
   show(?a[0])
   print(step(!a[1]) != 0)
   random.Random.seeded(3)
@@ -20,10 +20,10 @@ sub main()
   x = random.Random.seeded(5)
   print(step(!x) != 0, step(!x) != 0)
   y = random.Random.seeded(6)
-  f = !y.fork()
-  print(!f.int(1, 7) >= 1)
+  f = (!y).fork()
+  print((!f).int(1, 7) >= 1)
   b = <a
-  print(!b[1].next() != 0)
+  print((!b[1]).next() != 0)
 
 # expect:
 # true

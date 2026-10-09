@@ -10,7 +10,7 @@ struct Stack[T]
     !self.items.push(<x)
 
   fun pop(!self) -> T?
-    !self.items.pop()
+    (!self.items).pop()
 
   fun size(?self) -> Int
     self.items.len
@@ -37,7 +37,7 @@ sub main()
   s = Stack[Box[R]](items: Vec())
   !s.push(Box(R(n: 1)))
   !s.push(Box(R(n: 2)))
-  if !s.pop() as top
+  if (!s).pop() as top
     print("popped", top.n)
   print(s.size())
   k = keep(R(n: 3))

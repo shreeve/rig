@@ -44,7 +44,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 fun go() -> Int?
-  x = !mk(1).maybe(true)?
+  x = (!mk(1)).maybe(true)?
   x
 
 sub main()

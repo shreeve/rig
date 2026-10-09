@@ -50,11 +50,11 @@ fun mk2(k: Int) -> S
   mk(k)
 
 sub main()
-  !mk(!mk(1).pop()).bump()
-  print(!mk(!mk(3).pop()).pop() + clobber(1))
-  print(!wrap(!mk(5)).pop())
+  !mk((!mk(1)).pop()).bump()
+  print((!mk((!mk(3)).pop())).pop() + clobber(1))
+  print((!wrap(!mk(5))).pop())
   !wrap(!mk(6)).bump()
-  print(show2(!wrap(!mk(7)).at(), !mk2(8).at()))
+  print(show2((!wrap(!mk(7))).at(), (!mk2(8)).at()))
 
 fun show2(a: !Int, b: !Int) -> Int
   a += 1

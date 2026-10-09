@@ -27,4 +27,4 @@ fun mkh() -> H
   H(ws: Vec())
 
 sub main()
-  !mkh().keep(!mk(1).at())
+  !mkh().keep((!mk(1)).at())

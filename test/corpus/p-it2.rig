@@ -23,7 +23,7 @@ sub main()
   print(w)
   u = Text("abc")
   it = Split(rest: ?u[..])
-  a = !it.next()
+  a = (!it).next()
   <it
   !u.clear()
   print(a)

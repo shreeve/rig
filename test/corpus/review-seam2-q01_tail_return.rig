@@ -44,16 +44,16 @@ fun clobber(n: Int) -> Int
   a[1]
 
 fun t1() -> Int
-  !mk(1).pop()
+  (!mk(1)).pop()
 
 fun t2() -> Int
-  return !mk(2).pop() + clobber(1)
+  return (!mk(2)).pop() + clobber(1)
 
 fun t3() -> Int
   i = 0
   r = while i < 5
     i += 1
-    break !mk(i * 10).pop() if i == 2
+    break (!mk(i * 10)).pop() if i == 2
   else
     0
   r

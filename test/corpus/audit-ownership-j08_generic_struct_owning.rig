@@ -23,12 +23,12 @@ struct Stack[T]
     !self.items.push(<x)
 
   fun pop(!self) -> T?
-    !self.items.pop()
+    (!self.items).pop()
 
 sub main()
   s = Stack[*Tok](items: Vec())
   !s.push(*Tok(n: 1))
   !s.push(*Tok(n: 2))
-  if !s.pop() as t
+  if (!s).pop() as t
     print("pop", t.n)
   print("end")

@@ -26,10 +26,10 @@ sub main()
   print(s)
   u = Text("abcdefghijklmnop")
   it = It(t: !u)
-  a = !it.next() ?? ""
-  b = !it.next() ?? ""
+  a = (!it).next() ?? ""
+  b = (!it).next() ?? ""
   print(a, b)
 
 # error: 25:9: cannot lend `w` to write while a read loan is live
-# error: 30:7: cannot lend `it` to write while a read loan is live
+# error: 30:8: cannot lend `it` to write while a read loan is live
 # errors: 2

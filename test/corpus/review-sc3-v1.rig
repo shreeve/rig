@@ -15,7 +15,7 @@ sub main()
   print(vs)
   r = vs[1]
   print(r)
-  print(!vs.pop())
+  print((!vs).pop())
   c: Cell[P] = Cell(P(x: 1, y: 2))
   print(c.get().x)
   c.set(P(x: 5, y: 6))

@@ -10,7 +10,7 @@ sub main()
   print(b.x)
   for p in ?v
     print(p.x)
-  if !v.pop() as last
+  if (!v).pop() as last
     print(last.x)
-  x = !v.remove(0)
+  x = (!v).remove(0)
   print(x.x, v.len)

@@ -10,7 +10,7 @@ struct R
 
 sub main()
   b = Box(value: R(n: 3))
-  print(!b.take(), b)
+  print((!b).take(), b)
   r = <b.unbox()
   print(r)
   c = Box(value: 5)

@@ -20,7 +20,7 @@ sub main()
   !s.items.push(1)
   c = f(1) == 1
   !(+s if c else mk(1)).items.push(5)
-  print(!(+s if c else mk(1)).vs())
+  print((!(+s if c else mk(1))).vs())
   print((+s.items if c else Vec[Int]()).len)
   !(+s.items if c else Vec[Int]()).push(3)
   print(s.items)

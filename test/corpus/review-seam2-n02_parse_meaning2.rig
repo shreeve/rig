@@ -13,5 +13,5 @@ sub inc(v: !Int)
 
 sub main()
   s = S(n: 1)
-  inc(!wrap(!s).all().n)
+  inc((!wrap(!s)).all().n)
   print(s.n)
