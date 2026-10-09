@@ -21,6 +21,6 @@ sub main()
   !v.push(*Tok(n: 1))
   f: *sub() = *|<v| print("len", v.len)
   g = +f
-  -f
+  <f
   g()
   print("end")

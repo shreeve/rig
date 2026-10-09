@@ -13,11 +13,10 @@ where it happens, so memory safety reads more cleanly than in Rust:
 
 | Sigil | Meaning |
 |---|---|
-| `<x` | move |
+| `<x` | move; as a statement, drop now |
 | `?x` / `?T` | lend to read / read view |
 | `!x` / `!T` | lend to write / write view |
 | `+x` | clone |
-| `-x` | drop now |
 | `*x` / `*T` | shared (refcounted) |
 | `~x` / `~T` | weak |
 | `expr!` / `T!` | propagate failure / fallible type |
@@ -153,6 +152,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | Path | Role |
 |---|---|
 | `HANDOFF.md` | Where Rig stands, the work that comes next, the gates, and whom to ask |
+| `TODO.md` | Work decided but not started |
 | `rig.grammar` | Nexus grammar: syntax, and the IR schema every node follows |
 | `src/rig.zig` | Lexer and parser wrappers (layout, position, IR rewrites) |
 | `src/diag.zig` | Diagnostics: spans, line and column, the printed format |
@@ -184,4 +184,5 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
+| `IDEAS.md` | Suggestions for improving Rig, led by the bar it must clear: shorter and plainer than idiomatic Rust |
 | `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |

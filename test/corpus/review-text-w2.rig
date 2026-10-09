@@ -4,5 +4,5 @@ sub main()
   s = "z"
   for x in ?v
     s = x
-  -v
+  <v
   print(s)

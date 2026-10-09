@@ -13,5 +13,6 @@ sub main()
   if true
     b = Wrap(n: 2)
     fill(!v, |?b, o|
-      o.w = b)
+      o.w = b
+    )
   print(v.w.n)

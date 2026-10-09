@@ -10,6 +10,6 @@ sub main()
   log = Logger(prefix: "app:", lines: 0)
   name = Text("ada")
   !log.say(?name)
-  -name
+  <name
   !log.say("done")
   print(log.lines)

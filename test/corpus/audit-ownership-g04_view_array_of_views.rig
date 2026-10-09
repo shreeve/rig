@@ -20,5 +20,5 @@ sub main()
   a = Tok(n: 1)
   b = Tok(n: 2)
   arr = [?a, ?b]
-  -b
+  <b
   print(arr[1].n)

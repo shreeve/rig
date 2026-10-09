@@ -20,6 +20,6 @@ sub main()
   v: Vec[*Tok] = Vec()
   !v.push(*Tok(n: 1))
   for t in !v
-    -t
+    <t
     print("x")
   print(v.len)

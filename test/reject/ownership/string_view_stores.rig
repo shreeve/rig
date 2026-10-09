@@ -22,7 +22,7 @@ sub main()
   d[0] = ?t[..]
   n = Name(s: "x")
   n.s = ?t[..1]
-  -t
+  <t
   print(a, c, s, old, u, d, n)
 
 # error: 25:4: cannot drop `t` while it is lent

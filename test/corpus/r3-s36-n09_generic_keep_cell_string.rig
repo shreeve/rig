@@ -5,5 +5,5 @@ sub main()
   c = Cell("a")
   t = Text("xyz")
   keep(?c, ?t[..])
-  -t
+  <t
   print(c.get())

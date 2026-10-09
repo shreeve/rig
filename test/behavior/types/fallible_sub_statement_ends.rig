@@ -44,7 +44,8 @@ sub main()
     if x > 2
       print("big", x)
     else if x < 0
-      print("negative"))!
+      print("negative")
+  )!
   print(v.len)
 
 # expect:

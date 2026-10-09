@@ -11,7 +11,7 @@ fun peek(h: *Text) -> String
 sub local()
   h = *Text("hello")
   s = ?h[..]
-  -h
+  <h
   print(s)
 
 sub field()
@@ -31,7 +31,7 @@ sub upgraded()
   w = ~h
   if w.upgrade() as g
     s = ?g[1..]
-    -g
+    <g
     print(s)
 
 sub main()

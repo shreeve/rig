@@ -2,5 +2,5 @@ sub main()
   x = 1
   x += 1 if x > 0
   v = [1, 2]
-  -v if x > 5
+  <v if x > 5
   print(x, v)

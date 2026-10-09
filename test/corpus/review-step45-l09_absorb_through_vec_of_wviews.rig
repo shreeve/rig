@@ -5,6 +5,6 @@ sub main()
   !w.push(!inner)
   t = Text("x")
   !w[0].push(?t)
-  -w
-  -t
+  <w
+  <t
   print(inner)

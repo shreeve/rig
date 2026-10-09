@@ -18,8 +18,10 @@ sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   run(|!v|
-    v = Vec())
+    v = Vec()
+  )
   print(v.len)
   run(|!r|
-    r = Res(id: 4))
+    r = Res(id: 4)
+  )
   print("end")

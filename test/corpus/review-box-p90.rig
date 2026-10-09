@@ -14,5 +14,5 @@ sub main()
     print(x.n)
   if w.upgrade() as t
     if ?t.r as y
-      -t
+      <t
       print(y.n)

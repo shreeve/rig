@@ -8,7 +8,7 @@ sub views_kept()
   v: Vec[?Int] = Vec()
   !v.push(?a)
   w = +v
-  -v
+  <v
   a = 2
   print(w)
 
@@ -18,7 +18,7 @@ sub through_view_kept()
   !bag.v.push(?a)
   r = ?bag
   c = +r
-  -bag
+  <bag
   a = 2
   print(c.v.len)
 

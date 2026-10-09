@@ -10,7 +10,7 @@ sub main()
   t = Text("scoped text here")
   !v.push(?t[..])
   s = first(?v)
-  -v
+  <v
   !t.add("more")
   print(s)
   o = "x"

@@ -4,5 +4,5 @@ sub main()
   v: Vec[String] = Vec()
   !v.push(?t)
   c = Cell(<v)
-  -t
+  <t
   print("end")

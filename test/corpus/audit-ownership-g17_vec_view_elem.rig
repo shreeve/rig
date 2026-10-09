@@ -23,5 +23,5 @@ sub main()
   x = Tok(n: 1)
   v: Vec[View] = Vec()
   !v.push(View(b: ?x))
-  -x
+  <x
   print(v.len)

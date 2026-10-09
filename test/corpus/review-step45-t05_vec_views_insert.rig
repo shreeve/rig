@@ -3,5 +3,5 @@ sub main()
   w: Vec[String] = Vec()
   t = Text("t")
   !w.insert(0, ?t)
-  -t
+  <t
   print(w)

@@ -33,7 +33,7 @@ fun returned[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
 fun dropped[T](w: ?W[T], d: T) -> T
   match getw(w).o
     .some(v) if true
-      -v
+      <v
       <d
     _ => <d
 

@@ -43,11 +43,10 @@ sub main()
   r = Res(id: 1)
   m = |<r, a: Int| a + r.id
   p = pick(?m, double, true)
-  -m
+  <m
   print(p(2))
   c: Vec[Int] = Vec()
-  each(?c, |!c, n|
-    !c.push(n))
+  each(?c, |!c, n| !c.push(n))
   total = 0
   both = |a: ?sub(Int), b: ?sub(Int)|
     a(1)
@@ -60,4 +59,4 @@ sub main()
 # error: 41:10: `l` does not live long enough
 # error: 46:4: cannot drop `m` while it is lent
 # error: 49:14: cannot lend `c` to write while a read loan is live
-# error: 55:40: cannot lend `total` to write while a write loan is live
+# error: 54:40: cannot lend `total` to write while a write loan is live

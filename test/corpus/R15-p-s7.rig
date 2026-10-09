@@ -1,6 +1,6 @@
 sub main()
   a = [1, 2]
   w = !a[..]
-  -w
+  <w
   a[0] = 3
   print(a)

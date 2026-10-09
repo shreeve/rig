@@ -7,7 +7,7 @@ struct User
 sub main()
   user = User(name: "Steve")
   r = ?user
-  -r
+  <r
   w = !user
   w.name = "Ada"
   print(user.name)

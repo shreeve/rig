@@ -1,6 +1,6 @@
 fun dup[T](x: T) -> T
   a = x
-  -a
+  <a
   x
 
 fun f[T](x: T) -> T

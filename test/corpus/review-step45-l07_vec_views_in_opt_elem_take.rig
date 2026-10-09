@@ -6,5 +6,5 @@ sub main()
   outer: Vec[Vec[String]?] = Vec()
   !outer.push(<inner)
   if <outer[0] as got
-    -t
+    <t
     print(got)

@@ -14,5 +14,5 @@ sub main()
   c = S(n: 3)
   w2 = !v
   w2.r = ?c
-  -c
+  <c
   print(v.r.n)

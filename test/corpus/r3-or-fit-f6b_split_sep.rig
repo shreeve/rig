@@ -7,5 +7,5 @@ sub main()
   parts = text.split(?line, ?sep)
   if !parts.next() as p
     !firsts.push(p)
-  -sep
+  <sep
   print(firsts)

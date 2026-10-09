@@ -16,6 +16,6 @@ sub take2(m: Msg)
 sub main()
   m = Msg.data(r: R(n: 1), n: 2)
   match !m
-    x => -x
+    x => <x
     _ => print("o")
   print("end")

@@ -7,6 +7,6 @@ sub main()
   print(v[0] + v[1], v)
   for x in v
     print(x)
-  -v
+  <v
   a = 5
   print(a)

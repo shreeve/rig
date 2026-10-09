@@ -4,6 +4,6 @@ sub main()
   h = *<v
   g = +h
   for x in h
-    -h
+    <h
     print(x)
   print("x")

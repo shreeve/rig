@@ -39,7 +39,7 @@ sub move_place()
 sub drop_place()
   o: Box[N]? = Box(N(v: 1))
   if o as x
-    -o
+    <o
     print(x.v)
 
 sub move_view_then_assign()

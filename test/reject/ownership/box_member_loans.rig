@@ -12,7 +12,7 @@ fun first(s: String) -> String
 sub a()
   b = Box(Box(S(n: 1, t: Text("x"))))
   r = first(?b.t)
-  -b
+  <b
   print(r)
 
 sub c()

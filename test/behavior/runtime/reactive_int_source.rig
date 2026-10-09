@@ -31,7 +31,8 @@ sub main()
   count = IntSource.new(0)
   count.subscribe(*|~count|
     if count.upgrade() as c
-      print(c.get()))
+      print(c.get())
+  )
   count.set(1)
   count.set(7)
 

@@ -1,5 +1,5 @@
 sub f(s: ![]Int)
-  -s
+  <s
 
 sub main()
   a = [1, 2]

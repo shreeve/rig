@@ -19,7 +19,7 @@ sub main()
   i = 0
   while all(?r, i) as s: k += s[0]
     c = +r
-    -c
+    <c
     i += 1
   print(k)
 

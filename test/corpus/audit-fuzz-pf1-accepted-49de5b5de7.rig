@@ -8,7 +8,7 @@ sub run(early: Bool)
   a = Noisy(id: 1)
   b = Noisy(id: 2)
   if early
-    -b
+    <b
     print("dropped b early")
   print("end of run")
 

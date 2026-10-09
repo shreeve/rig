@@ -9,6 +9,5 @@ sub main()
   b = Bag(items: Vec())
   !b.items.push(1)
   !b.items.push(2)
-  b.each(|!b, n|
-    b.items.push(n))
+  b.each(|!b, n| b.items.push(n))
   print(b.items.len)

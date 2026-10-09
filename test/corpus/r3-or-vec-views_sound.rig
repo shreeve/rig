@@ -10,7 +10,7 @@ sub dropped_then_assign()
   !v.push(?a)
   !v.insert(0, ?b)
   print(v)
-  -v
+  <v
   a = 5
   b = 6
   print(a, b)
@@ -20,7 +20,7 @@ sub popped_outlives_vec()
   v: Vec[?Int] = Vec()
   !v.push(?a)
   r = (!v).pop()
-  -v
+  <v
   print(r)
 
 sub got_then_push()
@@ -42,7 +42,7 @@ sub write_elements()
   v[1] += 5
   v[0] = !c
   v[0] = 7
-  -v
+  <v
   print(a, b, c)
 
 sub write_array()
@@ -51,7 +51,7 @@ sub write_array()
   v = [!a, !b]
   v[0] = 10
   v[1] += 5
-  -v
+  <v
   print(a, b)
 
 sub popped_write()
@@ -60,7 +60,7 @@ sub popped_write()
   !v.push(!a)
   if (!v).pop() as w
     w = 4
-  -v
+  <v
   print(a)
 
 sub owners()

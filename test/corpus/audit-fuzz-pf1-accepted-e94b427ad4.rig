@@ -11,7 +11,7 @@ sub main()
   rc = *User(age: 42)
   print(rc.age)
   print(rc.read_age())
-  -rc
+  <rc
 
 # expect:
 # 42

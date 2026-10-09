@@ -16,7 +16,7 @@ sub main()
   print(v[0] + v[1], v)
   for x in v
     print(x)
-  -v
+  <v
   a = 5
   c = 3
   d = 4
@@ -27,7 +27,7 @@ sub main()
   w[1] += 5
   w[1] = !a
   w[1] = 7
-  -w
+  <w
   print(a, c, d)
   bag = Bag(items: Vec())
   !bag.items.push(?b)

@@ -1,7 +1,7 @@
 fun f(x: Int, c: Bool) -> Int
   y = x
   if c
-    -y
+    <y
   y
 
 sub main()

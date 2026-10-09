@@ -18,6 +18,6 @@ sub main()
   match h
     .a(r) => saved = ?r
     .b(r) => saved = ?r
-  -h
+  <h
   print(clobber(1))
   print(saved.t)

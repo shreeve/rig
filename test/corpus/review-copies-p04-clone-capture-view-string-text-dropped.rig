@@ -6,7 +6,7 @@ fun mk() -> Int
   s = S(s: ?t)
   r = ?s
   f = |+r| r.s.len
-  -t
+  <t
   f()
 
 sub main()

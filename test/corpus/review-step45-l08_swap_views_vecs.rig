@@ -6,5 +6,5 @@ sub main()
   !m.push(Vec())
   !m[0].push(?t)
   !m.swap(0, 1)
-  -t
+  <t
   print(m)

@@ -213,9 +213,10 @@ sub main()
 1
 ```
 
-**2. `<x` moves, `+x` makes a new owner, `-x` drops now.** `+x` is a
-copy, a count bump, or a deep copy, as the type says; a `unique` type,
-one with a `drop` body, or one holding a write view has none. *(built;*
+**2. `<x` moves, `+x` makes a new owner.** A statement `<x` moves `x`
+nowhere, so it drops now. `+x` is a copy, a count bump, or a deep
+copy, as the type says; a `unique` type, one with a `drop` body, or one
+holding a write view has none. *(built;*
 a deep copy of a type declared in another module, or of one holding a
 `Signal`, is *planned*.*)*
 
@@ -229,7 +230,7 @@ struct File
 sub main()
   a = File(name: "a.txt")
   b = <a
-  -b
+  <b
   print("end")
 ```
 
@@ -276,8 +277,9 @@ scope ends. *(built)* A value no name holds is dropped where its
 statement ends ([§3](#3-temporaries)). *(built)*
 
 **4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
-view the context expects** ([§4](#4-one-lend-table)). A read lend may go
-unwritten where its view lasts only for the use: an argument, a
+view the context expects** ([§4](#4-one-lend-table)). `?` promises that
+nothing changes except a field whose type is a `Cell`. A read lend may
+go unwritten where its view lasts only for the use: an argument, a
 method's receiver, or a header's subject (sentence 1). A lend kept in a
 binding or a field is written, and so is every write lend. `!` lends any
 value to write, named or temporary: `!mk().pop()` lends the value
@@ -511,7 +513,7 @@ sub main()
   w = ~a
   if w.upgrade() as h
     print(h.name)
-  -a
+  <a
   if w.upgrade() as h
     print("still here")
   else
@@ -982,8 +984,8 @@ last
 These are single documented syntax rules, not ownership. Every other
 rule in SYNTAX is syntax too.
 
-- **`-x`:** as a statement, `-name` drops; as a value, `-x` negates. A
-  statement `-f()`, or `-n` of plain data, is rejected. *(built)*
+- **`-x`** always negates. A statement `-x` does nothing and is
+  rejected; a drop is written `<x` (sentence 2). *(built)*
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`, and
   `!mk().pop()` applies it to `mk()`. *(built)*
 - **`const x = e`:** a binding that never changes. *(built)*
@@ -1004,7 +1006,7 @@ sub main()
 ```
 
 ```error
-a statement `-e` drops a name
+`-count()` negates a value and discards it
 ```
 
 ```rig reject

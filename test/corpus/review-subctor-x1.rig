@@ -15,5 +15,5 @@ sub main()
   f(-1) catch |e|
     print("e", e)
   g = +f
-  -f
+  <f
   g(2)!

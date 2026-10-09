@@ -26,5 +26,5 @@ sub main()
   x = Tok(n: 1)
   vw = View(b: ?x)
   vv = VV(v: ?vw)
-  -x
+  <x
   print(vv.v.b.n)

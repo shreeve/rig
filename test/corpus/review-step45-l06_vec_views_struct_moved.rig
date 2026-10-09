@@ -8,5 +8,5 @@ sub main()
   !b.items.push(?t)
   bags: Vec[Bag] = Vec()
   !bags.push(<b)
-  -t
+  <t
   print(bags[0].items)

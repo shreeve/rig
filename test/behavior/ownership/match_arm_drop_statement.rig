@@ -1,5 +1,5 @@
-# `=> -name` in a match used as a statement drops `name` in that arm; in
-# a match whose value is used, it is negation.
+# `=> <name` in a match used as a statement drops `name` in that arm;
+# `-a` is negation, also as the value of an arm whose match is used.
 
 struct N
   id: Int
@@ -11,7 +11,7 @@ sub run(k: Int)
   a = N(id: k)
   match k
     1 => print("one")
-    _ => -a
+    _ => <a
   print("end", k)
 
 fun pick(k: Int) -> Int

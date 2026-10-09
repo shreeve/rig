@@ -33,7 +33,7 @@ sub vec_elems()
 sub handle_view()
   h = *S(n: 3)
   r = keep_s(?h)
-  -h
+  <h
   print(r.n)
 
 sub optional_view()
@@ -46,25 +46,25 @@ sub optional_view()
 sub boxed_array()
   b = Box([1, 2, 3])
   s = keep(?b)
-  -b
+  <b
   print(s)
 
 sub boxed_box()
   b = Box(Box(S(n: 2)))
   r = keep_s(?b)
-  -b
+  <b
   print(r.n)
 
 sub handle_text()
   h = *Text("hello")
   s = keep_t(?h)
-  -h
+  <h
   print(s)
 
 sub held_view()
   v: Vec[Int] = Vec()
   s = via(?v)
-  -v
+  <v
   print(s)
 
 sub write_elems()

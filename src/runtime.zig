@@ -537,7 +537,7 @@ fn ElementOf(comptime T: type) type {
 }
 
 /// Drop a value nothing keeps: `_ = e`, `as _`, a match payload dropped
-/// with `-x`.
+/// with `<x`.
 pub fn discard(value: anytype) void {
     var v = value;
     drop(&v);

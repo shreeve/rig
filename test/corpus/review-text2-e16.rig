@@ -9,5 +9,5 @@ sub main()
   v: Vec[P] = Vec()
   !v.push(P(s: "x"))
   put(!v, ?t[..3])
-  -t
+  <t
   print(v)

@@ -29,7 +29,8 @@ sub main()
   !b.items.push(2)
   total = 0
   b.each(|!total, x|
-    total += x)
+    total += x
+  )
   print(total)
   m = b.map(|x| x * 10)
   print(m.len, m[1])

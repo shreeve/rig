@@ -26,4 +26,4 @@ sub main()
   !v.push(Disk.timeout)
   print(v, dflt(), dflt(.full))
   print(r.e == .full, r.e != Disk.timeout)
-  -v
+  <v

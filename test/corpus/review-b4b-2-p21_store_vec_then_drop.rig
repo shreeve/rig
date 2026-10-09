@@ -18,7 +18,7 @@ sub main()
     match e
       .a(r) => !views.push(?r)
       .b(r) => !views.push(?r)
-  -es
+  <es
   print(clobber(1))
   for x in views
     print(x.t)

@@ -7,5 +7,5 @@ struct R
 sub main()
   b = Box(value: R(n: 5))
   f = *|?b| b.n
-  -b
+  <b
   print(f())

@@ -8,7 +8,7 @@ sub main()
   match h
     .has(s)
       w = s
-      -h
+      <h
       !t.add("d")
       print(w)
     .no => print("no")

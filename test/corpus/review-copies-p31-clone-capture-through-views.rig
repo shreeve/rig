@@ -29,7 +29,7 @@ sub main()
   o: (*N)? = *N(v: 2)
   ro = ?o
   g = |+ro| vof(?ro)
-  -o
+  <o
   print(g())
   bx = Box(Text("boxed"))
   rb = ?bx

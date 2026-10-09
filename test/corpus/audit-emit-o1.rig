@@ -9,5 +9,5 @@ sub main()
   v = V(a: !x, s: !arr[..])
   v.s[0] = 9
   print(v.a, v.s[0])
-  -v
+  <v
   print(x, y, arr)

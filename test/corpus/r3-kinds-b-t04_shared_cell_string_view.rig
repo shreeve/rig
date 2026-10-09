@@ -5,5 +5,5 @@ sub main()
   c: *Cell[String] = *Cell("lit")
   t = Text("hello")
   stash(+c, ?t[..])
-  -t
+  <t
   print(c.get())

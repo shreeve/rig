@@ -4,5 +4,5 @@ sub main()
   !m.push(Vec())
   t = Text("x")
   !m[0].push(?t)
-  -t
+  <t
   print(m)

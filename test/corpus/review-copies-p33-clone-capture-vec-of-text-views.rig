@@ -5,6 +5,6 @@ sub main()
   v: Vec[String] = Vec()
   !v.push(?t)
   f = |+v| v[0].len
-  -v
-  -t
+  <v
+  <t
   print(f())

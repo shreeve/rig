@@ -27,7 +27,8 @@ sub main()
   sig: *Signal[Int] = *Signal(0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
-      print("sig", s.get()))
+      print("sig", s.get())
+  )
   sig.set(7)                        # sig 7
   sig.set(99)                       # sig 99
 

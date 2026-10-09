@@ -17,7 +17,7 @@ sub main()
   print(found)
   key = Text("name", "=")
   w = text.strip_prefix(?line, ?key) ?? ""
-  -key
+  <key
   print(w)
   t = Text("abc")
   p = Text("a")
@@ -26,7 +26,7 @@ sub main()
   print(r ?? "", p)
   q = Text("c")
   s = text.strip_suffix(?t, ?q)
-  -q
+  <q
   print(s ?? "")
   kv = Text("k=v")
   sep = Text("=")
@@ -35,7 +35,7 @@ sub main()
     print(parts.before, parts.after, sep)
   n = Text("NO_SUCH_RIG_VARIABLE_", "X")
   e = os.env(?n) ?? "unset"
-  -n
+  <n
   print(e)
 
 # expect:

@@ -17,5 +17,5 @@ sub main()
   h: Vec[*S] = Vec()
   !h.push(*S(t: Text("q")))
   r = first(?h)
-  -h
+  <h
   print(r)

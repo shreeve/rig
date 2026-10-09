@@ -6,4 +6,4 @@ struct Res
 
 sub main()
   x = 3
-  -x if x > 0
+  <x if x > 0

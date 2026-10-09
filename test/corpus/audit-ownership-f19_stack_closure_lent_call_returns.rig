@@ -22,5 +22,5 @@ fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
 sub main()
   t = Tok(n: 5)
   n = apply(|?t, a| a + t.n, 1)
-  -t
+  <t
   print(n)

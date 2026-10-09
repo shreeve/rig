@@ -60,7 +60,7 @@ sub moves_outer()
 
 sub drops_outer()
   v: Vec[Int] = Vec()
-  defer -v
+  defer <v
   print("body")
 
 sub main()

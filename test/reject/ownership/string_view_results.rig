@@ -37,7 +37,7 @@ sub main()
   !t.add("z")
   it = split(?t)
   d = !it.next()
-  -it
+  <it
   !t.clear()
   print(a, b, c, d)
 

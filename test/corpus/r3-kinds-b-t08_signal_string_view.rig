@@ -2,5 +2,5 @@ sub main()
   sig: *Signal[String] = *Signal("lit")
   t = Text("hello")
   sig.set(?t[..])
-  -t
+  <t
   print(sig.get())

@@ -10,5 +10,5 @@ sub main()
   s: String = "none"
   if w.upgrade() as g
     s = ?g.v[0]
-  -h
+  <h
   print(s)

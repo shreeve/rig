@@ -10,5 +10,5 @@ fun bag(t: ?Text) -> Bag
 sub main()
   t = Text("x")
   b = bag(?t)
-  -t
+  <t
   print(b.items)

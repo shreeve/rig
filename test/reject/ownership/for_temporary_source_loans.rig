@@ -24,7 +24,7 @@ sub main()
     o = x
   for x in firsts(?t)
     o = x
-  -t
+  <t
   print(o)
   v: Vec[Int] = Vec()
   !v.push(1)
@@ -32,7 +32,7 @@ sub main()
   sl = ?e[..]
   for x in [?v[..], ?v[..1]]
     sl = x
-  -v
+  <v
   print(sl)
 
 # error: 27:4: cannot drop `t` while it is lent

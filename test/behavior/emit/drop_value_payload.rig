@@ -1,4 +1,4 @@
-# `-a` on a payload of `match <s` that owns a resource drops it now.
+# `<a` on a payload of `match <s` that owns a resource drops it now.
 
 struct B
   n: Int
@@ -14,7 +14,7 @@ sub main()
   s: S = .one(a: B(n: 1))
   match <s
     .one(a)
-      -a
+      <a
       print("dropped")
     .empty => print(0)
   print("end")

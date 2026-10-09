@@ -34,10 +34,12 @@ sub main()
   count.subscribe(*|~count, ~total|
     if count.upgrade() as c
       if total.upgrade() as t
-        t.set(c.get() * 10))
+        t.set(c.get() * 10)
+  )
   total.subscribe(*|~total|
     if total.upgrade() as t
-      print(t.get()))
+      print(t.get())
+  )
 
   count.set(1)        # total becomes 10, prints 10
   count.set(7)        # total becomes 70, prints 70

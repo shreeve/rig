@@ -1,6 +1,6 @@
 fun f(x: Int, c: Bool) -> Int
   if c
-    -x
+    <x
   x
 
 sub main()

@@ -11,5 +11,5 @@ fun mkh(r: ?Res) -> H
 sub main()
   x = Res(n: 1, t: Text("a"))
   if mkh(?x).o as r
-    -x
+    <x
     print(r.n)

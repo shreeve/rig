@@ -4,6 +4,6 @@ sub main()
   v: Vec[String] = Vec()
   !v.push(?t)
   w = +v
-  -v
-  -t
+  <v
+  <t
   print(w)

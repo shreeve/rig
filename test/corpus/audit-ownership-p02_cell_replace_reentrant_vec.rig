@@ -16,5 +16,5 @@ sub main()
   print("after clear", c.len)
   x = c.pop()
   print("popped", x != none)
-  -x
+  <x
   print("end", c.len)

@@ -3,5 +3,5 @@ use std.os
 sub main()
   t = Text("HO", "ME")
   v = os.env(?t) ?? "unset"
-  -t
+  <t
   print(v.len > 0)

@@ -11,7 +11,7 @@ fun len(l: ?List) -> Int
 sub main()
   l = List.cons(head: Text("a"), tail: Box(List.cons(head: Text("b"), tail: Box(List.nil))))
   c = +l
-  -l
+  <l
   print(len(?c))
   match c
     .cons(h, _) => print(h)

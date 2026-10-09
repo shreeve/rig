@@ -1513,8 +1513,8 @@ pub const TypeResolver = struct {
     fn enforceDropBody(self: *TypeResolver, body: Sexp) Error!void {
         const head = body.kind() orelse return;
         switch (head) {
-            .drop => if (self.isSelf(ir.Drop.name(body))) {
-                try self.ctx.errAt(ir.Drop.name(body), "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
+            .drop => if (self.isSelf(ir.Drop.target(body))) {
+                try self.ctx.errAt(ir.Drop.target(body), "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
             },
             .move => if (self.isSelf(ir.Move.operand(body))) {
                 try self.ctx.errAt(ir.Move.operand(body), "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});

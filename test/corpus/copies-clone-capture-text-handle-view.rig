@@ -16,7 +16,7 @@ sub main()
   h = *Node(n: 3)
   o: (*Node)? = +h
   g = |+o| size(?o)
-  -h
+  <h
   print(g())
   r = ?t
   k = |+r| r.len

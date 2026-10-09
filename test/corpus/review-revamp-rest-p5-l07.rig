@@ -1,2 +1,2 @@
 sub main()
-  :x -y
+  :x <y

@@ -4,7 +4,7 @@ struct R
     print("drop", self.n)
 
 sub g(r: R)
-  -r
+  <r
 
 sub main()
   g(R(n: 1))

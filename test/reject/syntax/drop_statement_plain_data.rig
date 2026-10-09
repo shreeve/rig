@@ -1,0 +1,31 @@
+# A statement `<x` releases what `x` owns or ends the loans it holds;
+# plain data that holds no view owns nothing and carries no loan, so
+# dropping it does nothing. (A String may view a Text: dropping one is
+# accepted, in behavior/ownership/drop_ends_string_view.rig.)
+
+struct P
+  x: Int
+
+enum Color
+  red
+  green
+
+sub main()
+  n = 1
+  x = 2.5
+  p = P(x: 1)
+  o: Int? = 1
+  k = Color.red
+  <n
+  <x
+  <p
+  <o
+  <k if true
+  print("end")
+
+# errors: 5
+# error: 19:3: `<n` drops nothing: `n` is plain data
+# error: 20:3: `<x` drops nothing: `x` is plain data
+# error: 21:3: `<p` drops nothing: `p` is plain data
+# error: 22:3: `<o` drops nothing: `o` is plain data
+# error: 23:3: `<k` drops nothing: `k` is plain data

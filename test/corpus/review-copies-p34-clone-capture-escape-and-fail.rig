@@ -29,7 +29,7 @@ sub main()
   ts: Vec[Text] = Vec()
   !ts.push(Text("hello"))
   g = mk(?ts)
-  -ts
+  <ts
   print(g())
   fs: Vec[*fun() -> Int] = Vec()
   !fs.push(+g)

@@ -61,7 +61,8 @@ sub main()
   calls = 0
   sort_twice(!names[..], |!calls, a, b|
     calls += 1
-    a > b)
+    a > b
+  )
   print(names, calls > 0)
   lens = map(?names[..], |s| s.len * 10)
   print(lens)

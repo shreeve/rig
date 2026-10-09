@@ -10,5 +10,5 @@ fun neg(x: Int) -> Int
 sub main()
   a = R(n: 1)
   b = R(n: 2)
-  -a
+  <a
   print("after", neg(5))

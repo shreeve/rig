@@ -3,5 +3,5 @@ sub main()
   !v.push("a")
   !v.push("b")
   s = v[0]
-  -v
+  <v
   print(s)

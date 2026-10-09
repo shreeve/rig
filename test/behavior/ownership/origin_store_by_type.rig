@@ -26,7 +26,7 @@ sub main()
   h = Holder(r: ?a[..])
   l = Text("kept")
   keep(!h, ?b[..], ?l)
-  -l
+  <l
   print(h.r[0])
 
 # expect:

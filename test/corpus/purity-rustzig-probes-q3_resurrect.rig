@@ -13,6 +13,7 @@ sub main()
     if h.upgrade() as s
       print("upgraded during drop", s.name)
     else
-      print("gone"))
-  -h
+      print("gone")
+  )
+  <h
   print("end")

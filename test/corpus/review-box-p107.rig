@@ -9,7 +9,7 @@ sub eat(b: Box[R])
 
 sub main()
   b = Box(value: R(n: 1))
-  -b
+  <b
   b = Box(value: R(n: 2))
   flag = b.n > 1
   if flag

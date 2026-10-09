@@ -6,7 +6,7 @@ sub main()
   x = if c
     r = R(v: Vec())
     !r.v.push(1)
-    defer -r
+    defer <r
     r
   else
     R(v: Vec())

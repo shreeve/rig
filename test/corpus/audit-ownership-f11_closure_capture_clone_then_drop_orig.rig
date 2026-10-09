@@ -19,6 +19,6 @@ fun cond(t: *Tok) -> Bool
 sub main()
   t = *Tok(n: 1)
   f = |+t| print("in", t.n)
-  -t
+  <t
   f()
   print("end")

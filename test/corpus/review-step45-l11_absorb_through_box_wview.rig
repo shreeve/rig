@@ -4,5 +4,5 @@ sub main()
   w = !b
   t = Text("x")
   !w.push(?t)
-  -t
+  <t
   print(b)

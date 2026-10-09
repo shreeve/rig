@@ -9,7 +9,8 @@ sub main()
   calls = 0
   lib.sort(!words[..], |!calls, a, b|
     calls += 1
-    a < b)
+    a < b
+  )
   lens = lib.map(?words[..], |w| w.len)
   print(words, lens, calls > 0)
   bag = lib.Bag(items: Vec())

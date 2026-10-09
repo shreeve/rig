@@ -7,7 +7,7 @@ fun first(s: String) -> String
 sub main()
   t = Text("abc")
   a = first(?t)
-  -t
+  <t
   print(a)
   u = Text("xyz")
   b = ?u[..]

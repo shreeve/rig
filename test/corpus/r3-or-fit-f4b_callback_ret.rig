@@ -8,5 +8,5 @@ fun call(f: ?fun() -> ?Wrap) -> ?Wrap
 sub main()
   w = Wrap(n: 1, v: Vec())
   r = call(|?w| w)
-  -w
+  <w
   print(r.n)
