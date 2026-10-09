@@ -25,10 +25,10 @@ sub main()
   print(x, y, z, q, s, b.v.len)
 
 # error: 10:5: write `(!self.v).pop()`: a write call whose value is used puts its `!` in parentheses
-# error: 19:9: method `pop` needs its receiver lent to write; use `(!receiver).pop(...)`
-# error: 20:5: method `pop` needs its receiver lent to write; use `!receiver.pop(...)`
-# error: 21:7: `pop` does not consume its receiver; it writes it: `(!v).pop(...)`, and its result needs no `<`
-# error: 22:7: `pop` writes its receiver: write `(!v).pop(...)`; to lend the call's result, write `?(v.pop(...))`
+# error: 19:9: method `pop` needs its receiver lent to write; write `(!v).pop()`
+# error: 20:5: method `pop` needs its receiver lent to write; write `!v.pop()`
+# error: 21:7: `pop` does not consume its receiver; it writes it: `(!v).pop()`, and its result needs no `<`
+# error: 22:7: `pop` writes its receiver: write `(!v).pop()`; to lend the call's result, write `?(v.pop())`
 # error: 23:7: write `(!w).pop()`: the call writes `w`
 # error: 24:7: `take` changes its receiver, a temporary no name holds; add `!`: `(!mk()).take()`
 # errors: 7

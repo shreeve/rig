@@ -47,4 +47,4 @@ sub main()
 # error: 33:15: `?fun(Int) -> Int` views a closure for the call; write the closure without `*` (remove the `*`)
 # error: 34:25: a closure literal is lent as `?fun(Int) -> Int` only as a call's argument; bind the closure
 # error: 35:12: this call's result may hold the callable it is lent
-# error: 38:7: a call never changes a closure's environment, so a closure is lent to read: write `?l`
+# error: 38:7: a call never changes what a closure captures, so a closure is lent to read: write `?l`

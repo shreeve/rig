@@ -71,6 +71,6 @@ sub main()
 # error: 55:8: cannot move out of `ws.items`: `ws` is a view
 # error: 57:8: cannot move out of `rs.items`: `rs` is a view
 # error: 58:8: cannot move out of `rd(?mk(2)).items`: it is reached through `rd(?mk(2))`, a view
-# error: 62:8: cannot move out of `rv[...]`: `rv` is a view
-# error: 64:8: cannot move out of `wv[...]`: `wv` is a view
+# error: 62:8: cannot move out of `rv[0]`: `rv` is a view; exchange it instead: `replace(!rv[0], v)`
+# error: 64:8: cannot move out of `wv[0]`: `wv` is a view; exchange it instead: `replace(!wv[0], v)`
 # errors: 9

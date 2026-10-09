@@ -10,4 +10,4 @@ sub main()
     n
   consume(f)
 
-# error: 11:11: closure `f` cannot be moved, returned, stored, or aliased
+# error: 11:11: closure `f` cannot be moved, returned, stored, or copied; call it as `f()`, lend it to a call as `?f`, or make the literal owned (`*|...| body`) to pass it around

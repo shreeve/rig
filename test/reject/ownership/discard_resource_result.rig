@@ -11,4 +11,4 @@ sub main()
   c.replace(<ub)
   print(0)
 
-# error: carries drop glue and would leak as a discarded statement
+# error: this statement makes a `*User`, which owns what it must release, and does not use it; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver

@@ -454,8 +454,10 @@ From lowest to highest precedence:
 | `-x` and the sigils | prefix |
 | `f(x)` `a[i]` `a.b` `e!` `e?` | postfix: call, index, member, propagate |
 
-`not` binds looser than a comparison, so `not a == b` is
-`not (a == b)`. `as` binds tighter than `and`, in a condition that
+`not` binds looser than a comparison, so a comparison under it is
+written in parentheses, `not (a == b)`, never `not a == b`, which
+could read as `(not a) == b` ([SPEC §5](SPEC.md#operators)). `not a
+and b` is `(not a) and b`. `as` binds tighter than `and`, in a condition that
 binds ([§10](#conditions-that-bind)). There is no `&&`, `||`, `**`,
 `++`, or `--`, and prefix `!` lends to write, never "not". What each
 operator does, and which types it takes, is in

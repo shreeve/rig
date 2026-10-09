@@ -13,4 +13,4 @@ fun take(o: Outer) -> *Wrap
 sub main()
   print(1)
 
-# error: bare use of shared (`*T`) handle `o.inner` in return value would alias the handle
+# error: `o.inner` is a `*Wrap` handle, which can't be copied out by `return`: write `+o.inner` for another handle

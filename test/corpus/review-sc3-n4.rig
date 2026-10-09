@@ -12,7 +12,7 @@ sub main()
   while !set.insert(n) != false
     n += 1
     break if n > 3
-  print(not !set.insert(9) == true)
+  print(not (!set.insert(9) == true))
   print("x") if !set.insert(10) == true
   v = 1 if !set.insert(11) == true else 2
   print(n, v)

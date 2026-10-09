@@ -8,7 +8,5 @@ progress, is in [HANDOFF.md](HANDOFF.md).
 - `rig check --json`, with machine-applicable fixes. Many diagnostics
   already name the fix, such as "write `rd(?n)`"; the JSON gives each
   fix as an edit to apply.
-- A one-page sigil spec that fits in a prompt, built from
-  [docs/CORE.md](docs/CORE.md).
 - A formatter that writes the canonical style.
 - Later, `rig explain` and a language server.

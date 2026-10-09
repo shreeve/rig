@@ -22,6 +22,7 @@ const usage =
     \\
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
+    \\       rig clean
     \\
     \\Commands:
     \\  check     Check the program and its imports
@@ -29,6 +30,7 @@ const usage =
     \\  build     Check and build a native executable
     \\  test      Check, build, and run the program's `test` blocks
     \\  emit      Check, then print the root module's Zig to stdout
+    \\  clean     Remove the programs rig built in its cache (see RIG_OUT_DIR)
     \\
     \\Options:
     \\  --facts                Print the root module's syntax facts after
@@ -55,7 +57,11 @@ const usage =
     \\Environment:
     \\  RIG_OUT_DIR      Directory for the emitted package and its Zig
     \\                   build cache (default: a per-project directory
-    \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig)
+    \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig,
+    \\                   where run, build, and test, at most once a
+    \\                   day, remove the directories unused for 5 days,
+    \\                   and only in a home holding rig's CACHEDIR.TAG;
+    \\                   a relative XDG_CACHE_HOME or HOME is ignored)
     \\  RIG_BUILD_STORE  A store shared by every program and checkout:
     \\                   run, build, and test write the package to a
     \\                   directory in it named by a hash of everything
@@ -78,7 +84,7 @@ const usage =
     \\
 ;
 
-const Command = enum { tokens, parse, normalize, check, run, build, @"test", emit };
+const Command = enum { tokens, parse, normalize, check, run, build, @"test", emit, clean };
 
 /// Zig's optimize mode for the program being built.
 const Mode = enum {
@@ -154,6 +160,7 @@ pub fn main(init: std.process.Init) !void {
     const opts = parseArgs(io, args[@min(1, args.len)..]);
 
     switch (opts.command) {
+        .clean => clean(allocator, io, env),
         .tokens, .parse, .normalize => {
             const source = std.Io.Dir.cwd().readFileAlloc(io, opts.path, allocator, .limited(modules.max_source_bytes)) catch |err|
                 fatal("error: cannot read `{s}`: {s}", .{ opts.path, modules.fileError(err) });
@@ -246,6 +253,10 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         usageError("`--release` applies to run, build, and test", .{});
     if (out_path != null and cmd != .build) usageError("`-o` applies to build", .{});
     if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
+    if (cmd == .clean) {
+        if (path != null) usageError("`rig clean` takes no file", .{});
+        return .{ .command = cmd, .path = "" };
+    }
     const file = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)});
     // `rig build` writes ./<name>: a file without `.rig` would be its own
     // output.
@@ -443,7 +454,16 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
         dir = try outputDir(allocator, env, graph.root());
         zig_cache = try std.fs.path.join(allocator, &.{ dir, ".zig-cache" });
     }
+    // A package in the cache home is held, under a shared lock, and
+    // marked used before it is written; then old ones go.
+    const in_cache_home = env.get("RIG_BUILD_STORE") == null and env.get("RIG_OUT_DIR") == null;
+    const home = if (in_cache_home) try cacheHome(allocator, env) else null;
+    if (home) |h| {
+        tagCacheHome(io, h);
+        holdPackage(allocator, io, dir);
+    }
     try writePackage(allocator, io, dir, pkg.files.items);
+    if (home) |h| trimCache(allocator, io, h, std.fs.path.basename(dir));
 
     const root_zig = try std.fs.path.join(allocator, &.{ dir, root });
     const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{opts.out_path orelse graph.root().name})} else &.{};
@@ -698,16 +718,370 @@ fn writeFile(io: std.Io, path: []const u8, contents: []const u8) !void {
 /// this user and project under the cache home.
 fn outputDir(allocator: std.mem.Allocator, env: Env, root: *const modules.Module) ![]const u8 {
     if (env.get("RIG_OUT_DIR")) |dir| return dir;
-
-    const base = if (env.get("XDG_CACHE_HOME")) |x|
-        try std.fs.path.join(allocator, &.{ x, "rig" })
-    else if (env.get("HOME")) |home|
-        try std.fs.path.join(allocator, &.{ home, ".cache", "rig" })
-    else
-        fatal("error: set RIG_OUT_DIR, XDG_CACHE_HOME, or HOME for emitted Zig", .{});
-
+    const base = (try cacheHome(allocator, env)) orelse fatal("error: set RIG_OUT_DIR, XDG_CACHE_HOME, or HOME for emitted Zig", .{});
     const project = try allocator.print("{s}-{x:0>16}", .{ root.name, std.hash.Wyhash.hash(0, root.path) });
     return std.fs.path.join(allocator, &.{ base, project });
+}
+
+/// Where `rig run` and `rig build` keep each program's package when
+/// `$RIG_OUT_DIR` names no directory: `$XDG_CACHE_HOME/rig`, or
+/// `~/.cache/rig`. A variable that is not an absolute path is ignored,
+/// as the XDG Base Directory spec says, so a relative one never names a
+/// directory under the current one. Null with neither usable.
+fn cacheHome(allocator: std.mem.Allocator, env: Env) !?[]const u8 {
+    if (env.get("XDG_CACHE_HOME")) |x| if (std.fs.path.isAbsolute(x)) return try std.fs.path.join(allocator, &.{ x, "rig" });
+    if (env.get("HOME")) |home| if (std.fs.path.isAbsolute(home)) return try std.fs.path.join(allocator, &.{ home, ".cache", "rig" });
+    return null;
+}
+
+/// How long a package directory in the cache home is kept unused, and
+/// how often the cache home is trimmed of older ones.
+const cache_keep_days = 5;
+const cache_trim_days = 1;
+
+/// The tag rig writes in a cache home it makes (https://bford.info/cachedir/),
+/// which also tells backup tools to skip it. The trim and `rig clean`
+/// act only on a home that holds it.
+const cache_tag_name = "CACHEDIR.TAG";
+const cache_tag_signature = "Signature: 8a477f597d28d172789f06886806bc55";
+const cache_tag = cache_tag_signature ++ "\n# This file is a cache directory tag created by rig.\n# For information about cache directory tags, see https://bford.info/cachedir/\n";
+
+/// The lock file in each package, which a run, build, or test holds a
+/// shared lock on while it uses the package (`holdPackage`), and the
+/// trim and `rig clean` an exclusive one while they remove it. The
+/// system releases a lock when its process ends, however it ends.
+const package_lock = ".lock";
+
+/// What rig itself makes in the cache home, the only entries the trim
+/// and `rig clean` remove. Anything else there is left alone.
+const CacheEntry = enum {
+    /// A program's package (`outputDir`): a directory named
+    /// `<name>-<16 lowercase hex digits>` whose `rig` directory holds
+    /// the runtime rig writes, none of them a link.
+    package,
+    /// A package being removed: a directory `.trash-<16 hex digits>`.
+    trash,
+    /// The empty file `.trimmed`, whose time is the last trim's.
+    stamp,
+    /// `CACHEDIR.TAG`, as rig writes it.
+    tag,
+
+    /// The kind of the entry `name` of `dir`, or null for anything rig
+    /// did not make, a symbolic link included.
+    fn of(dir: std.Io.Dir, io: std.Io, name: []const u8, kind: std.Io.File.Kind) ?CacheEntry {
+        if (kind == .file and eql(name, ".trimmed")) {
+            const st = dir.statFile(io, name, .{ .follow_symlinks = false }) catch return null;
+            return if (st.kind == .file and st.size == 0) .stamp else null;
+        }
+        if (kind == .file and eql(name, cache_tag_name)) return if (isTag(dir, io)) .tag else null;
+        if (kind != .directory) return null;
+        if (std.mem.startsWith(u8, name, ".trash-") and hexTail(name, ".trash-".len)) return .trash;
+        if (name.len <= 17 or name[name.len - 17] != '-' or !hexTail(name, name.len - 16)) return null;
+        var pd = dir.openDir(io, name, .{ .follow_symlinks = false }) catch return null;
+        defer pd.close(io);
+        const r = pd.statFile(io, "rig", .{ .follow_symlinks = false }) catch return null;
+        if (r.kind != .directory) return null;
+        const st = pd.statFile(io, emit.runtime_filename, .{ .follow_symlinks = false }) catch return null;
+        return if (st.kind == .file) .package else null;
+    }
+
+    /// Whether `name` from `start` on is exactly 16 lowercase hex
+    /// digits, as rig writes them.
+    fn hexTail(name: []const u8, start: usize) bool {
+        if (name.len != start + 16) return false;
+        for (name[start..]) |c| if (!std.ascii.isDigit(c) and (c < 'a' or c > 'f')) return false;
+        return true;
+    }
+};
+
+/// Whether `dir` holds rig's `CACHEDIR.TAG`, a regular file that starts
+/// with the tag's signature.
+fn isTag(dir: std.Io.Dir, io: std.Io) bool {
+    const st = dir.statFile(io, cache_tag_name, .{ .follow_symlinks = false }) catch return false;
+    if (st.kind != .file) return false;
+    var buffer: [cache_tag_signature.len]u8 = undefined;
+    const f = dir.openFile(io, cache_tag_name, .{ .follow_symlinks = false }) catch return false;
+    defer f.close(io);
+    const n = f.readPositionalAll(io, &buffer, 0) catch return false;
+    return n == buffer.len and std.mem.eql(u8, &buffer, cache_tag_signature);
+}
+
+/// The cache home `home`, opened, when it is rig's: a directory, not a
+/// link, that holds rig's tag. Null otherwise, with why in `why`.
+fn openCacheHome(io: std.Io, home: []const u8, why: *[]const u8) ?std.Io.Dir {
+    const cwd = std.Io.Dir.cwd();
+    const st = cwd.statFile(io, home, .{ .follow_symlinks = false }) catch {
+        why.* = "missing";
+        return null;
+    };
+    if (st.kind == .sym_link) {
+        why.* = "it is a symbolic link, and rig removes files only in a cache directory it made";
+        return null;
+    }
+    var d = cwd.openDir(io, home, .{ .iterate = true, .follow_symlinks = false }) catch {
+        why.* = "it cannot be opened";
+        return null;
+    };
+    if (!isTag(d, io)) {
+        d.close(io);
+        why.* = "it holds no " ++ cache_tag_name ++ " from rig, so rig did not make it";
+        return null;
+    }
+    return d;
+}
+
+/// Write rig's tag in the cache home `home` when rig makes it, or when
+/// it holds rig's packages or stamp and nothing else (a home an earlier
+/// rig made before it wrote tags). A home with anything else in it, or that is a
+/// link, stays untagged, so the trim and `rig clean` leave it alone.
+fn tagCacheHome(io: std.Io, home: []const u8) void {
+    const cwd = std.Io.Dir.cwd();
+    const st = cwd.statFile(io, home, .{ .follow_symlinks = false }) catch {
+        cwd.createDirPath(io, home) catch return;
+        writeTag(io, home);
+        return;
+    };
+    if (st.kind != .directory) return;
+    var d = cwd.openDir(io, home, .{ .iterate = true, .follow_symlinks = false }) catch return;
+    defer d.close(io);
+    if (d.statFile(io, cache_tag_name, .{ .follow_symlinks = false })) |_| return else |_| {}
+    // Proof that rig made it: at least one package or rig's stamp, and
+    // nothing else. Trash, known by its name alone, and an empty
+    // directory prove nothing.
+    var proof = false;
+    var it = d.iterate();
+    while (it.next(io) catch return) |entry| switch (CacheEntry.of(d, io, entry.name, entry.kind) orelse return) {
+        .package, .stamp => proof = true,
+        .trash, .tag => return,
+    };
+    if (proof) writeTag(io, home);
+}
+
+fn writeTag(io: std.Io, home: []const u8) void {
+    var buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const path = std.fmt.bufPrint(&buffer, "{s}/{s}", .{ home, cache_tag_name }) catch return;
+    var file = std.Io.Dir.cwd().createFileAtomic(io, path, .{ .replace = false }) catch return;
+    defer file.deinit(io);
+    file.file.writeStreamingAll(io, cache_tag) catch return;
+    file.link(io) catch {};
+}
+
+/// Make the package directory `dir` and hold a shared lock on its lock
+/// file until this process ends, so no trim or `rig clean` removes it
+/// while it is written or its program runs; then mark it used. A lock
+/// taken on a package a trim renamed away meanwhile is let go, and the
+/// package made again. Where the system has no file locks, the package
+/// is used unlocked (and no trim runs: `lockForRemoval`).
+fn holdPackage(allocator: std.mem.Allocator, io: std.Io, dir: []const u8) void {
+    const cwd = std.Io.Dir.cwd();
+    const path = std.fs.path.join(allocator, &.{ dir, package_lock }) catch return;
+    for (0..8) |_| {
+        cwd.createDirPath(io, dir) catch continue;
+        const f = openLock(io, cwd, path) orelse continue;
+        f.lock(io, .shared) catch {
+            f.close(io);
+            break;
+        };
+        const held = f.stat(io) catch break;
+        const now = cwd.statFile(io, path, .{ .follow_symlinks = false }) catch {
+            f.close(io);
+            continue;
+        };
+        if (now.inode == held.inode) break;
+        f.close(io);
+    }
+    cwd.setTimestampsNow(io, dir, .{}) catch {};
+}
+
+/// The lock file at `path` of `dir`, opened to read and write (Linux NFS
+/// takes a lock only in the mode a file is open for), made if missing,
+/// and never through a link. Null if it cannot be opened.
+fn openLock(io: std.Io, dir: std.Io.Dir, path: []const u8) ?std.Io.File {
+    for (0..2) |_| {
+        if (dir.openFile(io, path, .{ .mode = .read_write, .follow_symlinks = false })) |f| return f else |err| if (err != error.FileNotFound) return null;
+        if (dir.createFile(io, path, .{ .read = true, .exclusive = true })) |f| return f else |err| if (err != error.PathAlreadyExists) return null;
+    }
+    return null;
+}
+
+/// The lock file of the package `name` of `dir`, locked exclusively, or
+/// null when a run, build, or test holds it (or it is no regular file).
+/// `error.FileLocksUnsupported` where the system has no file locks: no
+/// trim or clean can know a package is unused there.
+/// `created` says whether it made the lock file, which a package an
+/// earlier rig made lacks, and so changed the package's time.
+fn lockForRemoval(io: std.Io, dir: std.Io.Dir, name: []const u8, created: *bool) error{FileLocksUnsupported}!?std.Io.File {
+    var pd = dir.openDir(io, name, .{ .follow_symlinks = false }) catch return null;
+    defer pd.close(io);
+    created.* = false;
+    if (pd.createFile(io, package_lock, .{ .read = true, .exclusive = true })) |f| {
+        f.close(io);
+        created.* = true;
+    } else |_| {}
+    const f = openLock(io, pd, package_lock) orelse return null;
+    const locked = f.tryLock(io, .exclusive) catch |err| {
+        f.close(io);
+        return if (err == error.FileLocksUnsupported) error.FileLocksUnsupported else null;
+    };
+    // Still the package at `name`, not one a run made there after
+    // another trim renamed this one away.
+    const held = f.stat(io) catch null;
+    var lock_path: [std.fs.max_path_bytes]u8 = undefined;
+    const at = std.fmt.bufPrint(&lock_path, "{s}/{s}", .{ name, package_lock }) catch null;
+    const now = if (at) |path| dir.statFile(io, path, .{ .follow_symlinks = false }) catch null else null;
+    if (!locked or held == null or now == null or held.?.inode != now.?.inode) {
+        f.close(io);
+        return null;
+    }
+    return f;
+}
+
+/// The time the package `name` of `dir` was last used: its own time,
+/// which a run sets (`holdPackage`).
+fn lastUsed(dir: std.Io.Dir, io: std.Io, name: []const u8) ?std.Io.Timestamp {
+    const st = dir.statFile(io, name, .{ .follow_symlinks = false }) catch return null;
+    return st.mtime;
+}
+
+/// Whether a package last used at `used` is unused by the clock read
+/// now: older than `cache_keep_days`. A time in the future is fresh.
+fn unusedSince(io: std.Io, used: ?std.Io.Timestamp) bool {
+    const t = used orelse return false;
+    return t.durationTo(std.Io.Timestamp.now(io, .real)).nanoseconds >= cache_keep_days * std.time.ns_per_day;
+}
+
+/// What became of an entry the trim or `rig clean` set out to remove.
+const Removal = enum { removed, gone, busy, kept, unsupported };
+
+/// Remove `name` of `dir`. A package is locked exclusively first (a
+/// package in use is `busy`), checked again, with `aged`, to be unused
+/// by its time read under the lock (or, where taking the lock made its
+/// lock file, the time before), and renamed out of the way in one step
+/// under the lock, so a run never meets one half removed; then deleted.
+/// `gone` when another process removed it first.
+fn removeEntry(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []const u8, kind: CacheEntry, aged: bool) Removal {
+    switch (kind) {
+        .stamp, .tag => {
+            dir.deleteFile(io, name) catch |err| return if (err == error.FileNotFound) .gone else .kept;
+            return .removed;
+        },
+        .trash => {
+            dir.deleteTree(io, name) catch return .kept;
+            return .removed;
+        },
+        .package => {
+            const before = lastUsed(dir, io, name);
+            var created = false;
+            const lock = (lockForRemoval(io, dir, name, &created) catch return .unsupported) orelse
+                return if (dir.statFile(io, name, .{ .follow_symlinks = false })) |_| .busy else |_| .gone;
+            if (aged and !unusedSince(io, if (created) before else lastUsed(dir, io, name))) {
+                lock.close(io);
+                return .kept;
+            }
+            var tag: [8]u8 = undefined;
+            io.random(&tag);
+            const gone = allocator.print(".trash-{x}", .{&tag}) catch {
+                lock.close(io);
+                return .kept;
+            };
+            dir.rename(name, dir, gone, io) catch |err| {
+                lock.close(io);
+                return if (err == error.FileNotFound) .gone else .kept;
+            };
+            lock.close(io);
+            dir.deleteTree(io, gone) catch {};
+            return .removed;
+        },
+    }
+}
+
+/// Remove the packages in the cache home `home` that no run or build has
+/// used for `cache_keep_days`, all but `current` and any a run, build,
+/// or test holds (`holdPackage`), and what an interrupted trim left. It
+/// acts only on a home rig made (`openCacheHome`). A stamp, `.trimmed`,
+/// records the last trim, so this reads the directory at most once in
+/// `cache_trim_days`; a stamp dated in the future counts as old. Each
+/// package's time is checked again, under its lock, just before it goes.
+/// One line on stderr says how many went. Where the system has no file
+/// locks, nothing is removed. A failure never fails the build.
+fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current: []const u8) void {
+    var why: []const u8 = "";
+    var d = openCacheHome(io, home, &why) orelse return;
+    defer d.close(io);
+    const now = std.Io.Timestamp.now(io, .real);
+    if (d.statFile(io, ".trimmed", .{ .follow_symlinks = false })) |st| {
+        if (st.kind != .file or st.size != 0) return;
+        const age = st.mtime.durationTo(now).nanoseconds;
+        if (age >= 0 and age < cache_trim_days * std.time.ns_per_day) return;
+        d.setTimestampsNow(io, ".trimmed", .{ .follow_symlinks = false }) catch return;
+    } else |_| {
+        const file = d.createFile(io, ".trimmed", .{ .exclusive = true }) catch return;
+        file.close(io);
+    }
+    var old: std.ArrayList(struct { name: []const u8, kind: CacheEntry }) = .empty;
+    var it = d.iterate();
+    while (it.next(io) catch return) |entry| {
+        if (eql(entry.name, current)) continue;
+        const kind = CacheEntry.of(d, io, entry.name, entry.kind) orelse continue;
+        if (kind == .stamp or kind == .tag or (kind == .package and !unusedSince(io, lastUsed(d, io, entry.name)))) continue;
+        old.append(allocator, .{ .name = allocator.dupe(u8, entry.name) catch return, .kind = kind }) catch return;
+    }
+    var removed: usize = 0;
+    for (old.items) |e| switch (removeEntry(allocator, io, d, e.name, e.kind, true)) {
+        .removed => removed += @intFromBool(e.kind == .package),
+        .unsupported => break,
+        else => {},
+    };
+    if (removed > 0) std.debug.print("rig: removed {d} package{s} unused for {d} days from {s}\n", .{ removed, if (removed == 1) "" else "s", cache_keep_days, home });
+}
+
+/// `rig clean`: remove what rig made in its cache home, every program's
+/// package and Zig cache, but a package a run, build, or test holds;
+/// then the home itself, with its tag, if nothing else is in it. A home
+/// rig did not make (no tag, or a link) is left alone. `$RIG_OUT_DIR`
+/// and `$RIG_BUILD_STORE` are their callers'.
+fn clean(allocator: std.mem.Allocator, io: std.Io, env: Env) void {
+    const home = (cacheHome(allocator, env) catch fatal("error: out of memory", .{})) orelse fatal("error: set XDG_CACHE_HOME or HOME to an absolute path to name the cache", .{});
+    var why: []const u8 = "";
+    var d = openCacheHome(io, home, &why) orelse {
+        if (eql(why, "missing")) {
+            printOut(io, "rig: nothing to clean in {s}\n", .{home});
+            return;
+        }
+        fatal("error: rig: not cleaning {s}: {s}", .{ home, why });
+    };
+    var found: std.ArrayList(struct { name: []const u8, kind: CacheEntry }) = .empty;
+    var others = false;
+    var it = d.iterate();
+    while (it.next(io) catch |err| fatal("error: cannot read `{s}`: {s}", .{ home, @errorName(err) })) |entry| {
+        const kind = CacheEntry.of(d, io, entry.name, entry.kind) orelse {
+            others = true;
+            continue;
+        };
+        if (kind == .stamp or kind == .tag) continue;
+        found.append(allocator, .{ .name = allocator.dupe(u8, entry.name) catch fatal("error: out of memory", .{}), .kind = kind }) catch fatal("error: out of memory", .{});
+    }
+    var removed: usize = 0;
+    var busy: usize = 0;
+    var kept = false;
+    for (found.items) |e| switch (removeEntry(allocator, io, d, e.name, e.kind, false)) {
+        .removed, .gone => removed += @intFromBool(e.kind == .package),
+        .busy => busy += 1,
+        .kept => kept = true,
+        .unsupported => fatal("error: rig: not cleaning {s}: this system has no file locks, so rig cannot tell which packages are in use", .{home}),
+    };
+    printOut(io, "rig: removed {d} package{s} from {s}\n", .{ removed, if (removed == 1) "" else "s", home });
+    if (busy > 0) printOut(io, "rig: kept {d} package{s} a run, build, or test is using\n", .{ busy, if (busy == 1) "" else "s" });
+    if (kept) printOut(io, "rig: kept some of rig's files in {s}, which could not be removed\n", .{home});
+    if (others) printOut(io, "rig: kept {s}, which holds files rig did not make\n", .{home});
+    if (others or busy > 0 or kept) {
+        d.close(io);
+        return;
+    }
+    _ = removeEntry(allocator, io, d, ".trimmed", .stamp, false);
+    _ = removeEntry(allocator, io, d, cache_tag_name, .tag, false);
+    d.close(io);
+    std.Io.Dir.cwd().deleteDir(io, home) catch {};
 }
 
 // The unit tests of every compiler file, and of the runtime.

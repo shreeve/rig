@@ -27,11 +27,11 @@ sub main()
     break fail(c) catch b
   print(x, y, z, w)
 
-# error: 21:11: bare use of `Text` value `a` in `break` value
-# error: 21:23: bare use of `Text` value `b` in `break` value
-# error: 23:11: bare use of `Text` value `h.f` in `break` value
-# error: 23:25: bare use of `Text` value `b` in `break` value
-# error: 25:11: bare use of `Text` value `o` in `break` value
-# error: 25:16: bare use of `Text` value `b` in `break` value
-# error: 27:25: bare use of `Text` value `b` in `break` value
+# error: 21:11: `a` owns a `Text`, which can't be copied out by `break`: write `<a` to move it or `+a` to clone it
+# error: 21:23: `b` owns a `Text`, which can't be copied out by `break`: write `<b` to move it or `+b` to clone it
+# error: 23:11: `h.f` owns a `Text`, which can't be copied out by `break`: write `+h.f` to clone it
+# error: 23:25: `b` owns a `Text`, which can't be copied out by `break`: write `<b` to move it or `+b` to clone it
+# error: 25:11: `o` owns a `Text?`, which can't be copied out by `break`: write `<o` to move it or `+o` to clone it
+# error: 25:16: `b` owns a `Text`, which can't be copied out by `break`: write `<b` to move it or `+b` to clone it
+# error: 27:25: `b` owns a `Text`, which can't be copied out by `break`: write `<b` to move it or `+b` to clone it
 # errors: 7

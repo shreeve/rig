@@ -798,7 +798,7 @@ sub main()
 ```
 
 ```error
-would copy a unique value; use `<a` to move it
+`a` is a unique `Seed`, which can't be copied by `=`: write `<a` to move it or `?a` to view it
 ```
 
 ---
@@ -2199,6 +2199,13 @@ negation: a `!x` whose `Bool` value would be read (a condition, an
 operand, a binding, an argument) is rejected. It is valid only where a
 `!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
 
+`not` binds looser than a comparison and tighter than `and` and `or`:
+`not a and b` is `(not a) and b`. Since `not a > b` could be read as
+`(not a) > b`, a comparison directly under `not` is written in
+parentheses, `not (a > b)`, or flipped: the diagnostic offers `a <= b`
+where that means the same, for integers, text, and any `==` or `!=`,
+though not for a `Float`, which may be NaN.
+
 ```rig reject
 sub main()
   done = false
@@ -2214,7 +2221,7 @@ sub main()
 sub main()
   a = 7
   print(-7 / 2, -7 % 2, a & 3, a << 2, a ^ 1)
-  print(not a == 3, a > 3 and a < 10, false or true)
+  print(not (a == 3), a > 3 and a < 10, false or true)
   print(1 if a > 5 else 2)
 ```
 
@@ -2222,6 +2229,20 @@ sub main()
 -3 -1 3 28 6
 true true true
 1
+```
+
+```rig reject
+struct Item
+  qty: Int
+
+sub main()
+  it = Item(qty: 4)
+  if not it.qty > 3
+    print("few")
+```
+
+```error
+write `it.qty <= 3`, or `not (it.qty > 3)`: `not` applies to the whole comparison
 ```
 
 ```rig reject
@@ -2998,8 +3019,9 @@ sub main()
 ## 7. Ownership
 
 Every owning value and handle has exactly one owner, which decides when
-it is released. The sigils make each ownership effect visible where it
-happens:
+it is released. The sigils mark ownership effects where they happen; a
+read lend may go unwritten where its view lasts only for the use, and a
+value that is not moved is dropped where its scope ends, with no mark:
 
 | Sigil | Name | Effect |
 |---|---|---|
@@ -3060,7 +3082,7 @@ sub main()
 ```
 
 ```error
-bare use of shared (`*T`) handle `a` in binding would alias the handle
+`a` is a `*Wrap` handle, which can't be copied by `=`: write `<a` to move it, `+a` for another handle, or `?a` to view it
 ```
 
 A view of a value that copies ([§2](#kinds-of-value)) is copied out

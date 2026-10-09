@@ -281,7 +281,7 @@ sub main()
 # error: 178:7: cannot reassign `x` while it is lent
 # error: 188:11: cannot lend `t` to write while a read loan is live
 # error: 198:7: cannot lend `t` to write while a read loan is live
-# error: 209:7: cannot assign to `s[...]` while `s` is lent
+# error: 209:7: cannot assign to `s[0]` while `s` is lent
 # error: 219:7: cannot lend `w` to write while a read loan is live
 # error: 229:7: cannot lend `t` to write while a read loan is live
 # error: 238:7: cannot lend `t` to write while a read loan is live

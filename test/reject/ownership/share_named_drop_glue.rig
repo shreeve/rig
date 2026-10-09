@@ -12,4 +12,4 @@ sub main()
   s = *o
   print(1)
 
-# error: bare use of `Owner` value `o` in shared allocation would alias an owning value
+# error: `o` owns an `Owner`, which can't be copied into a shared box: write `<o` to move it or `+o` to clone it

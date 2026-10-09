@@ -16,9 +16,10 @@ generation, and linking.
 
 ## A short tour
 
-Rig's whole ownership model fits on one page,
-[docs/CORE.md](docs/CORE.md). Read it before the syntax guide and the
-language reference, which give the details.
+[docs/QUICK.md](docs/QUICK.md) is a short guide to the sigils. Rig's
+whole ownership model fits on one page, [docs/CORE.md](docs/CORE.md).
+Read it before the syntax guide and the language reference, which give
+the details.
 New to Rig? [WELCOME.md](WELCOME.md) is the guide for programmers
 coming from Rust, Zig, C, Python, Ruby, JavaScript, or Go. Every
 example in this README is compiled and run by the test suite, and
@@ -283,8 +284,18 @@ bin/rig build --release=fast file.rig  # fast: no overflow checks
 bin/rig test file.rig                  # run the program's `test` blocks
 bin/rig check file.rig                 # check only
 bin/rig emit file.rig                  # print the emitted Zig
+bin/rig clean                          # remove the cache of built programs
 ./test/run                             # the whole test suite
 ```
+
+`rig run`, `build`, and `test` build each program in a directory of
+its own under `~/.cache/rig` (or `$XDG_CACHE_HOME/rig`, when that is an
+absolute path; or `$RIG_OUT_DIR` when set). At most once a day they
+remove the program directories there that no build has used for 5
+days, and say how many; `rig clean` removes them all. Both leave a
+program that a run, build, or test is still using, anything rig did
+not make, and a cache directory without rig's `CACHEDIR.TAG`, alone.
+A `$RIG_OUT_DIR` is never trimmed.
 
 Debug builds (the default) check for memory leaks: a program that
 leaks reports how many allocations it lost and exits 1; set

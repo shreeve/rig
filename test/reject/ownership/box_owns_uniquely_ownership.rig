@@ -17,6 +17,6 @@ sub main()
   s = <b.r
   t = b.r
 
-# error: 16:7: bare use of `Box` value `b` in binding would copy the box's pointer and free its value twice; use `<b` to move ownership
+# error: 16:7: `b` owns a `Box[H]`, which can't be copied by `=`: write `<b` to move it or `?b` to view it
 # error: 17:8: cannot move out of `b.r`
-# error: 18:7: bare use of `Res` value `b.r` in binding would alias an owning value
+# error: 18:7: `b.r` owns a `Res`, which can't be copied by `=`: write `?b.r` to view it

@@ -85,11 +85,11 @@ sub main()
   (!h).v.push(4)
   print(z, n, w, m, x)
 
-# error: 47:10: method `insert` needs its receiver lent to write; use `(!receiver).insert(...)`
+# error: 47:10: method `insert` needs its receiver lent to write; write `(!p.s).insert(1)`
 # error: 81:4: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
-# error: 82:10: method `insert` needs its receiver lent to write; use `!receiver.insert(...)`
-# error: 84:3: cannot assign through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.
-# error: 85:10: method `push` needs its receiver lent to write; use `!receiver.push(...)`
+# error: 82:10: method `insert` needs its receiver lent to write; write `!p.s.insert(1)`
+# error: 84:3: cannot assign through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.
+# error: 85:10: method `push` needs its receiver lent to write; write `!h.v.push(4)`
 # error: 44:4: `(!p).x`: write a lend on the whole path, not its base: `p.x`
 # error: 47:4: `(!p).s`: write a lend on the whole path, not its base
 # error: 50:4: `(<(!p)).a`: write a lend on the whole path, not its base: `p.a[0]`

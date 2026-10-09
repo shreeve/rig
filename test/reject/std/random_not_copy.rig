@@ -6,5 +6,5 @@ sub main()
   a = r
   print((!a).next())
 
-# error: 6:7: bare use of `Random` value `r` in binding would copy a unique value; use `<r` to move it
+# error: 6:7: `r` is a unique `random.Random`, which can't be copied by `=`: write `<r` to move it or `?r` to view it
 # errors: 1

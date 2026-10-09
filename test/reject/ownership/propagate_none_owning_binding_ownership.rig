@@ -11,4 +11,4 @@ fun f(m: *Wrap?) -> Int?
 sub main()
   print(f(none))
 
-# error: 8:7: bare use of shared (`*T`) handle `m` in binding would alias the handle; use `<m` to move or `+m` to clone
+# error: 8:7: `m` is a `*Wrap?` handle, which can't be copied by `=`: write `<m` to move it, `+m` for another handle, or `?m` to view it

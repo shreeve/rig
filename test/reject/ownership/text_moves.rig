@@ -10,5 +10,5 @@ sub main()
   keep(<t)
   print(t, u)
 
-# error: 9:7: bare use of `Text` value `t` in binding would copy the buffer pointer and free it twice; use `<t` to move ownership, or `+t` to copy the text
+# error: 9:7: `t` owns a `Text`, which can't be copied by `=`: write `<t` to move it, `+t` to clone it, or `?t` to view it
 # error: 11:9: use of `t` after move

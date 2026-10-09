@@ -10,5 +10,5 @@ sub main()
   s = S(arr: a)
   print(a, b, s.arr)
 
-# error: 9:7: bare use of `[2]Text` value `a` in binding would copy its owning elements, which both would drop. Use `<a` to move it
-# error: 10:14: bare use of `[2]Text` value `a` in call argument would copy its owning elements
+# error: 9:7: `a` owns a `[2]Text`, which can't be copied by `=`: write `<a` to move it, `+a` to clone it, or `?a` to view it
+# error: 10:14: `a` owns a `[2]Text`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone

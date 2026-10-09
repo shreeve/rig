@@ -29,7 +29,7 @@ sub main()
   print(t)
   f = Flags(same: p == q, less: p.s < q.s)
   print(f.same, f.less, f == Flags(same: true, less: false))
-  print((p == q) == ("a" < "b"), not p == q)
+  print((p == q) == ("a" < "b"), not (p == q))
   eq: fun(P, P) -> Bool = |a, b| a == b
   print(eq(p, q))
   k: K = .a(p: p)
