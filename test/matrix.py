@@ -1555,6 +1555,65 @@ def celltemp_output(tname, sname):
     return "\n".join(out) + "\n"
 
 
+# -----------------------------------------------------------------------------
+# Slices of a value however it is held: a slice of an array, a Vec, a Text,
+# or a String, held owned, through a read or write view, a `*T`, a box, a
+# field, or a nested field (and a write view of a `*T`, a box, or a field),
+# passed as an argument whose result keeps the view, or bound bare, and
+# then the owner changed or replaced while the slice is still used
+# (`live`) or after its last use (`done`). Whatever is accepted must run
+# sanitizer-clean: a slice that lends what it slices keeps the change out.
+# -----------------------------------------------------------------------------
+
+SLICEVIEW_ELEMS = {
+    "array": dict(ty="[4]Int", view="[]Int", mk="[n, n + 1, n + 2, n + 3]", grow=["P[0] = 9"]),
+    "vec": dict(ty="Vec[Int]", view="[]Int", mk="v: Vec[Int] = Vec()\n  for i in 0..4\n    !v.push(n + i)\n  v",
+                grow=["for i in 0..100", "  !P.push(i)"]),
+    "text": dict(ty="Text", view="String", mk='Text("hello", n)', grow=["for _ in 0..100", '  !P.add("abcdefgh")']),
+    "string": dict(ty="String", view="String", mk='"hello" if n > 0 else "world"', grow=['P = "other"']),
+}
+
+# How the slice's object is held (`X` is what is sliced), and what
+# changes the owner: growing it (`P`, the place written) or replacing
+# what holds it.
+SLICEVIEW_HOLDERS = {
+    "owned": dict(setup=["o = mk(1)"], x="o", place="o"),
+    "read": dict(setup=["o = mk(1)", "x = ?o"], x="x", place="o"),
+    "write": dict(setup=["o = mk(1)", "x = !o"], x="x", place="x"),
+    "shared": dict(setup=["x = *mk(1)"], x="x", replace="x = *mk(2)"),
+    "wshared": dict(setup=["h = *mk(1)", "x = !h"], x="x", replace="x = *mk(2)"),
+    "box": dict(setup=["x = Box(mk(1))"], x="x", replace="x = Box(mk(2))"),
+    "wbox": dict(setup=["b = Box(mk(1))", "x = !b"], x="x", replace="x = Box(mk(2))"),
+    "field": dict(setup=["h = H(f: mk(1))"], x="h.f", place="h.f"),
+    "wfield": dict(setup=["o = mk(1)", "h = W(f: !o)"], x="h.f", place="h.f"),
+    "nested": dict(setup=["g = G(h: H(f: mk(1)))"], x="g.h.f", place="g.h.f"),
+}
+
+
+def sliceview_program(hname, ename, use, then):
+    e = SLICEVIEW_ELEMS[ename]
+    h = SLICEVIEW_HOLDERS[hname]
+    ty, view = e["ty"], e["view"]
+    out = [f"fun mk(n: Int) -> {ty}\n  {e['mk']}\n",
+           f"fun keep(x: {view}) -> {view}\n  x\n",
+           f"struct H\n  f: {ty}\n",
+           f"struct G\n  h: H\n",
+           f"struct W\n  f: !{ty}\n"]
+    body = list(h["setup"])
+    sliced = f"{h['x']}[1..]"
+    body.append(f"s = keep({sliced})" if use == "arg" else f"s = {sliced}")
+    if then == "done":
+        body.append("print(s)")
+    if "replace" in h:
+        body.append(h["replace"])
+    else:
+        body += [l.replace("P", h["place"]) for l in e["grow"]]
+    after = h.get("place", h["x"])
+    body.append("print(s)" if then == "live" else f"print({after}[1..].len)" if ename == "string" else f"print((?{after}[1..]).len)")
+    out.append("sub main()\n" + indent(body, 2) + "\n")
+    return "\n".join(out)
+
+
 def store_program(oname, fname, then):
     """The program for one store cell."""
     o = STORE_OWNERS[oname]
@@ -1979,6 +2038,17 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(src)
                 cells.append((ident, path))
+    for hname in SLICEVIEW_HOLDERS:
+        for ename in SLICEVIEW_ELEMS:
+            for use in ("arg", "bind"):
+                for then in ("live", "done"):
+                    ident = f"sliceview.{hname}.{ename}.{use}.{then}"
+                    if not wanted(ident):
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(sliceview_program(hname, ename, use, then))
+                    cells.append((ident, path))
     for t in CELLMUT_TYPES:
         for a in CELLMUT_ACCESS:
             ident = f"cellmut.{t}.{a}"
