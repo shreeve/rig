@@ -3379,16 +3379,21 @@ a view of the temporary `Wrap(n: 1)` outlives its statement, which drops it; bin
 ```
 
 A lend of a place is never the base of a path: `(!p).x`, `(?arr)[0]`,
-and `(!v)[0..2]` are rejected wherever they stand. The lend goes on the
+`(!v)[0..2]`, the lend moved, `(<(!p)).x`, and a field holding
+functions, `(!t).ops[1](5)`, are rejected wherever they stand, a
+closure's or a function's last value included. The lend goes on the
 whole path (`!p.items.push(3)`, `if !arr[0] as v`, `match !p.e`,
-`?arr[0..1]`), and an assignment or a read needs none (`p.x = 5`,
-`arr[i] += 7`, `v.len`). A field or element of a temporary is not
-assigned to: bind the value to a name first. Three forms are not this
+`?arr[0..1]`, `x = ?p.items`), and an assignment or a read needs none
+(`p.x = 5`, `arr[i] += 7`, `v.len`). A part of a temporary is not
+assigned to or bound by a header: bind the value to a name first. A
+read lend is not written through, `(?p).x = 5`. Three forms are not this
 rule's: a method's receiver, `(!s).insert(k)`
 ([SYNTAX §5](SYNTAX.md#receiver-sigils)); a value that branches,
 `(!a if c else !b).x`, whose lends pick the place its path reaches; and
 a lend of a slice, `(?t[..])[0]`, which makes the view the path
-indexes.
+indexes. A written `!` on such a slice the path only reads,
+`(!arr[..])[0]`, is rejected as any `!` only read is: write
+`(?arr[..])[0]`.
 
 ```rig
 struct P

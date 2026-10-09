@@ -1254,9 +1254,10 @@ as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
 | `xs.len`, `s.len`, `v.len` | a length, a field |
 | `mod.name`, `mod.Type.name` | a module's declaration or a type's member |
 
-A lend of a place is never the base of a path: `(!p).x` and `(?xs)[0]`
-are rejected, and written `p.x` where the path is read or assigned, and
-`!p.x` or `?xs[0]` where it is lent ([SPEC](SPEC.md#lending)). A
+A lend of a place is never the base of a path: `(!p).x`, `(?xs)[0]`,
+and `(<(!p)).x` are rejected, and written `p.x` where the path is read
+or assigned, and `!p.x` or `?xs[0]` where it is lent
+([SPEC](SPEC.md#lending)). A
 method's receiver, `(!s).insert(k)`, a value that branches,
 `(!a if c else !b).x`, and a lend of a slice, `(?t[..])[0]`, are not
 this rule's.

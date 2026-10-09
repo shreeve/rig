@@ -798,9 +798,15 @@ values, and `sema.yieldsValue(source, s)` whether a statement gives a
 value. Whether a receiver needs `!`, `<`, or nothing follows from what
 it hands over too (`receiverShape`); the receiver sigil itself is
 syntax (Core §8). A lend of a place is never the base of a path
-(`Checker.lendBase`): a field, element, or slice whose object hands over
-a `lend` of anything but a slice is rejected, since the lend goes on
-the whole path or the path needs none; a method's receiver is no path.
+(`Checker.lendBase`): a field, element, or slice whose object is a lend
+(`Checker.lendUnder`: it hands over a `lend`, also moved, `<(!p)`) of
+anything but a slice is rejected, since the lend goes on the whole path
+or the path needs none. A method's receiver is no path; a field holding
+functions, called, is. Every such path is reported: a closure's, a
+block's, and a function's last value are statements of their own for
+the hint (`synthTail`, `checkTail`). A written `!` on a slice the path
+only reads is decided by `Checker.writeLendRead`, as any read of a
+written lend is.
 The suite's `classify` check fails on any classifier
 of this kind left outside `handsOver`.
 
