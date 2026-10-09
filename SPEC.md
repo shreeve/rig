@@ -2978,7 +2978,7 @@ element's write view sees when that value copies (`x = h.w`), and holds
 a write view a call yields, which is a value, not a place ([View
 places](#view-places)). A value that does not copy is not copied out of
 a view: lend it on, as `?T` or `!T`. A write lend written where its
-view would be read as the value, `!x`, is rejected instead
+view would only be read, `!x`, is rejected instead
 ([Lending](#lending)).
 
 ```rig
@@ -3248,23 +3248,25 @@ area(s: ?Shape)` takes `?s` of a `Shape`, a `Box[Shape]`, and a
 `*Shape` ([§9](#shared-handles), [§10](#box)). A slice `x[a..b]` is the
 same lend, of part of `x` ([§2](#slices)).
 
-A written `!x` is kept only where the type it goes to holds a write
-view: a `!T` parameter or field, a write receiver, a type spelled or
-expected with one (`Opt[!Int].some(v: !n)`, `a: [2]!Int = [!n, !m]`),
-or a value whose type it gives (a binding with no type, an array
-literal, or an `if`, `match`, or loop each of whose values is one).
-Anywhere its view would be read as a value, its `!` would be ignored,
-so it is rejected: an `Int` parameter, a field of a generic type
-inferred as `Opt[Int]` (`Opt.some(v: !n)`: a written `!x` binds `T` to
-the value it reaches where that copies), an element beside an `Int`
-(`[!n, 3]`), a typed binding or a result, an operator's operand
-(`!n + 1`), an index or a range bound, a printed value, and `+!n`,
-`?!n`, or `<!n` where a value goes. Write `n` for the value, or a type
-that says `!T` to keep the view. A held write view (`w`, a `!T`
-parameter) has no `!` written, and is read as a bare name is. Where a
-read view goes (`rd(!n)` with `rd(x: ?Int)`, or `!xs[a..b]` where a
-`[]T` goes), `!x` is still accepted, narrowed to the read view; whether
-that `!` is rejected too is open.
+A written `!` must lend to write
+([Core 4](docs/CORE.md#2-the-core-in-ten-sentences)): `!x` is kept only
+where the type it goes to holds a write view (a `!T` parameter or
+field, a write receiver, a type spelled or expected with one, or a value
+whose type it gives: a binding with no type, an array literal, or an
+`if`, `match`, or loop each of whose values is one), and rejected
+wherever `x` is only read. A written `!x` binds a generic's `T` to the
+value it reaches where that copies, so `Opt.some(v: !n)` stores an
+`Int`. A value that branches or loops is decided at each of its leaves,
+and the base of a field or element (`(!p).x`) when the place is only
+read. A held write view (`w`, a `!T` parameter) has no `!` written, and
+is read, or lent where a read view goes, as a bare name is.
+
+| Written | Where it goes | Write instead |
+|---|---|---|
+| `bump(!n)` | `bump(x: !Int)` | kept: `bump` may write `n` |
+| `!n + 1`, `arr[!i]`, `print(!n)` | read as a value | `n` |
+| `Opt.some(v: !n)` | an `Opt[Int]` | `n`, or `Opt[!Int]` to keep the view |
+| `rd(!n)` | `rd(x: ?Int)`, which only reads | `rd(?n)` |
 
 ```rig
 enum Opt[T]
@@ -3310,6 +3312,19 @@ sub main()
 
 ```error
 `!n` here is read, not held: only its `Int` is read here. Write `n`
+```
+
+```rig reject
+fun rd(x: ?Int) -> Int
+  x
+
+sub main()
+  n = 1
+  print(rd(!n))
+```
+
+```error
+`!n` here is read, not held: `rd` only reads `n`; write `rd(?n)`
 ```
 
 A `!x` view needs a binding that may change: a parameter (other than
