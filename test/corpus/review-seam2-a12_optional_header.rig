@@ -43,7 +43,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  if !mk(1).maybe(true) as x
+  if (!mk(1)).maybe(true) as x
     print(clobber(4))
     x = 9
     print(x)

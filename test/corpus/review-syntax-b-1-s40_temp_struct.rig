@@ -1,0 +1,20 @@
+struct B
+  items: Vec[Int]
+  name: Text
+
+fun mk() -> B
+  b = B(items: Vec(), name: Text("hello world"))
+  !b.items.push(4)
+  b
+
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun size(s: String) -> Int
+  s.len
+
+sub main()
+  print(total(mk().items[..]), size(mk().name[2..]))

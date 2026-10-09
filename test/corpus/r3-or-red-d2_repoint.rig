@@ -19,5 +19,5 @@ sub main()
   if true
     b: Vec[Tok] = Vec()
     !b.push(Tok(n: 2))
-    t = !p.next(?b)
+    t = (!p).next(?b)
   print(t.n)

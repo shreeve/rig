@@ -134,6 +134,6 @@ struct PQ
     self
 
 sub main()
-  s = (!PQ(r: "a").me()).r
-  !PQ(r: "b").me().set(?mk(1).t)
+  s = ((!PQ(r: "a")).me()).r
+  (!PQ(r: "b")).me().set(?mk(1).t)
   print("after", clobber(1), s)

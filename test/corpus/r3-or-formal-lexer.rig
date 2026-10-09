@@ -10,6 +10,6 @@ struct Lexer
 sub main()
   t = Text("abc")
   lx = Lexer(src: ?t, pos: 0)
-  a = !lx.next()
-  b = !lx.next()
+  a = (!lx).next()
+  b = (!lx).next()
   print(a, b)

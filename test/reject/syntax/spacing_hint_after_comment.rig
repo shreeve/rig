@@ -1,0 +1,22 @@
+# The spacing hint quotes the operand before the operator, also when the
+# line it ends on ends in a comment, which may hold words, calls, a `#`
+# in a string, or no code at all.
+
+sub main()
+  n = 3
+  s = "a#b"
+  print(n # the count
+    -1)
+  print(n # see f(x)
+    <n)
+  print(s.len # "#" counts
+    -1)
+  print(n
+    # a line of comment
+    -1)
+
+# error: 9:5: `n -1`: an operator has the same spacing on both sides; write `n - 1` to subtract, or `n, -1` to negate `1` as a value of its own
+# error: 11:5: `n <n`: an operator has the same spacing on both sides; write `n < n` to compare, or `n, <n` to move `n` as a value of its own
+# error: 13:5: `s.len -1`: an operator has the same spacing on both sides; write `s.len - 1` to subtract, or `s.len, -1` to negate `1` as a value of its own
+# error: 16:5: `n -1`: an operator has the same spacing on both sides; write `n - 1` to subtract, or `n, -1` to negate `1` as a value of its own
+# errors: 4

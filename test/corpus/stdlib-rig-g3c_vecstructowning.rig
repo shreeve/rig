@@ -8,5 +8,5 @@ sub main()
     !r.cells.push(4)
   for r in ?rows
     print(r.cells)
-  if !rows.pop() as last
+  if (!rows).pop() as last
     print(last.cells.len)

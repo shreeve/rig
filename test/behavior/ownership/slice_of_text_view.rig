@@ -1,0 +1,61 @@
+# A slice of a read view of a Text (`?Text`, `?*Text`, `?Box[Text]`) is
+# a String of its own: the Text cannot change while the read view's loan
+# lives, which the String carries. A slice of a `!String` views the
+# String's bytes, which writing the String does not free. A slice of a
+# write view of a Text lends the view until its last use, after which
+# the view writes again.
+# release
+
+fun word(s: String) -> String
+  s
+
+sub read_param(t: ?Text)
+  s = t[1..]
+  print(s, word(t[2..]))
+
+sub shared(h: ?*Text)
+  print(h[1..], word(h[..2]))
+
+sub boxed(b: ?Box[Text])
+  print(b[1..], word(b[..2]))
+
+sub write_param(t: !Text)
+  s = word(t[1..])
+  print(s)
+  !t.add("!")
+  print(t, word(?t[..2]))
+
+sub main()
+  t = Text("hello")
+  r = ?t
+  s = word(r[1..])
+  print(s)
+  read_param(?t)
+  h = *Text("shared")
+  shared(?h)
+  b = Box(Text("boxed"))
+  boxed(?b)
+  w = !t
+  x = word(w[1..])
+  print(x)
+  !w.add("?")
+  print(t)
+  v: String = ?t
+  ws = !v
+  y = word(ws[1..])
+  ws = "other"
+  print(y, v)
+  write_param(!t)
+
+# oracle: write_param accept
+# oracle: read_param accept
+# expect:
+# ello
+# ello llo
+# hared sh
+# oxed bo
+# ello
+# hello?
+# ello? other
+# ello?
+# hello?! he

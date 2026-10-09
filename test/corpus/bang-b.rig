@@ -11,5 +11,5 @@ struct S
 
 sub main()
   s = S(n: 0)
-  print(!s.bump())
+  print((!s).bump())
   print((!s).add(2))

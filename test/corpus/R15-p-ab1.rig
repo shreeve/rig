@@ -6,7 +6,7 @@ struct B
 sub main()
   b = B(v: Vec())
   !b.v.push(1)
-  it = !b.items()
+  it = (!b).items()
   !b.v.push(2)
   !b.v.push(3)
   !b.v.push(4)

@@ -1,0 +1,10 @@
+sub each(f: ?sub(Int))
+  f(1)
+  f(2)
+
+sub main()
+  s = "abc"
+  each(|+s, i|
+    <s
+    print(i, s)
+  )

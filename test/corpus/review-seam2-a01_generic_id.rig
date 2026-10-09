@@ -45,5 +45,5 @@ fun id[T](x: T) -> T
   x
 
 sub main()
-  r = id(!mk(1).at())
+  r = id((!mk(1)).at())
   print(r)

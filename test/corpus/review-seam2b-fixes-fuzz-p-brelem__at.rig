@@ -93,14 +93,14 @@ fun f(n: Int) -> Int
 sub viatemp()
   c = f(1) == 1
   k = 3
-  print(![mk(3), mk(4)][f(1)].at())
+  print((![mk(3), mk(4)][f(1)]).at())
   print(c, k)
 
 sub vianame()
   c = f(1) == 1
   k = 3
   tt = [mk(3), mk(4)]
-  print(!tt[f(1)].at())
+  print((!tt[f(1)]).at())
   print(c, k)
 
 sub main()

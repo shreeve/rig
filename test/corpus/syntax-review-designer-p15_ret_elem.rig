@@ -13,6 +13,6 @@ struct Bag
 sub main()
   b = Bag(items: Vec())
   !b.items.push(P(x: 1))
-  f = !b.first_mut()
+  f = (!b).first_mut()
   f.x = 9
   print(b.first().x)

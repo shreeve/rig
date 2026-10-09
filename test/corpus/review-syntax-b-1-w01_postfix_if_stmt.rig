@@ -1,0 +1,6 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  c = v.len > 0
+  !v.pop() if c
+  print(v)

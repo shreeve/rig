@@ -38,8 +38,8 @@ fun digits(xs: ![]Int) -> Int
 
 sub main()
   c = true
-  print(show(!(mk(1) if c else mk(2)).pick(y: f(1), x: f(2)), clobber(3)))
-  print(show(![mk(3), mk(4)][1].pick(y: f(1), x: f(2)), clobber(3)))
+  print(show((!(mk(1) if c else mk(2))).pick(y: f(1), x: f(2)), clobber(3)))
+  print(show((![mk(3), mk(4)][1]).pick(y: f(1), x: f(2)), clobber(3)))
   print(digits(!mk(5).arr[..]), digits(!mk(6).arr))
 
 # expect:

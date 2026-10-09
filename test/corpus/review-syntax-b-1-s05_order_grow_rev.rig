@@ -1,0 +1,12 @@
+fun grow(v: !Vec[Int]) -> Int
+  for i in 0..100
+    !v.push(i)
+  0
+
+fun two(n: Int, xs: []Int) -> Int
+  xs[0] + n
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(two(grow(!v), v[0..1]))

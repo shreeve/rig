@@ -16,5 +16,5 @@ struct P
 sub main()
   p = P(toks: Vec(), pos: 0)
   !p.toks.push(Tok(kind: 1))
-  a = !p.next()
+  a = (!p).next()
   print(a.kind)

@@ -31,5 +31,5 @@ fun mk(n: Int) -> S
   s
 
 sub main()
-  v = !mk(1).steal()
+  v = (!mk(1)).steal()
   print(v)

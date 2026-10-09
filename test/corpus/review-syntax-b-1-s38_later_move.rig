@@ -1,0 +1,7 @@
+fun g(xs: []Int, v: Vec[Int]) -> Int
+  xs.len + v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(g(v[..], <v))

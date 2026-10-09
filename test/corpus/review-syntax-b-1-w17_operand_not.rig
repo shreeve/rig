@@ -1,0 +1,5 @@
+sub main()
+  s: Vec[Int] = Vec()
+  !s.push(1)
+  n = !s.pop() ?? 5
+  print(n)

@@ -91,7 +91,7 @@ struct Shelf[T]
     !self.items.push(<x)
 
   fun take(!self) -> T?
-    !self.items.pop()
+    (!self.items).pop()
 
 enum Maybe[T]
   just(v: T)

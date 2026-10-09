@@ -1,0 +1,12 @@
+fun word(s: String) -> String
+  s
+
+fun f(t: !Text) -> String
+  word(t[1..])
+
+sub main()
+  t = Text("hello")
+  s = f(!t)
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)

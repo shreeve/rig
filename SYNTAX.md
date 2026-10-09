@@ -383,7 +383,6 @@ reaches `lib`: the checker says so, and the call in parentheses,
 | `(!mk().items).push(k)` | `!mk().items.push(k)` | a field of that temporary |
 | `(!(+s)).bump()` | `!(+s).bump()` | a parenthesized receiver |
 | `((!v).pop())?` | `!v.pop()?` | the suffix applies to the result |
-| `while (!q).pop() as j` | `while !q.pop() as j` | the loop binds what `pop` returns |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
 | `(?p).dist(q)` | `?p.dist(q)` | lend `p` to read; the same as `p.dist(q)` |
 
@@ -397,9 +396,11 @@ makes applies to the whole expression too: `?f(x).g()` lends what `g`
 returns, since a made receiver is read or taken without a sigil. With
 parentheses around the call, `?(p.m())` and `!(p.m())` lend its
 result. The long form is valid everywhere; it is
-required for a write call whose `Bool` value is used, `if
-(!set).insert(k)` or `added = (!set).insert(k)`, so that its `!` never
-reads as negation ([SPEC §3](SPEC.md#structs) has the checks).
+required for a write call whose value is used, whatever its type:
+`if (!set).insert(k)`, `x = (!v).pop()`, `while (!it).next() as x`,
+so that its `!` never reads as negation. The short form stands only
+where the value is discarded: a statement, alone or under `!`, `?`, or
+`catch` ([SPEC §3](SPEC.md#structs) has the checks).
 
 ```rig
 struct Stack
@@ -409,7 +410,7 @@ struct Stack
     !self.items.push(k)
 
   fun pop(!self) -> Int?
-    !self.items.pop()
+    (!self.items).pop()
 
   fun total(<self) -> Int
     sum = 0
@@ -422,7 +423,7 @@ sub main()
   !s.push(1)
   !s.push(2)
   !s.items.push(3)
-  print(!s.pop() ?? 0)
+  print((!s).pop() ?? 0)
   print(<s.total())
 ```
 
@@ -1171,7 +1172,7 @@ An `if` or `while` condition binds the value inside an optional with
 | `if ?a as x`, `if !a as x` | a read or write view of the value inside `a` |
 | `if <p.f as x` | the value taken out of a field, which is left `none` |
 | `while a as x` | each value `a` produces |
-| `while !q.pop() as x` | what a call that lends its receiver to write returns |
+| `while (!q).pop() as x` | what a call that lends its receiver to write returns |
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
 
@@ -1296,6 +1297,7 @@ as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
 | `s[a..b]` | a slice of a String, itself a String |
 | `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or Vec |
 | `?t[a..b]` | a lend of part of a Text: a String viewing it |
+| `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a String: a slice argument is lent as its name is |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
 | `?t` where a String is expected | `?t[..]` of a Text |

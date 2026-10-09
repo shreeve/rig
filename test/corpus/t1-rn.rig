@@ -2,8 +2,8 @@ use std.random
 
 sub main()
   r = random.Random.seeded(42)
-  print(!r.next(), !r.next())
-  print(!r.int(0, 10), !r.int(-5, 5), !r.float())
+  print((!r).next(), (!r).next())
+  print((!r).int(0, 10), (!r).int(-5, 5), (!r).float())
   a = [1, 2, 3, 4, 5, 6]
   !r.shuffle(!a)
   print(a)
@@ -13,5 +13,5 @@ sub main()
   !r.shuffle(!v[..])
   print(v)
   o = random.Random.new()
-  x = !o.int(1, 7)
+  x = (!o).int(1, 7)
   print(x >= 1 and x < 7)

@@ -56,14 +56,14 @@ fun trim(s: String) -> String
 sub main()
   t = Text("a,b,c")
   it = split(?t, ",")
-  a = !it.next()
-  b = !it.next()
+  a = (!it).next()
+  b = (!it).next()
   print(a, b)
-  while !it.next() as part
+  while (!it).next() as part
     print(part)
   c = cut(?t, ",")
   ls = Lines(rest: "x\r\ny")
-  while !ls.next() as l
+  while (!ls).next() as l
     print(l)
   w = trim(?t)
   print(c, w)

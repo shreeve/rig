@@ -1,0 +1,17 @@
+error Bad
+  empty
+
+fun f(xs: []Int) -> []Int!
+  return Bad.empty if xs.len == 0
+  xs
+
+fun run() -> Int!
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  r = f(v[..])!
+  !v.push(2)
+  print(r)
+  0
+
+sub main()
+  _ = run() catch 1

@@ -141,6 +141,8 @@ drop.recv_view_arg_then_write.read_view run prod-rejects ref-gap `print((r).me()
 drop.recv_view_arg_then_write.write_view run prod-rejects ref-gap `print((w).me().v, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 shared.recv_view_arg_then_write.read_view run prod-rejects ref-gap `print((r).me().v, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 shared.recv_view_arg_then_write.write_view run prod-rejects ref-gap `print((w).me().v, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
+string.slice_arg_then_write.read_view run prod-rejects ref-gap `both(r[..1], poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
+string.slice_arg_then_write.write_view run prod-rejects ref-gap `both(w[..1], poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 int.eq.write_view run prod-rejects prod-strict `print(w == a)`: the write loan lasts through the statement, past `w`'s read
 string.eq.write_view run prod-rejects prod-strict `print(w == a)`: the write loan lasts through the statement, past `w`'s read
 plain.eq.write_view run prod-rejects prod-strict `print(w == a)`: the write loan lasts through the statement, past `w`'s read

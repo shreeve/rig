@@ -1,0 +1,15 @@
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  print(total([1, 2, 3][1..]))
+  print(keep([4, 5, 6][1..]))
+  t: Vec[Text] = Vec()
+  !t.push(Text("a"))
+  print(total([t.len, 2][..]))

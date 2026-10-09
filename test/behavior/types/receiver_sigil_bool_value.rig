@@ -1,7 +1,7 @@
-# A write call whose `Bool` value is used is written `(!s).add(x)`: in a
-# binding, an argument, a return value, a body's value, a condition. The
-# short form `!s.add(x)` stays for a call whose value is discarded: a
-# statement, alone or under `!` or `catch`.
+# A write call whose value is used, here a `Bool`, is written
+# `(!s).add(x)`: in a binding, an argument, a return value, a body's
+# value, a condition. The short form `!s.add(x)` stays for a call whose
+# value is discarded: a statement, alone or under `!` or `catch`.
 
 struct Set
   items: Vec[Int]

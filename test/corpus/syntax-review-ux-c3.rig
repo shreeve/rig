@@ -32,7 +32,7 @@ sub main()
   for i in 0..10
     ok = (!r).push(U8(i * 3))
     print("full at", i) if not ok
-  while !r.pop() as b
+  while (!r).pop() as b
     print(b, popcount(U32(b)))
   print(@size(R8))
 

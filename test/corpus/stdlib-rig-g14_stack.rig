@@ -8,7 +8,7 @@ pub struct Stack[T]
     !self.items.push(<x)
 
   pub fun pop(!self) -> T?
-    !self.items.pop()
+    (!self.items).pop()
 
   pub fun len(?self) -> Int
     self.items.len
@@ -20,8 +20,8 @@ sub main()
   s = Stack[Int].new()
   !s.push(1)
   !s.push(2)
-  print(s.len(), !s.pop())
+  print(s.len(), (!s).pop())
   h: Stack[*N] = Stack[*N].new()
   !h.push(*N(k: 3))
-  if !h.pop() as n
+  if (!h).pop() as n
     print(n.k)

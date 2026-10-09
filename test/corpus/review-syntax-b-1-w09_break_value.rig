@@ -1,0 +1,14 @@
+struct C
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+sub main()
+  c = C(n: 0)
+  x = for k in 0..3
+    break !c.next() if k == 1
+  else
+    0
+  print(x)

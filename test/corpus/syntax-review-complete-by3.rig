@@ -6,6 +6,6 @@ struct Page
 
 sub main()
   p = Page(buf: [16 of 0])
-  w = !p.wbytes(0, 4)
+  w = (!p).wbytes(0, 4)
   w[0] = 9
   print(p.buf[0])

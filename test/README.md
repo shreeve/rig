@@ -222,7 +222,14 @@ constructor, `<x`, `+x`) stands in one context (a `print` argument, a
 element assignment, a `match` subject, a `for` source, a consuming
 receiver, a test against `none` or a bare `.variant`) for each of
 several types (Int, String, Text, Vec, `*T`, Box, a struct with a `drop`,
-a payload enum), and holds each to the corpus's rule. It also puts a
+a payload enum), and holds each to the corpus's rule; a slice of the
+value, written with no lend, stands as an argument where a `[]T` or a
+String goes, also while a later argument writes what it slices; and a
+slice of an array, a Vec, a Text, or a String held owned, through a
+read or write view, a `*T`, a box (or a write view of either), a field,
+a field holding a write view, or a nested field, as an argument or
+bound bare, stands while the owner is changed or replaced, or after its
+last use. It also puts a
 block-local binding at the tail of each kind of value block (an `if`
 branch, a `match` arm, a `catch` handler, a loop's `else`, a nested
 `if`), with and without a `defer` that uses it, for a binding, a field

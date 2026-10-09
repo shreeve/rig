@@ -23,13 +23,13 @@ fun mk() -> B
   b
 
 sub main()
-  if !mk().pop() > 1
+  if (!mk()).pop() > 1
     print("if")
-  while !mk().pop() < 1
+  while (!mk()).pop() < 1
     print("never")
-  if !mk().opt() as x
+  if (!mk()).opt() as x
     print("as", x)
-  match !mk().pop()
+  match (!mk()).pop()
     2 => print("two")
     _ => print("other")
 

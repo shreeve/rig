@@ -1,0 +1,11 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+fun ok(v: ?Vec[Int]) -> []Int
+  keep(v[1..])
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  print(ok(v))

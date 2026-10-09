@@ -1,0 +1,9 @@
+sub store[T](v: !Vec[T], x: T)
+  !v.push(x)
+
+sub main()
+  s: Vec[[]Int] = Vec()
+  arr = [1, 2, 3]
+  store(!s, arr[..2])
+  arr[0] = 9
+  print(s)

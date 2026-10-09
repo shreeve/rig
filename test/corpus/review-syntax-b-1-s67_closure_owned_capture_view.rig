@@ -1,0 +1,10 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  f = |+v| keep(v[..])
+  r = f()
+  <f
+  print(r)

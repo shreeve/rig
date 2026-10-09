@@ -34,11 +34,11 @@ fun g(s: String) -> Int
 
 sub main()
   c = f(1) == 1
-  print(!mk((mkp(1) if c else mkp(2)).k).pop())
-  print(!mk((P(k: 3, s: "x") if c else mkp(4)).k).pop())
-  print(!mk(g((P(k: 3, s: "xyz") if c else mkp(4)).s)).pop())
-  print(!mk(g(("ab" if c else "cde"))).pop())
+  print((!mk((mkp(1) if c else mkp(2)).k)).pop())
+  print((!mk((P(k: 3, s: "x") if c else mkp(4)).k)).pop())
+  print((!mk(g((P(k: 3, s: "xyz") if c else mkp(4)).s))).pop())
+  print((!mk(g(("ab" if c else "cde")))).pop())
   a = mkp(7)
-  print(!mk((a if c else mkp(8)).k).pop())
-  print(!mk([1, 2][0] + ([3, 4] if c else [5, 6])[1]).pop())
-  print(!mk(f(1) if c else 9).pop())
+  print((!mk((a if c else mkp(8)).k)).pop())
+  print((!mk([1, 2][0] + ([3, 4] if c else [5, 6])[1])).pop())
+  print((!mk(f(1) if c else 9)).pop())

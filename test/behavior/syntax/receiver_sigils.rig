@@ -16,7 +16,7 @@ struct Bag
     !self.items.push(k)
   fun take(!self) -> Int!
     return Empty.none_left if self.items.len == 0
-    !self.items.pop() ?? 0
+    (!self.items).pop() ?? 0
   fun with(!self, k: Int) -> !Bag
     !self.items.push(k)
     self
@@ -46,7 +46,7 @@ struct Row
   cell: Cell2
 
 fun drain(b: !Bag) -> Int!
-  !b.take()! + !b.take()!
+  (!b).take()! + (!b).take()!
 
 sub send(n: Int)
   print("sent", n)
@@ -76,16 +76,16 @@ sub main()
 
   bag = Bag(items: Vec())
   !bag.add(10)
-  !bag.with(20).with(30)
+  (!bag).with(20).with(30)
   print(drain(!bag) catch -1)
-  print(!bag.items.pop() ?? 0)
+  print((!bag.items).pop() ?? 0)
   print(drain(!bag) catch -1)
 
   q: Vec[Int] = Vec()
   i = 0
   while i < 3 : !q.push(i)
     i += 1
-  while !q.pop() as j
+  while (!q).pop() as j
     print(j)
 
   conn = Conn(name: "db")

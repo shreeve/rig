@@ -16,6 +16,6 @@ sub main()
     print("see", x.n)
   for x in !v
     !x.bump()
-  if !v.pop() as last
+  if (!v).pop() as last
     print("popped", last.n)
   print(v.len)

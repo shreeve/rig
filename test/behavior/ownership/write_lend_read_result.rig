@@ -79,7 +79,7 @@ sub elements()
 
 sub receivers()
   b = Bag(items: items(), count: 0)
-  r = !b.first()
+  r = (!b).first()
   print(b.count, b.items.len)
   q = ?b
   print(clobber(4))

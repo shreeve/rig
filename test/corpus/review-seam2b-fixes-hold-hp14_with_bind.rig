@@ -124,6 +124,6 @@ fun f(n: Int) -> Int
 
 sub main()
   c = f(1) == 1
-  p = !mkpr().with(?mk(1).t)
+  p = (!mkpr()).with(?mk(1).t)
   print("after", clobber(1), p.r)
   print(c)

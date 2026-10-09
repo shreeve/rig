@@ -10,5 +10,5 @@ struct Iter[T]
 sub main()
   a = [1, 2, 3]
   it = Iter(xs: ?a[..])
-  while !it.next() as x
+  while (!it).next() as x
     print(x)

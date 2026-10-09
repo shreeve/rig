@@ -36,7 +36,7 @@ sub main()
   rest = <b.next
   print(b, rest)
   w = W[Int](x: 4)
-  print(!w.grab(), w)
+  print((!w).grab(), w)
 
 # expect:
 # 5 [none]

@@ -27,6 +27,6 @@ sub main()
   !v.push(Box(Node(key: 2, left: none, right: none)))
   for b in ?v
     print("see", b.key)
-  while !v.pop() as b
+  while (!v).pop() as b
     print("pop", b.key)
   print("end")

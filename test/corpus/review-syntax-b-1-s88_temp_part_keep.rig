@@ -1,0 +1,14 @@
+struct B
+  items: Vec[Int]
+
+fun mk() -> B
+  b = B(items: Vec())
+  !b.items.push(4)
+  b
+
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  r = keep(mk().items[..])
+  print(r)

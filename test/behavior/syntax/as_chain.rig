@@ -58,13 +58,13 @@ sub main()
   for n in 1..8
     !xs.push(n)
   seen = 0
-  while !xs.pop() as x and x > 3
+  while (!xs).pop() as x and x > 3
     seen += x
   else
     print("stopped")
   print(seen, xs.len)
 
-  first = while !xs.pop() as x and x > 0
+  first = while (!xs).pop() as x and x > 0
     break x if x == 2
   else
     0

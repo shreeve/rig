@@ -41,9 +41,9 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  for i in 0..!mk(1).pop()
+  for i in 0..(!mk(1)).pop()
     print(i, clobber(2))
-  while !mk(5).pop() < 3
+  while (!mk(5)).pop() < 3
     print("never")
-  if !mk(7).pop() > 3
+  if (!mk(7)).pop() > 3
     print("yes")

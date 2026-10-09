@@ -36,6 +36,6 @@ sub main()
   l = List[*Tok](head: none)
   !l.push(*Tok(n: 1))
   !l.push(*Tok(n: 2))
-  if !l.pop() as t
+  if (!l).pop() as t
     print("pop", t.n)
   print("end")

@@ -22,10 +22,10 @@ fun total(b: ?Big) -> Int
 sub main()
   t = Two(x: Big(a: 1, b: 2, c: 3), y: Big(a: 4, b: 5, c: 6))
   print(total(t.pick(true)), t.pick(false).a)
-  w = !t.pickw(false)
+  w = (!t).pickw(false)
   w.a = 40
   print(t.y.a)
-  (!t.pickw(true)).b = 20
+  ((!t).pickw(true)).b = 20
   print(t.x.b)
   r = t.pick(true)
   print(r == t.x, r.a == 1)

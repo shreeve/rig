@@ -12,5 +12,5 @@ struct P
 
 sub main()
   p = P(src: Text("abc"), pos: 0)
-  a = !p.word()
+  a = (!p).word()
   print(a)

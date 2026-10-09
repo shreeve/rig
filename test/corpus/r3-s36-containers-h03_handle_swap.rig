@@ -11,5 +11,5 @@ sub main()
   for p in !v
     print(p.x)
   !v.insert(0, *P(x: 0))
-  r = !v.remove(1)
+  r = (!v).remove(1)
   print(r.x, v.len)

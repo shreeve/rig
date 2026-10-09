@@ -76,7 +76,7 @@ fun f(n: Int) -> Int
 sub viatemp()
   c = f(1) == 1
   k = 3
-  print(!(mkpair(3) if c else mkpair(5)).b.bump(), !(mkpair(3) if c else mkpair(5)).b.bump())
+  print((!(mkpair(3) if c else mkpair(5)).b).bump(), (!(mkpair(3) if c else mkpair(5)).b).bump())
   print(c, k)
 
 sub vianame()

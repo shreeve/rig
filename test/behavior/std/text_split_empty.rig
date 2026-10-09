@@ -4,6 +4,6 @@ use std.text
 
 sub main()
   it = text.split("abc", "")
-  print(!it.next())
+  print((!it).next())
 
 # expect-panic: text.split: the separator is empty

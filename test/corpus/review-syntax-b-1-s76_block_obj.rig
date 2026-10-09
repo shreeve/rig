@@ -1,0 +1,12 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+fun mkv() -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  v
+
+sub main()
+  c = true
+  r = keep((mkv() if c else mkv())[..])
+  print(r)

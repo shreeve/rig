@@ -1,0 +1,35 @@
+# `<x` does not drop a view parameter, a closure's capture, or a `for`
+# element that views a slot of the Vec it walks: the same rule the hint
+# for a statement `-x` follows. A write view of an element, and a local
+# view, are dropped.
+
+sub each(f: ?sub(Int))
+  f(1)
+
+sub look(o: ?Vec[Int])
+  <o
+
+sub main()
+  v: Vec[Vec[Int]] = Vec()
+  !v.push(Vec[Int]())
+  s = "abc"
+  r = ?v
+  <r
+  each(|?v, i|
+    <v
+    print(i)
+  )
+  each(|+s, i|
+    <s
+    print(i)
+  )
+  for x in ?v
+    <x
+  for y in !v
+    <y
+  print(v.len, s)
+
+# error: 10:4: cannot drop view parameter `o`; the caller owns what it views
+# error: 19:6: cannot drop captured view `v`; the closure holds it for every call
+# error: 23:6: cannot drop captured `s`; the closure keeps what it captures for every call
+# error: 27:6: cannot drop loop view `x`

@@ -44,5 +44,5 @@ fun clobber(n: Int) -> Int
 
 sub main()
   d = 5
-  r = !mk(1).tryat(false) catch !d
+  r = (!mk(1)).tryat(false) catch !d
   print(r)

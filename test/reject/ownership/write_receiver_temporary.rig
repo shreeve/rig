@@ -60,10 +60,10 @@ sub main()
 # error: 41:5: `bump` changes its receiver, a temporary no name holds; add `!`: `!(self.twice()).bump()`
 # error: 49:3: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().bump()`
 # error: 50:3: `bump` changes its receiver, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`
-# error: 51:9: `next` changes its receiver, a temporary no name holds; add `!`: `!mk().next()`
+# error: 51:9: `next` changes its receiver, a temporary no name holds; add `!`: `(!mk()).next()`
 # error: 52:4: `bump` changes its receiver, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`
 # error: 53:4: `bump` changes its receiver, a temporary no name holds; add `!`: `!(+s).bump()`
 # error: 54:3: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().inner.bump()`
 # error: 55:3: `bump` changes its receiver, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`
-# error: 56:9: `at` changes its receiver, a temporary no name holds; add `!`: `!mk().at()`
+# error: 56:9: `at` changes its receiver, a temporary no name holds; add `!`: `(!mk()).at()`
 # errors: 9

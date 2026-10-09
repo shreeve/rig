@@ -1028,7 +1028,12 @@ pub const Checker = struct {
             if (self.last_err_kept) try self.note(hv.decl, "`{s}` is made before `{s}`, so dropped after it", .{ hv.name, name });
             return;
         };
-        try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{name});
+        // A view the statement holds owns nothing it could drop: what
+        // it views is held only while the statement runs.
+        const is_view = if (self.sema) |ctx| (if (self.vars.items[l.root].ty) |t| sema.isReadOrWriteView(ctx, t) else false) else false;
+        if (is_view) {
+            try self.err(l.pos, "a view reached through `{s}` outlives its statement, which holds `{s}`, itself a view, only while it runs; bind `{s}` to a name first", .{ name, name, name });
+        } else try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{name});
         if (!self.last_err_kept) return;
         const h = holder orelse return;
         const hv = self.vars.items[h];
@@ -2995,11 +3000,21 @@ pub const Checker = struct {
         const name = self.text(target);
         const id = self.find(name) orelse return;
         const v = self.vars.items[id];
+        // Why `<x` cannot drop `x` is decided once (`sema.undroppable`),
+        // which the type checker's hint for a statement `-x` reads too;
+        // without its facts (this checker's unit tests), by the var.
+        const why: ?sema.Undroppable = if (self.sema) |ctx| sema.undroppable(ctx, target) else if (v.loop_view) .loop_slot else if (v.capture_resource) .capture else if (v.kind == .param and v.ref != .none) .view_param else null;
+        if (why) |w| return switch (w) {
+            .view_param => self.err(pos, "cannot drop view parameter `{s}`; the caller owns what it views", .{name}),
+            .capture => if (v.ref != .none)
+                self.err(pos, "cannot drop captured view `{s}`; the closure holds it for every call. Use it through the view, or pass it to a call", .{name})
+            else if (v.capture_resource)
+                self.err(pos, "cannot drop captured resource `{s}`; closure captures are owned by the closure environment, which may be invoked again. Use `+{s}` to clone a fresh handle, `~{s}` for a weak reference, or call its methods", .{ name, name, name })
+            else
+                self.err(pos, "cannot drop captured `{s}`; the closure keeps what it captures for every call", .{name}),
+            .loop_slot => self.err(pos, "cannot drop loop view `{s}`; " ++ loop_view_rule, .{name}),
+        };
         if (try self.rejectConsumedView(id, pos, "drop")) return;
-        if (v.kind == .param and v.ref != .none) {
-            try self.err(pos, "cannot drop view parameter `{s}`; the caller owns what it views", .{name});
-            return;
-        }
         if (try self.rejectGlobal(id, pos, "drop")) return;
         if (!self.flowLive(id)) {
             if (self.flows.items[id].status == .moved) {
@@ -5153,7 +5168,7 @@ pub const Checker = struct {
                 spec.source_root = id;
                 spec.source_loan = kind;
                 spec.source_pos = self.startOf(source);
-                spec.resource_vec = (mode == .read or header != null) and self.isResourceVec(self.exprType(source));
+                spec.resource_vec = if (self.sema) |ctx| sema.forViewsSlot(ctx, node) else false;
                 if (!self.flowLive(id) or try self.conflicts(id, if (kind == .write) .write else .read, spec.source_pos)) {
                     spec.source_root = null;
                 }
@@ -5672,15 +5687,6 @@ pub const Checker = struct {
 
     /// A Vec (or a view of one) whose elements move (`sema.moves`):
     /// walked by a view of each slot.
-    fn isResourceVec(self: *const Checker, ty: ?TypeId) bool {
-        const ctx = self.sema orelse return false;
-        const t = ty orelse return false;
-        const pt = ctx.types.get(sema.unwrapViews(ctx, t));
-        if (pt != .parameterized_nominal or pt.parameterized_nominal.sym != ctx.vec_sym_id) return false;
-        if (pt.parameterized_nominal.args.len != 1) return false;
-        return sema.moves(ctx, pt.parameterized_nominal.args[0]) == .yes;
-    }
-
     /// Values of this type move (`sema.moves`) and cannot be copied
     /// implicitly: null for a value that copies. The kind only chooses
     /// the diagnostic (`kindLabel`).

@@ -1,0 +1,76 @@
+# A slice of a write view of a Text lends that view, as `?t[1..]` does:
+# the holder of a write view may add to the Text or assign it, which
+# frees the bytes the slice views, so it cannot while the slice is used.
+# A `!Text` parameter, local, and field, a `!*Text`, and a `!Box[Text]`,
+# each written through by `add` or by assignment.
+
+fun word(s: String) -> String
+  s
+
+struct H
+  t: !Text
+
+sub param_add(t: !Text)
+  s = word(t[1..])
+  !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub param_assign(t: !Text)
+  s = word(t[1..])
+  t = Text("other")
+  print(s)
+
+sub local_add()
+  t = Text("hello")
+  w = !t
+  s = word(w[1..])
+  !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub field_add()
+  t = Text("hello")
+  h = H(t: !t)
+  s = word(h.t[1..])
+  !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub field_assign()
+  t = Text("hello")
+  h = H(t: !t)
+  s = word(h.t[1..])
+  h.t = Text("other")
+  print(s)
+
+sub shared_assign(h: !*Text)
+  s = word(h[1..])
+  h = *Text("other")
+  print(s)
+
+sub box_add(b: !Box[Text])
+  s = word(b[1..])
+  !b.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub box_assign(b: !Box[Text])
+  s = word(b[1..])
+  b = Box(Text("other"))
+  print(s)
+
+sub main()
+  t = Text("hello")
+  param_add(!t)
+
+# error: 15:3: cannot lend `t` to write while a read loan is live
+# error: 20:3: cannot reassign `t` while it is lent
+# error: 27:3: cannot lend `w` to write while a read loan is live
+# error: 34:3: cannot lend `h` to write while a read loan is live
+# error: 41:3: cannot assign to `h.t` while `h` is lent
+# error: 46:3: cannot reassign `h` while it is lent
+# error: 51:3: cannot lend `b` to write while a read loan is live
+# error: 56:3: cannot reassign `b` while it is lent
+# errors: 8
+# oracle: param_add reject C4
+# oracle: local_add reject C4
+# oracle: field_add reject C4
+# oracle: shared_assign reject C4
+# oracle: box_add reject C4

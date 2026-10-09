@@ -1,0 +1,13 @@
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  f = |?v| total(v[..])
+  print(f())
+  !v.push(2)
+  print(v)

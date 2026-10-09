@@ -46,5 +46,5 @@ struct H
 sub main()
   n = 1
   h = H(w: !n)
-  h.w = !mk(5).at()
+  h.w = (!mk(5)).at()
   print(h.w, n)

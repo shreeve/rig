@@ -36,5 +36,5 @@ sub stash[T](out: !Vec[T], x: T)
 
 sub main()
   v: Vec[!Int] = Vec()
-  stash(!v, !mk(1).at())
+  stash(!v, (!mk(1)).at())
   print(v.len)

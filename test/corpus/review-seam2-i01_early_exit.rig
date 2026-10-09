@@ -54,8 +54,8 @@ sub main()
   i = 0
   while i < 3
     i += 1
-    two(!mk(i).at(), opt(i - 2) ?? continue)
+    two((!mk(i)).at(), opt(i - 2) ?? continue)
     print("after", i)
   for k in 0..3
-    two(!mk(10 + k).at(), opt(k - 1) ?? break)
+    two((!mk(10 + k)).at(), opt(k - 1) ?? break)
   print("done")

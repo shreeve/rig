@@ -32,4 +32,4 @@ sub main()
   for i in 0..5
     !l.push(i)
   print(l.len, l.sum())
-  print(!l.pop() ?? -1, l.len)
+  print((!l).pop() ?? -1, l.len)

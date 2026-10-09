@@ -8,5 +8,5 @@ struct It
 
 sub main()
   it = It(i: 0, n: 3)
-  while !it.next() as x
+  while (!it).next() as x
     print(x)

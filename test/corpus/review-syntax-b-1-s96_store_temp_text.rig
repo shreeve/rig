@@ -1,0 +1,10 @@
+sub store(v: !Vec[String], x: String)
+  !v.push(x)
+
+fun mkt() -> Text
+  Text("hello world")
+
+sub main()
+  s: Vec[String] = Vec()
+  store(!s, mkt()[1..])
+  print(s)

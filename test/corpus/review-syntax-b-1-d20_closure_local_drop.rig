@@ -1,0 +1,6 @@
+sub main()
+  f = ||
+    u = Text("x")
+    <u
+    print(1)
+  f()

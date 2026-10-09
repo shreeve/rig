@@ -1,0 +1,8 @@
+fun h(s: String?) -> String
+  s ?? "none"
+
+sub main()
+  t = Text("hello")
+  r = h(t[1..])
+  !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(r)

@@ -86,7 +86,7 @@ sub main()
 
 # error: 71:13: `for x in !xs` writes each element in place; `xs` must be a binding, or a field or element of one
 # error: 75:14: method `push` needs its receiver lent to write; use `!receiver.push(...)`
-# error: 76:16: method `insert` needs its receiver lent to write; use `!receiver.insert(...)`
+# error: 76:16: method `insert` needs its receiver lent to write; use `(!receiver).insert(...)`
 # error: 83:15: only a named array, Vec, or Text, or a field or element of one, can be sliced; bind this value to a name first
 # error: 40:4: `(!v)[0]`: write a lend on the whole path, not its base: `v[0] = 4`
 # error: 41:4: `(!q).x`: write a lend on the whole path, not its base: `q.x += 1`

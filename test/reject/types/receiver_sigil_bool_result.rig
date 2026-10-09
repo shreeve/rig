@@ -1,6 +1,6 @@
-# A write call whose `Bool` value is used is written with the lend in
+# A write call whose value is used is written with the lend in
 # parentheses, `(!s).m(...)`, so a leading `!` never reads as negation:
-# here, a condition and an operand of `and`, `or`, or `not`.
+# here, a `Bool` in a condition and an operand of `and`, `or`, or `not`.
 
 struct Set
   items: Vec[Int]
@@ -37,17 +37,16 @@ sub main()
   print("x") if !set.insert(11) != false
   g = 1 if !set.insert(12) == true else 2
   print(e, f, g)
-
-# error: 16:6: a write call whose `Bool` value is used is written `(!s).checked(...)`, so its `!` never reads as negation
-# error: 22:6: a write call whose `Bool` value is used is written `(!set).insert(...)`, so its `!` never reads as negation
-# error: 24:9: `(!set).insert(...)`
-# error: 26:19: `(!set).insert(...)`
-# error: 27:16: `(!set).insert(...)`
-# error: 28:7: `(!set).insert(...)`
-# error: 29:11: `(!set).insert(...)`
-# error: 30:12: `(!set).insert(...)`
-# error: 33:6: `(!set).insert(...)`
-# error: 35:16: `(!set).insert(...)`
-# error: 36:11: `(!set).insert(...)`
-# error: 37:17: `(!set).insert(...)`
-# error: 38:12: `(!set).insert(...)`
+# error: 16:6: write `(!s).checked(3)`: a write call whose value is used puts its `!` in parentheses
+# error: 22:6: write `(!set).insert(1)`: a write call whose value is used puts its `!` in parentheses
+# error: 24:9: write `(!set).insert(2)`: a write call whose value is used puts its `!` in parentheses
+# error: 26:19: write `(!set).insert(3)`: a write call whose value is used puts its `!` in parentheses
+# error: 27:16: write `(!set).insert(4)`: a write call whose value is used puts its `!` in parentheses
+# error: 28:7: write `(!set).insert(5)`: a write call whose value is used puts its `!` in parentheses
+# error: 29:11: write `(!set).insert(6)`: a write call whose value is used puts its `!` in parentheses
+# error: 30:12: write `(!set).insert(7)`: a write call whose value is used puts its `!` in parentheses
+# error: 33:6: write `(!set).insert(8)`: a write call whose value is used puts its `!` in parentheses
+# error: 35:16: write `(!set).insert(9)`: a write call whose value is used puts its `!` in parentheses
+# error: 36:11: write `(!set).insert(10)`: a write call whose value is used puts its `!` in parentheses
+# error: 37:17: write `(!set).insert(11)`: a write call whose value is used puts its `!` in parentheses
+# error: 38:12: write `(!set).insert(12)`: a write call whose value is used puts its `!` in parentheses

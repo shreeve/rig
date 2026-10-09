@@ -17,7 +17,7 @@ pub struct Bag[T]
   fun take(!self) -> Vec[T]
     out = Vec[T]()
     while self.items.len > 0
-      if !self.items.pop() as x
+      if (!self.items).pop() as x
         !out.push(<x)
     out
 

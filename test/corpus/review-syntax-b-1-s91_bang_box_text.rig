@@ -1,0 +1,12 @@
+fun word(s: String) -> String
+  s
+
+sub f(b: !Box[Text])
+  s = word(b[1..])
+  b = Box(Text("other"))
+  print(s)
+
+sub main()
+  b = Box(Text("hello world, this is a longer text"))
+  f(!b)
+  print(b)

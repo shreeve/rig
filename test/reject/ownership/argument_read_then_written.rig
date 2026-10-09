@@ -61,7 +61,7 @@ sub main()
   b = Box(3)
   print(b, rebox(!b))
   x: Vec[Int] = Vec()
-  print(x, !x.pop() ?? 0)
+  print(x, (!x).pop() ?? 0)
   z: Vec[Int] = Vec()
   print(rd(?z, grow(!z)))
   print(take(?z[..], grow(!z)))
@@ -78,7 +78,7 @@ sub main()
 # error: 58:20: cannot lend `s` to write while an earlier argument's read of it is in use
 # error: 60:20: cannot lend `rc` to write while an earlier argument's read of it is in use
 # error: 62:19: cannot lend `b` to write while an earlier argument's read of it is in use
-# error: 64:12: cannot lend `x` to write while an earlier argument's read of it is in use
+# error: 64:13: cannot lend `x` to write while an earlier argument's read of it is in use
 # error: 66:22: cannot lend `z` to write while a read loan is live
 # error: 67:28: cannot lend `z` to write while a read loan is live
 # error: 68:29: cannot lend `z` to write while a read loan is live

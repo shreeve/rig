@@ -1,0 +1,15 @@
+fun word(s: String) -> String
+  s
+
+struct B
+  name: Text
+
+sub f(b: !B)
+  s = word(b.name[1..])
+  for _ in 0..50
+    !b.name.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub main()
+  b = B(name: Text("hello"))
+  f(!b)

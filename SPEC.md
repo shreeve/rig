@@ -371,7 +371,8 @@ sub main()
 
 `xs[a..b]` is the part of `xs` from index `a` up to, not including,
 `b`. Of a `String` it is a `String`. Of an array or a `Vec` it is
-written `?xs[a..b]`: a `[]T`, a read view of the elements, which lends
+written `?xs[a..b]`, or with no `?` as an argument, as `xs` itself is
+lent: a `[]T`, a read view of the elements, which lends
 part of `xs` ([§7](#lending)), so `xs` cannot be
 written, moved, or dropped while the slice is in use, and the slice
 cannot outlive it. A `[]T` has `.len` and `get(i)`, is indexed and
@@ -423,8 +424,12 @@ function's own, so a view of it cannot be returned.
 Where a `[]T` is expected, `?a` of an array or a Vec means `?a[..]`,
 and where a `![]T` is expected, `!a` means `!a[..]`, also through a box
 or a read view ([§7](#lending) has every lend). As an argument the `?`
-may go unwritten (`total(a)` is `total(?a)`); anywhere else, such as a
-binding or a field, the lend is written. A temporary array, a literal,
+may go unwritten (`total(a)` is `total(?a)`), and a slice is lent the
+way its name is (`total(a[1..])` is `total(?a[1..])`); anywhere else,
+such as a binding or a field, the lend is written. A slice argument
+whose parameter takes no read view is rejected: `!a[1..]` lends it to
+write where a `![]T` goes, and a parameter that owns its value takes a
+copy (`Text(?t[1..])`). A temporary array, a literal,
 a fill, or a call's result, passed as a `[]T` argument is lent as a
 temporary of its statement: it lives until the statement ends, so a
 call that returns a view of it is rejected where the view outlives the
@@ -453,6 +458,40 @@ sub main()
 6 9 6
 [7, 8, 3]
 [0, 0, 0]
+```
+
+```rig
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun size(s: String) -> Int
+  s.len
+
+sub main()
+  a = [1, 2, 3, 4]
+  t = Text("hello")
+  print(total(a[1..3]), total(?a[1..3]), size(t[1..]))
+```
+
+```output
+5 5 4
+```
+
+```rig reject
+sub zero(s: ![]Int)
+  !s.fill(0)
+
+sub main()
+  a = [1, 2, 3]
+  zero(a[1..])
+  print(a)
+```
+
+```error
+`zero` writes the elements of `a[1..]`, and a slice is lent to read unless it is written `!`; write `zero(!a[1..])`
 ```
 
 ```rig reject
@@ -890,11 +929,13 @@ does not take `!self` is rejected (it reads as negation, which is
 `not`), `<` before one that does not take `<self`, `?` before one that
 takes `!self` or `<self`, and any of them before a function with no
 receiver (`Point.origin()`). A
-write call whose `Bool` value is used is written in the long form,
-`(!set).insert(k)`, wherever the value goes (a condition, an operand,
-a binding, an argument, a return value), so its `!` never reads as
-negation. The short form stays for a call whose value is discarded: a
-statement `!set.insert(k)`, alone or under `!` or `catch`.
+write call whose value is used, whatever its type, is written in the
+long form, `(!set).insert(k)`, wherever the value goes (a condition, an
+`as` header, an operand, a binding, an argument, a return value, a
+function's or a closure's last line, a `match` subject, `??`), so its
+`!` never reads as negation: `x = (!v).pop()`, `while (!it).next() as
+x`. The short form stays for a call whose value is discarded: a
+statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`.
 
 ```rig
 struct Tally
@@ -974,7 +1015,19 @@ sub main()
 ```
 
 ```error
-a write call whose `Bool` value is used is written `(!t).insert(...)`, so its `!` never reads as negation
+write `(!t).insert(1)`: a write call whose value is used puts its `!` in parentheses
+```
+
+```rig reject
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  x = !v.pop()
+  print(x)
+```
+
+```error
+write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
 ```
 
 ```rig
@@ -1484,7 +1537,7 @@ struct Shelf[T]
     !self.items.push(<x)
 
   fun take(!self) -> T?
-    !self.items.pop()
+    (!self.items).pop()
 
 fun pick[T](a: T, b: T, first: Bool) -> T
   if first
@@ -1497,7 +1550,7 @@ sub main()
   s = Shelf[*Track](items: Vec())
   !s.add(*Track(title: "intro"))
   !s.add(*Track(title: "outro"))
-  if !s.take() as last
+  if (!s).take() as last
     print("took", last.title)
   print("left", s.items.len, pick(1, 2, true))
 ```
@@ -2222,10 +2275,12 @@ there: in an operand, an argument, a binding's value, a `return` or
 or of a branch, arm, or loop `else` block whose value is used. A
 closure's last line is its value even where the closure gives none, and
 so is the last line of a branch that ends it, so it drops there with
-`_ = <x`. A statement `<?x` or `<!x` moves a view nowhere, and does
-nothing. `-x` always negates: a statement `-e`
-does nothing, and is rejected, with the drop to write where `e` holds
-something to drop.
+`_ = <x`. A statement `<?x` or `<!x` moves a view nowhere, and a view
+owns nothing to drop, so it does nothing, and is rejected. `-x` always
+negates: a statement `-e` does nothing, and is rejected, with the drop
+to write where `e` holds something `<e` drops: not a view parameter,
+a closure's capture, or a `for` element that views a slot of the Vec it
+walks, which `<` rejects.
 
 ```rig
 struct F
@@ -3221,7 +3276,8 @@ itself (`?Cell[T]`), or one a shared handle there holds
 ([Changes and shared storage](#changes-and-shared-storage),
 [§10](#cell)). A write lend is always written. A read lend may go unwritten
 where its view lasts only for the use: an argument to a view parameter
-(`balance_of(acct)` is `balance_of(?acct)`), a method's receiver
+(`balance_of(acct)` is `balance_of(?acct)`, and a slice is lent the
+way its name is: `total(w[1..3])` is `total(?w[1..3])`), a method's receiver
 ([§3](#structs)), the subject of a `for`, `if … as`, or `match`
 ([§6](#6-control-flow)), and a held view or a function name lent on to
 read ([§11](#callable-views)). A lend kept in a binding or a field is
@@ -3277,7 +3333,8 @@ are rejected. A local binding is no constant, whatever it holds:
 So `sort.sort(!v)` works on a Vec as it does on an array, and one `fun
 area(s: ?Shape)` takes `?s` of a `Shape`, a `Box[Shape]`, and a
 `*Shape` ([§9](#shared-handles), [§10](#box)). A slice `x[a..b]` is the
-same lend, of part of `x` ([§2](#slices)).
+same lend, of part of `x` ([§2](#slices)), and as an argument it goes
+unwritten where `x` does.
 
 A written `!` must lend to write
 ([Core 4](docs/CORE.md#2-the-core-in-ten-sentences)): `!x` is kept only
@@ -3385,7 +3442,7 @@ sub grow(b: !Wrap)
 
 sub main()
   grow(!Wrap(n: 1))
-  print(!Wrap(n: 5).next())
+  print((!Wrap(n: 5)).next())
 ```
 
 ```output
@@ -3799,7 +3856,7 @@ struct Bag
 sub main()
   b = Bag(items: Vec(), taken: 0)
   !b.items.push(4)
-  r = !b.take()
+  r = (!b).take()
   print(b.taken, b.items.len)
   print(r)
 ```
@@ -3951,9 +4008,9 @@ sub add(n: !Int, k: Int)
 
 sub main()
   !counter().bump()
-  print(!counter().bump(), counter().log.len)
-  add(!counter().at(), 10)
-  print(!counter().at() + 1)
+  print((!counter()).bump(), counter().log.len)
+  add((!counter()).at(), 10)
+  print((!counter()).at() + 1)
 ```
 
 ```output
@@ -4211,7 +4268,7 @@ sub main()
   for v in [1, 2, 3]
     !s.push(v)
   !s.reverse()
-  print(!s.pop(), !s.pop(), !s.pop(), !s.pop())
+  print((!s).pop(), (!s).pop(), (!s).pop(), (!s).pop())
 ```
 
 ```output
@@ -4583,7 +4640,7 @@ sub main()
   nums: Vec[Int] = Vec()
   !nums.push(3)
   !nums.push(4)
-  while !nums.pop() as n
+  while (!nums).pop() as n
     total.set(total.get() + n * 100)
   print(total.get(), steps.len)
 ```
@@ -4598,7 +4655,7 @@ sub main()
   !v.push("b")
   !v.insert(0, "a")
   !v.insert(v.len, "c")
-  gone = !v.remove(1)
+  gone = (!v).remove(1)
   print(gone, v)
 ```
 
@@ -4625,7 +4682,7 @@ sub main()
   bs: Vec[*B] = Vec()
   !bs.push(*B(n: 1))
   !bs.push(*B(n: 2))
-  if !bs.pop() as last
+  if (!bs).pop() as last
     print("popped", last.n)
   print("left", bs.len)
 ```
@@ -4747,6 +4804,7 @@ Text. A `String` is the view of text; a Text is where text is built.
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t` where a String or `String?` is expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
 | a view `p: ?Text` (a name, or a call's result) where a String is expected | its bytes; `p[a..b]` is a view of them, with no further `?` |
+| a write view `w: !Text` (also of a `*Text` or a `Box[Text]`) | `?w[a..b]`, which lends `w`, as a slice of the Text itself does: `w` may add to the Text or replace it |
 | `for b in t`, `for b in ?t` | its bytes, as `U8`s |
 | `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
 | `+t` | a new Text holding the same bytes |
@@ -5399,7 +5457,7 @@ sub main()
 
 An `if` or `while` condition may join several bindings, and `Bool`
 conditions among them, with `and`: `if a as x and b as y`,
-`if a as x and x > 3`, `while !q.pop() as n and n > 0`. `as` binds
+`if a as x and x > 3`, `while (!q).pop() as n and n > 0`. `as` binds
 tighter than `and`, and the parts run in order, each only when the ones
 before it held. Each binding is visible to the parts after it and to
 the body, not to `else`, which runs when any part fails (and a loop
@@ -5428,7 +5486,7 @@ sub main()
   for n in 1..6
     !xs.push(n)
   total = 0
-  while !xs.pop() as n and n > 2
+  while (!xs).pop() as n and n > 2
     total += n
   print(total, xs.len)
 ```

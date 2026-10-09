@@ -1,0 +1,7 @@
+sub run[T](x: T)
+  f = |+x|
+    <x
+  f()
+
+sub main()
+  run(1)

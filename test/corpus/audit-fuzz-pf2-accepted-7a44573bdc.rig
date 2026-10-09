@@ -91,7 +91,7 @@ struct Shelf[T]
     !self.items.push(<x)
 
   fun take(!self) -> T?
-    !self.items.pop()
+    (!self.items).pop()
 
 enum Maybe[T]
   just(v: T)
@@ -124,18 +124,18 @@ sub h0()
 sub h1()
   r7 = fill_shelf(50, 60)
   !r7.add(70)
-  if !r7.take() as w8
+  if (!r7).take() as w8
     print("int", w8)
-  if !r7.take() as w10
+  if (!r7).take() as w10
     print("int", w10)
-  if !r7.take() as w12
+  if (!r7).take() as w12
     print("int", w12)
-  if !r7.take() as w14
+  if (!r7).take() as w14
     print("int", w14)
   print("int", r7.items.len)
   r16 = fill_shelf(Box(mk(80)), Box(mk(90)))
   !r16.add(Box(mk(100)))
-  if !r16.take() as w17
+  if (!r16).take() as w17
     print("use", w17.id)
   print("int", r16.items.len)
   r19 = ident(ident(HR.one(r: mk(110))))

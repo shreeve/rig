@@ -1,0 +1,76 @@
+# A write call whose value is used, whatever its type, is written
+# `(!v).m(...)`: a binding, `_ =`, an `as` header of `if` and `while`,
+# an operand, `??`, an argument, an array element, `return`, a
+# function's and a closure's last line, a `match` subject, and a value
+# `if`'s branch. The short form `!v.m(...)` stays where the value is
+# discarded: a statement, alone or under `!`, `?`, or `catch`.
+# release
+
+error E
+  bad
+
+struct Counter
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun twice(!self) -> Int
+    !self.next()
+    (!self).next()
+
+  fun take(!self) -> Int!
+    return E.bad if self.n > 20
+    self.n
+
+fun last(c: !Counter) -> Int
+  return (!c).next() if c.n > 50
+  (!c).next()
+
+fun drain(v: !Vec[Int]) -> Int?
+  !v.pop()?
+  (!v).pop()
+
+fun fill(c: !Counter) -> Int!
+  !c.take()!
+  !c.take() catch 0
+  (!c).take()! + 1
+
+sub main()
+  v: Vec[Int] = Vec()
+  for i in 0..6
+    !v.push(i)
+  c = Counter(n: 0)
+  x = (!v).remove(0)
+  _ = (!v).pop()
+  !v.pop()
+  if (!v).pop() as t
+    print("if", t)
+  while (!v).pop() as t
+    print("while", t)
+  n = (!c).next() + 1
+  m = (!v).pop() ?? -1
+  print(x, n, m)
+  print((!c).next(), [(!c).next()], last(!c), (!c).twice())
+  match (!c).next()
+    7 => print("seven")
+    _ => print("other")
+  y = (!c).next() if x == 0 else 0
+  z = (!c).take() catch -1
+  f = |!c| (!c).next()
+  print(y, z, f())
+  print(fill(!c) catch -1)
+  !v.push(4)
+  print(drain(!v), c.n)
+
+# expect:
+# if 3
+# while 2
+# while 1
+# 0 2 -1
+# 2 [3] 4 6
+# seven
+# 8 8 9
+# 10
+# none 9

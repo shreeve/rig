@@ -61,12 +61,12 @@ and `max` on slices and Vecs, each taking a closure that is not stored
 
 ### 0.3 `for` over an iterator *(decided)*
 The roadmap settles "a `for` never calls user methods; write
-`while !it.next() as x`". That keeps the call visible, but it costs
+`while (!it).next() as x`". That keeps the call visible, but it costs
 succinctness everywhere: `path()`, tree walks, lines in a file, entries
 in a directory.
 
 **Decided:** `for x in it`, where `it` has `next(!self) -> T?`, is specified
-as the desugaring `it2 = it; while !it2.next() as x`, stated in
+as the desugaring `it2 = it; while (!it2).next() as x`, stated in
 INTERNALS like every other desugaring. The `for` keyword is the visible
 effect, just as `for x in ?v` is today. The checker walks exactly the
 desugared form, so ownership is unchanged.

@@ -4,7 +4,7 @@ use std.random
 sub main()
   r = random.Random.seeded(1)
   a = r
-  print(!a.next())
+  print((!a).next())
 
 # error: 6:7: bare use of `Random` value `r` in binding would copy a unique value; use `<r` to move it
 # errors: 1

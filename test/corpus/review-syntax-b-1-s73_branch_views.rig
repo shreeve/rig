@@ -1,0 +1,10 @@
+fun keep(xs: []Int) -> []Int
+  xs
+
+sub main()
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+  c = a[0] > 0
+  r = keep((?a if c else ?b)[..2])
+  a[0] = 7
+  print(r)

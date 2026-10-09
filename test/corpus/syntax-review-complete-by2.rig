@@ -11,6 +11,6 @@ sub main()
   p = Page(buf: Vec())
   for _ in 0..16
     !p.buf.push(1)
-  w = !p.wbytes(0, 4)
+  w = (!p).wbytes(0, 4)
   w[0] = 9
   print(p.bytes(0, 4).len, p.buf[0])

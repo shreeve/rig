@@ -1,0 +1,19 @@
+error E
+  bad
+
+struct C
+  n: Int
+
+  fun take(!self) -> Int!
+    return E.bad if self.n > 5
+    self.n += 1
+    self.n
+
+fun run(c: !C) -> Int!
+  !c.take()!
+  !c.take()!
+  c.n
+
+sub main()
+  c = C(n: 0)
+  print(run(!c) catch 0)

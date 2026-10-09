@@ -1,0 +1,12 @@
+sub store(v: !Vec[[]Int], x: []Int)
+  !v.push(x)
+
+fun mkv() -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  v
+
+sub main()
+  s: Vec[[]Int] = Vec()
+  store(!s, mkv()[..])
+  print(s)

@@ -36,7 +36,7 @@ sub main()
   c = cut(?t)
   !t.add("z")
   it = split(?t)
-  d = !it.next()
+  d = (!it).next()
   <it
   !t.clear()
   print(a, b, c, d)

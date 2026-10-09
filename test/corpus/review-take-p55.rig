@@ -29,8 +29,8 @@ sub main()
   while i < 300000 : i += 1
     !s.push(i)
   !s.reverse()
-  print(!s.pop(), !s.pop())
+  print((!s).pop(), (!s).pop())
   j = 0
   while j < 1000 : j += 1
-    _ = !s.pop()
-  print(!s.pop())
+    _ = (!s).pop()
+  print((!s).pop())

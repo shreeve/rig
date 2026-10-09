@@ -1,0 +1,8 @@
+sub drop1(v: !Vec[Int])
+  !v.pop()
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  drop1(!v)
+  print(v)

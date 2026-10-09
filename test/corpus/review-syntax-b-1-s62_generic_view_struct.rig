@@ -1,0 +1,12 @@
+struct Hold[T]
+  x: T
+
+fun hold[T](x: T) -> Hold[T]
+  Hold(x: x)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = hold(v[..])
+  !v.push(2)
+  print(h.x)

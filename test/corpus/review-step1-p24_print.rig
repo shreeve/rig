@@ -8,7 +8,7 @@ fun bump(c: ?Counter) -> Int
   c.hits.get()
 
 fun step(r: !random.Random) -> U64
-  !r.next() % 10
+  (!r).next() % 10
 
 sub main()
   k = Counter(hits: Cell(0))

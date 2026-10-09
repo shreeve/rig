@@ -17,5 +17,5 @@ fun iter(b: ?Bag) -> Iter
 sub main()
   b = Bag(items: [1, 2, 3, 4])
   it = iter(?b)
-  while !it.next() as x
+  while (!it).next() as x
     print(x)

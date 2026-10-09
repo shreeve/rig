@@ -43,6 +43,6 @@ fun clobber(n: Int) -> Int
 sub main()
   v: Vec[!Int] = Vec()
   keep = |!v, w: !Int| !v.push(!w)
-  keep(!mk(1).at())
+  keep((!mk(1)).at())
   print(clobber(5))
   print(v.len)

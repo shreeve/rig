@@ -11,5 +11,5 @@ sub main()
   s: []Int = ?z
   if true
     a = [1, 2, 3]
-    s = !c.keep(?a)
+    s = (!c).keep(?a)
   print(s)
