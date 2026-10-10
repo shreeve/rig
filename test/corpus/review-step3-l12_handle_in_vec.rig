@@ -8,6 +8,6 @@ fun keep(s: ?S) -> ?S
 sub main()
   v: Vec[*S] = Vec()
   !v.push(*S(n: 1, t: Text("a")))
-  k = keep(v[0])
+  k = keep(?v[0])
   !v.clear()
   print(k.n)

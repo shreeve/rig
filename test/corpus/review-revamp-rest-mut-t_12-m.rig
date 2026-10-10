@@ -17,7 +17,7 @@ sub main()
     print(x)
   for x, i in mk(3)
     print(i, x)
-  for x in mk (5)
+  for x in mk(5)
     break if x > 10
     print("b", x)
   print(first_big(4))

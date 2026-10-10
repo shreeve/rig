@@ -41,7 +41,7 @@ sub main()
   e = Option[String].none
   print(o, e)
   p = Pair[Int, String].make(1, "x")
-  q = p.swap()
+  q = ?p.swap()
   print(p.a, p.b, q.a, q.b)
   log = *Cell[Vec[Int]](value: Vec())
   !log.push(5)

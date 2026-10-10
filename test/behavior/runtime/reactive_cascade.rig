@@ -25,7 +25,7 @@ struct IntSource
     subs = (!self.subs).replace(Vec())
     for notify in ?subs
       notify()
-    _ = (!self.subs).replace(<subs)
+    _ = !self.subs.replace(<subs)
 
 sub main()
   count = IntSource.new(0)

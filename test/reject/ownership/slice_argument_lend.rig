@@ -20,13 +20,13 @@ sub main()
   w = [1, 2, 3, 4]
   v: Vec[Int] = Vec()
   t = Text("abc")
-  r = keep(w[1..3])
+  r = keep(?w[1..3])
   w[0] = 9
   print(r)
   print(grow(v[..], !v))
   m = keep(mk()[..])
   print(m)
-  s = word(t[1..])
+  s = word(?t[1..])
   !t.add("d")
   print(s)
 

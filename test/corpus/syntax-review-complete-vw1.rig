@@ -17,6 +17,6 @@ sub main()
   b = Bag[Int](items: Vec())
   !b.items.push(4)
   !b.items.push(5)
-  it = b.iter()
+  it = ?b.iter()
   while (!it).next() as x
     print(x)

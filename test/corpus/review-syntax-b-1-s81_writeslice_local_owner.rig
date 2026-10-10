@@ -5,7 +5,7 @@ sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   w = !v[..]
-  s = keep(w[..])
+  s = keep(?w[..])
   for i in 0..50
     !v.push(i)
   print(s)

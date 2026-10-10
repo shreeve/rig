@@ -1,7 +1,7 @@
 use std.text
 
 sub f(w: !Text)
-  s = text.trim(w[1..])
+  s = text.trim(?w[1..])
   for _ in 0..50
     !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)

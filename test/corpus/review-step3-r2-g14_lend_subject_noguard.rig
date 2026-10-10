@@ -34,8 +34,8 @@ fun clobber(n: Int) -> Int
 
 sub main()
   e = E.a(r: Res(n: 1, t: Text("hello")))
-  x = inner(e)
-  y = inner2(e)
-  z = inner3(e)
+  x = inner(?e)
+  y = inner2(?e)
+  z = inner3(?e)
   print(clobber(1000))
   print(x.n, x.t, y.n, y.t, z.n, z.t)

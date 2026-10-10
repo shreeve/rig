@@ -10,6 +10,6 @@ sub main()
   a = [1, 2]
   print(first(v), first(a))
   t = Text("q")
-  k = keep(t)
+  k = keep(?t)
   print(k)
   !t.add("z")

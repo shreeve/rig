@@ -5,7 +5,7 @@ sub main()
   a = [1, 2, 3, 4]
   b = [5, 6]
   c = a[3] > 2
-  r = keep(a[..2]) if c else keep(b[..1])
+  r = keep(?a[..2]) if c else keep(?b[..1])
   b[0] = 9
   print(r)
   a[0] = 9

@@ -1,5 +1,5 @@
 sub f(v: !Vec[Text])
-  s = keep(v[0][1..])
+  s = keep(?v[0][1..])
   !v.clear()
   print(s)
 

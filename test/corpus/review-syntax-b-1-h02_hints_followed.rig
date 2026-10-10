@@ -7,6 +7,6 @@ sub zero(w: ![]Int)
 sub main()
   t = Text("hello")
   a = [1, 2, 3]
-  print(name(Text(?t[1..])))
+  print(name(Text(t[1..])))
   zero(!a[1..])
   print(a, t)

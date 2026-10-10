@@ -12,7 +12,7 @@ sub main()
   e = E.a(Text("hello"))
   s = ""
   match !e
-    .a(t) => s = keep(t[1..])
+    .a(t) => s = keep(?t[1..])
     .b => pass
   match !e
     .a(t)

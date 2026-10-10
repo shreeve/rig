@@ -3892,6 +3892,11 @@ pub const Checker = struct {
         const text_op = if (self.sema) |ctx| ctx.textCallOf(node) orelse ctx.textCallOf(callee) else null;
         if (self.isPrint(callee) or text_op != null) {
             for (args) |a| {
+                // A slice there is lent to read, as `?a` would be.
+                if (self.lendOf(a)) |lend| if (lend.implicit) {
+                    _ = try self.walkImplicitLend(a, lend);
+                    continue;
+                };
                 _ = try self.walk(a);
                 try self.holdRead(a, .argument);
             }

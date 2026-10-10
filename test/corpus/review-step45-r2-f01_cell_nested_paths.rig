@@ -19,7 +19,7 @@ sub viaArrVec(a: ![1]Vec[C])
 
 sub viaVecBox(v: !Vec[Box[C]])
   !v[0].c.set(31)
-  _ = (!v[0].c).replace(32)
+  _ = !v[0].c.replace(32)
 
 sub viaStruct(s: !S)
   !s.cs[0].c.set(41)

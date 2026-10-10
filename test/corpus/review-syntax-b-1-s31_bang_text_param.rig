@@ -2,7 +2,7 @@ fun word(s: String) -> String
   s
 
 sub f(t: !Text)
-  s = word(t[1..])
+  s = word(?t[1..])
   !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 

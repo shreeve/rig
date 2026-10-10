@@ -10,6 +10,6 @@ struct Reg
 sub main()
   r = Reg(names: Vec())
   !r.add("x")
-  f = r.first()
+  f = ?r.first()
   !r.add("y")
   print(f, r.names)

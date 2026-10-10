@@ -23,7 +23,7 @@ sub main()
   root = Root(leaf: *Leaf(n: 4))
   k = +root.first()
   print(k.n)
-  r = root.first()
+  r = ?root.first()
   j = +r
   print(j.n + (count(?root) catch 0))
 

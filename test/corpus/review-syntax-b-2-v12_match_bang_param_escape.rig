@@ -8,7 +8,7 @@ enum E
 sub f(e: !E)
   s = ""
   match !e
-    .a(t) => s = keep(t[1..])
+    .a(t) => s = keep(?t[1..])
     .b => pass
   print(s)
 

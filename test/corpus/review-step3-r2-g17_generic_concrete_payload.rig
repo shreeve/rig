@@ -18,6 +18,6 @@ fun clobber(n: Int) -> Int
 
 sub main()
   o: Pair[Int] = .a(r: Res(n: 7, t: Text("seven")), v: 1)
-  x = peek(o)
+  x = peek(?o)
   print(clobber(1000))
   print(x.n, x.t)

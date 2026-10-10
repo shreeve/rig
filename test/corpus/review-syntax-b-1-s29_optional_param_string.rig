@@ -3,6 +3,6 @@ fun h(s: String?) -> String
 
 sub main()
   t = Text("hello")
-  r = h(t[1..])
+  r = h(?t[1..])
   !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(r)

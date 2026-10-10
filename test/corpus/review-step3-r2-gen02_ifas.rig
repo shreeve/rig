@@ -14,6 +14,6 @@ fun clobber(n: Int) -> Int
 sub main()
   o: Res? = Res(n: 5, t: Text("five"))
   d = Res(n: 0, t: Text("d"))
-  x = pick(?o, d)
+  x = pick(?o, ?d)
   print(clobber(1000))
   print(x.n, x.t)

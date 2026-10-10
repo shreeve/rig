@@ -12,6 +12,6 @@ sub main()
   t = Text("abc")
   a = [1, 2]
   p = P(src: ?t, toks: ?a[..])
-  s = p.head()
+  s = ?p.head()
   !t.add("x")
   print(s)

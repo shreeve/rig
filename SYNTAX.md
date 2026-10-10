@@ -317,7 +317,7 @@ fun twice(n: Int) -> Int
 sub main()
   a = 5
   b = 3
-  print(a - b, a-b, twice(-b), twice (a) - b)
+  print(a - b, a-b, twice(-b), twice(a) - b)
 ```
 
 ```output
@@ -1196,7 +1196,7 @@ fun add(a: Int, b: Int) -> Int
 
 sub main()
   print(add(1, 2))
-  print(add(1, 2), add (3, 4))
+  print(add(1, 2), add(3, 4))
   print((1 + 2) * 3)
   total = add(1, 2)
   if add(total, 1) > 3

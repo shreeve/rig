@@ -20,7 +20,7 @@ sub main()
   !v.push(Box(E.a(r: Res(n: 1, t: Text("one")))))
   !v.push(Box(E.a(r: Res(n: 2, t: Text("two")))))
   d = Res(n: 0, t: Text("d"))
-  x = find(v, d)
+  x = find(?v, ?d)
   arr = [1, 2, 3, 4, 5, 6, 7, 8]
   print(arr[2])
   print(x.n, x.t)

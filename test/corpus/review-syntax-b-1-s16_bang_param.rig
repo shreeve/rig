@@ -2,7 +2,7 @@ fun keep(xs: []Int) -> []Int
   xs
 
 sub z(v: !Vec[Int])
-  r = keep(v[..])
+  r = keep(?v[..])
   !v.push(3)
   print(r)
 

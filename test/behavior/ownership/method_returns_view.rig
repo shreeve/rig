@@ -11,7 +11,7 @@ struct Holder
 
 sub main()
   h = Holder(inner: Wrap(payload: 3))
-  b = h.get()
+  b = ?h.get()
   print(b.payload)
 
 # expect:

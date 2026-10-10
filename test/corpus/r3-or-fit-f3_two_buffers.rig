@@ -12,6 +12,6 @@ sub main()
   a = [1, 2, 3]
   b = [1, 5, 3]
   d = Diff(old: ?a, cur: ?b)
-  o = d.old_view()
+  o = ?d.old_view()
   b[1] = 9
   print(o[1], b[1])

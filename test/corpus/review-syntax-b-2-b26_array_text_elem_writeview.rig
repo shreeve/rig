@@ -2,7 +2,7 @@ fun keep(s: String) -> String
   s
 
 sub f(a: ![2]Text)
-  s = keep(a[0][1..])
+  s = keep(?a[0][1..])
   a[0] = Text("x")
   print(s)
 

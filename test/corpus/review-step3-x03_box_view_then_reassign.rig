@@ -7,6 +7,6 @@ fun first(s: String) -> String
 
 sub main()
   b = Box(Box(S(n: 1, t: Text("x"))))
-  r = first(b.t)
+  r = first(?b.t)
   b = Box(Box(S(n: 2, t: Text("y"))))
   print(r)

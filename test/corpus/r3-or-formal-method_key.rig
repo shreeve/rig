@@ -10,6 +10,6 @@ struct Table
 sub main()
   t = Table(items: [4 of Item(n: 3)])
   k = 1
-  r = t.get(?k)
+  r = ?t.get(?k)
   k = 2
   print(r.n, k)

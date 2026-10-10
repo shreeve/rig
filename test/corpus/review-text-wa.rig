@@ -7,6 +7,6 @@ struct Person
 
 sub main()
   p = Person(name: "Ann", tags: Vec())
-  l = p.label()
+  l = ?p.label()
   !p.tags.push(1)
   print(l, p.tags)

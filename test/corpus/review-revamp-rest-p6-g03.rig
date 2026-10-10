@@ -6,5 +6,5 @@ struct Pair[A, B]
 
 sub main()
   p = Pair[Int, String](a: 1, b: "x")
-  q = p.swap()
+  q = ?p.swap()
   print(q.a, q.b)

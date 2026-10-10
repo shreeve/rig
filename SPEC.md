@@ -396,7 +396,7 @@ sub main()
   a = [1, 2, 3, 4]
   mid = ?a[1..3]
   print(mid, mid.len, mid[0], total(mid), total(?a[0..4]))
-  print(s[7..], s[..5], ?a[2..], total(?a[..]))
+  print(s[7..], s[..5], a[2..], total(?a[..]))
 ```
 
 ```output
@@ -4947,7 +4947,7 @@ sub main()
   t = Text("n=", 42, " p=", Point(x: 1, y: 2.5))
   !t.add(" ok=", true, " ", ["a", "b"])
   print(t)
-  print(t.len, t == "n=42", ?t[..4])
+  print(t.len, t == "n=42", t[..4])
   u = +t
   !u.clear()
   !u.add("fresh")

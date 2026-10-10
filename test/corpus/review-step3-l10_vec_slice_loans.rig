@@ -4,6 +4,6 @@ fun keep(s: []Int) -> []Int
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  s = keep(v)
+  s = keep(?v)
   !v.push(2)
   print(s)

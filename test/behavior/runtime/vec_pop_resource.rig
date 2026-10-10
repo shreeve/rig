@@ -16,7 +16,7 @@ sub main()
   print(x == none)
   if (!v).pop() as y
     print("y", y.n)
-  _ = (!v).pop()
+  _ = !v.pop()
   while (!v).pop() as z
     print("z", z.n)
   print("end", v.len)

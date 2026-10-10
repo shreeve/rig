@@ -2,7 +2,7 @@ fun keep(xs: []Int) -> []Int
   xs
 
 fun f(p: ?[4]Int) -> []Int
-  keep(p[1..])
+  keep(?p[1..])
 
 sub main()
   a = [1, 2, 3, 4]

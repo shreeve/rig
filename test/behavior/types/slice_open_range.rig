@@ -9,16 +9,16 @@ sub main()
   s = "hello, world"
   print(s[7..], s[..5], s[..], s[s.len..].len)
   a = [1, 2, 3, 4]
-  print(?a[1..], ?a[..2], ?a[..], ?a[4..])
+  print(a[1..], a[..2], a[..], a[4..])
   v: Vec[Int] = Vec()
   !v.push(10)
   !v.push(20)
   !v.push(30)
-  print(?v[1..], ?v[..1], ?v[..])
+  print(v[1..], v[..1], v[..])
   t = ?a[1..]
   print(t[1..], t[..1], t[..], rest(t), rest(?v[..]))
   k = 2
-  print(s[k + 1..], ?a[k..], s[..k * 2])
+  print(s[k + 1..], a[k..], s[..k * 2])
   for x, i in ?a[2..]
     print(i, x)
 

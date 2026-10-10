@@ -32,5 +32,5 @@ sub main()
   print((!s).pop(), (!s).pop())
   j = 0
   while j < 1000 : j += 1
-    _ = (!s).pop()
+    _ = !s.pop()
   print((!s).pop())

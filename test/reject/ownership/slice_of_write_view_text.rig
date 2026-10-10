@@ -8,34 +8,34 @@ fun word(s: String) -> String
   s
 
 sub param_add(t: !Text)
-  s = word(t[1..])
+  s = word(?t[1..])
   !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
 sub param_assign(t: !Text)
-  s = word(t[1..])
+  s = word(?t[1..])
   t = Text("other")
   print(s)
 
 sub local_add()
   t = Text("hello")
   w = !t
-  s = word(w[1..])
+  s = word(?w[1..])
   !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
 sub shared_assign(h: !*Text)
-  s = word(h[1..])
+  s = word(?h[1..])
   h = *Text("other")
   print(s)
 
 sub box_add(b: !Box[Text])
-  s = word(b[1..])
+  s = word(?b[1..])
   !b.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
 sub box_assign(b: !Box[Text])
-  s = word(b[1..])
+  s = word(?b[1..])
   b = Box(Text("other"))
   print(s)
 

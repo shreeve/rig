@@ -10,5 +10,5 @@ struct H
 sub main()
   h = H(t: Text("hello"))
   print(keep((!h).get()[1..]))
-  s = keep((!h).get()[1..])
+  s = keep(?(!h).get()[1..])
   print(s)

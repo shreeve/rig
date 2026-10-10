@@ -11,7 +11,7 @@ sub main()
   b = Text("b")
   w = !a
   f = |?w| w.len
-  w = pick(f, !b, !b)
+  w = pick(?f, !b, !b)
   print(a)
 
 # error: cannot lend `b` to write while a write loan is live

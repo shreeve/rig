@@ -30,7 +30,7 @@ sub main()
   o = 6
   q = ?p.x
   print(q)
-  q = p.left(?o)
+  q = ?p.left(?o)
   print(q)
   q = pick(?o, ?p.x)
   print(q)

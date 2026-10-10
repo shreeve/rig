@@ -1,0 +1,55 @@
+# A lend kept in a binding is written (Core sentence 4). A call whose
+# result keeps an argument or its receiver lent, and whose result is
+# stored in a binding, a field, or a return, writes that lend: the loan
+# outlives the statement. A result used within its statement lends
+# implicitly, and so does a result that keeps nothing.
+
+struct Bag
+  items: Vec[Int]
+
+  fun all(?self) -> []Int
+    ?self.items[..]
+
+  fun size(?self) -> Int
+    self.items.len
+
+struct Holder
+  seen: []Int
+
+fun head(xs: []Int) -> []Int
+  xs[0..1]
+
+fun count(xs: []Int) -> Int
+  xs.len
+
+fun first(b: ?Bag) -> []Int
+  head(b.items[..])
+
+fun window(v: ?Vec[Int]) -> []Int
+  head(v)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  b = Bag(items: Vec())
+  !b.items.push(2)
+  r = head(v)
+  xs = b.all()
+  h = Holder(seen: head(v))
+  h.seen = head(v)
+  n = count(v)
+  m = b.all().len
+  s = b.size()
+  ok = head(?v)
+  ys = ?b.all()
+  nested = head(head(v))
+  print(r, xs, h.seen, n, m, s, ok, ys, nested)
+  print(head(v).len, b.all(), count(v))
+
+# errors: 6
+# error: 26:8: `head(b.items[..])` keeps `b.items[..]` lent in the value it returns; write `head(?b.items[..])`
+# error: 36:12: `head(v)` keeps `v` lent while `r` lives; write `head(?v)`
+# error: 37:8: `b.all()` keeps `b` lent while `xs` lives; write `?b.all()`
+# error: 38:25: `head(v)` keeps `v` lent while `h` lives; write `head(?v)`
+# error: 39:17: `head(v)` keeps `v` lent while `h.seen` lives; write `head(?v)`
+# error: 45:22: `head(v)` keeps `v` lent while `nested` lives; write `head(?v)`

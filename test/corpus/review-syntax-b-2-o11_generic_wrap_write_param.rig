@@ -5,7 +5,7 @@ struct Wrap[T]
   x: T
 
 sub f(w: !Wrap[Text])
-  s = keep(w.x[1..])
+  s = keep(?w.x[1..])
   for _ in 0..50
     !w.x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)

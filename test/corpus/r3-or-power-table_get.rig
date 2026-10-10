@@ -15,6 +15,6 @@ sub main()
   vs = ["/h", "/bin"]
   env = Env(keys: ?ks[..], vals: ?vs[..])
   q = Text("HO", "ME")
-  v = env.get(?q) ?? "?"
+  v = ?env.get(?q) ?? "?"
   !q.add("X")
   print(v, q)

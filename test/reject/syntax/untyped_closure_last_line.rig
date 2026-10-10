@@ -1,0 +1,21 @@
+# An untyped closure (`go = || ...`) takes its last line as its value,
+# and so does the last line of a branch that ends it, so `<q` there is
+# no drop: the closure gives no value, and the line says what to write.
+# (A closure whose type returns nothing treats its last line as a
+# statement: test/behavior/syntax/closure_no_value_tail.rig.)
+
+struct F
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  go = ||
+    q = F(n: 1)
+    if q.n > 0
+      print(q.n)
+      <q
+  go()
+
+# error: 18:7: so `<q` here is no drop, and this closure gives no value; to drop `q` here, write `_ = <q`

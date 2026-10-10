@@ -4,6 +4,6 @@ fun apply(f: ?fun([]Int) -> []Int, xs: []Int) -> []Int from xs
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  r = apply(|xs: []Int| xs, v[..])
+  r = apply(|xs: []Int| xs, ?v[..])
   !v.push(2)
   print(r)

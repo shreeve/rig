@@ -5,7 +5,7 @@ sub f(w: !Text?)
   s = ""
   if !w as r
     !r.add("!")
-    s = keep(r[1..])
+    s = keep(?r[1..])
   print(s)
 
 sub main()

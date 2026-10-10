@@ -10,4 +10,4 @@ fun upper(s: String) -> Vec[U8]
 sub main()
   u = upper("hello, rig")
   print(u)
-  print(?u[..])
+  print(u[..])

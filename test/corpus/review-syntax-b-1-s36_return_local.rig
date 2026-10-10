@@ -4,7 +4,7 @@ fun keep(xs: []Int) -> []Int
 fun bad() -> []Int
   v: Vec[Int] = Vec()
   !v.push(1)
-  keep(v[..])
+  keep(?v[..])
 
 sub main()
   print(bad())

@@ -7,7 +7,7 @@ fun hold[T](x: T) -> Hold[T]
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  h = hold(v[..])
+  h = hold(?v[..])
   print(h.x)
   !v.push(2)
   print(v)

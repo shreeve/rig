@@ -16,7 +16,7 @@ sub main()
   show(b)
   print(s.get(), c.get())
   p = b.with[Bool](true)
-  q = s.with(7)
+  q = ?s.with(7)
   print(p.first, p.second, q.first, q.second)
   o = lib.Opt[Int].some(value: 7)
   n: lib.Opt[Int] = .none

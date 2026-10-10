@@ -41,8 +41,8 @@ sub main()
   o = 6
   p = Pair(x: 5, r: ?o)
   q = ?p.x
-  q = p.left(?o)
-  q = p.pick(?o, false)
+  q = ?p.left(?o)
+  q = ?p.pick(?o, false)
   q = choose(?p.x, ?o, true)
   q = keep(?o)
   q = p.r
@@ -51,14 +51,14 @@ sub main()
   b = true
   pb = Pair(x: false, r: ?b)
   c = ?pb.x
-  c = pb.left(?b)
+  c = ?pb.left(?b)
   c = choose(?b, ?pb.x, false)
   print(c)
   show(?pb, ?b)
   t = Pt(x: 1, y: 2)
   pt = Pair(x: Pt(x: 3, y: 4), r: ?t)
   d = ?pt.x
-  d = pt.left(?t)
+  d = ?pt.left(?t)
   d = choose(?t, ?pt.x, true)
   d = keep(?t)
   print(d.x, d.y)

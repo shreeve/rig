@@ -2,7 +2,7 @@ fun word(s: String) -> String
   s
 
 sub f(b: !Box[Text])
-  s = word(b[1..])
+  s = word(?b[1..])
   b = Box(Text("other"))
   print(s)
 

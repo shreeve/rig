@@ -4,7 +4,7 @@ fun pick[T](a: T, b: T) -> T
 sub main()
   x = [1, 2, 3]
   y = [4, 5, 6]
-  r = pick(x[..], y[..])
+  r = pick(?x[..], ?y[..])
   y[0] = 0
   print(r)
   x[0] = 0

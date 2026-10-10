@@ -11,7 +11,7 @@ struct List[T]
 sub main()
   l = List[P](items: Vec())
   !l.items.push(P(x: 1))
-  r = l.at(0)
+  r = ?l.at(0)
   print(r.x)
   w = (!l).at_mut(0)
   w.x = 5

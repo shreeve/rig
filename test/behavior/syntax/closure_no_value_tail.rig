@@ -1,0 +1,44 @@
+# A closure whose type returns nothing, from the parameter it is passed
+# to or a typed binding, treats its last line as a statement, as a `sub`
+# does: `<x` there drops `x`. An untyped closure takes its last line as
+# its value (test/reject/syntax/untyped_closure_last_line.rig), and a
+# value on the last line of a closure that returns nothing does nothing
+# (test/reject/syntax/closure_no_value_expression.rig).
+
+struct F
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub each(f: ?sub(Int))
+  f(1)
+
+sub feed(f: ?sub(Text))
+  f(Text("a", 1))
+
+sub main()
+  each(|i|
+    q = F(n: i)
+    print(q.n)
+    <q
+  )
+  each(|i|
+    q = F(n: i)
+    if i > 0
+      print(q.n)
+      <q
+    else
+      print(0)
+  )
+  feed(|t: Text| <t)
+  keep: sub(Text) = |t: Text| <t
+  keep(Text("b"))
+  print("done")
+
+# expect:
+# 1
+# drop 1
+# 1
+# drop 1
+# done

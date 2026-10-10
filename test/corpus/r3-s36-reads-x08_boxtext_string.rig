@@ -4,5 +4,5 @@ fun first(s: String) -> String
 sub main()
   b = Box(Text("hello"))
   print(first(?b))
-  print(?b[1..3])
+  print(b[1..3])
   print(b == "hello")

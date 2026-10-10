@@ -3,6 +3,6 @@ fun id[T](x: T) -> T
 
 sub main()
   t = Text("hello")
-  s = id(t[1..])
+  s = id(?t[1..])
   !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
   print(s)

@@ -63,7 +63,7 @@ sub texts()
       print(r)
       !t.add("!")
       s = keep(?t[1..])
-      print(s, ?t[..2])
+      print(s, t[..2])
       !t.add("?")
       u = ?t
       print(u)
@@ -92,7 +92,7 @@ sub boxed()
       s = keep(?b[1..])
       print(s)
       b = Box(Text("new"))
-      print(?b[..1])
+      print(b[..1])
     .b => pass
   print(e)
 
