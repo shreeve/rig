@@ -1,7 +1,7 @@
 # The ownership checker checks each instance of another module's
 # generic against that module's body: an owning argument where the body
-# copies a `T` (the note points into the body), and a view where a
-# generic function, or a generic type with methods, takes a `T`.
+# copies a `T` (the note points into the body). A read view is a fine
+# `T` there, of a generic function or of a type with methods.
 
 use lib
 
@@ -21,5 +21,3 @@ sub main()
 
 # error: 16:11: `lib.twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 # error: 2:7: `T` copied here; move it with `<` instead
-# error: 17:11: `lib.same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice
-# error: 19:7: `lib.Wrap[?Res]` cannot use `T = ?Res`: the methods of `lib.Wrap` are checked for a `T` that holds no `?T`, `!T`, or slice

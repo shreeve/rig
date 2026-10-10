@@ -1,0 +1,10 @@
+fun boxit[T](x: T) -> Box[T]
+  Box(x)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  b = boxit(?v)
+  print(b.len)
+  !v.push(2)
+  print(v.len)

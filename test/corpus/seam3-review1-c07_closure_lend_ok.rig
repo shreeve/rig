@@ -1,0 +1,8 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  b = Box(?v)
+  f = |?b| b.len
+  print(f())
+  !v.push(2)
+  print(v.len)

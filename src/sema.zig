@@ -5166,6 +5166,26 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
     }
 }
 
+/// The type parameters a value of `ty` can reach at any depth, appended
+/// to `out`: through every type constructor that holds its arguments
+/// (an optional, a fallible, an array or slice element, a view, a
+/// shared or weak handle, and each argument of a generic instance:
+/// `Vec`, `Box`, `Cell`, a user generic). A parameter in a value's
+/// `Vec[T]` or `*Hold[T]` is reached though not held by value
+/// (`heldTypeVars`): where the loans a value carries matter, this is the
+/// walk.
+pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
+    if (!ctx.typeInfo(ty).has_type_var) return;
+    switch (ctx.types.get(ty)) {
+        .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
+        .optional, .fallible, .read_view, .write_view, .shared, .weak => |inner| try reachedTypeVars(ctx, inner, out, a),
+        .array => |arr| try reachedTypeVars(ctx, arr.elem, out, a),
+        .slice => |sl| try reachedTypeVars(ctx, sl.elem, out, a),
+        .parameterized_nominal => |pn| for (pn.args) |arg| try reachedTypeVars(ctx, arg, out, a),
+        else => {},
+    }
+}
+
 /// Copy a type from another module's store into `local_ctx`. Nominals
 /// declared there become `imported_nominal` tagged with their origin.
 pub fn importType(

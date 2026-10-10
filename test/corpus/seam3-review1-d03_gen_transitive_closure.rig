@@ -1,0 +1,11 @@
+fun inner[T](x: T) -> *fun() -> Int
+  *|<x| 1
+
+fun outer[T](x: T) -> *fun() -> Int
+  inner(x)
+
+sub main()
+  v: Vec[Int] = Vec()
+  f = outer(?v)
+  <v
+  print(f())

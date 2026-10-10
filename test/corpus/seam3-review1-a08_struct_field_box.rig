@@ -1,0 +1,9 @@
+struct S
+  b: Box[?Vec[Int]]
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = S(b: Box(?v))
+  !v.push(2)
+  print(s.b.len)

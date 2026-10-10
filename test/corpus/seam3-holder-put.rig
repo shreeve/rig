@@ -1,0 +1,10 @@
+sub put[T](dst: !Vec[T], x: T)
+  !dst.push(x)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  vs: Vec[?Vec[Int]] = Vec()
+  put(!vs, ?v)
+  !v.push(2)
+  print(vs.len)

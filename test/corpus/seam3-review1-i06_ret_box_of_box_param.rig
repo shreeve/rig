@@ -1,0 +1,8 @@
+fun inner(b: ?Box[Vec[Int]]) -> Box[?Vec[Int]]
+  Box(?b.value)
+
+sub main()
+  ob = Box(Vec[Int]())
+  r = inner(?ob)
+  <ob
+  print(r.len)

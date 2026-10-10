@@ -1,0 +1,13 @@
+fun keep[T](x: T) -> *Cell[Vec[T]]
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  *Cell(<xs)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  c = keep(?v)
+  <v
+  old = (!c).replace(Vec())
+  print(old[0].len, old[0][1])

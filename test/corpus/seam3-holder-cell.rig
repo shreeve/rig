@@ -1,0 +1,7 @@
+fun keep[T](x: T) -> Int
+  c = *Cell(x)
+  1
+
+sub main()
+  v: Vec[Int] = Vec()
+  print(keep(?v))

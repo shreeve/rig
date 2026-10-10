@@ -1,0 +1,12 @@
+struct Hold[T]
+  v: T
+
+fun mk[T](x: T) -> *fun() -> Int
+  h = Hold(v: x)
+  *|<h| 1
+
+sub main()
+  v: Vec[Int] = Vec()
+  f = mk(?v)
+  <v
+  print(f())

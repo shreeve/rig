@@ -1712,6 +1712,102 @@ def store_program(oname, fname, then):
     return "\n".join(out)
 
 
+# A value that holds a read view of an owner (`holder.`), whatever
+# holds it, keeps the owner lent while the holder is used: the owner is
+# written, moved, or dropped while the holder is still used (rejected),
+# or after its last use (runs, and prints what each saw).
+HOLDER_OWNERS = {
+    "vec": dict(view="?Vec[Int]", mk=["o: Vec[Int] = Vec()", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
+    "big": dict(view="?Big", mk=["o = Big(v: Vec())", "!o.v.push(7)"], read=".v.len", write="!o.v.push(8)", after="o.v.len"),
+    "boxed": dict(view="?Vec[Int]", mk=["o = Box(Vec[Int]())", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
+    "shared": dict(view="?Vec[Int]", mk=["o: *Vec[Int] = *Vec()"], read=".len", write=None, after="o.len", n=0),
+}
+
+HOLDER_FORMS = {
+    "box": dict(setup=["h = Box(@V)"], read="h{R}"),
+    "boxbox": dict(setup=["h = Box(Box(@V))"], read="h{R}"),
+    "generic_fn": dict(setup=["h = same(@V)"], read="h{R}"),
+    "generic_box": dict(setup=["h = boxed(@V)"], read="h{R}"),
+    "optional": dict(setup=["h: (?T)? = @V"], read=None, opt=True),
+    "struct": dict(setup=["h = Hold(v: @V)"], read="h.v{R}"),
+    "method": dict(setup=["h = Hold(v: @V)"], read="h.get(){R}"),
+    "pair": dict(setup=["h = Pair(a: @V, b: @V)"], read="h.b{R}"),
+    "vec": dict(setup=["h: Vec[?T] = Vec()", "!h.push(@V)"], read="h[0]{R}"),
+    "array": dict(setup=["h = [@V, @V]"], read="h[1]{R}"),
+}
+
+
+def holder_program(oname, fname, change, then):
+    o = HOLDER_OWNERS[oname]
+    f = HOLDER_FORMS[fname]
+    if change == "write" and o["write"] is None:
+        return None, None
+    out = ["struct Big\n  v: Vec[Int]\n",
+           "fun same[T](x: T) -> T\n  x\n",
+           "fun boxed[T](x: T) -> Box[T]\n  Box(x)\n",
+           "struct Hold[T]\n  v: T\n\n  fun get(?self) -> T\n    self.v\n",
+           "struct Pair[A, B]\n  a: A\n  b: B\n"]
+    view = o["view"]
+    body = list(o["mk"])
+    body += [l.replace("@V", "?o").replace("?T", view) for l in f["setup"]]
+    if f.get("opt"):
+        reads = ["if h as w", "  print(w%s)" % o["read"]]
+    else:
+        reads = ["print(%s)" % f["read"].replace("{R}", o["read"])]
+    effect = {"write": [o["write"]] if o["write"] else [], "move": ["w = <o"], "drop": ["<o"]}[change]
+    if then == "live":
+        body += effect + reads
+        return "\n".join(out) + "\nsub main()\n" + indent(body, 2) + "\n", "(rejected)\n"
+    body += reads + effect
+    n = o.get("n", 1)
+    expect = f"{n}\n"
+    if change == "write":
+        body.append("print(%s)" % o["after"])
+        expect += f"{n + 1}\n"
+    elif change == "move":
+        body.append("print(w%s)" % o["read"])
+        expect += f"{n}\n"
+    return "\n".join(out) + "\nsub main()\n" + indent(body, 2) + "\n", expect
+
+
+
+# A generic body that puts its `T` inside another value, at any depth,
+# and stores that where no loan is tracked (`nest.`): an instance at a
+# view of an owner, or a String, is rejected, so nothing reads the owner
+# after it ends.
+NEST_WRAPPERS = {
+    "vec": dict(ty="Vec[T]", build=["w: Vec[T] = Vec()", "!w.push(x)"]),
+    "hold": dict(ty="Hold[T]", build=["w = Hold(v: x)"]),
+    "shared": dict(ty="*Hold[T]", build=["w = *Hold(v: x)"]),
+    "weak": dict(ty="~Hold[T]", build=["h = *Hold(v: x)", "w = ~h"]),
+    "optional": dict(ty="T?", build=["w: T? = x"]),
+    "box": dict(ty="Box[T]", build=["w = Box(x)"]),
+    "vecbox": dict(ty="Vec[Box[T]]", build=["w: Vec[Box[T]] = Vec()", "!w.push(Box(x))"]),
+    "bare": dict(ty="T", build=["w = x"]),
+}
+NEST_HOMES = ("cell", "closure")
+NEST_OWNERS = {
+    "box": dict(make="b = Box(Text(\"hello\"))", arg="?b"),
+    "text": dict(make="b = Text(\"hello\")", arg="?b[..]"),
+    "vec": dict(make="b: Vec[Int] = Vec()", arg="?b"),
+    "string": dict(make="b = \"lit\"", arg="b"),
+}
+
+
+def nest_program(wname, home, oname):
+    w = NEST_WRAPPERS[wname]
+    o = NEST_OWNERS[oname]
+    if home == "cell":
+        ret, last = f"*Cell[{w['ty']}]", "*Cell(<w)"
+    else:
+        ret, last = "*sub()", "*|<w| print(1)"
+    body = list(w["build"]) + [last]
+    return "\n".join([
+        "struct Hold[T]\n  v: T\n",
+        f"fun mk[T](x: T) -> {ret}\n{indent(body, 2)}\n",
+        "sub main()\n" + indent([o["make"], f"f = mk({o['arg']})", "print(1)"], 2) + "\n"])
+
+
 def indent(lines, n):
     return "\n".join(" " * n + l for l in lines)
 
@@ -2143,6 +2239,35 @@ def main():
                     with open(path, "w") as fh:
                         fh.write(sliceview_program(hname, ename, use, then))
                     cells.append((ident, path))
+    for oname in HOLDER_OWNERS:
+        for fname in HOLDER_FORMS:
+            for change in ("write", "move", "drop"):
+                for then in ("live", "done"):
+                    ident = f"holder.{oname}.{fname}.{change}.{then}"
+                    if not wanted(ident):
+                        continue
+                    src, expect = holder_program(oname, fname, change, then)
+                    if src is None:
+                        skipped += 1
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(src)
+                    cells.append((ident, path))
+                    expects[ident] = expect
+                    if then == "done":
+                        release.add(ident)
+    for wname in NEST_WRAPPERS:
+        for home in NEST_HOMES:
+            for oname in NEST_OWNERS:
+                ident = f"nest.{wname}.{home}.{oname}"
+                if not wanted(ident):
+                    continue
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(nest_program(wname, home, oname))
+                cells.append((ident, path))
+                expects[ident] = "(rejected)\n"
     for bname in LENDW_BINDINGS:
         for t in LENDW_TYPES:
             for lname in LENDW_TYPES[t]["lends"]:

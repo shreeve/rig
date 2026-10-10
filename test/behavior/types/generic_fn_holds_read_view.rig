@@ -1,0 +1,51 @@
+# A generic function's `T` may be a read view of an owner: the result
+# keeps the owner lent while it is used, whether it is returned whole,
+# chosen between two, boxed, or made optional.
+
+fun same[T](x: T) -> T
+  x
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  a if first else b
+
+fun boxed[T](x: T) -> Box[T]
+  Box(x)
+
+fun maybe[T](x: T, keep: Bool) -> T?
+  x if keep else none
+
+fun twice[T](x: T) -> Vec[T]
+  out: Vec[T] = Vec()
+  !out.push(x)
+  !out.push(x)
+  out
+
+sub main()
+  v: Vec[Int] = Vec()
+  w: Vec[Int] = Vec()
+  !v.push(1)
+  !w.push(1)
+  !w.push(2)
+  print(same(?v).len)
+  r = ?same(?w)
+  print(r.len)
+  p = pick(?v, ?w, false)
+  print(p.len)
+  b = boxed(?w)
+  print(b.len)
+  m = maybe(?v, true)
+  if m as x
+    print(x.len)
+  ts = twice(?w)
+  print(ts[0].len + ts[1].len)
+  t = Text("abc")
+  print(same(?t).len, pick(?t, ?t, true))
+
+# expect:
+# 1
+# 2
+# 2
+# 2
+# 1
+# 4
+# 3 abc

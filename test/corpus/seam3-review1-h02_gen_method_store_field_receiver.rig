@@ -1,0 +1,16 @@
+struct Stack[T]
+  items: Vec[T]
+
+  sub push(!self, x: T)
+    !self.items.push(x)
+
+struct Outer
+  s: Stack[?Vec[Int]]
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  o = Outer(s: Stack(items: Vec()))
+  !o.s.push(?v)
+  <v
+  print(o.s.items[0].len)

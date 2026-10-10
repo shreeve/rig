@@ -1,0 +1,8 @@
+fun wrap() -> Box[?Vec[Int]]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  Box(?v)
+
+sub main()
+  b = wrap()
+  print(b.len)

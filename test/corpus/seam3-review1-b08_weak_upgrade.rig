@@ -1,0 +1,14 @@
+struct Hold[T]
+  v: T
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = *Hold(v: ?v)
+  w = ~h
+  keep = +h
+  <h
+  !v.push(2)
+  if w.upgrade() as s
+    print(s.v.len)
+  print(keep.v.len)

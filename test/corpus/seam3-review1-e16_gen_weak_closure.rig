@@ -1,0 +1,13 @@
+struct Hold[T]
+  v: T
+
+fun mk[T](x: T) -> *sub()
+  h = *Hold(v: x)
+  w = ~h
+  *|<w, <h| print(h.v)
+
+sub main()
+  b = Box(Text("hello"))
+  f = mk(?b)
+  <b
+  f()

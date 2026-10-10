@@ -1528,16 +1528,56 @@ sub main()
 `scale[Float]` cannot use `T = Float`: the generic body gives a `T` the division of whole numbers `3 / 2`, which divides integers, not a `Float`
 ```
 
-The body is ownership-checked once, for a `T` that may own a resource
-and holds no `?T`, `!T`, or slice. A `T` that owns a resource moves where the body
+The body is ownership-checked once, for a `T` that may own a resource.
+A `T` that owns a resource moves where the body
 moves it, and is dropped where the body lets it go. Where the body
 copies a `T`, every instance must be plain data; the same holds where it
 takes (moves, drops, or returns) an element of a loop that does not
 consume its collection (`for x in ?v`), or unwraps a `T` out of a
 viewed optional with `as`, since the collection or the owner still
-holds the value. A type argument cannot be or hold a `?T`, `!T`, or slice, for a
-generic function or a generic type with methods: the parameter is
-written `?T` or `!T` instead. A declaration that makes a shared or weak
+holds the value. A type argument may be a read view, of an owner too
+(`same(?v)` is `same[?Vec[Int]]`): the result holds what `?v` lent, so
+`v` stays lent while the result is used. It cannot be a write view,
+which is never stored in a value ([Write views](#write-views)), and a
+body that stores its `T` in a Cell, a Signal, or an owned closure cannot
+be instantiated with a view, since those carry no loan; write `?T`
+in the signature to take a view that is only read.
+
+```rig
+fun same[T](x: T) -> T
+  x
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  b = Box(?v)
+  r = same(?v)
+  print(b.len, r.len)
+```
+
+```output
+1 1
+```
+
+The box and the result keep `v` lent for as long as they are used:
+
+```rig reject
+fun same[T](x: T) -> T
+  x
+
+sub main()
+  v: Vec[Int] = Vec()
+  b = Box(?v)
+  r = same(?v)
+  !v.push(1)
+  print(b.len, r.len)
+```
+
+```error
+cannot lend `v` to write while a read loan is live
+```
+
+A declaration that makes a shared or weak
 handle of a parameter (`*T`, `~T`) cannot be instantiated with a
 function type, since `*fun(Int) -> Int` is an owned closure, not a
 handle of a function: an owned closure is held as a `T`, with
@@ -1632,20 +1672,14 @@ struct Pair[A, B]
 fun twice[T](x: T) -> Pair[T, T]
   Pair(first: x, second: x)
 
-fun same[T](x: T) -> T
-  x
-
 sub main()
   p = twice(Res(n: 1))
-  r = Res(n: 2)
-  q = same(?r)
-  print(p.first.n, q.n)
+  print(p.first.n)
 ```
 
 ```error
 `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 `T` copied here; move it with `<` instead
-`same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice
 ```
 
 ### Type aliases
@@ -4940,7 +4974,8 @@ its value can be written, through a `?Box[T]` only read. A box of a
 shared handle (`Box[*S]`) reaches the value through the handle, as
 `*Box[S]` does: it is read, and written only through a Cell. A consuming
 (`<self`) method of the value, `<b.m()`, takes the value out of the box
-first. `T` holds no `?T`, `!T`, or slice. A box has no field of its own: `b.value`
+first. `T` may be a read view (`Box(?v)`, a `Box[?Vec[Int]]`): the box keeps
+`v` lent while it is used. `T` holds no write view. A box has no field of its own: `b.value`
 of a `Box[Int]` names nothing, and the number is lent (`?b`) or taken
 apart. A Vec holds boxes as it holds handles:
 walked by viewed slot and moved out with `pop` ([Vec](#vec)).

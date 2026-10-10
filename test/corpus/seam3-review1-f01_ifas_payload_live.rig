@@ -1,0 +1,7 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  o: Box[?Vec[Int]]? = Box(?v)
+  if o as b
+    !v.push(2)
+    print(b.len)

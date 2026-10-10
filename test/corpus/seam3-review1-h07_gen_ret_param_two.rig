@@ -1,0 +1,10 @@
+fun first[T](a: T, b: T) -> T
+  a
+
+sub main()
+  v: Vec[Int] = Vec()
+  w: Vec[Int] = Vec()
+  !v.push(1)
+  r = first(?w, ?v)
+  <v
+  print(r.len)

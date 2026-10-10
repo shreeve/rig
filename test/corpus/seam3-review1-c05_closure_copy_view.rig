@@ -1,0 +1,6 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  o: (?Vec[Int])? = ?v
+  f = |+o| (o ?? ?v).len
+  print(f())

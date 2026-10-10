@@ -1,0 +1,9 @@
+fun same[T](x: T) -> T
+  x
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = same(?v[..])
+  !v.push(2)
+  print(s.len)

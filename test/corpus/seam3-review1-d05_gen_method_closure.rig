@@ -1,0 +1,12 @@
+struct Hold[T]
+  v: T
+
+  fun later(<self) -> *fun() -> Int
+    *|<self| 1
+
+sub main()
+  v: Vec[Int] = Vec()
+  h = Hold(v: ?v)
+  f = h.later()
+  <v
+  print(f())

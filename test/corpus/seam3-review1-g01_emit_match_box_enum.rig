@@ -1,0 +1,18 @@
+enum Shape
+  circle(r: Int)
+  sq(s: Int)
+
+sub main()
+  s = Shape.circle(r: 3)
+  b = Box(?s)
+  match b
+    .circle(r)
+      print("c", r)
+    .sq(x)
+      print("s", x)
+  bb = Box(Box(?s))
+  match bb
+    .circle(r)
+      print("cc", r)
+    .sq(x)
+      print("ss", x)

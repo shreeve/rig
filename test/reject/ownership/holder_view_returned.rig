@@ -1,0 +1,25 @@
+# A holder of a view of a local cannot leave the function that owns the
+# local, however the view was wrapped.
+
+fun same[T](x: T) -> T
+  x
+
+fun boxed() -> Box[?Vec[Int]]
+  v: Vec[Int] = Vec()
+  Box(?v)
+
+fun through() -> ?Vec[Int]
+  v: Vec[Int] = Vec()
+  same(?v)
+
+fun optional() -> (?Vec[Int])?
+  v: Vec[Int] = Vec()
+  ?v
+
+sub main()
+  print(boxed().len, through().len, optional() == none)
+
+# error: 9:8: cannot return a view of `v`, which this function was not lent
+# error: 13:9: cannot return a view of `v`, which this function was not lent
+# error: 17:4: cannot return a view of `v`, which this function was not lent
+# errors: 3

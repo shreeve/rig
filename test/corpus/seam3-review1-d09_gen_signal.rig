@@ -1,0 +1,8 @@
+fun mk[T](x: T) -> *Signal[T]
+  *Signal(x)
+
+sub main()
+  v: Vec[Int] = Vec()
+  s = mk(?v)
+  <v
+  print(1)

@@ -2159,10 +2159,6 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
         if (!sema.holdsCallable(ctx, args[0])) return null;
         return try a.print(sema.held_callable, .{arg});
     }
-    if (sym_id == ctx.box_sym_id) {
-        if (!sema.holdsMarkedView(ctx, args[0])) return null;
-        return try a.print("`Box[T]` owns its value, so the value holds no `?T`, `!T`, or slice; got `{s}`", .{arg});
-    }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isPlainData(ctx, args[0])) return null;
         return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});

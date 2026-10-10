@@ -1,0 +1,18 @@
+# A Cell, a Signal, and an owned closure carry no loan, so a generic
+# body that stores its `T` there cannot take a view of an owner.
+
+fun cell[T](x: T) -> Int
+  c = *Cell(x)
+  1
+
+fun signal[T](x: T) -> Int
+  s = *Signal(x)
+  1
+
+sub main()
+  v: Vec[Int] = Vec()
+  print(cell(?v), signal(?v))
+
+# error: 14:9: `cell[?Vec[Int]]` instantiates `Cell[?Vec[Int]]`
+# error: 14:19: `signal[?Vec[Int]]` instantiates `Signal[?Vec[Int]]`
+# errors: 2

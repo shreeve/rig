@@ -1,0 +1,16 @@
+struct Stack[T]
+  items: Vec[T]
+
+  sub push(!self, x: T)
+    !self.items.push(x)
+
+sub fill(s: !Stack[?Vec[Int]], v: ?Vec[Int])
+  !s.push(v)
+
+sub main()
+  s: Stack[?Vec[Int]] = Stack(items: Vec())
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  fill(!s, ?v)
+  <v
+  print(s.items[0].len)

@@ -1,0 +1,12 @@
+fun keep[T](x: T) -> *Cell[Vec[T]]
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  *Cell(<xs)
+
+sub main()
+  t = Text("hello")
+  !t.add(" world, a long text that lives on the heap")
+  c = keep(?t)
+  <t
+  old = (!c).replace(Vec())
+  print(old[0])

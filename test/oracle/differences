@@ -102,12 +102,6 @@ test/corpus/R16-d5.rig main prod-rejects prod-strict the deferred `f()` is the l
 # `-cb` of a `for cb in ?subs` element ends a read view (SPEC "Drop").
 test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` of a `for cb in ?subs` element view
 
-# A generic body is checked once, and each instance against what the
-# body does with a `T` (SPEC "Generic bodies"). The oracle checks a call
-# at plain type arguments by its signature, and not the instances that
-# body makes in turn: `lib.f[Int]` calls `util.g[?Int]`.
-test/corpus/R11a-g1 main prod-rejects ref-gap `lib.f(1)` makes the instance `util.g[?Int]`
-
 # A clone is a new owner (Core s2): through a view, `+r` of a `?T`
 # carries the loans of the views its value holds, not the loan on what
 # `r` sees (Core s7).

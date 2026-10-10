@@ -1,10 +1,7 @@
 # A box's value has its fields and methods reached through the box (a
 # Vec's `push`), but a box has no field `value` of its own. A box holds
-# no view, has no `==`, and its own consuming `unbox` and its value's
-# consuming methods need an owned box.
-
-struct View
-  p: ?Int
+# has no `==`, and its own consuming `unbox` and its value's consuming
+# methods need an owned box.
 
 struct R
   n: Int
@@ -22,16 +19,13 @@ sub main()
   print(c.value + 1)
   v = Box(Vec[Int]())
   !v.push(3)
-  n = 3
-  w = Box(View(p: ?n))
   a = Box(R(n: 1))
   b = Box(R(n: 1))
   print(a == b)
   print(c + 1)
 
-# error: 16:6: method `eat` consumes the receiver; cannot consume through a view
-# error: 17:10: method `unbox` consumes the receiver; cannot consume through a view
-# error: 22:11: type `Box[Int]` has no field `value`
-# error: 26:7: `Box[T]` owns its value, so the value holds no `?T`, `!T`, or slice; got `View`
-# error: 29:9: `==` is not defined for `Box[R]`
-# error: 30:9: operator `+` requires numeric operands; got `Box[Int]`
+# error: 13:6: method `eat` consumes the receiver; cannot consume through a view
+# error: 14:10: method `unbox` consumes the receiver; cannot consume through a view
+# error: 19:11: type `Box[Int]` has no field `value`
+# error: 24:9: `==` is not defined for `Box[R]`
+# error: 25:9: operator `+` requires numeric operands; got `Box[Int]`

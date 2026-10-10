@@ -1,0 +1,4 @@
+sub main()
+  x = 5
+  s = *Box(?x)
+  print(s)

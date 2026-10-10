@@ -1,0 +1,9 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  vs: Vec[?Vec[Int]] = Vec()
+  !vs.push(?v)
+  c = *Cell(<vs)
+  <v
+  old = (!c).replace(Vec())
+  print(old[0].len)

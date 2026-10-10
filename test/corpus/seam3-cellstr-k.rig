@@ -1,0 +1,7 @@
+sub main()
+  t = Text("hello")
+  r = id(?t[..])
+  print(r)
+
+fun id[T](x: T) -> T
+  x

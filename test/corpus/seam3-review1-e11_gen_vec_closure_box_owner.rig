@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+fun mk[T](x: T) -> *sub()
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  *|<xs| print(xs[0])
+
+sub main()
+  b = Box(Text("hello"))
+  f = mk(?b)
+  <b
+  f()

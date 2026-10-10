@@ -1,0 +1,9 @@
+fun keep[T](x: T) -> *Cell[Box[T]]
+  *Cell(Box(x))
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  c = keep(?v)
+  <v
+  print(c.get().len)

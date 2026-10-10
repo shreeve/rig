@@ -1,0 +1,10 @@
+fun mk[T](x: T) -> *fun() -> Int
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  *|<xs| xs.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  f = mk(?v)
+  <v
+  print(f())

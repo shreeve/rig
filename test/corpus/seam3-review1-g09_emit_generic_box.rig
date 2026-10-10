@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun unbox[T](b: Box[T]) -> T
+  b.value
+
+sub main()
+  p = P(x: 9)
+  r = unbox(Box(?p))
+  print(r.x)

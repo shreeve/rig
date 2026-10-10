@@ -1,0 +1,19 @@
+struct P
+  x: Int
+  y: Int
+
+  fun sum(?self) -> Int
+    self.x + self.y
+
+sub main()
+  p = P(x: 1, y: 2)
+  b = Box(?p)
+  print(b.x, b.sum())
+  bb = Box(Box(?p))
+  print(bb.x, bb.sum())
+  q = Box(P(x: 5, y: 6))
+  bq = Box(?q)
+  print(bq.x, bq.sum())
+  h = *P(x: 7, y: 8)
+  bh = Box(?h)
+  print(bh.x, bh.sum())

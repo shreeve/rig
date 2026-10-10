@@ -1,0 +1,13 @@
+struct Stack[T]
+  items: Vec[T]
+
+  fun later(<self) -> *sub()
+    *|<self| print(self.items[0])
+
+sub main()
+  b = Box(Text("hello"))
+  s: Stack[?Box[Text]] = Stack(items: Vec())
+  !s.items.push(?b)
+  f = <s.later()
+  <b
+  f()
