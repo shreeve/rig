@@ -1,0 +1,58 @@
+# What a `for` over an iterator can walk: a name or a field path it
+# advances where it stands, a value made there, or a place it takes with
+# `<`. An element, a read lend, a part of a made value, a branching
+# value, and `!` of a value made there cannot be advanced, and an
+# iterator has no index binding.
+
+struct Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    self.lo - 1
+
+struct Pair
+  a: Count
+  b: Count
+
+fun mk() -> Pair
+  Pair(a: Count(lo: 0, hi: 1), b: Count(lo: 0, hi: 1))
+
+fun mk_count() -> Count
+  Count(lo: 0, hi: 1)
+
+sub main()
+  p = Pair(a: Count(lo: 0, hi: 1), b: Count(lo: 0, hi: 1))
+  xs = [Count(lo: 0, hi: 1), Count(lo: 0, hi: 1)]
+  c = Count(lo: 0, hi: 2)
+  for n in xs[0]
+    print(n)
+  for n in !xs[1]
+    print(n)
+  for n in <xs[0]
+    print(n)
+  for n in mk().a
+    print(n)
+  for n in p.a if c.lo > 0 else p.b
+    print(n)
+  for n in ?p.a
+    print(n)
+  for n in !mk().a
+    print(n)
+  for n in !mk_count()
+    print(n)
+  for n, i in c
+    print(n, i)
+
+# error: 30:12: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[0]` to a name first
+# error: 32:13: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[1]` to a name first
+# error: 34:13: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[0]` to a name first
+# error: 36:12: a `for` walks an iterator that is a place or a value made here; bind `mk().a` to a name first
+# error: 38:12: a `for` walks an iterator that is a place or a value made here; bind `p.a if c.lo > 0 else p.b` to a name first
+# error: 40:13: `for n in ?p.a` would only read an iterator, which `next` cannot advance; write `for n in p.a` (or `!p.a`) to advance it in place
+# error: 42:13: a `for` walks an iterator that is a place or a value made here; bind `mk().a` to a name first
+# error: 44:13: `!mk_count()` advances a place, and this is a value made here; write `for n in mk_count()`, which holds it for the loop
+# error: 46:10: an iterator has no index binding; keep a count in the loop: `for n in c`
+# errors: 9

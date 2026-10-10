@@ -1,0 +1,101 @@
+# An iterator whose `next` gives views of what it walks: each loop
+# variable is the view `as` binds over `(?Item)?`, and the loan on the
+# walked Vec lasts as long as a view of it is alive. A source the loop
+# holds is dropped when the loop ends, by `break` too, after the `else`.
+# release
+
+struct Item
+  name: String
+  n: Int
+
+struct Walk
+  items: ?Vec[Item]
+  at: Int
+
+  fun next(!self) -> (?Item)?
+    return none if self.at >= self.items.len
+    i = self.at
+    self.at += 1
+    ?self.items[i]
+
+fun walk(items: ?Vec[Item]) -> Walk from items
+  Walk(items: items, at: 0)
+
+struct Tracked
+  id: Int
+  left: Int
+
+  fun next(!self) -> Int?
+    return none if self.left == 0
+    self.left -= 1
+    self.id * 10 + self.left
+
+  drop(!self)
+    print("drop", self.id)
+
+fun tracked(id: Int, n: Int) -> Tracked
+  Tracked(id: id, left: n)
+
+fun longest(items: ?Vec[Item]) -> Int
+  best = 0
+  for it in walk(items)
+    best = it.n if it.n > best
+  best
+
+sub main()
+  items: Vec[Item] = Vec()
+  !items.push(Item(name: "a", n: 3))
+  !items.push(Item(name: "bb", n: 9))
+  !items.push(Item(name: "c", n: 4))
+  for it in walk(?items)
+    print(it.name, it.n)
+  w = walk(?items)
+  for it in w
+    print("first", it.name)
+    break
+  for it in w
+    print("then", it.name)
+  print(longest(?items))
+  !items.push(Item(name: "d", n: 1))
+  print(items.len)
+
+  for n in tracked(1, 2)
+    print(n)
+  else
+    print("done 1")
+  for n in tracked(2, 5)
+    print(n)
+    break if n == 23
+  print("after 2")
+  t = tracked(3, 1)
+  for n in <t
+    print(n)
+  print("after 3")
+  found = for n in tracked(4, 3)
+    break n if n == 41
+  else
+    -1
+  print(found)
+
+# expect:
+# a 3
+# bb 9
+# c 4
+# first a
+# then bb
+# then c
+# 9
+# 4
+# 11
+# 10
+# done 1
+# drop 1
+# 24
+# 23
+# drop 2
+# after 2
+# 30
+# drop 3
+# after 3
+# drop 4
+# 41

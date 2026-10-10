@@ -60,16 +60,11 @@ and `max` on slices and Vecs, each taking a closure that is not stored
   the type that comes back.
 
 ### 0.3 `for` over an iterator *(decided)*
-The roadmap settles "a `for` never calls user methods; write
-`while (!it).next() as x`". That keeps the call visible, but it costs
-succinctness everywhere: `path()`, tree walks, lines in a file, entries
-in a directory.
-
-**Decided:** `for x in it`, where `it` has `next(!self) -> T?`, is specified
-as the desugaring `it2 = it; while (!it2).next() as x`, stated in
-INTERNALS like every other desugaring. The `for` keyword is the visible
-effect, just as `for x in ?v` is today. The checker walks exactly the
-desugared form, so ownership is unchanged.
+`for x in it`, where `it` has `next(!self) -> T?`, is the desugaring
+`while (!it).next() as x`, stated in INTERNALS ("Loops over an
+iterator") and SPEC §6 (`for`). A source made there is held in a hidden
+binding for the loop, and `<it` moves a place into one. The checker
+walks exactly the desugared form, so ownership is unchanged.
 
 ### 0.4 Measure it: a Rust-parity corpus *(new)*
 "Shorter than Rust" should be a claim the suite checks, like everything

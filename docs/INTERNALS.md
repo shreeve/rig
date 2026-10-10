@@ -305,6 +305,9 @@ wrapper also makes the only rewrites that need to inspect the tree:
   `set` gets the `fixed` op, and a module-level `const` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
+- a `for` over an iterator, which typecheck finds, is rewritten into
+  the `while` it means after the module's first check
+  (`Parser.desugarIterLoops`, [Loops over an iterator](#loops-over-an-iterator));
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
   `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
 - a statement `<e` whose value is not used is a drop, a move to
@@ -2181,6 +2184,52 @@ label before it when it closes (`closeLabeled`) only if a jump was
 written to it: the resolver that writes the jump marks the label, so
 which labels appear needs no analysis of its own. The blocks are always
 there; an unused one is a plain `{ }`, which Zig compiles to nothing.
+
+### Loops over an iterator
+
+`for x in it` is `while (!it).next() as x`, and nothing else: no pass
+has a form of its own for it. A `for` source is an iterator when its
+type, past views, is a struct or enum (not a `Vec`, array, slice,
+`String`, or range, which keep their own meaning) that declares
+`next(!self) -> T?` (`Checker.iteratorShape`, the one place this is
+decided); a `next` of another shape is reported where the loop is.
+`Checker.iterLoop` then classifies the source once, by
+what it hands over (`sema.handsOver`), as every header does:
+
+| The source | It desugars to |
+|---|---|
+| a name or field path `it`, or `!it` | `while (!it).next() as x` |
+| a made value `e` | `{ h = e; while (!h).next() as x }` |
+| `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
+| `?it`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
+
+`h` is a binding of the block that holds the `while`, so a value made
+there is held for the whole loop, dropped after the `else` (by `break`,
+`return`, and failure too), and a place it takes is moved at the loop's
+start. A place is named by a name or fields from one, since the
+desugaring evaluates it for every `next`, and an element whose index
+the body may change would name another place each time. A loop with a
+label has the label on the `while`, inside the block. The checker rules are the ones this desugaring implies: `!it`
+needs `it` writable (a read view, a parameter, and a `const` are
+rejected where the loop stands), the loop variable is what `as` binds
+over `T?`, a view `next` gives holds the loan on what it views while it
+is alive, and `break` values and `else` are a `while`'s. An iterator
+has no index binding.
+
+The rewrite is a tree rewrite, so nothing downstream sees a `for` over
+an iterator. Typecheck cannot make it, since the type of a source is
+known only there; it records the loop (`SemContext.iter_loops`, with how
+the source is walked) and gives the loop variable no type, and
+`ModuleGraph.check` then calls `Parser.desugarIterLoops` and checks the
+module again from the rewritten tree, discarding the first run. The
+names the new nodes need (`next`, and `h` as `__rig_iterN`) are not in
+the program's text, so the rewrite appends them to the source after its
+end, where each leaf has a position of its own, and the module's source
+becomes the longer text; every position of the program is unchanged, and
+a node keeps its id and span (the `while` has the `for`'s). The new
+nodes span the source they came from. The result is an ordinary `while`
+with an `as` header, which the ownership checker walks (`walkWhile`) and
+emit writes (`emitWhile`) like one the program wrote.
 
 ### Assignments
 

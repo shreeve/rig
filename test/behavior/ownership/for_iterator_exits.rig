@@ -1,0 +1,82 @@
+# A source the `for` holds is dropped on every way out of the loop: its
+# end, `break`, `return`, and a failure propagated from the body. Nested
+# loops hold one each, the inner dropping first; a generic function,
+# and a closure the body calls, make no difference.
+# release
+
+error Bad
+  bad
+
+struct Tracked
+  id: Int
+  left: Int
+
+  fun next(!self) -> Int?
+    return none if self.left == 0
+    self.left -= 1
+    self.id * 10 + self.left
+
+  drop(!self)
+    print("drop", self.id)
+
+fun tracked(id: Int, n: Int) -> Tracked
+  Tracked(id: id, left: n)
+
+fun find(k: Int) -> Int
+  for n in tracked(7, 5)
+    return n if n == k
+  -1
+
+sub check(n: Int, k: Int)!
+  return Bad.bad if n == k
+
+sub risky(k: Int)!
+  for n in tracked(8, 3)
+    check(n, k)!
+    print("ok", n)
+
+fun twice(c: ?Int) -> Int
+  f = |+c, x: Int| x + c
+  s = 0
+  for n in tracked(9, 2)
+    s += f(n)
+  s
+
+fun reps[T](v: T) -> Int
+  s = 0
+  for _ in tracked(5, 2)
+    s += 1
+  s
+
+sub main()
+  print(find(73))
+  risky(99) catch |_| print("failed")
+  risky(81) catch |_| print("failed")
+  print(twice(?1))
+  print(reps("a"), reps(1.5))
+  for a in tracked(1, 2)
+    for b in tracked(2, 2)
+      print(a, b)
+
+# expect:
+# drop 7
+# 73
+# ok 82
+# ok 81
+# ok 80
+# drop 8
+# ok 82
+# drop 8
+# failed
+# drop 9
+# 183
+# drop 5
+# drop 5
+# 2 2
+# 11 21
+# 11 20
+# drop 2
+# 10 21
+# 10 20
+# drop 2
+# drop 1

@@ -2514,9 +2514,9 @@ cannot lend `v` to write while a read loan is live
 
 ### for
 
-`for x in source` walks an array, a slice, a `String` (bytes), or a
-range `a..b` (from `a` up to, not including, `b`; the bounds are
-evaluated once). `for x, i in xs` also binds the index (not for
+`for x in source` walks an array, a slice, a `String` (bytes), a
+`Vec`, an iterator (below), or a range `a..b` (from `a` up to, not
+including, `b`; the bounds are evaluated once). `for x, i in xs` also binds the index (not for
 ranges); the element comes first, the reverse of Python's
 `enumerate`, and where a loop written index first gives a binding the
 other's type, the error says so. An `else` block runs when the loop ends without `break`. A
@@ -2633,6 +2633,97 @@ sub main()
 ```error
 cannot lend `a if a.len > 0 else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if a.len > 0 else ?b`
 a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
+```
+
+An iterator is a value whose type declares `next(!self) -> T?`. A
+`for` over one is the loop `while (!it).next() as x`, so each `x` is
+what `as` binds over the `T?` the call gives, the loop ends when `next`
+gives `none`, and `else`, `break` values, labels, and loop values
+([Loops as values](#loops-as-values)) work as they do for a `while`.
+The loop advances the iterator where it stands, so the iterator must be
+writable, and one a `break` leaves is there to resume. How the source is
+written decides what the loop does with it:
+
+| Source | The loop is |
+|---|---|
+| `it`, `!it`: a name, or a field path from one (`a.b`) | `while (!it).next() as x` |
+| `mk()`: a value made there | `h = mk()` held for the loop, then `while (!h).next() as x`; `h` ends with the loop |
+| `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while (!h).next() as x`; `it` is moved |
+| `?it` | rejected: reading an iterator cannot advance it |
+
+A type with a `next` of another shape (`next(?self)`, one that takes
+more than `self`, or one that gives no optional) is not an iterator, and
+a `for` over it is rejected with the shape to write. An element
+(`xs[i]`), whose index the body could change, is bound to a name first.
+An iterator has no index binding. The `Vec`, array, slice, `String`, and range sources
+keep the meanings above.
+
+```rig
+use std.text
+
+struct Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    self.lo - 1
+
+fun upto(n: Int) -> Count
+  Count(lo: 0, hi: n)
+
+sub main()
+  c = upto(5)
+  for n in c
+    break if n == 1
+  for n in c
+    print("then", n)
+  first = for w in text.words("a bb ccc")
+    break w if w.len > 1
+  else
+    "none"
+  print(first)
+  for n in upto(2)
+    print("made", n)
+  for n in <c
+    print("rest", n)
+```
+
+```output
+then 2
+then 3
+then 4
+bb
+made 0
+made 1
+```
+
+```rig reject
+struct Reads
+  n: Int
+
+  fun next(?self) -> Int?
+    none
+
+struct Count
+  lo: Int
+
+  fun next(!self) -> Int?
+    none
+
+sub main()
+  r = Reads(n: 0)
+  for x in r
+    print(x)
+  c = Count(lo: 0)
+  for x in ?c
+    print(x)
+```
+
+```error
+cannot iterate over `Reads`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes `?self`
+`for x in ?c` would only read an iterator, which `next` cannot advance; write `for x in c` (or `!c`) to advance it in place
 ```
 
 ### Labels, break, and continue

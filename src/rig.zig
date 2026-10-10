@@ -1238,6 +1238,24 @@ fn isIdentCont(c: u8) bool {
 // Parser — post-parse rewrites and diagnostics over the generated BaseParser
 // =============================================================================
 
+/// How a `for` over an iterator walks its source, which decides the
+/// `while` it is rewritten into (docs/INTERNALS.md, "Loops over an
+/// iterator").
+pub const IterSource = enum {
+    /// A place the loop advances where it stands: `for x in it` and
+    /// `for x in !it` are `while (!it).next() as x`.
+    place,
+    /// A value made here, held in a hidden binding for the whole loop.
+    made,
+    /// A place the loop takes (`for x in <it`), moved into the hidden
+    /// binding it holds for the whole loop.
+    moved,
+};
+
+/// A `for` node to rewrite (`Parser.desugarIterLoops`), with how it
+/// walks its source.
+pub const IterLoop = struct { node: parser.NodeId, source: IterSource };
+
 pub const Parser = struct {
     base: BaseParser,
     /// Set when parsing succeeded but the tree was rejected.
@@ -2339,6 +2357,124 @@ pub const Parser = struct {
             .raw_block => try self.dropTailOf(&items[ir.slot(.raw_block, .body)]),
             else => {},
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Loops over an iterator
+    //
+    // Typecheck finds the `for` loops whose source is an iterator and
+    // cannot rewrite them itself, since the names the rewrite needs (a
+    // method's `next`, the hidden binding of a held source) are not in the
+    // program's text. They are appended to the source, after its end, so
+    // each leaf has a position of its own like every leaf, and the module
+    // is checked again on the rewritten tree (docs/INTERNALS.md, "Loops
+    // over an iterator").
+    // -------------------------------------------------------------------------
+
+    /// Where the names a rewritten loop needs sit in the source.
+    const IterNames = struct { next: u32, hold_decl: u32 = 0, hold_use: u32 = 0, hold_len: u16 = 0 };
+
+    const IterRewrite = struct {
+        loops: []const IterLoop,
+        names: []IterNames,
+
+        fn find(self: IterRewrite, node: Sexp) ?usize {
+            if (node != .list or !node.isKind(.@"for")) return null;
+            for (self.loops, 0..) |l, i| if (l.node == node.list.id) return i;
+            return null;
+        }
+    };
+
+    /// Rewrite each `for` of `loops` in `tree` into the `while` it means
+    /// and return the source to check it against (the program's, with the
+    /// names appended). Every other node keeps its position and id.
+    pub fn desugarIterLoops(self: *Parser, tree: Sexp, loops: []const IterLoop) std.mem.Allocator.Error![]const u8 {
+        var text: std.ArrayList(u8) = .empty;
+        try text.appendSlice(self.allocator(), self.base.source);
+        try text.append(self.allocator(), '\n');
+        const names = try self.allocator().alloc(IterNames, loops.len);
+        for (loops, names, 0..) |l, *n, i| {
+            n.* = .{ .next = @intCast(text.items.len) };
+            try text.appendSlice(self.allocator(), "next ");
+            if (l.source != .place) {
+                var buf: [32]u8 = undefined;
+                const hold = std.fmt.bufPrint(&buf, "__rig_iter{d}", .{i}) catch unreachable;
+                n.hold_len = @intCast(hold.len);
+                n.hold_decl = @intCast(text.items.len);
+                try text.appendSlice(self.allocator(), hold);
+                try text.append(self.allocator(), ' ');
+                n.hold_use = @intCast(text.items.len);
+                try text.appendSlice(self.allocator(), hold);
+                try text.append(self.allocator(), ' ');
+            }
+        }
+        self.base.source = text.items;
+        const state: IterRewrite = .{ .loops = loops, .names = names };
+        try self.desugarIn(tree, state);
+        return text.items;
+    }
+
+    fn desugarIn(self: *Parser, node: Sexp, state: IterRewrite) std.mem.Allocator.Error!void {
+        if (node != .list) return;
+        const items = @constCast(node.items());
+        for (items) |*slot| {
+            slot.* = try self.desugarChild(slot.*, state);
+        }
+    }
+
+    /// `child` with the loops inside it rewritten, or what replaces it
+    /// when it is one: a loop that holds its source is a block of the
+    /// binding and the `while`, around the label when it has one.
+    fn desugarChild(self: *Parser, child: Sexp, state: IterRewrite) std.mem.Allocator.Error!Sexp {
+        const labeled = child.isKind(.labeled);
+        const loop = if (labeled) ir.Labeled.stmt(child) else child;
+        const at = state.find(loop) orelse {
+            try self.desugarIn(child, state);
+            return child;
+        };
+        try self.desugarIn(loop, state);
+        const l = state.loops[at];
+        const names = state.names[at];
+        const built = try self.iterWhile(loop, l, names);
+        if (labeled) {
+            const copy = try self.allocator().dupe(Sexp, child.items());
+            copy[ir.slot(.labeled, .stmt)] = built.loop;
+            const out: Sexp = .{ .list = parser.List.withId(copy, child.list.id) };
+            return if (built.hold) |h| self.base.newNode(.block, &.{ h, out }, self.span(child)) else out;
+        }
+        return if (built.hold) |h| self.base.newNode(.block, &.{ h, built.loop }, self.span(child)) else built.loop;
+    }
+
+    const IterWhile = struct { loop: Sexp, hold: ?Sexp };
+
+    /// `for x in it` as `while (!it).next() as x`; a held source `e` is
+    /// bound first, `__rig_iterN = e` (`<e` moves it), and walked as
+    /// `(!__rig_iterN)`.
+    fn iterWhile(self: *Parser, loop: Sexp, l: IterLoop, names: IterNames) std.mem.Allocator.Error!IterWhile {
+        const source = ir.For.source(loop);
+        const binding = ir.For.@"var"(loop);
+        const at = self.span(source);
+        const hold_len = names.hold_len;
+        var hold: ?Sexp = null;
+        var receiver = source;
+        if (l.source != .place) {
+            const value = if (l.source == .moved) try self.base.newNode(.move, &.{source}, at) else source;
+            const decl: Sexp = .{ .src = .{ .pos = names.hold_decl, .len = hold_len, .id = 0 } };
+            hold = try self.base.newNode(.set, &.{ .nil, decl, .nil, value }, at);
+            receiver = .{ .src = .{ .pos = names.hold_use, .len = hold_len, .id = 0 } };
+        }
+        const lend = try self.base.newNode(.write, &.{receiver}, at);
+        const next: Sexp = .{ .src = .{ .pos = names.next, .len = 4, .id = 0 } };
+        const member = try self.base.newNode(.member, &.{ lend, next }, at);
+        const call = try self.base.newNode(.call, &.{member}, at);
+        const bound = try self.base.newNode(.as, &.{ call, binding }, .{ .start = self.span(binding).start, .end = at.end });
+        const out = try self.allocator().alloc(Sexp, 5);
+        out[0] = .{ .tag = .@"while" };
+        out[ir.slot(.@"while", .cond)] = bound;
+        out[ir.slot(.@"while", .step)] = .nil;
+        out[ir.slot(.@"while", .body)] = ir.For.body(loop);
+        out[ir.slot(.@"while", .@"else")] = ir.For.@"else"(loop);
+        return .{ .loop = .{ .list = parser.List.withId(out, loop.list.id) }, .hold = hold };
     }
 
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.

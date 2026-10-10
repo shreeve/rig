@@ -1578,6 +1578,10 @@ pub const SemContext = struct {
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
     declared_origins: std.AutoHashMapUnmanaged(u32, DeclaredOrigins) = .empty,
+    /// The `for` loops over an iterator that typecheck found, each to be
+    /// rewritten into the `while` it means (`rig.IterLoop`). A module with
+    /// any is checked again on the rewritten tree, so no pass sees one.
+    iter_loops: std.ArrayList(rig.IterLoop) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -1615,6 +1619,7 @@ pub const SemContext = struct {
         self.untakeable.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);
+        self.iter_loops.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.reach.deinit(self.allocator);
         self.alias_targets.deinit(self.allocator);

@@ -1,0 +1,29 @@
+# A loop over an iterator that gives views of a Vec keeps the Vec lent:
+# the Vec cannot change while a view the loop binds is alive, as for
+# `while (!w).next() as it`.
+
+struct Item
+  n: Int
+
+struct Walk
+  items: ?Vec[Item]
+  at: Int
+
+  fun next(!self) -> (?Item)?
+    return none if self.at >= self.items.len
+    i = self.at
+    self.at += 1
+    ?self.items[i]
+
+sub main()
+  items: Vec[Item] = Vec()
+  !items.push(Item(n: 1))
+  for it in Walk(items: ?items, at: 0)
+    !items.push(Item(n: it.n))
+  w = Walk(items: ?items, at: 0)
+  for it in w
+    !items.push(Item(n: it.n))
+
+# error: 22:5: cannot lend `items` to write while a read loan is live
+# error: 25:5: cannot lend `items` to write while a read loan is live
+# errors: 2

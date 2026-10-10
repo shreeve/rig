@@ -401,8 +401,7 @@ pub const ModuleGraph = struct {
             try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target });
         }
 
-        m.sema.deinit();
-        m.sema.* = try sema.check(self.allocator, m.source, m.ir, .{
+        const opts: sema.CheckOptions = .{
             .parser = m.parser,
             .imports = entries.items,
             .modules = self.semas.?,
@@ -411,7 +410,18 @@ pub const ModuleGraph = struct {
             .is_root = id == 1,
             .zig_file = m.out_basename,
             .is_std = m.is_std,
-        });
+        };
+        m.sema.deinit();
+        m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
+        // A `for` over an iterator is the `while` it means: typecheck found
+        // them, and no pass sees one once the tree is rewritten and the
+        // module checked again (docs/INTERNALS.md, "Loops over an iterator").
+        if (m.sema.iter_loops.items.len > 0) {
+            m.source = try m.parser.desugarIterLoops(m.ir, m.sema.iter_loops.items);
+            m.sema.deinit();
+            m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
+            std.debug.assert(m.sema.iter_loops.items.len == 0);
+        }
 
         // Ownership reads the types sema settled, so a module whose types
         // are wrong is not checked for ownership: its errors would follow

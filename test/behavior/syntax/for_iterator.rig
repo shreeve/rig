@@ -1,0 +1,82 @@
+# `for x in it`, where `it` has `next(!self) -> T?`, is
+# `while (!it).next() as x`: the loop advances `it` where it stands, so
+# an iterator a `break` leaves is still there to resume. A source made
+# there (`upto(3)`), or a place the loop takes (`<it`), is held in a
+# hidden binding for the loop. `else`, `break` values, labels and loop
+# values work as they do for `while … as`.
+# release
+
+struct Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    self.lo - 1
+
+fun upto(n: Int) -> Count
+  Count(lo: 0, hi: n)
+
+fun first_over(k: Int) -> Int
+  for n in upto(10)
+    break n if n > k
+  else
+    -1
+
+fun drain(it: !Count) -> Int
+  total = 0
+  for n in it
+    total += n
+  total
+
+sub main()
+  c = upto(6)
+  for n in c
+    break if n == 2
+  print("resumed at", (!c).next() ?? -1)
+  for n in !c
+    print("rest", n)
+  else
+    print("ran out")
+  print(first_over(4), first_over(20))
+
+  :outer for a in upto(3)
+    for b in upto(3)
+      continue :outer if b > a
+      print(a, b)
+
+  r = for n in upto(5)
+    break n * 10 if n == 3
+  else
+    -1
+  print(r)
+  d = upto(5)
+  print(drain(!d), (!d).next() ?? -1)
+
+  e = upto(3)
+  for n in <e
+    print("took", n)
+  s = 0
+  for n in upto(4)
+    s += n
+  print(s)
+
+# expect:
+# resumed at 3
+# rest 4
+# rest 5
+# ran out
+# 5 -1
+# 0 0
+# 1 0
+# 1 1
+# 2 0
+# 2 1
+# 2 2
+# 30
+# 10 -1
+# took 0
+# took 1
+# took 2
+# 6

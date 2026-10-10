@@ -1,0 +1,21 @@
+# An iterator declared in another module is walked by a `for` like a
+# local one, whether a name holds it or a call makes it, and a module
+# can loop over its own iterators in the functions it exports.
+# release
+use span
+
+sub main()
+  r = span.span(3)
+  for x in r
+    print("span", x)
+  for y in span.span(2)
+    print("made", y)
+  print(span.total(4))
+
+# expect:
+# span 1
+# span 2
+# span 3
+# made 1
+# made 2
+# 10
