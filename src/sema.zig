@@ -4259,6 +4259,108 @@ pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
 }
 
+/// Where a value of some type stands, as `misplaced` sees it.
+pub const Home = enum {
+    /// A struct field, or an enum variant's payload field.
+    field,
+    /// A parameter, a receiver, or a function's result.
+    signature,
+    /// A local, or what a header or a pattern binds.
+    binding,
+    /// A type argument of a generic type or function.
+    type_arg,
+    /// An array's or a slice's element.
+    element,
+    /// The value inside an optional, `T?`.
+    optional,
+    /// What a view, `?T` or `!T`, views.
+    viewed,
+    /// What a handle, `*T` or `~T`, holds.
+    handle,
+};
+
+/// What may not stand where `misplaced` says.
+pub const Misplaced = enum { cell, write_view };
+
+/// The one decider of where a Cell and a write view may stand (Core §1),
+/// by a positive list of homes:
+/// - A value that holds a Cell by value lives only behind a shared
+///   handle: such a type stands in a field (of a value itself so held),
+///   behind `*` or `~`, or behind a view. A type that holds one through
+///   an element or an optional is reported there, so here only a
+///   declared type that holds one counts (`holdsOwnCell`); a type
+///   argument counts however it holds one.
+/// - A write view is never stored inside a value (`writeViewMisplaced`).
+/// Null where `ty` may stand at `home`. The Cell rule needs what every
+/// type holds (`SemContext.contents_ready`).
+pub fn misplaced(ctx: *const SemContext, ty: TypeId, home: Home) ?Misplaced {
+    if (writeViewMisplaced(ctx, ty, home)) return .write_view;
+    switch (home) {
+        .field, .handle, .viewed => {},
+        .type_arg => if (holdsCellByValue(ctx, ty)) return .cell,
+        .signature, .binding, .element, .optional => if (holdsOwnCell(ctx, ty)) return .cell,
+    }
+    return null;
+}
+
+/// Whether `ty`, a write view or a value that holds one anywhere
+/// (`nestsWriteView`), may not stand at `home`: `!T`, `(!T)?`, and
+/// `(!T)!` stand only in a signature or a binding, and `!T` inside an
+/// optional; never in a field, an element, a type argument, or behind a
+/// view or a handle. Decided by the type's structure alone, so a type
+/// is rejected where it is written, before what types hold is known.
+pub fn writeViewMisplaced(ctx: *const SemContext, ty: TypeId, home: Home) bool {
+    if (!nestsWriteView(ctx, ty)) return false;
+    return switch (home) {
+        .signature, .binding => !isHeldWriteView(ctx, ty),
+        .optional => ctx.types.get(ty) != .write_view,
+        .field, .type_arg, .element, .viewed, .handle => true,
+    };
+}
+
+/// `!T`, `(!T)?`, `(!T)!`, or `((!T)?)!`. What the write view views was
+/// decided where it was written, as `.viewed`.
+fn isHeldWriteView(ctx: *const SemContext, ty: TypeId) bool {
+    var t = ty;
+    if (ctx.types.get(t) == .fallible) t = ctx.types.get(t).fallible;
+    if (ctx.types.get(t) == .optional) t = ctx.types.get(t).optional;
+    return ctx.types.get(t) == .write_view;
+}
+
+/// Whether `ty` is a write view or holds one anywhere in its structure,
+/// through views, handles, optionals, elements, and type arguments. A
+/// declared type's fields are decided where they are declared.
+fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .write_view => true,
+        .read_view, .shared, .weak, .optional, .fallible => |inner| nestsWriteView(ctx, inner),
+        .array => |a| nestsWriteView(ctx, a.elem),
+        .slice => |s| nestsWriteView(ctx, s.elem),
+        .parameterized_nominal => |pn| for (pn.args) |a| {
+            if (nestsWriteView(ctx, a)) break true;
+        } else false,
+        else => false,
+    };
+}
+
+/// Whether `ty` is a declared type (a `Cell[T]` included) that holds a
+/// Cell by value through its own fields, not only through a type
+/// argument, which is decided where it stands.
+fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .nominal, .imported_nominal => holdsCellByValue(ctx, ty),
+        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
+            if (holdsCellByValue(ctx, a)) break false;
+        } else true),
+        else => false,
+    };
+}
+
+/// The diagnostics of `misplaced`: a Cell's formatted with the type
+/// twice, a write view's once.
+pub const cell_misplaced = "a value of `{s}` holds a Cell, so it lives only behind a shared handle: write `*{s}`";
+pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, a receiver's, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
+
 /// Whether a value of `ty` is interior-mutable: it holds a `Cell`
 /// inline (`holdsCellByValue`), so it changes through any path to it, a
 /// read view included (Core 9). Emit keeps such a value only in Zig
@@ -6400,46 +6502,6 @@ pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.E
         },
         else => return false,
     }
-}
-
-/// The place leaf of header subject `subject` whose write view the
-/// header would copy out of it. The subject, or the base its fields,
-/// elements, and `?.` steps are reached from (`pathRoot`), is a branching
-/// value (`isBranchingForm`: `a if c else b`, `a ?? b`, `e catch h`,
-/// `e!`, `e?`), one of whose leaves (`valueLeaves`) is a place, or a part
-/// of one, of a type that holds a write view: `match (a if c else b)` of
-/// `!E` names, `match o?` of a `(!E)?`, `match (a if c else b).e` of `!W`
-/// names, `match o?.w`, `for x in (h1.v if c else h2.v)`. A branch reads
-/// its leaves, so such a leaf would be a second writer that holds no loan
-/// on the place. A path through the branch reaches a part of that copy:
-/// one that copies (plain data) is copied out in a bare header, and only
-/// a part the header views (`copies` is `.no` or `.depends`) keeps the
-/// copy; under a sigil (`lent`: `?S`, `!S`), the header views any part
-/// in place. Null for any other subject. `subject` is the header's
-/// subject without its sigil (`Checker.headerSubject`). The one decider,
-/// for `match`, `if … as`, `while … as`, and `for` alike.
-pub fn headerCopiesWriteView(ctx: *const SemContext, subject: Sexp, lent: bool) std.mem.Allocator.Error!?Sexp {
-    const base = pathRoot(subject);
-    if (!isBranchingForm(base)) return null;
-    // A path through the branch: only a part the header views keeps it.
-    if (!lent and (subject.isKind(.member) or subject.isKind(.index))) {
-        const ty = ctx.typeOf(subject) orelse return null;
-        switch (copies(ctx, ty)) {
-            .no, .depends => {},
-            .yes => return null,
-        }
-    }
-    var leaves: std.ArrayList(Sexp) = .empty;
-    defer leaves.deinit(ctx.allocator);
-    try valueLeaves(ctx.allocator, base, &leaves);
-    for (leaves.items) |leaf| switch (handsOver(ctx, leaf).kind) {
-        .place, .part_of_made => {
-            const ty = ctx.typeOf(leaf) orelse continue;
-            if (holdsWriteView(ctx, ty)) return leaf;
-        },
-        .made, .lend, .branches, .jump, .none => {},
-    };
-    return null;
 }
 
 /// A value that is one of its operands: `a if c else b`, `a ?? b`,

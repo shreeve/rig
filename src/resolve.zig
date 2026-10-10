@@ -637,6 +637,9 @@ pub const DeferredCheck = union(enum) {
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
     owned_closure: struct { node: Sexp, ty: TypeId },
+    /// A type spelled at `node` that stands at `home`, where a value
+    /// holding a Cell may not (`sema.misplaced`).
+    cell_home: struct { node: Sexp, ty: TypeId, home: sema.Home },
 };
 
 fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
@@ -654,6 +657,10 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
         .owned_closure => |c| try checkOwnedClosureType(ctx, c.node, c.ty),
+        .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
+            const shown = try sema.formatType(ctx, c.ty);
+            try ctx.errAt(c.node, sema.cell_misplaced, .{ shown, shown });
+        },
     }
 }
 
@@ -937,9 +944,13 @@ pub const TypeResolver = struct {
             if (self.ctx.types.get(inner) == .type_var) {
                 try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.types.get(inner).type_var, .req = .not_error, .pos = self.ctx.startOf(node), .op = "`!`" });
             }
-            return self.ctx.intern(.{ .fallible = inner });
+            const ty = try self.ctx.intern(.{ .fallible = inner });
+            if (try self.misplacedAt(node, ty, .signature)) return self.ctx.types.invalid_id;
+            return ty;
         }
-        return self.resolveType(node);
+        const ty = try self.resolveType(node);
+        if (try self.misplacedAt(node, ty, .signature)) return self.ctx.types.invalid_id;
+        return ty;
     }
 
     /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a view is
@@ -963,7 +974,11 @@ pub const TypeResolver = struct {
             .list => {
                 const h = param.kind() orelse return self.ctx.types.invalid_id;
                 switch (h) {
-                    .@":", .default => return self.resolveType(ir.get(param, .type)),
+                    .@":", .default => {
+                        const ty = try self.resolveType(ir.get(param, .type));
+                        if (try self.misplacedAt(ir.get(param, .type), ty, .signature)) return self.ctx.types.invalid_id;
+                        return ty;
+                    },
                     // `?self`, `!self`, `<self`: `self: ?Self`, `!Self`, `Self`.
                     .read, .write, .move => {
                         const operand = ir.get(param, .operand);
@@ -982,6 +997,7 @@ pub const TypeResolver = struct {
                             try self.ctx.err(pos, "`{s}self` is only allowed in a method body (inside a struct, enum, or errors declaration)", .{sigil});
                             return self.ctx.types.invalid_id;
                         }
+                        if (h == .move) _ = try self.misplacedAt(param, self.nominal.self_type, .signature);
                         return switch (h) {
                             .read => self.ctx.intern(.{ .read_view = self.nominal.self_type }),
                             .write => self.ctx.intern(.{ .write_view = self.nominal.self_type }),
@@ -1154,7 +1170,7 @@ pub const TypeResolver = struct {
                             }
                             if (try self.checkDuplicateMember(&names, fname, fpos, sym_name)) continue;
                             var fty = try self.resolveType(ir.get(m, .type));
-                            if (try self.fieldCallable(ir.get(m, .type), fty)) fty = self.ctx.types.invalid_id;
+                            if (try self.fieldCallable(ir.get(m, .type), fty) or try self.misplacedAt(ir.get(m, .type), fty, .field)) fty = self.ctx.types.invalid_id;
                             try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null, .is_pub = self.isPubMember(m) });
                         },
                         .valued => {
@@ -1244,6 +1260,23 @@ pub const TypeResolver = struct {
         if (!sema.holdsCallable(self.ctx, ty)) return false;
         try self.ctx.errAt(node, sema.held_callable, .{try sema.formatType(self.ctx, ty)});
         return true;
+    }
+
+    /// `ty`, written `node`, standing at `home` (`sema.misplaced`): a
+    /// write view is decided at once, true when it is reported; a Cell
+    /// once what every type holds is known. A type argument's Cell is
+    /// decided with each instance (`checkGenericInstantiations`).
+    pub fn misplacedAt(self: *TypeResolver, node: Sexp, ty: TypeId, home: sema.Home) Error!bool {
+        if (self.isPoison(ty)) return false;
+        if (sema.writeViewMisplaced(self.ctx, ty, home)) {
+            try self.ctx.errAt(node, sema.write_view_misplaced, .{try sema.formatType(self.ctx, ty)});
+            return true;
+        }
+        switch (home) {
+            .field, .handle, .viewed, .type_arg => {},
+            .signature, .binding, .element, .optional => try self.checkWhenResolved(.{ .cell_home = .{ .node = node, .ty = ty, .home = home } }),
+        }
+        return false;
     }
 
     /// A field's type `ty`, written `node`: a callable view is not
@@ -1374,7 +1407,7 @@ pub const TypeResolver = struct {
                 const fname = identAt(self.ctx.source, field_name) orelse continue;
                 if (try self.checkDuplicateMember(&payload_names, fname, srcPos(field_name, 0), vname)) continue;
                 var fty = try self.resolveType(ir.get(p, .type));
-                if (try self.fieldCallable(ir.get(p, .type), fty)) fty = self.ctx.types.invalid_id;
+                if (try self.fieldCallable(ir.get(p, .type), fty) or try self.misplacedAt(ir.get(p, .type), fty, .field)) fty = self.ctx.types.invalid_id;
                 try payload.append(self.ctx.allocator, .{
                     .name = fname,
                     .ty = fty,
@@ -1605,6 +1638,13 @@ pub const TypeResolver = struct {
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
+                        const home: sema.Home = switch (head) {
+                            .optional => .optional,
+                            .read_view, .write_view => .viewed,
+                            .weak => .handle,
+                            else => .element,
+                        };
+                        if (try self.misplacedAt(inner_node, inner, home)) return t.invalid_id;
                         // `?fun(...)` written as such is a callable
                         // view; a `?T` of a function type is a read
                         // view of a function value.
@@ -1623,7 +1663,7 @@ pub const TypeResolver = struct {
                         const inner_node = ir.Shared.type(sexp);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
-                        if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
+                        if (try self.heldCallable(inner_node, inner) or try self.misplacedAt(inner_node, inner, .handle)) return t.invalid_id;
                         if (self.ctx.types.get(inner) == .shared) {
                             try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
@@ -1637,7 +1677,7 @@ pub const TypeResolver = struct {
                         const len = try self.resolveCtInt(ir.ArrayType.size(sexp), .array_len);
                         const elem_node = ir.ArrayType.type(sexp);
                         const elem = try self.resolveType(elem_node);
-                        if (self.isPoison(len) or try self.heldCallable(elem_node, elem)) return t.invalid_id;
+                        if (self.isPoison(len) or try self.heldCallable(elem_node, elem) or try self.misplacedAt(elem_node, elem, .element)) return t.invalid_id;
                         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
                         // Once every type's contents are known, a type too
                         // large is poison.
@@ -2078,7 +2118,7 @@ pub const TypeResolver = struct {
                 try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), self.ctx.symbols.items[tp].name });
                 break :blk t.invalid_id;
             } else try self.resolveType(a);
-            if (sema.containsPoison(self.ctx, arg) or try self.heldCallable(a, arg)) any_bad = true;
+            if (sema.containsPoison(self.ctx, arg) or try self.heldCallable(a, arg) or try self.misplacedAt(a, arg, .type_arg)) any_bad = true;
             try args.append(self.ctx.allocator, arg);
         }
         // An instance with a rejected argument is poison: what follows
