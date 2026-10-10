@@ -295,7 +295,9 @@ remove the program directories there that no build has used for 5
 days, and say how many; `rig clean` removes them all. Both leave a
 program that a run, build, or test is still using, anything rig did
 not make, and a cache directory without rig's `CACHEDIR.TAG`, alone.
-A `$RIG_OUT_DIR` is never trimmed.
+The cache also stays under 10 GB: when it is over, the least recently
+used program directories go until it fits, and `RIG_CACHE_MAX_GB` sets
+the limit in gigabytes (0 for none). A `$RIG_OUT_DIR` is never trimmed.
 
 Debug builds (the default) check for memory leaks: a program that
 leaks reports how many allocations it lost and exits 1; set

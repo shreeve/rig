@@ -289,3 +289,154 @@ out=$(XDG_CACHE_HOME="$HOME" "$RIG" clean 2>&1); rc=$?
 expect_rc "$rc" 1 "clean with XDG_CACHE_HOME=\$HOME"
 expect_has "$out" "it holds no CACHEDIR.TAG from rig" "clean's report of a source tree"
 [[ -f "$HOME/rig/src/thesis.txt" ]] || fail "clean removed a source tree at \$HOME/rig"
+
+# The size cap. Over RIG_CACHE_MAX_GB (default 10; 0 is no limit), a trim
+# also removes the least recently used packages until the rest fit, and
+# runs sooner than once a day. The cache here is in this test's own
+# directory, and the limit is a few megabytes.
+export XDG_CACHE_HOME="$PWD/capcache"
+home="$PWD/capcache/rig"
+mkdir -p "$home"
+echo "$signature" >"$home/CACHEDIR.TAG"
+# A package of `bytes` bytes of data, last used `days` days ago, with its
+# size recorded (as a build does) when a fourth argument says so.
+sized() {
+    package "$1" "$2"
+    dd if=/dev/null of="$home/$1/data" bs=1 seek="$3" count=0 2>/dev/null
+    [[ -z ${4:-} ]] || echo "$3" >"$home/$1/.size"
+    touch -t "$(ago "$2")" "$home/$1"
+}
+# The bytes in a package's files, but its .size, as the cache adds them up.
+measure() { perl -MFile::Find -e 'my $t = 0; find({ no_chdir => 1, wanted => sub { $t += -s $_ if -f $_ && !-l $_ && $File::Find::name ne "$ARGV[0]/.size" } }, $ARGV[0]); print $t' "$1"; }
+# The sum over every package in the home.
+measure_all() { local t=0 p; for p in "$home"/*-????????????????; do [[ -d $p ]] && t=$((t + $(measure "$p"))); done; echo "$t"; }
+# A time `minutes` minutes ago.
+minutes_ago() { date -v-"$1"M +%Y%m%d%H%M 2>/dev/null || date -d "$1 minutes ago" +%Y%m%d%H%M; }
+
+export RIG_CACHE_MAX_GB=0.0035
+sized oldest-0123456789abcdef 4 1000000 recorded
+sized older-0123456789abcdef 3 1000000
+sized middle-0123456789abcdef 2 1000000 recorded
+sized newest-0123456789abcdef 1 1000000
+trimmed 2
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run over the cap: $out"
+expect_has "$out" "rig: removed 1 least recently used package to keep $home under 0.00 GB (RIG_CACHE_MAX_GB)" "the cap's report"
+[[ ! -e "$home/oldest-0123456789abcdef" ]] || fail "the least recently used package stayed over the cap"
+for x in older middle newest; do
+    [[ -d "$home/$x-0123456789abcdef" ]] || fail "the cap removed $x, which was not the least recently used"
+done
+# The estimate is every package's size added up, measured or recorded.
+mine=$(ls -d "$home"/hello-*)
+[[ "$(cat "$home/.usage")" -eq "$(measure_all)" ]] || fail "the estimate $(cat "$home/.usage") is not the cache's size $(measure_all)"
+[[ "$(cat "$mine/.size")" -eq "$(measure "$mine")" ]] || fail "the package's recorded size is not its size"
+[[ "$(cat "$mine/.size")" -gt 0 ]] || fail "the package's recorded size is empty"
+
+# The estimate follows a program built in a package already there.
+before=$(cat "$home/.usage")
+printf 'sub main()\n  print(1)\n' >grow.rig
+out=$("$RIG" run grow.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run of a second program: $out"
+[[ "$(cat "$home/.usage")" -gt "$before" ]] || fail "the estimate did not grow with a new package"
+[[ "$(cat "$home/.usage")" -eq "$(measure_all)" ]] || fail "the estimate is not the cache's size after a build"
+rm -rf "$home"/grow-*
+
+# Over the cap but trimmed a minute ago: no trim yet. An hour-old stamp
+# is soon enough, though a day has not passed; and a package whose lock
+# is held stays, the next least recently used going in its place.
+sized stale-0123456789abcdef 4 1000000
+sized stale2-0123456789abcdef 4 1000000
+rm -rf "$home/older-0123456789abcdef"
+hold stale-0123456789abcdef
+touch -t "$(ago 4)" "$home/stale-0123456789abcdef"
+echo $(( $(measure_all) + 1000 )) >"$home/.usage"
+touch "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run just after a trim: $out"
+expect_eq "$out" "hi" "an over-cap cache trimmed a minute ago"
+[[ -d "$home/stale2-0123456789abcdef" ]] || fail "a second trim ran within minutes"
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run over the cap an hour after a trim: $out"
+expect_has "$out" "least recently used" "the trim of a cache over the cap, before a day"
+[[ -d "$home/stale-0123456789abcdef" ]] || fail "the cap removed a package whose lock is held"
+[[ ! -e "$home/stale2-0123456789abcdef" ]] || fail "the cap kept the least recently used package that was free"
+[[ "$(cat "$home/.usage")" -eq "$(measure_all)" ]] || fail "the estimate is not the cache's size after a cap trim"
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+
+# Under the cap, within the day: the estimate alone decides, and nothing
+# is read or removed.
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+sized spare-0123456789abcdef 1 1000
+echo 10 >"$home/.usage"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_eq "$out" "hi" "a cache under the cap, an hour after a trim"
+[[ "$(cat "$home/.usage")" -eq 10 || "$(cat "$home/.usage")" -gt 10 ]] || fail "a run lowered the estimate"
+
+# No limit: RIG_CACHE_MAX_GB=0 keeps everything the age rule keeps.
+export RIG_CACHE_MAX_GB=0
+sized big-0123456789abcdef 1 9000000
+rm -f "$home/.usage"
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_eq "$out" "hi" "a cache with no limit"
+[[ -d "$home/big-0123456789abcdef" && -d "$home/spare-0123456789abcdef" ]] || fail "RIG_CACHE_MAX_GB=0 removed a package"
+
+# RIG_OUT_DIR is never trimmed by the cap either.
+export RIG_CACHE_MAX_GB=0.0001
+mkdir -p capout/old-0123456789abcdef/rig
+touch capout/old-0123456789abcdef/rig/runtime.zig
+dd if=/dev/null of=capout/old-0123456789abcdef/data bs=1 seek=5000000 count=0 2>/dev/null
+out=$(RIG_OUT_DIR="$PWD/capout" "$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run with RIG_OUT_DIR over the cap: $out"
+[[ -d capout/old-0123456789abcdef ]] || fail "the cap trimmed RIG_OUT_DIR"
+[[ ! -e capout/.usage && ! -e capout/.trimmed ]] || fail "the cap measured RIG_OUT_DIR"
+unset RIG_CACHE_MAX_GB
+
+# A `.usage` rig did not make is neither read nor replaced: a foreign file,
+# a link, and (in a home without rig's tag) a number. A corrupt `.size`
+# never crashes a run, and counts for nothing.
+export RIG_CACHE_MAX_GB=0.025
+home="$PWD/capcache2/rig"
+export XDG_CACHE_HOME="$PWD/capcache2"
+mkdir -p "$home" elsewhere
+echo "$signature" >"$home/CACHEDIR.TAG"
+echo "not a number, but something of mine" >"$home/.usage"
+sized one-0123456789abcdef 1 8000000
+sized two-0123456789abcdef 1 8000000
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run beside a foreign .usage: $out"
+[[ "$(cat "$home/.usage")" == "not a number, but something of mine" ]] || fail "rig replaced a .usage it did not make"
+rm "$home/.usage"; echo target >elsewhere/usage-target; ln -s "$PWD/elsewhere/usage-target" "$home/.usage"
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run beside a linked .usage: $out"
+[[ -L "$home/.usage" && "$(cat elsewhere/usage-target)" == target ]] || fail "rig replaced or followed a linked .usage"
+rm "$home/.usage"
+
+# A corrupt .size: a number past what a cache holds, and two that overflow
+# when added.
+# The limit leaves room for both packages and the one a build makes,
+# whatever size the platform's builds are.
+cap_bytes=$(( 16000000 + $(measure "$(ls -d "$home"/hello-*)") + 4000000 ))
+export RIG_CACHE_MAX_GB=$(awk -v b="$cap_bytes" 'BEGIN { printf "%.9f", b / 1073741824 }')
+echo 18446744073709551615 >"$home/one-0123456789abcdef/.size"
+echo 18446744073709551615 >"$home/two-0123456789abcdef/.size"
+touch -t "$(ago 1)" "$home/one-0123456789abcdef" "$home/two-0123456789abcdef"
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run beside a corrupt .size: $out"
+[[ -d "$home/one-0123456789abcdef" && -d "$home/two-0123456789abcdef" ]] || fail "a corrupt .size made the cap remove a package that fits"
+[[ "$(cat "$home/.usage")" -eq "$(measure_all)" ]] || fail "a corrupt .size reached the estimate"
+
+# In a home without rig's tag, a build records no .usage.
+home="$PWD/capcache3/rig"
+export XDG_CACHE_HOME="$PWD/capcache3"
+mkdir -p "$home/notes"
+echo 5 >"$home/.usage"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run in an untagged home: $out"
+[[ "$(cat "$home/.usage")" == 5 ]] || fail "a build wrote .usage in a home without rig's tag"
+[[ ! -e "$home/CACHEDIR.TAG" ]] || fail "rig tagged a home with files it did not make"
+unset RIG_CACHE_MAX_GB

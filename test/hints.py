@@ -130,7 +130,7 @@ def main():
                 bad.append(f'{path}:{at}: the hint `{fix if kind != "bind" else fix[2]}` draws: {left[0]}')
                 continue
             if expect is not None:
-                env = dict(os.environ, RIG_SANITIZE='1')
+                env = dict(os.environ, RIG_SANITIZE='1', RIG_OUT_DIR=os.path.join(work, 'out'))
                 for mode in ([], ['--release']):
                     r = subprocess.run([rig, 'run'] + mode + [target], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                     if r.returncode != 0 or r.stdout != expect:

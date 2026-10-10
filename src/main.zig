@@ -62,6 +62,10 @@ const usage =
     \\                   day, remove the directories unused for 5 days,
     \\                   and only in a home holding rig's CACHEDIR.TAG;
     \\                   a relative XDG_CACHE_HOME or HOME is ignored)
+    \\  RIG_CACHE_MAX_GB The most gigabytes that cache holds (default 10;
+    \\                   0 for no limit): over it, the least recently
+    \\                   used directories go, checked every run and
+    \\                   trimmed at most every 10 minutes
     \\  RIG_BUILD_STORE  A store shared by every program and checkout:
     \\                   run, build, and test write the package to a
     \\                   directory in it named by a hash of everything
@@ -463,7 +467,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
         holdPackage(allocator, io, dir);
     }
     try writePackage(allocator, io, dir, pkg.files.items);
-    if (home) |h| trimCache(allocator, io, h, std.fs.path.basename(dir));
+    if (home) |h| trimCache(allocator, io, h, std.fs.path.basename(dir), cacheCap(env));
 
     const root_zig = try std.fs.path.join(allocator, &.{ dir, root });
     const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{opts.out_path orelse graph.root().name})} else &.{};
@@ -472,6 +476,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args });
     if (opts.command == .build) {
         const code = try runZig(io, argv, null);
+        if (home) |h| recordSize(allocator, io, h, dir);
         if (code == 0) return;
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
         std.process.exit(code);
@@ -499,6 +504,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
         const code = ended.code;
         const ran = if (std.Io.Dir.cwd().statFile(io, started, .{})) |st| st.kind == .file else |_| false;
         std.Io.Dir.cwd().deleteFile(io, started) catch {};
+        if (home) |h| recordSize(allocator, io, h, dir);
         if (ran) {
             if (env.get(run_started_var)) |path| try writeFile(io, path, "");
             // A status above 128 may be the program's own; this says a
@@ -739,6 +745,12 @@ fn cacheHome(allocator: std.mem.Allocator, env: Env) !?[]const u8 {
 const cache_keep_days = 5;
 const cache_trim_days = 1;
 
+/// The most the cache home holds, in gigabytes, unless `RIG_CACHE_MAX_GB`
+/// says another (0 for no limit), and how soon a cache over it is
+/// trimmed again.
+const cache_default_max_gb = 10;
+const cache_over_trim_minutes = 10;
+
 /// The tag rig writes in a cache home it makes (https://bford.info/cachedir/),
 /// which also tells backup tools to skip it. The trim and `rig clean`
 /// act only on a home that holds it.
@@ -751,6 +763,14 @@ const cache_tag = cache_tag_signature ++ "\n# This file is a cache directory tag
 /// trim and `rig clean` an exclusive one while they remove it. The
 /// system releases a lock when its process ends, however it ends.
 const package_lock = ".lock";
+
+/// The file in each package holding its size in bytes (the files under
+/// it but this one), as the build that last ran there measured it
+/// (`recordSize`), and the file in the cache home holding the estimate of
+/// every package's size added up. The estimate is what a run reads to
+/// learn whether the cache is over its limit; a trim measures it anew.
+const package_size = ".size";
+const cache_usage = ".usage";
 
 /// What rig itself makes in the cache home, the only entries the trim
 /// and `rig clean` remove. Anything else there is left alone.
@@ -765,6 +785,8 @@ const CacheEntry = enum {
     stamp,
     /// `CACHEDIR.TAG`, as rig writes it.
     tag,
+    /// The file `.usage`, the estimate of the cache's size.
+    usage,
 
     /// The kind of the entry `name` of `dir`, or null for anything rig
     /// did not make, a symbolic link included.
@@ -772,6 +794,10 @@ const CacheEntry = enum {
         if (kind == .file and eql(name, ".trimmed")) {
             const st = dir.statFile(io, name, .{ .follow_symlinks = false }) catch return null;
             return if (st.kind == .file and st.size == 0) .stamp else null;
+        }
+        if (kind == .file and eql(name, cache_usage)) {
+            const st = dir.statFile(io, name, .{ .follow_symlinks = false }) catch return null;
+            return if (st.kind == .file and st.size <= 32) .usage else null;
         }
         if (kind == .file and eql(name, cache_tag_name)) return if (isTag(dir, io)) .tag else null;
         if (kind != .directory) return null;
@@ -851,7 +877,7 @@ fn tagCacheHome(io: std.Io, home: []const u8) void {
     var proof = false;
     var it = d.iterate();
     while (it.next(io) catch return) |entry| switch (CacheEntry.of(d, io, entry.name, entry.kind) orelse return) {
-        .package, .stamp => proof = true,
+        .package, .stamp, .usage => proof = true,
         .trash, .tag => return,
     };
     if (proof) writeTag(io, home);
@@ -953,15 +979,20 @@ fn unusedSince(io: std.Io, used: ?std.Io.Timestamp) bool {
 /// What became of an entry the trim or `rig clean` set out to remove.
 const Removal = enum { removed, gone, busy, kept, unsupported };
 
+/// What a package must still be, read again under its lock, to be
+/// removed: anything (`rig clean`), unused for `cache_keep_days`, or
+/// last used at the time the trim saw (not used since).
+const Check = union(enum) { none, aged, unchanged: ?std.Io.Timestamp };
+
 /// Remove `name` of `dir`. A package is locked exclusively first (a
 /// package in use is `busy`), checked again, with `aged`, to be unused
 /// by its time read under the lock (or, where taking the lock made its
-/// lock file, the time before), and renamed out of the way in one step
+/// lock file, the time before) as `check` says, and renamed out of the way in one step
 /// under the lock, so a run never meets one half removed; then deleted.
 /// `gone` when another process removed it first.
-fn removeEntry(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []const u8, kind: CacheEntry, aged: bool) Removal {
+fn removeEntry(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []const u8, kind: CacheEntry, check: Check) Removal {
     switch (kind) {
-        .stamp, .tag => {
+        .stamp, .tag, .usage => {
             dir.deleteFile(io, name) catch |err| return if (err == error.FileNotFound) .gone else .kept;
             return .removed;
         },
@@ -974,7 +1005,13 @@ fn removeEntry(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: 
             var created = false;
             const lock = (lockForRemoval(io, dir, name, &created) catch return .unsupported) orelse
                 return if (dir.statFile(io, name, .{ .follow_symlinks = false })) |_| .busy else |_| .gone;
-            if (aged and !unusedSince(io, if (created) before else lastUsed(dir, io, name))) {
+            const seen = if (created) before else lastUsed(dir, io, name);
+            const fits = switch (check) {
+                .none => true,
+                .aged => unusedSince(io, seen),
+                .unchanged => |t| t != null and seen != null and t.?.nanoseconds == seen.?.nanoseconds,
+            };
+            if (!fits) {
                 lock.close(io);
                 return .kept;
             }
@@ -995,44 +1032,203 @@ fn removeEntry(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: 
     }
 }
 
+/// The limit on the cache home's size in bytes: `RIG_CACHE_MAX_GB`
+/// gigabytes (a decimal number), `cache_default_max_gb` when it is unset
+/// or not one. Zero is no limit.
+fn cacheCap(env: Env) u64 {
+    const gib: f64 = 1024 * 1024 * 1024;
+    const gb: f64 = if (env.get("RIG_CACHE_MAX_GB")) |text| std.fmt.parseFloat(f64, text) catch cache_default_max_gb else cache_default_max_gb;
+    if (!(gb >= 0) or gb > 1e9) return cache_default_max_gb * @as(u64, gib);
+    return @intFromFloat(gb * gib);
+}
+
+/// The sum of the sizes of the regular files under `dir`, links not
+/// followed, apart from a `.size` directly in it.
+fn treeSize(io: std.Io, dir: std.Io.Dir, top: bool, depth: u32) u64 {
+    if (depth > 64) return 0;
+    var total: u64 = 0;
+    var it = dir.iterate();
+    while (it.next(io) catch return total) |entry| switch (entry.kind) {
+        .file => {
+            if (top and eql(entry.name, package_size)) continue;
+            const st = dir.statFile(io, entry.name, .{ .follow_symlinks = false }) catch continue;
+            if (st.kind == .file) total +|= st.size;
+        },
+        .directory => {
+            var sub = dir.openDir(io, entry.name, .{ .iterate = true, .follow_symlinks = false }) catch continue;
+            defer sub.close(io);
+            total +|= treeSize(io, sub, false, depth + 1);
+        },
+        else => {},
+    };
+    return total;
+}
+
+/// The size of the package `name` of `dir`, measured.
+fn measurePackage(io: std.Io, dir: std.Io.Dir, name: []const u8) u64 {
+    var pd = dir.openDir(io, name, .{ .iterate = true, .follow_symlinks = false }) catch return 0;
+    defer pd.close(io);
+    return treeSize(io, pd, true, 0);
+}
+
+/// The largest size rig believes in, a petabyte; a recorded size above it
+/// is corrupt.
+const size_bound: u64 = 1 << 50;
+
+/// The number in the small file `path` of `dir`, as rig writes it: decimal
+/// digits and a newline, at most `size_bound`. Null if the file is
+/// missing, a link, or holds anything else (as when it is being replaced).
+fn readNumber(io: std.Io, dir: std.Io.Dir, path: []const u8) ?u64 {
+    const f = dir.openFile(io, path, .{ .follow_symlinks = false }) catch return null;
+    defer f.close(io);
+    var buffer: [32]u8 = undefined;
+    const n = f.readPositionalAll(io, &buffer, 0) catch return null;
+    var text = buffer[0..n];
+    if (text.len < 2 or text[text.len - 1] != '\n') return null;
+    text = text[0 .. text.len - 1];
+    for (text) |c| if (!std.ascii.isDigit(c)) return null;
+    const value = std.fmt.parseInt(u64, text, 10) catch return null;
+    return if (value > size_bound) null else value;
+}
+
+/// Whether the home's `.usage` is absent or rig's own, so rig may write
+/// it; a file or link rig did not make is never replaced.
+fn usageWritable(io: std.Io, dir: std.Io.Dir) bool {
+    const st = dir.statFile(io, cache_usage, .{ .follow_symlinks = false }) catch |err| return err == error.FileNotFound;
+    return st.kind == .file and readNumber(io, dir, cache_usage) != null;
+}
+
+fn writeNumber(io: std.Io, path: []const u8, value: u64) void {
+    var buffer: [32]u8 = undefined;
+    const text = std.fmt.bufPrint(&buffer, "{d}\n", .{value}) catch return;
+    var file = std.Io.Dir.cwd().createFileAtomic(io, path, .{ .replace = true }) catch return;
+    defer file.deinit(io);
+    file.file.writeStreamingAll(io, text) catch return;
+    file.replace(io) catch {};
+}
+
+/// Record the size of the package `dir` of the cache home `home` in its
+/// `.size`, and move the home's `.usage` estimate by the change. Without
+/// a `.usage` (no trim has measured the cache yet) only the package's
+/// size is recorded. It walks one package, never the cache.
+fn recordSize(allocator: std.mem.Allocator, io: std.Io, home: []const u8, dir: []const u8) void {
+    const cwd = std.Io.Dir.cwd();
+    {
+        // Only in a home rig made.
+        var hd = cwd.openDir(io, home, .{ .follow_symlinks = false }) catch return;
+        defer hd.close(io);
+        if (!isTag(hd, io)) return;
+    }
+    var pd = cwd.openDir(io, dir, .{ .iterate = true, .follow_symlinks = false }) catch return;
+    defer pd.close(io);
+    const size = treeSize(io, pd, true, 0);
+    const old = readNumber(io, pd, package_size);
+    if (old != null and old.? == size) return;
+    const size_path = std.fs.path.join(allocator, &.{ dir, package_size }) catch return;
+    writeNumber(io, size_path, size);
+    const usage_path = std.fs.path.join(allocator, &.{ home, cache_usage }) catch return;
+    const estimate = readNumber(io, cwd, usage_path) orelse return;
+    writeNumber(io, usage_path, (estimate -| (old orelse 0)) +| size);
+}
+
 /// Remove the packages in the cache home `home` that no run or build has
 /// used for `cache_keep_days`, all but `current` and any a run, build,
-/// or test holds (`holdPackage`), and what an interrupted trim left. It
-/// acts only on a home rig made (`openCacheHome`). A stamp, `.trimmed`,
-/// records the last trim, so this reads the directory at most once in
-/// `cache_trim_days`; a stamp dated in the future counts as old. Each
-/// package's time is checked again, under its lock, just before it goes.
-/// One line on stderr says how many went. Where the system has no file
-/// locks, nothing is removed. A failure never fails the build.
-fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current: []const u8) void {
+/// or test holds (`holdPackage`), and what an interrupted trim left.
+/// Then, if the packages left are over `cap` bytes (0 for no limit), it
+/// removes the least recently used ones, by the time a run last set on
+/// them, until the rest fit. It acts only on a home rig made
+/// (`openCacheHome`). A stamp, `.trimmed`, records the last trim, so
+/// this reads the directory at most once in `cache_trim_days`, or once in
+/// `cache_over_trim_minutes` while the estimate in `.usage` (or its
+/// absence) says the cache is over `cap`; a stamp dated in the future
+/// counts as old. Each package's time is checked again, under its lock,
+/// just before it goes. A trim measures every package it keeps and
+/// writes the total as the new estimate. One line on stderr says how many
+/// went, and why. Where the system has no file locks, nothing is
+/// removed. A failure never fails the build.
+fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current: []const u8, cap: u64) void {
     var why: []const u8 = "";
     var d = openCacheHome(io, home, &why) orelse return;
     defer d.close(io);
     const now = std.Io.Timestamp.now(io, .real);
+    const estimate = if (cap > 0) readNumber(io, d, cache_usage) else null;
+    // A `.usage` that is not rig's is neither read nor replaced: the cache
+    // is then measured at the daily pace.
+    const writable = usageWritable(io, d);
+    const over = cap > 0 and writable and (estimate == null or estimate.? > cap);
+    const wait: i96 = if (over) cache_over_trim_minutes * std.time.ns_per_min else cache_trim_days * std.time.ns_per_day;
     if (d.statFile(io, ".trimmed", .{ .follow_symlinks = false })) |st| {
         if (st.kind != .file or st.size != 0) return;
         const age = st.mtime.durationTo(now).nanoseconds;
-        if (age >= 0 and age < cache_trim_days * std.time.ns_per_day) return;
+        if (age >= 0 and age < wait) return;
         d.setTimestampsNow(io, ".trimmed", .{ .follow_symlinks = false }) catch return;
     } else |_| {
         const file = d.createFile(io, ".trimmed", .{ .exclusive = true }) catch return;
         file.close(io);
     }
-    var old: std.ArrayList(struct { name: []const u8, kind: CacheEntry }) = .empty;
+    const Item = struct { name: []const u8, kind: CacheEntry, used: ?std.Io.Timestamp = null, size: u64 = 0 };
+    var old: std.ArrayList(Item) = .empty;
+    var live: std.ArrayList(Item) = .empty;
+    var total: u64 = 0;
     var it = d.iterate();
     while (it.next(io) catch return) |entry| {
-        if (eql(entry.name, current)) continue;
         const kind = CacheEntry.of(d, io, entry.name, entry.kind) orelse continue;
-        if (kind == .stamp or kind == .tag or (kind == .package and !unusedSince(io, lastUsed(d, io, entry.name)))) continue;
-        old.append(allocator, .{ .name = allocator.dupe(u8, entry.name) catch return, .kind = kind }) catch return;
+        if (kind == .stamp or kind == .tag or kind == .usage) continue;
+        var item: Item = .{ .name = allocator.dupe(u8, entry.name) catch return, .kind = kind };
+        if (kind == .package) {
+            item.used = lastUsed(d, io, entry.name);
+            if (cap > 0) {
+                const recorded = readNumber(io, d, std.fmt.allocPrint(allocator, "{s}/{s}", .{ entry.name, package_size }) catch return);
+                // The package in use is measured when its build ends
+                // (`recordSize`), which adds its whole size if it has
+                // none recorded.
+                item.size = recorded orelse if (eql(entry.name, current)) 0 else measurePackage(io, d, entry.name);
+                total +|= item.size;
+            }
+            if (eql(entry.name, current) or !unusedSince(io, item.used)) {
+                live.append(allocator, item) catch return;
+                continue;
+            }
+        }
+        old.append(allocator, item) catch return;
     }
-    var removed: usize = 0;
-    for (old.items) |e| switch (removeEntry(allocator, io, d, e.name, e.kind, true)) {
-        .removed => removed += @intFromBool(e.kind == .package),
+    var aged: usize = 0;
+    for (old.items) |e| switch (removeEntry(allocator, io, d, e.name, e.kind, .aged)) {
+        .removed, .gone => if (e.kind == .package) {
+            aged += 1;
+            total -|= e.size;
+        },
         .unsupported => break,
         else => {},
     };
-    if (removed > 0) std.debug.print("rig: removed {d} package{s} unused for {d} days from {s}\n", .{ removed, if (removed == 1) "" else "s", cache_keep_days, home });
+    if (aged > 0) std.debug.print("rig: removed {d} package{s} unused for {d} days from {s}\n", .{ aged, if (aged == 1) "" else "s", cache_keep_days, home });
+    var capped: usize = 0;
+    if (cap > 0 and total > cap) {
+        std.mem.sort(Item, live.items, {}, struct {
+            fn before(_: void, a: Item, b: Item) bool {
+                const x = if (a.used) |t| t.nanoseconds else std.math.maxInt(i96);
+                const y = if (b.used) |t| t.nanoseconds else std.math.maxInt(i96);
+                return x < y;
+            }
+        }.before);
+        for (live.items) |e| {
+            if (total <= cap) break;
+            if (eql(e.name, current)) continue;
+            switch (removeEntry(allocator, io, d, e.name, .package, .{ .unchanged = e.used })) {
+                .removed, .gone => {
+                    capped += 1;
+                    total -|= e.size;
+                },
+                .unsupported => break,
+                else => {},
+            }
+        }
+    }
+    if (capped > 0) std.debug.print("rig: removed {d} least recently used package{s} to keep {s} under {d:.2} GB (RIG_CACHE_MAX_GB)\n", .{ capped, if (capped == 1) "" else "s", home, @as(f64, @floatFromInt(cap)) / (1024 * 1024 * 1024) });
+    if (cap > 0 and writable) {
+        const path = std.fs.path.join(allocator, &.{ home, cache_usage }) catch return;
+        writeNumber(io, path, total);
+    }
 }
 
 /// `rig clean`: remove what rig made in its cache home, every program's
@@ -1058,13 +1254,13 @@ fn clean(allocator: std.mem.Allocator, io: std.Io, env: Env) void {
             others = true;
             continue;
         };
-        if (kind == .stamp or kind == .tag) continue;
+        if (kind == .stamp or kind == .tag or kind == .usage) continue;
         found.append(allocator, .{ .name = allocator.dupe(u8, entry.name) catch fatal("error: out of memory", .{}), .kind = kind }) catch fatal("error: out of memory", .{});
     }
     var removed: usize = 0;
     var busy: usize = 0;
     var kept = false;
-    for (found.items) |e| switch (removeEntry(allocator, io, d, e.name, e.kind, false)) {
+    for (found.items) |e| switch (removeEntry(allocator, io, d, e.name, e.kind, .none)) {
         .removed, .gone => removed += @intFromBool(e.kind == .package),
         .busy => busy += 1,
         .kept => kept = true,
@@ -1078,8 +1274,9 @@ fn clean(allocator: std.mem.Allocator, io: std.Io, env: Env) void {
         d.close(io);
         return;
     }
-    _ = removeEntry(allocator, io, d, ".trimmed", .stamp, false);
-    _ = removeEntry(allocator, io, d, cache_tag_name, .tag, false);
+    _ = removeEntry(allocator, io, d, ".trimmed", .stamp, .none);
+    _ = removeEntry(allocator, io, d, cache_usage, .usage, .none);
+    _ = removeEntry(allocator, io, d, cache_tag_name, .tag, .none);
     d.close(io);
     std.Io.Dir.cwd().deleteDir(io, home) catch {};
 }

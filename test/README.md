@@ -215,6 +215,9 @@ removes each passing program's output; its build stays in the store
 (a few gigabytes for the whole corpus, see [Output](#output)), so a
 later run rebuilds only the programs whose emitted Zig changed. Add new review probes here, named `<review>-<probe>.rig`.
 
+Probe batches started by hand should set `RIG_OUT_DIR=$(mktemp -d)` and
+delete it afterwards, so they never write to the user cache.
+
 `test/matrix.py` generates the programs where one expression form (a
 place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
 constructor, `<x`, `+x`) stands in one context (a `print` argument, a

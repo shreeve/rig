@@ -70,7 +70,21 @@ read then (a time in the future is fresh), before it is renamed out of
 the way in one step and deleted. Where the system has no file locks,
 nothing is removed. `rig clean` removes the same entries but those in
 use, and then the tag, the stamp, and the cache home if nothing else
-is in it; a `$RIG_OUT_DIR` is never trimmed. Each file
+is in it; a `$RIG_OUT_DIR` is never trimmed. The cache home is also
+kept under a size limit, `$RIG_CACHE_MAX_GB` gigabytes (default 10, 0
+for none, decimals allowed). A build that ends in a package records the
+bytes of its files in the package's `.size`, and moves the home's
+`.usage`, the estimate of the whole cache, by the change; it walks one
+package, never the cache. Each run reads `.usage` (a trim that finds none
+treats the cache as over the limit): when the estimate is over, a trim
+may run as soon as ten minutes after the last instead of a day. The trim
+first removes the packages unused for 5 days, then measures what is left
+(a package with no `.size` is walked, and nothing is written into a
+package it does not hold, which would change its time), writes the total
+as `.usage`, and while that is over the limit removes the least recently
+used package, by the directory time a run sets, under the same
+exclusive lock, with its time read again under it and required
+unchanged. The package being built is never removed. Each file
 is replaced atomically, so concurrent builds of one program never read
 a partly written file, a file that already holds the same contents is
 left alone, and the directory is not emptied. It holds the
