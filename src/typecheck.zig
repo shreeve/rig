@@ -2110,6 +2110,10 @@ const Checker = struct {
         return .iterator;
     }
 
+    /// Whether a bare `for x in it` over an iterator in a place advances it,
+    /// or the advance must be written `for x in !it`. The one switch.
+    const bare_place_advances = true;
+
     /// A name, or fields from one: the places a loop over an iterator
     /// advances where they stand.
     fn isFieldPath(e: Sexp) bool {
@@ -2161,7 +2165,10 @@ const Checker = struct {
                 return true;
             },
             else => switch (kind) {
-                .place => .place,
+                .place => if (bare_place_advances) .place else {
+                    try self.errAt(source, "a `for` advances an iterator only where it is marked: write `for {s} in !{s}`", .{ name, shown });
+                    return true;
+                },
                 .made => .made,
                 else => {
                     try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});

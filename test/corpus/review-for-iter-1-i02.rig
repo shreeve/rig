@@ -1,0 +1,12 @@
+struct C
+  hi: In
+  fun next(!self) -> Int?
+    return none if self.hi == 0
+    self.hi -= 1
+    self.hi
+
+sub main()
+  c = C(hi: 2)
+  for n in c
+    print(n)
+  x: Int = "s"

@@ -2225,14 +2225,21 @@ known only there; it records the loop (`SemContext.iter_loops`, with how
 the source is walked) and gives the loop variable no type, and
 `ModuleGraph.check` then calls `Parser.desugarIterLoops` and checks the
 module again from the rewritten tree, discarding the first run. The
-names the new nodes need (`next`, and `h` as `__rig_iterN`) are not in
-the program's text, so the rewrite appends them to the source after its
-end, where each leaf has a position of its own, and the module's source
-becomes the longer text; every position of the program is unchanged, and
-a node keeps its id and span (the `while` has the `for`'s). The new
-nodes span the source they came from. The result is an ordinary `while`
-with an `as` header, which the ownership checker walks (`walkWhile`) and
-emit writes (`emitWhile`) like one the program wrote.
+The new nodes are IR nodes like the parser's, and each spans the loop's
+source. The two names no source text holds, the method `next` and the
+hidden binding `h`, are leaves at positions inside the loop's `for`
+keyword, which holds no leaf, whose `id` says which name they are
+(`rig.leafText`, which every pass reads a name through). `h` is named
+`for iterator`, which no program can write, is declared with the op of
+`new` so an enclosing loop's does not clash with it, and is quoted in the
+emitted Zig. So every position the checkers order by (liveness, scope
+ends, loop extents) lies in the loop, as it does in the `h = …; while
+(!h).next() as x` written by hand, and the ownership checker walks the
+same thing: a view of `h` that outlives the block is reported where the
+block ends. A node keeps its id and span (the `while` has the `for`'s).
+The result is an ordinary `while` with an `as` header, which the
+ownership checker walks (`walkWhile`) and emit writes (`emitWhile`) like
+one the program wrote.
 
 ### Assignments
 

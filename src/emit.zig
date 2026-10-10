@@ -897,7 +897,7 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, rig_name, "_")) return "_";
         const base = try self.fmt("{f}", .{ident(rig_name)});
         if (!self.nameTaken(base)) return base;
-        return self.fresh(rig_name);
+        return self.fresh(if (rig.isPlainName(rig_name)) rig_name else "__rig_hidden");
     }
 
     fn nameTaken(self: *Emitter, zig_name: []const u8) bool {
@@ -6497,7 +6497,7 @@ pub const Emitter = struct {
     // =========================================================================
 
     fn srcText(self: *Emitter, sexp: Sexp) []const u8 {
-        return self.source[sexp.src.pos..][0..sexp.src.len];
+        return rig.leafText(self.source, sexp.src);
     }
 
     fn writeIndent(self: *Emitter, depth: u32) Error!void {

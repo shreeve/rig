@@ -5714,7 +5714,7 @@ pub fn bindingName(b: Sexp) Sexp {
 
 pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
     return switch (sexp) {
-        .src => |s| source[s.pos..][0..s.len],
+        .src => |s| rig.leafText(source, s),
         else => null,
     };
 }

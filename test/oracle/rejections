@@ -2135,6 +2135,7 @@ test/corpus/review-copies-p50-defer-reads-slice-after-push.rig main
 test/corpus/review-copies-p50b-defer-reads-struct-slice-after-push.rig main
 test/corpus/review-copies-p54-fill-temp-text-view.rig main
 test/corpus/review-copies-p56-n-of-temp-view.rig main
+test/corpus/review-for-iter-1-c06.rig main
 test/corpus/review-header-paths-1-grid1-g_as_meth_go_holder.rig f
 test/corpus/review-header-paths-1-grid1-g_as_meth_go_local.rig f
 test/corpus/review-header-paths-1-grid1-g_as_meth_go_vec.rig f

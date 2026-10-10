@@ -254,6 +254,11 @@ const emitter_names = std.StaticStringMap(void).initComptime(.{
 });
 const emitter_prefix = "__rig";
 
+pub fn isPlainName(name: []const u8) bool {
+    for (name) |c| if (!std.ascii.isAlphanumeric(c) and c != '_') return false;
+    return true;
+}
+
 fn isZigIntType(name: []const u8) bool {
     if (name.len < 2 or (name[0] != 'i' and name[0] != 'u')) return false;
     for (name[1..]) |c| if (c < '0' or c > '9') return false;
@@ -268,7 +273,10 @@ fn isZigIntType(name: []const u8) bool {
 ///     `'` suffix, which no Rig identifier can contain: `@"rig'"`;
 ///   * anything else is written as is.
 pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void {
-    if (emitter_names.has(name) or std.mem.startsWith(u8, name, emitter_prefix)) {
+    if (!isPlainName(name)) {
+        // A name no program writes (`hiddenLeaf`).
+        try w.print("@\"{s}\"", .{name});
+    } else if (emitter_names.has(name) or std.mem.startsWith(u8, name, emitter_prefix)) {
         try w.print("@\"{s}'\"", .{name});
     } else if (zig_keywords.has(name) or zig_primitives.has(name) or isZigIntType(name)) {
         try w.print("@\"{s}\"", .{name});
@@ -1237,6 +1245,38 @@ fn isIdentCont(c: u8) bool {
 // =============================================================================
 // Parser — post-parse rewrites and diagnostics over the generated BaseParser
 // =============================================================================
+
+/// The names of the leaves a rewrite builds that no source text holds.
+const HiddenName = enum(u16) {
+    /// The method every iterator declares.
+    next = 0,
+    /// The binding that holds a loop's source. It has a space, so no
+    /// program can write it, and a message that names it says what it is.
+    iterator = 1,
+
+    fn text(self: HiddenName) []const u8 {
+        return switch (self) {
+            .next => "next",
+            .iterator => "for iterator",
+        };
+    }
+};
+
+/// A leaf for a name no source text holds, at `pos` inside the `for`
+/// keyword (which holds no leaf); its `id` tells `leafText` which name.
+fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
+    return .{ .src = .{ .pos = pos, .len = 1, .id = hidden_id_base + @intFromEnum(name) } };
+}
+
+/// Leaf ids from here are hidden names; the lexer's are keyword ordinals.
+const hidden_id_base: u16 = 0xFF00;
+
+/// The text of a leaf: the source it spans, or its name when the rewrite
+/// built it (`hiddenLeaf`). Every pass reads a name through this.
+pub fn leafText(source: []const u8, leaf: parser.Src) []const u8 {
+    if (leaf.id >= hidden_id_base) return @as(HiddenName, @enumFromInt(leaf.id - hidden_id_base)).text();
+    return source[leaf.pos..][0..leaf.len];
+}
 
 /// How a `for` over an iterator walks its source, which decides the
 /// `while` it is rewritten into (docs/INTERNALS.md, "Loops over an
@@ -2362,21 +2402,19 @@ pub const Parser = struct {
     // -------------------------------------------------------------------------
     // Loops over an iterator
     //
-    // Typecheck finds the `for` loops whose source is an iterator and
-    // cannot rewrite them itself, since the names the rewrite needs (a
-    // method's `next`, the hidden binding of a held source) are not in the
-    // program's text. They are appended to the source, after its end, so
-    // each leaf has a position of its own like every leaf, and the module
-    // is checked again on the rewritten tree (docs/INTERNALS.md, "Loops
-    // over an iterator").
+    // Typecheck finds the `for` loops whose source is an iterator, since
+    // the type of a source is known only there, and the module is checked
+    // again on this rewrite (docs/INTERNALS.md, "Loops over an iterator").
+    // The nodes it builds are IR nodes like the parser's: each spans the
+    // loop's source, and a name no source text holds (a method's `next`,
+    // the hidden binding) is a leaf at a position inside the loop's `for`
+    // keyword, which no other leaf has, with the name's text from
+    // `leafText`. So every position the checkers order by lies in the loop,
+    // as in the loop written by hand.
     // -------------------------------------------------------------------------
-
-    /// Where the names a rewritten loop needs sit in the source.
-    const IterNames = struct { next: u32, hold_decl: u32 = 0, hold_use: u32 = 0, hold_len: u16 = 0 };
 
     const IterRewrite = struct {
         loops: []const IterLoop,
-        names: []IterNames,
 
         fn find(self: IterRewrite, node: Sexp) ?usize {
             if (node != .list or !node.isKind(.@"for")) return null;
@@ -2385,41 +2423,16 @@ pub const Parser = struct {
         }
     };
 
-    /// Rewrite each `for` of `loops` in `tree` into the `while` it means
-    /// and return the source to check it against (the program's, with the
-    /// names appended). Every other node keeps its position and id.
-    pub fn desugarIterLoops(self: *Parser, tree: Sexp, loops: []const IterLoop) std.mem.Allocator.Error![]const u8 {
-        var text: std.ArrayList(u8) = .empty;
-        try text.appendSlice(self.allocator(), self.base.source);
-        try text.append(self.allocator(), '\n');
-        const names = try self.allocator().alloc(IterNames, loops.len);
-        for (loops, names, 0..) |l, *n, i| {
-            n.* = .{ .next = @intCast(text.items.len) };
-            try text.appendSlice(self.allocator(), "next ");
-            if (l.source != .place) {
-                var buf: [32]u8 = undefined;
-                const hold = std.fmt.bufPrint(&buf, "__rig_iter{d}", .{i}) catch unreachable;
-                n.hold_len = @intCast(hold.len);
-                n.hold_decl = @intCast(text.items.len);
-                try text.appendSlice(self.allocator(), hold);
-                try text.append(self.allocator(), ' ');
-                n.hold_use = @intCast(text.items.len);
-                try text.appendSlice(self.allocator(), hold);
-                try text.append(self.allocator(), ' ');
-            }
-        }
-        self.base.source = text.items;
-        const state: IterRewrite = .{ .loops = loops, .names = names };
-        try self.desugarIn(tree, state);
-        return text.items;
+    /// Rewrite each `for` of `loops` in `tree` into the `while` it means.
+    /// Every other node keeps its position and id.
+    pub fn desugarIterLoops(self: *Parser, tree: Sexp, loops: []const IterLoop) std.mem.Allocator.Error!void {
+        try self.desugarIn(tree, .{ .loops = loops });
     }
 
     fn desugarIn(self: *Parser, node: Sexp, state: IterRewrite) std.mem.Allocator.Error!void {
         if (node != .list) return;
         const items = @constCast(node.items());
-        for (items) |*slot| {
-            slot.* = try self.desugarChild(slot.*, state);
-        }
+        for (items) |*slot| slot.* = try self.desugarChild(slot.*, state);
     }
 
     /// `child` with the loops inside it rewritten, or what replaces it
@@ -2433,9 +2446,7 @@ pub const Parser = struct {
             return child;
         };
         try self.desugarIn(loop, state);
-        const l = state.loops[at];
-        const names = state.names[at];
-        const built = try self.iterWhile(loop, l, names);
+        const built = try self.iterWhile(loop, state.loops[at]);
         if (labeled) {
             const copy = try self.allocator().dupe(Sexp, child.items());
             copy[ir.slot(.labeled, .stmt)] = built.loop;
@@ -2448,24 +2459,22 @@ pub const Parser = struct {
     const IterWhile = struct { loop: Sexp, hold: ?Sexp };
 
     /// `for x in it` as `while (!it).next() as x`; a held source `e` is
-    /// bound first, `__rig_iterN = e` (`<e` moves it), and walked as
-    /// `(!__rig_iterN)`.
-    fn iterWhile(self: *Parser, loop: Sexp, l: IterLoop, names: IterNames) std.mem.Allocator.Error!IterWhile {
+    /// bound first, `h = e` (`h = <e` for a place the loop takes), and
+    /// walked as `(!h)`.
+    fn iterWhile(self: *Parser, loop: Sexp, l: IterLoop) std.mem.Allocator.Error!IterWhile {
         const source = ir.For.source(loop);
         const binding = ir.For.@"var"(loop);
         const at = self.span(source);
-        const hold_len = names.hold_len;
+        const key = self.span(loop).start;
         var hold: ?Sexp = null;
         var receiver = source;
         if (l.source != .place) {
             const value = if (l.source == .moved) try self.base.newNode(.move, &.{source}, at) else source;
-            const decl: Sexp = .{ .src = .{ .pos = names.hold_decl, .len = hold_len, .id = 0 } };
-            hold = try self.base.newNode(.set, &.{ .nil, decl, .nil, value }, at);
-            receiver = .{ .src = .{ .pos = names.hold_use, .len = hold_len, .id = 0 } };
+            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key + 1, .iterator), .nil, value }, at);
+            receiver = hiddenLeaf(key + 2, .iterator);
         }
         const lend = try self.base.newNode(.write, &.{receiver}, at);
-        const next: Sexp = .{ .src = .{ .pos = names.next, .len = 4, .id = 0 } };
-        const member = try self.base.newNode(.member, &.{ lend, next }, at);
+        const member = try self.base.newNode(.member, &.{ lend, hiddenLeaf(key, .next) }, at);
         const call = try self.base.newNode(.call, &.{member}, at);
         const bound = try self.base.newNode(.as, &.{ call, binding }, .{ .start = self.span(binding).start, .end = at.end });
         const out = try self.allocator().alloc(Sexp, 5);

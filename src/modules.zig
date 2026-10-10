@@ -417,7 +417,7 @@ pub const ModuleGraph = struct {
         // them, and no pass sees one once the tree is rewritten and the
         // module checked again (docs/INTERNALS.md, "Loops over an iterator").
         if (m.sema.iter_loops.items.len > 0) {
-            m.source = try m.parser.desugarIterLoops(m.ir, m.sema.iter_loops.items);
+            try m.parser.desugarIterLoops(m.ir, m.sema.iter_loops.items);
             m.sema.deinit();
             m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
             std.debug.assert(m.sema.iter_loops.items.len == 0);

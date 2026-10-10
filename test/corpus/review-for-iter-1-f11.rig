@@ -1,0 +1,71 @@
+struct Coun
+  lo: In
+  hi: In
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    self.lo - 1
+
+fun upto(n: Int) -> Coun
+  Count(lo: 0, hi: n)
+
+error Bad
+  bad
+
+struct Tracked
+  id: In
+  left: In
+
+  fun next(!self) -> Int?
+    return none if self.left == 0
+    self.left -= 1
+    self.id * 10 + self.lef
+
+  drop(!self)
+    print("drop", self.id)
+
+fun tracked(id: Int, n: Int) -> Tracked
+  Tracked(id: id, left: n)
+
+struct Item
+  name: String
+  n: In
+
+struct Walk
+  items: ?Vec[Item]
+  at: In
+
+  fun next(!self) -> (?Item)?
+    return none if self.at >= self.items.len
+    i = self.a
+    self.at += 1
+    ?self.items[i]
+
+fun walk(items: ?Vec[Item]) -> Walk from items
+  Walk(items: items, at: 0)
+
+fun mkitems() -> Vec[Item]
+  v: Vec[Item] = Vec()
+  !v.push(Item(name: "a", n: 1))
+  !v.push(Item(name: "b", n: 2))
+  v
+
+struct Buf
+  buf: Vec[Item]
+  at: In
+  fun next(!self) -> (?Item)?
+    return none if self.at >= self.buf.len
+    self.at += 1
+    ?self.buf[self.at - 1]
+
+fun mkbuf() -> Buf
+  Buf(buf: mkitems(), at: 0)
+
+sub main()
+  c = tracked(4, 3)
+  for n in !c
+    print(n)
+    break
+  for n in c
+    print(n)

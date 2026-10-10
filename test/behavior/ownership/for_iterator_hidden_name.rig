@@ -1,0 +1,36 @@
+# The binding that holds a loop's source has a name no program can write,
+# so a program's own names, `__rig_iter0` and `next` included, are its
+# own: they neither clash with it nor assign it, and loops nested in
+# each other each have theirs.
+# release
+
+struct Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    self.lo - 1
+
+fun upto(n: Int) -> Count
+  Count(lo: 0, hi: n)
+
+sub main()
+  __rig_iter0 = 5
+  next = 7
+  for n in upto(2)
+    __rig_iter1 = upto(100)
+    print(n, __rig_iter0, next, __rig_iter1.hi)
+    for m in upto(2)
+      print(" ", n, m)
+  print(__rig_iter0)
+
+# expect:
+# 0 5 7 100
+#   0 0
+#   0 1
+# 1 5 7 100
+#   1 0
+#   1 1
+# 5
