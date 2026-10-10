@@ -1,0 +1,8 @@
+# A box sigil touches what it boxes, in an expression: `^ 2` could be
+# XOR, so it is rejected rather than read.
+
+sub main()
+  c = ^ 2
+  print(c)
+
+# error: 5:7: a prefix `^` touches its operand: write `^2`

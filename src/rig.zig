@@ -1046,7 +1046,7 @@ pub const Lexer = struct {
                     depth -= 1;
                 },
                 .comma, .bar => if (depth == 0) return t,
-                .ident, .integer, .dot, .question, .not_sym, .star, .tilde, .arrow => {},
+                .ident, .integer, .dot, .question, .not_sym, .star, .tilde, .caret, .arrow => {},
                 // Arithmetic in an array size: `[N + 1]Int`.
                 .plus, .minus, .slash, .percent => if (depth == 0) return null,
                 else => return null,
@@ -1200,7 +1200,7 @@ fn isValue(cat: TokenCat) bool {
 /// The characters that start an operand as a prefix sigil.
 fn isSigil(cat: TokenCat) bool {
     return switch (cat) {
-        .minus, .lt, .plus, .star, .question, .not_sym, .tilde => true,
+        .minus, .lt, .plus, .star, .question, .not_sym, .tilde, .caret => true,
         else => false,
     };
 }
@@ -1905,7 +1905,7 @@ pub const Parser = struct {
         } else return null;
         if (!endsWithWord(src[0..open], "sub") and !endsWithWord(src[0..open], "fun")) return null;
         var start = open - 3;
-        while (start > 0 and (src[start - 1] == '*' or src[start - 1] == '~')) start -= 1;
+        while (start > 0 and (src[start - 1] == '*' or src[start - 1] == '~' or src[start - 1] == '^')) start -= 1;
         return self.format("a function type takes no suffix; write `({s}){c}`", .{ src[start..tok.pos], src[tok.pos] });
     }
 
@@ -2011,12 +2011,12 @@ pub const Parser = struct {
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
             .@"??" => return self.nearestFallback(out),
             .read, .write, .move => return self.receiverSigil(out),
-            .share => try self.noteParenSuffix(out),
+            .share, .box => try self.noteParenSuffix(out),
             .weak => {
                 self.touchesOperand(out);
                 try self.noteParenSuffix(out);
             },
-            .read_view, .write_view, .shared => self.touchesOperand(out),
+            .read_view, .write_view, .shared, .boxed => self.touchesOperand(out),
             // The body's value is returned.
             .fun => {
                 try self.paramList(out);
@@ -2160,13 +2160,13 @@ pub const Parser = struct {
         while (true) {
             const at = self.afterSigil(e);
             var op = ir.get(e, .operand);
-            if (op.isKind(.share) or op.isKind(.weak)) {
+            if (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) {
                 if (self.span(op).start == at) {
                     e = op;
                     continue;
                 }
                 // `*(~T?)`: a parenthesized handle with a suffix of its own.
-                while (op.isKind(.share) or op.isKind(.weak)) op = ir.get(op, .operand);
+                while (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) op = ir.get(op, .operand);
                 if (op.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
                 return;
             }

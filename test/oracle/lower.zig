@@ -1805,10 +1805,12 @@ const Lowerer = struct {
                 .take => return abstain("a stack closure stored"),
                 .read, .view => return try self.closure(e, false),
             },
-            .share => {
-                // `*<x` moves `x` into a counted box and `*S(...)` boxes a
-                // new value: the box takes it, with its loans (Core s8, s9).
-                // An owned closure's environment is the box (Core §7).
+            .share, .box => {
+                // `*<x` moves `x` into a counted handle and `*S(...)` makes
+                // a new value there; `^<x` and `^S(...)` do so in a box of
+                // one owner: the holder takes it, with its loans (Core s8,
+                // s9). An owned closure's environment is the counted
+                // handle (Core §7).
                 const operand = ir.get(e, .operand);
                 const v = if (operand.isKind(.lambda)) try self.closure(operand, true) else try self.eval(operand, .take, null);
                 const t = try self.temp(try self.typeOf(e), pos);

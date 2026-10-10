@@ -3906,6 +3906,7 @@ pub const Emitter = struct {
                 if (tail and self.ptr_tail) try self.emitValue(operand, true) else try self.emitMoved(operand);
             },
             .share => try self.emitShare(sexp),
+            .box => try self.emitBox(sexp),
             .clone => {
                 // `+b` of a viewed handle clones the handle it views.
                 const operand = ir.Clone.operand(sexp);
@@ -4963,7 +4964,7 @@ pub const Emitter = struct {
     }
 
     /// How a value of type `ty` (viewed or not) reaches the Text it
-    /// views: directly, or through a `Box[Text]`; null for anything else.
+    /// views: directly, or through a `^Text`; null for anything else.
     fn textReach(self: *Emitter, ty: TypeId) ?[]const u8 {
         var t = self.peelViews(ty);
         var reach: []const u8 = "";
@@ -5097,7 +5098,6 @@ pub const Emitter = struct {
             if (self.facts.types.get(t) == .parameterized_nominal) {
                 const g = self.facts.types.get(t).parameterized_nominal.sym;
                 if (g == self.facts.vec_sym_id) return self.emitVecConstruction(sexp);
-                if (g == self.facts.box_sym_id) return self.emitBoxConstruction(sexp);
                 if (g == self.facts.signal_sym_id) {
                     try self.emitTypeTy(t);
                     return self.emitSignalConstruction(sexp);
@@ -5118,7 +5118,6 @@ pub const Emitter = struct {
             if (self.facts.symbolOf(callee)) |sym_id| {
                 if (sym_id == self.facts.vec_sym_id) return self.emitVecConstruction(sexp);
                 if (sym_id == self.facts.signal_sym_id) return self.emitSignalConstruction(sexp);
-                if (sym_id == self.facts.box_sym_id) return self.emitBoxConstruction(sexp);
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
         }
@@ -5761,13 +5760,11 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// `Box(v)`: `v` moved into a new heap allocation.
-    fn emitBoxConstruction(self: *Emitter, call: Sexp) Error!void {
-        const args = ir.Call.args(call);
-        if (args.len != 1) return self.unsupported(call, "this Box construction");
-        try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped Box construction"));
+    /// `^v`: `v` moved into a new heap allocation.
+    fn emitBox(self: *Emitter, sexp: Sexp) Error!void {
+        try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped box"));
         try self.w.writeAll(".init(");
-        try self.emitStored(argValue(args[0]));
+        try self.emitStored(ir.Box.operand(sexp));
         try self.w.writeAll(")");
     }
 
@@ -6261,7 +6258,8 @@ pub const Emitter = struct {
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.facts.symbols.items[sym];
         if (self.facts.isBuiltinGeneric(sym) or sym == self.facts.endian_sym_id) {
-            return self.w.print("rig.{s}", .{s.name});
+            // The runtime's `Box(T)` is `^T`.
+            return self.w.print("rig.{s}", .{if (sym == self.facts.box_sym_id) "Box" else s.name});
         }
         if (facts.syntax.isProxy(s)) {
             const foreign = self.facts.foreign(s.from.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
@@ -6749,7 +6747,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
                 },
-                .share, .clone, .weak, .move, .read, .write, .lambda, .propagate, .propagate_none, .@"catch" => return false,
+                .share, .box, .clone, .weak, .move, .read, .write, .lambda, .propagate, .propagate_none, .@"catch" => return false,
                 else => {
                     for (rig.children(e)) |c| {
                         if (c == .tag or c == .nil) continue;

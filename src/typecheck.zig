@@ -3610,6 +3610,7 @@ const Checker = struct {
     /// language's spelling of a Rig one, or a visible name it is a typo
     /// of.
     fn unboundHint(self: *Checker, leaf: Sexp, name: []const u8) Error![]const u8 {
+        if (sema.retiredNameHint(name)) |hint| return hint;
         const Other = struct { []const u8, []const u8 };
         const others = [_]Other{
             .{ "null", "; Rig's absent value is `none`" },
@@ -3676,6 +3677,7 @@ const Checker = struct {
             .write => self.synthLend(e, .write),
             .move => self.synthMove(e),
             .share => self.synthShare(e),
+            .box => self.synthBox(e, null),
             .weak => self.synthWeak(e),
             .clone => self.synthClone(e),
             .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric, null),
@@ -4912,6 +4914,10 @@ const Checker = struct {
             try self.errAt(operand, "this value is already a shared handle `{s}`; `*` would nest handles. Clone it with `+x` for another handle", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
+        if (sema.heapStacked(self.ctx, .shared, inner)) {
+            try self.errAt(operand, "this value is already `{s}`; `*` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
         switch (self.ctx.types.get(inner)) {
             .read_view, .write_view => {
                 try self.errAt(operand, "a handle holds a value, not a view; `{s}` is a view: share an owned value instead", .{try self.tyName(inner)});
@@ -4949,6 +4955,53 @@ const Checker = struct {
         const e = expected orelse return self.synthExpr(operand);
         try self.checkExpr(operand, e);
         return e;
+    }
+
+    /// `^x`: `x` moved into a new box, checked against the box's value
+    /// type when `target` is a box.
+    /// The type `sigil` over `inner` would be, as a diagnostic spells it.
+    fn stackedSpelling(self: *Checker, sigil: u8, inner: TypeId) Error![]const u8 {
+        return self.ctx.arena.allocator().print("{c}{s}", .{ sigil, try self.tyName(inner) });
+    }
+
+    fn synthBox(self: *Checker, e: Sexp, target: ?TypeId) Error!TypeId {
+        const operand = ir.Box.operand(e);
+        if (try self.boxOfNone(e, target)) return self.t().invalid_id;
+        if (operand.isKind(.lambda)) {
+            try self.errAt(e, "`^` boxes a value, not a closure: an owned closure is `*|...| body`", .{});
+            return self.t().invalid_id;
+        }
+        const want = if (target) |tt| sema.boxedType(self.ctx, tt) else null;
+        const ty = if (want) |w| blk: {
+            try self.checkExpr(operand, w);
+            break :blk w;
+        } else try self.synthExpr(operand);
+        if (ty == self.t().int_literal_id) try self.defaultIntLiteral(operand);
+        const inner = self.canonical(ty);
+        if (self.isPoison(inner)) return inner;
+        if (self.ctx.types.get(inner) == .function) {
+            try self.errAt(operand, sema.boxed_function, .{});
+            return self.t().invalid_id;
+        }
+        if (sema.heapStacked(self.ctx, .box, inner)) {
+            try self.errAt(operand, "this value is already `{s}`; `^` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
+        var r = self.resolver();
+        return r.boxOf(inner, self.startOf(e));
+    }
+
+    /// `^none` where no box of an optional is expected (`target`, a
+    /// `^(T?)`, holds `none`) makes a box of nothing, which is
+    /// rejected (reported): an optional box with no value is `none`
+    /// itself.
+    fn boxOfNone(self: *Checker, e: Sexp, target: ?TypeId) Error!bool {
+        const operand = ir.Box.operand(e);
+        if (operand != .src or !std.mem.eql(u8, self.text(operand), "none")) return false;
+        if (self.under_poison) return false;
+        if (target) |want| if (sema.boxedType(self.ctx, want)) |inner| if (self.ctx.types.get(inner) == .optional) return false;
+        try self.errAt(e, "`^none` makes a box of nothing; write `none` where a `^T?` is expected", .{});
+        return true;
     }
 
     fn synthWeak(self: *Checker, e: Sexp) Error!TypeId {
@@ -5708,13 +5761,28 @@ const Checker = struct {
             .src => if (!isLiteralText(self.text(e))) return r.resolveType(e),
             .list => switch (e.kind() orelse return self.t().invalid_id) {
                 .member => if (ir.Member.object(e) == .src) return r.resolveType(e),
+                .box => {
+                    if (try self.optionalHandleArg(e)) |ty| return ty;
+                    const inner_node = ir.Box.operand(e);
+                    const inner = try self.typeArg(inner_node);
+                    if (self.isPoison(inner)) return inner;
+                    if (self.ctx.types.get(inner) == .function) {
+                        try self.errAt(e, sema.boxed_function, .{});
+                        return self.t().invalid_id;
+                    }
+                    if (sema.heapStacked(self.ctx, .box, inner)) {
+                        try self.errAt(e, sema.heap_stacked, .{try self.stackedSpelling('^', inner)});
+                        return self.t().invalid_id;
+                    }
+                    return r.boxOf(inner, self.startOf(e));
+                },
                 .share, .weak, .read, .write, .propagate_none => {
                     if (e.isKind(.share) or e.isKind(.weak)) if (try self.optionalHandleArg(e)) |ty| return ty;
                     const inner_node = ir.get(e, if (e.isKind(.propagate_none)) .value else .operand);
                     const inner = try self.typeArg(inner_node);
                     if (self.isPoison(inner)) return inner;
-                    if (e.isKind(.share) and self.ctx.types.get(inner) == .shared) {
-                        try self.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                    if (e.isKind(.share) and sema.heapStacked(self.ctx, .shared, inner)) {
+                        try self.errAt(e, sema.heap_stacked, .{try self.stackedSpelling('*', inner)});
                         return self.t().invalid_id;
                     }
                     if ((e.isKind(.share) or e.isKind(.weak)) and sema.isReadOrWriteView(self.ctx, inner)) {
@@ -5759,7 +5827,7 @@ const Checker = struct {
     fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
         var handles: std.ArrayList(Sexp) = .empty;
         var op = e;
-        while (op.isKind(.share) or op.isKind(.weak)) : (op = ir.get(op, .operand)) try handles.append(self.ctx.arena.allocator(), op);
+        while (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) : (op = ir.get(op, .operand)) try handles.append(self.ctx.arena.allocator(), op);
         if (!op.isKind(.propagate_none) and !op.isKind(.propagate)) return null;
         if (self.ctx.parser) |p| if (p.hasParenSuffix(e)) {
             try self.errAt(e, "a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead", .{});
@@ -5781,11 +5849,18 @@ const Checker = struct {
             i -= 1;
             if (self.isPoison(ty)) return ty;
             const h = handles.items[i];
-            if (h.isKind(.share) and self.ctx.types.get(ty) == .shared) {
-                try self.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+            if (h.isKind(.share) and sema.heapStacked(self.ctx, .shared, ty)) {
+                try self.errAt(h, sema.heap_stacked, .{try self.stackedSpelling('*', ty)});
                 return self.t().invalid_id;
             }
-            ty = try self.ctx.intern(if (h.isKind(.share)) .{ .shared = ty } else .{ .weak = ty });
+            if (h.isKind(.box) and sema.heapStacked(self.ctx, .box, ty)) {
+                try self.errAt(h, sema.heap_stacked, .{try self.stackedSpelling('^', ty)});
+                return self.t().invalid_id;
+            }
+            if (h.isKind(.box)) {
+                var r = self.resolver();
+                ty = try r.boxOf(ty, self.startOf(h));
+            } else ty = try self.ctx.intern(if (h.isKind(.share)) .{ .shared = ty } else .{ .weak = ty });
             inner_node = h;
         }
         while (count > 0) : (count -= 1) ty = try self.ctx.intern(.{ .optional = ty });
@@ -6037,7 +6112,7 @@ const Checker = struct {
     ///   write view of one, which may add to the Text or replace it:
     ///   lent;
     /// - the bytes of a Text through a read view (`?Text`, `?*Text`,
-    ///   `?Box[Text]`), which cannot change while that view's loan
+    ///   `?^Text`), which cannot change while that view's loan
     ///   lives, and the slice carries it: not lent, a String of its own;
     /// - what a String or a `[]T` views, which writing the String or the
     ///   `[]T` itself does not free: not lent.
@@ -6285,6 +6360,7 @@ const Checker = struct {
         if (self.isPoison(ty)) return self.skipCall(args);
         if (sema.isNumeric(self.ctx, ty)) return self.checkConversion(ty, name, args, pos);
         if (ty == self.t().text_id) return self.checkTextNew(call, args);
+        if (sema.boxedType(self.ctx, ty) != null) return self.badCall(args, callee, "`{s}` is a type alias for `{s}`; a box is made with `^`: write `^value`", .{ name, try self.tyName(ty) });
         const nt = self.aliasNamedType(ty) orelse return self.badCall(args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
         if (nt.foreign) |fo| return self.construct(nt.id, args, pos, TypeSubst.empty, fo);
         if (nt.args) |targs| {
@@ -7046,7 +7122,12 @@ const Checker = struct {
         const own_args = try a.alloc(TypeId, own.items.len);
         for (own_slots.items, own_args) |i, *arg| arg.* = type_args[i];
         const generic = try self.ctx.internCopy(.{ .function = f });
-        const result = self.ctx.types.get(try sema.substituteType(self.ctx, generic, .{ .params = own.items, .args = own_args })).function;
+        const instance = try sema.substituteType(self.ctx, generic, .{ .params = own.items, .args = own_args });
+        if (instance != generic) if (sema.findHeapStacked(self.ctx, instance)) |found| {
+            try self.err(pos, "`{s}` at these types has `{s}` in its signature, which stacks one heap holding on another; " ++ sema.heap_stacked_rule, .{ callee, try self.tyName(found) });
+            return null;
+        };
+        const result = self.ctx.types.get(instance).function;
         try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
         if (self.tentative == 0) _ = try self.ctx.recordFnInstance(.{
             .name = callee,
@@ -7916,7 +7997,7 @@ const Checker = struct {
 
     /// Keyword arguments against named fields: each names a real field
     /// once, and every field without a default is given. A type or
-    /// variant with one field also takes it positionally: `Box(x)`,
+    /// variant with one field also takes it positionally: `Wrap(x)`,
     /// `.some(7)`.
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
@@ -7925,7 +8006,7 @@ const Checker = struct {
         self.slot = try self.fieldSlot(info, args, fields);
         const saved_home = self.cell_home;
         defer self.cell_home = saved_home;
-        // A built-in generic's value (a Vec's, Box's, or Cell's) is no
+        // A built-in generic's value (a Vec's, box's, or Cell's) is no
         // field a Cell may be made in.
         const homes = switch (self.ctx.types.get(info.instance)) {
             .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, pn.sym),
@@ -9497,6 +9578,11 @@ const Checker = struct {
                 if (tt != .shared) return null;
                 _ = try self.shareOperand(operand, tt.shared);
                 return target;
+            },
+            .box => {
+                if (sema.boxedType(self.ctx, target) == null) return null;
+                const ty = try self.synthBox(e, target);
+                return if (self.isPoison(ty)) ty else target;
             },
             .array => return self.checkArray(e, target),
             .array_fill => return if (self.ctx.types.get(target) == .array) try self.checkArrayFill(e, target) else null,

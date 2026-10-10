@@ -531,10 +531,10 @@ pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
 }
 
 // -----------------------------------------------------------------------------
-// Box
+// Box (`^T`)
 // -----------------------------------------------------------------------------
 
-/// `Box[T]`: one `T` on the heap, owned by the box. The box is a pointer
+/// `^T`: one `T` on the heap, owned by the box. The box is a pointer
 /// that moves, never copies; dropping it drops the value and frees its
 /// memory. Deep chains of boxes are released through `drop_queue`, as
 /// shared handles are.
@@ -2040,7 +2040,7 @@ var print_depth: u32 = 0;
 /// inside other values, a float with a decimal point, `none` for an
 /// absent optional, `Name(field: v)` for a struct, `.variant` /
 /// `.variant(field: v)` for an enum, and `[a, b]` for arrays and Vecs. A
-/// shared handle or a Box prints its value, a function `<fun>`.
+/// shared handle or a box prints its value, a function `<fun>`.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     if (comptime isString(T)) {

@@ -3,7 +3,7 @@
 //! `check` runs these steps over the normalized IR and returns
 //! a `SemContext`, which every later pass (ownership, emit) reads:
 //!
-//!   1. builtins     `resolve.zig`    Cell, Vec, Box, Signal, Endian
+//!   1. builtins     `resolve.zig`    Cell, Vec, ^T, Signal, Endian
 //!   2. symbols      `resolve.zig`    every declaration gets a Symbol in a
 //!                                    Scope; scopes are keyed by the IR node
 //!                                    that opens them
@@ -595,7 +595,7 @@ test "suggest: a typo finds its name" {
     for ([_][]const u8{ "total", "tot", "table", "x" }) |c| s.offer(c);
     try std.testing.expectEqualStrings("total", s.best.?);
     var t: Suggest = .{ .name = "Foo" };
-    for ([_][]const u8{ "Box", "Vec" }) |c| t.offer(c);
+    for ([_][]const u8{ "Cell", "Vec" }) |c| t.offer(c);
     try std.testing.expect(t.best == null);
     var u: Suggest = .{ .name = "xs" };
     for ([_][]const u8{ "x", "ys", "sx" }) |c| u.offer(c);
@@ -2677,6 +2677,9 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
                     }
                     continue;
                 }
+                if (try instanceHeapStacked(ctx, concrete)) |found| {
+                    try ctx.err(item.site, "`{s}` holds `{s}`, which stacks one heap holding on another; " ++ heap_stacked_rule, .{ try formatType(ctx, concrete), try formatType(ctx, found) });
+                }
             }
             try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root });
         }
@@ -2887,7 +2890,7 @@ pub const Views = packed struct(u4) {
     write: bool = false,
     string: bool = false,
     /// Reaches a Text, which a String may view: by value, through a
-    /// handle, a Vec's, Box's, Cell's, or Signal's value, or a view.
+    /// handle, a Vec's, box's, Cell's, or Signal's value, or a view.
     text: bool = false,
 };
 
@@ -2960,7 +2963,7 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
         }
     }
     // The built-in generics are runtime types: a Vec owns its buffer and
-    // a Box its value's memory, and none of them is copied like plain data.
+    // a box its value's memory, and none of them is copied like plain data.
     // A Signal owns its subscribers too, but has no glue of its own: it
     // lives only behind a `*` handle (typecheck rejects one held by
     // value), whose release drops it.
@@ -3110,7 +3113,7 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
 }
 
 /// What a value of `ty` holds (`Reach`), as far as `mask` lets it
-/// reach: through a handle, or a Vec's or a Box's heap memory, only a
+/// reach: through a handle, or a Vec's or a box's heap memory, only a
 /// view does, and a Cell's or Signal's value holds nothing that
 /// matters here. What a declared type `ty` names holds is read from its
 /// contents; while they are computed (`computeReach`), an edge from it
@@ -3217,7 +3220,7 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// algorithm, with an explicit stack, so a long chain of types does not
 /// nest the search). Before what each type holds is known
 /// (`every_arg`), a generic instance counts as holding all its
-/// arguments, and a Vec or a Box its element.
+/// arguments, and a Vec or a box its element.
 const Components = struct {
     ctx: *const SemContext,
     every_arg: bool,
@@ -3336,14 +3339,14 @@ pub fn isBuiltinCallName(name: []const u8) bool {
 }
 
 /// A built-in generic that keeps its values on the heap: a `Vec[T]` and
-/// a `Box[T]` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
+/// a `^T` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
 /// `T` inline, and a `Signal[T]` its value and a pending one.)
 fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
     return sym == ctx.vec_sym_id or sym == ctx.box_sym_id;
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
-/// a view, or a Vec's or a Box's heap memory), appended to `out`; with
+/// a view, or a Vec's or a box's heap memory), appended to `out`; with
 /// `every_arg`, those of every argument of a generic instance as well.
 fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), every_arg: bool) std.mem.Allocator.Error!void {
     switch (ctx.types.get(ty)) {
@@ -3451,7 +3454,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const declared = foreign.types.find(.{ .nominal = in.sym_id }) orelse break :blk null;
             break :blk foreign.byte_sizes.get(declared) orelse null;
         },
-        // A Vec is its buffer's slice and length, a Box its pointer. A
+        // A Vec is its buffer's slice and length, a box its pointer. A
         // Cell is its value (its one field), a Signal its value, a pending
         // one, a flag, and a Vec of subscribers.
         .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id)
@@ -3584,7 +3587,7 @@ pub fn ctInt(ctx: *SemContext, v: Wide) std.mem.Allocator.Error!TypeId {
 }
 
 /// Does a value of this type need its destructor run: a `*T` / `~T`
-/// handle, a Vec, a Box, an owned closure, or a nominal or generic instance
+/// handle, a Vec, a box, an owned closure, or a nominal or generic instance
 /// that declares `drop` or holds such a value. Types with drop glue are
 /// non-Copy.
 pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
@@ -3654,6 +3657,79 @@ pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
         else => {},
     }
     return false;
+}
+
+/// The hint for a name that earlier releases gave a built-in type: what
+/// it is written now. Null for any other name.
+pub fn retiredNameHint(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression (`Box[T]` and `Box(value)` before 0.3.0)";
+    return null;
+}
+
+/// A holding sigil that puts a value on the heap: `^` or `*`.
+pub const HeapHolder = enum { box, shared };
+
+/// Whether `holder` over `inner` holds a value that is already held on
+/// the heap: `^^T`, `^*T`, `^~T`, `*^T`, and `**T`. A value is held one
+/// way on the heap, so a second sigil is a typo.
+pub fn heapStacked(ctx: *const SemContext, holder: HeapHolder, inner: TypeId) bool {
+    if (boxedType(ctx, inner) != null) return true;
+    return switch (ctx.types.get(inner)) {
+        .shared => true,
+        .weak => holder == .box,
+        else => false,
+    };
+}
+
+/// Why a holding sigil over a held value is rejected.
+pub const heap_stacked_rule = "a value is held one way on the heap, as `^T` (one owner), `*T` (counted), or `~T` (weak)";
+
+/// The diagnostic for a holding sigil over a held value, given the type
+/// it would make.
+pub const heap_stacked = "`{s}` stacks one heap holding on another; " ++ heap_stacked_rule;
+
+/// The diagnostic for a box of a function value.
+pub const boxed_function = "`^` boxes a value; a function has no box (`^fun` is reserved), so pass the function, or own a closure with `*|...| body`";
+
+/// The first type among `ty` and the types it is made of that stacks
+/// two holdings (`heapStacked`), or null.
+pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    switch (ctx.types.get(ty)) {
+        .shared => |inner| return if (heapStacked(ctx, .shared, inner)) ty else findHeapStacked(ctx, inner),
+        .weak, .read_view, .write_view, .optional, .fallible, .range, .callable => |inner| return findHeapStacked(ctx, inner),
+        .slice => |s| return findHeapStacked(ctx, s.elem),
+        .array => |a| return findHeapStacked(ctx, a.elem),
+        .function => |f| {
+            for (f.params) |p| if (findHeapStacked(ctx, p)) |found| return found;
+            return findHeapStacked(ctx, f.returns);
+        },
+        .parameterized_nominal => |pn| {
+            if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, .box, pn.args[0])) return ty;
+            for (pn.args) |a| if (findHeapStacked(ctx, a)) |found| return found;
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// The first stacked holding (`findHeapStacked`) among the fields and
+/// methods of generic type `inst`, an instance of a type the program
+/// declares, with its type arguments substituted; null for none.
+pub fn instanceHeapStacked(ctx: *SemContext, inst: TypeId) std.mem.Allocator.Error!?TypeId {
+    const pn = switch (ctx.types.get(inst)) {
+        .parameterized_nominal => |pn| pn,
+        else => return null,
+    };
+    const sym = ctx.symbols.items[pn.sym];
+    if (sym.decl_pos == builtin_decl_pos) return null;
+    const subst: TypeSubst = .{ .params = sym.type_params orelse return null, .args = pn.args };
+    for (sym.fields orelse &.{}) |f| {
+        if (f.ty != type_invalid) if (findHeapStacked(ctx, try substituteType(ctx, f.ty, subst))) |found| return found;
+        for (f.payload orelse &.{}) |pf| {
+            if (pf.ty != type_invalid) if (findHeapStacked(ctx, try substituteType(ctx, pf.ty, subst))) |found| return found;
+        }
+    }
+    return null;
 }
 
 /// The diagnostic for a callable view held inside another value.
@@ -4064,7 +4140,7 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     }
 }
 
-/// The struct or enum a `Box[T]` (or a view or handle of one) holds,
+/// The struct or enum a `^T` (or a view or handle of one) holds,
 /// through any number of boxes, whose fields and methods are reached
 /// through them; null for anything else.
 pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
@@ -4078,7 +4154,7 @@ pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
-/// `T` of a `Box[T]`; null for any other type.
+/// `T` of a `^T`; null for any other type.
 pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     return switch (ctx.types.get(ty_id)) {
         .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1) pn.args[0] else null,
@@ -4086,7 +4162,7 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
-/// One of the built-in generic types: `Cell`, `Vec`, `Box`, `Signal`.
+/// One of the built-in generic types: `Cell`, `Vec`, `^T`, `Signal`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
     return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id;
 }
@@ -4101,8 +4177,9 @@ pub fn unwrapAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
 }
 
 /// Whether member access on a `ty_id` reaches its value through a shared
-/// handle (`unwrapAccess`): `*S`, `*Box[S]`, `Box[*S]`, or a view of
-/// one. Nothing is written there, since other handles may exist.
+/// handle (`unwrapAccess`): `*S`, or a view of one, through any boxes a
+/// generic instance puts around it. Nothing is written there, since
+/// other handles may exist.
 pub fn accessThroughShared(ctx: *const SemContext, ty_id: TypeId) bool {
     var id = ty_id;
     while (true) switch (ctx.types.get(id)) {
@@ -4620,7 +4697,7 @@ const ViewNode = struct {
 const elem_view: u64 = 1 << 62;
 
 /// The types a value of `node` holds by value (fields, payloads, an
-/// optional's, array's, Vec's, Box's, Cell's or Signal's contents, a
+/// optional's, array's, Vec's, box's, Cell's or Signal's contents, a
 /// handle's), each passed to `f.visit`. A generic instance holds its
 /// arguments, and its declared fields in the generic context.
 fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
@@ -4960,7 +5037,7 @@ pub const Answer = enum { no, yes, depends };
 
 /// Whether dropping a value of `ty` may run a user `drop` body: one of
 /// its own, or of a value it holds and drops (a field, payload, element,
-/// optional, array, Box's or counted handle's contents), never one a weak
+/// optional, array, box's or counted handle's contents), never one a weak
 /// handle or a view reaches. A `drop` body may read what the value views;
 /// any other drop only releases memory, which uses no view (Core sentence
 /// 6). `depends` for a value holding a type parameter, whose instances
@@ -5007,7 +5084,7 @@ fn fieldsRunDropBody(ctx: *const SemContext, sid: SymbolId, path: []const Symbol
 }
 
 /// Whether `ty` is unique: declared `unique`, or a `Cell`, or holds one
-/// of those inline (not behind a handle, a view, or a Vec's or Box's
+/// of those inline (not behind a handle, a view, or a Vec's or box's
 /// heap memory). A copy of a Cell would fork the state it shares.
 pub fn isUnique(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
@@ -5202,7 +5279,7 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
 /// to `out`: through every type constructor that holds its arguments
 /// (an optional, a fallible, an array or slice element, a view, a
 /// shared or weak handle, and each argument of a generic instance:
-/// `Vec`, `Box`, `Cell`, a user generic). A parameter in a value's
+/// `Vec`, `^T`, `Cell`, a user generic). A parameter in a value's
 /// `Vec[T]` or `*Hold[T]` is reached though not held by value
 /// (`heldTypeVars`): where the loans a value carries matter, this is the
 /// walk.
@@ -5672,7 +5749,10 @@ const TypePrinter = struct {
             .imported_nominal => |in| try p.foreign(in.module_id, in.sym_id),
             // Another module's generic type is its proxy, named as this
             // module spells it (`importSymbol`).
-            .parameterized_nominal => |pn| try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
+            .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
+                try p.handle(pn.args[0], '^')
+            else
+                try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),
             .ct_value => |v| try a.print("{d}", .{v.int}),
         };
@@ -5750,6 +5830,7 @@ fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .read_view, .write_view, .function, .slice, .array => true,
         .shared, .weak => |inner| takesNoSuffix(ctx, inner),
+        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and takesNoSuffix(ctx, pn.args[0]),
         else => false,
     };
 }
@@ -5837,7 +5918,7 @@ pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@T
 /// One row of the lend table (Core §4): a step from a value to a view of
 /// it, or of what it holds.
 pub const LendStep = enum(u8) {
-    /// A `Box[T]` lends the views of its `T`.
+    /// A `^T` lends the views of its `T`.
     unbox,
     /// A `*T` lends the read views of its `T`.
     handle,
@@ -6411,7 +6492,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
         .@"return", .@"break", .@"continue" => .jump,
         .read, .write => .lend,
         .member, .index => .path,
@@ -6419,7 +6500,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // A loop, labeled or not, is a value when a `break` leaves it
         // with one.
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
-        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .weak => .made,
+        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .box, .weak => .made,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
@@ -7942,6 +8023,51 @@ test "type facts: moves, copies, cloneable" {
     try std.testing.expect(!readsAsValue(ctx, p));
     try std.testing.expect(lendByValue(ctx, ty.int_id));
     try std.testing.expect(!lendByValue(ctx, vec_int));
+}
+
+test "heap holdings: a box prints as ^T, and a holding over a held value is stacked" {
+    var r = try factsRun(
+        \\struct P
+        \\  x: Int
+        \\
+    );
+    defer r.deinit();
+    const ctx = &r.ctx;
+    const ty = &ctx.types;
+    const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
+    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
+    const opt_p = try ctx.intern(.{ .optional = p });
+    const box_opt = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{opt_p} } });
+    const opt_box = try ctx.intern(.{ .optional = box_p });
+    const read_box = try ctx.intern(.{ .read_view = box_p });
+    const shared_p = try ctx.intern(.{ .shared = p });
+    const weak_p = try ctx.intern(.{ .weak = p });
+    const box_box = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
+    const spelled = struct {
+        fn f(c: *SemContext, t: TypeId) ![]const u8 {
+            return formatType(c, t);
+        }
+    }.f;
+    try std.testing.expectEqualStrings("^P", try spelled(ctx, box_p));
+    try std.testing.expectEqualStrings("^(P?)", try spelled(ctx, box_opt));
+    try std.testing.expectEqualStrings("^P?", try spelled(ctx, opt_box));
+    try std.testing.expectEqualStrings("?^P", try spelled(ctx, read_box));
+    try std.testing.expectEqualStrings("^^P", try spelled(ctx, box_box));
+    // A box holds a value held no other way on the heap.
+    try std.testing.expect(!heapStacked(ctx, .box, p));
+    try std.testing.expect(!heapStacked(ctx, .box, opt_p));
+    try std.testing.expect(!heapStacked(ctx, .box, ty.int_id));
+    try std.testing.expect(heapStacked(ctx, .box, box_p));
+    try std.testing.expect(heapStacked(ctx, .box, shared_p));
+    try std.testing.expect(heapStacked(ctx, .box, weak_p));
+    try std.testing.expect(heapStacked(ctx, .shared, box_p));
+    try std.testing.expect(heapStacked(ctx, .shared, shared_p));
+    try std.testing.expect(!heapStacked(ctx, .shared, weak_p));
+    // A stacked type is found inside the types made of it.
+    try std.testing.expectEqual(@as(?TypeId, null), findHeapStacked(ctx, opt_box));
+    try std.testing.expectEqual(@as(?TypeId, box_box), findHeapStacked(ctx, box_box));
+    const slice = try ctx.intern(.{ .slice = .{ .elem = box_box } });
+    try std.testing.expectEqual(@as(?TypeId, box_box), findHeapStacked(ctx, slice));
 }
 
 test "lend table: each row makes its view" {

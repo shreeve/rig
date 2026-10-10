@@ -1,0 +1,18 @@
+# Stacking arrives through a generic as it does in a written type: a
+# generic type's instance whose field would stack two holdings, and a
+# generic function whose signature would, are rejected where they are
+# made.
+
+struct Wrap[T]
+  inner: *T
+
+fun boxed[T](x: T) -> ^T
+  ^<x
+
+sub main()
+  w: Wrap[*Int]? = none
+  b = boxed(^3)
+  print(b)
+
+# error: 13:6: `Wrap[*Int]` holds `**Int`, which stacks one heap holding on another
+# error: 14:7: `boxed` at these types has `^^Int` in its signature

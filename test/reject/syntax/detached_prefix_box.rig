@@ -1,0 +1,8 @@
+# A box sigil touches what it boxes, in a type: `^ Int` could be XOR,
+# so it is rejected rather than read.
+
+sub main()
+  b: ^ Int = ^1
+  print(b)
+
+# error: 5:6: a prefix `^` touches its operand: write `^Int`

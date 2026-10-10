@@ -408,6 +408,7 @@ const Sink = enum {
     field,
     element,
     allocation,
+    box,
     ret,
     brk,
 
@@ -418,6 +419,7 @@ const Sink = enum {
             .field => "field assignment",
             .element => "array element",
             .allocation => "shared allocation",
+            .box => "box",
             .ret => "return value",
             .brk => "`break` value",
         };
@@ -1953,6 +1955,7 @@ pub const Checker = struct {
                     self.walkLend(ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write),
                 .clone, .weak => self.walkCloneWeak(sexp),
                 .share => self.walkShare(sexp),
+                .box => self.walkConsumed(ir.Box.operand(sexp), .box),
                 .lambda => self.walkLambda(sexp, false),
                 .@"if" => self.walkIf(sexp),
                 .@"while" => self.walkWhile(sexp),
@@ -3280,7 +3283,8 @@ pub const Checker = struct {
                 .argument => "into an argument",
                 .field => "into a field",
                 .element => "into an array",
-                .allocation => "into a shared box",
+                .allocation => "into a counted handle",
+                .box => "into a box",
                 .ret => "out by `return`",
                 .brk => "out by `break`",
             };
@@ -5871,7 +5875,7 @@ pub const Checker = struct {
                 .member => return self.arena().print("{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
                 .index => return self.arena().print("{s}[{s}]", .{ try self.placeText(ir.Index.object(e)), self.spanText(ir.Index.index(e)) }),
                 // A sigil: the place it wraps.
-                .read, .write, .move, .clone, .share, .weak => return self.placeText(ir.get(e, .operand)),
+                .read, .write, .move, .clone, .share, .box, .weak => return self.placeText(ir.get(e, .operand)),
                 // Any other value (`mk()`): as written.
                 else => return self.spanText(e),
             },

@@ -1,0 +1,14 @@
+# A value already held on the heap is not put there again: `^<b` of a
+# box, `^<h` of a counted handle, and `*<c` of a box.
+
+sub main()
+  b = ^1
+  h = *2
+  c = ^3
+  twice = ^<b
+  again = ^<h
+  counted = *<c
+
+# error: 8:12: this value is already `^Int`; `^` would hold it twice
+# error: 9:12: this value is already `*Int`; `^` would hold it twice
+# error: 10:14: this value is already `^Int`; `*` would hold it twice
