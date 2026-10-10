@@ -1,8 +1,8 @@
 # A guarded match in a generic body reads its subject in place, so its
 # catch-all binding is the subject's own (`storage.catchAllByAddress`,
 # which the guarded and unguarded emit both read): a view of it kept
-# past the arm, or changing a Cell through it, reaches the subject (the
-# review-b4b-2 probes p78, p81, p82).
+# past the arm, or a `*Counter` handle read through it to change a Cell,
+# reaches the subject (the review-b4b-2 probes p78, p81, p82).
 # A branch over lends of the subjects is matched where it points.
 # release
 
@@ -46,13 +46,13 @@ sub two[T](a: T, b: T)
       y => print(y)
   print(saved)
 
-fun bump(o: ?Opt[Counter]) -> Int
+fun bump(o: ?Opt[*Counter]) -> Int
   match o
     .some(c) => c.hits.set(9)
     .nothing => pass
   0
 
-fun show(o: ?Opt[Counter]) -> Int
+fun show(o: ?Opt[*Counter]) -> Int
   match o
     .some(c) => print(c.hits.get())
     .nothing => print("nothing")
@@ -83,7 +83,7 @@ sub main()
   g(Pt(x: 3, y: 4))
   g(Text("two two two two two two two two"))
   two(Pt(x: 3, y: 4), Pt(x: 7, y: 8))
-  cell(Counter(hits: Cell(1)), bump, show)
+  cell(*Counter(hits: Cell(1)), bump, show)
   lends(Text("one"), Text("two"), Text("k"), false)
   lends(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0), true)
 

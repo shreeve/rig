@@ -49,7 +49,7 @@ sub write_as(v: !Vec[Text?])
   if !v[idx(?Text("a"))] as t
     !t.add("w")
 
-sub read_as(v: ?Vec[C?])
+sub read_as(v: ?Vec[(*C)?])
   if v[idx(?Text("a"))] as c
     c.c.set(c.c.get() + 5)
 
@@ -90,8 +90,8 @@ sub main()
   write_as(!tv)
   write_while(!tv)
   print(tv)
-  cv: Vec[C?] = Vec()
-  !cv.push(C(c: Cell(1)))
+  cv: Vec[(*C)?] = Vec()
+  !cv.push(*C(c: Cell(1)))
   read_as(?cv)
   read_as(?cv)
   if cv[0] as c
@@ -112,8 +112,8 @@ sub main()
     x *= 10
   for x in m[idx(?Text("k"))]
     print(clobber(x), x)
-  ws: Vec[[1]C] = Vec()
-  !ws.push([C(c: Cell(0))])
+  ws: Vec[[1]*C] = Vec()
+  !ws.push([*C(c: Cell(0))])
   for c in ws[idx(?Text("k"))]
     c.c.set(7)
   print(ws[0][0].c.get())

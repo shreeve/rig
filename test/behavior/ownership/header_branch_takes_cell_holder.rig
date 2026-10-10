@@ -1,8 +1,8 @@
 # A branching value in a `for` or `match` header (`if`, `catch`, `??`,
 # `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5): with
 # `<` on each name, every leaf is the header's own, so each element or
-# payload is the body's own place, which a `?self` method changes
-# (Core s9).
+# payload is the body's own `*Counter` handle, through which a `?self`
+# method changes a Cell (Core s9).
 #
 # oracle: loops accept
 # oracle: run accept
@@ -15,18 +15,18 @@ struct Counter
     self.hits.set(self.hits.get() + 1)
 
 enum E
-  a(c: Counter)
+  a(c: *Counter)
   b
 
 error Bad
   oops
 
-fun two(n: Int) -> ([2]Counter)!
+fun two(n: Int) -> ([2]*Counter)!
   return Bad.oops if n > 5
-  [Counter(hits: Cell(n)), Counter(hits: Cell(n))]
+  [*Counter(hits: Cell(n)), *Counter(hits: Cell(n))]
 
-fun pair(n: Int) -> [2]Counter
-  [Counter(hits: Cell(n)), Counter(hits: Cell(n))]
+fun pair(n: Int) -> [2]*Counter
+  [*Counter(hits: Cell(n)), *Counter(hits: Cell(n))]
 
 sub loops(f: Bool)
   a = pair(0)
@@ -38,13 +38,13 @@ sub loops(f: Bool)
   for k in two(9) catch <d
     k.hit()
     print(k.hits.get())
-  o: ([2]Counter)? = none
+  o: ([2]*Counter)? = none
   g = pair(30)
   for k in (<o) ?? <g
     k.hit()
     print(k.hits.get())
 
-fun run(o: ([2]Counter)?) -> Int?
+fun run(o: ([2]*Counter)?) -> Int?
   new n = 0
   for k in (<o)?
     k.hit()
@@ -52,7 +52,7 @@ fun run(o: ([2]Counter)?) -> Int?
   n
 
 sub matches(f: Bool)
-  x = E.a(c: Counter(hits: Cell(40)))
+  x = E.a(c: *Counter(hits: Cell(40)))
   y = E.b
   match (<x if f else <y)
     .a(c)
@@ -60,7 +60,7 @@ sub matches(f: Bool)
       print(c.hits.get())
     .b => pass
   o: E? = none
-  d = E.a(c: Counter(hits: Cell(50)))
+  d = E.a(c: *Counter(hits: Cell(50)))
   match (<o) ?? <d
     .a(c)
       c.hit()

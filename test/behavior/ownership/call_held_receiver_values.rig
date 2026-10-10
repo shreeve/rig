@@ -1,6 +1,6 @@
-# A temporary receiver, or a copy of a Cell-holding part of one, that a
-# call holds while it runs: what the method returns that views nothing of
-# it, and a view of it the statement discards, are fine.
+# A temporary receiver, or a Cell-holding part of a temporary handle,
+# that a call holds while it runs: what the method returns that views
+# nothing of it, and a view of it the statement discards, are fine.
 
 struct S
   n: Int
@@ -25,8 +25,8 @@ struct H
 fun mk() -> S
   S(n: 5, m: 6)
 
-fun mkh() -> H
-  H(q: Q(c: Cell(1), n: 41))
+fun mkh() -> *H
+  *H(q: Q(c: Cell(1), n: 41))
 
 sub main()
   print(mk().sum())

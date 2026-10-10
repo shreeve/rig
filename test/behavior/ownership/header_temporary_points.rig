@@ -56,7 +56,7 @@ sub main()
   while !ints[idx(?Text("a"))] as n
     n += 1
     break
-  cs: [1]C? = [C(c: Cell(1))]
+  cs: [1](*C)? = [*C(c: Cell(1))]
   if ?cs[idx(?Text("a"))] as c
     c.c.set(5)
   bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]

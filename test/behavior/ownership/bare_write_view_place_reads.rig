@@ -1,125 +1,105 @@
-# A bare name or place only reads (Core sentence 1): `x = h.w` or
-# `x = ws[0]`, with a `!Int` field or element, reads the Int it sees, as
-# `x = w` of a `!Int` name does, and so does an annotated binding
-# (`x: Int = h.w`). Changing the copy changes nothing else. So does every
-# place that takes the value: an assignment that writes through a write
-# view, an element store, a constructor, an argument, arithmetic, a
-# branching value of such places, a return, in a loop, a closure, and
-# deferred code. `x = !h.w` lends the view on. A `!String` field read as
-# a String views what it viewed.
+# A bare name only reads (Core sentence 1): `x = w` of a `!Int` name
+# reads the Int it sees, and so does an annotated binding (`x: Int = w`).
+# Changing the copy changes nothing else. So does every place that takes
+# the value: an assignment that writes through a write view, a
+# constructor, an argument, arithmetic, a branching value of such names,
+# a return, in a loop, a closure, and deferred code. `x = !w` lends the
+# view on. A `!String` name read as a String views what it viewed.
 # oracle: bindings accept
 # oracle: lent_on accept
 # oracle: through accept
-# oracle: elements accept
 # oracle: made accept
 # oracle: loops accept
 # oracle: deferred accept
 # oracle: take accept
 # oracle: strings accept
 
-struct H
-  w: !Int
-
 struct P
   n: Int
-
-struct HS
-  s: !String
 
 fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1] + b[2]
 
-fun get(h: ?H) -> Int
-  h.w
+fun get(w: !Int) -> Int
+  w
 
-fun take(h: !H) -> Int
-  x = h.w
+fun take(w: !Int) -> Int
+  x = w
   x + 1
 
 sub bindings()
   n = 1
   m = 9
   w = !m
-  h = H(w: !n)
-  x = h.w
-  y: Int = h.w
-  z = w if x > 5 else h.w
+  v = !n
+  x = v
+  y: Int = v
+  z = w if x > 5 else v
   x += 10
   print(x, y, z)
-  h.w += 1
+  v += 1
   print(n)
 
 sub lent_on()
   n = 1
-  h = H(w: !n)
-  z = !h.w
+  v = !n
+  z = !v
   z += 1
   print(n)
 
 sub through()
   n = 1
   m = 2
-  h = H(w: !n)
-  g = H(w: !m)
-  h.w = g.w
-  g.w += 1
-  h.w += 5
+  h = !n
+  g = !m
+  h = g
+  g += 1
+  h += 5
   print(n, m)
-
-sub elements()
-  a = 1
-  b = 2
-  ws: Vec[!Int] = Vec()
-  !ws.push(!a)
-  !ws.push(!b)
-  w = ws[0]
-  xs = [0, 0]
-  xs[1] = ws[1]
-  ws[0] = 7
-  print(w, xs, a, b)
 
 sub made()
   n = 3
-  h = H(w: !n)
-  p = P(n: h.w)
+  w = !n
+  p = P(n: w)
   vs: Vec[Int] = Vec()
-  !vs.push(h.w)
-  arr = [h.w, h.w + 1]
+  !vs.push(w)
+  arr = [w, w + 1]
   print(p.n, vs[0], arr)
 
 sub loops()
   a = 1
   b = 2
-  hs = [H(w: !a), H(w: !b)]
+  wa = !a
+  wb = !b
   total = 0
   for i in 0..2
-    x = hs[i].w
+    x = wa if i == 0 else wb
     total += x
   print(total)
 
 sub in_closure()
   n = 4
-  h = H(w: !n)
-  f = |?h|
-    x: Int = h.w
+  w = !n
+  f = |?w|
+    x: Int = w
     print(x + 1)
   f()
 
 sub deferred()
   n = 5
-  h = H(w: !n)
+  w = !n
   defer
-    x: Int = h.w
+    x: Int = w
     print("deferred", x)
-  h.w += 1
+  w += 1
 
 sub strings()
   t = Text("abc")
   s: String = ?t
-  hs = HS(s: !s)
-  x = hs.s
+  v = !s
+  x = v
   print(clobber(1))
   print(x)
 
@@ -127,11 +107,10 @@ sub main()
   bindings()
   lent_on()
   through()
-  elements()
   made()
   n = 6
-  h = H(w: !n)
-  print(get(?h), take(!h))
+  w = !n
+  print(get(!w), take(!w))
   loops()
   in_closure()
   deferred()
@@ -142,7 +121,6 @@ sub main()
 # 2
 # 2
 # 7 3
-# 1 [0, 2] 7 2
 # 3 3 [3, 4]
 # 6 7
 # 3

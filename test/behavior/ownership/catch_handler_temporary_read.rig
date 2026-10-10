@@ -28,19 +28,19 @@ struct D
     self
 
 struct WW
-  t: N
+  t: *N
 
-fun mkn(n: Int) -> N
-  N(c: Cell(n))
+fun mkn(n: Int) -> *N
+  *N(c: Cell(n))
 
-fun mknf(n: Int) -> N!
+fun mknf(n: Int) -> (*N)!
   return E.bad if n < 0
   mkn(n)
 
-fun mkd(n: Int) -> D
-  D(c: Cell(n))
+fun mkd(n: Int) -> *D
+  *D(c: Cell(n))
 
-fun mkdf(n: Int) -> D!
+fun mkdf(n: Int) -> (*D)!
   return E.bad if n < 0
   mkd(n)
 

@@ -13,7 +13,6 @@
 # oracle: nested accept
 # oracle: param accept
 # oracle: subjects accept
-# oracle: slices accept
 # oracle: forms accept
 # oracle: whole_of accept
 # oracle: read_match accept
@@ -45,14 +44,6 @@ enum S
 
 enum O
   a(e: E)
-  b
-
-enum WS
-  a(s: ![]Text)
-  b
-
-enum WV
-  a(w: !Text)
   b
 
 struct HE
@@ -173,26 +164,6 @@ sub subjects()
     .b => pass
   print(e, f, h.e)
 
-sub slices()
-  v: Vec[Text] = Vec()
-  !v.push(Text("slot"))
-  e = WS.a(!v[..])
-  match !e
-    .a(s)
-      r = ?s[0]
-      print(r)
-      s[0] = Text("other")
-    .b => pass
-  t = Text("view")
-  g = WV.a(!t)
-  match !g
-    .a(w)
-      s = ?w[1..]
-      print(s)
-      !w.add("!")
-    .b => pass
-  print(v, t)
-
 sub forms()
   e = E.a(Text("k=v"))
   match !e
@@ -223,13 +194,6 @@ sub read_match()
   e = E.a(Text("read"))
   r = whole_of(!e)
   print(r)
-  t = Text("field")
-  g = WV.a(!t)
-  s = ""
-  match g
-    .a(w) => s = ?w[1..]
-    .b => pass
-  print(s)
 
 sub main()
   texts()
@@ -242,7 +206,6 @@ sub main()
   param(!e)
   print(e)
   subjects()
-  slices()
   forms()
   read_match()
 
@@ -270,9 +233,6 @@ sub main()
 # eld
 # ield
 # .a(t: "boxed!") .a(t: "held!") .a(t: "field!")
-# slot
-# iew
-# ["other"] view!
 # 3
 # 107
 # v12
@@ -280,4 +240,3 @@ sub main()
 # k=v1234
 # .a(t: "k=v12345")
 # .a(t: "read")
-# ield

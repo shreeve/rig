@@ -1,7 +1,7 @@
 # A value a `for`, `if … as`, or `match` header makes is taken, and so is
 # the made value the subject is a part of (Core §3): each element or
-# payload is the body's own, a place a `?self` method changes (Core s9),
-# and `<k` moves it out.
+# payload is the body's own `*Counter` handle, through which a `?self`
+# method changes a Cell (Core s9), and `<k` moves it out.
 #
 # oracle: loops accept
 # oracle: ifs accept
@@ -13,14 +13,14 @@ struct Counter
     self.hits.set(self.hits.get() + 1)
 
 struct H
-  o: Counter?
-  arr: [2]Counter
+  o: (*Counter)?
+  arr: [2]*Counter
 
-fun two() -> [2]Counter
-  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+fun two() -> [2]*Counter
+  [*Counter(hits: Cell(0)), *Counter(hits: Cell(5))]
 
 fun mkh() -> H
-  H(o: Counter(hits: Cell(10)), arr: two())
+  H(o: *Counter(hits: Cell(10)), arr: two())
 
 sub loops()
   x = for k in two()
@@ -30,8 +30,8 @@ sub loops()
   else
     0
   print(x)
-  keep: Counter? = none
-  for k in [Counter(hits: Cell(7)), Counter(hits: Cell(8))]
+  keep: (*Counter)? = none
+  for k in [*Counter(hits: Cell(7)), *Counter(hits: Cell(8))]
     k.hit()
     keep = <k
   if <keep as c
@@ -41,7 +41,7 @@ sub loops()
     print(k.hits.get())
 
 sub ifs()
-  if H(o: Counter(hits: Cell(0)), arr: two()).o as c
+  if H(o: *Counter(hits: Cell(0)), arr: two()).o as c
     c.hit()
     print(c.hits.get())
   if mkh().o as c

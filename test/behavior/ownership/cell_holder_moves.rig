@@ -1,5 +1,5 @@
-# `<a` hands a value that holds a Cell over whole, Cell and all, and a
-# shared handle to one is cloned as a count.
+# `<a` hands a shared handle to a value that holds a Cell over whole,
+# Cell and all, and `+h` clones one as a count.
 
 struct Counter
   hits: Cell[Int]
@@ -7,16 +7,16 @@ struct Counter
   sub hit(?self)
     self.hits.set(self.hits.get() + 1)
 
-fun take(c: Counter) -> Int
+fun take(c: *Counter) -> Int
   c.hit()
   c.hits.get()
 
 sub main()
-  a = Counter(hits: Cell(1))
+  a = *Counter(hits: Cell(1))
   b = <a
   b.hit()
   print(take(<b))
-  c = Cell(10)
+  c = *Cell(10)
   d = <c
   d.set(11)
   print(d.get())

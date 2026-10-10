@@ -1,6 +1,6 @@
 # `!` lends any temporary to write (Core sentence 4) wherever a write
 # lend goes: the receiver of a generic type's `!self` method, also in a
-# generic body; a value holding a Cell; a Text; an array or Vec lent
+# generic body, and of a plain struct's; a Text; an array or Vec lent
 # whole or sliced as a `![]T`; a generic function's `!Vec[T]`; a call
 # followed by `?` or `!`, or under `catch`; a receiver whose method
 # takes a closure, which may capture a name to write; a branching value
@@ -27,14 +27,14 @@ struct Wrap[V]
     !(self.twice()).set(self.v)
 
 struct C
-  c: Cell[Int]
+  c: Int
 
   sub bump(!self)
-    self.c.set(self.c.get() + 1)
+    self.c += 1
 
   fun pop(!self) -> Int
-    self.c.set(self.c.get() + 10)
-    self.c.get()
+    self.c += 10
+    self.c
 
 struct B
   n: Int
@@ -64,7 +64,7 @@ fun mkb(n: Int) -> B
   b
 
 fun mkc() -> C
-  C(c: Cell(1))
+  C(c: 1)
 
 fun mkv() -> Vec[Int]
   v: Vec[Int] = Vec()

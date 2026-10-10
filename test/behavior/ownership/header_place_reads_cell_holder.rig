@@ -1,8 +1,8 @@
 # A `match` or `for` whose subject is a place reads it where it stands
 # (Core s1, §3): each payload or element is a view of the place, so a
-# `?self` method changes the place's own Cell (Core s9). Parentheses do
-# not make a place a made value. `for k in <a` takes the array, and its
-# elements are the loop's own.
+# `?self` method changes the Cell its `*Counter` handle reaches (Core
+# s9). Parentheses do not make a place a made value. `for k in <a` takes
+# the array, and its elements are the loop's own.
 #
 # oracle: poke accept
 # oracle: nested accept
@@ -15,7 +15,7 @@ struct Counter
     self.hits.set(self.hits.get() + 1)
 
 enum E
-  a(c: Counter)
+  a(c: *Counter)
   b
 
 enum F
@@ -33,7 +33,7 @@ fun hits_of(e: ?E) -> Int
     .b => 0
 
 sub nested()
-  f = F.w(e: E.a(c: Counter(hits: Cell(0))))
+  f = F.w(e: E.a(c: *Counter(hits: Cell(0))))
   match f
     .w(e)
       match e
@@ -46,7 +46,7 @@ sub nested()
         .a(c) => print(c.hits.get())
         .b => pass
     .z => pass
-  match F.w(e: E.a(c: Counter(hits: Cell(4))))
+  match F.w(e: E.a(c: *Counter(hits: Cell(4))))
     .w(e)
       match e
         .a(c)
@@ -56,7 +56,7 @@ sub nested()
     .z => pass
 
 sub loops()
-  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  a = [*Counter(hits: Cell(0)), *Counter(hits: Cell(0))]
   for k in (a)
     k.hit()
   print(a[0].hits.get(), a[1].hits.get())
@@ -65,7 +65,7 @@ sub loops()
     print(k.hits.get())
 
 sub main()
-  arr = [E.a(c: Counter(hits: Cell(0))), E.b]
+  arr = [E.a(c: *Counter(hits: Cell(0))), E.b]
   poke(?arr)
   print(hits_of(?arr[0]))
   nested()

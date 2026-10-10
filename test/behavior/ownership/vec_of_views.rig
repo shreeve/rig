@@ -18,17 +18,7 @@ sub main()
     print(x)
   <v
   a = 5
-  c = 3
-  d = 4
-  w: Vec[!Int] = Vec()
-  !w.push(!c)
-  !w.push(!d)
-  w[0] = 10
-  w[1] += 5
-  w[1] = !a
-  w[1] = 7
-  <w
-  print(a, c, d)
+  print(a)
   bag = Bag(items: Vec())
   !bag.items.push(?b)
   print(bag.items)
@@ -45,7 +35,7 @@ sub main()
 # 3 [1, 2]
 # 1
 # 2
-# 7 10 9
+# 5
 # [2]
 # 2
 # [[1, 2]]
