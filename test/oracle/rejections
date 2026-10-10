@@ -240,10 +240,13 @@ cell.vec_push.ternary run
 cell.write_held.call run
 cell.write_held.ctor run
 cell.write_held.move run
+doc/BEYOND-RUST/35701691 get_and_add
 doc/BEYOND-RUST/3707937623 get_and_add
 doc/CORE/1341273257 main
+doc/CORE/2156986764 main
 doc/CORE/2438532286 main
 doc/CORE/2544085652 main
+doc/CORE/2823746719 main
 doc/CORE/2873586614 main
 doc/CORE/3056819009 main
 doc/CORE/3143210043 main
@@ -257,9 +260,11 @@ doc/SPEC/115450776 main
 doc/SPEC/1447035486 main
 doc/SPEC/1719082925 main
 doc/SPEC/1869169986 main
+doc/SPEC/2020563711 main
 doc/SPEC/223951594 main
 doc/SPEC/2605336713 main
 doc/SPEC/2647037712 main
+doc/SPEC/2656742188 main
 doc/SPEC/2775288972 main
 doc/SPEC/2873226118 main
 doc/SPEC/2966152045 make
@@ -279,6 +284,7 @@ doc/SPEC/4275476149 main
 doc/SPEC/664386991 main
 doc/SPEC/668789929 main
 doc/SPEC/963390202 main
+doc/WELCOME/2087446087 main
 doc/WELCOME/3847832144 main
 drop.arg_then_write.catch run
 drop.arg_then_write.field run
@@ -3098,6 +3104,7 @@ test/reject/ownership/callable_view_escape.rig leak
 test/reject/ownership/callable_view_results.rig bad
 test/reject/ownership/callable_view_results.rig main
 test/reject/ownership/callee_read_then_written.rig main
+test/reject/ownership/capture_fix_by_type.rig main
 test/reject/ownership/catch_handler_break_stores.rig main
 test/reject/ownership/cell_holder_copies.rig main
 test/reject/ownership/cell_resource_alias.rig main
@@ -3131,6 +3138,7 @@ test/reject/ownership/copies_view_loans.rig fill_loan
 test/reject/ownership/copies_view_loans.rig fill_method_loan
 test/reject/ownership/copies_view_loans.rig owned_capture
 test/reject/ownership/copy_field_view_keeps_loan.rig main
+test/reject/ownership/copy_into_generic_param.rig main
 test/reject/ownership/copy_read_while_write_view_live.rig main
 test/reject/ownership/copy_write_view_duplicated.rig bind
 test/reject/ownership/copy_write_view_duplicated.rig put
@@ -3472,6 +3480,11 @@ test/reject/ownership/string_view_stores.rig main
 test/reject/ownership/swap_same_collection.rig main
 test/reject/ownership/tail_returned_name_defer_if.rig mk
 test/reject/ownership/tail_returned_name_defer_match.rig mk
+test/reject/ownership/take_hint_where_take_allowed.rig local
+test/reject/ownership/take_hint_where_take_allowed.rig viaparam
+test/reject/ownership/take_hint_where_take_allowed.rig viaread
+test/reject/ownership/take_hint_where_take_allowed.rig viashared
+test/reject/ownership/take_hint_where_take_allowed.rig viawrite
 test/reject/ownership/take_rejections_ownership.rig both
 test/reject/ownership/take_rejections_ownership.rig main
 test/reject/ownership/take_rejections_ownership.rig twice
