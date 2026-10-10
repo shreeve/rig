@@ -1,0 +1,6 @@
+sub main()
+  t = Text("abc")
+  s = "lit"
+  s = ?t[..]
+  <t
+  print(s)

@@ -1,0 +1,61 @@
+# A `Static` is read as a `String` where the text is only read: an
+# argument, a field, a return, a branch, `??`, a list literal, a slice
+# of elements, a generic `T` that a `String` binds too, and a
+# comparison. The result of mixing the two is a `String`.
+
+use std.os
+use std.text
+
+struct Line
+  text: String
+
+fun shout(s: String) -> Int
+  s.len
+
+fun first_of(xs: []String) -> String
+  xs[0]
+
+fun pick[T](a: T, b: T, left: Bool) -> T
+  a if left else b
+
+fun fallback(s: String?) -> String
+  s ?? "none"
+
+sub main()
+  lit = "lit"
+  t = Text("from text")
+  view: String = ?t[..4]
+
+  print(shout(lit), shout("four"), Line(text: lit).text)
+
+  chosen = view if t.len > 3 else "other"
+  print(chosen)
+  other = "x" if t.len > 99 else view
+  print(other)
+
+  both = [lit, view, "end"]
+  print(both, both.len)
+  words = ["a", "b"]
+  print(first_of(?words[..]), first_of(os.args()) != "")
+
+  print(pick(lit, view, true), pick(view, "q", false), pick("a", "b", false))
+
+  maybe: Static? = none
+  print(fallback(maybe), fallback(os.env("RIG_STATIC_SURELY_UNSET")), fallback(view))
+  print(maybe ?? "default", view == "from", lit == view, "lit" < view, view >= lit)
+
+  part = lit[1..]
+  sub_text = text.trim("  padded  ")
+  print(part, sub_text, text.contains(lit, "i"), text.find(part, "t") ?? -1)
+
+# release
+# expect:
+# 3 4 lit
+# from
+# from
+# ["lit", "from", "end"] 3
+# a true
+# lit q b
+# none none from
+# default true false false false
+# it padded true 1

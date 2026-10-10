@@ -487,7 +487,7 @@ operator does, and which types it takes, is in
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),
-`F32`, `Bool`, `String`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
+`F32`, `Bool`, `String`, `Static`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
 what each holds. `Text`, owned text, is a built-in type
 ([SPEC §10](SPEC.md#text)).
 

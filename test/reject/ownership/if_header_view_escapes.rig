@@ -16,7 +16,7 @@ fun idp(n: ?N) -> (?Vec[Int])?
   ?n.v
 
 sub main()
-  o = "init"
+  o: String = "init"
   if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
     o = rest
   v: Vec[String] = Vec()

@@ -17,8 +17,8 @@ sub main()
   print(max(2, z), max(x, 2))
   print(max(1, "s"))
 
-# error: 13:9: conflicting types for `T` in the call to `max`: `String` (argument 1) and `Int` (argument 2); they must have one type
+# error: 13:9: conflicting types for `T` in the call to `max`: `Static` (argument 1) and `Int` (argument 2); they must have one type
 # error: 14:9: conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Int` (argument 2); convert argument 1 with `Int(...)`
 # error: 15:9: conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Float` (argument 2); convert argument 1 with `Float(...)`
 # error: 16:9: conflicting types for `T` in the call to `max`: `Float` (argument 1) and `I32` (argument 2); convert argument 2 with `Float(...)`
-# error: 18:9: conflicting types for `T` in the call to `max`: `Int` (argument 1) and `String` (argument 2)
+# error: 18:9: conflicting types for `T` in the call to `max`: `Int` (argument 1) and `Static` (argument 2)

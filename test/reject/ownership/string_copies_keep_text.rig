@@ -13,7 +13,7 @@ sub main()
   <v
   !t.add("more")
   print(s)
-  o = "x"
+  o: String = "x"
   if true
     u = Text("abcdefghijklmnop")
     w: Vec[String] = Vec()

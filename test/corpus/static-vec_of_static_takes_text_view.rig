@@ -1,0 +1,6 @@
+sub main()
+  t = Text("abcdef")
+  v: Vec[Static] = Vec()
+  !v.push(?t[..2])
+  <t
+  print(v)

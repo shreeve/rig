@@ -5,4 +5,4 @@ sub main()
   match s
     other => print(2)
 
-# error: cannot `match` on a value of type `String`
+# error: cannot `match` on a value of type `Static`

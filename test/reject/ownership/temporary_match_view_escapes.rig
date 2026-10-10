@@ -10,7 +10,7 @@ fun mk() -> M
   M.a(t: Text("in m"))
 
 sub main()
-  o = "x"
+  o: String = "x"
   match mk()
     .a(t) => o = ?t[..]
     .b => print("b")

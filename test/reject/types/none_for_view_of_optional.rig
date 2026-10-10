@@ -1,0 +1,17 @@
+# `?T?` is a view of a `T?`, not an optional view: `none` is no value of
+# it, and the hint names the spelling of a view that may be missing.
+
+fun first(v: ?Vec[Int]) -> ?Vec[Int]?
+  return none if v.len == 0
+  v
+
+fun head(t: ?Text) -> !Text?
+  return none if t.len == 0
+  t
+
+sub main()
+  v: Vec[Int] = Vec()
+  _ = first(?v)
+
+# error: 5:10: `none` needs an optional type; `?Vec[Int]?` is a view of an optional, not an optional view (write `(?Vec[Int])?`)
+# error: 9:10: `none` needs an optional type; `!Text?` is a view of an optional, not an optional view (write `(!Text)?`)

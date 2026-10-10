@@ -7,7 +7,7 @@ enum E
 
 sub main()
   e = E.a(Text("hello"))
-  s = ""
+  s: String = ""
   match !e
     .a(t) => s = keep(?t[1..])
     .b => pass

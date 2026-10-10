@@ -8,17 +8,17 @@ struct Name
 
 sub main()
   t = Text("ab")
-  a = ["x", "y"]
+  a: [2]String = ["x", "y"]
   b = [?t[..1], ?t[1..]]
   !a.copy(?b[..])
-  c = ["x", "y"]
+  c: [2]String = ["x", "y"]
   !c.fill(?t[..1])
-  s = "x"
+  s: String = "x"
   old = replace(!s, ?t[..])
-  u = "u"
+  u: String = "u"
   w = ?t[1..]
   swap(!u, !w)
-  d = ["x"]
+  d: [1]String = ["x"]
   d[0] = ?t[..]
   n = Name(s: "x")
   n.s = ?t[..1]

@@ -108,6 +108,7 @@ every mode.
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
 | `String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([Strings](#strings)) | `[]const u8` |
+| `Static` | text that lives for the whole program: a string literal, or text derived only from literals; plain data that carries no loan ([Static](#static)) | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
 
 `Int` is `I64` and `Float` is `F64`: one type under two names. Every
@@ -237,12 +238,84 @@ it yields its bytes as `U8`. Strings compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§5](#operators)).
 
-A String is a read view of bytes it does not own. Those of a literal, a
-module constant, or the program's arguments and environment
-([std.os](docs/STD.md)) last as long as the program; one taken from a
-`Text` (`?t[..]`) carries the Text's loan ([§10](#text)). The bytes are
+A String is a read view of bytes it does not own. A `Static`'s last as
+long as the program ([Static](#static)); one taken from a `Text`
+(`?t[..]`) carries the Text's loan ([§10](#text)). The bytes are
 UTF-8 by convention, and nothing checks it: lengths and indexes count
 bytes, and a slice checks only its bounds.
+
+#### Static
+
+A `Static` is a `String` known to view only bytes that live for the
+whole program. It is plain data: it copies, it carries no loan, and it
+has the same bytes and operations as a `String` (`len`, indexing,
+slicing, `for`, `==` and `<`). Where a `Static` comes from is one list;
+nothing else has the type:
+
+- a string literal (`"hello"`, so a constant made of literals too);
+- a name, field, element, or call whose declared type is `Static` or
+  holds one (`os.env`, `os.args`, [std.os](docs/STD.md));
+- a slice `k[a..b]` of a `Static`, which views the same bytes;
+- a branch (`a if c else b`, `if`, `match`), a `??`, or a list literal
+  whose every value is a `Static`.
+
+A `String` that may view a `Text` (a parameter, `?t[..]`, the result of
+a function over Strings such as `text.trim("  a  ")`) is not one, and
+nothing turns a `String` into a `Static`. A `Static` is read as a
+`String` where the text is only read: an argument or a field of type
+`String`, a returned or bound `String`, a `Static?` as a `String?`, a
+`[]Static` as a `[]String`, and in a branch, a `??`, or a list literal
+that mixes the two (their type is `String`). A generic `T` that a
+`Static` and a `String` both bind is the `String`. It never converts
+where the text can be written: a place of type `Static` holds only a
+`Static`, a `!Static` is not a `!String`, and a binding that holds a
+literal is a `Static` (`s = "a"`), so a `String` is assigned to it only
+when it is declared `s: String = "a"`.
+
+Because a `Static` carries no loan, it goes where no loan is tracked:
+in a `Cell`, a `Signal`, an owned closure, and in a struct field or a
+generic `T` kept there. A `String` there is rejected by its type, with
+a hint that points to a `String` parameter for text that is only read.
+
+```rig
+struct Tag
+  name: Static
+  n: Int
+
+fun later(who: Static) -> *sub()
+  *|+who| print(who)
+
+sub keep(c: !Cell[Static], s: Static)
+  !c.set(s)
+
+sub main()
+  c = *Cell("idle")
+  keep(!c, "busy")
+  tag: *Cell[Tag] = *Cell(Tag(name: "a", n: 1))
+  !tag.set(Tag(name: "b", n: 2))
+  f = later("hi")
+  f()
+  print(c.get(), tag.get().name, "x" if tag.get().n > 1 else "y")
+```
+
+```output
+hi
+busy b x
+```
+
+```rig reject
+sub keep(c: !Cell[Static], s: Static)
+  !c.set(s)
+
+sub main()
+  t = Text("abc")
+  c = *Cell("a")
+  keep(!c, ?t[..])
+```
+
+```error
+type mismatch: expected `Static`, got `String`
+```
 
 ### Arrays
 
@@ -5171,8 +5244,11 @@ closure, since every handle to those reaches what they hold;
 nor can a closure store its String parameter through a capture. A
 generic body that stores a `T` in a `Cell`, a `Signal`, or an owned
 closure cannot be instantiated with a `T` that holds a String, even
-when every String passed is a literal. Where a String must outlive the
-Text it came from, copy it into a Text of its own: `Text(s)`.
+when every String passed is a literal. A `Static` carries no loan, so
+it can be stored there ([Static](#static)): a `Cell[Static]`, a
+`Signal[Static]`, an owned closure that captures one, and a generic
+body's `T = Static`. Where a String must outlive the Text it came from,
+copy it into a Text of its own: `Text(s)`.
 
 A Text owns its bytes, and a `Vec[Text]` owns its Texts, as
 `Vec[Box[Text]]` does through its boxes. A Vec that
@@ -5202,7 +5278,7 @@ sub keep(c: !Cell[String], s: String)
   !c.set(s)
 
 sub main()
-  c = *Cell("")
+  c: *Cell[String] = *Cell("")
   keep(!c, "a")
 ```
 
@@ -6360,7 +6436,7 @@ sub main()
 ```
 
 ```error
-`stats.mean[String]` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support
+`stats.mean[Static]` cannot use `T = Static`: the generic body applies `+` to `T`, which `Static` does not support
 `+` used on `T` here (arithmetic)
 ```
 

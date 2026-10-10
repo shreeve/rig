@@ -6,5 +6,5 @@ sub main()
   print(text.is_digit(300), text.valid_utf8("abc"))
 
 # error: 6:23: integer value `300` does not fit in `U8` (0..255)
-# error: 6:45: type mismatch: expected `[]U8`, got `String`
+# error: 6:45: type mismatch: expected `[]U8`, got `Static`
 # errors: 2

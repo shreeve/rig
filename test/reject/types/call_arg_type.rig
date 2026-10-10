@@ -7,4 +7,4 @@ sub main()
   x = consume("nope")
   print(x)
 
-# error: type mismatch: expected `Int`, got `String`
+# error: type mismatch: expected `Int`, got `Static`

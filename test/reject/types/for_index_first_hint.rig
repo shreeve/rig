@@ -13,6 +13,6 @@ sub main()
   for i, n in ns
     print(width(n))
 
-# error: 11:14: an index must be an integer; got `String`; `x` is the index here: Rig writes the element first, `for x, i in xs`
+# error: 11:14: an index must be an integer; got `Static`; `x` is the index here: Rig writes the element first, `for x, i in xs`
 # error: 11:24: type mismatch: expected `String`, got `Int`; `x` is the index here: Rig writes the element first, `for x, i in xs`
 # error: 14:17: type mismatch: expected `String`, got `Int`

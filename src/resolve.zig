@@ -782,7 +782,7 @@ pub const TypeResolver = struct {
             }
         }.keep);
         for (self.nominal.type_params) |tp| s.offer(self.ctx.symbols.items[tp].name);
-        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Void" }) |p| s.offer(p);
+        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Static", "Void" }) |p| s.offer(p);
         return s.hint(a);
     }
 
@@ -2191,11 +2191,11 @@ pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 
-const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Void" };
+const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Static", "Void" };
 
 fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
-    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.text_id, t.void_id };
+    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.text_id, t.static_id, t.void_id };
     for (primitive_type_names, ids) |n, id| {
         if (std.mem.eql(u8, name, n)) return id;
     }

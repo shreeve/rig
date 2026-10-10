@@ -15,7 +15,7 @@ fun firsts(s: String) -> Vec[String]
 
 sub main()
   t = Text("abcdefghijklmnop")
-  o = "x"
+  o: String = "x"
   for x in [?t[..1], ?t[1..2]]
     o = x
   for c in [C(s: ?t[..3])]

@@ -6,7 +6,7 @@ enum E
   b
 
 sub f(e: !E)
-  s = ""
+  s: String = ""
   match !e
     .a(t) => s = keep(?t[1..])
     .b => pass

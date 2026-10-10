@@ -261,6 +261,7 @@ doc/SPEC/1719082925 main
 doc/SPEC/1869169986 main
 doc/SPEC/1961172340 keep
 doc/SPEC/2020563711 main
+doc/SPEC/2132563489 keep
 doc/SPEC/223951594 main
 doc/SPEC/2605336713 main
 doc/SPEC/2647037712 main
@@ -2999,6 +3000,7 @@ test/corpus/seams-mprobes-m03.rig main
 test/corpus/seams-mprobes-m06.rig main
 test/corpus/seams-mprobes-m12.rig main
 test/corpus/seams-probes-p06.rig main
+test/corpus/static-owned_closure_string_param.rig later
 test/corpus/stdlib-rig-g2_vec_owning_index.rig main
 test/corpus/syntax-review-complete-df1.rig S.go
 test/corpus/syntax-review-complete-df1.rig main

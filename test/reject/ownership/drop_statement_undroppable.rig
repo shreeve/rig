@@ -12,7 +12,7 @@ sub look(o: ?Vec[Int])
 sub main()
   v: Vec[Vec[Int]] = Vec()
   !v.push(Vec[Int]())
-  s = "abc"
+  s: String = "abc"
   r = ?v
   <r
   each(|?v, i|

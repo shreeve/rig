@@ -6,4 +6,4 @@ sub main()
   cb("seven")
   print(v.get())
 
-# error: expected `Int`, got `String`
+# error: expected `Int`, got `Static`

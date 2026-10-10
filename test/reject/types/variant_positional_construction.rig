@@ -17,4 +17,4 @@ sub main()
 # error: 10:15: a variant with more than one field sets them by name: `.rect(w: ...)`
 # error: 11:15: variant `circle` has one field: write `.circle(value)` or `.circle(radius: value)`
 # error: 12:15: variant `circle` has one field: write `.circle(value)` or `.circle(radius: value)`
-# error: 13:22: type mismatch: expected `Int`, got `String`
+# error: 13:22: type mismatch: expected `Int`, got `Static`

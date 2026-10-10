@@ -6,4 +6,4 @@ enum Shape
 sub main()
   s: Shape = .circle(radius: "nope")
 
-# error: type mismatch: expected `Int`, got `String`
+# error: type mismatch: expected `Int`, got `Static`

@@ -1658,8 +1658,8 @@ closure that captures it) puts the stored loans in that parameter's
 flow, as a store into a local does. So a view of one parameter stored
 in another keeps the first lent for the rest of the body: after
 `a.r = ?b[..]`, `!b.push(x)` is rejected.
-**Strings are views.** A String points into a literal, the process's
-arguments and environment, or a Text's buffer, so the contents pass
+**Strings are views.** A String points into a Text's buffer or into
+bytes that live for the whole program, so the contents pass
 treats it as a view the value may or may not hold: `String` sets a
 `string` bit in a type's `Views` (reaching through optionals, fields,
 handles, and a Vec's or Box's elements, but not into a Cell or Signal),
@@ -1667,7 +1667,7 @@ and the checker tracks the loans of any value whose type has it, while
 sema's type-level `holdsMarkedView` ignores it (a struct holding a String
 is not a view type, and `Vec[String]` is plain data). `?t[a..b]` of a
 Text lends the Text as `?v[a..b]` lends a Vec; a literal carries no
-loan, and a String parameter, like a `?T` one, holds an external
+loan (nor does a `Static`, below), and a String parameter, like a `?T` one, holds an external
 loan of itself, so a function's String result views what its
 arguments do. A value of a type that holds views keeps only the loans
 that lead to what could hold what it views (`carry`, Core sentence 7):
@@ -1690,6 +1690,40 @@ owned closure's captures) holds no String with a loan, which rejects
 a String parameter stored there; a generic body that stores a `T`
 there records a `view` requirement (`PlainRequirement.view`), and an
 instance whose `T` holds a String is rejected (`checkViews`).
+
+**Static.** `Static` (the `static` type) is the text that is a String
+without a loan: its meaning is that desugaring, a `String` whose loans
+are always empty. So it is plain data (`copies`, no drop glue, no bit in
+`Views`, `holdsIn` plain) with the representation of a String
+(`[]const u8`), and every operation of a String that reads has the same
+checker arm and the same emitted Zig (`len`, index, slice, `for`, `==`,
+`<`, `print`); the loan walk sees a plain value, which is why a
+`Cell`, a `Signal`, an owned closure, and a generic body that stores a
+`T` there accept it (`checkViews` asks only `mayHoldView`). One positive
+list says what has the type, and each entry is one place in the type
+checker:
+
+- a string literal (`synthLeaf`, and `.str`);
+- a name, field, element, or call whose declared type is `Static` or
+  holds one (`std.os`'s `env` and `args`);
+- a slice of a `Static` (`synthSlice` returns the sliced type);
+- the join of values that are all `Static` (`unify`, for a branch, a
+  `??`, a `match` or loop value, and a list literal).
+
+Nothing else has the type, and nothing converts a String to a `Static`.
+The one conversion goes the other way and is one rule,
+`typecheck.readsAsString`, applied in `meets`: a `Static` where a
+`String` is expected, inside an optional (`Static?` as `String?`), and as
+the elements of a read slice (`[]Static` as `[]String`). `unify` joins a
+`Static` and a `String` as the `String` because `compatible` holds in
+one direction; a generic `T` that both bind is the `String`
+(`inferBindings`). The rule is read-only by construction: it compares
+types by id, so a `!Static` is not a `!String`, a place of type `Static`
+takes only a `Static` (`mismatch` adds `staticHint`), and a written `!x`
+lend of either type is checked against exactly the other's. A binding
+that holds a literal is a `Static`, so assigning it a `String` is
+rejected with a hint to declare it `String`.
+
 What a slice lends is the type checker's record (`sliceLendOf`), never
 a type test of its own: a slice of a Text through a handle (`?h[..]` of
 a `*Text`) lends the handle, as `?h` does.

@@ -163,6 +163,11 @@ pub const Type = union(enum) {
     string,
     /// `Text`: owned, growable UTF-8 bytes; `String` is its view.
     text,
+    /// `Static`: a `String` known to view only bytes that live for the
+    /// whole program (a literal, or text derived only from literals). It
+    /// is plain data that carries no loan, and it is read as a `String`
+    /// where the text is only read (`typecheck.meets`).
+    static,
     int: IntInfo,
     float: FloatInfo,
 
@@ -250,6 +255,7 @@ pub const TypeStore = struct {
     bool_id: TypeId = type_invalid,
     string_id: TypeId = type_invalid,
     text_id: TypeId = type_invalid,
+    static_id: TypeId = type_invalid,
     int_id: TypeId = type_invalid,
     float_id: TypeId = type_invalid,
     int_literal_id: TypeId = type_invalid,
@@ -294,6 +300,7 @@ pub const TypeStore = struct {
         s.none_id = try s.intern(allocator, .none_literal);
         s.noreturn_id = try s.intern(allocator, .noreturn);
         s.any_error_id = try s.intern(allocator, .any_error);
+        s.static_id = try s.intern(allocator, .static);
         return s;
     }
 
@@ -342,7 +349,7 @@ pub const TypeStore = struct {
     fn typeEqual(a: Type, b: Type) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
-            .invalid, .unknown, .void, .bool, .string, .text, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
+            .invalid, .unknown, .void, .bool, .string, .text, .static, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
@@ -2967,7 +2974,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string, .any_error, .ct_value, .ct_param => .{ .plain = true },
+        .bool, .int, .float, .string, .static, .any_error, .ct_value, .ct_param => .{ .plain = true },
         .text => .{ .glue = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
@@ -3410,7 +3417,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .bool => 1,
         .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
-        .string, .slice => 16,
+        .string, .static, .slice => 16,
         .text => 24,
         .any_error => 2,
         // A null handle or view is its null address; anything else
@@ -3471,7 +3478,7 @@ fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocat
 /// 0: an optional of it is null there.
 fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .read_view, .write_view, .string, .slice => true,
+        .shared, .weak, .read_view, .write_view, .string, .static, .slice => true,
         else => false,
     };
 }
@@ -3866,7 +3873,7 @@ const EquatableWalk = struct {
 /// Primitive values that are copied freely.
 pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
     return switch (ctx.types.get(ty_id)) {
-        .bool, .int, .float, .string, .int_literal, .float_literal => true,
+        .bool, .int, .float, .string, .static, .int_literal, .float_literal => true,
         else => false,
     };
 }
@@ -4227,7 +4234,7 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 /// error, or an optional of one of those.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
+        .bool, .string, .static, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
@@ -5196,7 +5203,7 @@ pub fn importType(
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
-        .invalid, .unknown, .void, .bool, .string, .text, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
+        .invalid, .unknown, .void, .bool, .string, .text, .static, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
         inline .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
@@ -5614,6 +5621,7 @@ const TypePrinter = struct {
             .bool => "Bool",
             .string => "String",
             .text => "Text",
+            .static => "Static",
             .int => |info| if (info.bits == 0) "Int" else try a.print("{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
             .float => |info| if (info.bits == 0) "Float" else try a.print("F{d}", .{info.bits}),
             .int_literal => "Int",
@@ -5908,7 +5916,7 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
         }
     }
     switch (ctx.types.get(t)) {
-        .string, .slice => return lend,
+        .string, .static, .slice => return lend,
         .array => {
             _ = lend.push(.elems);
             return lend;
@@ -7064,7 +7072,7 @@ test "TypeStore: primitives are pre-interned and distinct" {
     var store = try TypeStore.init(std.testing.allocator);
     defer store.deinit(std.testing.allocator);
     try std.testing.expectEqual(type_invalid, store.invalid_id);
-    const ids = [_]TypeId{ store.unknown_id, store.void_id, store.bool_id, store.string_id, store.int_id, store.float_id, store.none_id, store.noreturn_id };
+    const ids = [_]TypeId{ store.unknown_id, store.void_id, store.bool_id, store.string_id, store.static_id, store.int_id, store.float_id, store.none_id, store.noreturn_id };
     for (ids, 0..) |a, i| {
         try std.testing.expect(a != type_invalid);
         for (ids[i + 1 ..]) |b| try std.testing.expect(a != b);
@@ -7293,8 +7301,8 @@ test "facts: same local name in two functions resolves per function" {
     try std.testing.expectEqual(a_decl, a_use);
     try std.testing.expect(a_decl != b_decl);
     try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[b_use].ty);
-    try std.testing.expectEqual(r.ctx.types.string_id, r.ctx.symbols.items[a_use].ty);
-    try std.testing.expectEqual(r.ctx.types.string_id, r.leafType("s", 3).?);
+    try std.testing.expectEqual(r.ctx.types.static_id, r.ctx.symbols.items[a_use].ty);
+    try std.testing.expectEqual(r.ctx.types.static_id, r.leafType("s", 3).?);
 }
 
 test "facts: reassignment names the existing binding" {
@@ -7437,7 +7445,7 @@ test "facts: captures, parameters, and self resolve to their symbols" {
     try std.testing.expectEqual(SymbolKind.capture, r.ctx.symbols.items[cap].kind);
     try std.testing.expectEqual(cap, r.sym("s", 2).?);
     try std.testing.expect(cap != r.sym("s", 0).?);
-    try std.testing.expectEqual(r.ctx.types.string_id, r.ctx.symbols.items[cap].ty);
+    try std.testing.expectEqual(r.ctx.types.static_id, r.ctx.symbols.items[cap].ty);
     const f_ty = r.ctx.types.get(r.ctx.symbols.items[r.sym("f", 0).?].ty);
     try std.testing.expect(f_ty == .function);
 }
@@ -7848,6 +7856,7 @@ test "type facts: moves, copies, cloneable" {
     const cases = [_]Case{
         .{ .ty = ty.int_id, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = ty.string_id, .moves = .no, .copies = .yes, .clone = .copy },
+        .{ .ty = ty.static_id, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = p, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = read_p, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = write_p, .moves = .no, .copies = .no, .clone = .copy },

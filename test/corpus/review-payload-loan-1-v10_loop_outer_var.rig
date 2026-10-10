@@ -4,7 +4,7 @@ enum E
 
 sub main()
   e = E.a(Text("hello"))
-  s = ""
+  s: String = ""
   for i in 0..2
     match !e
       .a(t)

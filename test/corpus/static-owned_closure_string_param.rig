@@ -1,0 +1,8 @@
+fun later(s: String) -> *sub()
+  *|+s| print(s)
+
+sub main()
+  t = Text("abc")
+  f = later(?t[..])
+  <t
+  f()

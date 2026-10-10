@@ -1,0 +1,27 @@
+# A `Static` carries no loan, so a `String`, which may view a `Text`,
+# cannot go where one is required: a `Static` parameter, a `Static`
+# field, a `Cell[Static]`, or an owned closure's `Static`.
+
+struct Tag
+  name: Static
+
+sub need(s: Static)
+  print(s)
+
+sub fill(c: !Cell[Static], s: String)
+  !c.set(s)
+
+sub main()
+  t = Text("abcdefghijklmnop")
+  s: String = ?t[..]
+  need(s)
+  tag = Tag(name: s)
+  v: Vec[Static] = Vec()
+  !v.push(s)
+  print(tag.name, v.len)
+
+# error: 12:10: type mismatch: expected `Static`, got `String`
+# error: 17:8: type mismatch: expected `Static`, got `String`; a `Static` is a literal, or text derived only from literals, and a `String` may view a `Text`. A parameter or field that only reads its text is declared `String`, which takes a `Static` too
+# error: 18:19: type mismatch: expected `Static`, got `String`
+# error: 20:11: type mismatch: expected `Static`, got `String`
+# errors: 4

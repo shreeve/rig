@@ -5,4 +5,4 @@ sub main()
     x: Int = "s"
     break :outer
 
-# error: type mismatch: expected `Int`, got `String`
+# error: type mismatch: expected `Int`, got `Static`

@@ -13,4 +13,4 @@ sub main()
   print(s.g("x"))
 
 # error: 12:9: call to `f` expects 1 argument, got 2
-# error: 13:13: type mismatch: expected `Int`, got `String`
+# error: 13:13: type mismatch: expected `Int`, got `Static`

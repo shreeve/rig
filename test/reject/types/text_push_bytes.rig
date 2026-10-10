@@ -6,7 +6,7 @@ sub main()
   !t.push(1, 2)
   !t.push(b: U8(68))
 
-# error: 5:11: type mismatch: expected `U8`, got `String`
+# error: 5:11: type mismatch: expected `U8`, got `Static`
 # error: 6:6: `push` takes one byte, a `U8`; got 2 arguments
 # error: 7:11: `push` takes its byte by position, not by name: `!t.push(U8(68))`
 # errors: 3

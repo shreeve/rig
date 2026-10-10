@@ -1535,6 +1535,13 @@ const Lowerer = struct {
         };
     }
 
+    /// Whether a slice of a value of type `ty` slices a `Static`: plain
+    /// data that views only bytes that live for the whole program, so the
+    /// slice is a copy that carries no loan.
+    fn slicesStatic(self: *Lowerer, ty: TypeId) bool {
+        return sema.unwrapViews(self.ctx, ty) == self.ctx.types.static_id;
+    }
+
     fn innerOf(self: *Lowerer, ty: TypeId) Error!TypeId {
         return switch (self.ctx.types.get(ty)) {
             .write_view, .read_view => |t| t,
@@ -2010,7 +2017,7 @@ const Lowerer = struct {
         // through a write view, which may change or replace what the
         // slice views; a slice of a String or of a read view copies the
         // view and its loans.
-        if (p.slice and (p.via == .own or (p.via == .write and !self.slicesString(p.slice_of)))) return try self.lend(p, .read, e, p.ty);
+        if (p.slice and !self.slicesStatic(p.slice_of) and (p.via == .own or (p.via == .write and !self.slicesString(p.slice_of)))) return try self.lend(p, .read, e, p.ty);
         // A value holding a write view moves as an owner does (Core §1);
         // the compiler lends one on where it is handed over bare, which
         // the oracle does not model.

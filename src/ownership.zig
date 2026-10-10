@@ -707,7 +707,7 @@ pub const Checker = struct {
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or !r.view) continue;
-            const why = if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a String may view a Text";
+            const why = if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a String may view a Text (a `Static` carries no loan)";
             try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, or an owned closure, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, why });
             try self.noteIn(r.module_id, r.pos, "`{s}` stored here", .{pname});
             return;
@@ -734,6 +734,13 @@ pub const Checker = struct {
 
     pub fn hasErrors(self: *const Checker) bool {
         return diag.hasErrorsIn(self.diagnostics.items);
+    }
+
+    /// What to write for a parameter that only ever gets literal text and
+    /// is stored where no loan is tracked: the loan `l` is the parameter's
+    /// own (`ext`), and a `Static` has none.
+    fn staticParamHint(l: Loan) []const u8 {
+        return if (l.ext) "; if it is only passed literal text, declare the parameter `Static`, which carries no loan" else "";
     }
 
     fn arena(self: *Checker) std.mem.Allocator {
@@ -3683,7 +3690,7 @@ pub const Checker = struct {
         const pos = self.startOf(target);
         try self.requireNoView(pos, self.exprType(target));
         const loans = (try self.carry(self.exprType(target), value)).loans;
-        if (loans.len > 0) try self.err(pos, "cannot store a view of `{s}` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one", .{self.vars.items[loans[0].root].name});
+        if (loans.len > 0) try self.err(pos, "cannot store a view of `{s}` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one{s}", .{ self.vars.items[loans[0].root].name, staticParamHint(loans[0]) });
     }
 
     /// Whether place `target` is, or is a field of, an element of the Vec
@@ -3961,7 +3968,7 @@ pub const Checker = struct {
                 const arg_ty = self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a);
                 const loans = (try self.carry(self.reachedType(arg_ty), held)).loans;
                 if (loans.len == 0) continue;
-                try self.errAt(a, "cannot store a view of `{s}` in a `{s}`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one", .{ self.vars.items[loans[0].root].name, cell.? });
+                try self.errAt(a, "cannot store a view of `{s}` in a `{s}`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one{s}", .{ self.vars.items[loans[0].root].name, cell.?, staticParamHint(loans[0]) });
                 continue;
             }
             if (!self.keepsCallable(node, a)) continue;
@@ -4468,11 +4475,12 @@ pub const Checker = struct {
                     value = try self.valueUnion(value, cv);
                     continue;
                 }
-                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure cannot capture `{s}`, which holds a view{s}{s}{s}; capture an owned value, or use a stack closure (`|...|`)", .{
+                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure cannot capture `{s}`, which holds a view{s}{s}{s}; capture an owned value, or use a stack closure (`|...|`){s}", .{
                     name,
                     if (l.ext) "" else " of `",
                     if (l.ext) "" else self.vars.items[l.root].name,
                     if (l.ext) "" else "`",
+                    staticParamHint(l),
                 });
                 try self.noteLoan(l);
             }

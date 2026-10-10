@@ -1,0 +1,6 @@
+fun tail(s: String) -> Static
+  s[1..]
+
+sub main()
+  t = Text("abc")
+  print(tail(?t[..]))

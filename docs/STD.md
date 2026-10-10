@@ -108,18 +108,17 @@ true -3.0 -2.0
 
 ## std.os
 
-The arguments and environment the program started with. Their Strings
-live as long as the program, as a literal's do, and view no `Text`.
-They hold the bytes the operating system gave, which are not checked
-to be UTF-8. `env` says so in its signature (`from static`,
-[SPEC §7](../SPEC.md#second-class-views)), so its result views
-nothing its caller lent: it can be kept, returned, and stored anywhere,
-whatever `name` is.
+The arguments and environment the program started with. Their text
+lives as long as the program, as a literal's does, and views no `Text`,
+so both are a `Static` ([SPEC §2](../SPEC.md#static)). They hold the
+bytes the operating system gave, which are not checked to be UTF-8.
+A `Static` carries no loan, so a result can be kept, returned, and
+stored anywhere, in a `Cell` too, whatever `name` is.
 
 | Function | Result |
 |---|---|
-| `args() -> []String` | every argument, the program's name first |
-| `env(name: String) -> String? from static` | the value of the environment variable `name`, or `none` when it is not set |
+| `args() -> []Static` | every argument, the program's name first |
+| `env(name: String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is

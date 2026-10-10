@@ -60,10 +60,10 @@ sub main()
   print(f, reg.names)
   lits: Vec[String] = Vec()
   !lits.push("a")
-  last = "z"
+  last: String = "z"
   for n in ?lits
     last = n
-  c = *Cell("b")
+  c: *Cell[String] = *Cell("b")
   for n in ?lits
     !c.set(n)
   <lits

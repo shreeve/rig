@@ -421,7 +421,7 @@ correspondences:
 
 | Rig | Zig |
 |---|---|
-| `Int`, `U8`, `Float`, `String` | `i64`, `u8`, `f64`, `[]const u8` |
+| `Int`, `U8`, `Float`, `String`, `Static` | `i64`, `u8`, `f64`, `[]const u8` |
 | `Text` | `rig.Text`, a growable byte buffer the runtime frees |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@backingInt(e)))` |
@@ -682,7 +682,10 @@ fun twice(s: String) -> Int!
 
 **`+` on strings.** A `String` is a view of text it does not own, so
 there is nothing for `+` to write into. Rig's `String` is Go's or
-Odin's `string`; Rust's `String` is Rig's `Text`. Text is built in a
+Odin's `string`; Rust's `String` is Rig's `Text`. A literal is a
+`Static`: a `String` known to view only text that lives for the whole
+program, so it can also be kept in a `Cell` ([SPEC](SPEC.md#static)).
+Text is built in a
 `Text`, which owns its bytes: `Text(a, b)` writes each value as
 `print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
 

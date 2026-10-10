@@ -4,4 +4,4 @@ sub main()
   v: Vec[Int] = Vec()
   print(v["0"])
 
-# error: an index must be an integer; got `String`
+# error: an index must be an integer; got `Static`

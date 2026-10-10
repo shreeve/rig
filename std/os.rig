@@ -1,12 +1,12 @@
 # std.os: the process's arguments and environment.
 
 extern zig "os.zig"
-  # Every argument, the program's name first. The Strings live as long
-  # as the program, like literals.
-  pub fun args() -> []String
+  # Every argument, the program's name first. The text lives as long as
+  # the program, like a literal's.
+  pub fun args() -> []Static
 
   # The value of the environment variable `name`, or `none` when it is
-  # not set. The String lives as long as the program: it views the
+  # not set. The text lives as long as the program: it views the
   # environment the process started with, which nothing in std changes
-  # (a `set_env` would have to revisit this `from static`).
-  pub fun env(name: String) -> String? from static
+  # (a `set_env` would have to revisit this `Static`).
+  pub fun env(name: String) -> Static?
