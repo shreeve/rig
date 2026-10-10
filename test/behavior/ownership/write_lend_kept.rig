@@ -1,16 +1,9 @@
 # release
 # A write lend `!x` keeps its write view where the slot's type is one:
-# a type spelled with `!T`, one the context expects, a parameter
-# declared `!T`, a write receiver, and a value whose type it gives (an
-# array, an `if`, a loop's `break`s). A `?T` slot takes `?n`.
-# Each write below reaches the value lent.
-
-enum Opt[T]
-  some(v: T)
-  nothing
-
-struct G[T]
-  r: T
+# a type spelled with `!T` (also as `(!T)?`), a parameter declared
+# `!T`, a write receiver, and a value whose type it gives (an `if`, a
+# loop's `break`s). A `?T` slot takes `?n`. Each write below reaches
+# the value lent.
 
 struct S
   n: Int
@@ -20,9 +13,6 @@ struct S
 
   fun get(!self) -> !Int
     !self.n
-
-fun wrap(x: !Int) -> Opt[!Int]
-  .some(v: !x)
 
 fun through[T](x: !T) -> !T
   x
@@ -35,21 +25,12 @@ fun read(x: ?Int) -> Int
 
 sub main()
   n = 0
-  o1 = Opt[!Int].some(v: !n)
-  match !o1
-    .some(v) => v += 1
-    .nothing => pass
-  o2: Opt[!Int] = .some(v: !n)
-  match !o2
-    .some(v) => v += 1
-    .nothing => pass
-  o3 = wrap(!n)
-  match !o3
-    .some(v) => v += 1
-    .nothing => pass
+  o: (!Int)? = !n
+  if <o as v
+    v += 3
   print(n)
-  g = G[!Int](r: !n)
-  g.r += 10
+  g = through(!n)
+  g += 10
   print(n)
   w = through(!n)
   w += 100
@@ -60,8 +41,7 @@ sub main()
   q = (!s).get()
   q += 1
   print(s.n)
-  a = [!n]
-  a[0] += 1
+  add(!n, 1)
   m = 0
   c = n > 0
   b = !n if c else !m

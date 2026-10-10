@@ -1,0 +1,9 @@
+sub main()
+  a: Vec[Text] = Vec()
+  b: Vec[Text] = Vec()
+  !a.push(Text("x"))
+  !b.push(Text("y"))
+  c = true
+  s: String = (a if c else b)[0]
+  <a
+  print(s)

@@ -1,7 +1,7 @@
 # Fields and methods reach through every combination of boxes and
 # shared handles: `Box[*S]`, `*Box[S]`, `Box[Box[S]]`, `Box[Box[*S]]`,
-# and `Box[*Box[S]]`, read in place, lent to read, and matched. A Cell
-# in the value changes in place through any of them, and `<b.unbox()`
+# and `Box[*Box[S]]`, read in place, lent to read, and matched. A shared
+# Cell in the value changes through any of them, and `<b.unbox()`
 # takes the handle out of its box.
 
 enum K
@@ -13,7 +13,7 @@ struct S
   xs: Vec[Int]
   t: Text
   k: K
-  c: Cell[Int]
+  c: *Cell[Int]
 
   fun get(?self) -> Int
     self.n + self.xs[0]
@@ -21,7 +21,7 @@ struct S
 fun mk(n: Int) -> S
   xs: Vec[Int] = Vec()
   !xs.push(n * 10)
-  S(n: n, xs: <xs, t: Text("s", n), k: .a(n: n + 1), c: Cell(n))
+  S(n: n, xs: <xs, t: Text("s", n), k: .a(n: n + 1), c: *Cell(n))
 
 fun first(v: ?Vec[Int]) -> Int
   v[0]

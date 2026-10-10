@@ -28,5 +28,4 @@ sub main()
 
 # oracle: mkv accept
 # oracle: mks accept
-# oracle: b reject C3
 # oracle: main accept

@@ -2,7 +2,6 @@
 # Text, or a String parameter, stored where every handle to the Cell
 # reaches it (Core s9).
 #
-# oracle: keeps_a_text_view reject C8
 # oracle: keeps_a_param reject C8
 
 sub keeps_a_text_view()

@@ -1,0 +1,15 @@
+# A Cell lives only behind a shared handle, so a Box cannot hold a value
+# that holds a Cell: the rule that a Cell lives only behind `*` rejects
+# `Box[C]` as a generic type argument that holds a Cell.
+
+struct C
+  hits: Cell[Int]
+
+fun peek(b: ?Box[C]) -> Int
+  b.hits.get()
+
+sub main()
+  pass
+
+# error: 8:14: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`
+# errors: 1

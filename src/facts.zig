@@ -192,17 +192,11 @@ pub const Facts = struct {
     pub fn lendsTempArray(f: Facts, node: Sexp) bool {
         return f.c().lendsTempArray(node);
     }
-    pub fn lendsCellTemp(f: Facts, node: Sexp) bool {
-        return f.c().lendsCellTemp(node);
-    }
     pub fn readsThrough(f: Facts, node: Sexp) bool {
         return f.c().readsThrough(node);
     }
     pub fn readsInPlace(f: Facts, node: Sexp) bool {
         return f.c().readsInPlace(node);
-    }
-    pub fn writesThrough(f: Facts, node: Sexp) bool {
-        return f.c().writesThrough(node);
     }
     pub fn writesTemp(f: Facts, node: Sexp) bool {
         return f.c().writesTemp(node);
@@ -301,14 +295,6 @@ pub const Facts = struct {
             .write_view => |inner| if (ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner)) .value else .pointer,
             else => null,
         };
-    }
-    /// Whether a payload binding copies the value its field's write view
-    /// points at (`readsThroughWrite`).
-    pub fn payloadReadsThroughWrite(f: Facts, b: Sexp) bool {
-        const ctx = f.c();
-        const sym = ctx.symbolOf(b) orelse return false;
-        const field = ctx.payloadFieldOf(b) orelse return false;
-        return f.readsThroughWrite(sym, field) == .value;
     }
     /// Whether a `print`, `Text(...)`, or `add` argument is read by address
     /// (`storage.printsByAddress`).
@@ -544,10 +530,10 @@ pub const Facts = struct {
     pub fn lendByValue(f: Facts, inner: TypeId) bool {
         return sema.lendByValue(f.c(), inner);
     }
-    /// Whether a value of this type holds a Cell inline, so a pointer to it
-    /// is mutable and its storage a `var` (`sema.interiorMutable`).
-    pub fn interiorMutable(f: Facts, ty: TypeId) Answer {
-        return sema.interiorMutable(f.c(), ty);
+    /// Whether a value of this type holds a Cell inline, so a read view
+    /// of it is a mutable pointer (`sema.holdsCellByValue`).
+    pub fn holdsCellByValue(f: Facts, ty: TypeId) bool {
+        return sema.holdsCellByValue(f.c(), ty);
     }
     /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {
@@ -570,9 +556,6 @@ pub const Pending = struct {
         return @ptrCast(@alignCast(p.sema_context));
     }
 
-    pub fn madeLeaves(p: Pending, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-        return storage.madeLeaves(p.c(), a, e, out);
-    }
     pub fn stepReadsBinding(p: Pending, cond: Sexp, step: Sexp) bool {
         return sema.stepReadsBinding(p.c(), cond, step);
     }
@@ -584,9 +567,6 @@ pub const Pending = struct {
     }
     pub fn copies(p: Pending, ty: TypeId) Answer {
         return sema.copies(p.c(), ty);
-    }
-    pub fn holdsCellByValue(p: Pending, ty: TypeId) bool {
-        return sema.holdsCellByValue(p.c(), ty);
     }
     pub fn actsBeforeStore(_: Pending, target: Sexp, value: Sexp) bool {
         return storage.actsBeforeStore(target, value);

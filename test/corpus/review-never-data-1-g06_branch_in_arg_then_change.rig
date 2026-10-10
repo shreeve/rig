@@ -1,0 +1,22 @@
+struct S
+  c: Cell[Vec[Int]]
+
+  sub grow(?self)
+    for i in 0..50
+      self.c.push(i)
+
+struct O
+  s: S
+
+fun peek(o: ?O) -> ?S
+  ?o.s
+
+fun f(x: Int, s: ?S) -> Int
+  x + s.c.len
+
+sub main()
+  a = *O(s: S(c: Cell(Vec())))
+  b = *O(s: S(c: Cell(Vec())))
+  k = a.s.c.len == 0
+  a.s.c.push(1)
+  print(a.s.c.len, b.s.c.len, k, f(1, ?a.s))

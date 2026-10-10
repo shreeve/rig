@@ -111,21 +111,8 @@ struct S
   fun pick(?self, x: Int, y: Int) -> ?Text
     ?self.t
 
-struct P
-  c: Cell[Int]
-  n: Int
-
-struct H
-  p: P
-
-fun mk() -> H
-  H(p: P(c: Cell(1), n: 42))
-
 fun mks() -> S
   S(t: Text("m"))
-
-fun id(x: ?P) -> ?P
-  x
 
 fun f(n: Int) -> Int
   n
@@ -136,12 +123,10 @@ sub main()
   c = a.t.len == 2
   r = (a if c else b).inner()
   print(r)
-  print(id(?mk().p).n)
   print(mks().pick(y: f(1), x: f(2)))
 EOF2
 out=$("$RIG" emit leaves.rig 2>/dev/null) || fail "rig emit leaves.rig"
 expect_has "$out" 'const r = (if (c) &a else &b).inner();' "branching receiver"
-expect_has "$out" '= &((rig.keep(&__rig_tmp_' "Cell part lent in its slot"
 expect_has "$out" '__rig_recv_' "kept receiver evaluated first"
 grep -q '@as(S, (if' <<<"$out" && fail "a branching receiver copied: $out"
 grep -qE 'var __rig_(arg|recv)_' <<<"$out" && fail "a temporary copied into the call's block: $out"

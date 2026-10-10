@@ -1,0 +1,15 @@
+fun pick(a: !Int, b: !Int, c: Bool) -> !Int
+  a if c else b
+
+fun pickv(a: !Vec[Int], b: !Vec[Int], c: Bool) -> !Vec[Int]
+  return a if c else b
+
+sub main()
+  x = 1
+  y = 2
+  w = pick(!x, !y, false)
+  w += 10
+  u: Vec[Int] = Vec()
+  v: Vec[Int] = Vec()
+  pickv(!u, !v, true).push(3)
+  print(x, y, u.len, v.len)

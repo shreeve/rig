@@ -53,7 +53,7 @@ sub main()
     .circle(r) if r > 5 => print("big")
     .circle(r) if r > 1 => print("mid", r)
     _ => print("other")
-  k = Cell(0)
+  k = *Cell(0)
   xs: [2]Shape = [.circle(r: 1), .circle(r: 2)]
   match xs[idx(?k)]
     .circle(r) if r == 1 => print("first, r =", r)

@@ -2,7 +2,6 @@
 # argument jumps or fails after the receiver is reached.
 #
 # oracle: vec1 accept
-# oracle: mkv accept
 # oracle: maybe accept
 # oracle: fails accept
 # oracle: main accept

@@ -1,18 +1,14 @@
 # An argument's write lend ends when the call returns only where the
 # result only reads: the result keeps its owner lent to read for the rest
 # of the statement, a `for` body, or a `match` arm, so the owner may not
-# be written there. A result that is a write view, and a write lend the
-# call stores, keep the owner lent to write, whole or split.
+# be written there. A result that is a write view keeps the owner lent to
+# write, whole or split.
 # oracle: result_then_write reject C4
 # oracle: for_body_writes reject C4
 # oracle: write_result_split reject C4
-# oracle: stored_split reject C4
 
 struct Item
   n: Int
-
-struct Hold
-  w: !Vec[Item]
 
 enum Res
   found(it: ?Item)
@@ -31,10 +27,6 @@ fun find(v: !Vec[Item]) -> Res
   if v.len == 0
     return Res.missing
   Res.found(it: ?v[0])
-
-fun keep(v: !Vec[Item], h: !Hold, d: ?Item) -> ?Item
-  h.w = !v
-  d
 
 fun both(a: ?Item, v: !Vec[Item]) -> Int
   a.n + v.len
@@ -68,29 +60,12 @@ sub write_result_split()
   r = firstw(!v)
   print(v.len, r.n)
 
-sub stored_whole()
-  v = items()
-  o = items()
-  h = Hold(w: !o)
-  x = Item(n: 5)
-  print(keep(!v, !h, ?x).n, v.len)
-
-sub stored_split()
-  v = items()
-  o = items()
-  h = Hold(w: !o)
-  x = Item(n: 5)
-  r = keep(!v, !h, ?x)
-  print(r.n, v.len, h.w.len)
-
 sub main()
   result_then_write()
 
-# error: 49:26: cannot lend `v` to write while a read loan is live
-# error: 54:5: cannot lend `v` to write while a read loan is live
-# error: 59:19: cannot lend `v` to write while a read loan is live
-# error: 64:23: use of `v` while a write loan is live
-# error: 69:9: use of `v` while a write loan is live
-# error: 76:29: use of `v` while a write loan is live
-# error: 84:14: use of `v` while a write loan is live
-# errors: 7
+# error: 41:26: cannot lend `v` to write while a read loan is live
+# error: 46:5: cannot lend `v` to write while a read loan is live
+# error: 51:19: cannot lend `v` to write while a read loan is live
+# error: 56:23: use of `v` while a write loan is live
+# error: 61:9: use of `v` while a write loan is live
+# errors: 5

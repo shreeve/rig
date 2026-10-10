@@ -1,0 +1,11 @@
+struct Box2
+  items: Cell[Vec[Int]]
+
+sub main()
+  v: Vec[Int] = Vec()
+  h = *Box2(items: Cell(<v))
+  h.items.push(1)
+  h.items.push(2)
+  for x in ?h.items
+    print(x)
+  print(h.items.len)

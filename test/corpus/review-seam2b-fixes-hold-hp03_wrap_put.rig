@@ -6,8 +6,6 @@
 # oracle: PR.set accept
 # oracle: PR.set2 accept
 # oracle: PR.with accept
-# oracle: P.put accept
-# oracle: P.hh accept
 # oracle: Hold.set accept
 # oracle: VH.add accept
 # oracle: OH.add accept
@@ -20,7 +18,6 @@
 # oracle: idw accept
 # oracle: clobber accept
 # oracle: f accept
-# oracle: main reject C5
 struct S
   n: Int
   t: Text

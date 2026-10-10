@@ -28,11 +28,11 @@ fun g(k: Int) -> Int
   k
 
 sub main()
-  h1 = H(q: Q(c: Cell(1), n: 1))
-  h2 = H(q: Q(c: Cell(10), n: 2))
+  h1 = *H(q: Q(c: Cell(1), n: 1))
+  h2 = *H(q: Q(c: Cell(10), n: 2))
   c = g(1) == 1
-  print((?h1 if c else ?h2).q.bump())
-  print((?h1 if c else ?h2).q.bump2(k: g(1), j: g(2)))
+  print((?h1.q if c else ?h2.q).bump())
+  print((?h1.q if c else ?h2.q).bump2(k: g(1), j: g(2)))
   print(h1.q.c.get(), h2.q.c.get())
   a = P(n: 1)
   b = P(n: 2)

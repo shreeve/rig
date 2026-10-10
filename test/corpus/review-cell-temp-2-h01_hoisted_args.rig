@@ -3,8 +3,6 @@
 #
 # oracle: V.drop accept
 # oracle: V.add accept
-# oracle: mkv accept
-# oracle: mkwv accept
 # oracle: look2 accept
 # oracle: side accept
 # oracle: fails accept

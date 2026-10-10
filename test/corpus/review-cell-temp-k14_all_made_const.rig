@@ -2,7 +2,6 @@
 #
 # oracle: C.hit accept
 # oracle: C.me accept
-# oracle: mko accept
 # oracle: bump accept
 # oracle: main accept
 struct C

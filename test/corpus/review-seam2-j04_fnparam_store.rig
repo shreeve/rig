@@ -8,7 +8,6 @@
 # oracle: mk accept
 # oracle: clobber accept
 # oracle: apply accept
-# oracle: main reject C6
 struct S
   n: Int
   items: Vec[Int]

@@ -1,0 +1,22 @@
+# A generic closure calls a captured `fun(?T)` with a `|?w|` capture.
+
+struct P
+  n: Int
+  t: Text
+
+  fun len(?self) -> Int
+    self.t.len
+
+fun gen[T](w: !T, f: fun(?T) -> Int) -> Int
+  h = |?w, ?f| f(w) + f(w)
+  h()
+
+fun ln(p: ?P) -> Int
+  p.len()
+
+sub main()
+  p = P(n: 1, t: Text("ab"))
+  print(gen(!p, ln))
+
+# expect:
+# 4

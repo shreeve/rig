@@ -52,8 +52,9 @@ it happens, and reading is unmarked. Sharing and weak handles, failure,
 capture modes, compile-time parameters, and the unsafe boundary are
 written too. Like Rust, Rig leaves some effects implicit: a drop where
 a scope ends, the allocation a `Vec`, `Box`, or `Text` makes, a plain
-copy, and a change inside a `Cell`, which changes through any path and
-so accepts only values that carry no loan. A count is added only where
+copy, and a change inside a `Cell`, which lives only behind a shared
+handle, changes through any path from it, and so accepts only values
+that carry no loan. A count is added only where
 `*x` or `+x` is written, and released where `<x` drops a handle or its
 scope ends; there is no implicit error propagation, and no unmarked
 unsafe code.
@@ -137,7 +138,7 @@ belongs to absence and suffix `!` to failure.
 ?x   prefix, expression   lend to read
 !x   prefix, expression   lend to write
 ?T   prefix, type         read view: a parameter or value
-!T   prefix, type         write view: a parameter or value
+!T   prefix, type         write view: a parameter, result, or local
 T?   suffix, type         optional: T or none
 T!   suffix, type         fallible: T or an error
 e!   suffix, expression   propagate the failure of a T!
@@ -296,7 +297,8 @@ The full rules are in [CORE](CORE.md).
 
 Rig follows the second-class-reference model of Swift, Hylo, and Mojo
 rather than Rust's lifetime parameters. A view can live in a
-parameter, a local, a struct field, or a function's result, and the
+parameter, a local, or a function's result, and a read view in a
+struct field too (a write view is never stored inside a value), and the
 checker tracks where each one came from: a returned view carries the
 loans of every argument whose type could hold what it views, or of
 only those a `from` clause names (`-> ?Item from a`), which the

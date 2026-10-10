@@ -1,0 +1,30 @@
+# A write view is never stored inside a value: not in a field, a
+# payload, an element, an optional's view, or a type argument.
+
+struct H
+  w: !Int
+
+enum E
+  a(w: !Int)
+  b
+
+struct Opt[T]
+  v: T
+
+sub f(p: ?(!Int), q: (!Int)?, r: [2]!Int, v: Vec[!Int], o: Opt[(!Int)?])
+  pass
+
+sub main()
+  n = 1
+  m = 2
+  a = [!n, !m]
+  print(a.len)
+
+# error: 5:6: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 8:8: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 14:12: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 14:37: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 14:50: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 14:64: a write view is never stored inside a value, and `(!Int)?` cannot stand here
+# error: 20:7: a write view is never stored inside a value, and `!Int` cannot stand here
+# errors: 7

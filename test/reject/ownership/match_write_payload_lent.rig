@@ -3,9 +3,7 @@
 # (`!T` parameters, `if !o as w`, `for x in !v`): while a view of it is
 # live, nothing writes through the binding. Each binding kind, payload
 # type, and lend is rejected at the write, a bare slice argument's
-# read lend too. (A read match's binding is a read view, which no write
-# goes through: a view of it keeps the binding's loans, which keep what
-# the subject views lent.)
+# read lend too.
 # oracle: slice reject C4
 # oracle: argument reject C4
 # oracle: whole reject C4
@@ -19,12 +17,9 @@
 # oracle: catch_all reject C4
 # oracle: nested reject C4
 # oracle: read_call reject C4
-# oracle: write_slice_payload reject C4
-# oracle: write_view_payload reject C4
 # oracle: held_subject reject C4
 # oracle: field_subject reject C4
 # oracle: bare_argument reject C4
-# oracle: read_match reject C4
 
 use std.text
 
@@ -54,14 +49,6 @@ enum S
 
 enum O
   a(e: E)
-  b
-
-enum WS
-  a(s: ![]Text)
-  b
-
-enum WV
-  a(w: !Text)
   b
 
 struct HE
@@ -199,27 +186,6 @@ sub read_call()
       print(s)
     .b => pass
 
-sub write_slice_payload()
-  v: Vec[Text] = Vec()
-  !v.push(Text("hello"))
-  e = WS.a(!v[..])
-  match !e
-    .a(s)
-      r = ?s[0]
-      s[0] = Text("other")
-      print(r)
-    .b => pass
-
-sub write_view_payload()
-  t = Text("hello")
-  e = WV.a(!t)
-  match !e
-    .a(w)
-      s = ?w[1..]
-      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-      print(s)
-    .b => pass
-
 sub held_subject()
   e = E.a(Text("hello"))
   w = !e
@@ -253,39 +219,26 @@ sub bare_argument(e: !E, f: !V)
       print(s)
     .b => pass
 
-sub read_match()
-  t = Text("hello")
-  g = WV.a(!t)
-  s = ""
-  match g
-    .a(w) => s = ?w[1..]
-    .b => pass
-  !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-  print(s)
-
 sub main()
   slice()
 
-# error: 81:7: cannot lend `t` to write while a read loan is live
-# error: 90:7: cannot lend `t` to write while a read loan is live
-# error: 99:7: cannot lend `t` to write while a read loan is live
-# error: 108:7: cannot reassign `t` while it is lent
-# error: 116:7: cannot lend `t` to write while a read loan is live
-# error: 125:7: cannot lend `t` to write while a read loan is live
-# error: 134:7: cannot lend `x` to write while a read loan is live
-# error: 143:7: cannot reassign `b` while it is lent
-# error: 154:7: cannot lend `xs` to write while a read loan is live
-# error: 157:7: cannot lend `xs` to write while a read loan is live
-# error: 166:7: cannot lend `p` to write while a read loan is live
-# error: 169:7: cannot lend `p` to write while a read loan is live
-# error: 178:7: cannot reassign `x` while it is lent
-# error: 188:11: cannot lend `t` to write while a read loan is live
-# error: 198:7: cannot lend `t` to write while a read loan is live
-# error: 209:7: cannot assign to `s[0]` while `s` is lent
-# error: 219:7: cannot lend `w` to write while a read loan is live
-# error: 229:7: cannot lend `t` to write while a read loan is live
-# error: 238:7: cannot lend `t` to write while a read loan is live
-# error: 246:7: cannot reassign `t` while it is lent
-# error: 252:7: cannot lend `xs` to write while a read loan is live
-# error: 263:4: use of `t` while a write loan is live
-# errors: 22
+# error: 68:7: cannot lend `t` to write while a read loan is live
+# error: 77:7: cannot lend `t` to write while a read loan is live
+# error: 86:7: cannot lend `t` to write while a read loan is live
+# error: 95:7: cannot reassign `t` while it is lent
+# error: 103:7: cannot lend `t` to write while a read loan is live
+# error: 112:7: cannot lend `t` to write while a read loan is live
+# error: 121:7: cannot lend `x` to write while a read loan is live
+# error: 130:7: cannot reassign `b` while it is lent
+# error: 141:7: cannot lend `xs` to write while a read loan is live
+# error: 144:7: cannot lend `xs` to write while a read loan is live
+# error: 153:7: cannot lend `p` to write while a read loan is live
+# error: 156:7: cannot lend `p` to write while a read loan is live
+# error: 165:7: cannot reassign `x` while it is lent
+# error: 175:11: cannot lend `t` to write while a read loan is live
+# error: 185:7: cannot lend `t` to write while a read loan is live
+# error: 195:7: cannot lend `t` to write while a read loan is live
+# error: 204:7: cannot lend `t` to write while a read loan is live
+# error: 212:7: cannot reassign `t` while it is lent
+# error: 218:7: cannot lend `xs` to write while a read loan is live
+# errors: 19

@@ -7,17 +7,14 @@ struct In
 struct Wrap
   r: ?In
 
-struct Ed
-  t: !Wrap
-
 struct View
   b: ?In
 
 sub fill(w: !View, b: ?In)
   w.b = b
 
-sub fill_ed(e: Ed, b: ?In)
-  e.t.r = b
+sub fill_wrap(t: !Wrap, b: ?In)
+  t.r = b
 
 sub main()
   a = In(n: 1)
@@ -28,8 +25,7 @@ sub main()
     fill(!w, ?y)
   print(v.b.n)
   x = Wrap(r: ?a)
-  e = Ed(t: !x)
-  fill_ed(e, ?y)
+  fill_wrap(!x, ?y)
   print(x.r.n)
 
 # expect:

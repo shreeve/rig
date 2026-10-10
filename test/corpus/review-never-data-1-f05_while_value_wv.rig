@@ -1,0 +1,6 @@
+sub main()
+  a = 1
+  w: !Int = while true
+    break a
+  w += 10
+  print(a)

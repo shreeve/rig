@@ -64,7 +64,5 @@ sub main()
 # 8 3 7
 
 # oracle: C.hit accept
-# oracle: mk accept
 # oracle: maybe accept
 # oracle: score accept
-# oracle: main accept

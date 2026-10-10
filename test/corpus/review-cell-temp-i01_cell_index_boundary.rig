@@ -2,7 +2,6 @@
 # through a `?self` method, through a view a call returns, and compound.
 #
 # oracle: Log.drop accept
-# oracle: made accept
 # oracle: peek accept
 struct Log
   lines: Cell[Vec[Int]]

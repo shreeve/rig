@@ -1,0 +1,8 @@
+type C = Cell[Int]
+
+sub take(c: C)
+  c.set(2)
+
+sub main()
+  x: C = Cell(1)
+  print(x.get())

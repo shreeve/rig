@@ -2,9 +2,6 @@
 # `catch`. Set, a ?self method, and a read.
 #
 # oracle: N.hit accept
-# oracle: mk accept
-# oracle: mkf accept
-# oracle: mko accept
 # oracle: main accept
 error E
   bad

@@ -1,0 +1,13 @@
+struct H
+  v: Vec[Text]
+
+  fun first(?self) -> ?Text
+    ?self.v[0]
+
+sub main()
+  a: H? = H(v: Vec())
+  b = H(v: Vec())
+  !b.v.push(Text("b"))
+  r = (a ?? b).first()
+  <b
+  print(r)

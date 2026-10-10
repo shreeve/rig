@@ -3,8 +3,6 @@
 #
 # oracle: N.hit accept
 # oracle: f accept
-# oracle: mk accept
-# oracle: main accept
 struct N
   c: Cell[Int]
   pad: [8]Int

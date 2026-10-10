@@ -2,8 +2,6 @@
 # a named leaf.
 #
 # oracle: C.hit accept
-# oracle: mko accept
-# oracle: go reject C2
 # oracle: main accept
 struct C
   c: Cell[Int]

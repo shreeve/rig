@@ -93,7 +93,6 @@ sub main()
 # oracle: C.hit accept
 # oracle: E.hitall accept
 # oracle: B.hit accept
-# oracle: mk accept
 # oracle: tot accept
 # oracle: viaw accept
 # oracle: viah accept

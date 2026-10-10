@@ -1,0 +1,22 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct O
+  k: Counter
+
+struct G[T]
+  v: T
+
+  fun get(?self) -> ?T
+    ?self.v
+
+sub main()
+  o = *O(k: Counter())
+  r: ?Counter = ?o.k
+  g = G(v: r)
+  g.get().hit()
+  g.v.hit()
+  print(o.k.hits.get())

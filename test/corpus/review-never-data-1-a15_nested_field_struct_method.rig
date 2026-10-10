@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct Outer
+  a: Counter
+  b: Counter
+
+sub main()
+  h = *Outer(a: Counter(hits: Cell(5)), b: Counter())
+  h.a.hit()
+  h.b.hit()
+  r = ?h.a
+  r.hit()
+  print(h.a.hits.get(), h.b.hits.get())

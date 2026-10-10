@@ -2,9 +2,7 @@
 #
 # oracle: D.drop accept
 # oracle: D.hit accept
-# oracle: mkd accept
 # oracle: bump accept
-# oracle: main accept
 struct D
   c: Cell[Int]
 

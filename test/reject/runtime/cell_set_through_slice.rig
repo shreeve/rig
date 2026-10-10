@@ -1,0 +1,12 @@
+# A Cell lives only behind a shared handle, so a slice cannot hold Cells
+# by value: the rule that a Cell lives only behind `*` rejects the
+# element type `[]Cell[Int]`.
+
+sub bumps(s: []Cell[Int])
+  s[0].set(5)
+
+sub main()
+  pass
+
+# error: 5:16: a value of `Cell[Int]` holds a Cell, so it lives only behind a shared handle: write `*Cell[Int]`
+# errors: 1

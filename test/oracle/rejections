@@ -248,6 +248,7 @@ doc/CORE/2438532286 main
 doc/CORE/2544085652 main
 doc/CORE/2823746719 main
 doc/CORE/2873586614 main
+doc/CORE/3043440760 show
 doc/CORE/3056819009 main
 doc/CORE/3143210043 main
 doc/CORE/3206835740 pick
@@ -260,6 +261,7 @@ doc/SPEC/115450776 main
 doc/SPEC/1447035486 main
 doc/SPEC/1719082925 main
 doc/SPEC/1869169986 main
+doc/SPEC/1961172340 keep
 doc/SPEC/2020563711 main
 doc/SPEC/223951594 main
 doc/SPEC/2605336713 main
@@ -2242,6 +2244,20 @@ test/corpus/review-move-done-p54_match_subject.rig s4
 test/corpus/review-move-done-p65_bare_branch_made_part.rig main
 test/corpus/review-move-done-p71_consume_receiver_copy_lt.rig main
 test/corpus/review-move-done-p80_write_view_field.rig main
+test/corpus/review-never-data-1-a01_field_copy_out.rig main
+test/corpus/review-never-data-1-a02_inner_copy_out.rig main
+test/corpus/review-never-data-1-a07_move_field.rig main
+test/corpus/review-never-data-1-c09_owned_closure_wv.rig main
+test/corpus/review-never-data-1-h06_ctor_from_branch.rig main
+test/corpus/review-never-data-1-h07_ctor_from_place.rig main
+test/corpus/review-never-data-1-h09_shared_from_branch.rig main
+test/corpus/review-never-data-1-h10_cell_from_branch.rig main
+test/corpus/review-never-data-1-h11_vec_push_branch.rig main
+test/corpus/review-never-data-1-j01_branch_receiver_view_result.rig main
+test/corpus/review-never-data-1-j02_branch_receiver_drop.rig main
+test/corpus/review-never-data-1-j05_handle_branch_receiver_view.rig main
+test/corpus/review-never-data-1-j09_branch_coalesce_receiver.rig main
+test/corpus/review-never-data-1-k07_generic_capture_wv_local.rig gen
 test/corpus/review-payload-loan-1-p03_generic_payload.rig f
 test/corpus/review-payload-loan-1-p04_generic_payload_slice.rig main
 test/corpus/review-payload-loan-1-p05_nested_in_for.rig main
@@ -3025,6 +3041,7 @@ test/corpus/t1-vi.rig main
 test/corpus/take-r3.rig main
 test/corpus/take-s1.rig main
 test/reject/modules/imported_drop_glue_alias main
+test/reject/modules/imported_view_stored_through_write_view main
 test/reject/modules/transitive_type_alias main
 test/reject/ownership/alias_capture_if_expr.rig main
 test/reject/ownership/alias_deeply_nested_generic.rig main
@@ -3467,6 +3484,7 @@ test/reject/ownership/store_into_unnamed_receiver.rig recv_hoisted
 test/reject/ownership/store_into_unnamed_receiver.rig recv_part
 test/reject/ownership/store_into_unnamed_receiver.rig recv_view
 test/reject/ownership/store_through_nested_view_outlives.rig main
+test/reject/ownership/store_through_write_view_outlives.rig main
 test/reject/ownership/store_view_through_held_write_view.rig put
 test/reject/ownership/store_view_through_local_write_view.rig main
 test/reject/ownership/string_of_local_text.rig fill

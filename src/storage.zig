@@ -122,10 +122,7 @@ pub fn isTypeSym(ctx: *const SemContext, id: SymbolId) bool {
 /// The function type of a function, closure, or callable view.
 pub fn fnType(ctx: *const SemContext, ty: ?TypeId) ?sema.FunctionType {
     const t = ty orelse return null;
-    return switch (ctx.types.get(t)) {
-        .function => |f| f,
-        else => sema.callableFn(ctx, t),
-    };
+    return sema.calledFn(ctx, t);
 }
 
 /// Whether `e` is read from storage, not made for its context
@@ -241,11 +238,8 @@ fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
         }
     }
     const callee = ctx.calleeOf(call);
-    // Zig passes a temporary receiver to a `!self` method as a constant,
-    // and a Cell a read view may change must not be in one.
-    if (receiverOf(ctx, call)) |recv| if ((!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) or ctx.lendsCellTemp(lentPlace(recv))) return true;
-    for (args) |a| if (argValue(a).isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
-    for (args) |a| if (ctx.lendsTempArray(argValue(a)) and ctx.lendsCellTemp(argValue(a))) return true;
+    // Zig passes a temporary receiver to a `!self` method as a constant.
+    if (receiverOf(ctx, call)) |recv| if (!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) return true;
     var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or consumedTemporary(ctx, call) != null;
     for (args) |a| {
         const v = argValue(a);
@@ -296,9 +290,7 @@ fn decideReceiverHold(ctx: *const SemContext, call: Sexp) ?ReceiverHold {
     // Lend sigils on a receiver are implicit in Zig's method calls.
     const recv = lentPlace(receiverOf(ctx, call) orelse return null);
     const writes = receiverWrites(ctx, call);
-    // A Cell-holding part of a temporary is held where it can change.
-    const cell = ctx.lendsCellTemp(recv);
-    const temporary = (!hasStorage(ctx, recv) and !recv.isKind(.move)) or cell;
+    const temporary = !hasStorage(ctx, recv) and !recv.isKind(.move);
     if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return null;
     if (reachesLeaf(ctx, recv)) return .leaf;
     if (temporary and keptInSlot(ctx, recv)) return .slot;
@@ -314,11 +306,6 @@ pub const ArgumentHold = enum {
     closure,
     /// Any other callable lent: the `rig.FnRef`.
     callable,
-    /// A Cell-holding part of a temporary lent to read, kept in its
-    /// statement's slot: its address there.
-    cell_slot,
-    /// Such a part of a temporary no slot keeps: a mutable copy.
-    cell_copy,
     /// A value lent as the view its parameter expects (`lendOf`): the
     /// view, which points where the value is, a place or its
     /// statement's slot.
@@ -333,7 +320,6 @@ pub fn argumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
 
 fn decideArgumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
     if (ctx.callableOf(v) != null) return if (v.isKind(.lambda)) .closure else .callable;
-    if (v.isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(v))) return if (keptInSlot(ctx, ir.Read.operand(v))) .cell_slot else .cell_copy;
     if (ctx.lendOf(v) != null and !ctx.lendsTempArray(v)) return .lent;
     return .value;
 }
@@ -394,9 +380,8 @@ fn decideReachesLeaf(ctx: *const SemContext, e: Sexp) bool {
 
 /// How emit finds the address of `e`, a value reached where its leaves
 /// are (`reachesLeaf`), or of one of its leaves: one step of the walk
-/// `Emitter.emitLeafPtr` writes, which the storage planner and
-/// `madeLeaves` follow, so the checker keeps exactly the values emit
-/// reaches. Inside such a value every branching form is walked to its
+/// `Emitter.emitLeafPtr` writes, which the storage planner follows.
+/// Inside such a value every branching form is walked to its
 /// parts (`sema.valueParts`), as `sema.valueLeaves` walks a read, also
 /// one whose every leaf is made here.
 pub const LeafStep = enum {
@@ -411,7 +396,7 @@ pub const LeafStep = enum {
     /// A place: its address.
     place,
     /// A field or element of a value made here: its address within that
-    /// value, which is reached as a value is (`madeLeaves`).
+    /// value, which is reached as a value is.
     part,
     /// A lend: the view it makes.
     lend,
@@ -452,51 +437,6 @@ fn wholeStep(ctx: *const SemContext, e: Sexp) LeafStep {
         .jump => .jump,
         .made, .branches, .none => if (e == .src) .literal else .made,
     };
-}
-
-/// The values made here that reaching `e` by address reaches, appended
-/// to `out`: a value that branches with a leaf not made here
-/// (`sema.handsOver` is `branches`) at each of its leaves, walked by
-/// `leafStep`; any other value whole, as one temporary. A part of a
-/// value made here (`mk().t`) reaches that value, the same way. Emit
-/// takes the address of each such value where its statement's slot
-/// keeps it (`dropsTemp`), and otherwise of a Zig temporary, which may
-/// be constant, so nothing may change it: typecheck keeps each in its
-/// slot wherever a value whose type holds a Cell is reached so
-/// (`Checker.keepReached`), and emit stops with an internal error at one
-/// no slot keeps (`Emitter.refuseHeldCell`).
-pub fn madeLeaves(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    const step = if (sema.handsOver(ctx, e).kind == .branches) leafStep(ctx, e) else wholeStep(ctx, e);
-    switch (step) {
-        .@"if", .fallback, .unwrap => {
-            var parts = sema.valueParts(e);
-            while (parts.next()) |part| try madeLeavesIn(ctx, a, part.node, out);
-        },
-        .made => try out.append(a, e),
-        .part => try madeLeaves(ctx, a, pathBase(e), out),
-        .place, .lend, .literal, .jump => {},
-    }
-}
-
-/// `madeLeaves` of `e`, a part of a value that branches beside a name's:
-/// every branching form is walked through (`leafStep`).
-fn madeLeavesIn(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    switch (leafStep(ctx, e)) {
-        .@"if", .fallback, .unwrap => {
-            var parts = sema.valueParts(e);
-            while (parts.next()) |part| try madeLeavesIn(ctx, a, part.node, out);
-        },
-        .made => try out.append(a, e),
-        .part => try madeLeaves(ctx, a, pathBase(e), out),
-        .place, .lend, .literal, .jump => {},
-    }
-}
-
-/// The value the field or element path `e` starts from.
-fn pathBase(e: Sexp) Sexp {
-    var base = e;
-    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
-    return base;
 }
 
 /// Whether a header over `e` (a `match` subject, a `for` source, an
@@ -1253,7 +1193,7 @@ const Planner = struct {
         if (viewsOptionalValue(ctx, value)) {
             // A view of a temporary the header drops: the binding views
             // a copy of the value inside.
-            const copy = ctx.copiesHeader(cond) or (value.isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(value)));
+            const copy = ctx.copiesHeader(cond);
             try p.subjectHeader(value);
             if (used) {
                 try p.record(cond, .as_value, if (copy) .copy else .pointer, .body);
@@ -1389,8 +1329,7 @@ const Planner = struct {
                     break :by .owned;
                 },
                 .callable => .owned,
-                .cell_slot, .lent => .pointer,
-                .cell_copy => .copy,
+                .lent => .pointer,
                 .value => if (argumentParam(ctx, c, ai)) |t| (if (isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
             };
             try p.record(v, .argument, by, .call);
@@ -1428,11 +1367,9 @@ const Planner = struct {
     /// An assignment to a field or element (`emitPlaceAssign`).
     fn placeAssign(p: *Planner, target: Sexp, value: Sexp) !void {
         const ctx = p.ctx;
-        const through = ctx.writesThrough(target);
-        const target_ty = typeOf(ctx, target);
-        const place_ty = if (through) sema.unwrapViews(ctx, target_ty.?) else target_ty;
+        const place_ty = typeOf(ctx, target);
         if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellVecTy(ctx, t)) return p.openAssign(target, value);
-        if (target != .src and isPtrViewExpr(ctx, target) and !through) return p.openAssign(target, value);
+        if (target != .src and isPtrViewExpr(ctx, target)) return p.openAssign(target, value);
         if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(target, value);
         try p.record(value, .new_value, .owned, .assignment);
         if (actsBeforeStore(target, value)) try p.indexes(target);

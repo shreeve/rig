@@ -1,0 +1,16 @@
+struct H
+  v: Vec[Text]
+
+  fun first(?self) -> ?Text
+    ?self.v[0]
+
+sub main()
+  a = H(v: Vec())
+  b = H(v: Vec())
+  !a.v.push(Text("a"))
+  !b.v.push(Text("b"))
+  c = a.v.len > 0
+  r = (a if c else b).first()
+  for i in 0..100
+    !a.v.push(Text("z"))
+  print(r)

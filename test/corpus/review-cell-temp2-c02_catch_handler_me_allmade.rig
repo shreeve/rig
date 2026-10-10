@@ -1,9 +1,6 @@
 # All-made: `(mkf(-1) catch mk(5)).me()` with no branch beside a name.
 #
 # oracle: N.me accept
-# oracle: mk accept
-# oracle: mkf accept
-# oracle: mkww accept
 error E
   bad
 

@@ -2,7 +2,6 @@
 # changed.
 #
 # oracle: N.hit accept
-# oracle: mk accept
 # oracle: main accept
 struct N
   c: Cell[Int]

@@ -6,7 +6,7 @@ struct Game
   score: Int
 
 sub main()
-  c = Cell(random.Random.seeded(1))
+  c = *Cell(random.Random.seeded(1))
   r = c.replace(random.Random.seeded(2))
   print((!r).next())
   g = Game(rng: random.Random.seeded(7), score: 3)

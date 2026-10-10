@@ -1,0 +1,17 @@
+struct H
+  a: Int
+  b: Int
+
+fun pick(h: !H, c: Bool) -> !Int
+  h.a if c else h.b
+
+fun pick2(h: !H, c: Bool) -> !Int
+  !h.a if c else !h.b
+
+sub main()
+  h = H(a: 1, b: 2)
+  w = pick(!h, true)
+  w += 10
+  x = pick2(!h, false)
+  x += 20
+  print(h.a, h.b)

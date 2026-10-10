@@ -1,5 +1,5 @@
-# A struct holding `!Int` keeps its write view while it is used
-# later, so the Int it views cannot be read until then.
+# A struct cannot hold `!Int`: a write view is never stored inside a
+# value, so no struct carries a write loan past the call that lends it.
 
 struct H
   w: !Int
@@ -10,5 +10,5 @@ sub main()
   print(n)
   h.w += 1
 
-# error: 10:9: use of `n` while a write loan is live
+# error: 5:6: a write view is never stored inside a value, and `!Int` cannot stand here
 # errors: 1

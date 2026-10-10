@@ -1,0 +1,14 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub main()
+  h = *Counter()
+  g = *Counter()
+  c = true
+  (h if c else g).hit()
+  (h if c else g).hits.set(5)
+  ?(h if c else g).hit()
+  print(h.hits.get(), g.hits.get())

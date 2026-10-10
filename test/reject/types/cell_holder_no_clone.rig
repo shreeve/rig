@@ -1,22 +1,19 @@
-# A unique value has no `+x` clone, and nothing copies one out: not
-# `[n of x]`, an array's `get`, or a Cell's `get`.
+# A value that holds a Cell is unique, also as a field of a value behind
+# `*`: it has no `+x` clone, and `[n of x]` does not copy one.
 
 struct Counter
   hits: Cell[Int]
 
-sub main()
-  a = Counter(hits: Cell(0))
-  b = +a
-  c = Cell(1)
-  d = +c
-  all = [2 of a]
-  arr = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
-  x = arr.get(0)
-  box = Cell(Counter(hits: Cell(5)))
-  y = box.get()
+struct Holder
+  c: Counter
+  k: Cell[Int]
 
-# error: 9:8: `+x` cannot clone a `Counter`: it is unique, and a copy would duplicate it; move it with `<x`
-# error: 11:8: `+x` cannot clone a `Cell[Int]`: it is unique
-# error: 12:15: `[n of x]` copies its element into every slot; `Counter` is unique, so it cannot be copied
-# error: 14:11: `get` would copy an element out of a `[2]Counter`
-# error: 16:11: `Cell.get` returns a copy of the value, and a `Counter` is unique, so it can't be copied; write `cell.replace(<new)`, which puts `new` in and hands back the old value
+sub main()
+  h = *Holder(c: Counter(hits: Cell(0)), k: Cell(1))
+  b = +h.c
+  d = +h.k
+  all = [2 of h.c]
+
+# error: 13:8: `+x` cannot clone a `Counter`: it is unique, and a copy would duplicate it; move it with `<x`
+# error: 14:8: `+x` cannot clone a `Cell[Int]`: it is unique, and a copy would duplicate it; move it with `<x`
+# error: 15:15: `[n of x]` copies its element into every slot; `Counter` is unique, so it cannot be copied

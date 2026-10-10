@@ -37,7 +37,7 @@ fun head[T](xs: [3]T) -> T
 fun count[T](v: ?Vec[T]) -> Int
   v.len
 
-fun read[T](c: ?Cell[T]) -> T
+fun read[T](c: ?*Cell[T]) -> T
   c.get()
 
 fun unbox[T](b: ?Wrap[T]) -> T
@@ -61,7 +61,7 @@ sub main()
   v = Vec[Int]()
   !v.push(4)
   print(count(?v))
-  c = Cell(9)
+  c = *Cell(9)
   print(read(?c))
   b = Wrap(v: 11)
   print(unbox(?b))

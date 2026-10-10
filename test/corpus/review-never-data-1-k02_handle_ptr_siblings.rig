@@ -1,0 +1,28 @@
+struct Q
+  n: Int
+
+  fun get(?self, j: Int, k: Int) -> Int
+    self.n + j + k
+
+struct W
+  h: *Q
+
+fun g(k: Int) -> Int
+  k
+
+sub main()
+  qs: Vec[*Q] = Vec()
+  !qs.push(*Q(n: 1))
+  !qs.push(*Q(n: 2))
+  print(qs[g(1)].get(k: g(1), j: g(2)))
+  print(?qs[g(0)].n, (?qs[0]).get(k: g(1), j: g(2)))
+  w1 = W(h: *Q(n: 5))
+  w2 = W(h: *Q(n: 6))
+  c = g(1) == 1
+  print((?w1 if c else ?w2).h.n, (?w1 if c else ?w2).h.get(k: g(1), j: g(2)))
+  h1 = *Q(n: 8)
+  h2 = *Q(n: 9)
+  x = (?h1 if c else ?h2)
+  print(x.n, x.get(k: g(1), j: g(2)))
+  arr = [*Q(n: 3), *Q(n: 4)]
+  print(arr[g(1)].get(k: g(1), j: g(2)), (?arr[0] if c else ?arr[1]).n)

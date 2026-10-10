@@ -30,5 +30,5 @@ sub main()
   look(?a[..])
   print(count(?a))
 
-# error: 26:13: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 26:13: cannot lend `a if f else b`: it may be `a`, a value a name holds
 # error: 31:9: `count[random.Random]` cannot use `T = random.Random`: the generic body copies into a loop binding a value that holds a `T`, and `random.Random` is unique

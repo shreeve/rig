@@ -1,0 +1,13 @@
+struct H
+  v: Vec[Int]
+
+sub main()
+  a = H(v: Vec())
+  b = H(v: Vec())
+  !a.v.push(1)
+  c = true
+  for x in !(a if c else b).v
+    x += 10
+  for x in (a if c else b).v
+    print(x)
+  print(a.v[0])

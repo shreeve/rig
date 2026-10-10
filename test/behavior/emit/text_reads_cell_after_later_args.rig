@@ -21,15 +21,15 @@ fun grow_s(s: ?S) -> Int
   1
 
 sub main()
-  c: Cell[Vec[Int]] = Cell(Vec())
+  c: *Cell[Vec[Int]] = *Cell(Vec())
   c.push(42)
   t = Text(c, grow(?c))
   print(t.len)
-  d: Cell[Vec[Int]] = Cell(Vec())
+  d: *Cell[Vec[Int]] = *Cell(Vec())
   d.push(7)
   u = Text(d, reset(?d))
   print(u)
-  s = S(c: Cell(Vec()))
+  s = *S(c: Cell(Vec()))
   w = Text(s, " ", grow_s(?s))
   print(w)
 

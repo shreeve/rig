@@ -3,12 +3,6 @@
 #
 # oracle: D.drop accept
 # oracle: D.hit accept
-# oracle: mkd accept
-# oracle: mkh accept
-# oracle: ret1 accept
-# oracle: ret2 accept
-# oracle: ret3 accept
-# oracle: main accept
 struct D
   c: Cell[Int]
 

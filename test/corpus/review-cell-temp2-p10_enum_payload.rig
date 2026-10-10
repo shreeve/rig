@@ -4,10 +4,6 @@
 # oracle: D.drop accept
 # oracle: En.hit accept
 # oracle: En.val accept
-# oracle: mk1 accept
-# oracle: mk2 accept
-# oracle: mko accept
-# oracle: mkf accept
 # oracle: main accept
 error E
   bad

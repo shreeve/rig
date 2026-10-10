@@ -1,0 +1,15 @@
+# A Cell lives only behind a shared handle, so a constructor literal of a
+# type that holds one cannot stand as a temporary lent to a call: the
+# rule that a Cell lives only behind `*` rejects it.
+
+struct P
+  c: Cell[Int]
+
+sub bump(p: ?P)
+  p.c.set(p.c.get() + 10)
+
+sub main()
+  bump(?P(c: Cell(1)))
+
+# error: 12:9: `P(c: Cell(1))` makes a `P`, which holds a Cell, so it lives only behind a shared handle: write `*P(c: Cell(1))`
+# errors: 1

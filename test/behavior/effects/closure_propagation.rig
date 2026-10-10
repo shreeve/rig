@@ -23,10 +23,10 @@ fun lead(s: String, f: ?fun(String) -> Int?) -> Int
   f(s) ?? 0
 
 sub main()
-  total = Cell(0)
-  each(["ab", "c"], |!total, l| total.set(total.get() + parse(l)!)) catch print("failed")
+  total = *Cell(0)
+  each(["ab", "c"], |+total, l| total.set(total.get() + parse(l)!)) catch print("failed")
   print(total.get())
-  each(["ab", ""], |!total, l| total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
+  each(["ab", ""], |+total, l| total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
   print(apply("abc", |l| parse(l)! * 2), apply("", |l| parse(l)! * 2))
   g: *fun(String) -> Int! = *|l| parse(l)! + 1
   print(g("xy") catch 0, g("") catch 0)

@@ -3,10 +3,7 @@
 #
 # oracle: V.drop accept
 # oracle: V.add accept
-# oracle: mkv accept
-# oracle: mkwv accept
 # oracle: maybe accept
-# oracle: main accept
 struct V
   c: Cell[Vec[Int]]
 

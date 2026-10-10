@@ -1,8 +1,6 @@
 # A named leaf beside `mko(6)?`: the emitter's backstop on an accepted program.
 #
 # oracle: N.hit accept
-# oracle: mk accept
-# oracle: mko accept
 # oracle: main accept
 struct N
   c: Cell[Int]

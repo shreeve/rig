@@ -3,7 +3,6 @@
 # a write loan is live". The same with `?? 0`, or `?? break`, is accepted.
 #
 # oracle: D.hitn accept
-# oracle: mk accept
 # oracle: maybe accept
 # oracle: main accept
 struct D

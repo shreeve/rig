@@ -1,0 +1,5 @@
+error E
+  bad(w: !Int)
+
+sub main()
+  print(1)

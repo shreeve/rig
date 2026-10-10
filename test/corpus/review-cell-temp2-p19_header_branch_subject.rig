@@ -2,11 +2,6 @@
 # hold a Cell: a `for` over an array, a `match` on an enum, `if ... as`.
 #
 # oracle: N.hit accept
-# oracle: mk accept
-# oracle: mkarr accept
-# oracle: mke accept
-# oracle: mko accept
-# oracle: go reject C2
 # oracle: main accept
 struct N
   c: Cell[Int]

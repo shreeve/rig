@@ -1,5 +1,5 @@
-# A write view held in a field has one holder, the struct, which keeps
-# it: `<h.w` cannot move it out. `!h.w` lends it on.
+# A write view is never held in a field, so no `<h.w` can move one out
+# of its holder: the field is rejected where it is declared.
 
 struct H
   w: !Int
@@ -11,5 +11,5 @@ sub main()
   x += 1
   print(n)
 
-# error: 10:8: cannot move out of `h.w`: a write view has one holder, and `h` keeps it; lend it on with `!h.w`
+# error: 5:6: a write view is never stored inside a value, and `!Int` cannot stand here
 # errors: 1

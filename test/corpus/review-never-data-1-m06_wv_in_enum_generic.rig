@@ -1,0 +1,14 @@
+enum R[T]
+  ok(v: T)
+  no
+
+fun mk[T](x: T) -> R[T]
+  R.ok(x)
+
+sub main()
+  a = [1, 2, 3]
+  r = mk(!a[..])
+  match !r
+    .ok(s) => s[0] = 9
+    .no => pass
+  print(a[0])

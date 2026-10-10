@@ -1,0 +1,20 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub main()
+  k = *Counter()
+  j = *Counter()
+  v: Vec[?Counter] = Vec()
+  !v.push(?k)
+  !v.push(?j)
+  for r in v
+    r.hit()
+  for r in ?v
+    r.hit()
+  v[0].hit()
+  s = ?v[..]
+  s[1].hit()
+  print(k.hits.get(), j.hits.get())

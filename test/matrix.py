@@ -4,7 +4,8 @@
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
-`drop`, a struct holding a Cell, a struct declared `unique`), plus the
+`drop`, a struct declared `unique`, and a few cells of a struct holding
+a Cell, every one of which must be rejected), plus the
 stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
 `match` payload field that is itself a view (`viewpay.`), a lend of a
@@ -15,19 +16,20 @@ branch, every one of which must be rejected (`hdr.`), a
 `while` step reading what its condition binds (`step.`), an assignment
 to a place a view reaches whose value holds a statement of its own
 (`target.`), and the
-shapes of nested loops and the jumps between them (`loop.`), and a Cell
-changed through each kind of path to the value holding it (`cellmut.`),
-and the Cell of a temporary changed where it stands, alone or as a leaf
-of a value that branches (`celltemp.`), each built in debug and with
-`--release`. The rule is
+shapes of nested loops and the jumps between them (`loop.`), a Cell
+changed through the `*` handle to the value holding it (`cellmut.`),
+built in debug and with `--release`, and a value holding a Cell made or
+held anywhere but behind `*` (`cellmut.value.`, `celltemp.value.`),
+every one of which must be rejected, and a branch of such places copied
+by value (`cellbranch.`), likewise. The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds, a `lendw.`
 program what the view showed and what the write left, and a `loop.`
-program the trace of its steps, defers, and drops. A `cellmut.` or
-`celltemp.` program must be accepted, and print its trace in debug and
-again built with `--release`.
+program the trace of its steps, defers, and drops. A `cellmut.` program
+whose type is not `value` must be accepted, and print its trace in debug
+and again built with `--release`.
 
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
@@ -244,10 +246,14 @@ TYPES = {
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
     "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
-    # A struct that holds a Cell (`poke` changes it through the binding),
-    # and one declared `unique`.
-    "cell": dict(ty="Counter", decls="struct Counter\n  hits: Cell[Int]\n\n  sub hit(?self)\n    self.hits.set(self.hits.get() + 1)\n",
-                 mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))", poke="e.hit()"),
+    # A struct that holds a Cell, which lives only behind `*`: a value
+    # of it is rejected wherever it stands, so it keeps only the cells
+    # in `rejected` (a context and a form), each of which must be
+    # rejected.
+    "cell": dict(ty="Counter", decls="struct Counter\n  hits: Cell[Int]\n",
+                 mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))",
+                 rejected=(("binding", "ctor"), ("print", "call"), ("lend_arg", "place"))),
+    # A struct declared `unique`.
     "unique": dict(ty="U", decls="struct U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
     # Values that copy (`sema.copies`): a plain struct and an array,
     # which a view's value is copied out as a number's is.
@@ -305,11 +311,11 @@ CONTEXTS = {
     "match_subject": dict(inline="match E\n    y => print(look(?y))"),
     "for_source": dict(inline="for e in ?E\n    print(e)"),
     # A loop over an array made in its header, which it takes.
-    "for_literal": dict(inline="for e in [E, mk(6)]\n    @POKE\n    print(look(?e))"),
+    "for_literal": dict(inline="for e in [E, mk(6)]\n    print(look(?e))"),
     # A loop over a branch whose arms are arrays: each element is a copy.
-    "for_branch": dict(inline="for e in ([E, mk(6)] if c else [mk(7), mk(8)])\n    @POKE\n    print(look(?e))"),
+    "for_branch": dict(inline="for e in ([E, mk(6)] if c else [mk(7), mk(8)])\n    print(look(?e))"),
     # A match on a part of a made value.
-    "match_part": dict(inline="match H(f: E).f\n    y\n      @POKY\n      print(look(?y))"),
+    "match_part": dict(inline="match H(f: E).f\n    y\n      print(look(?y))"),
     # A header whose subject makes a temporary (`?Text(...)`): it takes
     # the value a call makes there, so it binds that value.
     "match_subject_temp": dict(inline='match pass_t(E, ?Text("t"))\n    y => print(look(?y))', temp=True),
@@ -375,7 +381,7 @@ POKES = {
     "int": "x += 1", "string": 'x = "u"',
     "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "vec": "for i in 0..100\n    !x.push(i)",
     "shared": "x = *N(v: 9)", "box": "x = Box(N(v: 9))", "drop": "x = D(v: 9)",
-    "cell": "x = Counter(hits: Cell(9))", "unique": "x = U(v: 9)", "enum": "x = S.dot",
+    "unique": "x = U(v: 9)", "enum": "x = S.dot",
     "plain": "x = P(v: 9)", "array": "x[0] += 1",
 }
 WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
@@ -423,7 +429,6 @@ STORE_OWNERS = {
 STORE_HOLDERS = {
     "h": dict(ty="H", make="h = H(r: I)", read=["print(a.r[0])"]),
     "o": dict(ty="O", make="h = O(h: H(r: I))", read=["print(a.h.r[0])"]),
-    "c": dict(ty="C", make="h0 = H(r: I)\n  h = C(w: !h0)", read=["print(a.w.r[0])"]),
     "s": dict(ty="[]H", make="h = [H(r: I)]", read=["print(a[0].r[0])"]),
     "e": dict(ty="E", make="h: E = .one(h: H(r: I))",
               read=["match a", "  .one(h) => print(h.r[0])", "  .zero => print(0)"]),
@@ -442,8 +447,6 @@ STORE_FORMS = {
     "replace": ("h", ["print(replace(!a.r, S))"]),
     "swap": ("h", ["q = H(r: S)", "swap(!a, !q)"]),
     "nested": ("o", ["a.h.r = S"]),
-    "write_field": ("c", ["a.w.r = S"]),
-    "write_through": ("c", ["a.w = H(r: S)"]),
     "element": ("s", ["a[0].r = S"]),
     "loop_element": ("s", ["for k in !a", "  k.r = S"]),
     "loop_assign": ("s", ["for k in !a", "  k = H(r: S)"]),
@@ -894,7 +897,7 @@ def payload_program(tname, sname, ename):
 
 # -----------------------------------------------------------------------------
 # A `match` payload field that is itself a view: an enum instantiated at a
-# view type (`G[?Text]`, `G[[]Int]`, `G[!Int]`), whose binding is the view
+# view type (`G[?Text]`, `G[[]Int]`), whose binding is the view
 # the field holds, used in the arm or escaping. Like a `payload.` cell, a
 # program that runs runs other code on the stack before it reads the view,
 # and must print what it views. Cells are `viewpay.<type>.<subject>.<use>`.
@@ -914,18 +917,16 @@ VIEWPAY_TYPES = {
                 show="print(v[0], v.len)", out="8 1", outd="80 1"),
     "slice": dict(ty="[]Int", gen="[]T", arg="Int", lend="?", k="[8, 9]", d="[80]", slice=True,
                   show="print(v[0], v.len)", out="8 2", outd="80 1"),
-    "write": dict(ty="!Int", gen="!T", arg="Int", lend="!", k="4", d="40", show="print(v)", out="4", outd="40",
-                  write=True),
 }
 # How the match reaches the enum: a call that wraps the view, the same in
 # a generic function, a `?G[V]` or `!G[V]` parameter, or a local the
 # function makes. `main` lends `k` and `d`.
 VIEWPAY_SUBJECTS = {
-    "call": dict(subj="wrap(PX)"),
-    "generic": dict(subj="gwrap(PX)", generic=True),
+    "call": dict(subj="wrap(x)"),
+    "generic": dict(subj="gwrap(x)", generic=True),
     "param": dict(param="o: ?G[@V]", subj="o", make="o = wrap(LK)", arg="?o"),
     "write_param": dict(param="o: !G[@V]", subj="o", make="o = wrap(LK)", arg="!o"),
-    "local": dict(subj="o", local=["o = wrap(PX)"]),
+    "local": dict(subj="o", local=["o = wrap(x)"]),
 }
 # Where the view goes: returned (`ret`), returned past a guard that reads
 # it (`guard`), used in the arm, which then returns `d` (`arm`), stored in
@@ -933,8 +934,8 @@ VIEWPAY_SUBJECTS = {
 # catch-all that matches the whole value again (`whole`).
 VIEWPAY_USES = {
     "ret": dict(arms=[".a(r) => r", ".b(r) => r"]),
-    "guard": dict(arms=[".a(r) if ok(PR) => r", "_ => d"]),
-    "arm": dict(arms=[".a(r)", "  see(PR)", "  d", ".b(_) => d"], arm=True),
+    "guard": dict(arms=[".a(r) if ok(r) => r", "_ => d"]),
+    "arm": dict(arms=[".a(r)", "  see(r)", "  d", ".b(_) => d"], arm=True),
     "store": dict(arms=[".a(r) => saved = r", ".b(_) => pass"], store=True),
     "whole": dict(arms=[".b(r) => r", "w => match w", "  .a(r) => r", "  .b(r) => r"]),
 }
@@ -945,9 +946,6 @@ def viewpay_program(tname, sname, uname):
     t = VIEWPAY_TYPES[tname]
     s = VIEWPAY_SUBJECTS[sname]
     u = VIEWPAY_USES[uname]
-    if u.get("store") and t.get("write"):
-        # Assigning a `!Int` binding writes through it: no store to show.
-        return None, None
     if u.get("arm") and s.get("generic") and t["show"] != "print(v)":
         # A generic arm shows the view with `print`, which spells only a
         # view of a value that prints as itself.
@@ -956,25 +954,22 @@ def viewpay_program(tname, sname, uname):
     ty = t["ty"]
     gen = s.get("generic")
     vt = t["gen"] if gen else ty
-    pass_ = lambda e: f"!{e}" if t.get("write") else e
     out = ["enum G[T]\n  a(r: T)\n  b(r: T)\n", "struct P\n  x: Int\n  y: Int\n",
            "fun vec(n: Int) -> Vec[Int]\n  xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs\n",
-           f"fun wrap(x: {ty}) -> G[{ty}] from x\n  .a(r: {pass_('x')})\n",
-           f"fun gwrap[T](x: {t['gen']}) -> G[{t['gen']}] from x\n  .a(r: {pass_('x')})\n",
+           f"fun wrap(x: {ty}) -> G[{ty}] from x\n  .a(r: x)\n",
+           f"fun gwrap[T](x: {t['gen']}) -> G[{t['gen']}] from x\n  .a(r: x)\n",
            f"fun ok(v: {ty}) -> Bool\n  true\n", f"fun gok[T](v: {t['gen']}) -> Bool\n  true\n",
            "fun clobber(n: Int) -> Int\n  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n"
            "  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n  a[1] + b[2]\n"]
     see = "gsee" if gen else "see"
     out.append(f"sub see(v: {ty})\n  print(clobber(1000))\n  {t['show']}\n")
     out.append(f"sub gsee[T](v: {t['gen']})\n  print(clobber(1000))\n  print(v)\n")
-    arms = [a.replace("ok(", "gok(" if gen else "ok(").replace("see(", see + "(").replace("PR", pass_("r"))
-            for a in u["arms"]]
-    subj = s["subj"].replace("PX", pass_("x"))
-    local = [l.replace("PX", pass_("x")) for l in s.get("local", [])]
+    arms = [a.replace("ok(", "gok(" if gen else "ok(").replace("see(", see + "(") for a in u["arms"]]
+    subj, local = s["subj"], s.get("local", [])
     first = s.get("param", f"x: {vt}").replace("@V", ty)
     head = f"fun inner{'[T]' if gen else ''}({first}, d: {vt}) -> {vt} from {first.split(':')[0]}, d"
     if u.get("store"):
-        body = [f"saved: {vt} = {pass_('d')}"] + local + [f"match {subj}"] + ["  " + a for a in arms] + ["saved"]
+        body = [f"saved: {vt} = d"] + local + [f"match {subj}"] + ["  " + a for a in arms] + ["saved"]
     else:
         body = local + [f"match {subj}"] + ["  " + a for a in arms]
     out.append(head + "\n" + indent(body, 2) + "\n")
@@ -994,8 +989,8 @@ def viewpay_program(tname, sname, uname):
 
 # -----------------------------------------------------------------------------
 # A lend of a binding that is a write view (a `match !e` payload, `if !o as
-# b`, `for b in !v`, a `!T` parameter, a `|!b|` capture, a held `b = !x`,
-# a field of a write view), followed by a write through the binding while
+# b`, `for b in !v`, a `!T` parameter, a `|!b|` capture, a held `b = !x`),
+# followed by a write through the binding while
 # the lend's view is live, or after its last use. A lend of a write view
 # is a loan on it (docs/INTERNALS.md, "Lending a binding"), so a write
 # while the view is live is rejected; a program that runs must print what
@@ -1029,8 +1024,8 @@ LENDW_TYPES = {
 # Each binding: the declarations it needs, the lines before the body,
 # the lines opening it, the body's indent under them, the lines after
 # it, the binding's name when it is not `b`, for a parameter of `f`, the
-# parameter, the value `main` makes and lends `f`, and what `main` makes
-# first, and whether every program must be rejected (`rejected`).
+# parameter and the value `main` makes and lends `f`, and whether every
+# program must be rejected (`rejected`).
 LENDW_BINDINGS = {
     "match": dict(decls="enum E\n  a(x: TY)\n  z\n", setup=["e = E.a(mk())"],
                   head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
@@ -1041,41 +1036,24 @@ LENDW_BINDINGS = {
     "param": dict(param="b: !TY", arg="mk()", head=[], depth=0),
     "closure": dict(setup=["b = mk()"], head=["g = |!b|"], depth=2, after=["g()"]),
     "held": dict(setup=["x = mk()", "b = !x"], head=[], depth=0),
-    "field": dict(decls="struct HW\n  w: !TY\n", setup=["x = mk()", "h = HW(w: !x)"], head=[], depth=0, name="h.w"),
-    # A read match binds a write view field as a read view, so every
-    # write through it is rejected, live view or not.
-    "read_match": dict(decls="enum E\n  a(x: !TY)\n  z\n", setup=["y = mk()", "e = E.a(!y)"],
-                       head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_match_param": dict(decls="enum E\n  a(x: !TY)\n  z\n", param="e: !E", arg="E.a(!z)", pre=["z = mk()"],
-                             head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    # The same of a part of a value made in the header.
-    "read_match_held": dict(decls="enum E\n  a(x: !TY)\n  z\n\nstruct HE\n  e: E\n\nfun mkh(y: !TY) -> HE from y\n  HE(e: E.a(!y))\n",
-                            setup=["y = mk()"], head=["match mkh(!y).e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
 }
-# More binding kinds, from review 3 of the binding-access change: write
-# bindings of every subject and header, and read bindings of a write view
-# a payload or optional holds, every write through which is rejected.
+# More binding kinds: write bindings of every subject and header, and
+# read bindings of a write view a local optional holds, every write
+# through which is rejected.
 _LW_E = "enum E\n  a(x: TY)\n  z\n"
-_LW_EW = "enum E\n  a(x: !TY)\n  z\n"
 _LW_HH = "\nstruct HH\n  e: E\n"
 _LW_GET = _LW_HH + "\nfun get(h: !HH) -> !E\n  !h.e\n"
-_LW_O = "\nenum O\n  a(i: !E)\n  z\n"
-_LW_HW = "\nstruct HW\n  w: !E\n"
 _LW_TWO = ["e1 = E.a(mk())", "e2 = E.a(mk())", "c = true"]
 LENDW_BINDINGS.update({
-    "match_made": dict(decls=_LW_EW, setup=["y = mk()"], head=["match E.a(!y)", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_named": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(x: b)"], depth=4, after=["  .z => pass"]),
     "match_box": dict(decls=_LW_E, setup=["e = Box(E.a(mk()))"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_field": dict(decls=_LW_E + _LW_HH, setup=["h = HH(e: E.a(mk()))"], head=["match !h.e", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_index": dict(decls=_LW_E, setup=["es: Vec[E] = Vec()", "!es.push(E.a(mk()))"], head=["match !es[0]", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_generic": dict(decls="enum G[T]\n  a(x: T)\n  z\n", setup=["e: G[TY] = G.a(mk())"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
-    "match_wv_payload": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_guard": dict(decls=_LW_E, setup=["e = E.a(mk())", "c = true"], head=["match !e", "  .a(b) if c"], depth=4, after=["  _ => pass"]),
     "match_nested": dict(decls=_LW_E + "\nenum O\n  a(i: E)\n  z\n", setup=["o = O.a(E.a(mk()))"], head=["match !o", "  .a(io)", "    match !io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"]),
-    "match_nested_wv": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match !o", "  .a(io)", "    match !io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"]),
     "match_call": dict(decls=_LW_E + _LW_GET, setup=["h = HH(e: E.a(mk()))"], head=["match !get(!h)", "  .a(b)"], depth=4, after=["  .z => pass"]),
-    # A write view a call returns, or a branch of write lends, is lent on.
-    "match_call_lent_on": dict(decls=_LW_EW + _LW_GET, setup=["y = mk()", "h = HH(e: E.a(!y))"], head=["match get(!h)", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    # A branch of write lends is lent on.
     "match_branch_lent_on": dict(decls=_LW_E, setup=["e1 = E.a(mk())", "e2 = E.z", "c = true"], head=["match (!e1 if c else !e2)", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "while_as": dict(setup=["o: TY? = mk()", "n = 0"], head=["while !o as b"], depth=2, after=["  n += 1", "  break if n > 0"]),
     "if_as_write_param": dict(param="o: !(TY?)", arg="mk()", argty="TY?", head=["if !o as b"], depth=2),
@@ -1086,38 +1064,19 @@ LENDW_BINDINGS.update({
     "closure_of_payload": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b0)", "    g = |!b0|"], depth=6, after=["    g()", "  .z => pass"], name="b0"),
     "held_of_payload": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b0)", "    b = !b0"], depth=4, after=["  .z => pass"]),
     "defer_arm": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b)", "    defer print(\"d\")"], depth=4, after=["  .z => pass"], prints="d\n"),
-    "read_box": dict(decls=_LW_EW, setup=["y = mk()", "e = Box(E.a(!y))"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_field": dict(decls=_LW_EW + _LW_HH, setup=["y = mk()", "h = HH(e: E.a(!y))"], head=["match h.e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_index": dict(decls=_LW_EW, setup=["y = mk()", "es: Vec[E] = Vec()", "!es.push(E.a(!y))"], head=["match es[0]", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_named": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)"], head=["match e", "  .a(x: b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_generic": dict(decls="enum G[T]\n  a(x: T)\n  z\n", setup=["y = mk()", "e: G[!TY] = G.a(!y)"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_guard": dict(decls=_LW_EW, setup=["y = mk()", "e = E.a(!y)", "c = true"], head=["match e", "  .a(b) if c"], depth=4, after=["  _ => pass"], rejected=True),
-    "read_param": dict(decls=_LW_EW, param="e: ?E", arg="E.a(!z)", pre=["z = mk()"], lend="?", head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_shared": dict(decls=_LW_EW + _LW_HH, setup=["y = mk()", "h = *HH(e: E.a(!y))"], head=["match h.e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_nested": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match !o", "  .a(io)", "    match io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"], rejected=True),
-    "read_nested_read": dict(decls=_LW_EW + _LW_O, setup=["y = mk()", "i0 = E.a(!y)", "o = O.a(!i0)"], head=["match o", "  .a(io)", "    match io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"], rejected=True),
-    "read_as_param": dict(param="o: ?((!TY)?)", arg="!z", argty="(!TY)?", pre=["z = mk()"], lend="?", head=["if o as b"], depth=2, rejected=True),
+    # A read `if … as` or `while … as` binds the write view a local
+    # optional holds as a read view.
     "read_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y"], head=["if o as b"], depth=2, rejected=True),
     "read_while_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y", "n = 0"], head=["while o as b"], depth=2, after=["  n += 1", "  break if n > 0"], rejected=True),
-    "read_as_payload": dict(decls="enum E\n  a(o: (!TY)?)\n  z\n", setup=["y = mk()", "e = E.a(!y)"], head=["match e", "  .a(o)", "    if o as b"], depth=6, after=["  .z => pass"], rejected=True),
-    "read_catchall_param": dict(decls=_LW_EW, param="e: !E", arg="E.a(!z)", pre=["z = mk()"], head=["match e", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    # A branch whose leaf is a place holding a write view reads it: the
-    # match neither writes through it nor copies it out
-    # (`sema.makesWriteView`, `sema.headerCopiesWriteView`).
-    "read_branch_readview_fields": dict(decls=_LW_E + _LW_HW, setup=_LW_TWO + ["h1 = HW(w: !e1)", "h2 = HW(w: !e2)", "r1 = ?h1", "r2 = ?h2"],
-                                        head=["match (r1.w if c else r2.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_coalesce_readview_field": dict(decls=_LW_E + "\nstruct HO\n  o: (!E)?\n", setup=_LW_TWO + ["h = HO(o: !e1)", "r = ?h"],
-                                         head=["match r.o ?? !e2", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_branch_handle_fields": dict(decls=_LW_E + _LW_HW, setup=_LW_TWO + ["h1 = *HW(w: !e1)", "h2 = *HW(w: !e2)"],
-                                      head=["match (h1.w if c else h2.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    "read_branch_call_and_field": dict(decls=_LW_E + _LW_HW + "\nfun getw(e: !E) -> !E\n  e\n", setup=_LW_TWO + ["h1 = HW(w: !e1)", "r1 = ?h1"],
-                                       head=["match (getw(!e2) if c else r1.w)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
+    # A branch whose leaf is a name holding a write view, matched in
+    # place: a lend of the branch, which would copy the write view out of
+    # the name (`lendsBranch`).
     "read_branch_bare_write_views": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1", "wb = !e2"],
                                          head=["match (wa if c else wb)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
     "read_coalesce_local_write_view": dict(decls=_LW_E, setup=_LW_TWO + ["o: (!E)? = !e1"],
                                            head=["match o ?? !e2", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
-    # The same, written through the place the branch copied the write
-    # view out of (`via`): a second writer, which main accepts.
+    # The same, written through the place the branch would copy the
+    # write view out of (`via`): a second writer.
     "copied_branch_bare_write_views": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1", "wb = !e2"],
                                            head=["match (wa if c else wb)", "  .a(b)"], depth=4, after=["  .z => pass"],
                                            via=["match !wa", "  .a(x2)", "@WRITE", "  .z => pass"], rejected=True),
@@ -1161,9 +1120,9 @@ def lendw_program(bname, tname, lname, when):
     lines += [" " * b["depth"] + l for l in body] + b.get("after", [])
     if "param" in b:
         out.append(f"sub f({b['param'].replace('TY', t['ty'])})\n" + indent(lines, 2) + "\n")
-        # `argty` types the value `main` makes, and `lend` lends it.
+        # `argty` types the value `main` makes and lends `f`.
         y = f"y: {b['argty']} = {b['arg']}" if "argty" in b else f"y = {b['arg']}"
-        out.append("sub main()\n" + indent(b.get("pre", []) + [y.replace("TY", t["ty"]), f"f({b.get('lend', '!')}y)"], 2) + "\n")
+        out.append("sub main()\n" + indent([y.replace("TY", t["ty"]), "f(!y)"], 2) + "\n")
     else:
         out.append("sub main()\n" + indent(lines, 2) + "\n")
     if b.get("rejected"):
@@ -1174,16 +1133,15 @@ def lendw_program(bname, tname, lname, when):
 
 # -----------------------------------------------------------------------------
 # A header (`match`, `if … as`, `while … as`, `for`) whose subject reaches
-# a place holding a write view through a branch: a path through it at
-# depth 1 and 2, `?.`, `??`, and `catch` (a whole branch is `lendw.`'s),
-# over each kind of
-# write-view leaf (a `!W` parameter, a local `a = !x`, a field of an owned
-# holder). The arm takes a view of the value the header binds, then writes
-# through the place the branch read, and reads the view. The header would
-# copy the write view out of the place with no loan on it
-# (`sema.headerCopiesWriteView`), so every program must be rejected, and
-# one that runs fails the cell. Each subject is written bare, lent to
-# read (`?S`), and lent to write (`!S`). Cells are
+# a place holding a write view through a branch: a path through it, `?.`,
+# `??`, and `catch` (a whole branch is `lendw.`'s), over each kind of
+# write-view leaf (a `!W` parameter, a local `a = !x`). The arm takes a
+# view of the value the header binds, then writes through the place the
+# branch read, and reads the view. The header reads the branch in place,
+# a lend of it, which would copy the write view out of the place with no
+# loan on it (`lendsBranch`), so every program must be rejected, and one
+# that runs fails the cell. Each subject is written bare, lent to read
+# (`?S`), and lent to write (`!S`). Cells are
 # `hdr.<header>.<sigil>.<shape>.<leaf>`.
 # -----------------------------------------------------------------------------
 
@@ -1201,9 +1159,6 @@ struct W
   e: E
   o: Vec[Int]?
   v: Vec[Int]
-
-struct H
-  w: !W
 
 fun vec(n: Int) -> Vec[Int]
   xs: Vec[Int] = Vec()
@@ -1235,14 +1190,12 @@ HDR_NEW = {"e": "E.a(r: Res(v: vec(9)))", "o": "vec(9)", "v": "vec(9)"}
 HDR_LEAVES = {
     "wparam": dict(params="a: !W, b: !W, c: Bool", call=["w1 = mkw(1)", "w2 = mkw(2)", "f(!w1, !w2, true)"], pre=[], a="a", b="b"),
     "wlocal": dict(params="c: Bool", call=["f(true)"], pre=["w1 = mkw(1)", "w2 = mkw(2)", "a = !w1", "b = !w2"], a="a", b="b"),
-    "holder": dict(params="c: Bool", call=["f(true)"], pre=["w1 = mkw(1)", "w2 = mkw(2)", "h1 = H(w: !w1)", "h2 = H(w: !w2)"], a="h1.w", b="h2.w"),
 }
 # Each subject shape: the subject, given the leaves `A` and `B` and the
 # field `F`, and the place the write goes through. `fun` marks a shape
 # whose header propagates `none` (`?`), which `f` must return.
 HDR_SHAPES = {
     "part": dict(subj="(A if c else B).F", via="A.F"),
-    "part2": dict(subj="(HA if c else HB).w.F", via="HA.w.F", holder_only=True),
     "optchain": dict(subj="o?.F", via="A.F", pre=["o: (!W)? = !A"], fun=True),
     "coalesce": dict(subj="(o ?? !B).F", via="A.F", pre=["o: (!W)? = !A"]),
     "catch": dict(subj="(tg(!B, false) catch |_| A).F", via="A.F"),
@@ -1255,21 +1208,14 @@ HDR_SIGILS = {"bare": "", "read": "?", "write": "!"}
 
 
 def hdr_program(hname, sname, lname, gname="bare"):
-    """The program for one header-path cell, or None where the shape and
-    leaf do not meet."""
+    """The program for one header-path cell."""
     h = HDR_HEADERS[hname]
     sh = HDR_SHAPES[sname]
     lf = HDR_LEAVES[lname]
-    if sh.get("holder_only") and lname != "holder":
-        return None
     field = h["field"]
     a, b = lf["a"], lf["b"]
-    subj = sh["subj"].replace("HA", "h1").replace("HB", "h2").replace("A", a).replace("B", b).replace("F", field)
-    if lname == "holder" and sname not in ("part2",):
-        # The holder's leaf is its field `w`, a write view of W.
-        subj = sh["subj"].replace("A", "h1.w").replace("B", "h2.w").replace("F", field)
-    subj = HDR_SIGILS[gname] + subj
-    via = sh["via"].replace("HA", "h1").replace("A", a).replace("F", field)
+    subj = HDR_SIGILS[gname] + sh["subj"].replace("A", a).replace("B", b).replace("F", field)
+    via = sh["via"].replace("A", a).replace("F", field)
     write = f"{via} = {HDR_NEW[field]}"
     body = [l.replace("SUBJ", subj).replace("WRITE", write) for l in h["lines"]]
     pre = lf["pre"] + [l.replace("A", a) for l in sh.get("pre", [])]
@@ -1285,50 +1231,37 @@ def hdr_program(hname, sname, lname, gname="bare"):
 
 
 # -----------------------------------------------------------------------------
-# A Cell changed, or read, through each kind of path to the value holding
-# it, in each kind of position, built in debug and with `--release`: a
-# change through a read view (`?self`, `?T`, `[]T`, `|?x|`) must reach the
-# value in both, so emitted Zig never writes through a `*const` pointer or
-# into `const` storage (`sema.interiorMutable`). Each program applies
-# each operation (in a function of its own, to a value of its own)
-# through one access in a statement, a loop that continues early, a loop
-# that breaks, a `defer`, and a loop that returns, and prints the state
-# after each, which must be what `cellmut_output` computes. Cells are
+# A Cell lives only behind `*`: a value holding one is reached through a
+# `*` handle. A Cell changed, or read, through the handle to the value
+# holding it, through a `?T` parameter given the handle, and through a
+# `?self` method called on it, built in debug and with `--release`: a
+# change through a read view must reach the value in both, so emitted Zig
+# never writes through a `*const` pointer. Each program applies each
+# operation (in a function of its own, to a value of its own) through
+# one access in a statement, a loop that continues early, a loop that
+# breaks, a `defer`, and a loop that returns, and prints the state after
+# each, which must be what `cellmut_output` computes. Cells are
 # `cellmut.<type>.<access>`: one program each, since a release build is
 # slow.
 # -----------------------------------------------------------------------------
 
 # Each type: its spelling, declarations (`METHODS` marks where a struct's
-# methods go), how `mk()` makes one, the paths to its `Cell[Int]` and its
-# `Cell[Vec[Int]]` from a value `E` (None: it has none), and whether it
-# prints when dropped.
-_CM_C = "struct C\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n"
+# methods go), how `mk()` makes one behind a handle, the paths to its
+# `Cell[Int]` and its `Cell[Vec[Int]]` from a value `E` (None: it has
+# none), and whether it prints when dropped.
 CELLMUT_TYPES = {
     # a `drop`
     "drop": dict(ty="D", decls='struct D\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
-                 mk="D(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v", drop=True),
-    # no `drop`
-    "plain": dict(ty="N", decls="struct N\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\nMETHODS",
-                  mk="N(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v"),
-    # constant fields: a value Zig knows at compile time
-    "const": dict(ty="K", decls="struct K\n  c: Cell[Int]\n  pad: [4]Int\nMETHODS",
-                  mk="K(c: Cell(1), pad: [4 of 0])", c="E.c", v=None),
+                 mk="*D(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v", drop=True),
     # the Cells in a part
     "part": dict(ty="W", decls="struct In\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n\nstruct W\n  t: In\nMETHODS",
-                 mk="W(t: In(c: Cell(1), v: Cell(vec2())))", c="E.t.c", v="E.t.v"),
+                 mk="*W(t: In(c: Cell(1), v: Cell(vec2())))", c="E.t.c", v="E.t.v"),
     # a generic type at Int
     "generic": dict(ty="G[Int]", decls="struct G[T]\n  c: Cell[T]\n  v: Cell[Vec[T]]\nMETHODS",
-                    mk="G(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v"),
-    # generic types holding a Cell holder only behind a handle, and in a
-    # Vec: no Cell inline, so their views are `*const` while the Cells
-    # they reach change
-    "behind_handle": dict(ty="P[C]", decls=_CM_C + "\nstruct P[T]\n  h: *T\n", methods=False,
-                          mk="P(h: *C(c: Cell(1), v: Cell(vec2())))", c="E.h.c", v="E.h.v"),
-    "in_vec": dict(ty="Q[C]", decls=_CM_C + "\nstruct Q[T]\n  items: Vec[T]\n\nfun cs() -> Vec[C]\n  xs: Vec[C] = Vec()\n  !xs.push(C(c: Cell(1), v: Cell(vec2())))\n  xs\n", methods=False,
-                   mk="Q(items: cs())", c="E.items[0].c", v="E.items[0].v"),
+                    mk="*G(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v"),
     # a bare Cell[Int], and a bare Cell[Vec[Int]]
-    "cell": dict(ty="Cell[Int]", decls="", mk="Cell(1)", c="E", v=None),
-    "cellvec": dict(ty="Cell[Vec[Int]]", decls="", mk="Cell(vec2())", c=None, v="E"),
+    "cell": dict(ty="Cell[Int]", decls="", mk="*Cell(1)", c="E", v=None),
+    "cellvec": dict(ty="Cell[Vec[Int]]", decls="", mk="*Cell(vec2())", c=None, v="E"),
 }
 
 # Each operation, applied once through `E` with argument `KARG`, adding
@@ -1345,60 +1278,41 @@ CELLMUT_OPS = {
     "method": ("m", ["E.bump(KARG)"]),
 }
 
-# Each access: the declarations it adds (`T` the type, `OP` the
-# operation through the access path `e`), the statements that set it up
-# in `run`, how one application is written there (`OP` inline, or a
-# call passing `KARG`), and the place that shows the state (`x`
-# default; `opt` shows through `if o as z`). A wrapper returns the `s`
-# its operation adds to.
+# Each access to the handle `x`: the declaration it adds (`T` the type,
+# `OP` the operation through the access path `e`), and how one
+# application is written in `run` (`OP` inline, or a call passing
+# `KARG`). A wrapper returns the `s` its operation adds to.
 _CM_WRAP = "  s = 0\nOP\n  s\n"
 CELLMUT_ACCESS = {
-    "local": dict(setup=["x = mk()"], do=["OP"], e="x"),
-    "field": dict(decls="struct H\n  f: T\n", setup=["h = H(f: mk())"], do=["OP"], e="h.f", x="h.f"),
-    "element": dict(setup=["vs: Vec[T] = Vec()", "!vs.push(mk())"], do=["OP"], e="vs[0]", x="vs[0]"),
-    "array": dict(setup=["a = [mk()]"], do=["OP"], e="a[0]", x="a[0]"),
-    "param": dict(decls="fun via(y: ?T, k: Int) -> Int\n" + _CM_WRAP, setup=["x = mk()"], do=["s += via(?x, KARG)"], e="y"),
-    "slice": dict(decls="fun via(y: []T, k: Int) -> Int\n" + _CM_WRAP, setup=["a = [mk()]"], do=["s += via(?a[..], KARG)"], e="y[0]", x="a[0]"),
-    "method": dict(method="fun via(?self, k: Int) -> Int\n" + _CM_WRAP, setup=["x = mk()"], do=["s += x.via(KARG)"], e="self"),
-    "stored": dict(decls="struct R\n  r: ?T\n", setup=["x = mk()", "r = R(r: ?x)"], do=["OP"], e="r.r"),
-    "capture": dict(closure=True, setup=["x = mk()"], do=["s += via(KARG)"], e="x"),
-    "optional": dict(setup=["o: T? = mk()"], do=["if o as y", "  OP"], e="y", opt=True),
-    "foreach": dict(setup=["vs: Vec[T] = Vec()", "!vs.push(mk())"], do=["for y in ?vs", "  OP"], e="y", x="vs[0]"),
-    "shared": dict(setup=["x = *mk()"], do=["OP"], e="x"),
-    # across the generic and runtime boundary: a view a generic function
-    # returns, an element of a `?Vec` parameter, and a subslice
-    "generic_fn": dict(decls="fun id[U](y: ?U) -> ?U\n  y\n", setup=["x = mk()"], do=["OP"], e="id(?x)"),
-    "vec_view": dict(decls="fun via(ys: ?Vec[T], k: Int) -> Int\n" + _CM_WRAP, setup=["vs: Vec[T] = Vec()", "!vs.push(mk())"], do=["s += via(?vs, KARG)"], e="ys[0]", x="vs[0]"),
-    "subslice": dict(decls="fun via(y: []T, k: Int) -> Int\n" + _CM_WRAP, setup=["a = [mk(), mk()]"], do=["s += via(?a[0..1], KARG)"], e="y[0]", x="a[0]"),
+    "handle": dict(do="OP", e="x"),
+    "param": dict(decls="fun via(y: ?T, k: Int) -> Int\n" + _CM_WRAP, do="s += via(x, KARG)", e="y"),
+    "method": dict(method="fun via(?self, k: Int) -> Int\n" + _CM_WRAP, do="s += x.via(KARG)", e="self"),
 }
 
 
 def cellmut_applies(tname, aname, oname):
     t, needs = CELLMUT_TYPES[tname], CELLMUT_OPS[oname][0]
-    methods = t["decls"] != "" and t.get("methods", True)
     if needs == "c" and t["c"] is None or needs == "v" and t["v"] is None:
         return False
-    return methods or (needs != "m" and aname != "method")
+    return t["decls"] != "" or (needs != "m" and aname != "method")
 
 
-def _cm_op(t, oname, e, karg, acc="s"):
-    """The operation's lines through path `e`, with argument `karg`,
-    adding what it reads to `acc`."""
+def _cm_op(t, oname, e, karg):
+    """The operation's lines through path `e`, with argument `karg`."""
     out = []
     for l in CELLMUT_OPS[oname][1]:
         if t["c"]:
             l = l.replace("C.", t["c"].replace("E", e) + ".")
         if t["v"]:
             l = l.replace("V.", t["v"].replace("E", e) + ".").replace("V[", t["v"].replace("E", e) + "[")
-        out.append(l.replace("E.", e + ".").replace("KARG", karg).replace("s += ", acc + " += "))
+        out.append(l.replace("E.", e + ".").replace("KARG", karg))
     return out
 
 
 def _cm_wrap(text, ty, op):
     """A wrapper's declaration: `T` the type, `OP` its operation's lines."""
-    text = text.replace("?T", "?" + ty).replace("[]T", "[]" + ty).replace("Vec[T]", f"Vec[{ty}]").replace(": T\n", ": " + ty + "\n")
     lines = []
-    for l in text.rstrip("\n").split("\n"):
+    for l in text.replace("?T", "?" + ty).rstrip("\n").split("\n"):
         lines += ["  " + o for o in op] if l == "OP" else [l]
     return lines
 
@@ -1417,15 +1331,12 @@ def cellmut_program(tname, aname):
     t, a = CELLMUT_TYPES[tname], CELLMUT_ACCESS[aname]
     ty = t["ty"]
     out = []
-    if t["decls"] and not t.get("methods", True):
-        out += t["decls"].rstrip("\n").split("\n") + [""]
-    elif t["decls"]:
-        methods = []
+    if t["decls"]:
         c = t["c"].replace("E", "self")
         bump = [f"{c}.set({c}.get() + k)"] + ([t["v"].replace("E", "self") + ".push(k)"] if t["v"] else [])
         # A generic type's methods take and add its `T`.
         kty = "T" if tname == "generic" else "Int"
-        methods += ["", f"  sub bump(?self, k: {kty})"] + ["    " + l for l in bump]
+        methods = ["", f"  sub bump(?self, k: {kty})"] + ["    " + l for l in bump]
         if aname == "method":
             for oname in ops:
                 wrap = a["method"].replace("via(", f"via_{oname}(")
@@ -1437,49 +1348,35 @@ def cellmut_program(tname, aname):
                 methods += [""] + ["  " + l for l in _cm_wrap(wrap, ty, op)]
         out += t["decls"].replace("\nMETHODS", "").split("\n") + methods + [""]
     out += ["fun vec2() -> Vec[Int]", "  v: Vec[Int] = Vec()", "  !v.push(1)", "  !v.push(2)", "  v", ""]
-    out += [f"fun mk() -> {ty}", f"  {t['mk']}", ""]
+    out += [f"fun mk() -> *{ty}", f"  {t['mk']}", ""]
     out += ["fun maybe(n: Int) -> Int?", "  return none if n % 2 == 1", "  n", ""]
-    decls = a.get("decls", "")
-    if "OP" not in decls:
-        out += _cm_wrap(decls, ty, []) + [""]
-    elif decls:
+    if "decls" in a:
         for oname in ops:
-            out += _cm_wrap(decls.replace("via(", f"via_{oname}("), ty, _cm_op(t, oname, a["e"], "k")) + [""]
-    # The state, read through the owner.
-    xs = "z" if a.get("opt") else a.get("x", "x")
+            out += _cm_wrap(a["decls"].replace("via(", f"via_{oname}("), ty, _cm_op(t, oname, a["e"], "k")) + [""]
+    # The state, read through the handle.
     shown = []
     if t["c"]:
-        shown.append(t["c"].replace("E", xs) + ".get()")
+        shown.append(t["c"].replace("E", "x") + ".get()")
     if t["v"]:
-        vp = t["v"].replace("E", xs)
+        vp = t["v"].replace("E", "x")
         shown += [vp + ".len", f"({vp}.get(0) ?? -1)"]
-    show = ["print(s, " + ", ".join(shown) + ")"]
-    if a.get("opt"):
-        show = ["if o as z", "  " + show[0]]
+    show = "print(s, " + ", ".join(shown) + ")"
     for oname in ops:
-        setup = [l.replace("[T]", f"[{ty}]").replace(": T?", f": {ty}?") for l in a["setup"]]
-        if a.get("closure"):
-            setup += [f"via_{oname} = |?x, k: Int|", "  t = 0"] + ["  " + l for l in _cm_op(t, oname, a["e"], "k", "t")] + ["  t"]
-
         def apply(k, ind):
-            lines = []
-            for l in a["do"]:
-                if l.strip() == "OP":
-                    lines += [ind + l.replace("OP", "") + o for o in _cm_op(t, oname, a["e"], k)]
-                else:
-                    lines.append(ind + l.replace("via(", f"via_{oname}(").replace("KARG", k))
-            return lines
-        body = ["s = 0"] + setup
+            if a["do"] == "OP":
+                return [ind + o for o in _cm_op(t, oname, a["e"], k)]
+            return [ind + a["do"].replace("via(", f"via_{oname}(").replace("KARG", k)]
+        body = ["s = 0", "x = mk()"]
         # a statement
-        body += apply("1", "") + show
+        body += apply("1", "") + [show]
         # a loop whose argument may continue
-        body += ["for i in 0..4"] + apply("i", "  ") + ["  s += maybe(i) ?? continue"] + show
+        body += ["for i in 0..4"] + apply("i", "  ") + ["  s += maybe(i) ?? continue", show]
         # a loop that breaks
-        body += ["j = 0", "while j < 9", "  j += 1"] + apply("j", "  ") + ["  break if j == 3"] + show
+        body += ["j = 0", "while j < 9", "  j += 1"] + apply("j", "  ") + ["  break if j == 3", show]
         # a `defer` in a loop's body
-        body += ["for _ in 0..2", "  defer"] + apply("10", "    ") + ["  s += 100"] + show
+        body += ["for _ in 0..2", "  defer"] + apply("10", "    ") + ["  s += 100", show]
         # a loop that returns, with the state shown by a `defer`
-        body += ["defer"] + ["  " + l for l in show] + ["for i in 0..9"] + apply("i", "  ") + ["  return if i == 2"]
+        body += ["defer", "  " + show, "for i in 0..9"] + apply("i", "  ") + ["  return if i == 2"]
         out += [f"sub run_{oname}()"] + ["  " + l for l in body] + [""]
     out += ["sub main()"] + [f'  print("{o}")\n  run_{o}()' for o in ops] + ['  print("end")']
     return "\n".join(out) + "\n"
@@ -1487,16 +1384,7 @@ def cellmut_program(tname, aname):
 
 def cellmut_output(tname, aname):
     """What a cellmut cell prints."""
-    # A subslice's array holds a second value, untouched, which drops
-    # first: an array drops its elements last to first.
-    second = aname == "subslice" and CELLMUT_TYPES[tname].get("drop")
-    out = ""
-    for o in cellmut_ops(tname, aname):
-        lines = _cm_trace(tname, o).splitlines(keepends=True)
-        if second:
-            lines.insert(len(lines) - 1, "drop 1 2\n")
-        out += f"{o}\n" + "".join(lines)
-    return out + "end\n"
+    return "".join(f"{o}\n" + _cm_trace(tname, o) for o in cellmut_ops(tname, aname)) + "end\n"
 
 
 def _cm_trace(tname, oname):
@@ -1556,306 +1444,94 @@ def _cm_trace(tname, oname):
 
 
 # -----------------------------------------------------------------------------
-# A temporary that holds a Cell, changed or read where it stands: made
-# in the statement, a part of one, or a leaf a value that branches may
-# take beside a name's (`a if k else mk(5)`, `o ?? mk(5)`, `mkf(6)!`, a
-# nested branch, a part of a branch), through a Cell member, a `?self`
-# method, a view a method returns, and, where no leaf is a name's, a read
-# or write lend. Each lives in its statement's slot, so a change lands in
-# the leaf the value takes, and a `drop` sees it when the statement
-# ends; a name's leaf changes where it is. Each operation runs in a
-# statement, an argument, a loop, and an `if` and a `while` condition,
-# with each leaf taken, and the program must print what
-# `celltemp_output` computes, in debug and built with `--release`.
-# Cells are `celltemp.<type>.<shape>`, one program each.
+# A value holding a Cell made, held, or changed anywhere but behind `*`:
+# a Cell local, a struct holding one as a local, a by-value parameter, or
+# a Vec element (`cellmut.value.`), and a Cell temporary changed or read
+# where it stands: a bare Cell, a struct made in the statement, and one a
+# call returns (`celltemp.value.`). Every program must be rejected.
 # -----------------------------------------------------------------------------
 
-_CT_INT = """
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-
-  fun bumped(?self) -> Int
-    self.c.set(self.c.get() + 1)
-    self.c.get()
-
-  fun me(?self) -> ?T
-    self.c.set(self.c.get() + 1)
-    self
-
-  fun bumpw(!self) -> Int
-    self.c.set(self.c.get() + 1000)
-    self.c.get()
-"""
-_CT_VEC = """
-  sub hit(?self)
-    self.c.push(1)
-
-  fun me(?self) -> ?T
-    self.c.push(1)
-    self
-
-  fun bumpw(!self) -> Int
-    self.c.push(1000)
-    self.c.len
-"""
-
-
-def _ct_int(name, fields="", drop=False):
-    d = f"struct {name}\n  c: Cell[Int]\n{fields}"
-    if drop:
-        d += '\n  drop(!self)\n    print("drop", self.c.get())\n'
-    return d + _CT_INT.replace("?T", "?" + name)
-
-
-# Each type: its spelling, declarations, a constructor of value `m`, the
-# path from a value to its Cell and to its methods' receiver (None: a
-# bare Cell, which has no methods), whether its Cell holds an Int or a
-# Vec, and whether it prints when dropped.
-CELLTEMP_TYPES = {
-    "drop": dict(ty="D", decls=_ct_int("D", drop=True), ctor="D(c: Cell(M))", cell=".c", recv="", kind="int", drop=True),
-    # constant fields: a value Zig knows at compile time
-    "plain": dict(ty="N", decls=_ct_int("N", "  pad: [4]Int\n"), ctor="N(c: Cell(M), pad: [4 of 0])", cell=".c", recv="", kind="int"),
-    "part": dict(ty="W", decls=_ct_int("In") + "\nstruct W\n  t: In\n", ctor="W(t: In(c: Cell(M)))", cell=".t.c", recv=".t", kind="int"),
-    "vec": dict(ty="V", decls='struct V\n  c: Cell[Vec[Int]]\n\n  drop(!self)\n    print("drop", self.c.len * 1000 + (self.c.get(0) ?? -1))\n' + _CT_VEC.replace("?T", "?V"),
-                ctor="V(c: Cell(vec1(M)))", cell=".c", recv="", kind="vec", drop=True),
-    "cell": dict(ty="Cell[Int]", decls="", ctor="Cell(M)", cell="", recv=None, kind="int"),
-    "cellvec": dict(ty="Cell[Vec[Int]]", decls="", ctor="Cell(vec1(M))", cell="", recv=None, kind="vec"),
-    "generic": dict(ty="G[Int]", decls="struct G[T]\n  c: Cell[T]\n", ctor="G[Int](c: Cell(M))", cell=".c", recv=None, kind="int"),
+_CV_N = "struct N\n  c: Cell[Int]\n\n"
+CELL_VALUES = {
+    "cellmut.value.cell": "sub main()\n  c = Cell(1)\n  c.set(2)\n  print(c.get())\n",
+    "cellmut.value.local": _CV_N + "sub main()\n  x = N(c: Cell(1))\n  x.c.set(2)\n  print(x.c.get())\n",
+    "cellmut.value.param": _CV_N + "sub bump(y: N)\n  y.c.set(y.c.get() + 1)\n\nsub main()\n  x = *N(c: Cell(1))\n  print(x.c.get())\n",
+    "cellmut.value.element": _CV_N + "sub main()\n  vs: Vec[N] = Vec()\n  print(vs.len)\n",
+    "celltemp.value.cell": "sub main()\n  Cell(5).set(77)\n  print(1)\n",
+    "celltemp.value.struct": _CV_N + "sub main()\n  print(N(c: Cell(5)).c.get())\n",
+    "celltemp.value.call": _CV_N + "fun mk(n: Int) -> N\n  N(c: Cell(n))\n\nsub main()\n  print(mk(5).c.get())\n",
 }
 
-# Each shape: the value, with `M(n)` a value made here (a constructor or a
-# call), the names it uses, which leaf it takes when `k` is true and
-# when false (a name, `made` with its value, or `fail`), how a function
-# holding it fails (`fail`: `!`, `opt`: `?`), and whether a leaf is a
-# name's, which a lend of the whole would copy.
-CELLTEMP_SHAPES = {
-    "temp": dict(e="mk(5)", uses=[], take=(("made", 5), ("made", 5))),
-    "const": dict(e="M(5)", uses=[], take=(("made", 5), ("made", 5))),
-    "part": dict(e="WW(t: mk(5)).t", uses=[], take=(("made", 5), ("made", 5))),
-    "made_made": dict(e="(mk(5) if k else M(8))", uses=[], take=(("made", 5), ("made", 8))),
-    "name_made": dict(e="(a if k else M(5))", uses=["a"], take=(("a",), ("made", 5)), named=True),
-    "made_name": dict(e="(mk(5) if k else a)", uses=["a"], take=(("made", 5), ("a",)), named=True),
-    "fallback": dict(e="(o ?? M(5))", uses=["o"], take=(("o",), ("made", 5)), named=True),
-    "made_fallback": dict(e="(mko(6 if k else -1) ?? a)", uses=["a"], take=(("made", 6), ("a",)), named=True),
-    "catch": dict(e="(mkf(-1 if k else 6) catch a)", uses=["a"], take=(("a",), ("made", 6)), named=True),
-    "nested": dict(e="(a if k else (mk(5) if k else M(8)))", uses=["a"], take=(("a",), ("made", 8)), named=True),
-    "nested_fallback": dict(e="(a if k else (mko(-1) ?? M(5)))", uses=["a"], take=(("a",), ("made", 5)), named=True),
-    "part_of_branch": dict(e="(w if k else WW(t: M(5))).t", uses=["w"], take=(("w",), ("made", 5)), named=True),
-    "fails": dict(e="(a if k else mkf(6)!)", uses=["a"], take=(("a",), ("made", 6)), named=True, fkind="fail"),
-    "absent": dict(e="(mko(6)? if k else a)", uses=["a"], take=(("made", 6), ("a",)), named=True, fkind="opt"),
-    "optional": dict(e="(o if k else mko(5))?", uses=["o"], take=(("o",), ("made", 5)), named=True, fkind="opt"),
+
+# A branch of places that hold a Cell, copied by value: every form that
+# gives one of its leaves (`if`, a block `if`, a `match`), in every
+# context that reads or stores the value, with the leaf a struct holding
+# a Cell or the bare Cell. A change through another handle would land
+# under the copy, so each program must be rejected (`cellbranch.`).
+_CB_PRE = """enum K
+  p
+  q
+
+struct S
+  c: Cell[Vec[Int]]
+
+struct O
+  s: S
+
+fun grow(s: ?S) -> Int
+  s.c.push(1)
+  5
+
+fun see(x: ?S) -> Int
+  x.c.len
+
+fun take(x: S) -> Int
+  1
+
+sub main()
+  a = *O(s: S(c: Cell(Vec())))
+  b = *O(s: S(c: Cell(Vec())))
+  a2 = +a
+  k = a.s.c.len == 0
+  e = K.p
+"""
+_CB_FORMS = {
+    "ifelse": ["L if k else R"],
+    "blockif": ["if k", "  L", "else", "  R"],
+    "match": ["match e", "  .p => L", "  .q => R"],
+}
+# Each context: its lines given the value `V`, and whether it takes a
+# struct only.
+_CB_CTX = {
+    "print": (["print(V, grow(?a2.s))"], False),
+    "bind": (["x = V", "print(see(?x), grow(?a2.s))"], True),
+    "text": (["t = Text(V, grow(?a2.s))", "print(t)"], False),
+    "take": (["print(take(V))"], True),
 }
 
-CELLTEMP_POSITIONS = ["stmt", "arg", "loop", "if", "while"]
 
-
-def celltemp_ops(t):
-    """Each operation: (statement form, value form, effect on the state:
-    the new state and what the value form gives)."""
-    C = lambda x: x + t["cell"]
-    R = lambda x: x + (t["recv"] or "")
-    # the Cell's path from the methods' receiver
-    inner = t["cell"][len(t["recv"] or ""):]
-    ops = {}
-    if t["kind"] == "int":
-        ops["set"] = (lambda x: f"{C(x)}.set(77)", None, lambda s: (77, None))
-        ops["replace"] = (None, lambda x: f"{C(x)}.replace(77)", lambda s: (77, s))
-        ops["get"] = (None, lambda x: f"{C(x)}.get()", lambda s: (s, s))
-        if t["recv"] is not None:
-            ops["hit"] = (lambda x: f"{R(x)}.hit()", None, lambda s: (s + 1, None))
-            ops["bumped"] = (None, lambda x: f"{R(x)}.bumped()", lambda s: (s + 1, s + 1))
-            ops["me"] = (None, lambda x: f"{R(x)}.me(){inner}.get()", lambda s: (s + 1, s + 1))
-            ops["bumpw"] = (None, lambda x: f"(!{R(x)}).bumpw()", lambda s: (s + 1000, s + 1000))
-        ops["look"] = (None, lambda x: f"look(?{x})", lambda s: (s + 10, s + 10))
-        ops["poke"] = (None, lambda x: f"poke(!{x})", lambda s: (s + 100, s + 100))
+def _cb_program(form, ctx, leaf):
+    l, r = ("a.s", "b.s") if leaf == "struct" else ("a.s.c", "b.s.c")
+    branch = [x.replace("L", l).replace("R", r) for x in _CB_FORMS[form]]
+    lines, _ = _CB_CTX[ctx]
+    if len(branch) == 1:
+        body = [x.replace("V", branch[0]) for x in lines]
     else:
-        ops["push"] = (lambda x: f"{C(x)}.push(5)", None, lambda s: (s + [5], None))
-        ops["pop"] = (None, lambda x: f"{C(x)}.pop() ?? -1", lambda s: (s[:-1], s[-1] if s else -1))
-        ops["clear"] = (lambda x: f"{C(x)}.clear()", None, lambda s: ([], None))
-        ops["index"] = (lambda x: f"{C(x)}[0] = 9", None, lambda s: ([9] + s[1:], None))
-        ops["len"] = (None, lambda x: f"{C(x)}.len", lambda s: (s, len(s)))
-        ops["geti"] = (None, lambda x: f"{C(x)}.get(0) ?? -1", lambda s: (s, s[0] if s else -1))
-        if t["recv"] is not None:
-            ops["hit"] = (lambda x: f"{R(x)}.hit()", None, lambda s: (s + [1], None))
-            ops["me"] = (None, lambda x: f"{R(x)}.me(){inner}.len", lambda s: (s + [1], len(s) + 1))
-            ops["bumpw"] = (None, lambda x: f"(!{R(x)}).bumpw()", lambda s: (s + [1000], len(s) + 1))
-        ops["look"] = (None, lambda x: f"look(?{x})", lambda s: (s + [10], len(s) + 1))
-        ops["poke"] = (None, lambda x: f"poke(!{x})", lambda s: (s + [100], len(s) + 1))
-    return ops
+        # A branch of several lines is bound first, then used.
+        body = ["y = " + branch[0]] + branch[1:] + [x.replace("V", "y") for x in lines]
+    return _CB_PRE + "\n".join("  " + x for x in body) + "\n"
 
 
-def celltemp_applies(sname, oname, pos, op):
-    """A lend of the whole value would copy a name's leaf, so a shape
-    with one only reaches its leaves. A statement changes the value; an
-    argument or a header uses what an operation gives."""
-    if CELLTEMP_SHAPES[sname].get("named") and oname in ("look", "poke", "bumpw"):
-        return False
-    if pos == "stmt":
-        return op[0] is not None
-    return op[1] is not None or pos == "loop"
-
-
-def _ct_state(t, m):
-    return m if t["kind"] == "int" else [m]
-
-
-def _ct_show(t, s):
-    return s if t["kind"] == "int" else len(s) * 1000 + (s[0] if s else -1)
-
-
-def _ct_trace(t, sname, pos, op, k):
-    """What one `op_*` function prints for leaf choice `k`."""
-    sh = CELLTEMP_SHAPES[sname]
-    _, val, eff = op
-    st = {"a": _ct_state(t, 1), "w": _ct_state(t, 3), "o": _ct_state(t, 2) if k else None}
-    out = []
-
-    def drop(s):
-        if t.get("drop"):
-            out.append(f"drop {_ct_show(t, s)}")
-
-    def once():
-        leaf = sh["take"][0 if k else 1]
-        if leaf[0] == "made":
-            s, v = eff(_ct_state(t, leaf[1]))
-            return v, [s]
-        s, v = eff(st[leaf[0]])
-        st[leaf[0]] = s
-        return v, []
-    if pos in ("stmt", "loop"):
-        for _ in range(2 if pos == "loop" else 1):
-            v, temps = once()
-            if val is not None:
-                out.append(f"v {v}")
-            for s in temps:
-                drop(s)
-    elif pos == "arg":
-        v, temps = once()
-        out.append(f"v {v}")
-        for s in temps:
-            drop(s)
-    elif pos == "if":
-        v, temps = once()
-        for s in temps:
-            drop(s)
-        if v > 0:
-            out.append("body")
-    elif pos == "while":
-        i = 0
-        while i < 2:
-            v, temps = once()
-            for s in temps:
-                drop(s)
-            if not v > 0:
-                break
-            i += 1
-        out.append(f"w {i}")
-    for n in ("a", "w", "o"):
-        if n in sh["uses"] and st[n] is not None:
-            out.append(f"{n} {_ct_show(t, st[n])}")
-    for n in ("o", "w", "a"):
-        if n in sh["uses"] and st[n] is not None:
-            drop(st[n])
-    return out
-
-
-def celltemp_cells(tname, sname):
-    """The (function name, operation, position) a cell runs, in order."""
-    t = CELLTEMP_TYPES[tname]
-    if sname == "const" and tname in ("cell", "cellvec"):
-        return []
-    cells = []
-    for oname, op in celltemp_ops(t).items():
-        for pos in CELLTEMP_POSITIONS:
-            if celltemp_applies(sname, oname, pos, op):
-                cells.append((f"op_{oname}_{pos}", oname, pos))
-    return cells
-
-
-def celltemp_program(tname, sname):
-    """The program for one celltemp cell, or None where nothing applies."""
-    cells = celltemp_cells(tname, sname)
-    if not cells:
-        return None
-    t, sh = CELLTEMP_TYPES[tname], CELLTEMP_SHAPES[sname]
-    ty, fk = t["ty"], sh.get("fkind", "plain")
-    ctor = lambda m: t["ctor"].replace("M", m)
-    x = sh["e"].replace("M(5)", ctor("5")).replace("M(8)", ctor("8"))
-    ops = celltemp_ops(t)
-    C = lambda v: v + t["cell"]
-    out = ["error E\n  bad\n"]
-    if t["decls"]:
-        out.append(t["decls"])
-    out.append("fun vec1(n: Int) -> Vec[Int]\n  v: Vec[Int] = Vec()\n  !v.push(n)\n  v\n")
-    out.append(f"fun mk(n: Int) -> {ty}\n  {ctor('n')}\n")
-    out.append(f"fun mko(n: Int) -> {ty}?\n  return none if n < 0\n  mk(n)\n")
-    out.append(f"fun mkf(n: Int) -> {ty}!\n  return E.bad if n < 0\n  mk(n)\n")
-    out.append(f"struct WW\n  t: {ty}\n")
-    if t["kind"] == "int":
-        out.append(f"fun look(x: ?{ty}) -> Int\n  {C('x')}.set({C('x')}.get() + 10)\n  {C('x')}.get()\n")
-        out.append(f"fun poke(x: !{ty}) -> Int\n  {C('x')}.set({C('x')}.get() + 100)\n  {C('x')}.get()\n")
-        out.append(f"fun show(x: ?{ty}) -> Int\n  {C('x')}.get()\n")
-    else:
-        out.append(f"fun look(x: ?{ty}) -> Int\n  {C('x')}.push(10)\n  {C('x')}.len\n")
-        out.append(f"fun poke(x: !{ty}) -> Int\n  {C('x')}.push(100)\n  {C('x')}.len\n")
-        out.append(f"fun show(x: ?{ty}) -> Int\n  {C('x')}.len * 1000 + ({C('x')}.get(0) ?? -1)\n")
-    main = []
-    for fname, oname, pos in cells:
-        stmt, val, _ = ops[oname]
-        body = []
-        if "a" in sh["uses"]:
-            body.append("a = mk(1)")
-        if "w" in sh["uses"]:
-            body.append(f"w = WW(t: {ctor('3')})")
-        if "o" in sh["uses"]:
-            body += [f"o: {ty}? = none", "o = mk(2) if k"]
-        s = stmt(x) if stmt else f'print("v", {val(x)})'
-        if pos == "stmt":
-            body.append(s)
-        elif pos == "loop":
-            body += ["for _ in 0..2", "  " + s]
-        elif pos == "arg":
-            body.append(f'print("v", {val(x)})')
-        elif pos == "if":
-            body += [f"if {val(x)} > 0", '  print("body")']
-        elif pos == "while":
-            body += ["i = 0", f"while i < 2 and {val(x)} > 0", "  i += 1", 'print("w", i)']
-        for n, p in (("a", "?a"), ("w", "?w.t"), ("o", None)):
-            if n in sh["uses"]:
-                body += [f'print("{n}", show({p}))'] if p else ["if o as y", '  print("o", show(?y))']
-        if fk == "fail":
-            head, call = f"sub {fname}(k: Bool)!", f'{fname}(K) catch print("failed")'
-        elif fk == "opt":
-            head, call = f"fun {fname}(k: Bool) -> Int?", f'print("q", {fname}(K) ?? -1)'
-            body.append("0")
-        else:
-            head, call = f"sub {fname}(k: Bool)", f"{fname}(K)"
-        out.append(head + "\n" + indent(body, 2) + "\n")
-        for k in ("true", "false"):
-            main += [f'print("== {oname} {pos} {k}")', call.replace("K", k)]
-    out.append("sub main()\n" + indent(main, 2))
-    return "\n".join(out) + "\n"
-
-
-def celltemp_output(tname, sname):
-    """What a celltemp cell prints."""
-    t, sh = CELLTEMP_TYPES[tname], CELLTEMP_SHAPES[sname]
-    ops = celltemp_ops(t)
-    fk = sh.get("fkind", "plain")
-    out = []
-    for fname, oname, pos in celltemp_cells(tname, sname):
-        for k in (True, False):
-            out.append(f"== {oname} {pos} {'true' if k else 'false'}")
-            out += _ct_trace(t, sname, pos, ops[oname], k)
-            if fk == "opt":
-                out.append("q 0")
-    return "\n".join(out) + "\n"
+for _f in _CB_FORMS:
+    for _c, (_, _only) in _CB_CTX.items():
+        for _l in ("struct",) if _only else ("struct", "cell"):
+            CELL_VALUES[f"cellbranch.{_f}.{_c}.{_l}"] = _cb_program(_f, _c, _l)
 
 
 # -----------------------------------------------------------------------------
 # Slices of a value however it is held: a slice of an array, a Vec, a Text,
 # or a String, held owned, through a read or write view, a `*T`, a box, a
-# field, or a nested field (and a write view of a `*T`, a box, or a field),
+# field, or a nested field (and a write view of a `*T` or a box),
 # passed as an argument whose result keeps the view, or bound bare, and
 # then the owner changed or replaced while the slice is still used
 # (`live`) or after its last use (`done`). Whatever is accepted must run
@@ -1882,7 +1558,6 @@ SLICEVIEW_HOLDERS = {
     "box": dict(setup=["x = Box(mk(1))"], x="x", replace="x = Box(mk(2))"),
     "wbox": dict(setup=["b = Box(mk(1))", "x = !b"], x="x", replace="x = Box(mk(2))"),
     "field": dict(setup=["h = H(f: mk(1))"], x="h.f", place="h.f"),
-    "wfield": dict(setup=["o = mk(1)", "h = W(f: !o)"], x="h.f", place="h.f"),
     "nested": dict(setup=["g = G(h: H(f: mk(1)))"], x="g.h.f", place="g.h.f"),
 }
 
@@ -1894,8 +1569,7 @@ def sliceview_program(hname, ename, use, then):
     out = [f"fun mk(n: Int) -> {ty}\n  {e['mk']}\n",
            f"fun keep(x: {view}) -> {view}\n  x\n",
            f"struct H\n  f: {ty}\n",
-           f"struct G\n  h: H\n",
-           f"struct W\n  f: !{ty}\n"]
+           f"struct G\n  h: H\n"]
     body = list(h["setup"])
     sliced = f"{h['x']}[1..]"
     body.append(f"s = keep({sliced})" if use == "arg" else f"s = {sliced}")
@@ -1918,7 +1592,7 @@ def store_program(oname, fname, then):
     h = STORE_HOLDERS[kind]
     v = o["view"]
     out = [f"struct H\n  r: {v}\n\n  sub set(!self, s: {v})\n    self.r = s\n",
-           "struct O\n  h: H\n", "struct C\n  w: !H\n", "enum E\n  one(h: H)\n  zero\n",
+           "struct O\n  h: H\n", "enum E\n  one(h: H)\n  zero\n",
            f"sub put(h: !H, s: {v})\n  h.r = s\n"]
     body = [l.replace("S", o["lend"]) for l in lines]
     body += o["grow"] if then == "grow" else ["print(b.len)"]
@@ -2015,11 +1689,7 @@ def program(tname, fname, cname):
         # A slice's object is a path, or in parentheses.
         if ctx.get("slice") and not re.fullmatch(r"[\w.]+", e):
             e = f"({e})"
-        # `@POKE` and `@POKY` stand for the type's change through the loop
-        # or match binding, or `pass`; they are replaced before `E` is.
-        poke = t.get("poke", "pass")
-        text = text.replace("@POKY", "@Y").replace("@POKE", "@P")
-        body.append(text.replace("E", e).replace("@Y", poke.replace("e.", "y.")).replace("@P", poke))
+        body.append(text.replace("E", e))
     if "after" in ctx:
         after = ctx["after"]
         if ctx.get("write"):
@@ -2099,8 +1769,8 @@ def run_one(path, keep, started_dir, expect=None, release=False):
     if chk.returncode < 0 or chk.returncode > 128 or CRASH.search(out):
         return "fail", "compiler crashed: " + first_line(out)
     if chk.returncode != 0:
-        # A `cellmut.` program is one the checker must accept: every
-        # operation it applies has a place.
+        # A program also built with `--release` is one the checker must
+        # accept.
         if release:
             return "fail", "rejected, but must be accepted: " + first_error(out)
         if POS.search(out):
@@ -2240,11 +1910,13 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX)
     cells = []
     skipped = 0
+    expects = {}
     for t in TYPES:
+        kept = TYPES[t].get("rejected")
         for c in CONTEXTS:
             for f in FORMS:
                 ident = f"{t}.{c}.{f}"
-                if not wanted(ident):
+                if kept is not None and (c, f) not in kept or not wanted(ident):
                     continue
                 src = program(t, f, c)
                 if src is None:
@@ -2254,6 +1926,9 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(src)
                 cells.append((ident, path))
+                if kept is not None:
+                    # No run prints this: a program that runs fails the cell.
+                    expects[ident] = "(rejected)\n"
     for o in STORE_OWNERS:
         for f in STORE_FORMS:
             for then in ("grow", "read"):
@@ -2264,7 +1939,6 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(store_program(o, f, then))
                 cells.append((ident, path))
-    expects = {}
     release = set()
     for o in STEP_OWNERS:
         for hname in STEP_HOLDERS:
@@ -2367,9 +2041,6 @@ def main():
                     if not wanted(ident):
                         continue
                     src = hdr_program(hname, sname, lname, gname)
-                    if src is None:
-                        skipped += 1
-                        continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
                         fh.write(src)
@@ -2391,21 +2062,15 @@ def main():
             cells.append((ident, path))
             expects[ident] = cellmut_output(t, a)
             release.add(ident)
-    for t in CELLTEMP_TYPES:
-        for sname in CELLTEMP_SHAPES:
-            ident = f"celltemp.{t}.{sname}"
-            if not wanted(ident):
-                continue
-            src = celltemp_program(t, sname)
-            if src is None:
-                skipped += 1
-                continue
-            path = os.path.join(work, ident.replace(".", "__") + ".rig")
-            with open(path, "w") as fh:
-                fh.write(src)
-            cells.append((ident, path))
-            expects[ident] = celltemp_output(t, sname)
-            release.add(ident)
+    for ident, src in CELL_VALUES.items():
+        if not wanted(ident):
+            continue
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        # No run prints this: a program that runs fails the cell.
+        expects[ident] = "(rejected)\n"
     if args.oracle:
         sys.exit(run_oracle(work, cells, args))
     results = {}

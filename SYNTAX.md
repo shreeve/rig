@@ -472,12 +472,12 @@ operator does, and which types it takes, is in
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
 | read view | `?T` | [SPEC §7](SPEC.md#lending) |
-| write view | `!T` | |
+| write view | `!T` | a parameter's, a receiver's, a result's, or a binding's type ([SPEC §2](SPEC.md#composite-and-handle-types)) |
 | shared handle | `*T` | [SPEC §9](SPEC.md#9-shared-and-weak-handles) |
 | weak handle | `~T` | |
 | array | `[4]Int`, `[LIMIT * 2]U8`, `[n]T` | a length known at compile time |
 | slice | `[]T` | a read-only view |
-| writable slice | `![]T` | |
+| writable slice | `![]T` | a write view: where `!T` stands |
 | function | `fun(Int, Int) -> Int`, `sub(String)`, `sub(Int)!` | [SPEC §11](SPEC.md#function-types) |
 | owned closure | `*fun(Int) -> Int`, `*sub()` | |
 | weak closure | `~fun(Int) -> Int` | |
@@ -1282,7 +1282,7 @@ sub main()
 A struct is built by calling its name with its fields named,
 `Point(x: 1, y: 2)`, leaving out fields that have defaults. A struct
 with exactly one field also takes it by position: `Meters(3.5)`, and
-the built-ins `Box(x)`, `Cell(0)`, and `*Signal(0)`. A payload variant
+the built-ins `Box(x)`, `*Cell(0)`, and `*Signal(0)`. A payload variant
 is built the same way, `.rect(w: 2, h: 5)` or `Shape.circle(2)`, and a
 generic type's arguments may be given in brackets:
 `Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,
@@ -1395,8 +1395,8 @@ struct Node
 type Held = *(Node?)
 
 sub main()
-  a = Cell[*Node?](none)
-  b = Cell[Held](*none)
+  a = *Cell[*Node?](none)
+  b = *Cell[Held](*none)
   print(a.replace(none) == none)
   old = b.replace(*none)
   <old
@@ -1411,7 +1411,7 @@ struct Node
   value: Int
 
 sub main()
-  b = Cell[*(Node?)](*none)
+  b = *Cell[*(Node?)](*none)
 ```
 
 ```error

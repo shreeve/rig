@@ -1,0 +1,18 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub run(f: ?sub())
+  f()
+
+sub main()
+  k = *Counter()
+  r = ?k
+  f = |r| r.hit()
+  g = |?r| r.hit()
+  f()
+  g()
+  run(?f)
+  print(k.hits.get())

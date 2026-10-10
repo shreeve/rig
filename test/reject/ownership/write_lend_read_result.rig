@@ -1,12 +1,10 @@
 # A call lent `!v` whose result holds no write view leaves `v` lent to
 # read while the result lives: `v` may not be written, reassigned, or
-# moved. A result that is or holds a write view keeps `v` lent to write,
-# and so does a write view the call stores in another argument.
+# moved. A result that is a write view keeps `v` lent to write.
 # oracle: writes reject C4
 # oracle: reassigns reject C4
 # oracle: moves reject C4
 # oracle: write_result reject C4
-# oracle: stored reject C4
 # oracle: receiver reject C4
 # oracle: field reject C4
 # oracle: element reject C4
@@ -25,9 +23,6 @@ struct Bag
   fun first(!self) -> ?Item
     ?self.items[0]
 
-struct Hold
-  w: !Vec[Item]
-
 fun first(v: !Vec[Item]) -> ?Item
   ?v[0]
 
@@ -36,10 +31,6 @@ fun gfirst[T](v: !Vec[T]) -> ?T
 
 fun firstw(v: !Vec[Item]) -> !Item
   !v[0]
-
-fun keep(v: !Vec[Item], h: !Hold, d: ?Item) -> ?Item
-  h.w = !v
-  d
 
 fun items() -> Vec[Item]
   v: Vec[Item] = Vec()
@@ -69,15 +60,6 @@ sub write_result()
   r = firstw(!v)
   print(v.len)
   r.n += 1
-
-sub stored()
-  v = items()
-  o = items()
-  h = Hold(w: !o)
-  x = Item(n: 5)
-  r = keep(!v, !h, ?x)
-  print(v.len)
-  print(r.n, h.w.len)
 
 sub receiver()
   b = Bag(items: items(), count: 0)
@@ -127,16 +109,15 @@ sub closure()
 sub main()
   writes()
 
-# error: 52:3: cannot lend `v` to write while a read loan is live
-# error: 58:3: cannot reassign `v` while it is lent
-# error: 64:8: cannot move `v` while a read loan is live
-# error: 70:9: use of `v` while a write loan is live
-# error: 79:9: use of `v` while a write loan is live
-# error: 85:3: cannot assign to `b.count` while `b` is lent
-# error: 91:3: cannot lend `b` to write while a read loan is live
-# error: 98:3: cannot lend `rows` to write while a read loan is live
-# error: 104:3: cannot lend `v` to write while a read loan is live
-# error: 112:5: cannot lend `v` to write while a read loan is live
-# error: 118:3: cannot lend `v` to write while a read loan is live
-# error: 124:3: cannot lend `v` to write while a read loan is live
-# errors: 12
+# error: 43:3: cannot lend `v` to write while a read loan is live
+# error: 49:3: cannot reassign `v` while it is lent
+# error: 55:8: cannot move `v` while a read loan is live
+# error: 61:9: use of `v` while a write loan is live
+# error: 67:3: cannot assign to `b.count` while `b` is lent
+# error: 73:3: cannot lend `b` to write while a read loan is live
+# error: 80:3: cannot lend `rows` to write while a read loan is live
+# error: 86:3: cannot lend `v` to write while a read loan is live
+# error: 94:5: cannot lend `v` to write while a read loan is live
+# error: 100:3: cannot lend `v` to write while a read loan is live
+# error: 106:3: cannot lend `v` to write while a read loan is live
+# errors: 11

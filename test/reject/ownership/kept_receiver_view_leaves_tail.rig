@@ -25,8 +25,8 @@ struct H
 fun mk(k: Int) -> S
   S(n: k, m: 6)
 
-fun mkh(k: Int) -> H
-  H(q: Q(c: Cell(1), n: k))
+fun mkh(k: Int) -> *H
+  *H(q: Q(c: Cell(1), n: k))
 
 fun g(k: Int) -> Int
   k
@@ -42,22 +42,22 @@ sub main()
   y = S(n: 0, m: 0)
   z = S(n: 0, m: 0)
   print(view(?y).n, early(?z, true).n)
-  d = Q(c: Cell(0), n: 0)
+  d = *H(q: Q(c: Cell(0), n: 0))
   k = g(0)
   r = match k
     0
       print("arm")
       mkh(42).q.me(k: g(1), j: g(2))
-    _ => ?d
+    _ => ?d.q
   s = if k == 0
     print("block")
     mkh(43).q.me(k: g(1), j: g(2))
   else
-    ?d
+    ?d.q
   t = while true
     break mkh(44).q.me(k: g(1), j: g(2))
   else
-    ?d
+    ?d.q
   print(r.n, s.n, t.n)
 
 # errors: 5

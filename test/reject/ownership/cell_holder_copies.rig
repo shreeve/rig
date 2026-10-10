@@ -1,6 +1,8 @@
-# A value that holds a Cell is unique: a copy would fork the state the
-# Cell shares, so a bare use that would copy one is rejected, whether it
-# is a name, a field, an element, an array, or a `??` operand.
+# A value that holds a Cell is never copied: a copy would fork the
+# state the Cell shares. It lives behind a `*` handle, which `=` does not
+# copy, or as a field of a value behind one, which a bare use cannot copy
+# out: whether it is a name, a field, an element, an array, or a `??`
+# operand.
 
 struct Counter
   hits: Cell[Int]
@@ -9,24 +11,24 @@ struct Holder
   c: Counter
 
 sub main()
-  a = Counter(hits: Cell(0))
+  a = *Counter(hits: Cell(0))
   b = a
-  c = Cell(1)
+  c = *Cell(1)
   d = c
-  h = Holder(c: Counter(hits: Cell(2)))
+  h = *Holder(c: Counter(hits: Cell(2)))
   k = h.c
-  arr = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  arr = [*Counter(hits: Cell(0)), *Counter(hits: Cell(0))]
   copy = arr
   x = arr[1]
-  o: Counter? = Counter(hits: Cell(3))
-  e = Counter(hits: Cell(4))
+  o: (*Counter)? = *Counter(hits: Cell(3))
+  e = *Counter(hits: Cell(4))
   f = o ?? e
   print(b.hits.get(), d.get(), k.hits.get(), copy[0].hits.get(), x.hits.get(), f.hits.get())
 
-# error: 13:7: `a` is a unique `Counter`, which can't be copied by `=`: write `<a` to move it or `?a` to view it
-# error: 15:7: `c` is a unique `Cell[Int]`, which can't be copied by `=`: write `<c` to move it or `?c` to view it
-# error: 17:7: `h.c` is a unique `Counter`, which can't be copied by `=`: write `?h.c` to view it
-# error: 19:10: `arr` is a unique `[2]Counter`, which can't be copied by `=`: write `<arr` to move it or `?arr` to view it
-# error: 20:7: `arr[1]` is a unique `Counter`, which can't be copied by `=`: write `?arr[1]` to view it
-# error: 23:7: `o` is a unique `Counter?`, which can't be copied by `=`: write `<o` to move it or `?o` to view it
-# error: 23:12: `e` is a unique `Counter`, which can't be copied by `=`: write `<e` to move it or `?e` to view it
+# error: 15:7: `a` is a `*Counter` handle, which can't be copied by `=`: write `<a` to move it, `+a` for another handle, or `?a` to view it
+# error: 17:7: `c` is a `*Cell[Int]` handle, which can't be copied by `=`: write `<c` to move it, `+c` for another handle, or `?c` to view it
+# error: 19:7: `h.c` is a unique `Counter`, which can't be copied by `=`: write `?h.c` to view it
+# error: 21:10: `arr` owns a `[2]*Counter`, which can't be copied by `=`: write `<arr` to move it, `+arr` to clone it, or `?arr` to view it
+# error: 22:7: `arr[1]` is a `*Counter` handle, which can't be copied by `=`: write `+arr[1]` for another handle or `?arr[1]` to view it
+# error: 25:7: `o` is a `*Counter?` handle, which can't be copied by `=`: write `<o` to move it, `+o` for another handle, or `?o` to view it
+# error: 25:12: `e` is a `*Counter` handle, which can't be copied by `=`: write `<e` to move it, `+e` for another handle, or `?e` to view it

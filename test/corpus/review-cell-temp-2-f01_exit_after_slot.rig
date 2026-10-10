@@ -5,7 +5,6 @@
 # oracle: D.drop accept
 # oracle: D.hit accept
 # oracle: D.with accept
-# oracle: mkd accept
 # oracle: maybe accept
 # oracle: fails accept
 # oracle: main accept

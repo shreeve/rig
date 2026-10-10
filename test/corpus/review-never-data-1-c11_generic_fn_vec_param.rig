@@ -1,0 +1,7 @@
+fun first[T](v: ?Vec[T]) -> Int
+  v.len
+
+sub main()
+  n = 1
+  v: Vec[!Int] = Vec()
+  print(first(v))

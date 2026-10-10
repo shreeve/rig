@@ -1,15 +1,12 @@
-# A bare name or place only reads (Core sentence 1): a write view of a
-# value that copies, whether a name, a field, or an element holds it,
-# reads the value it sees where a value is taken, a plain struct as a
-# number does. Changing the copy changes nothing else; assigning one
-# write view's place from another writes the value through.
+# A bare name only reads (Core sentence 1): a write view of a value that
+# copies, whether a local or a parameter holds it, reads the value it
+# sees where a value is taken, a plain struct as a number does. Changing
+# the copy changes nothing else; assigning one write view from another
+# writes the value through.
 
 struct P
   x: Int
   y: Int
-
-struct H
-  w: !P
 
 fun pick(a: !P, b: !P, first: Bool) -> P
   a if first else b
@@ -20,18 +17,17 @@ sub main()
   w = !a
   x = w
   x.x = 100
-  h = H(w: !b)
-  z = h.w
+  v = !b
+  z = v
   z.y = 7
-  ws: Vec[!P] = Vec()
   q = P(x: 9, y: 9)
-  !ws.push(!q)
-  e = ws[0]
+  r = !q
+  e = r
   e.x = 3
   c = x.x > 0
-  u = w if c else h.w
+  u = w if c else v
   print(x.x, z.y, e.x, u.y)
-  h.w = w
+  v = w
   print(a.x, b.x, b.y, q.x)
   print(pick(!a, !q, false).x)
 

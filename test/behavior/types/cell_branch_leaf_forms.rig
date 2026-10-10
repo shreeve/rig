@@ -2,16 +2,17 @@
 # takes, through every branching form: a nested branch whose every leaf
 # is made here, a `??` or `catch` fallback, a made value reached through
 # `e!` or `e?`, and an optional that branches, unwrapped with `?`. Each
-# value made here lives in its statement's slot, so a Cell change lands
-# in it and its `drop` sees it, and a read sees the leaf it takes. A
-# bare `Cell[Vec]` is reached the same way by its Vec's members.
+# value made here lives in its statement's slot, so a change to its
+# shared Cell lands in it and its `drop` sees it, and a read sees the
+# leaf it takes. A shared `Cell[Vec]` is reached the same way by its
+# Vec's members.
 # release
 
 error E
   bad
 
 struct D
-  c: Cell[Int]
+  c: *Cell[Int]
 
   drop(!self)
     print("drop", self.c.get())
@@ -20,7 +21,7 @@ struct D
     self.c.set(self.c.get() + 1)
 
 fun mk(n: Int) -> D
-  D(c: Cell(n))
+  D(c: *Cell(n))
 
 fun mkf(n: Int) -> D!
   return E.bad if n < 0
@@ -35,8 +36,8 @@ fun vec1(n: Int) -> Vec[Int]
   !v.push(n)
   v
 
-fun mkv(n: Int) -> Cell[Vec[Int]]
-  Cell(vec1(n))
+fun mkv(n: Int) -> *Cell[Vec[Int]]
+  *Cell(vec1(n))
 
 sub nested(k: Bool, j: Bool)
   a = mk(1)

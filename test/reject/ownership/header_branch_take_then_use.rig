@@ -4,28 +4,28 @@
 #
 # oracle: loops reject C1
 # oracle: matches reject C1
-struct Counter
-  hits: Cell[Int]
+struct Counter unique
+  hits: Int
 
 enum E
   a(c: Counter)
   b
 
 fun pair() -> [2]Counter
-  [Counter(hits: Cell(1)), Counter(hits: Cell(2))]
+  [Counter(hits: 1), Counter(hits: 2)]
 
 sub loops(f: Bool)
   a = pair()
   b = pair()
   for k in (<a if f else <b)
-    print(k.hits.get())
-  print(a[0].hits.get())
+    print(k.hits)
+  print(a[0].hits)
 
 sub matches(f: Bool)
-  x = E.a(c: Counter(hits: Cell(0)))
+  x = E.a(c: Counter(hits: 0))
   y = E.b
   match (<x if f else <y)
-    .a(c) => print(c.hits.get())
+    .a(c) => print(c.hits)
     .b => pass
   print(x)
 

@@ -4,7 +4,7 @@
 # when the statement ends, and a view the method returns views the slot.
 
 struct P
-  c: Cell[Int]
+  c: *Cell[Int]
   n: Int
   t: Text
 
@@ -39,7 +39,7 @@ fun mk(s: String) -> S
   S(t: Text(s))
 
 fun mkh() -> H
-  H(p: P(c: Cell(1), n: 42, t: Text("pt")), u: Text("u"))
+  H(p: P(c: *Cell(1), n: 42, t: Text("pt")), u: Text("u"))
 
 sub main()
   print(mk("a").pick(y: f(1), x: f(2)))

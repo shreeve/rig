@@ -5,7 +5,7 @@ fun reset(c: ?Cell[Box[Int]]) -> Int
   0
 
 sub main()
-  c: Cell[Box[Int]] = Cell(Box(1))
+  c: *Cell[Box[Int]] = *Cell(Box(1))
   print(c, reset(?c))
 
 # expect:

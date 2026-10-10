@@ -1,6 +1,6 @@
-# A write view is unique: a shared handle whose value holds one cannot
-# be cloned, weakly referenced, or captured by clone, which would give
-# two handles that both write through it.
+# A write view is never stored inside a value, so no shared handle's
+# value holds one, and no clone, weak handle, or clone capture of a
+# handle can give two handles that both write through it.
 
 struct Wrap
   v: Vec[Int]
@@ -13,10 +13,7 @@ sub main()
   !b.v.push(1)
   s = *Ed(t: !b)
   h = +s
-  k = |+s| print(s.t.v.len)
-  k()
-  w = ~s
   print(h.t.v.len)
 
-# error: cannot clone `s`: it holds a write view
-# error: cannot take a weak handle to `s`: it holds a write view
+# error: 9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here
+# errors: 1

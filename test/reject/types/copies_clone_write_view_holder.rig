@@ -1,30 +1,14 @@
-# A value holding a write view does not copy and has no clone (Core
-# sentence 2): `+x` and `|+x|` of one, in an optional, an array, or a
-# generic instance, are rejected where they are typed.
+# No value holds a write view, so none is copied or cloned by `+x` or
+# `|+x|`, in an optional, an array, or a generic instance: a write view
+# is never stored inside a value, and the field is rejected where it is
+# declared.
 
 struct H
   w: !Int
 
-struct Wrap[T]
-  v: T
-
 sub main()
   n = 1
-  h = H(w: !n)
-  a = |+h| h.w
-  o: H? = none
-  b = |+o| 0
-  hs: [1]H = [<h]
-  c = |+hs| 0
-  m = 2
-  g = Wrap(v: H(w: !m))
-  d = |+g| 0
-  k = 3
-  e = +H(w: !k)
-  print(a(), b(), c(), d(), e.w)
+  print(n)
 
-# error: 14:9: `|+h|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `h` is `H`, which has no clone
-# error: 16:9: `|+o|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `o` is `H?`, which has no clone
-# error: 18:9: `|+hs|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `hs` is `[1]H`, which has no clone
-# error: 21:9: `|+g|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `g` is `Wrap[H]`, which has no clone
-# error: 23:8: `+x` cannot clone a `H`: it holds a write view, which has one holder
+# error: 7:6: a write view is never stored inside a value, and `!Int` cannot stand here
+# errors: 1

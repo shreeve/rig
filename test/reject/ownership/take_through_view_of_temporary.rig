@@ -1,6 +1,6 @@
-# A place whose path starts at a temporary is not written, even where a
-# write view on the way reaches storage that outlives it: `<p.f`
-# follows the rule of `p.f = v` and `!p.f`.
+# A temporary cannot hold a write view on the way to storage that
+# outlives it (`mk(!b).r.o`): a write view is never stored inside a
+# value, so the field is rejected where it is declared.
 
 struct B
   o: Int?
@@ -8,15 +8,9 @@ struct B
 struct H
   r: !B
 
-fun mk(b: !B) -> H
-  H(r: <b)
-
 sub main()
   b = B(o: 3)
-  x = <mk(!b).r.o
-  mk(!b).r.o = none
-  print(x ?? 0)
+  print(b.o ?? 0)
 
-# error: 16:7: cannot take out of a temporary: nothing would see it emptied
-# error: 17:3: cannot assign to a field or element of a temporary
-# errors: 2
+# error: 9:6: a write view is never stored inside a value, and `!B` cannot stand here
+# errors: 1

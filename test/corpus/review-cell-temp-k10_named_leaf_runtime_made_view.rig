@@ -2,7 +2,6 @@
 # a `?self` method returns a view of the made leaf, used within the statement.
 #
 # oracle: C.me accept
-# oracle: mkc accept
 # oracle: both accept
 # oracle: main accept
 struct C

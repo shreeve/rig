@@ -8,7 +8,7 @@ MAX = 3
 struct Stack
   items: Vec[Int] = Vec()
   names: Vec[String] = Vec[String]()
-  hits: Cell[Int] = Cell(0)
+  hits: Int = 0
   slots: [MAX]Int = [MAX of -1]
   cap: Int = MAX
   top: U8 = U8.max
@@ -16,7 +16,7 @@ struct Stack
 
   sub push(!self, x: Int)
     !self.items.push(x)
-    self.hits.set(self.hits.get() + 1)
+    self.hits += 1
 
 fun pad(s: String, width: Int = MAX, fill: Int = lib.LIMIT) -> Int
   s.len + width + fill
@@ -27,7 +27,7 @@ sub main()
   !a.push(1)
   !a.push(2)
   !b.push(5)
-  print(a.items.len, b.items.len, a.hits.get(), b.hits.get(), a.slots, a.cap, b.cap, a.top, a.far, a.names.len)
+  print(a.items.len, b.items.len, a.hits, b.hits, a.slots, a.cap, b.cap, a.top, a.far, a.names.len)
   c = lib.Config()
   !c.tags.push("x")
   d = lib.Config(size: 1)

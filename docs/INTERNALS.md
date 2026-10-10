@@ -760,23 +760,18 @@ its temporaries views (one made before it, so dropped after it), the
 holder uses that view as any owner's drop does: only through a `drop`
 body, or through a live value that views the holder (`holdsPastDrop`,
 Core sentence 6). A receiver that branches lends each leaf where it is instead
-(`receiverLeaves`). A change to a Cell through a temporary lands in its
-hidden binding, whatever the type: `mk().c.set(v)` is `_t = mk()`,
-`Cell.set(?_t.c, v)`, `<_t`, and so is a `?self` method on a value
-whose type holds a Cell (`mk().hit()` is `_t = mk()`, `N.hit(?_t)`,
-`<_t`), a Cell member's or `c[i] = e`'s, and a read lend's
-(`keepsCellChange`, `lendTemp`). A value that branches, reached where
-its leaves are (`storage.reachesLeaf`), whose type holds a Cell, is
-lent leaf by leaf, each value made here in its own hidden binding
-(`keepReached`): `(a if k else mk()).hit()` is `N.hit(?a if k else
-?mk())`, the per-branch lend, with `?mk()` as above. Which values those
-are is one walk, `storage.madeLeaves` (through every branching form
-inside the value, `storage.leafStep`; a part of a value made here
-reaches that value), which emit's `emitLeafPtr` and the storage planner
-follow step by step. A literal leaf (`none`, the one an optional
-branch may have) is no made value: no slot keeps it and it holds no
-Cell, and emit reaches it as `rig.noneAt(T?)`, an absent optional whose
-payload no branch captures. Which temporaries are a statement's is one
+(`receiverLeaves`). No temporary holds a Cell by value: a value that
+holds one is made only under `*` (Core sentence 9, `Checker.cellMadeAway`
+below), so a Cell a temporary reaches is behind a handle, and a change
+to it lands in the shared value, never in a statement's slot. A value
+that branches, reached where its leaves are (`storage.reachesLeaf`), is
+reached through the address of the leaf it takes, one step at a time
+(`storage.leafStep`, through every branching form inside the value; a
+part of a value made here reaches that value), which emit's
+`emitLeafPtr` and the storage planner follow step by step. A literal
+leaf (`none`, the one an optional branch may have) is no made value:
+no slot keeps it, and emit reaches it as `rig.noneAt(T?)`, an absent
+optional whose payload no branch captures. Which temporaries are a statement's is one
 decision too, `sema.stmtTemps`: those of every part of it, a branch's,
 a `??` fallback's, and a `catch` handler's included, but not those of
 a block or closure it holds, of a header, of a `while` step, or of a
@@ -873,25 +868,44 @@ around the rule.
 The suite's `classify` check fails on any classifier
 of this kind left outside `handsOver`.
 
-A lend of a branch lends each branch. `?(a if c else b)` is
-`(?a if c else ?b)`, and the same for `!`, for `??`, `catch`, `e!`, and
-`e?`, and for a branch reached through fields, elements, and method
-receivers (`!(a if c else b).w`, `(!(o ?? d)).gvw()`): a branch is a
-value, not a place, so lending it whole would lend a copy of a leaf that
-is a place, which holds no loan on the place, and under `!` a write view
-of that copy. Typecheck decides it once per branch, by a positive list
-(`Checker.lendsBranch`, recorded in `branch_lends`): a lend whose
-operand's base (`Checker.lentBranch`) is a branching value is accepted
-only when every leaf (`sema.valueLeaves`) is made there, is a constant,
-is a lend itself, or jumps; otherwise it is rejected with the rewrite
-that lends each branch. Every lend asks it: `synthLend`, a slice lent
-(`lendSlice`), and the statement slot a temporary lent is held in
-(`lendsToWrite`, and `lendTemp` where a receiver or an argument is lent
-without a sigil, for a value that moves or is a write view). So
-the header deciders never see a lend of a branch of places: a header
-subject's `?` or `!` is stripped the same way for `match`, `if … as`,
-`while … as`, and `for` (`headerSubject`), and a lent subject is viewed
-in place, so its plain parts are not copied out and are no exemption.
+A branch is a value, never a place (Core §3), so every in-place read
+of one is a lend of it, and a lend of a branch lends each branch.
+Desugared: a branch read in place is `?` or `!` of the branch, and
+`?(a if c else b)` is `(?a if c else ?b)`, the same for `!`, for `??`,
+`catch`, `e!`, and `e?`, and for a branch reached through fields,
+elements, and method receivers (`!(a if c else b).w`,
+`(!(o ?? d)).gvw()`). Lending it whole would lend a copy of a leaf
+that is a place, which holds no loan on the place, and under `!` a
+write view of that copy. One decider answers it, once per branch, by a
+positive list (`Checker.lendsBranch`, recorded in `branch_lends`): a
+lend whose operand's base (`Checker.lentBranch`) is a branching value
+is accepted only when every leaf (`sema.valueLeaves`) is made there, is
+a constant, is a lend itself, or jumps; otherwise it is rejected with
+the rewrite that lends each branch. Every in-place read of a branch
+asks it, and nothing else decides it:
+
+- a sigil, `?B` or `!B` (`synthLend`), and a slice lent of one
+  (`lendSlice`);
+- a write lend's statement slot (`lendsToWrite`), and a read lend's
+  (`lendTempIn`, where a receiver or an argument is lent without a
+  sigil, for a value that moves or is a write view);
+- a header's subject (`headerLendsBranch`, for `match`, `if … as`,
+  `while … as`, and `for`): lent by its sigil, `?` or `!`, stripped the
+  same way for each (`headerSubject`), or, bare, to read, unless the
+  header copies it (plain data) or reads it through a copy of a read
+  view (`readsInPlace`);
+- a value checked where a view goes (`checkExpr`'s `lentInPlace`): lent
+  to write where a write view is passed, bound, or stored, and lent to
+  read where a `?T`, `[]T`, or String goes and a leaf is a write view or
+  a value that is no view (`sl(a if c else b)`). A branch of read views
+  copies the view it takes, so it is read as a value; a function's
+  result (`isReturnLeaf`) hands its views to the caller and is not
+  asked.
+
+So the header deciders never see a lend of a branch of places, and a
+lent subject is viewed in place, so its plain parts are not copied out
+and are no exemption. Leaves that are themselves lends stay allowed:
+`inc(!a if c else !b)`, `getw(!x) catch !y`.
 
 What a context does with a value is recorded as its `Use`
 (`useOf(e)`): `read` (`readLeaf`), `take` (a binding, an argument, a
@@ -919,16 +933,13 @@ and the element of a `Cell[Vec[E]]` it goes through. Every consumer
 then asks `requireAccess(place, access, at)`, which owns the
 diagnostics, for one `Access`: `assign` (`p = v`, `p op= v`),
 `lend_write` (`!p`, `!xs[a..b]`, an element method's receiver,
-`|!x|`), `write_iterate` (`for x in !p`), `take` (`<p.f`),
-`lend_on` (`!p.f` of a held `!T`), `pass_write` (a place holding a
-`!T` where a value holding one goes), `write_through` (`p.f = v`
-writing the value a held `!T` views), or `set_cell` (a Cell's `set`,
-`replace`, and its Vec's `c[i] = e`, `push`, `pop`, `clear`). The path
+`|!x|`), `write_iterate` (`for x in !p`), or `take` (`<p.f`). The path
 must be writable, a temporary is never written, and without a view
 or handle on the way the binding it starts from must be one that may
-change (`requireBinding`). Which field and element assignments write
-through a held `!T` is recorded (`writesThrough`) for the ownership
-checker and emit.
+change (`requireBinding`). No field or element holds a write view
+(Core §5), so no path writes through one, lends one on, or
+passes one, and a Cell's members need no access: a Cell lives behind
+a shared handle and changes through any path.
 
 Types are interned in a `TypeStore`, so two `TypeId`s are equal exactly
 when the types are. `unknown` and `invalid` are poison: they appear only
@@ -963,10 +974,10 @@ lives through the body.
 |---|---|---|
 | a place `p` (a name, or a field or element path from one or from a view) | `?p` | a view of the place's own: a copy when it is plain data, a view in place (`?E`) otherwise |
 | a lend `?p`, `!p`, or a take `<p` | itself | a read view, a write view, or the construct's own, as written |
-| a made value `e` (a call, a constructor, an array, a branching value every leaf of which is made there, `<p` included) | `var _h = <e`, then the header over `<_h` | the construct's own: a place in `_h` that a `?self` method may change and `<x` may move out |
+| a made value `e` (a call, a constructor, an array, a branching value every leaf of which is made there, `<p` included) | `var _h = <e`, then the header over `<_h` | the construct's own: a place in `_h` that `<x` may move out of |
 | a part of a made value `e.f`, `e[i]` that is not plain data | `var _h = <e` for the whole construct, then the header over `?_h.f` (`?_h[i]`) | a view in place, as for a place: the made value is taken (Core §3), and the part is read where it stands (Core sentence 1) |
 | a part of a made value that is plain data | itself: `e` is a temporary of the header | a copy, read in the header |
-| a branching value one leaf of which is a place | itself, when its type copies | a copy; when the type moves (an owner, a `unique` type, a type holding a `Cell`) the header is rejected: bind the value to a name, or take each leaf with `<` |
+| a branching value one leaf of which is a place | itself, when its type copies or every leaf is a read view (`readsInPlace`) | a copy; otherwise the header reads it in place, which lends it (`?B`, or `!B` as written), and `lendsBranch` rejects the leaf a name holds: lend each leaf, or take each with `<` |
 
 So `for x in v` is `for x in ?v`; `match b` on a `Box[E]` is `match ?b`
 and `match h` on a `*E` is `match ?h`, whose payloads view the value
@@ -974,10 +985,9 @@ the box or handle holds (the lend table, Core §4); `if o as x` over an
 owning optional place is `if ?o as x`, with `x: ?T`, while an optional
 of plain data binds a copy; and `match mk(7).e` holds `mk(7)` in a
 hidden `var` for the whole match, so each payload views it there and
-may change its `Cell`, but not move out of it. Whether a branching
-value of a moving type could instead be viewed leaf by leaf is a
-question the Core leaves open; the checker takes the conservative
-reading above.
+but none moves out of it. A branch is a value, never a place (Core
+§3), so a header that reads one in place lends it, and each leaf is
+lent instead ([What an expression hands over](#what-an-expression-hands-over)).
 
 A payload or element is bound by one rule, from its type: a copy of
 a value that copies (`sema.copies`), a view (`?F`) of anything else, captured
@@ -985,12 +995,9 @@ by pointer, including the binding of a catch-all arm and a binding a
 guard reads; a write view under `match !e` and `for x in !e`; the
 construct's own under `match <e` and a taken subject. A field that is
 itself a view, at the matched instance (`Opt[?T]`'s `v: T`,
-`payloadFieldOf`), is bound as the view its access gives it ([Binding
-access](#binding-access)): a read match binds a write view as the read
-view of what it views (`!T` as `?T`, `![]T` as `[]T`), whatever its
-subject, unless it holds the value whole. Emit copies out the value a
-scalar's or view's read binding reads (`Facts.payloadReadsThroughWrite`),
-as a `?T` of one is a copy. (A payload of a
+`payloadFieldOf`), is a read view, since no field holds a write view
+(Core §5), and is bound as the view its access gives it
+([Binding access](#binding-access)). (A payload of a
 type parameter is a copy, which each instance must allow; emit binds it
 by pointer where the match reads its subject in place,
 `storage.payloadByAddress`, and copies it out otherwise.)
@@ -1005,9 +1012,10 @@ holding its address, a header with temporaries through the address its
 block yields, a part of a value the match holds, a view a call returns
 or a value that branches over views through the pointer it is
 (`evalSubject`), and a generic body through `rig.viewedPtr`. (A value
-that branches over bare places is matched as a copy, so typecheck
-rejects one whose type moves or may, a type parameter's included, as
-it rejects a binding of one.) Emit captures a payload, or a catch-all's
+that branches over bare places is matched as a copy only when its type
+copies; one whose type moves or may, a type parameter's included, is
+read in place, so `headerLendsBranch` rejects it, as a lend of the
+branch.) Emit captures a payload, or a catch-all's
 value, of a type parameter by pointer there, guarded or not
 (`storage.payloadByAddress`, `storage.catchAllByAddress`), and such a
 binding copies nothing, so it puts no requirement on the instance. One rule
@@ -1049,8 +1057,8 @@ slice, or matches a view a call returns, which is held as the pointer it
 is. Emit reads the fact and fails if its own shape disagrees. A header
 that copies is rejected at the temporary, whatever it binds and of
 whatever type (`rejectHeaderCopy`), with "bind the index (the argument,
-`e`) to a name first", since a write, a Cell change, or a view, a
-plain-data catch-all's included, would reach the copy, except a value
+`e`) to a name first", since a write or a view, a plain-data
+catch-all's included, would reach the copy, except a value
 made there, which no name holds, of which the construct binds plain
 data: what it binds is a copy either way. A header that points binds
 what it would with no temporary, and the ownership checker walks it so:
@@ -1074,7 +1082,7 @@ as a read lend of the subject (`lendOf`, `Lend.implicit`), which the
 ownership checker walks as `?p` (a read loan on the place's root,
 which the bindings carry for as long as they are used) and emit writes
 as `?p` (each element or payload captured by pointer, `|*x|`, never
-copied, so a `Cell` a binding changes is the place's own); a taken
+copied); a taken
 subject is recorded as taken (`takesSubject`), which the ownership
 checker walks as `<e` into a hidden var and emit holds in a `var`
 the construct iterates or switches on by pointer; a held subject is
@@ -1105,8 +1113,6 @@ instead of re-deriving it by name:
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
-| `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`), or a temporary array lent as a slice, holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value) may change: emit lends it where its statement's slot keeps the temporary (`storage.keptInSlot`), and otherwise (an array literal lent as a slice) copies it into a mutable local first, since Zig may keep a temporary in constant memory |
-| `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?Text]` binds a `?Text`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
@@ -1222,6 +1228,7 @@ emitter ask these, never a predicate built for another question:
 | `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, Vec, Box, Text, or owned closure |
 | `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
 | `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
+| `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a Vec's or Box's buffer): a value of it lives only behind a shared handle (below), and emit holds a read view of one as a pointer |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
@@ -1234,6 +1241,48 @@ emitter ask these, never a predicate built for another question:
 A generic body that copies a `T` records `Requirement.copies`; one
 that discards, overwrites, or stores a `T` in an array or slice records
 `Requirement.no_cleanup`. Each instance is checked against them.
+
+**Where a type may stand.** Core sentence 9 and §5 put a Cell and a write
+view only in some places, and one decider says where:
+`sema.misplaced(ty, home)`, by a positive list of homes (`sema.Home`:
+`field`, `signature` for a parameter, a receiver, or a result,
+`binding`, `type_arg`, `element`, `optional`, `viewed`, `handle`).
+
+- A write view (`sema.writeViewMisplaced`): `!T`, `(!T)?`, and `(!T)!`
+  stand only in a `signature` or a `binding`, and `!T` inside an
+  `optional`; a type that is or holds a write view anywhere in its
+  structure stands in no `field`, `type_arg`, `element`, `viewed`, or
+  `handle`. It is decided by the type's structure alone, where the type
+  is written.
+- A value that holds a Cell by value (`holdsCellByValue`) stands in a
+  `field`, `handle`, or `viewed` home. A `type_arg` is misplaced
+  however it holds one; a `signature`, `binding`, `element`, or
+  `optional` only when the type holds one through its own fields
+  (`holdsOwnCell`), since one held through a type argument is reported
+  where that argument stands. This needs what every type holds, so it
+  is decided once `contents_ready` (deferred, `checkWhenResolved`,
+  until step 5).
+
+Every spelled type asks it where it stands
+(`TypeResolver.misplacedAt`: a field's type, a parameter's, a
+receiver's `<self`, a result's, a local's annotation, a closure
+parameter's, what an optional, a view, a handle, or an array or slice
+holds, and each type argument written); `checkGenericInstantiations`
+asks it for each instance's type arguments, inferred ones included
+(`misplacedArgs`), and typecheck asks `writeViewMisplaced` for an
+array literal's element type (`[!n, !m]`; an element that makes a Cell
+is a call `cellMadeAway` rejects).
+A value that holds a Cell is also made only where one may stand, which
+one decider of expressions says: `Checker.cellMadeAway` rejects a call
+making such a value (a `Cell(...)`, or a constructor of a type that
+holds one) unless it is the operand of `*` (`shared_operand`), a field
+argument of a user struct's or enum's constructor (`cell_home`, set by
+`checkFieldArgs`; never a built-in generic's value), or a field's
+default. Desugared, a Cell is always `*Cell(v)` or a field of a value
+made by `*S(...)`: every path to it passes through a shared handle, so a
+change through a read view of it is a change to shared storage, and no
+copy, move, or temporary of a value holding a Cell exists for the
+checkers or emit to reason about.
 
 Sema's job includes everything emit cannot lower: a construct the
 backend cannot express yet is rejected with a diagnostic that says so.
@@ -1438,8 +1487,10 @@ as the generic at its own (`f[T]`), which expands to the same depths,
 so a chain of public generics is expanded once per link. One nesting
 ever deeper is reported where it is declared, since the instances that
 would show it are made in other modules.
-`checkGenericInstantiations` then checks every instance against the
-requirements (`checkRequirements`), reporting at the site with a note
+`checkGenericInstantiations` then checks every instance's type
+arguments where they stand (`misplacedArgs`: a value holding a Cell by
+value, or a write view, is no type argument, [Sema](#sema)), and every
+instance against the requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the
 body's ownership assumptions ([Ownership](#ownership)).
 
@@ -1515,12 +1566,9 @@ views (`storeThroughLocal`), unless the assignment gives `w` a view
 alone, as a local given a new value does. When the right side does not
 read `w` and cannot leave early, `w`'s old loans end before the right
 side runs, since its old view is never used again (`w = !b` while `w`
-views `b`, or in a loop). Assigning a value to a
-field or element that holds a `!T` (`h.w = v`, which writes through
-it) stores `v` in what the struct's `!T` views (`writesThrough`); one
-given a view (`h.w = !n`) adds the view's loans to its holder's, which
-keeps the old ones too, since loans are kept per var, not per field.
-Unlike a call, an assignment knows how many write views it goes
+views `b`, or in a loop). No field or element holds a write view
+(Core §5), so a write view is always a var of its own, and
+every store through one is through that var. Unlike a call, an assignment knows how many write views it goes
 through (`placeDepth`: `o.i = v` one, `o.i.x = v` two), so only the
 values within that many write loans may hold what `v` views, a write
 view var on the way counting as the value it views
@@ -1755,11 +1803,10 @@ through `break` and error propagation; a returned or stored value
 carries only the loans of what the caller lent; values that move
 (`sema.moves`: owning and unique values) and write views are never
 copied implicitly (a bare write view of a Copy
-value, a name, field, or element alike, is copied only where the type
-checker recorded that its context reads the value,
-`SemContext.readsThrough`, `readsThroughWriteView`: a bare name or
-place only reads, Core sentence 1, so `x = h.w` with `w: !Int` copies
-the Int, as `x = w` does; a binding holds the write view only a call or
+value is copied only where the type checker recorded that its context
+reads the value, `SemContext.readsThrough`, `readsThroughWriteView`: a
+bare name only reads, Core sentence 1, so `x = w` with `w: !Int` copies
+the Int; a binding holds the write view only a call or
 a lend hands over, or a branching value or loop each of whose values
 does, `yieldsWriteView`); `<` leaves its source done
 (`sema.moveSource`, one classification, beside `handsOver`, for every
@@ -1821,7 +1868,7 @@ the value is:
 | a parameter, local, or closure capture | its type is `!T` or `![]T` (`w = !x`, `\|!x\|`, `\|<w\|` of one) | its type is `?T` | any other type |
 | `if … as x`, `while … as x` | a write view the header makes (`sema.makesWriteView`) | a value viewed where it is, or reached through a read view or handle | a copy, or a value taken (then by its type) |
 | `for x in` | `!v` | an element that does not copy | an element that copies, or one taken (then by its type) |
-| a `match` payload, named field, or catch-all | `match !e`, or a write view the subject makes (`sema.makesWriteView`), of a field that is no read view or slice; a write view field of an enum, error, integer, or Bool made there, which the match holds whole | a read match of anything else, whatever its subject: a place, a lend, a read view a call returns, a part of a value made in the header; a `?T` field | plain data a read copies; a slice; `match <e` (then by its type) |
+| a `match` payload, named field, or catch-all | `match !e`, or a write view the subject makes (`sema.makesWriteView`), of a field that is no read view or slice | a read match of anything else, whatever its subject: a place, a lend, a read view a call returns, a part of a value made in the header; a `?T` field | plain data a read copies; a slice; `match <e` (then by its type) |
 
 A header **makes a write view** (`sema.makesWriteView`), which it lends
 on, by a positive list: the subject is a write lend `!x`, or a value of
@@ -1829,23 +1876,20 @@ a write view type whose every leaf (`yieldedLeaves`) is a write lend, a
 call's result, a write view taken with `<w`, or a jump (`getw(!e)`,
 `(!a if c else !b)`, `optw(!e) ?? !d`, `tryw(!e) catch !d`, `<slot`). Any other subject is read: a
 leaf that is a place is never written through, whether it is reached
-through a read view, a handle, or holds a write view itself.
+through a read view or a handle, or is a write view a name holds.
 
-A header **copies a write view out of a place**
-(`sema.headerCopiesWriteView`), which typecheck rejects for `match`,
-`if … as`, `while … as`, and `for` alike, when its subject, or the base
-its fields, elements, and `?.` steps are reached from (`pathRoot`), is a
-branching value (`a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`)
-one of whose leaves is a place, or a part of one, of a type that holds a
-write view: `match (a if c else b)` of `!E` locals, `match o?` of a
-`(!E)?`, `match (a if c else b).e` of `!W` names, `match o?.w`,
-`for x in (h1.v if c else h2.v)`. The branch would read the leaf,
-copying the write view, which holds no loan on the place: a second
-writer. A path through the branch reaches a part of that copy; one that
-copies (plain data) is copied out in the header, so only a part the
-header views is rejected. Every header kind asks it of its subject:
-`checkMatch`, `checkOptionalBinding`, and `checkFor`, which a unit test
-pins.
+A header never copies a write view out of a place. Its subject, or
+the base its fields, elements, and `?.` steps are reached from, when a
+branching value (`a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`), is
+read in place unless the header copies it (plain data) or every leaf is
+a read view, and a branch read in place is lent
+(`Checker.headerLendsBranch`, which asks `lendsBranch`): `match (a if c
+else b)` of `!E` locals, `match o?` of a `(!E)?`, and
+`for x in (h1 if c else h2).v` are rejected, and each leaf is lent
+instead. Lending the branch whole would copy a leaf a name holds, a
+write view included, which holds no loan on the place: a second writer.
+Every header kind asks it of its subject: `checkMatch`,
+`checkOptionalBinding`, and `checkFor`, which a unit test pins.
 
 Typecheck records the access on the binding's symbol where it types the
 binding (`bindMatchView`, `checkOptionalBinding`, `checkFor`), and
@@ -1898,16 +1942,16 @@ and each desugars into forms the checker already walks:
 | Form | Desugars to |
 |---|---|
 | a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write lend written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would lend nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeLendRead` first, and `print`, `?!x`, a read view's slot, a `?self` receiver, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
-| `x = w`, `x = h.w`, `x = ws[i]` with a `!T` of a `T` that copies | `x: T = w` |
+| `x = w` with a `!T` of a `T` that copies | `x: T = w` |
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
 | `\|+x\|` | `c = +x` where the closure is made, then `\|<c\|`, the capture named `x`: `+x` reads through a view, copies a value that copies, counts a handle again, and clones an owner (`sema.cloneable`) |
 | `Cell.get`, `Vec.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
 
 A generic body that does any of these to a `T` records
-`Requirement.copies`, which each instance must meet. A struct holding a
-write view does not copy, so it is never copied out of a read view (it
-would write through one), and a struct holding a Cell is unique.
+`Requirement.copies`, which each instance must meet. No value holds a
+write view (Core §5), and a value holding a Cell lives only
+behind a shared handle, so neither is ever copied.
 
 ### Call origins
 
@@ -2188,8 +2232,7 @@ the IR makes them; `receiverOf`, `argParams`, and `receiverWrites` read
 symbols); a query that decides more than that belongs in `Pending`.
 
 - **Bindings** are `const` unless reassigned, written through, holding
-  a value that moves (`sema.moves`, which a `Cell` does; its methods
-  take `*Self`), or
+  a value that moves (`sema.moves`), or
   initialized by a compile-time-known value, which Zig would fold. Every Rig name is written through
   `rig.writeZigIdent`, which quotes Zig keywords and primitives
   (`@"var"`) and marks a name the emitter itself declares (`std`, `rig`,
@@ -2225,64 +2268,37 @@ symbols); a query that decides more than that belongs in `Pending`.
   immutable. Any other `?T` (a struct, an array, an enum with
   payloads) is a pointer, since a copy of a value with drop glue
   would be dropped with whatever holds it, and a `Cell` can change
-  while it is lent: a `*const T`, or a `*T` when `T` is
-  interior-mutable (below). In a generic type, where that depends on the type
+  while it is lent: a `*const T`, or a `*T` when `T` holds a Cell by
+  value (below). In a generic type, where that depends on the type
   arguments (`?T`, `?Self`), the view is a
   `rig.ReadView(T)`, which applies the same rule to each instance.
   The rule is `sema.lendByValue`, which typecheck also uses to
   read through a `!T` lent where a copied `?T` is expected. A local
   holds a view as every other `?T` of its type is held, whatever it is
   first bound to, so `q = ?p.x` and later `q = p.left(?o)` agree.
-  A `[]T` is a `[]const T` (a `[]T` when `T` is interior-mutable) and
-  a `![]T` a Zig `[]T`, not a pointer to
+  A `[]T` is a `[]const T` and a `![]T` a Zig `[]T`, not a pointer to
   one: the slice already points at its elements, so it is passed and
   bound as it is.
-- **Interior mutability.** A value whose type holds a Cell inline
-  (`sema.interiorMutable`: a Cell, or a struct, enum, array, or
-  optional holding one by value) changes through any path to it, a
-  read view included (Core 9), and Zig treats a write through a
-  `*const T`, or into a `const`, as undefined behavior (LLVM marks a
-  `*const` parameter `readonly`, and may put a `const` in read-only
-  memory). So the rule is a desugaring of the emitted types, not of the
-  checker's: a view of a value whose type holds a Cell is emitted as a
-  mutable pointer, and its storage is a `var`. `?T`, `?self`, a stored
-  `?T` field, a `|?x|` capture, a callable view's `?T` parameter, a
-  returned or optional view, and a branch's leaf address are `*T`; a
-  `[]T` of such elements is a Zig `[]T`; a Vec element reached through
-  a read view is `constSlot(i)`, which gives a `*T` for such a `T`
-  (`rig.ReadPtr`); and a binding, parameter copy, slot, or hidden
-  location holding one is a `var`. "Inline" is by value: a generic
-  instance holds its argument's Cell only where the generic holds that
-  parameter by value (`Contents.held`), so `G[C]` with `h: *T` or
-  `items: Vec[T]` is not interior-mutable. The fact is decided once,
-  by sema. Emit writes it into every struct and union type it emits,
-  `pub const __rig_interior_mutable = ...`: `true` when a field or
-  payload holds a Cell inline, and for a field whose answer depends on
-  a generic type's arguments (one that holds a type parameter by
-  value), `rig.interiorMutable(F)` of that field's type, per instance.
-  The runtime's `rig.interiorMutable` only reads it (through an
-  optional, an array, or an error union's payload; a Cell's is `true`,
-  and anything else is not), so where the answer depends on the
-  instance, the view is `rig.ReadPtr(T)` or `rig.ReadSlice(T)`, and an
-  element through a read-viewed Vec `constSlot(i)`, each of which reads
-  the same answer. The checker still treats `?x` as a
-  read lend: only the Zig pointer's mutability changes. A Cell change
-  is then a call on the Cell's address (`(&x.c).set(v)`) through
-  pointers that were mutable all along, so neither the emitter nor the
-  runtime casts constness away (a unit test checks both sources), and a
-  site that would write through a const pointer is a Zig compile error,
-  never undefined behavior. A Cell behind a handle (`*Cell[T]`,
-  `Box[Cell[T]]`) or in a Vec's buffer is on the heap, which every
-  pointer to it may write. A value made here whose type holds a Cell
-  (or, in a generic body, may) and whose address emit takes, a `?self`
-  receiver, the object of a Cell member, a lend, or a leaf of a
-  branching value reached by address, lives in its statement's slot,
-  a `var`, never in a Zig temporary ([Sema](#sema), temporaries): the
-  checker records the slot on each value `storage.madeLeaves` finds,
-  and `emitLeafPtr` reaches a made leaf there. One no slot keeps would
-  be the address of a Zig temporary, which may be constant, so emit
-  stops with an internal error (`refuseHeldCell`) rather than write
-  into it.
+- **Cells.** A value whose type holds a Cell by value lives only
+  behind a shared handle (Core sentence 9): it is always in the heap
+  memory a `*T` points to (`rig.RcBox(T)`), as a `Cell[T]`'s value or
+  a field of a value made by `*S(...)`, and no binding, parameter,
+  temporary, slot, element, or type argument holds one. A Cell changes
+  through any path to it, a read view included, and Zig treats a write
+  through a `*const T` as undefined behavior (LLVM marks a `*const`
+  parameter `readonly`). So a read view of a type that holds a Cell by
+  value (`?T`, `?self`, a stored `?T` field, a `|?x|` capture) is a
+  mutable pointer, `*T`: `emitViewPtrTy` asks `Facts.holdsCellByValue`,
+  and a write view's pointer is mutable anyway. The checker still
+  treats `?x` as a read lend: only the Zig pointer's mutability changes.
+  A type argument never holds a Cell by value, so a generic type's
+  `rig.ReadView(T)` is a read-only pointer, and a Vec element reached
+  through a read view is `constSlot(i)`, a `*const T`. A Cell change is
+  a call on the Cell's address (`(&x.c).set(v)`) through pointers that
+  were mutable all along, so neither the emitter nor the runtime casts
+  constness away (a unit test checks both sources), and a site that
+  would write through a const pointer is a Zig compile error, never
+  undefined behavior.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
   `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
@@ -2328,8 +2344,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   compile-time parameter is reached through a slice (`rig.elems`),
   since Zig rejects any index into an array of length 0, and `[n of x]`
   is `@as([n]T, @splat(x))`. An element that is not copied
-  (`sema.copies`), or holds a Cell, is reached where it is, as a
-  field is: a Vec's through `constSlot(i).*` or `slot(i).*`, a slice's
+  (`sema.copies`) is reached where it is, as a field is: a Vec's through `constSlot(i).*` or `slot(i).*`, a slice's
   through `rig.elemPtr`, never a copy of its bits through `at(i)`. A
   loop that takes an array of values that move hands them over one at
   a time (`rig.arrayIntoIter`), as one that takes a Vec does
@@ -2375,7 +2390,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   leaf), is reached through the address of the leaf it takes:
   `(a if c else b).inner()` is `(if (c) &a else &b).inner()`, and
   `o ?? d`, `e catch d`, `o?`, and `e!` capture the payload by pointer
-  where it is. A receiver, or a Cell-holding part lent to read, of a
+  where it is. A receiver of a
   call whose arguments are evaluated first is held as its address in
   the slot its statement keeps it in (`keptInSlot`), never as a copy in
   the call's block. A temporary lent to write is reached in its
@@ -2399,8 +2414,9 @@ symbols); a query that decides more than that belongs in `Pending`.
   Emit takes the address of a value Zig holds, in no slot, in two
   places the storage facts name (`zig_temp`, through
   `Emitter.zigTemporary`, which requires the fact): `emitLeafPtr`'s
-  `&@as(T, value)` for a leaf made there that no slot keeps, whose type
-  holds no Cell (`refuseHeldCell`), or a literal, and the payload a
+  `&@as(T, value)` for a leaf made there that no slot keeps (no
+  temporary holds a Cell by value, so none is written through it), or a
+  literal, and the payload a
   branch captures by address from such a value; and a temporary array
   lent as a slice to a call that keeps no view of it (`lendsTempArray`)
   and evaluates its arguments where they stand. Zig keeps each until its
@@ -2419,10 +2435,9 @@ symbols); a query that decides more than that belongs in `Pending`.
 
   - a `?self` method on a branching value with a leaf made there, which
     `reachesLeaf` does not reach, so the receiver is a copy:
-    `(@as(Q, if (c) mkq(5) else b)).me()` (never of an
-    interior-mutable `Q`: a type that holds a Cell is read by address,
-    so `reachesLeaf` reaches it, and each leaf made there is in its
-    slot), or on a value made there that no slot keeps, `(mkq(6)).me()`;
+    `(@as(Q, if (c) mkq(5) else b)).me()` (never of a `Q` that holds a
+    Cell by value, which no temporary is), or on a value made there that
+    no slot keeps, `(mkq(6)).me()`;
   - the values the labeled value blocks (`__rig_blk_N`, `__rig_if_N`)
     yield, where an address of them is taken other than as a leaf.
 
@@ -2513,10 +2528,9 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
-| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `ReadPtr(T)` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
-| `interiorMutable`, `ReadPtr(T)`, `ReadSlice(T)` | whether a `T` is interior-mutable, as the emitter declares it in each type (`__rig_interior_mutable`, from `sema.interiorMutable`); the pointer and the slice a read view of a `T` is: `*T` and `[]T` when it is, `*const T` and `[]const T` otherwise |
+| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
-| `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `ReadPtr(T)`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
+| `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a Text's bytes and a Vec's elements copied (`Vec.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
@@ -2587,9 +2601,9 @@ slice is a place: what `push`, `insert`, a store, or a literal puts in
 a container joins the loans the container carries, an element read out
 of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the
 container, and `swap` and `replace` exchange what their places hold. A
-place holding a write view, a local, an element, or a field, is written
-through by a value and re-pointed by a new view, after which a local
-holds the new view's loans only; a parameter is never re-pointed. A clone `+x` is a new owner carrying
+local holding a write view (no field or element holds one) is written
+through by a value and re-pointed by a new view, after which it holds
+the new view's loans only; a parameter is never re-pointed. A clone `+x` is a new owner carrying
 the loans of the views its value holds, and none on what it was read
 through. Header subjects follow the table in
 "Header subjects": a held part is a read lend of the held value, and a

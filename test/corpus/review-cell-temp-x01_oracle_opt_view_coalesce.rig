@@ -2,8 +2,6 @@
 # where `opt(?self)` returns an optional view of self. Cell-holding version.
 #
 # oracle: C.opt accept
-# oracle: mkc accept
-# oracle: main accept
 struct C
   c: Cell[Int]
 

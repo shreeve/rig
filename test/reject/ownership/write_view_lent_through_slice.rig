@@ -1,17 +1,13 @@
-# A write view held in an element of a slice is lent on only through
-# storage that may be written; a `[]T` is read-only.
+# No element of a slice holds a write view to lend on: a write view is
+# never stored inside a value, so the field is rejected where it is
+# declared.
 
 struct H
   w: !Int
 
-sub f(x: !Int)
-  x += 1
-
 sub main()
   n = 1
-  hs: [1]H = [H(w: !n)]
-  s: []H = ?hs
-  f(!s[0].w)
   print(n)
 
-# error: 14:6: cannot lend the write view held here: it is reached through a slice (`[]T`), which is read-only
+# error: 6:6: a write view is never stored inside a value, and `!Int` cannot stand here
+# errors: 1

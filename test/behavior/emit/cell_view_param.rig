@@ -31,10 +31,10 @@ struct V
     self.add(n)
 
 struct WV
-  t: V
+  t: *V
 
-fun mkv(n: Int) -> V
-  V(c: Cell(build(n)))
+fun mkv(n: Int) -> *V
+  *V(c: Cell(build(n)))
 
 fun mkwv(n: Int) -> WV
   WV(t: mkv(n))
@@ -44,9 +44,9 @@ fun maybe(n: Int) -> Int?
   n
 
 sub main()
-  a: Cell[Vec[Int]] = Cell(build(1))
+  a: *Cell[Vec[Int]] = *Cell(build(1))
   print(look(?a), a.len)
-  n: Cell[Int] = Cell(0)
+  n: *Cell[Int] = *Cell(0)
   s = 0
   for i in 0..5
     s += bump(?n) + (maybe(i - 2) ?? continue)

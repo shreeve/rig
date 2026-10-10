@@ -8,7 +8,7 @@ sub main()
   v = Vec[Int]()
   for i in 0..40
     !v.push(i)
-  c: Cell[*Vec[Int]] = Cell(*<v)
+  c: *Cell[*Vec[Int]] = *Cell(*<v)
   print(c, reset(?c))
 
 # expect:

@@ -4,7 +4,7 @@
 sub main()
   v = Vec[Int?]()
   (!v).push(4)
-  c = Cell(<v)
+  c = *Cell(<v)
   y = <c[0]
   print(y ?? 0)
 

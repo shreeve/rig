@@ -5,7 +5,7 @@ fun reset(c: ?Cell[Vec[Int]]) -> Int
   0
 
 sub main()
-  c: Cell[Vec[Int]] = Cell(Vec())
+  c: *Cell[Vec[Int]] = *Cell(Vec())
   for i in 0..50
     c.push(i * 3)
   print(c, reset(?c))

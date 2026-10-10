@@ -1,10 +1,10 @@
 # In a nested array or slice type, a sigil after the last `[...]` starts
-# the element type, as after the first: `[2][3]?Int`, `[][]!Int`.
+# the element type, as after the first: `[2][3]?Int`, `[][]*Int`.
 
 fun first(x: [2][3]?Int) -> Int
   x[0][0]
 
-fun rows(x: [2][]!Int) -> Int
+fun rows(x: [2][]*Int) -> Int
   x.len
 
 fun inner(x: [2]?[3]Int) -> Int

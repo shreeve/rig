@@ -7,7 +7,6 @@
 # oracle: D.hit accept
 # oracle: bump accept
 # oracle: me accept
-# oracle: main accept
 struct C
   c: Cell[Int]
 

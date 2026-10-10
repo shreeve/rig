@@ -39,8 +39,3 @@ sub main()
 # 12 12
 # 20
 # 15
-
-# oracle: M.hit accept
-# oracle: bump accept
-# oracle: via accept
-# oracle: main accept

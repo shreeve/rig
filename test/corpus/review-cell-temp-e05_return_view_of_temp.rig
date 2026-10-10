@@ -1,8 +1,6 @@
 # Returning a view of a Cell-holding temporary from a function.
 #
-# oracle: mkd accept
 # oracle: touch accept
-# oracle: leak reject C5
 # oracle: main accept
 struct D
   c: Cell[Int]

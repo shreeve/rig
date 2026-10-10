@@ -487,7 +487,6 @@ pub const Emitter = struct {
         const prev = try self.enterNominal(ir.Struct.name(node), false, members);
         defer self.nominal = prev;
         try self.emitFields(1);
-        try self.emitInteriorMutable(1);
         try self.emitRigName(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
@@ -500,7 +499,6 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericStruct.tparams(node), "struct");
         try self.emitFields(2);
-        try self.emitInteriorMutable(2);
         try self.emitRigName(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
@@ -523,8 +521,7 @@ pub const Emitter = struct {
         if (has_payloads) {
             try self.w.print("pub const {f} = union(enum) {{\n", .{ident(name)});
             try self.emitUnionVariants(1);
-            try self.emitInteriorMutable(1);
-        } else {
+            } else {
             try self.w.print("pub const {f} = enum{s} {{\n", .{ ident(name), if (has_values) "(u32)" else "" });
             for (self.nominalFields()) |f| {
                 if (!f.is_variant) continue;
@@ -545,7 +542,6 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericEnum.tparams(node), "union(enum)");
         try self.emitUnionVariants(2);
-        try self.emitInteriorMutable(2);
         try self.emitRigName(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
@@ -598,35 +594,6 @@ pub const Emitter = struct {
     /// declaration order.
     fn nominalFields(self: *Emitter) []const facts.Field {
         return self.facts.symbols.items[self.nominal.?.sym].fields orelse &.{};
-    }
-
-    /// `pub const __rig_interior_mutable = ...;`: whether a value of the
-    /// type being emitted is interior-mutable (`sema.interiorMutable`),
-    /// decided here from what each field and variant payload holds by
-    /// value: `true` when one holds a Cell inline, and for a field whose
-    /// answer depends on a generic type's arguments, that field type's
-    /// own answer, `rig.interiorMutable(F)`, per instance. The runtime
-    /// reads it (`rig.ReadPtr`, `rig.ReadSlice`, `rig.ReadView`,
-    /// `constSlot`, `rig.slice`) and never decides it itself.
-    fn emitInteriorMutable(self: *Emitter, depth: u32) Error!void {
-        try self.writeIndent(depth);
-        try self.w.writeAll("pub const __rig_interior_mutable = ");
-        var any = false;
-        for (self.nominalFields()) |*f| for (facts.syntax.dataFields(f)) |d| {
-            if (self.facts.interiorMutable(d.ty) == .yes) {
-                try self.w.writeAll("true;\n");
-                return;
-            }
-        };
-        for (self.nominalFields()) |*f| for (facts.syntax.dataFields(f)) |d| {
-            if (self.facts.interiorMutable(d.ty) != .depends) continue;
-            if (any) try self.w.writeAll(" or ");
-            any = true;
-            try self.w.writeAll("rig.interiorMutable(");
-            try self.emitTypeTy(d.ty);
-            try self.w.writeAll(")");
-        };
-        try self.w.writeAll(if (any) ";\n" else "false;\n");
     }
 
     /// `pub const __rig_name = .{ .module = "geo", .name = .{ "Point" } };`:
@@ -1436,10 +1403,7 @@ pub const Emitter = struct {
         }
         if (local.kind != null) local.guard = self.resourceGuard(sym);
 
-        // A Cell can change through any path to it, so a value holding
-        // one lives in mutable storage.
-        const needs_ptr_self = local.kind == .value or local.kind == .optional or
-            (ty != null and self.facts.interiorMutable(ty.?) != .no);
+        const needs_ptr_self = local.kind == .value or local.kind == .optional;
         // Assigning a write view writes through it, leaving the
         // pointer as it is.
         const rebound = s.flags.repointed or (s.flags.reassigned and !(ty != null and self.facts.pending.assignWritesThrough(ty.?)));
@@ -1577,11 +1541,7 @@ pub const Emitter = struct {
     /// The value and the target's indices are evaluated first
     /// (`openAssign`).
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
-        // A field or element holding a write view is written through
-        // when it is given a value, not another write view (sema
-        // decides); the place is then the value it views.
-        const through = self.facts.writesThrough(target);
-        const place_ty = if (through) self.peelViews(self.typeOf(target).?) else self.typeOf(target);
+        const place_ty = self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             const order = try self.openAssign(target, value, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
@@ -1592,7 +1552,7 @@ pub const Emitter = struct {
             try self.w.writeAll(");");
             return self.closeAssign(order);
         };
-        if (target != .src and self.isPtrViewExpr(target) and !through) {
+        if (target != .src and self.isPtrViewExpr(target)) {
             // A field or element holding a write view is rebound.
             const order = try self.openAssign(target, value, null, .view);
             // An element is reached as the slot it is.
@@ -2292,9 +2252,11 @@ pub const Emitter = struct {
         // An array the loop takes is held in a `var`, and each element is
         // reached through a pointer into it, as the body's own.
         const owned = header == .taken;
-        // A resource element is a view of its slot.
+        // A resource element is a view of its slot; an element that is
+        // itself a read view is the view, copied.
+        const elem_is_view = if (src_ty) |t| if (self.loopElem(t)) |e| e == elem_ty else false else false;
         const by_ptr = mode == .write or owned or
-            (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view);
+            (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view and !elem_is_view);
 
         // A value the loop holds, or the array it takes, lives in the
         // block around it.
@@ -2926,7 +2888,7 @@ pub const Emitter = struct {
             // field it views (`?F`) or reads in place.
             const addr = try self.need(self.facts.bindsByAddress(b), b);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
-            try self.line("const {s} = {s}{s}.{f}.{f}{s};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name), if (self.facts.payloadReadsThroughWrite(b)) ".*" else "" });
+            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
         }
     }
 
@@ -2972,9 +2934,8 @@ pub const Emitter = struct {
     /// `payload` itself when `field` is empty (`&place` for the whole
     /// value of a `match !x`); `addr` takes the field's address, for a
     /// `match !x` binding that writes it.
-    /// `addr`: the binding points at the field; `deref`: it copies the
-    /// value the field's write view points at (`payloadReadsThroughWrite`).
-    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, deref: bool = false };
+    /// `addr`: the binding points at the field.
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false };
 
     /// A part of a value a `match <x` arm owns: a field, or the whole
     /// payload or value.
@@ -3026,8 +2987,8 @@ pub const Emitter = struct {
 
     /// A resource bound by `as`: captured as `tmp`, then owned by a local
     /// declared at the top of the body (or dropped at once for `as _`).
-    /// `copy`: a viewed binding over a Cell-holding part of a
-    /// temporary, captured by value into a mutable local (`lendsCellTemp`).
+    /// `copy`: a viewed binding of a copy of the value inside, which the
+    /// header captures by value (`Facts.copiesHeader`), held in a local.
     const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false };
 
     /// `payloadLocal` for a binding used in `used_in`, or anywhere when
@@ -3086,7 +3047,7 @@ pub const Emitter = struct {
             const addr = try self.need(self.facts.bindsByAddress(c), c);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .deref = self.facts.payloadReadsThroughWrite(c) });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });
         }
         return out.items;
     }
@@ -3105,7 +3066,7 @@ pub const Emitter = struct {
         for (prelude.aliases) |a| {
             if (a.field.len == 0) {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
-            } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field), if (a.deref) ".*" else "" });
+            } else try self.line("const {s} = {s}{s}.{f};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field) });
         }
         for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
         for (prelude.owned) |o| {
@@ -3150,7 +3111,7 @@ pub const Emitter = struct {
             }
             const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
             try self.w.print("|*{s}| ", .{tmp});
-            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = false } };
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp } };
         }
         // Over a view of an optional, a viewed binding points into it.
         if ((try self.viewsOptionalValue(value)) and copies) {
@@ -3197,10 +3158,9 @@ pub const Emitter = struct {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
-            const copy = value.isKind(.read) and self.facts.lendsCellTemp(ir.Read.operand(value));
-            const tmp = try self.hiddenStorage(cond, .as_value, if (copy) .copy else .pointer, .next);
-            try self.w.print("|{s}{s}| ", .{ if (copy) "" else "*", tmp });
-            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = copy } };
+            const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
+            try self.w.print("|*{s}| ", .{tmp});
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp } };
         }
         try self.w.writeAll("(");
         if (points) {
@@ -3476,7 +3436,9 @@ pub const Emitter = struct {
         };
         const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
         return switch (types.get(view)) {
-            .read_view => if (as_ptr) ptr else self.fmt("rig.lend({s})", .{ptr}),
+            // A read view of a value holding a Cell is a mutable pointer
+            // (`emitViewPtrTy`), never a copy.
+            .read_view => |inner| if (as_ptr or self.facts.holdsCellByValue(inner)) ptr else self.fmt("rig.lend({s})", .{ptr}),
             else => ptr,
         };
     }
@@ -3835,21 +3797,13 @@ pub const Emitter = struct {
     }
 
     /// The pointer a view of `inner` held by address is: a write view's
-    /// is mutable, `*T`, and so is a read view's of an interior-mutable
-    /// value (`sema.interiorMutable`), whose Cell changes through it; any
-    /// other read view's is `*const T`, and one whose `T` holds a type
-    /// parameter `rig.ReadPtr(T)`, which decides per instance.
+    /// is mutable, `*T`, and so is a read view's of a value that holds a
+    /// Cell by value (`sema.holdsCellByValue`), whose Cell changes through
+    /// it; any other read view's is `*const T`. (A type parameter never
+    /// holds a Cell: a Cell lives only behind a shared handle.)
     fn emitViewPtrTy(self: *Emitter, inner: TypeId, view: enum { read, write }) Error!void {
-        const mutable: facts.Answer = if (view == .write) .yes else self.facts.interiorMutable(inner);
-        switch (mutable) {
-            .yes => try self.w.writeAll("*"),
-            .no => try self.w.writeAll("*const "),
-            .depends => {
-                try self.w.writeAll("rig.ReadPtr(");
-                try self.emitTypeTy(inner);
-                return self.w.writeAll(")");
-            },
-        }
+        const mutable = view == .write or self.facts.holdsCellByValue(inner);
+        try self.w.writeAll(if (mutable) "*" else "*const ");
         try self.emitTypeTy(inner);
     }
 
@@ -4321,8 +4275,7 @@ pub const Emitter = struct {
 
     /// Whether place `e` is reached through a read view or a shared
     /// handle, whose value is read-only: an element on the way is
-    /// reached through `constSlot` (which reaches an element holding a
-    /// Cell through a mutable pointer, `rig.ReadPtr`).
+    /// reached through `constSlot`.
     fn throughReadView(self: *Emitter, e: Sexp) bool {
         var p = e;
         while (true) {
@@ -4337,11 +4290,11 @@ pub const Emitter = struct {
     }
 
     /// Whether element `e` is read where it is rather than copied: its
-    /// type is not copied implicitly (`sema.copies`), or holds a Cell
-    /// that a `?self` method or a `set` on it changes in the element.
+    /// type is not copied implicitly (`sema.copies`). (No element holds a
+    /// Cell by value: a Cell lives only behind a shared handle.)
     fn elemInPlace(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
-        return self.facts.pending.copies(t) != .yes or self.facts.pending.holdsCellByValue(t);
+        return self.facts.pending.copies(t) != .yes;
     }
 
     /// The object `base` of an index, emitted `how` the index needs it. A
@@ -4547,9 +4500,12 @@ pub const Emitter = struct {
         };
         // A value that branches, read where its leaves are, is reached
         // through the address of the leaf it takes, never a copy.
+        // Zig reaches a field through a pointer to a struct, but not
+        // through one to a handle (`reachesHandle`).
         if (try self.reachesLeaf(o)) {
-            if (self.hoistedOf(o)) |h| return self.w.writeAll(h.name);
-            return self.emitLeafPtr(o, self.typeOf(o).?);
+            if (self.hoistedOf(o)) |h| try self.w.writeAll(h.name) else try self.emitLeafPtr(o, self.typeOf(o).?);
+            if (self.reachesHandle(self.typeOf(o))) try self.w.writeAll(".*");
+            return self.derefToHandle(self.typeOf(o));
         }
         // A value that branches is read as its Rig type: Zig would take
         // a field of each branch's own type (a literal's, a String's);
@@ -4562,7 +4518,8 @@ pub const Emitter = struct {
             if (self.hoistedOf(o)) |h| if (h.flag.len == 0) return self.w.writeAll(h.name);
             try self.writeAsOpen(t);
             try self.emitExpr(o);
-            return self.w.writeAll(")");
+            try self.w.writeAll(")");
+            return self.derefToHandle(t);
         };
         const needs_parens = movesCompound(o) or if (o.kind()) |h| switch (h) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .propagate, .call, .array => true,
@@ -4589,9 +4546,8 @@ pub const Emitter = struct {
     /// is, `(if (o) |*v| v else &d)`, walked as `storage.leafStep` says. A
     /// place is reached where it is, a value kept in its statement's slot
     /// there, and a jump leaves. Any other value made here is a Zig
-    /// temporary of the expression, which may be constant: one whose type
-    /// holds a Cell is kept in its slot (`storage.madeLeaves`), since a
-    /// change may land in it.
+    /// temporary of the expression, which may be constant: nothing
+    /// changes it (a Cell lives only behind a shared handle).
     fn emitLeafPtr(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
         switch (self.facts.leafStep(e) orelse return self.unsupported(e, "a value reached by address that no checker walked")) {
             .@"if" => {
@@ -4661,7 +4617,6 @@ pub const Emitter = struct {
                     try self.emitBare(e);
                     return self.w.writeAll(")");
                 }
-                try self.refuseHeldCell(e, ty);
                 try self.zigTemporary(e);
                 try self.w.writeAll("&");
                 try self.writeAsOpen(ty);
@@ -4686,7 +4641,6 @@ pub const Emitter = struct {
             },
             // The payload is captured by address where Zig holds it.
             .made => if (!self.facts.dropsTemp(e)) {
-                try self.refuseHeldCell(e, ty);
                 try self.zigTemporary(e);
             },
             // A lend of an optional or fallible value whose payload is read
@@ -4697,20 +4651,6 @@ pub const Emitter = struct {
             .jump => {},
         }
         try self.emitBare(e);
-    }
-
-    /// Stop at `e`, a value made here of type `ty` that emit would reach
-    /// by address as a Zig temporary, when the type holds a Cell: the
-    /// temporary may be constant, and a Cell change through it would be
-    /// lost or undefined. The checker keeps every such value in its
-    /// statement's slot (`storage.madeLeaves`).
-    fn refuseHeldCell(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
-        const held = switch (self.facts.types.get(ty)) {
-            .optional => |inner| inner,
-            .fallible => |inner| inner,
-            else => ty,
-        };
-        if (self.facts.interiorMutable(held) != .no) return self.unsupported(e, "a Cell held in storage Zig keeps for the expression");
     }
 
     /// `@builtin(args)`. Arguments that name Rig types are spelled as Zig
@@ -5199,8 +5139,7 @@ pub const Emitter = struct {
             return self.w.writeAll(")");
         };
         // `set` / `replace` change a Cell through any path to it: the
-        // Cell's address, a mutable pointer, since every view of a value
-        // holding a Cell is one (`sema.interiorMutable`).
+        // Cell's address, a mutable pointer (`emitCellAddress`).
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
@@ -5236,22 +5175,14 @@ pub const Emitter = struct {
         try self.emitCellAddress(obj);
     }
 
-    /// The address of the Cell `obj` denotes, a mutable pointer: every
-    /// view on its path is one (`sema.interiorMutable`), and an element
-    /// on it is reached through `constSlot`, which reaches an element
-    /// holding a Cell through a mutable pointer, since the Vec holding
-    /// it may be reached through a read view. A value made here that the
-    /// path starts from is reached in its statement's slot
-    /// (`storage.madeLeaves`), never as a Zig temporary.
+    /// The address of the Cell `obj` denotes, a mutable pointer: a Cell
+    /// lives only behind a shared handle, whose value is on the heap, and
+    /// every read view of a value holding one is a mutable pointer
+    /// (`emitViewPtrTy`).
     fn emitCellAddress(self: *Emitter, obj: Sexp) Error!void {
         const saved = self.read_place;
         defer self.read_place = saved;
         self.read_place = true;
-        var base = lentPlace(obj);
-        while (base.isKind(.member) or base.isKind(.index)) base = lentPlace(ir.get(base, .object));
-        var leaves: std.ArrayList(Sexp) = .empty;
-        try self.facts.pending.madeLeaves(self.arena.allocator(), base, &leaves);
-        for (leaves.items) |leaf| if (!self.facts.dropsTemp(leaf)) if (self.typeOf(leaf)) |t| try self.refuseHeldCell(leaf, t);
         try self.w.writeAll("(");
         try self.emitAddressOf(lentPlace(obj));
         try self.w.writeAll(")");
@@ -5519,13 +5450,10 @@ pub const Emitter = struct {
         // Lend sigils on a receiver are implicit in Zig's method calls.
         const recv = lentPlace(self.receiverOf(call).?);
         const writes = self.receiverWrites(call);
-        // A Cell-holding part of a temporary is copied into a mutable local.
-        const cell = self.facts.lendsCellTemp(recv);
-        // Held as written below: an address, a copy of a part of a
-        // temporary, or a value made here.
+        // Held as written below: an address, or a value made here.
         const by: facts.StorageBy = switch (hold) {
             .leaf, .slot, .place => .pointer,
-            .consumed, .value => if (cell) .copy else .owned,
+            .consumed, .value => .owned,
         };
         const name = try self.hiddenStorage(recv, .receiver, by, .{ .id = id });
         try self.writeIndent(self.indent);
@@ -5537,7 +5465,7 @@ pub const Emitter = struct {
             try self.w.print("const {s} = ", .{name});
             if (hold == .leaf) try self.emitLeafPtr(recv, self.typeOf(recv).?) else try self.emitSlotAddress(recv);
             try self.w.writeAll(";\n");
-            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = self.reachesHandle(self.typeOf(recv)) });
         }
         if (hold == .place) {
             const saved = self.read_place;
@@ -5546,12 +5474,12 @@ pub const Emitter = struct {
             try self.w.print("const {s} = ", .{name});
             try self.emitAddressOf(recv);
             try self.w.writeAll(";\n");
-            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = self.reachesHandle(self.typeOf(recv)) });
         }
         const ty = self.typeOf(recv);
         const ptr = if (ty) |t| self.isPtrViewTy(t) else false;
         const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
-        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr) or cell) "var" else "const", name });
+        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr)) "var" else "const", name });
         if (ty) |t| {
             try self.w.writeAll(": ");
             try self.emitTypeTy(t);
@@ -5559,8 +5487,7 @@ pub const Emitter = struct {
         try self.w.writeAll(" = ");
         try self.emitBare(recv);
         try self.w.writeAll(";\n");
-        if (cell) try self.line("_ = &{s};", .{name});
-        if (kind == .value or kind == .optional or (writes and !ptr) or cell) try self.poisonAtExit(name);
+        if (kind == .value or kind == .optional or (writes and !ptr)) try self.poisonAtExit(name);
         // Sema rejects a viewed temporary receiver that owns a resource
         // (a consumed one is hoisted by `consumedTemporary`), so only a
         // value holding a type parameter gets here (`self.twice()` of a
@@ -5640,27 +5567,6 @@ pub const Emitter = struct {
             try self.w.writeAll(";\n");
             return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         }
-        // A Cell-holding part of a temporary a read view lends is lent
-        // where the statement's slot keeps the temporary, which may change
-        // and lives as long as the statement; otherwise it is copied into
-        // a mutable local, which the view points to.
-        if (hold == .cell_slot or hold == .cell_copy) {
-            const part = ir.Read.operand(h.node);
-            if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (hold == .cell_slot) .pointer else .copy, sx);
-            try self.writeIndent(self.indent);
-            if (hold == .cell_slot) {
-                try self.w.print("const {s} = ", .{h.name});
-                try self.emitSlotAddress(part);
-                try self.w.writeAll(";\n");
-                return self.hoisted.append(self.allocator, .{ .node = part, .name = h.name, .ptr = true });
-            }
-            try self.w.print("var {s} = ", .{h.name});
-            try self.emitBare(part);
-            try self.w.writeAll(";\n");
-            try self.line("_ = &{s};", .{h.name});
-            try self.poisonAtExit(h.name);
-            return self.hoisted.append(self.allocator, .{ .node = part, .name = h.name });
-        }
         const ty = self.typeOf(h.node);
         const ptr = slot < params.len and self.isPtrViewTy(params[slot]);
         // A value lent as the view its parameter expects is held as that
@@ -5671,11 +5577,8 @@ pub const Emitter = struct {
         const lent_array = self.facts.lendsTempArray(h.node);
         const kind: ?ResourceKind = if (ptr or lent or lent_array) null else if (ty) |t| self.kindOf(t) else null;
         if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (ptr or lent) .pointer else .owned, sx);
-        // A temporary array whose elements hold a Cell is lent from a
-        // mutable slot, never from constant memory.
-        const mutable = lent_array and self.facts.lendsCellTemp(h.node);
         try self.writeIndent(self.indent);
-        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or mutable) "var" else "const", h.name });
+        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
         // literal). A view read through is read here, in argument order.
         // A value lent has the parameter's type.
@@ -5687,8 +5590,7 @@ pub const Emitter = struct {
         try self.w.writeAll(" = ");
         if (fields) try self.emitStored(h.node) else if (self.facts.lendsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         try self.w.writeAll(";\n");
-        if (mutable) try self.line("_ = &{s};", .{h.name});
-        if (kind == .value or kind == .optional or mutable) try self.poisonAtExit(h.name);
+        if (kind == .value or kind == .optional) try self.poisonAtExit(h.name);
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         try self.line("var {s} = true;", .{h.flag});
         try self.writeIndent(self.indent);
@@ -6045,6 +5947,12 @@ pub const Emitter = struct {
             .read_view, .write_view => true,
             else => false,
         } else false;
+        // A read view, in a generic body, of what a write view points
+        // at is that value's own read view (`rig.lend`).
+        const outer_writes = if (outer.ty) |t| self.facts.types.get(t) == .write_view else false;
+        if (outer_writes and self.facts.writeSliceElem(ty) == null and self.genericReadView(ty) != null) {
+            return self.w.print("rig.lend({s})", .{outer.zig_name});
+        }
         // A `![]T` is the slice itself; a view of a view passes it on.
         if (self.facts.writeSliceElem(ty) != null or (outer_is_view and (self.isPtrViewTy(ty) or !outer.is_ptr))) {
             return self.w.writeAll(outer.zig_name);
@@ -6224,15 +6132,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(")");
             },
             .slice => |s| {
-                switch (ctx.interiorMutable(s.elem)) {
-                    .yes => try self.w.writeAll("[]"),
-                    .no => try self.w.writeAll("[]const "),
-                    .depends => {
-                        try self.w.writeAll("rig.ReadSlice(");
-                        try self.emitTypeTy(s.elem);
-                        return self.w.writeAll(")");
-                    },
-                }
+                try self.w.writeAll("[]const ");
                 try self.emitTypeTy(s.elem);
             },
             .array => |a| {
@@ -6409,6 +6309,40 @@ pub const Emitter = struct {
 
     fn isVecTy(self: *Emitter, ty: TypeId) bool {
         return self.isBuiltinInstance(ty, self.facts.vec_sym_id);
+    }
+
+    /// Whether a value of `ty` is a shared handle, or a view of one: a
+    /// pointer to it is a pointer to a pointer, which Zig does not reach
+    /// a field or method through.
+    fn reachesHandle(self: *Emitter, ty: ?TypeId) bool {
+        return self.facts.types.get(self.peelViews(ty orelse return false)) == .shared;
+    }
+
+    /// `.*` for each pointer a value of `ty`, a shared handle or a view
+    /// of one, is above the handle: Zig reaches a field through a
+    /// pointer to the handle's box, never through one to the handle.
+    fn derefToHandle(self: *Emitter, ty: ?TypeId) Error!void {
+        var t = ty orelse return;
+        if (!self.reachesHandle(t)) return;
+        while (true) switch (self.facts.types.get(t)) {
+            .read_view, .write_view => |inner| {
+                if (self.isPtrViewTy(t)) try self.w.writeAll(".*");
+                t = inner;
+            },
+            else => return,
+        };
+    }
+
+    /// The element a `for` over a value of `ty` walks: a Vec's, an
+    /// array's, or a slice's, through views; null for any other.
+    fn loopElem(self: *Emitter, ty: TypeId) ?TypeId {
+        const t = self.peelViews(ty);
+        return switch (self.facts.types.get(t)) {
+            .array => |a| a.elem,
+            .slice => |sl| sl.elem,
+            .parameterized_nominal => |pn| if (self.isVecTy(t)) pn.args[0] else null,
+            else => null,
+        };
     }
 
     fn isStructLike(self: *Emitter, ty: TypeId) bool {
@@ -6825,8 +6759,9 @@ fn isTerminatingStmt(s: Sexp) bool {
 }
 
 // Emitted code never writes through a const pointer or into const
-// storage: a value that holds a Cell is kept in a `var` and viewed
-// through a mutable pointer (`sema.interiorMutable`), so no cast is ever
+// storage: a Cell lives only behind a shared handle, on the heap, and a
+// value that holds one is viewed through a mutable pointer
+// (`emitViewPtrTy`), so no cast is ever
 // needed, and a write a missed site would make through a `*const T` is a
 // Zig compile error rather than undefined behavior. Neither the emitter
 // nor the runtime casts constness away, except the runtime's `FnRef.ofFn`,

@@ -1,0 +1,8 @@
+struct S
+  a: Cell[Int]?
+
+sub main()
+  h = *S(a: Cell(1))
+  if h.a as c
+    c.set(5)
+  print(1)

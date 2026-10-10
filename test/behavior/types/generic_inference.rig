@@ -42,7 +42,7 @@ sub main()
   print(o.unwrap_or(0))
   n: Option[Int] = .nothing
   print(n.unwrap_or(-1))
-  c = Cell(3)
+  c = *Cell(3)
   c.set(c.get() + 1)
   print(c.get())
   h = Holder(item: *Wrap(n: 9), count: 1)

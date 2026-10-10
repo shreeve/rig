@@ -1,5 +1,6 @@
-# A struct holding a write view cannot be copied: the copy would be a
-# second live mutable path to the viewed value. Move it with `<e`.
+# No struct holds a write view, so no copy of one is a second live
+# mutable path to the viewed value: a write view is never stored inside
+# a value, and the field is rejected where it is declared.
 
 struct Wrap
   payload: Int
@@ -9,8 +10,7 @@ struct Editor
 
 sub main()
   b = Wrap(payload: 1)
-  e = Editor(target: !b)
-  e2 = e
-  print(e2.target.payload)
+  print(b.payload)
 
-# error: bare use of `e` in binding would copy the write view it holds
+# error: 9:11: a write view is never stored inside a value, and `!Wrap` cannot stand here
+# errors: 1

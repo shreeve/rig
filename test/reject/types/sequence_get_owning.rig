@@ -1,11 +1,12 @@
-# `get` copies an element out, so an array of write views has none:
-# the copy would be a second write view.
+# `get` copies an element out, and no array has write views for it to
+# copy: a write view is never stored inside a value, so an array of
+# them is rejected where it is made.
 
 sub main()
   a = 1
   b = 2
   xs = [!a, !b]
-  w = xs.get(0)
-  print(w == none)
+  print(xs.len)
 
-# error: 8:10: `get` would copy an element out of a `[2]!Int`, whose elements a copy cannot share
+# error: 8:8: a write view is never stored inside a value, and `!Int` cannot stand here
+# errors: 1

@@ -63,7 +63,7 @@ sub main()
   last = "z"
   for n in ?lits
     last = n
-  c = Cell("b")
+  c = *Cell("b")
   for n in ?lits
     c.set(n)
   <lits

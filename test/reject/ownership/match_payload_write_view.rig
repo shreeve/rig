@@ -1,0 +1,24 @@
+# A payload holding a write view, which `match !h` once wrote through,
+# cannot be written: a write view is never stored inside a value, so
+# `Ed`'s `!Wrap` field is rejected.
+
+struct Wrap
+  v: Vec[Int]
+
+struct Ed
+  t: !Wrap
+
+enum Hold
+  none_
+  has(e: Ed)
+
+sub main()
+  x = Wrap(v: Vec())
+  h: Hold = .has(e: Ed(t: !x))
+  match !h
+    .has(a) => !a.t.v.push(1)
+    .none_ => print("none")
+  print(x.v.len)
+
+# error: 9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here
+# errors: 1

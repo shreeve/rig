@@ -5,7 +5,6 @@
 # change after that, and a view of a value from an inner block may stay
 # in it.
 # oracle: slices accept
-# oracle: write_views accept
 # oracle: returned accept
 # oracle: fields accept
 # oracle: elements accept
@@ -45,15 +44,6 @@ sub slices()
   print(v)
   a[0] = 9
   print(a)
-
-sub write_views()
-  a = 1
-  b = 2
-  ws: Vec[!Int] = Vec()
-  !ws.push(!a)
-  !ws.push(!b)
-  ws[1] = 9
-  print(a, b)
 
 sub returned()
   x = Item(n: 1, name: "x")
@@ -132,7 +122,6 @@ sub in_closure()
 
 sub main()
   slices()
-  write_views()
   returned()
   fields()
   elements()
@@ -146,7 +135,6 @@ sub main()
 # 5
 # [[1, 2], [2, 3]]
 # [9, 2, 3]
-# 1 9
 # 7
 # x 2
 # z

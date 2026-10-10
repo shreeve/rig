@@ -1,10 +1,10 @@
-# A branch that reads a place holding a write view would copy the write
-# view out of the place, a second writer that holds no loan on it
-# (`sema.headerCopiesWriteView`), for `match` and `if … as` alike: fields
-# reached through a read view or a handle, bare write views, a call
-# beside a field, `??` and `?` of an optional write view. None is lent
-# on (`sema.makesWriteView` lends on only write lends and calls), so no
-# binding writes through a read view, a handle, or a copy.
+# A branch a `match` reads in place is lent there (every in-place read
+# of a branch is a lend), and a leaf that is a name holding a write view
+# would be copied by lending the branching value, a second writer that
+# holds no loan on it: bare write views, a call beside a name, `??` and
+# `?` of an optional write view. None is lent on (`sema.makesWriteView`
+# lends on only write lends and calls), so no binding writes through a
+# copy. The hint lends each leaf.
 
 struct Res
   n: Int
@@ -14,27 +14,11 @@ enum E
   a(r: Res)
   b
 
-struct H
-  w: !E
-
-struct HO
-  o: (!E)?
-
 fun getw(e: !E) -> !E
   e
 
-sub read_view_fields(h1: ?H, h2: ?H, c: Bool)
-  match (h1.w if c else h2.w)
-    .a(r) => !r.v.push(1)
-    .b => pass
-
-sub handle_fields(h1: *H, h2: *H, c: Bool)
-  match (h1.w if c else h2.w)
-    .a(r) => !r.v.push(1)
-    .b => pass
-
-sub call_and_field(x: !E, h1: ?H, c: Bool)
-  match (getw(!x) if c else h1.w)
+sub call_and_name(x: !E, y: !E, c: Bool)
+  match (getw(!x) if c else y)
     .a(r) => !r.v.push(1)
     .b => pass
 
@@ -66,26 +50,12 @@ sub coalesce(e: !E, d: !E)
     .a(r) => print(r.n)
     .b => pass
 
-fun read_view_field_unwrapped(h: ?HO) -> Int?
-  match h.o?
-    .a(r) => !r.v.push(1)
-    .b => pass
-  1
-
-sub as_branch(h1: ?HO, h2: ?HO, c: Bool)
-  if (h1.o if c else h2.o) as x
-    print(x)
-
 sub main()
   pass
 
-# error: 27:10: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf to read, `?h1.w` (it is reached through a read view, so nothing writes through it)
-# error: 32:10: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf to read, `?h1.w` (it is reached through a shared handle, so nothing writes through it)
-# error: 37:29: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf to read, `?h1.w` (it is reached through a read view, so nothing writes through it)
-# error: 42:10: this `match` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
-# error: 52:10: this `match` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
-# error: 58:9: this `match` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
-# error: 65:9: this `match` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
-# error: 70:9: this `match` reads `h.o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if h.o as x` (it is reached through a read view, so nothing writes through it)
-# error: 76:7: this `as` reads `h1.o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if h1.o as x` (it is reached through a read view, so nothing writes through it)
-# errors: 9
+# error: 21:10: cannot lend `getw(!x) if c else y`: it may be `y`, a value a name holds, which lending the branching value would copy; lend each branch: `getw(!x) if c else ?y`
+# error: 26:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`
+# error: 36:10: cannot lend `a if c else !d`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else !d`
+# error: 42:9: cannot lend `o?`: it may be `o`, a value a name holds, which lending the branching value would copy; lend what it unwraps, and unwrap it in a header: `if ?o as x`
+# error: 49:9: cannot lend `o ?? !d`: it may be `o`, a value a name holds, which lending the branching value would copy; lend each branch: `?o ?? !d`
+# errors: 5

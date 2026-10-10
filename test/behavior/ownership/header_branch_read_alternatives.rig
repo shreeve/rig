@@ -1,5 +1,5 @@
 # The forms that read or write what a branch reaches without copying a
-# write view out of a place: a path through a branch of read views
+# value out of a place: a path through a branch of read views
 # (`(a if c else b).e` of `?W`), a branch that lends each leaf to read
 # (`?h1.w if c else ?h2.w`), `if o as x` then `if !o as x` for the value
 # inside an optional, a branch of lends named first (`t = (!a if c
@@ -18,7 +18,7 @@ struct W
   e: E
 
 struct H
-  w: !E
+  w: E
 
   fun gw(!self) -> !E
     !self.w
@@ -65,15 +65,15 @@ sub main()
   read_part(?x, ?y, true)
   e = mk(3)
   d = mk(4)
-  h1 = H(w: !e)
-  h2 = H(w: !d)
+  h1 = H(w: <e)
+  h2 = H(w: <d)
   read_lends(?h1, ?h2, false)
   f = mk(5)
   _ = optional(!f)
   named_branch(!x, !y, true)
   print(x.e)
   g = mk(6)
-  h = H(w: !g)
+  h = H(w: <g)
   match (!h).gw()
     .a(r)
       for i in 0..2

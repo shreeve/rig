@@ -1,6 +1,6 @@
 # A `?self` method changes a Cell through a part of a value that branches
-# between values names hold: each leaf is reached where it is, through a
-# mutable pointer, in debug and in an optimized build.
+# between shared handles names hold: each leaf's value is reached where
+# it is, through a mutable pointer, in debug and in an optimized build.
 # release
 
 struct N
@@ -13,8 +13,8 @@ struct W
   t: N
 
 sub go(k: Bool)
-  w = W(t: N(c: Cell(1)))
-  o: W? = W(t: N(c: Cell(2)))
+  w = *W(t: N(c: Cell(1)))
+  o: (*W)? = *W(t: N(c: Cell(2)))
   for _ in 0..3
     (w if k else o ?? w).t.hit()
   print(w.t.c.get())

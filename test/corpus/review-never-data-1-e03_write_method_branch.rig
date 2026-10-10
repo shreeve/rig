@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+  sub bump(!self)
+    self.x += 1
+
+sub main()
+  a = P(x: 1)
+  b = P(x: 3)
+  c = a.x < b.x
+  (a if c else b).bump()
+  print(a.x, b.x)

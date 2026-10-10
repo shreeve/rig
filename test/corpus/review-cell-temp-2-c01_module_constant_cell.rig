@@ -2,7 +2,6 @@
 # `const` global (read-only memory).
 #
 # oracle: N.hit accept
-# oracle: main accept
 struct N
   c: Cell[Int]
 

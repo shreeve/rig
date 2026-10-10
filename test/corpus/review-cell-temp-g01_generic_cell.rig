@@ -3,13 +3,7 @@
 #
 # oracle: G.bump accept
 # oracle: D.drop accept
-# oracle: mkg accept
-# oracle: mkd accept
-# oracle: mkcell accept
-# oracle: setter accept
-# oracle: setown accept
 # oracle: peek accept
-# oracle: main accept
 # oracle: mkint accept
 struct G[T]
   c: Cell[T]

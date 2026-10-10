@@ -66,10 +66,10 @@ sub main()
   matches(true)
   print(run2(none) ?? 0)
 
-# error: 32:13: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
-# error: 35:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
-# error: 38:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
-# error: 42:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 32:13: cannot lend `a if f else b`: it may be `a`, a value a name holds
+# error: 35:12: cannot lend `two(9) catch d`: it may be `d`, a value a name holds
+# error: 38:12: cannot lend `o ?? d`: it may be `o`, a value a name holds
+# error: 42:12: cannot lend `o?`: it may be `o`, a value a name holds
 # error: 49:10: a `match` reads a place or takes a call's result; bind this `E` to a name first
 # error: 53:9: a `match` reads a place or takes a call's result; bind this `E` to a name first
 # error: 58:9: a `match` reads a place or takes a call's result; bind this `E` to a name first

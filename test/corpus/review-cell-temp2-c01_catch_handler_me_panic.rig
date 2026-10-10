@@ -3,8 +3,6 @@
 # out of bounds in `mayOwnView`) instead of accepting or rejecting.
 #
 # oracle: N.me accept
-# oracle: mk accept
-# oracle: mkf accept
 # oracle: main accept
 error E
   bad

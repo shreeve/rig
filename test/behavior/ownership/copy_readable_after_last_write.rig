@@ -1,16 +1,13 @@
-# A write view ends at its last use, so the Copy value it viewed
-# is readable again after that, including through a struct that holds it.
-
-struct H
-  w: !Int
+# A write view ends at its last use, so the Copy value it viewed is
+# readable, and may be lent to write again, after that.
 
 sub main()
   n = 1
   w = !n
   w += 1
   print(n)
-  h = H(w: !n)
-  h.w *= 10
+  v = !n
+  v *= 10
   print(n)
 
 # expect:

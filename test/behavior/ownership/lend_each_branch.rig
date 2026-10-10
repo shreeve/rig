@@ -43,9 +43,6 @@ struct W
   fun gvw(!self) -> !Vec[Int]
     !self.v
 
-struct H
-  w: !W
-
 fun mkv(n: Int) -> Vec[Int]
   v: Vec[Int] = Vec()
   for i in 0..n

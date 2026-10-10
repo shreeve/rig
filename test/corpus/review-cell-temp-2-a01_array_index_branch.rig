@@ -2,7 +2,6 @@
 # named leaf: the name's array must change where it is.
 #
 # oracle: C.hit accept
-# oracle: mka accept
 # oracle: side accept
 # oracle: main accept
 struct C

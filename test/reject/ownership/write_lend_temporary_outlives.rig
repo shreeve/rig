@@ -15,14 +15,8 @@ struct S
   fun all(!self) -> !S
     self
 
-  sub lend_to(!self, out: !Vec[!Int])
-    !out.push(!self.n)
-
   drop(!self)
     print("drop", self.n)
-
-struct H
-  w: !Int
 
 fun mk() -> S
   S(n: 1, arr: [1, 2])
@@ -35,23 +29,17 @@ sub main()
   print(w.n)
   r = (!mk()).at()
   print(r)
-  h = H(w: !mk().n)
-  print(h.w)
+  f = !mk().n
+  print(f)
   a = (!mk()).all()
   print(a.n)
-  v: Vec[!Int] = Vec()
-  !v.push((!mk()).at())
-  !mk().lend_to(!v)
-  print(v.len)
   z = !mk().arr[..]
   print(z)
 
-# error: 31:5: cannot return a view of `mk()`, which this function was not lent
-# error: 34:8: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first
-# error: 36:9: a view of the temporary `mk()` outlives its statement
-# error: 38:13: a view of the temporary `mk()` outlives its statement
-# error: 40:9: a view of the temporary `mk()` outlives its statement
-# error: 43:13: a view of the temporary `mk()` outlives its statement
-# error: 44:4: a view of the temporary `mk()` outlives its statement
-# error: 46:8: a view of the temporary `mk()` outlives its statement
-# errors: 8
+# error: 25:5: cannot return a view of `mk()`, which this function was not lent
+# error: 28:8: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first
+# error: 30:9: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first
+# error: 32:8: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first
+# error: 34:9: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first
+# error: 36:8: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first
+# errors: 6

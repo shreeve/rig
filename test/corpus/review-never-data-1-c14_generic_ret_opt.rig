@@ -1,0 +1,8 @@
+fun some[T](x: T) -> T?
+  x
+
+sub main()
+  n = 1
+  if some(!n) as w
+    w += 1
+  print(n)

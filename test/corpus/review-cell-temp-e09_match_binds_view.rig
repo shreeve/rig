@@ -1,6 +1,5 @@
 # A header lending a Cell-holding temporary whose view a binding keeps.
 #
-# oracle: mkd accept
 # oracle: first accept
 struct D
   c: Cell[Int]

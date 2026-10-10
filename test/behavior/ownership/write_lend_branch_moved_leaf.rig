@@ -3,17 +3,17 @@
 # moved in, and the change lands there.
 
 struct N
-  c: Cell[Int]
+  c: Int
 
 fun poke(x: !N) -> Int
-  x.c.set(x.c.get() + 100)
-  x.c.get()
+  x.c += 100
+  x.c
 
 sub go(k: Bool)
-  a = N(c: Cell(1))
-  print("v", poke(!((<a) if k else N(c: Cell(5)))))
-  b = N(c: Cell(2))
-  print("v", poke(!(N(c: Cell(7)) if k else <b)))
+  a = N(c: 1)
+  print("v", poke(!((<a) if k else N(c: 5))))
+  b = N(c: 2)
+  print("v", poke(!(N(c: 7) if k else <b)))
   c = Vec[Int]()
   d = Vec[Int]()
   !(<c if k else <d).push(3)

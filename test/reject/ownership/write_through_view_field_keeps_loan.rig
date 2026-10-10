@@ -1,16 +1,13 @@
-# Writing through a `!T` field uses the write view the struct holds:
-# while the struct is used later, what it views cannot be read.
+# A struct never holds a `!T` field whose write view would keep what it
+# views lent while the struct is used: a write view is never stored
+# inside a value, so the field is rejected where it is declared.
 
 struct H
   w: !Vec[Int]
 
 sub main()
   v: Vec[Int] = Vec()
-  h = H(w: !v)
-  print(v.len)
-  u: Vec[Int] = Vec()
-  h.w = <u
   print(v.len)
 
-# error: 10:9: use of `v` while a write loan is live
+# error: 6:6: a write view is never stored inside a value, and `!Vec[Int]` cannot stand here
 # errors: 1

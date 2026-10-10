@@ -1,0 +1,8 @@
+struct S
+  c: Cell[Vec[Int]]
+
+sub main()
+  v: Vec[Int] = Vec()
+  h = *S(c: Cell(v))
+  x = <h.c
+  print(1)

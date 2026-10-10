@@ -132,8 +132,9 @@ none -1
 - The `?` or `!` is written on the owner (`print(?v)`, `grow(!v)`), so
   the owner **lends**.
 - What the receiver gets is a **view**: it reads the value, or with
-  `!` changes it. The receiver may return or store it; a read view also
-  copies, while a write view moves, so only one can change the value.
+  `!` changes it. The receiver may return it, or store a read view; a
+  read view also copies, while a write view moves and is never stored
+  inside a value, so only one can change the value.
 - What stays behind is a **loan**: until the last use of every view,
   the owner can't change, move, or drop what it lent.
 
@@ -206,7 +207,8 @@ ada 70
 `?self` reads the receiver and `!self` writes it. The call site says
 the same: a read is implicit (`a.can_pay(30)`), but a write is always
 spelled out, `!a.pay(30)`, so every mutation is visible, except inside
-a `Cell`, which changes through any path ([SPEC §10](SPEC.md#cell)).
+a `Cell`, which lives only behind a shared handle and changes through
+any path from it ([SPEC §10](SPEC.md#cell)).
 
 ### Moves, clones, and drops
 

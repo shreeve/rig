@@ -1,8 +1,6 @@
 # Variants of a branching lend with a named leaf, each of which would copy a
 # unique value: nested branches, `??`, `catch`, a named part.
 #
-# oracle: mkc accept
-# oracle: mkf accept
 # oracle: bump accept
 struct C
   c: Cell[Int]

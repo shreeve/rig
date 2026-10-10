@@ -45,7 +45,7 @@ enum Bx
   nothing
 
 enum Bd
-  has(d: D)
+  has(d: *D)
   nothing
 
 fun showi(h: ?HI) -> Int
@@ -58,9 +58,9 @@ fun mkbx(n: Int) -> Bx
   return Bx.nothing if n < 0
   Bx.has(P(n: n))
 
-fun mkhc(v: ?D, n: Int) -> HC!
+fun mkhc(v: ?D, n: Int) -> (*HC)!
   return E.bad if n < 0
-  HC(v: v, c: Cell(n))
+  *HC(v: v, c: Cell(n))
 
 fun valued(b: ?Bx) -> Int
   r = match b
@@ -77,10 +77,10 @@ fun returned(b: ?Bx) -> Int
 
 sub cells(b: ?Bd)
   match b
-    .has(x) => print("hc", HC(v: x, c: Cell(1)).me().c.get(), x.c.get())
+    .has(x) => print("hc", (*HC(v: x, c: Cell(1))).me().c.get(), x.c.get())
     .nothing => pass
   match b
-    .has(x) => print("hc2", (mkhc(x, -1) catch HC(v: x, c: Cell(5))).me().c.get())
+    .has(x) => print("hc2", (mkhc(x, -1) catch *HC(v: x, c: Cell(5))).me().c.get())
     .nothing => pass
 
 sub main()
@@ -93,7 +93,7 @@ sub main()
     .has(x) => print("x", showp(?HP(v: ?x, t: Text("abc"))))
     .nothing => print("none")
   print(valued(?mkbx(4)), returned(?mkbx(5)))
-  d = Bd.has(D(c: Cell(2)))
+  d = Bd.has(*D(c: Cell(2)))
   cells(?d)
   print("end")
 

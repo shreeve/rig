@@ -1,0 +1,11 @@
+struct S
+  c: Cell[Vec[Int]]
+
+sub f(a: !S)
+  t = a
+  print(t.c.get().len)
+
+sub main()
+  v: Vec[Int] = Vec()
+  h = *S(c: Cell(v))
+  f(!h)

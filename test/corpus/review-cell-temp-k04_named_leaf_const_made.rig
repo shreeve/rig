@@ -3,7 +3,6 @@
 # call reaches the leaf it takes; a change must not write constant memory.
 #
 # oracle: C.hit accept
-# oracle: mkc accept
 # oracle: bump accept
 # oracle: main accept
 struct C

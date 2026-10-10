@@ -9,8 +9,8 @@ struct Res
   n: Int
   t: Text
 
-struct Counter
-  hits: Cell[Int]
+struct Counter unique
+  hits: Int
 
 enum E
   a(c: Counter)
@@ -22,19 +22,19 @@ struct H
   o: Counter?
 
 fun mkh(r: ?Res) -> H
-  H(e: E.a(c: Counter(hits: Cell(r.n))), arr: [Counter(hits: Cell(r.n)), Counter(hits: Cell(2))], o: Counter(hits: Cell(r.n)))
+  H(e: E.a(c: Counter(hits: r.n)), arr: [Counter(hits: r.n), Counter(hits: 2)], o: Counter(hits: r.n))
 
 fun mkres(n: Int) -> Res
   Res(n: n, t: Text("abc"))
 
 sub main()
   match mkh(?mkres(1)).e
-    .a(c) => print("a", c.hits.get())
+    .a(c) => print("a", c.hits)
     .b => pass
   for k in mkh(mkres(3)).arr
-    print("k", k.hits.get())
+    print("k", k.hits)
   if mkh(?mkres(5)).o as c
-    print("o", c.hits.get())
+    print("o", c.hits)
 
 # error: 31:9: this header holds `mkh(?mkres(1))` for its construct, but a temporary made inside it ends with the header; bind `mkh(?mkres(1))` to a name first
 # error: 34:12: this header holds `mkh(mkres(3))`

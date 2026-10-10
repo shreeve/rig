@@ -1,0 +1,7 @@
+use lib
+
+sub take(k: lib.Counter)
+  k.hit()
+
+sub main()
+  print(1)

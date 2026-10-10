@@ -1,0 +1,6 @@
+sub main()
+  n = 1
+  m = 2
+  w = !n
+  a = [w, w]
+  print(a.len)

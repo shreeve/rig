@@ -17,7 +17,7 @@ sub main()
   k: *fun([2]Int, P?) -> [2]Int = *|a, o| [a[1], px(o)]
   print(k([5, 6], none), k([7, 8], P(x: 9, y: 0)))
   make = *|| P(x: 4, y: 5)
-  c = Cell(make())
+  c = *Cell(make())
   print(c.get().y)
 
 # expect:

@@ -1,0 +1,13 @@
+pub struct Counter
+  pub hits: Cell[Int] = Cell(0)
+
+  pub sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+pub type C = Cell[Int]
+
+pub struct Wrap[T]
+  pub v: T
+
+pub fun mk() -> *Counter
+  *Counter()

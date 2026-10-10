@@ -1,7 +1,7 @@
 # A Cell is interior-mutable: `set` and `replace` change it through a
 # read view, and through a `?self` method of a struct holding one. A
-# value holding a Cell is unique: a by-value parameter owns the value
-# moved into it, which it may lend out.
+# by-value parameter owns the shared handle moved into it, which it may
+# lend out.
 # release
 
 struct Counter
@@ -17,12 +17,12 @@ sub bump(c: ?Cell[Int], by: Int)
 fun swap(c: ?Cell[Int], v: Int) -> Int
   c.replace(v)
 
-fun lent(c: Counter) -> Int
+fun lent(c: *Counter) -> Int
   bump(?c.hits, 100)
   c.hits.get()
 
 sub main()
-  c: Cell[Int] = Cell(1)
+  c: *Cell[Int] = *Cell(1)
   bump(?c, 10)
   print(c.get())
   old = swap(?c, 5)
@@ -31,7 +31,7 @@ sub main()
   r.set(7)
   print(c.get())
 
-  k = Counter(hits: Cell(0), name: "k")
+  k = *Counter(hits: Cell(0), name: "k")
   k.hit()
   k.hit()
   print(k.name, k.hits.get())

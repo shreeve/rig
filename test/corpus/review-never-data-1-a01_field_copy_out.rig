@@ -1,0 +1,8 @@
+struct S
+  c: Cell[Int] = Cell(0)
+
+sub main()
+  h = *S()
+  x = h.c
+  x.set(5)
+  print(h.c.get())

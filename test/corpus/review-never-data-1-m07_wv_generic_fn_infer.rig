@@ -1,0 +1,13 @@
+struct G[T]
+  v: T
+
+fun mk[T](x: T) -> G[T]
+  G(v: x)
+
+sub main()
+  a = [1, 2, 3]
+  g = mk(!a[..])
+  print(g.v.len)
+  n = 1
+  h = mk(!n)
+  print(h.v)

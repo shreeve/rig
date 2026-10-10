@@ -47,7 +47,5 @@ sub main()
 # 31 32
 
 # oracle: C.hit accept
-# oracle: mk accept
 # oracle: took accept
 # oracle: pass_on accept
-# oracle: main accept

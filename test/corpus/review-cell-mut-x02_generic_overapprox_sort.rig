@@ -28,6 +28,5 @@ sub main()
 # expect:
 # 1 2 3
 
-# oracle: mk accept
 # oracle: less accept
 # oracle: main accept

@@ -1,6 +1,6 @@
-# A value holding a Cell is lent by `if ?o as x`, not copied, so a
-# change through the Cell reaches `o`. A write view a call returns is
-# bound as one, as `!o` is.
+# An optional handle to a value holding a Cell is lent by `if ?o as x`,
+# not copied, so a change through the Cell reaches `o`. A write view a
+# call returns is bound as one, as `!o` is.
 
 struct C
   hits: Cell[Int]
@@ -12,7 +12,7 @@ fun get(h: !R?) -> !R?
   !h
 
 sub main()
-  o: C? = C(hits: Cell(0))
+  o: (*C)? = *C(hits: Cell(0))
   if ?o as y
     y.hits.set(y.hits.get() + 1)
   print(o)

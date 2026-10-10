@@ -1,5 +1,6 @@
-# A shared handle whose value holds a write view cannot lend it: other
-# handles reach the same write view.
+# No shared handle's value holds a write view that other handles could
+# reach: a write view is never stored inside a value, so the field is
+# rejected where it is declared.
 
 struct Wrap
   v: Vec[Int]
@@ -7,16 +8,9 @@ struct Wrap
 struct WV
   b: !Wrap
 
-struct Hold
-  h: *WV
-
-sub reset(b: !Wrap)
-  b.v = Vec()
-
 sub main()
   x = Wrap(v: Vec())
-  !x.v.push(1)
-  k = Hold(h: *WV(b: !x))
-  reset(!k.h.b)
+  print(x.v.len)
 
-# error: 20:10: cannot lend the write view held here: it is reached through a shared handle
+# error: 9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here
+# errors: 1

@@ -1,0 +1,21 @@
+# A value holding a write view, which a loop condition once bound and its
+# step read after the body, cannot be written: a write view is never
+# stored inside a value, so `W`'s `!Int` field is rejected.
+
+struct W
+  w: !Int
+
+fun mk(n: !Int, i: Int) -> W?
+  return none if i >= 3
+  W(w: !n)
+
+sub main()
+  n = 5
+  i = 0
+  k = 0
+  while mk(!n, i) as h: k += h.w
+    i += 1
+  print(k, i)
+
+# error: 6:6: a write view is never stored inside a value, and `!Int` cannot stand here
+# errors: 1

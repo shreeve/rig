@@ -6,7 +6,7 @@ sub main()
   r = random.Random.seeded(1)
   s = random.Random.seeded(1)
   print(r == s)
-  c = Cell(random.Random.seeded(4))
+  c = *Cell(random.Random.seeded(4))
   t = c.get()
 
 # error: 8:9: `==` is not defined for `random.Random`: `random.Random` is unique

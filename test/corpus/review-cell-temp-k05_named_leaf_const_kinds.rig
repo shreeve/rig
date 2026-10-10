@@ -2,7 +2,6 @@
 # with no drop, changed by a Cell method or a `?self` method.
 #
 # oracle: C.hit accept
-# oracle: mkf accept
 # oracle: main accept
 struct C
   c: Cell[Int]

@@ -15,6 +15,5 @@ sub c2()
 sub main()
   c2()
 
-# oracle: c1 reject C3
 # oracle: c2 accept
 # oracle: main accept

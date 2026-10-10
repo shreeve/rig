@@ -1,0 +1,13 @@
+error E
+  bad
+
+fun pick(a: !Int, k: Bool) -> (!Int)!
+  return E.bad if k
+  a
+
+sub main()
+  n = 1
+  w = pick(!n, false) catch return
+  w += 3
+  r = Box(pick(!n, false) catch return)
+  print(n)

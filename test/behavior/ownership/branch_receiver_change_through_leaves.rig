@@ -1,8 +1,8 @@
 # A `?self` method that changes its receiver through a Cell, called on a
-# value that branches, or on a field or element of one, reaches the leaf
-# the value takes where it is, through `??` and `catch` too and when the
-# call's arguments are evaluated first: the change lands in that leaf,
-# never in a copy, and nothing drops the leaf but its owner.
+# branch of shared handles, or on a field or element of one, reaches the
+# leaf the branch takes where it is, through `??` and `catch` too and when
+# the call's arguments are evaluated first: the change lands in that
+# leaf, never in a copy, and nothing drops the leaf but its owner.
 # release
 
 error Bad
@@ -22,28 +22,28 @@ struct Q
 
 struct H
   q: Q
-  qs: [2]Q
+  qs: [2]*Q
 
 fun g(k: Int) -> Int
   k
 
-fun mkq(n: Int) -> Q
-  Q(c: Cell(n), t: Text("a text long enough to live on the heap"))
+fun mkq(n: Int) -> *Q
+  *Q(c: Cell(n), t: Text("a text long enough to live on the heap"))
 
-fun mkh(n: Int) -> H
-  H(q: mkq(n), qs: [mkq(n), mkq(n)])
+fun mkh(n: Int) -> *H
+  *H(q: Q(c: Cell(n), t: Text("a text long enough to live on the heap")), qs: [mkq(n), mkq(n)])
 
-fun maybe(c: Bool) -> H?
+fun maybe(c: Bool) -> (*H)?
   if c
     return mkh(5)
   none
 
-fun fails(b: Bool) -> H!
+fun fails(b: Bool) -> (*H)!
   if b
     return Bad.no
   mkh(100)
 
-fun first(o: H?) -> Int?
+fun first(o: (*H)?) -> Int?
   o?.q.bump()
 
 sub main()
@@ -55,10 +55,10 @@ sub main()
   qs = [mkq(1), mkq(2)]
   rs = [mkq(3), mkq(4)]
   print((qs if c else rs)[0].bump())
-  print((qs if c else rs)[g(0)].bump2(k: g(1), j: g(2)))
+  print((qs if c else rs)[g(0)].bump2(g(2), g(1)))
   print((qs if c else rs)[0].bump())
   print((h1 if not c else h2).qs[1].bump())
-  print((h1 if not c else h2).qs[g(1)].bump2(k: g(1), j: g(2)))
+  print((h1 if not c else h2).qs[g(1)].bump2(g(2), g(1)))
   o = maybe(true)
   print((o ?? h1).q.bump())
   print((fails(true) catch h1).qs[0].bump())

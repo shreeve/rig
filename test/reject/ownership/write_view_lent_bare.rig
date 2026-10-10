@@ -1,7 +1,7 @@
 # Lending a write view always shows its sigil: a held write view (a
-# `!T` parameter, `self` in a `!self` method, a local, a field) is lent
-# to a `!T` parameter, a `!self` receiver, a field, or an element
-# method as `!w`. A held read view is lent on bare.
+# `!T` parameter, `self` in a `!self` method, a local) is lent to a `!T`
+# parameter, a `!self` receiver, or an element method as `!w`. A held
+# read view is lent on bare.
 
 struct Counter
   n: Int
@@ -16,9 +16,6 @@ struct Counter
   fun get(?self) -> Int
     self.n
 
-struct Ed
-  c: !Counter
-
 sub bump(c: !Counter)
   !c.bump()
 
@@ -28,8 +25,6 @@ fun peek(c: ?Counter) -> Int
 sub echo(c: !Counter, r: ?Counter)
   bump(c)
   print(peek(r), peek(c))
-  e = Ed(c: c)
-  !e.c.bump()
 
 sub fill(xs: ![]Int)
   xs.fill(0)
@@ -49,8 +44,7 @@ sub main()
   fill(!xs[..])
 
 # error: 13:5: write `!self.bump()`: the call writes `self`
-# error: 29:8: write `!c`: the call writes through `c`
-# error: 31:13: write `!c`: the field writes through `c`
-# error: 35:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(0)`
-# error: 38:17: write `!c`: the call writes through `c`
-# error: 44:3: write `!w.bump()`: the call writes `w`
+# error: 26:8: write `!c`: the call writes through `c`
+# error: 30:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(0)`
+# error: 33:17: write `!c`: the call writes through `c`
+# error: 39:3: write `!w.bump()`: the call writes `w`

@@ -1,9 +1,6 @@
-# Building a second view from the write view a first view holds lends
-# the first view out: it cannot be used while the second is live (here
-# the second iterates while the first would push, freeing the buffer).
-
-struct Ed
-  t: !Vec[Int]
+# Building a second write view from a first one lends the first out: it
+# cannot be used while the second is live (here the second is read
+# while the first would push, freeing the buffer).
 
 sub main()
   v: Vec[Int] = Vec()
@@ -11,10 +8,11 @@ sub main()
   !v.push(2)
   !v.push(3)
   if true
-    e = Ed(t: !v)
-    f = Ed(t: !e.t)
-    for x in ?f.t
-      !e.t.push(x)
+    e = !v
+    f = !e
+    for x in ?f
+      !e.push(x)
   print(v.len)
 
-# error: use of `e` while a write loan is live
+# error: 14:8: use of `e` while a write loan is live
+# errors: 1

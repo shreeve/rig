@@ -1,0 +1,22 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct Holder
+  k: *Counter
+  cb: *sub()
+
+sub main()
+  k = *Counter()
+  h = Holder(k: +k, cb: *|+k| k.hit())
+  h.cb()
+  h.k.hit()
+  v: Vec[Holder] = Vec()
+  !v.push(<h)
+  v[0].cb()
+  for x in v
+    x.cb()
+    x.k.hit()
+  print(k.hits.get())

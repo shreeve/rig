@@ -3,10 +3,8 @@
 # until the statement ends, not at a block-local copy.
 #
 # oracle: C.me accept
-# oracle: mkc accept
 # oracle: both accept
 # oracle: burn accept
-# oracle: main accept
 struct C
   c: Cell[Int]
   pad: [8]Int

@@ -1,0 +1,14 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub poke[T](x: ?T)
+  print(1)
+
+sub main()
+  k = *Counter()
+  poke(?k)
+  poke(k)
+  print(k.hits.get())

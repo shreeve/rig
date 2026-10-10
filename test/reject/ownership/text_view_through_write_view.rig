@@ -1,35 +1,17 @@
-# A String viewing a Text reached through a struct that holds `!Text`
-# keeps that struct viewed: a write through the struct could move the
-# Text's bytes. So does a part an iterator holding `!Text` gives.
+# Neither a struct nor an iterator holds `!Text`: a write view is never
+# stored inside a value, so no String reached through one can view the
+# Text while the holder writes it. Each field is rejected where it is
+# declared.
 
 struct W
   t: !Text
 
-fun grab(w: ?W) -> String
-  ?w.t[..3]
-
-sub grow(w: !W)
-  !w.t.add("more")
-
 struct It
   t: !Text
 
-  fun next(!self) -> String?
-    !self.t.add("z")
-    ?self.t[..4]
-
 sub main()
-  t = Text("abcdefghijklmnop")
-  w = W(t: !t)
-  s = grab(?w)
-  grow(!w)
-  print(s)
-  u = Text("abcdefghijklmnop")
-  it = It(t: !u)
-  a = (!it).next() ?? ""
-  b = (!it).next() ?? ""
-  print(a, b)
+  print(1)
 
-# error: 25:9: cannot lend `w` to write while a read loan is live
-# error: 30:8: cannot lend `it` to write while a read loan is live
+# error: 7:6: a write view is never stored inside a value, and `!Text` cannot stand here
+# error: 10:6: a write view is never stored inside a value, and `!Text` cannot stand here
 # errors: 2

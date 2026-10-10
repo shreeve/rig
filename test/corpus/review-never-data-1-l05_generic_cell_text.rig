@@ -1,0 +1,11 @@
+struct W[T]
+  c: Cell[T]
+
+sub swap[T](w: ?W[T], x: T) -> T
+  w.c.replace(x)
+
+sub main()
+  w = *W(c: Cell(Text("a")))
+  old = swap(w, Text("b"))
+  old2 = swap(?w, Text("c"))
+  print(old, old2)

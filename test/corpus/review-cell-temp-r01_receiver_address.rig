@@ -4,7 +4,6 @@
 # oracle: D.drop accept
 # oracle: D.hit accept
 # oracle: D.wr accept
-# oracle: mkd accept
 # oracle: side accept
 # oracle: main accept
 struct D

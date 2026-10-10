@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+  sub bump(!self)
+    self.x += 1
+
+sub main()
+  a: P? = P(x: 1)
+  b: P? = P(x: 5)
+  c = true
+  (a if c else b)?.bump()
+  if a as p
+    print(p.x)

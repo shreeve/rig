@@ -34,7 +34,7 @@ sub main()
   qs = [P(xs: [3, 3, 3, 3]), P(xs: [4, 4, 4, 4])]
   c = clobber(0) == 1
   print(mk(5).arr(), first(mk(6).arr(), clobber(9)))
-  print((ps if c else qs)[1].arr(), first((qs if c else ps)[0].arr(), clobber(7)))
+  print((ps if c else qs)[1].arr(), first((?qs if c else ?ps)[0].arr(), clobber(7)))
   a = S(t: Text("aa"))
   b = S(t: Text("bbb"))
   print((a if c else b).size(), (b if c else a).size())

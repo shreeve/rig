@@ -1,0 +1,13 @@
+sub main()
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  !a.push(5)
+  c = a.len > 0
+  r: ?Vec[Int] = if c
+    a
+  else
+    b
+  !a.push(1)
+  for i in 0..100
+    !a.push(i)
+  print(r.len, r[0])

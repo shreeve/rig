@@ -3,8 +3,6 @@
 #
 # oracle: D.drop accept
 # oracle: D.me accept
-# oracle: mkd accept
-# oracle: main reject C5
 struct D
   c: Cell[Int]
   o: Int?

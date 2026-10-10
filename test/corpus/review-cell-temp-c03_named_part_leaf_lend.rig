@@ -1,8 +1,6 @@
 # A branching lend whose leaves are parts of temporaries: no name holds them.
 #
 # oracle: D.drop accept
-# oracle: mkd accept
-# oracle: mkh accept
 # oracle: bump accept
 struct D
   c: Cell[Int]

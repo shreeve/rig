@@ -2,19 +2,19 @@
 # a local.
 
 struct H
-  w: !Int
+  r: ?Int
 
 sub main()
   m = 1
   k = 1
-  h = H(w: !m)
+  h = H(r: ?m)
   w = !k
   if true
     n = 2
     o = 3
-    h.w = !n
+    h.r = ?n
     w = !o
-  h.w = 9
+  print(h.r)
   w = 4
   print(m, k)
 

@@ -1,0 +1,13 @@
+struct H
+  a: Text
+  b: Text
+
+fun pick(h: ?H, c: Bool) -> String
+  h.a if c else h.b
+
+fun pickr(h: ?H, c: Bool) -> ?Text
+  h.a if c else h.b
+
+sub main()
+  h = H(a: Text("aa"), b: Text("bb"))
+  print(pick(h, true), pickr(h, false))

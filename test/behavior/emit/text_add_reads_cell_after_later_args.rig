@@ -12,7 +12,7 @@ fun fill(c: ?Cell[Vec[Int]]) -> Int
   3
 
 sub main()
-  c: Cell[Vec[Int]] = Cell(Vec())
+  c: *Cell[Vec[Int]] = *Cell(Vec())
   for i in 0..40
     c.push(i * 1000)
   t = Text()

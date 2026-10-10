@@ -1,11 +1,11 @@
-# A store through a `!Holder` field of parameter `c` lands in what the
-# caller lent, which keeps `b` lent for the rest of the body.
+# A store into a field of a `Holder` that parameter `c` writes lands in
+# what the caller lent, which keeps `b` lent for the rest of the body.
 
 struct Holder
   r: []Int
 
 struct Ctx
-  w: !Holder
+  w: Holder
 
 fun f(c: !Ctx, b: !Vec[Int]) -> Int
   c.w.r = ?b[..]
@@ -18,7 +18,7 @@ sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   h = Holder(r: ?x[..])
-  c = Ctx(w: !h)
+  c = Ctx(w: <h)
   print(f(!c, !v))
 
 # errors: 1

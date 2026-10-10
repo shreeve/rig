@@ -28,7 +28,7 @@ sub main()
   match <e
     .a(r) => print((!r).next() != 0)
     .b => pass
-  w = Cell(random.Random.seeded(5))
+  w = *Cell(random.Random.seeded(5))
   old = w.replace(random.Random.seeded(6))
   print((!old).next() != 0)
 

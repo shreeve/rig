@@ -1,0 +1,18 @@
+# A branch whose leaves are names holding write views is a value, never
+# a place: passed where a write view goes, it would copy a write view.
+# Each branch is lent instead.
+
+sub inc(w: !Int)
+  w += 1
+
+sub f(a: !Int, b: !Int, c: Bool)
+  inc(a if c else b)
+  print(a, b)
+
+sub main()
+  x = 1
+  y = 2
+  f(!x, !y, true)
+
+# error: 9:7: cannot lend `a if c else b` to write: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `!a if c else !b`
+# errors: 1

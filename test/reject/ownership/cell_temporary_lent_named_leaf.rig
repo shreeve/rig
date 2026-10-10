@@ -2,8 +2,8 @@
 # branching value with a leaf a name holds, or a part of a temporary, is
 # no temporary: lending it would copy that leaf into the slot, which
 # forks a Cell the value holds (a type holding a Cell, or declared
-# `unique`, is unique, Core §1), as it would duplicate an owner. Each
-# branch is lent instead (`?a if c else ?mkc()`).
+# `unique`, is unique, Core §1), as it would duplicate an owner or a
+# `*` handle. Each branch is lent instead (`?a if c else ?mkc()`).
 
 struct C
   c: Cell[Int]
@@ -15,11 +15,11 @@ struct H
 struct R unique
   seed: Int
 
-fun mkc() -> C
-  C(c: Cell(1))
+fun mkc() -> *C
+  *C(c: Cell(1))
 
-fun mkh() -> H
-  H(d: mkc(), e: mkc())
+fun mkh() -> *H
+  *H(d: C(c: Cell(1)), e: C(c: Cell(1)))
 
 fun mkr() -> R
   R(seed: 2)
