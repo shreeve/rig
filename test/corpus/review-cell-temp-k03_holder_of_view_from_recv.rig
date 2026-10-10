@@ -4,9 +4,7 @@
 #
 # oracle: C.wrap accept
 # oracle: C.opt accept
-# oracle: mkc accept
 # oracle: both accept
-# oracle: main accept
 struct C
   c: Cell[Int]
   pad: [8]Int

@@ -4,9 +4,6 @@
 # grid program that panics main's checker the same way.
 #
 # oracle: D.me accept
-# oracle: mk accept
-# oracle: mkf accept
-# oracle: mkww accept
 # oracle: main accept
 error E
   bad

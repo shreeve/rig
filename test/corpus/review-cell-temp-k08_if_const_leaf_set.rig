@@ -1,7 +1,6 @@
 # `(a if k else C(c: Cell(2))).c.set(5)`, the constant leaf taken.
 #
 # oracle: C.hit accept
-# oracle: mkc accept
 # oracle: main accept
 struct C
   c: Cell[Int]

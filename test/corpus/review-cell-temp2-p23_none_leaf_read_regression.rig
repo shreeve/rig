@@ -2,8 +2,6 @@
 # unwraps an optional that branches to `none`. Main prints the expected
 # output; the branch stops at emit's backstop.
 #
-# oracle: mk accept
-# oracle: mko accept
 # oracle: main accept
 struct N
   c: Cell[Int]

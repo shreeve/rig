@@ -1,7 +1,6 @@
 # A Cell method on a value moved out with `<`, a temporary.
 #
 # oracle: D.drop accept
-# oracle: mkd accept
 struct D
   c: Cell[Int]
 

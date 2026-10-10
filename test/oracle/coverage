@@ -8,8 +8,9 @@
 # code at owners where those bodies never copy a type parameter, held
 # header parts, payload views, containers of views and write
 # views, every element a place, re-pointed write views, and clones, so
-# each floor is what it decides now. A type holding a Cell is unique,
-# so the matrix programs that copy one stop in sema, before either
+# each floor is what it decides now. A value holding a Cell lives only
+# behind `*`, and a write view is never stored inside a value, so the
+# programs that hold either by value stop in sema, before either
 # checker decides them. A header whose subject makes a temporary and
 # reaches no place is rejected in sema (`rejectHeaderCopy`), so the
 # corpus programs that have one stop there too.

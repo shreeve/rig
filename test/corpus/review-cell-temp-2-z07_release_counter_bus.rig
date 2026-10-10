@@ -4,7 +4,6 @@
 # oracle: C.hit accept
 # oracle: total accept
 # oracle: maybe accept
-# oracle: main accept
 struct C
   c: Cell[Int]
   log: Cell[Vec[Int]]

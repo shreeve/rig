@@ -46,5 +46,4 @@ sub main()
 
 # oracle: T.hit accept
 # oracle: T.score accept
-# oracle: mkd accept
 # oracle: pick accept

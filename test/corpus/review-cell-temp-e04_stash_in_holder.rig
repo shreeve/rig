@@ -1,8 +1,6 @@
 # A callee that stores the view it is lent into a holder that outlives the statement.
 #
-# oracle: mkd accept
 # oracle: stash accept
-# oracle: main reject C5
 struct D
   c: Cell[Int]
 

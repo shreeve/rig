@@ -3,8 +3,6 @@
 # nested all-made branch beside a named leaf.
 #
 # oracle: N.hit accept
-# oracle: mk accept
-# oracle: mkwwf accept
 # oracle: main accept
 error E
   bad

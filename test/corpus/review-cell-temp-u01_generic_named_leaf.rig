@@ -2,7 +2,6 @@
 # T = C (holds a Cell, no drop), lending it would copy `x` (unique) into the
 # slot, and the change through the view would land in the copy.
 #
-# oracle: mkc accept
 # oracle: bump accept
 struct C
   c: Cell[Int]

@@ -64,8 +64,6 @@ test/corpus/review-payload-loan-4-e15_loop_hold_across.rig main prod-rejects pro
 # A call whose write arguments can hold views may store one in another
 # (Core s7), so `f(!h1, !h2, true)` keeps `h1` lent while the result of
 # the call could hold what `h2` lent.
-test/corpus/review-payload-loan-4-n02_hint_followthrough_branch_part_fixed.rig main prod-rejects prod-strict `print(h1.w)` after `f(!h1, !h2, true)`, with `f(h1: !H, h2: !H)` able to store `h2.w` in `h1`
-test/corpus/review-payload-loan-4-n03_hint_followthrough_branch_part_alt.rig main prod-rejects prod-strict `print(h1.w)` after `f(!h1, !h2, true)`, with `f(h1: !H, h2: !H)` able to store `h2.w` in `h1`
 
 # A `defer` runs at its scope's exits, after the values declared after
 # it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also
@@ -127,8 +125,6 @@ test/corpus/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict 
 # A place holding a write view, re-pointed or exchanged, holds the new
 # view's loans (Core §6): `swap` exchanges two fields' views, and a
 # re-pointed field may view what outlives its holder.
-test/corpus/review-place-b9-x010_swap_through_fields.rig main prod-rejects prod-strict `h.w = 10` after `swap(!h.w, !k.w)`, which lends `h` for the call only
-test/corpus/review-place-b7-v020_nested_wb_rebind.rig main prod-rejects prod-strict `g.h.w = !m`, where `m` outlives `g`
 test/corpus/review-step45-g09_repoint_closure.rig main prod-rejects prod-strict `w = !n` while `f = |!w| ...` holds a write loan on `m`, what `w` saw
 
 # A lint that is not ownership, and a header subject of plain data,
@@ -149,7 +145,6 @@ test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o
 # before (Core s6): the compiler's statement temporaries (Core §3).
 test/reject/ownership/call_write_lend_kept.rig match_arm_writes prod-rejects prod-strict `!v.push(Item(n: it.n))` in an arm of `match find(!v)`, after the last use of `it`
 test/reject/ownership/call_write_lend_kept.rig write_result_whole prod-rejects prod-strict `v.len` after `firstw(!v).n`, the last use of the write view, in one statement
-test/reject/ownership/call_write_lend_kept.rig stored_whole prod-rejects prod-strict `v.len` after `keep(!v, !h, ?x)`, which stores `!v` in `h`, used no more, in one statement
 
 # A generic callee's origins come from its signature, where a `T` could
 # hold anything, so the call may store its `!v` argument and that write
@@ -254,7 +249,6 @@ test/corpus/review-arm-temps-2-m34_slice_holder_drop_reads_plain.rig main prod-r
 # value that lends the same place again: the compiler checks the new
 # lend while the old value, dropped after it, still holds its loan
 # (INTERNALS "Assignments").
-test/corpus/review-header-paths-1-o07_store_self_into_what_self_views.rig main prod-rejects prod-strict `h = H(n: Vec(), w: !v)` while the old `h` holds `!v`
 
 # A `for` over a plain array part of a branch of write views copies the
 # part in its header; the compiler keeps the branch's write views live

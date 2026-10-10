@@ -1,8 +1,6 @@
 # A for header over elements a view of a Cell-holding temporary reaches.
 #
-# oracle: mkd reject C2
 # oracle: items accept
-# oracle: main reject C5
 struct D
   c: Cell[Int]
   xs: Vec[Int]

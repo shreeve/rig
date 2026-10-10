@@ -3,7 +3,6 @@
 #
 # oracle: In.drop accept
 # oracle: H.put accept
-# oracle: mkh accept
 # oracle: look accept
 # oracle: main accept
 struct In

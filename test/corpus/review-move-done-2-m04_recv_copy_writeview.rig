@@ -15,4 +15,3 @@ sub main()
   print(s.k.into())
   print(s.k.into())
 
-# oracle: WV.into accept

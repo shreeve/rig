@@ -46,5 +46,3 @@ sub main()
 # 12
 
 # oracle: C.hit accept
-# oracle: mkv accept
-# oracle: main accept

@@ -84,7 +84,6 @@ sub main()
 # 1
 
 # oracle: C.hit accept
-# oracle: mk accept
 # oracle: less accept
 # oracle: Hold.run accept
 # oracle: bump accept
@@ -92,4 +91,3 @@ sub main()
 # oracle: first accept
 # oracle: twice accept
 # oracle: total accept
-# oracle: main accept

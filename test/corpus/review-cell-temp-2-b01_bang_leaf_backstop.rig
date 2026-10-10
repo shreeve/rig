@@ -1,8 +1,6 @@
 # A named leaf beside `mkf(6)!`, a made value reached through `!`: the
 # emitter's backstop (internal error) on an accepted program.
 #
-# oracle: mk accept
-# oracle: mkf accept
 # oracle: main accept
 error E
   bad

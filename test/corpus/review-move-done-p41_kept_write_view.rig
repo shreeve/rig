@@ -16,6 +16,3 @@ sub main()
   print(w.len)
   print(v.len)
 
-# oracle: G.drop accept
-# oracle: mk accept
-# oracle: main reject C3

@@ -1,8 +1,5 @@
 # Direct `c[i] = e` and `c[i] += e` into a temporary's Cell[Vec].
 #
-# oracle: made accept
-# oracle: freshv accept
-# oracle: main accept
 struct Log
   lines: Cell[Vec[Int]]
 

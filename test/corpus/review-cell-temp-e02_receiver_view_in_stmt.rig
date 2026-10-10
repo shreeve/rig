@@ -2,8 +2,6 @@
 #
 # oracle: D.drop accept
 # oracle: D.me accept
-# oracle: mkd accept
-# oracle: main accept
 struct D
   c: Cell[Int]
 

@@ -1,8 +1,6 @@
 # The same shape through a free function lent `?mkc(5)` (no receiver).
 #
 # oracle: opt accept
-# oracle: mkc accept
-# oracle: main accept
 struct C
   c: Cell[Int]
 

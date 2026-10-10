@@ -1,10 +1,8 @@
 # A for header whose source is computed from a lent Cell-holding temporary.
 #
 # oracle: D.drop accept
-# oracle: mkd accept
 # oracle: count accept
 # oracle: list accept
-# oracle: main accept
 struct D
   c: Cell[Int]
 

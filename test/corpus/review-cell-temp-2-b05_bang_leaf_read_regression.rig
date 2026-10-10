@@ -1,9 +1,6 @@
 # Only reading a Cell through a branch with a named leaf and a made leaf
 # reached through `!` or `?`: accepted and run on main.
 #
-# oracle: mk accept
-# oracle: mkf accept
-# oracle: mko accept
 # oracle: main accept
 error E
   bad

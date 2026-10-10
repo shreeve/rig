@@ -248,6 +248,7 @@ doc/CORE/2438532286 main
 doc/CORE/2544085652 main
 doc/CORE/2823746719 main
 doc/CORE/2873586614 main
+doc/CORE/3043440760 show
 doc/CORE/3056819009 main
 doc/CORE/3143210043 main
 doc/CORE/3206835740 pick
@@ -260,6 +261,7 @@ doc/SPEC/115450776 main
 doc/SPEC/1447035486 main
 doc/SPEC/1719082925 main
 doc/SPEC/1869169986 main
+doc/SPEC/1961172340 keep
 doc/SPEC/2020563711 main
 doc/SPEC/223951594 main
 doc/SPEC/2605336713 main
@@ -3025,6 +3027,7 @@ test/corpus/t1-vi.rig main
 test/corpus/take-r3.rig main
 test/corpus/take-s1.rig main
 test/reject/modules/imported_drop_glue_alias main
+test/reject/modules/imported_view_stored_through_write_view main
 test/reject/modules/transitive_type_alias main
 test/reject/ownership/alias_capture_if_expr.rig main
 test/reject/ownership/alias_deeply_nested_generic.rig main
@@ -3467,6 +3470,7 @@ test/reject/ownership/store_into_unnamed_receiver.rig recv_hoisted
 test/reject/ownership/store_into_unnamed_receiver.rig recv_part
 test/reject/ownership/store_into_unnamed_receiver.rig recv_view
 test/reject/ownership/store_through_nested_view_outlives.rig main
+test/reject/ownership/store_through_write_view_outlives.rig main
 test/reject/ownership/store_view_through_held_write_view.rig put
 test/reject/ownership/store_view_through_local_write_view.rig main
 test/reject/ownership/string_of_local_text.rig fill

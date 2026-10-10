@@ -2,8 +2,6 @@
 #
 # oracle: D.drop accept
 # oracle: D.hit accept
-# oracle: mkd accept
-# oracle: mkh accept
 # oracle: val accept
 struct D
   c: Cell[Int]

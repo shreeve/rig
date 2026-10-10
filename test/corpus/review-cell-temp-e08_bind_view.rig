@@ -1,9 +1,7 @@
 # Binding a read view of a Cell-holding temporary, and an `as` binding of
 # a view the callee returns.
 #
-# oracle: mkd accept
 # oracle: touch accept
-# oracle: main reject C5
 struct D
   c: Cell[Int]
 

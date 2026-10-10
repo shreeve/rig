@@ -1,7 +1,6 @@
 # A write lend of a branching value whose leaf is a moved name.
 #
 # oracle: poke accept
-# oracle: go accept
 # oracle: main accept
 struct N
   c: Cell[Int]

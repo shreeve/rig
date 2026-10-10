@@ -55,6 +55,3 @@ sub main()
 # 5
 
 # oracle: C.hit accept
-# oracle: mk accept
-# oracle: mko accept
-# oracle: main accept

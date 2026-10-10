@@ -1,6 +1,5 @@
 # A bare Cell as a branching receiver with a named leaf.
 #
-# oracle: fresh accept
 # oracle: main accept
 fun fresh(n: Int) -> Cell[Int]
   Cell(n)

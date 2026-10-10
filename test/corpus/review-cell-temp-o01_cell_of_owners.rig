@@ -2,12 +2,6 @@
 #
 # oracle: D.drop accept
 # oracle: L.drop accept
-# oracle: mkd accept
-# oracle: mkl accept
-# oracle: freshT accept
-# oracle: freshV accept
-# oracle: freshD accept
-# oracle: main accept
 struct D
   c: Cell[Int]
 

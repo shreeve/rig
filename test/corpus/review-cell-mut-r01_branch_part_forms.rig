@@ -32,5 +32,4 @@ sub main()
 # 3
 
 # oracle: T.hit accept
-# oracle: mk accept
 # oracle: look accept

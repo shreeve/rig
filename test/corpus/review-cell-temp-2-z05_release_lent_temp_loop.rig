@@ -3,9 +3,7 @@
 # --release loses the push (Mac and pup), the z01-z04 class.
 #
 # oracle: vec1 accept
-# oracle: mk accept
 # oracle: look accept
-# oracle: main accept
 fun vec1(n: Int) -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(n)

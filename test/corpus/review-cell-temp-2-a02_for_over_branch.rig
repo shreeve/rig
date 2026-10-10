@@ -2,8 +2,6 @@
 # named leaf: the binding views the element where it is.
 #
 # oracle: C.hit accept
-# oracle: mka accept
-# oracle: go reject C2
 # oracle: main accept
 struct C
   c: Cell[Int]

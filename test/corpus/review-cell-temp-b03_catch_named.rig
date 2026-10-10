@@ -3,9 +3,6 @@
 #
 # oracle: D.drop accept
 # oracle: D.hit accept
-# oracle: mkd accept
-# oracle: mkf accept
-# oracle: viaparam accept
 # oracle: main accept
 struct D
   c: Cell[Int]

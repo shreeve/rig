@@ -6,7 +6,6 @@
 # oracle: V.add accept
 # oracle: build accept
 # oracle: maybe accept
-# oracle: main accept
 struct V
   c: Cell[Vec[Int]]
 

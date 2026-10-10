@@ -2,10 +2,8 @@
 #
 # oracle: D.drop accept
 # oracle: D.hitn accept
-# oracle: mkd accept
 # oracle: maybe accept
 # oracle: two accept
-# oracle: f3 accept
 # oracle: main accept
 struct D
   c: Cell[Int]

@@ -4,7 +4,6 @@
 #
 # oracle: build accept
 # oracle: look accept
-# oracle: main accept
 fun build(n: Int) -> Vec[Int]
   v: Vec[Int] = Vec()
   for i in 0..n

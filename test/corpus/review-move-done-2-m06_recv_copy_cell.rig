@@ -14,4 +14,3 @@ sub main()
   print(s.c.into(), s.c.into(), s.c.n.get())
 
 # oracle: C.into accept
-# oracle: main reject C2

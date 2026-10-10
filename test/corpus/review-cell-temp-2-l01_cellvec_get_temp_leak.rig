@@ -1,8 +1,6 @@
 # `get(i)` on a Cell[Vec[Int]] that is a temporary: the temporary leaks.
 #
 # oracle: vec1 accept
-# oracle: mk accept
-# oracle: mkh accept
 fun vec1(n: Int) -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(n)

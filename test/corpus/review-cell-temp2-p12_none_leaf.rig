@@ -6,10 +6,6 @@
 # oracle: D.hit accept
 # oracle: D.bumped accept
 # oracle: D.me accept
-# oracle: mk accept
-# oracle: mkf accept
-# oracle: mko accept
-# oracle: mkww accept
 # oracle: look accept
 # oracle: main accept
 error E

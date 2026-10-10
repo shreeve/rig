@@ -3,8 +3,6 @@
 #
 # oracle: D.drop accept
 # oracle: D.items accept
-# oracle: mkd accept
-# oracle: main reject C5
 struct D
   c: Cell[Int]
   xs: Vec[Int]

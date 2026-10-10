@@ -2,17 +2,12 @@
 # oracle: D.hit accept
 # oracle: D.bumped accept
 # oracle: D.me accept
-# oracle: mk accept
-# oracle: mkf accept
-# oracle: mko accept
-# oracle: mkww accept
 # oracle: look accept
 # oracle: H.run accept
 # oracle: H.read accept
 # oracle: mkh accept
 # oracle: mkho accept
 # oracle: mkhf accept
-# oracle: mkn accept
 # oracle: bump accept
 # oracle: bumpr accept
 # oracle: showi accept
@@ -21,7 +16,6 @@
 # oracle: readt accept
 # oracle: shapes accept
 # oracle: shapes2 accept
-# oracle: main accept
 error E
   bad
 

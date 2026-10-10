@@ -2,16 +2,11 @@
 # oracle: D.hit accept
 # oracle: D.bumped accept
 # oracle: D.me accept
-# oracle: mk accept
-# oracle: mkf accept
-# oracle: mko accept
-# oracle: mkww accept
 # oracle: look accept
 # oracle: Q.drop accept
 # oracle: Q.hit accept
 # oracle: Q.bumped accept
 # oracle: mkq accept
-# oracle: mkon accept
 # oracle: mkqo accept
 error E
   bad

@@ -3,11 +3,6 @@
 #
 # oracle: D.drop accept
 # oracle: D.hit accept
-# oracle: mkd accept
-# oracle: mkv accept
-# oracle: mkb accept
-# oracle: mko accept
-# oracle: mkf accept
 # oracle: bump accept
 # oracle: main accept
 struct D

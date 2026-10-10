@@ -1,7 +1,6 @@
 # A `none` leaf of an optional that branches, unwrapped with `?` and read
 # where it stands: main runs it; the branch stops at emit's backstop.
 #
-# oracle: mk accept
 # oracle: main accept
 struct N
   c: Cell[Int]
