@@ -621,7 +621,10 @@ filesystem, nor a symlink under another name), and names starting with
 not grow the stack. Modules are checked after their imports; a cycle or
 an unreadable file is reported at the `use`. A module whose import has
 errors is not checked further, since its errors would only be
-consequences; the import's own errors are reported. The CLI prints at
+consequences; the import's own errors are reported. A module with a
+`for` over an iterator is checked twice, the second time on the tree
+that loop is rewritten into ([Loops over an iterator](#loops-over-an-iterator)),
+and only the second check's context is the module's. The CLI prints at
 most 100 errors for a program and counts the rest.
 
 Every module's `SemContext` is in one shared table, and cross-module
