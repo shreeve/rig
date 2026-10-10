@@ -1,0 +1,90 @@
+# The forms that read or write what a branch reaches without copying a
+# write view out of a place: a path through a branch of read views
+# (`(a if c else b).e` of `?W`), a branch that lends each leaf to read
+# (`?h1.w if c else ?h2.w`), `if o as x` then `if !o as x` for the value
+# inside an optional, a branch of lends named first (`t = (!a if c
+# else !b)`, then `match !t.e`), and a write view a method returns.
+# release
+
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+struct W
+  e: E
+
+struct H
+  w: !E
+
+  fun gw(!self) -> !E
+    !self.w
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+sub read_part(a: ?W, b: ?W, c: Bool)
+  match (a if c else b).e
+    .a(r) => print(r.n)
+    .b => pass
+
+sub read_lends(h1: ?H, h2: ?H, c: Bool)
+  match (?h1.w if c else ?h2.w)
+    .a(r) => print(r.n)
+    .b => pass
+
+fun optional(e: !E) -> Int?
+  o: (!E)? = !e
+  if o as x
+    match x
+      .a(r) => print(r.n)
+      .b => pass
+  if !o as x
+    match !x
+      .a(r) => r.n = 9
+      .b => pass
+  print(o)
+  1
+
+sub named_branch(a: !W, b: !W, c: Bool)
+  t = (!a if c else !b)
+  match !t.e
+    .a(r)
+      for i in 0..3
+        !r.v.push(i)
+    .b => pass
+
+sub main()
+  x = W(e: mk(1))
+  y = W(e: mk(2))
+  read_part(?x, ?y, true)
+  e = mk(3)
+  d = mk(4)
+  h1 = H(w: !e)
+  h2 = H(w: !d)
+  read_lends(?h1, ?h2, false)
+  f = mk(5)
+  _ = optional(!f)
+  named_branch(!x, !y, true)
+  print(x.e)
+  g = mk(6)
+  h = H(w: !g)
+  match (!h).gw()
+    .a(r)
+      for i in 0..2
+        !r.v.push(i)
+    .b => pass
+  print(h.w)
+
+# expect:
+# 1
+# 4
+# 5
+# .a(r: Res(n: 9, v: [5]))
+# .a(r: Res(n: 1, v: [1, 0, 1, 2]))
+# .a(r: Res(n: 6, v: [6, 0, 1]))

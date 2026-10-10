@@ -1,0 +1,96 @@
+# Where a branch reaches a place, each branch is lent instead of the
+# branch (`Checker.lendsBranch`): `(?a if c else ?b).v` in a `for`,
+# `if … as`, `while … as`, and `match`, and a branch of write lends named
+# first (`t = (!a if c else !b)`), then lent on with `!t.v` and `!t.o`.
+# release
+
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+struct Q
+  e: E
+  o: E?
+  v: Vec[Int]
+
+struct W
+  e: E
+  o: E?
+  v: Vec[Int]
+  q: Q?
+
+  fun ge(?self) -> ?E
+    ?self.e
+
+  fun gv(?self) -> ?Vec[Int]
+    ?self.v
+
+  fun go(?self) -> ?(E?)
+    ?self.o
+
+  fun gew(!self) -> !E
+    !self.e
+
+  fun gvw(!self) -> !Vec[Int]
+    !self.v
+
+struct H
+  w: !W
+
+fun mkv(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i + 1)
+  v
+
+fun mkw(n: Int) -> W
+  W(e: mk(n), o: mk(n + 10), v: mkv(n), q: Q(e: mk(n + 20), o: mk(n + 30), v: mkv(n)))
+
+fun id[T](x: T) -> T
+  x
+
+fun f(a: !W, b: !W, c: Bool) -> Int?
+  n = 0
+  for x in (?a if c else ?b).v
+    n += x
+  if (?a if c else ?b).o as y
+    match y
+      .a(r) => print(r.n)
+      .b => pass
+  while (?a if c else ?b).o as y
+    match y
+      .a(r) => print(r.n)
+      .b => pass
+    break
+  match (?a if c else ?b).e
+    .a(r) => print(r.n)
+    .b => pass
+  t = (!a if c else !b)
+  for x in !t.v
+    x += 1
+  if !t.o as y
+    match !y
+      .a(r) => r.n = 50
+      .b => pass
+  print(n, a.v, a.o)
+  1
+
+sub main()
+  x = mkw(3)
+  y = mkw(3)
+  _ = f(!x, !y, true)
+
+# expect:
+# 13
+# 13
+# 3
+# 6 [2, 3, 4] .a(r: Res(n: 50, v: [13]))

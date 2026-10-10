@@ -187,6 +187,10 @@ pub const Op = struct {
     /// (its receiver's) when not `store_loan`.
     no_store: []const VarId = &.{},
     store_loan: bool = true,
+    /// A call's write receiver: the write view it is reached through and
+    /// its root, which the call's own lend of it is not stored in.
+    recv_view: ?VarId = null,
+    recv_root: ?VarId = null,
 
     pub const What = enum { copy, move, take, lend, make, call, assign, use, kill, ret };
 };

@@ -1,0 +1,18 @@
+struct OV
+  ov: (?Vec[Int])?
+
+sub main()
+  z: Vec[Int] = Vec()
+  !z.push(1)
+  q: Vec[Int] = Vec()
+  !q.push(3)
+  x = OV(ov: ?z)
+  y = OV(ov: ?q)
+  a = !x
+  b = !y
+  c = true
+  if (a if c else b).ov as v
+    s = ?v[..]
+    for _ in 0..100
+      !z.push(1)
+    print(s[0])

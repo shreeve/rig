@@ -2522,6 +2522,7 @@ const Lowerer = struct {
         var elem_from: ?VarId = null;
         // A write receiver reached through a write view.
         var recv_view: ?VarId = null;
+        var recv_root: ?VarId = null;
         // The holders of the places a `swap` or `replace` lends, and the
         // value `replace` stores.
         var exchanged: std.ArrayList(VarId) = .empty;
@@ -2688,6 +2689,7 @@ const Lowerer = struct {
                         try reads.append(self.a, p.root);
                         try recv_vars.append(self.a, p.root);
                         if (try self.storesViews(p)) try gains.append(self.a, p.root);
+                        recv_root = p.root;
                         // Through a write view, the call may store into
                         // what that view sees (`!w[0].push(?t)`).
                         if (deref) recv_view = r;
@@ -2873,6 +2875,8 @@ const Lowerer = struct {
             .result_loan = result_loan or sig == null,
             .no_store = no_store.items,
             .store_loan = store_loan or sig == null,
+            .recv_view = recv_view,
+            .recv_root = recv_root,
         });
         if (elem_from) |from| if (result) |r| {
             try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(from), .def = r });

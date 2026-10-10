@@ -9,7 +9,9 @@ stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
 `match` payload field that is itself a view (`viewpay.`), a lend of a
 binding that is a write view, then a write through it while the view
-is live or after (`lendw.`), a
+is live or after (`lendw.`), a header (`match`, `if … as`, `while … as`,
+`for`) whose subject reaches a place holding a write view through a
+branch, every one of which must be rejected (`hdr.`), a
 `while` step reading what its condition binds (`step.`), an assignment
 to a place a view reaches whose value holds a statement of its own
 (`target.`), and the
@@ -1171,6 +1173,118 @@ def lendw_program(bname, tname, lname, when):
 
 
 # -----------------------------------------------------------------------------
+# A header (`match`, `if … as`, `while … as`, `for`) whose subject reaches
+# a place holding a write view through a branch: a path through it at
+# depth 1 and 2, `?.`, `??`, and `catch` (a whole branch is `lendw.`'s),
+# over each kind of
+# write-view leaf (a `!W` parameter, a local `a = !x`, a field of an owned
+# holder). The arm takes a view of the value the header binds, then writes
+# through the place the branch read, and reads the view. The header would
+# copy the write view out of the place with no loan on it
+# (`sema.headerCopiesWriteView`), so every program must be rejected, and
+# one that runs fails the cell. Each subject is written bare, lent to
+# read (`?S`), and lent to write (`!S`). Cells are
+# `hdr.<header>.<sigil>.<shape>.<leaf>`.
+# -----------------------------------------------------------------------------
+
+_HDR_PRE = """struct Res
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+error Bad
+  nope
+
+struct W
+  e: E
+  o: Vec[Int]?
+  v: Vec[Int]
+
+struct H
+  w: !W
+
+fun vec(n: Int) -> Vec[Int]
+  xs: Vec[Int] = Vec()
+  !xs.push(n)
+  !xs.push(n + 1)
+  xs
+
+fun mkw(n: Int) -> W
+  W(e: E.a(r: Res(v: vec(n))), o: vec(n), v: vec(n))
+
+fun tg(w: !W, ok: Bool) -> (!W)!
+  return Bad.nope if not ok
+  w
+"""
+
+# Each header: how it opens over `SUBJ`, whose part named by the field it
+# reads, the view its body takes, and the lines that close it. `WRITE`
+# marks the write through the place the branch read.
+HDR_HEADERS = {
+    "match": dict(field="e", lines=["match SUBJ", "  .a(r)", "    s = ?r.v[..]", "    WRITE", "    print(s[0])", "  .b => pass"]),
+    "as": dict(field="o", lines=["if SUBJ as x", "  s = ?x[..]", "  WRITE", "  print(s[0])"]),
+    "while_as": dict(field="o", lines=["while SUBJ as x", "  s = ?x[..]", "  WRITE", "  print(s[0])", "  break"]),
+    "for": dict(field="v", lines=["for x in SUBJ", "  WRITE", "  print(x)"]),
+}
+# The value written for each field: a new one, which drops the old.
+HDR_NEW = {"e": "E.a(r: Res(v: vec(9)))", "o": "vec(9)", "v": "vec(9)"}
+# Each leaf kind: the parameters of `f`, how `main` calls it, the lines
+# before the header, and the two leaves.
+HDR_LEAVES = {
+    "wparam": dict(params="a: !W, b: !W, c: Bool", call=["w1 = mkw(1)", "w2 = mkw(2)", "f(!w1, !w2, true)"], pre=[], a="a", b="b"),
+    "wlocal": dict(params="c: Bool", call=["f(true)"], pre=["w1 = mkw(1)", "w2 = mkw(2)", "a = !w1", "b = !w2"], a="a", b="b"),
+    "holder": dict(params="c: Bool", call=["f(true)"], pre=["w1 = mkw(1)", "w2 = mkw(2)", "h1 = H(w: !w1)", "h2 = H(w: !w2)"], a="h1.w", b="h2.w"),
+}
+# Each subject shape: the subject, given the leaves `A` and `B` and the
+# field `F`, and the place the write goes through. `fun` marks a shape
+# whose header propagates `none` (`?`), which `f` must return.
+HDR_SHAPES = {
+    "part": dict(subj="(A if c else B).F", via="A.F"),
+    "part2": dict(subj="(HA if c else HB).w.F", via="HA.w.F", holder_only=True),
+    "optchain": dict(subj="o?.F", via="A.F", pre=["o: (!W)? = !A"], fun=True),
+    "coalesce": dict(subj="(o ?? !B).F", via="A.F", pre=["o: (!W)? = !A"]),
+    "catch": dict(subj="(tg(!B, false) catch |_| A).F", via="A.F"),
+}
+
+
+# Each sigil the subject is written with: bare, lent to read (`?S`), or
+# to write (`!S`), which a lend of a branch rejects (`lendsBranch`).
+HDR_SIGILS = {"bare": "", "read": "?", "write": "!"}
+
+
+def hdr_program(hname, sname, lname, gname="bare"):
+    """The program for one header-path cell, or None where the shape and
+    leaf do not meet."""
+    h = HDR_HEADERS[hname]
+    sh = HDR_SHAPES[sname]
+    lf = HDR_LEAVES[lname]
+    if sh.get("holder_only") and lname != "holder":
+        return None
+    field = h["field"]
+    a, b = lf["a"], lf["b"]
+    subj = sh["subj"].replace("HA", "h1").replace("HB", "h2").replace("A", a).replace("B", b).replace("F", field)
+    if lname == "holder" and sname not in ("part2",):
+        # The holder's leaf is its field `w`, a write view of W.
+        subj = sh["subj"].replace("A", "h1.w").replace("B", "h2.w").replace("F", field)
+    subj = HDR_SIGILS[gname] + subj
+    via = sh["via"].replace("HA", "h1").replace("A", a).replace("F", field)
+    write = f"{via} = {HDR_NEW[field]}"
+    body = [l.replace("SUBJ", subj).replace("WRITE", write) for l in h["lines"]]
+    pre = lf["pre"] + [l.replace("A", a) for l in sh.get("pre", [])]
+    lines = pre + body
+    if sh.get("fun"):
+        head = f"fun f({lf['params']}) -> Int?"
+        lines = lines + ["1"]
+        main = [l.replace("f(", "print(f(", 1) + " ?? 0)" if l.startswith("f(") else l for l in lf["call"]]
+    else:
+        head = f"sub f({lf['params']})"
+        main = lf["call"]
+    return _HDR_PRE + "\n" + head + "\n" + indent(lines, 2) + "\n\nsub main()\n" + indent(main, 2) + "\n"
+
+
+# -----------------------------------------------------------------------------
 # A Cell changed, or read, through each kind of path to the value holding
 # it, in each kind of position, built in debug and with `--release`: a
 # change through a read view (`?self`, `?T`, `[]T`, `|?x|`) must reach the
@@ -2058,6 +2172,7 @@ def run_oracle(work, cells, args):
         for ident, path in cells:
             fh.write(f"{ident}\t{path}\n")
     cmd = [ORACLE, "--set", "matrix", "--allow", os.path.join(ROOT, "test", "oracle", "differences"),
+           "--rejects", os.path.join(ROOT, "test", "oracle", "rejections"),
            "--coverage", os.path.join(ROOT, "test", "oracle", "coverage"), "--list", listing]
     if args.v:
         cmd.append("-v")
@@ -2244,6 +2359,23 @@ def main():
                     with open(path, "w") as fh:
                         fh.write(src)
                     cells.append((ident, path))
+    for hname in HDR_HEADERS:
+        for gname in HDR_SIGILS:
+            for sname in HDR_SHAPES:
+                for lname in HDR_LEAVES:
+                    ident = f"hdr.{hname}.{gname}.{sname}.{lname}"
+                    if not wanted(ident):
+                        continue
+                    src = hdr_program(hname, sname, lname, gname)
+                    if src is None:
+                        skipped += 1
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(src)
+                    cells.append((ident, path))
+                    # No run prints this: a program that runs fails the cell.
+                    expects[ident] = "(rejected)\n"
     for t in CELLMUT_TYPES:
         for a in CELLMUT_ACCESS:
             ident = f"cellmut.{t}.{a}"

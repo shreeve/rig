@@ -1,0 +1,57 @@
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+error Bad
+  nope
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+fun getw(e: !E) -> !E
+  e
+
+fun tryw(e: !E, ok: Bool) -> (!E)!
+  return Bad.nope if not ok
+  e
+
+fun optw(e: !E, ok: Bool) -> (!E)?
+  return none if not ok
+  e
+
+fun id[T](x: T) -> T
+  x
+
+struct G2
+  o: (!E)?
+
+fun f(a: !G2, b: !G2, c: Bool) -> Int?
+  k = 0
+  while (a if c else b).o as x
+    match x
+      .a(r0)
+        s = ?r0.v[..]
+        if !a.o as y
+          match !y
+            .a(r)
+              for i in 0..100
+                !r.v.push(i)
+            .b => pass
+        print(s[0])
+      .b => pass
+    k += 1
+    break if k == 1
+  1
+
+sub main()
+  e = mk(1)
+  d = mk(2)
+  x = G2(o: !e)
+  y = G2(o: !d)
+  _ = f(!x, !y, true)

@@ -2805,10 +2805,13 @@ a call's result, or a write view taken with `<w`
 (`match (!a if c else !b)`, `match optw(!e) ?? !d`), is
 lent on, as `if … as` lends one on: its bindings write, as under
 `match !e`. A branch that reads a place holding a write view
-(`match (a if c else b)` of `!E` names, `match o?` of a `(!E)?`) would
-copy the write view out of it, and is rejected, for `match` and
-`if … as` alike: lend each leaf (`!a`), or match the place where it
-stands. Any other read match never writes
+(`match (a if c else b)` of `!E` names, `match o?` of a `(!E)?`), or a
+path through one (`match (a if c else b).e`, `match o?.w`,
+`for x in (a if c else b).v`), would copy the write view out of the
+place, and is rejected, for `match`, `if … as`, and `for` alike: lend
+each leaf, to read (`?a`) or to write (`!a`). A part of a branch of
+lends is matched to write once the branch has a name:
+`t = (!a if c else !b)`, then `match !t.e`. Any other read match never writes
 through its bindings: whatever its subject (a place, a lend, a read
 view a call returns, or a part of a value made in the header), it binds
 a field that is itself a write view as the read view of what it views
@@ -3463,9 +3466,10 @@ as a call's result or a struct literal, or a field or element of one,
 is kept in its statement's slot until the statement ends
 ([Temporaries](#temporaries)), where the change is seen, and a view of
 it may be used only within the statement. A branching value that may
-be a name's (`!(a if c else b)`) would be lent as a copy, which the
-change would miss, so it is rejected: lend each branch, `!a if c else
-!b`. A constant is no temporary, and is never lent to write (above).
+be a name's (`!(a if c else b)`), or a field, element, or method
+receiver reached through one (`!(a if c else b).w`), would be lent as a
+copy, which the change would miss, so it is rejected: lend each branch,
+`!a if c else !b`. A constant is no temporary, and is never lent to write (above).
 
 ```rig
 struct Wrap
@@ -4072,9 +4076,9 @@ Text first, because `kv` outlives the header. A value made there that
 would take it: a call's result, or a branching value whose every
 branch is made there (`make() if c else <a`). An arm of `match make()`
 may move a payload out. A lend of a
-branching value that may be a name's (`?(a if c else b)`) would copy
-that name's value, so it is rejected: lend each branch, `?a if c else
-?b`.
+branching value that may be a name's (`?(a if c else b)`), or of a
+path through one (`?(a if c else b).items`), would copy that name's
+value, so it is rejected: lend each branch, `?a if c else ?b`.
 
 ```rig
 use std.text

@@ -79,11 +79,11 @@ sub as_branch(h1: ?HO, h2: ?HO, c: Bool)
 sub main()
   pass
 
-# error: 27:10: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: match `h1.w` where it stands (it is reached through a read view, so nothing writes through it)
-# error: 32:10: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: match `h1.w` where it stands (it is reached through a shared handle, so nothing writes through it)
-# error: 37:29: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: match `h1.w` where it stands (it is reached through a read view, so nothing writes through it)
-# error: 42:10: this `match` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend it to write with `!a`, or match `a` where it stands
-# error: 52:10: this `match` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend it to write with `!a`, or match `a` where it stands
+# error: 27:10: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf to read, `?h1.w` (it is reached through a read view, so nothing writes through it)
+# error: 32:10: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf to read, `?h1.w` (it is reached through a shared handle, so nothing writes through it)
+# error: 37:29: this `match` reads `h1.w`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf to read, `?h1.w` (it is reached through a read view, so nothing writes through it)
+# error: 42:10: this `match` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
+# error: 52:10: this `match` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
 # error: 58:9: this `match` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
 # error: 65:9: this `match` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
 # error: 70:9: this `match` reads `h.o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if h.o as x` (it is reached through a read view, so nothing writes through it)

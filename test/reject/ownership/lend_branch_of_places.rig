@@ -1,0 +1,102 @@
+# A branch is a value, never a place: a lend (`?` or `!`) of a branch
+# (`a if c else b`, `a ?? b`, `e catch h`, `e?`, `e!`), or of a path of
+# fields, elements, and method calls from one, stands only where every
+# leaf is a value made there, a constant, or a lend itself
+# (`Checker.lendsBranch`).
+# One with a leaf a place holds would lend a copy of that leaf's value,
+# a write view included (Core §3: a lend of a branching value that may
+# be a name's is planned). Each branch is lent instead, in a statement,
+# an argument, a method's receiver, and every header.
+
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+struct W
+  e: E
+  o: Res?
+  v: Vec[Int]
+
+  fun gvw(!self) -> ![]Int
+    !self.v[..]
+
+fun first(v: ?Vec[Int]) -> []Int
+  ?v[..1]
+
+sub stmt_read(a: !Vec[Int], b: !Vec[Int], c: Bool)
+  t = ?(a if c else b)
+  print(t)
+
+sub stmt_write(a: !Vec[Int], b: !Vec[Int], c: Bool)
+  t = !(a if c else b)
+  print(t)
+
+sub argument(a: !Vec[Int], b: !Vec[Int], c: Bool)
+  print(first(?(a if c else b)))
+
+sub path_write(a: !Vec[W], b: !Vec[W], c: Bool)
+  w = !(a if c else b)[0].o
+  print(w)
+
+sub path_read(a: !Vec[W], b: !Vec[W], c: Bool)
+  r = ?(a if c else b)[0].v
+  print(r)
+
+sub match_read(a: !E, b: !E, c: Bool)
+  match ?(a if c else b)
+    .a(r) => print(r.n)
+    .b => pass
+
+sub match_write(a: !E, b: !E, c: Bool)
+  match !(a if c else b)
+    .a(r) => r.n = 1
+    .b => pass
+
+sub match_part(a: !W, b: !W, c: Bool)
+  match ?(a if c else b).e
+    .a(r) => print(r.n)
+    .b => pass
+
+sub as_part(a: !W, b: !W, c: Bool)
+  if ?(a if c else b).o as x
+    print(x.n)
+
+sub while_as_part(a: !W, b: !W, c: Bool)
+  while !(a if c else b).o as x
+    x.n = 1
+    break
+
+sub receiver(a: !W, b: !W, c: Bool)
+  for x in (!(a if c else b)).gvw()
+    print(x)
+
+sub coalesce(v: !Vec[Int], d: !Vec[Int])
+  o: (!Vec[Int])? = !v
+  r = ?(o ?? !d)
+  print(r)
+
+sub plain(a: Int, b: Int, c: Bool)
+  r = ?(a if c else b)
+  print(r)
+
+sub main()
+  pass
+
+# error: 31:9: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`
+# error: 35:9: cannot lend `a if c else b` to write: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `!a if c else !b`
+# error: 39:17: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`
+# error: 42:9: cannot lend `a if c else b` to write: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `!(!a if c else !b)[0].o`
+# error: 46:9: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b)[0].v`
+# error: 50:11: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`
+# error: 55:11: cannot lend `a if c else b` to write: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `!a if c else !b`
+# error: 60:11: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).e`
+# error: 65:8: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).o`
+# error: 69:11: cannot lend `a if c else b` to write: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `!(!a if c else !b).o`
+# error: 74:15: cannot lend `a if c else b` to write: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `!a if c else !b`
+# error: 79:9: cannot lend `o ?? !d`: it may be `o`, a value a name holds, which lending the branching value would copy; lend each branch: `?o ?? !d`
+# error: 83:9: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`
+# errors: 13

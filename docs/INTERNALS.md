@@ -873,6 +873,26 @@ around the rule.
 The suite's `classify` check fails on any classifier
 of this kind left outside `handsOver`.
 
+A lend of a branch lends each branch. `?(a if c else b)` is
+`(?a if c else ?b)`, and the same for `!`, for `??`, `catch`, `e!`, and
+`e?`, and for a branch reached through fields, elements, and method
+receivers (`!(a if c else b).w`, `(!(o ?? d)).gvw()`): a branch is a
+value, not a place, so lending it whole would lend a copy of a leaf that
+is a place, which holds no loan on the place, and under `!` a write view
+of that copy. Typecheck decides it once per branch, by a positive list
+(`Checker.lendsBranch`, recorded in `branch_lends`): a lend whose
+operand's base (`Checker.lentBranch`) is a branching value is accepted
+only when every leaf (`sema.valueLeaves`) is made there, is a constant,
+is a lend itself, or jumps; otherwise it is rejected with the rewrite
+that lends each branch. Every lend asks it: `synthLend`, a slice lent
+(`lendSlice`), and the statement slot a temporary lent is held in
+(`lendsToWrite`, and `lendTemp` where a receiver or an argument is lent
+without a sigil, for a value that moves or is a write view). So
+the header deciders never see a lend of a branch of places: a header
+subject's `?` or `!` is stripped the same way for `match`, `if … as`,
+`while … as`, and `for` (`headerSubject`), and a lent subject is viewed
+in place, so its plain parts are not copied out and are no exemption.
+
 What a context does with a value is recorded as its `Use`
 (`useOf(e)`): `read` (`readLeaf`), `take` (a binding, an argument, a
 stored field or element, `return`, a function's or a closure's value,
@@ -1812,13 +1832,20 @@ leaf that is a place is never written through, whether it is reached
 through a read view, a handle, or holds a write view itself.
 
 A header **copies a write view out of a place**
-(`sema.headerCopiesWriteView`), which typecheck rejects for `match` and
-`if … as` alike, when its subject is a branching value (`a if c else
-b`, `a ?? b`, `e catch h`, `e!`, `e?`) one of whose leaves is a place,
-or a part of one, of a type that holds a write view (`match (a if c else
-b)` of `!E` locals, `match o?` of a `(!E)?`, `match h1.w if c else
-h2.w`). The branch would read the leaf, copying the write view, which
-holds no loan on the place: a second writer.
+(`sema.headerCopiesWriteView`), which typecheck rejects for `match`,
+`if … as`, `while … as`, and `for` alike, when its subject, or the base
+its fields, elements, and `?.` steps are reached from (`pathRoot`), is a
+branching value (`a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`)
+one of whose leaves is a place, or a part of one, of a type that holds a
+write view: `match (a if c else b)` of `!E` locals, `match o?` of a
+`(!E)?`, `match (a if c else b).e` of `!W` names, `match o?.w`,
+`for x in (h1.v if c else h2.v)`. The branch would read the leaf,
+copying the write view, which holds no loan on the place: a second
+writer. A path through the branch reaches a part of that copy; one that
+copies (plain data) is copied out in the header, so only a part the
+header views is rejected. Every header kind asks it of its subject:
+`checkMatch`, `checkOptionalBinding`, and `checkFor`, which a unit test
+pins.
 
 Typecheck records the access on the binding's symbol where it types the
 binding (`bindMatchView`, `checkOptionalBinding`, `checkFor`), and
@@ -2588,6 +2615,18 @@ lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
 store there lands in what the view reaches and nothing is moved out of
 it; and a write receiver with no `!` whose value is a write view
 (`wrap(!h).keep(v)`) is lent on through that view.
+
+What a call stores into its receiver itself leaves out the call's own
+lend of the receiver: a callee cannot store a view of `self` through
+`self`. Into another `!` argument it may store that view, which keeps
+the receiver lent while the argument holds it (SPEC "Second-class
+views").
+
+Its rejections are a gate of their own. Every function it rejects is
+listed in `test/oracle/rejections`; a set fails on a rejection not
+listed and on a listed one it no longer rejects (`--rejects`, test/README.md),
+so a change that weakens the reference checker fails the suite even
+where the compiler still rejects the program.
 
 ## Nexus notes
 

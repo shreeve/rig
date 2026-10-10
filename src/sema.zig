@@ -3927,7 +3927,11 @@ pub const AsReach = enum {
     written,
     /// Viewed where it is, or read through a view.
     read,
-    /// Copied or taken.
+    /// Taken: a value made in the header, or moved with `<o`, which the
+    /// binding owns, a write view included.
+    taken,
+    /// Copied out of the optional: plain data, or a view, which a copy
+    /// only reads.
     copied,
 };
 
@@ -3966,7 +3970,12 @@ pub fn decideBindingAccess(ctx: *const SemContext, site: BindingSite) ?Access {
         .as => |a| switch (a.reach) {
             .written => .write,
             .read => .read,
-            .copied => decideBindingAccess(ctx, .{ .declared = a.inner }),
+            .taken => decideBindingAccess(ctx, .{ .declared = a.inner }),
+            // A copy of a view only reads; plain data owns nothing.
+            .copied => switch (ctx.types.get(a.inner)) {
+                .read_view, .write_view => .read,
+                else => null,
+            },
         },
         .loop => |l| switch (l.mode) {
             .write => .write,
@@ -6394,18 +6403,35 @@ pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.E
 }
 
 /// The place leaf of header subject `subject` whose write view the
-/// header would copy out of it: a branching subject (`isBranchingForm`:
-/// `a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`) one of whose
-/// leaves (`valueLeaves`) is a place, or a part of one, of a type that
-/// holds a write view (`h1.w if c else h2.w`, `o?` of a `(!E)?`). A
-/// branch reads its leaves, so such a leaf would be a second writer that
-/// holds no loan on the place. Null for any other subject. The one
-/// decider, for `match` and `if … as` alike.
-pub fn headerCopiesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!?Sexp {
-    if (!isBranchingForm(subject)) return null;
+/// header would copy out of it. The subject, or the base its fields,
+/// elements, and `?.` steps are reached from (`pathRoot`), is a branching
+/// value (`isBranchingForm`: `a if c else b`, `a ?? b`, `e catch h`,
+/// `e!`, `e?`), one of whose leaves (`valueLeaves`) is a place, or a part
+/// of one, of a type that holds a write view: `match (a if c else b)` of
+/// `!E` names, `match o?` of a `(!E)?`, `match (a if c else b).e` of `!W`
+/// names, `match o?.w`, `for x in (h1.v if c else h2.v)`. A branch reads
+/// its leaves, so such a leaf would be a second writer that holds no loan
+/// on the place. A path through the branch reaches a part of that copy:
+/// one that copies (plain data) is copied out in a bare header, and only
+/// a part the header views (`copies` is `.no` or `.depends`) keeps the
+/// copy; under a sigil (`lent`: `?S`, `!S`), the header views any part
+/// in place. Null for any other subject. `subject` is the header's
+/// subject without its sigil (`Checker.headerSubject`). The one decider,
+/// for `match`, `if … as`, `while … as`, and `for` alike.
+pub fn headerCopiesWriteView(ctx: *const SemContext, subject: Sexp, lent: bool) std.mem.Allocator.Error!?Sexp {
+    const base = pathRoot(subject);
+    if (!isBranchingForm(base)) return null;
+    // A path through the branch: only a part the header views keeps it.
+    if (!lent and (subject.isKind(.member) or subject.isKind(.index))) {
+        const ty = ctx.typeOf(subject) orelse return null;
+        switch (copies(ctx, ty)) {
+            .no, .depends => {},
+            .yes => return null,
+        }
+    }
     var leaves: std.ArrayList(Sexp) = .empty;
     defer leaves.deinit(ctx.allocator);
-    try valueLeaves(ctx.allocator, subject, &leaves);
+    try valueLeaves(ctx.allocator, base, &leaves);
     for (leaves.items) |leaf| switch (handsOver(ctx, leaf).kind) {
         .place, .part_of_made => {
             const ty = ctx.typeOf(leaf) orelse continue;

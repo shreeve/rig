@@ -1,0 +1,36 @@
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+struct W
+  e: E
+  o: E?
+  v: Vec[Int]
+
+fun mkw(n: Int) -> W
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i + 1)
+  W(e: mk(n), o: mk(n + 10), v: <v)
+
+sub f(a: !Vec[W], b: !Vec[W], c: Bool)
+  r = ?(a if c else b)[0].v
+  for _ in 0..100
+    !a.push(mkw(1))
+  print(r.len)
+
+sub main()
+  x: Vec[W] = Vec()
+  !x.push(mkw(3))
+  y: Vec[W] = Vec()
+  !y.push(mkw(1))
+  f(!x, !y, true)

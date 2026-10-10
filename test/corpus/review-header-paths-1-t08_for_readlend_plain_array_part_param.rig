@@ -1,0 +1,17 @@
+struct A3
+  arr: [3]Int
+
+sub f(a: !Vec[A3], b: !Vec[A3], c: Bool)
+  n = 0
+  for x in ?(a if c else b)[0].arr
+    for _ in 0..100
+      !a.push(A3(arr: [0, 0, 0]))
+    n += x
+  print(n)
+
+sub main()
+  xs: Vec[A3] = Vec()
+  !xs.push(A3(arr: [1, 2, 3]))
+  ys: Vec[A3] = Vec()
+  !ys.push(A3(arr: [4, 5, 6]))
+  f(!xs, !ys, true)

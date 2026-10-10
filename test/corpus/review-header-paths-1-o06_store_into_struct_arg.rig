@@ -1,0 +1,19 @@
+struct H
+  v: Vec[Int]
+
+  sub put(!self, dst: !Slot)
+    !self.v.push(1)
+    dst.s = ?self.v[..]
+
+struct Slot
+  s: []Int
+
+sub main()
+  v: Vec[Int] = Vec()
+  h = H(v: <v)
+  e: Vec[Int] = Vec()
+  sl = Slot(s: ?e[..])
+  !h.put(!sl)
+  for i in 0..100
+    !h.v.push(i)
+  print(sl.s)

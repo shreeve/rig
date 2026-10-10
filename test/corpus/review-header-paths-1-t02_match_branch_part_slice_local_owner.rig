@@ -1,0 +1,19 @@
+struct SV
+  sl: []Int
+  n: Int
+
+sub main()
+  z: Vec[Int] = Vec()
+  !z.push(1)
+  !z.push(2)
+  q: Vec[Int] = Vec()
+  !q.push(3)
+  x = SV(sl: ?z[..], n: 1)
+  y = SV(sl: ?q[..], n: 2)
+  a = !x
+  b = !y
+  c = true
+  t = (a if c else b).sl
+  for _ in 0..100
+    !z.push(1)
+  print(t[0])

@@ -41,6 +41,6 @@ sub main()
   print(a.c.get(), r.seed)
 
 # error: 36:10: cannot lend `a if c else mkc()`: it may be `a`, a value a name holds
-# error: 38:10: cannot lend `mkh().e if c else mkh().d`: it may be `mkh().e`, a part of a temporary
+# error: 38:10: cannot lend `mkh().e if c else mkh().d`: it may be `mkh().e`, a part of the temporary `mkh()`
 # error: 40:16: cannot lend `r if c else mkr()`: it may be `r`, a value a name holds
 # errors: 3
