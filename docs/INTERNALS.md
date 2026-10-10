@@ -305,6 +305,9 @@ wrapper also makes the only rewrites that need to inspect the tree:
   `set` gets the `fixed` op, and a module-level `const` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
+- a `for` over an iterator, which typecheck finds, is rewritten into
+  the `while` it means after the module's first check
+  (`Parser.desugarIterLoops`, [Loops over an iterator](#loops-over-an-iterator));
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
   `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
 - a statement `<e` whose value is not used is a drop, a move to
@@ -618,7 +621,10 @@ filesystem, nor a symlink under another name), and names starting with
 not grow the stack. Modules are checked after their imports; a cycle or
 an unreadable file is reported at the `use`. A module whose import has
 errors is not checked further, since its errors would only be
-consequences; the import's own errors are reported. The CLI prints at
+consequences; the import's own errors are reported. A module with a
+`for` over an iterator is checked twice, the second time on the tree
+that loop is rewritten into ([Loops over an iterator](#loops-over-an-iterator)),
+and only the second check's context is the module's. The CLI prints at
 most 100 errors for a program and counts the rest.
 
 Every module's `SemContext` is in one shared table, and cross-module
@@ -2181,6 +2187,59 @@ label before it when it closes (`closeLabeled`) only if a jump was
 written to it: the resolver that writes the jump marks the label, so
 which labels appear needs no analysis of its own. The blocks are always
 there; an unused one is a plain `{ }`, which Zig compiles to nothing.
+
+### Loops over an iterator
+
+`for x in it` is `while (!it).next() as x`, and nothing else: no pass
+has a form of its own for it. A `for` source is an iterator when its
+type, past views, is a struct or enum (not a `Vec`, array, slice,
+`String`, or range, which keep their own meaning) that declares
+`next(!self) -> T?` (`Checker.iteratorShape`, the one place this is
+decided); a `next` of another shape is reported where the loop is.
+`Checker.iterLoop` then classifies the source once, by
+what it hands over (`sema.handsOver`), as every header does:
+
+| The source | It desugars to |
+|---|---|
+| a name or field path `it`, or `!it` | `while (!it).next() as x` |
+| a made value `e` | `{ h = e; while (!h).next() as x }` |
+| `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
+| `?it`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
+
+`h` is a binding of the block that holds the `while`, so a value made
+there is held for the whole loop, dropped after the `else` (by `break`,
+`return`, and failure too), and a place it takes is moved at the loop's
+start. A place is named by a name or fields from one, since the
+desugaring evaluates it for every `next`, and an element whose index
+the body may change would name another place each time. A loop with a
+label has the label on the `while`, inside the block. The checker rules are the ones this desugaring implies: `!it`
+needs `it` writable (a read view, a parameter, and a `const` are
+rejected where the loop stands), the loop variable is what `as` binds
+over `T?`, a view `next` gives holds the loan on what it views while it
+is alive, and `break` values and `else` are a `while`'s. An iterator
+has no index binding.
+
+The rewrite is a tree rewrite, so nothing downstream sees a `for` over
+an iterator. Typecheck cannot make it, since the type of a source is
+known only there; it records the loop (`SemContext.iter_loops`, with how
+the source is walked) and gives the loop variable no type, and
+`ModuleGraph.check` then calls `Parser.desugarIterLoops` and checks the
+module again from the rewritten tree, discarding the first run. The
+The new nodes are IR nodes like the parser's, and each spans the loop's
+source. The two names no source text holds, the method `next` and the
+hidden binding `h`, are leaves at positions inside the loop's `for`
+keyword, which holds no leaf, whose `id` says which name they are
+(`rig.leafText`, which every pass reads a name through). `h` is named
+`for iterator`, which no program can write, is declared with the op of
+`new` so an enclosing loop's does not clash with it, and is quoted in the
+emitted Zig. So every position the checkers order by (liveness, scope
+ends, loop extents) lies in the loop, as it does in the `h = …; while
+(!h).next() as x` written by hand, and the ownership checker walks the
+same thing: a view of `h` that outlives the block is reported where the
+block ends. A node keeps its id and span (the `while` has the `for`'s).
+The result is an ordinary `while` with an `as` header, which the
+ownership checker walks (`walkWhile`) and emit writes (`emitWhile`) like
+one the program wrote.
 
 ### Assignments
 

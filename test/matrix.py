@@ -16,7 +16,9 @@ branch, every one of which must be rejected (`hdr.`), a
 `while` step reading what its condition binds (`step.`), an assignment
 to a place a view reaches whose value holds a statement of its own
 (`target.`), and the
-shapes of nested loops and the jumps between them (`loop.`), a Cell
+shapes of nested loops and the jumps between them (`loop.`), a `for`
+over an iterator, from each kind of source, in each statement, value, and
+jump context, run in debug and with `--release` (`iter.`), a Cell
 changed through the `*` handle to the value holding it (`cellmut.`),
 built in debug and with `--release`, and a value holding a Cell made or
 held anywhere but behind `*` (`cellmut.value.`, `celltemp.value.`),
@@ -27,7 +29,8 @@ diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds, a `lendw.`
 program what the view showed and what the write left, and a `loop.`
-program the trace of its steps, defers, and drops. A `cellmut.` program
+program the trace of its steps, defers, and drops, as an `iter.` program
+the trace of its bodies and drops. A `cellmut.` program
 whose type is not `value` must be accepted, and print its trace in debug
 and again built with `--release`.
 
@@ -695,6 +698,113 @@ LOOP_JUMPS = {
     "break_outer": "break :outer",
     "else_continue": None,
 }
+
+
+# -----------------------------------------------------------------------------
+# A `for` over an iterator (`next(!self) -> Int?`, yielding 0, 1, 2),
+# which is `while (!it).next() as k` (SPEC, "for"), from each kind of
+# source and in each context: a statement that runs out, breaks, skips,
+# returns, fails, or has an `else`; a loop used as a value or as a
+# function's last line; one a `continue :outer` leaves from an outer
+# loop; a labeled one. An iterator a name or field holds is advanced in
+# place and dropped at the end of its scope; one made there, or taken
+# with `<`, is held for the loop and dropped where it ends, by any jump.
+# Every cell must be accepted, built in debug and with `--release`, and
+# print the trace `iter_output` computes, except `moved` in a loop that
+# runs twice (the second pass uses what the first took). Cells are
+# `iter.<source>.<context>`.
+# -----------------------------------------------------------------------------
+
+ITER_SOURCES = {
+    "place": dict(setup=["it = mk(1)"], head="for k in it", rest="(!it).next() ?? -1", held=False),
+    "field": dict(setup=["h = Hold(it: mk(1))"], head="for k in h.it", rest="(!h.it).next() ?? -1", held=False),
+    "bang": dict(setup=["it = mk(1)"], head="for k in !it", rest="(!it).next() ?? -1", held=False),
+    "made": dict(setup=[], head="for k in mk(1)", rest=None, held=True),
+    "moved": dict(setup=["it = mk(1)"], head="for k in <it", rest=None, held=True),
+}
+ITER_CONTEXTS = ("end", "break", "continue", "return", "fail", "else", "value_end", "value_break",
+                 "tail_end", "tail_break", "nested", "labeled")
+
+
+def iter_program(source, ctx):
+    """The program for one iterator cell."""
+    src = ITER_SOURCES[source]
+    head = src["head"]
+    run = list(src["setup"])
+    rest = [f'print("rest", {src["rest"]})'] if src["rest"] and ctx in ("end", "break", "continue", "else") else []
+    loop = {
+        "end": [head, '  print("body", k)'],
+        "break": [head, '  print("body", k)', "  break if k == 1"],
+        "continue": [head, '  print("body", k)', "  continue if k == 1", '  print("tail", k)'],
+        "return": [head, '  print("body", k)', "  return if k == 1"],
+        "fail": [head, '  print("body", k)', "  chk(k)!"],
+        "else": [head, '  print("body", k)', "else", '  print("else")'],
+        "labeled": [":l " + head, '  print("body", k)', "  break :l if k == 1"],
+        "nested": [":outer for _ in 0..2", "  " + head, '    print("body", k)', "    continue :outer if k == 1",
+                   '  print("inner done")'],
+    }
+    if ctx in ("value_end", "value_break"):
+        stop = "7" if ctx == "value_end" else "1"
+        run += ["r = " + head, '  print("body", k)', f"  break k * 10 if k == {stop}", "else", "  -1",
+                'print("value", r)']
+    elif ctx in ("tail_end", "tail_break"):
+        run = ['print("tail", tailv())']
+    else:
+        run += loop[ctx] + ['print("after")'] + rest
+    lines = ["struct It", "  id: Int", "  at: Int", "",
+             "  fun next(!self) -> Int?", "    return none if self.at >= 3", "    self.at += 1", "    self.at - 1", "",
+             "  drop(!self)", '    print("drop", self.id)', "",
+             "struct Hold", "  it: It", "",
+             "error E", "  bad", "",
+             "fun mk(id: Int) -> It", "  It(id: id, at: 0)", "",
+             "sub chk(k: Int)!", "  return E.bad if k == 1", ""]
+    if ctx in ("tail_end", "tail_break"):
+        stop = "7" if ctx == "tail_end" else "1"
+        lines += ["fun tailv() -> Int"] + ["  " + l for l in src["setup"]] + \
+                 ["  " + head, '    print("body", k)', f"    break k * 10 if k == {stop}", "  else", "    -1", ""]
+    lines += ["sub run()!"] + ["  " + l for l in run] + ["",
+              "sub main()", '  run() catch |_| print("failed")', '  print("end")']
+    return "\n".join(lines) + "\n"
+
+
+def iter_output(source, ctx):
+    """What an iterator cell prints, or None where it must be rejected."""
+    held = ITER_SOURCES[source]["held"]
+    has_rest = ITER_SOURCES[source]["rest"] is not None
+    drop = ["drop 1"]
+    persistent_drop = [] if held else drop
+    held_drop = drop if held else []
+    if source == "moved" and ctx == "nested":
+        return None
+    b = lambda *ks: [f"body {k}" for k in ks]
+    if ctx == "end":
+        out = b(0, 1, 2) + held_drop + ["after"] + (["rest -1"] if has_rest else []) + persistent_drop
+    elif ctx == "break":
+        out = b(0, 1) + held_drop + ["after"] + (["rest 2"] if has_rest else []) + persistent_drop
+    elif ctx == "continue":
+        out = ["body 0", "tail 0", "body 1", "body 2", "tail 2"] + held_drop + ["after"] + (["rest -1"] if has_rest else []) + persistent_drop
+    elif ctx == "return":
+        out = b(0, 1) + drop
+    elif ctx == "fail":
+        out = b(0, 1) + drop + ["failed"]
+    elif ctx == "else":
+        out = b(0, 1, 2) + ["else"] + held_drop + ["after"] + (["rest -1"] if has_rest else []) + persistent_drop
+    elif ctx == "labeled":
+        out = b(0, 1) + held_drop + ["after"] + persistent_drop
+    elif ctx == "nested":
+        if held:
+            out = b(0, 1) + drop + b(0, 1) + drop + ["after"]
+        else:
+            out = b(0, 1, 2) + ["inner done", "after"] + drop
+    elif ctx == "value_end":
+        out = b(0, 1, 2) + held_drop + ["value -1"] + persistent_drop
+    elif ctx == "value_break":
+        out = b(0, 1) + held_drop + ["value 10"] + persistent_drop
+    elif ctx == "tail_end":
+        out = b(0, 1, 2) + drop + ["tail -1"]
+    else:
+        out = b(0, 1) + drop + ["tail 10"]
+    return "\n".join(out + ["end"]) + "\n"
 
 
 def loop_program(outer, inner, jump, end):
@@ -1981,6 +2091,19 @@ def main():
                         fh.write(loop_program(outer, inner, jump, end))
                     cells.append((ident, path))
                     expects[ident] = loop_trace(outer, inner, jump, end)
+    for source in ITER_SOURCES:
+        for ctx in ITER_CONTEXTS:
+            ident = f"iter.{source}.{ctx}"
+            if not wanted(ident):
+                continue
+            path = os.path.join(work, ident.replace(".", "__") + ".rig")
+            with open(path, "w") as fh:
+                fh.write(iter_program(source, ctx))
+            cells.append((ident, path))
+            out = iter_output(source, ctx)
+            expects[ident] = out if out is not None else "(rejected)\n"
+            if out is not None:
+                release.add(ident)
     for t in PAYLOAD_TYPES:
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:

@@ -1,0 +1,17 @@
+pub struct Span
+  n: Int
+  at: Int
+
+  pub fun next(!self) -> Int?
+    return none if self.at >= self.n
+    self.at += 1
+    self.at
+
+pub fun span(n: Int) -> Span
+  Span(n: n, at: 0)
+
+pub fun total(n: Int) -> Int
+  s = 0
+  for x in span(n)
+    s += x
+  s

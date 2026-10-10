@@ -397,19 +397,20 @@ false no prefix
 
 `split`, `lines`, and `words` give an iterator, a struct holding the
 rest of the String, whose `next` gives each part in turn, and `none`
-after the last. It is advanced by lending it to write:
+after the last. A `for` walks one ([SPEC §6](../SPEC.md#for)): a call's
+result is held for the loop, and a name is advanced in place, so a loop
+that `break`s leaves the rest to resume. The same loop is
+`while (!fields).next() as field`.
 
 ```rig
 use std.text
 
 sub main()
-  fields = text.split("ann,,bob", ",")
-  while (!fields).next() as field
+  for field in text.split("ann,,bob", ",")
     print("[", field, "]")
   rows = text.lines("x 1\r\ny  2\n")
-  while (!rows).next() as row
-    ws = text.words(row)
-    while (!ws).next() as w
+  for row in rows
+    for w in text.words(row)
       print(w, text.is_digit(w[0]))
 ```
 

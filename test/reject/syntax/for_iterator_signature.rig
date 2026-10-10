@@ -1,0 +1,51 @@
+# A `for` walks a type whose `next` is `next(!self) -> T?`: a `next`
+# that takes `?self`, takes more, or gives no optional is not one, and
+# a loop over such a type says why. Plain `Vec`, array and `String`
+# sources keep their own meaning.
+
+struct Reads
+  n: Int
+
+  fun next(?self) -> Int?
+    none
+
+struct Wants
+  n: Int
+
+  fun next(!self, step: Int) -> Int?
+    none
+
+struct Plain
+  n: Int
+
+  fun next(!self) -> Int
+    self.n
+
+struct Free
+  n: Int
+
+  fun next() -> Int?
+    none
+
+sub main()
+  a = Reads(n: 0)
+  for x in a
+    print(x)
+  b = Wants(n: 0)
+  for x in b
+    print(x)
+  c = Plain(n: 0)
+  for x in c
+    print(x)
+  d = Free(n: 0)
+  for x in d
+    print(x)
+  for x in 3
+    print(x)
+
+# error: 32:12: cannot iterate over `Reads`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes `?self`
+# error: 35:12: cannot iterate over `Wants`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes more than `self`
+# error: 38:12: cannot iterate over `Plain`: a `for` walks a type with `next(!self) -> T?`, but its `next` does not give an optional
+# error: 41:12: cannot iterate over `Free`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes no `self`
+# error: 43:12: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a String, a `Vec`, or an iterator (a type with `next(!self) -> T?`)
+# errors: 5

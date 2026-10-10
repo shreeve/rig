@@ -71,7 +71,7 @@ pub fun cut(s: String, sep: String) -> Cut? from s
 # ---- Splitting ---------------------------------------------------------
 
 # The parts of a String between the occurrences of a separator, which
-# `split` gives, in order: `while (!parts).next() as part`.
+# `split` gives, in order: `for part in text.split(s, sep)`.
 pub struct Split
   rest: String
   sep: String
@@ -96,7 +96,8 @@ pub fun split(s: String, sep: String) -> Split
     empty_separator()
   Split(rest: s, sep: sep, done: false)
 
-# The lines of a String, which `lines` gives, in order.
+# The lines of a String, which `lines` gives, in order:
+# `for line in text.lines(s)`.
 pub struct Lines
   rest: String
 
@@ -119,7 +120,8 @@ pub struct Lines
 pub fun lines(s: String) -> Lines
   Lines(rest: s)
 
-# The words of a String, which `words` gives, in order.
+# The words of a String, which `words` gives, in order:
+# `for word in text.words(s)`.
 pub struct Words
   rest: String
 

@@ -1974,78 +1974,85 @@ const Checker = struct {
                 try self.lendSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
-            // `for x in <e` moves `e` as `<e` does.
-            if (mode == .move and !self.isPoison(source_ty)) _ = try self.rejectMadeParts(source, source);
-            self.outer_write = saved_outer;
-            self.outer_write_is_loop = saved_loop;
-            // A branch the loop walks where it stands is lent there, as
-            // its mode lends it (`for x in ?S`, `for x in !S`) or read.
-            if (mode != .move and !self.isPoison(source_ty) and !try self.headerLendsBranch(.{ .node = peeled_source, .sigil = switch (mode) {
-                .read => .read,
-                .write => .write,
-                else => null,
-            } })) {
-                // Reported once: the loop has no source to walk.
-                source_ty = self.t().invalid_id;
-                elem_poisoned = true;
-            }
-            // How the loop has a bare source (docs/INTERNALS.md, "Header
-            // subjects"): a place is walked where it stands, as
-            // `for x in ?p`; an array made here whose elements move is
-            // taken, as `for x in <e`; a part of a made value is walked
-            // where the loop holds that value.
-            const source_hands = self.hands(source);
-            if (mode == .iter and !self.isPoison(source_ty)) switch (source_hands.kind) {
-                .place => {
-                    eff = .read;
-                    try self.ctx.recordHeader(node, .viewed, .nil);
-                },
-                .part_of_made => if (self.held_base != .nil and sema.copies(self.ctx, source_ty) == .no) {
-                    eff = .read;
-                    if (try self.holdsHeld(source)) {
-                        try self.ctx.recordHeader(node, .held, self.held_base);
-                    } else elem_poisoned = true;
-                },
-                .made => if (self.ctx.types.get(source_ty) == .array and sema.copies(self.ctx, self.ctx.types.get(source_ty).array.elem) == .no) {
-                    eff = .move;
-                    try self.ctx.recordHeader(node, .taken, .nil);
-                },
-                .lend, .branches, .jump, .none => {},
-            };
-            // A part of plain data is read in the header, as any value is.
-            if (self.held_base != .nil and self.ctx.headerOf(node) != .held and !elem_poisoned) try self.releaseHeld();
-            // A loop walks a place, or takes a value made here. A branching
-            // value that may be a name's (`o?`, `a if c else mk()`) may be
-            // a place on one path and a new value on another, which one
-            // loop cannot both view and take, unless its elements copy.
-            const peeled_hands = self.hands(peeled_source);
-            const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.held_base == .nil);
-            const vec = vecElementType(self.ctx, source_ty) != null;
-            const moving = vec or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
-                .array => |a| sema.copies(self.ctx, a.elem) == .no,
-                else => false,
-            };
-            // A Vec whose elements move is reported by `elementTypeForLoop`.
-            const vec_moves = if (vecElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
-            if (mode != .move and unbound and !vec_moves and (if (mode == .iter) moving else vec) and !self.isPoison(source_ty)) {
-                const what = if (vec) "a Vec held in a place or made by a call" else "a place or takes a value made here";
-                try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
-            }
-            self.loop_access = null;
-            elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, eff);
-            if (elem_poisoned) elem_ty = self.t().invalid_id;
-            // What the loop binds views the source, unless it takes it or
-            // walks a slice of it, and may view a copy (`rejectHeaderCopy`).
-            // The source is a header: a temporary it reads into ends with
-            // it, before the loop walks it.
-            const walks_temp = if (eff != .move and !self.isPoison(elem_ty)) self.tempBase(source) else null;
-            if (walks_temp) |temp| {
-                try self.errAt(temp, "the loop would walk the temporary `{s}` after its header drops it; bind it to a name first", .{self.sourceText(temp)});
-            } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
-            // `for x in ?e` and `for x in !e` lend `e`: one made here would
-            // end with the header. A call's result is taken: `for x in e`.
-            if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
-                try self.errAt(source, "the loop would walk a view of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
+            // A `for` over an iterator is the `while` it means (`iterLoop`).
+            if (try self.iterLoop(node, source, mode, source_ty)) {
+                self.outer_write = saved_outer;
+                self.outer_write_is_loop = saved_loop;
+                elem_ty = self.t().invalid_id;
+            } else {
+                // `for x in <e` moves `e` as `<e` does.
+                if (mode == .move and !self.isPoison(source_ty)) _ = try self.rejectMadeParts(source, source);
+                self.outer_write = saved_outer;
+                self.outer_write_is_loop = saved_loop;
+                // A branch the loop walks where it stands is lent there, as
+                // its mode lends it (`for x in ?S`, `for x in !S`) or read.
+                if (mode != .move and !self.isPoison(source_ty) and !try self.headerLendsBranch(.{ .node = peeled_source, .sigil = switch (mode) {
+                    .read => .read,
+                    .write => .write,
+                    else => null,
+                } })) {
+                    // Reported once: the loop has no source to walk.
+                    source_ty = self.t().invalid_id;
+                    elem_poisoned = true;
+                }
+                // How the loop has a bare source (docs/INTERNALS.md, "Header
+                // subjects"): a place is walked where it stands, as
+                // `for x in ?p`; an array made here whose elements move is
+                // taken, as `for x in <e`; a part of a made value is walked
+                // where the loop holds that value.
+                const source_hands = self.hands(source);
+                if (mode == .iter and !self.isPoison(source_ty)) switch (source_hands.kind) {
+                    .place => {
+                        eff = .read;
+                        try self.ctx.recordHeader(node, .viewed, .nil);
+                    },
+                    .part_of_made => if (self.held_base != .nil and sema.copies(self.ctx, source_ty) == .no) {
+                        eff = .read;
+                        if (try self.holdsHeld(source)) {
+                            try self.ctx.recordHeader(node, .held, self.held_base);
+                        } else elem_poisoned = true;
+                    },
+                    .made => if (self.ctx.types.get(source_ty) == .array and sema.copies(self.ctx, self.ctx.types.get(source_ty).array.elem) == .no) {
+                        eff = .move;
+                        try self.ctx.recordHeader(node, .taken, .nil);
+                    },
+                    .lend, .branches, .jump, .none => {},
+                };
+                // A part of plain data is read in the header, as any value is.
+                if (self.held_base != .nil and self.ctx.headerOf(node) != .held and !elem_poisoned) try self.releaseHeld();
+                // A loop walks a place, or takes a value made here. A branching
+                // value that may be a name's (`o?`, `a if c else mk()`) may be
+                // a place on one path and a new value on another, which one
+                // loop cannot both view and take, unless its elements copy.
+                const peeled_hands = self.hands(peeled_source);
+                const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.held_base == .nil);
+                const vec = vecElementType(self.ctx, source_ty) != null;
+                const moving = vec or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
+                    .array => |a| sema.copies(self.ctx, a.elem) == .no,
+                    else => false,
+                };
+                // A Vec whose elements move is reported by `elementTypeForLoop`.
+                const vec_moves = if (vecElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
+                if (mode != .move and unbound and !vec_moves and (if (mode == .iter) moving else vec) and !self.isPoison(source_ty)) {
+                    const what = if (vec) "a Vec held in a place or made by a call" else "a place or takes a value made here";
+                    try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
+                }
+                self.loop_access = null;
+                elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, eff);
+                if (elem_poisoned) elem_ty = self.t().invalid_id;
+                // What the loop binds views the source, unless it takes it or
+                // walks a slice of it, and may view a copy (`rejectHeaderCopy`).
+                // The source is a header: a temporary it reads into ends with
+                // it, before the loop walks it.
+                const walks_temp = if (eff != .move and !self.isPoison(elem_ty)) self.tempBase(source) else null;
+                if (walks_temp) |temp| {
+                    try self.errAt(temp, "the loop would walk the temporary `{s}` after its header drops it; bind it to a name first", .{self.sourceText(temp)});
+                } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
+                // `for x in ?e` and `for x in !e` lend `e`: one made here would
+                // end with the header. A call's result is taken: `for x in e`.
+                if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
+                    try self.errAt(source, "the loop would walk a view of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
+                }
             }
         }
 
@@ -2074,6 +2081,109 @@ const Checker = struct {
             try self.checkStmt(ir.For.body(node));
         }
         try self.checkLoopElse(&frame, ir.For.@"else"(node));
+    }
+
+    /// Whether a `for` source of type `ty` is an iterator: the one decision
+    /// (docs/INTERNALS.md, "Loops over an iterator"). A positive list: a
+    /// struct or enum the program declares, or a std one (not a `Vec`, an
+    /// array, a slice, a `String`, or a range, which keep their own
+    /// meaning), that declares `next(!self) -> T?`. A type with a `next`
+    /// of another shape is `.malformed`, so the mistake is reported where
+    /// the loop is.
+    const IterShape = union(enum) { not_iterator, malformed: []const u8, iterator };
+
+    fn iteratorShape(self: *Checker, ty: TypeId) Error!IterShape {
+        const peeled = sema.unwrapViews(self.ctx, ty);
+        switch (self.ctx.types.get(peeled)) {
+            .nominal, .imported_nominal => {},
+            .parameterized_nominal => if (vecElementType(self.ctx, peeled) != null) return .not_iterator,
+            else => return .not_iterator,
+        }
+        const next = (try self.findMethod(peeled, "next")) orelse return .not_iterator;
+        if (next.field.receiver != .write) return .{ .malformed = switch (next.field.receiver) {
+            .read => "takes `?self`",
+            .value => "takes `<self`",
+            else => "takes no `self`",
+        } };
+        if (next.fn_ty.params.len != 1) return .{ .malformed = "takes more than `self`" };
+        if (self.ctx.types.get(next.fn_ty.returns) != .optional) return .{ .malformed = "does not give an optional" };
+        return .iterator;
+    }
+
+    /// Whether a bare `for x in it` over an iterator in a place advances it,
+    /// or the advance must be written `for x in !it`. The one switch.
+    const bare_place_advances = true;
+
+    /// A name, or fields from one: the places a loop over an iterator
+    /// advances where they stand.
+    fn isFieldPath(e: Sexp) bool {
+        return e == .src or (e.isKind(.member) and isFieldPath(ir.Member.object(e)));
+    }
+
+    /// A `for` over an iterator `it` is the `while` it means: it is
+    /// recorded (`SemContext.iter_loops`) and the module checked again on
+    /// the rewritten tree (`rig.Parser.desugarIterLoops`), so this pass
+    /// binds nothing for it. Returns whether the source is an iterator.
+    fn iterLoop(self: *Checker, node: Sexp, source: Sexp, mode: Tag, source_ty: TypeId) Error!bool {
+        if (self.isPoison(source_ty)) return false;
+        switch (try self.iteratorShape(source_ty)) {
+            .not_iterator => return false,
+            .malformed => |why| {
+                try self.errAt(source, "cannot iterate over `{s}`: a `for` walks a type with `next(!self) -> T?`, but its `next` {s}", .{ try self.tyName(source_ty), why });
+                return true;
+            },
+            .iterator => {},
+        }
+        const shown = self.sourceText(source);
+        const name = self.text(ir.For.@"var"(node));
+        const index = ir.For.index(node);
+        if (index != .nil) {
+            try self.errAt(index, "an iterator has no index binding; keep a count in the loop: `for {s} in {s}`", .{ name, shown });
+            return true;
+        }
+        // A place is evaluated again for each `next`, so it is a name or a
+        // field path, which names one place however the body runs; an
+        // element, whose index the body may change, is bound first.
+        const kind = self.hands(source).kind;
+        if (kind == .place and !isFieldPath(source)) {
+            try self.errAt(source, "a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `{s}` to a name first", .{shown});
+            return true;
+        }
+        const how: rig.IterSource = switch (mode) {
+            .read => {
+                try self.errAt(source, "`for {s} in ?{s}` would only read an iterator, which `next` cannot advance; write `for {s} in {s}` (or `!{s}`) to advance it in place", .{ name, shown, name, shown, shown });
+                return true;
+            },
+            .write => if (kind == .place) .place else {
+                if (kind == .made) {
+                    try self.errAt(source, "`!{s}` advances a place, and this is a value made here; write `for {s} in {s}`, which holds it for the loop", .{ shown, name, shown });
+                } else try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
+                return true;
+            },
+            .move => if (kind == .place) .moved else if (kind == .made) .made else {
+                try self.errAt(source, "a `for` takes an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
+                return true;
+            },
+            else => switch (kind) {
+                .place => if (bare_place_advances) .place else {
+                    try self.errAt(source, "a `for` advances an iterator only where it is marked: write `for {s} in !{s}`", .{ name, shown });
+                    return true;
+                },
+                .made => .made,
+                else => {
+                    try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
+                    return true;
+                },
+            },
+        };
+        if (self.ctx.parser == null) {
+            try self.errAt(source, "a `for` over an iterator needs the module graph, which rewrites it", .{});
+            return true;
+        }
+        const id = node.list.id;
+        for (self.ctx.iter_loops.items) |l| if (l.node == id) return true;
+        try self.ctx.iter_loops.append(self.ctx.allocator, .{ .node = id, .source = how });
+        return true;
     }
 
     const LoopPair = struct { elem: SymbolId, index: SymbolId, source: Sexp };
@@ -2266,17 +2376,13 @@ const Checker = struct {
             },
             else => {},
         }
-        if ((try self.findMethod(source_ty, "next")) != null) {
-            try self.err(pos, "cannot iterate over `{s}`: `for` walks arrays, slices, Strings, and Vecs, and calls no method; to walk an iterator, bind it and loop: `it = {s}` then `while !it.next() as x`", .{ try self.tyName(source_ty), try self.plainText(stripSigil(source)) });
-            return self.t().invalid_id;
-        }
         // `for b in ?t` walks the bytes of the String `?t` lends.
         if (mode == .read and textOrBoxed(self.ctx, peeled) == self.t().text_id) {
             if (!self.placeOf(source).named()) try self.lendTemp(source);
             return self.byteType();
         }
         const text_hint = if (sema.unwrapViews(self.ctx, source_ty) == self.t().text_id) "; walk a Text's bytes through its String view: `for b in ?t`" else "";
-        try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`{s}", .{ try self.tyName(source_ty), text_hint });
+        try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, a `Vec`, or an iterator (a type with `next(!self) -> T?`){s}", .{ try self.tyName(source_ty), text_hint });
         return self.t().invalid_id;
     }
 

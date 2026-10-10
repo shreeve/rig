@@ -1,0 +1,37 @@
+# `for x in it` is `while (!it).next() as x`, so the iterator must be
+# writable where the loop stands: a read view, a `const`, and `?it`
+# cannot be advanced, and `!` needs a place, not a value made there.
+
+struct Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    self.lo - 1
+
+sub scan(it: ?Count)
+  for n in it
+    print(n)
+
+sub peek(it: Count)
+  for n in it
+    print(n)
+
+sub main()
+  const k = Count(lo: 0, hi: 2)
+  for n in k
+    print(n)
+  c = Count(lo: 0, hi: 2)
+  for n in ?c
+    print(n)
+  for n in !Count(lo: 0, hi: 2)
+    print(n)
+
+# error: 15:12: cannot lend to write through a read view `?Count`
+# error: 19:12: cannot lend parameter `it` to write; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)
+# error: 24:12: cannot lend fixed binding `k` to write (bound with `const`)
+# error: 27:13: `for n in ?c` would only read an iterator, which `next` cannot advance; write `for n in c` (or `!c`) to advance it in place
+# error: 29:13: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for n in Count(lo: 0, hi: 2)`, which holds it for the loop
+# errors: 5

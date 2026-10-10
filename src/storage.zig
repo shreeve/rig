@@ -59,7 +59,7 @@ pub fn isPtrViewExpr(ctx: *const SemContext, e: Sexp) bool {
 }
 
 fn srcText(ctx: *const SemContext, leaf: Sexp) []const u8 {
-    return ctx.source[leaf.src.pos..][0..leaf.src.len];
+    return rig.leafText(ctx.source, leaf.src);
 }
 
 /// Literal source text: numbers, quoted strings, and the value keywords.

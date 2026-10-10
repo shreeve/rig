@@ -1,0 +1,73 @@
+# A view a loop variable holds of the iterator's own state cannot outlive
+# an iterator the loop holds: `for iterator` ends with the loop, whether
+# the loop runs out, breaks, has an `else`, or is labeled, as the
+# `h = …; while (!h).next() as it` it is written as does.
+
+struct Item
+  name: String
+  n: Int
+
+struct Buf
+  buf: Vec[Item]
+  at: Int
+
+  fun next(!self) -> (?Item)?
+    return none if self.at >= self.buf.len
+    self.at += 1
+    ?self.buf[self.at - 1]
+
+fun mkbuf() -> Buf
+  v: Vec[Item] = Vec()
+  !v.push(Item(name: "a", n: 1))
+  Buf(buf: <v, at: 0)
+
+sub by_break()
+  keep: (?Item)? = none
+  for it in mkbuf()
+    keep = it
+    break
+  if keep as k
+    print(k.name)
+
+sub by_else()
+  keep: (?Item)? = none
+  for it in mkbuf()
+    keep = it
+    break
+  else
+    print("none")
+  if keep as k
+    print(k.name)
+
+sub by_if(c: Bool)
+  keep: (?Item)? = none
+  for it in mkbuf()
+    if c
+      keep = it
+      break
+  if keep as k
+    print(k.name)
+
+sub by_label()
+  keep: (?Item)? = none
+  :l for it in mkbuf()
+    keep = it
+    break :l
+  if keep as k
+    print(k.name)
+
+sub by_take()
+  b = mkbuf()
+  keep: (?Item)? = none
+  for it in <b
+    keep = it
+    break
+  if keep as k
+    print(k.name)
+
+# error: 26:5: `for iterator` does not live long enough
+# error: 34:5: `for iterator` does not live long enough
+# error: 44:5: `for iterator` does not live long enough
+# error: 53:8: `for iterator` does not live long enough
+# error: 62:5: `for iterator` does not live long enough
+# errors: 5

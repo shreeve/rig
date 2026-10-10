@@ -5652,7 +5652,7 @@ pub const Checker = struct {
 
     fn text(self: *const Checker, node: Sexp) []const u8 {
         return switch (node) {
-            .src => |s| self.source[s.pos..][0..s.len],
+            .src => |s| rig.leafText(self.source, s),
             else => "",
         };
     }

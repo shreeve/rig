@@ -1,0 +1,36 @@
+# `split`, `lines` and `words` give iterators, which a `for` walks: a
+# source made there is held for the loop, a name is advanced in place.
+# release
+use std.text
+
+sub main()
+  for part in text.split("ann,,bob", ",")
+    print("[", part, "]")
+  rows = text.lines("x 1\r\ny  2\n")
+  for row in rows
+    for w in text.words(row)
+      print(w)
+  more = text.split("a-b-c", "-")
+  for p in more
+    print("first", p)
+    break
+  for p in more
+    print(p)
+  n = for w in text.words("one two three")
+    break w if w.len == 5
+  else
+    "none"
+  print(n)
+
+# expect:
+# [ ann ]
+# [  ]
+# [ bob ]
+# x
+# 1
+# y
+# 2
+# first a
+# b
+# c
+# three
