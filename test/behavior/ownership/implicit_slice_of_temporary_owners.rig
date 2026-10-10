@@ -1,0 +1,33 @@
+# A temporary array of owners lent as a `[]T` argument with no `?` is
+# held and dropped in its statement's slot, as `?[...]` is: nothing
+# leaks, also where a later argument runs first or the call is nested.
+
+fun look(s: []Text) -> Int
+  s[0].len + s.len
+
+fun next(i: !Int) -> Int
+  i += 1
+  i
+
+fun both(s: []Text, k: Int) -> Int
+  s.len + k
+
+fun lens(vs: []Vec[Int]) -> Int
+  vs[1].len
+
+sub main()
+  print(look([Text("abc")]))
+  print(look(?[Text("abc")]))
+  i = 0
+  print(both([Text("a"), Text("b")], next(!i)))
+  print(look([Text("ab")]) + look([Text("c"), Text("d")]))
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(lens([Vec(), <v]))
+
+# expect:
+# 4
+# 4
+# 3
+# 6
+# 1
