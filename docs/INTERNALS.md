@@ -1128,7 +1128,7 @@ instead of re-deriving it by name:
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
-| `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?Text]` binds a `?Text`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
+| `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?Text]` binds a `String`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read or to write. The ownership checker holds it in a hidden var named by its source, lent to what reads it (to write, under `!`: `lendTempToWrite`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
 | `writesTemp(node)` | whether the node is a temporary lent to write, or the value a part lent to write starts from (`!mk()`, `!(a if c else b).f`, recorded by `lendsToWrite`): its statement's slot is written, so emit reaches it there at every site that lends it (`emitMemberBase`), never through a copy |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or lend sigil that is one. Kept beside the table, not in `check --facts=sema` |
@@ -1149,6 +1149,39 @@ lends its bytes, a `String`), `read_only` (a `![]T` is lent on as a
 `?fun(...)`). No rows is the first row, `?T` of a `T`. Typecheck asks it
 where a value meets an expected view (`lendView`) and records the rows
 it used (`lendOf`); the ownership checker and emit read that record.
+
+**One text view.** The read view of a `Text` is its bytes, a
+`String`, and there is no pointer view of a Text. The type store makes
+it so: `TypeStore.absorbed` interns `?Text` and `?String` as `String`,
+and a read view of a read view, `?(?T)`, as `?T`, so no type holds a
+pointer to a Text, whichever way it is named, inferred, or instantiated.
+Every place that made a `?Text` is the desugaring of the lend that makes
+the `String`, and emit writes each as the Text's `.bytes()`:
+
+- `?t` with no expected type is `?t[..]`: the `text` row of the lend
+  table, recorded on the lend (`readViewOf`);
+- `for x in ?v` over a Text element is `for e in ?v` with `x = ?e[..]` in
+  the body: the loop walks the elements by address and binds each one's
+  bytes (`storage.loopBindsTextBytes`, the loop's `element` storage);
+- a payload binding of a Text field, `.full(t)`, is `t = ?payload.t[..]`,
+  bound by address (`viewsTextBytes`, `storage.payloadByAddress`), and
+  the ownership checker gives it the `read` ref a view of a field has,
+  so it views the matched value (`bindPayload`);
+- `if o as p` over an optional Text, or a `(!Text)?`, is `p = ?inner[..]`
+  (`storage.optionalBindsTextBytes`, `bindOptionalView`);
+- a capture `|?t|` of a Text is `?t[..]` (`writeCapturedView`);
+- a generic `?T` at `T = Text` is `rig.ReadView(rig.Text)`, which is
+  `[]const u8`; `rig.lend` of a Text is its bytes, and what `rig.viewed`
+  reaches of one is its bytes. Inference binds a `T` that only `?T`
+  parameters meet a `String` for to the Text it views (`Bound.text_view`);
+- `+s` of a `String` is `Text(s)`: `cloneable` of a `String` is `text`,
+  and the clone's type is `Text`.
+
+A `String` is a view, so nothing lends a `String` place to write: `!s`,
+and so `swap` and `replace` of one, are rejected where the lend is
+checked (`synthLend`), and `!String` as a written type is rejected where
+it is resolved. The unwritten steps make no new effect: the lend, the
+loan, and the bytes are the ones `?t[..]` already has.
 
 **A read lend left unwritten.** Where a view argument goes, a bare
 value is lent to read where it is, as `?e` would lend it (Core sentence
@@ -1679,7 +1712,7 @@ value that holds only Strings (`sema.holdsViewOnly`) reads what it
 views, so the loans it keeps are read loans, and so does a call's result
 that holds no write view (`carryResult`, Core sentence 7). So `!it.next()` of an
 iterator holding Strings views what `it` views, not `it`, and a String
-read through a `!String`, copied into a binding, or read out of a
+read through a write view of a struct that holds it, copied into a binding, or read out of a
 `Vec[String]` keeps what the String views. A value holding a write
 view, a type parameter, or a type not known keeps every loan.
 The loans of a `for` source no binding holds go to its elements, and
@@ -1718,9 +1751,9 @@ the elements of a read slice (`[]Static` as `[]String`). `unify` joins a
 `Static` and a `String` as the `String` because `compatible` holds in
 one direction; a generic `T` that both bind is the `String`
 (`inferBindings`). The rule is read-only by construction: it compares
-types by id, so a `!Static` is not a `!String`, a place of type `Static`
-takes only a `Static` (`mismatch` adds `staticHint`), and a written `!x`
-lend of either type is checked against exactly the other's. A binding
+types by id, so a place of type `Static` takes only a `Static`
+(`mismatch` adds `staticHint`), and nothing lends a `String` place to
+write. A binding
 that holds a literal is a `Static`, so assigning it a `String` is
 rejected with a hint to declare it `String`.
 

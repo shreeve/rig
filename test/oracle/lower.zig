@@ -1091,15 +1091,22 @@ const Lowerer = struct {
         if (h.lent_temp and (xv.holds_views or (xv.kind != .plain and (hv.kind == .read_view or hv.kind == .write_view)))) {
             return self.found(.C5, leaf.src.pos, "a loan of a temporary the header made outlives its statement", .{});
         }
+        // A binding of a Text's bytes, a `String`, views the Text it is
+        // stored in: a lend of the holder, as a `?T` of a stored `T` is.
+        const slot = stored orelse self.ctx.payloadFieldOf(leaf);
+        const views_text = slot != null and sema.viewsTextBytes(self.ctx, slot.?, xv.ty);
+        // Its bytes are in the Text's storage: a pointer into it, as a
+        // `?T` of a stored `T` is.
+        if (views_text) xv.holds_pointers = true;
         // A String payload of a read lend carries the String's loans, not
         // the loan on what holds it (Core s7).
-        if (h.carry_from) |r| if (self.ctx.types.get(xv.ty) == .string) {
+        if (h.carry_from) |r| if (self.ctx.types.get(xv.ty) == .string and !views_text) {
             try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(r), .uses = try self.one(h.v), .def = x, .carry = true });
             return;
         };
         const held_view = hv.kind == .read_view or hv.kind == .write_view;
         if (!held_view) switch (self.ctx.types.get(xv.ty)) {
-            .read_view, .write_view => if (stored == null or stored.? != xv.ty) {
+            .read_view, .write_view, .string => if (views_text or (self.ctx.types.get(xv.ty) != .string and (stored == null or stored.? != xv.ty))) {
                 const mode: core.Mode = if (self.ctx.types.get(xv.ty) == .write_view) .write else .read;
                 const loan = try self.newLoan(self.rootPlace(h.v), mode, false, 0, h.pos);
                 try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(h.v), .def = x, .loan = loan, .access = .{ .root = h.v, .kind = if (mode == .read) .read else .write } });
@@ -1689,8 +1696,9 @@ const Lowerer = struct {
                 // `+x` reads `x` and makes a new owner of its value, part by
                 // part (Core s2): it carries the loans of the views the value
                 // holds; through a view, `+r` of a `?T` is a new `T`, which
-                // carries no loan on what `r` sees.
-                const through = p.via != .own or self.isRef(p.ty);
+                // carries no loan on what `r` sees, and `+s` of a String view
+                // makes a Text that holds none.
+                const through = p.via != .own or self.isRef(p.ty) or sema.unwrapViews(self.ctx, p.ty) == self.ctx.types.string_id;
                 try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .unpoint = through, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read } });
                 return t;
             },
@@ -1983,9 +1991,15 @@ const Lowerer = struct {
             // handle does: a loan on the handle (Core s8, §4's `*T` row).
             .shared => handle = true,
             .weak => return abstain("an access through a weak handle"),
-            // A view reached through a slice or String carries that
-            // view's loans, through a write view too (Core s7).
-            .slice, .string => if (via != .read or !carry) {
+            // A view reached through a slice carries that view's loans,
+            // through a write view too (Core s7). A String reached through
+            // a view is that view's, loans and all: the bytes of a Text
+            // are that Text's, and a String a call returned views what its
+            // arguments view.
+            .string => {
+                if (via == .own) via = .read;
+            },
+            .slice => if (via != .read or !carry) {
                 if (via == .write) under_write = true;
                 via = .read;
                 carry = true;

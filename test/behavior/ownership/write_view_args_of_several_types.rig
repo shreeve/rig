@@ -1,8 +1,8 @@
 # Several write views passed to one call, none of which can hold a
 # view, leave their values usable after it.
 
-sub f(s: !String, a: ![3]Int, n: !Int, o: !Int?)
-  s = "changed"
+sub f(s: !Text, a: ![3]Int, n: !Int, o: !Int?)
+  s = Text("changed")
   a[0] = 42
   n += 1
   o = none
@@ -10,7 +10,7 @@ sub f(s: !String, a: ![3]Int, n: !Int, o: !Int?)
     x += 1
 
 sub main()
-  s: String = "hi"
+  s = Text("hi")
   a = [1, 2, 3]
   n = 5
   o: Int? = 3

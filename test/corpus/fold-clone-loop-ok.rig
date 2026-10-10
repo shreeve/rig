@@ -1,0 +1,16 @@
+# The fold: a String that views a Text slot (clone-loop-ok): rejected, or runs sanitizer-clean.
+enum E
+  full(t: Text)
+  empty
+
+struct H
+  t: Text
+
+sub main()
+  vs: Vec[Text] = Vec()
+  !vs.push(Text("a"))
+  keep = Text("")
+  for x in ?vs
+    keep = +x
+  !vs.clear()
+  print(keep)

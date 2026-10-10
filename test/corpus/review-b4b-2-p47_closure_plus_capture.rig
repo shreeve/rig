@@ -1,4 +1,4 @@
-# A closure made in the arm copies the payload binding `r` (a view) with |+r|; the subject is then reassigned. Expect reject.
+# A closure made in the arm captures the payload binding view `s` with |?s|; the subject is then reassigned. Expect reject.
 struct Res
   n: Int
   t: Text
@@ -17,7 +17,7 @@ sub main()
   match e
     .a(r) => s = ?r.t
     .b(r) => s = ?r.t
-  f = |+s| print(s)
+  f = |?s| print(s)
   e = E.b(r: Res(n: 9, t: Text("over")))
   print(clobber(1))
   f()

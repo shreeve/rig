@@ -45,8 +45,7 @@ sub main()
   print(o, s)
   t = Text("abcdefghijklmnop")
   v = ?t[..]
-  w = !v
-  x: String = w
+  x: String = v
   v = "free"
   print(x, v, copy(?t), pick(E.a(?t[..3])))
   p = Person(name: "Ann", tags: Vec())

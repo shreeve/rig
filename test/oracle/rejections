@@ -1091,8 +1091,10 @@ string.as_temp.optional run
 string.as_temp.place run
 string.as_temp.read_view run
 string.as_temp.ternary run
+string.elem_assign_call.clone run
 string.eq.move run
 string.eq_then_write.move run
+string.vec_push.clone run
 string.write_held.call run
 string.write_held.clone run
 string.write_held.move run
@@ -3416,9 +3418,9 @@ test/reject/ownership/param_store_match_payload.rig f
 test/reject/ownership/param_store_method.rig f
 test/reject/ownership/param_store_nested.rig f
 test/reject/ownership/param_store_read_back.rig f
-test/reject/ownership/param_store_replace.rig f
 test/reject/ownership/param_store_swap.rig f
 test/reject/ownership/param_store_then_assign_owner.rig f
+test/reject/ownership/param_store_view.rig f
 test/reject/ownership/param_store_write_field.rig f
 test/reject/ownership/param_store_write_through.rig f
 test/reject/ownership/partial_move_field.rig main

@@ -1,0 +1,23 @@
+# The fold: a String that views a Text slot (slice-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+enum E
+  full(t: Text)
+  empty
+
+struct S
+  name: String
+
+struct H
+  t: Text
+
+fun id[T](x: ?T) -> ?T from x
+  x
+
+fun first(v: ?Vec[Text]) -> ?Text from v
+  ?v[0]
+
+sub main()
+  o = Text("hello")
+  keep: String = ""
+  keep = ?o[1..]
+  !o.add("xyz")
+  print(keep)

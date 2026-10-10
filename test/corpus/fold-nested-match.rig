@@ -1,0 +1,17 @@
+# The fold: a String that views a Text slot (nested-match): rejected, or runs sanitizer-clean.
+enum E
+  full(t: Text)
+  empty
+
+struct H
+  t: Text
+
+sub main()
+  e = E.full(t: Text("hello"))
+  keep: String = ""
+  match ?e
+    .full(p) => match ?p[1..]
+      s => keep = s
+    .empty => pass
+  e = E.empty
+  print(keep)

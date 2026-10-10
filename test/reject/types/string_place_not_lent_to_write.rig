@@ -1,0 +1,31 @@
+# A `String` is a read view of text, and nothing lends a view's own slot
+# to write: `swap`, `replace`, and `!` on a place that holds one are
+# rejected, as for any read view. Assign to it to point it at other
+# text, or hold a `Text` to change the text in place.
+
+struct Pair
+  left: String
+  right: String
+
+sub main()
+  a: String = "x"
+  b: String = "y"
+  swap(!a, !b)
+  p = Pair(left: "l", right: "r")
+  old = replace(!p.left, "z")
+  names: Vec[String] = Vec()
+  !names.push("n")
+  first = replace(!names[0], "m")
+  t = Text("t")
+  v = ?t
+  w = !v
+  f = |!a| a = "q"
+  f()
+
+# error: 13:9: cannot lend `a` to write: it holds a read view of text, `String`
+# error: 13:13: cannot lend `b` to write
+# error: 15:18: cannot lend `p.left` to write
+# error: 18:20: cannot lend `names[0]` to write
+# error: 21:8: cannot lend `v` to write
+# error: 22:9: cannot lend `a` to write
+# errors: 6

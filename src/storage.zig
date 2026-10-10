@@ -675,7 +675,7 @@ fn payloadByAddress(ctx: *const SemContext, b: Sexp, in_place: bool) bool {
     if (!fieldIsPointee(ctx, field)) return false;
     if (writes) return true;
     const binding = known(ctx, ctx.bindingTypeOf(b) orelse return false) orelse return false;
-    if (ctx.types.get(binding) == .read_view) return true;
+    if (ctx.types.get(binding) == .read_view or sema.viewsTextBytes(ctx, field, binding)) return true;
     return in_place and !sema.isReadOrWriteView(ctx, binding) and sema.copies(ctx, binding) == .depends;
 }
 
@@ -757,6 +757,39 @@ fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
     const t = typeOf(ctx, source) orelse return false;
     if (isVecTy(ctx, t)) return mode == .move or (!hasStorage(ctx, source) and owns(ctx, t));
     return ctx.types.get(t) == .array and owns(ctx, ctx.types.get(t).array.elem) and (mode == .move or !hasStorage(ctx, source));
+}
+
+/// Whether a read `for` over an array, a slice, or a Vec binds the bytes
+/// of each Text element: its binding is a `String`, the read view of a
+/// `Text`, so the loop walks the elements by address and the binding is
+/// each one's `.bytes()`.
+pub fn loopBindsTextBytes(ctx: *const SemContext, loop: Sexp) bool {
+    if (ir.For.mode(loop).tag == .write) return false;
+    const source = ir.For.source(loop);
+    if (source.isKind(.@"..") or forConsumes(ctx, loop)) return false;
+    const sym = ctx.symbolOf(ir.For.@"var"(loop)) orelse return false;
+    const bound = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
+    const t = sema.unwrapViews(ctx, typeOf(ctx, source) orelse return false);
+    const elem = switch (ctx.types.get(t)) {
+        .array => |a| a.elem,
+        .slice => |sl| sl.elem,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) pn.args[0] else return false,
+        else => return false,
+    };
+    return sema.viewsTextBytes(ctx, elem, bound);
+}
+
+/// Whether `if value as name` binds the bytes of a Text that a write
+/// view in the optional points at (`(!Text)?`): the binding is a
+/// `String`, the read view of that Text.
+pub fn optionalBindsTextBytes(ctx: *const SemContext, cond: Sexp) bool {
+    const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
+    const bound = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
+    const t = typeOf(ctx, ir.As.value(cond)) orelse return false;
+    return switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
+        .optional => |inner| ctx.types.get(inner) == .write_view and sema.viewsTextBytes(ctx, inner, bound),
+        else => false,
+    };
 }
 
 /// Whether payload binding `b` of `match` points at the field it binds
@@ -1209,11 +1242,15 @@ const Planner = struct {
         } else null;
         // A resource is captured, then owned by the binding.
         if (ty != null and owns(ctx, ty.?)) try p.record(cond, .as_value, .owned, .body);
+        // The bytes of the Text a captured write view points at: the
+        // pointer is captured, and the binding takes its bytes.
+        if (used and optionalBindsTextBytes(ctx, cond)) try p.record(cond, .as_value, .pointer, .body);
     }
 
     fn forLoop(p: *Planner, loop: Sexp) !void {
         const ctx = p.ctx;
         const source = ir.For.source(loop);
+        if (loopBindsTextBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);
             try p.record(loop, .range_end, .owned, .construct);

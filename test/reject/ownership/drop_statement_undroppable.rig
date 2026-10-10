@@ -31,5 +31,5 @@ sub main()
 
 # error: 10:4: cannot drop view parameter `o`; the caller owns what it views
 # error: 19:6: cannot drop captured view `v`; the closure holds it for every call
-# error: 23:6: cannot drop captured `s`; the closure keeps what it captures for every call
+# error: 23:6: cannot drop captured `s`: the closure keeps what it captures for every call
 # error: 27:6: cannot drop loop view `x`

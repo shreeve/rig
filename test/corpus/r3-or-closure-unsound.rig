@@ -51,7 +51,7 @@ sub keeps_a_call_view()
   print(slot)
 
 fun owned_holds_a_view(s: String) -> *fun() -> Int
-  *|+s| s.len
+  *|?s| s.len
 
 sub used_after_move_capture()
   r = Res(id: 3)

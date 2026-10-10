@@ -323,6 +323,7 @@ pub const TypeStore = struct {
     /// Return the id of `ty`, adding it if new. Slices inside `ty`
     /// (function params, generic args) must outlive the store.
     pub fn intern(self: *TypeStore, allocator: std.mem.Allocator, ty: Type) !TypeId {
+        if (self.absorbed(ty)) |id| return id;
         const gop = try self.map.getOrPutContextAdapted(
             allocator,
             ty,
@@ -337,6 +338,21 @@ pub const TypeStore = struct {
         };
         gop.key_ptr.* = id;
         return id;
+    }
+
+    /// The type a read view of a read view, or of a `Text` or a `String`,
+    /// is: a read view of a read view is that read view (`?(?T)` is `?T`),
+    /// and the read view of a `Text` is its bytes, the one text view,
+    /// `String`, which is already a read view.
+    /// Null for any other type. Every way to name such a view interns
+    /// through here, so no type holds a pointer view of a `Text`.
+    fn absorbed(self: *const TypeStore, ty: Type) ?TypeId {
+        const inner = switch (ty) {
+            .read_view => |inner| inner,
+            else => return null,
+        };
+        if (inner == self.string_id or (inner == self.text_id and self.text_id != type_invalid)) return self.string_id;
+        return if (self.items.items[inner] == .read_view) inner else null;
     }
 
     /// By structure: the contents of the slices inside, not their addresses.
@@ -4392,6 +4408,14 @@ pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
     return b.marked or b.string;
 }
 
+/// Whether a view of type `view` of a slot of type `slot` (a Text, or a
+/// write view of one) is the bytes of a Text: the read view of a `Text`
+/// is a `String` (`TypeStore.absorbed`), held by value, so a binding that
+/// views a Text slot takes its `.bytes()`.
+pub fn viewsTextBytes(ctx: *const SemContext, slot: TypeId, view: TypeId) bool {
+    return unwrapViews(ctx, slot) == ctx.types.text_id and view == ctx.types.string_id;
+}
+
 /// Whether a value of `ty` reaches a Text (`Views.text`), which a
 /// String may view.
 pub fn reachesText(ctx: *const SemContext, ty: TypeId) bool {
@@ -5074,7 +5098,8 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
     const value = unwrapViews(ctx, ty);
     switch (ctx.types.get(value)) {
         .shared, .weak => return .bump,
-        .text => return .text,
+        // `+s` of a `String` view makes a new owner of its bytes.
+        .text, .string => return .text,
         .optional => |o| switch (ctx.types.get(o)) {
             .shared, .weak => return .bump,
             else => {},
@@ -7102,6 +7127,25 @@ test "TypeStore: composites intern by structure" {
     try std.testing.expect(f1 != f4);
 }
 
+test "TypeStore: a read view of text is the String, and a read view of a view is that view" {
+    const a = std.testing.allocator;
+    var store = try TypeStore.init(a);
+    defer store.deinit(a);
+    // The one text view: `?Text` and `?String` are `String`.
+    try std.testing.expectEqual(store.string_id, try store.intern(a, .{ .read_view = store.text_id }));
+    try std.testing.expectEqual(store.string_id, try store.intern(a, .{ .read_view = store.string_id }));
+    // `?(?T)` is `?T`.
+    const read_int = try store.intern(a, .{ .read_view = store.int_id });
+    try std.testing.expectEqual(read_int, try store.intern(a, .{ .read_view = read_int }));
+    // A view of an optional Text stays a view of the optional.
+    const opt_text = try store.intern(a, .{ .optional = store.text_id });
+    const read_opt_text = try store.intern(a, .{ .read_view = opt_text });
+    try std.testing.expect(read_opt_text != store.string_id);
+    try std.testing.expect(read_opt_text != opt_text);
+    // Static is its own plain type.
+    try std.testing.expect(try store.intern(a, .{ .read_view = store.static_id }) != store.static_id);
+}
+
 test "TypeStore: many distinct types stay distinct" {
     const a = std.testing.allocator;
     var store = try TypeStore.init(a);
@@ -7855,7 +7899,7 @@ test "type facts: moves, copies, cloneable" {
     const Case = struct { ty: TypeId, moves: Answer, copies: Answer, clone: Clone };
     const cases = [_]Case{
         .{ .ty = ty.int_id, .moves = .no, .copies = .yes, .clone = .copy },
-        .{ .ty = ty.string_id, .moves = .no, .copies = .yes, .clone = .copy },
+        .{ .ty = ty.string_id, .moves = .no, .copies = .yes, .clone = .text },
         .{ .ty = ty.static_id, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = p, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = read_p, .moves = .no, .copies = .yes, .clone = .copy },

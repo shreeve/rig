@@ -5110,7 +5110,10 @@ pub const Checker = struct {
     fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Value) Error!VarId {
         const pos = node.src.pos;
         const ty = self.symType(pos);
-        var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = self.refOfType(ty) };
+        // The bytes of a Text field are a view of it, as any read view of
+        // a field is, though a `String` copies.
+        const text_view = if (self.sema) |ctx| (if (ctx.payloadFieldOf(node)) |field| sema.viewsTextBytes(ctx, field, ty orelse sema.type_invalid) else false) else false;
+        var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = if (text_view) .read else self.refOfType(ty) };
         var loans: []const Loan = &.{};
         // A payload that copies (`sema.copies`) is copied out of the
         // matched value, which stays whole. A view the match makes of a

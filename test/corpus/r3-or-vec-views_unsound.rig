@@ -135,7 +135,8 @@ sub swapped_view()
 sub replaced_view()
   t = Text("a")
   h = Holder(s: "b")
-  old = replace(!h.s, ?t)
+  old = h.s
+  h.s = ?t
   !t.add("!")
   print(old, h.s)
 

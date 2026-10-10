@@ -1,0 +1,17 @@
+# The fold: a String that views a Text slot (ret-loop-param-ok): rejected, or runs sanitizer-clean.
+enum E
+  full(t: Text)
+  empty
+
+struct H
+  t: Text
+
+fun f(v: ?Vec[Text]) -> String from v
+  for x in ?v
+    return ?x
+  ""
+
+sub main()
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  print(f(?v))
