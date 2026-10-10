@@ -6556,6 +6556,7 @@ const Checker = struct {
     /// every complete call what fills each parameter (`CallParams`).
     fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
         const call = self.current_call;
+        const mark = self.ctx.diagnostics.items.len;
         const saved_slot = self.slot;
         defer self.slot = saved_slot;
         self.slot = .{ .call = call orelse .nil, .params = site.declared, .lends = try self.argLends(args, f, info) };
@@ -6636,7 +6637,15 @@ const Checker = struct {
             .arg => |i| .{ .arg = i },
             .default => .default,
         };
-        try self.ctx.recordCallParams(call_node, .{ .fills = fills, .origins = site.origins });
+        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins };
+        try self.ctx.recordCallParams(call_node, recorded);
+        // What the call may store outlives its statement.
+        if (self.ctx.diagnostics.items.len == mark) {
+            for (args, 0..) |a, i| {
+                if (!recorded.stores(i)) continue;
+                try self.keptLends(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, .{ .stored = callee });
+            }
+        }
         if (keyword.len == 0 and args.len == f.params.len) return;
         const out = try self.ctx.arena.allocator().alloc(sema.ArgSlot, slots.len);
         for (slots, out) |s, *o| o.* = s.?;
@@ -8878,6 +8887,8 @@ const Checker = struct {
     const Kept = union(enum) {
         binding: []const u8,
         returned,
+        /// Stored by the call to this callee.
+        stored: []const u8,
     };
 
     /// `stmt`, a binding or an assignment, keeps the value it is given.
@@ -8912,6 +8923,7 @@ const Checker = struct {
             // A part of a value a call made keeps what the call's
             // result carries.
             .member, .index => try self.keptLeaf(ir.get(e, .object), kept),
+            .array => for (ir.Array.elems(e)) |el| try self.keptLeaf(el, kept),
             .call => {
                 if (try self.kept_reported.fetchPut(self.ctx.allocator, nodeId(e), {}) != null) return;
                 const callee = ir.Call.callee(e);
@@ -8959,6 +8971,7 @@ const Checker = struct {
         switch (kept) {
             .binding => |name| try self.errAt(lent, "`{s}` keeps `{s}` lent while `{s}` lives; write `{s}`", .{ call_text, shown, name, fixed }),
             .returned => try self.errAt(lent, "`{s}` keeps `{s}` lent in the value it returns; write `{s}`", .{ call_text, shown, fixed }),
+            .stored => |callee| try self.errAt(lent, "`{s}` keeps `{s}` lent in what `{s}` stores; write `{s}`", .{ call_text, shown, callee, fixed }),
         }
     }
 

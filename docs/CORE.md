@@ -281,7 +281,8 @@ method's receiver, or a header's subject (sentence 1), and `print` and
 `Text` read their arguments the same way. A lend kept in a binding or a
 field is written, and so is every write lend; so is a lend whose view a
 call's result keeps when that result is stored in a binding, a field, or
-a return (`r = head(?v)`, `xs = ?b.all()`), while a result used within
+a return, or handed to a call that stores it (`r = head(?v)`,
+`xs = ?b.all()`, `!xs.push(head(?v))`), while a result used within
 its statement (`print(head(v).len)`) leaves it unwritten. `!` lends any
 value to write, named or temporary: `!mk().pop()` lends the value
 `mk()` makes, which lives until its statement ends ([§3](#3-temporaries)),

@@ -3327,7 +3327,8 @@ read ([§11](#callable-views)). `print(...)` and `Text(...)` read their
 arguments, so a slice there goes unwritten too (`print(w[1..3])`). A
 lend kept in a binding or a field is always written: `r = ?x`. So is a
 lend whose view a call's result keeps, when that result is kept in a
-binding, a field, or a return: `r = head(?v)`, `xs = ?b.all()`. A result
+binding, a field, a return, or a call that stores it:
+`r = head(?v)`, `xs = ?b.all()`, `!xs.push(head(?v))`. A result
 used within its statement (`print(head(v).len)`) lends implicitly, since
 its loan ends with the statement. The owner stays lent for as long as the view
 is used, and a value made there (`balance_of(open())`) is lent as a

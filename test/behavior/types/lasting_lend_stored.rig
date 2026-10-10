@@ -1,0 +1,19 @@
+# A result stored by a callee keeps its argument lent, so the lend is
+# written (test/reject/types/lasting_lend_stored.rig); one the call only
+# reads lends implicitly.
+
+fun head(xs: []Int) -> []Int
+  xs[0..1]
+
+fun count(xs: []Int) -> Int
+  xs.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  xs: Vec[[]Int] = Vec()
+  !xs.push(head(?v))
+  print(count(head(v)), xs.len, xs[0])
+
+# expect:
+# 1 1 [7]
