@@ -528,7 +528,8 @@ you share is a `Cell`, and it changes through any handle or view of it.
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
 element, or type argument by value. `Cell`, `Signal`, and owned
-closures hold no borrowed view; a `*T` is borrowed if what it holds is.
+closures hold no view that carries a loan; a `*T` carries the loans of
+what it holds.
 *(built)*
 
 ```rig
@@ -953,7 +954,9 @@ sub main()
 ```
 
 **View places.** Assigning a view to a place that holds one re-points
-it, and assigning a value writes through. This holds for locals. `new` only shadows, and accepts every binding form.
+it, and assigning a value writes through. A field that holds a read
+view re-points the same way. `new` only shadows, and accepts every
+binding form.
 *(built)*
 
 ```rig
