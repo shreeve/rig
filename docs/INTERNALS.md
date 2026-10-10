@@ -937,7 +937,7 @@ diagnostics, for one `Access`: `assign` (`p = v`, `p op= v`),
 must be writable, a temporary is never written, and without a view
 or handle on the way the binding it starts from must be one that may
 change (`requireBinding`). No field or element holds a write view
-(Core sentence 9), so no path writes through one, lends one on, or
+(Core §5), so no path writes through one, lends one on, or
 passes one, and a Cell's members need no access: a Cell lives behind
 a shared handle and changes through any path.
 
@@ -996,7 +996,7 @@ guard reads; a write view under `match !e` and `for x in !e`; the
 construct's own under `match <e` and a taken subject. A field that is
 itself a view, at the matched instance (`Opt[?T]`'s `v: T`,
 `payloadFieldOf`), is a read view, since no field holds a write view
-(Core sentence 9), and is bound as the view its access gives it
+(Core §5), and is bound as the view its access gives it
 ([Binding access](#binding-access)). (A payload of a
 type parameter is a copy, which each instance must allow; emit binds it
 by pointer where the match reads its subject in place,
@@ -1242,7 +1242,7 @@ A generic body that copies a `T` records `Requirement.copies`; one
 that discards, overwrites, or stores a `T` in an array or slice records
 `Requirement.no_cleanup`. Each instance is checked against them.
 
-**Where a type may stand.** Core sentence 9 puts a Cell and a write
+**Where a type may stand.** Core sentence 9 and §5 put a Cell and a write
 view only in some places, and one decider says where:
 `sema.misplaced(ty, home)`, by a positive list of homes (`sema.Home`:
 `field`, `signature` for a parameter, a receiver, or a result,
@@ -1567,7 +1567,7 @@ alone, as a local given a new value does. When the right side does not
 read `w` and cannot leave early, `w`'s old loans end before the right
 side runs, since its old view is never used again (`w = !b` while `w`
 views `b`, or in a loop). No field or element holds a write view
-(Core sentence 9), so a write view is always a var of its own, and
+(Core §5), so a write view is always a var of its own, and
 every store through one is through that var. Unlike a call, an assignment knows how many write views it goes
 through (`placeDepth`: `o.i = v` one, `o.i.x = v` two), so only the
 values within that many write loans may hold what `v` views, a write
@@ -1950,7 +1950,7 @@ and each desugars into forms the checker already walks:
 
 A generic body that does any of these to a `T` records
 `Requirement.copies`, which each instance must meet. No value holds a
-write view (Core sentence 9), and a value holding a Cell lives only
+write view (Core §5), and a value holding a Cell lives only
 behind a shared handle, so neither is ever copied.
 
 ### Call origins

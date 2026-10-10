@@ -75,7 +75,7 @@ side; Rig names everything from the side the sigil is on.
 
 **A struct's or enum's kind follows from its parts:** it is owning if
 any part is owning or a handle; otherwise a view if any part is a view;
-otherwise plain. No part is a write view (sentence 9). *(built)*
+otherwise plain. No part is a write view (§5). *(built)*
 
 ```rig
 struct Point
@@ -99,9 +99,7 @@ sub main()
   generator whose copy would repeat its numbers, says so on the type:
   `struct Random unique`. It moves like an owner. *(built)*
 - **A type that holds a `Cell`**, or a bare `Cell[T]`, lives only
-  behind a shared handle (sentence 9), so a value of it is never copied
-  or moved: it is made under `*`, as a field of a value made there, or
-  as a field's default. *(built)*
+  behind `*`: see sentence 9. *(built)*
 
 ```rig reject
 sub main()
@@ -214,8 +212,8 @@ sub main()
 
 **2. `<x` moves, `+x` makes a new owner.** A statement `<x` moves `x`
 nowhere, so it drops now. `+x` is a copy, a count bump, or a deep
-copy, as the type says; a `unique` type, one with a `drop` body, or one
-holding a write view has none. *(built;*
+copy, as the type says; a `unique` type or one with a `drop` body
+has none. *(built;*
 a deep copy of a type declared in another module, or of one holding a
 `Signal`, is *planned*.*)*
 
@@ -404,8 +402,7 @@ may store it: after `head(!v)`, in its own statement or through
 `r = head(!v)`, `v` may be read, but not written, while the result
 lives. A view reached through
 a read view that a value holds carries that view's loans, not a loan on
-the holder; one reached through a write view the value holds keeps the
-holder lent too. The compiler checks each
+the holder. The compiler checks each
 body against its signature. *(built)*
 
 ```rig reject
@@ -526,15 +523,12 @@ gone
 ```
 
 **9. Shared storage.** You change what you were lent with `!`, or what
-you share with `*`. A name's own value changes by assigning it. A
-`Cell` is what handles share: a value that holds one lives only behind
-a shared handle (`*Cell[T]`, or `*S` where a field of `S` holds one),
-and changes through any path from it, a read view included. A write
-view is never stored inside a value: `!T` (also `(!T)?` and `(!T)!`) is
-only a parameter's, a receiver's, a result's, or a local or header
-binding's type, never a field's, an element's, or a type argument.
-`Cell`, `Signal`, and owned closures accept only values that carry no
-loan; a `*T` instead carries its contents' loans on every handle.
+you share with `*`. A name's own value changes by assigning it. What
+you share is a `Cell`, and it changes through any handle or view of it.
+A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
+field of a value made with `*`); it is never a local, parameter,
+element, or type argument by value. `Cell`, `Signal`, and owned
+closures hold no borrowed view; a `*T` is borrowed if what it holds is.
 *(built)*
 
 ```rig
@@ -824,14 +818,18 @@ sub main()
 
 ## 5. Containers and fields hold values
 
-`Vec`, arrays, `![]T`, and struct fields hold any kind of value but a
-write view, and a value that holds a Cell only as a field (sentence 9).
-Each field and element is a place:
+`Vec`, arrays, and fields hold any value but a write view; only a
+struct field may hold a `Cell`. Each field and element is a place:
 
 - `p.f` and `v[i]` read it (sentence 1);
 - `?p.f`, `!p.f`, `?v[i]`, and `!v[i]` lend it;
 - `<p.f` and `<v[i]` take an optional one, leaving `none`;
 - assigning to it drops the old value.
+
+**Write views are not stored.** A `!T` (also `![]T`, `(!T)?`, `(!T)!`)
+is a parameter, a receiver, a result, or a local. It is never a field,
+an element, a type argument, or what a `?`, an optional, or a handle
+holds.
 
 `<` always leaves its source done: a name is ended, an optional place
 is emptied to `none`, and any other place is rejected, a part of a
@@ -955,8 +953,7 @@ sub main()
 ```
 
 **View places.** Assigning a view to a place that holds one re-points
-it, and assigning a value writes through. This holds for locals and
-fields alike. `new` only shadows, and accepts every binding form.
+it, and assigning a value writes through. This holds for locals. `new` only shadows, and accepts every binding form.
 *(built)*
 
 ```rig
@@ -1033,6 +1030,12 @@ rule in SYNTAX is syntax too.
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`, and
   `!mk().pop()` applies it to `mk()`. *(built)*
 - **`const x = e`:** a binding that never changes. *(built)*
+- **The sigil leads the whole path.** Write `!p.x` to lend a field,
+  `p.x` to read it, and `p.x = 4` to assign it. `(!p).x`, `(?arr)[0]`
+  and `(!v)[0..2]` are rejected. Parentheses around a lend are only for
+  calling on it: `(!s).insert(k)`. A branch of lends,
+  `(!a if c else !b).x`, and a slice lend, `(?t[..])[0]`, are values,
+  not lends of a place. *(built)*
 - **A write call whose value is used** is written `(!s).insert(k)`,
   everywhere: a condition, an `as` header, an operand, a binding, an
   argument, a result. The short form `!s.insert(k)` stands only where

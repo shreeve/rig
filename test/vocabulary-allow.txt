@@ -9,3 +9,4 @@ WELCOME.md: Rust calls all three a "borrow". Rig gives each its own word, named 
 docs/BEYOND-RUST.md: Rust's *borrow* names three things at once: the act (`&v`), the
 docs/BEYOND-RUST.md: | borrow `v` (`&v`, `&mut v`) | `v` **lends** (`?v`, `!v`) | the act | the owner's side, where the sigil is written |
 docs/BEYOND-RUST.md: | "`v` is borrowed" | a **loan** of `v` | the record | stays with the owner, and limits it until every view is done |
+docs/CORE.md: closures hold no borrowed view; a `*T` is borrowed if what it holds is.

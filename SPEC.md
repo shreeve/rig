@@ -751,7 +751,7 @@ How the sigils of a type combine (`*User?` is an optional handle,
 [SYNTAX §7](SYNTAX.md#7-types). A handle holds a value, never a
 `?T`, `!T`, or slice: `*(?User)` is rejected.
 
-Two kinds of type stand only in some places (Core sentence 9):
+Two kinds of type stand only in some places (Core §5 and sentence 9):
 
 - A write view, `!T` or `![]T` (also as `(!T)?` and `(!T)!`), is only a
   parameter's, a receiver's, a result's, or a local or header binding's
@@ -1926,7 +1926,7 @@ and one bound with a `!T` type (`x: !Int = w`) would copy the view, so
 both are rejected. A write view of a plain struct, array, or optional
 reads it as one of a number does (`q = p` with `p: !Point`).
 
-A write view is never stored inside a value (Core sentence 9): `!T`,
+A write view is never stored inside a value (Core §5): `!T`,
 also as `(!T)?` and `(!T)!`, is only a parameter's, a receiver's, a
 result's, or a local or header binding's type, never a field's, an
 element's, or a type argument. To change a value from another one,
@@ -3565,7 +3565,7 @@ A write view is the only view of what it views while it lives. It can be
 lent on, written `!p` as an owned value's view is, or moved into a local
 with `<p`, but not copied; assigning it writes through
 ([View places](#view-places)). It is never stored inside a value (Core
-sentence 9): a field, an element, a type argument, and what a read view
+§5): a field, an element, a type argument, and what a read view
 or a handle reaches never hold one.
 
 ```rig reject
