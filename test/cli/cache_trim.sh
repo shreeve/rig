@@ -392,3 +392,47 @@ expect_rc "$rc" 0 "run with RIG_OUT_DIR over the cap: $out"
 [[ -d capout/old-0123456789abcdef ]] || fail "the cap trimmed RIG_OUT_DIR"
 [[ ! -e capout/.usage && ! -e capout/.trimmed ]] || fail "the cap measured RIG_OUT_DIR"
 unset RIG_CACHE_MAX_GB
+
+# A `.usage` rig did not make is neither read nor replaced: a foreign file,
+# a link, and (in a home without rig's tag) a number. A corrupt `.size`
+# never crashes a run, and counts for nothing.
+export RIG_CACHE_MAX_GB=0.025
+home="$PWD/capcache2/rig"
+export XDG_CACHE_HOME="$PWD/capcache2"
+mkdir -p "$home" elsewhere
+echo "$signature" >"$home/CACHEDIR.TAG"
+echo "not a number, but something of mine" >"$home/.usage"
+sized one-0123456789abcdef 1 8000000
+sized two-0123456789abcdef 1 8000000
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run beside a foreign .usage: $out"
+[[ "$(cat "$home/.usage")" == "not a number, but something of mine" ]] || fail "rig replaced a .usage it did not make"
+rm "$home/.usage"; echo target >elsewhere/usage-target; ln -s "$PWD/elsewhere/usage-target" "$home/.usage"
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run beside a linked .usage: $out"
+[[ -L "$home/.usage" && "$(cat elsewhere/usage-target)" == target ]] || fail "rig replaced or followed a linked .usage"
+rm "$home/.usage"
+
+# A corrupt .size: a number past what a cache holds, and two that overflow
+# when added.
+echo 18446744073709551615 >"$home/one-0123456789abcdef/.size"
+echo 18446744073709551615 >"$home/two-0123456789abcdef/.size"
+touch -t "$(ago 1)" "$home/one-0123456789abcdef" "$home/two-0123456789abcdef"
+touch -t "$(minutes_ago 60)" "$home/.trimmed"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run beside a corrupt .size: $out"
+[[ -d "$home/one-0123456789abcdef" && -d "$home/two-0123456789abcdef" ]] || fail "a corrupt .size made the cap remove a package that fits"
+[[ "$(cat "$home/.usage")" -eq "$(measure_all)" ]] || fail "a corrupt .size reached the estimate"
+
+# In a home without rig's tag, a build records no .usage.
+home="$PWD/capcache3/rig"
+export XDG_CACHE_HOME="$PWD/capcache3"
+mkdir -p "$home/notes"
+echo 5 >"$home/.usage"
+out=$("$RIG" run hello.rig 2>&1); rc=$?
+expect_rc "$rc" 0 "run in an untagged home: $out"
+[[ "$(cat "$home/.usage")" == 5 ]] || fail "a build wrote .usage in a home without rig's tag"
+[[ ! -e "$home/CACHEDIR.TAG" ]] || fail "rig tagged a home with files it did not make"
+unset RIG_CACHE_MAX_GB

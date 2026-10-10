@@ -1052,12 +1052,12 @@ fn treeSize(io: std.Io, dir: std.Io.Dir, top: bool, depth: u32) u64 {
         .file => {
             if (top and eql(entry.name, package_size)) continue;
             const st = dir.statFile(io, entry.name, .{ .follow_symlinks = false }) catch continue;
-            if (st.kind == .file) total += st.size;
+            if (st.kind == .file) total +|= st.size;
         },
         .directory => {
             var sub = dir.openDir(io, entry.name, .{ .iterate = true, .follow_symlinks = false }) catch continue;
             defer sub.close(io);
-            total += treeSize(io, sub, false, depth + 1);
+            total +|= treeSize(io, sub, false, depth + 1);
         },
         else => {},
     };
@@ -1071,14 +1071,31 @@ fn measurePackage(io: std.Io, dir: std.Io.Dir, name: []const u8) u64 {
     return treeSize(io, pd, true, 0);
 }
 
-/// The decimal number in the small file `path` of `dir`, or null if it
-/// is missing or holds anything else (as when it is being replaced).
+/// The largest size rig believes in, a petabyte; a recorded size above it
+/// is corrupt.
+const size_bound: u64 = 1 << 50;
+
+/// The number in the small file `path` of `dir`, as rig writes it: decimal
+/// digits and a newline, at most `size_bound`. Null if the file is
+/// missing, a link, or holds anything else (as when it is being replaced).
 fn readNumber(io: std.Io, dir: std.Io.Dir, path: []const u8) ?u64 {
     const f = dir.openFile(io, path, .{ .follow_symlinks = false }) catch return null;
     defer f.close(io);
     var buffer: [32]u8 = undefined;
     const n = f.readPositionalAll(io, &buffer, 0) catch return null;
-    return std.fmt.parseInt(u64, std.mem.trim(u8, buffer[0..n], " \n"), 10) catch null;
+    var text = buffer[0..n];
+    if (text.len < 2 or text[text.len - 1] != '\n') return null;
+    text = text[0 .. text.len - 1];
+    for (text) |c| if (!std.ascii.isDigit(c)) return null;
+    const value = std.fmt.parseInt(u64, text, 10) catch return null;
+    return if (value > size_bound) null else value;
+}
+
+/// Whether the home's `.usage` is absent or rig's own, so rig may write
+/// it; a file or link rig did not make is never replaced.
+fn usageWritable(io: std.Io, dir: std.Io.Dir) bool {
+    const st = dir.statFile(io, cache_usage, .{ .follow_symlinks = false }) catch |err| return err == error.FileNotFound;
+    return st.kind == .file and readNumber(io, dir, cache_usage) != null;
 }
 
 fn writeNumber(io: std.Io, path: []const u8, value: u64) void {
@@ -1096,6 +1113,12 @@ fn writeNumber(io: std.Io, path: []const u8, value: u64) void {
 /// size is recorded. It walks one package, never the cache.
 fn recordSize(allocator: std.mem.Allocator, io: std.Io, home: []const u8, dir: []const u8) void {
     const cwd = std.Io.Dir.cwd();
+    {
+        // Only in a home rig made.
+        var hd = cwd.openDir(io, home, .{ .follow_symlinks = false }) catch return;
+        defer hd.close(io);
+        if (!isTag(hd, io)) return;
+    }
     var pd = cwd.openDir(io, dir, .{ .iterate = true, .follow_symlinks = false }) catch return;
     defer pd.close(io);
     const size = treeSize(io, pd, true, 0);
@@ -1129,7 +1152,10 @@ fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current
     defer d.close(io);
     const now = std.Io.Timestamp.now(io, .real);
     const estimate = if (cap > 0) readNumber(io, d, cache_usage) else null;
-    const over = cap > 0 and (estimate == null or estimate.? > cap);
+    // A `.usage` that is not rig's is neither read nor replaced: the cache
+    // is then measured at the daily pace.
+    const writable = usageWritable(io, d);
+    const over = cap > 0 and writable and (estimate == null or estimate.? > cap);
     const wait: i96 = if (over) cache_over_trim_minutes * std.time.ns_per_min else cache_trim_days * std.time.ns_per_day;
     if (d.statFile(io, ".trimmed", .{ .follow_symlinks = false })) |st| {
         if (st.kind != .file or st.size != 0) return;
@@ -1157,7 +1183,7 @@ fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current
                 // (`recordSize`), which adds its whole size if it has
                 // none recorded.
                 item.size = recorded orelse if (eql(entry.name, current)) 0 else measurePackage(io, d, entry.name);
-                total += item.size;
+                total +|= item.size;
             }
             if (eql(entry.name, current) or !unusedSince(io, item.used)) {
                 live.append(allocator, item) catch return;
@@ -1199,7 +1225,7 @@ fn trimCache(allocator: std.mem.Allocator, io: std.Io, home: []const u8, current
         }
     }
     if (capped > 0) std.debug.print("rig: removed {d} least recently used package{s} to keep {s} under {d:.2} GB (RIG_CACHE_MAX_GB)\n", .{ capped, if (capped == 1) "" else "s", home, @as(f64, @floatFromInt(cap)) / (1024 * 1024 * 1024) });
-    if (cap > 0) {
+    if (cap > 0 and writable) {
         const path = std.fs.path.join(allocator, &.{ home, cache_usage }) catch return;
         writeNumber(io, path, total);
     }
