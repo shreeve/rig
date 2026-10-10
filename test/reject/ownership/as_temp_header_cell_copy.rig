@@ -1,6 +1,8 @@
 # `if … as` over a view a call returns, whose header makes a temporary,
 # would bind a copy of a Cell holder inside the optional, and a change
-# to its Cell would be lost: it is rejected.
+# to its Cell would be lost. No optional holds a Cell holder: a value of
+# one lives only behind a shared handle, so the form is rejected where
+# the optional is written.
 
 struct Counter
   hits: Cell[Int]
@@ -20,4 +22,4 @@ sub main()
     c.hit()
   print(h)
 
-# error: 19:6: `as` would bind a copy of the `Counter` inside this optional
+# error: 12:6: a value of `Counter` holds a Cell, so it lives only behind a shared handle
