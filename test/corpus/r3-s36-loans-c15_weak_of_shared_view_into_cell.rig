@@ -11,5 +11,5 @@ sub main()
   if true
     a = R(n: 1)
     h = *V(r: ?a)
-    c.set(~h)
+    !c.set(~h)
   print("ok")

@@ -10,7 +10,7 @@ sub main()
   rc: *Cell[Int] = *Cell(0)
   outer = |+rc|
     inner = |+rc|
-      rc.set(rc.get() + 2)
+      !rc.set(rc.get() + 2)
       rc.get()
     print(inner())
     inner()

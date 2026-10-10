@@ -105,9 +105,9 @@ sub t3438()
   cr3438: Cell[U128] = Cell(143529368583193069319276409822472576311)
   av3438: Vec[U128] = Vec()
   !av3438.push(0)
-  av3438[0] = cr3438.replace(12)
+  av3438[0] = (!cr3438).replace(12)
   aa3438: [3]U128 = [3 of 0]
-  aa3438[rt_int(2)] = cr3438.replace(12)
+  aa3438[rt_int(2)] = (!cr3438).replace(12)
   print(av3438[0], aa3438)
 
 sub t1521()
@@ -134,7 +134,7 @@ sub t541()
 
 sub t2126()
   cc2126: Cell[Float] = Cell(0)
-  cc2126.set(gmax((-2), 1))
+  !cc2126.set(gmax((-2), 1))
 
 sub t4237()
   b4237: I8 = id_i8(41)

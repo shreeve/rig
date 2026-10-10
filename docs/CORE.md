@@ -275,8 +275,7 @@ statement ends ([§3](#3-temporaries)). *(built)*
 
 **4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
 view the context expects** ([§4](#4-one-lend-table)). `?` promises that
-nothing changes but a `Cell`, which lives behind a shared handle
-(sentence 9). A read lend may
+nothing changes. A read lend may
 go unwritten where its view lasts only for the use: an argument, a
 method's receiver, or a header's subject (sentence 1). A lend kept in a
 binding or a field is written, and so is every write lend. `!` lends any
@@ -496,9 +495,9 @@ sub main()
 ```
 
 **8. `*<x` moves `x` into a counted box, and `*S(...)` boxes a new
-value.** Handles only read (a `Cell` inside one still changes: sentence
-9). `~h` holds the box weakly, and `h.upgrade()` is the way back.
-*(built)*
+value.** Handles only read (a `Cell` inside one changes by a marked
+call: sentence 9). `~h` holds the box weakly, and `h.upgrade()` is the
+way back. *(built)*
 
 ```rig
 struct User
@@ -524,7 +523,7 @@ gone
 
 **9. Shared storage.** You change what you were lent with `!`, or what
 you share with `*`. A name's own value changes by assigning it. What
-you share is a `Cell`, and it changes through any handle or view of it.
+you share is a `Cell`, and it changes only by a marked call: `!c.set(5)`.
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
 element, or type argument by value. `Cell`, `Signal`, and owned
@@ -536,7 +535,7 @@ what it holds.
 sub main()
   c = *Cell(0)
   d = +c
-  d.set(5)
+  !d.set(5)
   print(c.get())
 ```
 

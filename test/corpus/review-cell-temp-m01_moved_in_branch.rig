@@ -10,8 +10,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 struct H
   d: D

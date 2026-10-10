@@ -8,7 +8,7 @@ sub main()
   c: *Cell[Int] = *Cell(1)
   h = Holder(inner: <c)
   k = +h
-  k.inner.set(5)
+  !k.inner.set(5)
   print(h.inner.get())
 
 # expect:

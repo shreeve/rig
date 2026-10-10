@@ -18,8 +18,8 @@ fun mkd(n: Int) -> D
 fun mkh(n: Int) -> H
   H(d: mkd(n), e: mkd(n + 1))
 
-sub bump(p: ?D)
-  p.c.set(p.c.get() + 1000)
+sub bump(p: !D)
+  !p.c.set(p.c.get() + 1000)
 
 sub main()
   c = true

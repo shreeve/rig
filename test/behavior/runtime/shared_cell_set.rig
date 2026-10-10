@@ -3,7 +3,7 @@
 
 sub main()
   rc: *Cell[Int] = *Cell(0)
-  rc.set(5)
+  !rc.set(5)
   print(rc.get())
 
 # expect:

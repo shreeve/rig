@@ -4,8 +4,8 @@ struct P
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 fun maybe(s: (?P)?) -> Int
   if s as x

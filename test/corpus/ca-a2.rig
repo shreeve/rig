@@ -16,7 +16,7 @@ sub keep(dst: !?fun(Int) -> Int, f: ?fun(Int) -> Int)
 sub stash(f: ?fun(Int) -> Int)
   c = Cell(value: f)
   s: *Cell[Int] = *Cell(value: 0)
-  g = |+s, ?f| s.set(f(1))
+  g = |+s, ?f| !s.set(f(1))
   g()
 
 sub main()

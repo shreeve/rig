@@ -10,14 +10,14 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 fun mkd(n: Int) -> D
   D(c: Cell(n))
 
-fun bump(p: ?D) -> Int
-  p.c.set(p.c.get() + 10)
+fun bump(p: !D) -> Int
+  !p.c.set(p.c.get() + 10)
   p.c.get()
 
 sub main()

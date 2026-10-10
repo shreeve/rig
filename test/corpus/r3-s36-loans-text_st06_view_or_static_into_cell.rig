@@ -4,5 +4,5 @@ sub main()
   s = "lit"
   if t.len > 5
     s = ?t[..]
-  c.set(s)
+  !c.set(s)
   print(c.get())

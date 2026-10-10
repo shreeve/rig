@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct O
   k: Counter
@@ -11,6 +11,6 @@ sub main()
   h = *O(k: Counter())
   g = *O(k: Counter())
   c = true
-  (h.k if c else g.k).hit()
-  (h if c else g).k.hit()
+  (!h.k if c else !g.k).hit()
+  !(h if c else g).k.hit()
   print(h.k.hits.get(), g.k.hits.get())

@@ -1,15 +1,16 @@
 # `print` reads each argument when it is called, after every argument
-# has run: a Cell a later argument grows through a read view prints
+# has run: a Cell a later argument grows through another handle prints
 # as it is then.
-fun grow(c: ?Cell[Vec[Int]]) -> Int
+fun grow(c: !Cell[Vec[Int]]) -> Int
   for i in 0..20
-    c.push(i)
+    !c.push(i)
   5
 
 sub main()
   c: *Cell[Vec[Int]] = *Cell(Vec())
-  c.push(42)
-  print(c, grow(?c))
+  !c.push(42)
+  d = +c
+  print(c, grow(!d))
   print(c.len)
 
 # expect:

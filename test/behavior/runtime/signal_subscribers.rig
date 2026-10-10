@@ -4,19 +4,19 @@
 
 sub main()
   notes: *Cell[Int] = *Cell(0)
-  one:   *sub() = *|+notes| notes.set(notes.get() + 1)
-  ten:   *sub() = *|+notes| notes.set(notes.get() + 10)
-  cent:  *sub() = *|+notes| notes.set(notes.get() + 100)
+  one:   *sub() = *|+notes| !notes.set(notes.get() + 1)
+  ten:   *sub() = *|+notes| !notes.set(notes.get() + 10)
+  cent:  *sub() = *|+notes| !notes.set(notes.get() + 100)
 
   sig: *Signal[Int] = *Signal(0)
-  sig.subscribe(+one)
-  sig.subscribe(+ten)
-  sig.subscribe(+cent)
+  !sig.subscribe(+one)
+  !sig.subscribe(+ten)
+  !sig.subscribe(+cent)
 
   print(notes.get())                # 0: no notification yet
-  sig.set(1)                        # calls all three: 0 -> 111
+  !sig.set(1)                        # calls all three: 0 -> 111
   print(notes.get())                # 111
-  sig.set(2)                        # again: 111 -> 222
+  !sig.set(2)                        # again: 111 -> 222
   print(notes.get())                # 222
 
 # expect:

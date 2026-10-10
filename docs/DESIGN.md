@@ -51,10 +51,10 @@ achieves correctness through rigor; Rig aims for rigor plus visibility.
 it happens, and reading is unmarked. Sharing and weak handles, failure,
 capture modes, compile-time parameters, and the unsafe boundary are
 written too. Like Rust, Rig leaves some effects implicit: a drop where
-a scope ends, the allocation a `Vec`, `Box`, or `Text` makes, a plain
-copy, and a change inside a `Cell`, which lives only behind a shared
-handle, changes through any path from it, and so accepts only values
-that carry no loan. A count is added only where
+a scope ends, the allocation a `Vec`, `Box`, or `Text` makes, and a plain
+copy. A change to a shared `Cell` is marked, `!c.set(5)`; a `Cell` lives
+only behind a shared handle, so it takes only values that carry no loan.
+A count is added only where
 `*x` or `+x` is written, and released where `<x` drops a handle or its
 scope ends; there is no implicit error propagation, and no unmarked
 unsafe code.

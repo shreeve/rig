@@ -17,8 +17,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+sub bump(c: !Cell[Int])
+  !c.set(c.get() + 1)
 
 fun mk(n: Int) -> D
   D(c: *Cell(n))
@@ -41,35 +41,35 @@ fun mkv(n: Int) -> *Cell[Vec[Int]]
 
 sub nested(k: Bool, j: Bool)
   a = mk(1)
-  (a if k else (mk(5) if j else mk(8))).c.set(70)
-  (a if k else (mko(-1) ?? mk(6))).hit()
+  !(a if k else (mk(5) if j else mk(8))).c.set(70)
+  bump(!(a if k else (mko(-1) ?? mk(6))).c)
   print((a if k else (mk(5) if j else mk(8))).c.get())
   print("a", a.c.get())
 
 sub fails(k: Bool)!
   a = mk(1)
-  (a if k else mkf(6)!).c.set(70)
-  (mkf(7)! if k else a).hit()
+  !(a if k else mkf(6)!).c.set(70)
+  bump(!(mkf(7)! if k else a).c)
   print((a if k else mkf(9)!).c.get())
   print("a", a.c.get())
 
 fun absent(k: Bool) -> Int?
   a = mk(1)
   o: D? = mk(2)
-  (mko(6)? if k else a).hit()
-  (o if k else mko(5))?.hit()
-  (o if k else mko(6))?.c.set(70)
+  bump(!(mko(6)? if k else a).c)
+  (!(o if k else mko(5))?.c).set(6)
+  (!(o if k else mko(6))?.c).set(70)
   print((o if k else mko(7))?.c.get())
   print("a", a.c.get())
   o?.c.get()
 
 sub cells(k: Bool)
   x = mkv(1)
-  (x if k else mkv(5)).push(5)
-  print((x if k else mkv(6)).pop() ?? -1)
-  (x if k else mkv(7)).clear()
-  (x if k else mkv(8)).push(9)
-  (x if k else mkv(2))[0] = 3
+  !(x if k else mkv(5)).push(5)
+  print((!(x if k else mkv(6))).pop() ?? -1)
+  !(x if k else mkv(7)).clear()
+  !(x if k else mkv(8)).push(9)
+  (!(x if k else mkv(2)))[0] = 3
   print((x if k else mkv(4)).len, (x if k else mkv(4)).get(0) ?? -1, (x if k else mkv(4))[0])
 
 sub main()

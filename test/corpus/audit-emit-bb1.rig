@@ -8,12 +8,12 @@ struct Reg
   cur: Cell[*N?]
   count: Cell[Int]
 
-  sub note(?self, x: Int)
-    self.log.push(x)
-    self.count.set(self.count.get() + 1)
+  sub note(!self, x: Int)
+    !self.log.push(x)
+    !self.count.set(self.count.get() + 1)
 
-  sub swap_in(?self, n: *N)
-    self.cur.set(<n)
+  sub swap_in(!self, n: *N)
+    !self.cur.set(<n)
 
 fun peek(r: ?Reg) -> Int
   r.log[0] + r.log.len
@@ -21,8 +21,8 @@ fun peek(r: ?Reg) -> Int
 struct Box2[T]
   c: Cell[T]
 
-  sub put(?self, v: T)
-    self.c.set(v)
+  sub put(!self, v: T)
+    !self.c.set(v)
 
   fun get(?self) -> T
     self.c.get()
@@ -35,11 +35,11 @@ sub main()
   r.swap_in(*N(id: 1))
   r.swap_in(*N(id: 2))
   sh = *Reg(log: Cell(Vec()), cur: Cell(none), count: Cell(0))
-  sh.note(9)
+  !sh.note(9)
   sh2 = +sh
-  sh2.note(10)
-  print(sh.log.len, sh.log.pop(), sh.count.get())
-  sh.log.clear()
+  !sh2.note(10)
+  print(sh.log.len, (!sh.log).pop(), sh.count.get())
+  !sh.log.clear()
   print(sh2.log.len)
   b = Box2(c: Cell(3))
   b.put(4)

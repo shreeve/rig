@@ -9,7 +9,7 @@ sub main()
   ua: *User = *User(age: 30)
   ub: *User = *User(age: 99)
   c: *Cell[*User] = *Cell(<ua)
-  old: *User = c.replace(<ub)
+  old: *User = (!c).replace(<ub)
   print(old.age)                    # 30
 
 # expect:

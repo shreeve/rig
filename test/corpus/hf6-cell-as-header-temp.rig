@@ -10,6 +10,6 @@ fun idx(s: String) -> Int
 sub main()
   arr: [1]C? = [C(c: Cell(1))]
   if ?arr[idx(?Text("a"))] as x
-    x.c.set(5)
+    !x.c.set(5)
   if ?arr[0] as x
     print(x.c.get())

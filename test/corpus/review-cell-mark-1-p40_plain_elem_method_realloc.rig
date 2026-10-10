@@ -1,0 +1,15 @@
+struct P
+  x: In
+  y: In
+
+  sub m(?self, d: !Cell[Vec[P]])
+    !d.clear()
+    for i in 0..300
+      !d.push(P(x: i, y: i))
+    print(self.x, self.y)
+
+sub main()
+  c: *Cell[Vec[P]] = *Cell(Vec())
+  !c.push(P(x: 41, y: 42))
+  d = +c
+  c[0].m(!d)

@@ -8,5 +8,5 @@ struct V
 sub main()
   c: Cell[V?] = Cell(none)
   a = R(n: 1)
-  c.set(V(r: ?a))
+  !c.set(V(r: ?a))
   print("ok")

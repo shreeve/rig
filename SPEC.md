@@ -895,7 +895,7 @@ sub main()
   d = Config(retries: 5, verbose: false)
   !c.tags.push("x")
   s = *Stats()
-  s.hits.set(2)
+  !s.hits.set(2)
   print(c.retries, c.name, d.retries, c.tags.len, d.tags.len, s.hits.get())
 ```
 
@@ -3310,11 +3310,9 @@ value declared after it: that value is dropped first.
 
 A lend hands over a view of a value without giving it up, and view
 parameter types say the same thing: `b: ?Wrap` reads, `b: !Wrap`
-writes. `?` promises that nothing changes but a `Cell`, which lives
-behind a shared handle (Core 4). Exactly: through a read view only a `Cell` changes,
-a field or an element whose type is a `Cell`, the `Cell` the view is
-itself (`?Cell[T]`), or one a shared handle there holds
-([Changes and shared storage](#changes-and-shared-storage),
+writes. `?` promises that nothing changes: no field, element, or
+`Cell` changes through a read view, and a method that changes a `Cell`
+takes `!self` ([Changes and shared storage](#changes-and-shared-storage),
 [§10](#cell)). A write lend is always written. A read lend may go unwritten
 where its view lasts only for the use: an argument to a view parameter
 (`balance_of(acct)` is `balance_of(?acct)`, and a slice is lent the
@@ -4208,22 +4206,22 @@ struct Counter
   drop(!self)
     print("drop", self.hits.get())
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 fun fresh(n: Int) -> *Counter
   *Counter(hits: Cell(n))
 
-sub bump(c: ?Counter)
-  c.hits.set(c.hits.get() + 10)
+sub bump(c: !Counter)
+  !c.hits.set(c.hits.get() + 10)
 
 sub main()
-  fresh(0).hit()
-  fresh(1).hits.set(5)
-  bump(fresh(2))
+  !fresh(0).hit()
+  !fresh(1).hits.set(5)
+  bump(!fresh(2))
   k = fresh(3)
-  (k if k.hits.get() > 5 else fresh(4)).hit()
-  (k if k.hits.get() < 5 else fresh(6)).hit()
+  !(k if k.hits.get() > 5 else fresh(4)).hit()
+  !(k if k.hits.get() < 5 else fresh(6)).hit()
   print(k.hits.get())
 ```
 
@@ -4349,7 +4347,13 @@ cannot lend `a` to write while a write loan is live: to swap two elements of `a`
 A name's own value changes by assigning it
 ([§4](#4-bindings-and-assignment)). A `Cell` is what handles share: a
 value that holds one lives only behind a shared handle, and the Cell
-changes through any path from it, a read view included ([§10](#cell)).
+changes only by a marked call, `!c.set(5)` ([§10](#cell)). The mark lends
+the handle `c`, as `!v.push(x)` lends `v`; it is not exclusive over the
+Cell, since another handle to it is another name, and the loan rules need
+no case for it: `c` is a binding like any other, so a view of `c` held
+across the mark conflicts with it, and a view of another handle does
+not. A write view of a value that holds a Cell changes its Cells and
+nothing else.
 A write view is never stored inside a value
 ([Write views](#write-views)). A `Cell`, a `Signal`, and an owned
 closure accept only values that carry no loan ([§10](#text),
@@ -4543,8 +4547,8 @@ are reserved.
 
 ### Cell
 
-`Cell[T]` holds one value that can be replaced through any path to it,
-a read view included: it is what shared handles share
+`Cell[T]` holds one value that can be replaced through any handle to it,
+by a marked call: it is what shared handles share
 ([§7](#changes-and-shared-storage)), and `*Cell[T]` is a shared value
 that changes. A value that holds a Cell (a `Cell[T]`, or a struct or
 enum a field of which holds one) lives only behind a shared handle
@@ -4562,10 +4566,10 @@ default (`hits: Cell[Int] = Cell(0)`).
 |---|---|
 | `*Cell(v)` | construct, behind a shared handle |
 | `c.get()` | a copy of the value (a `T` of plain data only) |
-| `c.set(v)` | store `v`; the old value is dropped |
-| `c.replace(v)` | store `v` and return the old value |
-| `c.push(x)`, `c.pop()`, `c.clear()`, `c.len` | a `Cell[Vec[T]]`: its Vec's members |
-| `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of plain data: an element, bounds-checked, or `T?` |
+| `!c.set(v)` | store `v`; the old value is dropped |
+| `(!c).replace(v)` | store `v` and return the old value |
+| `!c.push(x)`, `(!c).pop()`, `!c.clear()`, `c.len` | a `Cell[Vec[T]]`: its Vec's members |
+| `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of plain data: an element, bounds-checked, or `T?` |
 
 `T` is plain data ([§2](#kinds-of-value)), an owning type, or a type
 declared `unique`. An owning or unique value is never copied out of a
@@ -4574,9 +4578,9 @@ What goes into a cell, by any of its members or `c[i] = x`, carries no
 loan: it holds no `?T`, `!T`, or slice, nor a String that may view a
 Text ([Text](#text)), since every handle to the cell reaches it.
 
-A `Cell[Vec[T]]` answers its Vec's members as `set` does, without `!`:
-`push` moves or clones an owning element in (`<x`, `+x`), `pop` hands
-the last one out as `T?`, and `clear` drops them all. No user code runs
+A `Cell[Vec[T]]` answers its Vec's members as `set` does, each a marked
+call: `push` moves or clones an owning element in (`<x`, `+x`), `pop`
+hands the last one out as `T?`, and `clear` drops them all. No user code runs
 while the cell's Vec is in use: `clear` leaves the cell holding an empty
 Vec before it drops the elements, so a `drop` body that reaches back
 into the cell finds a valid Vec. For the same reason an element is a
@@ -4585,47 +4589,118 @@ when `T` is plain data, an element cannot be lent, and a field of one is
 not written in place. The elements of a Vec of handles are taken out
 with `pop`, or by taking the whole Vec out with `replace`.
 
-`set` and `replace` change a Cell through any path to it, including a
-read view (`?Cell[T]`), a `?self` method of a struct holding one, and a
-shared handle. A handle is passed where a read view of what it shares
-goes: `bump(local)` with `local: *Cell[Int]`, and `bump(?k.hits)` with
-`k: *Counter`.
+Every call that changes a Cell is marked: `set`, `replace`, `push`,
+`pop`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
+and `subscribe`. They take `!self`, so the receiver-sigil rule enforces
+the mark, and a read view (`?Cell[T]`, a `?self` method of a struct
+holding one) cannot change a Cell. `!c` where `c` is a handle lends the
+handle: `bump(!local)` with `local: *Cell[Int]`, and `bump(!k.hits)` with
+`k: *Counter`. A closure or a `Signal` subscriber marks the handle it
+captured, `|+c| !c.set(1)`. Reading (`c.get()`, `c.len`, `c[i]`) is
+unmarked.
+
+```rig reject
+sub main()
+  c: *Cell[Int] = *Cell(0)
+  c.set(5)
+```
+
+```error
+method `set` needs its receiver lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`
+```
+
+```rig reject
+sub bump(c: ?Cell[Int])
+  !c.set(c.get() + 1)
+```
+
+```error
+cannot lend to write through a read view `?Cell[Int]`
+```
+
+A write view of a value that holds a Cell changes its Cells and nothing
+else, since the value lives only behind a handle and a handle's other
+fields only read: `swap` and `replace` do not exchange it whole. A
+handle is lent as itself, `!*C`, which a callee may point elsewhere, only
+where the handle may be written (an owned mutable local, a `!*C` parameter,
+a handle field of a write view); anywhere else (a `const`, a parameter that
+is not a `!` view, a capture, a field of a value another handle shares) `!h`
+lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
+hint is to pass `+h` for a handle of your own. A read view of a handle, or
+of a value that holds one, is not lent to write at all: `?` changes nothing.
+
+```rig reject
+struct S
+  n: Int
+  c: Cell[Int]
+
+struct O
+  a: S
+  b: S
+
+sub main()
+  o = *O(a: S(n: 1, c: Cell(1)), b: S(n: 2, c: Cell(2)))
+  swap(!o.a, !o.b)
+```
+
+```error
+`swap` moves values whole, and `S` holds a Cell, so it lives only behind a shared handle, whose other fields only read
+```
+
+```rig reject
+struct C
+  n: Cell[Int]
+
+struct W
+  h: *C
+
+sub repoint(h: !*C, other: *C)
+  h = <other
+
+sub main()
+  w = *W(h: *C(n: Cell(0)))
+  repoint(!w.h, *C(n: Cell(1)))
+```
+
+```error
+type mismatch: expected `!*C`, got `!C`
+```
 
 ```rig
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
-sub bump(c: ?Cell[Int])
-  c.set(c.get() + 10)
+sub bump(c: !Cell[Int])
+  !c.set(c.get() + 10)
 
 sub main()
   count: *Cell[Int] = *Cell(0)
   other = +count
-  other.set(other.get() + 5)
+  !other.set(other.get() + 5)
   local: *Cell[Int] = *Cell(1)
-  bump(local)
+  bump(!local)
   k = *Counter(hits: Cell(0))
-  k.hit()
-  k.hit()
+  !k.hit()
+  !k.hit()
   print(count.get(), local.get(), k.hits.get())
 
   shared: *Cell[Vec[Int]] = *Cell(Vec())
-  shared.push(7)
-  shared.push(8)
-  shared[0] = shared[0] + 1
+  !shared.push(7)
+  !shared.push(8)
+  (!shared)[0] = shared[0] + 1
   print(shared.len, shared[0], shared.get(1), shared.get(2))
 
   # Anything else: take the value out, use it, and put it back.
-  v = shared.replace(Vec())
+  v = (!shared).replace(Vec())
   sum = 0
   for x in ?v
     sum += x
-  shared.set(<v)
+  !shared.set(<v)
   print(sum, shared.len)
-  if shared.pop() as last
+  if (!shared).pop() as last
     print("popped", last, shared.len)
 ```
 
@@ -4679,15 +4754,15 @@ moved, dropped, or stored.
 sub main()
   total: *Cell[Int] = *Cell(0)
   steps: Vec[*sub()] = Vec()
-  !steps.push(*|+total| total.set(total.get() + 1))
-  !steps.push(*|+total| total.set(total.get() + 10))
+  !steps.push(*|+total| !total.set(total.get() + 1))
+  !steps.push(*|+total| !total.set(total.get() + 10))
   for step in ?steps
     step()
   nums: Vec[Int] = Vec()
   !nums.push(3)
   !nums.push(4)
   while (!nums).pop() as n
-    total.set(total.get() + n * 100)
+    !total.set(total.get() + n * 100)
   print(total.get(), steps.len)
 ```
 
@@ -4987,12 +5062,12 @@ a b!
 ```
 
 ```rig reject
-sub keep(c: ?Cell[String], s: String)
-  c.set(s)
+sub keep(c: !Cell[String], s: String)
+  !c.set(s)
 
 sub main()
   c = *Cell("")
-  keep(c, "a")
+  keep(!c, "a")
 ```
 
 ```error
@@ -5009,10 +5084,10 @@ closures of type `*sub()`. It lives behind a shared handle: a stack
 |---|---|
 | `*Signal(v)` | construct |
 | `s.get()` | the current value |
-| `s.set(v)` | store `v`, then call every subscriber in subscription order |
-| `s.subscribe(cb)` | take ownership of the handle `cb` (pass `+cb` to keep yours) |
+| `!s.set(v)` | store `v`, then call every subscriber in subscription order |
+| `!s.subscribe(cb)` | take ownership of the handle `cb` (pass `+cb` to keep yours) |
 
-A `set` from inside a subscriber is queued and delivered after the
+Both are marked calls, as a Cell's are. A `set` from inside a subscriber is queued and delivered after the
 current round, with the latest value winning. Subscribing from inside a
 subscriber panics. A subscriber that reads its own signal must capture
 it weakly, or the signal and its subscriber keep each other alive.
@@ -5020,12 +5095,12 @@ it weakly, or the signal and its subscriber keep each other alive.
 ```rig
 sub main()
   sig: *Signal[Int] = *Signal(0)
-  sig.subscribe(*|~sig|
+  !sig.subscribe(*|~sig|
     if sig.upgrade() as s
       print("now", s.get())
   )
-  sig.set(7)
-  sig.set(9)
+  !sig.set(7)
+  !sig.set(9)
 ```
 
 ```output
@@ -5121,7 +5196,7 @@ not move it (`|<x|`), since the outer closure may run again.
 sub main()
   total: *Cell[Int] = *Cell(0)
   add = |+total, k: Int|
-    step = |+total, +k| total.set(total.get() + k)
+    step = |+total, +k| !total.set(total.get() + k)
     step()
     step()
   add(3)
@@ -5334,7 +5409,7 @@ held weakly, and dropped like any `*T`.
 fun make_counter(start: Int) -> *fun(Int) -> Int
   count: *Cell[Int] = *Cell(start)
   *|+count, step|
-    count.set(count.get() + step)
+    !count.set(count.get() + step)
     count.get()
 
 sub main()
@@ -5653,8 +5728,8 @@ sub each(xs: []String, f: ?sub(String)!)!
 
 sub main()
   total = *Cell(0)
-  each(["ab", "c"], |+total, l| total.set(total.get() + parse(l)!))!
-  each(["ab", ""], |+total, l| total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
+  each(["ab", "c"], |+total, l| !total.set(total.get() + parse(l)!))!
+  each(["ab", ""], |+total, l| !total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
   print(total.get())
 ```
 

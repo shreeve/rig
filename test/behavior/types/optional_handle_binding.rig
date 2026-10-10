@@ -35,9 +35,9 @@ sub main()
   b: *Node? = *Node(value: 1)
   w: ~Node? = none
   cell = *Cell[*Node?](none)
-  cell.set(+b)
+  !cell.set(+b)
   print(present(?a), present(?b), w == none)
-  print(take(<a), take(<b), take(cell.replace(none)))
+  print(take(<a), take(<b), take((!cell).replace(none)))
   xs: [2]Int? = [none, 3]
   ys = [1, 2, 3]
   n: Int? = 4
@@ -47,14 +47,14 @@ sub main()
   q = *Cell[~Node?](none)
   m: Node? = Node(value: 2)
   held = *Cell[Held](*m)
-  old = held.replace(*none)
+  old = (!held).replace(*none)
   <old
-  print(p.replace(none) == none, q.replace(none) == none)
+  print((!p).replace(none) == none, (!q).replace(none) == none)
   nd = *Node(value: 3)
   sw: *Cell[*~Node?] = *Cell[*~Node?](*~nd)
   ws: *Cell[~*Node?] = *Cell[~*Node?](none)
   sp: *Cell[*(~Node)?] = *Cell[*(~Node)?](none)
-  print(sw.replace(none) != none, ws.replace(none) == none, sp.replace(none) == none)
+  print((!sw).replace(none) != none, (!ws).replace(none) == none, (!sp).replace(none) == none)
 
 # expect:
 # false true true

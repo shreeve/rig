@@ -1,0 +1,31 @@
+struct C
+  n: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(!self)
+    !self.n.set(self.n.get() + 1)
+    !self.log.push(self.n.get())
+
+struct S
+  h: *C
+
+enum E
+  a(c: *C)
+  b
+
+fun mk(k: ?*C) -> E
+  E.a(c: +k)
+
+sub main()
+  k = *C(n: Cell(0), log: Cell(Vec()))
+  match mk(?k)
+    .a(c) => !c.hit()
+    .b => print("b")
+  e = mk(?k)
+  match !e
+    .a(c) => !c.hit()
+    .b => print("b")
+  match ?e
+    .a(c) => !c.hit()
+    .b => print("b")
+  print(k.n.get())

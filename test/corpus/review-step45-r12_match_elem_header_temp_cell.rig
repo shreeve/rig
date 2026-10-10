@@ -12,9 +12,9 @@ fun idx(s: String) -> Int
 sub main()
   v: Vec[E] = Vec()
   !v.push(E.a(x: C(c: Cell(1))))
-  match v[idx(?Text("a"))]
-    .a(x) if x.c.get() == 1 => x.c.set(5)
-    .a(x) => x.c.set(6)
+  match !v[idx(?Text("a"))]
+    .a(x) if x.c.get() == 1 => (!x.c).set(5)
+    .a(x) => (!x.c).set(6)
     .b(n) => print(n)
   match v[0]
     .a(x) => print(x.c.get())

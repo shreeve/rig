@@ -1,5 +1,5 @@
 sub main()
   h = *Cell[Vec[Int]](Vec())
-  h.push(1)
-  h[0] = 3
+  !h.push(1)
+  (!h)[0] = 3
   print(h[0])

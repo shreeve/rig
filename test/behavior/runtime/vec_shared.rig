@@ -3,23 +3,23 @@
 # answers `push` itself, and otherwise `replace` takes the Vec out and
 # `set` puts it back. The Vec is freed when the last strong handle drops.
 
-sub push_all(cell: ?*Cell[Vec[Int]], n: Int)
-  v = cell.replace(Vec())
+sub push_all(cell: !*Cell[Vec[Int]], n: Int)
+  v = (!cell).replace(Vec())
   for i in 0..n
     !v.push(i * 100)
-  cell.set(<v)
+  !cell.set(<v)
 
-sub push_one(cell: ?*Cell[Vec[Int]], n: Int)
-  cell.push(n)
+sub push_one(cell: !*Cell[Vec[Int]], n: Int)
+  !cell.push(n)
 
 sub main()
   shared: *Cell[Vec[Int]] = *Cell(Vec())
   other = +shared
-  push_all(?other, 3)
-  push_one(?other, 300)
-  v = shared.replace(Vec())
+  push_all(!other, 3)
+  push_one(!other, 300)
+  v = (!shared).replace(Vec())
   print(v.len, v[2], v[3])
-  shared.set(<v)
+  !shared.set(<v)
 
 # expect:
 # 4 200 300

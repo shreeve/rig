@@ -1,0 +1,15 @@
+struct S
+  name: String
+  v: Vec[Int]
+
+  sub m(?self, d: !Cell[Vec[S]])
+    !d.clear()
+    print(self.v.len, self.name)
+
+sub main()
+  c: *Cell[Vec[S]] = *Cell(Vec())
+  w = Vec[Int]()
+  !w.push(1)
+  !c.push(S(name: "a", v: <w))
+  d = +c
+  c[0].m(!d)

@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct H
   arr: [2]Counter
@@ -12,12 +12,12 @@ fun bumpa(a: ?[2]Counter) -> Int
     k.hit()
   a[0].hits.get()
 
-fun bumph(h: ?H) -> Int
-  h.arr[0].hit()
+fun bumph(h: !H) -> Int
+  !h.arr[0].hit()
   h.arr[0].hits.get()
 
-fun bumpc(c: ?Counter) -> Int
-  c.hit()
+fun bumpc(c: !Counter) -> Int
+  !c.hit()
   c.hits.get()
 
 sub main()

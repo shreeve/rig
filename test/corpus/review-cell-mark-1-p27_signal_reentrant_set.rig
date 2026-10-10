@@ -1,0 +1,10 @@
+sub main()
+  s = *Signal(0)
+  w = ~s
+  !s.subscribe(*|+w|
+    if w.upgrade() as h
+      if h.get() < 3
+        !h.set(h.get() + 1)
+  )
+  !s.set(1)
+  print(s.get())

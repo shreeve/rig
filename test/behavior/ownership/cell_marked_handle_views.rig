@@ -1,0 +1,61 @@
+# A marked call lends the handle, so a write view of a handle reaches the
+# value it holds through every form that reaches a value through a
+# handle: a method, a field, a branch, a header, a parameter lent on,
+# and a result.
+# release
+
+struct C
+  hits: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
+    !self.log.push(self.hits.get())
+
+enum E
+  a(c: C)
+  b
+
+fun pick(a: !*C, b: !*C, k: Bool) -> !*C
+  !a if k else !b
+
+sub twice(c: !*C)
+  !c.hit()
+  once(!c)
+
+sub once(c: !*C)
+  !c.hit()
+
+sub main()
+  a = *C(hits: Cell(0), log: Cell(Vec()))
+  b = *C(hits: Cell(10), log: Cell(Vec()))
+  twice(!a)
+  w = pick(!a, !b, false)
+  !w.hit()
+  print(w.hits.get())
+  print(a.hits.get(), b.hits.get(), a.log.len)
+  e = *E.a(c: C(hits: Cell(1), log: Cell(Vec())))
+  match !e
+    .a(c) => !c.hit()
+    .b => pass
+  match e
+    .a(c) => print(c.hits.get())
+    .b => pass
+  o: (*C)? = *C(hits: Cell(5), log: Cell(Vec()))
+  if !o as p
+    !p.hit()
+  if o as q
+    print(q.hits.get(), q.log.len)
+  hs: Vec[*C] = Vec()
+  !hs.push(+a)
+  !hs.push(+b)
+  for x in !hs
+    !x.hit()
+  print(a.hits.get(), b.hits.get())
+
+# expect:
+# 11
+# 2 11 2
+# 2
+# 6 1
+# 3 12

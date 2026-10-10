@@ -12,12 +12,12 @@ struct D
 fun mkd(n: Int) -> D
   D(c: Cell(n))
 
-fun count(p: ?D) -> Int
-  p.c.set(p.c.get() + 10)
+fun count(p: !D) -> Int
+  !p.c.set(p.c.get() + 10)
   p.c.get()
 
-fun list(p: ?D) -> Vec[Int]
-  p.c.set(p.c.get() + 20)
+fun list(p: !D) -> Vec[Int]
+  !p.c.set(p.c.get() + 20)
   v: Vec[Int] = Vec()
   !v.push(p.c.get())
   !v.push(p.c.get() + 1)

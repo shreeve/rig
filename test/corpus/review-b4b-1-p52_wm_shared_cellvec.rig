@@ -8,11 +8,11 @@ fun idx(s: ?Text) -> Int
 
 sub main()
   c: *Cell[Vec[E]] = *Cell(Vec())
-  c.push(E.a(t: Text("x")))
+  !c.push(E.a(t: Text("x")))
   d = +c
   match c[idx(?Text("a"))]
     .a(t)
       for _ in 0..64
-        d.push(E.b)
+        !d.push(E.b)
       print(t)
     .b => pass

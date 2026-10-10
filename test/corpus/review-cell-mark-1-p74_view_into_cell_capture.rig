@@ -1,0 +1,10 @@
+sub main()
+  c: *Cell[Vec[String]] = *Cell(Vec())
+  !c.push("a")
+  if true
+    t = Text("abcdefghijklmnop")
+    f = |?c, ?t|
+      (!c)[0] = ?t[..3]
+      !c.push(?t[..2])
+    f()
+  print(c[0], c[1])

@@ -1,14 +1,14 @@
 struct P
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 fun mk() -> P
   P(c: Cell(1))
 
-sub bump(p: ?P)
-  p.c.set(3)
+sub bump(p: !P)
+  !p.c.set(3)
 
 sub main()
   mk().hit()

@@ -1,12 +1,13 @@
 # `print` reads a `Cell[Box[Int]]` when it is called: the box a later
-# argument puts in it prints, not the one it dropped.
-fun reset(c: ?Cell[Box[Int]]) -> Int
-  c.set(Box(2))
+# argument puts in it through another handle prints, not the one it dropped.
+fun reset(c: !Cell[Box[Int]]) -> Int
+  !c.set(Box(2))
   0
 
 sub main()
   c: *Cell[Box[Int]] = *Cell(Box(1))
-  print(c, reset(?c))
+  d = +c
+  print(c, reset(!d))
 
 # expect:
 # Cell(value: 2) 0

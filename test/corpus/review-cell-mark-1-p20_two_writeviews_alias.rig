@@ -1,0 +1,12 @@
+struct H
+  log: Cell[Vec[Int]]
+
+sub f(x: !H, y: !H)
+  !x.log.push(1)
+  !y.log.clear()
+  print(x.log.len)
+
+sub main()
+  h = *H(log: Cell(Vec()))
+  g = +h
+  f(!h, !g)

@@ -2,9 +2,9 @@ enum Shape
   circle(r: Int)
   point
 
-fun idx(c: ?Cell[Int]) -> Int
+fun idx(c: !Cell[Int]) -> Int
   n = c.get()
-  c.set(n + 1)
+  !c.set(n + 1)
   n % 2
 
 sub main()

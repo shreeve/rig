@@ -2,10 +2,10 @@
 struct C
   c: Cell[Int]
 
-sub bump(a: ?[2]C, s: []C, v: ?Vec[C])
-  a[0].c.set(10)
-  s[0].c.set(20)
-  v[0].c.set(30)
+sub bump(a: ![2]C, s: []C, v: !Vec[C])
+  !a[0].c.set(10)
+  !s[0].c.set(20)
+  !v[0].c.set(30)
 
 sub main()
   a = [C(c: Cell(1)), C(c: Cell(2))]
@@ -13,5 +13,5 @@ sub main()
   !v.push(C(c: Cell(3)))
   w: Vec[C] = Vec()
   !w.push(C(c: Cell(4)))
-  bump(?a, ?w, ?v)
+  bump(!a, ?w, !v)
   print(a[0].c.get(), w[0].c.get(), v[0].c.get())

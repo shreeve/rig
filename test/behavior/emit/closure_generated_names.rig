@@ -9,7 +9,7 @@ sub stack()
 
 sub owned()
   c: *Cell[Int] = *Cell(0)
-  g: *sub(Int) = *|+c, ctx: Int| c.set(ctx)
+  g: *sub(Int) = *|+c, ctx: Int| !c.set(ctx)
   g(5)
   print(c.get())
 

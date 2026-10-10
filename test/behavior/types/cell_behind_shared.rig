@@ -6,26 +6,26 @@ struct Counter
   hits: Cell[Int] = Cell(0)
   name: String
 
-  fun hit(?self) -> Int
-    self.hits.set(self.hits.get() + 1)
+  fun hit(!self) -> Int
+    !self.hits.set(self.hits.get() + 1)
     self.hits.get()
 
-sub bump(c: ?Cell[Int])
-  c.set(c.get() + 10)
+sub bump(c: !Cell[Int])
+  !c.set(c.get() + 10)
 
 fun total(k: ?Counter) -> Int
   k.hits.get()
 
 sub main()
   local = *Cell(1)
-  bump(local)
+  bump(!local)
   k = *Counter(name: "k")
-  k.hit()
-  bump(?k.hits)
+  !k.hit()
+  bump(!k.hits)
   same = +k
-  print(local.get(), same.hit(), total(k))
+  print(local.get(), (!same).hit(), total(k))
   j = *Counter(hits: Cell(5), name: "j")
-  print(j.hit(), j.name)
+  print((!j).hit(), j.name)
 
 # expect:
 # 11 12 12

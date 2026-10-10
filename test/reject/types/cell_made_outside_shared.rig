@@ -5,8 +5,8 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  fun hit(?self) -> Int
-    self.hits.set(self.hits.get() + 1)
+  fun hit(!self) -> Int
+    !self.hits.set(self.hits.get() + 1)
     self.hits.get()
 
 sub main()

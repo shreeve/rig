@@ -4,20 +4,20 @@ struct C
   c: Cell[Int]
   log: Cell[Vec[Int]]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-    self.log.push(self.c.get())
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
+    !self.log.push(self.c.get())
 
 fun mk(n: Int) -> C
   C(c: Cell(n), log: Cell(Vec()))
 
 fun took(x: C) -> Int
-  x.hit()
-  x.hit()
+  !x.hit()
+  !x.hit()
   x.c.get() * 10 + x.log.len
 
 fun pass_on(x: C) -> C
-  x.hit()
+  !x.hit()
   x
 
 sub main()

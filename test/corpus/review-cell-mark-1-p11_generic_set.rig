@@ -1,0 +1,7 @@
+sub g[T](x: ?T, v: Int)
+  !x.set(v)
+
+sub main()
+  c = *Cell(1)
+  g(?c, 3)
+  print(c.get())

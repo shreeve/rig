@@ -6,5 +6,5 @@ fun mk(p: ?P) -> ?P
 
 sub main()
   p = P(c: Cell(1))
-  mk(?p).c.set(3)
+  !mk(?p).c.set(3)
   print(p.c.get())

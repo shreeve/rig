@@ -1,0 +1,39 @@
+# A value that holds a Cell lives only behind a shared handle, and a
+# handle's other fields only read: a write view of it changes its Cells,
+# so it is not exchanged as a whole, nor is the handle that holds it
+# pointed elsewhere through a field of a value a handle shares.
+
+struct S
+  n: Int
+  c: Cell[Int]
+
+struct O
+  a: S
+  b: S
+
+struct C
+  n: Cell[Int]
+
+  sub hit(!self)
+    !self.n.set(self.n.get() + 1)
+
+struct W
+  h: *C
+
+sub repoint(h: !*C, other: *C)
+  h = <other
+
+sub bump(c: !C)
+  !c.hit()
+
+sub main()
+  o = *O(a: S(n: 1, c: Cell(1)), b: S(n: 2, c: Cell(2)))
+  swap(!o.a, !o.b)
+  w = *W(h: *C(n: Cell(0)))
+  repoint(!w.h, *C(n: Cell(10)))
+  bump(!w.h)
+  print(o.a.n, w.h.n.get())
+
+# error: 31:8: `swap` moves values whole, and `S` holds a Cell, so it lives only behind a shared handle, whose other fields only read
+# error: 33:11: type mismatch: expected `!*C`, got `!C`
+# errors: 2

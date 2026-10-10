@@ -1,0 +1,4 @@
+sub main()
+  a: *Cell[Vec[Int]] = *Cell(Vec())
+  old = replace(!a, *Cell(Vec()))
+  print(old.len)

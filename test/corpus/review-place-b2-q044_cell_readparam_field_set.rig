@@ -1,8 +1,8 @@
 struct P
   c: Cell[Int]
 
-sub f(p: ?P)
-  p.c.set(4)
+sub f(p: !P)
+  !p.c.set(4)
 
 sub main()
   p = P(c: Cell(1))

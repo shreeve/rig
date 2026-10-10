@@ -1,8 +1,8 @@
 struct Holder[T]
   c: Cell[T]
 
-  sub put(?self, x: T)
-    self.c.set(x)
+  sub put(!self, x: T)
+    !self.c.set(x)
 
 sub main()
   h = Holder[String](c: Cell(""))

@@ -2,14 +2,14 @@ struct Counter
   hits: Cell[Int]
 
   sub eat(<self)
-    self.hits.set(7)
+    !self.hits.set(7)
     print("eat", self.hits.get())
 
 sub main()
-  f = |c: Counter| c.hits.set(c.hits.get() + 1)
+  f = |c: Counter| !c.hits.set(c.hits.get() + 1)
   k = Counter(hits: Cell(1))
   f(<k)
-  g = |c: Cell[Int]| c.set(3)
+  g = |c: Cell[Int]| !c.set(3)
   g(Cell(0))
   m = Counter(hits: Cell(2))
   <m.eat()

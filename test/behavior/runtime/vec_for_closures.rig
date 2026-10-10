@@ -3,9 +3,9 @@
 
 sub main()
   count: *Cell[Int] = *Cell(0)
-  cb1: *sub() = *|+count| count.set(count.get() + 1)
-  cb2: *sub() = *|+count| count.set(count.get() + 10)
-  cb3: *sub() = *|+count| count.set(count.get() + 100)
+  cb1: *sub() = *|+count| !count.set(count.get() + 1)
+  cb2: *sub() = *|+count| !count.set(count.get() + 10)
+  cb3: *sub() = *|+count| !count.set(count.get() + 100)
 
   subs: Vec[*sub()] = Vec()
   !subs.push(+cb1)

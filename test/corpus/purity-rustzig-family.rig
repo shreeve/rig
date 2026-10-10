@@ -13,7 +13,7 @@ struct Node
 fun child(parent: ?*Node, name: String) -> *Node
   up = +parent
   kid = *Node(name: name, parent: ~up, children: Cell(Vec()))
-  parent.children.push(+kid)
+  !parent.children.push(+kid)
   kid
 
 # Walk up through the weak parent links.

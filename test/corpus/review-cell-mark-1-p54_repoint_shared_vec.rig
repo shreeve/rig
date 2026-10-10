@@ -1,0 +1,14 @@
+struct H
+  items: Vec[*Cell[Int]]
+  tag: Cell[Int]
+
+sub g(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub main()
+  v = Vec[*Cell[Int]]()
+  !v.push(*Cell(1))
+  h = *H(items: <v, tag: Cell(0))
+  for c in h.items
+    g(!c)
+  print(h.items[0].get())

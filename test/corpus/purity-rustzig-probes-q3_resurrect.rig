@@ -4,12 +4,12 @@ struct H
 
   drop(!self)
     print("dropping", self.name)
-    if self.cb.replace(none) as f
+    if (!self.cb).replace(none) as f
       f()
 
 sub main()
   h = *H(name: "h", cb: Cell(none))
-  h.cb.set(*|~h|
+  !h.cb.set(*|~h|
     if h.upgrade() as s
       print("upgraded during drop", s.name)
     else

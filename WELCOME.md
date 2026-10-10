@@ -206,9 +206,9 @@ ada 70
 
 `?self` reads the receiver and `!self` writes it. The call site says
 the same: a read is implicit (`a.can_pay(30)`), but a write is always
-spelled out, `!a.pay(30)`, so every mutation is visible, except inside
-a `Cell`, which lives only behind a shared handle and changes through
-any path from it ([SPEC §10](SPEC.md#cell)).
+spelled out, `!a.pay(30)`, so every mutation is visible, a change to a
+shared `Cell` included: `!count.set(5)`, which lends the handle `count`
+([SPEC §10](SPEC.md#cell)).
 
 ### Moves, clones, and drops
 
@@ -280,7 +280,7 @@ statement modifier.
 sub main()
   count: *Cell[Int] = *Cell(0)
   step = 5
-  tick = |+count, +step| count.set(count.get() + step)
+  tick = |+count, +step| !count.set(count.get() + step)
   tick()
   tick()
   print(count.get())

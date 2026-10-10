@@ -9,18 +9,18 @@ struct S
 struct O
   s: S
 
-fun grow(s: ?S) -> Int
+fun grow(s: !S) -> Int
   for i in 0..100
-    s.c.push(i)
+    !s.c.push(i)
   5
 
 sub main()
   a = *O(s: S(c: Cell(Vec())))
   b = *O(s: S(c: Cell(Vec())))
   k = true
-  a.s.c.push(1)
-  print(a.s if k else b.s, grow(?a.s))
-  print(Text(b.s if k else a.s, grow(?a.s)))
+  !a.s.c.push(1)
+  print(a.s if k else b.s, grow(!a.s))
+  print(Text(b.s if k else a.s, grow(!a.s)))
 
 # error: 22:9: `a.s if k else b.s` would copy a `S`, which holds a Cell, out of `a.s`
 # error: 23:14: `b.s if k else a.s` would copy a `S`, which holds a Cell, out of `b.s`

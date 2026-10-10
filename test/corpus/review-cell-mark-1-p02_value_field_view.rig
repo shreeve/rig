@@ -1,0 +1,7 @@
+sub main()
+  c: *Cell[Vec[Int]] = *Cell(Vec())
+  !c.push(1)
+  d = +c
+  r = ?c.value
+  !d.set(Vec())
+  print(r.len)

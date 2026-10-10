@@ -1,0 +1,87 @@
+# A shared Cell changes only by a marked call: `!c.set(5)`. The mark
+# lends the handle `c`, as `!v.push(x)` lends `v`; it is not exclusive
+# over the Cell, since another handle is another name. Reading is
+# unmarked. A `!self` method and a `!T` parameter change a Cell the same
+# way, and a closure marks the handle it captured.
+# release
+
+struct Counter
+  hits: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
+    !self.log.push(self.hits.get())
+
+  fun total(?self) -> Int
+    self.hits.get() * 100 + self.log.len
+
+sub bump(c: !Cell[Int], by: Int)
+  !c.set(c.get() + by)
+
+sub poke(k: !*Counter)
+  !k.hit()
+
+sub from_owned_handle(c: *Cell[Int])
+  !c.set(c.get() + 1)
+
+sub main()
+  a: *Cell[Int] = *Cell(1)
+  b = +a
+  !a.set(2)
+  print(b.get())
+  print((!b).replace(7), a.get())
+  bump(!a, 3)
+  print(b.get())
+  seen = ?a
+  !b.set(9)
+  print(seen.get())
+
+  v: *Cell[Vec[Int]] = *Cell(Vec())
+  !v.push(4)
+  !v.push(5)
+  (!v)[0] = v[0] + 1
+  print(v.len, v[0], v.get(1))
+  if (!v).pop() as last
+    print("popped", last)
+  !v.clear()
+  print(v.len)
+
+  k = *Counter(hits: Cell(0), log: Cell(Vec()))
+  !k.hit()
+  poke(!k)
+  print(k.total())
+  other = +k
+  !other.hit()
+  print(k.total(), other.log.len)
+
+  step = |+a| !a.set(a.get() + 10)
+  step()
+  step()
+  print(a.get())
+
+  sig: *Signal[Int] = *Signal(0)
+  total: *Cell[Int] = *Cell(0)
+  !sig.subscribe(*|~sig, +total| !total.set(total.get() + 1))
+  !sig.set(1)
+  !sig.set(2)
+  print(total.get(), sig.get())
+
+  const fixed: *Cell[Int] = *Cell(0)
+  !fixed.set(1)
+  from_owned_handle(+fixed)
+  print(fixed.get())
+
+# expect:
+# 2
+# 2 7
+# 10
+# 9
+# 2 5 5
+# popped 5
+# 0
+# 202
+# 303 3
+# 29
+# 2 2
+# 2

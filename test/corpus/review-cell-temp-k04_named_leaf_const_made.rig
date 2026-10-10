@@ -8,15 +8,15 @@
 struct C
   c: Cell[Int]
 
-  fun hit(?self) -> Int
-    self.c.set(self.c.get() + 1)
+  fun hit(!self) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
 fun mkc(n: Int) -> C
   C(c: Cell(n))
 
-fun bump(p: ?C) -> Int
-  p.c.set(p.c.get() + 10)
+fun bump(p: !C) -> Int
+  !p.c.set(p.c.get() + 10)
   p.c.get()
 
 sub run(k: Bool)

@@ -213,13 +213,13 @@ names the call, with a note at the line of the body.
 sub main()
   clicks: *Signal[Int] = *Signal(0)
   total: *Cell[Int] = *Cell(0)
-  clicks.subscribe(*|~clicks, +total|
+  !clicks.subscribe(*|~clicks, +total|
     if clicks.upgrade() as c
-      total.set(total.get() + c.get())
+      !total.set(total.get() + c.get())
       print("clicks", c.get(), "total", total.get())
   )
-  clicks.set(1)
-  clicks.set(2)
+  !clicks.set(1)
+  !clicks.set(2)
 ```
 
 ```output

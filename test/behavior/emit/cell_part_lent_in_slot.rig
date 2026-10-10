@@ -16,8 +16,8 @@ fun mk(n: Int) -> H
 fun id(x: ?P) -> ?P
   x
 
-fun touch(x: ?P) -> ?P
-  x.c.set(x.c.get() + 10)
+fun touch(x: !P) -> ?P
+  !x.c.set(x.c.get() + 10)
   x
 
 fun clobber(n: Int) -> Int
@@ -30,7 +30,7 @@ fun show(x: ?P, k: Int) -> Int
 sub main()
   print(id(?mk(42).p).n)
   print(id(?mk(1).p), id(?mk(2).p))
-  print(touch(?mk(3).p).c.get())
+  print(touch(!mk(3).p).c.get())
   print(show(id(?mk(4).p), clobber(0)))
 
 # expect:

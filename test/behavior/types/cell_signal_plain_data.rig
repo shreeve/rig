@@ -17,14 +17,14 @@ enum Shape
 sub main()
   p: *Cell[Point] = *Cell(Point(x: 1, y: 2))
   q = p.get()
-  p.set(Point(x: q.x + 10, y: q.y))
+  !p.set(Point(x: q.x + 10, y: q.y))
   print(p.get().x, q.x)
-  old = p.replace(Point(x: 0, y: 0))
+  old = (!p).replace(Point(x: 0, y: 0))
   print(old.x, p.get().y)
 
   c: *Cell[Color] = *Cell(Color.red)
   d = +c
-  d.set(.green)
+  !d.set(.green)
   print(c.get() == .green)
 
   sh: *Cell[Shape] = *Cell(Shape.circle(r: 3))
@@ -34,12 +34,12 @@ sub main()
 
   o: *Cell[Int?] = *Cell(none)
   print(o.get())
-  o.set(4)
+  !o.set(4)
   print(o.get() ?? 0)
 
   a: *Cell[[3]Int] = *Cell([1, 2, 3])
   arr = a.get()
-  a.set([arr[2], arr[1], arr[0]])
+  !a.set([arr[2], arr[1], arr[0]])
   print(a.get()[0], arr[0])
 
   vs: Vec[[2]Int] = Vec()
@@ -47,13 +47,13 @@ sub main()
   print(vs[0][1], vs.get(1) == none)
 
   sig: *Signal[Point] = *Signal(Point(x: 0, y: 0))
-  sig.subscribe(*|~sig|
+  !sig.subscribe(*|~sig|
     if sig.upgrade() as s
       print("moved to", s.get().x, s.get().y)
   )
-  sig.set(Point(x: 5, y: 6))
+  !sig.set(Point(x: 5, y: 6))
   mode: *Signal[Color?] = *Signal(none)
-  mode.set(Color.red)
+  !mode.set(Color.red)
   print(mode.get() == Color.red)
 
 # expect:

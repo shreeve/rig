@@ -8,8 +8,8 @@ enum Opt[T]
 sub main()
   o: Opt[Counter] = .some(v: Counter(hits: Cell(1)))
   p = o
-  match p
-    .some(v) => v.hits.set(5)
+  match !p
+    .some(v) => (!v.hits).set(5)
     .nothing => pass
   match o
     .some(v) => print(v.hits.get())

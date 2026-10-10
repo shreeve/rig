@@ -3,5 +3,5 @@ struct P
 
 sub main()
   c: Cell[Vec[P]] = Cell(Vec())
-  c.push(P(x: 1))
+  !c.push(P(x: 1))
   c[0].x = 5

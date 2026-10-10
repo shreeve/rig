@@ -1,0 +1,11 @@
+struct H
+  log: Cell[Vec[Int]]
+  n: In
+
+sub f(x: !H)
+  x.n = 3
+
+sub main()
+  h = *H(log: Cell(Vec()), n: 0)
+  f(!h)
+  print(h.n)

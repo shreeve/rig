@@ -1,0 +1,27 @@
+# A read `match` binds a read view of a handle: nothing is lent to write through it.
+# (A handle is lent as itself, `!*T`, only where it may be written; the
+# review probe of that name.)
+
+enum E
+  a(c: *Cell[Vec[Int]])
+  b
+
+sub g(x: !*Cell[Vec[Int]])
+  x = *Cell(Vec[Int]())
+
+sub k(r: ?Cell[Vec[Int]], e: ?E)
+  match e
+    .a(c) => g(!c)
+    .b => print("b")
+  print(r.len)
+
+sub main()
+  w: *Cell[Vec[Int]] = *Cell(Vec())
+  !w.push(1)
+  e = E.a(c: <w)
+  match ?e
+    .a(c) => k(c, ?e)
+    .b => print("b")
+
+# error: 14:17: cannot lend to write through a read view `?*Cell[Vec[Int]]`; `c` is a read view of a field of `e`, which is reached through a read view, so nothing writes through it; take a write view, or share a handle of your own with `+h`
+# errors: 1

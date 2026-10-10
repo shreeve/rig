@@ -9,8 +9,8 @@ struct G[T]
   c: Cell[T]
   n: Int
 
-  sub bump(?self, v: T)
-    self.c.set(<v)
+  sub bump(!self, v: T)
+    !self.c.set(<v)
 
 struct D
   c: Cell[Int]
@@ -48,8 +48,8 @@ sub main()
   print(mkg(mkd(11), 6).c.replace(mkd(12)).c.get())
   setter(20, 21)
   setown(mkint)
-  peek(?mkd(30)).c.set(31)
-  peek(?mkg(mkd(40), 7)).c.set(mkd(41))
+  !peek(?mkd(30)).c.set(31)
+  !peek(?mkg(mkd(40), 7)).c.set(mkd(41))
 
 fun mkint(n: Int) -> Int
   n

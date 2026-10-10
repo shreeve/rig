@@ -1,8 +1,8 @@
 sub main()
   c = *Cell[Vec[Text]](Vec())
-  c.push(Text("hello"))
+  !c.push(Text("hello"))
   d = +c
   for x in c
     s = x[1..]
-    d.clear()
+    !d.clear()
     print(s)

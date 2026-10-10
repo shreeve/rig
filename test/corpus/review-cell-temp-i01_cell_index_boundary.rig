@@ -9,8 +9,8 @@ struct Log
   drop(!self)
     print("drop", self.lines.len)
 
-  sub setfirst(?self, v: Int)
-    self.lines[0] = v
+  sub setfirst(!self, v: Int)
+    (!self.lines)[0] = v
 
 fun made() -> Log
   w: Vec[Int] = Vec()
@@ -22,5 +22,5 @@ fun peek(p: ?Log) -> ?Log
 
 sub main()
   made().setfirst(4)
-  peek(?made()).lines[0] = 5
+  (!peek(?made()).lines)[0] = 5
   print(peek(?made()).lines[0])

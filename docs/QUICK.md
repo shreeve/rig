@@ -33,6 +33,22 @@ it.
 the same: `?self` reads (`a.balance()`), `!self` changes
 (`!a.pay(30)`), and `<self` consumes (`<a.close()`).
 
+**Shared state.** What handles share is a `Cell`, and it changes only by
+a marked call: `!c.set(5)`, which lends the handle `c`. Reading,
+`c.get()`, is unmarked, and a read view never changes a `Cell`.
+
+```rig
+sub main()
+  c: *Cell[Int] = *Cell(1)
+  d = +c
+  !d.set(5)
+  print(c.get())
+```
+
+```output
+5
+```
+
 **Moves, clones, drops.** `b = <a` moves `a`, which is unusable after,
 and `f(<a)` hands it to `f`. `b = +a` is a new owner, or another handle
 of a `*T`. `<a` alone on a line drops `a` now; anything not moved is

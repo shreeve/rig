@@ -3,7 +3,7 @@ struct C
   n: Cell[Int]
 
   fun into(<self) -> Int
-    self.n.set(self.n.get() + 1)
+    !self.n.set(self.n.get() + 1)
     self.n.get()
 
 struct S

@@ -18,11 +18,11 @@ struct D
   drop(!self)
     print("drop", self.c.get(), self.log.len)
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
-  fun with(?self, n: Int) -> Int
-    self.log.push(n)
+  fun with(!self, n: Int) -> Int
+    !self.log.push(n)
     self.log.len
 
 fun mkd(n: Int) -> D

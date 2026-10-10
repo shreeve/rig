@@ -10,8 +10,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 struct H
   d: D
@@ -26,8 +26,8 @@ fun mkf(n: Int) -> D!
   return E.bad if n < 0
   mkd(n)
 
-sub viaparam(p: ?D, k: Int)
-  (p if k == 0 else ?mkd(5)).c.set(77)
+sub viaparam(p: !D, k: Int)
+  !(!p if k == 0 else ?mkd(5)).c.set(77)
   (p if k == 0 else ?mkd(6)).hit()
 
 sub run(k: Int)

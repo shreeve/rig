@@ -8,7 +8,7 @@ fun idx(s: String) -> Int
 sub main()
   v: Vec[C?] = Vec()
   !v.push(C(c: Cell(1)))
-  if v[idx(?Text("a"))] as c
-    c.c.set(5)
+  if !v[idx(?Text("a"))] as c
+    !c.c.set(5)
   if v[0] as c
     print(c.c.get())

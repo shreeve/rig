@@ -1,0 +1,14 @@
+struct S
+  v: Vec[Int]
+
+sub f(a: ?Vec[Int], d: !Cell[Vec[S]])
+  !d.clear()
+  print(a.len)
+
+sub main()
+  c: *Cell[Vec[S]] = *Cell(Vec())
+  w = Vec[Int]()
+  !w.push(1)
+  !c.push(S(v: <w))
+  d = +c
+  f(?c[0].v, !d)

@@ -8,8 +8,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  fun me(?self) -> ?D
-    self.c.set(self.c.get() + 1)
+  fun me(!self) -> ?D
+    !self.c.set(self.c.get() + 1)
     self
 
 fun mkd(n: Int) -> D

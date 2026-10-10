@@ -10,5 +10,5 @@ sub main()
   for c in ?cbs
     c(2)!
   m: Cell[(*sub(Int)!)?] = Cell(none)
-  old = m.replace(*|x: Int| print("m", x))
+  old = (!m).replace(*|x: Int| print("m", x))
   print(old == none)

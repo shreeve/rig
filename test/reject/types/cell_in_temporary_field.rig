@@ -13,8 +13,8 @@ struct Q
 fun mk() -> Q
   Q(p: P(c: Cell(1)))
 
-sub bump(p: ?P)
-  p.c.set(p.c.get() + 10)
+sub bump(p: !P)
+  !p.c.set(p.c.get() + 10)
 
 sub main()
   bump(?mk().p)

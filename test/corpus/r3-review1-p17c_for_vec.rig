@@ -5,7 +5,7 @@ sub main()
   v: Vec[Counter] = Vec()
   !v.push(Counter(hits: Cell(0)))
   for k in ?v
-    k.hits.set(k.hits.get() + 1)
+    !k.hits.set(k.hits.get() + 1)
   for k in v
-    k.hits.set(k.hits.get() + 1)
+    !k.hits.set(k.hits.get() + 1)
   print(v[0].hits.get())

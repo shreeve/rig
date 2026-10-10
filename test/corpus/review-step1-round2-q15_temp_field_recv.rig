@@ -1,15 +1,15 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct H
   c: Counter
   arr: [1]Counter
 
-sub bumpc(c: ?Counter)
-  c.hit()
+sub bumpc(c: !Counter)
+  !c.hit()
 
 sub main()
   H(c: Counter(hits: Cell(0)), arr: [Counter(hits: Cell(0))]).c.hit()

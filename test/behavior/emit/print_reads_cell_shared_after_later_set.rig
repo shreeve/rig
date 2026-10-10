@@ -1,7 +1,7 @@
 # `print` reads a `Cell[*Vec[Int]]` when it is called: a later argument
-# that drops the last handle the Cell held leaves the new one to print.
-fun reset(c: ?Cell[*Vec[Int]]) -> Int
-  c.set(*Vec[Int]())
+# that drops, through another handle, the last handle the Cell held leaves the new one to print.
+fun reset(c: !Cell[*Vec[Int]]) -> Int
+  !c.set(*Vec[Int]())
   0
 
 sub main()
@@ -9,7 +9,8 @@ sub main()
   for i in 0..40
     !v.push(i)
   c: *Cell[*Vec[Int]] = *Cell(*<v)
-  print(c, reset(?c))
+  d = +c
+  print(c, reset(!d))
 
 # expect:
 # Cell(value: []) 0

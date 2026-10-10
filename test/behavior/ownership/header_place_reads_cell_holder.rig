@@ -1,6 +1,6 @@
 # A `match` or `for` whose subject is a place reads it where it stands
 # (Core s1, §3): each payload or element is a view of the place, so a
-# `?self` method changes the Cell its `*Counter` handle reaches (Core
+# `!self` method changes the Cell its `*Counter` handle reaches (Core
 # s9). Parentheses do not make a place a made value. `for k in <a` takes
 # the array, and its elements are the loop's own.
 #
@@ -11,8 +11,8 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 enum E
   a(c: *Counter)
@@ -24,7 +24,7 @@ enum F
 
 sub poke(s: []E)
   match s[0]
-    .a(c) => c.hit()
+    .a(c) => (!(+c)).hit()
     .b => pass
 
 fun hits_of(e: ?E) -> Int
@@ -37,7 +37,7 @@ sub nested()
   match f
     .w(e)
       match e
-        .a(c) => c.hit()
+        .a(c) => (!(+c)).hit()
         .b => pass
     .z => pass
   match f
@@ -50,7 +50,7 @@ sub nested()
     .w(e)
       match e
         .a(c)
-          c.hit()
+          !(+c).hit()
           print(c.hits.get())
         .b => pass
     .z => pass
@@ -58,10 +58,10 @@ sub nested()
 sub loops()
   a = [*Counter(hits: Cell(0)), *Counter(hits: Cell(0))]
   for k in (a)
-    k.hit()
+    !(+k).hit()
   print(a[0].hits.get(), a[1].hits.get())
   for k in <a
-    k.hit()
+    !k.hit()
     print(k.hits.get())
 
 sub main()

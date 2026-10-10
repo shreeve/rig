@@ -1,10 +1,10 @@
-fun grow(c: ?Cell[Vec[Int]]) -> Int
+fun grow(c: !Cell[Vec[Int]]) -> Int
   for i in 0..1000
-    c.push(i)
+    !c.push(i)
   5
 
 sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
-  c.push(42)
-  t = Text(c, grow(?c))
+  !c.push(42)
+  t = Text(c, grow(!c))
   print(t.len, t)

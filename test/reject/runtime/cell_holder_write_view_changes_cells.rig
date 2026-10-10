@@ -1,0 +1,26 @@
+# A value that holds a Cell lives only behind a shared handle, so a write
+# view of it changes its Cells and nothing else: its other fields change
+# only through a handle that owns them, which handles only read.
+
+struct Counter
+  hits: Cell[Int]
+  n: Int
+  items: Vec[Int]
+
+  sub ok(!self)
+    !self.hits.set(self.hits.get() + 1)
+
+  sub reset(!self)
+    self.n = 0
+
+  sub grow(!self)
+    !self.items.push(1)
+
+sub main()
+  k = *Counter(hits: Cell(0), n: 1, items: Vec())
+  !k.ok()
+  print(k.hits.get())
+
+# error: 14:5: cannot assign through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.
+# error: 17:6: cannot lend to write through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.
+# errors: 2

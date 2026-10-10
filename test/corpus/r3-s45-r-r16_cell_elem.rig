@@ -1,12 +1,12 @@
 struct C
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 sub main()
   v: Vec[C] = Vec()
   !v.push(C(hits: Cell(0)))
-  v[0].hit()
-  v[0].hit()
+  !v[0].hit()
+  !v[0].hit()
   print(v[0].hits.get())

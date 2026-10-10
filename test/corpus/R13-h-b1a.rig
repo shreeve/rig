@@ -3,5 +3,5 @@ struct N
 
 sub main()
   x: Cell[*~N?] = Cell[*~N?](value: none)
-  old = x.replace(none)
+  old = (!x).replace(none)
   print(old == none)

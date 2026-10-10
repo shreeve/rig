@@ -5,70 +5,72 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
-  fun me(?self) -> ?C
-    self.hit()
+  fun me(!self) -> !C
+    !self.hit()
     self
 
 struct Gn[T]
   c: Cell[T]
 
-  sub put(?self, x: T)
-    self.c.set(x)
+  sub put(!self, x: T)
+    !self.c.set(x)
 
-sub touch[T](g: ?Gn[T], x: T)
-  g.put(x)
+sub touch[T](g: !Gn[T], x: T)
+  !g.put(x)
 
-fun pick(a: ?C, b: ?C, k: Bool) -> ?C
+fun pick(a: !C, b: !C, k: Bool) -> !C
   a if k else b
 
-fun find(v: ?Vec[*C], n: Int) -> (?C)?
+fun find(v: !Vec[*C], n: Int) -> (!C)?
   return none if n >= v.len
-  ?v[n]
+  !v[n]
 
-fun early(x: ?C, n: Int) -> Int
-  defer x.hit()
+fun early(x: !C, n: Int) -> Int
+  defer !x.hit()
   for i in 0..10
-    x.hit()
+    !x.hit()
     return i if i == n
   -1
 
 sub main()
   g = *Gn[Int](c: Cell(0))
   for i in 0..4
-    touch(?g, i * 10)
-    g.put(g.c.get() + 1)
+    touch(!g, i * 10)
+    !g.put(g.c.get() + 1)
   print(g.c.get())
   a = *C(c: Cell(0))
   b = *C(c: Cell(100))
   for i in 0..6
-    pick(?a, ?b, i % 2 == 0).hit()
-    a.me().me().hit()
+    (!pick(!a, !b, i % 2 == 0)).hit()
+    m = (!a).me()
+    n = (!m).me()
+    !n.hit()
   print(a.c.get(), b.c.get())
   v: Vec[*C] = Vec()
   !v.push(*C(c: Cell(0)))
   !v.push(*C(c: Cell(0)))
   for i in 0..4
-    if find(?v, i) as x
-      x.hit()
-    for y in ?v
-      y.hit()
+    if find(!v, i) as x
+      !x.hit()
+    for y in !v
+      !y.hit()
       break if i == 3
   print(v[0].c.get(), v[1].c.get())
   e = *C(c: Cell(0))
-  print(early(?e, 3), e.c.get())
+  print(early(!e, 3), e.c.get())
   k = 0
-  while find(?v, k) as z
-    z.hit()
+  while find(!v, k) as z
+    !z.hit()
     k += 1
     break if z.c.get() > 7
   print(v[0].c.get(), v[1].c.get(), k)
   o: (*C)? = *C(c: Cell(5))
   for _ in 0..3
-    if o as p
-      p.hit()
+    if !o as p
+      !p.hit()
   if o as q
     print(q.c.get())
 

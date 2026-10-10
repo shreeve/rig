@@ -5,12 +5,12 @@
 
 sub owners()
   c: Cell[Vec[Int]] = Cell(Vec())
-  c.push(1)
+  !c.push(1)
   v: Vec[Int] = Vec()
   !v.push(2)
-  old = c.replace(<v)
+  old = (!c).replace(<v)
   print(old.len, c.len)
-  c.set(<old)
+  !c.set(<old)
   print(c.len)
 
 sub by_value()

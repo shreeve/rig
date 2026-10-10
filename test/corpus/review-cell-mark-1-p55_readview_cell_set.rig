@@ -1,0 +1,7 @@
+sub f(a: ?Cell[Int])
+  !a.set(3)
+
+sub main()
+  c = *Cell(1)
+  f(c)
+  print(c.get())

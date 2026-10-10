@@ -1,0 +1,7 @@
+sub main()
+  c: *Cell[Vec[String]] = *Cell(Vec())
+  !c.push("a")
+  d = +c
+  r = ?c[0]
+  !d.clear()
+  print(r)

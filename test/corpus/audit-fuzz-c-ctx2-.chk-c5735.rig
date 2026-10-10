@@ -51,7 +51,7 @@ fun id_f32(x: F32) -> F32
 
 sub t5735()
   cr5735: Cell[U64] = Cell(0)
-  x5735: U64 = cr5735.replace(18271750883718452252)
+  x5735: U64 = (!cr5735).replace(18271750883718452252)
   print(x5735)
 
 sub main()

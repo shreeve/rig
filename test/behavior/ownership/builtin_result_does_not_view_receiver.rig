@@ -10,8 +10,8 @@ sub main()
   if <f as g
     g()
   c: *Cell[*sub()] = *Cell(*|| print("three"))
-  h = c.replace(*|| print("four"))
-  c.set(*|| print("five"))
+  h = (!c).replace(*|| print("four"))
+  !c.set(*|| print("five"))
   h()
 
 # expect:

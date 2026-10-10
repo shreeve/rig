@@ -14,14 +14,14 @@ struct In
 struct H
   c: Cell[In]
 
-  sub put(?self, n: Int)
-    self.c.set(In(n: n))
+  sub put(!self, n: Int)
+    !self.c.set(In(n: n))
 
 fun mkh(n: Int) -> H
   H(c: Cell(In(n: n)))
 
-fun look(h: ?H, n: Int) -> Int
-  h.c.set(In(n: n))
+fun look(h: !H, n: Int) -> Int
+  !h.c.set(In(n: n))
   n
 
 sub go(k: Bool)

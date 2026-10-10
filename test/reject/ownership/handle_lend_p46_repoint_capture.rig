@@ -1,0 +1,17 @@
+# A `|+c|` capture is fixed when the closure is made, so `!c` lends only what it holds.
+# (A handle is lent as itself, `!*T`, only where it may be written; the
+# review probe of that name.)
+
+sub g(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub main()
+  c = *Cell(1)
+  f = |+c|
+    g(!c)
+    print(c.get())
+  f()
+  f()
+
+# error: 11:7: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+c` to share a new handle, or lend the contents
+# errors: 1

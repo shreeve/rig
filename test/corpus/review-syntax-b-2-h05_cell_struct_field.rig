@@ -5,5 +5,5 @@ sub main()
   c = *Cell(S(t: Text("hello")))
   d = +c
   s = ?c.t[1..]
-  d.set(S(t: Text("x")))
+  !d.set(S(t: Text("x")))
   print(s)

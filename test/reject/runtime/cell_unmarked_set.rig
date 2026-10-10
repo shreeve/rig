@@ -1,0 +1,22 @@
+# A shared Cell changes only by a marked call, so a call that changes it
+# without `!` is rejected, with the mark in the hint: `set`, `replace`,
+# and a Cell of a Vec's `push`, `pop`, `clear`, and element assignment.
+
+sub main()
+  c: *Cell[Int] = *Cell(1)
+  c.set(5)
+  old = c.replace(6)
+  v: *Cell[Vec[Int]] = *Cell(Vec())
+  v.push(1)
+  last = v.pop()
+  v.clear()
+  v[0] = 2
+  print(c.get(), old, last)
+
+# error: 7:5: method `set` needs its receiver lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`
+# error: 8:11: method `replace` needs its receiver lent to write; write `(!c).replace(6)`: changing a shared Cell is marked with `!`
+# error: 10:5: method `push` needs its receiver lent to write; write `!v.push(1)`: changing a shared Cell is marked with `!`
+# error: 11:12: method `pop` needs its receiver lent to write; write `(!v).pop()`: changing a shared Cell is marked with `!`
+# error: 12:5: method `clear` needs its receiver lent to write; write `!v.clear()`: changing a shared Cell is marked with `!`
+# error: 13:3: write `(!v)[i] = e`: changing a shared Cell is marked with `!`
+# errors: 6

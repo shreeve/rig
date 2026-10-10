@@ -5,8 +5,8 @@ fun bump(n: !Int) -> Int
   n += 100
   7
 
-fun poke(c: ?Cell[Int]) -> Int
-  c.set(c.get() + 100)
+fun poke(c: !Cell[Int]) -> Int
+  !c.set(c.get() + 100)
   7
 
 fun f(x: Int, y: Int) -> Int
@@ -19,7 +19,7 @@ sub main()
   m = 1
   _ = f(y: m + 0, x: bump(!m))
   c = *Cell(1)
-  _ = f(y: c.get(), x: poke(?c))
+  _ = f(y: c.get(), x: poke(!c))
   print(n, m, c.get())
 
 # expect:

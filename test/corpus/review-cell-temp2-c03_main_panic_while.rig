@@ -20,19 +20,19 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
-  fun bumped(?self) -> Int
-    self.c.set(self.c.get() + 1)
+  fun bumped(!self) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
-  fun me(?self) -> ?D
-    self.c.set(self.c.get() + 1)
+  fun me(!self) -> ?D
+    !self.c.set(self.c.get() + 1)
     self
 
   fun bumpw(!self) -> Int
-    self.c.set(self.c.get() + 1000)
+    !self.c.set(self.c.get() + 1000)
     self.c.get()
 
 struct WD
@@ -64,12 +64,12 @@ fun mkww(n: Int) -> WW
 sub consume(n: Int)
   print("v", n)
 
-fun look(x: ?WD) -> Int
-  x.inner.c.set(x.inner.c.get() + 10)
+fun look(x: !WD) -> Int
+  !x.inner.c.set(x.inner.c.get() + 10)
   x.inner.c.get()
 
 fun poke(x: !WD) -> Int
-  x.inner.c.set(x.inner.c.get() + 100)
+  !x.inner.c.set(x.inner.c.get() + 100)
   x.inner.c.get()
 
 fun show(x: ?WD) -> Int

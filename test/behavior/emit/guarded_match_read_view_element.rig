@@ -35,8 +35,8 @@ fun text(v: ?Vec[T]) -> Int
 
 sub cell(v: ?Vec[*K])
   match v[0]
-    .a(x) if x.c.get() == 0 => x.c.set(2)
-    .a(x) => x.c.set(3)
+    .a(x) if x.c.get() == 0 => print("zero")
+    .a(_) => print("set")
     .b => pass
 
 fun field(h: ?H) -> Int
@@ -61,5 +61,6 @@ sub main()
     .b => pass
 
 # expect:
+# zero
 # 5 5 9
-# 2
+# 0

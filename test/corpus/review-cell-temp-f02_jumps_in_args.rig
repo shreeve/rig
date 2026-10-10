@@ -12,8 +12,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hitn(?self, n: Int)
-    self.c.set(self.c.get() + n)
+  sub hitn(!self, n: Int)
+    !self.c.set(self.c.get() + n)
 
 fun mkd(n: Int) -> D
   D(c: Cell(n), t: Text("owned"))
@@ -22,8 +22,8 @@ fun maybe(n: Int) -> Int?
   return none if n < 0
   n
 
-sub two(p: ?D, n: Int)
-  p.c.set(p.c.get() + n)
+sub two(p: !D, n: Int)
+  !p.c.set(p.c.get() + n)
 
 sub f3(n: Int)
   for k in 0..2

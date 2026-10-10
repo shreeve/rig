@@ -6,6 +6,6 @@ sub main()
   sort.sort_by(!xs, |?n, a, b| bump(?n, a < b))
   print(xs, n.get())
 
-fun bump(n: ?Cell[Int], r: Bool) -> Bool
-  n.set(n.get() + 1)
+fun bump(n: !Cell[Int], r: Bool) -> Bool
+  !n.set(n.get() + 1)
   r

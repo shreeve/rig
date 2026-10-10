@@ -12,7 +12,7 @@ fun clobber(n: Int) -> Int
 
 fun bump(o: ?Opt[Counter]) -> Int
   match o
-    .some(c) => c.hits.set(9)
+    .some(c) => (!c.hits).set(9)
     .nothing => pass
   0
 

@@ -1,0 +1,25 @@
+struct C
+  n: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(!self)
+    !self.n.set(self.n.get() + 1)
+    !self.log.push(self.n.get())
+
+struct S
+  h: *C
+
+sub f(k: ?*C, s: ?S, v: ?Vec[*C])
+  !k.hit()
+  !s.h.hit()
+  !v[0].hit()
+  for x in v
+    !x.hit()
+
+sub main()
+  k = *C(n: Cell(0), log: Cell(Vec()))
+  s = S(h: +k)
+  v = Vec[*C]()
+  !v.push(+k)
+  f(?k, ?s, ?v)
+  print(k.n.get(), k.log.len)

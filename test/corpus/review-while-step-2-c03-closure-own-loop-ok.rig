@@ -20,7 +20,7 @@ sub main()
     f = |+c|
       for t in 0..3
         continue if t == 1
-        c.set(c.get() + 1)
+        !c.set(c.get() + 1)
     f()
     continue :outer if i == 99
   print("end", k, c.get())

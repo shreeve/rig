@@ -4,9 +4,9 @@ enum E
 
 sub main()
   e = *E.a(c: Cell(1))
-  match e
+  match !e
     .a(c)
-      c.set(9)
+      !c.set(9)
     .b
       pass
   match e

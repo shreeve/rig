@@ -8,8 +8,8 @@
 struct V
   c: Cell[Vec[Int]]
 
-  fun add(?self, n: Int) -> Int
-    self.c.push(n)
+  fun add(!self, n: Int) -> Int
+    !self.c.push(n)
     self.c.len
 
 fun build(n: Int) -> Vec[Int]

@@ -1,0 +1,8 @@
+sub f(a: !Cell[Int], b: !Cell[Int])
+  swap(!a, !b)
+
+sub main()
+  a = *Cell(1)
+  b = *Cell(2)
+  f(!a, !b)
+  print(a.get())

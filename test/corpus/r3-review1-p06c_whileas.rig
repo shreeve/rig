@@ -6,7 +6,7 @@ sub main()
   n = 0
   while o as c
     if ?o as d
-      d.hits.set(9)
+      !d.hits.set(9)
     print(c.hits.get())
     n += 1
     if n > 0

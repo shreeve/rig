@@ -133,6 +133,11 @@ const Checker = struct {
     /// The `!x` being checked where a write view is expected, the one
     /// place a write view of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
+    /// Whether a lend of a handle that changes by a marked call skips the
+    /// writability checks (`handleWritable` turns it off).
+    handle_exempt: bool = true,
+    /// The receiver of the method call being checked, while it is typed.
+    receiver_obj: Sexp = .nil,
     /// A call whose value a `!` written before it lends to write, with
     /// the sigil outside the call (`!(v.pop())`, `!o?.pop()`), or the
     /// source of a `for` whose `!` is the loop's mode: a write method on
@@ -1078,6 +1083,15 @@ const Checker = struct {
                 _ = try self.synthExpr(rhs);
                 return;
             }
+            // The Cell changes, so the lend that changes it is written,
+            // unless a write view of it already stands there.
+            const cell = ir.get(elem, .object);
+            const cell_ty = self.ctx.typeOf(cell) orelse sema.type_invalid;
+            if (!place.marked and self.ctx.types.get(cell_ty) != .write_view and self.lendOf(place.base) == null) {
+                try self.errAt(target, "write `(!{s})[i] = e`: changing a shared Cell is marked with `!`", .{try self.plainText(cell)});
+                _ = try self.synthExpr(rhs);
+                return;
+            }
             return self.checkExpr(rhs, place_ty);
         }
         if (!try self.requireAccess(place, .assign, target)) {
@@ -1234,6 +1248,17 @@ const Checker = struct {
         /// `Cell[Vec[E]]`: such an element is a copy, read or written
         /// whole.
         cell_vec_elem: ?Sexp = null,
+        /// The path starts at a lend to write, `(!c)[i]`.
+        marked: bool = false,
+        /// A read view, a slice, a String, or a `.len` stands between the
+        /// path's end and the shared handle it crosses (or its base, if
+        /// it crosses none).
+        leaf_blocked: bool = false,
+        /// A read view of something other than a handle stands on the path:
+        /// nothing changes through it, a Cell behind a handle included.
+        view_blocked: bool = false,
+        /// The path crosses a shared handle (`sema.accessThroughShared`).
+        crossed: bool = false,
 
         /// A name, or a field or element of one: storage with an owner.
         fn named(p: Place) bool {
@@ -1254,6 +1279,7 @@ const Checker = struct {
     /// The place `e` names, read once (`Place`).
     fn placeOf(self: *Checker, e: Sexp) Place {
         var place: Place = .{ .node = e };
+        var crossed = false;
         var p = e;
         while (p.isKind(.member) or p.isKind(.index)) : (place.steps += 1) {
             const step = p;
@@ -1266,23 +1292,45 @@ const Checker = struct {
             const obj = self.ctx.types.get(inner);
             if (index) {
                 if (place.cell_vec_elem == null and cellVecElement(self.ctx, ty) != null) place.cell_vec_elem = step;
-                if (obj == .string or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) place.block(if (obj == .string) .string else .slice, self.startOf(p));
+                if (obj == .string or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) {
+                    place.block(if (obj == .string) .string else .slice, self.startOf(p));
+                    if (!crossed) place.leaf_blocked = true;
+                }
             } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string or obj == .text or obj == .array or vecElementType(self.ctx, inner) != null or cellVecElement(self.ctx, inner) != null)) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
+                if (!crossed) place.leaf_blocked = true;
             }
             switch (self.ctx.types.get(ty)) {
-                .read_view => {
+                .read_view => |viewed| {
                     place.indirect = true;
                     place.block(.read_view, self.startOf(p));
+                    // A view of a handle views the handle, not what it
+                    // reaches.
+                    if (self.ctx.types.get(viewed) != .shared) {
+                        place.leaf_blocked = true;
+                        place.view_blocked = true;
+                    }
+                },
+                // A write view of a value that holds a Cell views shared
+                // storage, which only its Cells and Signals change in
+                // (`sema.changesByMark`).
+                .write_view => |viewed| {
+                    place.indirect = true;
+                    if (sema.holdsCellByValue(self.ctx, viewed)) place.block(.shared, 0);
                 },
                 // A slice views elements held elsewhere.
-                .write_view, .shared, .slice => place.indirect = true,
+                .shared, .slice => place.indirect = true,
                 else => {},
             }
-            if (sema.accessThroughShared(self.ctx, ty)) place.block(.shared, 0);
+            if (sema.accessThroughShared(self.ctx, ty)) {
+                crossed = true;
+                place.crossed = true;
+                place.block(.shared, 0);
+            }
         }
         place.base = p;
         place.pos = self.startOf(p);
+        if (self.lendOf(p)) |lend| place.marked = lend.isKind(.write);
         if (p == .src) {
             place.sym = self.ctx.symbolOf(p);
             if (place.sym) |id| place.root = self.rootOf(self.ctx.symbols.items[id]);
@@ -1311,6 +1359,45 @@ const Checker = struct {
         };
     }
 
+    /// Whether a lend to write of `place` is the marked call of a change
+    /// through a shared handle: the place is a handle that changes by a
+    /// marked call (the handle is lent, not rebound), or a Cell, a
+    /// Signal, or a value that holds a Cell, reached through a handle
+    /// with no read view between it and the handle.
+    fn lendsMarked(self: *Checker, place: Place) bool {
+        const ty = self.ctx.typeOf(place.node) orelse return false;
+        return sema.changesByMark(self.ctx, ty) and !place.leaf_blocked;
+    }
+
+    /// Whether a lend to write of `place` writes none of what holds the
+    /// handle it reaches: it is a handle that changes by a marked call, or
+    /// a Cell, Signal, or value holding a Cell reached through one.
+    fn lendsPath(self: *Checker, place: Place) bool {
+        return self.lendsHandle(place) or (place.crossed and self.lendsMarked(place));
+    }
+
+    /// Whether the handle `place` names may be written where it stands,
+    /// so that a lend of it may be the handle's own: `requireAccess` with
+    /// no exemption for a handle that changes by a marked call.
+    fn handleWritable(self: *Checker, place: Place, operand: Sexp) bool {
+        const mark = self.ctx.diagnostics.items.len;
+        const saved = self.handle_exempt;
+        self.handle_exempt = false;
+        defer self.handle_exempt = saved;
+        self.ctx.quiet += 1;
+        defer self.ctx.quiet -= 1;
+        const ok = self.requireAccess(place, .lend_write, operand) catch false;
+        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        return ok;
+    }
+
+    /// Whether `place` is a handle that changes by a marked call
+    /// (`sema.changesByMark`), which `!` lends without writing the handle.
+    fn lendsHandle(self: *Checker, place: Place) bool {
+        const ty = self.ctx.typeOf(place.node) orelse return false;
+        return !place.view_blocked and self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .shared and sema.changesByMark(self.ctx, ty);
+    }
+
     /// Whether `place` may be used as `access` asks. Nothing is written
     /// through a `*T` or a `?T`, or into an element of a `[]T` or a
     /// String, or a `.len`; a temporary would lose the change; and
@@ -1321,21 +1408,32 @@ const Checker = struct {
         const verb = access.verb();
         if (place.blocked) |b| {
             const through: Verb = if (access == .assign) .{ .head = "assign" } else verb;
+            // A handle that changes by a marked call is lent, wherever it
+            // is held: the lend writes neither the slice nor the view that
+            // holds the handle, nor what it reaches.
+            if (access == .lend_write and self.handle_exempt and self.lendsHandle(place)) return true;
             switch (b.why) {
-                // A Cell reached through the handle changes in place.
-                .shared => if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
-                    const shown = try self.plainText(place.node);
-                    try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
-                } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{ through.head, through.tail }),
-                .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only{s}", .{ through.head, through.tail, try self.readMatchHint(place.sym) }),
-                .string => try self.err(b.pos, "cannot {s} a byte of a String{s}; a String is read-only", .{ verb.head, verb.tail }),
-                .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
-                .read_view => {
+                // A Cell or a Signal changes through the handle by a
+                // marked call, a lend to write.
+                .shared, .read_view => if (access == .lend_write and (self.handle_exempt or !self.lendsHandle(place)) and self.lendsMarked(place)) {
+                    return true;
+                } else if (b.why == .read_view) {
                     const hint = try self.readMatchHint(place.sym);
                     if (hint.len > 0) {
                         try self.err(b.pos, "cannot {s}{s} through a read view (`?T`){s}", .{ through.head, through.tail, hint });
                     } else try self.err(b.pos, "cannot {s}{s} through a read view (`?T`); take a write view (`!T`) to mutate", .{ through.head, through.tail });
-                },
+                } else if (access == .assign and place.cell_vec_elem != null and place.marked) {
+                    return true;
+                } else if (access == .assign and place.cell_vec_elem != null) {
+                    const cell = ir.get(place.cell_vec_elem.?, .object);
+                    try self.errAt(at, "write `(!{s})[i] = e`: changing a shared Cell is marked with `!`", .{try self.plainText(cell)});
+                } else if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
+                    const shown = try self.plainText(place.node);
+                    try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `!{s}.set(...)`", .{ shown, shown });
+                } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{ through.head, through.tail }),
+                .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only{s}", .{ through.head, through.tail, try self.readMatchHint(place.sym) }),
+                .string => try self.err(b.pos, "cannot {s} a byte of a String{s}; a String is read-only", .{ verb.head, verb.tail }),
+                .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
             }
             return false;
         }
@@ -1351,6 +1449,9 @@ const Checker = struct {
             return false;
         }
         if (place.indirect) return true;
+        // A handle that changes by a marked call is lent, not rebound,
+        // so the binding that holds it need not be writable.
+        if (access == .lend_write and self.handle_exempt and place.steps == 0 and self.lendsHandle(place)) return true;
         return self.requireBinding(place, access);
     }
 
@@ -2216,6 +2317,12 @@ const Checker = struct {
             const reached = sema.unwrapAccess(self.ctx, scrutinee);
             if (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee)) == .shared) scrutinee = try self.ctx.intern(.{ .read_view = reached });
         }
+        if (mode == .write and subject.isKind(.write) and !self.isPoison(scrutinee)) {
+            // `match !h` of a handle that changes by a marked call lends the
+            // value it holds to write.
+            const reached = sema.unwrapAccess(self.ctx, scrutinee);
+            if (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee)) == .shared and sema.changesByMark(self.ctx, reached)) scrutinee = try self.ctx.intern(.{ .write_view = reached });
+        }
         // What the arms bind views the subject, unless the match takes it,
         // and may view a copy (`rejectHeaderCopy`).
         // (A view a call returns, held as a pointer, is matched where it
@@ -2252,8 +2359,9 @@ const Checker = struct {
         if (sema.boxedType(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != null) if (sema.boxedNominal(self.ctx, scrutinee)) |inner| {
             switch (self.ctx.types.get(scrutinee)) {
                 .read_view => scrutinee = try self.ctx.intern(.{ .read_view = inner }),
-                .write_view => if (sema.accessThroughShared(self.ctx, scrutinee)) {
-                    try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and to change a value that handles share, hold it in a `Cell[T]`", .{ self.sourceText(ir.Write.operand(subject)), self.sourceText(ir.Write.operand(subject)) });
+                .write_view => if (sema.accessThroughShared(self.ctx, scrutinee) and !sema.changesByMark(self.ctx, inner)) {
+                    const shown = self.sourceText(if (subject.isKind(.write)) ir.Write.operand(subject) else subject);
+                    try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and to change a value that handles share, hold it in a `Cell[T]`", .{ shown, shown });
                     scrutinee = self.t().invalid_id;
                 } else {
                     scrutinee = try self.ctx.intern(.{ .write_view = inner });
@@ -4202,7 +4310,8 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         if (kind == .write and self.ctx.types.get(inner) == .read_view) {
-            try self.errAt(operand, "cannot lend to write through a read view `{s}`{s}", .{ try self.tyName(inner), try self.readMatchHint(place.sym) });
+            const handle_hint: []const u8 = if (self.lendsHandle(place)) "; take a write view, or share a handle of your own with `+h`" else "";
+            try self.errAt(operand, "cannot lend to write through a read view `{s}`{s}{s}", .{ try self.tyName(inner), try self.readMatchHint(place.sym), handle_hint });
             return self.t().invalid_id;
         }
         // Where only the binding may not be written, the view keeps its
@@ -4210,6 +4319,16 @@ const Checker = struct {
         if (kind == .write and !try self.requireAccess(place, .lend_write, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
         if (kind == .read) try self.lendsToRead(operand);
         if (kind == .write and !try self.lendsToWrite(operand)) return self.t().invalid_id;
+        // `!c` lends the handle itself, which a callee may point elsewhere,
+        // only where `c` may be written (`handleWritable`, the one fact
+        // `requireAccess` decides). Anywhere else, and as a receiver never
+        // matters, it lends what the handle holds: that value's write view.
+        if (kind == .write and self.lendsHandle(place) and !sameNode(e, self.receiver_obj) and !self.handleWritable(place, operand)) {
+            const handle = sema.unwrapViews(self.ctx, inner);
+            const view = try self.ctx.intern(.{ .write_view = self.ctx.types.get(handle).shared });
+            if (sema.lendsAs(self.ctx, handle, .write, view)) |lend| try self.ctx.recordLend(e, lend);
+            return view;
+        }
         switch (self.ctx.types.get(inner)) {
             // (A write view of a `?T` was rejected above.)
             .read_view => return inner,
@@ -4238,6 +4357,9 @@ const Checker = struct {
     fn lendsBranch(self: *Checker, operand: Sexp, whole: Sexp, kind: LendKind) Error!bool {
         const lent = lentBranch(operand);
         if (lent == .nil) return true;
+        // A handle that changes by a marked call is lent, not what holds
+        // it: the branch is only read.
+        if (kind == .write and self.lendsPath(self.placeOf(operand))) return true;
         if (self.branch_lends.get(nodeId(lent))) |ok| return ok;
         var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
@@ -4366,6 +4488,13 @@ const Checker = struct {
     /// the lend is rejected (reported).
     fn lendsToWrite(self: *Checker, operand: Sexp) Error!bool {
         if (!self.isTemporary(operand)) return true;
+        // A handle that changes by a marked call is lent, not what holds
+        // it: what holds it is only read, in place, as a read receiver's
+        // value is.
+        if (self.lendsPath(self.placeOf(operand))) {
+            if (!self.hands(operand).hasStorage()) try self.readLeafAs(operand, false);
+            return true;
+        }
         const base = if (self.hands(operand).hasStorage()) self.placeOf(operand).base else operand;
         if (!try self.lendsBranch(operand, .nil, .write)) return false;
         try self.lendTemp(operand);
@@ -4853,9 +4982,15 @@ const Checker = struct {
     /// `<x`, a block or `match` value) is a temporary: one that owns a
     /// resource is dropped when its statement ends.
     fn readLeaf(self: *Checker, e: Sexp) Error!void {
+        return self.readLeafAs(e, true);
+    }
+
+    /// `readLeaf`, recording the use of `e` as a read only if `record_use`
+    /// (a handle lent to write has its use recorded as a lend).
+    fn readLeafAs(self: *Checker, e: Sexp, record_use: bool) Error!void {
         // A value a header holds is taken there, not read as a temporary.
         if (e == .list and sameNode(e, self.held_base)) return self.recordUse(e, .take);
-        try self.recordUse(e, .read);
+        if (record_use) try self.recordUse(e, .read);
         var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
         // A branching value whose every leaf is made here is itself a
@@ -4987,7 +5122,7 @@ const Checker = struct {
 
         // `value` names a Cell's constructor argument, not a field to read.
         if (std.mem.eql(u8, field, "value") and cellElementType(self.ctx, peeled) != null) {
-            try self.err(pos, "a Cell is read with `c.get()` and written with `c.set(v)`, not through `.value`", .{});
+            try self.err(pos, "a Cell is read with `c.get()` and written with `!c.set(v)`, not through `.value`", .{});
             return self.t().invalid_id;
         }
 
@@ -6186,6 +6321,13 @@ const Checker = struct {
         };
         if (sema.holdsMarkedView(self.ctx, place)) {
             try self.errAt(arg, "`{s}` moves values that hold no `?T`, `!T`, or slice; `{s}` may hold one", .{ what, try self.tyName(place) });
+            return null;
+        }
+        // A value that holds a Cell lives only behind a shared handle, whose
+        // plain data handles only read: exchanging it as a whole would write
+        // that data. (A Cell itself is exchanged by a marked call.)
+        if (sema.holdsCellByValue(self.ctx, place) and !sema.isCell(self.ctx, place)) {
+            try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
             return null;
         }
         if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
@@ -7690,7 +7832,10 @@ const Checker = struct {
         // `?self` one reads it where it stands; a `!self` one needs it
         // lent to write, `!mk().m()`, which keeps it in its statement's
         // slot.
+        const saved_receiver = self.receiver_obj;
+        self.receiver_obj = obj;
         const obj_ty = try self.synthExpr(obj);
+        self.receiver_obj = saved_receiver;
         if (self.isPoison(obj_ty)) {
             try self.synthArgs(args);
             return obj_ty;
@@ -7738,9 +7883,10 @@ const Checker = struct {
             else => {},
         }
 
-        if (cellVecElement(self.ctx, obj_ty)) |elem| if (try self.cellVecCall(callee, obj_ty, elem, pos, args)) |ty| {
-            if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "changes a Cell through any path to it");
-            return self.noteMethod(callee, .read, ty);
+        if (cellVecElement(self.ctx, obj_ty)) |elem| if (try self.cellVecCall(callee, obj, obj_ty, elem, pos, args)) |ty| {
+            const mode: MethodReceiver = if (std.mem.eql(u8, method, "get")) .read else .write;
+            if (mode == .read and self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads the Cell");
+            return self.noteMethod(callee, mode, ty);
         };
         if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| {
             _ = try self.checkReceiverSigil(obj, .read, ty, method);
@@ -7796,7 +7942,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
-                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns a copy of the value, and a `{s}` {s}, so it can't be copied; write `cell.replace(<new)`, which puts `new` in and hands back the old value", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "owns what it must release" else self.movesBecause(elem) });
+                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns a copy of the value, and a `{s}` {s}, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "owns what it must release" else self.movesBecause(elem) });
                 }
             }
         }
@@ -8044,12 +8190,13 @@ const Checker = struct {
     /// A `Cell[Vec[E]]` answers its Vec's `push`, `pop`, `clear`, and,
     /// for a plain-data `E`, `get(i)`, through any path to the cell, as
     /// `set` does. Null for the Cell's own members.
-    fn cellVecCall(self: *Checker, callee: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
+    fn cellVecCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
         const method = self.text(ir.Member.name(callee));
         const Member = enum { push, pop, clear, get };
         const member = std.meta.stringToEnum(Member, method) orelse return null;
         if (member == .get and args.len == 0) return null;
-        const recv = try self.ctx.intern(.{ .read_view = sema.unwrapReadAccess(self.ctx, obj_ty) });
+        const cell = sema.unwrapReadAccess(self.ctx, obj_ty);
+        const recv = try self.ctx.intern(if (member == .get) .{ .read_view = cell } else .{ .write_view = cell });
         const opt_elem = try self.ctx.intern(.{ .optional = elem });
         const params: []const TypeId = switch (member) {
             .push => &.{ recv, elem },
@@ -8065,20 +8212,27 @@ const Checker = struct {
             .is_sub = member == .push or member == .clear,
         };
         try self.noteCallee(f);
-        // The receiver is read where it stands, as any `?self` method's
-        // is (`readLeaf`).
-        const obj = ir.Member.object(callee);
-        if (!self.hands(obj).hasStorage()) try self.readLeaf(obj);
         if (member == .get) {
+            // The receiver is read where it stands, as any `?self`
+            // method's is (`readLeaf`).
+            if (!self.hands(obj).hasStorage()) try self.readLeaf(obj);
             if (try self.cannotCopy(elem, pos, "copies an element out of a Cell's Vec")) {
-                _ = try self.badCall(args, pos, cell_vec_handle, .{try self.tyName(sema.unwrapReadAccess(self.ctx, obj_ty))});
+                _ = try self.badCall(args, pos, cell_vec_handle, .{try self.tyName(cell)});
                 return f.returns;
             }
-        } else if (self.receiverShape(obj) == .move_explicit) {
-            // As for `set`, and any read receiver (`checkReceiverMode`).
-            try self.err(pos, "method `{s}` takes its receiver as a read view; cannot move", .{method});
-            try self.synthArgs(args);
-            return f.returns;
+        } else {
+            // A write method of the Cell's Vec, marked as any is
+            // (`checkReceiverMode`); the Cell is the handle's own, so
+            // the handle is lent, not the Cell exclusively.
+            const misplaced_sigil = try self.checkReceiverSigil(obj, .write, f.returns, method);
+            try self.recordUse(stripSigil(obj), .lend);
+            if (!misplaced_sigil and self.hands(obj).kind != .made) try self.rejectResourceTemporary(obj, obj_ty);
+            if (!misplaced_sigil) {
+                const saved_of = self.receiver_of;
+                defer self.receiver_of = saved_of;
+                self.receiver_of = callee;
+                try self.checkReceiverMode(obj, .write, classifyReceiverType(self.ctx, obj_ty, self.ctx.cell_sym_id), method, pos, f.returns);
+            }
         }
         try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub }, .{}, method, pos, .{ .receiver = true });
         return f.returns;
@@ -8391,6 +8545,20 @@ const Checker = struct {
         };
     }
 
+    /// Whether `e`, a value that branches, is a write view: each of its
+    /// branches lends (`!a if c else !b`), a handle included.
+    fn isWriteViewValue(self: *Checker, e: Sexp) bool {
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return self.ctx.types.get(ty) == .write_view;
+    }
+
+    /// Why a receiver that changes through a shared handle is marked, for
+    /// a diagnostic that asks for the mark; empty for any other receiver.
+    fn markNote(self: *Checker, recv: Sexp) []const u8 {
+        const ty = self.ctx.typeOf(recv) orelse return "";
+        return if (sema.changesByMark(self.ctx, ty)) ": changing a shared Cell is marked with `!`" else "";
+    }
+
     /// Receiver rules: `?self` is lent implicitly; `!self` needs an explicit
     /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
@@ -8404,7 +8572,7 @@ const Checker = struct {
             },
             .write => {
                 if (kind == .read_view) return self.err(pos, "method `{s}` needs its receiver lent to write; a read view cannot become a write view", .{method});
-                if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{method});
+                if (kind == .shared and !sema.changesByMark(self.ctx, self.ctx.typeOf(recv) orelse sema.type_invalid)) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{method});
                 switch (shape) {
                     .write_explicit => {},
                     // A value made here, or a part of one, is a temporary
@@ -8416,18 +8584,18 @@ const Checker = struct {
                     // that is a name's value would be written as a copy.
                     // (One that owns a resource is reported as a temporary
                     // nothing drops.)
-                    .branches => if (kind != .write_view and !self.ownsResource(recv)) {
+                    .branches => if (kind != .write_view and !self.isWriteViewValue(recv) and !self.ownsResource(recv)) {
                         const leaf = self.namedLeaf(recv) orelse recv;
                         try self.errAt(recv, "method `{s}` writes its receiver, and `{s}` may be `{s}`, a value a name holds, which the call would write as a copy; call `{s}` on the name in each branch", .{ method, self.sourceText(recv), self.sourceText(leaf), method });
                     },
-                    .read_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write, not read; write `{s}`", .{ method, try self.writeCallText(recv, method, returns) }),
+                    .read_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write, not read; write `{s}`{s}", .{ method, try self.writeCallText(recv, method, returns), self.markNote(recv) }),
                     .move_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write, not moved; write `{s}`", .{ method, try self.writeCallText(recv, method, returns) }),
                     // A binding that already holds a write view (`x: !T`,
                     // `!self`) lends it visibly too.
                     .place => if (kind != .write_view and self.hands(recv).kind == .part_of_made) {
                         try self.writeOfTemporary(recv, method, returns);
                     } else if (kind != .write_view) {
-                        try self.err(pos, "method `{s}` needs its receiver lent to write; write `{s}`", .{ method, try self.writeCallText(recv, method, returns) });
+                        try self.err(pos, "method `{s}` needs its receiver lent to write; write `{s}`{s}", .{ method, try self.writeCallText(recv, method, returns), self.markNote(recv) });
                     } else {
                         const name = self.sourceText(recv);
                         try self.errAt(recv, "write `{s}`: the call writes `{s}`", .{ try self.writeCallText(recv, method, returns), name });
@@ -8777,6 +8945,14 @@ const Checker = struct {
     }
 
     fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
+        // `!c` of a handle that may not be written here lends what it holds
+        // (`synthLend`), which a `!*T` parameter cannot take.
+        if (e.isKind(.write)) if (self.ctx.types.get(expected) == .write_view and self.ctx.types.get(actual) == .write_view) {
+            const want = self.ctx.types.get(expected).write_view;
+            if (self.ctx.types.get(want) == .shared and self.ctx.types.get(want).shared == self.ctx.types.get(actual).write_view) {
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`: this handle is read-only here; pass `+{s}` to share a new handle, or lend the contents", .{ try self.tyName(expected), try self.tyName(actual), self.sourceText(ir.Write.operand(e)) });
+            }
+        };
         // `?p.m()` reads `p`; where a view of the call's result is
         // expected, the view goes around the call.
         if (e.isKind(.call) and self.ctx.types.get(expected) == .read_view and compatible(self.ctx, actual, sema.unwrapViews(self.ctx, expected))) {
@@ -9075,6 +9251,9 @@ const Checker = struct {
         const obj = ir.get(e, .object);
         const lend = self.lendOf(obj) orelse return;
         if (self.methods.contains(nodeId(e))) return;
+        // The element of a Cell's Vec, assigned: the lend marks the Cell,
+        // whose elements are copies and cannot be lent.
+        if (e.isKind(.index) and lend.isKind(.write) and cellVecElement(self.ctx, self.ctx.typeOf(obj) orelse sema.type_invalid) != null) return;
         if (isCallee(root, e)) {
             // The receiver sigil the parser moved onto a call of a field
             // holding functions (`!p.f[0]()`) is the call's to report, and
@@ -9097,7 +9276,7 @@ const Checker = struct {
         // No rewrite compiles where the path writes through a read lend
         // or a shared handle, takes a part that is no optional, or binds
         // a temporary where no statement can go first; each says why.
-        if (own.writes and lend.isKind(.read) and !own.cell) return self.errAt(obj, head ++ "; and a read lend is not written through", .{shown});
+        if (own.writes and lend.isKind(.read)) return self.errAt(obj, head ++ "; and a read lend is not written through", .{shown});
         if (own.shared and (own.writes or std.mem.findScalar(u8, own.open, '!') != null)) return self.errAt(obj, head ++ "; and nothing is written through a shared handle (`*T`), which other handles may see", .{shown});
         if (own.taken and !own.temp and !own.optional) return self.errAt(obj, head ++ "; and `<` takes out only an optional field or element, leaving `none`", .{shown});
         // The hint is the line the statement is on: a statement spread
@@ -9225,10 +9404,8 @@ const Checker = struct {
             writes: bool = false,
             shared: bool = false,
             temp: bool = false,
-            /// Whether the path reaches a Cell, which changes through any
-            /// path; whether its value is an optional; and whether no
-            /// plain form fits its context (`valueSigil`).
-            cell: bool = false,
+            /// Whether its value is an optional, and whether no plain form
+            /// fits its context (`valueSigil`).
             optional: bool = false,
             none: bool = false,
             /// What goes before and after the whole path: the sigil its
@@ -9283,7 +9460,6 @@ const Checker = struct {
                 if (o_ty) |ty| {
                     const v = sema.unwrapViews(c.ctx, ty);
                     if (c.ctx.types.get(v) == .shared) x.shared = true;
-                    if (cellElementType(c.ctx, v) != null or cellVecElement(c.ctx, v) != null) x.cell = true;
                 }
                 if (sameExpr(o, obj)) break;
             }
@@ -11997,6 +12173,12 @@ test "check: where a Cell and a write view stand, and a branch lent in place, ar
         for ([_][]const u8{ sema_src, tc, res, @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("runtime.zig") }) |src| {
             try std.testing.expectEqual(0, std.mem.count(u8, src, gone));
         }
+    }
+    // A read view changes nothing, a Cell included (Core sentence 4): neither
+    // the emitter nor the ownership checker treats a read view of a value
+    // that holds a Cell differently from any other.
+    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("facts.zig") }) |src| {
+        try std.testing.expectEqual(0, std.mem.count(u8, src, "holdsCell" ++ "ByValue"));
     }
 }
 

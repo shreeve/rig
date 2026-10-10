@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct Res
   n: Int
@@ -12,8 +12,8 @@ enum E
   a(r: Res)
   b
 
-fun bump(c: ?Counter) -> Int
-  c.hit()
+fun bump(c: !Counter) -> Int
+  !c.hit()
   0
 
 fun reset(e: !E) -> Int

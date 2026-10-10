@@ -7,12 +7,12 @@ struct N
   c: Cell[Int]
   pad: [8]Int
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 fun f(x: N) -> Int
-  x.hit()
-  x.c.set(x.c.get() + 10)
+  !x.hit()
+  !x.c.set(x.c.get() + 10)
   x.c.get()
 
 fun g(x: N, k: Bool) -> Int

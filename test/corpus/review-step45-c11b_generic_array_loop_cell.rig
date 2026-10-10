@@ -2,8 +2,8 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 sub each[T](v: ?[1]T, f: ?sub(?T))
   for x in v

@@ -1,11 +1,11 @@
 sub main()
   sig: *Signal[Int] = *Signal(0)
   count: *Cell[Int] = *Cell(0)
-  sig.subscribe(*|~sig, +count|
-    count.set(count.get() + 1)
+  !sig.subscribe(*|~sig, +count|
+    !count.set(count.get() + 1)
     if sig.upgrade() as s
       if s.get() < 3
-        s.set(s.get() + 1)
+        !s.set(s.get() + 1)
   )
-  sig.set(1)
+  !sig.set(1)
   print(sig.get(), count.get())

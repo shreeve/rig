@@ -1,0 +1,9 @@
+sub f(a: !Cell[Vec[Int]], b: !Cell[Vec[Int]])
+  swap(!a, !b)
+
+sub main()
+  a: *Cell[Vec[Int]] = *Cell(Vec())
+  !a.push(1)
+  b = +a
+  f(!a, !b)
+  print(a.len)

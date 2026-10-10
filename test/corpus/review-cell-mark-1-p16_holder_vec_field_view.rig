@@ -1,0 +1,10 @@
+struct H
+  log: Cell[Vec[Int]]
+  items: Vec[Int]
+
+sub main()
+  h = *H(log: Cell(Vec()), items: Vec())
+  g = +h
+  r = ?h.items
+  !g.log.push(1)
+  print(r.len, h.log.len)

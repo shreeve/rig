@@ -1,0 +1,8 @@
+struct H
+  log: Cell[Vec[Int]]
+
+sub main()
+  a = *H(log: Cell(Vec()))
+  b = *H(log: Cell(Vec()))
+  swap(!a.log, !b.log)
+  print(a.log.len)

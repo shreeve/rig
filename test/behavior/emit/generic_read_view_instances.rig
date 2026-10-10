@@ -66,9 +66,10 @@ sub main()
   vr = Ref(r: ?va)
   print(vr.val().get().len)
   n = *Cell(3)
-  d = Wrap(v: <n)
+  m = +n
+  d = Wrap(v: <m)
   e = d.get()
-  (?d.v).set(9)
+  !n.set(9)
   print(e.get())
 
 # expect:

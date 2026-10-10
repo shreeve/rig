@@ -2,15 +2,15 @@ enum E[T]
   a(c: Cell[T])
   b
 
-sub f[T](e: ?E[T], x: T)
-  match e
-    .a(c) => c.set(x)
+sub f[T](e: !E[T], x: T)
+  match !e
+    .a(c) => !c.set(x)
     .b => pass
 
 sub main()
   e = *E.a(c: Cell(1))
-  f(e, 7)
-  f(?e, 8)
+  f(!e, 7)
+  f(!e, 8)
   match e
     .a(c) => print(c.get())
     .b => print(0)

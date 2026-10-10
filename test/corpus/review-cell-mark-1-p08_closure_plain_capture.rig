@@ -1,0 +1,5 @@
+sub main()
+  c = *Cell(1)
+  f = |c| !c.set(7)
+  f()
+  print(c.get())

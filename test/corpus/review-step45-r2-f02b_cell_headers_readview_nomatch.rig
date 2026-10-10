@@ -6,34 +6,34 @@ enum E
   a(x: C)
   b(n: Int)
 
-sub viaIfAs(v: ?Vec[C?])
-  if v[0] as x
-    x.c.set(1)
+sub viaIfAs(v: !Vec[C?])
+  if !v[0] as x
+    !x.c.set(1)
 
 sub viaMatch(v: ?Vec[E])
   match v[0]
-    .a(x) if x.c.get() == 0 => x.c.set(2)
-    .a(x) => x.c.set(3)
+    .a(x) if x.c.get() == 0 => (!x.c).set(2)
+    .a(x) => (!x.c).set(3)
     .b(_) => print("b")
 
 sub viaFor(v: ?Vec[Vec[C]])
   for x in v[0]
-    x.c.set(4)
+    !x.c.set(4)
 
 sub viaHandles(v: ?Vec[*C])
-  v[0].c.set(5)
+  !v[0].c.set(5)
 
 fun next(i: !Int) -> Int
   i += 1
   i - 1
 
-sub viaSideIndex(v: ?Vec[C], i: !Int)
-  v[next(!i)].c.set(6)
+sub viaSideIndex(v: !Vec[C], i: !Int)
+  !v[next(!i)].c.set(6)
 
 sub main()
   o: Vec[C?] = Vec()
   !o.push(C(c: Cell(0)))
-  viaIfAs(?o)
+  viaIfAs(!o)
   e: Vec[E] = Vec()
   !e.push(E.a(x: C(c: Cell(0))))
   vv: Vec[Vec[C]] = Vec()
@@ -48,7 +48,7 @@ sub main()
   !s.push(C(c: Cell(0)))
   !s.push(C(c: Cell(0)))
   i = 1
-  viaSideIndex(?s, !i)
+  viaSideIndex(!s, !i)
   if o[0] as x
     print(x.c.get())
   match e[0]

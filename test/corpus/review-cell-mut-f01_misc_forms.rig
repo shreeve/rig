@@ -5,8 +5,8 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 enum E
   has(x: C)
@@ -21,8 +21,8 @@ struct B
   b: Box[C]
   o: C?
 
-  sub hit(?self)
-    self.b.hit()
+  sub hit(!self)
+    !self.b.hit()
     if self.o as y
       y.hit()
 
@@ -32,15 +32,15 @@ fun mk(n: Int) -> C
 fun tot(xs: []C) -> Int
   t = 0
   for i in 0..xs.len
-    xs[i].hit()
+    !xs[i].hit()
     t += xs[i].c.get()
   t
 
 sub viaw(x: !C)
-  x.hit()
+  !x.hit()
 
-sub viah(h: ?*C)
-  h.hit()
+sub viah(h: !*C)
+  !h.hit()
 
 sub main()
   arr = [mk(1), mk(2)]
@@ -55,8 +55,8 @@ sub main()
   s = *mk(30)
   w = ~s
   if w.upgrade() as h
-    h.hit()
-  viah(?s)
+    !h.hit()
+  viah(!s)
   print(s.c.get())
   k = mk(40)
   raw
@@ -91,8 +91,5 @@ sub main()
 # 62 71
 
 # oracle: C.hit accept
-# oracle: E.hitall accept
-# oracle: B.hit accept
-# oracle: tot accept
 # oracle: viaw accept
 # oracle: viah accept

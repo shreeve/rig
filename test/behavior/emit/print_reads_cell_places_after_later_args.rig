@@ -1,49 +1,51 @@
 # `print` reads every place that owns storage when it is called, after
 # its later arguments ran, however the shared Cell is reached: through
 # a read or write view, a generic `?T`, an optional, a Box, or a
-# closure's capture. Each later argument here grows the Cell's Vec,
-# which moves its buffer.
+# closure's capture. Each later argument here grows the Cell's Vec
+# through another handle, which moves its buffer.
 # release
 struct S
   c: Cell[Vec[Int]]
 
-fun grow(c: ?Cell[Vec[Int]]) -> Int
+fun grow(c: !Cell[Vec[Int]]) -> Int
   for i in 0..8
-    c.push(i)
+    !c.push(i)
   c.len
 
-fun grow_s(s: ?S) -> Int
-  grow(?s.c)
+fun grow_s(s: !S) -> Int
+  grow(!s.c)
 
 fun grow_opt(o: ?(*S)?) -> Int
   if o as s
-    return grow(?s.c)
+    return grow(!s.c)
   0
 
-sub read_param(c: ?Cell[Vec[Int]])
-  print(c, grow(c))
+sub read_param(c: ?Cell[Vec[Int]], o: !Cell[Vec[Int]])
+  print(c, grow(!o))
 
-sub write_param(c: !*Cell[Vec[Int]])
-  print(c, grow(?c))
+sub write_param(c: ?*Cell[Vec[Int]], o: !*Cell[Vec[Int]])
+  print(c, grow(!o))
 
-sub generic[T](x: ?T, c: ?Cell[Vec[Int]])
-  print(x, grow(c))
+sub generic[T](x: ?T, c: !Cell[Vec[Int]])
+  print(x, grow(!c))
 
 sub main()
   c: *Cell[Vec[Int]] = *Cell(Vec())
-  read_param(?c)
-  write_param(!c)
-  generic(?c, ?c)
-  w = !c
-  print(w, grow(?w))
+  d = +c
+  read_param(c, !d)
+  write_param(c, !d)
+  generic(?c, !d)
+  w = ?c
+  print(w, grow(!d))
   o: (*S)? = *S(c: Cell(Vec()))
   print(o, grow_opt(?o))
-  b = Box(*S(c: Cell(Vec())))
-  print(b, grow_s(?b))
-  d: *Cell[Vec[Int]] = *Cell(Vec())
-  g = |?d|
-    grow(?d)
-  print(d, g())
+  s0 = *S(c: Cell(Vec()))
+  b = Box(+s0)
+  print(b, grow_s(!s0))
+  e: *Cell[Vec[Int]] = *Cell(Vec())
+  f = +e
+  g = |+f| grow(!f)
+  print(e, g())
 
 # expect:
 # Cell(value: [0, 1, 2, 3, 4, 5, 6, 7]) 8

@@ -5,9 +5,9 @@ struct T
   c: Cell[Int]
   log: Cell[Vec[Int]]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-    self.log.push(self.c.get())
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
+    !self.log.push(self.c.get())
 
   fun score(?self) -> Int
     self.c.get() * 100 + self.log.len
@@ -30,7 +30,7 @@ sub main()
     k = i % 2 == 0
     (d if k else mkd(50)).t.hit()
     (d if k else e).t.hit()
-    (o ?? d).t.hit()
+    !(!o ?? !d).t.hit()
     print((d if k else mkd(70)).t.score())
   print(d.t.score(), e.t.score())
   if o as x

@@ -51,7 +51,7 @@ fun id_f32(x: F32) -> F32
 
 sub t250()
   cr250: Cell[U64] = Cell(5)
-  x250: U64 = cr250.replace(15)
+  x250: U64 = (!cr250).replace(15)
   print(x250)
 
 sub main()

@@ -6,7 +6,7 @@ struct N
   c: Cell[Int]
 
 fun poke(x: !N) -> Int
-  x.c.set(x.c.get() + 100)
+  !x.c.set(x.c.get() + 100)
   x.c.get()
 
 sub go(k: Bool)

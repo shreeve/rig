@@ -81,6 +81,9 @@ const Place = struct {
     /// box's, which a loan on the handle keeps alive (Core s8: handles
     /// only read).
     handle: bool = false,
+    /// Where the path first passes through a handle: the prefix of the
+    /// path that is the handle's own slot, and that slot's type and view.
+    handle_at: ?struct { len: usize, ty: TypeId, via: Via } = null,
 
     const Via = enum { own, read, write };
 };
@@ -1965,6 +1968,9 @@ const Lowerer = struct {
         var carry = base.carry;
         var under_write = base.under_write;
         var handle = base.handle;
+        var handle_at = base.handle_at;
+        // A view of a handle holds the handle: the slot a marked call lends.
+        if (handle_at == null and self.ctx.types.get(sema.unwrapViews(self.ctx, base.ty)) == .shared) handle_at = .{ .len = base.path.len, .ty = base.ty, .via = base.via };
         switch (self.ctx.types.get(base.ty)) {
             // What a handle holds is read through it, and stays while the
             // handle does: a loan on the handle (Core s8, §4's `*T` row).
@@ -1985,7 +1991,7 @@ const Lowerer = struct {
             },
             else => {},
         }
-        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write, .handle = handle };
+        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write, .handle = handle, .handle_at = handle_at };
     }
 
     /// A var as a place; an alias is the payload it sees.
@@ -2210,6 +2216,27 @@ const Lowerer = struct {
         return t;
     }
 
+    /// The place a marked call on a Cell or Signal (or a value holding a
+    /// Cell) reached through a handle lends: the handle's own slot, not
+    /// what the handle reaches (Core s9: the lend is of the handle, the
+    /// call changes what handles share). Null where `p` crosses no
+    /// handle, or `ty`, the type of what is changed, is not one that
+    /// changes by a marked call.
+    fn handleSlot(self: *Lowerer, p: Place, ty: TypeId) ?Place {
+        if (!self.changesByMark(ty)) return null;
+        const at = p.handle_at orelse return if (self.isHandle(p.ty) and !p.handle) p else null;
+        // A handle a read view holds is lent as the view's own: the lend
+        // writes the view's binding, never the place it views.
+        const via: Place.Via = if (at.via == .read and at.len == 0) .own else at.via;
+        return .{ .root = p.root, .path = p.path[0..at.len], .ty = at.ty, .via = via, .carry = p.carry, .under_write = p.under_write };
+    }
+
+    /// Whether a value of `ty` changes through a handle by a marked call:
+    /// a Cell, a Signal, or a value that holds a Cell by value.
+    fn changesByMark(self: *Lowerer, ty: TypeId) bool {
+        return sema.changesByMark(self.ctx, ty);
+    }
+
     fn isHandle(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .shared, .weak => true,
@@ -2267,7 +2294,10 @@ const Lowerer = struct {
 
     /// `?p` or `!p` (Core s4, §4): a new loan on the place, carrying what
     /// the root views; through a read view, a copy of that view.
-    fn lend(self: *Lowerer, p: Place, mode: core.Mode, e: Sexp, ty: TypeId) Error!VarId {
+    fn lend(self: *Lowerer, at: Place, mode: core.Mode, e: Sexp, ty: TypeId) Error!VarId {
+        // A lend to write of a Cell, a Signal, or a value holding one
+        // through a handle lends the handle (Core s9).
+        const p = if (mode != .read and at.handle) self.handleSlot(at, at.ty) orelse at else at;
         const pos = self.posOf(e);
         const kind: kinds.Kind = if (mode == .read) .read_view else .write_view;
         if (mode != .read and self.isFinding(p.root)) return abstain("an index that lends its place's root to write");
@@ -2672,12 +2702,14 @@ const Lowerer = struct {
                         // A write receiver with no `!` is a write view
                         // the receiver's value is (`wrap(!h).keep(x)`, a
                         // branch of write lends): lent on through it.
-                        const p = if (obj.isKind(.write)) try self.writePlace(ir.Write.operand(obj)) else blk: {
+                        const p0 = if (obj.isKind(.write)) try self.writePlace(ir.Write.operand(obj)) else blk: {
                             const t = try self.eval(obj, .read, null) orelse return abstain("a write receiver without `!`");
                             if (self.f.vars.items[t].kind != .write_view) return abstain("a write receiver without `!`");
                             break :blk Place{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
                         };
-                        if (p.handle or self.isHandle(p.ty)) return abstain("a write receiver through a handle");
+                        const slot = self.handleSlot(p0, recv_ty);
+                        if (slot == null and (p0.handle or self.isHandle(p0.ty))) return abstain("a write receiver through a handle");
+                        const p = slot orelse p0;
                         // A write receiver is lent when the call runs; its
                         // arguments may still read it (SPEC §7).
                         if (p.via == .read) return abstain("a write receiver through a read view");
@@ -3231,12 +3263,12 @@ const Lowerer = struct {
                 if (try self.methodOf(inner_decl, mname)) |found_method| return found_method;
             }
         }
-        // A `Cell[Vec[T]]` answers its Vec's members through any path,
-        // without `!` (SPEC "Cell").
+        // A `Cell[Vec[T]]` answers its Vec's members, each marked as the
+        // Vec's own are (SPEC "Cell").
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id and pn.args.len == 1) {
                 if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.vec_sym_id) {
-                    if (try self.methodOf(held, mname)) |found_method| return .{ .read, found_method[1] };
+                    if (try self.methodOf(held, mname)) |found_method| return found_method;
                 };
             },
             else => {},

@@ -4,8 +4,8 @@ struct P
 fun mk() -> [2]P
   [P(c: Cell(1)), P(c: Cell(2))]
 
-sub bump(p: ?P)
-  p.c.set(p.c.get() + 1)
+sub bump(p: !P)
+  !p.c.set(p.c.get() + 1)
   print(p.c.get())
 
 sub main()

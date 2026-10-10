@@ -11,8 +11,8 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 enum E
   a(c: *Counter)
@@ -32,22 +32,22 @@ sub loops(f: Bool)
   a = pair(0)
   b = pair(10)
   for k in (<a if f else <b)
-    k.hit()
+    !k.hit()
     print(k.hits.get())
   d = pair(20)
   for k in two(9) catch <d
-    k.hit()
+    !k.hit()
     print(k.hits.get())
   o: ([2]*Counter)? = none
   g = pair(30)
   for k in (<o) ?? <g
-    k.hit()
+    !k.hit()
     print(k.hits.get())
 
 fun run(o: ([2]*Counter)?) -> Int?
   new n = 0
   for k in (<o)?
-    k.hit()
+    !k.hit()
     n += k.hits.get()
   n
 
@@ -56,14 +56,14 @@ sub matches(f: Bool)
   y = E.b
   match (<x if f else <y)
     .a(c)
-      c.hit()
+      !c.hit()
       print(c.hits.get())
     .b => pass
   o: E? = none
   d = E.a(c: *Counter(hits: Cell(50)))
   match (<o) ?? <d
     .a(c)
-      c.hit()
+      !c.hit()
       print(c.hits.get())
     .b => pass
 

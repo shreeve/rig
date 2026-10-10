@@ -6,8 +6,8 @@ struct T
 struct H[X]
   x: X
 
-sub bump(t: ?T)
-  t.c.set(t.c.get() + 1)
+sub bump(t: !T)
+  !t.c.set(t.c.get() + 1)
 
 fun mkh[X](x: X) -> H[X]
   H(x: <x)

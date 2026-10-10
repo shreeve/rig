@@ -1,0 +1,9 @@
+sub g(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub f(c: *Cell[Int])
+  g(!c)
+  print(c.get())
+
+sub main()
+  f(*Cell(1))

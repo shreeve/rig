@@ -1,0 +1,4 @@
+sub main()
+  c = *Cell(1)
+  c.value = 5
+  print(c.get())

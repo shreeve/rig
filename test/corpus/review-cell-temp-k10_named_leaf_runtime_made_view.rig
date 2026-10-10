@@ -8,8 +8,8 @@ struct C
   c: Cell[Int]
   pad: [16]Int
 
-  fun me(?self) -> ?C
-    self.c.set(self.c.get() + 1)
+  fun me(!self) -> ?C
+    !self.c.set(self.c.get() + 1)
     self
 
 fun mkc(n: Int) -> C

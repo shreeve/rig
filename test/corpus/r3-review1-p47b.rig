@@ -1,11 +1,11 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 sub bump(s: []Counter)
-  s[0].hit()
+  !s[0].hit()
 
 sub main()
   bump([Counter(hits: Cell(0))])

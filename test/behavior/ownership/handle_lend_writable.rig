@@ -1,0 +1,39 @@
+# `!c` lends the handle itself, which a callee may point elsewhere, only
+# where `c` may be written: an owned mutable local, a `!*T` parameter, a
+# handle field of a value reached through a write view. A `const` handle
+# or a read-only parameter lends what it holds.
+
+struct W
+  h: *Cell[Int]
+
+sub repoint(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub again(x: !*Cell[Int])
+  repoint(!x)
+
+sub set5(c: !Cell[Int])
+  !c.set(5)
+
+sub through(w: !W)
+  repoint(!w.h)
+
+sub main()
+  a = *Cell(1)
+  repoint(!a)
+  print(a.get())
+  b = *Cell(1)
+  again(!b)
+  print(b.get())
+  w = W(h: *Cell(1))
+  through(!w)
+  print(w.h.get())
+  const k = *Cell(1)
+  set5(!k)
+  print(k.get())
+
+# expect:
+# 9
+# 9
+# 9
+# 5

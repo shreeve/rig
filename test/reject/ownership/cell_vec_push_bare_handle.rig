@@ -7,7 +7,7 @@ struct N
 sub main()
   hs: *Cell[Vec[*N]] = *Cell(Vec())
   a = *N(id: 1)
-  hs.push(a)
+  !hs.push(a)
   print(hs.len, a.id)
 
-# error: 10:11: `a` is a `*N` handle, which can't be copied into an argument: write `<a` to move it or `+a` for another handle
+# error: 10:12: `a` is a `*N` handle, which can't be copied into an argument: write `<a` to move it or `+a` for another handle

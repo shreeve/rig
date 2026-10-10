@@ -4,7 +4,6 @@
 # (INTERNALS "Header subjects"). A generic payload is a copy, which each
 # instance must allow.
 #
-# oracle: in_arm accept
 # oracle: guarded accept
 # oracle: value_copy accept
 # oracle: Opt.or_else accept
@@ -37,7 +36,7 @@ fun tag(e: ?E) -> Int
 sub in_arm(e: ?E)
   match e
     .a(r)
-      r.hits.set(r.hits.get() + 1)
+      !r.hits.set(r.hits.get() + 1)
       print(size(?r), r.hits.get())
     .b => pass
 

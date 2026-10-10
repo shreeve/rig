@@ -73,7 +73,7 @@ sub main()
 # error: 58:14: no method `len` on type `Vec[Int]`; `len` is a field: write `p.v.len`
 # error: 59:8: type `!Text` has no method `push_str`
 # error: 62:15: type mismatch: expected `String`, got `Text`; lend it as a String with `?p.name` or `?p.name[..]`
-# error: 37:4: `(?k).log`: write a lend on the whole path, not its base: `k.log[0] = 1`
+# error: 37:4: `(?k).log`: write a lend on the whole path, not its base; and a read lend is not written through
 # error: 44:14: `(?p).items`: write a lend on the whole path, not its base: `print(own(+p.items))`
 # error: 45:12: `(?p).items`: write a lend on the whole path, not its base: `a = gid(+p.items)`
 # error: 46:18: `(?p).items`: write a lend on the whole path, not its base: `b: Vec[Int] = +p.items`

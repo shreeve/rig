@@ -6,43 +6,43 @@
 type Subscribers = Vec[*sub()]
 
 struct IntSource
-  value: *Cell[Int]
-  subs: *Cell[Subscribers]
+  value: Cell[Int]
+  subs: Cell[Subscribers]
 
   fun new(initial: Int) -> *IntSource
-    *IntSource(value: *Cell(initial), subs: *Cell(Vec()))
+    *IntSource(value: Cell(initial), subs: Cell(Vec()))
 
   fun get(self: ?IntSource) -> Int
     self.value.get()
 
-  sub subscribe(self: ?IntSource, cb: *sub())
-    self.subs.push(<cb)
+  sub subscribe(self: !IntSource, cb: *sub())
+    !self.subs.push(<cb)
 
   # A Cell lends no view of the Vec inside it, so the list is swapped
   # out to be walked, and swapped back.
-  sub set(self: ?IntSource, v: Int)
-    self.value.set(v)
-    subs = self.subs.replace(Vec())
+  sub set(self: !IntSource, v: Int)
+    !self.value.set(v)
+    subs = (!self.subs).replace(Vec())
     for notify in ?subs
       notify()
-    _ = self.subs.replace(<subs)
+    _ = (!self.subs).replace(<subs)
 
 sub main()
   count = IntSource.new(0)
   total = IntSource.new(0)
 
-  count.subscribe(*|~count, ~total|
+  !count.subscribe(*|~count, ~total|
     if count.upgrade() as c
       if total.upgrade() as t
-        t.set(c.get() * 10)
+        !t.set(c.get() * 10)
   )
-  total.subscribe(*|~total|
+  !total.subscribe(*|~total|
     if total.upgrade() as t
       print(t.get())
   )
 
-  count.set(1)        # total becomes 10, prints 10
-  count.set(7)        # total becomes 70, prints 70
+  !count.set(1)        # total becomes 10, prints 10
+  !count.set(7)        # total becomes 70, prints 70
   print(total.get())  # 70
 
 # expect:

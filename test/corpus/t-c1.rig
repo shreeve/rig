@@ -3,5 +3,5 @@ struct Holder
 
 sub main()
   count: *Cell[Int] = *Cell(0)
-  h = Holder(cb: |+count| count.set(count.get() + 1))
+  h = Holder(cb: |+count| !count.set(count.get() + 1))
   _ = h

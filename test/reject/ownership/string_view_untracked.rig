@@ -3,8 +3,8 @@
 # not a view, not a String parameter, not a closure's String parameter
 # stored through a capture, and not a generic `T` that is a String.
 
-sub put[T](c: ?Cell[T], x: T)
-  c.set(x)
+sub put[T](c: !Cell[T], x: T)
+  !c.set(x)
 
 fun later[T](x: T) -> *sub()
   *|+x| print(x)
@@ -12,17 +12,17 @@ fun later[T](x: T) -> *sub()
 sub main()
   t = Text("abc")
   cell = *Cell("lit")
-  put(cell, ?t[..])
+  put(!cell, ?t[..])
   f = later(?t[1..])
   f()
   out: Vec[String] = Vec()
   keep = |!out, s: String| !out.push(s)
   keep("x")
   sig = *Signal("s")
-  sig.set(?t[..1])
+  !sig.set(?t[..1])
   print(cell.get(), out)
 
 # error: 15:3: `put[String]` cannot use `T = String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a String may view a Text
 # error: 16:7: `later[String]` cannot use `T = String`
 # error: 19:17: `s` does not live long enough
-# error: 22:11: cannot store a view of `t` in a `Signal`
+# error: 22:12: cannot store a view of `t` in a `Signal`

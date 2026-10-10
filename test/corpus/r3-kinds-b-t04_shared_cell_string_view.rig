@@ -1,5 +1,5 @@
 sub stash(c: *Cell[String], s: String)
-  c.set(s)
+  !c.set(s)
 
 sub main()
   c: *Cell[String] = *Cell("lit")

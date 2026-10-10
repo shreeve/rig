@@ -5,9 +5,9 @@ struct Child
   drop(!self)
     print("drop child", self.n)
     if self.parent.upgrade() as p
-      old = p.replace(none)
+      old = (!p).replace(none)
       print("old none", old == none)
 
 sub main()
   c: *Cell[*Child?] = *Cell(none)
-  c.set(*Child(n: 1, parent: ~c))
+  !c.set(*Child(n: 1, parent: ~c))

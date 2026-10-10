@@ -1,16 +1,16 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 use std.random
 
 fun step(r: !random.Random) -> U64
   (!r).next()
 
-fun bump(c: ?Counter) -> Int
-  c.hit()
+fun bump(c: !Counter) -> Int
+  !c.hit()
   c.hits.get()
 
 sub main()

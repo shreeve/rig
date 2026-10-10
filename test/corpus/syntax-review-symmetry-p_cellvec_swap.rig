@@ -1,6 +1,6 @@
 sub main()
   c = *Cell(value: Vec[Int]())
-  c.push(1)
-  c.push(2)
+  !c.push(1)
+  !c.push(2)
   c.swap(0, 1)
   print(c[0])

@@ -8,8 +8,8 @@ struct D
 fun mkd(n: Int) -> D
   D(c: Cell(n))
 
-fun touch(p: ?D) -> ?D
-  p.c.set(p.c.get() + 10)
+fun touch(p: !D) -> ?D
+  !p.c.set(p.c.get() + 10)
   p
 
 fun leak() -> ?D

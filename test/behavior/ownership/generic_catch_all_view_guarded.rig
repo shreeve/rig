@@ -48,7 +48,7 @@ sub two[T](a: T, b: T)
 
 fun bump(o: ?Opt[*Counter]) -> Int
   match o
-    .some(c) => c.hits.set(9)
+    .some(c) => (!c.hits).set(9)
     .nothing => pass
   0
 

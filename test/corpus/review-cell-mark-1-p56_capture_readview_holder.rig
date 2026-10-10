@@ -1,0 +1,11 @@
+struct H
+  n: Cell[Int]
+
+sub f(x: ?H)
+  k = |?x| !x.n.set(3)
+  k()
+
+sub main()
+  h = *H(n: Cell(1))
+  f(h)
+  print(h.n.get())

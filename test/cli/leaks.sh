@@ -9,7 +9,7 @@ struct Node
 
 sub main()
   a = *Node(next: *Cell(none))
-  a.next.set(+a)
+  !a.next.set(+a)
   print("made a cycle")
 EOF
 

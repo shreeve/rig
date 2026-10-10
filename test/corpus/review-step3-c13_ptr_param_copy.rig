@@ -2,7 +2,7 @@ struct Counter
   hits: Cell[Int]
 
 sub take(c: Counter)
-  c.hits.set(9)
+  !c.hits.set(9)
 
 sub main()
   a = Counter(hits: Cell(1))

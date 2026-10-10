@@ -37,7 +37,7 @@ sub main()
   print(run(|a| a + 1), run(?f), v.len, m())
   s = *Signal(0)
   x = 1
-  s.subscribe(|?x| print(x))
+  !s.subscribe(|?x| print(x))
 
 # error: 22:9: `|+f|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `f` is `?fun(Int) -> Int`; capture it with `|?f|`
 # error: 31:9: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`
@@ -46,4 +46,4 @@ sub main()
 # error: 36:9: only a local can be captured; `double` is declared at module level
 # error: 37:13: a closure literal is not a function value `fun(Int) -> Int`; declare the parameter `?fun(Int) -> Int`
 # error: 37:29: a lent closure goes to a parameter declared `?fun(Int) -> Int`
-# error: 40:15: `*sub()` is an owned closure; write `*|...| body` to make one
+# error: 40:16: `*sub()` is an owned closure; write `*|...| body` to make one

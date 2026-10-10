@@ -6,11 +6,11 @@ struct Obj
     print("drop", self.n)
     if self.home.upgrade() as h
       if h.len > 0
-        _ = h.pop()
+        _ = (!h).pop()
 
 sub main()
   c: *Cell[Vec[*Obj]] = *Cell(Vec())
   for i in 0..4
-    c.push(*Obj(n: i, home: ~c))
-  _ = c.pop()
+    !c.push(*Obj(n: i, home: ~c))
+  _ = (!c).pop()
   print("end", c.len)

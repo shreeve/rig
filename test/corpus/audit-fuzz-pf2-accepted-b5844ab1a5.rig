@@ -130,7 +130,7 @@ sub t4822()
 
 sub t1449()
   cr1449: Cell[Float] = Cell(10.25)
-  gy1449: Float = gid(cr1449.replace((-2)))
+  gy1449: Float = gid((!cr1449).replace((-2)))
   print(gy1449)
 
 sub t4183()

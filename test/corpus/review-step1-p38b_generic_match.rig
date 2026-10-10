@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 enum Opt[T]
   some(v: T)
@@ -13,8 +13,8 @@ sub apply[T](o: ?Opt[T], f: ?fun(?T) -> Int)
     .some(v) => print(f(?v))
     .nothing => pass
 
-fun bump(c: ?Counter) -> Int
-  c.hit()
+fun bump(c: !Counter) -> Int
+  !c.hit()
   1
 
 sub main()

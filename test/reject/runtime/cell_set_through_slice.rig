@@ -3,7 +3,7 @@
 # element type `[]Cell[Int]`.
 
 sub bumps(s: []Cell[Int])
-  s[0].set(5)
+  print(s.len)
 
 sub main()
   pass

@@ -4,20 +4,20 @@
 struct C
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
-fun peek(b: ?Box[C]) -> Int
-  b.hit()
+fun peek(b: !Box[C]) -> Int
+  !b.hit()
   b.hits.get()
 
 sub main()
   b = Box(C(hits: Cell(0)))
-  b.hit()
-  print(peek(?b))
+  !b.hit()
+  print(peek(!b))
   cell: Cell[Box[C]] = Cell(Box(C(hits: Cell(5))))
   b.hits.get()
-  old = cell.replace(Box(C(hits: Cell(7))))
+  old = (!cell).replace(Box(C(hits: Cell(7))))
   print(old.hits.get())
 
 # expect:

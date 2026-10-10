@@ -12,8 +12,8 @@ fun vec1(n: Int) -> Vec[Int]
 fun mk(n: Int) -> Cell[Vec[Int]]
   Cell(vec1(n))
 
-fun look(x: ?Cell[Vec[Int]]) -> Int
-  x.push(10)
+fun look(x: !Cell[Vec[Int]]) -> Int
+  !x.push(10)
   x.len
 
 sub main()

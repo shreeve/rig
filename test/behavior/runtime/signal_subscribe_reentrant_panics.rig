@@ -3,13 +3,13 @@
 
 sub main()
   sig: *Signal[Int] = *Signal(0)
-  sig.subscribe(*|~sig|
+  !sig.subscribe(*|~sig|
     print("notified")
     if sig.upgrade() as s
-      s.subscribe(*|| print("late"))
+      !s.subscribe(*|| print("late"))
   )
   print("before")
-  sig.set(1)
+  !sig.set(1)
   print("unreachable")
 
 # expect-panic: Signal.subscribe called while notifying subscribers

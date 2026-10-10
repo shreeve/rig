@@ -2,7 +2,7 @@
 fun make_counter() -> *fun() -> Int
   count: *Cell[Int] = *Cell(0)
   *|+count|
-    count.set(count.get() + 1)
+    !count.set(count.get() + 1)
     count.get()
 
 sub main()

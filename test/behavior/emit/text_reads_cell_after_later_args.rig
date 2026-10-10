@@ -6,31 +6,33 @@
 struct S
   c: Cell[Vec[Int]]
 
-fun grow(c: ?Cell[Vec[Int]]) -> Int
+fun grow(c: !Cell[Vec[Int]]) -> Int
   for i in 0..1000
-    c.push(i)
+    !c.push(i)
   5
 
-fun reset(c: ?Cell[Vec[Int]]) -> Int
-  c.set(Vec())
+fun reset(c: !Cell[Vec[Int]]) -> Int
+  !c.set(Vec())
   0
 
-fun grow_s(s: ?S) -> Int
-  c = ?s.c
-  c.push(9)
+fun grow_s(s: !S) -> Int
+  !s.c.push(9)
   1
 
 sub main()
   c: *Cell[Vec[Int]] = *Cell(Vec())
-  c.push(42)
-  t = Text(c, grow(?c))
+  !c.push(42)
+  e = +c
+  t = Text(c, grow(!e))
   print(t.len)
   d: *Cell[Vec[Int]] = *Cell(Vec())
-  d.push(7)
-  u = Text(d, reset(?d))
+  !d.push(7)
+  f = +d
+  u = Text(d, reset(!f))
   print(u)
   s = *S(c: Cell(Vec()))
-  w = Text(s, " ", grow_s(?s))
+  s2 = +s
+  w = Text(s, " ", grow_s(!s2))
   print(w)
 
 # expect:

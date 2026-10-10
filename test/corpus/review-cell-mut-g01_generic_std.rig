@@ -8,27 +8,27 @@ struct C
   c: Cell[Int]
   k: Int
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 fun mk(k: Int) -> C
   C(c: Cell(0), k: k)
 
-fun less(a: ?C, b: ?C) -> Bool
-  a.hit()
-  b.hit()
+fun less(a: !C, b: !C) -> Bool
+  !a.hit()
+  !b.hit()
   a.k < b.k
 
 struct Hold[T]
   x: T
   n: Cell[Int]
 
-  sub run(?self, f: ?sub(?T))
-    self.n.set(self.n.get() + 1)
+  sub run(!self, f: ?sub(?T))
+    !self.n.set(self.n.get() + 1)
     f(?self.x)
 
-sub bump(x: ?C)
-  x.hit()
+sub bump(x: !C)
+  !x.hit()
 
 sub each[T](xs: []T, f: ?sub(?T))
   for i in 0..xs.len
@@ -69,7 +69,7 @@ sub main()
   print(arr[0].c.get(), arr[1].c.get(), arr[2].c.get())
   b: Box[C] = Box(mk(0))
   twice[C](?b, bump)
-  b.hit()
+  !b.hit()
   print(b.c.get())
   hb = Hold(x: Box(mk(0)), n: Cell(0))
   hb.x.hit()

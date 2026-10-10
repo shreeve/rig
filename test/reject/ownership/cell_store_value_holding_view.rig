@@ -9,13 +9,13 @@ struct Wrap
 struct View
   b: ?Wrap
 
-sub stash(c: ?Cell[*View], vw: *View)
-  c.set(<vw)
+sub stash(c: !Cell[*View], vw: *View)
+  !c.set(<vw)
 
 sub park(h: *Cell[*View])
   x = Wrap(v: Vec())
   !x.v.push(42)
-  _ = h.replace(*View(b: ?x))
+  _ = (!h).replace(*View(b: ?x))
 
 sub main()
   y0 = Wrap(v: Vec())
@@ -24,7 +24,7 @@ sub main()
     x = Wrap(v: Vec())
     !x.v.push(41)
     b = +a
-    b.set(*View(b: ?x))
+    !b.set(*View(b: ?x))
   park(+a)
   print("done")
 

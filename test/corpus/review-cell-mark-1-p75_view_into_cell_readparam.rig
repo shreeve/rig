@@ -1,0 +1,11 @@
+sub put(c: ?*Cell[Vec[String]], s: String)
+  (!c)[0] = s
+  !c.push(s)
+
+sub main()
+  c: *Cell[Vec[String]] = *Cell(Vec())
+  !c.push("a")
+  if true
+    t = Text("abcdefghijklmnop")
+    put(?c, ?t[..3])
+  print(c[0], c[1])

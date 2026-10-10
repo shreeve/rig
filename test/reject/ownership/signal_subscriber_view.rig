@@ -12,9 +12,9 @@ sub main()
   a = Wrap(payload: 1)
   r = ?a
   cb: *sub() = *|<r| print(r.payload)
-  sig.subscribe(+cb)
+  !sig.subscribe(+cb)
   <cb
   <a
-  sig.set(1)
+  !sig.set(1)
 
 # error: an owned closure cannot capture `r`, which holds a view of `a`

@@ -1,6 +1,6 @@
 # WELCOME "so every mutation is visible" / DESIGN "mutation ... each have a marker": a Cell changes with no `!`
-sub bump(c: ?Cell[Int])
-  c.set(c.get() + 1)
+sub bump(c: !Cell[Int])
+  !c.set(c.get() + 1)
 
 sub main()
   c = Cell(0)

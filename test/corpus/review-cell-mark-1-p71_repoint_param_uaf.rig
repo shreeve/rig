@@ -1,0 +1,11 @@
+sub g(x: !*Cell[Vec[Int]], r: ?Cell[Vec[Int]])
+  x = *Cell(Vec[Int]())
+  print(r.len)
+
+sub f(c: *Cell[Vec[Int]], d: ?Cell[Vec[Int]])
+  g(!c, d)
+
+sub main()
+  c: *Cell[Vec[Int]] = *Cell(Vec())
+  !c.push(1)
+  f(<c, ?c)

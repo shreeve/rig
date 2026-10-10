@@ -1,0 +1,13 @@
+struct H
+  n: Cell[Int]
+
+  sub bump(!self)
+    !self.n.set(self.n.get() + 1)
+
+  sub peek(?self)
+    !self.bump()
+
+sub main()
+  h = *H(n: Cell(0))
+  h.peek()
+  print(h.n.get())

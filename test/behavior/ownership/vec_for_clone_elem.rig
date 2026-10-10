@@ -11,7 +11,7 @@ struct B
 sub main()
   count: *Cell[Int] = *Cell(0)
   subs: Vec[*sub()] = Vec()
-  !subs.push(*|+count| count.set(count.get() + 1))
+  !subs.push(*|+count| !count.set(count.get() + 1))
   other: Vec[*sub()] = Vec()
   for cb in ?subs
     !other.push(+cb)

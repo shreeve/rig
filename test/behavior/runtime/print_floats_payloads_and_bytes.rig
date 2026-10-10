@@ -27,9 +27,9 @@ sub main()
   xs: [3]U8 = [72, 105, 33]
   print(V(a: ?xs))
   a = *N(id: 1, next: Cell(none))
-  (?a.next).set(+a)
+  !a.next.set(+a)
   print(a)
-  (?a.next).set(none)
+  !a.next.set(none)
 
 struct W
   f: Float

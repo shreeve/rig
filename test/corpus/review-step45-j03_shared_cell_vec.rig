@@ -6,5 +6,5 @@ sub main()
   d = +c
   w: Vec[Text] = Vec()
   !w.push(Text("b"))
-  old = d.replace(<w)
+  old = (!d).replace(<w)
   print(old)

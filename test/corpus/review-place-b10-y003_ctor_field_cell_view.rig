@@ -4,8 +4,8 @@ struct P
 struct Q
   p: P
 
-sub bump(p: ?P)
-  p.c.set(p.c.get() + 1)
+sub bump(p: !P)
+  !p.c.set(p.c.get() + 1)
   print(p.c.get())
 
 sub main()

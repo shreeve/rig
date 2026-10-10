@@ -2,7 +2,7 @@
 # takes parameters too.
 
 sub takes_owned(c: *Cell[Int])
-  c.set(0)
+  !c.set(0)
 
 sub main()
   sig: *Cell[Int] = *Cell(0)

@@ -15,7 +15,7 @@ sub main()
   xs: Vec[Int] = Vec()
   !xs.push(1)
   b = B(c: *Cell(<xs))
-  b.c[1] = renew(!b)
+  (!b.c)[1] = renew(!b)
   print(b.c[0], b.c[1])
 
 # expect:

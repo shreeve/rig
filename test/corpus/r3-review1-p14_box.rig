@@ -4,5 +4,5 @@ struct Counter
 sub main()
   b = Box(Counter(hits: Cell(0)))
   k = b.hits
-  k.set(4)
+  !k.set(4)
   print(b.hits.get())

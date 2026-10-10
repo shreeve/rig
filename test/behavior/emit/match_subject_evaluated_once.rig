@@ -26,9 +26,9 @@ fun mk() -> Shape
   print("mk")
   .circle(r: 3)
 
-fun idx(c: ?Cell[Int]) -> Int
+fun idx(c: !Cell[Int]) -> Int
   n = c.get()
-  c.set(n + 1)
+  !c.set(n + 1)
   n % 2
 
 sub keep(b: *B)
@@ -55,12 +55,12 @@ sub main()
     _ => print("other")
   k = *Cell(0)
   xs: [2]Shape = [.circle(r: 1), .circle(r: 2)]
-  match xs[idx(?k)]
+  match xs[idx(!k)]
     .circle(r) if r == 1 => print("first, r =", r)
     .circle(r) => print("second, r =", r)
     _ => print("other")
   print("idx calls:", k.get())
-  match !xs[idx(?k)]
+  match !xs[idx(!k)]
     .circle(r) if r > 5 => r = 0
     w => w = .point
   print(xs, "idx calls:", k.get())

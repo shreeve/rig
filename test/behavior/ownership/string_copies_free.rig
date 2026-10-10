@@ -65,7 +65,7 @@ sub main()
     last = n
   c = *Cell("b")
   for n in ?lits
-    c.set(n)
+    !c.set(n)
   <lits
   print(last, c.get())
 

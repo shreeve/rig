@@ -1,8 +1,8 @@
 struct P
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
     print(self.c.get())
 
 enum E
@@ -18,8 +18,8 @@ struct Q
 fun mk() -> Q
   Q(p: P(c: Cell(1)), o: P(c: Cell(2)), ps: [P(c: Cell(3)), P(c: Cell(4))], e: .a(p: P(c: Cell(5))))
 
-sub bump(p: ?P)
-  p.c.set(p.c.get() + 10)
+sub bump(p: !P)
+  !p.c.set(p.c.get() + 10)
   print(p.c.get())
 
 sub main()

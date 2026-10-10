@@ -7,9 +7,9 @@ sub take(cb: *sub(Vec[Int]))
 
 sub main()
   v: *Cell[Int] = *Cell(0)
-  bad: *sub(*Cell[Int]) = *|+v, cell| v.set(0)
+  bad: *sub(*Cell[Int]) = *|+v, cell| !v.set(0)
   worse: *fun() -> *Cell[Int] = *|+v| +v
-  inferred = *|+v, cell: *Cell[Int]| v.set(0)
+  inferred = *|+v, cell: *Cell[Int]| !v.set(0)
   returns = *|+v| +v
 
 # error: an owned closure takes plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data); `Vec[Int]` is not one

@@ -43,7 +43,7 @@ sub main()
     break
   cs: [1](*C)? = [*C(c: Cell(1))]
   if ?cs[i] as c
-    c.c.set(5)
+    !c.c.set(5)
   if ?cs[0] as c
     print(c.c.get())
   print(arr, ints)

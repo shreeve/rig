@@ -1,14 +1,14 @@
-fun reset(c: ?Cell[Vec[Int]]) -> Int
-  c.set(Vec())
+fun reset(c: !Cell[Vec[Int]]) -> Int
+  !c.set(Vec())
   0
 
 sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
   for i in 0..40
-    c.push(i * 1000)
+    !c.push(i * 1000)
   t = Text()
-  !t.add(c, reset(?c))
+  !t.add(c, reset(!c))
   print(t)
   for i in 0..40
-    c.push(i * 1000)
-  print(c, reset(?c))
+    !c.push(i * 1000)
+  print(c, reset(!c))

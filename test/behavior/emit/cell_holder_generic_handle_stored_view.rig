@@ -1,7 +1,7 @@
 # A generic type instanced at a shared handle to a type that holds a
 # Cell, viewed through a generic struct's stored `?T`: it holds no Cell
 # inline, so its views are `*const` in generic and concrete code alike,
-# and the Cell it reaches changes through them, in debug and in an
+# and the Cell it reaches is read through them, in debug and in an
 # optimized build.
 # release
 
@@ -16,7 +16,6 @@ struct R[T]
   r: ?T
 
 fun look(g: ?G[*C]) -> Int
-  g.h.c.set(g.h.c.get() + 1)
   g.h.c.get() + g.k
 
 sub main()
@@ -25,4 +24,4 @@ sub main()
   print(look(r.r))
 
 # expect:
-# 12
+# 11

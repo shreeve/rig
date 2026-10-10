@@ -54,7 +54,7 @@ sub move_capture()
 fun make_counter(start: Int) -> *fun(Int) -> Int
   count: *Cell[Int] = *Cell(start)
   *|+count, step|
-    count.set(count.get() + step)
+    !count.set(count.get() + step)
     count.get()
 
 sub owned_counter()
@@ -64,7 +64,7 @@ sub owned_counter()
 sub nested()
   total: *Cell[Int] = *Cell(0)
   add = |+total, k: Int|
-    step = |+total, +k| total.set(total.get() + k)
+    step = |+total, +k| !total.set(total.get() + k)
     step()
     step()
   add(3)

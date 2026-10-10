@@ -74,13 +74,13 @@ it weakly (`|~owner|`).
 ## How do I share mutable state?
 
 Put it in a `Cell` behind a shared handle: every holder can read and
-replace the value, and nobody gets an exclusive reference that others
-could invalidate.
+replace the value, a change is marked (`!hits.set(1)`), and nobody gets
+an exclusive reference that others could invalidate.
 
 ```rig
 sub main()
   hits: *Cell[Int] = *Cell(value: 0)
-  record = |+hits| hits.set(hits.get() + 1)
+  record = |+hits| !hits.set(hits.get() + 1)
   record()
   record()
   print(hits.get())

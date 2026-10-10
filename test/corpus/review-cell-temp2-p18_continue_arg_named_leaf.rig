@@ -8,8 +8,8 @@
 struct D
   c: Cell[Int]
 
-  sub hitn(?self, n: Int)
-    self.c.set(self.c.get() + n)
+  sub hitn(!self, n: Int)
+    !self.c.set(self.c.get() + n)
 
 fun mk(n: Int) -> D
   D(c: Cell(n))

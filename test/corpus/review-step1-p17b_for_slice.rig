@@ -3,7 +3,7 @@ struct Counter
 
 sub bump(s: []Counter)
   for k in s
-    k.hits.set(k.hits.get() + 1)
+    !k.hits.set(k.hits.get() + 1)
 
 sub main()
   a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]

@@ -1,0 +1,19 @@
+struct C
+  n: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(!self)
+    !self.n.set(self.n.get() + 1)
+    !self.log.push(self.n.get())
+
+struct S
+  h: *C
+
+sub main()
+  o: *C? = *C(n: Cell(0), log: Cell(Vec()))
+  if o as k
+    !k.hit()
+  if !o as k
+    !k.hit()
+  if o as z
+    print(z.n.get())

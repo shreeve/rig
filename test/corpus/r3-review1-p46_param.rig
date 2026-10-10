@@ -1,19 +1,19 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
-sub bump(c: ?Counter)
-  c.hits.set(c.hits.get() + 10)
+sub bump(c: !Counter)
+  !c.hits.set(c.hits.get() + 10)
 
 fun take(c: Counter) -> Int
-  c.hit()
-  bump(?c)
+  !c.hit()
+  bump(!c)
   c.hits.get()
 
 fun take2(c: Counter) -> Int
-  c.hits.set(5)
+  !c.hits.set(5)
   c.hits.get()
 
 sub main()

@@ -3,5 +3,5 @@ NAME = "rig"
 sub main()
   c: Cell[String] = Cell("a")
   s = NAME
-  c.set(s)
+  !c.set(s)
   print(c.get())

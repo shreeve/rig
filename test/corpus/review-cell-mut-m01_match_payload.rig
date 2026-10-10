@@ -4,9 +4,9 @@ struct C
   c: Cell[Int]
   log: Cell[Vec[Int]]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-    self.log.push(self.c.get())
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
+    !self.log.push(self.c.get())
 
 enum E
   has(x: C)
@@ -39,7 +39,7 @@ sub main()
       .has(x) => x.hit()
       _ => pass
     match !e
-      .has(x) => x.hit()
+      .has(x) => !x.hit()
       _ => pass
     s += score(?e) + (maybe(i) ?? continue)
   print(s)
@@ -53,7 +53,7 @@ sub main()
   print(score(?t))
   match <t
     .two(a, b)
-      a.hit()
+      !a.hit()
       print(a.c.get(), a.log.len, b)
     _ => pass
 
@@ -65,4 +65,3 @@ sub main()
 
 # oracle: C.hit accept
 # oracle: maybe accept
-# oracle: score accept

@@ -3,9 +3,9 @@ struct C
   c: Cell[Int]
   log: Cell[Vec[Int]]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-    self.log.push(self.c.get())
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
+    !self.log.push(self.c.get())
 
 fun mk(n: Int) -> C
   C(c: Cell(n), log: Cell(Vec()))
@@ -22,11 +22,11 @@ sub main()
     if ?o as y
       y.hit()
     if !o as y
-      y.hit()
+      !y.hit()
   if o as y
     print(y.c.get(), y.log.len)
   if <o as y
-    y.hit()
+    !y.hit()
     print(y.c.get(), y.log.len)
   if mko(10) as z
     z.hit()

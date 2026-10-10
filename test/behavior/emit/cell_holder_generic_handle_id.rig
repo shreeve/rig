@@ -1,15 +1,15 @@
 # A generic type instanced at a shared handle to a type that holds a
 # Cell, viewed through a generic function's `?T`: it holds no Cell
 # inline, so its views are `*const` in generic and concrete code alike,
-# and the Cell it reaches changes through them, in debug and in an
+# and the Cell it reaches is read through them, in debug and in an
 # optimized build.
 # release
 
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 struct G[T]
   h: T
@@ -19,7 +19,6 @@ fun id[T](x: ?T) -> ?T
   x
 
 fun look(g: ?G[*C]) -> Int
-  g.h.hit()
   g.h.c.get() + g.n
 
 sub main()
@@ -29,5 +28,5 @@ sub main()
   print(look(id(?g)))
 
 # expect:
-# 12
-# 13
+# 11
+# 11
