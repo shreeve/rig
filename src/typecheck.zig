@@ -71,6 +71,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.expected.deinit(ctx.allocator);
     defer c.value_tails.deinit(ctx.allocator);
     defer c.lend_of.deinit(ctx.allocator);
+    defer c.branch_lends.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
     defer c.read_subjects.deinit(ctx.allocator);
     defer c.loop_pairs.deinit(ctx.allocator);
@@ -202,6 +203,9 @@ const Checker = struct {
     expected: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
     value_tails: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     lend_of: std.AutoHashMapUnmanaged(parser.NodeId, ?Sexp) = .empty,
+    /// Whether each branch lent (`?(a if c else b)`, or a path from one)
+    /// may be (`lendsBranch`), decided once.
+    branch_lends: std.AutoHashMapUnmanaged(parser.NodeId, bool) = .empty,
     /// A loop element or `as` binding that copies from a place: the
     /// place, named when the binding is written (`checkBindingWritable`).
     copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
@@ -1734,7 +1738,7 @@ const Checker = struct {
         const through_view = sema.unwrapViews(self.ctx, ty) != ty;
         // A branch that reads a place holding a write view would copy the
         // write view out of it (`sema.headerCopiesWriteView`).
-        if (!self.isPoison(inner)) if (try sema.headerCopiesWriteView(self.ctx, expr)) |leaf| {
+        if (!self.isPoison(inner)) if (try sema.headerCopiesWriteView(self.ctx, headerSubject(expr).node, headerSubject(expr).lent)) |leaf| {
             try self.reportHeaderWriteViewCopy(leaf, .as);
             inner = self.t().invalid_id;
         };
@@ -1922,7 +1926,7 @@ const Checker = struct {
             self.outer_write_is_loop = saved_loop;
             // A branch that reads a place holding a write view would copy the
             // write view out of it (`sema.headerCopiesWriteView`).
-            if (mode != .move and !self.isPoison(source_ty)) if (try sema.headerCopiesWriteView(self.ctx, peeled_source)) |leaf| {
+            if (mode != .move and !self.isPoison(source_ty)) if (try sema.headerCopiesWriteView(self.ctx, headerSubject(peeled_source).node, mode == .read or mode == .write)) |leaf| {
                 try self.reportHeaderWriteViewCopy(leaf, .@"for");
                 elem_poisoned = true;
             };
@@ -2319,7 +2323,7 @@ const Checker = struct {
         }
         // A branch that reads a place holding a write view would copy the
         // write view out of it (`sema.headerCopiesWriteView`).
-        if (mode == .read and !self.isPoison(scrutinee)) if (try sema.headerCopiesWriteView(self.ctx, subject)) |leaf| {
+        if (mode != .consume and !self.isPoison(scrutinee)) if (try sema.headerCopiesWriteView(self.ctx, headerSubject(subject).node, headerSubject(subject).lent)) |leaf| {
             try self.reportHeaderWriteViewCopy(leaf, .match);
             scrutinee = self.t().invalid_id;
         };
@@ -2557,6 +2561,16 @@ const Checker = struct {
                 return null;
             } else return null;
         }
+    }
+
+    /// A header's subject without its sigil, and whether it had one
+    /// (`?S`, `!S`): the same for `match`, `if … as`, `while … as`, and
+    /// `for` (whose `?` and `!` are its mode).
+    const HeaderSubject = struct { node: Sexp, lent: bool };
+
+    fn headerSubject(e: Sexp) HeaderSubject {
+        if (e.isKind(.read) or e.isKind(.write)) return .{ .node = ir.get(e, .operand), .lent = true };
+        return .{ .node = e, .lent = false };
     }
 
     /// A header's branch reads `leaf`, a place holding a write view, and
@@ -4126,7 +4140,9 @@ const Checker = struct {
     fn synthLend(self: *Checker, e: Sexp, kind: LendKind) Error!TypeId {
         const operand = ir.get(e, .operand);
         try self.recordUse(operand, .lend);
-        if (rig.isRangeIndex(operand)) return self.lendSlice(operand, kind);
+        if (rig.isRangeIndex(operand)) {
+            return self.lendSlice(operand, kind);
+        }
         const saved_outer = self.outer_write;
         const saved_loop = self.outer_write_is_loop;
         defer {
@@ -4145,6 +4161,8 @@ const Checker = struct {
         else
             try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
+        // A branch is a value, never a place: lent only where it is made.
+        if (!try self.lendsBranch(operand, .nil, kind)) return self.t().invalid_id;
         // `?!x` only reads what `!x` lends.
         if (kind == .read and try self.writeLendRead(operand, inner, .lent_to_read)) return self.t().invalid_id;
         const place = self.placeOf(operand);
@@ -4195,6 +4213,80 @@ const Checker = struct {
             else => {},
         }
         return self.ctx.intern(if (kind == .read) Type{ .read_view = inner } else Type{ .write_view = inner });
+    }
+
+    /// Whether a lend (`?` or `!`, `kind`) of `operand` may stand, by a
+    /// positive list: an operand that is a branch (`a if c else b`,
+    /// `a ?? b`, `e catch h`, `e?`, `e!`), or a path of fields, elements,
+    /// and method calls from one (`?(a if c else b).e`), is lent only
+    /// where every leaf (`sema.valueLeaves`) is a value made there (a
+    /// call's result, a literal, a constructor), a constant, a lend
+    /// itself, or a jump.
+    /// A branch is a value, never a place: a lend of one with a leaf a
+    /// place holds would lend a copy of that leaf's value, a write view
+    /// included (Core §3, planned). Each branch is lent instead, which the
+    /// error writes out in `whole` (the operand, or the slice it is the
+    /// object of). Decided once per branch (`branch_lends`), so a lend
+    /// that asks again, as a slice's object does, reports nothing new.
+    /// False after reporting.
+    fn lendsBranch(self: *Checker, operand: Sexp, whole: Sexp, kind: LendKind) Error!bool {
+        const lent = lentBranch(operand);
+        if (lent == .nil) return true;
+        if (self.branch_lends.get(nodeId(lent))) |ok| return ok;
+        var leaves: std.ArrayList(Sexp) = .empty;
+        defer leaves.deinit(self.ctx.allocator);
+        try sema.valueLeaves(self.ctx.allocator, lent, &leaves);
+        var place: Sexp = .nil;
+        for (leaves.items) |leaf| switch (self.hands(leaf).kind) {
+            .made, .lend, .jump => {},
+            // A constant (`Color.red`) is a value no binding holds.
+            .place, .part_of_made, .branches, .none => if (!try self.isConstant(leaf)) {
+                place = leaf;
+                break;
+            },
+        };
+        try self.branch_lends.put(self.ctx.allocator, nodeId(lent), place == .nil);
+        if (place == .nil) return true;
+        const a = self.ctx.arena.allocator();
+        const sigil: u8 = if (kind == .write) '!' else '?';
+        const withs = try a.alloc([]const u8, leaves.items.len);
+        for (leaves.items, withs) |leaf, *w| w.* = switch (self.hands(leaf).kind) {
+            .made, .lend, .jump => self.sourceText(leaf),
+            else => try a.print("{c}{s}", .{ sigil, self.sourceText(leaf) }),
+        };
+        const to = if (kind == .write) " to write" else "";
+        // What `o?` unwraps is lent and unwrapped in a header instead.
+        const fix = if (self.unwrapped(place))
+            try a.print("lend what it unwraps, and unwrap it in a header: `if {c}{s} as x`", .{ sigil, self.sourceText(place) })
+        else if (whole != .nil or sameNode(operand, lent))
+            try a.print("lend each branch: `{s}`", .{try self.spliced(if (whole != .nil) whole else operand, leaves.items, withs)})
+        else
+            // A path keeps its lend, now through each branch's view.
+            try a.print("lend each branch: `{c}{s}`", .{ sigil, try self.spliced(operand, leaves.items, withs) });
+        if (self.hands(place).kind == .part_of_made) {
+            try self.errAt(lent, "cannot lend `{s}`{s}: it may be `{s}`, a part of the temporary `{s}`, which lending the branching value would copy; {s}", .{ self.sourceText(lent), to, self.sourceText(place), self.sourceText(self.placeOf(place).base), fix });
+        } else try self.errAt(lent, "cannot lend `{s}`{s}: it may be `{s}`, a value a name holds, which lending the branching value would copy; {s}", .{ self.sourceText(lent), to, self.sourceText(place), fix });
+        return false;
+    }
+
+    /// Whether `leaf` is the operand of a postfix `?` or `!` as written.
+    fn unwrapped(self: *Checker, leaf: Sexp) bool {
+        const end = self.ctx.span(leaf).end;
+        return end < self.ctx.source.len and (self.ctx.source[end] == '?' or self.ctx.source[end] == '!');
+    }
+
+    /// The branch lend operand `operand` is, or a path of fields,
+    /// elements, and method calls starts from; `.nil` for none.
+    fn lentBranch(operand: Sexp) Sexp {
+        var e = operand;
+        while (true) {
+            if (e.isKind(.member) or e.isKind(.index)) {
+                e = ir.get(e, .object);
+            } else if (e.isKind(.call) and ir.Call.callee(e).isKind(.member)) {
+                e = ir.Member.object(ir.Call.callee(e));
+            } else break;
+        }
+        return if (sema.isBranchingForm(e)) e else .nil;
     }
 
     /// `operand`, of type `inner` at `place`, lent to read, written `?e`
@@ -4277,13 +4369,7 @@ const Checker = struct {
     fn lendsToWrite(self: *Checker, operand: Sexp) Error!bool {
         if (!self.isTemporary(operand)) return true;
         const base = if (self.hands(operand).hasStorage()) self.placeOf(operand).base else operand;
-        if (self.namedLeaf(base)) |leaf| {
-            // A part of a temporary is no name's, but is copied the same.
-            if (self.hands(leaf).kind == .part_of_made) {
-                try self.errAt(base, "cannot lend `{s}` to write: it may be `{s}`, a part of the temporary `{s}`, which lending the branching value would copy; lend what each branch reaches instead (`!a if c else !b`, `if !o as x`)", .{ self.sourceText(base), self.sourceText(leaf), self.sourceText(self.placeOf(leaf).base) });
-            } else try self.errAt(base, "cannot lend `{s}` to write: it may be `{s}`, a value a name holds, which lending the branching value would copy; lend what each branch reaches instead (`!a if c else !b`, `if !o as x`)", .{ self.sourceText(base), self.sourceText(leaf) });
-            return false;
-        }
+        if (!try self.lendsBranch(operand, .nil, .write)) return false;
         try self.lendTemp(operand);
         if (base == .list) try self.ctx.recordWrittenTemp(base);
         return true;
@@ -4369,6 +4455,8 @@ const Checker = struct {
     fn lendSlice(self: *Checker, slice: Sexp, kind: LendKind) Error!TypeId {
         const ty = if (kind == .read) try self.synthSlice(slice, true) else try self.writeSlice(slice);
         try self.ctx.recordType(slice, ty);
+        // A slice of a branch lends each branch's elements.
+        if (!self.isPoison(ty) and !try self.lendsBranch(ir.Index.object(slice), slice, kind)) return self.t().invalid_id;
         return ty;
     }
 
@@ -4738,25 +4826,8 @@ const Checker = struct {
         const base = if (self.hands(operand).hasStorage()) self.placeOf(operand).base else operand;
         if (base != .list) return;
         const ty = self.ctx.typeOf(base) orelse return;
-        if (sema.moves(self.ctx, ty) == .yes or self.ctx.types.get(ty) == .write_view) if (self.namedLeaf(base)) |leaf| {
-            const held = if (self.placeOf(leaf).root == .temporary) "a part of a temporary" else "a value a name holds";
-            const fix = if (whole != .nil and sameNode(base, operand)) try self.eachLeafLent(whole, base) else "`?a if c else ?b`, `if ?o as x`";
-            try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, {s}, which lending the branching value would copy; lend what each branch reaches instead ({s})", .{ self.sourceText(base), self.sourceText(leaf), held, fix });
-            return;
-        };
+        if (sema.moves(self.ctx, ty) == .yes or self.ctx.types.get(ty) == .write_view) if (!try self.lendsBranch(operand, whole, .read)) return;
         try self.ctx.recordTempDrop(base);
-    }
-
-    /// `whole` as written, with each leaf of the branching `base` lent to
-    /// read where it stands: `(?a if c else ?b)[1..]`.
-    fn eachLeafLent(self: *Checker, whole: Sexp, base: Sexp) Error![]const u8 {
-        const a = self.ctx.arena.allocator();
-        var leaves: std.ArrayList(Sexp) = .empty;
-        defer leaves.deinit(self.ctx.allocator);
-        try sema.valueLeaves(self.ctx.allocator, base, &leaves);
-        const withs = try a.alloc([]const u8, leaves.items.len);
-        for (leaves.items, withs) |leaf, *w| w.* = try a.print("?{s}", .{self.sourceText(leaf)});
-        return a.print("`{s}`", .{try self.spliced(whole, leaves.items, withs)});
     }
 
     /// A leaf of `e` that is a value a name holds, where `e` hands over

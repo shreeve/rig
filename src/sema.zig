@@ -6396,15 +6396,17 @@ pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.E
 /// names, `match o?.w`, `for x in (h1.v if c else h2.v)`. A branch reads
 /// its leaves, so such a leaf would be a second writer that holds no loan
 /// on the place. A path through the branch reaches a part of that copy:
-/// one that copies (plain data) is copied out in the header, and only a
-/// part the header views (`copies` is `.no` or `.depends`) keeps the
-/// copy. Null for any other subject. The one decider, for `match`,
-/// `if … as`, `while … as`, and `for` alike.
-pub fn headerCopiesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!?Sexp {
+/// one that copies (plain data) is copied out in a bare header, and only
+/// a part the header views (`copies` is `.no` or `.depends`) keeps the
+/// copy; under a sigil (`lent`: `?S`, `!S`), the header views any part
+/// in place. Null for any other subject. `subject` is the header's
+/// subject without its sigil (`Checker.headerSubject`). The one decider,
+/// for `match`, `if … as`, `while … as`, and `for` alike.
+pub fn headerCopiesWriteView(ctx: *const SemContext, subject: Sexp, lent: bool) std.mem.Allocator.Error!?Sexp {
     const base = pathRoot(subject);
     if (!isBranchingForm(base)) return null;
     // A path through the branch: only a part the header views keeps it.
-    if (subject.isKind(.member) or subject.isKind(.index)) {
+    if (!lent and (subject.isKind(.member) or subject.isKind(.index))) {
         const ty = ctx.typeOf(subject) orelse return null;
         switch (copies(ctx, ty)) {
             .no, .depends => {},

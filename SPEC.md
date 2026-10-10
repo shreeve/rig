@@ -3444,9 +3444,10 @@ as a call's result or a struct literal, or a field or element of one,
 is kept in its statement's slot until the statement ends
 ([Temporaries](#temporaries)), where the change is seen, and a view of
 it may be used only within the statement. A branching value that may
-be a name's (`!(a if c else b)`) would be lent as a copy, which the
-change would miss, so it is rejected: lend each branch, `!a if c else
-!b`. A constant is no temporary, and is never lent to write (above).
+be a name's (`!(a if c else b)`), or a field, element, or method
+receiver reached through one (`!(a if c else b).w`), would be lent as a
+copy, which the change would miss, so it is rejected: lend each branch,
+`!a if c else !b`. A constant is no temporary, and is never lent to write (above).
 
 ```rig
 struct Wrap
@@ -4053,9 +4054,9 @@ Text first, because `kv` outlives the header. A value made there that
 would take it: a call's result, or a branching value whose every
 branch is made there (`make() if c else <a`). An arm of `match make()`
 may move a payload out. A lend of a
-branching value that may be a name's (`?(a if c else b)`) would copy
-that name's value, so it is rejected: lend each branch, `?a if c else
-?b`.
+branching value that may be a name's (`?(a if c else b)`), or of a
+path through one (`?(a if c else b).items`), would copy that name's
+value, so it is rejected: lend each branch, `?a if c else ?b`.
 
 ```rig
 use std.text
