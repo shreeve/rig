@@ -15,4 +15,3 @@ sub main()
   !w.push(1)
   print(w.len)
   print(v.len)
-

@@ -7,4 +7,3 @@ sub main()
   x = <h.w
   x += 1
   print(n)
-

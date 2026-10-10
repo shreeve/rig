@@ -14,4 +14,3 @@ sub main()
   s = S(k: WV(w: !n))
   print(s.k.into())
   print(s.k.into())
-
