@@ -1,0 +1,11 @@
+fun grow(c: !Cell[Vec[Int]]) -> In
+  for i in 0..200
+    !c.push(i)
+  7
+
+sub main()
+  c: *Cell[Vec[Int]] = *Cell(Vec())
+  !c.push(1)
+  d = +c
+  (!c)[0] = grow(!d)
+  print(c[0], c.len)

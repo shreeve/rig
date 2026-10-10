@@ -4621,9 +4621,13 @@ cannot lend to write through a read view `?Cell[Int]`
 A write view of a value that holds a Cell changes its Cells and nothing
 else, since the value lives only behind a handle and a handle's other
 fields only read: `swap` and `replace` do not exchange it whole. A
-handle held where it cannot be written (a field of a value another handle
-shares) is lent as what it holds, `!w.h` as a `!C`, never as a `!*C` that a
-callee could point elsewhere.
+handle is lent as itself, `!*C`, which a callee may point elsewhere, only
+where the handle may be written (an owned mutable local, a `!*C` parameter,
+a handle field of a write view); anywhere else (a `const`, a parameter that
+is not a `!` view, a capture, a field of a value another handle shares) `!h`
+lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
+hint is to pass `+h` for a handle of your own. A read view of a handle, or
+of a value that holds one, is not lent to write at all: `?` changes nothing.
 
 ```rig reject
 struct S

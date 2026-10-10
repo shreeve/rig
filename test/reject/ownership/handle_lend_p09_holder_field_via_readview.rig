@@ -1,0 +1,17 @@
+# A read view of a struct that holds a handle changes nothing the handle reaches.
+# (A handle is lent as itself, `!*T`, only where it may be written; the
+# review probe of that name.)
+
+struct S
+  h: *Cell[Int]
+
+sub f(s: ?S)
+  !s.h.set(4)
+
+sub main()
+  s = S(h: *Cell(1))
+  f(?s)
+  print(s.h.get())
+
+# error: 9:4: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate
+# errors: 1

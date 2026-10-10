@@ -1,0 +1,7 @@
+sub main()
+  c: *Cell[Vec[Int]] = *Cell(Vec())
+  !c.push(1)
+  d = +c
+  v = c.get()
+  !d.clear()
+  print(v.len)

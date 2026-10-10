@@ -15,15 +15,15 @@ struct G[T]
 fun id[T](x: ?T) -> ?T
   x
 
-fun look(g: ?G[C]) -> Int
+fun look(g: !G[C]) -> Int
   !g.h.hit()
   g.h.c.get() + g.n
 
 sub main()
   g = G(h: *C(c: Cell(1)), n: 10)
   r = id(?g)
-  print(look(r))
-  print(look(id(?g)))
+  print(look(!r))
+  print(look(!id(?g)))
 
 # expect:
 # 12
@@ -31,4 +31,3 @@ sub main()
 
 # oracle: C.hit accept
 # oracle: id accept
-# oracle: main accept

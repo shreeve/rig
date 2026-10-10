@@ -1,0 +1,13 @@
+sub f(a: *Cell[Int], v: ?Vec[*Cell[Int]])
+  b = *Cell(5)
+  old = replace(!a, *Cell(7))
+  for c in v
+    swap(!c, !b)
+  print(a.get(), old.get(), v[0].get())
+
+sub main()
+  const x = *Cell(1)
+  v = Vec[*Cell[Int]]()
+  !v.push(*Cell(2))
+  f(+x, ?v)
+  print(v[0].get())

@@ -1,0 +1,7 @@
+sub main()
+  s = *Signal(0)
+  c = *Cell(0)
+  !s.subscribe(*|+c| !c.set(c.get() + 1))
+  !s.set(1)
+  !s.set(2)
+  print(c.get())

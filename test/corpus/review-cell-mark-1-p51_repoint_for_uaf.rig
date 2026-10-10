@@ -1,0 +1,11 @@
+sub k(a: ?Cell[Vec[Int]], b: !*Cell[Vec[Int]])
+  b = *Cell(Vec[Int]())
+  print(a.len)
+
+sub main()
+  v = Vec[*Cell[Vec[Int]]]()
+  w: *Cell[Vec[Int]] = *Cell(Vec())
+  !w.push(1)
+  !v.push(<w)
+  for c in v
+    k(v[0], !c)

@@ -28,7 +28,7 @@ sub main()
   old = swap(!c, 5)
   print(old, c.get())
   r = ?c
-  !r.set(7)
+  !(+r).set(7)
   print(c.get())
 
   k = *Counter(hits: Cell(0), name: "k")

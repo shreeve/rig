@@ -1,0 +1,11 @@
+struct H
+  n: Cell[Int]
+
+  sub show(?self, other: !*H)
+    !other.n.set(5)
+    print(self.n.get())
+
+sub main()
+  h = *H(n: Cell(1))
+  g = +h
+  h.show(!g)

@@ -1,0 +1,10 @@
+sub main()
+  c: *Cell[Vec[Int]] = *Cell(Vec())
+  !c.push(1)
+  !c.push(2)
+  d = +c
+  for x in c
+    !d.push(x)
+    if d.len > 40
+      break
+  print(c.len)

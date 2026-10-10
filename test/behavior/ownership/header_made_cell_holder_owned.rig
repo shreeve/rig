@@ -37,12 +37,12 @@ sub loops()
   if <keep as c
     print(c.hits.get())
   for k in mkh().arr
-    !k.hit()
+    !(+k).hit()
     print(k.hits.get())
 
 sub ifs()
   if H(o: *Counter(hits: Cell(0)), arr: two()).o as c
-    !c.hit()
+    !(+c).hit()
     print(c.hits.get())
   if mkh().o as c
     !c.hits.set(20)

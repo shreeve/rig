@@ -1,0 +1,14 @@
+struct H
+  log: Cell[Vec[Int]]
+  items: Vec[Int]
+
+sub grow(v: !Vec[Int])
+  !v.push(1)
+
+sub f(x: !H)
+  grow(!x.items)
+
+sub main()
+  h = *H(log: Cell(Vec()), items: Vec())
+  f(!h)
+  print(h.items.len)

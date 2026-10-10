@@ -1,0 +1,14 @@
+# A `const` handle may not be pointed elsewhere, so `!c` lends only what it holds.
+# (A handle is lent as itself, `!*T`, only where it may be written; the
+# review probe of that name.)
+
+sub g(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub main()
+  const c: *Cell[Int] = *Cell(1)
+  g(!c)
+  print(c.get())
+
+# error: 10:5: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+c` to share a new handle, or lend the contents
+# errors: 1

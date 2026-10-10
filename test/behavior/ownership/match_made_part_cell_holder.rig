@@ -28,22 +28,22 @@ fun mk(n: Int) -> [1]E
 sub main()
   match H(e: E.a(c: *Counter(hits: Cell(0)))).e
     .a(c)
-      !c.hit()
+      !(+c).hit()
       print(c.hits.get())
     .b => pass
   match mkh(3).e
     .a(c)
-      !c.hit()
+      !(+c).hit()
       print(c.hits.get())
     .b => pass
   match [E.a(c: *Counter(hits: Cell(5))), E.b][0]
     .a(c)
-      !c.hit()
+      !(+c).hit()
       print(c.hits.get())
     .b => pass
   match mk(7)[0]
     .a(c)
-      !c.hit()
+      !(+c).hit()
       print(c.hits.get())
     .b => pass
   match H(e: E.a(c: *Counter(hits: Cell(0)))).e

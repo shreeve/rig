@@ -1,0 +1,13 @@
+struct I
+  n: Cell[Int]
+
+struct S
+  h: *I
+
+sub f(s: ?S)
+  !s.h.n.set(4)
+
+sub main()
+  s = S(h: *I(n: Cell(1)))
+  f(?s)
+  print(s.h.n.get())

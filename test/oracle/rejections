@@ -3950,3 +3950,6 @@ vec.write_held.ctor run
 vec.write_held.move run
 doc/SPEC/2197009321 keep
 test/reject/ownership/cell_mark_lends_the_handle.rig main
+test/corpus/review-cell-mark-1-p21_same_handle_twice.rig main
+test/corpus/review-cell-mark-1-p23_wv_holder_take.rig f
+test/corpus/review-cell-mark-1-p23_wv_holder_take.rig f

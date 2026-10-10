@@ -1,0 +1,17 @@
+struct H
+  log: Cell[Vec[String]]
+
+sub put(x: !H, s: String)
+  (!x.log)[0] = s
+
+sub put2(h: ?*H, s: String)
+  (!h.log)[0] = s
+
+sub main()
+  h = *H(log: Cell(Vec()))
+  !h.log.push("a")
+  if true
+    t = Text("abcdefghijklmnop")
+    put(!h, ?t[..3])
+    put2(?h, ?t[..4])
+  print(h.log[0])

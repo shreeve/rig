@@ -1,0 +1,10 @@
+struct H
+  n: Cell[Int]
+
+  sub peek(?self)
+    !self.n.set(9)
+
+sub main()
+  h = *H(n: Cell(0))
+  h.peek()
+  print(h.n.get())

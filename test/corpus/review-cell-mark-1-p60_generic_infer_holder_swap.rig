@@ -1,0 +1,23 @@
+struct H
+  n: Cell[Int]
+  items: Vec[Int]
+
+struct S
+  h: *H
+  tag: Cell[Int]
+
+sub sw[T](a: !T, b: !T)
+  swap(!a, !b)
+
+sub look(r: ?Vec[Int], s: ?S, t: ?S)
+  sw(!s.h, !t.h)
+  print(r.len)
+
+sub main()
+  v = Vec[Int]()
+  !v.push(1)
+  s = S(h: *H(n: Cell(1), items: <v), tag: Cell(0))
+  t = S(h: *H(n: Cell(2), items: Vec()), tag: Cell(0))
+  h2 = +s.h
+  look(?h2.items, ?s, ?t)
+  print(s.h.items.len)

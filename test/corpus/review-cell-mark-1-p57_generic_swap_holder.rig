@@ -1,0 +1,14 @@
+struct H
+  n: Cell[Int]
+  items: Vec[Int]
+
+sub sw[T](a: !T, b: !T)
+  swap(!a, !b)
+
+sub main()
+  v = Vec[Int]()
+  !v.push(1)
+  h = *H(n: Cell(1), items: <v)
+  g = *H(n: Cell(2), items: Vec())
+  sw[H](!h, !g)
+  print(h.items.len, g.items.len)

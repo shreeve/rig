@@ -1,0 +1,14 @@
+# `?` promises that nothing changes through it: a Cell behind a read view of a handle is not set.
+# (A handle is lent as itself, `!*T`, only where it may be written; the
+# review probe of that name.)
+
+sub f(h: ?*Cell[Int])
+  !h.set(5)
+
+sub main()
+  c = *Cell(1)
+  f(?c)
+  print(c.get())
+
+# error: 6:4: cannot lend to write through a read view `?*Cell[Int]`; take a write view, or share a handle of your own with `+h`
+# errors: 1

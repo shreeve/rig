@@ -3,7 +3,7 @@ struct Clicker
   name: String
   counter: *Cell[Int]
 
-  sub click(?self)
+  sub click(!self)
     !self.counter.set(self.counter.get() + 1)
     print(self.name, "clicked; total now", self.counter.get())
 
@@ -11,7 +11,7 @@ sub main()
   counter = *Cell(0)
   left = Clicker(name: "left", counter: +counter)
   right = Clicker(name: "right", counter: +counter)
-  left.click()
-  right.click()
-  right.click()
+  !left.click()
+  !right.click()
+  !right.click()
   print("total clicks:", counter.get())

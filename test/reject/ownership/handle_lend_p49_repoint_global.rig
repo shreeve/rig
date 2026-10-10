@@ -1,0 +1,17 @@
+# A module-level handle is read-only here, so `!c` lends only what it holds.
+# (A handle is lent as itself, `!*T`, only where it may be written; the
+# review probe of that name.)
+
+sub g(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub main()
+  c = *Cell(1)
+  if true
+    const d = +c
+    g(!d)
+    print(d.get())
+  print(c.get())
+
+# error: 12:7: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+d` to share a new handle, or lend the contents
+# errors: 1

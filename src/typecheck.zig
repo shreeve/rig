@@ -133,6 +133,9 @@ const Checker = struct {
     /// The `!x` being checked where a write view is expected, the one
     /// place a write view of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
+    /// Whether a lend of a handle that changes by a marked call skips the
+    /// writability checks (`handleWritable` turns it off).
+    handle_exempt: bool = true,
     /// The receiver of the method call being checked, while it is typed.
     receiver_obj: Sexp = .nil,
     /// A call whose value a `!` written before it lends to write, with
@@ -1251,6 +1254,9 @@ const Checker = struct {
         /// path's end and the shared handle it crosses (or its base, if
         /// it crosses none).
         leaf_blocked: bool = false,
+        /// A read view of something other than a handle stands on the path:
+        /// nothing changes through it, a Cell behind a handle included.
+        view_blocked: bool = false,
         /// The path crosses a shared handle (`sema.accessThroughShared`).
         crossed: bool = false,
 
@@ -1300,7 +1306,10 @@ const Checker = struct {
                     place.block(.read_view, self.startOf(p));
                     // A view of a handle views the handle, not what it
                     // reaches.
-                    if (!crossed and self.ctx.types.get(viewed) != .shared) place.leaf_blocked = true;
+                    if (self.ctx.types.get(viewed) != .shared) {
+                        place.leaf_blocked = true;
+                        place.view_blocked = true;
+                    }
                 },
                 // A write view of a value that holds a Cell views shared
                 // storage, which only its Cells and Signals change in
@@ -1367,11 +1376,26 @@ const Checker = struct {
         return self.lendsHandle(place) or (place.crossed and self.lendsMarked(place));
     }
 
+    /// Whether the handle `place` names may be written where it stands,
+    /// so that a lend of it may be the handle's own: `requireAccess` with
+    /// no exemption for a handle that changes by a marked call.
+    fn handleWritable(self: *Checker, place: Place, operand: Sexp) bool {
+        const mark = self.ctx.diagnostics.items.len;
+        const saved = self.handle_exempt;
+        self.handle_exempt = false;
+        defer self.handle_exempt = saved;
+        self.ctx.quiet += 1;
+        defer self.ctx.quiet -= 1;
+        const ok = self.requireAccess(place, .lend_write, operand) catch false;
+        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        return ok;
+    }
+
     /// Whether `place` is a handle that changes by a marked call
     /// (`sema.changesByMark`), which `!` lends without writing the handle.
     fn lendsHandle(self: *Checker, place: Place) bool {
         const ty = self.ctx.typeOf(place.node) orelse return false;
-        return self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .shared and sema.changesByMark(self.ctx, ty);
+        return !place.view_blocked and self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .shared and sema.changesByMark(self.ctx, ty);
     }
 
     /// Whether `place` may be used as `access` asks. Nothing is written
@@ -1387,11 +1411,11 @@ const Checker = struct {
             // A handle that changes by a marked call is lent, wherever it
             // is held: the lend writes neither the slice nor the view that
             // holds the handle, nor what it reaches.
-            if (access == .lend_write and self.lendsHandle(place)) return true;
+            if (access == .lend_write and self.handle_exempt and self.lendsHandle(place)) return true;
             switch (b.why) {
                 // A Cell or a Signal changes through the handle by a
                 // marked call, a lend to write.
-                .shared, .read_view => if (access == .lend_write and self.lendsMarked(place)) {
+                .shared, .read_view => if (access == .lend_write and (self.handle_exempt or !self.lendsHandle(place)) and self.lendsMarked(place)) {
                     return true;
                 } else if (b.why == .read_view) {
                     const hint = try self.readMatchHint(place.sym);
@@ -1427,7 +1451,7 @@ const Checker = struct {
         if (place.indirect) return true;
         // A handle that changes by a marked call is lent, not rebound,
         // so the binding that holds it need not be writable.
-        if (access == .lend_write and place.steps == 0 and self.lendsHandle(place)) return true;
+        if (access == .lend_write and self.handle_exempt and place.steps == 0 and self.lendsHandle(place)) return true;
         return self.requireBinding(place, access);
     }
 
@@ -4285,12 +4309,9 @@ const Checker = struct {
             try self.errAt(operand, "cannot lend a `{s}` to write: its elements are read-only; take a writable slice of the array or Vec it views with `!xs[a..b]`", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
-        // A read view of a handle that changes by a marked call is lent to
-        // write as the handle is: the view is not written, the handle it
-        // views is lent.
-        const handle_view = kind == .write and self.lendsHandle(place);
-        if (kind == .write and self.ctx.types.get(inner) == .read_view and !handle_view) {
-            try self.errAt(operand, "cannot lend to write through a read view `{s}`{s}", .{ try self.tyName(inner), try self.readMatchHint(place.sym) });
+        if (kind == .write and self.ctx.types.get(inner) == .read_view) {
+            const handle_hint: []const u8 = if (self.lendsHandle(place)) "; take a write view, or share a handle of your own with `+h`" else "";
+            try self.errAt(operand, "cannot lend to write through a read view `{s}`{s}{s}", .{ try self.tyName(inner), try self.readMatchHint(place.sym), handle_hint });
             return self.t().invalid_id;
         }
         // Where only the binding may not be written, the view keeps its
@@ -4298,12 +4319,11 @@ const Checker = struct {
         if (kind == .write and !try self.requireAccess(place, .lend_write, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
         if (kind == .read) try self.lendsToRead(operand);
         if (kind == .write and !try self.lendsToWrite(operand)) return self.t().invalid_id;
-        // A handle that cannot be written where it stands (it is a field of
-        // a value a handle shares, an element of a slice, or held by a read
-        // view) is lent, except as a receiver, only as what it holds: the
-        // lend is that value's write view, never the handle's own, which a
-        // callee could point elsewhere.
-        if (kind == .write and place.blocked != null and self.lendsHandle(place) and !sameNode(e, self.receiver_obj)) {
+        // `!c` lends the handle itself, which a callee may point elsewhere,
+        // only where `c` may be written (`handleWritable`, the one fact
+        // `requireAccess` decides). Anywhere else, and as a receiver never
+        // matters, it lends what the handle holds: that value's write view.
+        if (kind == .write and self.lendsHandle(place) and !sameNode(e, self.receiver_obj) and !self.handleWritable(place, operand)) {
             const handle = sema.unwrapViews(self.ctx, inner);
             const view = try self.ctx.intern(.{ .write_view = self.ctx.types.get(handle).shared });
             if (sema.lendsAs(self.ctx, handle, .write, view)) |lend| try self.ctx.recordLend(e, lend);
@@ -4311,7 +4331,7 @@ const Checker = struct {
         }
         switch (self.ctx.types.get(inner)) {
             // (A write view of a `?T` was rejected above.)
-            .read_view => |base| return if (handle_view) self.ctx.intern(.{ .write_view = base }) else inner,
+            .read_view => return inner,
             .write_view => |base| {
                 return if (kind == .write) inner else self.ctx.intern(.{ .read_view = base });
             },
@@ -8925,6 +8945,14 @@ const Checker = struct {
     }
 
     fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
+        // `!c` of a handle that may not be written here lends what it holds
+        // (`synthLend`), which a `!*T` parameter cannot take.
+        if (e.isKind(.write)) if (self.ctx.types.get(expected) == .write_view and self.ctx.types.get(actual) == .write_view) {
+            const want = self.ctx.types.get(expected).write_view;
+            if (self.ctx.types.get(want) == .shared and self.ctx.types.get(want).shared == self.ctx.types.get(actual).write_view) {
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`: this handle is read-only here; pass `+{s}` to share a new handle, or lend the contents", .{ try self.tyName(expected), try self.tyName(actual), self.sourceText(ir.Write.operand(e)) });
+            }
+        };
         // `?p.m()` reads `p`; where a view of the call's result is
         // expected, the view goes around the call.
         if (e.isKind(.call) and self.ctx.types.get(expected) == .read_view and compatible(self.ctx, actual, sema.unwrapViews(self.ctx, expected))) {

@@ -35,7 +35,7 @@ sub main()
     .b => pass
   arr = [*Counter(hits: Cell(0))]
   for k in arr
-    touch(!k)
+    touch(!(+k))
     g = |?k| k.hits.get()
     print(g())
 

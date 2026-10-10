@@ -1,0 +1,20 @@
+enum E
+  a(c: *Cell[Vec[Int]])
+  b
+
+sub g(x: !*Cell[Vec[Int]])
+  x = *Cell(Vec[Int]())
+
+sub k(r: ?Cell[Vec[Int]], e: ?E)
+  match e
+    .a(c) => g(!c)
+    .b => print("b")
+  print(r.len)
+
+sub main()
+  w: *Cell[Vec[Int]] = *Cell(Vec())
+  !w.push(1)
+  e = E.a(c: <w)
+  match ?e
+    .a(c) => k(c, ?e)
+    .b => print("b")

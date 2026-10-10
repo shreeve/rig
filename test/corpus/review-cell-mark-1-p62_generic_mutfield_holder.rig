@@ -1,0 +1,13 @@
+struct H
+  n: Cell[Int]
+  k: In
+
+struct S
+  h: *H
+
+sub bumpk[T](a: !T)
+  print(1)
+
+sub main()
+  s = *S(h: *H(n: Cell(1), k: 0))
+  bumpk(!s.h)

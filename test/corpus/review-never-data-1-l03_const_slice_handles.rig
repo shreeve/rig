@@ -1,7 +1,7 @@
 struct D
   c: *Cell[Int]
 
-sub bump(s: []*Cell[Int], ds: []D, v: ?Vec[*Cell[Int]])
+sub bump(s: []*Cell[Int], ds: []D, v: !Vec[*Cell[Int]])
   !s[0].set(s[0].get() + 1)
   !ds[0].c.set(ds[0].c.get() + 10)
   !v[0].set(v[0].get() + 100)

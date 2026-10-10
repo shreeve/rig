@@ -1,0 +1,9 @@
+sub g(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub main()
+  o: *Cell[Int]? = *Cell(1)
+  if o as c
+    g(!c)
+  if o as d
+    print(d.get())

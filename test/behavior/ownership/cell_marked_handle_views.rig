@@ -49,7 +49,7 @@ sub main()
   hs: Vec[*C] = Vec()
   !hs.push(+a)
   !hs.push(+b)
-  for x in ?hs
+  for x in !hs
     !x.hit()
   print(a.hits.get(), b.hits.get())
 

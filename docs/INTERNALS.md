@@ -1300,11 +1300,12 @@ has a case for a Cell: a view of `c` held across the mark conflicts, and a
 view of another handle does not. A write view of a value that holds a Cell
 reaches shared storage, so `placeOf` blocks every write through it but a
 lend of a Cell or Signal (`requireAccess`), and `swap` and `replace` refuse
-a place that holds a Cell whole. A handle that cannot be written where it
-stands (a field of a value a handle shares, an element of a slice, held
-by a read view) is lent as the value it holds, `!w.h` as a `!C` whose
-lend row is `handle`, never as a `!*C` a callee could point elsewhere
-(`synthLend`). A read view changes nothing, so a read view of a Cell
+a place that holds a Cell whole. `!c` of a handle lends the handle itself, `!*C`, only where
+`c` may be written (`handleWritable`: `requireAccess` with the handle
+exemption off, the one fact); anywhere else it lends the value it holds,
+a `!C` whose lend row is `handle`, never a `!*C` a callee could point
+elsewhere (`synthLend`). A read view of a handle, or a read view on the
+path to one, is never lent to write. A read view changes nothing, so a read view of a Cell
 holder is a `*const T` in the emitted Zig.
 
 Sema's job includes everything emit cannot lower: a construct the

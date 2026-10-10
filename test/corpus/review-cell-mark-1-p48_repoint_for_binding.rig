@@ -1,0 +1,9 @@
+sub g(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub main()
+  v = Vec[*Cell[Int]]()
+  !v.push(*Cell(1))
+  for c in v
+    g(!c)
+  print(v[0].get())

@@ -1,0 +1,10 @@
+struct S
+  h: *Cell[Int]
+
+sub f(s: ?S)
+  !s.h.set(4)
+
+sub main()
+  s = S(h: *Cell(1))
+  f(?s)
+  print(s.h.get())

@@ -11,7 +11,7 @@ struct P
   fun me(?self) -> ?P
     self
 
-  fun tick(?self) -> Int
+  fun tick(!self) -> Int
     !self.c.set(self.c.get() + 1)
     self.c.get()
 
@@ -46,7 +46,7 @@ sub main()
   print((mk("b") if f(0) == 0 else mk("c")).pick(y: f(1), x: f(2)))
   print(mk("dd").size(y: f(1), x: f(2)))
   print(mkh().p.me().n, clobber(5))
-  print(mkh().p.me().t, mkh().p.tick())
+  print(mkh().p.me().t, (!mkh().p).tick())
 
 # expect:
 # a

@@ -1,0 +1,18 @@
+# A read loop binds a read view of a handle: nothing is lent to write through it.
+# (A handle is lent as itself, `!*T`, only where it may be written; the
+# review probe of that name.)
+
+sub k(a: ?Cell[Vec[Int]], b: !*Cell[Vec[Int]])
+  b = *Cell(Vec[Int]())
+  print(a.len)
+
+sub main()
+  v = Vec[*Cell[Vec[Int]]]()
+  w: *Cell[Vec[Int]] = *Cell(Vec())
+  !w.push(1)
+  !v.push(<w)
+  for c in v
+    k(v[0], !c)
+
+# error: 15:14: cannot lend to write through a read view `?*Cell[Vec[Int]]`; take a write view, or share a handle of your own with `+h`
+# errors: 1

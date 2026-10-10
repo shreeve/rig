@@ -8,7 +8,7 @@ struct Counter
   sub watch(!self, f: *sub(Int))
     !self.watchers.push(<f)
 
-  sub bump(?self)
+  sub bump(!self)
     !self.value.set(self.value.get() + 1)
     for w in ?self.watchers
       w(self.value.get())
@@ -19,9 +19,9 @@ sub main()
   c = Counter(value: *Cell(0), watchers: Vec())
   !c.watch(*|+log, n| !log.push(n))
   !c.watch(*|+doubled, n| !doubled.push(n * 2))
-  c.bump()
-  c.bump()
-  c.bump()
+  !c.bump()
+  !c.bump()
+  !c.bump()
   print(log.len, log[0], log[2], (!doubled).pop(), doubled.len)
 
 # expect:

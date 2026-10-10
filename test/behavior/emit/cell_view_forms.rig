@@ -55,7 +55,7 @@ sub main()
   for i in 0..4
     if find(!v, i) as x
       !x.hit()
-    for y in ?v
+    for y in !v
       !y.hit()
       break if i == 3
   print(v[0].c.get(), v[1].c.get())

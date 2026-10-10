@@ -1,0 +1,13 @@
+struct S
+  h: *Cell[Int]
+
+sub g(x: !*Cell[Int])
+  x = *Cell(9)
+
+sub f(s: ?S)
+  g(!s.h)
+
+sub main()
+  s = S(h: *Cell(1))
+  f(?s)
+  print(s.h.get())
