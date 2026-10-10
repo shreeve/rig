@@ -2083,8 +2083,8 @@ pub const Checker = struct {
         _ = try self.movePayload(id, node.src.pos, "move");
     }
 
-    /// A place whose value holds a write view (`w`, `e.t`, a struct
-    /// with a `!T` field): passing it on lends that view.
+    /// A place whose value holds a write view (`w`, or a `(!T)?` name;
+    /// no field or element holds one): passing it on lends that view.
     fn isWriteViewPlace(self: *Checker, expr: Sexp) bool {
         if (!self.carriesWriteView(self.exprType(expr))) return false;
         return switch (self.hands(expr).kind) {
@@ -3125,25 +3125,6 @@ pub const Checker = struct {
                     if (self.owningKind(ty)) |k| {
                         return self.reportAlias(self.startOf(expr), try self.placeText(expr), if (expr.isKind(.index)) .element else .field, k, sink, ty, expr);
                     }
-                    // A field or element that is a write view of a Copy
-                    // value reads the value where its context reads it,
-                    // as a bare write-view name does.
-                    if (sink != .argument and self.carriesWriteView(ty) and !self.readsThroughWriteView(ty)) {
-                        const shown = try self.placeText(expr);
-                        // A binding typed `!T`, or of a view of a value
-                        // that does not copy: say how to read the value,
-                        // or lend the view on.
-                        if (self.binding) |*b| if (b.value == .list and expr == .list and b.value.list.ptr == expr.list.ptr and self.refOfType(ty) == .write) {
-                            b.rejected = true;
-                            const src = self.spanText(expr);
-                            if (self.copiedThrough(ty)) {
-                                try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = {s}` to read its value, or `{s} = !{s}` to lend the view on", .{ src, b.name, src, b.name, src });
-                            } else try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = !{s}` to lend the view on", .{ src, b.name, src });
-                            return;
-                        };
-                        const stays = if (expr.isKind(.index)) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
-                        try self.errAt(expr, "bare use of `{s}` in {s} would copy a write view; {s}", .{ shown, sink.text(), stays });
-                    }
                 },
                 // A value that is one of its parts (`sema.valueParts`):
                 // a tail it returns moves out, like a bare return; an
@@ -3647,10 +3628,6 @@ pub const Checker = struct {
             return;
         }
         if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
-        // A value stored through a `!T` field or element lands in what
-        // the field views, which `v` holds a write loan on.
-        const through = if (self.sema) |ctx| ctx.writesThrough(target) else false;
-        if (through) return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, self.placeDepth(target, true));
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
         if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
         if (v.ref != .none or place.through_view or place.through_shared or self.isGlobal(id)) {
@@ -4134,8 +4111,7 @@ pub const Checker = struct {
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         const ty = self.exprType(leaf) orelse return;
         if (!sema.readByAddress(ctx, ty)) return;
-        const kind: LoanKind = if (sema.holdsCellByValue(ctx, sema.unwrapViews(ctx, ty))) .write else .read;
-        try self.addTemp(.{ .root = place.root, .kind = kind, .pos = self.startOf(leaf), .held_read = reader });
+        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(leaf), .held_read = reader });
     }
 
     /// Walk `earlier`, then `later` while what `earlier` reads in place is

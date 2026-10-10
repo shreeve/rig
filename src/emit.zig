@@ -1541,11 +1541,7 @@ pub const Emitter = struct {
     /// The value and the target's indices are evaluated first
     /// (`openAssign`).
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
-        // A field or element holding a write view is written through
-        // when it is given a value, not another write view (sema
-        // decides); the place is then the value it views.
-        const through = self.facts.writesThrough(target);
-        const place_ty = if (through) self.peelViews(self.typeOf(target).?) else self.typeOf(target);
+        const place_ty = self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             const order = try self.openAssign(target, value, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
@@ -1556,7 +1552,7 @@ pub const Emitter = struct {
             try self.w.writeAll(");");
             return self.closeAssign(order);
         };
-        if (target != .src and self.isPtrViewExpr(target) and !through) {
+        if (target != .src and self.isPtrViewExpr(target)) {
             // A field or element holding a write view is rebound.
             const order = try self.openAssign(target, value, null, .view);
             // An element is reached as the slot it is.
@@ -2890,7 +2886,7 @@ pub const Emitter = struct {
             // field it views (`?F`) or reads in place.
             const addr = try self.need(self.facts.bindsByAddress(b), b);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
-            try self.line("const {s} = {s}{s}.{f}.{f}{s};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name), if (self.facts.payloadReadsThroughWrite(b)) ".*" else "" });
+            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
         }
     }
 
@@ -2936,9 +2932,8 @@ pub const Emitter = struct {
     /// `payload` itself when `field` is empty (`&place` for the whole
     /// value of a `match !x`); `addr` takes the field's address, for a
     /// `match !x` binding that writes it.
-    /// `addr`: the binding points at the field; `deref`: it copies the
-    /// value the field's write view points at (`payloadReadsThroughWrite`).
-    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, deref: bool = false };
+    /// `addr`: the binding points at the field.
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false };
 
     /// A part of a value a `match <x` arm owns: a field, or the whole
     /// payload or value.
@@ -3050,7 +3045,7 @@ pub const Emitter = struct {
             const addr = try self.need(self.facts.bindsByAddress(c), c);
             const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .deref = self.facts.payloadReadsThroughWrite(c) });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });
         }
         return out.items;
     }
@@ -3069,7 +3064,7 @@ pub const Emitter = struct {
         for (prelude.aliases) |a| {
             if (a.field.len == 0) {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
-            } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field), if (a.deref) ".*" else "" });
+            } else try self.line("const {s} = {s}{s}.{f};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field) });
         }
         for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
         for (prelude.owned) |o| {
@@ -4547,9 +4542,8 @@ pub const Emitter = struct {
     /// is, `(if (o) |*v| v else &d)`, walked as `storage.leafStep` says. A
     /// place is reached where it is, a value kept in its statement's slot
     /// there, and a jump leaves. Any other value made here is a Zig
-    /// temporary of the expression, which may be constant: one whose type
-    /// holds a Cell is kept in its slot (`storage.madeLeaves`), since a
-    /// change may land in it.
+    /// temporary of the expression, which may be constant: nothing
+    /// changes it (a Cell lives only behind a shared handle).
     fn emitLeafPtr(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
         switch (self.facts.leafStep(e) orelse return self.unsupported(e, "a value reached by address that no checker walked")) {
             .@"if" => {

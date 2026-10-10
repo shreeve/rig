@@ -691,9 +691,6 @@ pub const Facts = struct {
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
-    /// Field and element assignment targets that write through the `!T`
-    /// the place holds (`SemContext.recordThroughWrite`).
-    through_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Header nodes (`match`, `for`, `as`) emitted over a copy of their
     /// subject: the subject makes a statement temporary, reaches no
     /// place, and the construct does not own what it binds
@@ -2000,16 +1997,6 @@ pub const SemContext = struct {
 
     pub fn takes(self: *const SemContext, node: Sexp) bool {
         return self.facts.takes.contains(nodeKey(node) orelse return false);
-    }
-
-    /// `node`, the target of `p.f = v` or `p.f op= v`, writes the value
-    /// the `!T` it holds views rather than pointing it elsewhere.
-    pub fn recordThroughWrite(self: *SemContext, node: Sexp) !void {
-        try self.facts.through_writes.put(self.allocator, recordKey(node), {});
-    }
-
-    pub fn writesThrough(self: *const SemContext, node: Sexp) bool {
-        return self.facts.through_writes.contains(nodeKey(node) orelse return false);
     }
 
     /// Header `node` (a `match`, `for`, or `as`) is evaluated in a block
@@ -7561,17 +7548,11 @@ test "origins: a view reached through a read view is that view's" {
         \\  items: ?Vec[Item]
         \\  scratch: Vec[Item]
         \\
-        \\struct Writer
-        \\  items: ![]Item
-        \\
         \\struct Cut
         \\  before: String
         \\
         \\struct Keeps
         \\  t: ?Text
-        \\
-        \\struct Edits
-        \\  t: !Text
         \\
         \\struct Shared
         \\  item: *Item
@@ -7595,7 +7576,6 @@ test "origins: a view reached through a read view is that view's" {
     }.of;
     const item = ty(&r, "Item");
     const view = try r.ctx.intern(.{ .read_view = item });
-    const write = try r.ctx.intern(.{ .write_view = item });
     const string = r.ctx.types.string_id;
     const reach = struct {
         fn of(run: *FactsRun, al: std.mem.Allocator, h: TypeId, v: TypeId) !ViewReach {
@@ -7605,14 +7585,12 @@ test "origins: a view reached through a read view is that view's" {
     const al = arena.allocator();
     try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Cursor"), view));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Owner"), view));
-    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Writer"), write));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, item, view));
     try std.testing.expectEqual(ViewReach.none, try reach(&r, al, r.ctx.types.int_id, view));
     try std.testing.expectEqual(ViewReach.none, try reach(&r, al, string, view));
     try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Cut"), string));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, r.ctx.types.text_id, string));
     try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Keeps"), string));
-    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Edits"), string));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Shared"), view));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Boxed"), view));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Maybe"), view));
@@ -7785,9 +7763,6 @@ test "type facts: moves, copies, cloneable" {
         \\struct V
         \\  p: ?P
         \\
-        \\struct W
-        \\  p: !P
-        \\
         \\struct Wrap[T]
         \\  item: T
         \\
@@ -7797,13 +7772,14 @@ test "type facts: moves, copies, cloneable" {
     const ty = &ctx.types;
     const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
     const v = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "V").? });
-    const w = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "W").? });
     const t = try ctx.intern(.{ .type_var = r.sym("T", 0).? });
     const vec_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{ty.int_id} } });
     const wrap_t = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{t} } });
     const wrap_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{ty.int_id} } });
     const read_p = try ctx.intern(.{ .read_view = p });
     const write_p = try ctx.intern(.{ .write_view = p });
+    // A value that holds a write view: an optional one, `(!P)?`.
+    const w = try ctx.intern(.{ .optional = write_p });
     const shared_p = try ctx.intern(.{ .shared = p });
     const weak_p = try ctx.intern(.{ .weak = p });
     const opt_shared = try ctx.intern(.{ .optional = shared_p });

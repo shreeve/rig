@@ -383,9 +383,8 @@ fn decideReachesLeaf(ctx: *const SemContext, e: Sexp) bool {
 
 /// How emit finds the address of `e`, a value reached where its leaves
 /// are (`reachesLeaf`), or of one of its leaves: one step of the walk
-/// `Emitter.emitLeafPtr` writes, which the storage planner and
-/// `madeLeaves` follow, so the checker keeps exactly the values emit
-/// reaches. Inside such a value every branching form is walked to its
+/// `Emitter.emitLeafPtr` writes, which the storage planner follows.
+/// Inside such a value every branching form is walked to its
 /// parts (`sema.valueParts`), as `sema.valueLeaves` walks a read, also
 /// one whose every leaf is made here.
 pub const LeafStep = enum {
@@ -400,7 +399,7 @@ pub const LeafStep = enum {
     /// A place: its address.
     place,
     /// A field or element of a value made here: its address within that
-    /// value, which is reached as a value is (`madeLeaves`).
+    /// value, which is reached as a value is.
     part,
     /// A lend: the view it makes.
     lend,
@@ -441,51 +440,6 @@ fn wholeStep(ctx: *const SemContext, e: Sexp) LeafStep {
         .jump => .jump,
         .made, .branches, .none => if (e == .src) .literal else .made,
     };
-}
-
-/// The values made here that reaching `e` by address reaches, appended
-/// to `out`: a value that branches with a leaf not made here
-/// (`sema.handsOver` is `branches`) at each of its leaves, walked by
-/// `leafStep`; any other value whole, as one temporary. A part of a
-/// value made here (`mk().t`) reaches that value, the same way. Emit
-/// takes the address of each such value where its statement's slot
-/// keeps it (`dropsTemp`), and otherwise of a Zig temporary, which may
-/// be constant, so nothing may change it: typecheck keeps each in its
-/// slot wherever a value whose type holds a Cell is reached so
-/// (`Checker.keepReached`), and emit stops with an internal error at one
-/// no slot keeps (`Emitter.refuseHeldCell`).
-pub fn madeLeaves(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    const step = if (sema.handsOver(ctx, e).kind == .branches) leafStep(ctx, e) else wholeStep(ctx, e);
-    switch (step) {
-        .@"if", .fallback, .unwrap => {
-            var parts = sema.valueParts(e);
-            while (parts.next()) |part| try madeLeavesIn(ctx, a, part.node, out);
-        },
-        .made => try out.append(a, e),
-        .part => try madeLeaves(ctx, a, pathBase(e), out),
-        .place, .lend, .literal, .jump => {},
-    }
-}
-
-/// `madeLeaves` of `e`, a part of a value that branches beside a name's:
-/// every branching form is walked through (`leafStep`).
-fn madeLeavesIn(ctx: *const SemContext, a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    switch (leafStep(ctx, e)) {
-        .@"if", .fallback, .unwrap => {
-            var parts = sema.valueParts(e);
-            while (parts.next()) |part| try madeLeavesIn(ctx, a, part.node, out);
-        },
-        .made => try out.append(a, e),
-        .part => try madeLeaves(ctx, a, pathBase(e), out),
-        .place, .lend, .literal, .jump => {},
-    }
-}
-
-/// The value the field or element path `e` starts from.
-fn pathBase(e: Sexp) Sexp {
-    var base = e;
-    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
-    return base;
 }
 
 /// Whether a header over `e` (a `match` subject, a `for` source, an
@@ -1416,11 +1370,9 @@ const Planner = struct {
     /// An assignment to a field or element (`emitPlaceAssign`).
     fn placeAssign(p: *Planner, target: Sexp, value: Sexp) !void {
         const ctx = p.ctx;
-        const through = ctx.writesThrough(target);
-        const target_ty = typeOf(ctx, target);
-        const place_ty = if (through) sema.unwrapViews(ctx, target_ty.?) else target_ty;
+        const place_ty = typeOf(ctx, target);
         if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellVecTy(ctx, t)) return p.openAssign(target, value);
-        if (target != .src and isPtrViewExpr(ctx, target) and !through) return p.openAssign(target, value);
+        if (target != .src and isPtrViewExpr(ctx, target)) return p.openAssign(target, value);
         if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(target, value);
         try p.record(value, .new_value, .owned, .assignment);
         if (actsBeforeStore(target, value)) try p.indexes(target);

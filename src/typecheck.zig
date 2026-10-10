@@ -1076,26 +1076,8 @@ const Checker = struct {
             }
             return self.checkExpr(rhs, place_ty);
         }
-        // A field or element holding a `!T` is written through when it is
-        // given a `T` (or a compound assignment), as a `!T` binding is;
-        // given a `!T`, it is pointed elsewhere. (A `![]T` views elements
-        // it does not own, and is never written whole.)
-        const through = sema.assignWritesThrough(self.ctx, place_ty) and sema.writeSliceElem(self.ctx, place_ty) == null and
-            (kind.operator() != null or !try self.handsOverWriteView(rhs));
-        if (!try self.requireAccess(place, if (through) .write_through else .assign, target)) {
+        if (!try self.requireAccess(place, .assign, target)) {
             _ = try self.synthExpr(rhs);
-            return;
-        }
-        if (through) {
-            try self.ctx.recordThroughWrite(target);
-            const inner = sema.unwrapViews(self.ctx, place_ty);
-            if (kind.operator() != null) return self.checkCompound(kind, inner, rhs, self.startOf(target), "this place has type");
-            const before = self.ctx.diagnostics.items.len;
-            try self.checkExpr(rhs, inner);
-            if (self.ctx.diagnostics.items.len > before and std.mem.startsWith(u8, self.ctx.diagnostics.items[before].message, "type mismatch")) {
-                const shown = try self.plainText(target);
-                try self.noteAt(target, "`{s} = v` writes the `{s}` that `{s}` views; `{s} = !m` points `{s}` at another place", .{ shown, try self.tyName(inner), shown, shown, shown });
-            }
             return;
         }
         // Assigning an element drops the value it held, as assigning a
@@ -1157,9 +1139,6 @@ const Checker = struct {
         lend_write,
         write_iterate,
         take,
-        lend_on,
-        pass_write,
-        write_through,
 
         /// How a diagnostic names the access: "cannot {head} <object>{tail}".
         fn verb(a: Access) Verb {
@@ -1168,8 +1147,6 @@ const Checker = struct {
                 .lend_write => Verb.lend_to_write,
                 .write_iterate => .{ .head = "write-iterate" },
                 .take => .{ .head = "take" },
-                .lend_on, .pass_write => .{ .head = "lend" },
-                .write_through => .{ .head = "write through" },
             };
         }
     };
@@ -1337,48 +1314,33 @@ const Checker = struct {
     /// from must be one that may change (`requireBinding`). A diagnostic
     /// with no better position is at `at`. False after a diagnostic.
     fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
-        // A name or value passed where a `!T` goes is the view itself.
-        if (access == .pass_write and place.steps == 0) return true;
         const verb = access.verb();
         if (place.blocked) |b| {
-            if (access == .lend_on or access == .pass_write or access == .write_through) switch (b.why) {
-                .shared => try self.errAt(at, "cannot {s} the write view held here: it is reached through a shared handle (`*T`), and other handles reach the same write view", .{verb.head}),
-                .read_view => try self.err(b.pos, "cannot {s} the write view held here: it is reached through a read view (`?T`), and other views may reach the same write view", .{verb.head}),
-                .slice, .string, .len => try self.err(b.pos, "cannot {s} the write view held here: it is reached through {s}", .{ verb.head, switch (b.why) {
-                    .slice => "a slice (`[]T`), which is read-only",
-                    .string => "a String, which is read-only",
-                    else => "`.len`, which is read-only",
-                } }),
-            } else {
-                const through: Verb = if (access == .assign) .{ .head = "assign" } else verb;
-                switch (b.why) {
-                    // A Cell reached through the handle changes in place.
-                    .shared => if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
-                        const shown = try self.plainText(place.node);
-                        try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
-                    } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{ through.head, through.tail }),
-                    .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only{s}", .{ through.head, through.tail, try self.readMatchHint(place.sym) }),
-                    .string => try self.err(b.pos, "cannot {s} a byte of a String{s}; a String is read-only", .{ verb.head, verb.tail }),
-                    .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
-                    .read_view => {
-                        const hint = try self.readMatchHint(place.sym);
-                        if (hint.len > 0) {
-                            try self.err(b.pos, "cannot {s}{s} through a read view (`?T`){s}", .{ through.head, through.tail, hint });
-                        } else try self.err(b.pos, "cannot {s}{s} through a read view (`?T`); take a write view (`!T`) to mutate", .{ through.head, through.tail });
-                    },
-                }
+            const through: Verb = if (access == .assign) .{ .head = "assign" } else verb;
+            switch (b.why) {
+                // A Cell reached through the handle changes in place.
+                .shared => if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
+                    const shown = try self.plainText(place.node);
+                    try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
+                } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{ through.head, through.tail }),
+                .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only{s}", .{ through.head, through.tail, try self.readMatchHint(place.sym) }),
+                .string => try self.err(b.pos, "cannot {s} a byte of a String{s}; a String is read-only", .{ verb.head, verb.tail }),
+                .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
+                .read_view => {
+                    const hint = try self.readMatchHint(place.sym);
+                    if (hint.len > 0) {
+                        try self.err(b.pos, "cannot {s}{s} through a read view (`?T`){s}", .{ through.head, through.tail, hint });
+                    } else try self.err(b.pos, "cannot {s}{s} through a read view (`?T`); take a write view (`!T`) to mutate", .{ through.head, through.tail });
+                },
             }
             return false;
         }
-        // Passed on, the place's value moves or copies; what it does with
-        // the write view is the ownership checker's.
-        if (access == .pass_write) return true;
         if (place.root == .temporary) {
             switch (access) {
                 // `!` lends any value to write: the temporary is held in
                 // its statement's slot (`lendsToWrite`).
-                .lend_write, .lend_on => return true,
-                .assign, .write_through => try self.errAt(at, "cannot assign to a field or element of a temporary; bind the value first (`t = ...`), then assign to `t`", .{}),
+                .lend_write => return true,
+                .assign => try self.errAt(at, "cannot assign to a field or element of a temporary; bind the value first (`t = ...`), then assign to `t`", .{}),
                 .take => try self.errAt(at, "cannot take out of a temporary: nothing would see it emptied; bind it to a name first", .{}),
                 else => try self.errAt(at, "cannot {s}{s} a temporary; bind it to a name first", .{ access.verb().head, access.verb().tail }),
             }
@@ -1401,8 +1363,6 @@ const Checker = struct {
         const name = sym.name;
         const root = place.root;
         const verb: Verb = switch (access) {
-            .lend_on => Verb.lend_to_write,
-            .write_through => .{ .head = "assign to" },
             else => access.verb(),
         };
         const pos = place.pos;
@@ -2121,31 +2081,12 @@ const Checker = struct {
         return self.viewOfAccess(access, elem);
     }
 
-    /// Whether a loop over elements that hold a write view, which a
-    /// binding would copy or view again, is rejected (reported): unless
-    /// the loop takes them (`for x in <xs`), it loops over the indices,
-    /// or writes through a view held whole with `for x in !xs`.
-    fn loopHoldsWriteView(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId, mode: ?Tag) Error!bool {
-        if (mode == .move) return false;
-        const pos = self.startOf(source);
-        if (self.ctx.types.get(elem) == .write_view) {
-            const shown = try self.plainText(inner_source);
-            try self.err(pos, "each element of `{s}` is a write view, which a loop binding cannot hold; loop over the indices and write `{s}[i]`", .{ shown, shown });
-            return true;
-        }
-        if (mode != .write and sema.holdsWriteView(self.ctx, elem)) {
-            try self.err(pos, "each element holds a write view, which a loop binding would copy; write through them with `for x in !xs`", .{});
-        }
-        return false;
-    }
-
     fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, source_ty: TypeId, mode: ?Tag) Error!TypeId {
         const pos = self.startOf(source);
         if (self.isPoison(source_ty)) return self.t().invalid_id;
         const peeled = sema.unwrapViews(self.ctx, source_ty);
         switch (self.ctx.types.get(peeled)) {
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
-                if (try self.loopHoldsWriteView(source, inner_source, elem, mode)) return self.t().invalid_id;
                 // Elements that move (handles and boxes) are walked by
                 // view; every other element is plain data.
                 const is_resource = sema.moves(self.ctx, elem) == .yes;
@@ -2175,7 +2116,6 @@ const Checker = struct {
                 return self.loopElement(.read, elem);
             },
             .array => |a| {
-                if (try self.loopHoldsWriteView(source, inner_source, a.elem, mode)) return self.t().invalid_id;
                 if (mode == .write) return self.writeElement(source, inner_source, a.elem);
                 if (mode != .move) return self.readElement(pos, a.elem);
                 return self.loopElement(.take, a.elem);
@@ -4208,12 +4148,9 @@ const Checker = struct {
             try self.errAt(operand, "cannot lend to write through a read view `{s}`{s}", .{ try self.tyName(inner), try self.readMatchHint(place.sym) });
             return self.t().invalid_id;
         }
-        // `!e.t` of a write view held in a field lends that view: it
-        // writes what `e.t` points to, not `e`.
         // Where only the binding may not be written, the view keeps its
         // type, so what it is lent to is checked too.
-        const lends = self.ctx.types.get(inner) == .write_view and place.steps > 0;
-        if (kind == .write and !try self.requireAccess(place, if (lends) .lend_on else .lend_write, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
+        if (kind == .write and !try self.requireAccess(place, .lend_write, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
         if (kind == .read) try self.lendsToRead(operand);
         if (kind == .write and !try self.lendsToWrite(operand)) return self.t().invalid_id;
         switch (self.ctx.types.get(inner)) {
@@ -6535,16 +6472,13 @@ const Checker = struct {
         try self.checkLendsVisibly(arg, f.params[i], "the call writes through");
     }
 
-    /// A write view a binding or field holds is lent on to a `!T`
-    /// visibly, `!w`, as an owned value is: the receiver of the lent
-    /// view writes through it. (A read view is lent on bare.)
+    /// A write view a binding holds is lent on to a `!T` visibly, `!w`,
+    /// as an owned value is: the receiver of the lent view writes through
+    /// it. (A read view is lent on bare.)
     fn checkLendsVisibly(self: *Checker, arg: Sexp, expected: TypeId, what: []const u8) Error!void {
-        if (self.ctx.types.get(expected) != .write_view) return;
-        if (arg != .src and !arg.isKind(.member) and !arg.isKind(.index)) return;
+        if (self.ctx.types.get(expected) != .write_view or arg != .src) return;
         const ty = self.ctx.typeOf(arg) orelse return;
         if (self.ctx.types.get(ty) != .write_view) return;
-        // Where `!` could not lend it either, say what would.
-        if (arg != .src and !try self.requireAccess(self.placeOf(arg), .lend_on, arg)) return;
         const src = self.sourceText(arg);
         try self.errAt(arg, "write `!{s}`: {s} `{s}`", .{ src, what, src });
     }
@@ -8554,7 +8488,6 @@ const Checker = struct {
         }
         if (compatible(self.ctx, actual, expected)) {
             try self.recordAdapted(e, actual, expected);
-            if (sema.holdsWriteView(self.ctx, expected)) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
             return;
         }
         // Failing is written: an error value meets a `T!` only as the
@@ -8664,7 +8597,6 @@ const Checker = struct {
             if (!view) return false;
             // A Text made here is a temporary its statement drops.
             if (lend.has(.text) and e.isKind(.read) and !self.placeOf(ir.Read.operand(e)).named()) try self.lendTemp(ir.Read.operand(e));
-            if (self.ctx.types.get(expected) == .write_view) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
             // A lend written here of an array's or a Text's own elements
             // is the view it makes.
             if (e.isKind(.read) or e.isKind(.write)) for (lend.steps()) |step| switch (step) {
@@ -11960,6 +11892,50 @@ test "check: every read of a view as a value is decided by writeLendRead" {
     // Every pass after type checking reads the fact; none records it.
     for ([_][]const u8{ @embedFile("emit.zig"), @embedFile("ownership.zig"), @embedFile("storage.zig"), @embedFile("resolve.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, needle));
+    }
+}
+
+test "check: where a Cell and a write view stand, and a branch lent in place, are each decided once" {
+    // Where a Cell and a write view may stand is one decider in sema,
+    // `misplaced` (its write-view half, `writeViewMisplaced`, needs no
+    // contents, so a type is rejected where it is written). Type
+    // resolution asks it of every spelled type through `misplacedAt`,
+    // typecheck of each generic instance's arguments, and of an array
+    // literal's element; no other pass asks it.
+    const sema_src = @embedFile("sema.zig");
+    const tc = @embedFile("typecheck.zig");
+    const res = @embedFile("resolve.zig");
+    try std.testing.expectEqual(1, std.mem.count(u8, sema_src, "pub fn " ++ "misplaced("));
+    try std.testing.expectEqual(1, std.mem.count(u8, tc, "sema." ++ "misplaced("));
+    try std.testing.expectEqual(1, std.mem.count(u8, res, "sema." ++ "misplaced("));
+    try std.testing.expectEqual(1, std.mem.count(u8, tc, "sema." ++ "writeViewMisplaced("));
+    try std.testing.expectEqual(1, std.mem.count(u8, res, "sema." ++ "writeViewMisplaced("));
+    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+        try std.testing.expectEqual(0, std.mem.count(u8, other, "sema." ++ "misplaced("));
+        try std.testing.expectEqual(0, std.mem.count(u8, other, "sema." ++ "writeViewMisplaced("));
+    }
+    // A value holding a Cell is made only at a home (`cellMadeAway`),
+    // asked of every expression typed (`synthExpr`, `checkExpr`).
+    try std.testing.expectEqual(2, std.mem.count(u8, tc, "self." ++ "cellMadeAway("));
+    // Every lend of a branch, written or in place, asks `lendsBranch`:
+    // a sigil, a slice, a write lend of a temporary, a temporary lent
+    // to read, a header's subject, and a view a context takes in place.
+    const call = "self." ++ "lendsBranch(";
+    var from: usize = 0;
+    for ([_][]const u8{ "headerLendsBranch", "synthLend", "lendsToWrite", "lendSlice", "lendTempIn", "checkExpr" }) |want| {
+        from = std.mem.indexOfPos(u8, tc, from, call).?;
+        const fn_at = std.mem.lastIndexOf(u8, tc[0..from], "    fn ").?;
+        const got = tc[fn_at + "    fn ".len .. fn_at + std.mem.indexOfScalar(u8, tc[fn_at..], '(').?];
+        try std.testing.expectEqualStrings(want, got);
+        from += call.len;
+    }
+    try std.testing.expect(std.mem.indexOfPos(u8, tc, from, call) == null);
+    // What a Cell kept by value needed is gone: no per-instance
+    // interior mutability, Cell temporaries, or write through a field.
+    for ([_][]const u8{ "interior" ++ "Mutable", "ReadPtr" ++ "(", "lendsCell" ++ "Temp", "refuseHeld" ++ "Cell", "payloadReads" ++ "ThroughWrite", "headerCopies" ++ "WriteView" }) |gone| {
+        for ([_][]const u8{ sema_src, tc, res, @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("runtime.zig") }) |src| {
+            try std.testing.expectEqual(0, std.mem.count(u8, src, gone));
+        }
     }
 }
 
