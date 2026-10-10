@@ -1,0 +1,15 @@
+struct P
+  x: Int
+  y: Int
+
+fun keep[T](x: T) -> *Cell[Vec[T]]
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  *Cell(<xs)
+
+sub main()
+  b = Box(P(x: 7, y: 8))
+  c = keep(?b)
+  <b
+  old = (!c).replace(Vec())
+  print(old[0].x)

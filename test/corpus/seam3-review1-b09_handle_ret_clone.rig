@@ -1,0 +1,11 @@
+fun share(v: ?Vec[Int]) -> *Box[?Vec[Int]]
+  *Box(v)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = share(?v)
+  h2 = +h
+  <h
+  <v
+  print(h2.len)

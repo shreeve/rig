@@ -1,0 +1,14 @@
+enum E[T]
+  some(x: T)
+  nothing
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = E.some(x: Box(?v))
+  match e
+    .some(b)
+      <v
+      print(b.len)
+    .nothing
+      print(0)

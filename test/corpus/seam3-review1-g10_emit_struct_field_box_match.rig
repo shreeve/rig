@@ -1,0 +1,19 @@
+enum Shape
+  circle(r: Int)
+  sq(s: Int)
+
+struct W
+  b: Box[?Shape]
+
+sub main()
+  s = Shape.sq(s: 2)
+  w = W(b: Box(?s))
+  match w.b
+    .circle(r)
+      print("c", r)
+    .sq(x)
+      print("s", x)
+  t = Text("q")
+  ws: Vec[Box[?Text]] = Vec()
+  !ws.push(Box(?t))
+  print(ws[0].len, ws[0])

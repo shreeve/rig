@@ -1,0 +1,9 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h: *Vec[?Vec[Int]] = *Vec()
+  h2 = +h
+  !h.push(?v)
+  <h
+  !v.push(2)
+  print(h2[0].len)

@@ -1,0 +1,12 @@
+struct Keep[T]
+  c: *Cell[T]
+
+fun mk[T](x: T) -> Keep[T]
+  Keep(c: *Cell(x))
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = mk(?v)
+  <v
+  print(k.c.get().len)

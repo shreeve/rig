@@ -1,0 +1,15 @@
+struct Hold[T]
+  v: T
+
+fun share(v: ?Vec[Int]) -> *Hold[?Vec[Int]]
+  *Hold(v: v)
+
+sub main()
+  hs: Vec[*Hold[?Vec[Int]]] = Vec()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = share(?v)
+  !hs.push(+h)
+  <h
+  <v
+  print(hs[0].v.len)

@@ -1,0 +1,12 @@
+struct Hold[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  r = Hold(v: ?v).get()
+  !v.push(2)
+  print(r.len)

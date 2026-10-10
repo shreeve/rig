@@ -1,0 +1,10 @@
+fun pick(a: ?Vec[Int], b: ?Vec[Int]) -> Box[?Vec[Int]]
+  Box(b)
+
+sub main()
+  a: Vec[Int] = Vec()
+  c: Vec[Int] = Vec()
+  !c.push(1)
+  b = pick(?a, ?c)
+  !c.push(2)
+  print(b.len)

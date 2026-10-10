@@ -1887,8 +1887,10 @@ imported. `checkInstantiations` then rejects an instance whose argument
 there owns a resource, with a note at the copy, an instance whose
 argument holds a write view (a write view is never stored in a value),
 and an instance whose argument may view something (a read view, a slice,
-a String) where the body stores a `T` in a Cell, a Signal, or an owned
-closure, which carry no loan (`checkViews`). A call site sees the
+a String) where the body stores a value that reaches a `T`, at any depth
+(`sema.reachedTypeVars`: through `Vec`, arrays, optionals, `*`, `~`,
+`Box`, and every argument of a generic instance), in a Cell, a Signal,
+or an owned closure, which carry no loan (`checkViews`). A call site sees the
 instance's signature, so moves, lends, and the loans a result carries
 are checked there with the real types.
 

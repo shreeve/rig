@@ -1,0 +1,6 @@
+sub main()
+  t = Text("hello")
+  b = Box(?t)
+  print(b.len, b[0..2], b)
+  bb = Box(Box(?t))
+  print(bb.len, bb)

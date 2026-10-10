@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+fun f(b: ?Box[?P]) -> Int
+  b.x
+
+fun g(b: Box[?P]) -> Int
+  b.x
+
+sub main()
+  p = P(x: 4)
+  b = Box(?p)
+  print(f(?b), g(<b))

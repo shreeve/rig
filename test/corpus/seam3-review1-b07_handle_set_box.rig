@@ -1,0 +1,13 @@
+struct Holder
+  b: Box[?Vec[Int]]?
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h: *Holder = *Holder(b: none)
+  h2 = +h
+  !h.b = Box(?v)
+  <h
+  !v.push(2)
+  if h2.b as b
+    print(b.len)

@@ -1,0 +1,12 @@
+struct Hold[T]
+  v: T
+
+fun mk[T](x: T) -> *fun() -> T
+  *|<x| x
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  f = mk(?v)
+  <v
+  print(f().len)

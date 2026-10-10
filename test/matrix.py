@@ -1771,6 +1771,43 @@ def holder_program(oname, fname, change, then):
 
 
 
+# A generic body that puts its `T` inside another value, at any depth,
+# and stores that where no loan is tracked (`nest.`): an instance at a
+# view of an owner, or a String, is rejected, so nothing reads the owner
+# after it ends.
+NEST_WRAPPERS = {
+    "vec": dict(ty="Vec[T]", build=["w: Vec[T] = Vec()", "!w.push(x)"]),
+    "hold": dict(ty="Hold[T]", build=["w = Hold(v: x)"]),
+    "shared": dict(ty="*Hold[T]", build=["w = *Hold(v: x)"]),
+    "weak": dict(ty="~Hold[T]", build=["h = *Hold(v: x)", "w = ~h"]),
+    "optional": dict(ty="T?", build=["w: T? = x"]),
+    "box": dict(ty="Box[T]", build=["w = Box(x)"]),
+    "vecbox": dict(ty="Vec[Box[T]]", build=["w: Vec[Box[T]] = Vec()", "!w.push(Box(x))"]),
+    "bare": dict(ty="T", build=["w = x"]),
+}
+NEST_HOMES = ("cell", "closure")
+NEST_OWNERS = {
+    "box": dict(make="b = Box(Text(\"hello\"))", arg="?b"),
+    "text": dict(make="b = Text(\"hello\")", arg="?b[..]"),
+    "vec": dict(make="b: Vec[Int] = Vec()", arg="?b"),
+    "string": dict(make="b = \"lit\"", arg="b"),
+}
+
+
+def nest_program(wname, home, oname):
+    w = NEST_WRAPPERS[wname]
+    o = NEST_OWNERS[oname]
+    if home == "cell":
+        ret, last = f"*Cell[{w['ty']}]", "*Cell(<w)"
+    else:
+        ret, last = "*sub()", "*|<w| print(1)"
+    body = list(w["build"]) + [last]
+    return "\n".join([
+        "struct Hold[T]\n  v: T\n",
+        f"fun mk[T](x: T) -> {ret}\n{indent(body, 2)}\n",
+        "sub main()\n" + indent([o["make"], f"f = mk({o['arg']})", "print(1)"], 2) + "\n"])
+
+
 def indent(lines, n):
     return "\n".join(" " * n + l for l in lines)
 
@@ -2220,6 +2257,17 @@ def main():
                     expects[ident] = expect
                     if then == "done":
                         release.add(ident)
+    for wname in NEST_WRAPPERS:
+        for home in NEST_HOMES:
+            for oname in NEST_OWNERS:
+                ident = f"nest.{wname}.{home}.{oname}"
+                if not wanted(ident):
+                    continue
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(nest_program(wname, home, oname))
+                cells.append((ident, path))
+                expects[ident] = "(rejected)\n"
     for bname in LENDW_BINDINGS:
         for t in LENDW_TYPES:
             for lname in LENDW_TYPES[t]["lends"]:

@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main()
+  p = P(x: 4)
+  b: Box[(?P)?] = Box(?p)
+  if b.value as q
+    print(q.x)

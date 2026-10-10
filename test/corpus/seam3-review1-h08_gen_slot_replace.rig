@@ -1,0 +1,16 @@
+struct Slot[T]
+  x: T
+
+  fun swap(!self, n: T) -> T
+    old = <self.x
+    self.x = n
+    old
+
+sub main()
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  !a.push(1)
+  s = Slot(x: ?b)
+  old = (!s).swap(?a)
+  <a
+  print(s.x.len, old.len)

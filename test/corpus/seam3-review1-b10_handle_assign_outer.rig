@@ -1,0 +1,8 @@
+sub main()
+  outer: *Box[?Vec[Int]]? = none
+  if true
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    outer = *Box(?v)
+  if outer as o
+    print(o.len)

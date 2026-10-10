@@ -1,0 +1,8 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = *Box(?v)
+  h2 = +h
+  <h
+  !v.push(2)
+  print(h2.len)

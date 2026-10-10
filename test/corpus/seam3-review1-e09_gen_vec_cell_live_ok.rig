@@ -1,0 +1,10 @@
+fun keep[T](x: T) -> *Cell[Vec[T]]
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  *Cell(<xs)
+
+sub main()
+  t = Text("hello")
+  c = keep(?t)
+  old = (!c).replace(Vec())
+  print(old[0])

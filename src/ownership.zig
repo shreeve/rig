@@ -3212,7 +3212,10 @@ pub const Checker = struct {
     fn addRequirement(self: *Checker, pos: u32, ty: TypeId, req: PlainRequirement) Error!void {
         const ctx = self.sema orelse return;
         var held: std.ArrayList(SymbolId) = .empty;
-        try sema.heldTypeVars(ctx, ty, &held, self.arena());
+        // A value stored where no loan is tracked carries the loans of
+        // every `T` it reaches, however deep; a copy or cleanup
+        // requirement is about what it holds by value.
+        if (req.view) try sema.reachedTypeVars(ctx, ty, &held, self.arena()) else try sema.heldTypeVars(ctx, ty, &held, self.arena());
         for (held.items) |param| {
             for (self.plain_reqs.items) |r| {
                 if (r.param == param and r.pos == pos and r.view == req.view) break;

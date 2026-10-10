@@ -1,0 +1,11 @@
+fun mk[T](x: T) -> *fun() -> String
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  *|<xs| "{xs[0]}"
+
+sub main()
+  t = Text("hello world")
+  f = mk(?t)
+  <t
+  u = Text("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(f(), u)

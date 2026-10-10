@@ -1,0 +1,12 @@
+sub stash[T](c: *Cell[Vec[T]], x: T)
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  _ = (!c).replace(<xs)
+
+sub main()
+  c: *Cell[Vec[?Box[Text]]] = *Cell(Vec())
+  b = Box(Text("hello"))
+  stash(+c, ?b)
+  <b
+  old = (!c).replace(Vec())
+  print(old[0])

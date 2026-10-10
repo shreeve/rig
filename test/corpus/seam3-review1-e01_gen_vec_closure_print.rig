@@ -1,0 +1,10 @@
+fun mk[T](x: T) -> *sub()
+  xs: Vec[T] = Vec()
+  !xs.push(x)
+  *|<xs| print(xs[0])
+
+sub main()
+  t = Text("hello")
+  f = mk(?t)
+  <t
+  f()

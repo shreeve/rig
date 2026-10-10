@@ -1,0 +1,8 @@
+fun mk[T](x: T) -> *fun() -> Int
+  *|<x| 1
+
+sub main()
+  v: Vec[Int] = Vec()
+  f = mk(?v)
+  <v
+  print(f())

@@ -1,0 +1,14 @@
+struct Slot[T]
+  x: T?
+
+  sub set(!self, x: T)
+    self.x = x
+
+sub main()
+  s: Slot[?Vec[Int]] = Slot(x: none)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !s.set(?v)
+  <v
+  if s.x as y
+    print(y.len)

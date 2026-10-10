@@ -1,0 +1,10 @@
+fun same[T](x: T) -> T
+  x
+
+fun mk() -> Box[?Vec[Int]]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  Box(same(?v))
+
+sub main()
+  print(mk().len)
