@@ -1,0 +1,7 @@
+sub main()
+  t = Text("local")
+  b = Box(?t[..])
+  print(b)
+  x = 5
+  bi = Box(?x)
+  print(bi)

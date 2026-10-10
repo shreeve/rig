@@ -1,0 +1,35 @@
+# A value that holds a read view keeps the viewed owner lent while the
+# value is used: a box, a generic function's result, an optional, and a
+# generic struct, each of a Vec. The owner can be neither written nor
+# moved nor dropped until the last use of the holder.
+
+struct Hold[T]
+  v: T
+
+fun same[T](x: T) -> T
+  x
+
+sub main()
+  a: Vec[Int] = Vec()
+  b = Box(?a)
+  !a.push(1)
+  print(b.len)
+  c: Vec[Int] = Vec()
+  r = same(?c)
+  d = <c
+  print(r.len, d.len)
+  e: Vec[Int] = Vec()
+  o: (?Vec[Int])? = ?e
+  !e.push(1)
+  if o as w
+    print(w.len)
+  f: Vec[Int] = Vec()
+  h = Hold(v: ?f)
+  <f
+  print(h.v.len)
+
+# error: 15:3: cannot lend `a` to write while a read loan is live
+# error: 19:8: cannot move `c` while a read loan is live
+# error: 23:3: cannot lend `e` to write while a read loan is live
+# error: 28:4: cannot drop `f` while it is lent
+# errors: 4

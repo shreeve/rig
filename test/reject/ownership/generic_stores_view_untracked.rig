@@ -1,0 +1,13 @@
+# A generic body that stores its `T` in an owned closure's capture, where
+# loans are not followed, cannot be instantiated with a view of an owner:
+# the viewed value could change or end under the closure.
+
+fun later[T](x: T) -> *sub()
+  *|+x| print(x)
+
+sub main()
+  v: Vec[Int] = Vec()
+  f = later(?v)
+  f()
+
+# error: 10:7: `later[?Vec[Int]]` cannot use `T = ?Vec[Int]`

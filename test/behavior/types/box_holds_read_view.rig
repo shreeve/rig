@@ -1,0 +1,36 @@
+# A box holds a read view, of an owner too: `Box(?v)` keeps `v` lent
+# while the box is used, and the box reaches the viewed value as a
+# view reaches it.
+
+struct Point
+  x: Int
+  y: Int
+
+fun size(b: ?Box[?Vec[Int]]) -> Int
+  b.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  b = Box(?v)
+  print(b.len, size(?b))
+  p = Point(x: 3, y: 4)
+  bp = Box(?p)
+  print(bp.x + bp.y)
+  t = Text("hello")
+  bt = Box(?t)
+  print(bt.len, bt)
+  both = Box(<b)
+  print(both.len)
+  boxes: Vec[Box[?Vec[Int]]] = Vec()
+  !boxes.push(Box(?v))
+  !boxes.push(Box(?v))
+  print(boxes[0].len + boxes[1].len)
+
+# expect:
+# 2 2
+# 7
+# 5 hello
+# 2
+# 4

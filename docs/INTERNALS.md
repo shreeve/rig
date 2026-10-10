@@ -1877,18 +1877,33 @@ Types come from the facts table; an unknown type is assumed to be able
 to hold a view, which keeps the checker sound after errors.
 
 **Generic bodies** are walked once, with each type parameter's values
-treated as owning (moved, dropped, never copied implicitly) and as
-holding no `?T`, `!T`, or slice. A body that copies a `T`, or takes (moves, drops,
-reassigns) a loop element of generic type from a collection the loop
-does not consume, records that in `plain_reqs`, with its position.
-After the module is checked they are kept in its
-`SemContext.plain_reqs`, where importers read them for the proxies of
-its parameters, and an importer's checker adds those it imported.
-`checkInstantiations` then rejects an instance whose argument there
-owns a resource, with a note at the copy, and a type argument that
-holds a `?T`, `!T`, or slice, for a generic function and for a generic type with
-methods. A call site sees the instance's signature, so moves, lends,
-and the loans a result carries are checked there with the real types.
+treated as owning (moved, dropped, never copied implicitly). A body that
+copies a `T`, or takes (moves, drops, reassigns) a loop element of
+generic type from a collection the loop does not consume, records that
+in `plain_reqs`, with its position. After the module is checked they
+are kept in its `SemContext.plain_reqs`, where importers read them for
+the proxies of its parameters, and an importer's checker adds those it
+imported. `checkInstantiations` then rejects an instance whose argument
+there owns a resource, with a note at the copy, an instance whose
+argument holds a write view (a write view is never stored in a value),
+and an instance whose argument may view something (a read view, a slice,
+a String) where the body stores a `T` in a Cell, a Signal, or an owned
+closure, which carry no loan (`checkViews`). A call site sees the
+instance's signature, so moves, lends, and the loans a result carries
+are checked there with the real types.
+
+**A holder of a read view.** A `Box`, an optional, a generic function's
+`T`, and a generic struct's field or `T` hold a read view as a `Vec`
+element does, by one rule: a value whose type may hold a view
+(`sema.mayHoldView`) carries the loans of every view it was made from.
+`h = Box(?v)`, `h = same(?v)` and `h: (?T)? = ?v` mean
+`view = ?v; h = Box(view)` (and likewise), the loan on `v` lasting to the
+last use of `h`, of a copy of `h`, or of a view `h` gave out; the checker
+walks exactly that, so no pass has a list of holders. The holders that
+carry no loan are the ones `Cell`, `Signal`, and an owned closure
+make, which the type rules reject for any type that may hold a view.
+Emit reaches a view held in a box through the box's pointer first
+(`writeReach`).
 
 ### Binding access
 

@@ -1,0 +1,5 @@
+sub main()
+  x = 5
+  o: (?Int)? = ?x
+  if o as v
+    print(v)

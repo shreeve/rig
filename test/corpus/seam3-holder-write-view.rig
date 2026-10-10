@@ -1,0 +1,8 @@
+fun same[T](x: T) -> T
+  x
+
+sub main()
+  v: Vec[Int] = Vec()
+  b = Box(!v)
+  r = same(!v)
+  print(b.len, r.len)

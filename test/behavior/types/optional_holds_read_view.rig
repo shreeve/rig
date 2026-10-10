@@ -1,0 +1,33 @@
+# An optional holds a read view of an owner, and keeps the owner lent
+# while it is used.
+
+fun find(v: ?Vec[Vec[Int]], want: Int) -> (?Vec[Int])?
+  for i in 0..v.len
+    if v[i].len == want
+      return ?v[i]
+  none
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  o: (?Vec[Int])? = ?v
+  if o as w
+    print(w.len, w[0])
+  n: (?Vec[Int])? = none
+  print(n == none)
+  rows: Vec[Vec[Int]] = Vec()
+  !rows.push(Vec())
+  inner: Vec[Int] = Vec()
+  !inner.push(1)
+  !inner.push(2)
+  !rows.push(<inner)
+  if find(?rows, 2) as hit
+    print(hit.len, hit[1])
+  none_hit = find(?rows, 9)
+  print(none_hit == none)
+
+# expect:
+# 1 7
+# true
+# 2 2
+# true

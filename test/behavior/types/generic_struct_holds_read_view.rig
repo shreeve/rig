@@ -1,0 +1,31 @@
+# A generic struct, with methods, holds a read view of an owner: the
+# value built from it keeps the owner lent while it, or a view it gave
+# out, is used.
+
+struct Hold[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+struct Pair[A, B]
+  a: A
+  b: B
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  t = Text("hey")
+  h = Hold(v: ?v)
+  r = ?h.get()
+  print(r.len, h.v.len)
+  p = Pair(a: ?v, b: ?t)
+  print(p.a.len, p.b)
+  nested = Hold(v: Hold(v: ?t))
+  print(nested.v.v)
+
+# expect:
+# 2 2
+# 2 hey
+# hey

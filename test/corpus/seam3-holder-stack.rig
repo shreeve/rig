@@ -1,0 +1,21 @@
+struct Stack[T]
+  items: Vec[T]
+
+  sub push(!self, x: T)
+    !self.items.push(x)
+
+  fun top(?self) -> T?
+    if self.items.len == 0
+      none
+    else
+      self.items[self.items.len - 1]
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s: Stack[?Vec[Int]] = Stack(items: Vec())
+  !s.push(?v)
+  if s.top() as t
+    print(t.len)
+  !v.push(2)
+  print(s.items.len)

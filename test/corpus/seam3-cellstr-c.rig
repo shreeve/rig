@@ -1,0 +1,7 @@
+fun id[T](x: T) -> T
+  x
+
+sub main()
+  x = 5
+  r = id(?x)
+  print(r)
