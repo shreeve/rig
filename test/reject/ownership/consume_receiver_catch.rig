@@ -20,5 +20,5 @@ sub main()
   print((mk(false) catch d).total())
   print(d.items[0])
 
-# error: 20:26: bare use of `Bag` value `d` in call argument would alias an owning value
+# error: 20:26: `d` owns a `Bag`, which can't be copied into an argument: write `<d` to move it or `+d` to pass a clone
 # errors: 1

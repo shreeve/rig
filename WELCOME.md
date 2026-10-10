@@ -2,7 +2,8 @@
 
 Rig is a systems language for people who want Python's readability,
 Zig's cost model, and Rust's memory safety in one place. There is no
-garbage collector and no hidden allocation. Blocks are indented, types
+garbage collector, and only the few types that own memory allocate it.
+Blocks are indented, types
 are inferred, and most lines look like pseudocode. The compiler checks
 the program, then writes [Zig](https://ziglang.org), and Zig optimizes,
 generates code, and links.
@@ -139,9 +140,11 @@ none -1
 Rust calls all three a "borrow". Rig gives each its own word, named from
 the side the sigil is on ([CORE](docs/CORE.md)).
 
-A reader sees every move, lend, clone, drop, and failure path on the
-line where it happens, and the compiler checks each one: no use after
-move, no double free, no dangling view, no leak. The one leak it does
+A reader sees every move, clone, write, and failure path on the line
+where it happens; reading is unmarked, and, as in Rust, a value is
+dropped where its scope ends unless `<x` drops it sooner. The compiler
+checks each one: no use after move, no double free, no dangling view,
+no leak. The one leak it does
 not prevent is a cycle of strong handles, as in Rust and Swift; a weak
 handle breaks it.
 
@@ -654,7 +657,7 @@ sub main()
 ```
 
 ```error
-Use `<r` to move ownership
+`eat` takes ownership of a `Res`, and `r` can't be copied: write `<r` to move it; if `eat` only reads it, make its parameter a `?Res`
 ```
 
 **Rust's `?` on a failure.** `?` propagates `none`; a failure propagates

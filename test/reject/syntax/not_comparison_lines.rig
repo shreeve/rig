@@ -1,0 +1,13 @@
+# A comparison under `not` that spans lines: the hint writes it on one
+# line, without the comments in it.
+
+sub main()
+  a = 1
+  print(not a # the count
+    > 2)
+  print(not a
+    <= 2, 0)
+
+# error: 6:9: write `a <= 2`, or `not (a > 2)`: `not` applies to the whole comparison
+# error: 8:9: write `a > 2`, or `not (a <= 2)`: `not` applies to the whole comparison
+# errors: 2

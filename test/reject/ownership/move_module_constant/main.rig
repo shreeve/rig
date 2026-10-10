@@ -19,7 +19,7 @@ sub main()
 
 # error: 13:8: cannot move module-level `K` inside a function; later calls would still use it
 # error: 14:8: cannot move module-level `geo.K` inside a function; later calls would still use it
-# error: 15:8: cannot move out of `KP[...]`: it copies, so `<` would leave it as it was; remove the `<` to copy it
-# error: 16:8: cannot move out of `geo.KP[...]`: it copies, so `<` would leave it as it was; remove the `<` to copy it
+# error: 15:8: cannot move out of `KP[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it
+# error: 16:8: cannot move out of `geo.KP[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it
 # error: 17:8: cannot move function `geo.mk`: a function lives for the whole program; remove the `<` to use it
 # errors: 5

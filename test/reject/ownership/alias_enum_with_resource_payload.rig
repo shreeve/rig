@@ -16,4 +16,4 @@ sub main()
     .full(b) => print(b.n)
     .empty => print(0)
 
-# error: 14:7: bare use of `Slot` value `s` in binding would alias an owning value; `Slot` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<s` to move ownership
+# error: 14:7: `s` owns a `Slot`, which can't be copied by `=`: write `<s` to move it, `+s` to clone it, or `?s` to view it

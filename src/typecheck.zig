@@ -776,7 +776,7 @@ const Checker = struct {
             return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});
         }
         if ((try self.needsCleanup(ty, self.startOf(stmt), "discards a value"))) {
-            try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
+            try self.errAt(stmt, "this statement makes a `{s}`, which owns what it must release, and does not use it; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
         }
     }
 
@@ -1349,7 +1349,7 @@ const Checker = struct {
                     .shared => if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
                         const shown = try self.plainText(place.node);
                         try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
-                    } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{ through.head, through.tail }),
+                    } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{ through.head, through.tail }),
                     .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only{s}", .{ through.head, through.tail, try self.readMatchHint(place.sym) }),
                     .string => try self.err(b.pos, "cannot {s} a byte of a String{s}; a String is read-only", .{ verb.head, verb.tail }),
                     .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
@@ -1694,6 +1694,38 @@ const Checker = struct {
     fn writeCall(self: *Checker, recv: Sexp, place: []const u8, method: []const u8, returns: TypeId) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         return if (self.usesValue(recv, returns)) a.print("(!{s}).{s}", .{ place, method }) else a.print("!{s}.{s}", .{ place, method });
+    }
+
+    /// The whole write call a hint writes for `method` on `recv`, as
+    /// written but for its receiver: `!v.push(1)`, or `(!v).pop()` where
+    /// its value is used (`writeCall`).
+    fn writeCallText(self: *Checker, recv: Sexp, method: []const u8, returns: TypeId) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const bare = receiverPlace(recv);
+        const place = try self.plainText(bare);
+        const lent = if (sigilReaches(bare)) try a.print("!{s}", .{place}) else try a.print("!({s})", .{place});
+        return self.callWith(recv, if (self.usesValue(recv, returns)) try a.print("({s})", .{lent}) else lent, method);
+    }
+
+    /// The call being checked (`current_call`), written with its
+    /// receiver `recv` (with any sigil before it) as `with`: `<c.take()`
+    /// for `c.take()`. Without that call, `with.method(...)`.
+    fn callWith(self: *Checker, recv: Sexp, with: []const u8, method: []const u8) Error![]const u8 {
+        if (self.current_call) |c| {
+            const callee = ir.Call.callee(c);
+            if (callee.isKind(.member) and sameSite(ir.Member.object(callee), recv)) {
+                // A receiver written in parentheses, `(mk() if c else
+                // d).m()`: `with` takes their place.
+                const call = self.ctx.span(c);
+                const r = self.ctx.span(recv);
+                const src = self.ctx.source;
+                if (r.start > call.start and r.end + 1 < call.end and src[r.start - 1] == '(' and src[r.end] == ')' and src[r.end + 1] == '.') {
+                    return std.mem.concat(self.ctx.arena.allocator(), u8, &.{ src[call.start .. r.start - 1], with, src[r.end + 1 .. call.end] });
+                }
+                return self.spliced(c, &.{recv}, &.{with});
+            }
+        }
+        return self.ctx.arena.allocator().print("{s}.{s}(...)", .{ with, method });
     }
 
     /// Whether `recv` is the receiver of a call whose value is
@@ -2342,7 +2374,7 @@ const Checker = struct {
             switch (self.ctx.types.get(scrutinee)) {
                 .read_view => scrutinee = try self.ctx.intern(.{ .read_view = inner }),
                 .write_view => if (sema.accessThroughShared(self.ctx, scrutinee)) {
-                    try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and use an interior-mutable `Cell[T]` for mutation through shared ownership", .{ self.sourceText(ir.Write.operand(subject)), self.sourceText(ir.Write.operand(subject)) });
+                    try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and to change a value that handles share, hold it in a `Cell[T]`", .{ self.sourceText(ir.Write.operand(subject)), self.sourceText(ir.Write.operand(subject)) });
                     scrutinee = self.t().invalid_id;
                 } else {
                     scrutinee = try self.ctx.intern(.{ .write_view = inner });
@@ -3195,7 +3227,23 @@ const Checker = struct {
             .list => if (e.kind() == null) self.t().invalid_id else try self.synthList(e),
         };
         try self.ctx.recordType(e, self.canonical(ty));
+        try self.noteTakeable(e, ty);
         return ty;
+    }
+
+    /// An optional field or element that moves, which a diagnostic may
+    /// offer to take with `<e`: recorded when the take's own check
+    /// (`requireAccess` of `.take`) would reject it, its diagnostics
+    /// dropped.
+    fn noteTakeable(self: *Checker, e: Sexp, ty: TypeId) Error!void {
+        if (!e.isKind(.member) and !e.isKind(.index)) return;
+        if (self.ctx.types.get(ty) != .optional or sema.moves(self.ctx, ty) != .yes) return;
+        if (sema.moveSource(self.ctx, e) != .optional_part) return;
+        const mark = self.ctx.diagnostics.items.len;
+        const place = self.placeOf(e);
+        const ok = place.cell_vec_elem == null and try self.requireAccess(place, .take, e);
+        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        if (!ok) try self.ctx.recordUntakeable(e);
     }
 
     /// Literal pseudo-types as the concrete type they default to.
@@ -3481,6 +3529,7 @@ const Checker = struct {
             },
             .not => blk: {
                 try self.checkExpr(ir.Not.operand(e), self.t().bool_id);
+                try self.checkNotScope(e);
                 break :blk self.t().bool_id;
             },
             .neg => self.synthNeg(e),
@@ -3583,6 +3632,52 @@ const Checker = struct {
         }
         if (a != b) try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
         return self.t().bool_id;
+    }
+
+    /// `not` applies to the whole comparison after it: `not a > b` is
+    /// `not (a > b)`, which reads as `(not a) > b` too. So a comparison
+    /// directly under `not` is written in parentheses, or flipped where
+    /// the flip means the same: `a <= b` for integers and text, `a != b`
+    /// for any `==`. (`not (a > b)` is not `a <= b` for a Float NaN.)
+    fn checkNotScope(self: *Checker, e: Sexp) Error!void {
+        const operand = ir.Not.operand(e);
+        const op: []const u8, const flipped: []const u8 = switch (operand.kind() orelse return) {
+            .@"==" => .{ "==", "!=" },
+            .@"!=" => .{ "!=", "==" },
+            .@"<" => .{ "<", ">=" },
+            .@">" => .{ ">", "<=" },
+            .@"<=" => .{ "<=", ">" },
+            .@">=" => .{ ">=", "<" },
+            else => return,
+        };
+        const whole = self.ctx.span(e);
+        const cmp = self.ctx.span(operand);
+        // Written in parentheses: `not` ends past its operand, at `)`.
+        if (whole.end > cmp.end) return;
+        const a = self.ctx.arena.allocator();
+        const shown = try oneLine(self.ctx.arena.allocator(), try withoutComments(self.ctx.arena.allocator(), self.sourceText(operand)));
+        const equality = op[0] == '=' or op[0] == '!';
+        const exact = equality or (self.flipsExactly(ir.get(operand, .left)) and self.flipsExactly(ir.get(operand, .right)));
+        // The operator, between the two sides' spans (and any
+        // parentheses around them).
+        const gap_start = self.ctx.span(ir.get(operand, .left)).end;
+        const gap_end = self.ctx.span(ir.get(operand, .right)).start;
+        const at = if (exact and gap_start <= gap_end) std.mem.find(u8, self.ctx.source[gap_start..gap_end], op) else null;
+        if (at) |i| {
+            const o = gap_start + i;
+            const flip = try oneLine(a, try withoutComments(a, try std.mem.concat(a, u8, &.{ self.ctx.source[cmp.start..o], flipped, self.ctx.source[o + op.len .. cmp.end] })));
+            return self.errAt(e, "write `{s}`, or `not ({s})`: `not` applies to the whole comparison", .{ flip, shown });
+        }
+        try self.errAt(e, "write `not ({s})`: `not` applies to the whole comparison", .{shown});
+    }
+
+    /// Whether a side of an ordering keeps its meaning when the ordering
+    /// is flipped (`not (a > b)` is `a <= b`): an integer or text, which
+    /// are totally ordered, unlike a Float.
+    fn flipsExactly(self: *Checker, side: Sexp) bool {
+        const ty = self.ctx.typeOf(side) orelse return false;
+        const v = sema.unwrapViews(self.ctx, ty);
+        return sema.isInteger(self.ctx, v) or self.isBytes(v);
     }
 
     /// A String or a `[]U8`: bytes ordered as text is.
@@ -4173,7 +4268,7 @@ const Checker = struct {
         // `?f` of a stack closure lends it as a callable view.
         if (self.closureBinding(operand)) {
             if (kind == .read) return sema.callableOfFn(self.ctx, inner);
-            try self.errAt(e, "a call never changes a closure's environment, so a closure is lent to read: write `?{s}`", .{self.sourceText(operand)});
+            try self.errAt(e, "a call never changes what a closure captures, so a closure is lent to read: write `?{s}`", .{self.sourceText(operand)});
             return self.t().invalid_id;
         }
         // Anywhere but where a `!Bool` is expected, `!flag` is read as
@@ -6278,7 +6373,7 @@ const Checker = struct {
             const saved_of = self.receiver_of;
             defer self.receiver_of = saved_of;
             self.receiver_of = callee;
-            try self.checkReceiverMode(obj, .write, kind, method, pos, args.len > 0, self.t().void_id);
+            try self.checkReceiverMode(obj, .write, kind, method, pos, self.t().void_id);
             if (self.hands(obj).kind != .made) try self.rejectResourceTemporary(obj, obj_ty);
         }
         switch (op) {
@@ -7712,7 +7807,7 @@ const Checker = struct {
             const place = ir.get(obj, .operand);
             if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null) {
                 if (obj.isKind(.read)) {
-                    try self.errAt(obj, "`{s}` is called through its type or module and has no receiver; to lend the call's result, write `?({s}.{s}(...))`", .{ method, self.sourceText(place), method });
+                    try self.errAt(obj, "`{s}` is called through its type or module and has no receiver; to lend the call's result, write `?({s})`", .{ method, try self.callWith(obj, self.sourceText(place), method) });
                     try self.synthArgs(args);
                     return self.t().invalid_id;
                 }
@@ -7847,7 +7942,7 @@ const Checker = struct {
             }
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
-                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns `T` by value but `T = {s}` {s}; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "has drop glue" else self.movesBecause(elem) });
+                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns a copy of the value, and a `{s}` {s}, so it can't be copied; write `cell.replace(<new)`, which puts `new` in and hands back the old value", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "owns what it must release" else self.movesBecause(elem) });
                 }
             }
         }
@@ -7874,7 +7969,7 @@ const Checker = struct {
             const saved_of = self.receiver_of;
             defer self.receiver_of = saved_of;
             self.receiver_of = callee;
-            try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, args.len > 0, resolved.fn_ty.returns);
+            try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, resolved.fn_ty.returns);
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
@@ -7925,9 +8020,10 @@ const Checker = struct {
         const what = if ((try self.moduleNamed(place)) != null) "a module" else "a type";
         const shown = try self.plainText(place);
         const value = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
+        const call = try self.callWith(s, shown, method);
         if (value == self.t().bool_id) {
-            try self.errAt(s, "`!` here reaches `{s}`, {s}, and `{s}.{s}(...)` makes a `Bool`; for negation use `not`", .{ shown, what, shown, method });
-        } else try self.errAt(s, "`!` here reaches `{s}`, {s}, not the value `{s}.{s}(...)` makes: write `!({s}.{s}(...))` to lend that value, or remove the `!`", .{ shown, what, shown, method, shown, method });
+            try self.errAt(s, "`!` here reaches `{s}`, {s}, and `{s}` makes a `Bool`; for negation use `not`", .{ shown, what, call });
+        } else try self.errAt(s, "`!` here reaches `{s}`, {s}, not the value `{s}` makes: write `!({s})` to lend that value, or remove the `!`", .{ shown, what, call, call });
         return self.t().invalid_id;
     }
 
@@ -8087,7 +8183,7 @@ const Checker = struct {
         if (!try self.requireAccess(self.placeOf(place), .lend_write, obj)) return false;
         const shown = try self.plainText(place);
         const lent = if (sigilReaches(place)) try self.ctx.arena.allocator().print("!{s}", .{shown}) else try self.ctx.arena.allocator().print("!({s})", .{shown});
-        try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `{s}.{s}(...)`", .{ method, lent, method });
+        try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `{s}`", .{ method, try self.callWith(obj, lent, method) });
         return false;
     }
 
@@ -8361,7 +8457,7 @@ const Checker = struct {
         if (recv.isKind(.write) and returns == self.t().bool_id) {
             return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; for negation use `not`", .{ field, what });
         }
-        if (recv.isKind(.read)) return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; remove the `?`, or lend the call's result with `?({s}.{s}(...))`", .{ field, what, self.sourceText(ir.Read.operand(recv)), field });
+        if (recv.isKind(.read)) return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; remove the `?`, or lend the call's result with `?({s})`", .{ field, what, try self.callWith(recv, self.sourceText(ir.Read.operand(recv)), field) });
         try self.errAt(recv, "`{s}` is {s}, not a method with a receiver; remove the `{s}`", .{ field, what, sigilText(recv) });
     }
 
@@ -8379,10 +8475,10 @@ const Checker = struct {
         const name = self.ctx.source[at.start..at.end];
         if (recv.isKind(.read)) {
             if (mode == .read) return false;
-            const hint = if (returns == self.t().void_id) "" else try self.ctx.arena.allocator().print("; to lend the call's result, write `?({s}.{s}(...))`", .{ name, method });
+            const hint = if (returns == self.t().void_id) "" else try self.ctx.arena.allocator().print("; to lend the call's result, write `?({s})`", .{try self.callWith(recv, name, method)});
             if (mode == .write) {
-                try self.errAt(recv, "`{s}` writes its receiver: write `{s}(...)`{s}", .{ method, try self.writeCall(recv, name, method, returns), hint });
-            } else try self.errAt(recv, "`{s}` consumes its receiver: write `<{s}.{s}(...)`{s}", .{ method, name, method, hint });
+                try self.errAt(recv, "`{s}` writes its receiver: write `{s}`{s}", .{ method, try self.writeCallText(recv, method, returns), hint });
+            } else try self.errAt(recv, "`{s}` consumes its receiver: write `{s}`{s}", .{ method, try self.callWith(recv, try self.ctx.arena.allocator().print("<{s}", .{name}), method), hint });
         } else if (recv.isKind(.write)) switch (mode) {
             .write => {
                 if (!self.usesValue(recv, returns)) return false;
@@ -8395,7 +8491,7 @@ const Checker = struct {
             } else try self.errAt(recv, "`{s}` does not write its receiver; remove the `!`", .{method}),
         } else switch (mode) {
             .value => return false,
-            .write => try self.errAt(recv, "`{s}` does not consume its receiver; it writes it: `{s}(...)`, and its result needs no `<`", .{ method, try self.writeCall(recv, name, method, returns) }),
+            .write => try self.errAt(recv, "`{s}` does not consume its receiver; it writes it: `{s}`, and its result needs no `<`", .{ method, try self.writeCallText(recv, method, returns) }),
             else => try self.errAt(recv, "`{s}` does not consume its receiver; remove the `<`: a call's result moves without it", .{method}),
         }
         return true;
@@ -8413,19 +8509,18 @@ const Checker = struct {
     /// of one, or a branching value made in every branch) with no `!`:
     /// every change is marked by `!` (Core sentences 4 and 9), which
     /// lends the temporary to write.
-    fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8, has_args: bool, returns: TypeId) Error!void {
+    fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8, returns: TypeId) Error!void {
         const shown = try self.plainText(recv);
         const a = self.ctx.arena.allocator();
         const lent = if (sigilReaches(recv)) try a.print("!{s}", .{shown}) else try a.print("!({s})", .{shown});
-        const call = if (self.usesValue(recv, returns)) try a.print("({s}).{s}", .{ lent, method }) else try a.print("{s}.{s}", .{ lent, method });
-        const args = if (has_args) "..." else "";
+        const call = try self.callWith(recv, if (self.usesValue(recv, returns)) try a.print("({s})", .{lent}) else lent, method);
         // A `!` that is there but does not reach the receiver.
         const outer = self.outer_write;
         if (outer.isKind(.call) and sameNode(ir.Call.callee(outer), self.receiver_of)) {
             if (self.outer_write_is_loop) return self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of the receiver: bind `{s}` to a name first", .{ method, shown });
-            return self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; the `!` here lends what `{s}` returns, not its receiver: write `{s}({s})`", .{ method, method, call, args });
+            return self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; the `!` here lends what `{s}` returns, not its receiver: write `{s}`", .{ method, method, call });
         }
-        try self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; add `!`: `{s}({s})`", .{ method, call, args });
+        try self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; add `!`: `{s}`", .{ method, call });
     }
 
     /// Whether `!` written before `recv` followed by a method call lends
@@ -8448,7 +8543,7 @@ const Checker = struct {
     /// Receiver rules: `?self` is lent implicitly; `!self` needs an explicit
     /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
-    fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32, has_args: bool, returns: TypeId) Error!void {
+    fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32, returns: TypeId) Error!void {
         const shape = self.receiverShape(recv);
         switch (mode) {
             .read => if (shape == .move_explicit) {
@@ -8458,14 +8553,14 @@ const Checker = struct {
             },
             .write => {
                 if (kind == .read_view) return self.err(pos, "method `{s}` needs its receiver lent to write; a read view cannot become a write view", .{method});
-                if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{method});
+                if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{method});
                 switch (shape) {
                     .write_explicit => {},
                     // A value made here, or a part of one, is a temporary
                     // no name holds, which a write method changes only
                     // where `!` lends it (`!mk().bump()`). A write view
                     // made here writes through.
-                    .made => if (!self.writesThrough(recv, kind)) try self.writeOfTemporary(recv, method, has_args, returns),
+                    .made => if (!self.writesThrough(recv, kind)) try self.writeOfTemporary(recv, method, returns),
                     // A branch that is a write view writes through it; one
                     // that is a name's value would be written as a copy.
                     // (One that owns a resource is reported as a temporary
@@ -8474,17 +8569,17 @@ const Checker = struct {
                         const leaf = self.namedLeaf(recv) orelse recv;
                         try self.errAt(recv, "method `{s}` writes its receiver, and `{s}` may be `{s}`, a value a name holds, which the call would write as a copy; call `{s}` on the name in each branch", .{ method, self.sourceText(recv), self.sourceText(leaf), method });
                     },
-                    .read_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write; got `?...`; use `{s}(...)`", .{ method, try self.writeCall(recv, "receiver", method, returns) }),
-                    .move_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write; cannot move; use `{s}(...)`", .{ method, try self.writeCall(recv, "receiver", method, returns) }),
+                    .read_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write, not read; write `{s}`", .{ method, try self.writeCallText(recv, method, returns) }),
+                    .move_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write, not moved; write `{s}`", .{ method, try self.writeCallText(recv, method, returns) }),
                     // A binding that already holds a write view (`x: !T`,
                     // `!self`) lends it visibly too.
                     .place => if (kind != .write_view and self.hands(recv).kind == .part_of_made) {
-                        try self.writeOfTemporary(recv, method, has_args, returns);
+                        try self.writeOfTemporary(recv, method, returns);
                     } else if (kind != .write_view) {
-                        try self.err(pos, "method `{s}` needs its receiver lent to write; use `{s}(...)`", .{ method, try self.writeCall(recv, "receiver", method, returns) });
+                        try self.err(pos, "method `{s}` needs its receiver lent to write; write `{s}`", .{ method, try self.writeCallText(recv, method, returns) });
                     } else {
                         const name = self.sourceText(recv);
-                        try self.errAt(recv, "write `{s}({s})`: the call writes `{s}`", .{ try self.writeCall(recv, name, method, returns), if (has_args) "..." else "", name });
+                        try self.errAt(recv, "write `{s}`: the call writes `{s}`", .{ try self.writeCallText(recv, method, returns), name });
                     },
                 }
             },
@@ -8500,11 +8595,11 @@ const Checker = struct {
                     // A branching value is taken leaf by leaf: a name
                     // there is moved with `<` (the ownership checker).
                     .move_explicit, .made, .branches => {},
-                    .read_explicit, .write_explicit => try self.err(pos, "method `{s}` consumes the receiver; a lend cannot give it up; use `<receiver.{s}(...)`", .{ method, method }),
+                    .read_explicit, .write_explicit => try self.err(pos, "method `{s}` consumes the receiver; a lend cannot give it up; write `{s}`", .{ method, try self.callWith(recv, try self.ctx.arena.allocator().print("<{s}", .{try self.plainText(receiverPlace(recv))}), method) }),
                     // A place whose value copies is read, as an argument
                     // is: the call takes a copy (Core sentence 1).
                     .place => if (!self.copiesValue(recv) and !self.copiesThrough(recv)) switch (sema.moveSource(self.ctx, recv)) {
-                        .binding, .capture => try self.err(pos, "method `{s}` consumes the receiver; use `<receiver.{s}(...)`", .{ method, method }),
+                        .binding, .capture => try self.err(pos, "method `{s}` consumes the receiver; write `{s}`", .{ method, try self.callWith(recv, try self.ctx.arena.allocator().print("<{s}", .{self.sourceText(recv)}), method) }),
                         .made_part => try self.errAt(recv, "method `{s}` consumes its receiver, and `{s}` is a part of a temporary its statement drops; bind the value to a name first", .{ method, self.sourceText(recv) }),
                         else => try self.errAt(recv, "method `{s}` consumes its receiver, and `<` cannot move `{s}` out of the value that holds it; exchange it out first: `replace(!{s}, v).{s}(...)`", .{ method, self.sourceText(recv), self.sourceText(recv), method }),
                     },
@@ -9797,6 +9892,14 @@ const Checker = struct {
         return std.mem.concat(self.ctx.arena.allocator(), u8, &.{ self.ctx.source[ws.start..ps.start], with, self.ctx.source[ps.end..ws.end] });
     }
 
+    /// A method's receiver with the sigils written before it taken off
+    /// (`?c`, `!c`, `<c`: `c`).
+    fn receiverPlace(e: Sexp) Sexp {
+        var node = e;
+        while (node.isKind(.read) or node.isKind(.write) or node.isKind(.move)) node = ir.get(node, .operand);
+        return node;
+    }
+
     /// The place a write lend lends, every `!` and `<` written before it
     /// taken off (`!!n`, `<!n`: `n`).
     fn unlent(e: Sexp) Sexp {
@@ -10668,7 +10771,7 @@ const Checker = struct {
             },
             .function => if (sym.flags.closure) {
                 if (kind == .read) return sema.callableOfFn(self.ctx, ty);
-                try self.err(pos, "a call never changes a closure's environment, so a closure is lent to read; capture it with `|?{s}|`", .{name});
+                try self.err(pos, "a call never changes what a closure captures, so a closure is lent to read; capture it with `|?{s}|`", .{name});
                 return self.t().invalid_id;
             },
             else => {},
@@ -11237,6 +11340,42 @@ fn resultCall(e: Sexp) ?Sexp {
 /// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
+}
+
+/// Whether `a` and `b` are the same node, a leaf by its place in the
+/// source.
+fn sameSite(a: Sexp, b: Sexp) bool {
+    if (a == .src and b == .src) return a.src.pos == b.src.pos and a.src.len == b.src.len;
+    return sameNode(a, b);
+}
+
+/// `text` with each comment (`#` to the end of its line, outside a
+/// string) taken out, for a hint that writes source spanning lines.
+fn withoutComments(a: std.mem.Allocator, text: []const u8) Error![]const u8 {
+    if (std.mem.findScalar(u8, text, '#') == null) return text;
+    var out: std.ArrayList(u8) = .empty;
+    var quote: ?u8 = null;
+    var i: usize = 0;
+    while (i < text.len) : (i += 1) {
+        const c = text[i];
+        if (quote) |q| {
+            if (c == '\\' and q == '"' and i + 1 < text.len) {
+                try out.appendSlice(a, text[i .. i + 2]);
+                i += 1;
+                continue;
+            }
+            if (c == q) quote = null;
+        } else if (c == '"' or c == '\'') {
+            quote = c;
+        } else if (c == '#') {
+            while (i < text.len and text[i] != '\n') i += 1;
+            while (out.items.len > 0 and isBlank(out.items[out.items.len - 1])) out.items.len -= 1;
+            if (i < text.len) try out.append(a, '\n');
+            continue;
+        }
+        try out.append(a, c);
+    }
+    return out.items;
 }
 
 /// `text` on one line: each run of blanks with a line break in it is one

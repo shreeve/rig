@@ -11,4 +11,4 @@ sub main()
   b = xs[0]
   print(b.v)
 
-# error: 11:7: bare use of shared (`*T`) handle `xs[...]` in binding would alias the handle; use `+xs[...]` to clone
+# error: 11:7: `xs[0]` is a `*N` handle, which can't be copied by `=`: write `+xs[0]` for another handle or `?xs[0]` to view it

@@ -43,7 +43,7 @@ sub main()
   mk().n = 5
   setb(!false)
 
-# error: 37:3: `push` changes its receiver, a temporary no name holds; add `!`: `!mkv().push(...)`
+# error: 37:3: `push` changes its receiver, a temporary no name holds; add `!`: `!mkv().push(1)`
 # error: 38:5: cannot lend `a if c else b` to write: it may be `a`, a value a name holds
 # error: 39:29: cannot call write-receiver method `bump` through a shared handle
 # error: 40:10: cannot call write-receiver method `bump` through a shared handle

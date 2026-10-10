@@ -174,6 +174,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `examples/` | Curated example programs, all run by the suite |
 | `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |
 | `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |
+| `docs/QUICK.md` | The sigils and ownership on one short page, for a newcomer or a model's prompt |
 | `README.md` | Overview and a short tour |
 | `WELCOME.md` | Guide for programmers coming from other languages |
 | `SYNTAX.md` | How every form is written, and the grammar summary |

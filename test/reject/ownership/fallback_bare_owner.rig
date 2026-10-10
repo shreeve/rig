@@ -9,5 +9,5 @@ sub main()
   x = mko(0) ?? d
   print(x)
 
-# error: 9:17: bare use of `Text` value `d` in binding would copy the buffer pointer and free it twice; use `<d` to move ownership
+# error: 9:17: `d` owns a `Text`, which can't be copied by `=`: write `<d` to move it, `+d` to clone it, or `?d` to view it
 # errors: 1

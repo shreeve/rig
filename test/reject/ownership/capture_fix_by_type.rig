@@ -1,0 +1,39 @@
+# A value an owned closure captures stays with the closure for every
+# call. The rejection offers what `+` gives for the value's type: a
+# clone of an owner, another handle (or a weak one) of a `*T`, and
+# nothing for a value with no clone.
+
+struct N
+  k: Int
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print(self.n)
+
+fun eat(v: Vec[Int]) -> Int
+  v.len
+
+fun keep(h: *N) -> Int
+  h.k
+
+fun close(r: Res) -> Int
+  r.n
+
+sub main()
+  v: Vec[Int] = Vec()
+  f = *|<v| eat(<v)
+  w: Vec[Int] = Vec()
+  g = *|<w| eat(w)
+  h = *N(k: 1)
+  k = *|<h| keep(h)
+  r = Res(n: 1)
+  c = *|<r| close(<r)
+  print(f(), g(), k(), c())
+
+# error: 26:18: cannot move captured `v`: the closure keeps what it captures for every call; write `+v` for a clone
+# error: 28:17: `w` is captured by the closure, which keeps it for every call, so a call argument can't take it; write `+w` for a clone
+# error: 30:18: `h` is captured by the closure, which keeps it for every call, so a call argument can't take it; write `+h` for another handle, or `~h` for a weak one
+# error: 32:20: cannot move captured `r`: the closure keeps what it captures for every call
+# errors: 4

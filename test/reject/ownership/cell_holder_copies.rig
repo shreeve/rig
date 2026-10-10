@@ -23,10 +23,10 @@ sub main()
   f = o ?? e
   print(b.hits.get(), d.get(), k.hits.get(), copy[0].hits.get(), x.hits.get(), f.hits.get())
 
-# error: 13:7: bare use of `Counter` value `a` in binding would copy a unique value; use `<a` to move it
-# error: 15:7: bare use of `Cell` value `c` in binding would copy a unique value; use `<c` to move it
-# error: 17:7: bare use of `Counter` value `h.c` in binding would copy a unique value
-# error: 19:10: bare use of `Counter` value `arr` in binding would copy a unique value; use `<arr` to move it
-# error: 20:7: bare use of `Counter` value `arr[...]` in binding would copy a unique value
-# error: 23:7: bare use of `Counter` value `o` in binding would copy a unique value
-# error: 23:12: bare use of `Counter` value `e` in binding would copy a unique value
+# error: 13:7: `a` is a unique `Counter`, which can't be copied by `=`: write `<a` to move it or `?a` to view it
+# error: 15:7: `c` is a unique `Cell[Int]`, which can't be copied by `=`: write `<c` to move it or `?c` to view it
+# error: 17:7: `h.c` is a unique `Counter`, which can't be copied by `=`: write `?h.c` to view it
+# error: 19:10: `arr` is a unique `[2]Counter`, which can't be copied by `=`: write `<arr` to move it or `?arr` to view it
+# error: 20:7: `arr[1]` is a unique `Counter`, which can't be copied by `=`: write `?arr[1]` to view it
+# error: 23:7: `o` is a unique `Counter?`, which can't be copied by `=`: write `<o` to move it or `?o` to view it
+# error: 23:12: `e` is a unique `Counter`, which can't be copied by `=`: write `<e` to move it or `?e` to view it

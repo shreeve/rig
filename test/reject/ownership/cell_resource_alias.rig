@@ -10,4 +10,4 @@ sub main()
   c2: Cell[*User] = c1
   print(0)
 
-# error: bare use of `Cell` value `c1` in binding would alias an owning value
+# error: `c1` owns a `Cell[*User]`, which can't be copied by `=`: write `<c1` to move it or `?c1` to view it

@@ -12,6 +12,6 @@ sub main()
   print((o ?? b).total())
   print(b.items.len)
 
-# error: 12:10: bare use of `Bag` value `o` in call argument would alias an owning value
-# error: 12:15: bare use of `Bag` value `b` in call argument would alias an owning value
+# error: 12:10: `o` owns a `Bag?`, which can't be copied into an argument: write `<o` to move it or `+o` to pass a clone
+# error: 12:15: `b` owns a `Bag`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone
 # errors: 2

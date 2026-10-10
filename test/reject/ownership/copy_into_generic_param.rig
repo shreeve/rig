@@ -1,0 +1,17 @@
+# An owner passed bare where a generic function's parameter takes
+# ownership: the hint names the parameter's declared type, `?T`.
+
+fun keep[T](x: T) -> T
+  x
+
+fun first[T](xs: Vec[T]) -> Int
+  xs.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  w = keep(v)
+  print(w.len, first(v))
+
+# error: 12:12: `keep` takes ownership of a `Vec[Int]`, and `v` can't be copied: write `<v` to move it or `+v` to pass a clone; if `keep` only reads it, make its parameter a `?T`
+# error: 13:22: `first` takes ownership of a `Vec[Int]`, and `v` can't be copied: write `<v` to move it or `+v` to pass a clone; if `first` only reads it, make its parameter a `?Vec[T]`
+# errors: 2

@@ -38,5 +38,13 @@ mkdir -p realstore/old/package && touch -t 200001010000 realstore/old/used && ln
 o=$(RIG_BUILD_STORE=$PWD/linkstore RIG_BUILD_STORE_DAYS=3 RIG_TEST_OUT="$out" "$ROOT/test/run" --prune 2>&1) || fail "prune: $o"
 [[ -e realstore/old ]] && fail "kept a build unused for years in a linked store"
 
+# By default a build goes once unused for 2 days.
+ago() { date -v-"$1"H +%Y%m%d%H%M 2>/dev/null || date -d "-$1 hours" +%Y%m%d%H%M; }
+mkdir -p dstore/three/package dstore/one/package
+touch -t "$(ago 73)" dstore/three/used
+touch -t "$(ago 25)" dstore/one/used
+o=$(RIG_BUILD_STORE=$PWD/dstore RIG_BUILD_STORE_DAYS= RIG_TEST_OUT="$out" "$ROOT/test/run" --prune 2>&1) || fail "prune: $o"
+[[ -e dstore/three ]] && fail "kept a build unused for 3 days by default"
+[[ -f dstore/one/used ]] || fail "removed a build used a day ago by default"
 o=$(RIG_TEST_OUT="$out" "$ROOT/test/run" --prune corpus 2>&1); expect_rc $? 2 "--prune with a filter"
 exit 0

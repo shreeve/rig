@@ -42,5 +42,5 @@ sub main()
 # error: 8:8: cannot lend `a` to write while a write loan is live
 # error: 16:4: use of `v` while a write loan is live
 # error: 22:9: use of `a` while a write loan is live
-# error: 29:3: cannot assign to `w[...]` while `w` is lent
-# error: 36:3: cannot assign to `w[...]` while `w` is lent
+# error: 29:3: cannot assign to `w[1]` while `w` is lent
+# error: 36:3: cannot assign to `w[1]` while `w` is lent

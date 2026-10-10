@@ -13,4 +13,4 @@ sub main()
   g = h
   print(g.value.n)
 
-# error: 13:7: bare use of `Holder` value `h` in binding would alias an owning value; `Holder` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<h` to move ownership
+# error: 13:7: `h` owns a `Holder[*Wrap]`, which can't be copied by `=`: write `<h` to move it, `+h` to clone it, or `?h` to view it

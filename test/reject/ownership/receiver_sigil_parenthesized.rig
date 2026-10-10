@@ -7,5 +7,5 @@ sub main()
   n = !(v.pop())
   print(n ?? 0)
 
-# error: 7:11: method `pop` needs its receiver lent to write; use `(!receiver).pop(...)`
+# error: 7:11: method `pop` needs its receiver lent to write; write `(!v).pop()`
 # errors: 1

@@ -21,5 +21,5 @@ sub main()
   if ?h.o as x
     print(x.items[0])
 
-# error: 13:8: bare use of `Bag` value `h.o` in call argument would alias an owning value
+# error: 13:8: `h.o` owns a `Bag?`, which can't be copied into an argument: write `<h.o` to take it out (leaving `none`) or `+h.o` to pass a clone
 # errors: 1

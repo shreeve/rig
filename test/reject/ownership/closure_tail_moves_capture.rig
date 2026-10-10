@@ -12,4 +12,4 @@ sub main()
   b = s()
   print(a.v[0], b.v[0])
 
-# error: 10:12: bare use of captured resource `x` in return value
+# error: 10:12: `x` is captured by the closure, which keeps it for every call, so a return value can't take it; write `+x` for a clone

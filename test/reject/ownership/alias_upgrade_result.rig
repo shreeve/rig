@@ -11,4 +11,4 @@ sub main()
   n = m
   <w
 
-# error: 11:7: bare use of shared (`*T`) handle `m` in binding would alias the handle; use `<m` to move or `+m` to clone
+# error: 11:7: `m` is a `*Wrap?` handle, which can't be copied by `=`: write `<m` to move it, `+m` for another handle, or `?m` to view it

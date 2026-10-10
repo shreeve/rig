@@ -1,0 +1,27 @@
+# `not` takes a Bool: a name, a call, a parenthesized comparison, or
+# another `not`. It binds tighter than `and` and `or`, so `not a and b`
+# is `(not a) and b`, and it needs no parentheses there.
+
+struct Bag
+  items: Vec[Int]
+
+  fun is_empty(?self) -> Bool
+    self.items.len == 0
+
+sub main()
+  done = false
+  bag = Bag(items: Vec())
+  a = 2
+  b = 3
+  while not done
+    !bag.items.push(a)
+    done = bag.items.len >= 2
+  print(not bag.is_empty(), not (a > b), not (a == b), a <= b)
+  print(not done and a < b, not not done, done or not (b < a))
+  if not (a > b) and not bag.is_empty()
+    print("ok")
+
+# expect:
+# true true true true
+# false true true
+# ok

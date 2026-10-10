@@ -119,7 +119,7 @@ fun get_and_add(b: !Bag) -> ?Item
 ```
 
 ```error
-cannot assign to `b.items[...]`
+cannot assign to `b.items[0]`
 ```
 
 The trade: Rust can say with explicit lifetimes which argument a

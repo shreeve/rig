@@ -48,7 +48,29 @@ input: the root module as `__rig_main.zig`, every other module as
 `<module>.zig` (a standard library module as `__rig_std_<module>.zig`),
 and the runtime as `rig/runtime.zig`. The package goes
 to `$RIG_OUT_DIR` when it is set, otherwise to
-`~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`). Each file
+`~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`, which,
+like `$HOME`, counts only as an absolute path), the cache home. Rig
+writes a `CACHEDIR.TAG` in a cache home it makes, or in one that holds
+its packages or its stamp and nothing else, and the trim and `rig clean` act only on
+a home that holds the tag and is no link. Before a build writes its
+package there, it takes a shared lock on the package's `.lock` file
+(opened to read and write, as Linux NFS requires, and never through a
+link) and holds it until it exits (the system releases it however the
+process ends), then sets the directory's time to now. At most once a
+day, as the stamp `.trimmed` in the cache home records (a stamp dated
+in the future counts as old), `run`, `build`, and `test` remove the
+packages unused for 5 days, and print how many. Only what rig makes
+there is ever removed (`CacheEntry` in `src/main.zig`): a directory
+named `<name>-<16 lowercase hex digits>` whose `rig` directory holds
+`runtime.zig`, none of them a link; a `.trash-<16 hex digits>`
+directory; rig's empty stamp; and its tag. A package is removed only
+under an exclusive lock taken without waiting, so one a build holds is
+skipped, and its time is read again under the lock, against the clock
+read then (a time in the future is fresh), before it is renamed out of
+the way in one step and deleted. Where the system has no file locks,
+nothing is removed. `rig clean` removes the same entries but those in
+use, and then the tag, the stamp, and the cache home if nothing else
+is in it; a `$RIG_OUT_DIR` is never trimmed. Each file
 is replaced atomically, so concurrent builds of one program never read
 a partly written file, a file that already holds the same contents is
 left alone, and the directory is not emptied. It holds the
@@ -64,7 +86,7 @@ input of a cached build. Zig keys a cached build by its root's path,
 taken relative to the current directory unless it lies inside the
 cache, so the package lives inside the cache, and a build from any
 directory finds it. Each use rewrites the entry's `used` file, by which
-`./test/run` removes entries unused for a week, each renamed out of the
+`./test/run` removes entries unused for 2 days (`RIG_BUILD_STORE_DAYS`), each renamed out of the
 store in one step before it is deleted, so no build sees half an entry.
 An entry whose manifests (`h/`) outlived the binary they name (no
 executable named after the root in `o/`) sends Zig to run a binary that

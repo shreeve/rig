@@ -11,4 +11,4 @@ sub main()
     *Wrap(n: 0)
   print(x.n)
 
-# error: 9:11: bare use of shared (`*T`) handle `b` in `break` value would alias the handle; use `<b` to move or `+b` to clone
+# error: 9:11: `b` is a `*Wrap` handle, which can't be copied out by `break`: write `<b` to move it or `+b` for another handle

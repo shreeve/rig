@@ -10,5 +10,5 @@ sub main()
 
 # error: 7:12: field `rest` of `std.text.Split` is private to the standard library's module `std.text`
 # error: 8:12: only the standard library's module `std.text` can construct `std.text.Split`: its fields `rest`, `sep`, `done` are private
-# error: 9:12: method `next` needs its receiver lent to write; use `(!receiver).next(...)`
+# error: 9:12: method `next` needs its receiver lent to write; write `(!it).next()`
 # errors: 3

@@ -30,7 +30,7 @@
 # rig-build-store in the repository's git directory, shared by its
 # worktrees; empty builds each in its test's output directory),
 # RIG_BUILD_STORE_DAYS (a run with no filter removes the store's builds
-# and the results cache's entries unused for longer, default 7),
+# and the results cache's entries unused for longer, default 2),
 # RIG_RESULTS_CACHE (where passing runs are recorded, default
 # rig-results-cache in the repository's git directory; empty records
 # nothing, and --delta then runs everything), RIG_SANITIZE (0 builds the
@@ -694,7 +694,7 @@ if [[ -z "${RIG_BUILD_STORE+set}" ]]; then
         RIG_BUILD_STORE=$common/rig-build-store
     fi
 fi
-STORE_DAYS=${RIG_BUILD_STORE_DAYS:-7}
+STORE_DAYS=${RIG_BUILD_STORE_DAYS:-2}
 [[ $STORE_DAYS =~ ^[0-9]+$ ]] || { echo "RIG_BUILD_STORE_DAYS takes a number of days" >&2; exit 2; }
 export RIG_BUILD_STORE
 # Passing runs are recorded in the results cache beside the store, shared
@@ -1010,11 +1010,16 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
     # And the store's builds that no run has used for STORE_DAYS days.
     # Each goes in one step, renamed into the trash, so no build ever sees
     # half an entry (manifests whose binaries are gone); then the trash,
-    # with what an interrupted prune left there, is deleted.
+    # with what an interrupted prune left there, is deleted. Each entry's
+    # `used` is read again just before it goes, so one a concurrent run
+    # marked used since the scan stays.
     if [[ -n "$RIG_BUILD_STORE" && -d "$RIG_BUILD_STORE" ]]; then
         # -H: the store may be a link to a directory elsewhere.
         find -H "$RIG_BUILD_STORE" -mindepth 2 -maxdepth 2 -name used -mtime +"$STORE_DAYS" | sed 's#/used$##' |
-            while IFS= read -r entry; do mv "$entry" "$RIG_BUILD_STORE/.trash.$$.${entry##*/}" 2>/dev/null; done
+            while IFS= read -r entry; do
+                [[ -n $(find "$entry/used" -mtime +"$STORE_DAYS" 2>/dev/null) ]] &&
+                    mv "$entry" "$RIG_BUILD_STORE/.trash.$$.${entry##*/}" 2>/dev/null
+            done
         find -H "$RIG_BUILD_STORE" -mindepth 1 -maxdepth 1 -name '.trash.*' -exec rm -rf {} +
         # The evidence files of runs killed before rig could remove them.
         [[ -d "$RIG_BUILD_STORE/.started" ]] && find -H "$RIG_BUILD_STORE/.started" -type f -mtime +1 -delete

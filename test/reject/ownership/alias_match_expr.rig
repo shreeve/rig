@@ -12,5 +12,5 @@ sub main()
     _ => rc
   print(x.payload)
 
-# error: 11:10: bare use of shared (`*T`) handle `rc` in binding would alias the handle; use `<rc` to move or `+rc` to clone
-# error: 12:10: bare use of shared (`*T`) handle `rc` in binding would alias the handle; use `<rc` to move or `+rc` to clone
+# error: 11:10: `rc` is a `*Wrap` handle, which can't be copied by `=`: write `<rc` to move it, `+rc` for another handle, or `?rc` to view it
+# error: 12:10: `rc` is a `*Wrap` handle, which can't be copied by `=`: write `<rc` to move it, `+rc` for another handle, or `?rc` to view it
