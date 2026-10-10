@@ -1070,7 +1070,7 @@ const Checker = struct {
                 _ = try self.synthExpr(rhs);
                 return;
             }
-            if (self.isPoison(place_ty) or !try self.requireAccess(self.placeOf(ir.Index.object(target)), .set_cell, target)) {
+            if (self.isPoison(place_ty)) {
                 _ = try self.synthExpr(rhs);
                 return;
             }
@@ -1160,13 +1160,12 @@ const Checker = struct {
         lend_on,
         pass_write,
         write_through,
-        set_cell,
 
         /// How a diagnostic names the access: "cannot {head} <object>{tail}".
         fn verb(a: Access) Verb {
             return switch (a) {
                 .assign => .{ .head = "assign to" },
-                .lend_write, .set_cell => Verb.lend_to_write,
+                .lend_write => Verb.lend_to_write,
                 .write_iterate => .{ .head = "write-iterate" },
                 .take => .{ .head = "take" },
                 .lend_on, .pass_write => .{ .head = "lend" },
@@ -1338,7 +1337,6 @@ const Checker = struct {
     /// from must be one that may change (`requireBinding`). A diagnostic
     /// with no better position is at `at`. False after a diagnostic.
     fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
-        if (access == .set_cell) return self.requireCellPlace(place, at);
         // A name or value passed where a `!T` goes is the view itself.
         if (access == .pass_write and place.steps == 0) return true;
         const verb = access.verb();
@@ -1474,67 +1472,6 @@ const Checker = struct {
             else => {},
         }
         return true;
-    }
-
-    /// A Cell is interior-mutable: `set`, `replace`, and a `Cell[Vec[E]]`'s
-    /// `c[i] = e`, `push`, `pop`, and `clear` change it through any path
-    /// that reaches its storage, a read view or shared handle included:
-    /// a local binding or a field or element of one, a capture held by a
-    /// closure environment, a temporary or a part of one, or anything
-    /// behind a view or handle. A by-value parameter owns the value moved
-    /// into it, and a temporary lives in its statement's slot, where the
-    /// change lands (`keepsCellChange`). A loop or match binding that
-    /// copies its element or payload is no place: changing it would not
-    /// change the value it came from. `at` is the `c[i]` assigned, or the
-    /// method's name.
-    fn requireCellPlace(self: *Checker, place: Place, at: Sexp) Error!bool {
-        const reached = if (self.ctx.typeOf(place.node)) |ty| switch (self.ctx.types.get(ty)) {
-            .read_view, .write_view, .shared => true,
-            else => false,
-        } else false;
-        if (reached or place.indirect) return true;
-        switch (place.root) {
-            .local, .constant, .global, .capture, .view, .param => return true,
-            .temporary => {
-                try self.keepsCellChange(place);
-                return true;
-            },
-            .pattern => if (self.ownsBinding(place)) return true,
-            else => {},
-        }
-        if (at.isKind(.index)) {
-            try self.errAt(at, cell_place, .{ "c[i] = e", "" });
-        } else try self.errAt(at, cell_place, .{ "Cell.", self.text(at) });
-        return false;
-    }
-
-    /// A change to a Cell may land in the value `place` reaches: the Cell a
-    /// Cell member or `c[i] = e` changes, or the receiver of a `?self`
-    /// method whose type holds one. A temporary, or a part of one, lives in
-    /// its statement's slot, where the change lands and is dropped with it;
-    /// a value that branches is reached at the leaf it takes, a name's
-    /// where it is and each value made here in its own slot (`keepReached`).
-    fn keepsCellChange(self: *Checker, place: Place) Error!void {
-        if (place.root == .temporary) try self.keepReached(place.base);
-    }
-
-    /// Keep each value made here that reaching `e` by address reaches
-    /// (`storage.madeLeaves`) in its statement's slot (`dropsTemp`): emit
-    /// takes its address there, never that of a Zig temporary, which may
-    /// be constant (`Emitter.emitLeafPtr`).
-    fn keepReached(self: *Checker, e: Sexp) Error!void {
-        var leaves: std.ArrayList(Sexp) = .empty;
-        defer leaves.deinit(self.ctx.allocator);
-        try storage.madeLeaves(self.ctx, self.ctx.allocator, e, &leaves);
-        for (leaves.items) |leaf| try self.ctx.recordTempDrop(leaf);
-    }
-
-    /// Whether `place` starts from a binding that owns what it binds: an
-    /// `as` binding, or an element or payload of a value a loop or match
-    /// takes.
-    fn ownsBinding(self: *Checker, place: Place) bool {
-        const id = place.sym orelse return false;
-        return self.ctx.symbols.items[id].flags.as_bound or self.owned_bindings.contains(id);
     }
 
     /// Synthesize without reporting diagnostics (the full check reports them).
@@ -1787,14 +1724,8 @@ const Checker = struct {
             const writes = self.ctx.types.get(ty) == .write_view;
             if (try sema.makesWriteView(self.ctx, expr)) {
                 reach = .written;
-            } else if (sema.holdsCellByValue(self.ctx, inner) or try self.cannotCopy(inner, self.startOf(expr), "moves out of a view a value")) {
-                // Over a view a call returns, a header temporary makes emit
-                // bind a copy of the value inside, which a Cell change
-                // would fork.
-                if (sema.holdsCellByValue(self.ctx, inner) and !expr.isKind(.read) and self.makesTemps(expr, .nil)) {
-                    try self.errAt(expr, "`as` would bind a copy of the `{s}` inside this optional, since the header makes a temporary, and a change to its Cell would be lost: bind the optional to a name first", .{try self.tyName(inner)});
-                    inner = self.t().invalid_id;
-                } else if (writes) {
+            } else if (try self.cannotCopy(inner, self.startOf(expr), "moves out of a view a value")) {
+                if (writes) {
                     // A held write view is lent on visibly, as `!o`; one a
                     // temporary of the header holds ends with the header.
                     if (sema.firstStmtTemp(self.ctx, expr)) |temp| {
@@ -2170,14 +2101,11 @@ const Checker = struct {
 
     /// The binding of an element a loop reads where it is: a copy of
     /// plain data, a view (`?E`) of anything else, so a unique value is
-    /// never copied and a Cell changes where it is. Inside a generic body
-    /// an element whose type depends on the instance is a copy, so every
-    /// instance must supply one that copies and holds no Cell.
+    /// never copied. Inside a generic body an element whose type depends
+    /// on the instance is a copy, so every instance must supply one that
+    /// copies.
     fn readElement(self: *Checker, pos: u32, elem: TypeId) Error!TypeId {
-        if (sema.copies(self.ctx, elem) == .depends) {
-            try self.requireOf(elem, .copies, pos, "copies into a loop binding a value");
-            try self.requireOf(elem, .no_cell, pos, "copies into a loop binding a value");
-        }
+        if (sema.copies(self.ctx, elem) == .depends) try self.requireOf(elem, .copies, pos, "copies into a loop binding a value");
         return self.loopElement(.read, elem);
     }
 
@@ -2244,10 +2172,6 @@ const Checker = struct {
                     try self.err(pos, "`<{s}` would move the elements out of a Vec that `{s}` only views; loop over `?{s}` or `!{s}`, or move the Vec itself", .{ shown, shown, shown, shown });
                     return self.ctx.intern(.{ .read_view = elem });
                 }
-                // Inside a generic body an element whose type depends on
-                // the instance is bound as a copy, which is only read: a
-                // Cell in it would change in the copy alone.
-                if (!is_resource and sema.copies(self.ctx, elem) == .depends) try self.requireOf(elem, .no_cell, pos, "copies into a loop binding a value");
                 return self.loopElement(.read, elem);
             },
             .array => |a| {
@@ -2713,10 +2637,10 @@ const Checker = struct {
     }
 
     /// Whether `node`, inside the held base `base`, is or holds a
-    /// statement temporary (`dropsTemp`, `lendsCellTemp`).
+    /// statement temporary (`dropsTemp`).
     fn makesTemps(self: *Checker, node: Sexp, base: Sexp) bool {
         if (node != .list) return false;
-        if (!sameNode(node, base) and (self.ctx.dropsTemp(node) or self.ctx.lendsCellTemp(node))) return true;
+        if (!sameNode(node, base) and self.ctx.dropsTemp(node)) return true;
         for (node.items()) |item| if (self.makesTemps(item, base)) return true;
         return false;
     }
@@ -2913,7 +2837,6 @@ const Checker = struct {
                         const ty = try self.bindMatchView(pattern, mode, scrutinee);
                         const copied = self.arm_local or (mode == .read and !storage.catchAllCaptured(self.ctx, pattern, self.matching));
                         if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
-                        if (mode == .read) try self.readBinding(scrutinee, pattern, !self.arm_local and !copied);
                         try self.ctx.recordType(pattern, ty);
                     }
                 }
@@ -3027,7 +2950,6 @@ const Checker = struct {
             if (b == .nil) {
                 // Read where the match reads in place when no instance
                 // copies it.
-                if (mode == .read) try self.readBinding(f.ty, name, !self.arm_local and sema.copies(self.ctx, f.ty) == .depends);
                 continue;
             }
             // The binding's type follows its access (`bindMatchView`).
@@ -3035,7 +2957,6 @@ const Checker = struct {
             const ty = try self.bindMatchView(b, mode, f.ty);
             try self.ctx.recordType(b, ty);
             if (!self.isPoison(f.ty)) try self.ctx.recordPayloadField(b, f.ty);
-            if (mode == .read) try self.readBinding(f.ty, b, !self.arm_local and storage.bindsByAddress(self.ctx, b, self.matching));
             if (self.ctx.symbolOf(b)) |sym| {
                 // A binding that is no plain data of a copy of the
                 // subject is usable in its arm only.
@@ -3168,20 +3089,6 @@ const Checker = struct {
         return if (ok) binds else null;
     }
 
-    /// A read match binds `b`, a payload or the whole matched value, of
-    /// type `ty` where the matched value is. One that is no view or
-    /// slice and holds a type parameter by value is bound by copy where
-    /// the match reads a copy: no instance may hold a Cell the copy would
-    /// fork. (Where the copy is
-    /// consumed, the ownership checker requires an instance that owns
-    /// nothing: `Var.payload_view`.)
-    fn readBinding(self: *Checker, ty: TypeId, b: Sexp, by_address: bool) Error!void {
-        if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty) or self.ctx.types.get(ty) == .slice) return;
-        // Captured by address where the match reads in place, it copies
-        // nothing (`storage.catchAllCaptured`, `storage.bindsByAddress`).
-        if (by_address) return;
-        if (sema.maybeDropGlue(self.ctx, ty)) try self.requireOf(ty, .no_cell, self.startOf(b), "copies into a match binding a value");
-    }
 
     fn reportMissingVariant(self: *Checker, enum_ty: TypeId, vname: []const u8, pos: u32) Error!void {
         const decl = sema.nominalDecl(self.ctx, enum_ty) orelse {
@@ -4307,7 +4214,7 @@ const Checker = struct {
         // type, so what it is lent to is checked too.
         const lends = self.ctx.types.get(inner) == .write_view and place.steps > 0;
         if (kind == .write and !try self.requireAccess(place, if (lends) .lend_on else .lend_write, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
-        if (kind == .read and !try self.lendsToRead(operand, inner, place)) return self.t().invalid_id;
+        if (kind == .read) try self.lendsToRead(operand);
         if (kind == .write and !try self.lendsToWrite(operand)) return self.t().invalid_id;
         switch (self.ctx.types.get(inner)) {
             // (A write view of a `?T` was rejected above.)
@@ -4394,18 +4301,10 @@ const Checker = struct {
         return if (sema.isBranchingForm(e)) e else .nil;
     }
 
-    /// `operand`, of type `inner` at `place`, lent to read, written `?e`
-    /// or not: a temporary is held to its statement's end. False when the
-    /// lend is rejected (reported).
-    fn lendsToRead(self: *Checker, operand: Sexp, inner: TypeId, place: Place) Error!bool {
-        // A view of a value holding a Cell can change the Cell: a
-        // temporary, or the value a part of one starts from, lives in its
-        // statement's slot (`lendTemp`), where the change lands. (A loop
-        // or match binding of one is a view or the construct's own: a Cell
-        // holder is unique, so never a copy.)
-        if (sema.holdsCellByValue(self.ctx, inner) and place.root == .temporary and place.steps > 0) try self.ctx.recordCellTemp(operand);
+    /// `operand` lent to read, written `?e` or not: a temporary is held
+    /// to its statement's end.
+    fn lendsToRead(self: *Checker, operand: Sexp) Error!void {
         if (self.isTemporary(operand)) try self.lendTemp(operand);
-        return true;
     }
 
     /// Whether `e` is a constant, a value that lives for the whole
@@ -4953,26 +4852,6 @@ const Checker = struct {
         return ty;
     }
 
-    /// Synthesize `operand`, read where it stands by a field, an element,
-    /// or a method (`readInPlace`).
-    fn synthReadInPlace(self: *Checker, operand: Sexp) Error!TypeId {
-        const ty = try self.synthExpr(operand);
-        if (!self.isPoison(ty)) try self.readInPlace(operand);
-        return ty;
-    }
-
-    /// `e`, synthesized, read where it stands by a field, an element, or
-    /// a method (`readLeaf`). A value that branches is reached at the leaf
-    /// it takes, by address (`storage.reachesLeaf`), and when its type
-    /// holds a Cell, a change may land there: each value made here that it
-    /// may reach lives in the statement's slot (`keepReached`).
-    fn readInPlace(self: *Checker, e: Sexp) Error!void {
-        try self.readLeaf(e);
-        if (!storage.reachesLeaf(self.ctx, e)) return;
-        const ty = self.ctx.typeOf(e) orelse return;
-        if (sema.interiorMutable(self.ctx, ty) != .no) try self.keepReached(e);
-    }
-
     /// `e`, synthesized, is only read. Reading never moves a name: a
     /// read passes through a branching value (`a if c else b`, `??`,
     /// `catch`, `e!`, `e?`) to its leaves (`sema.valueLeaves`). A value
@@ -5035,7 +4914,7 @@ const Checker = struct {
         // statement drops the temporary. Taking an owning field out of it
         // is taking a part of its parent, which the ownership checker
         // rejects.
-        if (!self.hands(obj).hasStorage()) return self.memberOf(e, obj, try self.synthReadInPlace(obj));
+        if (!self.hands(obj).hasStorage()) return self.memberOf(e, obj, try self.synthReadTemp(obj));
         return self.memberOf(e, obj, try self.synthOperand(obj));
     }
 
@@ -5690,7 +5569,7 @@ const Checker = struct {
             // only a call takes, or an element of a field.
             const inner = ir.Member.object(object);
             // A field of a temporary is read where it stands.
-            const inner_ty = if (self.hands(inner).hasStorage()) try self.synthOperand(inner) else try self.synthReadInPlace(inner);
+            const inner_ty = if (self.hands(inner).hasStorage()) try self.synthOperand(inner) else try self.synthReadTemp(inner);
             if (!self.isPoison(inner_ty)) if (try self.findMethod(inner_ty, self.text(ir.Member.name(object)))) |m| {
                 const call = self.sourceText(e);
                 const takes_args = m.fn_ty.params.len > @intFromBool(m.field.receiver != .none);
@@ -5703,7 +5582,7 @@ const Checker = struct {
         }
         // An element of a temporary is read where it stands, and the
         // statement drops the temporary.
-        if (!self.hands(object).hasStorage() and e.isKind(.index)) return self.indexInto(e, try self.synthReadInPlace(object));
+        if (!self.hands(object).hasStorage() and e.isKind(.index)) return self.indexInto(e, try self.synthReadTemp(object));
         return self.indexInto(e, try self.synthOperand(object));
     }
 
@@ -7916,21 +7795,10 @@ const Checker = struct {
         // (A write method on a value made here with no `!` is reported
         // as such: `checkReceiverMode`.)
         if (receiver == .read and !misplaced_sigil and !self.hands(obj).hasStorage()) {
-            try self.readInPlace(obj);
+            try self.readLeaf(obj);
         } else if (receiver != .value and !misplaced_sigil and !(receiver == .write and self.hands(obj).kind == .made)) try self.rejectResourceTemporary(obj, obj_ty);
 
-        // A `?self` method may change a Cell the value holds, which lands
-        // where the value is: a temporary, or a part of one, in its
-        // statement's slot (`keepsCellChange`). In a generic body that
-        // holds where the answer depends on the instance too: the slot is
-        // storage that may change.
-        if (resolved.nominal_sym != self.ctx.cell_sym_id and receiver == .read and sema.interiorMutable(self.ctx, obj_ty) != .no) try self.keepsCellChange(self.placeOf(obj));
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
-            const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");
-            if (stores and !try self.requireAccess(self.placeOf(lentPlace(obj)), .set_cell, name_node)) {
-                try self.synthArgs(args);
-                return if (std.mem.eql(u8, method, "set")) self.t().void_id else resolved.fn_ty.returns;
-            }
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
                     if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns a copy of the value, and a `{s}` {s}, so it can't be copied; write `cell.replace(<new)`, which puts `new` in and hands back the old value", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "owns what it must release" else self.movesBecause(elem) });
@@ -8203,9 +8071,9 @@ const Checker = struct {
         };
         try self.noteCallee(f);
         // The receiver is read where it stands, as any `?self` method's
-        // is (`readInPlace`).
+        // is (`readLeaf`).
         const obj = ir.Member.object(callee);
-        if (!self.hands(obj).hasStorage()) try self.readInPlace(obj);
+        if (!self.hands(obj).hasStorage()) try self.readLeaf(obj);
         if (member == .get) {
             if (try self.cannotCopy(elem, pos, "copies an element out of a Cell's Vec")) {
                 _ = try self.badCall(args, pos, cell_vec_handle, .{try self.tyName(sema.unwrapReadAccess(self.ctx, obj_ty))});
@@ -8214,9 +8082,6 @@ const Checker = struct {
         } else if (self.receiverShape(obj) == .move_explicit) {
             // As for `set`, and any read receiver (`checkReceiverMode`).
             try self.err(pos, "method `{s}` takes its receiver as a read view; cannot move", .{method});
-            try self.synthArgs(args);
-            return f.returns;
-        } else if (!try self.requireAccess(self.placeOf(lentPlace(ir.Member.object(callee))), .set_cell, ir.Member.name(callee))) {
             try self.synthArgs(args);
             return f.returns;
         }
@@ -8733,17 +8598,10 @@ const Checker = struct {
             .array => |a| a.len,
             else => return false,
         };
-        try self.checkExpr(e, try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } }));
-        try self.lendTempArray(e, elem);
+        const array = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
+        try self.checkExpr(e, array);
+        try self.lendTempArray(e, array, expected);
         return true;
-    }
-
-    /// A temporary array lent as a `[]T` argument. One whose elements hold
-    /// a Cell, which the callee may change through the slice, lives in a
-    /// mutable slot (`lendsCellTemp`).
-    fn lendTempArray(self: *Checker, e: Sexp, elem: TypeId) Error!void {
-        try self.ctx.recordTempArray(e);
-        if (sema.holdsCellByValue(self.ctx, elem)) try self.ctx.recordCellTemp(e);
     }
 
     /// `e`, of type `actual`, where a view of type `expected` goes, lent
@@ -8776,11 +8634,10 @@ const Checker = struct {
                 .lend, .branches, .jump, .none => return false,
             }
             // A slice held its own temporary, as `?xs[a..b]` does.
-            if (sliced or try self.lendsToRead(e, from, self.placeOf(e))) {
-                lend.implicit = true;
-                try self.ctx.recordImplicitLend(e);
-                try self.ctx.recordLend(e, lend);
-            } else try self.ctx.recordType(e, self.t().invalid_id);
+            if (!sliced) try self.lendsToRead(e);
+            lend.implicit = true;
+            try self.ctx.recordImplicitLend(e);
+            try self.ctx.recordLend(e, lend);
             return true;
         }
         // `?x` where a `(?T)?` is expected is a view the context admits as
@@ -8859,6 +8716,21 @@ const Checker = struct {
         return true;
     }
 
+    /// A temporary array `e` of `elem`s lent as a `[]T` argument, with no
+    /// `?` written (`total([1, 2])`). One whose elements need no cleanup
+    /// lives where Zig holds it for the call; any other is held and
+    /// dropped in its statement's slot, as `?[...]` holds it
+    /// (`lendsToRead`).
+    fn lendTempArray(self: *Checker, e: Sexp, array: TypeId, expected: TypeId) Error!void {
+        const elem = self.ctx.types.get(array).array.elem;
+        if (!sema.typeHasDropGlue(self.ctx, elem) and !sema.maybeDropGlue(self.ctx, elem)) return self.ctx.recordTempArray(e);
+        var lend = sema.lendsAs(self.ctx, array, .read, expected) orelse return self.ctx.recordTempArray(e);
+        try self.lendsToRead(e);
+        lend.implicit = true;
+        try self.ctx.recordImplicitLend(e);
+        try self.ctx.recordLend(e, lend);
+    }
+
     /// An array where a slice is expected: a temporary array as a `[]T`
     /// argument of a call that keeps no view of it. A bare named array
     /// is rejected with the lend to write. True when handled.
@@ -8877,7 +8749,7 @@ const Checker = struct {
                     return true;
                 }
                 if (!want_write and sameNode(e, self.lent_temp)) {
-                    try self.lendTempArray(e, elem);
+                    try self.lendTempArray(e, actual, expected);
                     return true;
                 }
                 if (!want_write) {
@@ -11103,7 +10975,6 @@ fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return vecElementType(ctx, cellElementType(ctx, ty) orelse return null);
 }
 
-const cell_place = "`{s}{s}` needs a Cell that has a place: a binding, a temporary, a field of either, or one reached through a view (`?T` or `!T`) or a shared handle (`*T`). A loop or match binding that copies its element or payload is not one: the change would be lost with the copy.";
 
 const slice_of_temporary = "only a named array, Vec, or Text, or a field or element of one, can be sliced; bind this value to a name first";
 
@@ -11805,7 +11676,6 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
             const aname = try sema.formatType(ctx, arg);
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
             switch (req.req) {
-                .no_cell => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` holds a Cell, which the copy would fork", .{ inst, pname, aname, req.op, pname, aname }),
                 .copies, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
                 else
@@ -11822,7 +11692,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .copies, .no_cleanup, .no_cell => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .copies, .no_cleanup => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
@@ -11878,7 +11748,6 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         },
         .copies => sema.copies(ctx, ty) != .no,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
-        .no_cell => !sema.holdsCellByValue(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {
             .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
             else => false,

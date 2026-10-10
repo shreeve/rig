@@ -241,11 +241,8 @@ fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
         }
     }
     const callee = ctx.calleeOf(call);
-    // Zig passes a temporary receiver to a `!self` method as a constant,
-    // and a Cell a read view may change must not be in one.
-    if (receiverOf(ctx, call)) |recv| if ((!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) or ctx.lendsCellTemp(lentPlace(recv))) return true;
-    for (args) |a| if (argValue(a).isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
-    for (args) |a| if (ctx.lendsTempArray(argValue(a)) and ctx.lendsCellTemp(argValue(a))) return true;
+    // Zig passes a temporary receiver to a `!self` method as a constant.
+    if (receiverOf(ctx, call)) |recv| if (!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) return true;
     var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or consumedTemporary(ctx, call) != null;
     for (args) |a| {
         const v = argValue(a);
@@ -296,9 +293,7 @@ fn decideReceiverHold(ctx: *const SemContext, call: Sexp) ?ReceiverHold {
     // Lend sigils on a receiver are implicit in Zig's method calls.
     const recv = lentPlace(receiverOf(ctx, call) orelse return null);
     const writes = receiverWrites(ctx, call);
-    // A Cell-holding part of a temporary is held where it can change.
-    const cell = ctx.lendsCellTemp(recv);
-    const temporary = (!hasStorage(ctx, recv) and !recv.isKind(.move)) or cell;
+    const temporary = !hasStorage(ctx, recv) and !recv.isKind(.move);
     if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return null;
     if (reachesLeaf(ctx, recv)) return .leaf;
     if (temporary and keptInSlot(ctx, recv)) return .slot;
@@ -314,11 +309,6 @@ pub const ArgumentHold = enum {
     closure,
     /// Any other callable lent: the `rig.FnRef`.
     callable,
-    /// A Cell-holding part of a temporary lent to read, kept in its
-    /// statement's slot: its address there.
-    cell_slot,
-    /// Such a part of a temporary no slot keeps: a mutable copy.
-    cell_copy,
     /// A value lent as the view its parameter expects (`lendOf`): the
     /// view, which points where the value is, a place or its
     /// statement's slot.
@@ -333,7 +323,6 @@ pub fn argumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
 
 fn decideArgumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
     if (ctx.callableOf(v) != null) return if (v.isKind(.lambda)) .closure else .callable;
-    if (v.isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(v))) return if (keptInSlot(ctx, ir.Read.operand(v))) .cell_slot else .cell_copy;
     if (ctx.lendOf(v) != null and !ctx.lendsTempArray(v)) return .lent;
     return .value;
 }
@@ -1253,7 +1242,7 @@ const Planner = struct {
         if (viewsOptionalValue(ctx, value)) {
             // A view of a temporary the header drops: the binding views
             // a copy of the value inside.
-            const copy = ctx.copiesHeader(cond) or (value.isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(value)));
+            const copy = ctx.copiesHeader(cond);
             try p.subjectHeader(value);
             if (used) {
                 try p.record(cond, .as_value, if (copy) .copy else .pointer, .body);
@@ -1389,8 +1378,7 @@ const Planner = struct {
                     break :by .owned;
                 },
                 .callable => .owned,
-                .cell_slot, .lent => .pointer,
-                .cell_copy => .copy,
+                .lent => .pointer,
                 .value => if (argumentParam(ctx, c, ai)) |t| (if (isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
             };
             try p.record(v, .argument, by, .call);

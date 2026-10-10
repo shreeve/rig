@@ -15,6 +15,9 @@ fun both(s: []Text, k: Int) -> Int
 fun lens(vs: []Vec[Int]) -> Int
   vs[1].len
 
+fun mka() -> [1]Text
+  [Text("xyz")]
+
 sub main()
   print(look([Text("abc")]))
   print(look(?[Text("abc")]))
@@ -24,6 +27,7 @@ sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   print(lens([Vec(), <v]))
+  print(look(mka()))
 
 # expect:
 # 4
@@ -31,3 +35,4 @@ sub main()
 # 3
 # 6
 # 1
+# 4

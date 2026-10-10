@@ -706,9 +706,6 @@ pub const Facts = struct {
     /// each binds, at the matched instance and in this module's types
     /// (`SemContext.recordPayloadField`).
     payload_fields: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
-    /// Fields and elements of a temporary, holding a Cell, that a read
-    /// view lends (`SemContext.recordCellTemp`).
-    cell_temps: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// `E.name` nodes that name a member of an error set `E`, through
     /// its module or an alias (`SemContext.recordErrorMember`).
     error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -1352,10 +1349,6 @@ pub const Requirement = union(enum) {
     /// Copies (`copies` is not `no`): the body copies the parameter's
     /// value.
     copies,
-    /// Holds no Cell inline: the body binds a copy of a value holding the
-    /// parameter (a loop element, a match payload) and may lend it, so a
-    /// Cell in it would change in the copy only.
-    no_cell,
     /// Needs no cleanup: the body discards the parameter's value, leaves
     /// a temporary of it, overwrites one, or keeps one in an array or a
     /// slice.
@@ -1390,7 +1383,6 @@ pub const Requirement = union(enum) {
             .shift => "a constant shift",
             .copies => "a value that copies",
             .no_cleanup => "a value that owns no resource",
-            .no_cell => "a value that holds no Cell",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
@@ -2060,18 +2052,6 @@ pub const SemContext = struct {
     /// (`recordPayloadField`); null for a binding sema did not type.
     pub fn payloadFieldOf(self: *const SemContext, node: Sexp) ?TypeId {
         return self.facts.payload_fields.get(exprKey(node) orelse return null);
-    }
-
-    /// `node`, a field or element of a temporary (`mk().p`), holds a Cell
-    /// that the read view lending it (`?mk().p`, or a `?self` receiver)
-    /// may change: the temporary is constant, so the part is copied into
-    /// a mutable local first.
-    pub fn recordCellTemp(self: *SemContext, node: Sexp) !void {
-        try self.facts.cell_temps.put(self.allocator, recordKey(node), {});
-    }
-
-    pub fn lendsCellTemp(self: *const SemContext, node: Sexp) bool {
-        return self.facts.cell_temps.contains(nodeKey(node) orelse return false);
     }
 
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
@@ -4231,11 +4211,11 @@ pub fn containsPoison(ctx: *const SemContext, ty_id: TypeId) bool {
 /// scalar or a view, which nothing can change while it is lent and which
 /// costs no more to copy than a pointer. Anything larger is lent by
 /// address, as is a value that owns resources (a copy would be dropped
-/// with whatever holds it) or holds a Cell (which can change while it is
-/// lent). `rig.ReadView` applies the same rule to Zig types, for a
+/// with whatever holds it). A value that holds a Cell is no scalar.
+/// `rig.ReadView` applies the same rule to Zig types, for a
 /// generic `?T`.
 pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
-    if (typeHasDropGlue(ctx, inner) or maybeDropGlue(ctx, inner) or holdsCellByValue(ctx, inner)) return false;
+    if (typeHasDropGlue(ctx, inner) or maybeDropGlue(ctx, inner)) return false;
     return copiedByReadView(ctx, inner);
 }
 
@@ -4360,26 +4340,6 @@ fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
 /// twice, a write view's once.
 pub const cell_misplaced = "a value of `{s}` holds a Cell, so it lives only behind a shared handle: write `*{s}`";
 pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, a receiver's, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
-
-/// Whether a value of `ty` is interior-mutable: it holds a `Cell`
-/// inline (`holdsCellByValue`), so it changes through any path to it, a
-/// read view included (Core 9). Emit keeps such a value only in Zig
-/// storage it may write, a `var`, and views it only through a mutable
-/// pointer or slice (`*T`, `[]T`), however Rig lends it: Zig treats a
-/// write through a `*const T`, or into a `const`, as undefined
-/// behavior. A Cell behind a handle (`*Cell[T]`, `Box[Cell[T]]`) or in
-/// a Vec's buffer lives on the heap, which every pointer to it may
-/// write, so it makes no value that holds the handle interior-mutable.
-/// A type that holds a type parameter by value `depends` on the
-/// instance: emit writes its views `rig.ReadPtr(T)` and
-/// `rig.ReadSlice(T)`. This is the one place the fact is decided: emit
-/// writes the answer into each type it emits (`__rig_interior_mutable`,
-/// per instance where it depends), and the runtime only reads it.
-pub fn interiorMutable(ctx: *const SemContext, ty: TypeId) Answer {
-    const info = ctx.holds(ty);
-    if (info.cell) return .yes;
-    return if (info.holds_type_var) .depends else .no;
-}
 
 /// Whether a value of `ty` can hold a marked view (see `Views`). A generic
 /// parameter holds none: an instantiation with a view is checked apart.

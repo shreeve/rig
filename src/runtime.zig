@@ -61,46 +61,15 @@ fn needsDrop(comptime T: type) bool {
     };
 }
 
-/// Whether a `T` is interior-mutable: it holds a Cell inline, so it
-/// changes through any view of it. The emitter decides this from sema's
-/// `interiorMutable` and writes the answer into every struct and union
-/// type it emits, `__rig_interior_mutable` (a Cell's is `true`); this
-/// reads that answer, through an optional, an array, or an error
-/// union's payload. Anything else (a pointer, a slice, a number, a
-/// runtime container such as `Vec`, which holds its elements on the
-/// heap) is not.
-pub fn interiorMutable(comptime T: type) bool {
-    return switch (@typeInfo(T)) {
-        .optional => |o| interiorMutable(o.child),
-        .array => |a| interiorMutable(a.child),
-        .error_union => |e| interiorMutable(e.payload),
-        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, "__rig_interior_mutable") and T.__rig_interior_mutable,
-        else => false,
-    };
-}
-
 /// How a read view `?T` is held: a copy of a scalar or a view (a
 /// number, `Bool`, a plain enum, an error, a slice or `String`, a
 /// function, or an optional of one), a pointer to anything else. The
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
-/// the type arguments.
+/// the type arguments. A type argument never holds a Cell (a Cell lives
+/// only behind a shared handle), so the pointer is read-only.
 pub fn ReadView(comptime T: type) type {
-    return if (needsDrop(T) or interiorMutable(T) or !copiedByReadView(T)) ReadPtr(T) else T;
-}
-
-/// The pointer a read view of a `T` is held as: `*T` when `T` is
-/// interior-mutable (`interiorMutable`: it changes through any view of
-/// it, and Zig must not see a write through a `*const T`), `*const T`
-/// otherwise.
-pub fn ReadPtr(comptime T: type) type {
-    return if (interiorMutable(T)) *T else *const T;
-}
-
-/// A read-only slice of `E`s, `[]const E`, or `[]E` when `E` is
-/// interior-mutable (`ReadPtr`).
-pub fn ReadSlice(comptime E: type) type {
-    return if (interiorMutable(E)) []E else []const E;
+    return if (needsDrop(T) or !copiedByReadView(T)) *const T else T;
 }
 
 fn copiedByReadView(comptime T: type) bool {
@@ -131,7 +100,7 @@ pub fn poison(ptr: anytype) void {
 
 /// The `T` a read view `?T`, held where `view` points, reaches:
 /// the value itself when the view is a pointer, else the view's copy.
-pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) ReadPtr(T) {
+pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const T {
     return if (comptime ReadView(T) == T) view else view.*;
 }
 
@@ -619,7 +588,6 @@ pub fn Cell(comptime T: type) type {
         const Self = @This();
         /// Its arguments, for `typeName`.
         pub const __rig_args = .{T};
-        pub const __rig_interior_mutable = true;
 
         pub fn get(self: *const Self) T {
             return self.value;
@@ -935,10 +903,9 @@ pub fn Vec(comptime T: type) type {
             return &self.buf[index(i, self.len)];
         }
 
-        /// The slot at `i`, read-only (`ReadPtr`: writable when `T`
-        /// holds a Cell, which changes through any view), for an element
-        /// reached through a read view; panics when out of range.
-        pub fn constSlot(self: *const Self, i: anytype) ReadPtr(T) {
+        /// The slot at `i`, read-only, for an element reached through a
+        /// read view; panics when out of range.
+        pub fn constSlot(self: *const Self, i: anytype) *const T {
             return &self.buf[index(i, self.len)];
         }
 
@@ -1342,7 +1309,7 @@ pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
 
 /// `s[lo..hi]` of a string, slice, or array pointer: the elements from
 /// `lo` up to `hi` (`null`: the end); panics unless `0 <= lo <= hi <= len`.
-pub fn slice(items: anytype, lo: anytype, hi: anytype) ReadSlice(std.meta.Elem(@TypeOf(items))) {
+pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@TypeOf(items)) {
     const b = bounds(items.len, lo, hi);
     return items[b[0]..b[1]];
 }

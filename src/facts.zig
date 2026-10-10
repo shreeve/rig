@@ -192,9 +192,6 @@ pub const Facts = struct {
     pub fn lendsTempArray(f: Facts, node: Sexp) bool {
         return f.c().lendsTempArray(node);
     }
-    pub fn lendsCellTemp(f: Facts, node: Sexp) bool {
-        return f.c().lendsCellTemp(node);
-    }
     pub fn readsThrough(f: Facts, node: Sexp) bool {
         return f.c().readsThrough(node);
     }
@@ -544,10 +541,10 @@ pub const Facts = struct {
     pub fn lendByValue(f: Facts, inner: TypeId) bool {
         return sema.lendByValue(f.c(), inner);
     }
-    /// Whether a value of this type holds a Cell inline, so a pointer to it
-    /// is mutable and its storage a `var` (`sema.interiorMutable`).
-    pub fn interiorMutable(f: Facts, ty: TypeId) Answer {
-        return sema.interiorMutable(f.c(), ty);
+    /// Whether a value of this type holds a Cell inline, so a read view
+    /// of it is a mutable pointer (`sema.holdsCellByValue`).
+    pub fn holdsCellByValue(f: Facts, ty: TypeId) bool {
+        return sema.holdsCellByValue(f.c(), ty);
     }
     /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {
