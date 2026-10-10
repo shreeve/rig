@@ -996,8 +996,10 @@ iteration. An `else` block runs when the loop ends without `break`.
 ### for
 
 `for x in source` walks a range `a..b`, an array, a slice, a `String`
-(its bytes), or a `Vec`. `for x, i in xs` also binds the index, after
-the element. A sigil on the source says how the loop holds it.
+(its bytes), a `Vec`, or an iterator, a value whose type has
+`next(!self) -> T?` (`for x in it` is `while (!it).next() as x`).
+`for x, i in xs` also binds the index, after the element (not for an
+iterator). A sigil on the source says how the loop holds it.
 
 ```rig
 sub main()
@@ -1025,6 +1027,7 @@ sub main()
 | `for x in xs`, `for x in ?xs` | each element read in place: a copy of plain data, a view of anything else |
 | `for x in !xs` | a write view of each element |
 | `for x in <v` | each element of a Vec, owned; `v` is consumed |
+| `for x in it`, `for x in !it` | each value an iterator gives, advancing `it` where it stands |
 
 A source made there (`for x in mk()`) is taken; [SPEC §6](SPEC.md#for)
 has the rules. An `else` block runs when the loop ends without `break`.
