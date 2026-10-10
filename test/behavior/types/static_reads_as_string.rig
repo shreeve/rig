@@ -43,6 +43,8 @@ sub main()
   maybe: Static? = none
   print(fallback(maybe), fallback(os.env("RIG_STATIC_SURELY_UNSET")), fallback(view))
   print(maybe ?? "default", view == "from", lit == view, "lit" < view, view >= lit)
+  mixed = maybe ?? view
+  print(mixed, (maybe ?? "same") == "same")
 
   part = lit[1..]
   sub_text = text.trim("  padded  ")
@@ -58,4 +60,5 @@ sub main()
 # lit q b
 # none none from
 # default true false false false
+# from true
 # it padded true 1

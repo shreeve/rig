@@ -4222,9 +4222,20 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         _ = try self.readThrough(left, opt, sema.unwrapViews(self.ctx, opt));
-        const result = self.fallbackType(inner, expected);
+        const result = try self.joinFallback(self.fallbackType(inner, expected), right);
         try self.checkExpr(right, result);
         return result;
+    }
+
+    /// The type of `a ?? b` or `a catch b` when `a` gives a `Static` and
+    /// the fallback is a `String`: the `String`, which reads the `Static`
+    /// (`readsAsString`), as a branch joins the two.
+    fn joinFallback(self: *Checker, result: TypeId, fallback: Sexp) Error!TypeId {
+        if (result != self.t().static_id) return result;
+        self.tentative += 1;
+        defer self.tentative -= 1;
+        const ty = try self.synthQuiet(fallback);
+        return if (readValue(self.ctx, ty) == self.t().string_id) self.t().string_id else result;
     }
 
     /// The type of `a ?? b` or `a catch b`, where `a` gives an `inner`:
@@ -4271,7 +4282,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
-        const result = self.fallbackType(inner, expected);
+        const result = try self.joinFallback(self.fallbackType(inner, expected), handler);
         try self.checkExpr(handler, result);
         return result;
     }

@@ -1,0 +1,19 @@
+# A branch, `??`, or list literal that mixes a `Static` with a `String`
+# has the type `String`: the `Static` is read there, and nothing makes the
+# `String` a `Static`.
+
+sub main()
+  t = Text("abcdef")
+  v: String = ?t[..]
+  q: Static? = none
+  a: Static = v if t.len > 1 else "a"
+  b: Static = q ?? v
+  c: [2]Static = [v, "a"]
+  d: Static = "a" if t.len > 1 else v
+  print(a, b, c, d)
+
+# error: 9:15: type mismatch: expected `Static`, got `String`
+# error: 10:15: type mismatch: expected `Static`, got `String`
+# error: 11:19: type mismatch: expected `Static`, got `String`
+# error: 12:37: type mismatch: expected `Static`, got `String`
+# errors: 4
