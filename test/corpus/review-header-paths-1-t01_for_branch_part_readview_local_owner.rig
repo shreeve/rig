@@ -1,0 +1,21 @@
+struct RV
+  rv: ?Vec[Int]
+  n: Int
+
+sub main()
+  z: Vec[Int] = Vec()
+  !z.push(1)
+  !z.push(2)
+  q: Vec[Int] = Vec()
+  !q.push(3)
+  x = RV(rv: ?z, n: 1)
+  y = RV(rv: ?q, n: 2)
+  a = !x
+  b = !y
+  c = true
+  n = 0
+  for e in (a if c else b).rv
+    for _ in 0..100
+      !z.push(1)
+    n += e
+  print(n)

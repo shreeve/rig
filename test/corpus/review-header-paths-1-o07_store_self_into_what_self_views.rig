@@ -1,0 +1,14 @@
+struct H
+  n: Vec[Int]
+  w: !Vec[?Vec[Int]]
+
+  sub reg(!self)
+    !self.n.push(1)
+    !self.w.push(?self.n)
+
+sub main()
+  v: Vec[?Vec[Int]] = Vec()
+  h = H(n: Vec(), w: !v)
+  (!h).reg()
+  h = H(n: Vec(), w: !v)
+  print(v.len)

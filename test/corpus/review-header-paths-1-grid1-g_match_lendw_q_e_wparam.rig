@@ -1,0 +1,67 @@
+struct Res
+  n: Int
+  v: Vec[Int]
+
+enum E
+  a(r: Res)
+  b
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  E.a(r: Res(n: n, v: <v))
+
+struct Q
+  e: E
+  o: E?
+  v: Vec[Int]
+
+struct W
+  e: E
+  o: E?
+  v: Vec[Int]
+  q: Q?
+
+  fun ge(?self) -> ?E
+    ?self.e
+
+  fun gv(?self) -> ?Vec[Int]
+    ?self.v
+
+  fun go(?self) -> ?(E?)
+    ?self.o
+
+  fun gew(!self) -> !E
+    !self.e
+
+  fun gvw(!self) -> !Vec[Int]
+    !self.v
+
+struct H
+  w: !W
+
+fun mkv(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i + 1)
+  v
+
+fun mkw(n: Int) -> W
+  W(e: mk(n), o: mk(n + 10), v: mkv(n), q: Q(e: mk(n + 20), o: mk(n + 30), v: mkv(n)))
+
+fun id[T](x: T) -> T
+  x
+
+fun f(a: !W, b: !W, c: Bool, d: E, dv: Vec[Int]) -> Int?
+  match !(a if c else b).q?.e
+    .a(r)
+      s = ?r.v[..]
+      a.q = none
+      print(s[0])
+    .b => pass
+  1
+
+sub main()
+  x = mkw(3)
+  y = mkw(3)
+  _ = f(!x, !y, true, mk(7), mkv(2))

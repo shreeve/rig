@@ -1,0 +1,15 @@
+struct A3
+  o: Int?
+
+sub main()
+  xs: Vec[A3] = Vec()
+  !xs.push(A3(o: 1))
+  ys: Vec[A3] = Vec()
+  !ys.push(A3(o: 2))
+  a = !xs[0]
+  b = !ys[0]
+  c = true
+  if (a if c else b).o as x
+    for _ in 0..100
+      !xs.push(A3(o: 0))
+    print(x)

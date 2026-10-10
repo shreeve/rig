@@ -1,0 +1,16 @@
+struct H
+  n: Int
+  v: Vec[Int]
+
+  sub put(!self, dst: !Vec[?Vec[Int]])
+    !self.v.push(1)
+    !dst.push(?self.v)
+
+sub main()
+  v: Vec[Int] = Vec()
+  h = H(n: 1, v: <v)
+  d: Vec[?Vec[Int]] = Vec()
+  (!h).put(!d)
+  h = H(n: 2, v: Vec())
+  print(d.len)
+  print(d[0])
