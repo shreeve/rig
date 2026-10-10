@@ -2313,8 +2313,9 @@ symbols); a query that decides more than that belongs in `Pending`.
   like any other, and a site that would write through one is a Zig
   compile error, never undefined behavior (a unit test checks that
   neither the emitter nor the runtime casts constness away). A write view
-  of a handle (`!h`) points at the handle: member access on it
-  dereferences it before the handle's `.value` (`Emitter.writeReach`).
+  of a handle (`!h`) points at the handle: a receiver hoisted before the
+  call's arguments dereferences it before the handle's `.value`
+  (`derefToHandle`).
   A type argument never holds a Cell by value, so a generic type's
   `rig.ReadView(T)` is a read-only pointer, and a Vec element reached
   through a read view is `constSlot(i)`, a `*const T`.

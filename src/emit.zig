@@ -4434,12 +4434,7 @@ pub const Emitter = struct {
         var t = ty;
         var ptr = false;
         while (true) switch (self.facts.types.get(t)) {
-            .read_view => |inner| t = inner,
-            // A write view of a handle points at the handle.
-            .write_view => |inner| {
-                if (self.facts.types.get(inner) == .shared) try self.w.writeAll(".*");
-                t = inner;
-            },
+            .read_view, .write_view => |inner| t = inner,
             .shared => |inner| {
                 try self.w.writeAll(if (ptr) ".*.value" else ".value");
                 t = inner;
@@ -4514,7 +4509,10 @@ pub const Emitter = struct {
         // which has that type, never in a copy: a change through it is
         // the temporary's own, which its drop sees.
         if (!self.facts.writesTemp(o) and !self.facts.dropsTemp(o)) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
-            if (self.hoistedOf(o)) |h| if (h.flag.len == 0) return self.w.writeAll(h.name);
+            if (self.hoistedOf(o)) |h| if (h.flag.len == 0) {
+                try self.w.writeAll(h.name);
+                return self.derefToHandle(t);
+            };
             try self.writeAsOpen(t);
             try self.emitExpr(o);
             try self.w.writeAll(")");
