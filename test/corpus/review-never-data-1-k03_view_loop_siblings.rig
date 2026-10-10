@@ -1,0 +1,38 @@
+struct P
+  n: Int
+  t: Text
+
+enum E
+  a(p: ?P)
+  b
+
+sub main()
+  p = P(n: 3, t: Text("pp"))
+  q = P(n: 4, t: Text("qq"))
+  rv: Vec[?P] = Vec()
+  !rv.push(?p)
+  !rv.push(?q)
+  for x in ?rv
+    print(x.n, x.t)
+  for x in ?rv[0..1]
+    print(x.n)
+  for x in ?rv[1..2]
+    print(x.t)
+  for x, i in rv
+    print(i, x.n)
+  e = E.a(?p)
+  match e
+    .a(r) => print(r.n, r.t)
+    .b => print(0)
+  o: (?P)? = ?q
+  if o as r
+    print(r.n)
+  arr = [?p, ?q]
+  for x in arr
+    print(x.t)
+  vv: Vec[?Vec[Int]] = Vec()
+  ints: Vec[Int] = Vec()
+  !ints.push(5)
+  !vv.push(?ints)
+  for x in vv
+    print(x.len, x[0])

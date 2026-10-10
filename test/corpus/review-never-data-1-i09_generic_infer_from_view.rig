@@ -1,0 +1,22 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct O
+  k: Counter
+
+fun id[T](x: ?T) -> ?T
+  x
+
+sub poke[T](x: ?T, y: ?T)
+  print(1)
+
+sub main()
+  o = *O(k: Counter())
+  r: ?Counter = ?o.k
+  id(r).hit()
+  id(?o.k).hit()
+  poke(r, ?o.k)
+  print(o.k.hits.get())

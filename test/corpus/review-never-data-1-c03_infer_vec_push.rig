@@ -1,0 +1,5 @@
+sub main()
+  n = 1
+  v = Vec()
+  !v.push(!n)
+  print(n)

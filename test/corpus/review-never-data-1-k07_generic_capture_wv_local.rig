@@ -1,0 +1,15 @@
+struct P
+  n: Int
+  t: Text
+
+sub gen[T](v: !T, f: sub(?T))
+  w = v
+  h = |?w, ?f| f(w)
+  h()
+
+sub show(p: ?P)
+  print(p.n, p.t)
+
+sub main()
+  p = P(n: 1, t: Text("ab"))
+  gen(!p, show)

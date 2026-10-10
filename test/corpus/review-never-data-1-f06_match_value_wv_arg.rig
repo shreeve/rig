@@ -1,0 +1,11 @@
+sub inc(w: !Int)
+  w += 1
+
+sub main()
+  a = 1
+  b = 2
+  k = 0
+  inc(match k
+    0 => !a
+    _ => !b)
+  print(a, b)

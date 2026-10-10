@@ -1,0 +1,13 @@
+struct H
+  t: Text
+
+fun name(h: ?H) -> String
+  h.t
+
+sub main()
+  a = H(t: Text("aaa"))
+  b = H(t: Text("bbb"))
+  c = true
+  s = name(a if c else b)
+  <a
+  print(s)

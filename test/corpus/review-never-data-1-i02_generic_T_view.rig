@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub twice[T](x: T, f: sub(T))
+  f(x)
+  f(x)
+
+sub hitit(c: ?Counter)
+  c.hit()
+
+sub main()
+  k = *Counter()
+  twice(?k, hitit)
+  print(k.hits.get())

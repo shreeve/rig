@@ -1,0 +1,10 @@
+struct S
+  c: Cell[Int] = Cell(0)
+
+fun id[T](x: T) -> T
+  x
+
+sub main()
+  h = *S()
+  id(h.c).set(4)
+  print(h.c.get())

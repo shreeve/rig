@@ -1,0 +1,8 @@
+sub inc(w: !Int)
+  w += 1
+
+sub main()
+  a = 1
+  o: Int? = none
+  inc(!(o ?? a))
+  print(a)

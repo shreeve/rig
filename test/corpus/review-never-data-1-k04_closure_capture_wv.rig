@@ -1,0 +1,25 @@
+struct P
+  n: Int
+  t: Text
+
+sub viaw(w: !P)
+  f = |?w| w.n + w.t.len
+  print(f())
+  g = |!w| w.n += 1
+  g()
+
+sub gen[T](w: !T, f: sub(?T))
+  h = |?w, ?f| f(w)
+  h()
+
+sub show(p: ?P)
+  print(p.n, p.t)
+
+sub main()
+  p = P(n: 1, t: Text("ab"))
+  viaw(!p)
+  w = !p
+  k = |?w| w.n
+  print(k())
+  gen(!p, show)
+  print(p.n)

@@ -1,0 +1,12 @@
+error E
+  bad
+
+fun f(k: Bool) -> Vec[Int]!
+  return E.bad if k
+  Vec()
+
+sub main()
+  a: Vec[Int] = Vec()
+  !(f(true) catch a).push(1)
+  ?(f(true) catch a).len
+  print(a.len)

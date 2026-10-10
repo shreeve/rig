@@ -1,0 +1,15 @@
+struct W[T]
+  c: Cell[T]
+
+  sub put(?self, x: T)
+    self.c.set(x)
+
+sub bump[T](w: ?W[T], x: T)
+  w.put(x)
+
+sub main()
+  w = *W(c: Cell(1))
+  bump(w, 5)
+  w.put(6)
+  bump(?w, 7)
+  print(w.c.get())

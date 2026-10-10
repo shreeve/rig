@@ -1,0 +1,8 @@
+type W = !Int
+type VW = Vec[W]
+
+sub f(v: VW)
+  print(v.len)
+
+sub main()
+  print(1)

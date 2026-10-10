@@ -1,0 +1,24 @@
+struct H
+  a: [1]Text
+
+fun look(s: []Text) -> Int
+  s[0].len + s.len
+
+fun lookv(s: ?[2]Text) -> Int
+  s[1].len
+
+fun str(s: String) -> Int
+  s.len
+
+fun mka() -> [1]Text
+  [Text("xyz")]
+
+sub main()
+  c = mka()[0].len > 0
+  print(look(?([Text("a")] if c else [Text("bb")])))
+  print(lookv(?[Text("a"), Text("bc")]))
+  print(str(Text("abcd")))
+  print(look(?H(a: [Text("q")]).a))
+  for t in [Text("m"), Text("n")]
+    print(t)
+  print(look([Text(mka()[0])]))

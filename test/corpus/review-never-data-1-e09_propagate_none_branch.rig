@@ -1,0 +1,17 @@
+struct P
+  x: Int
+
+  sub bump(!self)
+    self.x += 1
+
+fun go(c: Bool) -> Int?
+  a: P? = P(x: 1)
+  b: P? = P(x: 5)
+  (a if c else b)?.bump()
+  (a if c else b)?.x += 4
+  x = (a if c else b)?
+  x.bump()
+  a?.x
+
+sub main()
+  print(go(true) ?? -1)

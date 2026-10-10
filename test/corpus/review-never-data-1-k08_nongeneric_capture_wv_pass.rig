@@ -1,0 +1,14 @@
+struct P
+  n: Int
+  t: Text
+
+sub show(p: ?P)
+  print(p.n, p.t)
+
+sub viaw(w: !P)
+  h = |?w| show(w)
+  h()
+
+sub main()
+  p = P(n: 1, t: Text("ab"))
+  viaw(!p)

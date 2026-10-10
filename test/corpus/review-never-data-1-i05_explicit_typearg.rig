@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int] = Cell(0)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun id[T](x: ?T) -> ?T
+  x
+
+sub main()
+  k = *Counter()
+  id[Counter](?k).hit()
+  print(k.hits.get())

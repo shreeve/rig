@@ -1,0 +1,12 @@
+struct Inner
+  c: Cell[Int] = Cell(0)
+
+struct S
+  inner: Inner
+
+sub main()
+  h = *S(inner: Inner())
+  h.inner.c.set(3)
+  y = h.inner
+  y.c.set(7)
+  print(h.inner.c.get())

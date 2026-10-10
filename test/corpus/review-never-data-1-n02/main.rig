@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  w: lib.Wrap[lib.C]? = none
+  v: Vec[lib.C] = Vec()
+  print(v.len)

@@ -1,0 +1,9 @@
+sub main()
+  a: Vec[Text] = Vec()
+  b: Vec[Text] = Vec()
+  !a.push(Text("x"))
+  !b.push(Text("y"))
+  c = true
+  r = (a if c else b).get(0)
+  <a
+  print(r)

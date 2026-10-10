@@ -1,0 +1,23 @@
+struct S
+  c: Cell[Vec[Int]]
+
+struct O
+  s: S
+
+fun grow(s: ?S) -> Int
+  for i in 0..100
+    s.c.push(i)
+  5
+
+fun growc(c: ?Cell[Vec[Int]]) -> Int
+  for i in 0..100
+    c.push(i)
+  5
+
+sub main()
+  a = *O(s: S(c: Cell(Vec())))
+  b = *O(s: S(c: Cell(Vec())))
+  k = a.s.c.len == 0
+  a.s.c.push(1)
+  a2 = +a
+  print(a.s.c if k else b.s.c, growc(?a2.s.c))

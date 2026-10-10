@@ -1,0 +1,10 @@
+sub run(f: sub())
+  f()
+
+sub main()
+  n = 1
+  w = !n
+  g = |!w| w += 5
+  run(g)
+  g()
+  print(n)

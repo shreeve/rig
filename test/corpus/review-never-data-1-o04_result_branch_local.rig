@@ -1,0 +1,7 @@
+fun pick(c: Bool) -> ?Text
+  a = Text("aa")
+  b = Text("bb")
+  a if c else b
+
+sub main()
+  print(pick(true))

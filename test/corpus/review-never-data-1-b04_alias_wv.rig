@@ -1,0 +1,7 @@
+type W = !Int
+
+struct H
+  w: W
+
+sub main()
+  print(1)

@@ -1,0 +1,6 @@
+type C = Cell[Int]
+type V = Vec[C]
+
+sub main()
+  v: V = Vec()
+  print(v.len)

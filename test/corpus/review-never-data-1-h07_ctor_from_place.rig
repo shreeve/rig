@@ -1,0 +1,13 @@
+struct S
+  c: Cell[Vec[Int]]
+
+struct O
+  s: S
+
+sub main()
+  a = *O(s: S(c: Cell(Vec())))
+  b = *O(s: S(c: Cell(Vec())))
+  k = a.s.c.len == 0
+  a.s.c.push(1)
+  n = *O(s: a.s)
+  print(n.s.c.len)

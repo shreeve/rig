@@ -1,0 +1,6 @@
+sub main()
+  n = 1
+  w = !n
+  g: *sub() = *|!w| w += 5
+  g()
+  print(n)

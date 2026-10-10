@@ -1,0 +1,5 @@
+sub main()
+  a = [1, 2, 3]
+  o: (![]Int)? = !a[..]
+  b = Box(o)
+  print(a[0])
