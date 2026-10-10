@@ -8,4 +8,4 @@ sub main()
   b: Wrap[Int] = Wrap(value: "hello")
   print(b.value)
 
-# error: type mismatch: expected `Int`, got `String`
+# error: type mismatch: expected `Int`, got `Static`

@@ -2,7 +2,7 @@ fun keep(s: String) -> String
   s
 
 sub f(w: !Text?)
-  s = ""
+  s: String = ""
   if !w as r
     !r.add("!")
     s = keep(?r[1..])

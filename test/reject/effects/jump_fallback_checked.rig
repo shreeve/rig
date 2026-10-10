@@ -28,7 +28,7 @@ sub main()
   print(n, wrong(1), empty(1), err(1) catch 0)
   nothing(1)
 
-# error: 11:24: expected `Int`, got `String`
+# error: 11:24: expected `Int`, got `Static`
 # error: 15:17: `return` needs a value of type `Int`
 # error: 19:17: expected `Int`, got
 # error: 23:24: a `sub` returns no value

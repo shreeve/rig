@@ -21,7 +21,7 @@ sub main()
 
 # error: `<<=` requires an integer target; `f` has type `Float`
 # error: `|=` requires an integer target; `f` has type `Float`
-# error: `%=` requires a numeric target; `s` has type `String`
+# error: `%=` requires a numeric target; `s` has type `Static`
 # error: `^=` requires an integer target; this place has type `String`
 # error: division by zero
 # error: shift amount `64` is out of range for `Int` (0..63)

@@ -8,6 +8,6 @@ sub main()
   h: sub(Int) = |a|
     return a
 
-# error: type mismatch: expected `Int`, got `String`
+# error: type mismatch: expected `Int`, got `Static`
 # error: type mismatch: expected `Int`, got `Void`
 # error: a `sub` returns no value

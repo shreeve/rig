@@ -1,0 +1,6 @@
+fun keep(s: String) -> Static
+  s
+
+sub main()
+  t = Text("abc")
+  print(keep(?t[..]))

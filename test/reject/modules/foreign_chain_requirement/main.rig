@@ -7,6 +7,6 @@ use lib
 sub main()
   print(lib.quad(2), lib.quad("a"))
 
-# error: 8:26: `util.twice[String]` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support
+# error: 8:26: `util.twice[Static]` cannot use `T = Static`: the generic body applies `+` to `T`, which `Static` does not support
 # error: 2:3: `+` used on `T` here (arithmetic)
-# error: 8:26: `util.twice[String]` is made by `lib.quad[String]`
+# error: 8:26: `util.twice[Static]` is made by `lib.quad[Static]`

@@ -4,4 +4,4 @@ sub main()
   a = "x"
   print(a + "y")
 
-# error: 5:9: operator `+` requires numeric operands; got `String`; Rig has no `+` on text: build it with `Text(a, b)` or `!t.add(...)`
+# error: 5:9: operator `+` requires numeric operands; got `Static`; Rig has no `+` on text: build it with `Text(a, b)` or `!t.add(...)`

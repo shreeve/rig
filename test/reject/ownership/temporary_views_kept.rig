@@ -17,7 +17,7 @@ sub main()
   v: Vec[String] = Vec()
   !v.push(text.trim(?Text(" c ")))
   r = ?Text("d")
-  last = "none"
+  last: String = "none"
   while text.cut(?Text("k=v"), "=") as kw
     print(last)
     last = kw.after

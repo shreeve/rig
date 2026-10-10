@@ -3,8 +3,8 @@
 
 sub main()
   t = Text("scoped text here")
-  s = "lit"
-  o = "x"
+  s: String = "lit"
+  o: String = "x"
   i = 0
   while i < 2
     w = !s

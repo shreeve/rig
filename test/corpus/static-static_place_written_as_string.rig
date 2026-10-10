@@ -1,0 +1,7 @@
+sub main()
+  t = Text("abcdef")
+  lit = "lit"
+  w: !String = !lit
+  w = ?t[..2]
+  <t
+  print(lit)

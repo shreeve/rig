@@ -77,7 +77,7 @@ sub main()
   x = 6
   y = 2
   b = true
-  s = "hi"
+  s: String = "hi"
   o: Int? = 3
   n: Int? = none
   c = Color.red

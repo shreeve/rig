@@ -12,7 +12,7 @@ sub main()
 
 # error: 5:6: no method `len` on type `[]Int`; `len` is a field: write `xs.len`
 # error: 11:11: no method `len` on type `Vec[Int]`; `len` is a field: write `v.len`
-# error: 11:20: no method `len` on type `String`; `len` is a field: write `s.len`
+# error: 11:20: no method `len` on type `Static`; `len` is a field: write `s.len`
 # error: 11:29: `len` is a field: write `a.len`
 # error: 11:39: `len` is a field: write `v.len`
 # errors: 5

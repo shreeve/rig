@@ -242,6 +242,7 @@ N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
     "string": dict(ty="String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
+    "static": dict(ty="Static", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
     "text": dict(ty="Text", decls="", mk='Text("t", n)', ctor='Text("lit")'),
     "vec": dict(ty="Vec[Int]", decls="",
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
@@ -360,7 +361,7 @@ CONTEXTS = {
     # be lent, and one of a value made there ends with its statement.
     "recv_view_then_write": dict(inline="r = (E).M\n  _ = poke(!W)\n  print(r.v)", write=True,
                                  recv={t: "me()" for t in ("shared", "box", "drop")}),
-    "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "text")),
+    "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "static", "text")),
     "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("vec",)),
     # A `?self` method returning a view of its receiver (`me`): the view
     # held past the statement, used after a later operand writes what the
@@ -373,15 +374,15 @@ CONTEXTS = {
     # A slice of the value, written with no lend, as an argument where a
     # `[]T` or a String goes: it is lent the way its name is, as
     # `?(E)[..1]`, also while a later argument writes what it slices.
-    "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("vec", "array", "text", "string")),
+    "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("vec", "array", "text", "string", "static")),
     "slice_arg_then_write": dict(inline="print(both(E[..1], poke(!W)))", slice=True, write=True,
-                                 types=("vec", "array", "text", "string")),
+                                 types=("vec", "array", "text", "string", "static")),
 }
 
 # How `poke` changes a value of each type: it grows the buffer, or
 # replaces the value, freeing what the old one owned.
 POKES = {
-    "int": "x += 1", "string": 'x = "u"',
+    "int": "x += 1", "string": 'x = "u"', "static": 'x = "u"',
     "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "vec": "for i in 0..100\n    !x.push(i)",
     "shared": "x = *N(v: 9)", "box": "x = Box(N(v: 9))", "drop": "x = D(v: 9)",
     "unique": "x = U(v: 9)", "enum": "x = S.dot",
@@ -1653,6 +1654,7 @@ SLICEVIEW_ELEMS = {
                 grow=["for i in 0..100", "  !P.push(i)"]),
     "text": dict(ty="Text", view="String", mk='Text("hello", n)', grow=["for _ in 0..100", '  !P.add("abcdefgh")']),
     "string": dict(ty="String", view="String", mk='"hello" if n > 0 else "world"', grow=['P = "other"']),
+    "static": dict(ty="Static", view="String", mk='"hello" if n > 0 else "world"', grow=['P = "other"']),
 }
 
 # How the slice's object is held (`X` is what is sliced), and what
@@ -1790,7 +1792,8 @@ NEST_OWNERS = {
     "box": dict(make="b = Box(Text(\"hello\"))", arg="?b"),
     "text": dict(make="b = Text(\"hello\")", arg="?b[..]"),
     "vec": dict(make="b: Vec[Int] = Vec()", arg="?b"),
-    "string": dict(make="b = \"lit\"", arg="b"),
+    "string": dict(make="b: String = \"lit\"", arg="b"),
+    "static": dict(make="b = \"lit\"", arg="b"),
 }
 
 
@@ -1824,7 +1827,7 @@ def program(tname, fname, cname):
     if "recv" in ctx and tname not in ctx["recv"] or tname not in ctx.get("types", (tname,)):
         return None
     if "tail" in ctx:
-        if fname != "call" or tname in ("int", "string", "plain", "array"):
+        if fname != "call" or tname in ("int", "string", "static", "plain", "array"):
             return None
         write = TAIL_WRITES.get(tname, "print(look(?t))")
         lines = []
@@ -1861,7 +1864,7 @@ def program(tname, fname, cname):
         out.append(f"fun pass_t(x: {ty}, t: ?Text) -> {ty}\n  x\n")
         out.append(f"fun some_t(x: {ty}, t: ?Text) -> {ty}?\n  x\n")
     if ctx.get("slice"):
-        view = "String" if tname in ("text", "string") else "[]Int"
+        view = "String" if tname in ("text", "string", "static") else "[]Int"
         out.append(f"fun sliced(x: {view}) -> Int\n  x.len\n")
         out.append(f"fun both(x: {view}, k: Int) -> Int\n  x.len + k\n")
     if ctx.get("write"):
@@ -2267,7 +2270,8 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(nest_program(wname, home, oname))
                 cells.append((ident, path))
-                expects[ident] = "(rejected)\n"
+                # A `Static` carries no loan, so it goes there at any depth.
+                expects[ident] = "1\n" if oname == "static" else "(rejected)\n"
     for bname in LENDW_BINDINGS:
         for t in LENDW_TYPES:
             for lname in LENDW_TYPES[t]["lends"]:

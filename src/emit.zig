@@ -3702,7 +3702,7 @@ pub const Emitter = struct {
         };
         // A branch's String is a slice, so a literal in one branch and a
         // slice in another have one Zig type.
-        if (ty) |t| if (self.unwrapOptional(t) == self.facts.types.string_id) {
+        if (ty) |t| if (self.unwrapOptional(t) == self.facts.types.string_id or self.unwrapOptional(t) == self.facts.types.static_id) {
             try self.w.writeAll("@as(");
             try self.emitTypeTy(t);
             try self.w.writeAll(", ");
@@ -5168,7 +5168,7 @@ pub const Emitter = struct {
     /// An array, a slice, or a String, or a view of one.
     fn isSequence(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(self.peelViews(ty))) {
-            .array, .slice, .string => true,
+            .array, .slice, .string, .static => true,
             else => false,
         };
     }
@@ -6104,7 +6104,7 @@ pub const Emitter = struct {
     fn emitTypeTy(self: *Emitter, ty: TypeId) Error!void {
         const ctx = self.facts;
         switch (ctx.types.get(ty)) {
-            .void, .any_error, .bool, .string, .text, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
+            .void, .any_error, .bool, .string, .static, .text, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
             .optional => |inner| {
                 try self.w.writeAll("?");
                 try self.emitTypeTy(inner);
@@ -6186,7 +6186,7 @@ pub const Emitter = struct {
             .void => try self.w.writeAll("void"),
             .any_error => try self.w.writeAll("anyerror"),
             .bool => try self.w.writeAll("bool"),
-            .string => try self.w.writeAll("[]const u8"),
+            .string, .static => try self.w.writeAll("[]const u8"),
             .text => try self.w.writeAll("rig.Text"),
             .int_literal => try self.w.writeAll(int_zig),
             .float_literal => try self.w.writeAll(float_zig),
@@ -6365,7 +6365,7 @@ pub const Emitter = struct {
     fn hasLen(self: *Emitter, ty: TypeId) bool {
         const peeled = self.peelViews(ty);
         return switch (self.facts.types.get(peeled)) {
-            .array, .slice, .string => true,
+            .array, .slice, .string, .static => true,
             else => self.isVecTy(peeled),
         };
     }
@@ -6376,7 +6376,7 @@ pub const Emitter = struct {
     /// not a pointer to one.
     fn isPlainTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string, .function => true,
+            .int, .float, .int_literal, .float_literal, .bool, .string, .static, .function => true,
             .optional => |inner| self.isPlainTy(inner),
             else => false,
         };
@@ -6471,7 +6471,7 @@ pub const Emitter = struct {
             const ty = self.typeOf(o) orelse continue;
             const t = self.peelViews(ty);
             switch (self.facts.types.get(t)) {
-                .string, .slice => bytes = true,
+                .string, .static, .slice => bytes = true,
                 else => generic = generic or self.facts.containsTypeVar(t),
             }
         }

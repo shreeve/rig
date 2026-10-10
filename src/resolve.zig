@@ -141,9 +141,10 @@ const SymbolResolver = struct {
             .flags = flags,
         };
         const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
-        // `Text` is a built-in type, like `Vec`, though no symbol holds it.
-        const reserved = self.scope == self.module_scope and std.mem.eql(u8, name, "Text");
-        if (reserved) try self.ctx.err(pos, "`Text` is a reserved built-in nominal name and cannot be redefined", .{});
+        // `Text` and `Static` are built-in types, like `Vec`, though no
+        // symbol holds them.
+        const reserved = self.scope == self.module_scope and (std.mem.eql(u8, name, "Text") or std.mem.eql(u8, name, "Static"));
+        if (reserved) try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
         if (dup) |prev| {
             const p = self.ctx.symbols.items[prev];
             if (p.decl_pos == sema.builtin_decl_pos) {
@@ -782,7 +783,7 @@ pub const TypeResolver = struct {
             }
         }.keep);
         for (self.nominal.type_params) |tp| s.offer(self.ctx.symbols.items[tp].name);
-        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Void" }) |p| s.offer(p);
+        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Static", "Void" }) |p| s.offer(p);
         return s.hint(a);
     }
 
@@ -2191,11 +2192,11 @@ pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 
-const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Void" };
+const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Static", "Void" };
 
 fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
-    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.text_id, t.void_id };
+    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.text_id, t.static_id, t.void_id };
     for (primitive_type_names, ids) |n, id| {
         if (std.mem.eql(u8, name, n)) return id;
     }
@@ -2233,10 +2234,15 @@ fn sizedType(name: []const u8) ?Type {
 }
 
 /// Every built-in type a name spells, once each (`I64` is `Int`): the
-/// types `@name` of a type parameter names from a table (`emit`).
+/// types `@name` of a type parameter names from a table (`emit`), which
+/// is keyed by the Zig type. A `Static` is the Zig type of a `String`, so
+/// a type parameter bound to either is named `String`.
 pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const Type {
     var out: std.ArrayList(Type) = .empty;
-    for (primitive_type_names) |name| try out.append(a, ctx.types.get(primitiveTypeId(ctx, name).?));
+    for (primitive_type_names) |name| {
+        const ty = ctx.types.get(primitiveTypeId(ctx, name).?);
+        if (ty != .static) try out.append(a, ty);
+    }
     var buf: [4]u8 = undefined;
     for ("IUF") |prefix| for ([_]u8{ 8, 16, 32, 64, 128 }) |bits| {
         const ty = sizedType(std.fmt.bufPrint(&buf, "{c}{d}", .{ prefix, bits }) catch unreachable) orelse continue;

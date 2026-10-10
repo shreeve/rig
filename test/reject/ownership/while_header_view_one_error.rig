@@ -5,12 +5,12 @@
 use std.text
 
 sub main()
-  o = "init"
+  o: String = "init"
   while text.cut(?Text("k=v"), "=") as kv
     o = kv.after
     break
   print(o)
-  p = "init"
+  p: String = "init"
   :outer for _ in 0..2
     while text.cut(?Text("a=b"), "=") as kv
       p = kv.after

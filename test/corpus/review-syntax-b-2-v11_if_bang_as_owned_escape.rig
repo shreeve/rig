@@ -3,7 +3,7 @@ fun keep(s: String) -> String
 
 sub main()
   o: Text? = Text("hello")
-  s = ""
+  s: String = ""
   if !o as r
     !r.add("!")
     s = keep(?r[1..])

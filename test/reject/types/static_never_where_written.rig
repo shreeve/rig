@@ -1,0 +1,29 @@
+# A `Static` is read as a `String`, never where the text can be written:
+# a `!Static` is not a `!String`, so a `String` view cannot be written
+# into a `Static` place, nor a `Static` place lent where a `String`
+# place is written.
+
+sub set_to(w: !String, v: String)
+  w = v
+
+sub reset(w: !Static)
+  w = "reset"
+
+sub main()
+  t = Text("abcdefghijklmnop")
+  view: String = ?t[..]
+  fixed = "fixed"
+  loose: String = "loose"
+  set_to(!fixed, "x")
+  reset(!loose)
+  swap(!fixed, !loose)
+  old = replace(!fixed, view)
+  fixed = view
+  print(fixed, loose, old)
+
+# error: 17:10: type mismatch: expected `!String`, got `!Static`
+# error: 18:9: type mismatch: expected `!Static`, got `!String`
+# error: 19:16: `swap` exchanges two places of one type; got `Static` and `String`
+# error: 20:25: type mismatch: expected `Static`, got `String`
+# error: 21:11: type mismatch: expected `Static`, got `String`; `fixed` is a `Static`, bound to a literal's text, and a `String` may view a `Text`: declare it `fixed: String = ...` to hold other text
+# errors: 5

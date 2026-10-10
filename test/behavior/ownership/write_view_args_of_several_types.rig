@@ -10,7 +10,7 @@ sub f(s: !String, a: ![3]Int, n: !Int, o: !Int?)
     x += 1
 
 sub main()
-  s = "hi"
+  s: String = "hi"
   a = [1, 2, 3]
   n = 5
   o: Int? = 3

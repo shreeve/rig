@@ -15,7 +15,7 @@ fun g() -> Int
   p.len
 
 sub main()
-  o = "init"
+  o: String = "init"
   o = if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
     rest
   else
@@ -25,7 +25,7 @@ sub main()
     kv.after
   else
     "none"
-  q = "a"
+  q: String = "a"
   q = if false
     "b"
   else if text.cut(?Text("k=v"), "=") as kv

@@ -1,0 +1,18 @@
+struct Tag
+  name: Static
+
+fun label(t: Tag) -> *sub()
+  *|+t| print(t.name)
+
+sub main()
+  t = Text("abc")
+  c = *Cell("one")
+  pieces = ["a", "b", "c"]
+  !c.set(pieces[1])
+  tag = Tag(name: "tagged")
+  f = label(tag)
+  sig = *Signal("s")
+  !sig.set("t")
+  <t
+  f()
+  print(c.get(), sig.get(), tag.name)

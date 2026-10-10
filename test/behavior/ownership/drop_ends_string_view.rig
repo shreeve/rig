@@ -33,7 +33,7 @@ sub main()
   print(p.a, p.b)
   <p
   !t.clear()
-  lit = "hi"
+  lit: String = "hi"
   <lit
   print(t.len)
 

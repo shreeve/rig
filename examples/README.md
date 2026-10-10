@@ -19,6 +19,7 @@ bin/rig run examples/ownership_tour.rig
 | [sort.rig](sort.rig) | closures passed to functions: a generic `sort` taking a comparator `?fun(?T, ?T) -> Bool`, called with closure literals (one counting into a local with `\|!compares\|`) and a function, and a `map` that infers its result type from the closure |
 | [tree.rig](tree.rig) | a generic binary search tree owning its nodes through `Box[Node[T]]?`: insertion walks down with write views (`if !slot as n`) and stores a new leaf in place; lookups walk with read views |
 | [counter_closure.rig](counter_closure.rig) | closures over a shared `Cell`: a stack closure, and an owned closure `*fun(Int) -> Int` returned from a factory function |
+| [static_status.rig](static_status.rig) | `Static`, text that lives for the whole program: kept in a shared `Cell`, a `Signal`, a struct field, and an owned closure, where a `String` that may view a `Text` cannot go, and read as a `String` where text is only read |
 | [memo_canary.rig](memo_canary.rig) | a reactive source with derived values, built only from `Cell`, `Vec`, and owned closures; each derived source is held weakly by its listener, so the chain frees itself |
 
 [WELCOME.md](../WELCOME.md) introduces the language, and

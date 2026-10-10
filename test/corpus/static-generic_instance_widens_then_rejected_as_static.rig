@@ -1,0 +1,10 @@
+struct Pair[T]
+  a: T
+  b: T
+
+sub main()
+  t = Text("abc")
+  v: String = ?t[..]
+  p: Pair[Static] = Pair(a: "x", b: v)
+  <t
+  print(p.a, p.b)

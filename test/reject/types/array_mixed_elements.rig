@@ -4,4 +4,4 @@ sub main()
   xs = [1, "two"]
   print(1)
 
-# error: incompatible types `Int` and `String`
+# error: incompatible types `Int` and `Static`

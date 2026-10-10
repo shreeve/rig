@@ -9,5 +9,5 @@ sub main()
     break "one"
   print(x, y)
 
-# error: 7:5: incompatible types `String` and `Int`
-# error: 9:11: type mismatch: expected `Int`, got `String`
+# error: 7:5: incompatible types `Static` and `Int`
+# error: 9:11: type mismatch: expected `Int`, got `Static`

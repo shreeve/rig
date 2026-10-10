@@ -1,0 +1,82 @@
+# A `Static` is text that lives for the whole program: a literal, or
+# text derived only from literals. It is plain data that carries no
+# loan, so it goes where no loan is tracked: in a `Cell`, a `Signal`, an
+# owned closure, and in a struct field or a generic `T` stored there.
+
+struct Tag
+  name: Static
+  n: Int
+
+struct Pair[T]
+  a: T
+  b: T
+
+sub remember(c: !Cell[Static], s: Static)
+  !c.set(s)
+
+sub keep[T](c: !Cell[T], v: T)
+  !c.set(v)
+
+fun greeter(who: Static) -> *fun(Int) -> Int
+  *|+who, n: Int|
+    print(who, n)
+    n + 1
+
+fun greeter_of(t: Tag) -> *sub()
+  *|+t| print(t.name, t.n)
+
+sub main()
+  c = *Cell("idle")
+  print(c.get())
+  remember(!c, "busy")
+  print(c.get())
+  keep(!c, "again")
+  print(c.get())
+
+  sig = *Signal("start")
+  !sig.subscribe(*|~sig|
+    if sig.upgrade() as s
+      print("signal", s.get())
+  )
+  !sig.set("go")
+  print(sig.get())
+
+  f = greeter("hello")
+  print(f(1), f(2))
+  g = greeter_of(Tag(name: "tag", n: 7))
+  g()
+
+  tags: *Cell[Tag] = *Cell(Tag(name: "first", n: 1))
+  !tags.set(Tag(name: "second", n: 2))
+  print(tags.get().name, tags.get().n)
+
+  pairs: *Cell[Pair[Static]] = *Cell(Pair(a: "x", b: "y"))
+  !pairs.set(Pair(a: "p", b: "q"))
+  print(pairs.get().a, pairs.get().b)
+
+  opt: *Cell[Static?] = *Cell(none)
+  print(opt.get())
+  !opt.set("some")
+  print(opt.get())
+
+  name = "derived"
+  !c.set(name)
+  !c.set(name[..3])
+  print(c.get(), c.get() == "der")
+
+# release
+# expect:
+# idle
+# busy
+# again
+# signal go
+# go
+# hello 1
+# hello 2
+# 2 3
+# tag 7
+# second 2
+# p q
+# none
+# some
+# der true

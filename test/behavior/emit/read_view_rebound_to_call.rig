@@ -38,7 +38,7 @@ sub main()
   print(q, q == o)
   s1 = "one"
   s2 = "two"
-  t = ?s1
+  t: ?String = ?s1
   t = first(?s2, ?s1)
   print(t)
   d1 = Dir.n

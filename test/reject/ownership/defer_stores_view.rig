@@ -3,7 +3,7 @@
 # outlive them.
 
 sub main()
-  s = "x"
+  s: String = "x"
   if true
     t = Text("abcdefghijklmnop")
     defer s = ?t[..]

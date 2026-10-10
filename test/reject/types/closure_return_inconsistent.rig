@@ -16,4 +16,4 @@ sub main()
 
 # error: this closure returns `Int` with `return`, so its body must end with a value or a `return`
 # error: a bare `return` in a closure that returns `Int`; give it a value
-# error: this closure returns `Int`, but this `return` gives `String`
+# error: this closure returns `Int`, but this `return` gives `Static`

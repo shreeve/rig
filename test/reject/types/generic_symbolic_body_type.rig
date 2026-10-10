@@ -12,4 +12,4 @@ sub main()
   b: Wrap[Int] = Wrap(value: 5)
   print(b.value)
 
-# error: type mismatch: expected `T`, got `String`
+# error: type mismatch: expected `T`, got `Static`

@@ -4,4 +4,4 @@ sub main()
   x: Int? = 3
   print(x ?? "none")
 
-# error: expected `Int`, got `String`
+# error: expected `Int`, got `Static`

@@ -13,7 +13,6 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 - **Strings**: matching on them.
 - **Reading more through temporaries and optionals**: `o?` of an owned optional parameter read through a view where only read (`o?.len`), and a read-only use of an owning field of a temporary (`print(mk().t)`), both rejected today.
 - **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
-- **Static Strings**: a String known to view only static bytes (a literal, an argument), which could go into a Cell, a Signal, an owned closure, or a generic `T` stored there, where a String that may view a Text cannot.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `String`).
 - **A labeled value loop on the right of a binding** (`x = :l for ...`), which needs a grammar change without conflicts.
 - **Traits or bounds** whose dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support; `[T: Trait]` is kept free for them, told from a value parameter by what the name after `:` denotes.
@@ -36,7 +35,7 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 - **A freestanding target**: programs with no operating system under them, on Zig's freestanding support, with a runtime that makes no OS calls, a panic hook, and a boot entry point.
 - **Containers with explicit allocators**: owning values (List, String, `*T`) built over an allocator the program chooses, not a hidden global one.
 - **A teaching kernel** on one CPU in QEMU, with `raw` as the boundary for hardware access: volatile loads and stores, memory layout, interrupt calling conventions and inline assembly.
-- **Global state**: rules for module-level mutable state, designed together with Static Strings.
+- **Global state**: rules for module-level mutable state.
 - **Concurrency for kernels**: what may cross CPUs and interrupts, with atomics and locks, built on the thread-safe handles above; this is what a kernel beyond one CPU needs.
 
 ## Libraries
