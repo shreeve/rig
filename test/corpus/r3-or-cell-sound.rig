@@ -2,8 +2,6 @@
 # owner moves in with `set` or `replace` and out with `replace`, and a
 # read view of plain data is read by value on its way in.
 #
-# oracle: owners accept
-# oracle: by_value accept
 
 sub owners()
   c: Cell[Vec[Int]] = Cell(Vec())

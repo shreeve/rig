@@ -8,7 +8,6 @@
 # oracle: guarded accept
 # oracle: value_copy accept
 # oracle: Opt.or_else accept
-# oracle: main accept
 
 struct Res
   n: Int

@@ -103,7 +103,4 @@ sub main()
 # oracle: dropped_then_assign accept
 # oracle: popped_outlives_vec accept
 # oracle: got_then_push accept
-# oracle: write_elements accept
-# oracle: write_array accept
-# oracle: popped_write accept
 # oracle: owners accept

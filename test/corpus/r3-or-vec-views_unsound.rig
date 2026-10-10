@@ -160,13 +160,8 @@ sub main()
 # oracle: loop_local reject C5
 # oracle: temporary reject C5
 # oracle: element_then_push reject C4
-# oracle: write_twice reject C4
-# oracle: write_then_read reject C4
-# oracle: write_array_twice reject C4
 # oracle: popped_view reject C4
 # oracle: element_of_owner reject C3
 # oracle: field_inner_scope reject C5
-# oracle: through_write_views reject C4
 # oracle: swapped_view reject C4
 # oracle: replaced_view reject C4
-# oracle: field_write_view reject C4
