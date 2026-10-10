@@ -1182,7 +1182,9 @@ def lendw_program(bname, tname, lname, when):
 # through the place the branch read, and reads the view. The header would
 # copy the write view out of the place with no loan on it
 # (`sema.headerCopiesWriteView`), so every program must be rejected, and
-# one that runs fails the cell. Cells are `hdr.<header>.<shape>.<leaf>`.
+# one that runs fails the cell. Each subject is written bare, lent to
+# read (`?S`), and lent to write (`!S`). Cells are
+# `hdr.<header>.<sigil>.<shape>.<leaf>`.
 # -----------------------------------------------------------------------------
 
 _HDR_PRE = """struct Res
@@ -1247,7 +1249,12 @@ HDR_SHAPES = {
 }
 
 
-def hdr_program(hname, sname, lname):
+# Each sigil the subject is written with: bare, lent to read (`?S`), or
+# to write (`!S`), which a lend of a branch rejects (`lendsBranch`).
+HDR_SIGILS = {"bare": "", "read": "?", "write": "!"}
+
+
+def hdr_program(hname, sname, lname, gname="bare"):
     """The program for one header-path cell, or None where the shape and
     leaf do not meet."""
     h = HDR_HEADERS[hname]
@@ -1261,6 +1268,7 @@ def hdr_program(hname, sname, lname):
     if lname == "holder" and sname not in ("part2",):
         # The holder's leaf is its field `w`, a write view of W.
         subj = sh["subj"].replace("A", "h1.w").replace("B", "h2.w").replace("F", field)
+    subj = HDR_SIGILS[gname] + subj
     via = sh["via"].replace("HA", "h1").replace("A", a).replace("F", field)
     write = f"{via} = {HDR_NEW[field]}"
     body = [l.replace("SUBJ", subj).replace("WRITE", write) for l in h["lines"]]
@@ -2164,6 +2172,7 @@ def run_oracle(work, cells, args):
         for ident, path in cells:
             fh.write(f"{ident}\t{path}\n")
     cmd = [ORACLE, "--set", "matrix", "--allow", os.path.join(ROOT, "test", "oracle", "differences"),
+           "--rejects", os.path.join(ROOT, "test", "oracle", "rejections"),
            "--coverage", os.path.join(ROOT, "test", "oracle", "coverage"), "--list", listing]
     if args.v:
         cmd.append("-v")
@@ -2351,21 +2360,22 @@ def main():
                         fh.write(src)
                     cells.append((ident, path))
     for hname in HDR_HEADERS:
-        for sname in HDR_SHAPES:
-            for lname in HDR_LEAVES:
-                ident = f"hdr.{hname}.{sname}.{lname}"
-                if not wanted(ident):
-                    continue
-                src = hdr_program(hname, sname, lname)
-                if src is None:
-                    skipped += 1
-                    continue
-                path = os.path.join(work, ident.replace(".", "__") + ".rig")
-                with open(path, "w") as fh:
-                    fh.write(src)
-                cells.append((ident, path))
-                # No run prints this: a program that runs fails the cell.
-                expects[ident] = "(rejected)\n"
+        for gname in HDR_SIGILS:
+            for sname in HDR_SHAPES:
+                for lname in HDR_LEAVES:
+                    ident = f"hdr.{hname}.{gname}.{sname}.{lname}"
+                    if not wanted(ident):
+                        continue
+                    src = hdr_program(hname, sname, lname, gname)
+                    if src is None:
+                        skipped += 1
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(src)
+                    cells.append((ident, path))
+                    # No run prints this: a program that runs fails the cell.
+                    expects[ident] = "(rejected)\n"
     for t in CELLMUT_TYPES:
         for a in CELLMUT_ACCESS:
             ident = f"cellmut.{t}.{a}"
