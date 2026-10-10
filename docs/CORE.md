@@ -277,8 +277,12 @@ statement ends ([§3](#3-temporaries)). *(built)*
 view the context expects** ([§4](#4-one-lend-table)). `?` promises that
 nothing changes. A read lend may
 go unwritten where its view lasts only for the use: an argument, a
-method's receiver, or a header's subject (sentence 1). A lend kept in a
-binding or a field is written, and so is every write lend. `!` lends any
+method's receiver, or a header's subject (sentence 1), and `print` and
+`Text` read their arguments the same way. A lend kept in a binding or a
+field is written, and so is every write lend; so is a lend whose view a
+call's result keeps when that result is stored in a binding, a field, or
+a return (`r = head(?v)`, `xs = ?b.all()`), while a result used within
+its statement (`print(head(v).len)`) leaves it unwritten. `!` lends any
 value to write, named or temporary: `!mk().pop()` lends the value
 `mk()` makes, which lives until its statement ends ([§3](#3-temporaries)),
 so every change is still marked by `!`. *(built* for the rows of §4

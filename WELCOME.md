@@ -209,6 +209,9 @@ the same: a read is implicit (`a.can_pay(30)`), but a write is always
 spelled out, `!a.pay(30)`, so every mutation is visible, a change to a
 shared `Cell` included: `!count.set(5)`, which lends the handle `count`
 ([SPEC §10](SPEC.md#cell)).
+A read is written when its view is kept: `xs = ?b.all()` and
+`r = head(?v)` keep `b` and `v` lent in a binding, while
+`print(b.all().len)` ends its loan with the statement.
 
 ### Moves, clones, and drops
 

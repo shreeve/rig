@@ -2718,6 +2718,8 @@ test/corpus/review-step45-r2-a15_take_branch_temp.rig main
 test/corpus/review-step45-r2-d01_repoint_via_lend_on_move.rig main
 test/corpus/review-step45-r2-d02_repoint_via_fn_of_lend_on.rig main
 test/corpus/review-step45-r2-d03_repoint_via_struct_holding_view.rig main
+test/corpus/review-step45-r2-d04_repoint_closure_reads_w.rig main
+test/corpus/review-step45-r2-d04f_crash_double_write_arg_after_fn.rig main
 test/corpus/review-step45-r2-d06_repoint_loop_continue.rig main
 test/corpus/review-step45-r2-d07_repoint_branch_then_old_used.rig main
 test/corpus/review-step45-r2-d12_repoint_after_push_through.rig main
@@ -3408,6 +3410,7 @@ test/reject/ownership/param_store_write_field.rig f
 test/reject/ownership/param_store_write_through.rig f
 test/reject/ownership/partial_move_field.rig main
 test/reject/ownership/payload_by_name_flow.rig main
+test/reject/ownership/print_slice_loan.rig main
 test/reject/ownership/propagate_none_owning_binding_ownership.rig f
 test/reject/ownership/read_view_after_drop.rig main
 test/reject/ownership/read_view_after_move.rig main
@@ -3440,6 +3443,7 @@ test/reject/ownership/receiver_view_stored_in_argument.rig store_read_view
 test/reject/ownership/receiver_view_stored_in_argument.rig store_slice
 test/reject/ownership/receiver_view_stored_in_argument.rig store_write_view
 test/reject/ownership/receiver_view_with_move_arg.rig main
+test/reject/ownership/recheck_implicit_lend_argument.rig main
 test/reject/ownership/repointed_view_outlived.rig main
 test/reject/ownership/resource_temp_view.rig main
 test/reject/ownership/return_shared_field.rig take

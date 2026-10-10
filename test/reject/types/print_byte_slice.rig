@@ -9,13 +9,13 @@ struct Wrap[T]
 
 sub main()
   a: [3]U8 = [72, 105, 33]
-  print(a[0..3])
+  print(?a[0..3])
   h = H(b: ?a[0..2])
   print(h)
   x = Wrap(v: ?a[0..1])
   print(x)
   print(a, a[0])
 
-# error: 12:8: cannot print a `[]U8`: it would print as text, like a String; print the bytes one by one
+# error: 12:9: cannot print a `[]U8`: it would print as text, like a String; print the bytes one by one
 # error: 14:9: cannot print a `H`: the `[]U8` it holds would print as text, like a String; print the bytes one by one
 # error: 16:9: cannot print a `Wrap[[]U8]`: the `[]U8` it holds would print as text, like a String; print the bytes one by one

@@ -954,7 +954,8 @@ long form, `(!set).insert(k)`, wherever the value goes (a condition, an
 function's or a closure's last line, a `match` subject, `??`), so its
 `!` never reads as negation: `x = (!v).pop()`, `while (!it).next() as
 x`. The short form stays for a call whose value is discarded: a
-statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`.
+statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`, and
+`_ = !v.pop()`, since `_ =` discards.
 
 ```rig
 struct Tally
@@ -2297,9 +2298,12 @@ drops the value `mk()` makes. Where a value is expected, `<e` moves it
 there: in an operand, an argument, a binding's value, a `return` or
 `break` value, and on the last line of a `fun` or a closure (its value)
 or of a branch, arm, or loop `else` block whose value is used. A
-closure's last line is its value even where the closure gives none, and
-so is the last line of a branch that ends it, so it drops there with
-`_ = <x`. A statement `<?x` or `<!x` moves a view nowhere, and a view
+closure whose type returns nothing (from the parameter it is passed to,
+or a typed binding) treats its last line as a statement, as a `sub`
+does, so `<x` drops there and a value on it does nothing, which is
+rejected. An untyped closure (`f = || ...`) takes its last line as its
+value, and so does the last line of a branch that ends it, so it drops
+there with `_ = <x`. A statement `<?x` or `<!x` moves a view nowhere, and a view
 owns nothing to drop, so it does nothing, and is rejected. `-x` always
 negates: a statement `-e` does nothing, and is rejected, with the drop
 to write where `e` holds something `<e` drops: not a view parameter,
@@ -3319,8 +3323,13 @@ where its view lasts only for the use: an argument to a view parameter
 way its name is: `total(w[1..3])` is `total(?w[1..3])`), a method's receiver
 ([§3](#structs)), the subject of a `for`, `if … as`, or `match`
 ([§6](#6-control-flow)), and a held view or a function name lent on to
-read ([§11](#callable-views)). A lend kept in a binding or a field is
-always written: `r = ?x`. The owner stays lent for as long as the view
+read ([§11](#callable-views)). `print(...)` and `Text(...)` read their
+arguments, so a slice there goes unwritten too (`print(w[1..3])`). A
+lend kept in a binding or a field is always written: `r = ?x`. So is a
+lend whose view a call's result keeps, when that result is kept in a
+binding, a field, or a return: `r = head(?v)`, `xs = ?b.all()`. A result
+used within its statement (`print(head(v).len)`) lends implicitly, since
+its loan ends with the statement. The owner stays lent for as long as the view
 is used, and a value made there (`balance_of(open())`) is lent as a
 temporary of its statement.
 

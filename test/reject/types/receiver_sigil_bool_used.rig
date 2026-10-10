@@ -32,7 +32,7 @@ sub main()
     false => print("old")
   n = fresh if fresh else !set.insert(3)
   ok = !set.checked(4) catch false
-  _ = !set.insert(5)
+  !set.insert(5)
   print(fresh, n, ok)
 
 # error: 14:5: write `(!self).insert(k)`: a write call whose value is used puts its `!` in parentheses
@@ -44,5 +44,4 @@ sub main()
 # error: 30:9: write `(!set).insert(2)`: a write call whose value is used puts its `!` in parentheses
 # error: 33:27: write `(!set).insert(3)`: a write call whose value is used puts its `!` in parentheses
 # error: 34:8: write `(!set).checked(4)`: a write call whose value is used puts its `!` in parentheses
-# error: 35:7: write `(!set).insert(5)`: a write call whose value is used puts its `!` in parentheses
-# errors: 10
+# errors: 9

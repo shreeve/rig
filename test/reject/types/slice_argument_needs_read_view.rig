@@ -38,7 +38,7 @@ sub main()
 # error: 32:8: `zero` writes the elements of `w[1..]`, and a slice is lent to read unless it is written `!`; write `zero(!w[1..])`
 # error: 33:13: `own` takes a `Vec[Int]`, which owns its elements, and `v[..]` only views `v`'s
 # error: 33:26: `pair` takes a `[2]Int`, which owns its elements, and `w[..2]` only views `w`'s
-# error: 33:40: `name` takes a `Text`, which owns its bytes, and `t[1..]` only views `t`'s; write `name(Text(t[1..]))` to pass a copy
+# error: 33:40: `name` takes a `Text`, which owns its bytes, and `t[1..]` only views `t`'s; write `name(Text(?t[1..]))` to pass a copy
 # error: 33:54: type mismatch: expected `?[]Int`, got `[]Int`
 # error: 34:7: a slice of an array or Vec views it; write `?w[1..]`
 # error: 35:13: a slice of an array or Vec views it; write `?w[..2]`

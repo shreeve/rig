@@ -27,7 +27,9 @@ number of read views or one write view, never both.
 **A lend in a binding lasts.** `r = ?v[0]` keeps a view of `v[0]`;
 while `r` is used later, `v` may not change, move, or drop. `for x in
 ?v` reads each element in place, and `for x in !v` lets the body change
-it.
+it. The same holds for a call whose result keeps its argument lent:
+`r = head(?v)` and `xs = ?b.all()` are written, while `print(head(v).len)`
+needs no mark, since its loan ends with the statement.
 
 **Receivers.** A method declares how it takes `self`, and its call says
 the same: `?self` reads (`a.balance()`), `!self` changes
@@ -65,7 +67,8 @@ or `f() catch d`.
 `not (a > b)`, or is flipped, `a <= b`. `not a and b` is `(not a) and
 b`. `!` never negates.
 
-**Builtins.** `print(a, b)` prints values separated by spaces;
+**Builtins.** `print(a, b)` prints values separated by spaces and reads them like a
+read parameter (`print(w[1..3])`);
 `Text(a, b)` builds text the same way; `@size(T)`, `@align(T)`, and
 `@name(T)` describe a type.
 

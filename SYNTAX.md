@@ -300,6 +300,8 @@ So a sigil touches what it marks, and spacing shows how a line reads:
 - A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in
   an expression and in a type: `-b`, `<x`, `*T`, `[]?T`.
 - A postfix `?` or `!` touches what it follows: `f()!`, `x?`, `T?`.
+- A call's parenthesis and an index's bracket touch what they follow:
+  `f(x)`, `xs[0]`, never `f (x)` or `xs [0]`.
 - A member `.` touches both sides, `w.get()`; inside brackets a chain
   may go on at the start of the next line. An enum literal's `.`
   touches its name, `.red`, and a range with one bound touches it,
@@ -308,7 +310,6 @@ So a sigil touches what it marks, and spacing shows how a line reads:
 Spacing that breaks one of these is rejected, with the text to write,
 so `a <b` (a comparison, or a forgotten comma before a move?) and
 `a <- b`, which Rig does not have, never pass for something else.
-Around a call's or an index's bracket, spacing changes nothing.
 
 ```rig
 fun twice(n: Int) -> Int
@@ -877,8 +878,9 @@ A statement is one of:
   form (`if`, `while`, `for`, `match`);
 - a binding or assignment ([§9](#9-bindings-and-assignment));
 - a drop, `<x`: a move to nowhere, which drops what it takes now
-  (`<x`, `<s.f`); where a value is used (a `fun`'s last line, a closure's,
-  a branch whose value is used), `<x` moves the value there;
+  (`<x`, `<s.f`); where a value is used (a `fun`'s last line, the last
+  line of a closure that gives a value, a branch whose value is used),
+  `<x` moves the value there;
 - `pass`, which does nothing;
 - `return`, `return e`, `break`, `break e`, `break :label`,
   `continue`, `continue :label`;
@@ -1186,8 +1188,8 @@ ternary's or a guard's condition.
 
 ### Calls
 
-Every call has parentheses, wherever it stands, and a space before
-them changes nothing: `f (x)` is `f(x)`. A name alone never runs code:
+Every call has parentheses, wherever it stands, and they touch the
+callee: `f(x)`, never `f (x)`. A name alone never runs code:
 `greet` is the function, a value, and `greet()` calls it.
 
 ```rig
