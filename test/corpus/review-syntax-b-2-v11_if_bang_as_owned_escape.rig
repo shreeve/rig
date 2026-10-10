@@ -6,5 +6,5 @@ sub main()
   s = ""
   if !o as r
     !r.add("!")
-    s = keep(r[1..])
+    s = keep(?r[1..])
   print(s)

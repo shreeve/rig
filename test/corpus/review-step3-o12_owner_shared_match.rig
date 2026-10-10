@@ -17,6 +17,6 @@ fun clobber(n: Int) -> Int
 
 sub main()
   h = *E.a(r: Res(n: 1, t: Text("hello")))
-  x = inner(h)
+  x = inner(?h)
   print(clobber(1000))
   print(x.n, x.t)

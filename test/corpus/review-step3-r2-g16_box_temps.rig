@@ -20,6 +20,6 @@ fun clobber(n: Int) -> Int
 
 sub main()
   b = Box(E.a(r: Res(n: 1, t: Text("hello"))))
-  x = inner(b)
+  x = inner(?b)
   print(clobber(1000))
   print(x.n, x.t)

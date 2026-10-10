@@ -17,6 +17,6 @@ fun clobber(n: Int) -> Int
 
 sub main()
   e = E.a(r: Res(n: 1, t: Text("hello")))
-  x = whole(e)
+  x = whole(?e)
   print(clobber(1000))
   print(x)

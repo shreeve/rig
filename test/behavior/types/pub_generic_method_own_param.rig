@@ -26,8 +26,8 @@ sub main()
   !w.push("b")
   l = List(items: <v)
   m = List(items: <w)
-  z = l.zip(?m)
-  zz = z.zip(?l)
+  z = ?l.zip(?m)
+  zz = ?z.zip(?l)
   print(zz.items[1].a.a, zz.items[1].a.b, zz.items[1].b)
 
 # expect:

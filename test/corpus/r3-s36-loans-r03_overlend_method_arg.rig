@@ -15,6 +15,6 @@ struct Table
 sub main()
   t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
   p = Pick(which: 0)
-  e = t.get(?p)
+  e = ?t.get(?p)
   p.which = 1
   print(e.name, p.which)

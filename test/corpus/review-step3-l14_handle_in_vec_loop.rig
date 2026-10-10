@@ -11,5 +11,5 @@ sub main()
   for h in v
     k = keep(h)
     print(k.n)
-  e: ?S = keep(v[0])
+  e: ?S = keep(?v[0])
   print(e.n)

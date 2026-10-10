@@ -34,7 +34,7 @@ sub main()
   big = Text()
   for i in 0..5000
     !big.add(i % 10)
-  print(big.len, ?big[4990..])
+  print(big.len, big[4990..])
 
 # expect:
 # 0 true

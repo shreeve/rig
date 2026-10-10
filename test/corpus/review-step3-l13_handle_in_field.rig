@@ -10,6 +10,6 @@ fun keep(s: ?S) -> ?S
 
 sub main()
   w = W(h: *S(n: 1, t: Text("a")))
-  k = keep(w.h)
+  k = keep(?w.h)
   w.h = *S(n: 2, t: Text("b"))
   print(k.n)

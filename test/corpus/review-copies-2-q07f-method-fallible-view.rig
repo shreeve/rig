@@ -23,7 +23,7 @@ fun get(r: ?P, ok: Bool) -> (?P)!
 sub main()
   q = Q(p: P(x: 4), n: 0)
   b = P(x: 2)
-  v = q.pick(true) catch ?b
+  v = ?q.pick(true) catch ?b
   print(v.x)
   w = (!q).wpick(true) catch !b
   w.x = 40

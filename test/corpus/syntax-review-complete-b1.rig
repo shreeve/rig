@@ -13,7 +13,7 @@ struct Bag
 sub main()
   b = Bag(items: Vec())
   !b.items.push(P(x: 1))
-  r = b.at(0)
+  r = ?b.at(0)
   print(r.x)
   w = (!b).at_mut(0)
   w.x = 5

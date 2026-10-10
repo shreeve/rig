@@ -18,6 +18,6 @@ fun clobber(n: Int) -> Int
 sub main()
   o: Opt[Res] = .some(v: Res(n: 7, t: Text("seven")))
   d = Res(n: 0, t: Text("d"))
-  x = peek(o, d)
+  x = peek(?o, ?d)
   print(clobber(1000))
   print(x.n, x.t)

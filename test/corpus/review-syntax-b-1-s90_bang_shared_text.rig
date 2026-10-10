@@ -2,7 +2,7 @@ fun word(s: String) -> String
   s
 
 sub f(h: !*Text)
-  s = word(h[1..])
+  s = word(?h[1..])
   h = *Text("other")
   print(s)
 

@@ -4,6 +4,6 @@ fun o(xs: ([]Int)?) -> ([]Int)?
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  r = o(v[..])
+  r = o(?v[..])
   !v.push(2)
   print(r)

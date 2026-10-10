@@ -16,11 +16,11 @@ fun get(h: !H) -> !Text
 
 sub main()
   h = H(t: Text("hello"))
-  s = keep(get(!h)[1..])
+  s = keep(?get(!h)[1..])
   print(s)
-  r = keep((!h).at()[1..])
+  r = keep(?(!h).at()[1..])
   print(r)
 
-# error: 19:12: a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs; bind `get(!h)` to a name first
-# error: 21:12: a view reached through `(!h).at()` outlives its statement, which holds `(!h).at()`, itself a view, only while it runs; bind `(!h).at()` to a name first
+# error: 19:13: a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs; bind `get(!h)` to a name first
+# error: 21:13: a view reached through `(!h).at()` outlives its statement, which holds `(!h).at()`, itself a view, only while it runs; bind `(!h).at()` to a name first
 # errors: 2

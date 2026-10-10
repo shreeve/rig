@@ -25,6 +25,6 @@ struct Bag
 sub main()
   b = Bag(items: Vec())
   !b.items.push(*Tok(n: 1))
-  r = b.first()
+  r = ?b.first()
   !b.items.clear()
   print(r.n)

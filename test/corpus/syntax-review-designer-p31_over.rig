@@ -14,6 +14,6 @@ sub main()
   b = Bag(items: Vec())
   !b.items.push(P(x: 7))
   key = Key(k: 0)
-  r = b.find(?key)
+  r = ?b.find(?key)
   key.k = 5
   print(r.x)

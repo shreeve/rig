@@ -11,7 +11,7 @@ sub main()
   !b.push("x")
   l = lib.List(items: <a)
   m = lib.List(items: <b)
-  z = l.zip(?m)
+  z = ?l.zip(?m)
   print(z.items[0].a, z.items[0].b)
   print(lib.tagged(3))
 

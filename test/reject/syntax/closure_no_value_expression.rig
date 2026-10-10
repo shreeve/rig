@@ -1,0 +1,16 @@
+# A closure whose type returns nothing has no value, so a value on its
+# last line does nothing, as in a `sub`.
+
+sub each(f: ?sub(Int))
+  f(1)
+
+sub main()
+  each(|i| i + 1)
+  each(|i|
+    print(i)
+    i * 2
+  )
+
+# errors: 2
+# error: 8:12: this expression does nothing as a statement
+# error: 11:5: this expression does nothing as a statement

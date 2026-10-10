@@ -12,7 +12,7 @@ fun pick[T](q: ?T, n: Int) -> ?T from q
   q
 
 fun outer[T](x: T, y: ?T) -> Int
-  a = pick(n: g(1), q: x)
+  a = pick(n: g(1), q: ?x)
   b = pick(n: g(2), q: y)
   print(a, b)
   1

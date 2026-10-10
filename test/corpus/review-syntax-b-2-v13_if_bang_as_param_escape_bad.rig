@@ -4,7 +4,7 @@ fun keep(s: String) -> String
 sub f(w: !Text?)
   s = ""
   if !w as r
-    s = keep(r[1..])
+    s = keep(?r[1..])
   w = Text("other")
   print(s)
 

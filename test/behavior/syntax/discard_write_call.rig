@@ -1,0 +1,14 @@
+# `_ =` discards the value, so a write call there is a statement's and
+# keeps its short form `!v.pop()`; the parenthesized form still works.
+
+sub main()
+  v: Vec[Int] = Vec()
+  for i in 0..5
+    !v.push(i)
+  _ = !v.pop()
+  _ = (!v).pop()
+  _ = !v.remove(0)
+  print(v.len)
+
+# expect:
+# 2

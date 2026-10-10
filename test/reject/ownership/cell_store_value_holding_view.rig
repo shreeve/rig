@@ -15,7 +15,7 @@ sub stash(c: !Cell[*View], vw: *View)
 sub park(h: *Cell[*View])
   x = Wrap(v: Vec())
   !x.v.push(42)
-  _ = (!h).replace(*View(b: ?x))
+  _ = !h.replace(*View(b: ?x))
 
 sub main()
   y0 = Wrap(v: Vec())

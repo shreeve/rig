@@ -5,7 +5,7 @@ struct B
   items: Vec[Int]
 
   sub go(!self)
-    r = keep(self.items[..])
+    r = keep(?self.items[..])
     !self.items.push(9)
     print(r)
 

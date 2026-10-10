@@ -7,6 +7,6 @@ fun wrap(xs: []Int) -> W
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  w = wrap(v[..])
+  w = wrap(?v[..])
   !v.push(2)
   print(w.xs)

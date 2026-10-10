@@ -27,7 +27,7 @@ fun at(v: ?[4]Item, k: !Int) -> ?Item
 sub main()
   t = Table(items: [Item(n: 3), Item(n: 5), Item(n: 7), Item(n: 9)])
   k = 1
-  r = t.get(?k)
+  r = ?t.get(?k)
   k = 2
   print(r.n, k)
   key = Key(id: 7)

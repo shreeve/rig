@@ -14,6 +14,6 @@ struct Env
 sub main()
   env = Env(vars: [Var(name: "a", value: "1"), Var(name: "b", value: "2"), Var(name: "c", value: "3")])
   q = Text("a")
-  v = env.get(?q) ?? "?"
+  v = ?env.get(?q) ?? "?"
   <q
   print(v)

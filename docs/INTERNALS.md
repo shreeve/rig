@@ -320,8 +320,12 @@ wrapper also makes the only rewrites that need to inspect the tree:
   `checkDiscard`, the ownership checker's discard binding, and emit's
   `emitDiscard` serve both, and the reference checker takes the value
   as it takes `_ = e`'s. A closure's last line is its value, so a
-  statement `(move e)` reaches the checker only there, in a closure that
-  gives no value, which rejects it with the `_ = <e` to write;
+  statement `(move e)` reaches the checker only there, in an untyped
+  closure that gives no value, which rejects it with the `_ = <e` to
+  write. A closure whose type returns nothing has no value: the type
+  checker calls `Parser.dropTail` on its body, which turns the last line
+  and that of each branch ending it into `(drop ...)` again, before any
+  pass reads it;
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
   the grammar reads the jump after the whole chain;

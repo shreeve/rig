@@ -1,0 +1,17 @@
+# A call's parenthesis and an index's bracket touch what they follow:
+# `f (x)` reads as a call and `xs [0]` as an index, so spacing that
+# separates them is rejected, each case with the text to write.
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  xs = [1, 2, 3]
+  print(twice (xs[0]), xs [1], xs [1..3])
+  print(twice(xs [2]))
+
+# errors: 4
+# error: 10:15: `twice (xs[0])`: a call's or index's bracket touches what it follows; write `twice(xs[0])`
+# error: 10:27: `xs [1]`: a call's or index's bracket touches what it follows; write `xs[1]`
+# error: 10:35: `xs [1..3]`: a call's or index's bracket touches what it follows; write `xs[1..3]`
+# error: 11:18: `xs [2]`: a call's or index's bracket touches what it follows; write `xs[2]`

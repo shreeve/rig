@@ -5,7 +5,7 @@ sub main()
   a = 5
   b = 2
   print(a -1, a-1, a - -1, a*-b, a < -b, a<-b, a <b)
-  print(neg (3))
+  print(neg(3))
   x: Int? = none
   print(x ?? 7)
   y = (a

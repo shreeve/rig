@@ -27,5 +27,5 @@ sub main()
   print(t.y.a)
   ((!t).pickw(true)).b = 20
   print(t.x.b)
-  r = t.pick(true)
+  r = ?t.pick(true)
   print(r == t.x, r.a == 1)

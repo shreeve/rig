@@ -34,7 +34,7 @@ struct Wrap
 
 sub main()
   p = Pair(first: 1, second: "one")
-  q = p.swap()
+  q = ?p.swap()
   print(p, q.first, q.second)
   r = Pair.make(2.5, true)
   print(r)

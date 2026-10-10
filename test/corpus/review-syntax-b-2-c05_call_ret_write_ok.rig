@@ -9,7 +9,7 @@ fun get(h: !H) -> !Text
 
 sub main()
   h = H(t: Text("hello"))
-  s = keep(get(!h)[1..])
+  s = keep(?get(!h)[1..])
   print(s)
   !h.t.add("x")
   print(h.t)

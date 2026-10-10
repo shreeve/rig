@@ -471,6 +471,9 @@ pub const Lexer = struct {
             enum_dot,
             /// A range's `..` apart from its only bound (`.. b`, `a ..]`).
             range_end,
+            /// A call's or index's bracket apart from what it follows
+            /// (`f (x)`, `xs [0]`).
+            call_bracket,
             /// The bracket around a closure body laid out below its bar
             /// list closes on the body's last line (`print(x))`).
             closure_hanging,
@@ -871,6 +874,7 @@ pub const Lexer = struct {
             .dot => if (after_value) (if ((before and !self.startsLine(tok)) or after) .member else null) else if (after) .enum_dot else null,
             .dotdot => if (!after_value) (if (after) .range_end else null) else if (before != after) (if (before) .infix_before else .infix_after) else null,
             .dotdot_open => if (after_value and before) .range_end else null,
+            .lparen, .lbracket => if (after_value and before and !self.startsLine(tok)) .call_bracket else null,
             else => if (after_value and isInfix(cat) and before != after) (if (before) .infix_before else .infix_after) else null,
         };
         if (kind) |k| self.recordLayout(.{ .pos = tok.pos, .len = tok.len, .kind = k });
@@ -1308,6 +1312,10 @@ pub const Parser = struct {
                 self.format("`{s} {s}`: a postfix `{s}` touches what it follows; write `{s}{s}`", .{ left, op, op, left, op }),
             .member => self.format("a member `.` touches both sides; write `{s}.{s}`", .{ left, right }),
             .enum_dot => self.format("`.` touches the name after it; write `.{s}`", .{right}),
+            .call_bracket => if (bracketAfter(src, sp.pos)) |args|
+                self.format("`{s} {s}`: a call's or index's bracket touches what it follows; write `{s}{s}`", .{ left, args, left, args })
+            else
+                self.format("`{s} {s}`: a call's or index's bracket touches what it follows; write `{s}{s}`", .{ left, op, left, op }),
             .range_end => if (sp.pos + sp.len < src.len and src[sp.pos + sp.len] == ']')
                 self.format("a range's `..` touches its only bound; write `{s}..`", .{left})
             else
@@ -1393,6 +1401,26 @@ pub const Parser = struct {
         while (s < e and (src[s] == '.' or src[s] == '?' or src[s] == '!')) s += 1;
         if (s == e or e - s > 24) return null;
         return src[s..e];
+    }
+
+    /// The bracketed text that starts at `open`, `(x)` or `[0]`, when it
+    /// closes on its line and is short.
+    fn bracketAfter(src: []const u8, open: u32) ?[]const u8 {
+        const want: u8 = if (src[open] == '(') ')' else ']';
+        var depth: u32 = 0;
+        var e: usize = open;
+        while (e < src.len and e - open <= 24) : (e += 1) {
+            switch (src[e]) {
+                '(', '[' => depth += 1,
+                ')', ']' => {
+                    depth -= 1;
+                    if (depth == 0) return if (src[e] == want) src[open .. e + 1] else null;
+                },
+                '\n' => return null,
+                else => {},
+            }
+        }
+        return null;
     }
 
     /// Where a comment starts on `line`: its first `#` outside a string.
@@ -2280,6 +2308,35 @@ pub const Parser = struct {
             .@"for" => try self.valueTail(&items[ir.slot(.@"for", .@"else")]),
             .labeled => try self.valueTail(&items[ir.slot(.labeled, .stmt)]),
             .raw_block => try self.valueTail(&items[ir.slot(.raw_block, .body)]),
+            else => {},
+        }
+    }
+
+    /// A closure whose type returns nothing has no value: the last line
+    /// `valueTail` kept as a move, and that of each branch ending it, is a
+    /// statement `<e` again, which drops (`dropStatement`). The type
+    /// checker calls it on the body of such a closure before any pass reads
+    /// it, and it changes nothing a second time.
+    pub fn dropTail(self: *const Parser, slot: *Sexp) std.mem.Allocator.Error!void {
+        const mutable: *Parser = @constCast(self);
+        try mutable.dropTailOf(slot);
+    }
+
+    fn dropTailOf(self: *Parser, slot: *Sexp) std.mem.Allocator.Error!void {
+        const kind = slot.kind() orelse return;
+        const items = @constCast(slot.items());
+        switch (kind) {
+            .move => try self.dropStatement(slot),
+            .block => if (items.len > 1) try self.dropTailOf(&items[items.len - 1]),
+            .@"if" => {
+                try self.dropTailOf(&items[ir.slot(.@"if", .then)]);
+                try self.dropTailOf(&items[ir.slot(.@"if", .@"else")]);
+            },
+            .match => for (ir.Match.arms(slot.*)) |arm| try self.dropTailOf(&@constCast(arm.items())[ir.slot(.arm, .body)]),
+            .@"while" => try self.dropTailOf(&items[ir.slot(.@"while", .@"else")]),
+            .@"for" => try self.dropTailOf(&items[ir.slot(.@"for", .@"else")]),
+            .labeled => try self.dropTailOf(&items[ir.slot(.labeled, .stmt)]),
+            .raw_block => try self.dropTailOf(&items[ir.slot(.raw_block, .body)]),
             else => {},
         }
     }

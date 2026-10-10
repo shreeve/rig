@@ -24,8 +24,8 @@ fun clobber(n: Int) -> Int
 
 sub main()
   e = E.a(r: Res(n: 1, t: Text("hello")))
-  x = inner(e)
+  x = inner(?e)
   b = Box(E.a(r: Res(n: 2, t: Text("boxed"))))
-  y = inner_box(b)
+  y = inner_box(?b)
   print(clobber(1000))
   print(x.n, x.t, y.n, y.t)

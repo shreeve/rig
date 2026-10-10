@@ -11,7 +11,7 @@ sub main()
   e = V.a(<v)
   match !e
     .a(xs)
-      s = keepv(xs[..])
+      s = keepv(?xs[..])
       for i in 0..100
         !xs.push(i)
       print(s)

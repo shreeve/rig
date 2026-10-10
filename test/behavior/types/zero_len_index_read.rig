@@ -20,7 +20,7 @@ sub main()
   for x in a
     print(x)
   b = zeros[0]()
-  print(a.len, b, ?a[i..i], ?b[0..i])
+  print(a.len, b, a[i..i], b[0..i])
   print(at(a, i))
 
 # expect-panic: index out of bounds

@@ -2,7 +2,7 @@ fun word(s: String) -> String
   s
 
 fun f(t: !Text) -> String
-  word(t[1..])
+  word(?t[1..])
 
 sub main()
   t = Text("hello")

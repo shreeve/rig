@@ -13,7 +13,7 @@ fun total(a: []Int) -> Int
 
 sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?))
   if o as x
-    print(?x.t[1..])
+    print(x.t[1..])
   if so as s
     print(total(s[1..]))
   if no as k

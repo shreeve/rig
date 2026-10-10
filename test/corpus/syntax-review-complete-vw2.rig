@@ -23,6 +23,6 @@ struct BagIter
 sub main()
   b = Bag(items: Vec())
   !b.items.push(*Node(n: 4))
-  it = b.iter()
+  it = ?b.iter()
   while (!it).next() as x
     print(x.n)

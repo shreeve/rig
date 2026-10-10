@@ -43,7 +43,7 @@ sub main()
     !v.push(i)
   c = Counter(n: 0)
   x = (!v).remove(0)
-  _ = (!v).pop()
+  _ = !v.pop()
   !v.pop()
   if (!v).pop() as t
     print("if", t)

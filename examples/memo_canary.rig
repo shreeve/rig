@@ -26,7 +26,7 @@ struct IntSource
     listeners = (!self.listeners).replace(Vec())
     for listener in ?listeners
       listener(v)
-    _ = (!self.listeners).replace(<listeners)
+    _ = !self.listeners.replace(<listeners)
 
   fun map(self: !IntSource, f: *fun(Int) -> Int) -> *IntSource
     derived = IntSource.new(f(self.get()))

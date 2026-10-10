@@ -45,7 +45,7 @@ sub main()
   b = Wrap(v: 1)
   print(a.same(?b))
 
-  r = a.get()
+  r = ?a.get()
   print(r + 1)
   print(Num(v: 1).copy())
   a.show()

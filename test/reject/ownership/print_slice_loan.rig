@@ -1,0 +1,19 @@
+# A slice that `print` or `Text` reads implicitly is lent to read as
+# `?v[..]` would be: the loan lasts the statement, so a later argument
+# may not write the owner.
+
+fun bump(v: !Vec[Int]) -> Int
+  !v.push(1)
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(v[..], (!v).pop())
+  w: Vec[Int] = Vec()
+  t = Text(w[..], bump(!w))
+  print(t)
+
+# errors: 2
+# error: 12:17: cannot lend `v` to write while a read loan is live
+# error: 14:25: cannot lend `w` to write while a read loan is live

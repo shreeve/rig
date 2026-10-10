@@ -5,7 +5,7 @@ sub main()
   x = Text("hello")
   y = Text("world")
   c = true
-  s = keep((!x if c else !y)[1..])
+  s = keep(?(!x if c else !y)[1..])
   for _ in 0..50
     !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)

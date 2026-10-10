@@ -10,5 +10,5 @@ sub main()
   p = Pair(x: 5)
   q = ?p.x
   o = 6
-  q = p.left(?o)
+  q = ?p.left(?o)
   print(q)

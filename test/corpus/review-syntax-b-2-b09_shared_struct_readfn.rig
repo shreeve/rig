@@ -6,6 +6,6 @@ fun name(p: ?S) -> ?Text
 
 sub main()
   h = *S(t: Text("hello"))
-  s = name(h)[1..]
+  s = name(?h)[1..]
   h = *S(t: Text("x"))
   print(s)

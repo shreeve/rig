@@ -5,5 +5,5 @@ fun pick(f: ?fun() -> Int, x: !Text, y: !Text) -> !Text
 sub main()
   b = Text("b")
   f = || 1
-  w = pick(f, !b, !b)
+  w = pick(?f, !b, !b)
   print(w)

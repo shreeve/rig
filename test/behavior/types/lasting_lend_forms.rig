@@ -1,0 +1,47 @@
+# A lend kept past its statement is written; one that ends with the
+# statement lends implicitly (test/reject/types/lasting_lend_written.rig
+# rejects the unwritten kept forms).
+
+struct Bag
+  items: Vec[Int]
+
+  fun all(?self) -> []Int
+    ?self.items[..]
+
+  fun size(?self) -> Int
+    self.items.len
+
+struct Holder
+  seen: []Int
+
+fun head(xs: []Int) -> []Int
+  xs[0..1]
+
+fun count(xs: []Int) -> Int
+  xs.len
+
+fun window(b: ?Bag) -> []Int
+  head(?b.items[..])
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  b = Bag(items: Vec())
+  !b.items.push(3)
+  r = head(?v)
+  xs = ?b.all()
+  h = Holder(seen: head(?v))
+  n = count(v)
+  m = b.all().len
+  s = b.size()
+  print(r, xs, h.seen, n, m, s, window(b))
+  print(head(v).len, b.all(), count(v), head(v)[0])
+  w = [1, 2, 3]
+  t = Text("hello")
+  print(w[1..3], t[1..], Text(t[..2], "!"))
+
+# expect:
+# [1] [3] [1] 2 1 1 [3]
+# 1 [3] 2 1
+# [2, 3] ello he!

@@ -208,13 +208,13 @@ sub field_subject()
 sub bare_argument(e: !E, f: !V)
   match !e
     .a(t)
-      s = keep(t[1..])
+      s = keep(?t[1..])
       t = Text("other")
       print(s)
     .b => pass
   match !f
     .a(xs)
-      s = keepv(xs[..])
+      s = keepv(?xs[..])
       !xs.push(2)
       print(s)
     .b => pass

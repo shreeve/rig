@@ -14,5 +14,5 @@ fun make[T](x: T) -> Int
 
 sub main()
   w = Wrap(v: 2)
-  t = w.tag("x")
+  t = ?w.tag("x")
   print(make(3), t.v.b)

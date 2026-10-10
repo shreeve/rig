@@ -22,19 +22,19 @@ fun mk() -> Bag
 
 sub one()
   b = Bag(v: Vec())
-  r = keep(b)
+  r = keep(?b)
   <b
   print(r.v.len)
 
 sub two()
   v: Vec[Int] = Vec()
-  s = keep_s(v)
+  s = keep_s(?v)
   !v.push(1)
   print(s)
 
 sub three()
   t = Text("a")
-  s = keep_t(t)
+  s = keep_t(?t)
   !t.add("b")
   print(s)
 

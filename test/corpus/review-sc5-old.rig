@@ -13,5 +13,5 @@ sub neg(n: Int)
 sub main()
   x = P(n: 1)
   take <x
-  show [3]
+  show[3]
   neg -1

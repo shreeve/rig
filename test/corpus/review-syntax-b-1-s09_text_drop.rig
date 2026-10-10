@@ -3,6 +3,6 @@ fun word(s: String) -> String
 
 sub main()
   t = Text("hello")
-  s = word(t[1..])
+  s = word(?t[1..])
   <t
   print(s)

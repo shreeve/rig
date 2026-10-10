@@ -12,7 +12,7 @@ sub main()
   e = F.a(P(t: Text("hello")))
   match !e
     .a(p)
-      s = keep(p.t[1..])
+      s = keep(?p.t[1..])
       for _ in 0..50
         !p.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
       print(s)

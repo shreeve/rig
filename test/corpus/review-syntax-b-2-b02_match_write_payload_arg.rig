@@ -9,7 +9,7 @@ sub main()
   e = E.a(Text("hello"))
   match !e
     .a(t)
-      s = keep(t[1..])
+      s = keep(?t[1..])
       for _ in 0..50
         !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
       print(s)

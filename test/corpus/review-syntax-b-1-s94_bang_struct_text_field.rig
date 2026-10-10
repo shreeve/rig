@@ -5,7 +5,7 @@ struct B
   name: Text
 
 sub f(b: !B)
-  s = word(b.name[1..])
+  s = word(?b.name[1..])
   for _ in 0..50
     !b.name.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)

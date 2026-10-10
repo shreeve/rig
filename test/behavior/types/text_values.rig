@@ -9,7 +9,7 @@ struct Note
   n: Int
 
 fun shout(t: ?Text) -> Text
-  Text(?t[..], "!")
+  Text(t[..], "!")
 
 sub grow(t: !Text, n: Int)
   for i in 0..n

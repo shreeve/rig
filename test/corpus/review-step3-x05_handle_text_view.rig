@@ -4,7 +4,7 @@ fun first(s: String) -> String
 sub main()
   h = *Text("abc")
   g = +h
-  r = first(h)
+  r = first(?h)
   <h
   print(r)
   print(g)

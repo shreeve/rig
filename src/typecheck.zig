@@ -70,6 +70,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.methods.deinit(ctx.allocator);
     defer c.expected.deinit(ctx.allocator);
     defer c.value_tails.deinit(ctx.allocator);
+    defer c.kept_reported.deinit(ctx.allocator);
     defer c.lend_of.deinit(ctx.allocator);
     defer c.branch_lends.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
@@ -130,6 +131,9 @@ const Checker = struct {
     /// The expression statement being checked, whose value is
     /// discarded (`isDiscardedCall`).
     discarded: Sexp = .nil,
+    /// The calls whose lasting lends were reported (`keptLends`), so that
+    /// one reached from two kept values is reported once.
+    kept_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// The `!x` being checked where a write view is expected, the one
     /// place a write view of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
@@ -612,7 +616,9 @@ const Checker = struct {
     /// branch there is not lent where it stands (`checkExpr`).
     fn checkTail(self: *Checker, e: Sexp, ret: TypeId) Error!void {
         try self.noteValueTail(e);
+        const mark = self.ctx.diagnostics.items.len;
         try self.checkExprAgainst(e, ret);
+        if (self.ctx.diagnostics.items.len == mark) try self.keptLends(e, .returned);
     }
 
     /// A closure's or a block's last value, which is used.
@@ -641,8 +647,17 @@ const Checker = struct {
             return;
         }
         switch (head) {
-            .set => try self.checkSet(stmt),
-            .@"return" => try self.checkReturn(stmt),
+            .set => {
+                const mark = self.ctx.diagnostics.items.len;
+                try self.checkSet(stmt);
+                if (self.ctx.diagnostics.items.len == mark) try self.checkKeptSet(stmt);
+            },
+            .@"return" => {
+                const mark = self.ctx.diagnostics.items.len;
+                try self.checkReturn(stmt);
+                const value = ir.Return.value(stmt);
+                if (value != .nil and self.ctx.diagnostics.items.len == mark) try self.keptLends(value, .returned);
+            },
             .@"if" => _ = try self.checkIfValue(stmt, null, .statement),
             .@"while" => try self.checkWhile(stmt),
             .@"for" => try self.checkFor(stmt),
@@ -884,6 +899,11 @@ const Checker = struct {
         if (std.mem.eql(u8, name, "_")) {
             // `x op= e` reads `x`.
             if (kind.operator() != null) try self.errAt(target, discard_read, .{});
+            // `_ =` discards the value, so a write call there is a
+            // statement's (`isDiscardedCall`).
+            const saved = self.discarded;
+            defer self.discarded = saved;
+            self.discarded = rhs;
             _ = try self.synthExpr(rhs);
             return;
         }
@@ -1740,8 +1760,9 @@ const Checker = struct {
     }
 
     /// Whether `recv` is the receiver of a call whose value is
-    /// discarded: the expression statement, or the operand of a `!`,
-    /// `?`, or `catch` that is, or is that operand in turn.
+    /// discarded: the expression statement, or the value of `_ =`, or the
+    /// operand of a `!`, `?`, or `catch` that is, or is that operand in
+    /// turn.
     fn isDiscardedCall(self: *const Checker, recv: Sexp) bool {
         var e = self.discarded;
         while (true) switch (e.kind() orelse return false) {
@@ -6352,7 +6373,18 @@ const Checker = struct {
                 _ = try self.synthQuiet(ir.Kwarg.value(a));
                 continue;
             }
+            // The values are only read, so a slice is lent the way a read
+            // parameter's argument is: `print(w[1..3])`.
+            const saved_view = self.view_arg;
+            defer self.view_arg = saved_view;
+            self.view_arg = a;
             const ty = try self.synthReadTemp(a);
+            if (!self.isPoison(ty) and self.slicedArg(a)) if (sliceArgLend(self.ctx, ty, ty)) |lend| {
+                var implicit = lend;
+                implicit.implicit = true;
+                try self.ctx.recordImplicitLend(a);
+                try self.ctx.recordLend(a, implicit);
+            };
             if (try self.writeLendRead(a, ty, .{ .value = sema.unwrapViews(self.ctx, ty) })) continue;
             // An integer literal is written as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
@@ -6524,6 +6556,7 @@ const Checker = struct {
     /// every complete call what fills each parameter (`CallParams`).
     fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
         const call = self.current_call;
+        const mark = self.ctx.diagnostics.items.len;
         const saved_slot = self.slot;
         defer self.slot = saved_slot;
         self.slot = .{ .call = call orelse .nil, .params = site.declared, .lends = try self.argLends(args, f, info) };
@@ -6604,7 +6637,15 @@ const Checker = struct {
             .arg => |i| .{ .arg = i },
             .default => .default,
         };
-        try self.ctx.recordCallParams(call_node, .{ .fills = fills, .origins = site.origins });
+        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins };
+        try self.ctx.recordCallParams(call_node, recorded);
+        // What the call may store outlives its statement.
+        if (self.ctx.diagnostics.items.len == mark) {
+            for (args, 0..) |a, i| {
+                if (!recorded.stores(i)) continue;
+                try self.keptLends(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, .{ .stored = callee });
+            }
+        }
         if (keyword.len == 0 and args.len == f.params.len) return;
         const out = try self.ctx.arena.allocator().alloc(sema.ArgSlot, slots.len);
         for (slots, out) |s, *o| o.* = s.?;
@@ -8839,6 +8880,101 @@ const Checker = struct {
         return true;
     }
 
+    // ---- lasting lends --------------------------------------------------------
+
+    /// Where a value that holds a view is kept past its statement: a
+    /// binding or an assignment, named by its target, or a returned value.
+    const Kept = union(enum) {
+        binding: []const u8,
+        returned,
+        /// Stored by the call to this callee.
+        stored: []const u8,
+    };
+
+    /// `stmt`, a binding or an assignment, keeps the value it is given.
+    fn checkKeptSet(self: *Checker, stmt: Sexp) Error!void {
+        const target = ir.Set.target(stmt);
+        if (target == .src and std.mem.eql(u8, self.text(target), "_")) return;
+        if (rig.bindingKindOf(ir.Set.op(stmt)).operator() != null) return;
+        try self.keptLends(ir.Set.value(stmt), .{ .binding = self.sourceText(target) });
+    }
+
+    /// The one decider of a lasting lend (Core sentence 4: a lend kept
+    /// in a binding is written). `value`, which holds a view and is kept
+    /// (`Kept`), is a call whose result carries what an argument or the
+    /// receiver views (`CallParams.resultCarries`); if that is lent
+    /// implicitly, the loan outlives the statement, so the lend is
+    /// written: `r = head(?v)`, `xs = ?b.all()`. A call whose result is
+    /// used only within its statement lends implicitly, since its loan
+    /// ends with the statement.
+    fn keptLends(self: *Checker, value: Sexp, kept: Kept) Error!void {
+        if (value != .list or self.under_poison) return;
+        var leaves: std.ArrayList(Sexp) = .empty;
+        defer leaves.deinit(self.ctx.allocator);
+        try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, value, &leaves);
+        for (leaves.items) |leaf| try self.keptLeaf(leaf, kept);
+    }
+
+    fn keptLeaf(self: *Checker, e: Sexp, kept: Kept) Error!void {
+        if (e != .list) return;
+        const ty = self.ctx.typeOf(e) orelse return;
+        if (self.isPoison(ty) or !sema.mayHoldView(self.ctx, ty)) return;
+        switch (e.kind() orelse return) {
+            // A part of a value a call made keeps what the call's
+            // result carries.
+            .member, .index => try self.keptLeaf(ir.get(e, .object), kept),
+            .array => for (ir.Array.elems(e)) |el| try self.keptLeaf(el, kept),
+            .call => {
+                if (try self.kept_reported.fetchPut(self.ctx.allocator, nodeId(e), {}) != null) return;
+                const callee = ir.Call.callee(e);
+                const params = self.ctx.callParamsOf(e);
+                const has_recv = if (params) |p| p.fills.len > 0 and p.fills[0] == .receiver else false;
+                if (callee.isKind(.member) and has_recv and params.?.resultCarriesReceiver()) {
+                    const recv = ir.Member.object(callee);
+                    if (self.implicitReceiver(recv)) return self.reportKept(e, recv, true, kept);
+                    try self.keptLeaf(recv, kept);
+                }
+                for (ir.Call.args(e), 0..) |a, i| {
+                    if (params) |p| if (!p.resultCarries(i)) continue;
+                    const arg = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+                    if (self.implicitArgument(arg)) return self.reportKept(e, arg, false, kept);
+                    try self.keptLeaf(arg, kept);
+                }
+            },
+            else => {},
+        }
+    }
+
+    /// Whether `arg` is a place lent to read where a view goes, with no
+    /// `?` written (`Lend.implicit`).
+    fn implicitArgument(self: *Checker, arg: Sexp) bool {
+        const lend = self.ctx.lendOf(arg) orelse return false;
+        return lend.implicit and self.hands(arg).kind == .place;
+    }
+
+    /// Whether `recv`, the receiver of a method that reads it, is a place
+    /// the call lends to read with no `?` written: an owner, not a view
+    /// that is copied.
+    fn implicitReceiver(self: *Checker, recv: Sexp) bool {
+        if (recv.isKind(.read) or recv.isKind(.write) or recv.isKind(.move)) return false;
+        const ty = self.ctx.typeOf(recv) orelse return false;
+        if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty)) return false;
+        return self.hands(recv).kind == .place and self.placeOf(recv).named();
+    }
+
+    fn reportKept(self: *Checker, call: Sexp, lent: Sexp, receiver: bool, kept: Kept) Error!void {
+        const a = self.ctx.arena.allocator();
+        const shown = try self.plainText(lent);
+        const fixed = try self.spliced(call, &.{lent}, &.{try a.print("?{s}", .{shown})});
+        const call_text = self.sourceText(call);
+        _ = receiver;
+        switch (kept) {
+            .binding => |name| try self.errAt(lent, "`{s}` keeps `{s}` lent while `{s}` lives; write `{s}`", .{ call_text, shown, name, fixed }),
+            .returned => try self.errAt(lent, "`{s}` keeps `{s}` lent in the value it returns; write `{s}`", .{ call_text, shown, fixed }),
+            .stored => |callee| try self.errAt(lent, "`{s}` keeps `{s}` lent in what `{s}` stores; write `{s}`", .{ call_text, shown, callee, fixed }),
+        }
+    }
+
     /// A slice argument (`slicedArg`) where its context takes no read
     /// view of that type: lent to write, `!xs[a..b]`, where a `![]T`
     /// goes, and a copy where a value of its own does. True when
@@ -10702,6 +10838,11 @@ const Checker = struct {
             try self.ctx.recordType(pn, pty);
         }
 
+        if (want) |w| if (sema.returnsNothing(self.ctx, w.returns)) {
+            // A closure that returns nothing has no value: its last line
+            // is a statement, as a `sub`'s is.
+            if (self.ctx.parser) |p| try p.dropTail(&@constCast(node.items())[ir.slot(.lambda, .body)]);
+        };
         const body = ir.Lambda.body(node);
         if (want) |w| {
             // A closure whose type can fail sends a failure `!`
@@ -10734,12 +10875,17 @@ const Checker = struct {
                     break :blk self.t().void_id;
                 } else blk: {
                     try self.recordUse(last, .take);
-                    break :blk try self.synthTail(last, null);
+                    const mark = self.ctx.diagnostics.items.len;
+                    const ty = try self.synthTail(last, null);
+                    if (self.ctx.diagnostics.items.len == mark) try self.keptLends(last, .returned);
+                    break :blk ty;
                 };
             }
         } else {
             try self.recordUse(body, .take);
+            const mark = self.ctx.diagnostics.items.len;
             ret = try self.synthTail(body, null);
+            if (self.ctx.diagnostics.items.len == mark) try self.keptLends(body, .returned);
         }
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;

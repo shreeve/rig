@@ -18,7 +18,7 @@ fun clobber(n: Int) -> Int
 sub main()
   o: Opt[Box[Res]] = .some(v: Box(Res(n: 7, t: Text("seven"))))
   d = Box(Res(n: 0, t: Text("d")))
-  x = peek(o, d)
+  x = peek(?o, ?d)
   print(clobber(1000))
   print(x.n, x.t)
   <o

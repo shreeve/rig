@@ -4,7 +4,7 @@ fun word(s: String) -> String
 sub main()
   t = Text("hello")
   w = !t
-  s = word(w[1..])
+  s = word(?w[1..])
   for _ in 0..50
     !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)

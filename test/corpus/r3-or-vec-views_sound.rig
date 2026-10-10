@@ -27,7 +27,7 @@ sub got_then_push()
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
-  r = v.get(0)
+  r = ?v.get(0)
   !v.push(?a)
   print(r, v.len)
 

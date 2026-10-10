@@ -17,7 +17,7 @@ sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?), to: ?((!Text)?))
   if no as k
     print(k, k == 5, k > 3)
   if to as t
-    print(t, t.len, t == "abc", ?t[1..])
+    print(t, t.len, t == "abc", t[1..])
 
 sub main()
   xs: Vec[Int] = Vec()

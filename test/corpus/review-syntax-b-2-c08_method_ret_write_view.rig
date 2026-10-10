@@ -9,7 +9,7 @@ struct H
 
 sub main()
   h = H(t: Text("hello"))
-  s = keep((!h).get()[1..])
+  s = keep(?(!h).get()[1..])
   for _ in 0..50
     !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)

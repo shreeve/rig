@@ -7,5 +7,5 @@ sub main()
   b = Text("b")
   w = !a
   f = |?w| w.len
-  w = pick(f, !b, !b)
+  w = pick(?f, !b, !b)
   print(a)

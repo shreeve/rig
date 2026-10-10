@@ -23,7 +23,7 @@ sub params(o: (!P)?, so: (![]Int)?, no: (!Int)?)
   if o as x
     g = |?x| x.n
     arr = [x]
-    print(g(), arr[0].n, show(x), ?x.t[1..])
+    print(g(), arr[0].n, show(x), x.t[1..])
   if so as s
     print(total(s), total(s[1..]), s.len)
   if no as k
@@ -55,7 +55,7 @@ sub main()
   tt = Text("abc")
   to: (!Text)? = !tt
   if to as t
-    print(t.len, ?t[1..])
+    print(t.len, t[1..])
   if !o as w
     w.n = 9
     !w.t.add("!")

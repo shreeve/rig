@@ -1,0 +1,29 @@
+# A lend kept beyond its statement is written, also when a callee stores
+# it: a result handed to a call that may store it keeps its argument
+# lent inside what the call stores into. A result the call only reads
+# lends implicitly.
+
+struct Holder
+  seen: []Int
+
+fun head(xs: []Int) -> []Int
+  xs[0..1]
+
+fun count(xs: []Int) -> Int
+  xs.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  xs: Vec[[]Int] = Vec()
+  hs: Vec[Holder] = Vec()
+  !xs.push(head(v))
+  !xs.push(head(?v))
+  !xs.push([head(v)][0])
+  !hs.push(Holder(seen: head(v)))
+  print(count(head(v)), xs.len, hs.len)
+
+# errors: 3
+# error: 20:17: `head(v)` keeps `v` lent in what `push` stores; write `head(?v)`
+# error: 22:18: `head(v)` keeps `v` lent in what `push` stores; write `head(?v)`
+# error: 23:30: `head(v)` keeps `v` lent in what `push` stores; write `head(?v)`

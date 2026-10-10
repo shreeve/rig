@@ -7,6 +7,6 @@ fun keep(s: ?S) -> ?S
 
 sub main()
   h = *S(n: 5, t: Text("a"))
-  k = keep(h)
+  k = keep(?h)
   <h
   print(k.n)
