@@ -1,6 +1,6 @@
-# A shared handle whose value holds a write view cannot be cloned, even
-# through a read view of its holder: two handles would write through
-# one view.
+# No shared handle's value holds a write view, so no clone of a handle,
+# even through a read view of its holder, gives two handles that write
+# through one view: the field is rejected where it is declared.
 
 struct Wrap
   v: Vec[Int]
@@ -11,14 +11,9 @@ struct WV
 struct Hold
   h: *WV
 
-  fun dup(?self) -> *WV
-    +self.h
-
 sub main()
   x = Wrap(v: Vec())
-  !x.v.push(1)
-  k = Hold(h: *WV(b: !x))
-  d = k.dup()
-  print(d.b.v.len)
+  print(x.v.len)
 
-# error: 15:6: cannot clone `self.h`: it holds a write view
+# error: 9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here
+# errors: 1

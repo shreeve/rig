@@ -1,38 +1,12 @@
 # Only a value that copies is copied out of a view (Core §4), or by
-# `[n of x]`, `fill`, `|+x|`, or `??` and `?` through a view: a struct
-# that holds a Cell is unique, one that holds a write view has one
-# holder, and one that owns a resource moves. A copy out of a read view
-# never hands on a write view the value holds, which would write
-# through the read view.
-
-struct C
-  c: Cell[Int]
-
-struct W
-  p: !Int
+# `[n of x]`: one that owns a resource moves, and a write view has one
+# holder.
 
 struct O
   v: Vec[Int]
 
-fun cell_out(p: ?C) -> C
-  p
-
-fun write_out(p: ?W) -> W
-  p
-
 fun owner_out(p: ?O) -> O
   p
-
-fun coalesce(r: ?W?) -> Int
-  m = 7
-  x = r ?? W(p: !m)
-  x.p += 1
-  x.p
-
-fun propagate(r: ?W?) -> Int?
-  x = r?
-  x.p += 1
-  x.p
 
 sub fill_write()
   n = 1
@@ -42,9 +16,5 @@ sub fill_write()
 sub main()
   print(1)
 
-# error: 18:3: type mismatch: expected `C`, got `?C`; only a value that copies is copied out of a view, and `C` is unique
-# error: 21:3: type mismatch: expected `W`, got `?W`; only a value that copies is copied out of a view, and `W` holds a write view, which has one holder
-# error: 24:3: type mismatch: expected `O`, got `?O`; only a value that copies is copied out of a view, and `O` owns a resource
-# error: 28:7: a view cannot give up the write view inside it
-# error: 33:7: a view cannot give up the write view inside it
-# error: 39:13: `[n of x]` copies its element into every slot; `!Int` holds a write view, which has one holder, so it cannot be copied
+# error: 9:3: type mismatch: expected `O`, got `?O`; only a value that copies is copied out of a view, and `O` owns a resource: lend it on where it goes (`?O` or `!O`)
+# error: 13:13: `[n of x]` copies its element into every slot; `!Int` holds a write view, which has one holder, so it cannot be copied

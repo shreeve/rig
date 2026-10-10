@@ -33,10 +33,10 @@ fun maybe(n: Int) -> Int?
 
 sub main()
   for i in 0..3
-    p = P(c: Cell(build(i)))
+    p = *P(c: Cell(build(i)))
     print(p.add(maybe(i - 1) ?? 9))
   for i in 0..3
-    v = V(c: Cell(build(4 * i)))
+    v = *V(c: Cell(build(4 * i)))
     print(v.add(maybe(i - 1) ?? continue))
   x = build(4)
   y = build(4)

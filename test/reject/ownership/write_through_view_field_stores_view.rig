@@ -1,5 +1,6 @@
-# A value written through a `!T` field lands in what the field views,
-# so a view it carries must outlive that place.
+# No value is written through a `!T` field into what the field views: a
+# write view is never stored inside a value, so the field is rejected
+# where it is declared.
 
 struct V
   r: ?Int
@@ -7,19 +8,10 @@ struct V
 struct H
   w: !V
 
-sub set(h: !H)
-  c = 3
-  h.w = V(r: ?c)
-
 sub main()
   a = 1
   x = V(r: ?a)
-  h = H(w: !x)
-  if true
-    b = 2
-    h.w = V(r: ?b)
-  set(!h)
   print(x.r)
 
-# error: 12:3: cannot store a view of `c` through `h`: `h` outlives it
-# error: 20:17: `b` does not live long enough
+# error: 9:6: a write view is never stored inside a value, and `!V` cannot stand here
+# errors: 1

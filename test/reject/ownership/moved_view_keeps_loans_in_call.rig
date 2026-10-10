@@ -10,7 +10,7 @@ struct Wrap
     print(r.v.len)
 
 struct Ed
-  t: !Wrap
+  r: ?Wrap
 
 struct P
   r: ?Wrap
@@ -18,14 +18,14 @@ struct P
 
 enum H
   none_
-  two(a: Ed, b: Ed)
+  two(a: Ed, b: Wrap)
 
 sub race(a: ?Wrap, b: !Wrap)
   print(a.v.len)
   b.v = Vec()
 
 sub race2(a: Ed, b: !Wrap)
-  print(a.t.v.len)
+  print(a.r.v.len)
   b.v = Vec()
 
 sub read_then_write()
@@ -35,7 +35,7 @@ sub read_then_write()
 
 sub write_then_write()
   x = Wrap(v: Vec())
-  e = Ed(t: !x)
+  e = Ed(r: ?x)
   race2(<e, !x)
 
 sub field_then_move()
@@ -51,14 +51,15 @@ sub receiver_then_moved_arg()
 
 sub variant_fields()
   x = Wrap(v: Vec())
-  e = Ed(t: !x)
-  h: H = .two(a: <e, b: Ed(t: !x))
+  e = Ed(r: ?x)
+  h: H = .two(a: <e, b: <x)
+  print(h)
 
 sub main()
   read_then_write()
 
 # error: 34:13: cannot lend `x` to write while a read loan is live
-# error: 39:14: cannot lend `x` to write while a write loan is live
+# error: 39:14: cannot lend `x` to write while a read loan is live
 # error: 44:20: cannot move `x` while a read loan is live
 # error: 50:3: cannot lend `x` to write while a read loan is live
-# error: 55:32: cannot lend `x` to write while a write loan is live
+# error: 55:26: cannot move `x` while a read loan is live

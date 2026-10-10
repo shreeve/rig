@@ -1,13 +1,7 @@
-# A bare name or place only reads (Core sentence 1), but only a value
-# that copies is read out of a write view (a plain struct is:
-# test/behavior/ownership/copies_write_view_reads.rig). A bare field or
-# element that is a write view of anything else would copy the view out
-# of its holder, and so would one bound with a `!T` type. A String read out of a `!String` field keeps
-# viewing the Text it views.
-# oracle: owner_field reject C2
-# oracle: typed_view reject C2
-# oracle: element_view reject C2
-# oracle: string_view reject C4
+# A bare field or element of a value never copies a write view out of
+# it, because a write view is never stored inside a value: not as a
+# field of any type, nor as a Vec's element. Each is rejected where it
+# is written.
 
 struct P
   x: Int
@@ -20,42 +14,14 @@ struct H
 struct HS
   s: !String
 
-sub owner_field()
-  n = 1
-  xs: Vec[Int] = Vec()
-  p = P(x: 1)
-  h = H(w: !n, v: !xs, p: !p)
-  y = h.v
-  print(y.len)
-
-sub typed_view()
-  n = 1
-  xs: Vec[Int] = Vec()
-  p = P(x: 1)
-  h = H(w: !n, v: !xs, p: !p)
-  w: !Int = h.w
-  w += 1
-
-sub element_view()
-  a = 1
-  ws: Vec[!Int] = Vec()
-  !ws.push(!a)
-  w: !Int = ws[0]
-  w += 1
-
-sub string_view()
-  t = Text("abc")
-  s: String = ?t
-  hs = HS(s: !s)
-  x = hs.s
-  !t.add("d")
-  print(x)
-
 sub main()
-  owner_field()
+  ws: Vec[!Int] = Vec[!Int]()
+  print(ws.len)
 
-# error: 28:7: bare use of `h.v` in binding would copy a write view, which is unique; write `y = !h.v` to lend the view on
-# error: 36:13: bare use of `h.w` in binding would copy a write view, which is unique; write `w = h.w` to read its value, or `w = !h.w` to lend the view on
-# error: 43:13: bare use of `ws[0]` in binding would copy a write view, which is unique; write `w = ws[0]` to read its value, or `w = !ws[0]` to lend the view on
-# error: 51:3: cannot lend `t` to write while a read loan is live
-# errors: 4
+# error: 10:6: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 11:6: a write view is never stored inside a value, and `!Vec[Int]` cannot stand here
+# error: 12:6: a write view is never stored inside a value, and `!P` cannot stand here
+# error: 15:6: a write view is never stored inside a value, and `!String` cannot stand here
+# error: 18:11: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 18:19: a write view is never stored inside a value, and `!Int` cannot stand here
+# errors: 6

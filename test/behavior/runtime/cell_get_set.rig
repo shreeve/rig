@@ -1,8 +1,8 @@
-# `Cell.get` and `Cell.set` on a stack-local cell: interior mutation
-# through a binding that is never reassigned.
+# `Cell.get` and `Cell.set` on a shared cell: interior mutation through
+# a binding that is never reassigned.
 
 sub main()
-  c: Cell[Int] = Cell(0)
+  c: *Cell[Int] = *Cell(0)
   c.set(5)
   print(c.get())
   c.set(c.get() + 10)

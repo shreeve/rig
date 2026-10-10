@@ -1,46 +1,23 @@
 # A bare write view of a Copy value is read where its context wants
-# the value (`h.w = w2` writes the value `w2` reaches through `h.w`), but
-# where a `!T` is expected it would be a second writer: a `!T` binding,
-# an element, a `break` value, or a branch of a view assigned to a field
-# takes it with `<w`. (`new w = w2` copies the value.)
-
-struct H
-  w: !Int
-  f: !Bool
-
-sub put(h: !H, w2: !Int, w3: !Int, b: !Bool, c: Bool)
-  h.w = w2
-  h.w = w2 if c else w3
-  h.f = b
-  w2 += 1
-  w3 += 1
-  b = false
+# the value, but where a `!T` is expected it would be a second writer: a
+# `!T` binding or a `break` value takes it with `<w`. (`new w = w2`
+# copies the value.)
 
 sub bind(w2: !Int)
   new w = w2
   v: !Int = w2
-  xs = [w2]
   u: !Int = while true
     break w2
   w2 += 1
   w += 1
   v += 1
   u += 1
-  print(w, v, xs[0])
+  print(w, v)
 
 sub main()
   n = 1
-  m = 2
-  k = 3
-  b = true
-  h = H(w: !n, f: !b)
-  q = true
-  put(!h, !m, !k, !q, true)
   bind(!n)
 
-# error: 13:9: bare use of write view `w2` in field assignment would copy a write view, which is unique; use `<w2`
-# error: 13:22: bare use of write view `w3` in field assignment would copy a write view, which is unique; use `<w3`
-# error: 21:13: bare use of write view `w2` in binding would copy a write view, which is unique; use `<w2`
-# error: 22:9: bare use of write view `w2` in array element would copy a write view, which is unique; use `<w2`
-# error: 24:11: bare use of write view `w2` in `break` value would copy a write view, which is unique; use `<w2`
-# errors: 5
+# error: 8:13: bare use of write view `w2` in binding would copy a write view, which is unique; use `<w2` to move it
+# error: 10:11: bare use of write view `w2` in `break` value would copy a write view, which is unique; use `<w2` to move it
+# errors: 2

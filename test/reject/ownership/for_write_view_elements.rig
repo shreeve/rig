@@ -1,7 +1,6 @@
-# An element that is itself a write view (`[2]!Int`) is written
-# through by index, `xs[i] += 1`: a loop binding would be a view of
-# the view. A loop still walks elements that hold write views in
-# their fields with `for x in !xs`.
+# An array cannot hold write views (`[2]!Int`, `[1]!H`): a write view is
+# never stored inside a value, so no loop walks elements that are write
+# views.
 
 struct H
   n: Int
@@ -10,16 +9,10 @@ sub main()
   n = 1
   m = 2
   xs = [!n, !m]
-  for x in !xs
-    x += 5
-  for x in xs
-    print(x)
   a = H(n: 1)
   hs = [!a]
-  for h in !hs
-    h.n += 5
+  print(xs.len, hs.len)
 
-# error: 13:13: each element of `xs` is a write view, which a loop binding cannot hold; loop over the indices and write `xs[i]`
-# error: 15:12: each element of `xs` is a write view, which a loop binding cannot hold; loop over the indices and write `xs[i]`
-# error: 19:13: each element of `hs` is a write view, which a loop binding cannot hold; loop over the indices and write `hs[i]`
-# errors: 3
+# error: 11:8: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 13:8: a write view is never stored inside a value, and `!H` cannot stand here
+# errors: 2

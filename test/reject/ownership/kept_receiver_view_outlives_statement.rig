@@ -32,8 +32,8 @@ struct H
 fun mk() -> S
   S(n: 5, m: 6)
 
-fun mkh() -> H
-  H(q: Q(c: Cell(1), n: 42))
+fun mkh() -> *H
+  *H(q: Q(c: Cell(1), n: 42))
 
 sub main()
   r = mk().me()

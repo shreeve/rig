@@ -1,6 +1,6 @@
-# `as` over a write view in a header that makes a temporary: the
-# temporary ends with the header, so the advice is to bind it first, not
-# to lend the view on, which the header rule would reject next.
+# `as` over a write view a field holds, in a header that makes a
+# temporary, cannot be written: a write view is never stored inside a
+# value, so the field is rejected where it is declared.
 
 struct O
   o: !Box[Int]?
@@ -13,5 +13,5 @@ sub main()
   if id(!O(o: !b)).o as x
     print(x)
 
-# error: 13:6: `as` over a write view in a header that makes a temporary, `O(o: !b)`, which ends with the header: bind it to a name first, then lend the value inside with `!`
+# error: 6:6: a write view is never stored inside a value, and `!Box[Int]?` cannot stand here
 # errors: 1

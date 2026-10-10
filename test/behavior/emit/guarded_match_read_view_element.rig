@@ -1,6 +1,7 @@
 # A guarded match on an element of a Vec reached through a read view
 # matches the element where it is: plain, Text, and Cell-holder
-# payloads, through a parameter and through a field.
+# payloads (the last behind a shared handle), through a parameter and
+# through a field.
 
 struct C
   c: Cell[Int]
@@ -32,7 +33,7 @@ fun text(v: ?Vec[T]) -> Int
     .a(_) => 1
     .b => 0
 
-sub cell(v: ?Vec[K])
+sub cell(v: ?Vec[*K])
   match v[0]
     .a(x) if x.c.get() == 0 => x.c.set(2)
     .a(x) => x.c.set(3)
@@ -48,8 +49,8 @@ sub main()
   !e.push(E.a(n: 5))
   t: Vec[T] = Vec()
   !t.push(T.a(t: Text("hello")))
-  k: Vec[K] = Vec()
-  !k.push(K.a(x: C(c: Cell(0))))
+  k: Vec[*K] = Vec()
+  !k.push(*K.a(x: C(c: Cell(0))))
   cell(?k)
   es: Vec[E] = Vec()
   !es.push(E.a(n: 9))

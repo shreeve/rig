@@ -1,8 +1,8 @@
 # An assignment evaluates its right-hand side first, then its target's
 # index expressions, and only then finds the place it stores into. A
 # call on the right, or in an index, may grow, replace, or free what the
-# target lies in (through a Vec, a field, a Box, or a write view held
-# in a field), and the store lands in the value as the call left it.
+# target lies in (through a Vec, a field, a Box, or a write view bound
+# to a local), and the store lands in the value as the call left it.
 
 struct Acc
   total: Int
@@ -12,12 +12,6 @@ struct P
 
 struct B
   xs: Vec[Int]
-
-struct H
-  w: !Vec[Int]
-
-struct N
-  w: !Int
 
 fun grow(v: !Vec[Int]) -> Int
   for i in 0..100
@@ -94,14 +88,14 @@ sub main()
 
   held: Vec[Int] = Vec()
   !held.push(7)
-  h = H(w: !held)
-  h.w[0] = grow(!h.w)
+  h = !held
+  h[0] = grow(!h)
   print(held[0], held.len)
 
   n = 1
-  m = N(w: !n)
-  m.w = bump(!m.w)
-  m.w += bump(!m.w)
+  m = !n
+  m = bump(!m)
+  m += bump(!m)
   print(n)
   k = 1
   k += bump(!k)

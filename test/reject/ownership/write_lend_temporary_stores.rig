@@ -2,7 +2,6 @@
 # holds what the call stores in it, as a name does
 # (`store_into_unnamed_receiver.rig`): a view of a temporary made after
 # it, which its statement drops first, would be read by its `drop`.
-# oracle: stores_view reject C5
 # oracle: stores_string reject C5
 # oracle: pushes_string reject C5
 # oracle: stores_through_bang reject C5
@@ -11,18 +10,6 @@ struct S
   n: Int
   t: Text
   items: Vec[Int]
-
-  fun at(!self) -> !Int
-    !self.n
-
-struct W
-  ws: Vec[!Int]
-
-  sub keep(!self, w: !Int)
-    !self.ws.push(<w)
-
-  drop(!self)
-    print(self.ws.len)
 
 struct H
   rs: Vec[String]
@@ -36,17 +23,11 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, t: Text("t"), items: Vec())
 
-fun mkw() -> W
-  W(ws: Vec())
-
 fun mkh() -> H
   H(rs: Vec())
 
 fun wrap(h: !H) -> !H
   h
-
-sub stores_view()
-  !mkw().keep((!mk(1)).at())
 
 sub stores_string()
   !mkh().keep(?mk(1).t)
@@ -61,10 +42,9 @@ sub stores_through_bang()
     !wrap(!h).keep(?s.t)
 
 sub main()
-  stores_view()
+  stores_string()
 
-# error: 49:17: a view of the temporary `mk(1)` is held by `mk
-# error: 52:16: a view of the temporary `mk(1)` is held by `mk
-# error: 55:19: a view of the temporary `mk(1)` is held by `mk
-# error: 61:20: `s` does not live long enough
-# errors: 4
+# error: 33:16: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first
+# error: 36:19: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first
+# error: 42:20: `s` does not live long enough
+# errors: 3

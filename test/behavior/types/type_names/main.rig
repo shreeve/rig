@@ -94,7 +94,7 @@ sub main()
   show[Pair[Int, Text]](@name(Pair[Int, Text]))
   show[Ring[Int, 4]](@name(Ring[Int, 4]))
   show[Vec[Int]](@name(Vec[Int]))
-  show[Cell[Bool]](@name(Cell[Bool]))
+  show[*Cell[Bool]](@name(*Cell[Bool]))
   show[Box[Point]](@name(Box[Point]))
   show[Signal[F32]](@name(Signal[F32]))
   show[Vec[Vec[I8]]](@name(Vec[Vec[I8]]))
@@ -153,7 +153,7 @@ sub main()
 # Pair[Int, Text]
 # Ring[Int, 4]
 # Vec[Int]
-# Cell[Bool]
+# *Cell[Bool]
 # Box[Point]
 # Signal[F32]
 # Vec[Vec[I8]]

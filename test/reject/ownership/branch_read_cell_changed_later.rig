@@ -1,9 +1,13 @@
 # A branching `print` argument is copied where it runs, before the
-# later arguments: a place it may be that holds a Cell is held against
-# any later view, which could change the Cell under the copy.
+# later arguments: a place it may be that holds a Cell (a field of a
+# value behind `*`) is held against any later view, which could change
+# the Cell under the copy.
 
 struct S
   c: Cell[Vec[Int]]
+
+struct O
+  s: S
 
 fun grow(s: ?S) -> Int
   for i in 0..100
@@ -11,13 +15,13 @@ fun grow(s: ?S) -> Int
   5
 
 sub main()
-  a = S(c: Cell(Vec()))
-  b = S(c: Cell(Vec()))
+  a = *O(s: S(c: Cell(Vec())))
+  b = *O(s: S(c: Cell(Vec())))
   k = true
-  a.c.push(1)
-  print(a if k else b, grow(?a))
-  print(Text(b if k else a, grow(?a)))
+  a.s.c.push(1)
+  print(a.s if k else b.s, grow(?a.s))
+  print(Text(b.s if k else a.s, grow(?a.s)))
 
-# error: 18:30: cannot lend `a` to read, which holds a Cell, while an earlier argument's read of it is in use
-# error: 19:35: cannot lend `a` to read, which holds a Cell, while an earlier argument's read of it is in use
+# error: 22:34: cannot lend `a` to read, which holds a Cell, while an earlier argument's read of it is in use
+# error: 23:39: cannot lend `a` to read, which holds a Cell, while an earlier argument's read of it is in use
 # errors: 2

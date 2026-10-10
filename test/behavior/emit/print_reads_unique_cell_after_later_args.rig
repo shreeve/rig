@@ -1,7 +1,7 @@
-# A Cell of plain data, alone or in a struct, is unique (Core §1), so
-# `print` reads it where it is, when the call runs, as it reads a Cell of
-# a Vec (print_reads_cell_after_later_set.rig): a later argument that
-# changes the Cell through a read lend shows in what is printed.
+# A shared Cell of plain data, alone or in a struct, is read by `print`
+# where it is, when the call runs, as it reads a Cell of a Vec
+# (print_reads_cell_after_later_set.rig): a later argument that changes
+# the Cell through a read lend shows in what is printed.
 struct K
   hits: Cell[Int]
 
@@ -14,10 +14,10 @@ fun bump2(c: ?Cell[Int]) -> Int
   2
 
 sub main()
-  k = K(hits: Cell(1))
+  k = *K(hits: Cell(1))
   print(k, bump(?k))
   print(k)
-  c = Cell(1)
+  c = *Cell(1)
   print(c.get(), c, bump2(?c))
   print(c)
 

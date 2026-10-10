@@ -1,29 +1,15 @@
-# `fill` and `copy` copy values into the elements, so, as in `[n of x]`,
-# the elements must copy: a copy of a value holding a write view would
-# give the view two holders. (Read-view elements copy: see
+# `fill` and `copy` copy values into the elements, and no element holds
+# a write view that a copy would give two holders: a write view is never
+# stored inside a value, so the field is rejected where it is declared.
+# (Read-view elements copy: see
 # test/behavior/ownership/copies_fill_read_views.rig.)
 
 struct V
   s: ![]Int
 
-sub fill()
-  a = [1, 2]
-  b = [3, 4]
-  c = [5, 6]
-  vs = [V(s: !a[..]), V(s: !b[..])]
-  !vs.fill(V(s: !c[..]))
-  vs[0].s[0] = 9
-
-sub copy()
-  c = [5, 6]
-  d = [7, 8]
-  xs = [V(s: !c[..])]
-  ys = [V(s: !d[..])]
-  !ys.copy(?xs[..])
-  ys[0].s[0] = 1
-
 sub main()
-  fill()
+  a = [1, 2]
+  print(a[0])
 
-# error: 14:7: `fill` copies values into the elements; a `V` holds a write view, which has one holder
-# error: 22:7: `copy` copies values into the elements; a `V` holds a write view, which has one holder
+# error: 8:6: a write view is never stored inside a value, and `![]Int` cannot stand here
+# errors: 1

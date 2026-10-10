@@ -8,7 +8,7 @@ error Bad
   no
 
 struct Q
-  c: Cell[Int]
+  c: Int
   n: Int
 
 struct H
@@ -28,10 +28,10 @@ fun g(k: Int) -> Int
   k
 
 fun mkh(k: Int) -> H
-  H(q: Q(c: Cell(k), n: k))
+  H(q: Q(c: k, n: k))
 
 fun usq(t: Text, q: ?Q, n: Int) -> Int
-  t.len + q.c.get() + n
+  t.len + q.c + n
 
 fun wr(q: !Q, n: Int) -> Int
   q.n = q.n + n
@@ -44,7 +44,7 @@ sub main()
   s = S(cb: usq, wr: wr)
   print(run(?s, 2) catch -1)
   print(run(?s, 1) catch -1)
-  q = Q(c: Cell(0), n: 1)
+  q = Q(c: 0, n: 1)
   print(s.wr(!q, g(4)))
   print(q.n)
 

@@ -18,7 +18,7 @@ sub main()
   _ = f(y: n, x: bump(!n))
   m = 1
   _ = f(y: m + 0, x: bump(!m))
-  c = Cell(1)
+  c = *Cell(1)
   _ = f(y: c.get(), x: poke(?c))
   print(n, m, c.get())
 

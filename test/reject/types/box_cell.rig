@@ -1,24 +1,15 @@
-# A boxed value holding a Cell changes through any path to it, and a
-# Cell can hold a box.
+# A Cell lives only behind a shared handle, so a Box cannot hold a value
+# that holds a Cell: the rule that a Cell lives only behind `*` rejects
+# `Box[C]` as a generic type argument that holds a Cell.
 
 struct C
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
-
 fun peek(b: ?Box[C]) -> Int
-  b.hit()
   b.hits.get()
 
 sub main()
-  b = Box(C(hits: Cell(0)))
-  b.hit()
-  print(peek(?b))
-  cell: Cell[Box[C]] = Cell(Box(C(hits: Cell(5))))
-  old = cell.replace(Box(C(hits: Cell(7))))
-  print(old.hits.get())
+  pass
 
-# expect:
-# 2
-# 5
+# error: 8:14: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`
+# errors: 1

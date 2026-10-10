@@ -1,5 +1,4 @@
-# A Vec of views keeps each pushed view's loan while it lives, and a
-# write view in it is unique.
+# A Vec of views keeps each pushed view's loan while it lives.
 
 sub main()
   a = 1
@@ -7,11 +6,5 @@ sub main()
   !v.push(?a)
   a = 2
   print(v.len)
-  b = 1
-  w: Vec[!Int] = Vec()
-  !w.push(!b)
-  !w.push(!b)
-  print(w.len)
 
-# error: 8:3: cannot reassign `a` while it is lent
-# error: 13:12: cannot lend `b` to write while a write loan is live
+# error: 7:3: cannot reassign `a` while it is lent

@@ -33,9 +33,12 @@ fun mk() -> P
 fun add(a: Int, b: Int, c: Int, d: Int) -> Int
   a + b + c + d
 
+sub poke(k: ?Log)
+  (?k).log[0] = 1
+
 sub main()
   p = mk()
-  k = Log(log: Cell(Vec()))
+  k = *Log(log: Cell(Vec()))
   t = Text("abcd")
   arr = [1, 2, 3]
   print(own((?p).items))
@@ -55,7 +58,7 @@ sub main()
   e = (?p).v.len()
   (!t).push_str("d")
   g = <(?p).items
-  (?k).log[0] = 1
+  poke(k)
   s: String = (?p).name
   yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy = add(1111111111, 2222222222, 3333333333, (?p).x) + add(1111111111, 2222222222, 3333333333, 4)
   h = (
@@ -64,30 +67,30 @@ sub main()
   ((!p)).x = 6
   print(a, b, ys, c, w, d, f, e, g, s, yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy, h, arr)
 
-# error: 46:21: type mismatch: expected `(?Vec[Int])?`, got `Vec[Int]`
-# error: 49:13: type mismatch: expected `[]Int`, got `[3]Int`; write `?p.arr` or `?p.arr[..]`
-# error: 54:4: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
-# error: 55:14: no method `len` on type `Vec[Int]`; `len` is a field: write `p.v.len`
-# error: 56:8: type `!Text` has no method `push_str`
-# error: 59:15: type mismatch: expected `String`, got `Text`; lend it as a String with `?p.name` or `?p.name[..]`
-# error: 41:14: `(?p).items`: write a lend on the whole path, not its base: `print(own(+p.items))`
-# error: 42:12: `(?p).items`: write a lend on the whole path, not its base: `a = gid(+p.items)`
-# error: 43:18: `(?p).items`: write a lend on the whole path, not its base: `b: Vec[Int] = +p.items`
-# error: 44:10: `(?p).items`: write a lend on the whole path, not its base: `ys = [?p.items, ?p.items]`
-# error: 44:22: `(?p).items`: write a lend on the whole path, not its base: `ys = [?p.items, ?p.items]`
-# error: 45:9: `(!p).items`: write a lend on the whole path, not its base; and `<` takes out only an optional field or element, leaving `none`
-# error: 46:22: `(?p).items`: write a lend on the whole path, not its base: `w: (?Vec[Int])? = ?p.items`
-# error: 47:10: `(?t)[1..3]`: write a lend on the whole path, not its base: `print(?t[1..3])`
-# error: 48:8: `(?t)[1..3]`: write a lend on the whole path, not its base: `d = ?t[1..3]`
-# error: 49:14: `(?p).arr`: write a lend on the whole path, not its base: `print(sum(?p.arr))`
-# error: 50:11: `(!mk()).x`: write a lend on the whole path, not its base; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own
-# error: 52:11: `(!mk()).x`: write a lend on the whole path, not its base; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own
-# error: 54:4: `(?p).x`: write a lend on the whole path, not its base; and a read lend is not written through
-# error: 55:8: `(?p).v`: write a lend on the whole path, not its base
-# error: 57:9: `(?p).items`: write a lend on the whole path, not its base; and a read lend is not written through
-# error: 58:4: `(?k).log`: write a lend on the whole path, not its base: `k.log[0] = 1`
-# error: 59:16: `(?p).name`: write a lend on the whole path, not its base: `s: String = ?p.name`
-# error: 60:80: `(?p).x`: write a lend on the whole path, not its base: `yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy = add(1111111111, 2222222222, 3333333333, p.x) + add(1111111111, 2222222222, 3333333333, 4)`
-# error: 62:5: `(?p).x`: write a lend on the whole path, not its base
-# error: 64:5: `((!p)).x`: write a lend on the whole path, not its base: `p.x = 6`
+# error: 49:21: type mismatch: expected `(?Vec[Int])?`, got `Vec[Int]`
+# error: 52:13: type mismatch: expected `[]Int`, got `[3]Int`; write `?p.arr` or `?p.arr[..]`
+# error: 57:4: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
+# error: 58:14: no method `len` on type `Vec[Int]`; `len` is a field: write `p.v.len`
+# error: 59:8: type `!Text` has no method `push_str`
+# error: 62:15: type mismatch: expected `String`, got `Text`; lend it as a String with `?p.name` or `?p.name[..]`
+# error: 37:4: `(?k).log`: write a lend on the whole path, not its base: `k.log[0] = 1`
+# error: 44:14: `(?p).items`: write a lend on the whole path, not its base: `print(own(+p.items))`
+# error: 45:12: `(?p).items`: write a lend on the whole path, not its base: `a = gid(+p.items)`
+# error: 46:18: `(?p).items`: write a lend on the whole path, not its base: `b: Vec[Int] = +p.items`
+# error: 47:10: `(?p).items`: write a lend on the whole path, not its base: `ys = [?p.items, ?p.items]`
+# error: 47:22: `(?p).items`: write a lend on the whole path, not its base: `ys = [?p.items, ?p.items]`
+# error: 48:9: `(!p).items`: write a lend on the whole path, not its base; and `<` takes out only an optional field or element, leaving `none`
+# error: 49:22: `(?p).items`: write a lend on the whole path, not its base: `w: (?Vec[Int])? = ?p.items`
+# error: 50:10: `(?t)[1..3]`: write a lend on the whole path, not its base: `print(?t[1..3])`
+# error: 51:8: `(?t)[1..3]`: write a lend on the whole path, not its base: `d = ?t[1..3]`
+# error: 52:14: `(?p).arr`: write a lend on the whole path, not its base: `print(sum(?p.arr))`
+# error: 53:11: `(!mk()).x`: write a lend on the whole path, not its base; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own
+# error: 55:11: `(!mk()).x`: write a lend on the whole path, not its base; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own
+# error: 57:4: `(?p).x`: write a lend on the whole path, not its base; and a read lend is not written through
+# error: 58:8: `(?p).v`: write a lend on the whole path, not its base
+# error: 60:9: `(?p).items`: write a lend on the whole path, not its base; and a read lend is not written through
+# error: 62:16: `(?p).name`: write a lend on the whole path, not its base: `s: String = ?p.name`
+# error: 63:80: `(?p).x`: write a lend on the whole path, not its base: `yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy = add(1111111111, 2222222222, 3333333333, p.x) + add(1111111111, 2222222222, 3333333333, 4)`
+# error: 65:5: `(?p).x`: write a lend on the whole path, not its base
+# error: 67:5: `((!p)).x`: write a lend on the whole path, not its base: `p.x = 6`
 # errors: 26

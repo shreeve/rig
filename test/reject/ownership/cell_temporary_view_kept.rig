@@ -1,4 +1,4 @@
-# A temporary that holds a Cell, lent to read, lives in its statement's
+# A temporary handle to a value that holds a Cell, lent to read, lives in its statement's
 # slot and is dropped when the statement ends (Core §3), so a view of it
 # kept past the statement is rejected, as for any temporary.
 #
@@ -10,8 +10,8 @@ struct C
 struct K
   r: ?C
 
-fun mkc() -> C
-  C(c: Cell(1))
+fun mkc() -> *C
+  *C(c: Cell(1))
 
 fun keep(p: ?C) -> ?C
   p

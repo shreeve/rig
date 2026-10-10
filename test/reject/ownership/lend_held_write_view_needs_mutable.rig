@@ -1,7 +1,6 @@
-# Lending a write view held in a field (`!h.w`) writes through it, as
-# `h.w += 1` does, so it needs write access to what holds it: a plain
-# parameter and a fixed binding do not give it. (A temporary is lent to
-# write as any value is: `test/behavior/ownership/write_lend_temporary_view.rig`.)
+# A write view is never held in a field, so no lend of one (`!h.w`)
+# writes through what holds it: the field is rejected where it is
+# declared.
 
 struct H
   w: !Int
@@ -9,18 +8,9 @@ struct H
 sub poke(w: !Int)
   w += 1
 
-fun mk(w: !Int) -> H
-  H(w: <w)
-
-sub by_value(h: H)
-  poke(!h.w)
-  h.w += 1
-
 sub main()
   n = 1
-  const h = H(w: !n)
-  poke(!h.w)
+  poke(!n)
 
-# error: 16:9: cannot lend parameter `h` to write; parameters are immutable
-# error: 17:3: cannot assign to parameter `h`; parameters are immutable
-# error: 22:9: cannot lend fixed binding `h` to write (bound with `const`)
+# error: 6:6: a write view is never stored inside a value, and `!Int` cannot stand here
+# errors: 1

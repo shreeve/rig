@@ -1,7 +1,7 @@
 # A read view whose type holds a generic type's parameter (`?T`,
 # `?Self`) takes the form each instance needs: a copy of plain data, a
-# pointer to a value that owns resources or holds a Cell. Both sides of a
-# method call, a field, and a payload agree.
+# pointer to a value that owns resources, a shared Cell included. Both
+# sides of a method call, a field, and a payload agree.
 
 struct Wrap[T]
   v: T
@@ -65,7 +65,7 @@ sub main()
   print(va.get().len)
   vr = Ref(r: ?va)
   print(vr.val().get().len)
-  n = Cell(3)
+  n = *Cell(3)
   d = Wrap(v: <n)
   e = d.get()
   (?d.v).set(9)

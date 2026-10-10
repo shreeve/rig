@@ -2,7 +2,8 @@
 # field or element of one. Any other source, a Vec made here (bare,
 # taken, or lent), a call's returned view of one, a part of a value made
 # here, or a branching value, gets one diagnostic, whose hint compiles
-# (`test/behavior/ownership/vec_for_moving_elements_bound.rig`).
+# (`test/behavior/ownership/vec_for_moving_elements_bound.rig`); a
+# branching value is read in place, so it is a lend of a name it may be.
 
 struct H
   items: Vec[Text]
@@ -37,11 +38,11 @@ sub main()
   for x in v if c else k
     print(x)
 
-# error: 25:12: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 27:13: bind `mk()` to a name first
-# error: 29:13: bind `mk()` to a name first
-# error: 31:13: bind `mk()` to a name first
-# error: 33:12: bind `items(?v, ?k)` to a name first
-# error: 35:12: bind `mkh()` to a name first
-# error: 37:12: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind the Vec to a name first
+# error: 26:12: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 28:13: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 30:13: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 32:13: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 34:12: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `items(?v, ?k)` to a name first
+# error: 36:12: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mkh()` to a name first
+# error: 38:12: cannot lend `v if c else k`: it may be `v`, a value a name holds
 # errors: 7

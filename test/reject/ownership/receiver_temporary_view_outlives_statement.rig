@@ -30,8 +30,8 @@ fun mkf(n: Int) -> P!
   return Bad.oops if n > 5
   P(xs: [1, 2, 3, 4])
 
-fun mkh() -> H
-  H(q: Q(c: Cell(1), n: 42))
+fun mkh() -> *H
+  *H(q: Q(c: Cell(1), n: 42))
 
 sub main()
   r = mk().arr()

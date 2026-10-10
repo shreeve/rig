@@ -1,9 +1,6 @@
 # A slice of a write view of a Text lends that view, so a binding writes
-# the lend, as for a slice of the Text itself: a `!Text` parameter,
-# local, and field, a `!*Text`, and a `!Box[Text]`.
-
-struct H
-  t: !Text
+# the lend, as for a slice of the Text itself: a `!Text` parameter and
+# local, a `!*Text`, and a `!Box[Text]`.
 
 sub param(t: !Text)
   s = t[1..]
@@ -13,12 +10,6 @@ sub local()
   t = Text("hello")
   w = !t
   s = w[1..]
-  print(s)
-
-sub field()
-  t = Text("hello")
-  h = H(t: !t)
-  s = h.t[1..]
   print(s)
 
 sub shared(h: !*Text)
@@ -33,9 +24,8 @@ sub main()
   t = Text("hello")
   param(!t)
 
-# error: 9:7: a slice of a Text views it; write `?t[1..]`
-# error: 15:7: a slice of a Text views it; write `?w[1..]`
-# error: 21:7: a slice of a Text views it; write `?h.t[1..]`
-# error: 25:7: a slice of a Text views it; write `?h[1..]`
-# error: 29:7: a slice of a Text views it; write `?b[1..]`
-# errors: 5
+# error: 6:7: a slice of a Text views it; write `?t[1..]`
+# error: 12:7: a slice of a Text views it; write `?w[1..]`
+# error: 16:7: a slice of a Text views it; write `?h[1..]`
+# error: 20:7: a slice of a Text views it; write `?b[1..]`
+# errors: 4

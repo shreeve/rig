@@ -1,10 +1,11 @@
-# A header's subject that reaches a place holding a write view through a
+# A header's subject that reaches a write view a name holds through a
 # branch, the branch itself or a path through it (`(a if c else b).e`,
-# `(a if c else b)[0].e`, `o?.w`, `h.o?.w`, `(o ?? g).w`, a `catch`
-# part), would copy the write view out of the place with no loan on it
-# (`sema.headerCopiesWriteView`): for `match`, `if … as`, `while … as`,
-# and `for` alike. The hint lends each leaf; a part of a branch of
-# lends is matched to write once the branch has a name.
+# `(a if c else b)[0].e`, `o?`, `o ?? !d`, a `catch` part), reads the
+# branch in place, which is a lend of it: lending the branching value
+# would copy the write view out of the name with no loan on it. This
+# holds for `match`, `if … as`, `while … as`, and `for` alike. The hint
+# lends each leaf; a part of a branch of lends is matched to write once
+# the branch has a name.
 
 struct Res
   n: Int
@@ -22,15 +23,6 @@ struct W
   o: E?
   v: Vec[Int]
 
-struct H
-  w: !E
-
-struct G
-  w: !E
-
-struct HO
-  o: G?
-
 fun tg(w: !W, ok: Bool) -> (!W)!
   return Bad.nope if not ok
   w
@@ -42,28 +34,6 @@ sub part(a: !W, b: !W, c: Bool)
 
 sub part_index(a: !Vec[W], b: !Vec[W], c: Bool)
   match (a if c else b)[0].e
-    .a(r) => print(r.n)
-    .b => pass
-
-sub part_of_owned(h1: H, h2: H, c: Bool)
-  match (h1 if c else h2).w
-    .a(r) => print(r.n)
-    .b => pass
-
-fun chain(o: G?) -> Int?
-  match o?.w
-    .a(r) => print(r.n)
-    .b => pass
-  1
-
-fun chain_field(h: !HO) -> Int?
-  match h.o?.w
-    .a(r) => print(r.n)
-    .b => pass
-  1
-
-sub coalesce_part(o: G?, g: G)
-  match (o ?? g).w
     .a(r) => print(r.n)
     .b => pass
 
@@ -100,13 +70,6 @@ sub for_coalesce(v: !Vec[Int], d: !Vec[Int])
   for x in o ?? !d
     print(x)
 
-sub for_fields(h1: !HV, h2: !HV, c: Bool)
-  for x in (h1.v if c else h2.v)
-    print(x)
-
-struct HV
-  v: !Vec[Int]
-
 sub lends_part(a: !W, b: !W, c: Bool)
   match (!a if c else !b).e
     .a(r) => r.n = 1
@@ -115,19 +78,14 @@ sub lends_part(a: !W, b: !W, c: Bool)
 sub main()
   pass
 
-# error: 39:10: this `match` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
-# error: 44:10: this `match` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
-# error: 49:10: this `match` reads `h1`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?h1` or to write with `!h1`
-# error: 54:9: this `match` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
-# error: 60:9: this `match` reads `h.o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if h.o as x`, or `if !h.o as x` to write through it
-# error: 66:10: this `match` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
-# error: 71:34: this `match` reads `b`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?b` or to write with `!b`
-# error: 76:7: this `as` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
-# error: 80:10: this `as` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
-# error: 85:13: this `for` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
-# error: 89:13: this `for` reads `a`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?a` or to write with `!a`
-# error: 94:12: this `for` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
-# error: 100:12: this `for` reads `o`, which holds a write view, through a branch, and would copy the write view, a second writer: bind the value inside where it stands, with `if o as x`, or `if !o as x` to write through it
-# error: 104:13: this `for` reads `h1.v`, which holds a write view, through a branch, and would copy the write view, a second writer: lend each leaf, to read with `?h1.v` or to write with `!h1.v`
-# error: 112:14: cannot assign through a read view (`?T`); `r` is a read view of a field of `(!a if c else !b).e`: to write through it, bind the branch to a name first, `t = (!a if c else !b)`, then match its part with `match !t.e`
-# errors: 15
+# error: 31:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).e`
+# error: 36:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b)[0].e`
+# error: 41:10: cannot lend `tg(!a, false) catch |_| b`: it may be `b`, a value a name holds, which lending the branching value would copy; lend each branch: `?(tg(!a, false) catch |_| ?b).e`
+# error: 46:7: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).o`
+# error: 50:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).o`
+# error: 55:13: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).v`
+# error: 59:13: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`
+# error: 64:12: cannot lend `o?`: it may be `o`, a value a name holds, which lending the branching value would copy; lend what it unwraps, and unwrap it in a header: `if ?o as x`
+# error: 70:12: cannot lend `o ?? !d`: it may be `o`, a value a name holds, which lending the branching value would copy; lend each branch: `?o ?? !d`
+# error: 75:14: cannot assign through a read view (`?T`); `r` is a read view of a field of `(!a if c else !b).e`: to write through it, bind the branch to a name first, `t = (!a if c else !b)`, then match its part with `match !t.e`
+# errors: 10

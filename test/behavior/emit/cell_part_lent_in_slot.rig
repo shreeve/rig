@@ -1,17 +1,17 @@
-# A field of a temporary that holds a Cell, lent to a call, is lent where
-# the statement's slot keeps the temporary: a Cell change through the view
-# is the temporary's own, and a view the call returns stays good until
-# the statement ends.
+# A field of a temporary that holds a shared Cell, lent to a call, is lent
+# where the statement's slot keeps the temporary: a Cell change through
+# the view is the temporary's own, and a view the call returns stays
+# good until the statement ends.
 
 struct P
-  c: Cell[Int]
+  c: *Cell[Int]
   n: Int
 
 struct H
   p: P
 
 fun mk(n: Int) -> H
-  H(p: P(c: Cell(1), n: n))
+  H(p: P(c: *Cell(1), n: n))
 
 fun id(x: ?P) -> ?P
   x

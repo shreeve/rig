@@ -24,8 +24,8 @@ struct H
 fun mk() -> P
   P(xs: [9, 9, 9, 9])
 
-fun mkh() -> H
-  H(q: Q(c: Cell(1), n: 42), p: P(xs: [3, 3, 3, 3]))
+fun mkh() -> *H
+  *H(q: Q(c: Cell(1), n: 42), p: P(xs: [3, 3, 3, 3]))
 
 sub main()
   print(mk().arr(), mkh().q.me().n)

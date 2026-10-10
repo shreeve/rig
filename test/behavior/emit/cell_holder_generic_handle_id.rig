@@ -1,8 +1,8 @@
-# A generic type that holds its parameter only behind a handle, viewed
-# through a generic function's `?T`, at an instance whose argument holds
-# a Cell: it holds no Cell inline, so its views are `*const` in generic
-# and concrete code alike, and the Cell it reaches changes through them,
-# in debug and in an optimized build.
+# A generic type instanced at a shared handle to a type that holds a
+# Cell, viewed through a generic function's `?T`: it holds no Cell
+# inline, so its views are `*const` in generic and concrete code alike,
+# and the Cell it reaches changes through them, in debug and in an
+# optimized build.
 # release
 
 struct C
@@ -12,13 +12,13 @@ struct C
     self.c.set(self.c.get() + 1)
 
 struct G[T]
-  h: *T
+  h: T
   n: Int
 
 fun id[T](x: ?T) -> ?T
   x
 
-fun look(g: ?G[C]) -> Int
+fun look(g: ?G[*C]) -> Int
   g.h.hit()
   g.h.c.get() + g.n
 

@@ -2,9 +2,11 @@
 # ignored: a generic's inferred `T` (a scalar's or a struct's), a
 # constructor's or variant's field, a declared parameter, a method's
 # parameter, an array element, a typed binding, a result, and each arm or
-# `break` of a value that branches. The diagnostic offers both fixes: a
-# write view kept, or a copy, with every ignored `!` of the call taken
-# off, and names a parameter as declared (`!T`).
+# `break` of a value that branches. The diagnostic offers a copy, with
+# every ignored `!` of the call taken off, and, where a write view may
+# stand (a parameter, a binding, a result), a write view kept; it names a
+# parameter as declared (`!T`). A field or a type argument never holds a
+# write view, so there only the copy is offered.
 
 use std.math
 
@@ -81,32 +83,32 @@ sub main()
     break 0
   print(e1, e2, e3, e4, e5, s1.r, s2.r, s3.x, s4.r, g1, g2, g3, g4, g5, g6, a1, a2, b1, b2, b3, b4, b5, b6, ret(!n))
 
-# error: 41:3: `!x` here is read, not held: an `Int` goes here. Write `x` to copy the value; to keep a write view of `x`, the type here must be `!Int`
-# error: 52:20: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt[!Int].some(v: !n)` to keep a write view of `n`, or `Opt.some(v: n)` to store a copy
-# error: 53:17: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt[!Int].some(!n)` to keep a write view of `n`, or `Opt.some(n)` to store a copy
-# error: 54:25: `!n` here is read, not held: `Opt[Int].some` stores an `Int`. Write `Opt[!Int].some(v: !n)` to keep a write view of `n`, or `Opt[Int].some(v: n)` to store a copy
-# error: 55:27: `!n` here is read, not held: `.some` stores an `Int`. Write `.some(v: n)` to store a copy; to keep a write view of `n`, the field's type must be `!Int`
-# error: 56:20: `!p` here is read, not held: `Opt.some` stores a `Q`. Write `Opt[!Q].some(v: !p)` to keep a write view of `p`, or `Opt.some(v: p)` to store a copy
-# error: 57:13: `!n` here is read, not held: `H` stores an `Int`. Write `H[!Int](r: !n)` to keep a write view of `n`, or `H(r: n)` to store a copy
-# error: 58:18: `!n` here is read, not held: `H[Int]` stores an `Int`. Write `H[!Int](r: !n)` to keep a write view of `n`, or `H[Int](r: n)` to store a copy
-# error: 59:13: `!n` here is read, not held: `P` stores an `Int`. Write `P(x: n)` to store a copy; to keep a write view of `n`, the field's type must be `!Int`
-# error: 60:13: `!n` here is read, not held: `G` stores an `Int`. Write `G(r: n)` to store a copy; to keep a write view of `n`, the field's type must be `!Int`
-# error: 61:12: `!n` here is read, not held: `get` takes an `Int`. Write `get(n)` to pass a copy; to lend `n` to write, the parameter must be a `!T`
-# error: 62:13: `!n` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to lend `n` to write, the parameter must be a `!T`
-# error: 62:17: `!m` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`
-# error: 63:10: `!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`
-# error: 64:10: `!!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`
-# error: 65:10: `<!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`
-# error: 66:17: `!n` here is read, not held: `math.max` takes an `Int`. Write `math.max(n, 3)` to pass a copy; to lend `n` to write, the parameter must be a `!T`
-# error: 67:11: `!m` here is read, not held: `set` takes an `Int`. Write `!s4.set(m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`
-# error: 69:11: `!m` here is read, not held: `push` takes an `Int`. Write `!v.push(m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`
-# error: 70:9: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
-# error: 71:17: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
-# error: 72:13: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
-# error: 73:13: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
-# error: 73:26: `!m` here is read, not held: an `Int` goes here. Write `m` to copy the value; to keep a write view of `m`, the type here must be `!Int`
-# error: 74:18: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
-# error: 76:10: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
-# error: 78:13: `!mk().x` here is read, not held: an `Int` goes here. Write `mk().x` to copy the value
-# error: 80:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 43:3: `!x` here is read, not held: an `Int` goes here. Write `x` to copy the value; to keep a write view of `x`, the type here must be `!Int`
+# error: 54:20: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(v: n)` to store a copy
+# error: 55:17: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(n)` to store a copy
+# error: 56:25: `!n` here is read, not held: `Opt[Int].some` stores an `Int`. Write `Opt[Int].some(v: n)` to store a copy
+# error: 57:27: `!n` here is read, not held: `.some` stores an `Int`. Write `.some(v: n)` to store a copy
+# error: 58:20: `!p` here is read, not held: `Opt.some` stores a `Q`. Write `Opt.some(v: p)` to store a copy
+# error: 59:13: `!n` here is read, not held: `H` stores an `Int`. Write `H(r: n)` to store a copy
+# error: 60:18: `!n` here is read, not held: `H[Int]` stores an `Int`. Write `H[Int](r: n)` to store a copy
+# error: 61:13: `!n` here is read, not held: `P` stores an `Int`. Write `P(x: n)` to store a copy
+# error: 62:13: `!n` here is read, not held: `G` stores an `Int`. Write `G(r: n)` to store a copy
+# error: 63:12: `!n` here is read, not held: `get` takes an `Int`. Write `get(n)` to pass a copy; to lend `n` to write, the parameter must be a `!T`
+# error: 64:13: `!n` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to lend `n` to write, the parameter must be a `!T`
+# error: 64:17: `!m` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`
+# error: 65:10: `!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`
+# error: 66:10: `!!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`
+# error: 67:10: `<!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to lend `n` to write, the parameter must be a `!Int`
+# error: 68:17: `!n` here is read, not held: `math.max` takes an `Int`. Write `math.max(n, 3)` to pass a copy; to lend `n` to write, the parameter must be a `!T`
+# error: 69:11: `!m` here is read, not held: `set` takes an `Int`. Write `!s4.set(m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`
+# error: 71:11: `!m` here is read, not held: `push` takes an `Int`. Write `!v.push(m)` to pass a copy; to lend `m` to write, the parameter must be a `!T`
+# error: 72:9: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 73:17: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 74:13: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 75:13: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 75:26: `!m` here is read, not held: an `Int` goes here. Write `m` to copy the value; to keep a write view of `m`, the type here must be `!Int`
+# error: 76:18: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 78:10: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
+# error: 80:13: `!mk().x` here is read, not held: an `Int` goes here. Write `mk().x` to copy the value
+# error: 82:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`
 # errors: 28

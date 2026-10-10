@@ -1,55 +1,15 @@
-# A Cell in a field or element of a temporary, a constructor literal
-# included, is changed through a read view lent to a call or a `?self`
-# receiver: the temporary's part is emitted into a mutable local, never
-# written where Zig keeps a constant. An `as` binding outlives its
-# header's temporaries, so it binds a part of a named value.
-# release
+# A Cell lives only behind a shared handle, so a constructor literal of a
+# type that holds one cannot stand as a temporary lent to a call: the
+# rule that a Cell lives only behind `*` rejects it.
 
 struct P
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-    print(self.c.get())
-
-struct Q
-  p: P
-  o: P?
-
-fun mk() -> Q
-  Q(p: P(c: Cell(1)), o: P(c: Cell(2)))
-
 sub bump(p: ?P)
   p.c.set(p.c.get() + 10)
-  print(p.c.get())
 
 sub main()
-  bump(?Q(p: P(c: Cell(1)), o: none).p)
-  bump(?[P(c: Cell(3)), P(c: Cell(4))][1])
-  Q(p: P(c: Cell(5)), o: none).p.hit()
-  q = Q(p: P(c: Cell(1)), o: P(c: Cell(20)))
-  if ?q.o as p
-    p.c.set(p.c.get() + 1)
-    print(p.c.get())
-  bump(?mk().p)
-  mk().p.hit()
-  m = mk()
-  if ?m.o as p
-    p.c.set(30)
-    print(p.c.get())
-  n = 0
-  while n < 2 : n += 1
-    r = mk()
-    if ?r.o as p
-      p.hit()
+  bump(?P(c: Cell(1)))
 
-# expect:
-# 11
-# 14
-# 6
-# 21
-# 11
-# 2
-# 30
-# 3
-# 3
+# error: 12:9: `P(c: Cell(1))` makes a `P`, which holds a Cell, so it lives only behind a shared handle: write `*P(c: Cell(1))`
+# errors: 1

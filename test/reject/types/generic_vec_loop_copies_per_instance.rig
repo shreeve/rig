@@ -1,22 +1,13 @@
-# A generic loop over a `?Vec[T]` binds a copy of each element that it
-# only reads, so each instance must give a `T` that holds no Cell: a
-# change to the Cell would land in the copy alone. (A `T` that owns is
-# read in the copy, and never dropped there.)
+# A generic loop over a `?Vec[T]` binds a copy of each element, which
+# never holds a Cell: a value that holds one is never a type argument
+# (`Vec[C]`), since it lives only behind a shared handle.
 
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-
-sub each[T](v: ?Vec[T], f: ?sub(?T))
-  for x in v
-    f(x)
-
 sub main()
-  v: Vec[C] = Vec()
-  !v.push(C(c: Cell(1)))
-  each(?v, |x| x.hit())
-  print(v[0].c.get())
+  v: *Vec[C] = *Vec[C]()
+  print(v.len)
 
-# error: `each[C]` cannot use `T = C`: the generic body copies into a loop binding a value that holds a `T`, and `C` holds a Cell
+# error: 9:7: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`
+# errors: 1

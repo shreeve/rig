@@ -1,19 +1,19 @@
 # A write slice of an array anywhere a place reaches one: a row of a 2D
-# array, a field of an element of a `![]T` or a Vec, and a view's field.
+# array, a field of an element of a `![]T` or a Vec, and a parameter.
 # A `![]T` also goes where a generic `[]T` does, is returned from a
 # `!Vec[T]` parameter, may be empty, and moves with `<`.
 
 struct S
   arr: [3]Int
 
-struct View
-  s: ![]Int
-
 fun first[T](xs: []T) -> T
   xs[0]
 
 fun head(xs: []S) -> []Int
   ?xs[0].arr[0..2]
+
+sub poke(s: ![]Int)
+  s[0] = 20
 
 sub setrow(s: ![]S)
   w = !s[1].arr[..]
@@ -41,8 +41,7 @@ sub main()
   q = !vs[0].arr[1..]
   q[0] = 80
   print(vs[0].arr)
-  view = View(s: !a[1..])
-  view.s[0] = 20
+  poke(!a[1..])
   print(a)
   v: Vec[Int] = Vec()
   !v.push(3)

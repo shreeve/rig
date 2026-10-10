@@ -8,13 +8,13 @@ sub stash(c: ?Cell[String], s: ?String)
 sub main()
   t = Text("abcdefghijklmnop")
   s = ?t[..]
-  c = Cell("x")
+  c = *Cell("x")
   c.set(?s)
-  d = Cell(?s)
+  d = *Cell(?s)
   sig = *Signal("x")
   sig.set(?s)
   old = c.replace(?s)
-  cv: Cell[Vec[String]] = Cell(Vec())
+  cv: *Cell[Vec[String]] = *Cell(Vec())
   cv.push(?s)
   f = |?s| s
   c.set(f())
@@ -24,7 +24,7 @@ sub main()
 
 # error: 6:9: cannot store a view of `s` in a `Cell`
 # error: 12:9: cannot store a view of `t` in a `Cell`
-# error: 13:12: cannot store a view of `t` in a `Cell`
+# error: 13:13: cannot store a view of `t` in a `Cell`
 # error: 15:11: cannot store a view of `t` in a `Signal`
 # error: 16:19: cannot store a view of `t` in a `Cell`
 # error: 18:11: cannot store a view of `t` in a `Cell`

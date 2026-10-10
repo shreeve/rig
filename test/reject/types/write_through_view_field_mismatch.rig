@@ -1,15 +1,13 @@
-# Assigning a value to a `!T` field writes the value it views, so the
-# value is a `T`; another write view, `h.w = !m`, points the field
-# elsewhere.
+# No field is a `!T` that an assignment could write through or point
+# elsewhere: a write view is never stored inside a value, so the field
+# is rejected where it is declared.
 
 struct H
   w: !Vec[Int]
 
 sub main()
   v: Vec[Int] = Vec()
-  h = H(w: !v)
-  h.w = 5
+  print(v.len)
 
-# error: 11:9: type mismatch: expected `Vec[Int]`, got `Int`
-# error: 11:3: `h.w = v` writes the `Vec[Int]` that `h.w` views; `h.w = !m` points `h.w` at another place
+# error: 6:6: a write view is never stored inside a value, and `!Vec[Int]` cannot stand here
 # errors: 1

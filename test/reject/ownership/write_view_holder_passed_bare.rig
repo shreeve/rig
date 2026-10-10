@@ -1,37 +1,16 @@
-# A value holding a write view, passed bare to a call or placed bare in
-# a constructor, lends that view: the holder cannot be used while the
-# result is live (here it would free the Vec the result iterates).
-
-struct Tok
-  n: Int
+# No value holds a write view to be passed bare to a call or placed bare
+# in a constructor: a write view is never stored inside a value, so the
+# field is rejected where it is declared.
 
 struct Wrap
-  v: Vec[*Tok]
+  v: Vec[Int]
 
 struct Ed
   t: !Wrap
 
-struct Outer
-  e: Ed
-
-fun dup(e: Ed) -> Ed
-  <e
-
 sub main()
   x = Wrap(v: Vec())
-  !x.v.push(*Tok(n: 1))
-  e = Ed(t: !x)
-  r = dup(e)
-  for tk in ?r.t.v
-    e.t.v = Vec()
-    print(tk.n)
-  y = Wrap(v: Vec())
-  !y.v.push(*Tok(n: 2))
-  f = Ed(t: !y)
-  o = Outer(e: f)
-  for tk in ?o.e.t.v
-    f.t.v = Vec()
-    print(tk.n)
+  print(x.v.len)
 
-# error: cannot assign to `e.t.v` while `e` is lent
-# error: cannot assign to `f.t.v` while `f` is lent
+# error: 9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here
+# errors: 1

@@ -1,15 +1,16 @@
-# A Cell changes through any path to it, an element of a read-viewed
-# Vec, array, or slice included: through a field of the element, the
-# element itself, an element of an element, and a field's Vec.
+# A shared Cell changes through any path to it, a handle in an element
+# of a read-viewed Vec, array, or slice included: through a field of the
+# element, the element itself, an element of an element, and a field's
+# Vec.
 # release
 
 struct C
   c: Cell[Int]
 
 struct H
-  cs: Vec[C]
+  cs: Vec[*C]
 
-sub bump(a: ?[2]C, s: []C, v: ?Vec[C], w: ?Vec[Cell[Int]], m: ?Vec[Vec[C]], h: ?H)
+sub bump(a: ?[2]*C, s: []*C, v: ?Vec[*C], w: ?Vec[*Cell[Int]], m: ?Vec[Vec[*C]], h: ?H)
   a[0].c.set(10)
   s[0].c.set(20)
   v[0].c.set(30)
@@ -18,19 +19,19 @@ sub bump(a: ?[2]C, s: []C, v: ?Vec[C], w: ?Vec[Cell[Int]], m: ?Vec[Vec[C]], h: ?
   h.cs[0].c.set(60)
 
 sub main()
-  a = [C(c: Cell(1)), C(c: Cell(2))]
-  v: Vec[C] = Vec()
-  !v.push(C(c: Cell(3)))
-  sl: Vec[C] = Vec()
-  !sl.push(C(c: Cell(4)))
-  w: Vec[Cell[Int]] = Vec()
-  !w.push(Cell(5))
-  m: Vec[Vec[C]] = Vec()
-  row: Vec[C] = Vec()
-  !row.push(C(c: Cell(6)))
+  a = [*C(c: Cell(1)), *C(c: Cell(2))]
+  v: Vec[*C] = Vec()
+  !v.push(*C(c: Cell(3)))
+  sl: Vec[*C] = Vec()
+  !sl.push(*C(c: Cell(4)))
+  w: Vec[*Cell[Int]] = Vec()
+  !w.push(*Cell(5))
+  m: Vec[Vec[*C]] = Vec()
+  row: Vec[*C] = Vec()
+  !row.push(*C(c: Cell(6)))
   !m.push(<row)
-  hs: Vec[C] = Vec()
-  !hs.push(C(c: Cell(7)))
+  hs: Vec[*C] = Vec()
+  !hs.push(*C(c: Cell(7)))
   h = H(cs: <hs)
   bump(?a, ?sl, ?v, ?w, ?m, ?h)
   print(a[0].c.get(), sl[0].c.get(), v[0].c.get(), w[0].get(), m[0][0].c.get(), h.cs[0].c.get())

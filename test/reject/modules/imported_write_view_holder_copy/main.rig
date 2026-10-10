@@ -1,5 +1,5 @@
-# An imported struct holding a write view cannot be copied: the copy
-# would be a second writer.
+# An imported struct cannot hold a write view (a write view is never
+# stored inside a value), so no copy of one can be a second writer.
 
 use wv
 
@@ -11,4 +11,5 @@ sub main()
   b.b.v = Vec()
   print(a.b.v.len)
 
-# error: 10:7: bare use of `a` in binding would copy the write view it holds
+# error: 5:10: a write view is never stored inside a value, and `!Wrap` cannot stand here
+# errors: 1

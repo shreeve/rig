@@ -6,7 +6,7 @@ sub main()
   s = ?t[..]
   f = *|+s| print(s)
   f()
-  c = Cell("free")
+  c = *Cell("free")
   c.set(?t[1..])
   print(c.get())
 

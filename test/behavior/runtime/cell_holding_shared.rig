@@ -1,5 +1,5 @@
-# A stack-local `Cell[*Noisy]` has drop glue: when `c` leaves scope it
-# drops the handle it holds, which runs Noisy's drop body.
+# A `Cell[*Noisy]` has drop glue: when the last handle to it, `c`, leaves
+# scope, it drops the handle it holds, which runs Noisy's drop body.
 
 struct Noisy
   id: Int
@@ -9,7 +9,7 @@ struct Noisy
 
 sub main()
   u = *Noisy(id: 30)
-  c: Cell[*Noisy] = Cell(<u)
+  c: *Cell[*Noisy] = *Cell(<u)
   print("stored")
 
 # expect:

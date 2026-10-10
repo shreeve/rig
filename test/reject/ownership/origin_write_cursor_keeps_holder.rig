@@ -1,5 +1,6 @@
-# A view reached through a write view keeps its holder lent: two items a
-# write cursor hands out could alias, so the second call is rejected.
+# A write cursor cannot hold its items as a write view: a write view is
+# never stored inside a value, so the field is rejected where it is
+# declared, and no two items such a cursor hands out can alias.
 
 struct Item
   n: Int
@@ -8,17 +9,10 @@ struct Cursor
   items: ![]Item
   i: Int
 
-  fun next(!self) -> !Item
-    k = self.i
-    self.i += 1
-    !self.items[k]
-
 sub main()
   a = [Item(n: 1), Item(n: 2)]
   c = Cursor(items: !a, i: 0)
-  x = (!c).next()
-  y = (!c).next()
-  x.n = 5
-  print(y.n)
+  print(c.i)
 
-# error: 20:9: use of `c` while a write loan is live
+# error: 9:10: a write view is never stored inside a value, and `![]Item` cannot stand here
+# errors: 1

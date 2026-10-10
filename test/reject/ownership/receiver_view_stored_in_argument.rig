@@ -5,7 +5,6 @@
 # lives. The oracle's verdicts are stated too, so that a weaker
 # reference checker fails the run.
 # oracle: store_read_view reject C4
-# oracle: store_write_view reject C4
 # oracle: bang_receiver reject C4
 # oracle: store_slice reject C4
 # oracle: store_into_struct reject C4
@@ -17,9 +16,6 @@ struct H
   sub put(!self, dst: !Vec[?Vec[Int]])
     !self.v.push(1)
     !dst.push(?self.v)
-
-  sub putw(!self, dst: !Vec[!Vec[Int]])
-    !dst.push(!self.v)
 
   sub puts(!self, dst: !Vec[[]Int])
     !self.v.push(1)
@@ -37,14 +33,6 @@ sub store_read_view()
   h = H(n: 1, v: <v)
   d: Vec[?Vec[Int]] = Vec()
   !h.put(!d)
-  h = H(n: 2, v: Vec())
-  print(d.len)
-
-sub store_write_view()
-  v: Vec[Int] = Vec()
-  h = H(n: 1, v: <v)
-  d: Vec[!Vec[Int]] = Vec()
-  !h.putw(!d)
   h = H(n: 2, v: Vec())
   print(d.len)
 
@@ -78,9 +66,8 @@ sub store_into_struct()
 sub main()
   store_read_view()
 
-# error: 40:3: cannot reassign `h` while it is lent
-# error: 48:3: cannot reassign `h` while it is lent
-# error: 56:4: use of `h` while a write loan is live
-# error: 65:6: use of `h` while a write loan is live
-# error: 75:6: use of `h` while a write loan is live
-# errors: 5
+# error: 36:3: cannot reassign `h` while it is lent
+# error: 44:4: use of `h` while a write loan is live
+# error: 53:6: use of `h` while a write loan is live
+# error: 63:6: use of `h` while a write loan is live
+# errors: 4

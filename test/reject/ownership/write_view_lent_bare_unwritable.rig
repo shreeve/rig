@@ -1,32 +1,13 @@
-# A write view held in a field of a binding that cannot lend it (a
-# plain parameter, a fixed binding, a read view) is not lent by adding
-# `!`: the diagnostic says what would let it be lent instead.
+# No write view is held in a field of a binding that cannot lend it (a
+# plain parameter, a fixed binding, a read view): a write view is never
+# stored inside a value, so the field is rejected where it is declared.
 
 struct H
   w: !Int
 
-sub poke(w: !Int)
-  w += 1
-
-sub by_value(h: H)
-  poke(h.w)
-
-sub by_read(r: ?H)
-  poke(r.w)
-  x = 1
-  swap(r.w, !x)
-
 sub main()
   n = 1
-  const h = H(w: !n)
-  poke(h.w)
-  by_value(H(w: !n))
-  m = 2
-  g = H(w: !m)
-  by_read(?g)
+  print(n)
 
-# error: 12:8: cannot lend parameter `h` to write; parameters are immutable (bind a copy with `new h = h`, or take `h: !H` to write through to the caller)
-# error: 15:8: cannot lend the write view held here: it is reached through a read view (`?T`)
-# error: 17:8: cannot lend the write view held here: it is reached through a read view (`?T`)
-# error: 22:8: cannot lend fixed binding `h` to write (bound with `const`)
-# errors: 4
+# error: 6:6: a write view is never stored inside a value, and `!Int` cannot stand here
+# errors: 1

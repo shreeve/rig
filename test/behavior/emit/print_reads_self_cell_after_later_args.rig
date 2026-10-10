@@ -12,7 +12,7 @@ struct S
     print(self.c, self.grow())
 
 sub main()
-  s = S(c: Cell(Vec()))
+  s = *S(c: Cell(Vec()))
   s.c.push(42)
   s.show()
 

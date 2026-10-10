@@ -20,7 +20,7 @@ fun maybe(n: Int) -> Int?
   n
 
 sub main()
-  k = C(c: Cell(0), log: Cell(Vec()))
+  k = *C(c: Cell(0), log: Cell(Vec()))
   s = 0
   for i in 0..10
     k.hit()

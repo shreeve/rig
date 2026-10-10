@@ -4,8 +4,5 @@ pub struct Wrap
 pub struct Holder
   pub b: ?Wrap
 
-pub struct Ed
-  pub t: !Holder
-
-pub sub put(e: Ed, x: ?Wrap)
-  e.t.b = x
+pub sub put(t: !Holder, x: ?Wrap)
+  t.b = x

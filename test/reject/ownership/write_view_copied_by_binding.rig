@@ -1,8 +1,6 @@
-# A read match binds a write view a payload holds as a read view of what
-# it views, so nothing writes through it: passing it where a write view
-# goes names `match !x`. A loop binding copies what it binds, and a copy
-# of a write view would be a second writer, so a loop walks such
-# elements with `for x in !xs`.
+# No read match or loop binding copies a write view out of a payload or
+# an element: a write view is never stored inside a value, so a struct
+# field or a variant field that is one is rejected where it is declared.
 
 struct Holder
   v: Vec[Int]
@@ -14,20 +12,10 @@ enum E
   a(t: !Holder)
   b
 
-sub reset(h: !Holder)
-  h.v = Vec()
-
-sub f(x: ?E)
-  match x
-    .a(t) => reset(t)
-    .b => print("b")
-
 sub main()
   h = Holder(v: Vec())
-  k = Holder(v: Vec())
-  arr = [Ed(t: !h), Ed(t: !k)]
-  for e in arr
-    reset(e.t)
+  print(h.v.len)
 
-# error: 22:20: type mismatch: expected `!Holder`, got `?Holder`; `t` is a read view of a field of `x`, which is reached through a read view, so nothing writes through it
-# error: 29:12: each element holds a write view, which a loop binding would copy
+# error: 9:6: a write view is never stored inside a value, and `!Holder` cannot stand here
+# error: 12:8: a write view is never stored inside a value, and `!Holder` cannot stand here
+# errors: 2

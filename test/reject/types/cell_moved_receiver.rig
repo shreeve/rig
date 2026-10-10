@@ -1,26 +1,24 @@
 # A Cell's `set`, `replace`, and its Vec's `push`, `pop`, and `clear`
 # take their receiver as a read view, as any `?self` method does, so a
-# receiver moved there with `<` is rejected: `<` would end the binding
-# for a call that only lends it. (A moved value as the base of a path,
-# `(<a).c.set(v)`, is a temporary, whose Cell changes in its statement's
-# slot: test/behavior/types/cell_temporary_set.rig.)
+# `*Cell` handle moved there with `<` is rejected: `<` would end the
+# binding for a call that only lends it.
 
 sub main()
-  c: Cell[Vec[Int]] = Cell(Vec[Int]())
+  c: *Cell[Vec[Int]] = *Cell(Vec[Int]())
   (<c).push(1)
-  d: Cell[Vec[Int]] = Cell(Vec[Int]())
+  d: *Cell[Vec[Int]] = *Cell(Vec[Int]())
   x = (<d).pop()
-  e: Cell[Vec[Int]] = Cell(Vec[Int]())
+  e: *Cell[Vec[Int]] = *Cell(Vec[Int]())
   (<e).clear()
-  n: Cell[Int] = Cell(1)
+  n: *Cell[Int] = *Cell(1)
   (<n).set(2)
-  m: Cell[Int] = Cell(1)
+  m: *Cell[Int] = *Cell(1)
   y = (<m).replace(2)
   print(x ?? 0, y)
 
-# error: 10:8: method `push` takes its receiver as a read view; cannot move
-# error: 12:12: method `pop` takes its receiver as a read view; cannot move
-# error: 14:8: method `clear` takes its receiver as a read view; cannot move
-# error: 16:8: method `set` takes its receiver as a read view; cannot move
-# error: 18:12: method `replace` takes its receiver as a read view; cannot move
+# error: 8:8: method `push` takes its receiver as a read view; cannot move
+# error: 10:12: method `pop` takes its receiver as a read view; cannot move
+# error: 12:8: method `clear` takes its receiver as a read view; cannot move
+# error: 14:8: method `set` takes its receiver as a read view; cannot move
+# error: 16:12: method `replace` takes its receiver as a read view; cannot move
 # errors: 5

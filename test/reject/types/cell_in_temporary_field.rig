@@ -1,13 +1,11 @@
-# A read view of a field of a temporary that holds a Cell, or a `?self`
-# method called on one, may change the Cell; the temporary lives until
-# the end of the statement, so the change is seen there.
+# A Cell lives only behind a shared handle, so no temporary holds one: a
+# call cannot return a value that holds a Cell to have a part of it
+# lent. The rule that a Cell lives only behind `*` rejects the result
+# type `Q`, the constructor that makes the value, and the temporary the
+# call makes.
 
 struct P
   c: Cell[Int]
-
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-    print(self.c.get())
 
 struct Q
   p: P
@@ -17,12 +15,11 @@ fun mk() -> Q
 
 sub bump(p: ?P)
   p.c.set(p.c.get() + 10)
-  print(p.c.get())
 
 sub main()
-  mk().p.hit()
   bump(?mk().p)
 
-# expect:
-# 2
-# 11
+# error: 13:13: a value of `Q` holds a Cell, so it lives only behind a shared handle: write `*Q`
+# error: 14:3: `Q(p: P(c: Cell(1)))` makes a `Q`, which holds a Cell, so it lives only behind a shared handle: write `*Q(p: P(c: Cell(1)))`
+# error: 20:9: `mk()` makes a `Q`, which holds a Cell, so it lives only behind a shared handle: write `*mk()`
+# errors: 3

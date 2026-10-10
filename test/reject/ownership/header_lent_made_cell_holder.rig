@@ -1,23 +1,13 @@
-# A lend of a value a `for` header makes lends the header's temporary,
-# which ends with the header, before the loop walks it (Core §3); only
-# plain data is read as its value (Core §4). A type holding a `Cell` is
-# unique (Core §1), so such a loop is rejected, as it is over a Vec
-# (`for p in ?mkv()`): take the value with `for k in two()`.
-#
-# oracle: main reject C5
+# A value that holds a Cell lives only behind a shared handle, so a
+# `for` header cannot make one by value to lend: the made value is
+# rejected where it is written.
 
 struct Counter
   hits: Cell[Int]
 
-fun two() -> [2]Counter
-  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
-
 sub main()
-  for k in ?two()
-    print(k.hits.get())
   for k in ?[Counter(hits: Cell(1))]
     print(k.hits.get())
 
-# error: 16:13: the loop would walk a view of the temporary `two()` after its header drops it
-# error: 18:13: the loop would walk a view of the temporary `[Counter(hits: Cell(1))]` after its header drops it
-# errors: 2
+# error: 9:14: `Counter(hits: Cell(1))` makes a `Counter`, which holds a Cell, so it lives only behind a shared handle: write `*Counter(hits: Cell(1))`
+# errors: 1

@@ -1,5 +1,5 @@
-# Assigning an element of a Cell's Vec stores the
-# value in the Cell, which every handle reaches: a String that may view
+# Assigning an element of a Cell's Vec stores the value in the Cell,
+# which every handle reaches: a String that may view
 # a Text cannot go there, as with `set` and `push`. A literal can.
 
 sub put(c: ?Cell[Vec[String]], s: String)
@@ -10,12 +10,12 @@ sub fill[T](c: ?Cell[Vec[T]], x: T)
 
 sub main()
   t = Text("abcdefghijklmnop")
-  cv: Cell[Vec[String]] = Cell(Vec())
+  cv: *Cell[Vec[String]] = *Cell(Vec())
   cv.push("lit")
-  put(?cv, ?t[..3])
+  put(cv, ?t[..3])
   cv[0] = ?t[..2]
   cv[0] = "free"
-  fill(?cv, "x")
+  fill(cv, "x")
   print(cv[0])
 
 # error: 6:3: cannot store a view of `s` in a `Cell`

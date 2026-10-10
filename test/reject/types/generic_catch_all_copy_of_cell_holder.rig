@@ -1,8 +1,7 @@
-# A generic `match` on a value that branches over places would match a
-# copy: it is rejected, since a binding would view the copy and a Cell
-# change through it would fork the state
-# (`test/behavior/types/generic_in_place_cell_holder.rig` shows the
-# subjects matched in place).
+# A generic `match` never matches a copy of a value that holds a Cell:
+# such a value is never a generic type argument (`Opt[C]`, `W[C]`), since
+# it lives only behind a shared handle, so each is rejected where it is
+# written.
 
 struct C
   c: Cell[Int]
@@ -15,20 +14,12 @@ struct W[T]
   o: Opt[T]
 
 fun hit(o: ?Opt[C]) -> Int
-  match o
-    .some(v)
-      v.c.set(v.c.get() + 1)
-      v.c.get()
-    .nothing => 0
-
-sub branch[T](w: ?W[T], w2: ?W[T], c: Bool, f: ?fun(?Opt[T]) -> Int)
-  match (w.o if c else w2.o)
-    x if c => print(f(?x))
-    _ => pass
+  0
 
 sub main()
-  w: W[C] = W(o: .some(v: C(c: Cell(0))))
-  branch(?w, ?w, true, hit)
+  w: *W[C] = *W(o: .nothing)
+  print(hit(?w.o))
 
-# error: 25:10: a `match` reads a place or takes a call's result; bind this `Opt[T]` to a name first
-# errors: 1
+# error: 20:7: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`
+# error: 16:13: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`
+# errors: 2

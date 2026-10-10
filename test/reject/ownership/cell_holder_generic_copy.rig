@@ -1,5 +1,6 @@
-# A generic body that copies a `T` cannot take `T = Counter`, a value
-# that holds a Cell: the copy would fork it.
+# A generic body that copies a `T` cannot take `T = *Counter`, the
+# handle a value that holds a Cell lives behind: the copy would
+# duplicate the handle.
 
 struct Counter
   hits: Cell[Int]
@@ -11,9 +12,9 @@ fun keep[T](x: T) -> Wrap[T]
   Wrap(v: x)
 
 sub main()
-  a = Counter(hits: Cell(0))
+  a = *Counter(hits: Cell(0))
   w = keep(<a)
   print(w.v.hits.get())
 
-# error: 15:7: `keep[Counter]` cannot use `T = Counter`: the generic body copies a `T`, and `Counter` is unique
+# error: 16:7: `keep[*Counter]` cannot use `T = *Counter`: the generic body copies a `T`, which would duplicate the resource `*Counter` owns
 # errors: 1

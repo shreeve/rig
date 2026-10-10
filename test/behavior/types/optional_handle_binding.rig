@@ -34,7 +34,7 @@ sub main()
   a: *Node? = none
   b: *Node? = *Node(value: 1)
   w: ~Node? = none
-  cell = Cell[*Node?](none)
+  cell = *Cell[*Node?](none)
   cell.set(+b)
   print(present(?a), present(?b), w == none)
   print(take(<a), take(<b), take(cell.replace(none)))
@@ -43,17 +43,17 @@ sub main()
   n: Int? = 4
   clear(!n)
   print(first(?xs[0..2]), size(?ys[0..3]), size(none), n)
-  p = Cell[*(Node)?](none)
-  q = Cell[~Node?](none)
+  p = *Cell[*(Node)?](none)
+  q = *Cell[~Node?](none)
   m: Node? = Node(value: 2)
-  held = Cell[Held](*m)
+  held = *Cell[Held](*m)
   old = held.replace(*none)
   <old
   print(p.replace(none) == none, q.replace(none) == none)
   nd = *Node(value: 3)
-  sw: Cell[*~Node?] = Cell[*~Node?](*~nd)
-  ws: Cell[~*Node?] = Cell[~*Node?](none)
-  sp: Cell[*(~Node)?] = Cell[*(~Node)?](none)
+  sw: *Cell[*~Node?] = *Cell[*~Node?](*~nd)
+  ws: *Cell[~*Node?] = *Cell[~*Node?](none)
+  sp: *Cell[*(~Node)?] = *Cell[*(~Node)?](none)
   print(sw.replace(none) != none, ws.replace(none) == none, sp.replace(none) == none)
 
 # expect:

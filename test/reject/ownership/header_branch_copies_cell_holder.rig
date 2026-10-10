@@ -1,13 +1,10 @@
-# A branching value in a `for` or `match` header (`if`, `catch`, `??`,
-# `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5). A
-# type holding a `Cell` is unique (Core §1), so a bare leaf of one would
+# A branching value in a `match` header is taken leaf by leaf, as a
+# binding takes it (Core §3, §5). A type holding a `Cell` is unique
+# (Core §1), so a bare leaf of one (a field of a value behind `*`) would
 # be copied, forking its Cell: it is rejected, as for a declared unique
 # type (test/reject/ownership/header_branch_moves_unique.rig).
 #
-# oracle: loops reject C2
-# oracle: run reject C2
 # oracle: matches reject C2
-# oracle: run2 reject C2
 struct Counter
   hits: Cell[Int]
 
@@ -15,61 +12,18 @@ enum E
   a(c: Counter)
   b
 
-error Bad
-  oops
-
-fun pair() -> [2]Counter
-  [Counter(hits: Cell(1)), Counter(hits: Cell(2))]
-
-fun two(n: Int) -> ([2]Counter)!
-  return Bad.oops if n > 5
-  pair()
-
-sub loops(f: Bool)
-  a = pair()
-  b = pair()
-  for k in (a if f else b)
-    print(k.hits.get())
-  d = pair()
-  for k in two(9) catch d
-    print(k.hits.get())
-  o: ([2]Counter)? = none
-  for k in o ?? d
-    print(k.hits.get())
-
-fun run(o: ([2]Counter)?) -> Int?
-  for k in o?
-    print(k.hits.get())
-  0
+struct P
+  x: E
+  y: E
 
 sub matches(f: Bool)
-  x = E.a(c: Counter(hits: Cell(3)))
-  y = E.b
-  match (x if f else y)
+  p = *P(x: E.a(c: Counter(hits: Cell(3))), y: E.b)
+  match (p.x if f else p.y)
     .a(c) => print(c.hits.get())
     .b => pass
-  o: E? = none
-  match o ?? x
-    .a(c) => print(c.hits.get())
-    .b => pass
-
-fun run2(o: E?) -> Int?
-  match o?
-    .a(c) => print(c.hits.get())
-    .b => pass
-  0
 
 sub main()
-  loops(true)
-  print(run(none) ?? 0)
   matches(true)
-  print(run2(none) ?? 0)
 
-# error: 31:13: to a name
-# error: 34:12: to a name
-# error: 37:12: to a name
-# error: 41:12: to a name
-# error: 48:10: to a name
-# error: 52:9: to a name
-# error: 57:9: to a name
-# errors: 7
+# error: 21:10: a `match` reads a place or takes a call's result; bind this `E` to a name first
+# errors: 1
