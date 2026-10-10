@@ -141,9 +141,10 @@ const SymbolResolver = struct {
             .flags = flags,
         };
         const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
-        // `Text` is a built-in type, like `Vec`, though no symbol holds it.
-        const reserved = self.scope == self.module_scope and std.mem.eql(u8, name, "Text");
-        if (reserved) try self.ctx.err(pos, "`Text` is a reserved built-in nominal name and cannot be redefined", .{});
+        // `Text` and `Static` are built-in types, like `Vec`, though no
+        // symbol holds them.
+        const reserved = self.scope == self.module_scope and (std.mem.eql(u8, name, "Text") or std.mem.eql(u8, name, "Static"));
+        if (reserved) try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
         if (dup) |prev| {
             const p = self.ctx.symbols.items[prev];
             if (p.decl_pos == sema.builtin_decl_pos) {

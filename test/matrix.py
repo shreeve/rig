@@ -242,6 +242,7 @@ N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
     "string": dict(ty="String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
+    "static": dict(ty="Static", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
     "text": dict(ty="Text", decls="", mk='Text("t", n)', ctor='Text("lit")'),
     "vec": dict(ty="Vec[Int]", decls="",
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
