@@ -2252,9 +2252,11 @@ pub const Emitter = struct {
         // An array the loop takes is held in a `var`, and each element is
         // reached through a pointer into it, as the body's own.
         const owned = header == .taken;
-        // A resource element is a view of its slot.
+        // A resource element is a view of its slot; an element that is
+        // itself a read view is the view, copied.
+        const elem_is_view = if (src_ty) |t| if (self.loopElem(t)) |e| e == elem_ty else false else false;
         const by_ptr = mode == .write or owned or
-            (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view);
+            (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view and !elem_is_view);
 
         // A value the loop holds, or the array it takes, lives in the
         // block around it.
@@ -3434,7 +3436,9 @@ pub const Emitter = struct {
         };
         const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
         return switch (types.get(view)) {
-            .read_view => if (as_ptr) ptr else self.fmt("rig.lend({s})", .{ptr}),
+            // A read view of a value holding a Cell is a mutable pointer
+            // (`emitViewPtrTy`), never a copy.
+            .read_view => |inner| if (as_ptr or self.facts.holdsCellByValue(inner)) ptr else self.fmt("rig.lend({s})", .{ptr}),
             else => ptr,
         };
     }
@@ -4491,9 +4495,7 @@ pub const Emitter = struct {
         // `m.Wrap.make(...)` of another module's generic type.
         if (o.isKind(.member) and self.isTypeCallee(o)) if (obj_ty) |t| if (self.facts.types.get(t) == .parameterized_nominal) return self.emitTypeTy(t);
         if (o == .src) if (self.localOf(o)) |local| {
-            // Zig reaches a field through a pointer to a struct, but not
-            // through a pointer to a view held as a pointer.
-            if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?) and !self.isPtrViewTy(obj_ty.?)) return self.w.writeAll(local.zig_name);
+            if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
         };
         // A value that branches, read where its leaves are, is reached
@@ -6328,6 +6330,18 @@ pub const Emitter = struct {
                 t = inner;
             },
             else => return,
+        };
+    }
+
+    /// The element a `for` over a value of `ty` walks: a Vec's, an
+    /// array's, or a slice's, through views; null for any other.
+    fn loopElem(self: *Emitter, ty: TypeId) ?TypeId {
+        const t = self.peelViews(ty);
+        return switch (self.facts.types.get(t)) {
+            .array => |a| a.elem,
+            .slice => |sl| sl.elem,
+            .parameterized_nominal => |pn| if (self.isVecTy(t)) pn.args[0] else null,
+            else => null,
         };
     }
 
