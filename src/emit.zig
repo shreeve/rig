@@ -4491,7 +4491,9 @@ pub const Emitter = struct {
         // `m.Wrap.make(...)` of another module's generic type.
         if (o.isKind(.member) and self.isTypeCallee(o)) if (obj_ty) |t| if (self.facts.types.get(t) == .parameterized_nominal) return self.emitTypeTy(t);
         if (o == .src) if (self.localOf(o)) |local| {
-            if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
+            // Zig reaches a field through a pointer to a struct, but not
+            // through a pointer to a view held as a pointer.
+            if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?) and !self.isPtrViewTy(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
         };
         // A value that branches, read where its leaves are, is reached
@@ -5943,6 +5945,12 @@ pub const Emitter = struct {
             .read_view, .write_view => true,
             else => false,
         } else false;
+        // A read view, in a generic body, of what a write view points
+        // at is that value's own read view (`rig.lend`).
+        const outer_writes = if (outer.ty) |t| self.facts.types.get(t) == .write_view else false;
+        if (outer_writes and self.facts.writeSliceElem(ty) == null and self.genericReadView(ty) != null) {
+            return self.w.print("rig.lend({s})", .{outer.zig_name});
+        }
         // A `![]T` is the slice itself; a view of a view passes it on.
         if (self.facts.writeSliceElem(ty) != null or (outer_is_view and (self.isPtrViewTy(ty) or !outer.is_ptr))) {
             return self.w.writeAll(outer.zig_name);
