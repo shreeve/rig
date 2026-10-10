@@ -1299,8 +1299,13 @@ shared Cell, since another handle to it is another name. So no loan rule
 has a case for a Cell: a view of `c` held across the mark conflicts, and a
 view of another handle does not. A write view of a value that holds a Cell
 reaches shared storage, so `placeOf` blocks every write through it but a
-lend of a Cell or Signal (`requireAccess`). A read view changes nothing,
-so a read view of a Cell holder is a `*const T` in the emitted Zig.
+lend of a Cell or Signal (`requireAccess`), and `swap` and `replace` refuse
+a place that holds a Cell whole. A handle that cannot be written where it
+stands (a field of a value a handle shares, an element of a slice, held
+by a read view) is lent as the value it holds, `!w.h` as a `!C` whose
+lend row is `handle`, never as a `!*C` a callee could point elsewhere
+(`synthLend`). A read view changes nothing, so a read view of a Cell
+holder is a `*const T` in the emitted Zig.
 
 Sema's job includes everything emit cannot lower: a construct the
 backend cannot express yet is rejected with a diagnostic that says so.

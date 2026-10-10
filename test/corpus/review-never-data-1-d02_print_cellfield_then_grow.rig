@@ -19,5 +19,6 @@ sub main()
   b = *O(s: S(c: Cell(Vec())))
   k = true
   _ = k
+  a2 = +a
   !a.s.c.push(1)
-  print(a.s.c, growc(!a.s.c))
+  print(a.s.c, growc(!a2.s.c))

@@ -6,8 +6,8 @@ enum E
   a(x: C)
   b(n: Int)
 
-sub viaIfAs(v: ?Vec[C?])
-  if v[0] as x
+sub viaIfAs(v: !Vec[C?])
+  if !v[0] as x
     !x.c.set(1)
 
 sub viaMatch(v: ?Vec[E])
@@ -33,7 +33,7 @@ sub viaSideIndex(v: !Vec[C], i: !Int)
 sub main()
   o: Vec[C?] = Vec()
   !o.push(C(c: Cell(0)))
-  viaIfAs(?o)
+  viaIfAs(!o)
   e: Vec[E] = Vec()
   !e.push(E.a(x: C(c: Cell(0))))
   vv: Vec[Vec[C]] = Vec()

@@ -48,7 +48,7 @@ sub main()
   s: *Cell[Vec[P]] = *Cell(Vec())
   t = +s
   !t.push(P(x: 1, y: 2))
-  s[0] = P(x: 5, y: 6)
+  (!s)[0] = P(x: 5, y: 6)
   print(s[0].y, t.len)
   ns: *Cell[Vec[*N]] = *Cell(Vec())
   a = *N(id: 1)

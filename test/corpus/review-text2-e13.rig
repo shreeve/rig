@@ -5,6 +5,6 @@ sub main()
   if true
     t = Text("abcdefghijklmnop")
     s = ?t[..3]
-    f = |+cv, s| cv[0] = s
+    f = |+cv, s| (!cv)[0] = s
     f(s)
   print(keep[0])

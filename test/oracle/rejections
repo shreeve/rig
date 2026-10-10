@@ -3949,11 +3949,4 @@ vec.write_held.clone run
 vec.write_held.ctor run
 vec.write_held.move run
 doc/SPEC/2197009321 keep
-test/corpus/review-never-data-1-d01_print_place_then_grow.rig main
-test/corpus/review-never-data-1-d02_print_cellfield_then_grow.rig main
-test/corpus/review-never-data-1-d03_text_place.rig main
-test/corpus/review-never-data-1-d04_print_handle.rig main
-test/corpus/review-never-data-1-d11_print_shared_cell.rig main
-test/corpus/review-revamp-rest-p8-c1.rig main
-test/corpus/review-revamp-rest-p8-c3.rig run
-test/corpus/review-revamp-rest-p8-c5.rig run
+test/reject/ownership/cell_mark_lends_the_handle.rig main

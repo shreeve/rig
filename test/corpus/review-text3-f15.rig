@@ -6,7 +6,7 @@ sub main()
   x = S(s: ?b)
   cv: Cell[Vec[String]] = Cell(Vec())
   !cv.push("lit")
-  cv[0] = ?b[..]
+  (!cv)[0] = ?b[..]
   !cv.push(?b)
   <b
   print(x.s)

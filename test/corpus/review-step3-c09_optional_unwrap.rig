@@ -3,7 +3,7 @@ struct Counter
 
 sub main()
   o: Counter? = Counter(hits: Cell(1))
-  if o as k
+  if !o as k
     !k.hits.set(5)
   print(o)
   x = o?

@@ -133,6 +133,8 @@ const Checker = struct {
     /// The `!x` being checked where a write view is expected, the one
     /// place a write view of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
+    /// The receiver of the method call being checked, while it is typed.
+    receiver_obj: Sexp = .nil,
     /// A call whose value a `!` written before it lends to write, with
     /// the sigil outside the call (`!(v.pop())`, `!o?.pop()`), or the
     /// source of a `for` whose `!` is the loop's mode: a write method on
@@ -1082,7 +1084,7 @@ const Checker = struct {
             // unless a write view of it already stands there.
             const cell = ir.get(elem, .object);
             const cell_ty = self.ctx.typeOf(cell) orelse sema.type_invalid;
-            if (!place.marked and self.ctx.types.get(cell_ty) != .write_view) {
+            if (!place.marked and self.ctx.types.get(cell_ty) != .write_view and self.lendOf(place.base) == null) {
                 try self.errAt(target, "write `(!{s})[i] = e`: changing a shared Cell is marked with `!`", .{try self.plainText(cell)});
                 _ = try self.synthExpr(rhs);
                 return;
@@ -4296,6 +4298,17 @@ const Checker = struct {
         if (kind == .write and !try self.requireAccess(place, .lend_write, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
         if (kind == .read) try self.lendsToRead(operand);
         if (kind == .write and !try self.lendsToWrite(operand)) return self.t().invalid_id;
+        // A handle that cannot be written where it stands (it is a field of
+        // a value a handle shares, an element of a slice, or held by a read
+        // view) is lent, except as a receiver, only as what it holds: the
+        // lend is that value's write view, never the handle's own, which a
+        // callee could point elsewhere.
+        if (kind == .write and place.blocked != null and self.lendsHandle(place) and !sameNode(e, self.receiver_obj)) {
+            const handle = sema.unwrapViews(self.ctx, inner);
+            const view = try self.ctx.intern(.{ .write_view = self.ctx.types.get(handle).shared });
+            if (sema.lendsAs(self.ctx, handle, .write, view)) |lend| try self.ctx.recordLend(e, lend);
+            return view;
+        }
         switch (self.ctx.types.get(inner)) {
             // (A write view of a `?T` was rejected above.)
             .read_view => |base| return if (handle_view) self.ctx.intern(.{ .write_view = base }) else inner,
@@ -6290,6 +6303,13 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` moves values that hold no `?T`, `!T`, or slice; `{s}` may hold one", .{ what, try self.tyName(place) });
             return null;
         }
+        // A value that holds a Cell lives only behind a shared handle, whose
+        // plain data handles only read: exchanging it as a whole would write
+        // that data. (A Cell itself is exchanged by a marked call.)
+        if (sema.holdsCellByValue(self.ctx, place) and !sema.isCell(self.ctx, place)) {
+            try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
+            return null;
+        }
         if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
         return place;
     }
@@ -7792,7 +7812,10 @@ const Checker = struct {
         // `?self` one reads it where it stands; a `!self` one needs it
         // lent to write, `!mk().m()`, which keeps it in its statement's
         // slot.
+        const saved_receiver = self.receiver_obj;
+        self.receiver_obj = obj;
         const obj_ty = try self.synthExpr(obj);
+        self.receiver_obj = saved_receiver;
         if (self.isPoison(obj_ty)) {
             try self.synthArgs(args);
             return obj_ty;
@@ -9225,7 +9248,7 @@ const Checker = struct {
         // No rewrite compiles where the path writes through a read lend
         // or a shared handle, takes a part that is no optional, or binds
         // a temporary where no statement can go first; each says why.
-        if (own.writes and lend.isKind(.read) and !own.cell) return self.errAt(obj, head ++ "; and a read lend is not written through", .{shown});
+        if (own.writes and lend.isKind(.read)) return self.errAt(obj, head ++ "; and a read lend is not written through", .{shown});
         if (own.shared and (own.writes or std.mem.findScalar(u8, own.open, '!') != null)) return self.errAt(obj, head ++ "; and nothing is written through a shared handle (`*T`), which other handles may see", .{shown});
         if (own.taken and !own.temp and !own.optional) return self.errAt(obj, head ++ "; and `<` takes out only an optional field or element, leaving `none`", .{shown});
         // The hint is the line the statement is on: a statement spread
@@ -9353,10 +9376,8 @@ const Checker = struct {
             writes: bool = false,
             shared: bool = false,
             temp: bool = false,
-            /// Whether the path reaches a Cell, which changes through any
-            /// path; whether its value is an optional; and whether no
-            /// plain form fits its context (`valueSigil`).
-            cell: bool = false,
+            /// Whether its value is an optional, and whether no plain form
+            /// fits its context (`valueSigil`).
             optional: bool = false,
             none: bool = false,
             /// What goes before and after the whole path: the sigil its
@@ -9411,7 +9432,6 @@ const Checker = struct {
                 if (o_ty) |ty| {
                     const v = sema.unwrapViews(c.ctx, ty);
                     if (c.ctx.types.get(v) == .shared) x.shared = true;
-                    if (cellElementType(c.ctx, v) != null or cellVecElement(c.ctx, v) != null) x.cell = true;
                 }
                 if (sameExpr(o, obj)) break;
             }

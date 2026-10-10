@@ -4250,6 +4250,14 @@ pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// Whether `ty` is a `Cell[T]`.
+pub fn isCell(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id,
+        else => false,
+    };
+}
+
 /// Where a value of some type stands, as `misplaced` sees it.
 pub const Home = enum {
     /// A struct field, or an enum variant's payload field.

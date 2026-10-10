@@ -24,7 +24,7 @@ sub run(k: Int)
   o: D? = mkd(20)
   (a if k == 0 else mkd(11)).c.set(100)
   (a if k == 0 else mkd(12)).hit()
-  !(o ?? mkd(21)).c.set(300)
+  !(!o ?? mkd(21)).c.set(300)
   (o ?? mkd(22)).hit()
   print(a.c.get())
   if o as x

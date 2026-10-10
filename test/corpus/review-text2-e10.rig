@@ -7,7 +7,7 @@ sub main()
   t = Text("abcdefghijklmnop")
   cv = mk()
   keep = +cv
-  cv[0] = ?t[..3]
+  (!cv)[0] = ?t[..3]
   <cv
   <t
   print(keep[0])

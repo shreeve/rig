@@ -22,6 +22,9 @@ sub bump(c: !Cell[Int], by: Int)
 sub poke(k: !*Counter)
   !k.hit()
 
+sub from_owned_handle(c: *Cell[Int])
+  !c.set(c.get() + 1)
+
 sub main()
   a: *Cell[Int] = *Cell(1)
   b = +a
@@ -64,6 +67,11 @@ sub main()
   !sig.set(2)
   print(total.get(), sig.get())
 
+  const fixed: *Cell[Int] = *Cell(0)
+  !fixed.set(1)
+  from_owned_handle(+fixed)
+  print(fixed.get())
+
 # expect:
 # 2
 # 2 7
@@ -76,3 +84,4 @@ sub main()
 # 303 3
 # 29
 # 2 2
+# 2

@@ -15,8 +15,8 @@ sub bump[T](w: !W[T], x: T)
   !w.i.c.set(x)
   !w.i.put(x)
   !w.put2(x)
-  r = ?w.i
-  r.put(x)
+  r = !w.i
+  !r.put(x)
 
 sub main()
   w = *W(i: In(c: Cell(1)), n: 0)

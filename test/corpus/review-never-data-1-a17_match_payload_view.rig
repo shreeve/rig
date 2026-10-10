@@ -10,15 +10,15 @@ enum E
 
 sub main()
   e = *E.a(k: Counter())
-  match e
+  match !e
     .a(k)
-      k.hit()
-      k.hit()
+      !k.hit()
+      !k.hit()
     .b
       pass
-  match ?e
+  match !e
     .a(k)
-      k.hit()
+      !k.hit()
     .b
       pass
   print(1)

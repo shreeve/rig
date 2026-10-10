@@ -16,6 +16,6 @@ sub main()
   hit2(?o)
   if ?o as y
     !y.hits.set(y.hits.get() + 10)
-  if o as z
+  if !o as z
     !z.hits.set(z.hits.get() + 100)
   print(o)

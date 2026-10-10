@@ -1,12 +1,13 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-fun hits(k: ?Counter) -> ?Cell[Int]
-  ?k.hits
+fun hits(k: !Counter) -> !Cell[Int]
+  !k.hits
 
 sub main()
   k = *Counter()
-  c = hits(k)
-  c.set(4)
-  hits(?k).set(c.get() + 1)
+  c = hits(!k)
+  !c.set(4)
+  n = c.get() + 1
+  (!hits(!k)).set(n)
   print(k.hits.get())

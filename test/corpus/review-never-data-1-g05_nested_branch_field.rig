@@ -17,5 +17,5 @@ sub main()
   k = a.s.c.len == 0
   !a.s.c.push(1)
   ((a if k else b).s if k else b.s).grow()
-  !((a.s if k else b.s) if k else b.s).c.clear()
+  !((!a.s if k else !b.s) if k else !b.s).c.clear()
   print(a.s.c.len, b.s.c.len)

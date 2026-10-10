@@ -30,7 +30,7 @@ sub main()
     k = i % 2 == 0
     (d if k else mkd(50)).t.hit()
     (d if k else e).t.hit()
-    !(o ?? d).t.hit()
+    !(!o ?? !d).t.hit()
     print((d if k else mkd(70)).t.score())
   print(d.t.score(), e.t.score())
   if o as x

@@ -1,10 +1,10 @@
-sub put(c: ?Cell[Vec[String]], s: String)
-  c[0] = s
+sub put(c: !Cell[Vec[String]], s: String)
+  (!c)[0] = s
 
 sub main()
   t = Text("abcdefghijklmnop")
   cv: Cell[Vec[String]] = Cell(Vec())
   !cv.push("lit")
-  put(?cv, ?t[..3])
+  put(!cv, ?t[..3])
   <t
   print(cv[0])

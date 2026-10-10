@@ -16,5 +16,5 @@ sub main()
   b = *O(s: S(c: Cell(Vec())))
   k = a.s.c.len == 0
   !a.s.c.push(1)
-  print((!(a.s if k else b.s).c).pop() ?? -1)
+  print((!(!a.s if k else !b.s).c).pop() ?? -1)
   print(a.s.c.len, b.s.c.len)

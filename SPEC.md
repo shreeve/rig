@@ -4615,7 +4615,51 @@ sub bump(c: ?Cell[Int])
 ```
 
 ```error
-cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate
+cannot lend to write through a read view `?Cell[Int]`
+```
+
+A write view of a value that holds a Cell changes its Cells and nothing
+else, since the value lives only behind a handle and a handle's other
+fields only read: `swap` and `replace` do not exchange it whole. A
+handle held where it cannot be written (a field of a value another handle
+shares) is lent as what it holds, `!w.h` as a `!C`, never as a `!*C` that a
+callee could point elsewhere.
+
+```rig reject
+struct S
+  n: Int
+  c: Cell[Int]
+
+struct O
+  a: S
+  b: S
+
+sub main()
+  o = *O(a: S(n: 1, c: Cell(1)), b: S(n: 2, c: Cell(2)))
+  swap(!o.a, !o.b)
+```
+
+```error
+`swap` moves values whole, and `S` holds a Cell, so it lives only behind a shared handle, whose other fields only read
+```
+
+```rig reject
+struct C
+  n: Cell[Int]
+
+struct W
+  h: *C
+
+sub repoint(h: !*C, other: *C)
+  h = <other
+
+sub main()
+  w = *W(h: *C(n: Cell(0)))
+  repoint(!w.h, *C(n: Cell(1)))
+```
+
+```error
+type mismatch: expected `!*C`, got `!C`
 ```
 
 ```rig
@@ -4642,7 +4686,7 @@ sub main()
   shared: *Cell[Vec[Int]] = *Cell(Vec())
   !shared.push(7)
   !shared.push(8)
-  shared[0] = shared[0] + 1
+  (!shared)[0] = shared[0] + 1
   print(shared.len, shared[0], shared.get(1), shared.get(2))
 
   # Anything else: take the value out, use it, and put it back.

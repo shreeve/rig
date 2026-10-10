@@ -13,9 +13,9 @@ enum E
 
 sub main()
   e: E = .a(p: P(c: Cell(1)))
-  match ?e
+  match !e
     .a(p)
-      p.hit()
+      !p.hit()
       bump(!p)
     .b => print("b")
   match ?e
