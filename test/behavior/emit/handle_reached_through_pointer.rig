@@ -1,0 +1,26 @@
+# A handle reached through a pointer, a held receiver's address or the
+# leaf a branch of lends takes, is dereferenced before its value is
+# reached: a field, and a method whose arguments run first.
+
+struct Q
+  n: Int
+
+  fun get(?self, j: Int, k: Int) -> Int
+    self.n + j + k
+
+fun g(k: Int) -> Int
+  k
+
+sub main()
+  qs = [*Q(n: 1), *Q(n: 2)]
+  print(qs[g(0)].get(k: g(1), j: g(2)))
+  h1 = *Q(n: 1)
+  h2 = *Q(n: 2)
+  c = g(1) == 1
+  print((?h1 if c else ?h2).n, (h1 if c else h2).n)
+  print((?h1 if c else ?h2).get(k: g(1), j: g(2)))
+
+# expect:
+# 4
+# 1 1
+# 4
