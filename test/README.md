@@ -222,12 +222,13 @@ constructor, `<x`, `+x`) stands in one context (a `print` argument, a
 element assignment, a `match` subject, a `for` source, a consuming
 receiver, a test against `none` or a bare `.variant`) for each of
 several types (Int, String, Text, Vec, `*T`, Box, a struct with a `drop`,
-a payload enum), and holds each to the corpus's rule; a slice of the
+a payload enum, and in a few cells a struct holding a Cell, which must
+be rejected), and holds each to the corpus's rule; a slice of the
 value, written with no lend, stands as an argument where a `[]T` or a
 String goes, also while a later argument writes what it slices; and a
 slice of an array, a Vec, a Text, or a String held owned, through a
 read or write view, a `*T`, a box (or a write view of either), a field,
-a field holding a write view, or a nested field, as an argument or
+or a nested field, as an argument or
 bound bare, stands while the owner is changed or replaced, or after its
 last use. It also puts a
 block-local binding at the tail of each kind of value block (an `if`
@@ -239,26 +240,23 @@ each kind of subject, runs other code on the stack before reading it,
 and checks that a program that runs prints what the payload holds,
 since the sanitizer cannot see a stale stack slot. It lends a binding
 that is a write view (a `match !e` payload of every subject, named,
-guarded, nested, and of a write view a call returns or a branch of
-write lends; `if !o as b` and `while !o as b`; `for b in !v`, with an
-index and over an array; a `!T` parameter; a `|!b|` capture; a held
-`b = !x`; a field of a write view; a `defer` in the arm) of a Text, a
+guarded, nested, and of a branch of write lends; `if !o as b` and
+`while !o as b`; `for b in !v`, with an index and over an array; a `!T`
+parameter; a `|!b|` capture; a held `b = !x`; a `defer` in the arm) of
+a Text, a
 Vec, a `Box[Text]`, or a struct holding a Vec, whole, sliced, or to a
 call or `?self` method, then writes through the binding while the view
 is live, or after its last use; a program that runs must print what the
-view showed before the write. A read binding of a write view (a read
-match's of every subject, a part of a value made in the header
-included, and `if o as b` and `while o as b` of a `(!T)?`) is written
-the same way, and so is a match of a branch that reads a place holding a
-write view (fields through a read view or handle, bare write views, a
-call beside a field, `??` of an optional write view), through the
-binding or through the place; every such program must be rejected
+view showed before the write. A read binding of a write view (`if o as
+b` and `while o as b` of a local `(!T)?`) is written the same way, and
+so is a match of a branch that reads a place holding a write view (bare
+write views, `??` of an optional write view), through the binding or
+through the place; every such program must be rejected
 (`lendw.`). And it puts each header (`match`, `if … as`, `while … as`,
 `for`) over a subject that reaches a place holding a write view through
-a branch, at depth 1 and 2, through `?.`, `??`, and `catch`, written
-bare, lent to read (`?S`), and lent to write (`!S`), for a `!W`
-parameter, a local write view, and a field of an owned holder, and
-writes through the place while a view of the binding lives; every such
+a branch, through a path, `?.`, `??`, and `catch`, written bare, lent
+to read (`?S`), and lent to write (`!S`), for a `!W` parameter and a
+local write view, and writes through the place while a view of the binding lives; every such
 program must be rejected (`hdr.`). A `while` step
 reads what its condition binds, a view or a struct holding one, while
 the body grows what it views on each way to the step (the body's end,
@@ -273,28 +271,17 @@ owned local, and a program that runs must print the trace of passes,
 steps, defers, and drops the jumps' meaning gives. Last, it changes or
 reads a Cell (`set`, `replace`, `get`, a `Cell[Vec]`'s `push`, `pop`,
 `clear`, and `c[i] = e`, and a `?self` method) of each kind of value
-holding one (a struct with a `drop`, without one, with fields Zig knows
-at compile time, the Cells in a part, a generic type, a bare Cell, and
-generic types that hold a Cell holder only behind a handle or in a Vec)
-through each kind of path to it (a local, a field, a Vec or array
-element, a `?T` parameter, a slice, a `?self` method, a stored view, a
-`|?x|` capture, `if … as`, `for` over a view, a `*T`, a view a generic
-function returns, an element of a `?Vec` parameter, a subslice), in a
-statement, a loop that continues or breaks early, a `defer`, and a loop
-that returns. Every such program must be accepted, and print the state
-the operations give both in a debug build and built with `--release`,
-where Zig's optimizer would expose a write through a read-only pointer. And
-it changes or reads the Cell of a temporary that holds one, of the same
-kinds of value, where the temporary stands: made in the statement, a
-part of one, or a leaf a value that branches may take beside a name's
-(`a if k else mk()`, `o ?? mk()`, `mkf()!`, `mko()?`, a nested branch,
-a part of a branch), through a Cell member, a `?self` method, a view a
-method returns, and, where no leaf is a name's, a read or write lend,
-in a statement, an argument, a loop, and an `if` and a `while`
-condition, with each leaf taken (`celltemp.`). Every such program must
-be accepted, and print, in debug and with `--release`, the trace in
-which each change lands in the leaf taken and each temporary's `drop`
-sees it. Every loop a cell
+holding one (a struct with a `drop`, the Cells in a part, a generic
+type, a bare Cell) through the `*` handle it lives behind: directly,
+through a `?T` parameter given the handle, and through a `?self`
+method, in a statement, a loop that continues or breaks early, a
+`defer`, and a loop that returns. Every such program must be accepted,
+and print the state the operations give both in a debug build and
+built with `--release`, where Zig's optimizer would expose a write
+through a read-only pointer (`cellmut.`). A value holding a Cell made
+or held anywhere but behind `*` (a local, a by-value parameter, a Vec
+element, a temporary changed where it stands) must be rejected
+(`cellmut.value.`, `celltemp.value.`). Every loop a cell
 writes counts its passes and stops at a cap, and each program is
 stopped past its time (`--timeout`), when its processes hold more than
 its memory (`--mem`; an address-space limit would stop the sanitizer,
