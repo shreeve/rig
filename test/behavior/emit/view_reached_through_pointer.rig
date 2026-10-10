@@ -1,0 +1,31 @@
+# A read view held as a pointer and reached through a pointer to it (a
+# loop binding over a Vec of views) is dereferenced before a field is
+# reached; a generic closure's read capture of a write view binding is
+# the read view of what it points at.
+
+struct P
+  n: Int
+
+enum G[T]
+  a(x: T)
+  b
+
+fun poke[T](g: !G[T]) -> Int
+  match !g
+    .a(x)
+      f = |?x| 2
+      f()
+    .b => 0
+
+sub main()
+  p = P(n: 3)
+  rv: Vec[?P] = Vec()
+  !rv.push(?p)
+  for x in rv
+    print(x.n)
+  g2: G[Int] = G.a(4)
+  print(poke(!g2))
+
+# expect:
+# 3
+# 2
