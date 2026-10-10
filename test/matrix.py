@@ -20,7 +20,8 @@ shapes of nested loops and the jumps between them (`loop.`), a Cell
 changed through the `*` handle to the value holding it (`cellmut.`),
 built in debug and with `--release`, and a value holding a Cell made or
 held anywhere but behind `*` (`cellmut.value.`, `celltemp.value.`),
-every one of which must be rejected. The rule is
+every one of which must be rejected, and a branch of such places copied
+by value (`cellbranch.`), likewise. The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -1460,6 +1461,71 @@ CELL_VALUES = {
     "celltemp.value.struct": _CV_N + "sub main()\n  print(N(c: Cell(5)).c.get())\n",
     "celltemp.value.call": _CV_N + "fun mk(n: Int) -> N\n  N(c: Cell(n))\n\nsub main()\n  print(mk(5).c.get())\n",
 }
+
+
+# A branch of places that hold a Cell, copied by value: every form that
+# gives one of its leaves (`if`, a block `if`, a `match`), in every
+# context that reads or stores the value, with the leaf a struct holding
+# a Cell or the bare Cell. A change through another handle would land
+# under the copy, so each program must be rejected (`cellbranch.`).
+_CB_PRE = """enum K
+  p
+  q
+
+struct S
+  c: Cell[Vec[Int]]
+
+struct O
+  s: S
+
+fun grow(s: ?S) -> Int
+  s.c.push(1)
+  5
+
+fun see(x: ?S) -> Int
+  x.c.len
+
+fun take(x: S) -> Int
+  1
+
+sub main()
+  a = *O(s: S(c: Cell(Vec())))
+  b = *O(s: S(c: Cell(Vec())))
+  a2 = +a
+  k = a.s.c.len == 0
+  e = K.p
+"""
+_CB_FORMS = {
+    "ifelse": ["L if k else R"],
+    "blockif": ["if k", "  L", "else", "  R"],
+    "match": ["match e", "  .p => L", "  .q => R"],
+}
+# Each context: its lines given the value `V`, and whether it takes a
+# struct only.
+_CB_CTX = {
+    "print": (["print(V, grow(?a2.s))"], False),
+    "bind": (["x = V", "print(see(?x), grow(?a2.s))"], True),
+    "text": (["t = Text(V, grow(?a2.s))", "print(t)"], False),
+    "take": (["print(take(V))"], True),
+}
+
+
+def _cb_program(form, ctx, leaf):
+    l, r = ("a.s", "b.s") if leaf == "struct" else ("a.s.c", "b.s.c")
+    branch = [x.replace("L", l).replace("R", r) for x in _CB_FORMS[form]]
+    lines, _ = _CB_CTX[ctx]
+    if len(branch) == 1:
+        body = [x.replace("V", branch[0]) for x in lines]
+    else:
+        # A branch of several lines is bound first, then used.
+        body = ["y = " + branch[0]] + branch[1:] + [x.replace("V", "y") for x in lines]
+    return _CB_PRE + "\n".join("  " + x for x in body) + "\n"
+
+
+for _f in _CB_FORMS:
+    for _c, (_, _only) in _CB_CTX.items():
+        for _l in ("struct",) if _only else ("struct", "cell"):
+            CELL_VALUES[f"cellbranch.{_f}.{_c}.{_l}"] = _cb_program(_f, _c, _l)
 
 
 # -----------------------------------------------------------------------------

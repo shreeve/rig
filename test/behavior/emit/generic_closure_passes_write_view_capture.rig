@@ -1,0 +1,19 @@
+# A generic closure passes on a `|?w|` capture of a write view to a function taking `?T`.
+
+struct P
+  n: Int
+  t: Text
+
+sub gen[T](w: !T, f: sub(?T))
+  h = |?w, ?f| f(w)
+  h()
+
+sub show(p: ?P)
+  print(p.n, p.t)
+
+sub main()
+  p = P(n: 1, t: Text("ab"))
+  gen(!p, show)
+
+# expect:
+# 1 ab

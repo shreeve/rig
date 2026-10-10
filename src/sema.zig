@@ -3581,6 +3581,17 @@ pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
     return ctx.types.get(callableFnTy(ctx, ty) orelse return null).function;
 }
 
+/// The function type a call of a value of type `ty` follows: that of a
+/// callable view, an owned closure, or a function, or of a view of one.
+/// The checker checks the call's arguments against it, and emit reads
+/// the same parameters.
+pub fn calledFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
+    return callableFn(ctx, ty) orelse ownedClosureFn(ctx, ty) orelse switch (ctx.types.get(unwrapViews(ctx, ty))) {
+        .function => |f| f,
+        else => null,
+    };
+}
+
 /// The function type of callable view `ty`, or null. (A callable of
 /// anything else follows a diagnostic.)
 pub fn callableFnTy(ctx: *const SemContext, ty: TypeId) ?TypeId {

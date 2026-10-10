@@ -1,0 +1,25 @@
+# A value that holds a Cell is read through a branch of lends, never
+# copied: another handle's change shows.
+
+struct S
+  c: Cell[Vec[Int]]
+
+struct O
+  s: S
+
+fun grow(s: ?S) -> Int
+  for i in 0..3
+    s.c.push(i)
+  5
+
+sub main()
+  a = *O(s: S(c: Cell(Vec())))
+  b = *O(s: S(c: Cell(Vec())))
+  k = a.s.c.len == 0
+  a2 = +a
+  print(?a.s if k else ?b.s, grow(?a2.s))
+  print(a2.s.c.len)
+
+# expect:
+# S(c: Cell(value: [0, 1, 2])) 5
+# 3

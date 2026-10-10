@@ -120,6 +120,10 @@ const Checker = struct {
     /// The value of the struct or enum field, or the field default, being
     /// checked: a value holding a Cell may be made there (`cellMadeAway`).
     cell_home: Sexp = .nil,
+    /// The object of the member, method call, or lend being checked: a
+    /// branch there is read in place, by address, never copied
+    /// (`cellMadeAway`).
+    in_place: Sexp = .nil,
     /// The operand of the `return` being checked: an error value meets a
     /// `T!` only in its branch leaves (`isReturnLeaf`).
     return_operand: Sexp = .nil,
@@ -2167,6 +2171,11 @@ const Checker = struct {
         const saved_held = self.held_base;
         defer self.held_base = saved_held;
         if (mode == .read) self.held_base = self.madeBase(subject);
+        // A header's subject is matched where it stands, which
+        // `headerLendsBranch` decides for a branch.
+        const saved_in_place = self.in_place;
+        defer self.in_place = saved_in_place;
+        self.in_place = subject;
         var scrutinee = if (mode == .write) try self.synthOperand(subject) else try self.synthExpr(subject);
         const subject_hands = self.hands(subject);
         if (mode == .read and !self.isPoison(scrutinee)) switch (subject_hands.kind) {
@@ -3079,18 +3088,57 @@ const Checker = struct {
         return ty;
     }
 
-    /// Whether `e`, of type `ty`, is a call that makes a value holding a
-    /// Cell by value where none may stand (`sema.misplaced`): such a
-    /// value lives only behind a shared handle, so it is made only as
-    /// the operand of `*` (`shared_operand`), as a field of a value made
-    /// there, or as a field's default (`cell_home`). True when reported.
+    /// Whether `e`, of type `ty`, makes a value holding a Cell by value
+    /// where none may stand (`sema.misplaced`): such a value lives only
+    /// behind a shared handle, so it is made only as the operand of `*`
+    /// (`shared_operand`), as a field of a value made there, or as a
+    /// field's default (`cell_home`). A call makes one; so does a value
+    /// that branches (`sema.yieldsPart`) with a leaf a name holds, which
+    /// would copy the Cell's holder out of its place while another handle
+    /// changes the Cell. Such a branch is read only in place
+    /// (`in_place`: a receiver, or the operand of a lend), or lent on each
+    /// branch. True when reported.
     fn cellMadeAway(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
-        if (!e.isKind(.call) or self.isPoison(ty) or !sema.holdsCellByValue(self.ctx, ty)) return false;
+        if (!e.isKind(.call) and !sema.yieldsPart(e)) return false;
+        if (self.isPoison(ty) or !sema.holdsCellByValue(self.ctx, ty)) return false;
         // Typed only to infer a call's type arguments, it stands nowhere
         // yet: it is decided where it is checked.
         if (sameNode(e, self.shared_operand) or sameNode(e, self.cell_home) or self.ctx.quiet > 0) return false;
+        if (!e.isKind(.call)) return self.cellCopiedByBranch(e, ty);
         const src = self.sourceText(e);
         try self.errAt(e, "`{s}` makes a `{s}`, which holds a Cell, so it lives only behind a shared handle: write `*{s}`", .{ src, try self.tyName(ty), src });
+        return true;
+    }
+
+    /// `cellMadeAway` for a branching value `e`: rejected when a leaf is
+    /// a place (a value a name holds, or a part of one), by a positive
+    /// list of what may stand there: a value made there, a lend, a jump,
+    /// or a constant.
+    fn cellCopiedByBranch(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
+        if (sameNode(e, self.in_place)) return false;
+        var leaves: std.ArrayList(Sexp) = .empty;
+        defer leaves.deinit(self.ctx.allocator);
+        try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, e, &leaves);
+        var place: Sexp = .nil;
+        for (leaves.items) |leaf| switch (self.hands(leaf).kind) {
+            .made, .lend, .jump => {},
+            .place, .part_of_made, .branches, .none => if (!try self.isConstant(leaf)) {
+                place = leaf;
+                break;
+            },
+        };
+        if (place == .nil) return false;
+        const a = self.ctx.arena.allocator();
+        const withs = try a.alloc([]const u8, leaves.items.len);
+        for (leaves.items, withs) |leaf, *w| w.* = switch (self.hands(leaf).kind) {
+            .made, .lend, .jump => self.sourceText(leaf),
+            else => try a.print("?{s}", .{self.sourceText(leaf)}),
+        };
+        const src = self.sourceText(e);
+        const multiline = std.mem.indexOfScalar(u8, src, '\n') != null;
+        const what = if (multiline) "this value" else try a.print("`{s}`", .{src});
+        const fix = if (multiline) "put a `?` before each branch's value" else try a.print("`{s}`", .{try self.spliced(e, leaves.items, withs)});
+        try self.errAt(e, "{s} would copy a `{s}`, which holds a Cell, out of `{s}`, while another handle may change the Cell; lend each branch: {s}", .{ what, try self.tyName(ty), self.sourceText(place), fix });
         return true;
     }
 
@@ -4098,6 +4146,9 @@ const Checker = struct {
     fn synthLend(self: *Checker, e: Sexp, kind: LendKind) Error!TypeId {
         const operand = ir.get(e, .operand);
         try self.recordUse(operand, .lend);
+        const saved_in_place = self.in_place;
+        defer self.in_place = saved_in_place;
+        self.in_place = operand;
         if (rig.isRangeIndex(operand)) {
             return self.lendSlice(operand, kind);
         }
@@ -4845,6 +4896,9 @@ const Checker = struct {
         const field_node = ir.Member.name(e);
         const field = self.text(field_node);
         const pos = srcPos(field_node, self.startOf(obj));
+        const saved_in_place = self.in_place;
+        defer self.in_place = saved_in_place;
+        self.in_place = obj;
 
         if (try self.moduleMember(obj, field, pos)) |ty| return ty;
         if (try self.numberType(obj)) |ty| return self.numberLimit(obj, ty, field, pos);
@@ -5978,10 +6032,8 @@ const Checker = struct {
     fn callValue(self: *Checker, callee: Sexp, ty: TypeId, args: []const Sexp, name: []const u8) Error!TypeId {
         const pos = self.startOf(callee);
         if (self.isPoison(ty)) return self.skipCall(args);
-        const f = sema.callableFn(self.ctx, ty) orelse sema.ownedClosureFn(self.ctx, ty) orelse switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
-            .function => |f| f,
-            else => return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) }),
-        };
+        const f = sema.calledFn(self.ctx, ty) orelse
+            return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) });
         var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
         defer scratch.deinit();
         try self.checkArgs(args, f, .{}, name, pos, .{ .origins = try sema.defaultOrigins(self.ctx, scratch.allocator(), f) });
@@ -7606,6 +7658,9 @@ const Checker = struct {
         self.callee_node = callee;
         defer self.callee_node = saved;
         var obj = ir.Member.object(callee);
+        const saved_in_place = self.in_place;
+        defer self.in_place = saved_in_place;
+        self.in_place = obj;
         const name_node = ir.Member.name(callee);
         const method = self.text(name_node);
         const pos = srcPos(name_node, self.startOf(obj));

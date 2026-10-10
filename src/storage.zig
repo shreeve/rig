@@ -122,10 +122,7 @@ pub fn isTypeSym(ctx: *const SemContext, id: SymbolId) bool {
 /// The function type of a function, closure, or callable view.
 pub fn fnType(ctx: *const SemContext, ty: ?TypeId) ?sema.FunctionType {
     const t = ty orelse return null;
-    return switch (ctx.types.get(t)) {
-        .function => |f| f,
-        else => sema.callableFn(ctx, t),
-    };
+    return sema.calledFn(ctx, t);
 }
 
 /// Whether `e` is read from storage, not made for its context

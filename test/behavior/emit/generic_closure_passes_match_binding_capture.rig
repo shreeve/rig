@@ -1,0 +1,26 @@
+# A generic closure passes on a `|?x|` capture of a match binding to a function taking `?T`.
+
+struct P
+  n: Int
+  t: Text
+
+enum G[T]
+  a(x: T)
+  b
+
+sub poke[T](g: !G[T], f: sub(?T))
+  match !g
+    .a(x)
+      h = |?x, ?f| f(x)
+      h()
+    .b => pass
+
+sub show(p: ?P)
+  print(p.n, p.t)
+
+sub main()
+  g2: G[P] = G.a(P(n: 4, t: Text("x")))
+  poke(!g2, show)
+
+# expect:
+# 4 x

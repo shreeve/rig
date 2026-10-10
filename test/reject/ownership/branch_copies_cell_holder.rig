@@ -1,0 +1,53 @@
+# A value holding a Cell lives only behind `*`, so a value that branches
+# between places that hold one would copy it out while another handle
+# changes the Cell. It is lent on each branch instead.
+
+enum E
+  p
+  q
+
+struct S
+  c: Cell[Vec[Int]]
+
+struct O
+  s: S
+
+fun grow(s: ?S) -> Int
+  for i in 0..100
+    s.c.push(i)
+  5
+
+fun growc(c: ?Cell[Vec[Int]]) -> Int
+  for i in 0..100
+    c.push(i)
+  5
+
+sub main()
+  a = *O(s: S(c: Cell(Vec())))
+  b = *O(s: S(c: Cell(Vec())))
+  k = a.s.c.len == 0
+  a2 = +a
+  print(a.s if k else b.s, grow(?a2.s))
+  f = |?a| grow(?a.s)
+  print(a.s if k else b.s, f())
+  t = Text(a.s if k else b.s, grow(?a2.s))
+  print(a.s.c if k else b.s.c, growc(?a2.s.c))
+  y = if k
+    a.s
+  else
+    b.s
+  e = E.p
+  z = match e
+    .p => a.s
+    .q => b.s
+  print(a.s if k else b.s)
+
+# error: 30:9: would copy a `S`, which holds a Cell, out of `a.s`
+# error: 32:9: would copy a `S`, which holds a Cell, out of `a.s`
+# error: 33:12: would copy a `S`, which holds a Cell, out of `a.s`
+# error: 34:9: would copy a `Cell[Vec[Int]]`, which holds a Cell, out of `a.s.c`
+# error: 36:5: lend each branch
+# error: 38:5: lend each branch
+# error: 40:7: lend each branch
+# error: 43:9: would copy a `S`, which holds a Cell, out of `a.s`
+# errors: 8

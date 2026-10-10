@@ -1,7 +1,7 @@
-# A branching `print` argument is copied where it runs, before the
-# later arguments: a place it may be that holds a Cell (a field of a
-# value behind `*`) is held against any later view, which could change
-# the Cell under the copy.
+# A branching `print` argument would be copied where it runs, before the
+# later arguments, while a view of the same Cell could change it under
+# the copy: a branch of places that hold a Cell is rejected, and lent on
+# each branch instead.
 
 struct S
   c: Cell[Vec[Int]]
@@ -22,6 +22,6 @@ sub main()
   print(a.s if k else b.s, grow(?a.s))
   print(Text(b.s if k else a.s, grow(?a.s)))
 
-# error: 22:34: cannot lend `a` to read, which holds a Cell, while an earlier argument's read of it is in use
-# error: 23:39: cannot lend `a` to read, which holds a Cell, while an earlier argument's read of it is in use
+# error: 22:9: `a.s if k else b.s` would copy a `S`, which holds a Cell, out of `a.s`
+# error: 23:14: `b.s if k else a.s` would copy a `S`, which holds a Cell, out of `b.s`
 # errors: 2
