@@ -4501,9 +4501,12 @@ pub const Emitter = struct {
         };
         // A value that branches, read where its leaves are, is reached
         // through the address of the leaf it takes, never a copy.
+        // Zig reaches a field through a pointer to a struct, but not
+        // through one to a handle (`reachesHandle`).
         if (try self.reachesLeaf(o)) {
-            if (self.hoistedOf(o)) |h| return self.w.writeAll(h.name);
-            return self.emitLeafPtr(o, self.typeOf(o).?);
+            if (self.hoistedOf(o)) |h| try self.w.writeAll(h.name) else try self.emitLeafPtr(o, self.typeOf(o).?);
+            if (self.reachesHandle(self.typeOf(o))) try self.w.writeAll(".*");
+            return self.derefToHandle(self.typeOf(o));
         }
         // A value that branches is read as its Rig type: Zig would take
         // a field of each branch's own type (a literal's, a String's);
@@ -4516,7 +4519,8 @@ pub const Emitter = struct {
             if (self.hoistedOf(o)) |h| if (h.flag.len == 0) return self.w.writeAll(h.name);
             try self.writeAsOpen(t);
             try self.emitExpr(o);
-            return self.w.writeAll(")");
+            try self.w.writeAll(")");
+            return self.derefToHandle(t);
         };
         const needs_parens = movesCompound(o) or if (o.kind()) |h| switch (h) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .propagate, .call, .array => true,
@@ -5463,7 +5467,7 @@ pub const Emitter = struct {
             try self.w.print("const {s} = ", .{name});
             if (hold == .leaf) try self.emitLeafPtr(recv, self.typeOf(recv).?) else try self.emitSlotAddress(recv);
             try self.w.writeAll(";\n");
-            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = self.reachesHandle(self.typeOf(recv)) });
         }
         if (hold == .place) {
             const saved = self.read_place;
@@ -5472,7 +5476,7 @@ pub const Emitter = struct {
             try self.w.print("const {s} = ", .{name});
             try self.emitAddressOf(recv);
             try self.w.writeAll(";\n");
-            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = self.reachesHandle(self.typeOf(recv)) });
         }
         const ty = self.typeOf(recv);
         const ptr = if (ty) |t| self.isPtrViewTy(t) else false;
@@ -6301,6 +6305,28 @@ pub const Emitter = struct {
 
     fn isVecTy(self: *Emitter, ty: TypeId) bool {
         return self.isBuiltinInstance(ty, self.facts.vec_sym_id);
+    }
+
+    /// Whether a value of `ty` is a shared handle, or a view of one: a
+    /// pointer to it is a pointer to a pointer, which Zig does not reach
+    /// a field or method through.
+    fn reachesHandle(self: *Emitter, ty: ?TypeId) bool {
+        return self.facts.types.get(self.peelViews(ty orelse return false)) == .shared;
+    }
+
+    /// `.*` for each pointer a value of `ty`, a shared handle or a view
+    /// of one, is above the handle: Zig reaches a field through a
+    /// pointer to the handle's box, never through one to the handle.
+    fn derefToHandle(self: *Emitter, ty: ?TypeId) Error!void {
+        var t = ty orelse return;
+        if (!self.reachesHandle(t)) return;
+        while (true) switch (self.facts.types.get(t)) {
+            .read_view, .write_view => |inner| {
+                if (self.isPtrViewTy(t)) try self.w.writeAll(".*");
+                t = inner;
+            },
+            else => return,
+        };
     }
 
     fn isStructLike(self: *Emitter, ty: TypeId) bool {
