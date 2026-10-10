@@ -3082,7 +3082,9 @@ const Checker = struct {
     /// there, or as a field's default (`cell_home`). True when reported.
     fn cellMadeAway(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
         if (!e.isKind(.call) or self.isPoison(ty) or !sema.holdsCellByValue(self.ctx, ty)) return false;
-        if (sameNode(e, self.shared_operand) or sameNode(e, self.cell_home)) return false;
+        // Typed only to infer a call's type arguments, it stands nowhere
+        // yet: it is decided where it is checked.
+        if (sameNode(e, self.shared_operand) or sameNode(e, self.cell_home) or self.ctx.quiet > 0) return false;
         const src = self.sourceText(e);
         try self.errAt(e, "`{s}` makes a `{s}`, which holds a Cell, so it lives only behind a shared handle: write `*{s}`", .{ src, try self.tyName(ty), src });
         return true;
