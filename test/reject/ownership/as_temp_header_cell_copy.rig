@@ -22,4 +22,4 @@ sub main()
     c.hit()
   print(h)
 
-# error: 12:6: a value of `Counter` holds a Cell, so it lives only behind a shared handle
+# error: 14:6: a value of `Counter` holds a Cell, so it lives only behind a shared handle
