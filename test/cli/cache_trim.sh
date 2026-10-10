@@ -417,6 +417,10 @@ rm "$home/.usage"
 
 # A corrupt .size: a number past what a cache holds, and two that overflow
 # when added.
+# The limit leaves room for both packages and the one a build makes,
+# whatever size the platform's builds are.
+cap_bytes=$(( 16000000 + $(measure "$(ls -d "$home"/hello-*)") + 4000000 ))
+export RIG_CACHE_MAX_GB=$(awk -v b="$cap_bytes" 'BEGIN { printf "%.9f", b / 1073741824 }')
 echo 18446744073709551615 >"$home/one-0123456789abcdef/.size"
 echo 18446744073709551615 >"$home/two-0123456789abcdef/.size"
 touch -t "$(ago 1)" "$home/one-0123456789abcdef" "$home/two-0123456789abcdef"
