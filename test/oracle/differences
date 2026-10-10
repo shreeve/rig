@@ -9,7 +9,8 @@
 # Classes: prod-strict (the compiler rejects what the Core allows),
 # ref-gap (the oracle is wrong or less precise), core-gap (docs/CORE.md
 # does not decide it). A program is its test path, a doc
-# example's id (doc/CORE/L120), or a matrix cell (vec.print.place).
+# example's file and the checksum of its text (doc/CORE/3641359913), or
+# a matrix cell (vec.print.place).
 
 # A `for x in ?v` element is a read view; a bare read view copies (Core
 # s1), so binding it inside the loop, or returning one that views only
@@ -248,3 +249,14 @@ test/corpus/review-arm-temps-2-m15_readview_repoint_overreject.rig main prod-rej
 test/corpus/review-arm-temps-2-m21_name_target_old_drop_reads_view.rig main prod-rejects prod-strict `grow(!v)` in the value of `h = match`, whose old value's `drop` reads `v` through a `?Vec[Int]`
 test/corpus/review-arm-temps-2-m33_slice_holder_drop_reads.rig main prod-rejects ref-gap `grow(!v)` in the value of `h = match`, whose old value's `drop` reads a slice of `v`
 test/corpus/review-arm-temps-2-m34_slice_holder_drop_reads_plain.rig main prod-rejects ref-gap `h = growh(!v, ?u)`, whose old value's `drop` reads a slice of `v`
+
+# Reassigning a binding whose old value holds a write view, with a new
+# value that lends the same place again: the compiler checks the new
+# lend while the old value, dropped after it, still holds its loan
+# (INTERNALS "Assignments").
+test/corpus/review-header-paths-1-o07_store_self_into_what_self_views.rig main prod-rejects prod-strict `h = H(n: Vec(), w: !v)` while the old `h` holds `!v`
+
+# A `for` over a plain array part of a branch of write views copies the
+# part in its header; the compiler keeps the branch's write views live
+# through the loop, though nothing reads them there.
+test/corpus/review-header-paths-1-t05_for_read_plain_array_part_local.rig main prod-rejects prod-strict `!xs.push` in a loop over `(a if c else b).arr`, a copied plain part, with `a = !xs[0]`

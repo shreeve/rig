@@ -490,8 +490,10 @@ check_ir() {
 
 # The reference ownership checker (test/oracle/) over one set of
 # programs: every function it decides must get production's verdict,
-# or be listed in test/oracle/differences, and the set must keep its
-# floor of decided functions (test/oracle/coverage).
+# or be listed in test/oracle/differences; every function it rejects
+# must be listed in test/oracle/rejections, and every listed one must
+# stay rejected; and the set must keep its floor of decided functions
+# (test/oracle/coverage).
 ORACLE_FORBIDDEN='ownership\.zig|typecheck\.zig|storage\.zig|\b(storageOf|recordStorage|Storage|StorageKind|StorageBy|StorageLife|copiesHeader|header_copies|dropsTemp|temp_drops|readsInPlace|in_place_reads|takesSubject|taken_subjects|readsThrough|readsAsView|unboxes|unboxed|arrayViewOf|array_views|lendsText|text_lends|takes|recordTake|moveSource|MoveSource|moveLeaves|MoveLeaf|writesThrough|through_writes|lendsCellTemp|cell_temps|handsOver)\b|facts\.(reads|views)'
 check_oracle() { # <set> <outdir> <logfile>
     local set=$1 outdir=$2 log=$3 list p
@@ -510,7 +512,10 @@ check_oracle() { # <set> <outdir> <logfile>
     : >"$list"
     case $set in
         matrix)
-            python3 test/matrix.py --oracle >"$log" 2>&1 || { REASON=$(grep -m1 -E '^(DIFF|FIXED|FAIL)' "$log" || tail -1 "$log"); return 1; }
+            python3 test/matrix.py --oracle >"$log" 2>&1
+            local mrc=$?
+            cp "$log" "$outdir.log"
+            if [[ $mrc -ne 0 ]]; then REASON=$(grep -m1 -E '^(DIFF|FIXED|FAIL|LOST|UNLISTED)' "$log" || tail -1 "$log"); return 1; fi
             return 0 ;;
         tests)
             for p in test/behavior/*/* test/reject/*/* test/known/*/* examples/*.rig; do
@@ -523,20 +528,27 @@ check_oracle() { # <set> <outdir> <logfile>
                 elif [[ $p == *.rig ]]; then printf '%s\t%s\n' "$p" "$p"; fi
             done >"$list" ;;
         docs)
-            # The doc examples this run extracted (test/README.md).
-            local docs=${RESULTS%/results}/doc
-            for p in "$docs"/*/L*; do
-                [[ -f "$p/main.rig" ]] || continue
-                [[ $(cat "$p/mode") == fragment || $(cat "$p/mode") == doc\ convention* ]] && continue
-                printf 'doc/%s\t%s\n' "${p#"$docs"/}" "$p/main.rig"
-            done >"$list" ;;
+            # The doc examples this run extracted (test/README.md), each
+            # named by the checksum of its text, as its output directory
+            # is, so that an edit that moves it keeps its name in
+            # test/oracle/rejections.
+            local keyed=${RESULTS%/results}/docs.keyed
+            if [[ -s "$keyed" ]]; then
+                while IFS=$'\t' read -r _ p key; do
+                    [[ -f "$p/main.rig" ]] || continue
+                    [[ $(cat "$p/mode") == fragment || $(cat "$p/mode") == doc\ convention* ]] && continue
+                    printf '%s\t%s\n' "$key" "$p/main.rig"
+                done <"$keyed"
+            fi >"$list" ;;
         *) REASON="no oracle set \`$set\`"; return 1 ;;
     esac
     "$TIMEOUT_CMD" "$TIMEOUT" "$ROOT/bin/rig-oracle" --set "$set" --allow test/oracle/differences \
-        --coverage test/oracle/coverage --list "$list" >"$log" 2>&1
+        --rejects test/oracle/rejections --coverage test/oracle/coverage --list "$list" >"$log" 2>&1
     local rc=$?
+    # Kept beside the set's output, for `test/oracle/rejections` updates.
+    cp "$log" "$outdir.log"
     if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
-    if [[ $rc -ne 0 ]]; then REASON=$(grep -m1 -E '^(DIFF|FIXED|FAIL)' "$log" || tail -1 "$log"); return 1; fi
+    if [[ $rc -ne 0 ]]; then REASON=$(grep -m1 -E '^(DIFF|FIXED|FAIL|LOST|UNLISTED)' "$log" || tail -1 "$log"); return 1; fi
     return 0
 }
 
@@ -1225,8 +1237,8 @@ if selected style; then
     fi
 fi
 
-# The oracle's sets run bin/rig-oracle.
-if grep -q '^oracle/' "$LIST" && ! "$ZIG" build oracle 2>&1; then
+# The oracle's sets, and the CLI tests of the oracle, run bin/rig-oracle.
+if grep -qE '^(oracle/|cli/oracle_)' "$LIST" && ! "$ZIG" build oracle 2>&1; then
     printf '%sbuild of bin/rig-oracle failed%s\n' "$R" "$X"
     exit 1
 fi

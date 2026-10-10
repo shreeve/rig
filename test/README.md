@@ -255,7 +255,8 @@ call beside a field, `??` of an optional write view), through the
 binding or through the place; every such program must be rejected
 (`lendw.`). And it puts each header (`match`, `if … as`, `while … as`,
 `for`) over a subject that reaches a place holding a write view through
-a branch, at depth 1 and 2, through `?.`, `??`, and `catch`, for a `!W`
+a branch, at depth 1 and 2, through `?.`, `??`, and `catch`, written
+bare, lent to read (`?S`), and lent to write (`!S`), for a `!W`
 parameter, a local write view, and a field of an owned holder, and
 writes through the place while a view of the binding lives; every such
 program must be rejected (`hdr.`). A `while` step
@@ -324,7 +325,18 @@ the function uses a form the oracle does not model yet. The test kind
 | `oracle/matrix` | the matrix programs (`test/matrix.py --oracle`) |
 
 A set fails when the compiler accepts a function the oracle rejects:
-that may be a soundness hole, and it can never be allowlisted. When the
+that may be a soundness hole, and it can never be allowlisted. It also
+fails when the oracle's own rejections change: every function the
+oracle rejects is listed in `test/oracle/rejections` (`program
+function`), and a set fails on one not listed (`UNLISTED`: add it) and
+on a listed one the oracle decides and no longer rejects (`LOST`: the
+reference checker was weakened, whatever the compiler decides). A doc
+example is listed by its file and the checksum of its text
+(`doc/SPEC/3641359913`), as its output directory is named, so an edit
+that only moves it keeps its entry; one that changes its text renames
+it. So a change to the oracle that loses a rejection shows, though a
+stricter compiler alone would only be reported
+(`test/cli/oracle_rejections.sh` checks that both fire). When the
 compiler rejects a function the oracle accepts, the run reports it
 (`stricter`), and `test/oracle/differences` records it once classified
 (a compiler rejection the Core allows, an oracle gap, or a question the

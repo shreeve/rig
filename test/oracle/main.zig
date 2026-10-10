@@ -5,6 +5,7 @@
 //!
 //!   --list FILE       read more programs from FILE, one `name<TAB>path` a line
 //!   --allow FILE      the classified differences (test/oracle/differences)
+//!   --rejects FILE    the oracle's own rejections (test/oracle/rejections)
 //!   --coverage FILE   the decided-function floors, one `set count` a line
 //!   --set NAME        the set these programs are, for --coverage
 //!   --explain FN      print the lowered core of every function named FN
@@ -26,6 +27,13 @@
 //! the allowlist with its class once classified. The run also fails on
 //! a stale allowlist entry, and on fewer decided functions than the
 //! set's floor.
+//!
+//! With `--rejects`, the run also fails where the oracle's own rejections
+//! change: a listed function the oracle decides and no longer rejects
+//! (`LOST`: the reference checker was weakened, whatever the compiler
+//! decides), and a rejection not listed (`UNLISTED`: add it, so that
+//! losing it later fails too). Each line of the file is
+//! `program function`.
 //!
 //! A program may also state the oracle's own verdicts, one a line, which
 //! every run checks, whatever the compiler decides:
@@ -71,8 +79,12 @@ pub const Unit = struct {
 
 const Allowed = struct { direction: []const u8, class: []const u8, used: bool = false };
 
+/// The oracle's rejections a run must keep (`--rejects`).
+const Rejects = std.StringHashMapUnmanaged(void);
+
 const Options = struct {
     allow: ?[]const u8 = null,
+    rejects: ?[]const u8 = null,
     coverage: ?[]const u8 = null,
     set: []const u8 = "",
     explain: ?[]const u8 = null,
@@ -103,7 +115,7 @@ pub fn main(init: std.process.Init) !u8 {
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const a: []const u8 = args[i];
-        const needs_value = std.mem.eql(u8, a, "--list") or std.mem.eql(u8, a, "--allow") or
+        const needs_value = std.mem.eql(u8, a, "--list") or std.mem.eql(u8, a, "--allow") or std.mem.eql(u8, a, "--rejects") or
             std.mem.eql(u8, a, "--coverage") or std.mem.eql(u8, a, "--set") or std.mem.eql(u8, a, "--explain");
         if (needs_value) {
             i += 1;
@@ -119,7 +131,7 @@ pub fn main(init: std.process.Init) !u8 {
                     };
                     try programs.append(arena, .{ line[0..tab], line[tab + 1 ..] });
                 }
-            } else if (std.mem.eql(u8, a, "--allow")) opts.allow = v else if (std.mem.eql(u8, a, "--coverage")) opts.coverage = v else if (std.mem.eql(u8, a, "--set")) opts.set = v else opts.explain = v;
+            } else if (std.mem.eql(u8, a, "--allow")) opts.allow = v else if (std.mem.eql(u8, a, "--rejects")) opts.rejects = v else if (std.mem.eql(u8, a, "--coverage")) opts.coverage = v else if (std.mem.eql(u8, a, "--set")) opts.set = v else opts.explain = v;
         } else if (std.mem.eql(u8, a, "--stats")) {
             opts.stats = true;
         } else if (std.mem.eql(u8, a, "--sema")) {
@@ -137,6 +149,8 @@ pub fn main(init: std.process.Init) !u8 {
 
     var allow: std.StringHashMapUnmanaged(Allowed) = .empty;
     if (opts.allow) |path| try readAllowlist(arena, io, path, &allow);
+    var rejects: Rejects = .empty;
+    if (opts.rejects) |path| try readRejects(arena, io, path, &rejects);
     var seen_programs: std.StringHashMapUnmanaged(void) = .empty;
     var reasons: std.StringHashMapUnmanaged(u32) = .empty;
 
@@ -149,7 +163,7 @@ pub fn main(init: std.process.Init) !u8 {
         try seen_programs.put(arena, prog[0], {});
         var program_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer program_arena.deinit();
-        try checkProgram(program_arena.allocator(), io, prog[0], prog[1], opts, &allow, &reasons, arena, out, &totals);
+        try checkProgram(program_arena.allocator(), io, prog[0], prog[1], opts, &allow, &rejects, &reasons, arena, out, &totals);
         try out.flush();
     }
 
@@ -224,6 +238,20 @@ fn readAllowlist(a: std.mem.Allocator, io: std.Io, path: []const u8, allow: *std
     }
 }
 
+/// `test/oracle/rejections`: `program function`, one a line, `#`
+/// comments and blank lines skipped.
+fn readRejects(a: std.mem.Allocator, io: std.Io, path: []const u8, rejects: *Rejects) !void {
+    const text = try std.Io.Dir.cwd().readFileAlloc(io, path, a, .limited(16 << 20));
+    var lines = std.mem.tokenizeScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var words = std.mem.tokenizeAny(u8, line, " \t");
+        const program = words.next() orelse continue;
+        const function = words.next() orelse continue;
+        try rejects.put(a, try std.mem.concat(a, u8, &.{ program, "\x00", function }), {});
+    }
+}
+
 fn readFloor(a: std.mem.Allocator, io: std.Io, path: []const u8, set: []const u8) !?u32 {
     const text = try std.Io.Dir.cwd().readFileAlloc(io, path, a, .limited(1 << 20));
     var lines = std.mem.tokenizeScalar(u8, text, '\n');
@@ -244,6 +272,7 @@ fn checkProgram(
     path: []const u8,
     opts: Options,
     allow: *std.StringHashMapUnmanaged(Allowed),
+    rejects: *Rejects,
     reasons: *std.StringHashMapUnmanaged(u32),
     keep: std.mem.Allocator,
     out: *std.Io.Writer,
@@ -295,6 +324,19 @@ fn checkProgram(
                 try std.mem.concat(a, u8, &.{ m.name, ".", unit.name })
             else
                 unit.name;
+            // The oracle's own rejections, which the rejections file keeps:
+            // one it decided otherwise is lost, and one not listed must be.
+            if (opts.rejects) |file| {
+                const rkey = try std.mem.concat(a, u8, &.{ name, "\x00", qualified });
+                const listed = rejects.contains(rkey);
+                if (verdict == .reject and !listed) {
+                    try out.print("UNLISTED {s} {s}: the oracle rejects this function; add `{s} {s}` to {s}, so that losing it fails the run\n", .{ name, qualified, name, qualified, file });
+                    totals.failures += 1;
+                } else if (verdict != .reject and listed) {
+                    try out.print("LOST {s} {s}: the oracle no longer rejects this function, which it did: the reference checker was weakened (ref={s}); remove it from {s} only if the program changed\n", .{ name, qualified, @tagName(verdict), file });
+                    totals.failures += 1;
+                }
+            }
             switch (verdict) {
                 .accept => totals.accepted += 1,
                 .reject => totals.rejected += 1,
