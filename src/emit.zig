@@ -2255,7 +2255,10 @@ pub const Emitter = struct {
         // A resource element is a view of its slot; an element that is
         // itself a read view is the view, copied.
         const elem_is_view = if (src_ty) |t| if (self.loopElem(t)) |e| e == elem_ty else false else false;
-        const by_ptr = mode == .write or owned or
+        // A binding that is the bytes of a Text element walks the elements
+        // by address and takes each one's bytes.
+        const text_bytes = self.facts.loopBindsTextBytes(sexp);
+        const by_ptr = mode == .write or owned or text_bytes or
             (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view and !elem_is_view);
 
         // A value the loop holds, or the array it takes, lives in the
@@ -2297,13 +2300,20 @@ pub const Emitter = struct {
         const indexed = self.loopIndex(sexp) != null;
         try self.w.writeAll(if (indexed) ", 0..) |" else ") |");
         var elem_name: []const u8 = "_";
+        var bytes_of: []const u8 = "";
+        var bytes_name: []const u8 = "";
         if (elem_sym) |s| if (self.usage.used.contains(s)) {
-            const stored = try self.declare(.{ .sym = s, .ty = elem_ty, .is_ptr = by_ptr }, self.srcText(binding));
-            elem_name = try self.fmt("{s}{s}", .{ if (by_ptr) "*" else "", stored.zig_name });
+            const stored = try self.declare(.{ .sym = s, .ty = elem_ty, .is_ptr = by_ptr and !text_bytes }, self.srcText(binding));
+            if (text_bytes) {
+                bytes_of = try self.hiddenStorage(sexp, .element, .pointer, .next);
+                bytes_name = stored.zig_name;
+                elem_name = try self.fmt("*{s}", .{bytes_of});
+            } else elem_name = try self.fmt("{s}{s}", .{ if (by_ptr) "*" else "", stored.zig_name });
         };
         try self.w.print("{s}{s}{s}| ", .{ elem_name, if (indexed) ", " else "", if (indexed) counter else "" });
         try self.enterLoop(lp, .{ .word = "continue", .label = lp.loop });
         const body = try self.openLoopBody(lp);
+        if (bytes_of.len > 0) try self.line("const {s} = {s}.bytes();", .{ bytes_name, bytes_of });
         try self.bindLoopIndex(sexp, counter);
         try self.closeLoopBody(lp, body, ir.For.body(sexp));
         try self.closeLabeled(l);
@@ -2889,8 +2899,9 @@ pub const Emitter = struct {
             // A write binds a pointer to each field, and a read one to a
             // field it views (`?F`) or reads in place.
             const addr = try self.need(self.facts.bindsByAddress(b), b);
-            const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
-            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
+            const bytes = self.bindsTextBytes(b, local.ty);
+            const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(b));
+            try self.line("const {s} = {s}{s}.{f}.{f}{s};", .{ stored.zig_name, if (addr and !bytes) "&" else "", subj, ident(vname), ident(f.name), if (bytes) ".bytes()" else "" });
         }
     }
 
@@ -2937,7 +2948,14 @@ pub const Emitter = struct {
     /// value of a `match !x`); `addr` takes the field's address, for a
     /// `match !x` binding that writes it.
     /// `addr`: the binding points at the field.
-    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false };
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, bytes: bool = false };
+
+    /// Whether payload binding `b`, of type `bound`, is the bytes of the
+    /// Text field it binds (`Facts.viewsTextBytes`).
+    fn bindsTextBytes(self: *Emitter, b: Sexp, bound: ?TypeId) bool {
+        const field = self.facts.payloadFieldOf(b) orelse return false;
+        return self.facts.viewsTextBytes(field, bound orelse return false);
+    }
 
     /// A part of a value a `match <x` arm owns: a field, or the whole
     /// payload or value.
@@ -2991,7 +3009,8 @@ pub const Emitter = struct {
     /// declared at the top of the body (or dropped at once for `as _`).
     /// `copy`: a viewed binding of a copy of the value inside, which the
     /// header captures by value (`Facts.copiesHeader`), held in a local.
-    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false };
+    /// `value`: `tmp` holds the optional's payload itself, not a pointer to it.
+    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false, value: bool = false };
 
     /// `payloadLocal` for a binding used in `used_in`, or anywhere when
     /// it is `.nil`.
@@ -3047,9 +3066,10 @@ pub const Emitter = struct {
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
             const addr = try self.need(self.facts.bindsByAddress(c), c);
-            const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
+            const bytes = self.bindsTextBytes(c, local.ty);
+            const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .bytes = bytes });
         }
         return out.items;
     }
@@ -3068,7 +3088,7 @@ pub const Emitter = struct {
         for (prelude.aliases) |a| {
             if (a.field.len == 0) {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
-            } else try self.line("const {s} = {s}{s}.{f};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field) });
+            } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr and !a.bytes) "&" else "", a.payload, ident(a.field), if (a.bytes) ".bytes()" else "" });
         }
         for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
         for (prelude.owned) |o| {
@@ -3182,6 +3202,10 @@ pub const Emitter = struct {
         }
         if (sym == null or !self.usage.used.contains(sym.?)) {
             try self.w.writeAll("|_| ");
+        } else if (self.facts.optionalBindsTextBytes(cond)) {
+            const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
+            try self.w.print("|{s}| ", .{tmp});
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .value = true } };
         } else {
             // A read binding of a write view to a value read by copy holds
             // the write view, a pointer to that value
@@ -3208,13 +3232,20 @@ pub const Emitter = struct {
         // view of what it views: the write view itself, or the value it
         // points at, copied out (`Facts.readsThroughWrite`).
         const through: ?facts.ThroughWrite = if (self.optionalInner(ir.As.value(o.cond))) |inner| self.facts.readsThroughWrite(sym, inner) else null;
+        // A binding of the Text inside, or of the Text a write view inside
+        // points at, is its bytes.
+        const inner = self.optionalInner(ir.As.value(o.cond));
+        const bytes = if (inner) |i| self.facts.viewsTextBytes(i, ty) else false;
+        const through_ptr = bytes and self.facts.types.get(inner.?) == .write_view and !o.value;
         if (o.copy) {
             const copy = try self.hiddenStorage(o.cond, .as_copy, .copy, .{ .copy_of = o.tmp });
             try self.line("var {s} = {s};", .{ copy, o.tmp });
             try self.poisonAtExit(copy);
+            if (bytes) return self.line("const {s} = {s}{s}.bytes();", .{ local.zig_name, copy, if (through_ptr) ".*" else "" });
             if (through) |t| return self.line("const {s} = {s}{s};", .{ local.zig_name, copy, if (t == .value) ".*" else "" });
             return self.line("const {s} = &{s};", .{ local.zig_name, copy });
         }
+        if (bytes) return self.line("const {s} = {s}{s}.bytes();", .{ local.zig_name, o.tmp, if (through_ptr) ".*" else "" });
         if (through) |t| return self.line("const {s} = {s}.*{s};", .{ local.zig_name, o.tmp, if (t == .value) ".*" else "" });
         try self.line("const {s} = {s}{s};", .{ local.zig_name, o.tmp, if (local.is_ptr) "" else ".*" });
     }
@@ -3895,8 +3926,13 @@ pub const Emitter = struct {
                             try self.w.writeAll(".cloneWeak()");
                         },
                     },
-                    // `+t` of a Text copies its bytes.
-                    .text => {
+                    // `+t` of a Text copies its bytes, and `+s` of a `String`
+                    // view makes a Text of them.
+                    .text => if (self.facts.unwrapViews(ty) == self.facts.types.string_id) {
+                        try self.w.writeAll("rig.Text.of(.{ ");
+                        try self.emitBare(operand);
+                        try self.w.writeAll(" })");
+                    } else {
                         try self.emitExpr(operand);
                         try self.w.writeAll(".clone()");
                     },
@@ -5934,7 +5970,11 @@ pub const Emitter = struct {
                     try self.w.writeAll(".cloneWeak()");
                 },
             },
-            .text, .deep => {
+            .text, .deep => if (self.facts.unwrapViews(ty) == self.facts.types.string_id) {
+                try self.w.writeAll("rig.Text.of(.{ ");
+                try self.writeLocalPlace(outer);
+                try self.w.writeAll(" })");
+            } else {
                 try self.w.writeAll("rig.cloneValue(&(");
                 try self.writeLocalPlace(outer);
                 try self.w.writeAll("))");
@@ -5952,6 +5992,11 @@ pub const Emitter = struct {
         if (outer.stack_closure) if (self.facts.callableFn(ty)) |f| {
             try self.emitCallableTy("FnRef", f);
             return self.w.print(".of(@TypeOf({s}), &{s})", .{ outer.zig_name, outer.zig_name });
+        };
+        // A read view of a Text is its bytes.
+        if (outer.ty) |t| if (self.facts.viewsTextBytes(self.facts.unwrapViews(t), ty)) {
+            try self.writeLocalPlace(outer);
+            return self.w.writeAll(".bytes()");
         };
         const outer_is_view = if (outer.ty) |t| switch (self.facts.types.get(t)) {
             .read_view, .write_view => true,

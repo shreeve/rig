@@ -4468,6 +4468,10 @@ const Checker = struct {
             try self.errAt(operand, "cannot lend a `{s}` to write: its elements are read-only; take a writable slice of the array or Vec it views with `!xs[a..b]`", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
+        if (kind == .write and inner == self.t().string_id) {
+            try self.errAt(operand, "cannot lend `{s}` to write: it holds a read view of text, `String`, which is pointed at other text by assigning to it; to change text in place, hold a `Text`", .{self.sourceText(operand)});
+            return self.t().invalid_id;
+        }
         if (kind == .write and self.ctx.types.get(inner) == .read_view) {
             const handle_hint: []const u8 = if (self.lendsHandle(place)) "; take a write view, or share a handle of your own with `+h`" else "";
             try self.errAt(operand, "cannot lend to write through a read view `{s}`{s}{s}", .{ try self.tyName(inner), try self.readMatchHint(place.sym), handle_hint });
@@ -4492,11 +4496,23 @@ const Checker = struct {
             // (A write view of a `?T` was rejected above.)
             .read_view => return inner,
             .write_view => |base| {
-                return if (kind == .write) inner else self.ctx.intern(.{ .read_view = base });
+                if (kind == .write) return inner;
+                return self.readViewOf(e, base);
             },
             else => {},
         }
-        return self.ctx.intern(if (kind == .read) Type{ .read_view = inner } else Type{ .write_view = inner });
+        return if (kind == .read) self.readViewOf(e, inner) else self.ctx.intern(.{ .write_view = inner });
+    }
+
+    /// The read view `?x` of a value of type `base`, lent by the lend
+    /// table's rows. The view of a `Text` is its bytes, `String`, so
+    /// the lend records its `text` row.
+    fn readViewOf(self: *Checker, e: Sexp, base: TypeId) Error!TypeId {
+        const view = try self.ctx.intern(.{ .read_view = base });
+        if (base == self.t().text_id) {
+            if (sema.lendsAs(self.ctx, base, .read, view)) |lend| try self.ctx.recordLend(e, lend);
+        }
+        return view;
     }
 
     /// Whether a lend (`?` or `!`, `kind`) of `operand` may stand, by a
@@ -4980,7 +4996,8 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         }
-        return value;
+        // A `String` view clones into the `Text` that owns a copy of its bytes.
+        return if (value == self.t().string_id) self.t().text_id else value;
     }
 
     /// The value an operator reads from `e` (`operandValue`).
@@ -7076,6 +7093,10 @@ const Checker = struct {
         /// exactly: written through, or the argument of a generic type,
         /// an array, a handle, or a function type.
         held_ty: TypeId = sema.type_invalid,
+        /// `ty` is `String` only because a `?T` met a `String`, the read
+        /// view of a `Text`: the parameter is that `String` or the `Text`
+        /// it views, and a `Text` another argument gives it settles it.
+        text_view: bool = false,
     };
 
     /// A literal argument where a type parameter goes: it gives the
@@ -7098,6 +7119,8 @@ const Checker = struct {
         poisoned: bool = false,
         /// How many held places `bindArg` is inside (`Bound.held`).
         exact: u8 = 0,
+        /// `bindArg` is matching the `T` of a `?T` against a `String`.
+        viewing: bool = false,
     };
 
     /// Match each argument's type against the field or parameter it
@@ -7199,6 +7222,12 @@ const Checker = struct {
                 b.conflict = sema.type_invalid;
             }
         }
+        // A `T` that only `?T`s met a `String` is the `Text` it views:
+        // a read view of `T` is that `String`.
+        for (inf.bound) |*b| if (b.text_view and b.conflict == sema.type_invalid) {
+            b.ty = self.t().text_id;
+            b.text_view = false;
+        };
         return inf;
     }
 
@@ -7599,6 +7628,15 @@ const Checker = struct {
                 if (b.ty == sema.type_invalid) {
                     b.ty = value;
                     b.arg = arg;
+                    b.text_view = inf.viewing;
+                } else if (b.ty == value) {
+                    if (!inf.viewing) b.text_view = false;
+                } else if (b.ty == self.t().text_id and inf.viewing and value == self.t().string_id) {
+                    // A `?T` meets the read view of the `Text` that `T` is.
+                } else if (b.text_view and value == self.t().text_id) {
+                    b.ty = value;
+                    b.arg = arg;
+                    b.text_view = false;
                 } else if (b.ty != value and b.conflict == sema.type_invalid) {
                     b.conflict = value;
                     b.conflict_arg = arg;
@@ -7611,6 +7649,9 @@ const Checker = struct {
                 const held: u8 = @intFromBool(self.ctx.types.get(pattern) == .write_view);
                 inf.exact += held;
                 defer inf.exact -= held;
+                const viewing = inf.viewing;
+                defer inf.viewing = viewing;
+                inf.viewing = at == .string and self.ctx.types.get(pattern) == .read_view;
                 try self.bindArg(inf, p, switch (at) {
                     .read_view, .write_view => |inner| inner,
                     else => actual,
@@ -11196,6 +11237,11 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .write_view => |base| return if (kind == .write) ty else self.ctx.intern(.{ .read_view = base }),
+            .string => {
+                if (kind == .read) return ty;
+                try self.err(pos, "cannot lend `{s}` to write: it holds a read view of text, `String`, which is pointed at other text by assigning to it; to change text in place, hold a `Text`", .{name});
+                return self.t().invalid_id;
+            },
             .slice => if (kind == .write) {
                 try self.err(pos, "cannot lend a `{s}` to write: its elements are read-only; capture it with `|?{s}|`", .{ try self.tyName(ty), name });
                 return self.t().invalid_id;
@@ -11296,7 +11342,9 @@ const Checker = struct {
             else => {},
         }
         return switch (sema.cloneable(self.ctx, ty)) {
-            .copy, .bump, .text, .deep => ty,
+            .copy, .bump, .deep => ty,
+            // A `String` view clones into the `Text` that owns its bytes.
+            .text => if (ty == self.t().string_id) self.t().text_id else ty,
             .depends => if (try self.cannotCopy(ty, pos, "copies into a closure a value")) null else ty,
             .no => null,
         };

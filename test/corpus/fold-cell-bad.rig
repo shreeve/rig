@@ -1,0 +1,13 @@
+# The fold: a String that views a Text slot (cell-bad): rejected, or runs sanitizer-clean.
+enum E
+  full(t: Text)
+  empty
+
+struct H
+  t: Text
+
+sub main()
+  t = Text("a")
+  c: *Cell[String] = *Cell("x")
+  !c.set(?t)
+  print(c.get())

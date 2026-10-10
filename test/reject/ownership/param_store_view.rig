@@ -1,12 +1,11 @@
-# `replace` stores a String viewing `b` in parameter `a`, which keeps
-# `b` lent for the rest of the body.
+# Storing a String viewing `b` in a field of parameter `a` keeps `b`
+# lent for the rest of the body.
 
 struct Holder
   s: String
 
 fun f(a: !Holder, b: !Text) -> Int
-  old = replace(!a.s, ?b[0..1])
-  print(old)
+  a.s = ?b[0..1]
   for _ in 0..100
     !b.add("abcdefgh")
   print(a.s)
@@ -19,4 +18,4 @@ sub main()
   print(f(!h, !w))
 
 # errors: 1
-# error: 11:5: cannot lend `b` to write while a read loan is live
+# error: 10:5: cannot lend `b` to write while a read loan is live

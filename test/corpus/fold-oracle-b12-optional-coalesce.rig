@@ -1,0 +1,9 @@
+# bad: if ?o as p ... else "d" value, then o = none
+sub main()
+  o: Text? = Text("abc")
+  s: String = if ?o as p
+    p
+  else
+    "d"
+  o = none
+  print(s)

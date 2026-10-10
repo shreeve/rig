@@ -14,6 +14,9 @@ struct S
 struct H
   r: String
 
+  sub set(!self, s: String)
+    self.r = s
+
   drop(!self)
     print("dropH sees", self.r)
 
@@ -24,5 +27,5 @@ fun mkh() -> H
   H(r: "init")
 
 sub main()
-  _ = replace(!mkh().r, ?mk(1).t)
+  !mkh().set(?mk(1).t)
   print("end")

@@ -1,0 +1,24 @@
+# The fold: a String that views a Text slot (ctl-match-bare): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+enum E
+  full(t: Text)
+  empty
+
+struct S
+  name: String
+
+struct H
+  t: Text
+
+fun id[T](x: ?T) -> ?T from x
+  x
+
+fun first(v: ?Vec[Text]) -> ?Text from v
+  ?v[0]
+
+sub main()
+  o = E.full(t: Text("hello"))
+  keep: String = ""
+  match ?o
+    .full(p) => keep = p
+    .empty => pass
+  print(keep)

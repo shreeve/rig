@@ -63,12 +63,14 @@ fn needsDrop(comptime T: type) bool {
 
 /// How a read view `?T` is held: a copy of a scalar or a view (a
 /// number, `Bool`, a plain enum, an error, a slice or `String`, a
-/// function, or an optional of one), a pointer to anything else. The
+/// function, or an optional of one), a pointer to anything else, and
+/// for a `Text` its bytes, the one text view. The
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments. A type argument never holds a Cell (a Cell lives
 /// only behind a shared handle), so the pointer is read-only.
 pub fn ReadView(comptime T: type) type {
+    if (T == Text) return []const u8;
     return if (needsDrop(T) or !copiedByReadView(T)) *const T else T;
 }
 
@@ -82,11 +84,19 @@ fn copiedByReadView(comptime T: type) bool {
 
 /// A read view of what `ptr` points to.
 pub fn lend(ptr: anytype) ReadView(@TypeOf(ptr.*)) {
+    if (comptime @TypeOf(ptr.*) == Text) return ptr.bytes();
     return if (comptime ReadView(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
 }
 
+/// What a read view `?T` reaches: the `T`, and for a `Text` its bytes,
+/// which is all a read view of one holds.
+fn Reached(comptime T: type) type {
+    return if (T == Text) []const u8 else T;
+}
+
 /// The `T` a read view `?T` reaches.
-pub fn viewed(comptime T: type, view: ReadView(T)) T {
+pub fn viewed(comptime T: type, view: ReadView(T)) Reached(T) {
+    if (comptime T == Text) return view;
     return if (comptime ReadView(T) == T) view else view.*;
 }
 
@@ -100,7 +110,8 @@ pub fn poison(ptr: anytype) void {
 
 /// The `T` a read view `?T`, held where `view` points, reaches:
 /// the value itself when the view is a pointer, else the view's copy.
-pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const T {
+pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const Reached(T) {
+    if (comptime T == Text) return view;
     return if (comptime ReadView(T) == T) view else view.*;
 }
 

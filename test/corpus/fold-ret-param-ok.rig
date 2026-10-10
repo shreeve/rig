@@ -1,0 +1,14 @@
+# The fold: a String that views a Text slot (ret-param-ok): rejected, or runs sanitizer-clean.
+enum E
+  full(t: Text)
+  empty
+
+struct H
+  t: Text
+
+fun f(t: ?Text) -> String
+  t
+
+sub main()
+  o = Text("a")
+  print(f(?o))

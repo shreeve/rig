@@ -1,0 +1,16 @@
+# The fold: a String that views a Text slot (while-as): rejected, or runs sanitizer-clean.
+enum E
+  full(t: Text)
+  empty
+
+struct H
+  t: Text
+
+sub main()
+  o: Text? = Text("a")
+  keep: String = ""
+  while ?o as p
+    keep = p
+    break
+  o = none
+  print(keep)

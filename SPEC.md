@@ -244,6 +244,15 @@ long as the program ([Static](#static)); one taken from a `Text`
 UTF-8 by convention, and nothing checks it: lengths and indexes count
 bytes, and a slice checks only its bounds.
 
+There is one view of text. The read view of a `Text` is its bytes, a
+`String`: `?t`, a loop or pattern binding of a `Text` element, a
+generic `?T` at `T = Text`, and a type written `?Text` are all
+`String`s, and a read view of a `String` is that `String` (`?s`).
+`+s` of a `String` copies its bytes into a new `Text`. A `String` is a
+view, so nothing lends a `String` place to write, `swap` and `replace`
+of one included: assign to the place to point it at other text, or
+hold a `Text` to change text in place.
+
 #### Static
 
 A `Static` is a `String` known to view only bytes that live for the
@@ -271,7 +280,7 @@ holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
 is `"Static"`, but a type parameter bound to a `Static` is named
 `"String"`, since both are one Zig type. It never converts
 where the text can be written: a place of type `Static` holds only a
-`Static`, a `!Static` is not a `!String`, and a binding that holds a
+`Static`, a `String` is not written into one, and a binding that holds a
 literal is a `Static` (`s = "a"`), so a `String` is assigned to it only
 when it is declared `s: String = "a"`.
 
@@ -4517,18 +4526,19 @@ sub main()
 was there, owned; `swap(!a, !b)` exchanges the values of two places of
 one type, which may be different fields of one value
 (`swap(!t.left, !t.right)`). The places are lent to write for the call,
-and the values hold no `?T`, `!T`, or slice. Like `print`, both are names a
-declaration may hide.
+and the values hold no `?T`, `!T`, or slice. A place that holds a view, a
+`String` among them, is not lent to write: assign to it to point it at
+other text. Like `print`, both are names a declaration may hide.
 
 ```rig
 struct Pair
-  left: String
-  right: String
+  left: Text
+  right: Text
 
 sub main()
-  p = Pair(left: "a", right: "b")
+  p = Pair(left: Text("a"), right: Text("b"))
   swap(!p.left, !p.right)
-  old = replace(!p.left, "c")
+  old = replace(!p.left, Text("c"))
   print(p, old)
 ```
 
@@ -5135,12 +5145,12 @@ Text. A `String` is the view of text; a Text is where text is built.
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
-| `?t` where a String or `String?` is expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
-| a view `p: ?Text` (a name, or a call's result) where a String is expected | its bytes; `p[a..b]` is a view of them, with no further `?` |
+| `?t`, with or without a String or `String?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
+| a view `p: ?Text` (a name, or a call's result) | a `String`: `p[a..b]` is a view of its bytes, with no further `?` |
 | a write view `w: !Text` (also of a `*Text` or a `Box[Text]`) | `?w[a..b]`, which lends `w`, as a slice of the Text itself does: `w` may add to the Text or replace it |
 | `for b in t`, `for b in ?t` | its bytes, as `U8`s |
 | `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
-| `+t` | a new Text holding the same bytes |
+| `+t`, `+s` of a String | a new Text holding the same bytes |
 | `t == u`, `t == s` | compares its bytes with a Text's or a String's; a boxed Text too |
 
 Each value is written as `print` writes it at the top level: a String

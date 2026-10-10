@@ -1,0 +1,11 @@
+# bad: if ?h.o as p, keep bytes, reassign holder
+struct H
+  o: Text?
+
+sub main()
+  h = H(o: Text("abc"))
+  keep: String = ""
+  if ?h.o as p
+    keep = p
+  h = H(o: none)
+  print(keep)

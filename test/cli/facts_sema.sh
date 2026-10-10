@@ -29,7 +29,7 @@ sub main()
     .nothing => pass
 EOF2
 "$RIG" check --facts=sema payload.rig >payload.txt 2>err.txt || fail "rig check --facts=sema payload.rig: $(cat err.txt)"
-expect_has "$(cat payload.txt)" 'payload_fields leaf 8:11-8:12 "v" ?Text' "a payload field's type at the instance"
+expect_has "$(cat payload.txt)" 'payload_fields leaf 8:11-8:12 "v" String' "a payload field's type at the instance"
 
 cat >bad.rig <<'EOF2'
 sub main()

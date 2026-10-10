@@ -224,6 +224,11 @@ pub const Facts = struct {
     }
     /// The bindings of a variant pattern, by field (a by-name pattern's
     /// in the order of the payload's fields).
+    /// The type of the field payload binding `b` binds, at the matched
+    /// instance.
+    pub fn payloadFieldOf(f: Facts, b: Sexp) ?TypeId {
+        return f.c().payloadFieldOf(b);
+    }
     pub fn payloadBindings(f: Facts, pattern: Sexp) ?[]const Sexp {
         return f.c().payloadBindings(pattern);
     }
@@ -271,6 +276,15 @@ pub const Facts = struct {
     /// Whether a read match's catch-all binding is captured by address.
     pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
         return storage.decided(f.c(), pattern, .catch_all_by_address);
+    }
+    /// Whether `if … as` binds the bytes of the Text a write view in the
+    /// optional points at.
+    pub fn optionalBindsTextBytes(f: Facts, cond: Sexp) bool {
+        return storage.optionalBindsTextBytes(f.c(), cond);
+    }
+    /// Whether a read `for` binds the bytes of each Text element.
+    pub fn loopBindsTextBytes(f: Facts, loop: Sexp) bool {
+        return storage.loopBindsTextBytes(f.c(), loop);
     }
     /// Whether a payload binding points at the field it binds.
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
@@ -528,6 +542,11 @@ pub const Facts = struct {
     /// (`sema.lendByValue`).
     pub fn lendByValue(f: Facts, inner: TypeId) bool {
         return sema.lendByValue(f.c(), inner);
+    }
+    /// Whether a view of type `view` of a slot of type `slot` is the bytes
+    /// of a Text (`sema.viewsTextBytes`).
+    pub fn viewsTextBytes(f: Facts, slot: TypeId, view: TypeId) bool {
+        return sema.viewsTextBytes(f.c(), slot, view);
     }
     /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {

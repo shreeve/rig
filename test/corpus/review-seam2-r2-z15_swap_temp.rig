@@ -34,6 +34,7 @@ fun wrap(h: !H) -> !H
 
 sub main()
   s = mk(1)
-  r: String = ?s.t
-  swap(!mkh().r, !r)
+  v: Vec[String] = Vec()
+  !v.push(?s.t)
+  swap(!mkh().rs, !v)
   print("end")

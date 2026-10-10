@@ -1,9 +1,7 @@
 # A slice of a read view of a Text (`?Text`, `?*Text`, `?Box[Text]`) is
 # a String of its own: the Text cannot change while the read view's loan
-# lives, which the String carries. A slice of a `!String` views the
-# String's bytes, which writing the String does not free. A slice of a
-# write view of a Text lends the view until its last use, after which
-# the view writes again.
+# lives, which the String carries. A slice of a write view of a Text
+# lends the view until its last use, after which the view writes again.
 # release
 
 fun word(s: String) -> String
@@ -40,11 +38,6 @@ sub main()
   print(x)
   !w.add("?")
   print(t)
-  v: String = ?t
-  ws = !v
-  y = word(ws[1..])
-  ws = "other"
-  print(y, v)
   write_param(!t)
 
 # oracle: write_param accept
@@ -56,6 +49,5 @@ sub main()
 # oxed bo
 # ello
 # hello?
-# ello? other
 # ello?
 # hello?! he

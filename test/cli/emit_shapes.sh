@@ -126,7 +126,7 @@ sub main()
   print(mks().pick(y: f(1), x: f(2)))
 EOF2
 out=$("$RIG" emit leaves.rig 2>/dev/null) || fail "rig emit leaves.rig"
-expect_has "$out" 'const r = (if (c) &a else &b).inner();' "branching receiver"
+expect_has "$out" 'const r: []const u8 = (if (c) &a else &b).inner();' "branching receiver"
 expect_has "$out" '__rig_recv_' "kept receiver evaluated first"
 grep -q '@as(S, (if' <<<"$out" && fail "a branching receiver copied: $out"
 grep -qE 'var __rig_(arg|recv)_' <<<"$out" && fail "a temporary copied into the call's block: $out"
@@ -225,4 +225,48 @@ out=$(RIG_SANITIZE=0 "$RIG" emit poison.rig 2>/dev/null) || fail "rig emit poiso
 grep -q 'rig.poison' <<<"$out" && fail "poisoned without the sanitizer: $out"
 out=$(RIG_SANITIZE=1 "$RIG" run poison.rig 2>&1) || fail "rig run poison.rig: $out"
 expect_eq "$out" "3 3" "poisoned program runs"
+
+# The read view of a Text is its bytes wherever it is bound: `?t`, a loop
+# over Text elements, a payload, an `as` binding, a capture, and a
+# generic `?T` at `T = Text`. No Zig names a pointer to a Text as a
+# view, and `+s` of a String makes a Text.
+cat >textview.rig <<'EOF2'
+enum Slot
+  full(item: Text)
+  empty
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b
+
+fun size(s: String) -> Int
+  s.len
+
+sub main()
+  t = Text("abc")
+  v = ?t
+  names: Vec[Text] = Vec()
+  !names.push(Text("x"))
+  for x in ?names
+    print(size(?x))
+  o: Text? = Text("o")
+  if ?o as p
+    print(size(?p))
+  slot = Slot.full(item: Text("s"))
+  match ?slot
+    .full(item) => print(size(?item))
+    .empty => pass
+  show = |?t| print(t)
+  show()
+  u = +v
+  print(same(?t, ?t), u, v)
+EOF2
+out=$("$RIG" emit textview.rig 2>/dev/null) || fail "rig emit textview.rig"
+expect_has "$out" 'const v: []const u8 = t.bytes();' "?t is the Text's bytes"
+expect_has "$out" 'const x = __rig_elem_' "a loop binds each element's bytes"
+expect_has "$out" 'const p = __rig_opt_' "an as binding is the bytes"
+expect_has "$out" 'const item = __rig_payload_' "a payload binding is the bytes"
+expect_has "$out" '.cap_t = t.bytes()' "a capture is the bytes"
+expect_has "$out" 'same(rig.Text, t.bytes(), t.bytes())' "a generic ?T at a Text is the bytes"
+expect_has "$out" 'var u = rig.Text.of(.{ v });' "+s of a String makes a Text"
+grep -q '\*const rig.Text' <<<"$out" && fail "a pointer view of a Text: $out"
 true

@@ -5,7 +5,7 @@ sub keep(c: !Cell[String], s: String)
   !c.set(s)
 
 fun later(s: String) -> *sub()
-  *|+s| print(s)
+  *|?s| print(s)
 
 sub main()
   c: *Cell[String] = *Cell("a")
@@ -15,4 +15,4 @@ sub main()
   print(c.get())
 
 # error: 5:10: cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan
-# error: 8:6: an owned closure cannot capture `s`, which holds a view
+# error: 8:6: an owned closure cannot capture a view of `s`

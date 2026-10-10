@@ -1,0 +1,84 @@
+# The read view of a Text is its bytes, a String: one text view, whether
+# written `?t`, bound by a loop or a pattern, passed through a generic
+# `?T`, or captured. A `?Text` written as a type is that String, so a
+# literal goes where one is expected, and `+v` of a String makes a Text.
+
+struct Item
+  name: Text
+
+enum Slot
+  full(item: Text)
+  empty
+
+fun size(s: String) -> Int
+  s.len
+
+fun id[T](x: T) -> T
+  x
+
+fun first[T](xs: []T) -> T
+  xs[0]
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b
+
+fun label(s: ?Text) -> String
+  s
+
+fun shout(s: String) -> Text
+  v = +s
+  !v.add("!")
+  v
+
+sub main()
+  t = Text("hello")
+  v = ?t
+  print(size(v), size(?t), size(label("lit")))
+
+  names: Vec[Text] = Vec()
+  !names.push(Text("ab"))
+  !names.push(Text("cde"))
+  for x in ?names
+    print(size(?x), x == "ab")
+  total = 0
+  for x, i in ?names
+    total += size(?x) + i
+  print(total)
+
+  o: Text? = Text("xyz")
+  if ?o as p
+    print(size(?p), p)
+
+  slot = Slot.full(item: Text("payload"))
+  match ?slot
+    .full(item) => print(size(?item), item)
+    .empty => pass
+
+  held = Item(name: Text("held"))
+  g: String = id(?held.name)
+  print(g, same(?t, ?t), same(?t, ?held.name))
+
+  show = |?t| print(t, size(?t))
+  show()
+
+  u = shout(v)
+  print(u, u.len, v)
+  print(v == "hello")
+  own = *|+v| print(v, v.len)
+  !t.add("?")
+  print(t)
+  own()
+
+# expect:
+# 5 5 3
+# 2 true
+# 3 false
+# 6
+# 3 xyz
+# 7 payload
+# held true false
+# hello 5
+# hello! 6 hello
+# true
+# hello?
+# hello 5

@@ -1,0 +1,13 @@
+# order (fold regression): a `?Text` parameter; main emitted &t (safe), the fold emits t.bytes() before grow
+fun grow(t: !Text) -> Int
+  for _ in 0..200
+    !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+  1
+
+sub show(s: ?Text, n: Int)
+  print(s.len, n)
+  print(s)
+
+sub main()
+  t = Text("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  show(n: grow(!t), s: ?t)
