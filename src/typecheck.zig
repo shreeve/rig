@@ -1844,7 +1844,7 @@ const Checker = struct {
                 self.outer_write = source;
                 self.outer_write_is_loop = true;
             }
-            const source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
+            var source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
                 try self.lendSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
@@ -1858,7 +1858,11 @@ const Checker = struct {
                 .read => .read,
                 .write => .write,
                 else => null,
-            } })) elem_poisoned = true;
+            } })) {
+                // Reported once: the loop has no source to walk.
+                source_ty = self.t().invalid_id;
+                elem_poisoned = true;
+            }
             // How the loop has a bare source (docs/INTERNALS.md, "Header
             // subjects"): a place is walked where it stands, as
             // `for x in ?p`; an array made here whose elements move is
