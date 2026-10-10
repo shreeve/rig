@@ -4095,3 +4095,9 @@ test/corpus/seam3-review1-i03_slice_box.rig main
 test/corpus/seam3-review1-i05_box_reassign.rig main
 test/corpus/seam3-review1-i07_cond_holder.rig main
 test/corpus/seam3-review1-i08_holder_in_tuple_array.rig main
+named.fun.string.decl main
+named.fun.qtext.decl main
+named.fun.slice.decl main
+named.method.string.decl main
+named.method.qtext.decl main
+named.method.slice.decl main
