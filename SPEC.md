@@ -266,7 +266,10 @@ nothing turns a `String` into a `Static`. A `Static` is read as a
 `String`, a returned or bound `String`, a `Static?` as a `String?`, a
 `[]Static` as a `[]String`, and in a branch, a `??`, or a list literal
 that mixes the two (their type is `String`). A generic `T` that a
-`Static` and a `String` both bind is the `String`. It never converts
+`Static` and a `String` both bind is the `String` (unless a place that
+holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
+is `"Static"`, but a type parameter bound to a `Static` is named
+`"String"`, since both are one Zig type. It never converts
 where the text can be written: a place of type `Static` holds only a
 `Static`, a `!Static` is not a `!String`, and a binding that holds a
 literal is a `Static` (`s = "a"`), so a `String` is assigned to it only

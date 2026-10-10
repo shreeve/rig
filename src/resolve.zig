@@ -2234,10 +2234,15 @@ fn sizedType(name: []const u8) ?Type {
 }
 
 /// Every built-in type a name spells, once each (`I64` is `Int`): the
-/// types `@name` of a type parameter names from a table (`emit`).
+/// types `@name` of a type parameter names from a table (`emit`), which
+/// is keyed by the Zig type. A `Static` is the Zig type of a `String`, so
+/// a type parameter bound to either is named `String`.
 pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const Type {
     var out: std.ArrayList(Type) = .empty;
-    for (primitive_type_names) |name| try out.append(a, ctx.types.get(primitiveTypeId(ctx, name).?));
+    for (primitive_type_names) |name| {
+        const ty = ctx.types.get(primitiveTypeId(ctx, name).?);
+        if (ty != .static) try out.append(a, ty);
+    }
     var buf: [4]u8 = undefined;
     for ("IUF") |prefix| for ([_]u8{ 8, 16, 32, 64, 128 }) |bits| {
         const ty = sizedType(std.fmt.bufPrint(&buf, "{c}{d}", .{ prefix, bits }) catch unreachable) orelse continue;

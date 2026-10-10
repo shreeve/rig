@@ -18,6 +18,9 @@ fun first_of(xs: []String) -> String
 fun pick[T](a: T, b: T, left: Bool) -> T
   a if left else b
 
+fun type_name[T]() -> String
+  @name(T)
+
 fun fallback(s: String?) -> String
   s ?? "none"
 
@@ -46,6 +49,7 @@ sub main()
   mixed = maybe ?? view
   print(mixed, (maybe ?? "same") == "same")
 
+  print(@name(Static), type_name[Static](), type_name[String]())
   part = lit[1..]
   sub_text = text.trim("  padded  ")
   print(part, sub_text, text.contains(lit, "i"), text.find(part, "t") ?? -1)
@@ -61,4 +65,5 @@ sub main()
 # none none from
 # default true false false false
 # from true
+# Static String String
 # it padded true 1
