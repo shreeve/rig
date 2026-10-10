@@ -2,11 +2,11 @@
 struct C
   c: Cell[Int]
 
-sub bump(v: ?Vec[C])
-  v[0].c.set(30)
+sub bump(v: !Vec[C])
+  !v[0].c.set(30)
 
 sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(3)))
-  bump(?v)
+  bump(!v)
   print(v[0].c.get())

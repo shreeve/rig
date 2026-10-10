@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct G[T]
   v: T
@@ -10,13 +10,13 @@ struct G[T]
   sub run(?self, f: sub(T))
     f(self.v)
 
-sub hitit(c: ?Counter)
-  c.hit()
+sub hitit(c: !Counter)
+  !c.hit()
 
 sub main()
   k = *Counter()
   g = G(v: ?k)
-  g.v.hit()
+  !g.v.hit()
   g.run(hitit)
   o: (?Counter)? = ?k
   if o as r

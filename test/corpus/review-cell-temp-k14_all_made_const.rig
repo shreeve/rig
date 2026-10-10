@@ -7,19 +7,19 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
-  fun me(?self) -> ?C
-    self.c.set(self.c.get() + 1)
+  fun me(!self) -> ?C
+    !self.c.set(self.c.get() + 1)
     self
 
 fun mko(n: Int) -> C?
   return none if n < 0
   C(c: Cell(n))
 
-fun bump(p: ?C) -> Int
-  p.c.set(p.c.get() + 10)
+fun bump(p: !C) -> Int
+  !p.c.set(p.c.get() + 10)
   p.c.get()
 
 sub run(k: Bool)

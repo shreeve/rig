@@ -3,8 +3,8 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 enum E
   has(x: C)
@@ -43,7 +43,7 @@ sub main()
   if o as w
     w.hit()
   if <o as w
-    w.hit()
+    !w.hit()
     print(w.c.get())
   f: E = .has(mk(30))
   match <f

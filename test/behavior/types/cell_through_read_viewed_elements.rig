@@ -11,12 +11,12 @@ struct H
   cs: Vec[*C]
 
 sub bump(a: ?[2]*C, s: []*C, v: ?Vec[*C], w: ?Vec[*Cell[Int]], m: ?Vec[Vec[*C]], h: ?H)
-  a[0].c.set(10)
-  s[0].c.set(20)
-  v[0].c.set(30)
-  w[0].set(40)
-  m[0][0].c.set(50)
-  h.cs[0].c.set(60)
+  !a[0].c.set(10)
+  !s[0].c.set(20)
+  !v[0].c.set(30)
+  !w[0].set(40)
+  !m[0][0].c.set(50)
+  !h.cs[0].c.set(60)
 
 sub main()
   a = [*C(c: Cell(1)), *C(c: Cell(2))]

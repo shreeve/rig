@@ -126,7 +126,7 @@ sub t1640()
 sub t4311()
   cr4311: Cell[I16] = Cell(32767)
   cmp4311: I16 = id_i16((-5))
-  print(cmp4311 == cr4311.replace(11), cr4311.replace(11) < cmp4311, cr4311.replace(11) >= cmp4311)
+  print(cmp4311 == (!cr4311).replace(11), (!cr4311).replace(11) < cmp4311, (!cr4311).replace(11) >= cmp4311)
 
 sub t2185()
   wb2185: Int = id_int((-22320))
@@ -139,14 +139,14 @@ sub t3517()
 
 sub t3231()
   cr3231: Cell[U64] = Cell(1)
-  op3231: U64? = cr3231.replace(0)
+  op3231: U64? = (!cr3231).replace(0)
   print(op3231, op3231 ?? 0)
 
 sub t1176()
   o1176: U16? = none
   flag1176 = rt_bool(true)
   cc1176: Cell[U16] = Cell(0)
-  cc1176.set((o1176 ?? (14 if flag1176 else 1)))
+  !cc1176.set((o1176 ?? (14 if flag1176 else 1)))
   print(cc1176.get())
 
 sub t4734()

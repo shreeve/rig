@@ -18,7 +18,7 @@ fun mk(k: Int) -> G[*C]
   G(items: <v, k: k)
 
 fun look(g: ?G[*C]) -> Int
-  g.items[0].c.set(g.items[0].c.get() + 1)
+  !g.items[0].c.set(g.items[0].c.get() + 1)
   g.items[0].c.get() + g.k
 
 fun first(v: ?Vec[G[*C]]) -> Int

@@ -1,14 +1,16 @@
 # `print` reads a Cell when it is called: a later argument that replaces
-# its Vec, dropping the old one, leaves the new Vec to print.
-fun reset(c: ?Cell[Vec[Int]]) -> Int
-  c.set(Vec())
+# its Vec through another handle, dropping the old one, leaves the new Vec
+# to print.
+fun reset(c: !Cell[Vec[Int]]) -> Int
+  !c.set(Vec())
   0
 
 sub main()
   c: *Cell[Vec[Int]] = *Cell(Vec())
   for i in 0..50
-    c.push(i * 3)
-  print(c, reset(?c))
+    !c.push(i * 3)
+  d = +c
+  print(c, reset(!d))
 
 # expect:
 # Cell(value: []) 0

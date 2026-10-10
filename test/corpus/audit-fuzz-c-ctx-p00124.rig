@@ -88,7 +88,7 @@ sub t1787()
 sub t404()
   const cst404: I16 = 8237
   cc404: Cell[I16] = Cell(0)
-  cc404.set(cst404)
+  !cc404.set(cst404)
   print(cc404.get())
 
 sub t425()

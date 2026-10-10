@@ -1,6 +1,6 @@
 # A method that reads its receiver keeps none of its arguments' views
-# in it (Core sentence 9: what changes through a read view is a Cell,
-# which holds no loan), so a key that dies each iteration is fine.
+# in it (Core sentence 4: nothing changes through a read view), so a key
+# that dies each iteration is fine.
 
 struct Box2
   label: String

@@ -20,19 +20,19 @@ struct V
   drop(!self)
     print("drop", self.c.len * 1000 + (self.c.get(0) ?? -1))
 
-  sub hit(?self)
-    self.c.push(1)
+  sub hit(!self)
+    !self.c.push(1)
 
-  fun bumped(?self) -> Int
-    self.c.push(1)
+  fun bumped(!self) -> Int
+    !self.c.push(1)
     self.c.len
 
-  fun me(?self) -> ?V
-    self.c.push(1)
+  fun me(!self) -> ?V
+    !self.c.push(1)
     self
 
   fun bumpw(!self) -> Int
-    self.c.push(1000)
+    !self.c.push(1000)
     self.c.len
 
 fun vec1(n: Int) -> Vec[Int]
@@ -65,12 +65,12 @@ struct WW
 fun mkww(n: Int) -> WW
   WW(t: V(c: Cell(vec1(n))))
 
-fun look(x: ?V) -> Int
-  x.c.push(10)
+fun look(x: !V) -> Int
+  !x.c.push(10)
   x.c.len
 
 fun poke(x: !V) -> Int
-  x.c.push(100)
+  !x.c.push(100)
   x.c.len
 
 fun show(x: ?V) -> Int

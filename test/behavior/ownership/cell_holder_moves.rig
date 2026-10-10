@@ -4,26 +4,26 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 fun take(c: *Counter) -> Int
-  c.hit()
+  !c.hit()
   c.hits.get()
 
 sub main()
   a = *Counter(hits: Cell(1))
   b = <a
-  b.hit()
+  !b.hit()
   print(take(<b))
   c = *Cell(10)
   d = <c
-  d.set(11)
+  !d.set(11)
   print(d.get())
   h = *Counter(hits: Cell(0))
   g = +h
-  g.hit()
-  h.hit()
+  !g.hit()
+  !h.hit()
   print(h.hits.get(), g.hits.get())
 
 # expect:

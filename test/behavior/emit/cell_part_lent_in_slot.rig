@@ -17,7 +17,7 @@ fun id(x: ?P) -> ?P
   x
 
 fun touch(x: ?P) -> ?P
-  x.c.set(x.c.get() + 10)
+  !x.c.set(x.c.get() + 10)
   x
 
 fun clobber(n: Int) -> Int

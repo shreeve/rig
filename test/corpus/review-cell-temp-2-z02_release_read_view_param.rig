@@ -10,16 +10,16 @@ fun build(n: Int) -> Vec[Int]
     !v.push(i)
   v
 
-fun look(x: ?Cell[Vec[Int]]) -> Int
-  x.push(10)
+fun look(x: !Cell[Vec[Int]]) -> Int
+  !x.push(10)
   x.len
 
 sub main()
   a: Cell[Vec[Int]] = Cell(build(1))
-  print(look(?a), a.len)
+  print(look(!a), a.len)
   print(look(?Cell(build(1))))
   b: Cell[Vec[Int]] = Cell(build(1))
-  print(look(?(<b)))
+  print(look(!(<b)))
 
 # expect:
 # 2 2

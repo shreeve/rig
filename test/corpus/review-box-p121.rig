@@ -3,11 +3,11 @@ struct C
 
 sub hit(o: ?C?)
   if o as x
-    x.hits.set(x.hits.get() + 1)
+    !x.hits.set(x.hits.get() + 1)
 
 sub hit2(o: ?C?)
   while o as x
-    x.hits.set(x.hits.get() + 1)
+    !x.hits.set(x.hits.get() + 1)
     break
 
 sub main()
@@ -15,7 +15,7 @@ sub main()
   hit(?o)
   hit2(?o)
   if ?o as y
-    y.hits.set(y.hits.get() + 10)
+    !y.hits.set(y.hits.get() + 10)
   if o as z
-    z.hits.set(z.hits.get() + 100)
+    !z.hits.set(z.hits.get() + 100)
   print(o)

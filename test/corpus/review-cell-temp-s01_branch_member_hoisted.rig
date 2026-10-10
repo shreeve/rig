@@ -14,8 +14,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hitn(?self, n: Int)
-    self.c.set(self.c.get() + n)
+  sub hitn(!self, n: Int)
+    !self.c.set(self.c.get() + n)
 
 struct H
   d: D
@@ -32,11 +32,11 @@ fun side(n: Int) -> Int
   print("side", n)
   n
 
-sub two(p: ?D, n: Int)
-  p.c.set(p.c.get() + n)
+sub two(p: !D, n: Int)
+  !p.c.set(p.c.get() + n)
 
-sub three(p: ?H, n: Int)
-  p.d.c.set(p.d.c.get() + n)
+sub three(p: !H, n: Int)
+  !p.d.c.set(p.d.c.get() + n)
 
 sub run(c: Bool)
   (mkh(1) if c else mkh(2)).d.hitn(side(5))

@@ -36,7 +36,7 @@ sub main()
     !keep.push(*Node(next: *Cell(none)))
     i += 1
   a = *Node(next: *Cell(none))
-  a.next.set(+a)
+  !a.next.set(+a)
   print(keep.len)
 EOF2
 

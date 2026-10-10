@@ -2,19 +2,18 @@
 # that holds a view of self, or a String of a Text it holds; and a Cell
 # method's arguments run after a hoisted receiver.
 #
-# oracle: C.wrap accept
 # oracle: C.opt accept
 # oracle: both accept
 struct C
   c: Cell[Int]
   pad: [8]Int
 
-  fun wrap(?self) -> V
-    self.c.set(self.c.get() + 1)
+  fun wrap(!self) -> V
+    !self.c.set(self.c.get() + 1)
     V(r: self)
 
-  fun opt(?self) -> (?C)?
-    self.c.set(self.c.get() + 1)
+  fun opt(!self) -> (?C)?
+    !self.c.set(self.c.get() + 1)
     self
 
 struct V

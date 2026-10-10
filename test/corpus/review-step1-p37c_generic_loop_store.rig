@@ -13,5 +13,5 @@ sub main()
   b: Box2[Counter] = Box2(item: none)
   grab(?a, !b)
   if !b.item as c
-    c.hits.set(9)
+    !c.hits.set(9)
   print(a[1].hits.get())

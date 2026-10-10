@@ -1,6 +1,6 @@
 sub main()
   cv: *Cell[Vec[String]] = *Cell(Vec())
-  cv.push("lit")
+  !cv.push("lit")
   keep = +cv
   if true
     t = Text("abcdefghijklmnop")

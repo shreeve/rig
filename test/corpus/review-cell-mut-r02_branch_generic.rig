@@ -3,8 +3,8 @@
 struct T
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 struct H[X]
   x: X
@@ -16,8 +16,8 @@ struct H[X]
 struct P[X]
   h: H[X]
 
-sub bump(t: ?T)
-  t.hit()
+sub bump(t: !T)
+  !t.hit()
 
 fun mkp[X](x: X) -> P[X]
   P(h: H(x: <x, n: 0))

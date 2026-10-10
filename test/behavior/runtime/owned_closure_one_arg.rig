@@ -4,7 +4,7 @@
 
 sub main()
   v: *Cell[Int] = *Cell(0)
-  cb: *sub(Int) = *|+v, a| v.set(a)
+  cb: *sub(Int) = *|+v, a| !v.set(a)
   cb(7)
   print(v.get())            # 7
   cb(42)

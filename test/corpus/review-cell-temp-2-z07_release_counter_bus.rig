@@ -8,12 +8,12 @@ struct C
   c: Cell[Int]
   log: Cell[Vec[Int]]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-    self.log.push(self.c.get())
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
+    !self.log.push(self.c.get())
 
-fun total(x: ?C) -> Int
-  x.hit()
+fun total(x: !C) -> Int
+  !x.hit()
   x.c.get() + x.log.len
 
 fun maybe(n: Int) -> Int?

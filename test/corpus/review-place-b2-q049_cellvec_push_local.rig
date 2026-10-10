@@ -1,5 +1,5 @@
 sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
-  c.push(1)
+  !c.push(1)
   c[0] = 5
   print(c[0])

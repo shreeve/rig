@@ -1,11 +1,11 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 sub bump(c: Counter)
-  c.hit()
+  !c.hit()
   print("param", c.hits.get())
 
 sub main()

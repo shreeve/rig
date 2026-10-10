@@ -2,7 +2,6 @@
 # temporaries and on branches beside a name's value.
 #
 # oracle: D.drop accept
-# oracle: En.hit accept
 # oracle: En.val accept
 # oracle: main accept
 error E
@@ -20,7 +19,7 @@ enum En
 
   sub hit(?self)
     match self
-      .one(d) => d.c.set(d.c.get() + 1)
+      .one(d) => (!d.c).set(d.c.get() + 1)
       .two(c) => c.set(c.get() + 2)
 
   fun val(?self) -> Int

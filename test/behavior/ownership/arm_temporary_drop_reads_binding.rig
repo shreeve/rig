@@ -35,10 +35,9 @@ struct HC
   drop(!self)
     print("drop hc", self.v.c.get(), self.c.get())
 
-  fun me(?self) -> ?HC
-    self.c.set(self.c.get() + 1)
-    self.v.c.set(self.v.c.get() + 10)
-    self
+  fun me(!self) -> Int
+    !self.c.set(self.c.get() + 1)
+    self.c.get()
 
 enum Bx
   has(p: P)
@@ -75,12 +74,20 @@ fun returned(b: ?Bx) -> Int
     .nothing => pass
   -1
 
+sub hc1(x: ?*D)
+  !x.c.set(x.c.get() + 10)
+  print("hc", (!(*HC(v: x, c: Cell(1)))).me(), x.c.get())
+
+sub hc2(x: ?*D)
+  !x.c.set(x.c.get() + 10)
+  print("hc2", (!(mkhc(x, -1) catch *HC(v: x, c: Cell(5)))).me())
+
 sub cells(b: ?Bd)
   match b
-    .has(x) => print("hc", (*HC(v: x, c: Cell(1))).me().c.get(), x.c.get())
+    .has(x) => hc1(x)
     .nothing => pass
   match b
-    .has(x) => print("hc2", (mkhc(x, -1) catch *HC(v: x, c: Cell(5))).me().c.get())
+    .has(x) => hc2(x)
     .nothing => pass
 
 sub main()

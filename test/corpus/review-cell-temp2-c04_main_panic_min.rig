@@ -11,8 +11,8 @@ error E
 struct D
   c: Cell[Int]
 
-  fun me(?self) -> ?D
-    self.c.set(self.c.get() + 1)
+  fun me(!self) -> ?D
+    !self.c.set(self.c.get() + 1)
     self
 
 struct WD

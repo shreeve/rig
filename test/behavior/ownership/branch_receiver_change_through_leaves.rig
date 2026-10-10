@@ -1,4 +1,4 @@
-# A `?self` method that changes its receiver through a Cell, called on a
+# A `!self` method that changes its receiver through a Cell, called on a
 # branch of shared handles, or on a field or element of one, reaches the
 # leaf the branch takes where it is, through `??` and `catch` too and when
 # the call's arguments are evaluated first: the change lands in that
@@ -12,12 +12,12 @@ struct Q
   c: Cell[Int]
   t: Text
 
-  fun bump(?self) -> Int
-    self.c.set(self.c.get() + 1)
+  fun bump(!self) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
-  fun bump2(?self, j: Int, k: Int) -> Int
-    self.c.set(self.c.get() + j)
+  fun bump2(!self, j: Int, k: Int) -> Int
+    !self.c.set(self.c.get() + j)
     self.c.get()
 
 struct H
@@ -44,24 +44,24 @@ fun fails(b: Bool) -> (*H)!
   mkh(100)
 
 fun first(o: (*H)?) -> Int?
-  o?.q.bump()
+  (!o?.q).bump()
 
 sub main()
   h1 = mkh(1)
   h2 = mkh(10)
   c = g(1) == 1
-  print((h1 if c else h2).q.bump())
-  print((h1 if c else h2).q.bump2(k: g(1), j: g(2)))
+  print((!(h1 if c else h2).q).bump())
+  print((!(h1 if c else h2).q).bump2(k: g(1), j: g(2)))
   qs = [mkq(1), mkq(2)]
   rs = [mkq(3), mkq(4)]
-  print((qs if c else rs)[0].bump())
-  print((qs if c else rs)[g(0)].bump2(g(2), g(1)))
-  print((qs if c else rs)[0].bump())
-  print((h1 if not c else h2).qs[1].bump())
-  print((h1 if not c else h2).qs[g(1)].bump2(g(2), g(1)))
+  print((!(qs if c else rs)[0]).bump())
+  print((!(qs if c else rs)[g(0)]).bump2(g(2), g(1)))
+  print((!(qs if c else rs)[0]).bump())
+  print((!(h1 if not c else h2).qs[1]).bump())
+  print((!(h1 if not c else h2).qs[g(1)]).bump2(g(2), g(1)))
   o = maybe(true)
-  print((o ?? h1).q.bump())
-  print((fails(true) catch h1).qs[0].bump())
+  print((!(o ?? h1).q).bump())
+  print((!(fails(true) catch h1).qs[0]).bump())
   print(first(maybe(true)) ?? 0)
   print(h1.q.c.get(), h1.qs[0].c.get(), h2.qs[1].c.get(), qs[0].c.get(), rs[0].c.get(), qs[0].t)
   if o as x

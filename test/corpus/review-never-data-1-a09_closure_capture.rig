@@ -1,14 +1,14 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 sub main()
   k = *Counter()
-  f = |?k| k.hit()
+  f = |?k| (!k).hit()
   f()
   f()
-  g: *sub() = *|+k| k.hit()
+  g: *sub() = *|+k| (!k).hit()
   g()
   print(k.hits.get())

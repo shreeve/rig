@@ -13,8 +13,8 @@ struct D
   drop(!self)
     print("drop", self.c.get(), self.n)
 
-  sub hit(?self, k: Int)
-    self.c.set(self.c.get() + k)
+  sub hit(!self, k: Int)
+    !self.c.set(self.c.get() + k)
 
   sub wr(!self, k: Int)
     self.n += k
@@ -35,7 +35,7 @@ sub run(c: Bool)
   !a.wr(side(3))
   a.hit(side(4))
   !v[0].wr(side(5))
-  v[0].hit(side(6))
+  !v[0].hit(side(6))
   (a if c else mkd(5)).hit(side(7))
   !(mkd(6) if c else mkd(7)).wr(side(8))
   (mkd(8) if c else mkd(9)).hit(side(9))

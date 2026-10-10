@@ -6,7 +6,7 @@ fun peek(b: ?Box[Counter]) -> Int
 
 sub main()
   b = Box(Counter(hits: Cell(0)))
-  b.hits.set(3)
+  !b.hits.set(3)
   print(peek(?b))
   c = <b.unbox()
   c.hits.set(4)

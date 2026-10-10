@@ -9,5 +9,5 @@ sub main()
   b = C(c: Cell(2))
   h = H(r: ?a)
   h.r = ?b
-  h.r.c.set(9)
+  !h.r.c.set(9)
   print(a.c.get(), b.c.get())

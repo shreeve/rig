@@ -7,5 +7,5 @@ struct V
 sub main()
   a = R(n: 1)
   s: Signal[V?] = Signal(none)
-  s.set(V(r: ?a))
+  !s.set(V(r: ?a))
   print("ok")

@@ -3,8 +3,8 @@ use std.random
 struct Counter
   hits: Cell[Int]
 
-fun bump(c: ?Counter) -> Int
-  c.hits.set(c.hits.get() + 1)
+fun bump(c: !Counter) -> Int
+  !c.hits.set(c.hits.get() + 1)
   c.hits.get()
 
 fun step(r: !random.Random) -> U64

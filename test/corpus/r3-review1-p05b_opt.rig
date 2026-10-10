@@ -3,7 +3,7 @@ struct Counter
 
 sub bump(c: ?Counter?)
   if c as k
-    k.hits.set(k.hits.get() + 1)
+    !k.hits.set(k.hits.get() + 1)
 
 sub main()
   o: Counter? = Counter(hits: Cell(0))

@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct Outer
   a: Counter
@@ -10,8 +10,8 @@ struct Outer
 
 sub main()
   h = *Outer(a: Counter(hits: Cell(5)), b: Counter())
-  h.a.hit()
-  h.b.hit()
+  !h.a.hit()
+  !h.b.hit()
   r = ?h.a
   r.hit()
   print(h.a.hits.get(), h.b.hits.get())

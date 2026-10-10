@@ -1,4 +1,4 @@
-# An optional handle to a value holding a Cell is lent by `if ?o as x`,
+# An optional handle to a value holding a Cell is lent by `if !o as x`,
 # not copied, so a change through the Cell reaches `o`. A write view a
 # call returns is bound as one, as `!o` is.
 
@@ -13,8 +13,8 @@ fun get(h: !R?) -> !R?
 
 sub main()
   o: (*C)? = *C(hits: Cell(0))
-  if ?o as y
-    y.hits.set(y.hits.get() + 1)
+  if !o as y
+    !y.hits.set(y.hits.get() + 1)
   print(o)
   h: R? = R(n: 1)
   if get(!h) as x

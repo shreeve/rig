@@ -9,19 +9,19 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
-  fun bumped(?self) -> Int
-    self.c.set(self.c.get() + 1)
+  fun bumped(!self) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
-  fun me(?self) -> ?D
-    self.c.set(self.c.get() + 1)
+  fun me(!self) -> ?D
+    !self.c.set(self.c.get() + 1)
     self
 
-  fun cp(?self) -> D
-    self.c.set(self.c.get() + 1)
+  fun cp(!self) -> D
+    !self.c.set(self.c.get() + 1)
     D(c: Cell(self.c.get() * 10))
 
 struct WW
@@ -41,12 +41,12 @@ fun mko(n: Int) -> D?
 fun mkww(n: Int) -> WW
   WW(t: mk(n))
 
-fun look(x: ?D) -> Int
-  x.c.set(x.c.get() + 10)
+fun look(x: !D) -> Int
+  !x.c.set(x.c.get() + 10)
   x.c.get()
 
 fun two(x: !D, n: Int) -> Int
-  x.c.set(x.c.get() + n)
+  !x.c.set(x.c.get() + n)
   x.c.get()
 
 fun rd(x: ?D, n: Int) -> Int
@@ -81,12 +81,12 @@ struct HC
   v: ?D
   c: Cell[Int]
 
-  fun me(?self) -> ?HC
-    self.c.set(self.c.get() + 1)
+  fun me(!self) -> ?HC
+    !self.c.set(self.c.get() + 1)
     self
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
     self.v.hit()
 
 fun mkhc(v: ?D, n: Int) -> HC!

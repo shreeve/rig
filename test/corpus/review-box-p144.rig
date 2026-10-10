@@ -5,8 +5,8 @@ struct P
   x: Int
   y: Int
 
-sub hit(c: ?C)
-  c.hits.set(c.hits.get() + 1)
+sub hit(c: !C)
+  !c.hits.set(c.hits.get() + 1)
 
 fun sum(p: ?P) -> Int
   p.x + p.y
@@ -25,8 +25,8 @@ fun ss(s: ?String) -> Int
 
 sub main()
   b = Box(value: C(hits: Cell(value: 0)))
-  hit(?b)
-  hit(?b)
+  hit(!b)
+  hit(!b)
   print(b.hits.get())
   p = Box(value: P(x: 1, y: 2))
   print(sum(?p))

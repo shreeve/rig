@@ -1,18 +1,18 @@
-# A Cell changed through a `?self` method and a `?T` parameter of a named
-# local, in a loop that leaves early: the change is made through a
-# mutable pointer, so an optimized build keeps every one.
+# A Cell changed by a marked call through a `!self` method and a `!T`
+# parameter of a named local, in a loop that leaves early: an optimized
+# build keeps every change.
 # release
 
 struct C
   c: Cell[Int]
   log: Cell[Vec[Int]]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
-    self.log.push(self.c.get())
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
+    !self.log.push(self.c.get())
 
-fun total(x: ?C) -> Int
-  x.hit()
+fun total(x: !C) -> Int
+  !x.hit()
   x.c.get() + x.log.len
 
 fun maybe(n: Int) -> Int?
@@ -23,8 +23,8 @@ sub main()
   k = *C(c: Cell(0), log: Cell(Vec()))
   s = 0
   for i in 0..10
-    k.hit()
-    s += total(?k) + (maybe(i) ?? continue)
+    !k.hit()
+    s += total(!k) + (maybe(i) ?? continue)
   print(k.c.get(), k.log.len, s)
 
 # expect:

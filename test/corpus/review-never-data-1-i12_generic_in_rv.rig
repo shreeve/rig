@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct O
   k: Counter
@@ -10,8 +10,8 @@ struct O
 sub look[T](x: ?T, f: sub(?T))
   f(x)
 
-sub hitit(c: ?Counter)
-  c.hit()
+sub hitit(c: !Counter)
+  !c.hit()
 
 sub main()
   o = *O(k: Counter())

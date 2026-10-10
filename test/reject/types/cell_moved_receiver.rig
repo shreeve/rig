@@ -1,5 +1,5 @@
 # A Cell's `set`, `replace`, and its Vec's `push`, `pop`, and `clear`
-# take their receiver as a read view, as any `?self` method does, so a
+# take their receiver lent to write, as any `!self` method does, so a
 # `*Cell` handle moved there with `<` is rejected: `<` would end the
 # binding for a call that only lends it.
 
@@ -16,9 +16,9 @@ sub main()
   y = (<m).replace(2)
   print(x ?? 0, y)
 
-# error: 8:8: method `push` takes its receiver as a read view; cannot move
-# error: 10:12: method `pop` takes its receiver as a read view; cannot move
-# error: 12:8: method `clear` takes its receiver as a read view; cannot move
-# error: 14:8: method `set` takes its receiver as a read view; cannot move
-# error: 16:12: method `replace` takes its receiver as a read view; cannot move
+# error: 8:8: method `push` needs its receiver lent to write, not moved
+# error: 10:12: method `pop` needs its receiver lent to write, not moved
+# error: 12:8: method `clear` needs its receiver lent to write, not moved
+# error: 14:8: method `set` needs its receiver lent to write, not moved
+# error: 16:12: method `replace` needs its receiver lent to write, not moved
 # errors: 5

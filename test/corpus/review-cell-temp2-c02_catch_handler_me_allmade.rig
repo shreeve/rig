@@ -7,8 +7,8 @@ error E
 struct N
   c: Cell[Int]
 
-  fun me(?self) -> ?N
-    self.c.set(self.c.get() + 1)
+  fun me(!self) -> ?N
+    !self.c.set(self.c.get() + 1)
     self
 
 fun mk(n: Int) -> N

@@ -5,8 +5,8 @@
 struct C
   c: Cell[Int]
 
-  fun hit(?self) -> Int
-    self.c.set(self.c.get() + 1)
+  fun hit(!self) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
 fun mkc(n: Int) -> C

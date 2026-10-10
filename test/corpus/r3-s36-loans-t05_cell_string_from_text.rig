@@ -3,5 +3,5 @@
 sub main()
   t = Text("abc")
   c: Cell[String] = Cell("x")
-  c.set(?t)
+  !c.set(?t)
   print(c.get())

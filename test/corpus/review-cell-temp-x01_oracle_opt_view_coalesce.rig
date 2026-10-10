@@ -5,8 +5,8 @@
 struct C
   c: Cell[Int]
 
-  fun opt(?self) -> (?C)?
-    self.c.set(self.c.get() + 1)
+  fun opt(!self) -> (?C)?
+    !self.c.set(self.c.get() + 1)
     self
 
 fun mkc(n: Int) -> C

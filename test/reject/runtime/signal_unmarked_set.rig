@@ -1,0 +1,13 @@
+# A Signal is shared like a Cell: `set` and `subscribe` change it, so
+# each is a marked call.
+
+sub main()
+  sig: *Signal[Int] = *Signal(0)
+  total: *Cell[Int] = *Cell(0)
+  sig.subscribe(*|~sig, +total| !total.set(total.get() + 1))
+  sig.set(1)
+  print(total.get())
+
+# error: 7:7: method `subscribe` needs its receiver lent to write; write `!sig.subscribe(*|~sig, +total| !total.set(total.get() + 1))`: changing a shared Cell is marked with `!`
+# error: 8:7: method `set` needs its receiver lent to write; write `!sig.set(1)`: changing a shared Cell is marked with `!`
+# errors: 2

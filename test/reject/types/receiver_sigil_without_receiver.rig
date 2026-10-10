@@ -19,7 +19,7 @@ sub main()
   a = !Point.origin()
   b = <Point.origin()
   log: Cell[Vec[Int]] = Cell(Vec())
-  !log.push(1)
+  !log.get(0)
   h = *Node(n: 1)
   w = ~h
   if !w.upgrade() as k
@@ -29,6 +29,6 @@ sub main()
 
 # error: 19:7: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`
 # error: 20:7: `origin` is called through its type or module and has no receiver; remove the `<`
-# error: 22:3: `push` changes a Cell through any path to it; remove the `!`
+# error: 22:3: `get` only reads the Cell; remove the `!`
 # error: 25:6: `upgrade` only reads the weak handle; remove the `!`
 # error: 28:9: `on` is a field holding a function, not a method with a receiver; remove the `!`

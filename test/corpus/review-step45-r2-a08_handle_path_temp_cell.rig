@@ -17,8 +17,8 @@ sub main()
   !v.push(E.a(x: C(c: Cell(1))))
   h = *S(v: <v)
   match h.v[idx(?Text("a"))]
-    .a(x) if x.c.get() == 1 => x.c.set(5)
-    .a(x) => x.c.set(6)
+    .a(x) if x.c.get() == 1 => (!x.c).set(5)
+    .a(x) => (!x.c).set(6)
     .b(n) => print(n)
   match h.v[0]
     .a(x) => print(x.c.get())

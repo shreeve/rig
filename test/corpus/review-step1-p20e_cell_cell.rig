@@ -11,5 +11,5 @@ sub main()
   print(b)
   h = *Cell(Counter(hits: Cell(1)))
   h2 = +h
-  old = h2.replace(Counter(hits: Cell(8)))
+  old = (!h2).replace(Counter(hits: Cell(8)))
   print(old.hits.get(), h)

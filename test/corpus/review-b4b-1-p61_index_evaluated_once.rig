@@ -7,8 +7,8 @@ enum E
 struct K
   n: Cell[Int]
 
-fun idx(k: ?K, s: ?Text) -> Int
-  k.n.set(k.n.get() + 1)
+fun idx(k: !K, s: ?Text) -> Int
+  !k.n.set(k.n.get() + 1)
   s.len - 1
 
 sub main()

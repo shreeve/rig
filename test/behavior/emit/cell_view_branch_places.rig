@@ -1,25 +1,24 @@
-# A `?self` method changes a Cell through a part of a value that branches
-# between shared handles names hold: each leaf's value is reached where
-# it is, through a mutable pointer, in debug and in an optimized build.
+# A `!self` method changes a Cell through a part of a value that branches
+# between lends of shared handles names hold: each leaf's value is reached
+# where it is, in debug and in an optimized build.
 # release
 
 struct N
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 struct W
   t: N
 
 sub go(k: Bool)
   w = *W(t: N(c: Cell(1)))
-  o: (*W)? = *W(t: N(c: Cell(2)))
+  o = *W(t: N(c: Cell(2)))
   for _ in 0..3
-    (w if k else o ?? w).t.hit()
+    !(!w if k else !o).t.hit()
   print(w.t.c.get())
-  if o as p
-    print(p.t.c.get())
+  print(o.t.c.get())
 
 sub main()
   go(true)

@@ -1,16 +1,16 @@
 struct W[T]
   c: Cell[Vec[T]]
 
-  sub add(?self, x: T)
-    self.c.push(x)
+  sub add(!self, x: T)
+    !self.c.push(x)
 
-sub fill[T](w: ?W[T], x: T, n: Int)
+sub fill[T](w: !W[T], x: T, n: Int)
   for _ in 0..n
-    w.add(x)
-    w.c.push(x)
+    !w.add(x)
+    !w.c.push(x)
 
 sub main()
   v: Vec[Int] = Vec()
   w = *W(c: Cell(<v))
-  fill(w, 3, 40)
+  fill(!w, 3, 40)
   print(w.c.len)

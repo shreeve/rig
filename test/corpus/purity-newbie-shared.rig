@@ -4,7 +4,7 @@ struct Clicker
   counter: *Cell[Int]
 
   sub click(?self)
-    self.counter.set(self.counter.get() + 1)
+    !self.counter.set(self.counter.get() + 1)
     print(self.name, "clicked; total now", self.counter.get())
 
 sub main()

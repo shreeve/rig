@@ -6,11 +6,11 @@ struct P
 
 sub main()
   ps: Cell[Vec[P]] = Cell(Vec())
-  ps.push(P(x: 1))
+  !ps.push(P(x: 1))
   r = ?ps[0]
   ps[0].x = 2
   ns: Cell[Vec[Int]] = Cell(Vec())
-  ns.push(1)
+  !ns.push(1)
   ns[0] += 1
   ns.len = 3
   print(r)

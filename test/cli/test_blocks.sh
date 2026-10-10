@@ -52,7 +52,7 @@ test "passes"
 
 test "leaks a cycle"
   a = *Node(next: *Cell(none))
-  a.next.set(+a)
+  !a.next.set(+a)
 
 test "fails with an error"
   print(risky(0)!)

@@ -113,7 +113,7 @@ sub t717()
 
 sub t198()
   cc198: Cell[U32] = Cell(0)
-  cc198.set((gsome(16) ?? 2808061775))
+  !cc198.set((gsome(16) ?? 2808061775))
   print(cc198.get())
 
 sub t781()

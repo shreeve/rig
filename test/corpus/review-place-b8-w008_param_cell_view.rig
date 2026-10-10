@@ -1,11 +1,11 @@
 struct P
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 sub f(p: P)
-  p.hit()
+  !p.hit()
 
 sub main()
   f(P(c: Cell(1)))

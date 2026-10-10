@@ -12,5 +12,5 @@ fun first(p: ?D) -> ?D?
 
 sub main()
   if first(?mkd(1)) as d
-    d.c.set(5)
+    !d.c.set(5)
     print(d.c.get())

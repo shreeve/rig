@@ -4,7 +4,7 @@ struct C
 
 sub bump(v: ?Vec[C])
   for x in v
-    x.c.set(x.c.get() + 1)
+    !x.c.set(x.c.get() + 1)
 
 sub main()
   v: Vec[C] = Vec()

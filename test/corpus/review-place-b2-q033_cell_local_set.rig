@@ -1,4 +1,4 @@
 sub main()
   c: Cell[Int] = Cell(1)
-  c.set(2)
+  !c.set(2)
   print(c.get())

@@ -762,8 +762,8 @@ body, or through a live value that views the holder (`holdsPastDrop`,
 Core sentence 6). A receiver that branches lends each leaf where it is instead
 (`receiverLeaves`). No temporary holds a Cell by value: a value that
 holds one is made only under `*` (Core sentence 9, `Checker.cellMadeAway`
-below), so a Cell a temporary reaches is behind a handle, and a change
-to it lands in the shared value, never in a statement's slot. A value
+below), so a Cell a temporary reaches is behind a handle, and a marked
+change to it lands in the shared value, never in a statement's slot. A value
 that branches, reached where its leaves are (`storage.reachesLeaf`), is
 reached through the address of the leaf it takes, one step at a time
 (`storage.leafStep`, through every branching form inside the value; a
@@ -938,8 +938,11 @@ must be writable, a temporary is never written, and without a view
 or handle on the way the binding it starts from must be one that may
 change (`requireBinding`). No field or element holds a write view
 (Core §5), so no path writes through one, lends one on, or
-passes one, and a Cell's members need no access: a Cell lives behind
-a shared handle and changes through any path.
+passes one. A Cell's members take `!self`, so a marked call on one is a
+lend to write like any other; `lendsMarked` and `lendsHandle` say when that
+lend writes nothing of what holds the handle it reaches (a handle is lent,
+not rebound, so its binding need not be writable, and a read view or a
+slice that holds it is not written).
 
 Types are interned in a `TypeStore`, so two `TypeId`s are equal exactly
 when the types are. `unknown` and `invalid` are poison: they appear only
@@ -1228,7 +1231,8 @@ emitter ask these, never a predicate built for another question:
 | `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, Vec, Box, Text, or owned closure |
 | `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
 | `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
-| `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a Vec's or Box's buffer): a value of it lives only behind a shared handle (below), and emit holds a read view of one as a pointer |
+| `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a Vec's or Box's buffer): a value of it lives only behind a shared handle (below) |
+| `changesByMark` | a `Cell`, a `Signal`, or a value that holds a Cell by value: what a write lend reaches through a `*`, by a marked call (below). A write view of such a value changes its Cells and Signals only; the checker blocks every other write through it as one through a shared handle |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
@@ -1279,10 +1283,24 @@ holds one) unless it is the operand of `*` (`shared_operand`), a field
 argument of a user struct's or enum's constructor (`cell_home`, set by
 `checkFieldArgs`; never a built-in generic's value), or a field's
 default. Desugared, a Cell is always `*Cell(v)` or a field of a value
-made by `*S(...)`: every path to it passes through a shared handle, so a
-change through a read view of it is a change to shared storage, and no
+made by `*S(...)`: every path to it passes through a shared handle, and no
 copy, move, or temporary of a value holding a Cell exists for the
 checkers or emit to reason about.
+
+**A marked call on a Cell.** `Cell`'s and `Signal`'s changing members take
+`!self` (`resolve.registerBuiltins`), and a `Cell[Vec[T]]`'s `push`, `pop`,
+and `clear` and element assignment are marked the same way, so the
+receiver-sigil rule is the whole enforcement: `!c.set(v)` is `set` of the
+write view `!Cell[T]` that the lend table gives a handle, a `*T` lending
+its `T` to write when `T` changes by a mark (`sema.lendsAs`,
+`sema.changesByMark`). The lend is of the handle `c`: it records a write
+loan on the binding `c`, as `!v.push(x)` does on `v`, and no loan on the
+shared Cell, since another handle to it is another name. So no loan rule
+has a case for a Cell: a view of `c` held across the mark conflicts, and a
+view of another handle does not. A write view of a value that holds a Cell
+reaches shared storage, so `placeOf` blocks every write through it but a
+lend of a Cell or Signal (`requireAccess`). A read view changes nothing,
+so a read view of a Cell holder is a `*const T` in the emitted Zig.
 
 Sema's job includes everything emit cannot lower: a construct the
 backend cannot express yet is rejected with a diagnostic that says so.
@@ -1598,8 +1616,9 @@ holds what it may be and what its owning fields and elements are read
 from (`holdBranchReads`). Desugared, each is the read held as a view:
 `a == grow(!a)` is `r = ?a` then `r == grow(!a)`, which sentence 5
 rejects.
-A later argument lent to read can still change a Cell inside it, so the call
-must read the place when it runs: `print` takes such a place by
+A later argument can still change a Cell inside it, through another handle
+(`print(c, grow(!d))` with `d = +c`), so the call must read the place when
+it runs: `print` takes such a place by
 address (`Emitter.printsByAddress`). Plain data is copied whole when it
 is read and leaves none, so `print(v.len, grow(!v))` is accepted. A
 `?T` or `!T` parameter holds an
@@ -2268,8 +2287,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   immutable. Any other `?T` (a struct, an array, an enum with
   payloads) is a pointer, since a copy of a value with drop glue
   would be dropped with whatever holds it, and a `Cell` can change
-  while it is lent: a `*const T`, or a `*T` when `T` holds a Cell by
-  value (below). In a generic type, where that depends on the type
+  while it is lent: a `*const T`. In a generic type, where that depends on the type
   arguments (`?T`, `?Self`), the view is a
   `rig.ReadView(T)`, which applies the same rule to each instance.
   The rule is `sema.lendByValue`, which typecheck also uses to
@@ -2284,21 +2302,17 @@ symbols); a query that decides more than that belongs in `Pending`.
   memory a `*T` points to (`rig.RcBox(T)`), as a `Cell[T]`'s value or
   a field of a value made by `*S(...)`, and no binding, parameter,
   temporary, slot, element, or type argument holds one. A Cell changes
-  through any path to it, a read view included, and Zig treats a write
-  through a `*const T` as undefined behavior (LLVM marks a `*const`
-  parameter `readonly`). So a read view of a type that holds a Cell by
-  value (`?T`, `?self`, a stored `?T` field, a `|?x|` capture) is a
-  mutable pointer, `*T`: `emitViewPtrTy` asks `Facts.holdsCellByValue`,
-  and a write view's pointer is mutable anyway. The checker still
-  treats `?x` as a read lend: only the Zig pointer's mutability changes.
+  only by a marked call, which is a call on the Cell's address
+  (`(&x.c).set(v)`) through a pointer that is mutable because a write
+  view's is, so a read view of a value that holds a Cell is a `*const T`
+  like any other, and a site that would write through one is a Zig
+  compile error, never undefined behavior (a unit test checks that
+  neither the emitter nor the runtime casts constness away). A write view
+  of a handle (`!h`) points at the handle: member access on it
+  dereferences it before the handle's `.value` (`Emitter.writeReach`).
   A type argument never holds a Cell by value, so a generic type's
   `rig.ReadView(T)` is a read-only pointer, and a Vec element reached
-  through a read view is `constSlot(i)`, a `*const T`. A Cell change is
-  a call on the Cell's address (`(&x.c).set(v)`) through pointers that
-  were mutable all along, so neither the emitter nor the runtime casts
-  constness away (a unit test checks both sources), and a site that
-  would write through a const pointer is a Zig compile error, never
-  undefined behavior.
+  through a read view is `constSlot(i)`, a `*const T`.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
   `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`

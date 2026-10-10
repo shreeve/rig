@@ -856,10 +856,7 @@ pub const Checker = struct {
         const in_index = "in an index of a place it is lending";
         const held = heldReadClause(l.held_read);
         switch (access) {
-            .read => if (l.held_read != .none)
-                try self.err(pos, "cannot lend `{s}` to read, which holds a Cell, {s}", .{ name, held })
-            else
-                try self.err(pos, "cannot lend `{s}` to read while a write loan is live", .{name}),
+            .read => try self.err(pos, "cannot lend `{s}` to read while a write loan is live", .{name}),
             .write => if (l.place_hold)
                 try self.err(pos, "cannot lend `{s}` to write " ++ in_index, .{name})
             else if (l.held_read != .none)
@@ -4111,10 +4108,7 @@ pub const Checker = struct {
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         const ty = self.exprType(leaf) orelse return;
         if (!sema.readByAddress(ctx, ty)) return;
-        // A Cell behind a handle changes through any path to it: a leaf
-        // holding one, read in place, is held against any later view.
-        const kind: LoanKind = if (sema.holdsCellByValue(ctx, sema.unwrapViews(ctx, ty))) .write else .read;
-        try self.addTemp(.{ .root = place.root, .kind = kind, .pos = self.startOf(leaf), .held_read = reader });
+        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(leaf), .held_read = reader });
     }
 
     /// Walk `earlier`, then `later` while what `earlier` reads in place is

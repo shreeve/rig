@@ -18,8 +18,8 @@ fun mkf(n: Int) -> C!
   return E.bad if n < 0
   mkc()
 
-sub bump(p: ?C)
-  p.c.set(p.c.get() + 1)
+sub bump(p: !C)
+  !p.c.set(p.c.get() + 1)
 
 sub main()
   a = mkc()

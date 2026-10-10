@@ -1,5 +1,5 @@
 # A read view of a `Cell` (or of a value holding one) is held by
-# pointer, so it sees later `set`s however it was kept: returned from a
+# pointer, so it sees later `set`s through another handle, however it was kept: returned from a
 # function, stored in a view, an optional, an array, a generic field, or
 # an enum payload, or taken from a field of a viewed struct.
 
@@ -37,7 +37,8 @@ sub main()
   e: E = .held(c: ?cell)
   f = |c: ?Cell[Int]| c
   k = f(?cell)
-  cell.set(5)
+  other = +cell
+  !other.set(5)
   print(r.get(), v.c.get(), xs[0].get(), w.v.get(), k.get())
   if o as p
     print(p.get())

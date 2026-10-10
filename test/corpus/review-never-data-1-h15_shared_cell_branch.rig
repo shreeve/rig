@@ -4,25 +4,25 @@ struct S
 struct O
   s: S
 
-fun grow(s: ?S) -> Int
+fun grow(s: !S) -> Int
   for i in 0..100
-    s.c.push(i)
+    !s.c.push(i)
   5
 
-fun growc(c: ?Cell[Vec[Int]]) -> Int
+fun growc(c: !Cell[Vec[Int]]) -> Int
   for i in 0..100
-    c.push(i)
+    !c.push(i)
   5
 
 sub main()
   a = *O(s: S(c: Cell(Vec())))
   b = *O(s: S(c: Cell(Vec())))
   k = a.s.c.len == 0
-  a.s.c.push(1)
+  !a.s.c.push(1)
   a2 = +a
   _ = ?a2
   x = *Cell(Vec[Int]())
   y = *Cell(Vec[Int]())
-  x.push(1)
+  !x.push(1)
   x2 = +x
-  print(x if k else y, growc(x2))
+  print(x if k else y, growc(!x2))

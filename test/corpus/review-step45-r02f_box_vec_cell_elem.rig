@@ -5,17 +5,17 @@ struct C
 struct S
   v: Vec[C]
 
-sub bump(b: ?Box[S])
-  b.v[0].c.set(40)
+sub bump(b: !Box[S])
+  !b.v[0].c.set(40)
 
 sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(3)))
   h = *S(v: <v)
-  h.v[0].c.set(9)
+  !h.v[0].c.set(9)
   print(h.v[0].c.get())
   w: Vec[C] = Vec()
   !w.push(C(c: Cell(3)))
   b = Box(S(v: <w))
-  bump(?b)
+  bump(!b)
   print(b.v[0].c.get())

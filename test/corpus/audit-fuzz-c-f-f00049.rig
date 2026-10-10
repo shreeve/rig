@@ -1,7 +1,7 @@
 fun counter0(start: Int) -> *fun(Int) -> Int
   count: *Cell[Int] = *Cell(start)
   *|+count, step|
-    count.set(count.get() + step)
+    !count.set(count.get() + step)
     count.get()
 
 sub each0(xs: ?Vec[Int], f: ?sub(Int))

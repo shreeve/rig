@@ -29,7 +29,7 @@ sub main()
     .a(r) => print((!r).next() != 0)
     .b => pass
   w = *Cell(random.Random.seeded(5))
-  old = w.replace(random.Random.seeded(6))
+  old = (!w).replace(random.Random.seeded(6))
   print((!old).next() != 0)
 
 # expect:

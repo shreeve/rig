@@ -24,8 +24,8 @@ fun mkh() -> *H
 fun mkr() -> R
   R(seed: 2)
 
-sub bump(p: ?C)
-  p.c.set(p.c.get() + 1)
+sub bump(p: !C)
+  !p.c.set(p.c.get() + 1)
 
 fun look(p: ?R) -> Int
   p.seed
@@ -34,7 +34,7 @@ sub main()
   a = mkc()
   c = a.c.get() > 0
   bump(?(a if c else mkc()))
-  bump(?a if c else ?mkc())
+  bump(!a if c else !mkc())
   bump(?(mkh().e if c else mkh().d))
   r = mkr()
   print(look(?(r if c else mkr())))

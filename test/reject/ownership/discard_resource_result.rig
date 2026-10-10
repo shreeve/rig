@@ -8,7 +8,7 @@ sub main()
   ua: *User = *User(age: 30)
   ub: *User = *User(age: 99)
   c: Cell[*User] = Cell(<ua)
-  c.replace(<ub)
+  !c.replace(<ub)
   print(0)
 
 # error: this statement makes a `*User`, which owns what it must release, and does not use it; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver

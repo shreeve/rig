@@ -40,7 +40,7 @@ sub main()
   shared = *Text("shared")
   other = +shared
   cell = *Cell(Text("one"))
-  old = cell.replace(Text("two"))
+  old = (!cell).replace(Text("two"))
   print(boxed, shared, other, old, shared.len)
   named: Str = Str("alias ", 1)
   print(named)

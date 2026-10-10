@@ -30,8 +30,8 @@ fun mkh[X](x: X) -> H[X]
 fun mkp[X](x: X) -> P[X]
   P(h: H(x: <x))
 
-sub bumpv(t: ?(?T))
-  t.c.set(t.c.get() + 10)
+sub bumpv(t: !(?T))
+  !t.c.set(t.c.get() + 10)
 
 sub bumpw(t: ?(!T))
   t.c.set(t.c.get() + 100)

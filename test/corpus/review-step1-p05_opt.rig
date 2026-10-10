@@ -5,6 +5,6 @@ sub main()
   o: Counter? = Counter(hits: Cell(0))
   p = o
   if p as c
-    c.hits.set(5)
+    !c.hits.set(5)
   if o as d
     print(d.hits.get())

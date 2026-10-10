@@ -10,8 +10,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  fun items(?self) -> ?Vec[Int]
-    self.c.set(9)
+  fun items(!self) -> ?Vec[Int]
+    !self.c.set(9)
     ?self.xs
 
 fun mkd(n: Int) -> D

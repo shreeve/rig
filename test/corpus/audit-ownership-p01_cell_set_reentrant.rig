@@ -5,11 +5,11 @@ struct Obj
   drop(!self)
     print("drop", self.n)
     if self.home.upgrade() as h
-      h.set(none)
+      !h.set(none)
 
 sub main()
   c: *Cell[*Obj?] = *Cell(none)
-  c.set(*Obj(n: 1, home: ~c))
-  c.set(*Obj(n: 2, home: ~c))
-  print("after set", c.replace(none) == none)
+  !c.set(*Obj(n: 1, home: ~c))
+  !c.set(*Obj(n: 2, home: ~c))
+  print("after set", (!c).replace(none) == none)
   print("end")

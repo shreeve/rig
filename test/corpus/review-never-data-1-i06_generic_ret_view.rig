@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 fun pick[T](a: ?T, b: ?T, c: Bool) -> ?T
   a if c else b
@@ -10,5 +10,5 @@ fun pick[T](a: ?T, b: ?T, c: Bool) -> ?T
 sub main()
   k = *Counter()
   j = *Counter()
-  pick(?k, ?j, true).hit()
+  !pick(?k, ?j, true).hit()
   print(k.hits.get())

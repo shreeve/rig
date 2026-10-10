@@ -1,15 +1,15 @@
 use lib
 
-sub bump(c: ?lib.Counter)
-  c.hit()
+sub bump(c: !lib.Counter)
+  !c.hit()
 
 sub main()
   k = lib.mk()
-  k.hit()
-  bump(k)
-  bump(?k)
+  !k.hit()
+  bump(!k)
+  bump(!k)
   j = *lib.Counter()
-  j.hit()
+  !j.hit()
   c = *lib.Counter(hits: Cell(4))
-  c.hit()
+  !c.hit()
   print(k.hits.get(), j.hits.get(), c.hits.get())

@@ -14,8 +14,8 @@ pub struct Stack[T]
 pub struct Slot[T]
   c: Cell[T]
 
-  fun swap(?self, x: T) -> T
-    self.c.replace(<x)
+  fun swap(!self, x: T) -> T
+    (!self.c).replace(<x)
 
 pub fun wrap[T](x: T, label: String = "w") -> Stack[T]
   s = Stack[T].new_stack()

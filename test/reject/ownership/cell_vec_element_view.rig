@@ -11,7 +11,7 @@ sub fill[T](c: ?Cell[Vec[T]], x: T)
 sub main()
   t = Text("abcdefghijklmnop")
   cv: *Cell[Vec[String]] = *Cell(Vec())
-  cv.push("lit")
+  !cv.push("lit")
   put(cv, ?t[..3])
   cv[0] = ?t[..2]
   cv[0] = "free"

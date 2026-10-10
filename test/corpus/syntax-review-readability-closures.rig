@@ -24,7 +24,7 @@ fun sum_by(xs: []Int, f: ?fun(Int) -> Int) -> Int
 sub main()
   clicks: *Cell[Int] = *Cell(value: 0)
   b = Button(label: "ok", handlers: Vec())
-  !b.on_click(*|+clicks, n| clicks.set(clicks.get() + n))
+  !b.on_click(*|+clicks, n| !clicks.set(clicks.get() + n))
   !b.on_click(*|n| print("clicked", n))
   b.click(2)
   b.click(3)

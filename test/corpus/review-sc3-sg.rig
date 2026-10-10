@@ -11,14 +11,14 @@ fun keep[T](v: T) -> Cell[T]
 
 sub main()
   sig: *Signal[Shape] = *Signal(Shape.dot)
-  sig.subscribe(*|~sig|
+  !sig.subscribe(*|~sig|
     if sig.upgrade() as s
       match s.get()
         .circle(r) => print("circle", r)
         .dot => print("dot")
   )
-  sig.set(.circle(r: 4))
-  sig.set(.dot)
+  !sig.set(.circle(r: 4))
+  !sig.set(.dot)
   print(sig.get() == .dot)
   c = Cell(P(x: 1, s: .circle(r: 2)))
   print(c)
@@ -27,6 +27,6 @@ sub main()
   print(k.get().x)
   h: *Cell[P] = *Cell(P(x: 4, s: .dot))
   h2 = +h
-  h2.set(P(x: 5, s: .dot))
+  !h2.set(P(x: 5, s: .dot))
   print(h.get().x)
   print(sig)

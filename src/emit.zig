@@ -3436,9 +3436,7 @@ pub const Emitter = struct {
         };
         const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
         return switch (types.get(view)) {
-            // A read view of a value holding a Cell is a mutable pointer
-            // (`emitViewPtrTy`), never a copy.
-            .read_view => |inner| if (as_ptr or self.facts.holdsCellByValue(inner)) ptr else self.fmt("rig.lend({s})", .{ptr}),
+            .read_view => if (as_ptr) ptr else self.fmt("rig.lend({s})", .{ptr}),
             else => ptr,
         };
     }
@@ -3797,13 +3795,9 @@ pub const Emitter = struct {
     }
 
     /// The pointer a view of `inner` held by address is: a write view's
-    /// is mutable, `*T`, and so is a read view's of a value that holds a
-    /// Cell by value (`sema.holdsCellByValue`), whose Cell changes through
-    /// it; any other read view's is `*const T`. (A type parameter never
-    /// holds a Cell: a Cell lives only behind a shared handle.)
+    /// is mutable, `*T`; a read view's is `*const T`.
     fn emitViewPtrTy(self: *Emitter, inner: TypeId, view: enum { read, write }) Error!void {
-        const mutable = view == .write or self.facts.holdsCellByValue(inner);
-        try self.w.writeAll(if (mutable) "*" else "*const ");
+        try self.w.writeAll(if (view == .write) "*" else "*const ");
         try self.emitTypeTy(inner);
     }
 
@@ -4440,7 +4434,12 @@ pub const Emitter = struct {
         var t = ty;
         var ptr = false;
         while (true) switch (self.facts.types.get(t)) {
-            .read_view, .write_view => |inner| t = inner,
+            .read_view => |inner| t = inner,
+            // A write view of a handle points at the handle.
+            .write_view => |inner| {
+                if (self.facts.types.get(inner) == .shared) try self.w.writeAll(".*");
+                t = inner;
+            },
             .shared => |inner| {
                 try self.w.writeAll(if (ptr) ".*.value" else ".value");
                 t = inner;

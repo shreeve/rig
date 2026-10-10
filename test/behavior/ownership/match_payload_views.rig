@@ -11,8 +11,8 @@ struct Res
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 enum E
   a(r: Res)
@@ -26,7 +26,7 @@ enum Opt[T]
   some(v: T)
   nothing
 
-fun get(e: ?C) -> ?C
+fun get(e: !C) -> !C
   e
 
 fun show(r: ?Res) -> Int
@@ -61,12 +61,12 @@ sub main()
   h = *E.a(r: Res(n: 3, t: Text("handle")))
   print(shared(h))
   c = *C.a(c: Counter(hits: Cell(1)))
-  match get(c)
-    .a(k) if k.hits.get() > 0 => k.hit()
-    .a(k) => k.hit()
+  match get(!c)
+    .a(k) if k.hits.get() > 0 => !k.hit()
+    .a(k) => !k.hit()
     .b => pass
-  match get(c)
-    .a(k) => k.hit()
+  match get(!c)
+    .a(k) => !k.hit()
     .b => pass
   match c
     x => print(x)

@@ -2,7 +2,7 @@
 
 sub main()
   v: *Cell[Int] = *Cell(0)
-  cb: *sub(Int) = *|+v, a| v.set(a)
+  cb: *sub(Int) = *|+v, a| !v.set(a)
   cb()
   cb(1, 2)
 

@@ -6,5 +6,5 @@ sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(3)))
   r = ?v
-  r[0].c.set(7)
+  !r[0].c.set(7)
   print(v[0].c.get())

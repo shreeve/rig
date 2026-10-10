@@ -17,8 +17,8 @@ struct V
   drop(!self)
     print("drop", self.c.len)
 
-  fun add(?self, n: Int) -> Int
-    self.c.push(n)
+  fun add(!self, n: Int) -> Int
+    !self.c.push(n)
     self.c.len
 
 struct WV
@@ -33,8 +33,8 @@ fun mkv(n: Int) -> V
 fun mkwv(n: Int) -> WV
   WV(t: mkv(n))
 
-fun look2(x: ?V, n: Int) -> Int
-  x.c.push(n)
+fun look2(x: !V, n: Int) -> Int
+  !x.c.push(n)
   x.c.len
 
 fun side(n: Int) -> Int

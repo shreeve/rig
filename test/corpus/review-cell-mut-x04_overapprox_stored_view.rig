@@ -11,7 +11,7 @@ struct R[T]
   r: ?T
 
 fun look(g: ?G[C]) -> Int
-  g.h.c.set(g.h.c.get() + 1)
+  !g.h.c.set(g.h.c.get() + 1)
   g.h.c.get() + g.k
 
 sub main()
@@ -22,5 +22,4 @@ sub main()
 # expect:
 # 12
 
-# oracle: look accept
 # oracle: main accept

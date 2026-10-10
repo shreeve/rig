@@ -1,16 +1,16 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 sub each[T](x: ?T, n: Int, f: sub(?T))
   g = |?x, f| f(x)
   for i in 0..n
     g()
 
-sub hitit(c: ?Counter)
-  c.hit()
+sub hitit(c: !Counter)
+  !c.hit()
 
 sub main()
   k = *Counter()

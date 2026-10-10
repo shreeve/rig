@@ -3,7 +3,7 @@ struct Node
 
 sub main()
   a: *Cell[*Node?] = *Cell(none)
-  old = a.replace(*Node(3))
+  old = (!a).replace(*Node(3))
   print(old)
   w: *Cell[~Node?] = *Cell(none)
   c = Cell[Vec[Int]](Vec())

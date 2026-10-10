@@ -10,4 +10,4 @@ sub main()
   t = c.get()
 
 # error: 8:9: `==` is not defined for `random.Random`: `random.Random` is unique
-# error: 10:9: `Cell.get` returns a copy of the value, and a `random.Random` is unique, so it can't be copied; write `cell.replace(<new)`, which puts `new` in and hands back the old value
+# error: 10:9: `Cell.get` returns a copy of the value, and a `random.Random` is unique, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value

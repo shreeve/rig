@@ -1,7 +1,7 @@
 sub main()
   c = *Cell("init")
   d = +c
-  f = *|<c, s: String| c.set(s)
+  f = *|<c, s: String| !c.set(s)
   if true
     t = Text("a long heap allocated text here")
     f(?t)

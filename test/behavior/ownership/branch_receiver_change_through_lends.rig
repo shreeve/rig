@@ -6,12 +6,12 @@ struct Q
   c: Cell[Int]
   n: Int
 
-  fun bump(?self) -> Int
-    self.c.set(self.c.get() + 1)
+  fun bump(!self) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
-  fun bump2(?self, j: Int, k: Int) -> Int
-    self.c.set(self.c.get() + j)
+  fun bump2(!self, j: Int, k: Int) -> Int
+    !self.c.set(self.c.get() + j)
     self.c.get()
 
 struct H
@@ -31,8 +31,8 @@ sub main()
   h1 = *H(q: Q(c: Cell(1), n: 1))
   h2 = *H(q: Q(c: Cell(10), n: 2))
   c = g(1) == 1
-  print((?h1.q if c else ?h2.q).bump())
-  print((?h1.q if c else ?h2.q).bump2(k: g(1), j: g(2)))
+  print((!h1.q if c else !h2.q).bump())
+  print((!h1.q if c else !h2.q).bump2(k: g(1), j: g(2)))
   print(h1.q.c.get(), h2.q.c.get())
   a = P(n: 1)
   b = P(n: 2)

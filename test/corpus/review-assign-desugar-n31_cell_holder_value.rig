@@ -3,8 +3,8 @@
 struct C
   hits: Cell[Int]
 
-fun tick(c: ?C) -> Int
-  c.hits.set(c.hits.get() + 1)
+fun tick(c: !C) -> Int
+  !c.hits.set(c.hits.get() + 1)
   c.hits.get()
 
 sub main()
@@ -23,14 +23,14 @@ sub main()
   d = C(hits: Cell(30))
   w = match k
     0
-      tick(?w)
+      tick(!w)
       tick(?d)
       <d
     _ => C(hits: Cell(0))
   print(v[0].hits.get())
   v[0] = match k
     0
-      tick(?v[0])
+      tick(!v[0])
       C(hits: Cell(40))
     _ => C(hits: Cell(0))
   print(v[0].hits.get())

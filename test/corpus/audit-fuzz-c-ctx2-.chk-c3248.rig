@@ -52,7 +52,7 @@ fun id_f32(x: F32) -> F32
 sub t3248()
   ce3248: Cell[U128] = Cell(0)
   cc3248: Cell[U128] = Cell(0)
-  cc3248.set(ce3248.get())
+  !cc3248.set(ce3248.get())
   print(cc3248.get())
 
 sub main()

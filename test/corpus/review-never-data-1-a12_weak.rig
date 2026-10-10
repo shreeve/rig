@@ -1,12 +1,12 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 sub main()
   k = *Counter()
   w = ~k
   if w.upgrade() as s
-    s.hit()
+    !s.hit()
   print(k.hits.get())

@@ -11,8 +11,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 error E
   bad
@@ -37,8 +37,8 @@ fun mkf(n: Int) -> D!
   return E.bad if n < 0
   mkd(n)
 
-sub bump(p: ?D)
-  p.c.set(p.c.get() + 1000)
+sub bump(p: !D)
+  !p.c.set(p.c.get() + 1000)
 
 fun opt(i: Int) -> Int?
   mko(1)?.c.set(5)
@@ -55,11 +55,11 @@ sub run(i: Int)
   [mkd(1), mkd(2)][i].c.set(10)
   [mkd(3), mkd(4)][i].hit()
   bump(?[mkd(5), mkd(6)][i])
-  mkv(7)[i].c.set(20)
-  mkv(9)[i].hit()
-  bump(?mkv(11)[i])
-  mkb(13).c.set(30)
-  bump(?mkb(14))
+  !mkv(7)[i].c.set(20)
+  !mkv(9)[i].hit()
+  bump(!mkv(11)[i])
+  !mkb(13).c.set(30)
+  bump(!mkb(14))
   (mko(-1) ?? mkd(15)).c.set(40)
   (mko(16) ?? mkd(17)).c.set(41)
   (mkf(-1) catch mkd(18)).c.set(50)

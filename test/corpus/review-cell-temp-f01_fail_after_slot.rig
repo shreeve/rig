@@ -15,8 +15,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  sub hitn(?self, n: Int)
-    self.c.set(self.c.get() + n)
+  sub hitn(!self, n: Int)
+    !self.c.set(self.c.get() + n)
 
 error E
   bad
@@ -32,8 +32,8 @@ fun maybe(n: Int) -> Int?
   return none if n < 0
   n
 
-sub two(p: ?D, n: Int)
-  p.c.set(p.c.get() + n)
+sub two(p: !D, n: Int)
+  !p.c.set(p.c.get() + n)
 
 sub f1(n: Int)!
   two(?mkd(1), fails(n)!)

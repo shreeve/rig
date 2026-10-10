@@ -82,7 +82,7 @@ sub t3469()
 
 sub t2391()
   cc2391: Cell[I8] = Cell(0)
-  cc2391.set(95)
+  !cc2391.set(95)
   print(cc2391.get())
 
 sub t1639()

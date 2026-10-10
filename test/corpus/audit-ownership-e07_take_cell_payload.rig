@@ -21,6 +21,6 @@ struct H
 
 sub main()
   c: Cell[H] = Cell(H(o: *Tok(n: 1)))
-  h = c.replace(H(o: none))
+  h = (!c).replace(H(o: none))
   x = <h.o
   print(x == none, h.o == none)

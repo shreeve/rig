@@ -2,16 +2,16 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
-sub bump(v: ?Vec[C], a: ?[1]C)
-  v[0].hit()
-  a[0].hit()
+sub bump(v: !Vec[C], a: ![1]C)
+  !v[0].hit()
+  !a[0].hit()
 
 sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(1)))
   a = [C(c: Cell(1))]
-  bump(?v, ?a)
+  bump(!v, !a)
   print(v[0].c.get(), a[0].c.get())

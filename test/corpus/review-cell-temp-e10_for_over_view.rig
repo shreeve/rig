@@ -10,8 +10,8 @@ fun mkd(n: Int) -> D
   !v.push(n)
   D(c: Cell(n), xs: v)
 
-fun items(p: ?D) -> ?Vec[Int]
-  p.c.set(9)
+fun items(p: !D) -> ?Vec[Int]
+  !p.c.set(9)
   ?p.xs
 
 sub main()

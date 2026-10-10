@@ -1,4 +1,4 @@
 sub main()
   s = *Signal(value: 0)
   x = 1
-  s.subscribe(|?x| print(x))
+  !s.subscribe(|?x| print(x))

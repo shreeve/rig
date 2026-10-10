@@ -3,12 +3,12 @@ struct P
   fun plus(?self, k: Int) -> Int
     self.n + k
 
-fun grow(c: ?*Cell[Vec[P]]) -> Int
+fun grow(c: !*Cell[Vec[P]]) -> Int
   for i in 0..1000
-    c.push(P(n: i))
+    !c.push(P(n: i))
   1
 
 sub main()
   c = *Cell[Vec[P]](value: Vec())
-  c.push(P(n: 41))
-  print(c[0].plus(grow(?c)))
+  !c.push(P(n: 41))
+  print(c[0].plus(grow(!c)))

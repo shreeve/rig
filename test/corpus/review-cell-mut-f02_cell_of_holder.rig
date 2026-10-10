@@ -3,16 +3,16 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 fun mk(n: Int) -> C
   C(c: Cell(n))
 
 sub main()
   cv: Cell[Vec[C]] = Cell(Vec())
-  cv.push(mk(1))
-  if cv.pop() as y
+  !cv.push(mk(1))
+  if (!cv).pop() as y
     y.hit()
     print(y.c.get())
   cc = Cell(mk(5))

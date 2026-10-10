@@ -1,6 +1,6 @@
 sub main()
   count: *Cell[Int] = *Cell(0)
   sig: *Signal[Int] = *Signal(0)
-  sig.subscribe(*|+count| count.set(count.get() + 1000))
-  sig.set(1)
+  !sig.subscribe(*|+count| !count.set(count.get() + 1000))
+  !sig.set(1)
   print(count.get())

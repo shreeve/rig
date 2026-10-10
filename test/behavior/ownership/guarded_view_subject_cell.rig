@@ -1,34 +1,34 @@
 # A guarded match on a view a call returns holds the view as the pointer
 # it is, never a copy of the value it views, so a payload's Cell changed
-# in an arm is the matched value's own: through `?E` lent from a `*E`, and
-# through a `?Box[*E]` with a header temporary.
+# in an arm is the matched value's own: through `!E` lent from a `*E`, and
+# through a `!Box[*E]` with a header temporary.
 
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 enum E
   a(c: Counter)
   b
 
-fun get(e: ?E) -> ?E
+fun get(e: !E) -> !E
   e
 
-fun getb(b: ?Box[*E], n: Int) -> ?Box[*E]
+fun getb(b: !Box[*E], n: Int) -> !Box[*E]
   b
 
 sub main()
   e = *E.a(c: Counter(hits: Cell(1)))
-  match get(e)
-    .a(c) if c.hits.get() > 0 => c.hit()
-    .a(c) => c.hit()
+  match get(!e)
+    .a(c) if c.hits.get() > 0 => !c.hit()
+    .a(c) => !c.hit()
     .b => pass
   print(e)
   b = Box(*E.a(c: Counter(hits: Cell(1))))
-  match getb(b, Text("xyz").len)
-    .a(c) if c.hits.get() > 0 => c.hit()
+  match getb(!b, Text("xyz").len)
+    .a(c) if c.hits.get() > 0 => !c.hit()
     _ => pass
   print(b)
 

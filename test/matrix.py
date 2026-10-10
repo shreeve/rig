@@ -1233,10 +1233,9 @@ def hdr_program(hname, sname, lname, gname="bare"):
 # -----------------------------------------------------------------------------
 # A Cell lives only behind `*`: a value holding one is reached through a
 # `*` handle. A Cell changed, or read, through the handle to the value
-# holding it, through a `?T` parameter given the handle, and through a
-# `?self` method called on it, built in debug and with `--release`: a
-# change through a read view must reach the value in both, so emitted Zig
-# never writes through a `*const` pointer. Each program applies each
+# holding it, through a `!T` parameter given the handle, and through a
+# `!self` method called on it, built in debug and with `--release`: a
+# change by a marked call must reach the value in both. Each program applies each
 # operation (in a function of its own, to a value of its own) through
 # one access in a statement, a loop that continues early, a loop that
 # breaks, a `defer`, and a loop that returns, and prints the state after
@@ -1268,14 +1267,14 @@ CELLMUT_TYPES = {
 # what it reads to `s`; `C` is the path to the `Cell[Int]`, `V` to the
 # `Cell[Vec[Int]]`.
 CELLMUT_OPS = {
-    "set": ("c", ["C.set(C.get() + KARG)"]),
-    "replace": ("c", ["s += C.replace(KARG)"]),
+    "set": ("c", ["!C.set(C.get() + KARG)"]),
+    "replace": ("c", ["s += (!C).replace(KARG)"]),
     "get": ("c", ["s += C.get()"]),
-    "push": ("v", ["V.push(KARG)"]),
-    "pop": ("v", ["s += V.pop() ?? -1"]),
-    "clear": ("v", ["V.clear()", "V.push(KARG)"]),
-    "index": ("v", ["V[0] = V[0] + KARG"]),
-    "method": ("m", ["E.bump(KARG)"]),
+    "push": ("v", ["!V.push(KARG)"]),
+    "pop": ("v", ["s += (!V).pop() ?? -1"]),
+    "clear": ("v", ["!V.clear()", "!V.push(KARG)"]),
+    "index": ("v", ["(!V)[0] = V[0] + KARG"]),
+    "method": ("m", ["!E.bump(KARG)"]),
 }
 
 # Each access to the handle `x`: the declaration it adds (`T` the type,
@@ -1285,8 +1284,8 @@ CELLMUT_OPS = {
 _CM_WRAP = "  s = 0\nOP\n  s\n"
 CELLMUT_ACCESS = {
     "handle": dict(do="OP", e="x"),
-    "param": dict(decls="fun via(y: ?T, k: Int) -> Int\n" + _CM_WRAP, do="s += via(x, KARG)", e="y"),
-    "method": dict(method="fun via(?self, k: Int) -> Int\n" + _CM_WRAP, do="s += x.via(KARG)", e="self"),
+    "param": dict(decls="fun via(y: !T, k: Int) -> Int\n" + _CM_WRAP, do="s += via(!x, KARG)", e="y"),
+    "method": dict(method="fun via(!self, k: Int) -> Int\n" + _CM_WRAP, do="s += (!x).via(KARG)", e="self"),
 }
 
 
@@ -1302,17 +1301,17 @@ def _cm_op(t, oname, e, karg):
     out = []
     for l in CELLMUT_OPS[oname][1]:
         if t["c"]:
-            l = l.replace("C.", t["c"].replace("E", e) + ".")
+            l = re.sub(r"\bC\b", t["c"].replace("E", e), l)
         if t["v"]:
-            l = l.replace("V.", t["v"].replace("E", e) + ".").replace("V[", t["v"].replace("E", e) + "[")
-        out.append(l.replace("E.", e + ".").replace("KARG", karg))
+            l = re.sub(r"\bV\b", t["v"].replace("E", e), l)
+        out.append(re.sub(r"\bE\b", e, l).replace("KARG", karg))
     return out
 
 
 def _cm_wrap(text, ty, op):
     """A wrapper's declaration: `T` the type, `OP` its operation's lines."""
     lines = []
-    for l in text.replace("?T", "?" + ty).rstrip("\n").split("\n"):
+    for l in text.replace("!T", "!" + ty).rstrip("\n").split("\n"):
         lines += ["  " + o for o in op] if l == "OP" else [l]
     return lines
 
@@ -1333,10 +1332,10 @@ def cellmut_program(tname, aname):
     out = []
     if t["decls"]:
         c = t["c"].replace("E", "self")
-        bump = [f"{c}.set({c}.get() + k)"] + ([t["v"].replace("E", "self") + ".push(k)"] if t["v"] else [])
+        bump = [f"!{c}.set({c}.get() + k)"] + (["!" + t["v"].replace("E", "self") + ".push(k)"] if t["v"] else [])
         # A generic type's methods take and add its `T`.
         kty = "T" if tname == "generic" else "Int"
-        methods = ["", f"  sub bump(?self, k: {kty})"] + ["    " + l for l in bump]
+        methods = ["", f"  sub bump(!self, k: {kty})"] + ["    " + l for l in bump]
         if aname == "method":
             for oname in ops:
                 wrap = a["method"].replace("via(", f"via_{oname}(")
@@ -1453,11 +1452,11 @@ def _cm_trace(tname, oname):
 
 _CV_N = "struct N\n  c: Cell[Int]\n\n"
 CELL_VALUES = {
-    "cellmut.value.cell": "sub main()\n  c = Cell(1)\n  c.set(2)\n  print(c.get())\n",
-    "cellmut.value.local": _CV_N + "sub main()\n  x = N(c: Cell(1))\n  x.c.set(2)\n  print(x.c.get())\n",
-    "cellmut.value.param": _CV_N + "sub bump(y: N)\n  y.c.set(y.c.get() + 1)\n\nsub main()\n  x = *N(c: Cell(1))\n  print(x.c.get())\n",
+    "cellmut.value.cell": "sub main()\n  c = Cell(1)\n  !c.set(2)\n  print(c.get())\n",
+    "cellmut.value.local": _CV_N + "sub main()\n  x = N(c: Cell(1))\n  !x.c.set(2)\n  print(x.c.get())\n",
+    "cellmut.value.param": _CV_N + "sub bump(y: N)\n  !y.c.set(y.c.get() + 1)\n\nsub main()\n  x = *N(c: Cell(1))\n  print(x.c.get())\n",
     "cellmut.value.element": _CV_N + "sub main()\n  vs: Vec[N] = Vec()\n  print(vs.len)\n",
-    "celltemp.value.cell": "sub main()\n  Cell(5).set(77)\n  print(1)\n",
+    "celltemp.value.cell": "sub main()\n  !Cell(5).set(77)\n  print(1)\n",
     "celltemp.value.struct": _CV_N + "sub main()\n  print(N(c: Cell(5)).c.get())\n",
     "celltemp.value.call": _CV_N + "fun mk(n: Int) -> N\n  N(c: Cell(n))\n\nsub main()\n  print(mk(5).c.get())\n",
 }

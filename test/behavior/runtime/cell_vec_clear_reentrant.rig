@@ -9,15 +9,15 @@ struct Item
   drop(!self)
     if self.owner.upgrade() as cell
       print("drop", self.id, "sees", cell.len)
-      cell.push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
+      (!cell).push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
 
 sub main()
   items: *Cell[Vec[*Item]] = *Cell(Vec())
-  items.push(*Item(id: 1, owner: ~items))
-  items.push(*Item(id: 2, owner: ~items))
-  items.clear()
+  !items.push(*Item(id: 1, owner: ~items))
+  !items.push(*Item(id: 2, owner: ~items))
+  !items.clear()
   print("after clear", items.len)
-  items.clear()
+  !items.clear()
   print("end", items.len)
 
 # expect:

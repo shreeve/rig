@@ -536,7 +536,7 @@ what it holds.
 sub main()
   c = *Cell(0)
   d = +c
-  d.set(5)
+  !d.set(5)
   print(c.get())
 ```
 

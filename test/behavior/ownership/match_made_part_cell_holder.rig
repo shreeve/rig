@@ -1,16 +1,16 @@
 # A `match` on a part of a value its header makes holds that value for
 # the match (Core §3, docs/INTERNALS.md "Header subjects"): `H(...).e`,
 # `mkh(n).e`, `[...][0]`, and `mk(n)[0]` are held, so each payload is
-# read where it is, a `*Counter` handle through which a `?self` method
-# or `Cell.set` changes a Cell (Core s9).
+# read where it is, a `*Counter` handle through which a `!self` method
+# or a marked `Cell.set` changes a Cell (Core s9).
 #
 # oracle: main accept
 
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 enum E
   a(c: *Counter)
@@ -28,27 +28,27 @@ fun mk(n: Int) -> [1]E
 sub main()
   match H(e: E.a(c: *Counter(hits: Cell(0)))).e
     .a(c)
-      c.hit()
+      !c.hit()
       print(c.hits.get())
     .b => pass
   match mkh(3).e
     .a(c)
-      c.hit()
+      !c.hit()
       print(c.hits.get())
     .b => pass
   match [E.a(c: *Counter(hits: Cell(5))), E.b][0]
     .a(c)
-      c.hit()
+      !c.hit()
       print(c.hits.get())
     .b => pass
   match mk(7)[0]
     .a(c)
-      c.hit()
+      !c.hit()
       print(c.hits.get())
     .b => pass
   match H(e: E.a(c: *Counter(hits: Cell(0)))).e
     .a(c)
-      c.hits.set(2)
+      !c.hits.set(2)
       print(c.hits.get())
     .b => pass
 

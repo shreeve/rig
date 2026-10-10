@@ -4237,6 +4237,19 @@ pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
 }
 
+/// Whether a value of `ty` changes through a shared handle, by a marked
+/// call (`!c.set(5)`): a `Cell`, a `Signal`, or a value that holds a
+/// Cell by value. The one list of what a write lend may reach through a
+/// `*`; a write view of such a value changes only its Cells and
+/// Signals, never its other fields (`Checker.placeOf`).
+pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
+    const t = unwrapAccess(ctx, ty);
+    return switch (ctx.types.get(t)) {
+        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or holdsCellByValue(ctx, t),
+        else => holdsCellByValue(ctx, t),
+    };
+}
+
 /// Where a value of some type stands, as `misplaced` sees it.
 pub const Home = enum {
     /// A struct field, or an enum variant's payload field.
@@ -5928,7 +5941,7 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
         // A Text lends its bytes; never to write.
         .text => return kind == .read and view == types.string_id and lend.push(.text),
         // A `*T` lends the read views of its `T`; `!h` lends the handle.
-        .shared => |inner| return kind == .read and lend.push(.handle) and lendRows(ctx, inner, .read, view, lend),
+        .shared => |inner| return (kind == .read or changesByMark(ctx, inner)) and lend.push(.handle) and lendRows(ctx, inner, kind, view, lend),
         else => {
             // A Vec lends its elements, as an array does.
             if (vecElem(ctx, from)) |elem| return lendElems(ctx, elem, kind, view, lend);
@@ -8199,7 +8212,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  print(maybe(-1) ?? 9)
         \\  c: *Cell[Int] = *Cell(value: 1)
         \\  f = |+c|
-        \\    c.set(c.get() + 1)
+        \\    !c.set(c.get() + 1)
         \\  f()
         \\  print(c.get())
         \\

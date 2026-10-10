@@ -11,8 +11,8 @@ struct D
 fun mkd(n: Int) -> D
   D(c: Cell(n))
 
-fun some(p: ?D) -> (?D)?
-  p.c.set(p.c.get() + 1)
+fun some(p: !D) -> (?D)?
+  !p.c.set(p.c.get() + 1)
   return none if p.c.get() > 3
   p
 

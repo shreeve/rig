@@ -10,8 +10,8 @@ sub main()
   v: Vec[E] = Vec()
   !v.push(E.a(x: C(c: Cell(1))))
   match v[0]
-    .a(x) if x.c.get() > 0 => x.c.set(7)
-    .a(x) => x.c.set(9)
+    .a(x) if x.c.get() > 0 => (!x.c).set(7)
+    .a(x) => (!x.c).set(9)
     .b(n) => print(n)
   match v[0]
     .a(x) => print(x.c.get())

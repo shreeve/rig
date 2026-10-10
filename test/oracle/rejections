@@ -2,14 +2,12 @@
 # one a line:
 #
 #   <program> <function>
-#
 # A program is its test path, a doc example's file and the checksum of
 # its text (doc/CORE/3641359913, as test/run names its output), or a
 # matrix cell. The oracle's sets fail on a rejection not listed here
 # (UNLISTED) and on a listed function the oracle decides and no longer
 # rejects (LOST): a weaker reference checker shows, whatever the
 # compiler decides (test/README.md, "The reference ownership checker").
-
 array.arg_then_write.move run
 array.eq.move run
 array.slice_arg_then_write.field run
@@ -3950,3 +3948,12 @@ vec.write_held.call run
 vec.write_held.clone run
 vec.write_held.ctor run
 vec.write_held.move run
+doc/SPEC/2197009321 keep
+test/corpus/review-never-data-1-d01_print_place_then_grow.rig main
+test/corpus/review-never-data-1-d02_print_cellfield_then_grow.rig main
+test/corpus/review-never-data-1-d03_text_place.rig main
+test/corpus/review-never-data-1-d04_print_handle.rig main
+test/corpus/review-never-data-1-d11_print_shared_cell.rig main
+test/corpus/review-revamp-rest-p8-c1.rig main
+test/corpus/review-revamp-rest-p8-c3.rig run
+test/corpus/review-revamp-rest-p8-c5.rig run

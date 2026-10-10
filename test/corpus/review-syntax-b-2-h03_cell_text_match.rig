@@ -3,5 +3,5 @@ sub main()
   d = +c
   if ?c as r
     s = r[1..]
-    d.set(Text("x"))
+    !d.set(Text("x"))
     print(s)

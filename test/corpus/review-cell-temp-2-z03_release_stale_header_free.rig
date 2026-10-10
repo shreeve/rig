@@ -12,8 +12,8 @@ struct V
   drop(!self)
     print("drop", self.c.len)
 
-  fun add(?self, n: Int) -> Int
-    self.c.push(n)
+  fun add(!self, n: Int) -> Int
+    !self.c.push(n)
     self.c.len
 
 fun build(n: Int) -> Vec[Int]

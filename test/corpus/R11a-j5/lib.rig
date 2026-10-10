@@ -2,8 +2,8 @@ pub struct Counter[T]
   c: Cell[Int]
   v: T
 
-  sub bump(?self)
-    self.c.set(self.c.get() + 1)
+  sub bump(!self)
+    !self.c.set(self.c.get() + 1)
 
 pub struct Box2[T]
   v: T

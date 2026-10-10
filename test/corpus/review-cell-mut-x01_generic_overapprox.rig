@@ -5,8 +5,8 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 struct G[T]
   h: *T
@@ -16,7 +16,7 @@ fun id[T](x: ?T) -> ?T
   x
 
 fun look(g: ?G[C]) -> Int
-  g.h.hit()
+  !g.h.hit()
   g.h.c.get() + g.n
 
 sub main()
@@ -31,5 +31,4 @@ sub main()
 
 # oracle: C.hit accept
 # oracle: id accept
-# oracle: look accept
 # oracle: main accept

@@ -518,8 +518,7 @@ pub const Facts = struct {
     }
 
     // How a type is held in Zig: one answer per type, which every pass
-    // reads the same way (docs/INTERNALS.md, Emit, "Views" and "Interior
-    // mutability").
+    // reads the same way (docs/INTERNALS.md, Emit, "Views").
 
     /// Whether a view of this type is a Zig pointer (`sema.viewHeldAsPointer`).
     pub fn viewHeldAsPointer(f: Facts, ty: TypeId) bool {
@@ -529,11 +528,6 @@ pub const Facts = struct {
     /// (`sema.lendByValue`).
     pub fn lendByValue(f: Facts, inner: TypeId) bool {
         return sema.lendByValue(f.c(), inner);
-    }
-    /// Whether a value of this type holds a Cell inline, so a read view
-    /// of it is a mutable pointer (`sema.holdsCellByValue`).
-    pub fn holdsCellByValue(f: Facts, ty: TypeId) bool {
-        return sema.holdsCellByValue(f.c(), ty);
     }
     /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {

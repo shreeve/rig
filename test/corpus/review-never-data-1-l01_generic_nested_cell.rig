@@ -1,25 +1,25 @@
 struct In[T]
   c: Cell[T]
 
-  sub put(?self, x: T)
-    self.c.set(x)
+  sub put(!self, x: T)
+    !self.c.set(x)
 
 struct W[T]
   i: In[T]
   n: Int
 
-  sub put2(?self, x: T)
-    self.i.put(x)
+  sub put2(!self, x: T)
+    !self.i.put(x)
 
-sub bump[T](w: ?W[T], x: T)
-  w.i.c.set(x)
-  w.i.put(x)
-  w.put2(x)
+sub bump[T](w: !W[T], x: T)
+  !w.i.c.set(x)
+  !w.i.put(x)
+  !w.put2(x)
   r = ?w.i
   r.put(x)
 
 sub main()
   w = *W(i: In(c: Cell(1)), n: 0)
-  bump(w, 5)
-  bump(?w, 6)
+  bump(!w, 5)
+  bump(!w, 6)
   print(w.i.c.get())

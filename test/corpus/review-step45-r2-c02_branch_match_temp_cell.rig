@@ -14,8 +14,8 @@ sub main()
   !v.push(E.a(x: C(c: Cell(1))))
   c = v.len == 1
   match (?v[idx(?Text("a"))] if c else ?v[0])
-    .a(x) if x.c.get() == 1 => x.c.set(5)
-    .a(x) => x.c.set(6)
+    .a(x) if x.c.get() == 1 => (!x.c).set(5)
+    .a(x) => (!x.c).set(6)
     .b(n) => print(n)
   match v[0]
     .a(x) => print(x.c.get())

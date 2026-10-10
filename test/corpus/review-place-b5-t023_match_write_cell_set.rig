@@ -5,7 +5,7 @@ enum S
 sub main()
   s: S = .a(c: Cell(1))
   match !s
-    .a(c) => c.set(3)
+    .a(c) => !c.set(3)
     .b => print("b")
   match ?s
     .a(c) => print(c.get())

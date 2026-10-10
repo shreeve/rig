@@ -1,0 +1,26 @@
+# `?` promises that nothing changes, a shared Cell included: a read view
+# of a Cell, or a `?self` method of a value holding one, cannot change
+# it. It takes `!`, and the caller marks the lend.
+
+struct Counter
+  hits: Cell[Int]
+  n: Int
+
+  sub hit(?self)
+    !self.hits.set(self.hits.get() + 1)
+
+  sub poke(?self)
+    !self.hits.set(1)
+
+sub bump(c: ?Cell[Int])
+  !c.set(c.get() + 1)
+
+sub main()
+  k = *Counter(hits: Cell(0), n: 0)
+  bump(k.hits)
+  print(k.hits.get())
+
+# error: 10:6: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate
+# error: 13:6: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate
+# error: 16:4: cannot lend to write through a read view `?Cell[Int]`
+# errors: 3

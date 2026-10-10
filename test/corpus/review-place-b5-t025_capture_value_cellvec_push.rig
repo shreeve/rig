@@ -1,6 +1,6 @@
 sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
   f = |<c|
-    c.push(3)
+    !c.push(3)
     print(c[0])
   f()

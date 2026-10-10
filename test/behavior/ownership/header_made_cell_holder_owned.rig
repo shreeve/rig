@@ -9,8 +9,8 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct H
   o: (*Counter)?
@@ -24,7 +24,7 @@ fun mkh() -> H
 
 sub loops()
   x = for k in two()
-    k.hit()
+    !k.hit()
     if k.hits.get() > 3
       break k.hits.get()
   else
@@ -32,20 +32,20 @@ sub loops()
   print(x)
   keep: (*Counter)? = none
   for k in [*Counter(hits: Cell(7)), *Counter(hits: Cell(8))]
-    k.hit()
+    !k.hit()
     keep = <k
   if <keep as c
     print(c.hits.get())
   for k in mkh().arr
-    k.hit()
+    !k.hit()
     print(k.hits.get())
 
 sub ifs()
   if H(o: *Counter(hits: Cell(0)), arr: two()).o as c
-    c.hit()
+    !c.hit()
     print(c.hits.get())
   if mkh().o as c
-    c.hits.set(20)
+    !c.hits.set(20)
     print(c.hits.get())
 
 sub main()

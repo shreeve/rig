@@ -6,12 +6,12 @@ struct Q
   c: Cell[Int]
   n: Int
 
-  fun bump(?self) -> Int
-    self.c.set(self.c.get() + 1)
+  fun bump(!self) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
-  fun bump2(?self, j: Int, k: Int) -> Int
-    self.c.set(self.c.get() + 1)
+  fun bump2(!self, j: Int, k: Int) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
 struct H

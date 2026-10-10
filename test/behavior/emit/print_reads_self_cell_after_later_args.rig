@@ -1,20 +1,22 @@
-# Inside a `?self` method, `print(self.c, self.grow())` reads the Cell
-# when `print` is called, after `grow` has grown its Vec.
+# Inside a `?self` method, `print(self.c, (!other).grow())` reads the
+# Cell when `print` is called, after `grow` has grown its Vec through
+# another handle.
 struct S
   c: Cell[Vec[Int]]
 
-  fun grow(?self) -> Int
+  fun grow(!self) -> Int
     for i in 0..20
-      self.c.push(i)
+      !self.c.push(i)
     5
 
-  sub show(?self)
-    print(self.c, self.grow())
+  sub show(?self, other: !S)
+    print(self.c, (!other).grow())
 
 sub main()
   s = *S(c: Cell(Vec()))
-  s.c.push(42)
-  s.show()
+  !s.c.push(42)
+  t = +s
+  s.show(!t)
 
 # expect:
 # Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]) 5

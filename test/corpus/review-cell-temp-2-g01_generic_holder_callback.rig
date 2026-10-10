@@ -17,11 +17,11 @@ struct Hold[T]
   fun read(?self, f: ?fun(?T) -> Int) -> Int
     f(?self.x)
 
-sub bump(n: ?N)
-  n.c.set(n.c.get() + 1)
+sub bump(n: !N)
+  !n.c.set(n.c.get() + 1)
 
-fun bumped(n: ?N) -> Int
-  n.c.set(n.c.get() + 1)
+fun bumped(n: !N) -> Int
+  !n.c.set(n.c.get() + 1)
   n.c.get()
 
 sub main()

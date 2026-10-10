@@ -7,11 +7,11 @@
 sub keeps_a_text_view()
   t = Text("abc")
   c: Cell[String] = Cell("x")
-  c.set(?t)
+  !c.set(?t)
   print(c.get())
 
-sub keeps_a_param(c: ?Cell[String], s: String)
-  c.set(s)
+sub keeps_a_param(c: !Cell[String], s: String)
+  !c.set(s)
 
 sub main()
   keeps_a_text_view()

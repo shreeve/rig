@@ -3,7 +3,7 @@
 
 sub main()
   v: *Cell[Int] = *Cell(0)
-  cb: *sub(Int, Int) = *|+v, a: Int, b: Int| v.set(a + b)
+  cb: *sub(Int, Int) = *|+v, a: Int, b: Int| !v.set(a + b)
   cb(10, 20)
   print(v.get())            # 30
   cb(100, 1)

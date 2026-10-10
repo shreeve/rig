@@ -4,5 +4,5 @@ use std.os
 sub main()
   c: Cell[String] = Cell("none")
   for a in os.args()
-    c.set(a)
+    !c.set(a)
   print(c.get() != "")

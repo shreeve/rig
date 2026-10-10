@@ -1,0 +1,17 @@
+# `!c.set(5)` lends the handle `c`, as `!v.push(x)` lends `v`: it is not
+# exclusive over the Cell, since another handle is another name. A view
+# of `c` held across the mark conflicts with it; a view of another
+# handle does not (test/behavior/runtime/cell_marked_calls.rig).
+
+sub main()
+  c: *Cell[Int] = *Cell(1)
+  d = +c
+  seen = ?c
+  !c.set(2)
+  print(seen.get())
+  held = ?d
+  !c.set(3)
+  print(held.get())
+
+# error: 10:3: cannot lend `c` to write while a read loan is live
+# errors: 1

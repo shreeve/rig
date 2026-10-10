@@ -10,7 +10,7 @@ struct Button
 
 sub main()
   total: *Cell[Int] = *Cell(0)
-  button = Button(on_click: *|+total, n| total.set(total.get() + n))
+  button = Button(on_click: *|+total, n| !total.set(total.get() + n))
   button.click(4)
   button.click(5)
   print(total.get())

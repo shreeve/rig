@@ -6,8 +6,8 @@ struct R
 
 sub main()
   c: Cell[Box[R]] = Cell(value: Box(value: R(n: 1)))
-  c.set(Box(value: R(n: 2)))
+  !c.set(Box(value: R(n: 2)))
   s = *c
-  s.set(Box(value: R(n: 3)))
-  old = s.replace(Box(value: R(n: 4)))
+  !s.set(Box(value: R(n: 3)))
+  old = (!s).replace(Box(value: R(n: 4)))
   print(old.n)

@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int]
 
-sub hit(c: ?Counter)
-  c.hits.set(c.hits.get() + 1)
+sub hit(c: !Counter)
+  !c.hits.set(c.hits.get() + 1)
 
 sub main()
   a = Counter(hits: Cell(0))

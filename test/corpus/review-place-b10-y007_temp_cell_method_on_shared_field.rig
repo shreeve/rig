@@ -1,8 +1,8 @@
 struct P
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
     print(self.c.get())
 
 struct Q
@@ -13,5 +13,5 @@ fun mk(h: *P) -> Q
 
 sub main()
   h = *P(c: Cell(1))
-  mk(+h).p.hit()
+  !mk(+h).p.hit()
   print(h.c.get())

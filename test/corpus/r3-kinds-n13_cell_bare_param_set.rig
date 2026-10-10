@@ -1,5 +1,5 @@
 sub bump(c: Cell[Int])
-  c.set(c.get() + 1)
+  !c.set(c.get() + 1)
 
 sub main()
   c = Cell(1)

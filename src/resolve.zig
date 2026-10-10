@@ -2276,19 +2276,20 @@ pub fn isNumericTypeName(name: []const u8) bool {
 const builtin_pos = sema.builtin_decl_pos;
 
 pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
-    // Cell[T]: interior-mutable slot. Methods take `?self`; the runtime
-    // mutates through its own pointer.
+    // Cell[T]: the slot a shared handle shares. What changes it takes
+    // `!self`, so a call marks the change: `!c.set(5)`.
     {
         const g = try addGeneric(ctx, module_scope, "Cell", &.{"T"});
         ctx.cell_sym_id = g.sym;
         const t = g.params[0];
         const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
+        const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
             try method(ctx, "get", .read, &.{self_ty}, t),
-            try method(ctx, "set", .read, &.{ self_ty, t }, ctx.types.void_id),
+            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id),
             // Swap in a new value and return the old one as owned.
-            try method(ctx, "replace", .read, &.{ self_ty, t }, t),
+            try method(ctx, "replace", .write, &.{ write_self, t }, t),
         });
     }
 
@@ -2345,14 +2346,15 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         ctx.signal_sym_id = g.sym;
         const t = g.params[0];
         const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
+        const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         // Subscribers are owned closures `*sub()`.
         const callback = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ctx.types.void_id, .is_sub = true } });
         const closure_handle = try ctx.intern(.{ .shared = callback });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
             try method(ctx, "get", .read, &.{self_ty}, t),
-            try method(ctx, "set", .read, &.{ self_ty, t }, ctx.types.void_id),
-            try method(ctx, "subscribe", .read, &.{ self_ty, closure_handle }, ctx.types.void_id),
+            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id),
+            try method(ctx, "subscribe", .write, &.{ write_self, closure_handle }, ctx.types.void_id),
         });
     }
 }

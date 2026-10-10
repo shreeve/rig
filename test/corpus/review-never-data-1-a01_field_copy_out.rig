@@ -4,5 +4,5 @@ struct S
 sub main()
   h = *S()
   x = h.c
-  x.set(5)
+  !x.set(5)
   print(h.c.get())

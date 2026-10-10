@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct H[T]
   arr: [2]T
@@ -23,8 +23,8 @@ fun f3[T](xs: ?[2]W[T], f: ?fun(?T) -> Int) -> Int
 fun f4[T](s: []W[T], f: ?fun(?T) -> Int) -> Int
   f(?s[1].item)
 
-fun bump(c: ?Counter) -> Int
-  c.hit()
+fun bump(c: !Counter) -> Int
+  !c.hit()
   c.hits.get()
 
 sub main()

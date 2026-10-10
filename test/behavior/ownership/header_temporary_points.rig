@@ -58,7 +58,7 @@ sub main()
     break
   cs: [1](*C)? = [*C(c: Cell(1))]
   if ?cs[idx(?Text("a"))] as c
-    c.c.set(5)
+    !c.c.set(5)
   bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
   match ?bs[idx(?Text("a"))]
     .a(xs) if k > 2 => print(xs[0])

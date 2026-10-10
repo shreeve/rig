@@ -9,8 +9,8 @@ struct C
 fun mkc() -> C
   C(c: Cell(100))
 
-sub bump(p: ?C)
-  p.c.set(p.c.get() + 1)
+sub bump(p: !C)
+  !p.c.set(p.c.get() + 1)
 
 fun lend[T](x: T, mk: fun() -> T, f: sub(?T), c: Bool) -> T
   f(?(x if c else mk()))

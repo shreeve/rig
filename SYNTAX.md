@@ -128,7 +128,7 @@ sub each(n: Int, f: *sub(Int))
 sub main()
   total: *Cell[Int] = *Cell(0)
   each(3, *|+total, i|
-    total.set(total.get() + i)
+    !total.set(total.get() + i)
     print("saw", i)
   )
   each(2, *|i| print("trailing", i))
@@ -377,6 +377,7 @@ reaches `lib`: the checker says so, and the call in parentheses,
 |---|---|---|
 | `(!v).push(x)` | `!v.push(x)` | lend `v` to write, then push |
 | `(!self.items).push(k)` | `!self.items.push(k)` | a field of `self` in a `!self` method |
+| `(!c).set(5)` | `!c.set(5)` | a shared `Cell` changes only by a marked call; the mark lends the handle `c` |
 | `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
 | `(!v).put[2](x)` | `!v.put[2](x)` | a method with compile-time arguments |
 | `(!mk()).pop()` | `!mk().pop()` | lend the value `mk()` makes to write, a temporary |
@@ -1397,8 +1398,8 @@ type Held = *(Node?)
 sub main()
   a = *Cell[*Node?](none)
   b = *Cell[Held](*none)
-  print(a.replace(none) == none)
-  old = b.replace(*none)
+  print((!a).replace(none) == none)
+  old = (!b).replace(*none)
   <old
 ```
 
@@ -1481,7 +1482,7 @@ sub main()
   n = 10
   cell: *Cell[Int] = *Cell(0)
   add_n = |+n, a: Int| a + n
-  bump = |+cell| cell.set(cell.get() + 1)
+  bump = |+cell| !cell.set(cell.get() + 1)
   hello = || print("hello")
   hello()
   bump()

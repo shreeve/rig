@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int]
 
-fun bump(c: ?Counter) -> Int
-  c.hits.set(c.hits.get() + 1)
+fun bump(c: !Counter) -> Int
+  !c.hits.set(c.hits.get() + 1)
   c.hits.get()
 
 sub main()

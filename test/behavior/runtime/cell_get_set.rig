@@ -3,9 +3,9 @@
 
 sub main()
   c: *Cell[Int] = *Cell(0)
-  c.set(5)
+  !c.set(5)
   print(c.get())
-  c.set(c.get() + 10)
+  !c.set(c.get() + 10)
   print(c.get())
 
 # expect:

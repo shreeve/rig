@@ -8,5 +8,5 @@ sub main()
   !v.push(c.get())
   s = *Cell(5)
   t = +s
-  t.set(6)
+  !t.set(6)
   print(c.get(), d.get(), v[0], s.get())

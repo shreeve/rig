@@ -9,5 +9,5 @@ fun pick(a: ?[2]Counter) -> ?Counter
 sub main()
   a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
   k = pick(?a)
-  k.hits.set(3)
+  !k.hits.set(3)
   print(a[0].hits.get())

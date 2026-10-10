@@ -7,8 +7,8 @@ sub main()
   f = *|+s| print(s)
   f()
   c = *Cell("free")
-  c.set(?t[1..])
+  !c.set(?t[1..])
   print(c.get())
 
 # error: 7:10: an owned closure cannot capture `s`, which holds a view of `t`
-# error: 10:9: cannot store a view of `t` in a `Cell`
+# error: 10:10: cannot store a view of `t` in a `Cell`

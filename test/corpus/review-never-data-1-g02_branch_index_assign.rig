@@ -1,9 +1,9 @@
 struct S
   c: Cell[Vec[Int]]
 
-  sub grow(?self)
+  sub grow(!self)
     for i in 0..50
-      self.c.push(i)
+      !self.c.push(i)
 
 struct O
   s: S
@@ -15,7 +15,7 @@ sub main()
   a = *O(s: S(c: Cell(Vec())))
   b = *O(s: S(c: Cell(Vec())))
   k = a.s.c.len == 0
-  a.s.c.push(1)
+  !a.s.c.push(1)
   (a.s if k else b.s).c[0] = 7
   print(a.s.c[0])
   print(a.s.c.len, b.s.c.len)

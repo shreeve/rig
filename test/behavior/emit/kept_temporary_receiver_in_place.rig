@@ -12,7 +12,7 @@ struct P
     self
 
   fun tick(?self) -> Int
-    self.c.set(self.c.get() + 1)
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
 struct H

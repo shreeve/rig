@@ -1,8 +1,8 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 struct H[T]
   item: T
@@ -14,8 +14,8 @@ fun call[T](x: ?T, f: ?fun(?T) -> Int) -> Int
 fun field[T](h: ?H[T], f: ?fun(?T) -> Int) -> Int
   f(?h.item)
 
-fun bump(c: ?Counter) -> Int
-  c.hit()
+fun bump(c: !Counter) -> Int
+  !c.hit()
   1
 
 sub main()

@@ -1,17 +1,18 @@
 # `print` reads a struct holding a Cell when it is called, after a later
-# argument has grown the Cell's Vec through a read view of the struct.
+# argument has grown the Cell's Vec through another handle of the struct.
 struct S
   c: Cell[Vec[Int]]
 
-fun grow(s: ?S) -> Int
+fun grow(s: !S) -> Int
   for i in 0..20
-    s.c.push(i)
+    !s.c.push(i)
   5
 
 sub main()
   s = *S(c: Cell(Vec()))
-  s.c.push(42)
-  print(s, grow(?s))
+  !s.c.push(42)
+  d = +s
+  print(s, grow(!d))
 
 # expect:
 # S(c: Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])) 5

@@ -21,7 +21,7 @@ sub main()
   !v.push(7)
   s = "rig"
   c = *Cell[Vec[Int]](value: Vec())
-  c.push(4)
+  !c.push(4)
   grid = [[1, 2, 3], [4, 5, 6]]
   t = Table(ops: [double, next])
   i = 1

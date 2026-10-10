@@ -5,19 +5,19 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
-sub bumpc(c: ?Counter)
-  c.hit()
+sub bumpc(c: !Counter)
+  !c.hit()
 
 fun look(s: []*Counter) -> Int
-  bumpc(?s[0])
+  bumpc(!s[0])
   s[0].hits.get()
 
 fun total(s: []*Counter) -> Int
-  s[0].hit()
-  s[1].hit()
+  !s[0].hit()
+  !s[1].hit()
   s[0].hits.get() + s[1].hits.get()
 
 sub main()

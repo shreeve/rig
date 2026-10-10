@@ -6,8 +6,8 @@
 struct C
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
 struct W
   inner: C
@@ -23,7 +23,7 @@ sub run(k: Bool)
   a = C(c: Cell(1))
   o: C? = none
   w = W(inner: C(c: Cell(1)))
-  (o ?? C(c: Cell(2))).c.set(5)
+  !(o ?? C(c: Cell(2))).c.set(5)
   print("1")
   (mkf(-1) catch C(c: Cell(3))).hit()
   print("2")

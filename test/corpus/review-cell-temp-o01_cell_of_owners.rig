@@ -14,7 +14,7 @@ struct L
   d: Cell[D]
 
   drop(!self)
-    print("dropL", self.t.replace(Text("-")), self.v.len)
+    print("dropL", (!self.t).replace(Text("-")), self.v.len)
 
 fun mkd(n: Int) -> D
   D(c: Cell(n))

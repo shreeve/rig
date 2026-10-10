@@ -6,7 +6,7 @@ struct P
 sub main()
   c = *Cell(P(s: "x"))
   d = +c
-  f = *|<c, p: P| c.set(p)
+  f = *|<c, p: P| !c.set(p)
   if true
     t = Text("hello world, a heap string")
     f(P(s: ?t))

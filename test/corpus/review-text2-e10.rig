@@ -1,6 +1,6 @@
 fun mk() -> *Cell[Vec[String]]
   cv: *Cell[Vec[String]] = *Cell(Vec())
-  cv.push("lit")
+  !cv.push("lit")
   cv
 
 sub main()

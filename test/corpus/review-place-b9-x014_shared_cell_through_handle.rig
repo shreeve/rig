@@ -2,7 +2,7 @@ struct P
   c: Cell[Int]
 
 sub f(h: *P)
-  h.c.set(3)
+  !h.c.set(3)
 
 sub main()
   h = *P(c: Cell(1))

@@ -9,8 +9,8 @@ struct D
   drop(!self)
     print("drop", self.c.get())
 
-  fun hit(?self) -> Int
-    self.c.set(self.c.get() + 1)
+  fun hit(!self) -> Int
+    !self.c.set(self.c.get() + 1)
     self.c.get()
 
 struct H
@@ -22,8 +22,8 @@ fun mkd(n: Int) -> D
 fun mkh(n: Int) -> H
   H(d: mkd(n))
 
-fun val(p: ?D) -> Int
-  p.c.set(p.c.get() + 10)
+fun val(p: !D) -> Int
+  !p.c.set(p.c.get() + 10)
   p.c.get()
 
 sub main()

@@ -16,8 +16,8 @@ fun mkh() -> H
 fun mkq() -> Q
   Q(c: Cell(1), n: 41)
 
-fun bump(q: ?Q) -> Int
-  q.c.set(q.c.get() + 1)
+fun bump(q: !Q) -> Int
+  !q.c.set(q.c.get() + 1)
   q.c.get() + q.n
 
 fun g(k: Int) -> Int

@@ -1,19 +1,19 @@
 struct Counter
   hits: Cell[Int] = Cell(0)
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 sub main()
   v: Vec[*Counter] = Vec()
   !v.push(*Counter())
   !v.push(*Counter())
   for c in v
-    c.hit()
+    !c.hit()
   for c in ?v
-    c.hit()
-  v[0].hit()
+    !c.hit()
+  !v[0].hit()
   ?v[1].hits.set(10)
   s = ?v[..]
-  s[0].hit()
+  !s[0].hit()
   print(v[0].hits.get(), v[1].hits.get())

@@ -11,6 +11,6 @@ sub main()
   w: C? = C(c: Cell(2))
   c = v.len == 1
   if (?v[idx(?Text("a"))] if c else ?w) as x
-    x.c.set(9)
+    !x.c.set(9)
   if v[0] as x
     print(x.c.get())

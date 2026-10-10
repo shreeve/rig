@@ -1,19 +1,19 @@
 struct Counter
   hits: Cell[Int]
 
-  sub hit(?self)
-    self.hits.set(self.hits.get() + 1)
+  sub hit(!self)
+    !self.hits.set(self.hits.get() + 1)
 
 sub direct(c: Counter)
-  c.hits.set(9)
+  !c.hits.set(9)
   print(c.hits.get())
 
 sub viaMethod(c: Counter)
-  c.hit()
+  !c.hit()
   print(c.hits.get())
 
 sub cellParam(c: Cell[Int])
-  c.set(3)
+  !c.set(3)
   print(c.get())
 
 sub main()

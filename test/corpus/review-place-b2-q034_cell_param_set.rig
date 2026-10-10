@@ -1,5 +1,5 @@
 sub f(c: Cell[Int])
-  c.set(2)
+  !c.set(2)
 
 sub main()
   f(Cell(1))

@@ -8,12 +8,12 @@ fun build(n: Int) -> Vec[Int]
     !v.push(i)
   v
 
-fun look(x: ?Cell[Vec[Int]]) -> Int
-  x.push(10)
+fun look(x: !Cell[Vec[Int]]) -> Int
+  !x.push(10)
   x.len
 
-fun bump(x: ?Cell[Int]) -> Int
-  x.set(x.get() + 1)
+fun bump(x: !Cell[Int]) -> Int
+  !x.set(x.get() + 1)
   x.get()
 
 struct V
@@ -22,13 +22,13 @@ struct V
   drop(!self)
     print("drop", self.c.len)
 
-  fun add(?self, n: Int) -> Int
-    self.c.push(n)
+  fun add(!self, n: Int) -> Int
+    !self.c.push(n)
     self.c.len
 
-  fun twice(?self, n: Int) -> Int
-    self.add(n)
-    self.add(n)
+  fun twice(!self, n: Int) -> Int
+    !self.add(n)
+    (!self).add(n)
 
 struct WV
   t: *V
@@ -45,17 +45,17 @@ fun maybe(n: Int) -> Int?
 
 sub main()
   a: *Cell[Vec[Int]] = *Cell(build(1))
-  print(look(?a), a.len)
+  print(look(!a), a.len)
   n: *Cell[Int] = *Cell(0)
   s = 0
   for i in 0..5
-    s += bump(?n) + (maybe(i - 2) ?? continue)
+    s += bump(!n) + (maybe(i - 2) ?? continue)
   print(n.get(), s)
   w = mkv(1)
   for i in 0..3
-    print(w.twice(maybe(i - 1) ?? continue))
+    print((!w).twice(maybe(i - 1) ?? continue))
   for i in 0..3
-    print(mkwv(i).t.add(maybe(i - 1) ?? continue))
+    print((!mkwv(i).t).add(maybe(i - 1) ?? continue))
 
 # expect:
 # 2 2

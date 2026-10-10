@@ -3,7 +3,7 @@
 
 sub main()
   count: *Cell[Int] = *Cell(0)
-  bump: *sub() = *|+count| count.set(count.get() + 1)
+  bump: *sub() = *|+count| !count.set(count.get() + 1)
   bump()
   bump()
   bump()

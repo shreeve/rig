@@ -1,11 +1,11 @@
 struct P
   c: Cell[Int]
 
-  sub hit(?self)
-    self.c.set(self.c.get() + 1)
+  sub hit(!self)
+    !self.c.set(self.c.get() + 1)
 
-sub bump(p: ?P)
-  p.c.set(p.c.get() + 10)
+sub bump(p: !P)
+  !p.c.set(p.c.get() + 10)
 
 enum E
   a(p: P)
@@ -15,8 +15,8 @@ sub main()
   e: E = .a(p: P(c: Cell(1)))
   match !e
     .a(p)
-      p.hit()
-      bump(?p)
+      !p.hit()
+      bump(!p)
       q = |?p| p.hit()
       q()
     .b => print("b")

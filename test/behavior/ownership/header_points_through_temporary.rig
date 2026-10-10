@@ -51,7 +51,7 @@ sub write_as(v: !Vec[Text?])
 
 sub read_as(v: ?Vec[(*C)?])
   if v[idx(?Text("a"))] as c
-    c.c.set(c.c.get() + 5)
+    !c.c.set(c.c.get() + 5)
 
 sub write_while(v: !Vec[Text?])
   k = 0
@@ -115,7 +115,7 @@ sub main()
   ws: Vec[[1]*C] = Vec()
   !ws.push([*C(c: Cell(0))])
   for c in ws[idx(?Text("k"))]
-    c.c.set(7)
+    !c.c.set(7)
   print(ws[0][0].c.get())
 
 # expect:
