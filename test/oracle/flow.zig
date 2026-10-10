@@ -95,6 +95,8 @@ const Checker = struct {
     /// its write loans are read only; and `take`'s loans.
     stored: Bits = undefined,
     stored_full: Bits = undefined,
+    stored_wo: Bits = undefined,
+    stored_full_wo: Bits = undefined,
     seen: Bits = undefined,
     work: Bits = undefined,
     finding: ?core.Finding = null,
@@ -243,9 +245,6 @@ const Checker = struct {
         // (Core s7: a result that holds no write view carries its loans
         // as read loans, even of an argument lent to write), and a write
         // view pushed into a Vec of them stays one (Core §5).
-        // A call never stores its own lend of its receiver, which ends
-        // as it returns (Core s7), in what that receiver views.
-        if (op.what == .call) if (op.loan) |own| stored.unset(own);
         const stored_full = self.stored_full;
         stored_full.copyFrom(stored);
         if (op.what == .call) {
@@ -253,17 +252,40 @@ const Checker = struct {
             const wants_write = if (op.def) |d| self.f.vars.items[d].kind == .write_view or self.f.vars.items[d].holds_writes else false;
             if (!wants_write) self.readOnly(flow);
         }
+        // What the receiver itself takes leaves out the call's own lend of
+        // it: a callee cannot store a view of `self` through `self`, whose
+        // write it is (the compiler rejects `!self.w.push(?self.n)`). In
+        // another `!` argument it may store that view, which keeps the
+        // receiver lent while the argument holds it (SPEC "Second-class
+        // views").
+        const stored_wo = self.stored_wo;
+        const stored_full_wo = self.stored_full_wo;
+        stored_wo.copyFrom(stored);
+        stored_full_wo.copyFrom(stored_full);
+        if (op.what == .call) if (op.loan) |own| {
+            stored_full_wo.unset(own);
+            stored_wo.unset(own);
+            if (self.twins[own]) |tw| stored_wo.unset(tw);
+        };
         // A call may store what it was handed in what it was lent to
         // write (Core s6, SPEC §7 "Second-class views"), before its
         // result is handed back: a loan its result does not keep stands
         // for what its place holds after the call (`take`).
-        for (op.gains) |g| self.gain(g, st, if (self.f.vars.items[g].holds_writes) stored_full else stored);
+        for (op.gains) |g| {
+            const own_recv = op.recv_root != null and op.recv_root.? == g;
+            const sf = if (own_recv) stored_full_wo else stored_full;
+            const sr = if (own_recv) stored_wo else stored;
+            self.gain(g, st, if (self.f.vars.items[g].holds_writes) sf else sr);
+        }
         // What a write view stores into, or lets a call store into, is
         // what its write loans are on.
         for (op.through) |t| {
+            const own_recv = (op.recv_view != null and op.recv_view.? == t) or (op.recv_root != null and op.recv_root.? == t);
+            const sf = if (own_recv) stored_full_wo else stored_full;
+            const sr = if (own_recv) stored_wo else stored;
             for (self.f.loans.items, 0..) |l, li| {
                 if (!st.holds[t].has(li) or l.external or l.mode == .read or !l.stores_views) continue;
-                self.gain(l.root, st, if (self.f.vars.items[l.root].holds_writes) stored_full else stored);
+                self.gain(l.root, st, if (self.f.vars.items[l.root].holds_writes) sf else sr);
             }
         }
         for (op.moves) |v| {
@@ -477,6 +499,8 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
     c.full = try Bits.init(a, c.nl);
     c.stored = try Bits.init(a, c.nl);
     c.stored_full = try Bits.init(a, c.nl);
+    c.stored_wo = try Bits.init(a, c.nl);
+    c.stored_full_wo = try Bits.init(a, c.nl);
     c.seen = try Bits.init(a, c.nl);
     c.work = try Bits.init(a, c.nl);
 

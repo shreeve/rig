@@ -1,0 +1,86 @@
+# A `!self` method may store a view of its receiver in another `!`
+# argument, which keeps the receiver lent while the argument holds it
+# (SPEC "Second-class views"): reassigning the receiver, growing what
+# the view sees, or using it otherwise is rejected while the argument
+# lives. The oracle's verdicts are stated too, so that a weaker
+# reference checker fails the run.
+# oracle: store_read_view reject C4
+# oracle: store_write_view reject C4
+# oracle: bang_receiver reject C4
+# oracle: store_slice reject C4
+# oracle: store_into_struct reject C4
+
+struct H
+  n: Int
+  v: Vec[Int]
+
+  sub put(!self, dst: !Vec[?Vec[Int]])
+    !self.v.push(1)
+    !dst.push(?self.v)
+
+  sub putw(!self, dst: !Vec[!Vec[Int]])
+    !dst.push(!self.v)
+
+  sub puts(!self, dst: !Vec[[]Int])
+    !self.v.push(1)
+    !dst.push(?self.v[..])
+
+  sub putf(!self, dst: !Slot)
+    !self.v.push(1)
+    dst.s = ?self.v[..]
+
+struct Slot
+  s: []Int
+
+sub store_read_view()
+  v: Vec[Int] = Vec()
+  h = H(n: 1, v: <v)
+  d: Vec[?Vec[Int]] = Vec()
+  !h.put(!d)
+  h = H(n: 2, v: Vec())
+  print(d.len)
+
+sub store_write_view()
+  v: Vec[Int] = Vec()
+  h = H(n: 1, v: <v)
+  d: Vec[!Vec[Int]] = Vec()
+  !h.putw(!d)
+  h = H(n: 2, v: Vec())
+  print(d.len)
+
+sub bang_receiver()
+  v: Vec[Int] = Vec()
+  h = H(n: 1, v: <v)
+  d: Vec[?Vec[Int]] = Vec()
+  !h.put(!d)
+  !h.v.push(5)
+  print(d.len)
+
+sub store_slice()
+  v: Vec[Int] = Vec()
+  h = H(n: 1, v: <v)
+  d: Vec[[]Int] = Vec()
+  !h.puts(!d)
+  for i in 0..100
+    !h.v.push(i)
+  print(d[0])
+
+sub store_into_struct()
+  v: Vec[Int] = Vec()
+  h = H(n: 1, v: <v)
+  e: Vec[Int] = Vec()
+  sl = Slot(s: ?e[..])
+  !h.putf(!sl)
+  for i in 0..100
+    !h.v.push(i)
+  print(sl.s)
+
+sub main()
+  store_read_view()
+
+# error: 40:3: cannot reassign `h` while it is lent
+# error: 48:3: cannot reassign `h` while it is lent
+# error: 56:4: use of `h` while a write loan is live
+# error: 65:6: use of `h` while a write loan is live
+# error: 75:6: use of `h` while a write loan is live
+# errors: 5
