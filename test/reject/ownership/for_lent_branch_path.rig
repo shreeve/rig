@@ -1,0 +1,30 @@
+# `for x in ?S` lends its source as `?S` does: a path from a branch of
+# names is lent through each branch, so the loan on the name taken is
+# kept while the loop's views live.
+
+struct W
+  n: Int
+  v: Vec[Int]
+
+fun mkw(n: Int) -> W
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i + 1)
+  W(n: n, v: <v)
+
+sub main()
+  a = mkw(3)
+  b = mkw(3)
+  c = true
+  for x in ?(a if c else b).v
+    !a.v.push(1) if a.v.len < 50
+    print(x)
+  ys: Vec[W] = Vec()
+  !ys.push(mkw(2))
+  zs: Vec[W] = Vec()
+  for y in ?(ys if c else zs)[0].v
+    print(y)
+
+# error: 19:14: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).v`
+# error: 25:14: cannot lend `ys if c else zs`: it may be `ys`, a value a name holds
+# errors: 2

@@ -1,0 +1,41 @@
+# A write view that goes where a read view does is lent to read where it
+# stands: a branch of names holding write views, or `o?` of one, is
+# lent through each branch, so the loan on the name taken is kept.
+
+struct W
+  v: Vec[Int]
+
+struct RV
+  r: ?Vec[Int]
+
+fun sl(v: ?Vec[Int]) -> []Int
+  ?v[..]
+
+fun sw(w: ?W) -> []Int
+  ?w.v[..]
+
+sub f(a: !Vec[Int], b: !Vec[Int], c: Bool)
+  s = sl(a if c else b)
+  h = RV(r: a if c else b)
+  !a.push(1)
+  print(s[0], h.r.len)
+
+fun g(a: !W) -> Int?
+  o: (!W)? = !a
+  s = sw(o?)
+  if !o as w
+    !w.v.push(1)
+  print(s[0])
+  1
+
+sub main()
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  f(!x, !y, true)
+  z = W(v: <x)
+  _ = g(!z)
+
+# error: 18:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`
+# error: 19:13: cannot lend `a if c else b`: it may be `a`, a value a name holds
+# error: 25:10: cannot lend `o?`: it may be `o`, a value a name holds, which lending the branching value would copy; lend what it unwraps, and unwrap it in a header: `if ?o as x`
+# errors: 3

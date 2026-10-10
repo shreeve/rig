@@ -1,0 +1,28 @@
+# A value holding a Cell lives only behind a shared handle: no
+# parameter, result, local, optional, element, slice, or type argument
+# holds one by value.
+
+struct Counter
+  hits: Cell[Int]
+
+sub take(k: Counter)
+  print(k.hits.get())
+
+fun make() -> Counter?
+  none
+
+sub each(xs: [2]Cell[Int], s: []Counter)
+  print(xs.len, s.len)
+
+sub main()
+  a: Cell[Int]? = none
+  v: Vec[Counter] = Vec()
+  print(a, v.len)
+
+# error: 8:13: a value of `Counter` holds a Cell, so it lives only behind a shared handle: write `*Counter`
+# error: 11:15: a value of `Counter` holds a Cell, so it lives only behind a shared handle: write `*Counter`
+# error: 14:17: a value of `Cell[Int]` holds a Cell, so it lives only behind a shared handle: write `*Cell[Int]`
+# error: 14:33: a value of `Counter` holds a Cell, so it lives only behind a shared handle: write `*Counter`
+# error: 18:6: a value of `Cell[Int]` holds a Cell, so it lives only behind a shared handle: write `*Cell[Int]`
+# error: 19:6: a value of `Counter` holds a Cell, so it lives only behind a shared handle: write `*Counter`
+# errors: 6

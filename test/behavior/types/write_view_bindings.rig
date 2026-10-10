@@ -1,0 +1,34 @@
+# A write view stands in a parameter, a result, a receiver, and a local
+# or header binding, also as `(!T)?` and `(!T)!`.
+
+struct P
+  n: Int
+
+  fun bump(!self) -> !Int
+    self.n += 1
+    !self.n
+
+error Bad
+  bad
+
+fun pick(a: !P, k: Bool) -> (!P)?
+  return none if k
+  a
+
+fun must(a: !P, k: Bool) -> (!P)!
+  return Bad.bad if k
+  a
+
+sub main()
+  p = P(n: 1)
+  o: (!P)? = pick(!p, false)
+  if !o as w
+    w.n += 10
+  w = must(!p, false)!
+  w.n += 100
+  r = (!p).bump()
+  r += 1000
+  print(p.n)
+
+# expect:
+# 1112

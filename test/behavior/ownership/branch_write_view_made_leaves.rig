@@ -1,0 +1,46 @@
+# A branch over write views whose every leaf is made there (`!a`, a
+# call's result) is a write view the branch makes: it is passed,
+# matched, and bound as one. A branch of names holding write views of
+# values that copy reads the value.
+
+enum E
+  a(n: Int)
+  b
+
+sub inc(w: !Int)
+  w += 1
+
+error Bad
+  bad
+
+fun getw(w: !Int, k: Bool) -> (!Int)!
+  return Bad.bad if k
+  w
+
+sub f(a: !Int, b: !Int, c: Bool)
+  inc(!a if c else !b)
+  w = getw(!a, true) catch !b
+  w += 10
+  n = a if c else b
+  print(a, b, n)
+
+sub g(x: !E, y: !E, c: Bool)
+  match (!x if c else !y)
+    .a(n)
+      n += 5
+    .b => pass
+
+sub main()
+  x = 1
+  y = 2
+  f(!x, !y, true)
+  e = E.a(n: 1)
+  d = E.b
+  g(!e, !d, true)
+  match e
+    .a(n) => print(n)
+    .b => pass
+
+# expect:
+# 2 12 2
+# 6

@@ -1,0 +1,21 @@
+# A header reads its subject where it stands, so a branch over names
+# holding write views is lent there, and may not be: each branch is lent
+# instead.
+
+enum E
+  a(t: Text)
+  b
+
+sub f(a: !E, b: !E, c: Bool)
+  match (a if c else b)
+    .a(t)
+      print(t)
+    .b => pass
+
+sub main()
+  x = E.a(t: Text("x"))
+  y = E.b
+  f(!x, !y, true)
+
+# error: 10:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`
+# errors: 1

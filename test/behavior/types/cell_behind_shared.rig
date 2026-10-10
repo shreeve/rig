@@ -1,0 +1,32 @@
+# A Cell lives behind a shared handle: `*Cell[T]`, or `*S` where `S`
+# holds one in a field, set by a field default or a field argument. A
+# read view of either changes it in place.
+
+struct Counter
+  hits: Cell[Int] = Cell(0)
+  name: String
+
+  fun hit(?self) -> Int
+    self.hits.set(self.hits.get() + 1)
+    self.hits.get()
+
+sub bump(c: ?Cell[Int])
+  c.set(c.get() + 10)
+
+fun total(k: ?Counter) -> Int
+  k.hits.get()
+
+sub main()
+  local = *Cell(1)
+  bump(local)
+  k = *Counter(name: "k")
+  k.hit()
+  bump(?k.hits)
+  same = +k
+  print(local.get(), same.hit(), total(k))
+  j = *Counter(hits: Cell(5), name: "j")
+  print(j.hit(), j.name)
+
+# expect:
+# 11 12 12
+# 6 j
