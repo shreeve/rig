@@ -4111,7 +4111,10 @@ pub const Checker = struct {
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         const ty = self.exprType(leaf) orelse return;
         if (!sema.readByAddress(ctx, ty)) return;
-        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(leaf), .held_read = reader });
+        // A Cell behind a handle changes through any path to it: a leaf
+        // holding one, read in place, is held against any later view.
+        const kind: LoanKind = if (sema.holdsCellByValue(ctx, sema.unwrapViews(ctx, ty))) .write else .read;
+        try self.addTemp(.{ .root = place.root, .kind = kind, .pos = self.startOf(leaf), .held_read = reader });
     }
 
     /// Walk `earlier`, then `later` while what `earlier` reads in place is
