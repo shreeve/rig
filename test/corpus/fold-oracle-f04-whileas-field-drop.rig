@@ -1,0 +1,12 @@
+# bad: while ?h.o as p keeps bytes, then drop h
+struct H
+  o: Text?
+
+sub main()
+  h = H(o: Text("abc"))
+  keep: String = ""
+  while ?h.o as p
+    keep = p
+    break
+  <h
+  print(keep)

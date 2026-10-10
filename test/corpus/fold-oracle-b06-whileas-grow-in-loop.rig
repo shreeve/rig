@@ -1,0 +1,10 @@
+# bad: while ?o as p, grow o inside body while p used after
+sub main()
+  o: Text? = Text("a")
+  n = 0
+  while ?o as p
+    !o.add("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    print(p)
+    n += 1
+    if n > 2
+      break

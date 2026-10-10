@@ -151,7 +151,12 @@ fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
         },
         .list => return switch (e.kind().?) {
             .enum_lit => true,
-            .read, .write, .move => ir.get(e, .operand) == .src,
+            // A view held as a pointer is the name's address; a view
+            // held by value (a String's bytes, a slice, a copy of a
+            // number) reads the name where the call runs, after the
+            // arguments written before it.
+            .read, .write => ir.get(e, .operand) == .src and ((isPtrViewExpr(ctx, e) and ctx.lendOf(e) == null) or isPureArg(ctx, ir.get(e, .operand))),
+            .move => ir.get(e, .operand) == .src,
             .neg => ir.Neg.operand(e) == .src and isLiteralText(srcText(ctx, ir.Neg.operand(e))),
             else => false,
         },

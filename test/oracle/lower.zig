@@ -1129,7 +1129,7 @@ const Lowerer = struct {
 
     /// The type an `as` binds: what the optional subject holds.
     fn optionalInner(self: *Lowerer, ty: TypeId) ?TypeId {
-        return switch (self.ctx.types.get(ty)) {
+        return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .optional => |t| t,
             else => null,
         };

@@ -1,0 +1,11 @@
+# order: named arguments written out of order: grow first in source, bytes after
+fun grow(t: !Text) -> Int
+  !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+  1
+
+sub show(s: String, n: Int)
+  print(s.len, n)
+
+sub main()
+  t = Text("abc")
+  show(n: grow(!t), s: ?t)

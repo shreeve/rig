@@ -2546,6 +2546,20 @@ symbols); a query that decides more than that belongs in `Pending`.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
+- **Evaluation order of arguments.** A call's arguments are evaluated
+  in the order they are written and passed in the order the parameters
+  are declared: `f(b: e2, a: e1)` is `{ b = e2; a = e1; f(a, b) }`,
+  written `{ a1 = <first written>; a2 = <second written>; f(<declared
+  order>) }`. An argument is left where it stands (`isPureArg`) only if
+  evaluating it early or late reads nothing a later-written argument
+  could change: a literal, a constant, or a view held as a pointer to a
+  name. A view held by value (a `String`'s bytes, a slice, a copy of a
+  number) reads the name where the call runs, so it is not pure, and a
+  call that reorders it with an argument that has an effect evaluates
+  both into temporaries in source order (`hoistsArgs`). The ownership
+  checker walks the arguments in the written order, which is the order
+  emit evaluates them in. A constructor evaluates its fields in the
+  written order.
 - **Hidden storage.** Every `__rig_` location that holds a value of
   the program is named by `hiddenStorage`, which requires its storage
   fact ([Storage facts](#storage-facts)): emit makes no storage the

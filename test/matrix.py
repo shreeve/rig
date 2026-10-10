@@ -1811,6 +1811,63 @@ def nest_program(wname, home, oname):
         "sub main()\n" + indent([o["make"], f"f = mk({o['arg']})", "print(1)"], 2) + "\n"])
 
 
+# -----------------------------------------------------------------------------
+# Named arguments in every order. Arguments are evaluated in the order they
+# are written and passed in the order the parameters are declared
+# (docs/INTERNALS.md, "Evaluation order of arguments"): one argument writes
+# what another views, written first or second, in a function, a method, and
+# a generic function. A view that is a loan (a String, a `?Text`, a slice) is
+# rejected when written before the write; a copy of a number is not, and
+# shows the value before the write. Written after the write, every view
+# shows what the write left. Cells are `named.<call>.<kind>.<order>`.
+# -----------------------------------------------------------------------------
+
+NAMED_KINDS = {
+    # kind: (setup, view argument, parameter type, what the sub prints of it, view after the write,
+    #        view before the write, writer argument, writer result, loan)
+    "string": ("t = Text(\"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\")", "?t", "String", "v.len > 8000", "true", "false", "grow(!t)", "1", True),
+    "qtext": ("t = Text(\"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\")", "?t", "?Text", "v.len > 8000", "true", "false", "grow(!t)", "1", True),
+    "slice": ("t: Vec[Int] = Vec()\n!t.push(1)", "?t", "[]Int", "v.len", "301", "1", "fill(!t)", "1", True),
+    "int": ("t = 1", "?t", "Int", "v", "11", "1", "bump(!t)", "11", False),
+}
+NAMED_CALLS = ("fun", "method", "generic")
+NAMED_ORDERS = ("decl", "swap")
+
+
+def named_program(call, kind, order):
+    """The program for one named-arguments cell, and what it prints (None: rejected)."""
+    setup, view, ptype, observe, after, before, writer, wres, loan = NAMED_KINDS[kind]
+    if call == "generic" and kind != "int":
+        return None, None
+    lines = [
+        "fun grow(t: !Text) -> Int", "  for _ in 0..200", '    !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")', "  1", "",
+        "fun fill(v: !Vec[Int]) -> Int", "  for i in 0..300", "    !v.push(i)", "  1", "",
+        "fun bump(n: !Int) -> Int", "  n += 10", "  n", "",
+    ]
+    if call == "fun":
+        lines += [f"sub show(v: {ptype}, w: Int)", f"  print({observe}, w)", ""]
+        callee = "show"
+    elif call == "method":
+        lines += ["struct M", "  k: Int", "", f"  sub show(?self, v: {ptype}, w: Int)", f"    print({observe}, w)", ""]
+        callee = "m.show"
+    else:
+        lines += ["sub show[T](v: T, w: Int)", "  print(v, w)", ""]
+        callee = "show"
+    lines += ["sub main()", "  " + setup.replace("\n", "\n  ")]
+    if call == "method":
+        lines.append("  m = M(k: 0)")
+    args = [f"v: {view}", f"w: {writer}"]
+    if order == "swap":
+        args.reverse()
+    lines.append(f"  {callee}({', '.join(args)})")
+    src = "\n".join(lines) + "\n"
+    if order == "decl":
+        if loan:
+            return src, None
+        return src, f"{before} {wres}\n"
+    return src, f"{after} {wres}\n"
+
+
 def indent(lines, n):
     return "\n".join(" " * n + l for l in lines)
 
@@ -2203,6 +2260,23 @@ def main():
             expects[ident] = out if out is not None else "(rejected)\n"
             if out is not None:
                 release.add(ident)
+    for call in NAMED_CALLS:
+        for kind in NAMED_KINDS:
+            for order in NAMED_ORDERS:
+                ident = f"named.{call}.{kind}.{order}"
+                if not wanted(ident):
+                    continue
+                src, out = named_program(call, kind, order)
+                if src is None:
+                    skipped += 1
+                    continue
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(src)
+                cells.append((ident, path))
+                expects[ident] = out if out is not None else "(rejected)\n"
+                if out is not None:
+                    release.add(ident)
     for t in PAYLOAD_TYPES:
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:
