@@ -43,14 +43,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: nexus/bin/nexus
-          key: nexus-v2.0.0-zig-0.17.0-${{ runner.os }}-${{ runner.arch }}
+          key: nexus-efcaf5b-zig-0.17.0-${{ runner.os }}-${{ runner.arch }}
 
       - name: Check out Nexus
         if: steps.nexus.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: shreeve/nexus
-          ref: v2.0.0
+          ref: efcaf5b4da736bfadf57c67be6eb62ae3feff298
           path: nexus
 
       - name: Build Nexus
