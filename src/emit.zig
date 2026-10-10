@@ -2703,6 +2703,8 @@ pub const Emitter = struct {
             }
             const inner = self.facts.boxedType(t) orelse break;
             try self.w.writeAll(".value");
+            // A view the box holds is a pointer to the value.
+            if (self.isPtrViewTy(inner)) try self.w.writeAll(".*");
             t = self.facts.unwrapViews(inner);
             ptr = true;
         }
@@ -4434,7 +4436,12 @@ pub const Emitter = struct {
         var t = ty;
         var ptr = false;
         while (true) switch (self.facts.types.get(t)) {
-            .read_view, .write_view => |inner| t = inner,
+            .read_view, .write_view => |inner| {
+                // A view held in a box is a pointer, which the box's
+                // pointer reaches; it points at the viewed value.
+                if (ptr and self.isPtrViewTy(t)) try self.w.writeAll(".*");
+                t = inner;
+            },
             .shared => |inner| {
                 try self.w.writeAll(if (ptr) ".*.value" else ".value");
                 t = inner;
@@ -4926,13 +4933,19 @@ pub const Emitter = struct {
         var reach: []const u8 = "";
         while (t != self.facts.types.text_id) {
             const boxed = self.facts.types.get(t) != .shared;
+            var held_view = false;
             t = switch (self.facts.types.get(t)) {
                 .shared => |inner| self.peelViews(inner),
-                else => self.peelViews(self.facts.boxedType(t) orelse return null),
+                else => blk: {
+                    const inner = self.facts.boxedType(t) orelse return null;
+                    held_view = self.isPtrViewTy(inner);
+                    break :blk self.peelViews(inner);
+                },
             };
-            // A box's value is behind a pointer; a handle it holds is one
-            // more, which Zig does not follow by itself.
-            const deref = boxed and self.facts.types.get(t) == .shared;
+            // A box's value is behind a pointer; a view it holds, or a
+            // handle it holds, is one more, which Zig does not follow by
+            // itself.
+            const deref = boxed and (held_view or self.facts.types.get(t) == .shared);
             reach = self.fmt("{s}.value{s}", .{ reach, if (deref) ".*" else "" }) catch return null;
         }
         return reach;

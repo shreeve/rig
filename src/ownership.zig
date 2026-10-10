@@ -651,24 +651,25 @@ pub const Checker = struct {
         try self.checkInstantiations();
     }
 
-    /// Generic bodies are checked once, for a `T` that may own a resource
-    /// and holds no view. Each instantiation the module makes must fit
-    /// that: an argument with drop glue only where the bodies never copy
-    /// a `T`, and no views in the arguments of a type with methods or of
-    /// a generic function. A method's instance checks its own parameters;
-    /// its type's are checked with the receiver's instance.
+    /// Generic bodies are checked once, for a `T` that may own a resource.
+    /// Each instantiation the module makes must fit that: an argument
+    /// with drop glue only where the bodies never copy a `T`, no write
+    /// view in an argument (a write view is never stored in a value),
+    /// and a view only where the body stores no `T` where no loan is
+    /// tracked. A method's instance checks its own parameters; its
+    /// type's are checked with the receiver's instance.
     fn checkInstantiations(self: *Checker) Error!void {
         const ctx = self.sema orelse return;
         for (ctx.fn_instances.items) |f| {
             const shown = try sema.formatFnInstanceIn(ctx, self.arena(), f.inst);
             for (f.inst.ownParams(), f.inst.ownArgs()) |param, arg| {
-                if (!self.holdsMarkedViewType(arg)) {
-                    try self.checkCopies(f.site, shown, param, arg);
-                    try self.checkViews(f.site, shown, param, arg);
+                if (self.carriesWriteView(arg)) {
+                    const pname = ctx.symbols.items[param].name;
+                    try self.err(f.site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value; take `!{s}` in its signature instead", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname });
                     continue;
                 }
-                const pname = ctx.symbols.items[param].name;
-                try self.err(f.site, "`{s}` cannot use `{s} = {s}`: a generic function is checked for a `{s}` that holds no `?T`, `!T`, or slice; take `?{s}` or `!{s}` in its signature instead", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, pname, pname });
+                try self.checkCopies(f.site, shown, param, arg);
+                try self.checkViews(f.site, shown, param, arg);
             }
         }
         var it = ctx.instantiation_sites.iterator();
@@ -682,17 +683,13 @@ pub const Checker = struct {
             const params = base.type_params orelse continue;
             const site = entry.value_ptr.*;
             const shown = try sema.formatTypeIn(ctx, self.arena(), entry.key_ptr.*);
-            var has_methods = false;
-            for (base.fields orelse &.{}) |f| {
-                if (f.is_method and !f.is_drop_method) has_methods = true;
-            }
             for (params, 0..) |param, i| {
                 if (i >= pn.args.len) break;
                 const arg = pn.args[i];
                 const pname = ctx.symbols.items[param].name;
                 const aname = try sema.formatTypeIn(ctx, self.arena(), arg);
-                if (has_methods and self.holdsMarkedViewType(arg)) {
-                    try self.err(site, "`{s}` cannot use `{s} = {s}`: the methods of `{s}` are checked for a `{s}` that holds no `?T`, `!T`, or slice", .{ shown, pname, aname, base.name, pname });
+                if (self.carriesWriteView(arg)) {
+                    try self.err(site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value", .{ shown, pname, aname });
                     continue;
                 }
                 try self.checkCopies(site, shown, param, arg);
@@ -701,16 +698,17 @@ pub const Checker = struct {
         }
     }
 
-    /// An instance whose argument for `param` holds a String, which may
-    /// view a Text, where a generic body stores a `param` where no loan
-    /// is tracked.
+    /// An instance whose argument for `param` holds a view, or a String,
+    /// which may view a Text, where a generic body stores a `param`
+    /// where no loan is tracked.
     fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!void {
         const ctx = self.sema orelse return;
-        if (!self.mayCarryLoan(arg) or sema.holdsMarkedView(ctx, arg)) return;
+        if (!self.mayCarryLoan(arg)) return;
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or !r.view) continue;
-            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, or an owned closure, which carries no loan, and a String may view a Text", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname });
+            const why = if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a String may view a Text";
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, or an owned closure, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, why });
             try self.noteIn(r.module_id, r.pos, "`{s}` stored here", .{pname});
             return;
         }
@@ -5812,12 +5810,6 @@ pub const Checker = struct {
     fn reachedType(self: *const Checker, ty: ?TypeId) ?TypeId {
         const ctx = self.sema orelse return ty;
         return sema.unwrapViews(ctx, ty orelse return null);
-    }
-
-    /// Whether a value of this type holds a marked view (a String aside).
-    fn holdsMarkedViewType(self: *const Checker, ty: TypeId) bool {
-        const ctx = self.sema orelse return true;
-        return sema.holdsMarkedView(ctx, ty);
     }
 
     /// Whether a value of this type holds a write view, which must not
