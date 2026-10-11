@@ -5116,6 +5116,11 @@ pub const Emitter = struct {
             self.read_place = !writes;
             return self.emitAddressOf(place);
         }
+        // A String lent to read, `(?s).read[...]`, lends its bytes.
+        if (self.stringReach(ty)) |reach| {
+            try self.emitBaseExpr(place);
+            return self.w.print("{s}.bytes()", .{reach});
+        }
         try self.emitBare(place);
     }
 
