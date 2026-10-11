@@ -5814,7 +5814,9 @@ const TypePrinter = struct {
         const s = try p.id(inner);
         return switch (p.ctx.types.get(inner)) {
             // A handle binds tighter than a suffix, and takes no view prefix.
-            .optional, .fallible, .read_view, .write_view, .string_view => p.a.print("{c}({s})", .{ sigil, s }),
+            // A box of a read view is written `^?T`, which the grammar takes.
+            .read_view, .string_view => if (sigil == '^') p.a.print("^{s}", .{s}) else p.a.print("{c}({s})", .{ sigil, s }),
+            .optional, .fallible, .write_view => p.a.print("{c}({s})", .{ sigil, s }),
             else => p.a.print("{c}{s}", .{ sigil, s }),
         };
     }
@@ -8055,6 +8057,10 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     try std.testing.expectEqualStrings("^P?", try spelled(ctx, opt_box));
     try std.testing.expectEqualStrings("?^P", try spelled(ctx, read_box));
     try std.testing.expectEqualStrings("^^P", try spelled(ctx, box_box));
+    // A box of a read view is written `^?P`, and an optional one `(^?P)?`.
+    const box_read = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{try ctx.intern(.{ .read_view = p })} } });
+    try std.testing.expectEqualStrings("^?P", try spelled(ctx, box_read));
+    try std.testing.expectEqualStrings("(^?P)?", try spelled(ctx, try ctx.intern(.{ .optional = box_read })));
     // A box holds a value held no other way on the heap.
     try std.testing.expect(!heapStacked(ctx, .box, p));
     try std.testing.expect(!heapStacked(ctx, .box, opt_p));

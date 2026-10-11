@@ -1195,7 +1195,8 @@ fn takesNoSuffix(comptime T: type, comptime names: anytype) bool {
 
 /// `*T` / `~T` / `^T`, with `T` in parentheses when it is suffixed.
 fn handleName(comptime sigil: []const u8, comptime T: type, comptime names: anytype) []const u8 {
-    const view = if (builtinName(T, names)) |name| name[0] == '?' else false;
+    // A box of a read view is written `^?T`; a handle holds no view.
+    const view = if (builtinName(T, names)) |name| name[0] == '?' and sigil[0] != '^' else false;
     const suffixed = view or @typeInfo(T) == .optional or @typeInfo(T) == .error_union;
     return if (suffixed) sigil ++ "(" ++ nameOf(T, names) ++ ")" else sigil ++ nameOf(T, names);
 }
