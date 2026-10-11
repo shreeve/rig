@@ -9,7 +9,7 @@ sub main()
   print(b)
   store(!b, 3)
 
-# expect-panic: byte write out of range
+# expect-panic: byte write out of range: 4 bytes at offset 3 of 6
 
 # release
 

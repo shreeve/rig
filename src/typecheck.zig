@@ -6778,7 +6778,12 @@ const Checker = struct {
         if (!op.isBits()) return null;
         const value = sema.unwrapViews(self.ctx, obj_ty);
         // `v.not()` of a vector: lane by lane, of integer or `Bool` lanes.
-        const lane = if (sema.simdOf(self.ctx, value)) |v| (if (op == .not) v.elem else return null) else value;
+        // A mask's bits are counted as `bits()`'s.
+        const lane = if (sema.simdOf(self.ctx, value)) |v| (if (op == .not) v.elem else {
+            if (v.elem != self.t().bool_id or op == .swap_bytes) return null;
+            const recv = try self.receiverText(obj);
+            return try self.badCall(args, pos, "`{s}` counts an integer's bits, and `{s}` is a mask, `{s}`: count the bits `bits()` gives, `{s}.bits().{s}()`", .{ method, try self.plainText(obj), try self.tyName(value), recv, method });
+        }) else value;
         const is_bool = lane == self.t().bool_id;
         if (!(is_bool and op == .not) and !sema.isInteger(self.ctx, lane)) return null;
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume its receiver");

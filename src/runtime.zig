@@ -1389,7 +1389,7 @@ pub const Endian = enum { little, big };
 /// are all in range.
 pub fn readInt(comptime T: type, bytes: anytype, offset: anytype, comptime endian: Endian) T {
     const n = @divExact(@bitSizeOf(T), 8);
-    const i = byteOffset(bytes.len, offset, n) orelse @panic("byte read out of range");
+    const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("read", n, offset, bytes.len);
     const Bits = @Int(.unsigned, @bitSizeOf(T));
     // One load of the `n` bytes, however wide, whatever the target's
     // native integer width (an integer array load is split into bytes
@@ -1404,7 +1404,7 @@ pub fn readInt(comptime T: type, bytes: anytype, offset: anytype, comptime endia
 /// range.
 pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, comptime endian: Endian) void {
     const n = @divExact(@bitSizeOf(T), 8);
-    const i = byteOffset(bytes.len, offset, n) orelse @panic("byte write out of range");
+    const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("write", n, offset, bytes.len);
     const Bits = @Int(.unsigned, @bitSizeOf(T));
     const raw: Bits = @bitCast(value);
     const ordered = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw;
@@ -1421,7 +1421,7 @@ pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, com
 /// the vector's own alignment, which an unaligned offset breaks).
 pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endian: Endian) V {
     const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
-    const i = byteOffset(bytes.len, offset, n) orelse @panic("byte read out of range");
+    const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("read", n, offset, bytes.len);
     const p: *align(1) const V = @ptrCast(bytes[i..][0..n]);
     return lanesInOrder(p.*, endian);
 }
@@ -1431,7 +1431,7 @@ pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endi
 /// range. One check, then one unaligned store.
 pub fn simdWrite(comptime V: type, bytes: anytype, offset: anytype, value: V, comptime endian: Endian) void {
     const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
-    const i = byteOffset(bytes.len, offset, n) orelse @panic("byte write out of range");
+    const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("write", n, offset, bytes.len);
     const p: *align(1) V = @ptrCast(bytes[i..][0..n]);
     p.* = lanesInOrder(value, endian);
 }
@@ -1484,6 +1484,9 @@ pub fn maskAny(m: anytype) bool {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     // WASM SIMD reduces a mask of more than 16 lanes lane by lane.
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) != 0;
+    // On NEON, the lanes as bytes reduce to a `umaxv`, which shares the
+    // bytes `maskBits` weighs when `bits()` follows.
+    if (comptime n >= 16 and neonIntrinsics()) return @reduce(.Max, maskBytes(n, m)) != 0;
     return @reduce(.Or, m);
 }
 
@@ -1491,7 +1494,13 @@ pub fn maskAny(m: anytype) bool {
 pub fn maskAll(m: anytype) bool {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) == std.math.maxInt(@Int(.unsigned, n));
+    if (comptime n >= 16 and neonIntrinsics()) return @reduce(.Min, maskBytes(n, m)) != 0;
     return @reduce(.And, m);
+}
+
+/// A mask's lanes as bytes, 0xFF for true and 0 for false.
+fn maskBytes(comptime n: usize, m: @Vector(n, bool)) @Vector(n, u8) {
+    return @select(u8, m, @as(@Vector(n, u8), @splat(0xFF)), @as(@Vector(n, u8), @splat(0)));
 }
 
 /// Whether NEON's intrinsics may be named: an aarch64 target with NEON,
@@ -1516,22 +1525,30 @@ fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
 fn maskBitsNeon(comptime n: usize, m: @Vector(n, bool)) u64 {
     const V = @Vector(16, u8);
     const addp = @"llvm.aarch64.neon.addp.v16i8";
-    const weights: V = .{ 1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128 };
-    const zero: V = @splat(0);
-    const lanes: [n]bool = m;
-    var pieces: [n / 16]V = undefined;
-    inline for (0..n / 16) |k| pieces[k] = @select(u8, @as(@Vector(16, bool), lanes[k * 16 ..][0..16].*), weights, zero);
+    const eight = [8]u8{ 1, 2, 4, 8, 16, 32, 64, 128 };
+    const weights: @Vector(n, u8) = comptime weightsOf(n, eight);
+    // The pieces come from the mask as bytes, never through `[n]bool`,
+    // which would take each lane apart; the result is read as a lane of
+    // a wider vector, one `fmov`.
+    const pieces: [n / 16]V = @bitCast(maskBytes(n, m) & weights);
     if (n == 32) {
         const s1 = addp(pieces[0], pieces[1]);
         const s2 = addp(s1, s1);
-        const s3: [16]u8 = addp(s2, s2);
-        return std.mem.readInt(u32, s3[0..4], .little);
+        const s3 = addp(s2, s2);
+        return @as(@Vector(4, u32), @bitCast(s3))[0];
     }
     const s1 = addp(pieces[0], pieces[1]);
     const s2 = addp(pieces[2], pieces[3]);
     const s3 = addp(s1, s2);
-    const s4: [16]u8 = addp(s3, s3);
-    return std.mem.readInt(u64, s4[0..8], .little);
+    const s4 = addp(s3, s3);
+    return @as(@Vector(2, u64), @bitCast(s4))[0];
+}
+
+/// `eight` repeated to `n` bytes.
+fn weightsOf(comptime n: usize, comptime eight: [8]u8) [n]u8 {
+    var w: [n]u8 = undefined;
+    for (&w, 0..) |*x, i| x.* = eight[i % 8];
+    return w;
 }
 
 /// NEON's pairwise add of two 16-byte vectors; named only where
@@ -1561,6 +1578,13 @@ fn maskBitsSwar(comptime n: usize, m: @Vector(n, bool)) u64 {
         r |= ((x *% 0x0102040810204080) >> 56) << (k * 8);
     }
     return r;
+}
+
+/// A `read` or `write` of `n` bytes at `offset` that runs past `count`
+/// bytes, or starts before them.
+fn bytesPanic(comptime what: []const u8, n: usize, offset: anytype, count: usize) noreturn {
+    @branchHint(.cold);
+    std.debug.panic("byte " ++ what ++ " out of range: {d} bytes at offset {d} of {d}", .{ n, offset, count });
 }
 
 /// `offset` as a `usize` with `offset + n <= count`, or null.

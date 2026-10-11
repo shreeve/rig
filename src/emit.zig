@@ -6666,7 +6666,9 @@ pub const Emitter = struct {
     };
 
     /// How `a < b` (`<=`, `>`, `>=`) lowers when Zig's operator does not
-    /// order its operands; null for numbers.
+    /// order its operands: text and byte slices, and a type parameter's
+    /// values. Null for numbers and vectors, whatever their compile-time
+    /// arguments (`Simd[U8, n]` orders lane by lane with Zig's `<`).
     fn orderOperator(self: *Emitter, kind: Tag, operands: [2]Sexp) ?OrderOperator {
         var bytes = false;
         var generic = false;
@@ -6675,7 +6677,8 @@ pub const Emitter = struct {
             const t = self.peelViews(ty);
             switch (self.facts.types.get(t)) {
                 .string_view, .static, .slice => bytes = true,
-                else => generic = generic or self.facts.containsTypeVar(t),
+                .type_var => generic = true,
+                else => {},
             }
         }
         if (!bytes and !generic) return null;

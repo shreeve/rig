@@ -9,4 +9,4 @@ sub main()
   w = !b[1..]
   !w.write[U16, .little](rt(-1), 7)
 
-# expect-panic: byte write out of range
+# expect-panic: byte write out of range: 2 bytes at offset -1 of 3

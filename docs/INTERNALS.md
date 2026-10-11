@@ -1722,7 +1722,7 @@ compare-and-mask kernel):
 
 | Target | Form | 64 lanes |
 |---|---|---:|
-| aarch64 with NEON, LLVM | lane weights, then pairwise adds (`llvm.aarch64.neon.addp.v16i8`), for 32 and 64 lanes | 47 |
+| aarch64 with NEON, LLVM | the mask as bytes, weighted, then pairwise adds (`llvm.aarch64.neon.addp.v16i8`), read as one lane of a `u64` vector, for 32 and 64 lanes; `any` and `all` as a byte `umaxv` or `uminv` | 31 |
 | x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`) | 39, 21 |
 | WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` through them | 64 (511 by `@bitCast`) |
 | WASM without SIMD | each lane a byte, eight gathered by one multiply | 851, but 1.75x faster under wasmtime than `@bitCast`'s 779 |
