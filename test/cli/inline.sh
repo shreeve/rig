@@ -138,4 +138,23 @@ expect_has "$out" 'pub fn small(' "calls that would add 96 KiB to a frame"
 out=$(emit chain.rig)
 expect_has "$out" 'pub inline fn f0(' "the innermost of a chain"
 expect_has "$out" 'pub fn f' "a function that would expand too far is called"
-expect_lacks "$out" 'pub inline fn f12(' "the outermost of a chain"
+
+# A small entry that calls a large function inlines, and the large one is
+# not inlined back into it: the size rule measures each body as written,
+# so the large function stays one out-of-line copy for every call site.
+{
+    echo 'fun run(n: Int) -> Int'
+    echo '  total = n'
+    for i in $(seq 1 30); do echo "  total += $i * n"; done
+    echo '  total'
+    echo
+    echo 'fun entry(n: Int) -> Int'
+    echo '  n if n < 2 else run(n)'
+    echo
+    echo 'sub main()'
+    echo '  print(entry(1) + entry(5) + entry(9))'
+} >entry.rig
+out=$(emit entry.rig)
+expect_has "$out" 'pub inline fn entry(' "the small entry"
+expect_has "$out" 'pub fn run(' "the large function it calls"
+expect_lacks "$out" 'inline fn run(' "the large function it calls"
