@@ -1,0 +1,74 @@
+# `clear` keeps the buffer for reuse. Plain elements own nothing, so it
+# is only the length; owned elements are each dropped, last first. Both
+# refill across growth boundaries, with the drops counted exactly.
+
+obj Pt
+  x: Int
+  y: Int
+
+obj Tracked
+  id: Int
+  log: *Cell[Int]
+
+  drop(!self)
+    !self.log.set(self.log.get() * 10 + self.id)
+
+sub fill(v: !List[Int], n: Int)
+  i = 0
+  while i < n : i += 1
+    !v.push(i)
+
+sub main()
+  ints: List[Int] = List()
+  for round in 0..4
+    fill(!ints, 3 + round * 40)
+    print(ints.len, ints[0], ints[ints.len - 1])
+    !ints.clear()
+    print(ints.len)
+  !ints.clear()
+  print(ints.len)
+
+  pts: List[Pt] = List()
+  for round in 0..3
+    for i in 0..9
+      !pts.push(Pt(x: i, y: round))
+    print(pts.len, pts[8].x, pts[8].y)
+    !pts.clear()
+    print(pts.len)
+
+  log: *Cell[Int] = *Cell(0)
+  ts: List[Tracked] = List()
+  for _ in 0..3
+    for i in 1..6
+      !ts.push(Tracked(id: i, log: +log))
+    !ts.clear()
+    print(ts.len, log.get())
+    !log.set(0)
+  !ts.push(Tracked(id: 7, log: +log))
+  !ts.push(Tracked(id: 8, log: +log))
+  for t in <ts
+    print(t.id)
+    break
+  print(log.get())
+
+# expect:
+# 3 0 2
+# 0
+# 43 0 42
+# 0
+# 83 0 82
+# 0
+# 123 0 122
+# 0
+# 0
+# 9 8 0
+# 0
+# 9 8 1
+# 0
+# 9 8 2
+# 0
+# 0 54321
+# 0 54321
+# 0 54321
+# 7
+# 78

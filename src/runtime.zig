@@ -985,9 +985,12 @@ pub fn List(comptime T: type) type {
             /// Drop the elements not handed over (the loop left early),
             /// last first as a List does, then free the buffer.
             pub fn deinit(it: *IntoIter) void {
-                while (it.list.len > it.next_index) {
-                    it.list.len -= 1;
-                    dropElement(T, &it.list.buf[it.list.len]);
+                if (comptime needsDrop(T)) {
+                    invariant(it.list.len <= it.list.buf.len);
+                    while (it.list.len > it.next_index) {
+                        it.list.len -= 1;
+                        dropElement(T, &it.list.buf.ptr[it.list.len]);
+                    }
                 }
                 it.list.len = 0;
                 it.list.__rig_drop();
@@ -998,11 +1001,19 @@ pub fn List(comptime T: type) type {
             return .{ .list = self };
         }
 
-        /// Drop every element (last first), keeping the buffer.
+        /// Drop every element (last first), keeping the buffer. Plain
+        /// elements own nothing, so clearing them is setting the length;
+        /// otherwise each live slot, inside the buffer by `len <= buf.len`,
+        /// is dropped without a bounds check.
         pub fn clear(self: *Self) void {
+            if (comptime !needsDrop(T)) {
+                self.len = 0;
+                return;
+            }
+            invariant(self.len <= self.buf.len);
             while (self.len > 0) {
                 self.len -= 1;
-                dropElement(T, &self.buf[self.len]);
+                dropElement(T, &self.buf.ptr[self.len]);
             }
         }
 
