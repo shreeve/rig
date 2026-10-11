@@ -1167,7 +1167,7 @@ LENDW_BINDINGS = {
 # read bindings of a write view a local optional holds, every write
 # through which is rejected.
 _LW_E = "enum E\n  a(x: TY)\n  z\n"
-_LW_HH = "\nstruct HH\n  e: E\n"
+_LW_HH = "\nobj HH\n  e: E\n"
 _LW_GET = _LW_HH + "\nfun get(h: !HH) -> !E\n  !h.e\n"
 _LW_TWO = ["e1 = E.a(mk())", "e2 = E.a(mk())", "c = true"]
 LENDW_BINDINGS.update({
@@ -1379,7 +1379,7 @@ CELLMUT_TYPES = {
     "drop": dict(ty="D", decls='obj D\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
                  mk="*D(c: Cell(1), v: Cell(list2()))", c="E.c", v="E.v", drop=True),
     # the Cells in a part
-    "part": dict(ty="W", decls="obj In\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\nstruct W\n  t: In\nMETHODS",
+    "part": dict(ty="W", decls="obj In\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\nobj W\n  t: In\nMETHODS",
                  mk="*W(t: In(c: Cell(1), v: Cell(list2())))", c="E.t.c", v="E.t.v"),
     # a generic type at Int
     "generic": dict(ty="G[Int]", decls="obj G[T]\n  c: Cell[T]\n  v: Cell[List[T]]\nMETHODS",
