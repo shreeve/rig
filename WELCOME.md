@@ -47,6 +47,13 @@ happens, as a one-character **sigil**:
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
+**Names say what a value is; sigils say how you hold it.** Every named
+type is an owner (`List[T]`, `String`, `Cell[T]`, a struct of yours), and
+a view is never a name: it is written `?T` or `!T`, or is a slice `[]T`,
+so the read view of text is `?String`. `^T` is a box, a `T` alone on the
+heap, like Rust's `Box<T>`; `*T` is a counted pointer, like Rust's
+`Rc<T>`.
+
 **Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
 and `!x` lend it, `<x` moves it, `+x` clones it, `^x` boxes it, `*x` and
 `~x` make handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
@@ -423,7 +430,7 @@ correspondences:
 | Rig | Zig |
 |---|---|
 | `Int`, `U8`, `Float`, `?String`, `Static` | `i64`, `u8`, `f64`, `[]const u8` |
-| `String` | `rig.Text`, a growable byte buffer the runtime frees |
+| `String` | `rig.String`, a growable byte buffer the runtime frees |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@backingInt(e)))` |
 | `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
@@ -683,12 +690,12 @@ fun twice(s: ?String) -> Int!
 
 **`+` on strings.** A `?String` is a view of text it does not own, so
 there is nothing for `+` to write into. Rig's `?String` is Go's or
-Odin's `string`; Rust's `?String` is Rig's `String`. A literal is a
+Odin's `string`; Rust's `String` is Rig's `String`. A literal is a
 `Static`: a `?String` known to view only text that lives for the whole
 program, so it can also be kept in a `Cell` ([SPEC](SPEC.md#static)).
 Text is built in a
 `String`, which owns its bytes: `String(a, b)` writes each value as
-`print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
+`print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#string)):
 
 ```rig reject
 sub main()
@@ -714,7 +721,7 @@ hi ada, you are 36
 7
 ```
 
-A Text built only to be read, as that last one is, is dropped when its
+A String built only to be read, as that last one is, is dropped when its
 statement ends.
 
 **Inclusive ranges.** A range excludes its end, and there is no `..=`:

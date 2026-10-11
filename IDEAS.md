@@ -86,7 +86,7 @@ small round.
 
 ### 1.1 `for e in ?v` should give views of the elements *(new)*
 In `for e in ?self.entries`, `e` is a **copy** when the element type
-copies, such as a struct of Strings and integers. So this is rejected:
+copies, such as a struct of `?String` values and integers. So this is rejected:
 ```rig fragment
 fun find(?self, name: ?String) -> (?PakEntry)?
   for e in ?self.entries
@@ -126,7 +126,7 @@ Nothing else can see a moved-in value, so writing it is safe.
 and write parameters stay as they are.
 
 ### 1.4 Error values that carry data *(roadmap)*
-`QError::Invalid(?String)` has no Rig equivalent, because an error is only
+`QError::Invalid(String)` has no Rig equivalent, because an error is only
 a name. Real programs need context such as `PakError.too_many(count: Int)`.
 The design must keep failure visible (`T!`, `e!`) and say who owns the
 payload.
@@ -169,7 +169,7 @@ required?"
 - **Assertions in `test` blocks** *(roadmap)*: `expect(a == b)` with
   both values printed when it fails. Without them, ported test suites
   roughly double in length.
-- **Text building** *(roadmap)*: join, replace, upper-case copy.
+- **String building** *(roadmap)*: join, replace, upper-case copy.
 - **A JSON reader and writer** *(new)*: the most common thing real
   programs and agents need, and a good test of owned and viewed strings.
 

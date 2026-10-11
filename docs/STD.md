@@ -36,7 +36,7 @@ never read as the library's.
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
-| [`std.text`](#stdtext) | searching, slicing, splitting, and parsing Strings |
+| [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 
 ## std.math
 
@@ -236,7 +236,7 @@ true true
 Sorting, and searching sorted slices, written in Rig over slices, so
 they work on arrays and on Lists alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
 `lower_bound`, and `search` order elements with `<` (numbers and
-Strings), and `search` compares them with `==`; each call is checked
+`?String` values), and `search` compares them with `==`; each call is checked
 for its element type, as any generic call is.
 
 | Function | Result |
@@ -343,19 +343,20 @@ sub main()
 
 ## std.text
 
-Searching, slicing, splitting, and parsing Strings. A String is UTF-8
-bytes by convention, and nothing here checks that it is: every index
-and length is in bytes, and whitespace and case are ASCII's. A function
-that returns a String returns a part of the String it was given, a
-view of the same bytes, so nothing here allocates. A String taken from
-a `String` ([SPEC §10](../SPEC.md#text)) keeps it lent through every
-part these functions return.
+Searching, slicing, splitting, and parsing text, which every function
+reads as a `?String`: UTF-8 bytes by convention, and nothing here checks
+that it is. Every index and length is in bytes, and whitespace and case
+are ASCII's. A function that returns a `?String` returns a part of the
+`?String` it was given, a view of the same bytes, so nothing here
+allocates. A `?String` taken from a `String`
+([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
+functions return.
 
 | Function | Result |
 |---|---|
 | `find(s: ?String, pat: ?String) -> Int?` | the index of the first occurrence of `pat` in `s`, or `none`; 0 for `""` |
 | `find_last(s: ?String, pat: ?String) -> Int?` | the index of the last occurrence, or `none`; `s.len` for `""` |
-| `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every String contains `""` |
+| `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every `?String` contains `""` |
 | `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
 | `count(s: ?String, pat: ?String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
 | `trim(s: ?String) -> ?String` | `s` without its leading and trailing ASCII whitespace |
@@ -395,7 +396,7 @@ false no prefix
 ```
 
 `split`, `lines`, and `words` give an iterator, a struct holding the
-rest of the String, whose `next` gives each part in turn, and `none`
+rest of the `?String`, whose `next` gives each part in turn, and `none`
 after the last. A `for` walks one ([SPEC §6](../SPEC.md#for)): a call's
 result is held for the loop, and a name is advanced in place, so a loop
 that `break`s leaves the rest to resume. The same loop is
@@ -424,7 +425,7 @@ y false
 ```
 
 A parser fails with the module's error set, `ParseError`: `invalid`
-when the String is not written as the table says (including when it
+when the `?String` is not written as the table says (including when it
 has whitespace around it, which `trim` removes), and `overflow` when
 the number is too large for its type: an `Int` outside `Int.min` to
 `Int.max`, or a `Float` whose magnitude is beyond `Float.max`. A
@@ -455,8 +456,8 @@ ParseError.overflow true
 0
 ```
 
-`compare` orders Strings in one pass over their bytes, for a sort by a
-key that is a String:
+`compare` orders `?String` values in one pass over their bytes, for a sort by a
+key that is a `?String`:
 
 ```rig
 use std.sort

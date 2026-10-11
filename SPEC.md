@@ -35,7 +35,7 @@ marked as rejected must fail with the errors shown.
 7. [Ownership](#7-ownership)
 8. [Drop and drop glue](#8-drop-and-drop-glue)
 9. [Shared and weak handles](#9-shared-and-weak-handles)
-10. [Cell, List, Box, Text, and Signal](#10-cell-list-box-text-and-signal)
+10. [Cell, List, Box, String, and Signal](#10-cell-list-box-string-and-signal)
 11. [Closures](#11-closures)
 12. [Optionals](#12-optionals)
 13. [Errors](#13-errors)
@@ -107,9 +107,13 @@ every mode.
 | `U8` `U16` `U32` `U64` `U128` | unsigned integers | `u8` ... `u128` |
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
-| `?String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([Strings](#strings)) | `[]const u8` |
+| `String` | owned, growable text: bytes on the heap, UTF-8 by convention ([§10](#string)) | `rig.String` |
+| `?String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([strings](#strings)) | `[]const u8` |
 | `Static` | text that lives for the whole program: a string literal, or text derived only from literals; plain data that carries no loan ([Static](#static)) | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
+
+Every named type is an owner, and a view is never a name: it is written
+`?T` or `!T`, or is a slice `[]T`, so the read view of text is `?String`.
 
 `Int` is `I64` and `Float` is `F64`: one type under two names. Every
 other numeric type is distinct, and there are no implicit conversions.
@@ -234,24 +238,24 @@ integer value `16777217` does not fit exactly in `F32`
 
 A `?String` has a length `s.len` and can be indexed (`s[0]`, or
 `s.get(i)`, a `U8?` that is `none` past the end), and a `for` loop over
-it yields its bytes as `U8`. Strings compare with `==` and
+it yields its bytes as `U8`. `?String` values compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§5](#operators)).
 
-A String is a read view of bytes it does not own. A `Static`'s last as
+A `?String` is a read view of bytes it does not own. A `Static`'s last as
 long as the program ([Static](#static)); one taken from a `String`
-(`?t[..]`) carries the Text's loan ([§10](#text)). The bytes are
+(`?t[..]`) carries the String's loan ([§10](#string)). The bytes are
 UTF-8 by convention, and nothing checks it: lengths and indexes count
 bytes, and a slice checks only its bounds.
 
-There is one view of text. The read view of a `String` is its bytes, a
-`?String`: `?t`, a loop or pattern binding of a `String` element, a
-generic `?T` at `T = String`, and a type written `?String` are all
-`?String`s, and a read view of a `?String` is that `?String` (`?s`).
-`+s` of a `?String` copies its bytes into a new `String`. A `?String` is a
-view, so nothing lends a `?String` place to write, `swap` and `replace`
-of one included: assign to the place to point it at other text, or
-hold a `String` to change text in place.
+There is one view of text, `?String`. The read view of a `String` is its
+bytes: `?t`, a loop or pattern binding of a `String` element, and a
+generic `?T` at `T = String` are all `?String` values, and a read view of
+a `?String` is that `?String` (`?s`). `+s` of a `?String` copies its
+bytes into a new `String`. A `?String` is a view, so nothing lends a
+`?String` place to write, `swap` and `replace` of one included: assign
+to the place to point it at other text, or hold a `String` to change text
+in place.
 
 #### Static
 
@@ -269,7 +273,7 @@ nothing else has the type:
   whose every value is a `Static`.
 
 A `?String` that may view a `String` (a parameter, `?t[..]`, the result of
-a function over Strings such as `text.trim("  a  ")`) is not one, and
+a function over `?String` values such as `text.trim("  a  ")`) is not one, and
 nothing turns a `?String` into a `Static`. A `Static` is read as a
 `?String` where the text is only read: an argument or a field of type
 `?String`, a returned or bound `?String`, a `Static?` as a `(?String)?`, a
@@ -612,7 +616,7 @@ a view of the temporary `[1, 2]` outlives its statement
 
 `!xs[a..b]` is a **writable slice**, of type `![]T`: a write view of
 the elements, taken of an array or a `List` that could be
-lent to write (`!xs`), or of another `![]T`. A String and a `[]T` are
+lent to write (`!xs`), or of another `![]T`. A `?String` and a `[]T` are
 read-only, and so is what a fixed binding, a loop or pattern binding,
 or a parameter other than a `!T` one holds. A `![]T` is a write view
 like any other ([§7](#write-views)): while it is live, what it
@@ -773,7 +777,7 @@ integer or float type, or a type parameter every instance gives one;
 `e` is a compile-time value of the built-in enum
 `Endian`, `.little` or `.big` (a literal, `Endian.big`, a constant, or
 a compile-time parameter; there is no native order). `read` works on a
-`[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, and a String; `write` on
+`[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, and a `?String`; `write` on
 the writable ones, written `!bytes` (or an `![]U8` binding). Every byte
 must be in range, `0 <= at` and `at + @size(T) <= len`: a constant
 offset into an array is checked at compile time, and any other when the
@@ -827,8 +831,8 @@ no variant `native` on enum `Endian`
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
 | `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#callable-views) |
-| `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-text-and-signal) |
-| `String` | owned, growable text | [§10](#text) |
+| `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-string-and-signal) |
+| `String` | owned, growable text | [§10](#string) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
@@ -873,8 +877,8 @@ compiler generates to release them.
 
 **Plain data**, in this reference, is a value that owns nothing and
 holds no `?T`, `!T`, or slice: a plain value, a `?String`, or an
-optional, array, struct, or enum of them. It copies freely. A String in
-it is still a view, which may carry a Text's loan ([Strings](#strings)).
+optional, array, struct, or enum of them. It copies freely. A `?String` in
+it is still a view, which may carry a String's loan ([strings](#strings)).
 
 A **unique** value owns nothing to release but must not be copied: a
 struct declared `unique` (`struct Random unique`, a generator whose
@@ -1590,7 +1594,7 @@ support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, in any module, is
 checked against it. On a `T`, `==` compares whatever `==` compares
-outside a generic body, and ordering compares numbers and Strings. A
+outside a generic body, and ordering compares numbers and `?String` values. A
 failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
 declares the body. A body cannot call a method on a `T`, read a field
@@ -2236,7 +2240,7 @@ struct that declares `drop`, or a struct or payload that holds a `?T`,
 diagnostic names the field that does.
 
 Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
-`?String`s or two `[]U8` slices, ordered by their bytes: the first byte
+`?String` values or two `[]U8` slices, ordered by their bytes: the first byte
 that differs decides, and a prefix sorts before the longer string.
 Structs, enums, and other slices have no ordering.
 
@@ -3460,9 +3464,9 @@ fun first(o: Int?) -> Int?
 ### Clone
 
 `+x` makes a new owner. For a shared or weak handle it bumps the
-count; for plain data it copies; for a Text, a List, a box, an
+count; for plain data it copies; for a String, a List, a box, an
 optional, an array, or a struct or enum declared in the module that
-holds them, it clones each part the same way: a Text's bytes and a
+holds them, it clones each part the same way: a String's bytes and a
 List's elements are copied, a box's value is boxed again, and a handle
 inside is counted again (a deep copy). A type with a `drop` body, a
 unique type (one holding a `Cell`, or declared `unique`), a `Signal`,
@@ -3482,8 +3486,8 @@ is dropped automatically when its block ends, including on early
 So a drop is only needed to release something early, or to end a view
 a binding holds. A view parameter cannot be dropped: the caller owns
 what it views. Plain data owns nothing, so `<n` of an `Int` or a struct
-of numbers drops nothing, and is rejected. A String may view a `String`
-(§10), so `<s` of a String, or of a struct holding one, ends the loan
+of numbers drops nothing, and is rejected. A `?String` may view a `String`
+(§10), so `<s` of a `?String`, or of a struct holding one, ends the loan
 it carries.
 
 ```rig
@@ -4017,8 +4021,8 @@ the checker tracks where every one came from.
   constants, `std.os.args()`): a view of its own local is rejected
   ([CORE 7](docs/CORE.md#2-the-core-in-ten-sentences)). The result then
   views from every argument whose type could hold what it views, a
-  String argument included: it may view a Text ([§10](#text)). An
-  argument that could not (an `Int` key for a `?Item` result, a String
+  `?String` argument included: it may view a String ([§10](#string)). An
+  argument that could not (an `Int` key for a `?Item` result, a `?String`
   for a `?Item`) is free again after the call.
 - A result that holds no write view only reads what it views, so the
   loans it carries are read loans, even of an argument lent to write,
@@ -4276,9 +4280,9 @@ field, a List, or a returned value, it is rejected.
 **Headers are their own statements:** an `if` or `while` condition, a
 `match` guard, and the subject of a `match` or `for`. A header's
 temporaries end with the header, before the body runs; what the header
-binds lives through the body. So `if text.starts_with(?Text(a, b),
-"x")` works, but `if text.cut(?Text(a, b), "=") as kv` must bind the
-Text first, because `kv` outlives the header. A value made there that
+binds lives through the body. So `if text.starts_with(?String(a, b),
+"x")` works, but `if text.cut(?String(a, b), "=") as kv` must bind the
+String first, because `kv` outlives the header. A value made there that
 `if … as`, `while … as`, `match`, or `for` binds is taken, as `<e`
 would take it: a call's result, or a branching value whose every
 branch is made there (`make() if c else <a`). An arm of `match make()`
@@ -4349,7 +4353,7 @@ Any other subject that makes a temporary, a value made in the header or
 a part of one, has no place that outlives the header, so what the header
 binds would be a copy of it, which a write through the binding would
 miss: it is rejected, whatever it binds, unless it takes
-the value made there (`match parse(?String(s))`, `if find(?Text(s)) as
+the value made there (`match parse(?String(s))`, `if find(?String(s)) as
 i`) or binds plain data of it. Bind the value, the index, or the
 argument to a name first.
 
@@ -4579,7 +4583,7 @@ not. A write view of a value that holds a Cell changes its Cells and
 nothing else.
 A write view is never stored inside a value
 ([Write views](#write-views)). A `Cell`, a `Signal`, and an owned
-closure accept only values that carry no loan ([§10](#text),
+closure accept only values that carry no loan ([§10](#string),
 [§11](#owned-closures)).
 
 ---
@@ -4698,7 +4702,7 @@ clone it instead.
 `*[N]T`, `*List[T]`, or `*?String`), and `?self` methods reach through a
 handle automatically, including through fields and loop elements. `?h`
 lends the value's read views ([§7](#lending)), a `?Shape` of a `*Shape`
-and a String of a `*String`, with the loan on `h`, so `h` may not be
+and a `?String` of a `*String`, with the loan on `h`, so `h` may not be
 dropped, moved, or reassigned while the view is used. `!h` lends only
 the handle itself (a `!*T`), never a write view of the value. Writing a
 field, calling a `!self` method, or consuming the value through a handle
@@ -4763,7 +4767,7 @@ leak-free, with no use of freed memory, under the sanitizing allocator.
 
 ---
 
-## 10. Cell, List, Box, Text, and Signal
+## 10. Cell, List, Box, String, and Signal
 
 These built-in types are part of the language's substrate. Their names
 are reserved.
@@ -4798,8 +4802,8 @@ default (`hits: Cell[Int] = Cell(0)`).
 declared `unique`. An owning or unique value is never copied out of a
 cell: it moves in with `set` / `replace` and moves out with `replace`.
 What goes into a cell, by any of its members or `c[i] = x`, carries no
-loan: it holds no `?T`, `!T`, or slice, nor a String that may view a
-Text ([Text](#text)), since every handle to the cell reaches it.
+loan: it holds no `?T`, `!T`, or slice, nor a `?String` that may view a
+String ([String](#string)), since every handle to the cell reaches it.
 
 A `Cell[List[T]]` answers its List's members as `set` does, each a marked
 call: `push` moves or clones an owning element in (`<x`, `+x`), `pop`
@@ -5054,8 +5058,8 @@ optional box, and a box of an optional is `^(Node?)`.
 | `^Node(...)` | a box of a new `Node` |
 | `^<x` | move the owner `x` into a new box |
 | `^x` | copy the plain value `x` into a new box |
-| `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a List's (`!b.push(x)`, `b.len`), a Text's (`!b.add(s)`, `b.len`) |
-| `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or List, a `?String` of a boxed Text, through any number of boxes |
+| `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a List's (`!b.push(x)`, `b.len`), a String's (`!b.add(s)`, `b.len`) |
+| `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or List, a `?String` of a boxed String, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
 | `<s.f` | take an optional box out of a field, leaving `none` ([§7](#places)) |
 | `match b`, `match !b` | match a boxed enum where it is |
@@ -5151,35 +5155,35 @@ sub main()
 8
 ```
 
-### Text
+### String
 
 `String` is owned, growable text: bytes on the heap, UTF-8 by convention,
-released when the Text is dropped. It is an owning value, so a bare
+released when the String is dropped. It is an owning value, so a bare
 name moves nothing: `<t` moves it and `+t` copies its bytes into a new
-Text. A `?String` is the view of text; a Text is where text is built.
+String. A `?String` is the view of text; a String is where text is built.
 
 | Member | Meaning |
 |---|---|
-| `String()` | an empty Text; nothing is allocated until text is added |
-| `String(a, b, ...)` | a Text holding each value as `print` writes it ([§17](#17-printing)), with no separators |
+| `String()` | an empty String; nothing is allocated until text is added |
+| `String(a, b, ...)` | a String holding each value as `print` writes it ([§17](#17-printing)), with no separators |
 | `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
 | `!t.push(b)` | append one byte `b`, a `U8`, given by position |
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
-| `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
-| `?t`, with or without a String or `(?String)?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
+| `?t[a..b]`, `?t[a..]`, `?t[..]` | a `?String` viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
+| `?t`, with or without a `?String` or `(?String)?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
 | a view `p: ?String` (a name, or a call's result) | a `?String`: `p[a..b]` is a view of its bytes, with no further `?` |
-| a write view `w: !String` (also of a `*String` or a `^String`) | `?w[a..b]`, which lends `w`, as a slice of the Text itself does: `w` may add to the Text or replace it |
+| a write view `w: !String` (also of a `*String` or a `^String`) | `?w[a..b]`, which lends `w`, as a slice of the String itself does: `w` may add to the String or replace it |
 | `for b in t`, `for b in ?t` | its bytes, as `U8`s |
 | `?b[a..b]`, `?b` of a `^String` | the same, through the box |
-| `+t`, `+s` of a String | a new Text holding the same bytes |
-| `t == u`, `t == s` | compares its bytes with a Text's or a String's; a boxed Text too |
+| `+t`, `+s` of a `?String` | a new String holding the same bytes |
+| `t == u`, `t == s` | compares its bytes with a String's or a `?String`'s; a boxed String too |
 
-Each value is written as `print` writes it at the top level: a String
-or a Text as its text, a number as `print` shows it, a struct, enum,
-optional, array, or List as `print` writes it, with the Strings inside
+Each value is written as `print` writes it at the top level: a `?String`
+or a String as its text, a number as `print` shows it, a struct, enum,
+optional, array, or List as `print` writes it, with the `?String` values inside
 it quoted. Rig has no `+` on text and no interpolation: text is built
-with `String(...)` and `!t.add(...)`, and every change to a Text is
+with `String(...)` and `!t.add(...)`, and every change to a String is
 written with `!`.
 
 ```rig
@@ -5204,24 +5208,24 @@ n=42 p=Point(x: 1, y: 2.5) ok=true ["a", "b"]
 fresh 5
 ```
 
-**A String is a view of its Text.** `?t[a..b]` lends the Text as a
-slice lends an array, and the String it makes carries the loan: while
-the String is in use, the Text cannot be changed, moved, or dropped,
-and the String cannot outlive it. The loan goes wherever the String
+**A `?String` is a view of its String.** `?t[a..b]` lends the String as a
+slice lends an array, and the `?String` it makes carries the loan: while
+the `?String` is in use, the String cannot be changed, moved, or dropped,
+and the `?String` cannot outlive it. The loan goes wherever the `?String`
 goes: into a binding, a struct field, a `List[?String]`, an optional, a
 closure's captures, and a call's result, since a function returning a
-String may return a view of a String it was passed
-([§7](#second-class-views)). Once the last use of the String, and of
-every value holding it, is past, the Text is free again; a List holding
-one is in use until its last use, since dropping it reads no String
+`?String` may return a view of a `?String` it was passed
+([§7](#second-class-views)). Once the last use of the `?String`, and of
+every value holding it, is past, the String is free again; a List holding
+one is in use until its last use, since dropping it reads no `?String`
 ([§7](#how-long-a-loan-lasts)).
 
 `String(...)` and `!t.add(...)` only read their arguments, as `print`
 does: a place is read where it is when the call runs, after its later
 arguments, and a value made there is a temporary its statement drops
-([§7](#temporaries)). A String viewing a temporary Text, as in
+([§7](#temporaries)). A `?String` viewing a temporary String, as in
 `text.trim(?String(a, b))`, may be used within its statement, and within
-a header only by the header itself ([§7](#temporaries)); bind the Text
+a header only by the header itself ([§7](#temporaries)); bind the String
 to a name to keep the view longer.
 
 ```rig
@@ -5271,23 +5275,23 @@ cannot lend `t` to write while a read loan is live
 cannot return a view of `t`, which this function was not lent
 ```
 
-A String whose origin a function cannot see, a parameter or a value
-built from one, may view a Text, so it stays where views are
+A `?String` whose origin a function cannot see, a parameter or a value
+built from one, may view a String, so it stays where views are
 followed. It cannot be stored in a `Cell` or a `Signal` (by `Cell(v)`,
 `set`, `replace`, `push`, or `c[i] = v`), or captured by an owned
 closure, since every handle to those reaches what they hold;
-nor can a closure store its String parameter through a capture. A
+nor can a closure store its `?String` parameter through a capture. A
 generic body that stores a `T` in a `Cell`, a `Signal`, or an owned
-closure cannot be instantiated with a `T` that holds a String, even
-when every String passed is a literal. A `Static` carries no loan, so
+closure cannot be instantiated with a `T` that holds a `?String`, even
+when every `?String` passed is a literal. A `Static` carries no loan, so
 it can be stored there ([Static](#static)): a `Cell[Static]`, a
 `Signal[Static]`, an owned closure that captures one, and a generic
-body's `T = Static`. Where a String must outlive the Text it came from,
-copy it into a Text of its own: `String(s)`.
+body's `T = Static`. Where a `?String` must outlive the String it came from,
+copy it into a String of its own: `String(s)`.
 
-A Text owns its bytes, and a `List[String]` owns its Texts, as
+A String owns its bytes, and a `List[String]` owns its Strings, as
 `List[^String]` does through its boxes. A List that
-holds views keeps their Texts lent until its last use, not until it is
+holds views keeps their Strings lent until its last use, not until it is
 dropped, since dropping it reads none of them.
 
 ```rig
@@ -5680,7 +5684,7 @@ An owned closure's parameters and result are plain data: numbers,
 plain data. Pass owning values in as captures. An owned closure can be stored
 anywhere, so it carries no loan ([§7](#changes-and-shared-storage)): it
 cannot capture a `?T`, `!T`, or slice, or a value holding one, nor a
-String that may view a Text ([§10](#text)); a stack closure can. `*`
+`?String` that may view a String ([§10](#string)); a stack closure can. `*`
 applies only to a closure literal, not to a function name or a closure
 binding.
 

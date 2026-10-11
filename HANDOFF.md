@@ -81,7 +81,7 @@ structural weak spots, which these steps removed (the evidence is in
    every path, running defers and reporting the loans it drops; the
    `classify` test keeps `handsOver` the only classifier.
 3. **Reads and lends.** A bare name reads in place where a view is
-   expected, one lend table serves every owner (List, Text, `^T`, `*T`,
+   expected, one lend table serves every owner (List, String, `^T`, `*T`,
    optionals), and a header's subject is viewed or taken by its
    classification.
 4. **Containers hold anything.** `List[String]`, nested Lists, and records
@@ -147,7 +147,7 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
   returns; dropping a container of views uses them only through a `drop`
   body; a bare name or place only reads, so `x = h.w`, like `x = w`, of
   a `!Int` copies the Int.
-- **The kind of a struct of Strings:** CORE calls it a view, SPEC plain
+- **The kind of a struct of `?String` values:** CORE calls it a view, SPEC plain
   data; the compiler treats it as CORE's read-view kind.
 - **A branching receiver:** a pointer per leaf (built) or a rejection?
 - **Clone limits:** are the missing clones of a type from another
@@ -204,7 +204,7 @@ and run the corpus after.
 - **Decisions emit still makes itself** are `Pending` in
   `src/facts.zig`, which a unit test keeps from growing; each should
   become a recorded node fact (`sema.Question`), as the leaf walk did.
-- **What a view could hold:** `carry` and `sema.viewReach`, and String
+- **What a view could hold:** `carry` and `sema.viewReach`, and `?String`
   values in Cells, generics, and closures.
 - **Evaluation order versus what is emitted:** call arguments, `print`
   and `String(...)` arguments, and assignment targets.

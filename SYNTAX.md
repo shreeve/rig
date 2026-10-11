@@ -490,7 +490,7 @@ The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),
 `F32`, `Bool`, `?String`, `Static`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
 what each holds. `String`, owned text, is a built-in type
-([SPEC §10](SPEC.md#text)).
+([SPEC §10](SPEC.md#string)).
 
 **How the sigils combine.** The holding sigils `^`, `*` and `~` bind to
 the type after them, tighter than the suffixes: `^Node?` is an optional
@@ -593,7 +593,7 @@ sign -1
 - The body's last expression is its value; `return e` leaves early.
 - A result that holds a view may say which parameters it views, after
   its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
-  self`, or `-> String from static` for only what lives for the whole
+  self`, or `-> ?String from static` for only what lives for the whole
   program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
@@ -1306,13 +1306,13 @@ as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 |---|---|
 | `p.x`, `p.m()` | a field (a field read never runs code), a method call |
 | `xs[i]` | an element, bounds-checked |
-| `s[a..b]` | a slice of a String, itself a String |
+| `s[a..b]` | a slice of a `?String`, itself a `?String` |
 | `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or List |
-| `?t[a..b]` | a lend of part of a Text: a String viewing it |
-| `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a String: a slice argument is lent as its name is |
+| `?t[a..b]` | a lend of part of a String: a `?String` viewing it |
+| `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a `?String`: a slice argument is lent as its name is |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
-| `?t` where a String is expected | `?t[..]` of a Text |
+| `?t` where a `?String` is expected | `?t[..]` of a String |
 | `xs.len`, `s.len`, `v.len` | a length, a field |
 | `mod.name`, `mod.Type.name` | a module's declaration or a type's member |
 

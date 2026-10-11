@@ -329,7 +329,7 @@ and environment variable. The suite runs on Linux and macOS in
   drops, automatic drop on every path, drop glue, user `drop` bodies
 - shared `*T` and weak `~T` handles, `Cell`, `List`, `^T`, and `Signal`
 - `String`, owned text built with `String(a, b)` and `!t.add(...)`, whose
-  Strings (`?t[a..b]`) view it
+  `?String` values (`?t[a..b]`) view it
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
 - optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions
@@ -340,7 +340,7 @@ and environment variable. The suite runs on Linux and macOS in
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
   environment), `std.time`, `std.random`, `std.sort`, `std.slices`, and
-  `std.text` (searching, splitting, and parsing Strings)
+  `std.text` (searching, splitting, and parsing `?String` values)
 
 **Not yet:** most of a standard library (files, maps, number formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)

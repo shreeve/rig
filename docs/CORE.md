@@ -29,7 +29,7 @@ thing only:
 | Word | What it is | Which side | Where you see it |
 |---|---|---|---|
 | **lend** | the act | the owner's | the sigil: `?x` lends to read, `!x` lends to write |
-| **view** | the value handed over | it travels with the receiver: copied, returned, stored | a value of type `?T`, `!T`, `[]T`, `![]T`, or `?String` |
+| **view** | the value handed over | it travels with the receiver: copied, returned, stored | a value of type `?T`, `!T`, `[]T`, or `![]T` (the read view of text is `?String`) |
 | **loan** | the record | it stays with the owner, and limits the owner until every view is done | in the compiler, and in its error messages |
 
 - To **lend** `x` is to let someone use it without taking it. A lend
@@ -71,7 +71,7 @@ side; Rig names everything from the side the sigil is on.
 | **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
 | **owning** | `List[T]`, `^T`, `String`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
-| **view** | `?T`, `!T`, `[]T`, `![]T`, `?String` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
+| **view** | `?T`, `!T`, `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
 **A `^T` is held like a handle and behaves like an owner:** one owner,
 moved by `<b`, with `+b` copying its value into a new box. *(built)*
@@ -216,7 +216,7 @@ sub main()
 **2. `<x` moves, `+x` makes a new owner.** A statement `<x` moves `x`
 nowhere, so it drops now. `+x` is a copy, a count bump, or a deep
 copy, as the type says; a `unique` type or one with a `drop` body
-has none. *(built;*
+has none; `+s` of a `?String` is a new `String`. *(built;*
 a deep copy of a type declared in another module, or of one holding a
 `Signal`, is *planned*.*)*
 
@@ -747,7 +747,12 @@ copy carries no loan but those of the views it holds, as with a call's
 part of `x`, and goes unwritten as an argument where `x` does:
 `total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `List` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `^Shape`, and a
-`*Shape`.
+`*Shape`. A `String` lends a `?String`, its bytes, and that is its only
+read view: `?t`, a loop or pattern binding of a `String`, and a generic
+`?T` at `T = String` are all `?String` values, and a read view of a read
+view is that read view. A `?String` is a view, so nothing lends a
+`?String` place to write: assign to it to point it at other text, or hold
+a `String`. *(built)*
 
 ```rig
 use std.sort
