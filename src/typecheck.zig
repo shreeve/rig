@@ -2151,6 +2151,11 @@ const Checker = struct {
         }
         const shown = self.sourceText(source);
         const name = self.text(ir.For.@"var"(node));
+        // A bare `for xs` hints in its own form: `for !it`, not `for _ in !it`.
+        const head = if (self.startOf(ir.For.@"var"(node)) == self.startOf(node))
+            try self.ctx.allocator.dupe(u8, "for ")
+        else
+            try std.fmt.allocPrint(self.ctx.allocator, "for {s} in ", .{name});
         const index = ir.For.index(node);
         if (index != .nil) {
             const bang: []const u8 = if (self.hands(source).kind == .place) "!" else "";
@@ -2167,12 +2172,12 @@ const Checker = struct {
         }
         const how: rig.IterSource = switch (mode) {
             .read => {
-                try self.errAt(source, "`for {s} in ?{s}` would only read an iterator, which `next` cannot advance; write `for {s} in !{s}` to advance it in place", .{ name, shown, name, shown });
+                try self.errAt(source, "`{s}?{s}` would only read an iterator, which `next` cannot advance; write `{s}!{s}` to advance it in place", .{ head, shown, head, shown });
                 return true;
             },
             .write => if (kind == .place) .place else {
                 if (kind == .made) {
-                    try self.errAt(source, "`!{s}` advances a place, and this is a value made here; write `for {s} in {s}`, which holds it for the loop", .{ shown, name, shown });
+                    try self.errAt(source, "`!{s}` advances a place, and this is a value made here; write `{s}{s}`, which holds it for the loop", .{ shown, head, shown });
                 } else try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
                 return true;
             },
@@ -2182,7 +2187,7 @@ const Checker = struct {
             },
             else => switch (kind) {
                 .place => if (bare_place_advances) .place else {
-                    try self.errAt(source, "write `for {s} in !{s}`: the loop advances `{s}`", .{ name, shown, shown });
+                    try self.errAt(source, "write `{s}!{s}`: the loop advances `{s}`", .{ head, shown, shown });
                     return true;
                 },
                 .made => .made,
