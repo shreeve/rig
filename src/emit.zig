@@ -5063,7 +5063,8 @@ pub const Emitter = struct {
                     try self.emitBare(a);
                 }
                 try self.w.writeAll(", ");
-                try self.emitBare(self.facts.ctArgsOf(call)[1]);
+                const given = self.facts.ctArgsOf(call);
+                if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
             },
             // `(~x)`, or `(!x)` of a Bool.
             .not => {

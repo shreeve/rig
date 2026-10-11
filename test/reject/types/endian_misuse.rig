@@ -19,7 +19,7 @@ sub main()
 # error: 7:21: type mismatch: expected `Endian`, got `Int`
 # error: 9:21: compile-time argument 2 of `read` must be known at compile time
 # error: 10:16: `.big` is not a type
-# error: 11:9: `read` takes two compile-time arguments, the type and the byte order
+# error: 11:9: `read` of a `U16` takes a byte order too: `read[U32, .little](at)`
 # error: 12:11: `read` takes the type and the byte order in brackets
 # error: 13:16: `read` reads an integer or float type; got `Bool`
 # error: 14:26: integer value `70000` does not fit in `U16`

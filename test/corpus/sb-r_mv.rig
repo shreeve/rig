@@ -3,4 +3,4 @@ sub main()
   w = !a[..]
   <w.fill(0)
   b: [2]U8 = [1, 2]
-  print(<b.read[U8, .big](0))
+  print(<b.read[U8](0))

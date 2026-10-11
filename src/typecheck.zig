@@ -6748,6 +6748,10 @@ const Checker = struct {
             },
         }
         if (given.len == 2) {
+            if (one_byte) {
+                _ = try self.badCall(args, given[1], "`push` of a one-byte `{s}` takes no byte order: `push[{s}](byte)`", .{ try self.tyName(num), try self.tyName(num) });
+                return false;
+            }
             const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
             try self.checkCtValue(given[1], endian, 1, "push");
         } else if (!one_byte) {
@@ -8572,17 +8576,25 @@ const Checker = struct {
         const b = ct orelse return self.badCall(args, pos, "`{s}` takes the type and the byte order in brackets: `{s}`", .{ method, example });
         try self.ctx.recordInstance(b, .function);
         const given = sema.bracketArgs(b);
-        if (given.len != 2) return self.badCall(args, b, "`{s}` takes two compile-time arguments, the type and the byte order: `{s}`", .{ method, example });
+        if (given.len < 1 or given.len > 2) return self.badCall(args, b, "`{s}` takes the type and the byte order, in brackets: `{s}`", .{ method, example });
         const num = try self.typeArg(given[0]);
         if (self.isPoison(num)) return self.skipCall(args);
+        var one_byte = false;
         switch (self.ctx.types.get(num)) {
-            .int, .float => {},
+            .int => |info| one_byte = intBounds(info).bits == 8,
+            .float => {},
             // A type parameter: each instance must be a number.
             .type_var => |param| try self.require(param, .bytes, self.startOf(given[0]), method),
             else => return self.badCall(args, given[0], "`{s}` {s} an integer or float type; got `{s}`", .{ method, if (op == .read) "reads" else "writes", try self.tyName(num) }),
         }
-        const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
-        try self.checkCtValue(given[1], endian, 1, method);
+        if (one_byte) {
+            if (given.len == 2) return self.badCall(args, given[1], "`{s}` of a one-byte `{s}` takes no byte order: `{s}[{s}]{s}`", .{ method, try self.tyName(num), method, try self.tyName(num), if (op == .read) "(at)" else "(at, value)" });
+        } else if (given.len != 2) {
+            return self.badCall(args, b, "`{s}` of a `{s}` takes a byte order too: `{s}`", .{ method, try self.tyName(num), example });
+        } else {
+            const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
+            try self.checkCtValue(given[1], endian, 1, method);
+        }
         for (args) |a| if (a.isKind(.kwarg)) return self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         const want: usize = if (op == .read) 1 else 2;
         if (args.len != want) return self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, if (op == .read) "one argument, the offset of the first byte" else "two arguments, the offset of the first byte and the value", args.len, if (args.len == 1) "" else "s" });

@@ -4,10 +4,10 @@ obj Pkt
   fun len(?self) -> U16
     self.hdr.read[U16, .big](0)
   fun tag(?self) -> U8
-    self.body.read[U8, .big](0)
+    self.body.read[U8](0)
   sub set(!self, n: U16)
     !self.hdr.write[U16, .big](0, n)
-    !self.body.write[U8, .little](0, 7)
+    !self.body.write[U8](0, 7)
     !self.hdr.fill(1)
     !self.body.swap(0, 0)
 

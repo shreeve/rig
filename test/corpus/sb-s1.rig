@@ -12,5 +12,5 @@ sub main()
   print(f.buf, f.buf.read[U32, .little](0))
   page: [8]U8 = [8 of 0]
   for i in 0..8
-    !page.write[U8, .big](i, U8(i * 16))
+    !page.write[U8](i, U8(i * 16))
   print(page)
