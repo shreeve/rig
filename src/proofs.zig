@@ -522,6 +522,8 @@ const Pass = struct {
             try p.walk(c, &part);
             for (part.facts.items) |f| try st.add(p.a, f);
         }
+        // A fact one part made may name what another writes.
+        applyKills(st, &kills);
         try p.recordUse(node, st);
         // G4: a length read ran `rig.len`'s test.
         if (p.lenOf(node)) |s| try st.add(p.a, .{ .fits = s });
