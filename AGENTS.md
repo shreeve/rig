@@ -56,8 +56,9 @@ allocation, no hidden refcount traffic, no silent control flow.
    allocation, failure, or mutation.
 5. **Substrate in the language, libraries in userland.** No GC, no
    macros, no built-in reactive framework.
-6. **Never edit `src/parser.zig` by hand.** Edit `rig.grammar` and
-   run `zig build parser` (Nexus 2.0.0 or later; see Workflow). The
+6. **Never edit the generated parser.** `src/parser.zig` is generated
+   at build time from `rig.grammar` and is not tracked; edit the
+   grammar (see Workflow). The
    grammar's `@schema` declares every IR node and its roles; the
    compiler reads the tree through the generated accessors
    (`parser.ir`), by role, never by position. Grammar conflicts must
@@ -133,13 +134,13 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 ```
 
-- Nexus: `zig build parser` and `./test/run` (whose parser check
-  regenerates `src/parser.zig` and compares) use `nexus/bin/nexus` in
-  the nearest parent directory, normally `../nexus/bin/nexus` beside
-  this checkout. It must be Nexus 2.0.0 or later; an older build there
-  fails generation or the parser check. To use another binary, name it
-  in both places: `zig build parser -Dnexus=PATH` and
-  `NEXUS=PATH ./test/run`.
+- Nexus: Rig and Nexus are co-developed. Every `zig build` target
+  generates `src/parser.zig` from `rig.grammar` with `nexus/bin/nexus`
+  in the nearest parent directory, normally `../nexus/bin/nexus` beside
+  this checkout, and regenerates it only when the grammar or that binary
+  changes. Any Nexus will do, built from the sibling checkout's main
+  (`zig build -Doptimize=safe` there). Without one the build fails and
+  says where it looked. To use another binary: `zig build -Dnexus=PATH`.
 - The machine is shared: run a full run, a grid, or a corpus pass
   through the machine's job queue (`cpuq run --cores 2-6 -- …`, with
   `-j "$CPUQ_CORES"`), which shares the CPUs fairly instead of waiting
@@ -160,7 +161,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `rig.grammar` | Nexus grammar: syntax, and the IR schema every node follows |
 | `src/rig.zig` | Lexer and parser wrappers (layout, position, IR rewrites) |
 | `src/diag.zig` | Diagnostics: spans, line and column, the printed format |
-| `src/parser.zig` | Generated — do not edit: lexer, parser, IR tags and accessors |
+| `src/parser.zig` | Generated at build time from `rig.grammar`, not tracked: lexer, parser, IR tags and accessors |
 | `src/modules.zig` | Module graph and `use` resolution |
 | `src/sema.zig` | Semantic analysis front door: types, symbols, drop glue, the facts table |
 | `src/resolve.zig` | Declaration pass: builtins, names, type resolution |
