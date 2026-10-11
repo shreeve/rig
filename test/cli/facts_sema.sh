@@ -12,7 +12,7 @@ EOF2
 "$RIG" check --facts=sema main.rig >facts.txt 2>err.txt || fail "rig check --facts=sema: $(cat err.txt)"
 out=$(cat facts.txt)
 expect_has "$out" 'names leaf 2:3-2:4 "v" v local' "a name's symbol"
-expect_has "$out" 'types leaf 4:9-4:10 "v" Vec[Int]' "an expression's type"
+expect_has "$out" 'types leaf 4:9-4:10 "v" List[Int]' "an expression's type"
 expect_has "$out" 'scopes block 2:3-5:1' "a scope"
 "$RIG" check --facts=sema main.rig >again.txt 2>/dev/null
 cmp -s facts.txt again.txt || fail "two dumps of one program differ"

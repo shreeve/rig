@@ -35,7 +35,7 @@ marked as rejected must fail with the errors shown.
 7. [Ownership](#7-ownership)
 8. [Drop and drop glue](#8-drop-and-drop-glue)
 9. [Shared and weak handles](#9-shared-and-weak-handles)
-10. [Cell, List, Box, Text, and Signal](#10-cell-vec-box-text-and-signal)
+10. [Cell, List, Box, Text, and Signal](#10-cell-list-box-text-and-signal)
 11. [Closures](#11-closures)
 12. [Optionals](#12-optionals)
 13. [Errors](#13-errors)
@@ -827,7 +827,7 @@ no variant `native` on enum `Endian`
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
 | `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#callable-views) |
-| `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-text-and-signal) |
+| `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-text-and-signal) |
 | `Text` | owned, growable text | [§10](#text) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
@@ -2544,7 +2544,7 @@ sub main()
 ```
 
 ```output
-Vec[Int] U8 Pair[Int, Text] *Pair[U8, Bool]?
+List[Int] U8 Pair[Int, Text] *Pair[U8, Bool]?
 ```
 
 Every other builtin is Zig's, keeps its Zig name, and works only
@@ -2641,7 +2641,7 @@ ranges); the element comes first, the reverse of Python's
 `enumerate`, and where a loop written index first gives a binding the
 other's type, the error says so. An `else` block runs when the loop ends without `break`. A
 source that is a place is walked where it stands: `for x in v` is
-`for x in ?v`, which lends `v` to read for the whole loop ([§10](#vec)),
+`for x in ?v`, which lends `v` to read for the whole loop ([§10](#list)),
 so an element of plain data is a copy and any other element a view of
 its slot (`?E`). A value the source makes is taken: a List a call
 returns is consumed, and an array made there whose elements move is
@@ -5067,7 +5067,7 @@ first. `T` may be a read view (`^?v`, a `^?List[Int]`): the box keeps
 `v` lent while it is used. `T` holds no write view. A box has no field
 of its own: `b.value` of a `^Int` names nothing, and the number is lent
 (`?b`) or taken apart. A List holds boxes as it holds handles: walked by
-viewed slot and moved out with `pop` ([List](#vec)).
+viewed slot and moved out with `pop` ([List](#list)).
 
 **A value is held one way on the heap:** `^T` with one owner, `*T`
 counted, or `~T` weak. A holding sigil over a held value (`^^T`, `^*T`,

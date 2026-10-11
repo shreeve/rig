@@ -19,7 +19,7 @@ EOF2
 "$RIG" emit main.rig >main.zig 2>err.txt || fail "rig emit: $(cat err.txt)"
 expect_has "$(cat main.zig)" 'pub const __rig_name = .{ .module = "", .name = .{ "Point" } };' "the name written into a type"
 expect_has "$(cat main.zig)" '.{ i64, "Int" },' "the table of built-in types"
-expect_has "$(cat main.zig)" '.{ rig.Vec, .{ "Vec[", 0, "]" } },' "the table of the runtime's generic types"
+expect_has "$(cat main.zig)" '.{ rig.List, .{ "List[", 0, "]" } },' "the table of the runtime's generic types"
 
 # The names the table holds: each built-in type's, and the name that
 # starts each generic type's spelling.
@@ -34,4 +34,4 @@ while read -r n; do
 done <<<"$names"
 
 rig run main.rig >out.txt 2>err.txt || fail "rig run: $(cat err.txt)"
-expect_eq "$(cat out.txt)" "Vec[Point] Point" "the names printed"
+expect_eq "$(cat out.txt)" "List[Point] Point" "the names printed"
