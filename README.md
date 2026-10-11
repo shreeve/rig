@@ -12,7 +12,9 @@ generation, and linking.
 > **Status: early.** The core language and its ownership checker work
 > and are tested end to end, every program running leak-checked. The
 > standard library is small, there is no concurrency or async yet, and
-> the language will change. See [what works](#status).
+> the language will change: `main` is heading for v0.3.0, which renames
+> `Box`, `Vec`, `Text`, and `struct` (`tools/migrate-0.3.py` migrates
+> 0.2 programs). See [what works](#status).
 
 ## A short tour
 
@@ -313,7 +315,7 @@ and environment variable. The suite runs on Linux and macOS in
 
 **Works today**, with tests for each feature:
 
-- structs with field defaults, enums with payloads, error sets, type
+- `obj` types (structs) with field defaults, enums with payloads, error sets, type
   aliases, module-level constants, methods with explicit receivers,
   exhaustive `match`
 - generic types, functions, and methods (`obj Wrap[T]`,
@@ -339,12 +341,15 @@ and environment variable. The suite runs on Linux and macOS in
   `catch |err|`
 - modules with `pub` and `as`, `raw` blocks, C functions through
   `extern`, and `test` blocks run by `rig test`
+- integer bit methods (`count_ones`, `leading_zeros`, `swap_bytes`, ...)
+  and the wrapping shift `<<%`, a bare `for xs`, and a statement
+  continued by a deeper line that starts with `.`
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
   environment), `std.time`, `std.random`, `std.sort`, `std.slices`, and
   `std.text` (searching, splitting, and parsing `?String` values)
 
-**Not yet:** most of a standard library (files, maps, number formatting),
+**Not yet:** SIMD vectors, JSON, most of a standard library (files, maps, number formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a

@@ -3,6 +3,18 @@
 Work that is decided but not started. Where Rig stands, and the work in
 progress, is in [HANDOFF.md](HANDOFF.md).
 
+## After v0.3.0's in-flight work
+
+The in-flight list is in HANDOFF.md, "What comes next". Decided, not
+started:
+
+- SIMD round 2: byte lookup, a joined shift, a saturating subtract
+  (its spelling is undecided), `pad:` reads, and `blocks(N)`.
+- A String API for part-word appends and windowed writes.
+- Multiple results.
+- A frame-size guard for every function.
+- Switching to Nexus's `Span.text`.
+
 ## Agent tooling
 
 - `rig check --json`, with machine-applicable fixes. Many diagnostics
