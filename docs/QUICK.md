@@ -65,7 +65,8 @@ or `f() catch d`.
 
 **`not`** negates: `not done`. A comparison under it takes parentheses,
 `not (a > b)`, or is flipped, `a <= b`. `not a and b` is `(not a) and
-b`. `!` never negates.
+b`. `!` never negates. On an integer, `x.not()` flips every bit
+(`0.not() == -1`); `not x` is rejected.
 
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a
 read parameter (`print(w[1..3])`);

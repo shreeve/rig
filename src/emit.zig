@@ -5046,6 +5046,20 @@ pub const Emitter = struct {
                 try self.w.writeAll(", ");
                 try self.emitBare(self.facts.ctArgsOf(call)[1]);
             },
+            // `(~x)`, or `(!x)` of a Bool.
+            .not => {
+                const obj = ir.Member.object(callee);
+                if (self.peelViews(ec.num) == self.facts.types.bool_id) {
+                    try self.w.writeAll("(!");
+                    try self.emitExpr(obj);
+                    return self.w.writeAll(")");
+                }
+                // In the receiver's type, so that a literal is typed.
+                try self.w.writeAll("(~");
+                try self.writeAsOpen(ec.num);
+                try self.emitBare(obj);
+                return self.w.writeAll("))");
+            },
             .copy, .fill, .swap => {
                 try self.w.print("rig.{s}(", .{@tagName(ec.op)});
                 try self.emitElems(ir.Member.object(callee));

@@ -1,0 +1,51 @@
+# `x.not()` is the bitwise complement of an integer, every bit flipped,
+# and `not b` for a Bool.
+
+fun flip32(x: I32) -> I32
+  x.not()
+
+sub main()
+  print(0.not(), 5.not(), (-1).not())
+  a: U8 = 0b1010_0101
+  print(a.not())
+  b: I8 = 0
+  print(b.not())
+  c: U16 = 1
+  print(c.not())
+  d: I16 = 255
+  print(d.not())
+  e: U32 = 0xF0F0_F0F0
+  print(e.not())
+  print(flip32(7))
+  f: U64 = 0
+  print(f.not())
+  g: I64 = 12345
+  print(g.not())
+  h: U128 = 0
+  print(h.not())
+  i: I128 = 1
+  print(i.not())
+  j: U128 = 0xFF
+  print(j.not().not() == j)
+  x = 6
+  print((x & 3).not() & 0xFF, x.not().not())
+  t = true
+  print(t.not(), false.not(), (1 < 2).not())
+  print(t.not() == (not t))
+
+# expect:
+# -1 -6 0
+# 90
+# -1
+# 65534
+# -256
+# 252645135
+# -8
+# 18446744073709551615
+# -12346
+# 340282366920938463463374607431768211455
+# -2
+# true
+# 253 6
+# false true false
+# true

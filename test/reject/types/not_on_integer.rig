@@ -1,0 +1,10 @@
+# `not` takes a Bool; the bitwise complement of an integer is `x.not()`.
+
+sub main()
+  x = 5
+  y: U8 = 3
+  print(not x, not y, not 7)
+
+# error: 6:13: `not` takes a Bool; for the bitwise complement write `x.not()`
+# error: 6:20: `not` takes a Bool; for the bitwise complement write `x.not()`
+# error: 6:27: `not` takes a Bool; for the bitwise complement write `x.not()`

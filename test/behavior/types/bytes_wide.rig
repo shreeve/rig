@@ -1,0 +1,45 @@
+# Reads and writes of 8- and 16-byte integers at unaligned offsets, in
+# both byte orders, agree with the bytes themselves.
+
+sub main()
+  b: [40]U8 = [40 of 0]
+  for i in 0..40
+    b[i] = U8(i + 1)
+
+  print(b.read[U128, .little](3), b.read[U128, .big](3))
+  print(b.read[I128, .little](5), b.read[I128, .big](5))
+  print(b.read[U64, .little](1), b.read[U64, .big](1))
+  print(b.read[U64, .little](7), b.read[U64, .big](7))
+
+  c: [40]U8 = [40 of 255]
+  print(c.read[I128, .little](1), c.read[I128, .big](1), c.read[I64, .big](32))
+
+  d: [40]U8 = [40 of 0]
+  !d.write[U128, .little](3, 0x100f_0e0d_0c0b_0a09_0807_0605_0403_0201)
+  !d.write[U128, .big](21, 0x100f_0e0d_0c0b_0a09_0807_0605_0403_0201)
+  print(d[2], d[3], d[4], d[18], d[19], d[20], d[21], d[22], d[36], d[37])
+  !d.write[I128, .big](0, -2)
+  print(d[0], d[14], d[15], d[16], d.read[I128, .big](0), d.read[I128, .little](0))
+  e: [24]U8 = [24 of 0]
+  !e.write[U64, .big](1, 0x0102_0304_0506_0708)
+  !e.write[U64, .little](9, 0x0102_0304_0506_0708)
+  !e.write[I64, .little](16, -2)
+  print(e[0], e[1], e[8], e[9], e[10], e[16], e[17], e[23])
+  print(e.read[U64, .big](1), e.read[U64, .little](9), e.read[I64, .little](16))
+
+  m: List[U8] = List()
+  for i in 0..20
+    !m.push(U8(i))
+  print(m.read[U128, .big](2), m.read[U128, .little](4))
+
+# expect:
+# 25349139336640152510827936922714113284 5342995718973904978025459041719882259
+# 28018020645823983596815188745708373766 8011877028157736064012710864714142741
+# 650777868590383874 144964032628459529
+# 1084818905618843912 579005069656919567
+# -1 -1 -1
+# 0 1 2 16 0 0 16 15 1 0
+# 255 255 254 14 -2 -1329227995784915872903807060280344577
+# 0 1 8 8 7 254 255 255
+# 72623859790382856 18303195151386150664 -2
+# 2674114409790073892038207218725621777 25349139336640152510827936922714113284

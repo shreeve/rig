@@ -2218,6 +2218,33 @@ sub main()
 operator `+%` requires integer operands; got `Float`
 ```
 
+`x.not()` is the bitwise complement of an integer of any type: it
+flips every bit, so `0.not() == -1` and, for a `U8`, `5.not() == 250`. On
+a `Bool` it equals `not b`. `not x` on an integer is rejected, since
+`not` takes a `Bool`.
+
+```rig
+sub main()
+  a: U8 = 5
+  s: I32 = 0
+  b: U128 = 0
+  print(a.not(), s.not(), b.not(), true.not())
+```
+
+```output
+250 -1 340282366920938463463374607431768211455 false
+```
+
+```rig reject
+sub main()
+  x = 5
+  print(not x)
+```
+
+```error
+`not` takes a Bool; for the bitwise complement write `x.not()`
+```
+
 `==` and `!=` compare two values of the same type, by content. The
 equatable types are numbers, `Bool`, `?String`, errors, and plain enums,
 and, when everything they hold is equatable: optionals, where `none`
