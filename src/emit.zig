@@ -1667,7 +1667,7 @@ pub const Emitter = struct {
             .@"<<" => "@shlExact",
             else => null,
         };
-        const shift = op == .@"<<" or op == .@">>";
+        const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
         const order = try self.openAssign(target, value, if (value_ty) |t| self.peelViews(t) else null, .value);
@@ -1690,7 +1690,7 @@ pub const Emitter = struct {
             return self.closeAssign(order);
         }
         try self.emitPlace(target);
-        try self.w.print(" {s}= ", .{@tagName(op)});
+        try self.w.print(" {s}= ", .{if (op == .@"<<%") "<<" else @tagName(op)});
         if (shift) try self.w.writeAll("@intCast(");
         try self.emitBare(value);
         if (shift) try self.w.writeAll(")");
@@ -3869,7 +3869,7 @@ pub const Emitter = struct {
             else => {},
         }
         if (self.literal_ty == null) switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
                 // does not evaluate it again with other intermediate types.
@@ -3878,7 +3878,7 @@ pub const Emitter = struct {
             else => {},
         };
         switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .neg, .index => self.rt_names = true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .neg, .index => self.rt_names = true,
             else => {},
         }
         switch (head) {
@@ -4025,18 +4025,20 @@ pub const Emitter = struct {
                 try self.emitExpr(ir.get(sexp, .right));
                 if (!bare) try self.w.writeAll(")");
             },
-            .@"<<", .@">>" => {
+            .@"<<", .@"<<%", .@">>" => {
                 // Like `+`, a left shift that loses bits (or the sign)
-                // overflows (`@shlExact`). The shift amount is cast to the
-                // width Zig requires; the shifted value has the
-                // expression's type.
+                // overflows (`@shlExact`); `<<%` drops them, as Zig's `<<`
+                // does. The shift amount is cast to the width Zig requires,
+                // so one at or over the width panics in either; the shifted
+                // value has the expression's type.
                 const shl = head == .@"<<";
+                const wrap = head == .@"<<%";
                 const parens = !shl and !bare;
                 if (parens) try self.w.writeAll("(");
                 if (shl) try self.w.writeAll("@shlExact(");
                 try self.writeAsOpen(self.typeOf(sexp) orelse self.facts.types.int_id);
                 try self.emitBare(ir.get(sexp, .left));
-                try self.w.writeAll(if (shl) "), @intCast(" else ") >> @intCast(");
+                try self.w.writeAll(if (shl) "), @intCast(" else if (wrap) ") << @intCast(" else ") >> @intCast(");
                 try self.emitBare(ir.get(sexp, .right));
                 try self.w.writeAll(if (shl) "))" else ")");
                 if (parens) try self.w.writeAll(")");
@@ -5063,6 +5065,26 @@ pub const Emitter = struct {
                 try self.w.writeAll("(~");
                 try self.writeAsOpen(ec.num);
                 try self.emitBare(obj);
+                return self.w.writeAll("))");
+            },
+            // `@as(Int, @clz(x))`: the builtin counts in the receiver's
+            // type, a bit pattern for a signed one, and gives a smaller
+            // unsigned integer, which widens to `Int`.
+            .leading_zeros, .trailing_zeros, .count_ones => {
+                try self.writeAsOpen(ec.elem);
+                try self.w.writeAll(switch (ec.op) {
+                    .leading_zeros => "@clz(",
+                    .trailing_zeros => "@ctz(",
+                    else => "@popCount(",
+                });
+                try self.writeAsOpen(ec.num);
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")))");
+            },
+            .swap_bytes => {
+                try self.w.writeAll("@byteSwap(");
+                try self.writeAsOpen(ec.num);
+                try self.emitBare(ir.Member.object(callee));
                 return self.w.writeAll("))");
             },
             .copy, .fill, .swap => {

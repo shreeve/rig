@@ -121,6 +121,7 @@ pub const BindingKind = enum {
     @"|=",
     @"^=",
     @"<<=",
+    @"<<%=",
     @">>=",
 
     comptime {
@@ -1194,9 +1195,9 @@ fn isInfix(cat: TokenCat) bool {
     return switch (cat) {
         .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap => true,
         .eq, .ne, .lt, .gt, .le, .ge, .nullish, .nullish_jump => true,
-        .bar, .ampersand, .caret, .lshift, .rshift => true,
+        .bar, .ampersand, .caret, .lshift, .lshift_wrap, .rshift => true,
         .assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign => true,
-        .amp_assign, .bar_assign, .caret_assign, .lshift_assign, .rshift_assign => true,
+        .amp_assign, .bar_assign, .caret_assign, .lshift_assign, .lshift_wrap_assign, .rshift_assign => true,
         .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign => true,
         else => false,
     };

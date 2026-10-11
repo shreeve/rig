@@ -1,0 +1,33 @@
+# The bit counts in use: the first marked byte of a SWAR word, population counts of
+# masks, literal and parenthesised receivers, and results that are plain `Int`s.
+
+fun first_marked(m: U64) -> Int
+  m.trailing_zeros() / 8
+
+fun last_marked(m: U64) -> Int
+  (63 - m.leading_zeros()) / 8
+
+sub main()
+  print(first_marked(0x0000_0080_0000_8000), first_marked(0x80), first_marked(0x8000_0000_0000_0000))
+  print(last_marked(0x0000_0080_0000_8000), last_marked(0x80), last_marked(0x8000_0000_0000_0000))
+  m: U64 = 0xFF00_FF00_FF00_FF00
+  print(m.count_ones(), m.not().count_ones())
+  w: U32 = 0x5555_5555
+  print(w.count_ones(), (w & 0xFFFF).count_ones())
+  print(0.leading_zeros(), 255.count_ones(), (-1).count_ones(), 8.trailing_zeros())
+  b: U8 = 0b0001_0100
+  total: Int = b.count_ones() + b.leading_zeros() * 10 + b.trailing_zeros() * 100
+  print(total)
+  is_pow2 = b.count_ones() == 1
+  print(is_pow2, (b & (b - 1)).count_ones())
+
+# release
+
+# expect:
+# 1 0 7
+# 4 0 7
+# 32 32
+# 16 8
+# 64 8 64 3
+# 232
+# false 1

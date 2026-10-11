@@ -1,0 +1,36 @@
+# `<<%=` assigns a wrapping left shift to a name or a place, evaluating the place once;
+# a constant `<<%` wraps in the type its context gives it.
+
+obj P
+  n: U8
+
+fun pick(i: Int) -> Int
+  print("pick", i)
+  i
+
+MASK: U8 = 0xFF <<% 4
+
+sub main()
+  p = P(n: 0b1100_0001)
+  p.n <<%= 1
+  print(p.n)
+  xs: [3]U16 = [0x8001, 0x4000, 3]
+  xs[pick(0)] <<%= 1
+  xs[pick(1)] <<%= 2
+  print(xs)
+  print(MASK)
+  big: U128 = 0x8000_0000_0000_0000_0000_0000_0000_0001
+  print(big <<% 1, big <<% 127)
+  k: U8 = 0xF0 <<% 1
+  print(k)
+
+# release
+
+# expect:
+# 130
+# pick 0
+# pick 1
+# [2, 0, 3]
+# 240
+# 2 170141183460469231731687303715884105728
+# 224

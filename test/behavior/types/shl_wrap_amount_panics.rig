@@ -1,0 +1,16 @@
+# The amount of `<<%` must be below the width, as for `<<`: it is not masked.
+
+fun shift(x: U8, n: Int) -> U8
+  x <<% n
+
+sub main()
+  print(shift(1, 7))
+  print(shift(1, 8))
+  print("unreachable")
+
+# expect-panic: integer does not fit in destination type
+
+# release
+
+# expect:
+# 128
