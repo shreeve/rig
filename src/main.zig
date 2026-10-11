@@ -16,6 +16,7 @@ const emit = @import("emit.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
+const proofs = @import("proofs.zig");
 
 const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
@@ -40,6 +41,8 @@ const usage =
     \\                         module's expressions instead (check)
     \\  --facts=storage        Print the hidden storage emit makes for the
     \\                         root module instead (check)
+    \\  --facts=proofs         Print the tests of the root module that are
+    \\                         known to pass, which emit omits (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
     \\                         `--release=safe` are Zig's safe mode, which
     \\                         keeps overflow and bounds checks;
@@ -105,9 +108,9 @@ const Mode = enum {
     }
 };
 
-/// What `check --facts` prints: the IR's syntax facts, sema's, or the
-/// hidden storage emit makes.
-const Facts = enum { none, syntax, sema, storage };
+/// What `check --facts` prints: the IR's syntax facts, sema's, the
+/// hidden storage emit makes, or the tests known to pass.
+const Facts = enum { none, syntax, sema, storage, proofs };
 
 const Options = struct {
     command: Command,
@@ -181,14 +184,15 @@ pub fn main(init: std.process.Init) !void {
             switch (opts.facts) {
                 .none => {},
                 .syntax => try printFacts(io, graph.root()),
-                .sema, .storage => {
+                .sema, .storage, .proofs => {
                     const m = graph.root();
                     var buffer: [4096]u8 = undefined;
                     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
-                    if (opts.facts == .sema)
-                        try sema.writeFactsDump(m.sema, allocator, m.ir, &writer.interface)
-                    else
-                        try sema.writeStorageDump(m.sema, allocator, m.ir, &writer.interface);
+                    switch (opts.facts) {
+                        .sema => try sema.writeFactsDump(m.sema, allocator, m.ir, &writer.interface),
+                        .storage => try sema.writeStorageDump(m.sema, allocator, m.ir, &writer.interface),
+                        else => try proofs.writeDump(m.sema, allocator, m.ir, &writer.interface),
+                    }
                     try writer.interface.flush();
                 },
             }
@@ -235,6 +239,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .sema;
         } else if (eql(arg, "--facts=storage")) {
             facts = .storage;
+        } else if (eql(arg, "--facts=proofs")) {
+            facts = .proofs;
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});
@@ -1289,6 +1295,7 @@ test {
     _ = emit;
     _ = emit_facts;
     _ = sema;
+    _ = proofs;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
 }

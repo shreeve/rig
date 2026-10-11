@@ -1326,6 +1326,57 @@ pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
     return &items[index(i, items.len)];
 }
 
+/// Which of an index's tests the compiler proved already passed
+/// (docs/INTERNALS.md, "Proven checks"): `lower` is `0 <= i`, `upper` is
+/// `i + width <= len`, and `both` is both. A proven test is not made,
+/// except as an assertion of the proof when `verify_proofs` is on; the
+/// other is made as `index` makes it, with the same panic.
+pub const Proven = enum { lower, upper, both };
+
+/// Proven tests are asserted in every debug build, and in an optimized
+/// build whose root module asks for it (`RIG_VERIFY_PROOFS=1`).
+const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
+
+fn proofPanic() noreturn {
+    @panic("rig: a proven check failed (compiler bug)");
+}
+
+/// `i` as an index of `width` elements into `count`: the tests `p` does
+/// not prove are made, and `fail` panics when one fails.
+inline fn provenIndex(i: Int, count: usize, width: usize, comptime p: Proven, comptime fail: fn () noreturn) usize {
+    @setRuntimeSafety(false);
+    if (i < 0) {
+        if (p == .upper) fail();
+        if (verify_proofs) proofPanic();
+    }
+    // `0 <= i` here, so the conversion is exact.
+    const u: u64 = @intCast(i);
+    if (u > count or count - u < width) {
+        if (p == .lower) fail();
+        if (verify_proofs) proofPanic();
+    }
+    return @intCast(u);
+}
+
+/// `s[i]` with the tests `p` proves omitted: the element is read through
+/// the slice's pointer, which carries no test of its own.
+pub inline fn atProven(items: anytype, i: Int, comptime p: Proven) std.meta.Elem(@TypeOf(items)) {
+    return items.ptr[provenIndex(i, items.len, 1, p, indexPanic)];
+}
+
+/// `elemPtr` with the tests `p` proves omitted.
+pub inline fn elemPtrProven(items: anytype, i: Int, comptime p: Proven) @TypeOf(&items[0]) {
+    return &items.ptr[provenIndex(i, items.len, 1, p, indexPanic)];
+}
+
+/// `a + b` that the compiler proved cannot overflow: an add LLVM may
+/// assume does not wrap.
+pub inline fn addProven(a: Int, b: Int) Int {
+    if (verify_proofs) _ = std.math.add(Int, a, b) catch proofPanic();
+    @setRuntimeSafety(false);
+    return a + b;
+}
+
 /// `s[lo..hi]` of a string, slice, or array pointer: the elements from
 /// `lo` up to `hi` (`null`: the end); panics unless `0 <= lo <= hi <= len`.
 pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@TypeOf(items)) {
@@ -1392,6 +1443,35 @@ pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, com
     dst.* = ordered;
 }
 
+/// `readInt` with the tests `p` proves omitted.
+pub fn readIntProven(comptime T: type, bytes: anytype, offset: Int, comptime endian: Endian, comptime p: Proven) T {
+    const n = @divExact(@bitSizeOf(T), 8);
+    const i = provenIndex(offset, bytes.len, n, p, readPanic);
+    const Bits = @Int(.unsigned, @bitSizeOf(T));
+    const lanes: @Vector(n, u8) = @as(*const [n]u8, @ptrCast(bytes.ptr + i)).*;
+    const raw: Bits = @bitCast(lanes);
+    return @bitCast(if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw);
+}
+
+/// `writeInt` with the tests `p` proves omitted.
+pub fn writeIntProven(comptime T: type, bytes: anytype, offset: Int, value: T, comptime endian: Endian, comptime p: Proven) void {
+    const n = @divExact(@bitSizeOf(T), 8);
+    const i = provenIndex(offset, bytes.len, n, p, writePanic);
+    const Bits = @Int(.unsigned, @bitSizeOf(T));
+    const raw: Bits = @bitCast(value);
+    const ordered = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw;
+    const dst: *align(1) Bits = @ptrCast(bytes.ptr + i);
+    dst.* = ordered;
+}
+
+fn readPanic() noreturn {
+    @panic("byte read out of range");
+}
+
+fn writePanic() noreturn {
+    @panic("byte write out of range");
+}
+
 /// `offset` as a `usize` with `offset + n <= count`, or null.
 fn byteOffset(count: usize, offset: anytype, n: usize) ?usize {
     const i = std.math.cast(usize, offset) orelse return null;
@@ -1436,8 +1516,15 @@ pub fn rem(a: anytype, b: anytype) @TypeOf(a, b) {
     return @rem(@as(T, a), @as(T, b));
 }
 
-/// A length or count as a Rig `Int`.
+/// The longest length a Rig `Int` holds: no target holds more, and the
+/// margin above it lets the compiler prove `i + c` fits where `i` is
+/// below a length (docs/INTERNALS.md, "Proven checks").
+pub const max_len: u64 = (1 << 62) - 1;
+
+/// A length or count as a Rig `Int`; panics above `max_len`, which a
+/// 64-bit target tests with one compare and a 32-bit one never needs to.
 pub fn len(n: usize) Int {
+    if (@as(u64, n) > max_len) @panic("length out of range");
     return @intCast(n);
 }
 

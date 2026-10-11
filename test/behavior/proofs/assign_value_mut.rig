@@ -1,0 +1,19 @@
+# An assignment's value runs before its target's index: `next(!i)`
+# moves `i` past the guard before `a[i]` is reached.
+
+fun next(n: !Int) -> Int
+  n += 1
+  7
+
+sub put(a: ![]Int, at: Int)
+  i = at
+  if i < a.len
+    a[i] = next(!i) # keeps: index upper
+
+sub main()
+  a = [1, 2, 3]
+  put(!a[..], 2)
+  print(a)
+
+# release
+# expect-panic: index out of bounds

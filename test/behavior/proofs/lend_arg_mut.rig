@@ -1,0 +1,18 @@
+# `bump(!i)` writes `i` after the guard: `a[i]` keeps its test.
+
+sub bump(n: !Int)
+  n += 1
+
+fun pick(a: []Int, at: Int) -> Int
+  i = at
+  if i < a.len
+    bump(!i)
+    return a[i] # keeps: index upper
+  0
+
+sub main()
+  a = [1, 2, 3]
+  print(pick(a[..], 2))
+
+# release
+# expect-panic: index out of bounds

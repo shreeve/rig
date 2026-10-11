@@ -738,6 +738,50 @@ pub const Facts = struct {
     }
 };
 
+/// How a node writes a binding (`SemContext.recordWrite`). Every site
+/// where a binding's value may change is one of these, recorded where
+/// resolve or typecheck finds it: the binding's `reassigned` and
+/// `written` flags are derived from the record, and the proof pass
+/// (`src/proofs.zig`) reads it to know what a node changes.
+pub const WriteKind = enum {
+    /// `x = e` of an existing binding (the `set` node).
+    assign,
+    /// `x op= e` (the `set` node; its op and value say which).
+    compound,
+    /// `!x`, `!x.f`, `!x[i]` (the `write` node), and `for e in !x` (the
+    /// `for` node): a write view of the binding, or of a part of it.
+    lend_write,
+    /// `x.f = e` or `x[i] = e` (the `set` node).
+    elem_store,
+    /// `<x.f` taking an optional out of a part (the `move` node).
+    take,
+    /// `|!x|`: a closure lent `x` to write (the `cap_write` node).
+    capture,
+    /// `<x` of the binding itself (the `move` or `drop` node), which
+    /// leaves it moved until it is assigned again.
+    move,
+};
+
+pub const WriteSite = struct { sym: SymbolId, kind: WriteKind };
+
+/// Which of a node's tests are known to pass (docs/INTERNALS.md, "Proven
+/// checks"): recorded by `src/proofs.zig` alone, on an index, a `read` or
+/// `write` element call's callee, a `+`, or a `+=` set, and read by emit
+/// through `Facts.provenOf`. A node with no entry keeps every test.
+pub const Proven = packed struct(u8) {
+    /// `0 <= index` is known.
+    lower: bool = false,
+    /// `index + width <= len` is known.
+    upper: bool = false,
+    /// The `+` cannot overflow.
+    no_overflow: bool = false,
+    _: u5 = 0,
+
+    pub fn any(p: Proven) bool {
+        return p.lower or p.upper or p.no_overflow;
+    }
+};
+
 /// How a header (`for`, `match`, `if … as`, `while … as`) has a bare
 /// subject that is not plain data (docs/INTERNALS.md, "Header subjects").
 pub const Header = enum {
@@ -1607,6 +1651,13 @@ pub const SemContext = struct {
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
     iter_loops: std.ArrayList(rig.IterLoop) = .empty,
+    /// Every node that writes a binding, and how (`recordWrite`). Kept
+    /// beside the facts table, not in `check --facts=sema`.
+    write_sites: std.AutoHashMapUnmanaged(NodeKey, WriteSite) = .empty,
+    /// The tests each node is known to pass (`Proven`), written only by
+    /// `src/proofs.zig` once the ownership checker accepted the module.
+    /// Printed by `check --facts=proofs`, not `--facts=sema`.
+    proven: std.AutoHashMapUnmanaged(NodeKey, Proven) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -1670,6 +1721,8 @@ pub const SemContext = struct {
         self.plain_reqs.deinit(self.allocator);
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
+        self.write_sites.deinit(self.allocator);
+        self.proven.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);
         self.allocator.destroy(self.decided);
         self.arena.deinit();
@@ -2023,6 +2076,40 @@ pub const SemContext = struct {
 
     pub fn recordTake(self: *SemContext, node: Sexp) !void {
         try self.facts.takes.put(self.allocator, recordKey(node), {});
+    }
+
+    /// `node` writes binding `sym` (`WriteKind`). The binding's flags
+    /// follow from the record: an assignment of the binding itself
+    /// reassigns it, which lowers it to a Zig `var`; a write through it
+    /// (a write lend, a store into a part, a take, a write capture) marks
+    /// it written, which does too. A move of the whole binding leaves its
+    /// flags alone.
+    pub fn recordWrite(self: *SemContext, node: Sexp, sym: SymbolId, kind: WriteKind) !void {
+        try self.write_sites.put(self.allocator, recordKey(node), .{ .sym = sym, .kind = kind });
+        const flags = &self.symbols.items[sym].flags;
+        switch (kind) {
+            .assign, .compound => flags.reassigned = true,
+            .lend_write, .elem_store, .take, .capture => flags.written = true,
+            .move => {},
+        }
+    }
+
+    /// The binding `node` writes, and how; null for a node that writes none.
+    pub fn writeSiteOf(self: *const SemContext, node: Sexp) ?WriteSite {
+        return self.write_sites.get(nodeKey(node) orelse return null);
+    }
+
+    /// Record which of `node`'s tests are known to pass. Only
+    /// `src/proofs.zig` calls this.
+    pub fn recordProven(self: *SemContext, node: Sexp, p: Proven) !void {
+        if (!p.any()) return;
+        try self.proven.put(self.allocator, recordKey(node), p);
+    }
+
+    /// The tests `node` is known to pass: none unless the proof pass
+    /// recorded some.
+    pub fn provenOf(self: *const SemContext, node: Sexp) Proven {
+        return self.proven.get(nodeKey(node) orelse return .{}) orelse .{};
     }
 
     pub fn takes(self: *const SemContext, node: Sexp) bool {

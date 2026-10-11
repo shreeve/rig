@@ -1,0 +1,20 @@
+# An arm that writes another binding.
+
+fun pick(s: ?String, at: Int, k: Int) -> U8
+  i = at
+  j = 0
+  if i < s.len
+    match k
+      1 => j += 1
+      _ => pass
+    print(j)
+    return s[i] # proves: index upper
+  0
+
+sub main()
+  print(pick("abc", 2, 1))
+
+# release
+# expect:
+# 1
+# 99

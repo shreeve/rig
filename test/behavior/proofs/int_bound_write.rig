@@ -1,0 +1,15 @@
+# Nothing writes `n`: `i + 1` fits.
+
+fun step(s: ?String, at: Int) -> Int
+  n = s.len
+  i = at
+  if i < n
+    return i + 1 # proves: + no_overflow
+  0
+
+sub main()
+  print(step("abcd", 3))
+
+# release
+# expect:
+# 4

@@ -241,7 +241,7 @@ RESULTS = None
 
 # What a sound program never does when it runs (test/run's CORPUS_BAD_RE).
 BAD = re.compile(
-    r"rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free"
+    r"rig: a proven check failed|rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free"
     r"|\.zig:\d+:\d+: error|\.rig:\d+:\d+: error|Segmentation fault|Bus error|General protection"
     r"|Illegal instruction|reached unreachable|access of union field|invalid enum value"
     r"|incorrect alignment|attempt to use null value|switch on corrupt value|invalid error code"

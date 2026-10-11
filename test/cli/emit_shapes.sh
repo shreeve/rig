@@ -281,3 +281,43 @@ out=$("$RIG" emit loop_index.rig 2>/dev/null) || fail "rig emit loop_index.rig"
 expect_has "$out" '@as(i64, @bitCast(@as(u64, __rig_i_' "a loop index reads the counter's bits"
 grep -qF '@intCast(__rig_i_' <<<"$out" && fail "a loop index is range-checked each iteration: $out"
 true
+
+# A test the compiler proved is omitted (docs/INTERNALS.md, "Proven
+# checks"): the proven half of an index or a byte read, and an add known
+# to fit. The half not proven is still made, and an access with nothing
+# proven is the checked one.
+cat >proven.rig <<'EOF2'
+fun skip_space(s: ?String, at: Int) -> Int
+  i = at
+  while i < s.len
+    c = s[i]
+    if c == 32 and i + 8 <= s.len and s.read[U64, .little](i) == 0x2020202020202020
+      i += 8
+    else if c == 32
+      i += 1
+    else
+      break
+  i
+
+fun count(s: ?String) -> Int
+  n = 0
+  i = 0
+  while i + 8 <= s.len
+    if s.read[U64, .little](i) != 0
+      n += 1
+    i += 8
+  n
+
+fun first(s: ?String, i: Int) -> U8
+  s[i]
+
+sub main()
+  print(skip_space("   x", 0), count("abcdefgh"), first("a", 0))
+EOF2
+out=$("$RIG" emit proven.rig 2>/dev/null) || fail "rig emit proven.rig"
+expect_has "$out" 'rig.atProven(s, i, .upper)' "an index whose sign is unknown keeps its sign test"
+expect_has "$out" 'rig.readIntProven(u64, s, i, .little, .both)' "a read with both tests proven"
+expect_has "$out" 'rig.addProven(i, 8) <= rig.len(s.len)' "a guard's add proven by an earlier guard"
+expect_has "$out" 'i = rig.addProven(i, 8);' "a proven +="
+expect_has "$out" 'if (!((i + 8) <= rig.len(s.len))) break;' "a loop guard's own add stays checked"
+expect_has "$out" 'return rig.at(s, i);' "an index with nothing proven"

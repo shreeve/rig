@@ -1,0 +1,20 @@
+# A guard before a loop holds in it when the loop does not write what it
+# named.
+
+fun total(a: []Int, at: Int) -> Int
+  i = at
+  t = 0
+  if i < a.len
+    k = 0
+    while k < 2
+      t += a[i] # proves: index upper
+      k += 1
+  t
+
+sub main()
+  a = [1, 2, 3]
+  print(total(a[..], 2))
+
+# release
+# expect:
+# 6

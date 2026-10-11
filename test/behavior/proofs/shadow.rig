@@ -1,0 +1,17 @@
+# A new binding beside the guarded one.
+
+fun pick(s: ?String, at: Int) -> U8
+  i = at
+  if i < s.len
+    new j = i + 1
+    print(j)
+    return s[i] # proves: index upper
+  0
+
+sub main()
+  print(pick("abc", 2))
+
+# release
+# expect:
+# 3
+# 99

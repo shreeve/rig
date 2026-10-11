@@ -1,0 +1,13 @@
+# `or` makes no fact: either side may be the one that held.
+
+fun pick(s: ?String, at: Int, flag: Bool) -> U8
+  i = at
+  if i < s.len or flag
+    return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(pick("abc", 5, true))
+
+# release
+# expect-panic: index out of bounds

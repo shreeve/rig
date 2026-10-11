@@ -211,6 +211,10 @@ check_output() {
 
     if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
     not_run "$outdir" "$rc" && return 1
+    # A test the compiler proved and omitted is still made, as an
+    # assertion, in a debug build: one that fires is a compiler bug,
+    # whatever the program was expected to do.
+    if grep -qF 'rig: a proven check failed' "$err"; then REASON="a proven check failed"; return 1; fi
 
     if [[ -n "$panic_want" ]]; then
         if [[ $rc -eq 0 ]]; then REASON="expected panic \"$panic_want\", exited 0"; return 1; fi
@@ -401,10 +405,11 @@ pending_holds() {
 
 # A corpus program's run fails on what memory-safe, correctly emitted
 # code never does: a leak, a use of freed memory, a Zig compile error, a
-# crash, or a Zig safety check that means emitted code went wrong. Rig's
+# crash, a Zig safety check that means emitted code went wrong, or the
+# assertion of a test the compiler proved and omitted. Rig's
 # own panics (bounds, overflow, a failed conversion) and exit statuses
 # are fine: a probe need not succeed, only stay sound.
-CORPUS_BAD_RE='rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free|\.zig:[0-9]+:[0-9]+: error|\.rig:[0-9]+:[0-9]+: error|Segmentation fault|Bus error|General protection|GENERAL PROTECTION|Illegal instruction|reached unreachable|access of union field|invalid enum value|incorrect alignment|attempt to use null value|switch on corrupt value|invalid error code|sentinel mismatch'
+CORPUS_BAD_RE='rig: a proven check failed|rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free|\.zig:[0-9]+:[0-9]+: error|\.rig:[0-9]+:[0-9]+: error|Segmentation fault|Bus error|General protection|GENERAL PROTECTION|Illegal instruction|reached unreachable|access of union field|invalid enum value|incorrect alignment|attempt to use null value|switch on corrupt value|invalid error code|sentinel mismatch'
 
 # check_corpus <entry> <outdir> <logfile>: `rig check` rejects the
 # program with a file:line:col diagnostic, or it runs, and runs clean under

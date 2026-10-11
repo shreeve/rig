@@ -53,6 +53,7 @@ pub const Lend = sema.Lend;
 pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
+pub const Proven = sema.Proven;
 pub const GenericCall = sema.GenericCall;
 pub const Use = sema.Use;
 pub const Header = sema.Header;
@@ -182,6 +183,11 @@ pub const Facts = struct {
     }
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
+    }
+    /// Which of the node's tests are known to pass (`src/proofs.zig`):
+    /// emit omits those, and a debug build makes them as assertions.
+    pub fn provenOf(f: Facts, node: Sexp) Proven {
+        return f.c().provenOf(node);
     }
     pub fn callableOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().callableOf(node);

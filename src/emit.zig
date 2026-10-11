@@ -1331,7 +1331,19 @@ pub const Emitter = struct {
         const type_node = ir.Set.type(sexp);
         const expr = ir.Set.value(sexp);
 
-        if (kind.operator()) |op| return self.emitCompound(target, op, expr);
+        if (kind.operator()) |op| {
+            // `i += c` known not to overflow (`provenOf`): `i` read once,
+            // as `+=` reads it.
+            if (op == .@"+" and target == .src and self.facts.provenOf(sexp).no_overflow) {
+                try self.emitPlace(target);
+                try self.w.writeAll(" = rig.addProven(");
+                try self.emitPlace(target);
+                try self.w.writeAll(", ");
+                try self.emitBare(expr);
+                return self.w.writeAll(");");
+            }
+            return self.emitCompound(target, op, expr);
+        }
         if (target != .src) {
             return switch (kind) {
                 .default => self.emitPlaceAssign(target, expr),
@@ -4169,6 +4181,8 @@ pub const Emitter = struct {
             try self.emitExpr(operands[1]);
             return self.w.writeAll(")");
         };
+        // An add known not to overflow (`provenOf`).
+        if (kind == .@"+" and self.facts.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});
@@ -4256,20 +4270,17 @@ pub const Emitter = struct {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
             // is assigned through.
-            if (in_place) {
-                try self.w.writeAll("rig.elemPtr(");
-                try self.emitIndexBase(base, base_ty, .bare);
-                try self.w.writeAll(", ");
-                self.place_chain = false;
-                try self.emitBare(index);
-                return self.w.writeAll(").*");
-            }
-            try self.w.writeAll("rig.at(");
+            // A test known to pass is omitted (`provenOf`).
+            const proven = provenTests(self.facts.provenOf(sexp));
+            try self.w.writeAll(if (in_place)
+                (if (proven != null) "rig.elemPtrProven(" else "rig.elemPtr(")
+            else if (proven != null) "rig.atProven(" else "rig.at(");
             try self.emitIndexBase(base, base_ty, .bare);
             try self.w.writeAll(", ");
             self.place_chain = false;
             try self.emitBare(index);
-            return self.w.writeAll(")");
+            if (proven) |p| try self.w.print(", .{s}", .{p});
+            return self.w.writeAll(if (in_place) ").*" else ")");
         };
         const may_be_empty = switch (self.facts.types.get(n)) {
             .ct_value => |v| v.int == 0,
@@ -5040,7 +5051,12 @@ pub const Emitter = struct {
             // `rig.readInt(T, bytes, at, endian)`,
             // `rig.writeInt(T, bytes, at, value, endian)`.
             .read, .write => {
-                try self.w.writeAll(if (ec.op == .read) "rig.readInt(" else "rig.writeInt(");
+                // A test known to pass is omitted (`provenOf`).
+                const proven = provenTests(self.facts.provenOf(callee));
+                try self.w.writeAll(switch (ec.op) {
+                    .read => if (proven != null) "rig.readIntProven(" else "rig.readInt(",
+                    else => if (proven != null) "rig.writeIntProven(" else "rig.writeInt(",
+                });
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.emitElems(ir.Member.object(callee));
@@ -5050,6 +5066,7 @@ pub const Emitter = struct {
                 }
                 try self.w.writeAll(", ");
                 try self.emitBare(self.facts.ctArgsOf(call)[1]);
+                if (proven) |p| try self.w.print(", .{s}", .{p});
             },
             // `(~x)`, or `(!x)` of a Bool.
             .not => {
@@ -6792,6 +6809,15 @@ const isLiteralText = facts.syntax.isLiteralText;
 /// An integer or float literal.
 fn isNumberText(t: []const u8) bool {
     return facts.syntax.isIntLiteralText(t) or facts.syntax.isFloatLiteralText(t);
+}
+
+/// The runtime's name for the tests of an index or byte access known to
+/// pass (`rig.Proven`), or null when none is.
+fn provenTests(p: facts.Proven) ?[]const u8 {
+    if (p.lower and p.upper) return "both";
+    if (p.lower) return "lower";
+    if (p.upper) return "upper";
+    return null;
 }
 
 fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
