@@ -8,7 +8,8 @@
 #               ids look like behavior/ownership/move_into_fn, known/emit/...,
 #               reject/types/..., examples/hello, ir/..., torture/..., cli/..., unit,
 #               classify, vocab, style, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
-#               oracle/corpus (the reference ownership checker over a set).
+#               oracle/corpus (the reference ownership checker over a set),
+#               json/floats (a group of std.json's comparison with Python).
 #               A bare kind name (`known`, `doc`, ...) selects that kind.
 #   -v          also list passing and known-failing tests
 #   -j N        parallel jobs (default: CPU count)
@@ -459,6 +460,39 @@ check_cli() {
     return 0
 }
 
+# check_json <group> <outdir> <logfile>: the group of test/json/compare.py
+# agrees with Python's json module on every input, sanitizer-clean. A run
+# with filters runs the whole group; a run without runs a fixed, spread-out
+# part of it (JSON_FULL, test/json/README.md). A group whose third-party
+# data is missing is skipped with a note, unless JSON_REQUIRE_DATA is set.
+check_json() {
+    local group=$1 outdir=$2 log=$3 part=--subset rc stub why
+    [[ -n "${JSON_FULL:-}" ]] && part=""
+    mkdir -p "$outdir"
+    local cmp=("$TIMEOUT_CMD" "$TIMEOUT" python3 "$ROOT/test/json/compare.py")
+    if [[ $group == checker || $group == corpus ]] && why=$("${cmp[@]}" --check-data 2>&1); then why=""; fi
+    if [[ -z ${why:-} ]]; then
+        # The key hashes the driver's emitted package (it is the std.json
+        # of this compiler) and the files that make the cases.
+        stub="$outdir/key.rig"
+        if python3 "$ROOT/test/json/compare.py" --stub "$stub" 2>/dev/null; then
+            { printf '# json %s %s\n# inputs %s\n' "$group" "$part" \
+                "$(cat test/json/compare.py test/json/cases.txt tools/fetch-json-data.sh | $SHA256 | cut -d' ' -f1)"; } >>"$stub"
+            carried_over "json $group $part $TIMEOUT" "$stub" && return 0
+        fi
+    fi
+    "${cmp[@]}" -j 1 --tmp "$outdir" $part "$group" >"$log" 2>&1 </dev/null
+    rc=$?
+    if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
+    if [[ $rc -eq 3 ]]; then
+        printf 'note: json/%s skipped (%s)\n' "$group" "$(grep -m1 '^SKIP' "$log" | cut -c6-)" >&2
+        KEY=""
+        return 0
+    fi
+    if [[ $rc -ne 0 ]]; then REASON=$(grep -m1 -E '^(FAIL|ERROR|CASE BUG)' "$log" || echo "exit $rc: $(tail -1 "$log")"); return 1; fi
+    return 0
+}
+
 check_ir() {
     local entry=$1 log=$2
     local base=${entry%.rig} ok=0 kind cmd
@@ -584,6 +618,7 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
             ;;
         corpus)            check_corpus "$entry" "$outdir" "$log"; ok=$? ;;
         oracle)            check_oracle "${id#oracle/}" "$outdir" "$log"; ok=$? ;;
+        json)              check_json "${id#json/}" "$outdir" "$log"; ok=$? ;;
         known)
             # A known bug's verdict is turned around, like a pending example's.
             NO_CACHE=1
@@ -768,10 +803,13 @@ exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
 PERL
     chmod +x "$TIMEOUT_CMD"
 fi
+# A run with filters runs each json group whole (test/json/README.md).
+JSON_FULL=""; [[ ${#FILTERS[@]} -gt 0 ]] && JSON_FULL=1
+export JSON_FULL JSON_REQUIRE_DATA="${JSON_REQUIRE_DATA:-}"
 export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE DELTA RESULTS_CACHE RESULTS_BASE SHA256 FIXED_INPUTS
 
 is_kind() {
-    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|classify|vocab|style|doc|corpus|oracle) return 0 ;; esac
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|classify|vocab|style|doc|corpus|oracle|json) return 0 ;; esac
     return 1
 }
 
@@ -829,7 +867,11 @@ awk -F/ -v OFS='\t' '
         else if (NF == 4 && $4 == "main.rig") emit(9, $1 "/" $2 "/" $3, "corpus/" $3)
         next
     }
-    END { n = split("lint tests corpus docs matrix", sets, " "); for (i = 1; i <= n; i++) print 8, i, "oracle/" sets[i], "test/oracle", "oracle/" sets[i] }
+    END {
+        n = split("lint tests corpus docs matrix", sets, " "); for (i = 1; i <= n; i++) print 8, i, "oracle/" sets[i], "test/oracle", "oracle/" sets[i]
+        # The groups of test/json/compare.py (its --list says them).
+        n = split("cases scan edges blocks spaces floats checker deep corpus", sets, " "); for (i = 1; i <= n; i++) print 10, i, "json/" sets[i], "test/json", "json/" sets[i]
+    }
 ' "$WORK/found" | LC_ALL=C sort -t$'\t' -k1,1n -k2,2 | cut -f3- >"$DISCOVERED"
 # The ids the filters select: a run with filters takes every corpus
 # program they select (`./test/run corpus` takes them all); a run
@@ -843,7 +885,7 @@ select_tests() { # select_tests <file> → the selected lines of it
         BEGIN {
             for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i
             split(ENVIRON["FILTER_LIST"], filter, "\n")
-            split("behavior reject known examples ir torture cli unit classify vocab style doc corpus oracle", ks, " ")
+            split("behavior reject known examples ir torture cli unit classify vocab style doc corpus oracle json", ks, " ")
             for (k in ks) kinds[ks[k]] = 1
         }
         function selected(id,    i, f) {

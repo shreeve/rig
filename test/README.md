@@ -6,6 +6,7 @@
 ./test/run -v known        # list each result of the known bugs
 ./test/run --update ir     # rewrite IR snapshots after an intended grammar change
 ./test/run corpus          # every corpus program (a plain run takes a sample)
+./test/run json            # all 10,511 inputs of std.json's comparison (a plain run takes a part)
 ./test/run --shard 2/4     # the second of four disjoint shards of a run
 ./test/run --prune         # only remove the output of tests that are gone
 test/matrix.py             # generate and run the form x context x type matrix
@@ -50,6 +51,7 @@ each test's output, `RIG_BUILD_STORE` where programs build (see
 | `classify` | no pass in `src/` keeps a classifier of what an expression hands over beside `sema.handsOver` (`isPlaceExpr`, `isPlace`, `makesValue`, `isBranching`, `readLeaves`, `classifyReceiverShape`), and emit names hidden storage only through its storage facts (`Emitter.hiddenStorage`) |
 | `vocab` | the docs, std/, the string literals in `src/`, and `# error:` lines say lend, view, and loan (docs/CORE.md, "Three words"): Rust's word for all three appears only in the lines `test/vocabulary-allow.txt` lists, each as `path: line text`, and in no path; an entry that matches no such line, or appears twice, fails |
 | `style` | the Rig in `test/` (but `test/torture/`), `examples/`, `std/`, and the docs' ```` ```rig ```` blocks is written one way: a definition writes its parameter list (`sub main()`); one blank line goes between top-level declarations, though one-line ones (`use`, constants, `extern`, `type`) may stand together; no two blank lines run together; a file or block neither starts nor ends with a blank line, and a file ends with a newline; no line of code ends in spaces. A file or block whose expected errors are the definition rule's own may break that rule |
+| `json/<group>` | a group of `std.json`'s comparison with Python's `json` module (`test/json/README.md`): a part of it in a plain run, all of it when the run names a filter; the data of two groups is fetched by `tools/fetch-json-data.sh` |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
 | `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 
@@ -188,6 +190,21 @@ the output directory is what the test is about. Scripts inherit the
 suite's `RIG_BUILD_STORE`, so `rig run|build|test` builds in the store
 (see [Output](#output)); a script about the output directory sets
 `RIG_BUILD_STORE=` for those commands.
+
+## The JSON tests
+
+`./test/run json` runs `std.json` over 10,511 generated and
+hand-written inputs and compares each parse with Python's `json` module
+(`test/json/README.md` says how, and lists the groups). Each group is
+one test, `json/<group>`, built and run under the sanitizer. A plain
+`./test/run` takes a fixed, spread-out part of every group (about a tenth
+of the inputs); a run that names any filter, `./test/run json` or
+`./test/run json/floats`, takes every input of the groups it selects, as
+the deep gate does. The groups `checker` and `corpus` read third-party
+files that `tools/fetch-json-data.sh` fetches into `test/json/data/` (CI
+fetches them too). Without them those groups are skipped with a note, and
+`JSON_REQUIRE_DATA=1` makes that a failure. A `--delta` run carries a
+group over when the compiler, the cases and the data are unchanged.
 
 ## The corpus
 

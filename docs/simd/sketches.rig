@@ -1,0 +1,94 @@
+# Hypothetical Rig spelling for kernels (a), (b) and (c). Placeholders:
+#   Lanes[U8, N]            N bytes, one per lane (16 or 64)
+#   s.read[Lanes[U8, 16]](i) one bounds check, one vector load
+#   s.blocks(64, from: i, pad: c)
+#                           (block, index) pairs: full blocks, then the
+#                           tail copied into a block filled with `c`
+#   v == b'"', v < 0x20     lane-wise compare against a splat: a Mask[N]
+#   m | n, m & n, m.not()   lane-wise mask logic (`~` is Rig's weak sigil)
+#   m.bits()                one bit per lane: U16 or U64
+#   x.trailing_zeros()      count of trailing zeros of an integer
+#   b'"'                    a byte literal
+
+# (a) The index of the first '"', '\' or control byte from `at` on, or
+# s.len. Keys end within the first 16 bytes; long values go on 64 at a
+# time. The padding byte 0x00 is a control byte, so the last block always
+# stops the scan, and `min` keeps a stop in the padding at s.len.
+fun string_end(s: ?String, at: Int) -> Int
+  from = at
+  if at + 16 <= s.len
+    v = s.read[Lanes[U8, 16]](at)
+    m = ((v == b'"') | (v == b'\\') | (v < 0x20)).bits()
+    return at + m.trailing_zeros() if m != 0
+    from = at + 16
+  for b, i in s.blocks(64, from: from, pad: 0x00)
+    m = ((b == b'"') | (b == b'\\') | (b < 0x20)).bits()
+    return min(i + m.trailing_zeros(), s.len) if m != 0
+  s.len
+
+# (b) The index of the first byte from `at` on that is not whitespace.
+# Most calls see no whitespace at all, so the first byte is tested alone.
+fun skip_space(s: ?String, at: Int) -> Int
+  return at if at >= s.len or not is_space(s[at])
+  for v, i in s.blocks(16, from: at, pad: b'x')
+    m = ((v == b' ') | (v == b'\n') | (v == b'\r') | (v == b'\t')).not().bits()
+    return min(i + m.trailing_zeros(), s.len) if m != 0
+  s.len
+
+# (c) simdjson's stage 1 on one 64-byte block: four masks by compares
+# alone, then plain U64 arithmetic for escapes, strings and scalars.
+obj Classes
+  quote: U64
+  backslash: U64
+  op: U64
+  space: U64
+
+fun classify(b: ?Lanes[U8, 64]) -> Classes
+  folded = b | 0x20             # '[' and '{', ']' and '}' differ in bit 5
+  Classes(
+    quote: (b == b'"').bits(),
+    backslash: (b == b'\\').bits(),
+    op: ((folded == b'{') | (folded == b'}') | (b == b':') | (b == b',')).bits(),
+    space: ((b == b' ') | (b == b'\n') | (b == b'\r') | (b == b'\t')).bits(),
+  )
+
+ODD: U64 = 0xAAAAAAAAAAAAAAAA
+
+obj Indexer
+  next_escaped: U64              # 1 when the last block ended in an odd backslash run
+  in_string: U64                 # all ones when the last block ended inside a string
+  after_scalar: U64              # 1 when the last block ended inside a scalar
+
+  # The bytes a backslash escapes: odd-length runs end in an escape.
+  fun escaped(!self, bs: U64) -> U64
+    if bs == 0
+      e = self.next_escaped
+      self.next_escaped = 0
+      return e
+    prev = self.next_escaped
+    lead = bs & prev.not()
+    codes = (((lead << 1) | ODD) -% lead) ^ ODD
+    self.next_escaped = (codes & bs) >> 63
+    codes ^ (bs | prev)
+
+  # Appends the index of every structural byte, string start and scalar
+  # start in the block at `at`.
+  sub block(!self, b: ?Lanes[U8, 64], at: Int, out: !List[Int])
+    c = classify(b)
+    quote = c.quote & (!self).escaped(c.backslash).not()
+    inside = quote.prefix_xor() ^ self.in_string
+    self.in_string = 0 -% (inside >> 63)
+    scalar = (c.op | c.space).not()
+    plain = scalar & quote.not()
+    starts = scalar & ((plain << 1) | self.after_scalar).not()
+    self.after_scalar = plain >> 63
+    m = (c.op | starts) & (inside ^ quote).not()
+    while m != 0
+      !out.push(at + m.trailing_zeros())
+      m &= m -% 1
+
+fun index(src: ?String, out: !List[Int]) -> Bool
+  ix = Indexer(next_escaped: 0, in_string: 0, after_scalar: 0)
+  for b, i in src.blocks(64, pad: b' ')
+    !ix.block(?b, i, !out)
+  ix.in_string == 0

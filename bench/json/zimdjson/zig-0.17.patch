@@ -1,0 +1,495 @@
+diff --git a/src/dom.zig b/src/dom.zig
+index 1f03971..67b897f 100644
+--- a/src/dom.zig
++++ b/src/dom.zig
+@@ -124,8 +124,8 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+         pub const max_capacity_bound = if (want_stream) std.math.maxInt(u32) * @sizeOf(Tape.Word) else std.math.maxInt(u32);
+ 
+         // only used in full mode
+-        document_buffer: std.ArrayListAlignedUnmanaged(u8, types.Aligned(true).alignment),
+-        reader_error: ?std.meta.Int(.unsigned, @bitSizeOf(anyerror)),
++        document_buffer: std.ArrayListAlignedUnmanaged(u8, .fromByteUnits(types.Aligned(true).alignment)),
++        reader_error: ?@Int(.unsigned, @bitSizeOf(anyerror)),
+ 
+         tape: Tape,
+ 
+@@ -981,7 +981,8 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             inline fn appendTwoWordsAssumeCapacity(self: *Tape, words: [2]Word) void {
+                 const vec: @Vector(2, u64) = @bitCast(words);
+-                const slice: *const [2]u64 = &vec;
++                const words_arr: [2]u64 = vec;
++                const slice: *const [2]u64 = &words_arr;
+                 if (want_stream) {
+                     const arr = self.words.list.addManyAsArrayAssumeCapacity(2);
+                     @memcpy(arr, slice);
+diff --git a/src/indexer.zig b/src/indexer.zig
+index 141e4a0..2a80f64 100644
+--- a/src/indexer.zig
++++ b/src/indexer.zig
+@@ -69,7 +69,7 @@ pub fn Indexer(comptime T: type, comptime options: Options) type {
+                 const offset = @as(comptime_int, m) * Mask.bits_len;
+                 const chunk: Aligned.chunk = block[offset..][0..Mask.bits_len];
+                 inline for (0..Mask.computed_vectors) |j| {
+-                    vectors[m][j] = @as(Aligned.vector, chunk[j * Vector.bytes_len ..][0..Vector.bytes_len]).*;
++                    vectors[m][j] = @as(*align(Aligned.alignment) const [Vector.bytes_len]u8, chunk[j * Vector.bytes_len ..][0..Vector.bytes_len]).*;
+                 }
+             }
+             inline for (0..types.masks_per_iter) |m| {
+@@ -412,9 +412,9 @@ const Utf8 = struct {
+         @setEvalBranchQuota(10000);
+         const prev_vec = self.prev_vec;
+         const len = Vector.bytes_len;
+-        const prev1_mask: @Vector(len, i32) = [_]i32{len} ++ ([_]i32{0} ** (len - 1));
+-        const prev2_mask: @Vector(len, i32) = [_]i32{ len - 1, len } ++ ([_]i32{0} ** (len - 2));
+-        const prev3_mask: @Vector(len, i32) = [_]i32{ len - 2, len - 1, len } ++ ([_]i32{0} ** (len - 3));
++        const prev1_mask: @Vector(len, i32) = [_]i32{len} ++ @as([len - 1]i32, @splat(0));
++        const prev2_mask: @Vector(len, i32) = [_]i32{ len - 1, len } ++ @as([len - 2]i32, @splat(0));
++        const prev3_mask: @Vector(len, i32) = [_]i32{ len - 2, len - 1, len } ++ @as([len - 3]i32, @splat(0));
+         const shift1_mask = comptime simd.shiftElementsRight(simd.iota(i32, len), 1, 0) - prev1_mask;
+         const shift2_mask = comptime simd.shiftElementsRight(simd.iota(i32, len), 2, 0) - prev2_mask;
+         const shift3_mask = comptime simd.shiftElementsRight(simd.iota(i32, len), 3, 0) - prev3_mask;
+diff --git a/src/ondemand.zig b/src/ondemand.zig
+index b456f77..b1485a1 100644
+--- a/src/ondemand.zig
++++ b/src/ondemand.zig
+@@ -220,7 +220,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                 /// An allocator was not provided.
+                 ExpectedAllocator,
+             } ||
+-            (if (builtin.mode == .Debug) error{
++            (if (builtin.mode == .debug) error{
+                 /// Found an illegal iteration order.
+                 OutOfOrderIteration,
+             } else error{});
+@@ -231,8 +231,8 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+         pub const max_capacity_bound = if (want_stream) std.math.maxInt(usize) else std.math.maxInt(u32);
+ 
+         // only used in full mode
+-        document_buffer: std.ArrayListAlignedUnmanaged(u8, types.Aligned(true).alignment),
+-        reader_error: ?std.meta.Int(.unsigned, @bitSizeOf(anyerror)),
++        document_buffer: std.ArrayListAlignedUnmanaged(u8, .fromByteUnits(types.Aligned(true).alignment)),
++        reader_error: ?@Int(.unsigned, @bitSizeOf(anyerror)),
+ 
+         string_buffer: types.StringBuffer(max_capacity_bound),
+ 
+@@ -314,7 +314,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+             if (want_stream) @compileError("Parsing from a slice is not supported in streaming mode");
+             self.reader_error = null;
+ 
+-            if (builtin.mode == .Debug) {
++            if (builtin.mode == .debug) {
+                 try self.cursor.start_positions.ensureTotalCapacity(allocator, self.max_depth);
+                 self.cursor.start_positions.expandToCapacity();
+             }
+@@ -342,7 +342,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+         /// Parse a JSON document from reader. Allocated resources are owned by the parser.
+         pub fn parseFromReader(self: *Self, allocator: Allocator, reader: std.io.AnyReader) (Error || ReaderError)!Document {
+-            if (builtin.mode == .Debug) {
++            if (builtin.mode == .debug) {
+                 try self.cursor.start_positions.ensureTotalCapacity(allocator, self.max_depth);
+                 self.cursor.start_positions.expandToCapacity();
+             }
+@@ -402,21 +402,21 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+         const Cursor = struct {
+             document: *Self = undefined,
+             tokens: Tokens,
+-            start_positions: if (builtin.mode == .Debug) ArrayList(usize) else void,
++            start_positions: if (builtin.mode == .debug) ArrayList(usize) else void,
+             depth: u32,
+             root: usize = undefined,
+             err: ?Error,
+ 
+             pub const init: Cursor = .{
+                 .tokens = .init,
+-                .start_positions = if (builtin.mode == .Debug) .empty else {},
++                .start_positions = if (builtin.mode == .debug) .empty else {},
+                 .depth = 1,
+                 .err = null,
+             };
+ 
+             pub fn deinit(self: *Cursor, allocator: Allocator) void {
+                 self.tokens.deinit(allocator);
+-                if (builtin.mode == .Debug) {
++                if (builtin.mode == .debug) {
+                     self.start_positions.deinit(allocator);
+                 }
+             }
+@@ -544,14 +544,14 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+             /// Cast the document to a JSON value.
+             /// Note that this method removes some validation, so it should be done manually.
+             pub fn asValue(self: Document) Value {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return .{ .iter = self.iter, .err = error.OutOfOrderIteration };
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return .{ .iter = self.iter, .err = error.OutOfOrderIteration };
+                 self.iter.assertAtRoot();
+                 return .{ .iter = self.iter };
+             }
+ 
+             /// Cast the document to an object.
+             pub fn asObject(self: Document) Error!Object {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const started, const object = try Object.start(self.iter);
+                 if (started or try self.iter.isAtEnd()) return object;
+@@ -560,7 +560,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Cast the document to an array.
+             pub fn asArray(self: Document) Error!Array {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const started, const array = try Array.start(self.iter);
+                 if (started or try self.iter.isAtEnd()) return array;
+@@ -569,7 +569,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Cast the document to a number.
+             pub fn asNumber(self: Document) Error!Number {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const n = try self.iter.asNumber();
+                 if (try self.iter.isAtEnd()) return n;
+@@ -578,7 +578,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Cast the document to an unsigned integer.
+             pub fn asUnsigned(self: Document) Error!u64 {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const n = try self.iter.asUnsigned();
+                 if (try self.iter.isAtEnd()) return n;
+@@ -587,7 +587,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Cast the document to a signed integer.
+             pub fn asSigned(self: Document) Error!i64 {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const n = try self.iter.asSigned();
+                 if (try self.iter.isAtEnd()) return n;
+@@ -596,7 +596,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Cast the document to a double floating point.
+             pub fn asDouble(self: Document) Error!f64 {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const n = try self.iter.asDouble();
+                 if (try self.iter.isAtEnd()) return n;
+@@ -612,7 +612,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+             /// **Another note**: A value should be consumed once. Calling `asString` twice on the same value
+             /// is an error.
+             pub fn asString(self: Document) Error![]const u8 {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const str: []const u8 = try self.iter.asString();
+                 if (try self.iter.isAtEnd()) return str;
+@@ -626,7 +626,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+             /// **Note**: In streaming mode, this value becomes invalid once it is out of the current
+             /// chunk's scope, so it should be used immediately.
+             pub fn asRawString(self: Document) RawString {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return .{ .iter = self.iter, .raw_str = undefined, .err = error.OutOfOrderIteration };
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return .{ .iter = self.iter, .raw_str = undefined, .err = error.OutOfOrderIteration };
+                 self.iter.assertAtRoot();
+                 const str: RawString = self.iter.asRawString() catch |err| .{
+                     .iter = self.iter,
+@@ -648,7 +648,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Cast the document to a bool.
+             pub fn asBool(self: Document) Error!bool {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const b = try self.iter.asBool();
+                 if (try self.iter.isAtEnd()) return b;
+@@ -660,7 +660,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+             /// If we find a token that begins with `'n'` but is not `'null'`, then an
+             /// `error.IncorrectType` is returned.
+             pub fn isNull(self: Document) Error!bool {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 const n = try self.iter.isNull();
+                 if (try self.iter.isAtEnd()) return n;
+@@ -669,7 +669,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Cast the document to any JSON value.
+             pub fn asAny(self: Document) Error!AnyValue {
+-                if (builtin.mode == .Debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
++                if (builtin.mode == .debug) if (!self.iter.isAtRoot()) return error.OutOfOrderIteration;
+                 self.iter.assertAtRoot();
+                 return switch (self.iter.cursor.peekChar()) {
+                     't', 'f' => .{ .bool = try self.asBool() },
+@@ -1075,7 +1075,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+                 inline fn startedObject(self: Iterator) Error!bool {
+                     self.assertAtContainerStart();
+-                    if (builtin.mode == .Debug) {
++                    if (builtin.mode == .debug) {
+                         self.cursor.setStartPosition(self.start_depth, self.start_position);
+                     }
+                     const char = self.cursor.peekChar();
+@@ -1103,7 +1103,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                         return false;
+                     }
+                     self.cursor.descend(self.cursor.depth + 1);
+-                    if (builtin.mode == .Debug) {
++                    if (builtin.mode == .debug) {
+                         self.cursor.setStartPosition(self.start_depth, self.start_position);
+                     }
+                     return true;
+@@ -1124,7 +1124,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                         try Logger.log(self.cursor.document, ptr, if (start_char == '{') "object" else "array ", self.start_depth);
+                         return iter;
+                     } else {
+-                        if (builtin.mode == .Debug) if (!self.isAtContainerStart()) return error.OutOfOrderIteration;
++                        if (builtin.mode == .debug) if (!self.isAtContainerStart()) return error.OutOfOrderIteration;
+ 
+                         if (self.start_char != start_char) return error.IncorrectType;
+                         return self;
+@@ -1176,9 +1176,9 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                         try self.skipChild();
+                         if (unordered) search_start = self.cursor.position();
+                         has_value = try self.hasNextField();
+-                        if (builtin.mode == .Debug) if (self.cursor.getStartPosition(self.start_depth) != self.start_position) return error.OutOfOrderIteration;
++                        if (builtin.mode == .debug) if (self.cursor.getStartPosition(self.start_depth) != self.start_position) return error.OutOfOrderIteration;
+                     } else {
+-                        if (builtin.mode == .Debug) if (self.cursor.depth < self.start_depth - 1) return error.OutOfOrderIteration;
++                        if (builtin.mode == .debug) if (self.cursor.depth < self.start_depth - 1) return error.OutOfOrderIteration;
+                         if (!unordered) return false;
+                         has_value = try self.resetObject();
+                         at_first = true;
+@@ -1270,8 +1270,9 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                     assert(self.start_depth > 1);
+                 }
+ 
+-                inline fn reportError(self: Iterator, err: Error) Error!void {
+-                    return self.cursor.reportError(err);
++                inline fn reportError(self: Iterator, err: Error) Error {
++                    self.cursor.err = err;
++                    return err;
+                 }
+             };
+ 
+@@ -1728,7 +1729,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Iterate over the values in the array.
+             pub fn iterator(self: Array) Iterator {
+-                if (builtin.mode == .Debug)
++                if (builtin.mode == .debug)
+                     if (!self.iter.isAtContainerStart()) {
+                         self.iter.cursor.reportError(error.OutOfOrderIteration) catch {};
+                     };
+@@ -1870,7 +1871,7 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+ 
+             /// Iterate over the fields in the object.
+             pub fn iterator(self: Object) Iterator {
+-                if (builtin.mode == .Debug)
++                if (builtin.mode == .debug)
+                     if (!self.iter.isAtContainerStart()) {
+                         self.iter.cursor.reportError(error.OutOfOrderIteration) catch {};
+                     };
+@@ -2432,15 +2433,8 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                         .alignment = @alignOf(schema_field),
+                     };
+                 }
+-                const sf = schema_fields;
+-                return @Type(.{
+-                    .@"struct" = .{
+-                        .fields = &sf,
+-                        .layout = .auto,
+-                        .decls = &.{},
+-                        .is_tuple = false,
+-                    },
+-                });
++                _ = &schema_fields;
++                @compileError("zimdjson schema reflection (@Type) is not ported to Zig 0.17");
+             }
+ 
+             /// Schema options for a struct field.
+@@ -2712,13 +2706,8 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                     tuple.alignment = @alignOf(tuple.type);
+                     tuple.is_comptime = true;
+                 }
+-                const result_fields = tuple_fields;
+-                return @Type(.{ .@"struct" = .{
+-                    .fields = &result_fields,
+-                    .decls = &.{},
+-                    .layout = .auto,
+-                    .is_tuple = false,
+-                } });
++                _ = &tuple_fields;
++                @compileError("zimdjson schema reflection (@Type) is not ported to Zig 0.17");
+             }
+ 
+             pub fn Enum(comptime T: type) type {
+@@ -2750,15 +2739,8 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                         .alignment = @alignOf(schema_field),
+                     };
+                 }
+-                const sf = schema_fields;
+-                return @Type(.{
+-                    .@"struct" = .{
+-                        .fields = &sf,
+-                        .layout = .auto,
+-                        .decls = &.{},
+-                        .is_tuple = false,
+-                    },
+-                });
++                _ = &schema_fields;
++                @compileError("zimdjson schema reflection (@Type) is not ported to Zig 0.17");
+             }
+ 
+             /// Schema options for an enum field.
+@@ -2821,15 +2803,8 @@ pub fn Parser(comptime format: types.Format, comptime options: Options) type {
+                         .alignment = @alignOf(schema_field),
+                     };
+                 }
+-                const sf = schema_fields;
+-                return @Type(.{
+-                    .@"struct" = .{
+-                        .fields = &sf,
+-                        .layout = .auto,
+-                        .decls = &.{},
+-                        .is_tuple = false,
+-                    },
+-                });
++                _ = &schema_fields;
++                @compileError("zimdjson schema reflection (@Type) is not ported to Zig 0.17");
+             }
+ 
+             /// Schema options for an union field.
+diff --git a/src/parsers/number/BigInt.zig b/src/parsers/number/BigInt.zig
+index 323cb9c..84b984d 100644
+--- a/src/parsers/number/BigInt.zig
++++ b/src/parsers/number/BigInt.zig
+@@ -5,7 +5,51 @@ pub const Limb = usize;
+ pub const limb_bits = @sizeOf(Limb) * 8;
+ const Self = @This();
+ const capacity = 58; // ceil(log2(10 ** (max_big_digits + -min_pow10)) / 64)
+-const Limbs = std.BoundedArray(Limb, capacity);
++const Limbs = BoundedArray(Limb, capacity);
++
++/// The subset of std.BoundedArray (removed in Zig 0.15) that this file uses.
++fn BoundedArray(comptime T: type, comptime cap: usize) type {
++    return struct {
++        const B = @This();
++        buffer: [cap]T = undefined,
++        len: usize = 0,
++
++        pub fn init(n: usize) error{Overflow}!B {
++            if (n > cap) return error.Overflow;
++            return .{ .len = n };
++        }
++        pub fn fromSlice(m: []const T) error{Overflow}!B {
++            var b = try B.init(m.len);
++            @memcpy(b.buffer[0..m.len], m);
++            return b;
++        }
++        pub fn slice(b: *const B) []T {
++            return @constCast(b).buffer[0..b.len];
++        }
++        pub fn capacity(_: B) usize {
++            return cap;
++        }
++        pub fn get(b: B, i: usize) T {
++            return b.buffer[i];
++        }
++        pub fn resize(b: *B, n: usize) error{Overflow}!void {
++            if (n > cap) return error.Overflow;
++            b.len = n;
++        }
++        pub fn append(b: *B, x: T) error{Overflow}!void {
++            if (b.len >= cap) return error.Overflow;
++            b.appendAssumeCapacity(x);
++        }
++        pub fn appendAssumeCapacity(b: *B, x: T) void {
++            b.buffer[b.len] = x;
++            b.len += 1;
++        }
++        pub fn appendSliceAssumeCapacity(b: *B, m: []const T) void {
++            @memcpy(b.buffer[b.len..][0..m.len], m);
++            b.len += m.len;
++        }
++    };
++}
+ 
+ limbs: Limbs,
+ 
+diff --git a/src/parsers/number/digit_comp.zig b/src/parsers/number/digit_comp.zig
+index b79bc12..2e4bc41 100644
+--- a/src/parsers/number/digit_comp.zig
++++ b/src/parsers/number/digit_comp.zig
+@@ -272,8 +272,8 @@ const power_of_ten: [20]u64 = brk: {
+     break :brk res;
+ };
+ 
+-const RoundCallback = fn (*BiasedFp, u32, anytype) callconv(.Inline) void;
+-const NearestCallback = fn (bool, bool, bool, anytype) callconv(.Inline) bool;
++const RoundCallback = fn (*BiasedFp, u32, anytype) callconv(.@"inline") void;
++const NearestCallback = fn (bool, bool, bool, anytype) callconv(.@"inline") bool;
+ 
+ inline fn round(bf: *BiasedFp, callback: RoundCallback, args: anytype) void {
+     const man_bits = common.man_bits;
+diff --git a/src/parsers/string.zig b/src/parsers/string.zig
+index 73d4d2f..0c72c4e 100644
+--- a/src/parsers/string.zig
++++ b/src/parsers/string.zig
+@@ -116,7 +116,7 @@ inline fn parseHexDword(src: [*]const u8) u32 {
+ const hex_err_code: u32 = 0xFFFFFFFF;
+ const hex_digit_map: [0xD0 * 3 + 256]u32 = init: {
+     @setEvalBranchQuota(5000);
+-    const prefix = [_]u32{hex_err_code} ** 0x30;
++    const prefix = @as([0x30]u32, @splat(hex_err_code));
+     var chunk1: [256 - 0x30]u32 = undefined;
+     var chunk2: [256 - 0x30]u32 = undefined;
+     var chunk3: [256 - 0x30]u32 = undefined;
+diff --git a/src/tokens/stream.zig b/src/tokens/stream.zig
+index b482dce..fb3ef55 100644
+--- a/src/tokens/stream.zig
++++ b/src/tokens/stream.zig
+@@ -53,7 +53,7 @@ pub fn Stream(comptime options: Options) type {
+         };
+ 
+         reader: std.io.AnyReader = undefined,
+-        reader_error: ?std.meta.Int(.unsigned, @bitSizeOf(anyerror)),
++        reader_error: ?@Int(.unsigned, @bitSizeOf(anyerror)),
+ 
+         document: RingBuffer(u8, chunk_len * options.slots) = undefined,
+         indexes: RingBuffer(index_type, chunk_len * options.slots) = undefined,
+@@ -183,7 +183,7 @@ pub fn Stream(comptime options: Options) type {
+                     // skip to the next slot
+                     @memset(buf[read..chunk_len], ' ');
+                 } else {
+-                    const padding = bogus_indexed_tokens ++ (" " ** (types.block_len - bogus_indexed_tokens.len));
++                    const padding = bogus_indexed_tokens ++ @as([types.block_len - bogus_indexed_tokens.len]u8, @splat(' '));
+                     const len = @min(types.block_len, chunk_len - read);
+                     @memcpy(buf[read..][0..len], padding[0..len]);
+ 
+diff --git a/src/types.zig b/src/types.zig
+index e3b4a9a..0e17f99 100644
+--- a/src/types.zig
++++ b/src/types.zig
+@@ -165,7 +165,7 @@ pub const Predicate = struct {
+     const E = 8;
+ 
+     const predicate = @Vector(L, bool);
+-    const @"packed" = meta.Int(unsigned, L);
++    const @"packed" = @Int(unsigned, L);
+     const unpacked = vector;
+ 
+     pub inline fn pack(p: predicate) @"packed" {
+@@ -173,8 +173,8 @@ pub const Predicate = struct {
+     }
+ 
+     pub inline fn unpack(p: predicate) unpacked {
+-        return @as(@Vector(L, meta.Int(unsigned, E)), @bitCast(@as(
+-            @Vector(L, meta.Int(signed, E)),
++        return @as(@Vector(L, @Int(unsigned, E)), @bitCast(@as(
++            @Vector(L, @Int(signed, E)),
+             @intCast(@as(
+                 @Vector(L, i1),
+                 @bitCast(

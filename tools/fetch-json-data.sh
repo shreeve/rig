@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# Fetch the third-party JSON files the `checker` and `corpus` groups of
+# `./test/run json` read (test/json/README.md) into test/json/data/,
+# which git ignores. Each file is pinned by the commit it comes from and
+# its sha256; a file that is present and matches is not fetched again,
+# and one that does not match after a fetch fails the script. The
+# sources and their licenses are in test/json/data/README.md.
+#
+# Usage: tools/fetch-json-data.sh [-j N]       (N parallel downloads, default 8)
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+DEST="$ROOT/test/json/data"
+JOBS=8
+if [[ ${1:-} == -j ]]; then JOBS=${2:?-j needs a number}; fi
+
+SIMD_JSON=https://raw.githubusercontent.com/simd-lite/simd-json/bd1ccfad79ea4ff2f89310fad483365c3f450d04/data
+SIMDJSON=https://raw.githubusercontent.com/simdjson/simdjson/7f6f8dca84c3c9129b8a4506d55a4ae1c16024f0/jsonexamples
+
+if command -v sha256sum >/dev/null; then sha() { sha256sum "$1" | cut -d' ' -f1; }
+else sha() { shasum -a 256 "$1" | cut -d' ' -f1; }; fi
+
+# fetch_one <sha256> <path under test/json/data/>
+fetch_one() {
+    local want=$1 rel=$2 url file="$DEST/$2"
+    case $rel in
+        simd-json/*) url="$SIMD_JSON/${rel#simd-json/}" ;;
+        simdjson/*) url="$SIMDJSON/${rel#simdjson/}" ;;
+        *) echo "unknown source for $rel" >&2; return 1 ;;
+    esac
+    [[ -f $file && $(sha "$file") == "$want" ]] && return 0
+    mkdir -p "$(dirname "$file")"
+    curl -fsSL --retry 3 -o "$file.part" "$url" || { echo "cannot fetch $url" >&2; rm -f "$file.part"; return 1; }
+    if [[ $(sha "$file.part") != "$want" ]]; then
+        echo "sha256 mismatch for $rel ($url)" >&2; rm -f "$file.part"; return 1
+    fi
+    mv "$file.part" "$file"
+}
+
+export -f fetch_one sha
+export DEST SIMD_JSON SIMDJSON
+
+MANIFEST() { cat <<'LIST'
+f8e3422ac7d3c3550674afcb37e979e4e9bbeccffdb66933423495d55b6f5c74 simd-json/apache_builds.json
+f83b3b354030d5dd58740c68ac4fecef64cb730a0d12a90362a7f23077f50d78 simd-json/canada.json
+a73e7a883f6ea8de113dff59702975e60119b4b58d451d518a929f31c92e2059 simd-json/citm_catalog.json
+b9481fcb76961459ca7e250c9df94c45e7c78a8d21974538b31189756e49d30c simd-json/crash/crash000000.json
+9fabfcd5793ab239d40aaa46ef170c65819c2a5c00d7e19cc06939c1e88afb81 simd-json/crash/crash000001.json
+fae8aec1d840d403a8a8a1e2e355cdaa60edb88b0976cb75b0f6379fe9855829 simd-json/crash/crash000002.json
+d5ef80e74246e1bfa06b28b5ce55b57e5e7d7e41371f045401533d91d557310e simd-json/crash/crash000003.json
+9b0012a3e96c603d9a866937e66d8ed2093e938d68e26de689bb6d28327cffff simd-json/crash/crash000004.json
+11d33b7684069063979525c8847080d3d5f4d24763e02852bb13ded86d10ad1c simd-json/crash/crash000005.json
+fc50cd01662266e32efef4a49eb3f5bfca09ac9e3eef5b1648cc6e3441fbe5e8 simd-json/crash/crash000006.json
+7b75608da41af8e9614a0ec2cffc1dec4bf30fae8badf7d789ad287e0e6a1244 simd-json/crash/crash000007.json
+a7e97da7b5c99110a8f6e795353d3aacdc953654cd6bd22269d2c6d2c180b96b simd-json/crash/crash000008.json
+64524d2ce8c69c1d43b7f48bec43b7def38de7cc3413c2a03fc3aca5d0fdfd33 simd-json/crash/crash000009.json
+134b9c66056bf2b8e3cc3b0d472da6c97b205970ad2b18ffe6409036707c2b36 simd-json/crash/crash000010.json
+297664b7c8ef07c14bcf39dc8692a96da2552797c3dbf2c8cd5e42243e331349 simd-json/crash/crash000011.json
+c33e6375523ac5678cdff940947eaf123e00accdfa46db61046d517e2fef216c simd-json/crash/crash000012.json
+cfcd3e5b6c4c21e57456041396e6fe8d74dfd7d082dd9e015769c7130c7dfe28 simd-json/crash/crash000013.json
+d17b387178cc5f7ae2df03ccf5af84e1eb8c677685efadefd324d50475838219 simd-json/crash/crash000014.json
+0517865fdacb34161d832243c077a921c853fe6d4c5964e9ba2f121bedeb9439 simd-json/crash/crash000015.json
+35bdcc334bcc165afb87a9d88f8bb31bebd43c6a66a648ef51818e872b0ca21a simd-json/crash/crash000016.json
+45472f4e737ffff8fa292a65747f2a45f05309e39e1d5a7aa92a42adfb76aec5 simd-json/crash/crash000017.json
+a378100a0bf9fe5a0fb3716f8b182ba708a8dd3ad65d4277502c4a02f46ced3d simd-json/crash/crash000018.json
+f18d96ba3952e6408771917bfbeb6645f3e369f6b777ecf747d8acf8a06e480e simd-json/crash/crash000019.json
+d1f56cea421bdeabd676831566b84f2b704746278f548bab1aeb9a4deb63e430 simd-json/crash/crash000020.json
+d21db41a1bf1ef02511efeaf53f385846afdf77ca68e5fe78c10c08ea21903fc simd-json/crash/crash000021.json
+a91f008dee79a371b7af8c71fb79673393e01bce6314d23a429719722ef39e5d simd-json/crash/crash000022.json
+b8672506a21b4d69343bb0c4a72537bce2a4b8439d80729b1d1e72a69b809226 simd-json/crash/crash000023.json
+bc7842557eb45b0326ad2f51b652c3d2e5850a2f7de5d2025eeb7ae079abe23e simd-json/crash/crash000024.json
+fdaaa8d3fdd71f1241c4bf1f254dc805b64e1e9ffcc1d21c18febbb84f65a921 simd-json/crash/crash000025.json
+e87cca20365b1a44ddff8568962163fe72af920e6ff161d3060cbc745a918a7f simd-json/crash/crash000026.json
+6a44bc5f8ca29114a7af1bbac946de810a6405a23bba913f6788cf2614ceb2ec simd-json/crash/crash000027.json
+a1622fee9a81f9b59c393565a6583f8dd6f740ffd4ac7c4f8942afeb82f9213e simd-json/crash/crash000028.json
+c225e558f51c66a10108a7a3d05e77cb2d5a51cba2704f89549ba98b779a642d simd-json/crash/crash000029.json
+3d4dbf89b286df489f1107e263989ca770fa0a2b47964b84eac74f9c07da09df simd-json/crash/crash000030.json
+996ae084c0019c7a7e597c633638f447828d9b72b1aadc4defeefa5d7003a1c7 simd-json/crash/crash000031.json
+8801258644045eb7910ace3aa2b884ff15d085a008280e6553b4511c363b322c simd-json/crash/crash000032.json
+f7ea42f59e039aaba7dcf0619345c11e28c842a80590bedd490e151c236b9a5b simd-json/crash/crash000033.json
+6441c79daa2e4af6591f7b530e487cc0f849e8492c27cb4e5bcebdd95c383f96 simd-json/crash/crash000034.json
+85386477f3af47e4a0b308ee3b3a688df16e8b2228105dd7d4dcd42a9807cb78 simd-json/crash/crash000035.json
+a2c0a1ec99313c58a7b61eb0d1dd27dc9e0cc42b21cfd8e8295e5c5e36803731 simd-json/crash/crash000036.json
+e6854668888e4fb0e47a7b4f55fa64604366d8725beb5dc061627c59da188748 simd-json/crash/crash000037.json
+edd16e434ad01290670e9cd88a5a66eccdc8f080cfc62b0e65ef434a8876a5e9 simd-json/event_stacktrace_10kb.json
+438b1027386f69e8ff72306d162bba30745cfc3ad99522c06b77093f6b2868b1 simd-json/fail/fail01_EXCLUDE.json
+9dbe48572aa40ff5e44b7b0e691e1b487d37cd4cfb34cf5bb506a5b6e965ec3b simd-json/fail/fail02.json
+6903daf61af5b38e0bc66d8da4f13631e2c2d03598169fe2d7c45d2504d310b9 simd-json/fail/fail03.json
+15836776fdc7d0473f68c35c1295e473d57c215af1232b439b28120f674be45f simd-json/fail/fail04.json
+40b23c469b617b09914010ee5c5aa0faa706061f77b4a96b374742c18bb17d42 simd-json/fail/fail05.json
+9cac15bfc3db16d965b9074329f4b7b26443fd4ccbf21cc545cc718114cbda20 simd-json/fail/fail06.json
+d9b01bb868ba4a6156085744bddf7acf119125aaf40e19e404b284e99b1973e0 simd-json/fail/fail07.json
+fbb0928ebab6b0f1aa7b5a7f10453bf89cc7ed56185bd783836ceedeec248ea8 simd-json/fail/fail08.json
+a3a4796b5ddb6c80e894113c690a75e5290ef109601dee2e277f652bc6d6a163 simd-json/fail/fail09.json
+ffea57a589f965c41b8778f1f0b69a1f4b7a14f072b868389cd6e2d249a33246 simd-json/fail/fail10.json
+ba669b02c583cdc66458f9318ec64f2787e1edded69cee94361d9d04bf87b591 simd-json/fail/fail11.json
+8033711342b67e573d96916fd820730a0a12ee291bd2e4ae324df3455c3f825f simd-json/fail/fail12.json
+a9235f6b3a47a700d45a8cba0c0b01b62ed4b2fd8a0f10cfe7964bde5e8cc1e0 simd-json/fail/fail13.json
+4c353586a59fd208964f41f12547ef9e403520b87e9d9fe73c0bd6951de36933 simd-json/fail/fail14.json
+656c4510d2ae41d28f3bb5498a7df7e87652bbbb35a7c7ef7c28d4a3d1d59eae simd-json/fail/fail15.json
+4514053448b28818d0d23041242b0e1705ea0bbf9f2ee84694d4e0100bd90cc4 simd-json/fail/fail16.json
+a806d560ae63698f5082c7e51189395be458d1709db63244d26846f5a1e1a91d simd-json/fail/fail17.json
+e663fb0874bda154424bc35b9aff5f61d73d1a8cb926ccf41311827f30456997 simd-json/fail/fail18_EXCLUDE.json
+f262f8944e9f4346e80ccab07d2cc74f95928193210bc7a95c634f665f105b03 simd-json/fail/fail19.json
+beff780d4797749a6180792d96de68b52eafbe3558578e2486b51c0fc384d3f0 simd-json/fail/fail20.json
+d786f4c34fc330006cfd6ef9a855d4233ce7ea4ffdce19a1aeb6498ae0341edc simd-json/fail/fail21.json
+dd22ed47b00f7977a8fd058adbf448e7af9b4cf7299c8a11f21298ded07b9e03 simd-json/fail/fail22.json
+5b746985dd2a3406e0d457dc38583b5ed26c2691950a10e1e50049a93c924a78 simd-json/fail/fail23.json
+0389d0d5920ee2996811974bdcbfe05c9ca0ed79af909704b8485bc86f6eaf25 simd-json/fail/fail24.json
+8305373703e9a50e767c42929d22bb69b377cf62a5aeba4dc60bfbf28939411d simd-json/fail/fail25.json
+032ff03c5b7bf611b5015000312a290b6fa7878ccb508c5ed5cc73cb2b649179 simd-json/fail/fail26.json
+4a6ce093f89d76306dc76ccb5f6e468fb95c189eaa16d6b6c80954c21b3be635 simd-json/fail/fail27.json
+a4a310e88adb621126f6e044f7919728d6fdf1df6a7d5a445e7215539f2ac264 simd-json/fail/fail28.json
+cd279aa777afca083b346dbc2b62a1847c24f1556b619b7564842457f8949c93 simd-json/fail/fail29.json
+3f54bdbbd4e3ad547fa457b5810df7c96f2d2c3bc6985e11202ffd1d42116889 simd-json/fail/fail30.json
+25981c42fdd25646ab17d57bfaa65e4b2d7b791fdf13840e75c5a9e8f66dec70 simd-json/fail/fail31.json
+15388c40b8b3920b49a317f303140234fecaa37d6adc8056f54b8d7d79cfba87 simd-json/fail/fail32.json
+df72f007b029ebe06bffcd6083deff92aae557aa172eaf7e2504a3222dc73b60 simd-json/fail/fail33.json
+b941d8e94b5747cde8b579def7d426e984c08d7d55cc24d33d2996bcb7d4fc28 simd-json/fail/fail34.json
+8b246fd7389801f1d2d39734e06eb73f9df18d0f9ffde91c0d43128029e44343 simd-json/fail/fail35.json
+6a68cd58325768c9a8ad5a4906cdaf573da4e53d1dbd724613f934d6ede2827e simd-json/fail/fail36.json
+729736c99dc4d1f928bb34b752951d6073f69865aefffdff5b40f92d5eb402cc simd-json/fail/fail37.json
+39bf0fbfd3198b6d05cfa0902281f06d2cd501834886756e3000a050c805ad06 simd-json/fail/fail38.json
+99d1eed3e743ed83c7335c15228325f6cd0685077bd05d7e06f30593eafb798c simd-json/fail/fail39_EXCLUDE.json
+83acd6ec9b70e1b3d1bf22d3451ebba0ea14c2de3fc46dcc761886521b339147 simd-json/fail/fail40_s64boverflow.json
+83077236f263ff36ad5a9ac304ebdb19e9f7024a67d533c50f075c967eb89b19 simd-json/fail/fail41_toolarge.json
+f621927a0302f5d8682422932aee5cf828b4f27582a43a39d6b9d59615109300 simd-json/fail/fail42.json
+20784e1348ef257f35acdc0b6d8cbcb8dd4b88ef1f8e2997541021f66d234109 simd-json/fail/fail43.json
+84098510b66c9d0c858c52b92b68ae0e14aeefecf82e48cd5bbd53d3145bfea0 simd-json/fail/fail44.json
+637e01111dba20223a1ea22a785f9fdb87c9f994b92b332fe5a6762be6251f24 simd-json/fail/fail45.json
+6e1511ffe34675087d80f15f4a6863e7564115285da37203ce898443c8855482 simd-json/fail/fail46.json
+93e2bdc62ee6f7799fce84ddd276afe0b233d2f78a56ba3b67b469cb1b6ee45d simd-json/fail/fail47.json
+73b905210510de5cc40fa71cf64c2635f1340aaaf64dd7a7710b52d4964687f8 simd-json/fail/fail48.json
+4cf61f1d18be2ae035f8145ab60014ab361c78c43b4e9aee4f7642b4460c0d6f simd-json/fail/fail49.json
+dde328db502467dd90d9aefe29dfaabe357f17497ddbebf031569c3c403bd9d2 simd-json/fail/fail50.json
+734a82618ec0b4103c3b4aa58e7018696f58a0d8869a620eac1bb41a2703fbfd simd-json/fail/fail51.json
+35bc3578cae2d7c7e6820374703c3abf3bd4a7e3a14876be35cbae402200faeb simd-json/fail/fail52.json
+4c591a33fea63ad2ed1f0699c93e40e466fb6442f742476a033060ad39c83885 simd-json/fail/fail53.json
+ffe591c8c39c6864348c3f2aff0c961e3c6be2e23d18d28e16a6b3f84a02e738 simd-json/fail/fail54.json
+b7573fde0a44ae5f41e83b2a28dbbaf6964f021285c83d8ea7d003a2cd241e91 simd-json/fail/fail55.json
+2b900da53d8dd938ee5d732ccf9dc28f383031b4c27d0ef2efb238c3983c0251 simd-json/fail/fail56.json
+0054ae0b069add1afa9a4a6c69079cbe90b4ca3cc15ea4c34bd82c5647e1cc65 simd-json/fail/fail57.json
+5317d61294c7736f7a9902e4b28cf8b8016e345c57c064ad99a55ad62370753a simd-json/fail/fail58.json
+28d9e46c8c30995dc35625cd5902675e6d958107b008127ce9e79a20c4798cf7 simd-json/fail/fail59.json
+31d040e5c488f0ab658793b5d64c235aa460bfce3c31336090f3aed7a96ffd91 simd-json/fail/fail60.json
+5dba0a0406bc4479581d059d97fd73f19e7d93362a4da18bade067e0b9c8ff42 simd-json/fail/fail61.json
+2424f74a0eda2dd24f7dd1376d90a4a7fe950d37a116af5ed213de5e33fa45e0 simd-json/fail/fail62.json
+349b2655f2f6d372f2925a44254481587e154f6ad185e6022588c431a97b7f41 simd-json/fail/fail63.json
+5c01cf709544ade0a6cdfcc39a3836a3bc018b633dc42a6cd872b6defc763ea7 simd-json/fail/fail64.json
+2d5799241e3236c5f007e19b3752dcc75a5355e1a5cf24ac4bcda31136c670aa simd-json/fail/fail65.json
+97a0a15d063fa5615d47ba6f7c759fbd9ea80c6f935b634f48db04317360e546 simd-json/fail/fail66.json
+0ec5c5ea45532e7c4ca8006c92d436f2dac7d356e3a1f1e5ba17f8f2c78a398d simd-json/fail/fail67.json
+880fbbd00058725d17158c1493c75f3210d0d3e4459e91a9b0b0d022c12d3178 simd-json/fail/fail68.json
+2d62cfe3d441e01e4d2390794b5bf490aeb80916003d147e3fca543cc4dad3f0 simd-json/fail/fail69.json
+a8555f098d08ba3d21bdabeda8b95a4b360a5a013a4939b1e7154f5202900488 simd-json/fail/fail70.json
+b6e6f777ea634b6e5d4ecd84cf082687992f384e8a5084262ab3ca26480bb0fd simd-json/fail/fail71.json
+b6e6f777ea634b6e5d4ecd84cf082687992f384e8a5084262ab3ca26480bb0fd simd-json/fail/fail72.json
+9d02d2bc24d7047f5ef063166a0eccef2577600ca9e80218ee9bde72272f620f simd-json/fail/fail73.json
+7dac4af3858e73d4988e9b4cd4499872eb0a93b4e3f2b83521d75be839c928f2 simd-json/fail/fail74.json
+30523d6636dbb382bd05e51b0af11c6f4d8ceab5a5a213e62585b8737b87ae42 simd-json/fail/fail75.json
+1ac302cfdd4f8f448958be031e1ba81636863d573c050ffacbd911069d2a0cfc simd-json/fail/fail76.json
+32f5d329270b08c3dc2498ee1dd44f505660be86b63390732b8094a6775422e8 simd-json/fail/fail77.json
+9194241b10ed323e6a623069204cf05bdfb4f71de4c69c45be05cefdb1fc0c2b simd-json/fail/fail78.json
+c9eebb2cf2d46649059e9d48700919bacb3e8e0fb58452065a1a9de7778fd22e simd-json/github_events.json
+72f1ef4898d88049da856c2ab8f4ec3e2c968ce209b2bbfd16cef842eb2e185f simd-json/gsoc-2018.json
+d76ce7f9a1e072d0c95917778afec5529cca4584937a5967beeababce00b9970 simd-json/hdfs_log.json
+f3069235d4e2695d36c0c7735a435a7abb279fc4d64bbcf4ed9f888b8da1fdb9 simd-json/instruments.json
+f8da973ddc6eb58555c1112c3f47669e3dc1de683f6cd5973cd01f896b283831 simd-json/log.json
+61590a397542ae274ccd8a47ba9f64e7c9216a223a5e7e702dea5b2375411d62 simd-json/marine_ik.json
+45bc8bf429340a874a7af8ea7056d60497402f80f55dba1e6ecc4ca8f1e46aff simd-json/mesh.json
+b08b8b1881b131f82f8a6b8f8b0226235488154d7363cc8302153e724776ae8e simd-json/mesh.pretty.json
+82e9ddfe00963110ed8a0704e7df4d1ad1af9c0f336d1b24431ebc63cf430a2b simd-json/numbers.json
+a46f670e9676dd3d5a22ccbd44be74391cd57867f0a20ee9c5bba2c1e9742239 simd-json/pass/pass01.json
+7f9deff2652df58a02ca676ff9494de3d93f18db64c7f20f9596dffb8c92f187 simd-json/pass/pass02.json
+45aaef317f170e5490aa4a18cc301f6d5e03ee617980dec1b15403abf6c537f4 simd-json/pass/pass03.json
+0d01873aa12641bfa25c4ef9532b499d45da5d41aa80694d70e64fa1a450cd24 simd-json/pass/pass04.json
+552ec72d8a31cfd678a8644c34da3a285d64529998805e4369a152e704c9bc8a simd-json/pass/pass05.json
+b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b simd-json/pass/pass06.json
+74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b simd-json/pass/pass07.json
+6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b simd-json/pass/pass08.json
+fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa simd-json/pass/pass09.json
+d3b6630561de34b0c6f1e718f8f9d728996a7fc5b61b5dbdd8fff2bd793f21f4 simd-json/pass/pass10.json
+e86b780e63b75e7c4f06ca4938433c79193f14db61356f1b75c20a6e23d2ad3c simd-json/pass/pass11.json
+604fec38960d7c5bd3bd6c06ad8f4b42eac0bb30ea02d43518d0f9f11d5e131e simd-json/pass/pass12.json
+f07b8cd87ed361387bb61d7d5717441295204156ada56cdf7a60d9c0b6376796 simd-json/pass/pass13.json
+7f4f1acdf91978d48ade3b261c7d058d34323f8450c89f098f9de990f7fb2aea simd-json/pass/pass14.json
+6a81d75436fa85409eb0b70c18b484e835a1c919a7340f58d8e841f8f50da0d0 simd-json/pass/pass15.json
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa simd-json/pass/pass16.json
+61a3544f2bc987b7378c66a9025b1f23eb5456d4f0443595c06d6fc20f3b0a68 simd-json/random.json
+a08b769f32b95f426cbc3abafcec65c1a19d3eb544d4ddf320eae142c99efc5d simd-json/twitter.json
+2a288b5af4691c55b6f40fa534225b3e08b8d8b7f7ca4ed29bc5c7c81566ed4a simd-json/twitterescaped.json
+e7b6a037bfdb5abdf122fa3445ddfacea78522a23df31c4799884c4ebf4c01fa simd-json/update-center.json
+a73e7a883f6ea8de113dff59702975e60119b4b58d451d518a929f31c92e2059 simdjson/citm_catalog.json
+0bb1e5559bbaab23a5b6205f2e644c2664ce55c64beaa6f087c5cf8b4b137585 simdjson/example_config.json
+9f8a7781ba9c61f3760fbb12d69f994bbe89e48413041aba0e476edee5f5c9df simdjson/recipe_book.json
+30721e496a8d73cfc50658923c34eb2c0fbe15ee6835005e43ee624d8dedf200 simdjson/twitter.json
+LIST
+}
+
+MANIFEST | xargs -P "$JOBS" -L 1 bash -c 'fetch_one "$0" "$1"'
+echo "test/json/data: $(MANIFEST | wc -l | tr -d ' ') files present and verified"

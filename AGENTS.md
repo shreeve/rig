@@ -124,6 +124,7 @@ zig build                  # builds bin/rig
 ./test/run -j 2            # full suite; must be green before every commit
 ./test/run -j 2 corpus     # every reviewer probe, not only the default sample
 test/matrix.py -j 2        # form x context x type programs, checked and run
+./test/run json            # std.json against Python on all 10,511 inputs (tools/fetch-json-data.sh first)
 zig build oracle           # builds bin/rig-oracle (./test/run does it too)
 zig build test --cache-dir "$(mktemp -d)"  # unit tests, not replayed from cache
 bin/rig run file.rig       # compile + run (debug, leak-checked)
@@ -177,6 +178,9 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
+| `test/json/` | `std.json` against Python's `json` module, run by `./test/run json` (see `test/json/README.md`) |
+| `tools/fetch-json-data.sh` | Fetches the third-party JSON files that test reads, pinned by sha256, into the untracked `test/json/data/` |
+| `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
 | `examples/` | Curated example programs, all run by the suite |
 | `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |
 | `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |
@@ -191,5 +195,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
+| `docs/json/` | The JSON parser's design, its open items, and the measurement record |
+| `docs/simd/` | The design for portable vectors (`Simd`): proposal, Zig lowering, opcodes, and the Zig probes behind them |
 | `IDEAS.md` | Suggestions for improving Rig, led by the bar it must clear: shorter and plainer than idiomatic Rust |
 | `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |
