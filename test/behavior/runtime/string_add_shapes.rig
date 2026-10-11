@@ -1,0 +1,29 @@
+# String.add with one slice, one String, one number, and mixed parts, and
+# push across growth, give the same bytes; clear keeps the buffer for reuse.
+
+sub main()
+  s = String("")
+  !s.add("abc")
+  !s.add(String("def"))
+  !s.add(7)
+  !s.add("x", 1, "y")
+  print(s, s.len)
+  i = 0
+  while i < 100 : i += 1
+    !s.push(65)
+  print(s.len)
+  !s.clear()
+  print(s.len, s == "")
+  !s.add("again")
+  !s.push(33)
+  print(s)
+  t = String("one")
+  !t.add(?s[..])
+  print(t)
+
+# expect:
+# abcdef7x1y 10
+# 110
+# 0 true
+# again!
+# oneagain!
