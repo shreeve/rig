@@ -5154,7 +5154,20 @@ pub const Emitter = struct {
         try self.emitBare(place);
     }
 
+    /// A call. One that may reach an inlined function is read through
+    /// `rig.rt`: Zig analyzes that body at the call, where a result that
+    /// does not depend on the arguments is known at compile time, as is a
+    /// `const` bound to it, so arithmetic on it would be folded where Rig
+    /// specifies a check when the program runs. `rig.rt` keeps the
+    /// whole result, error or optional included, a run-time value.
     fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
+        if (!self.facts.callsInlined(sexp)) return self.emitCallPlain(sexp);
+        try self.w.writeAll("rig.rt(");
+        try self.emitCallPlain(sexp);
+        try self.w.writeAll(")");
+    }
+
+    fn emitCallPlain(self: *Emitter, sexp: Sexp) Error!void {
         const callee = self.facts.calleeOf(sexp);
         const args = ir.Call.args(sexp);
 

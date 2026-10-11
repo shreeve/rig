@@ -28,6 +28,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const modules = @import("modules.zig");
+const rig = @import("rig.zig");
 const typecheck = @import("typecheck.zig");
 
 const Sexp = parser.Sexp;
@@ -77,10 +78,21 @@ const Fn = struct {
     cyclic: bool = false,
 };
 
+/// The name a leaf spells, including a name the iterator rewrite makes
+/// (the `next` of a `for` over an iterator), which no source text holds.
+fn textOf(c: *const SemContext, leaf: Sexp) []const u8 {
+    return if (leaf == .src) rig.leafText(c.source, leaf.src) else "";
+}
+
+/// A call and the functions it may reach.
+const Site = struct { module: usize, id: parser.NodeId, targets: []const u32 };
+
 const Pass = struct {
     a: std.mem.Allocator,
     mods: []const *modules.Module,
     fns: std.ArrayList(Fn) = .empty,
+    /// Each call that may reach a function, and which.
+    sites: std.ArrayList(Site) = .empty,
     by_name: std.StringHashMapUnmanaged(std.ArrayList(u32)) = .empty,
     /// Per module: the function declared at a position.
     by_pos: []std.AutoHashMapUnmanaged(u32, u32),
@@ -121,7 +133,7 @@ const Pass = struct {
     fn add(self: *Pass, module: usize, node: Sexp, member: bool, generic_owner: bool) !void {
         const c = self.ctx(module);
         const name_node = ir.get(node, .name);
-        const name = name_node.getText(c.source);
+        const name = textOf(c, name_node);
         const body = ir.get(node, .body);
         const is_main = !member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
         const eligible = body != .nil and !is_main and !generic_owner and sema.tparamsOf(node) == .nil;
@@ -180,7 +192,7 @@ const Pass = struct {
     /// method taken as a value.
     fn mentionMember(self: *Pass, module: usize, e: Sexp) void {
         const c = self.ctx(module);
-        const name = ir.Member.name(e).getText(c.source);
+        const name = textOf(c, ir.Member.name(e));
         const all = self.by_name.get(name) orelse return;
         // A data field of the receiver's type is not a method.
         if (c.typeOf(ir.Member.object(e))) |t| if (sema.nominalDecl(c, t)) |nom| {
@@ -195,29 +207,32 @@ const Pass = struct {
         const c = self.ctx(module);
         const raw = ir.Call.callee(call);
         const callee = c.calleeOf(call);
+        var targets: std.ArrayList(u32) = .empty;
         switch (callee.kind() orelse .set) {
             .member => {
                 try self.visit(module, cur, ir.Member.object(callee));
-                if (cur) |from| try self.edgesByName(from, ir.Member.name(callee).getText(c.source));
+                try self.named(&targets, textOf(c, ir.Member.name(callee)));
             },
             else => if (callee == .src) {
                 const id = c.symbolOf(callee);
                 if (id) |sid| {
                     const s = c.symbols.items[sid];
                     if (s.kind == .function) {
-                        if (cur) |from| if (self.by_pos[module].get(s.decl_pos)) |to| try self.fns.items[from].calls.append(self.a, to);
+                        if (self.by_pos[module].get(s.decl_pos)) |to| try targets.append(self.a, to);
                     }
-                } else if (cur) |from| try self.edgesByName(from, callee.getText(c.source));
+                } else try self.named(&targets, textOf(c, callee));
             } else try self.visit(module, cur, callee),
         }
+        if (cur) |from| try self.fns.items[from].calls.appendSlice(self.a, targets.items);
+        if (targets.items.len > 0 and call.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = call.list.id, .targets = targets.items });
         // The bracket list of a generic call, `f[T](x)`.
         if (raw.isKind(.inst)) for (raw.items()[2..]) |a| try self.visit(module, cur, a);
         for (ir.Call.args(call)) |a| try self.visit(module, cur, a);
     }
 
-    fn edgesByName(self: *Pass, from: u32, name: []const u8) !void {
+    fn named(self: *Pass, targets: *std.ArrayList(u32), name: []const u8) !void {
         const all = self.by_name.get(name) orelse return;
-        for (all.items) |to| try self.fns.items[from].calls.append(self.a, to);
+        try targets.appendSlice(self.a, all.items);
     }
 
     /// What the calls of `v` that are inlined add to its frame: the sum, over
@@ -361,5 +376,13 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     pass.fit();
     for (pass.fns.items) |f| {
         if (f.inlined) try mods[f.module].sema.inlined.put(allocator, f.pos, {});
+    }
+    // A call that may reach an inlined function hands back a value Zig
+    // would know at compile time (`Emitter.emitCallDirect`).
+    for (pass.sites.items) |site| {
+        for (site.targets) |t| if (pass.fns.items[t].inlined) {
+            try mods[site.module].sema.inlined_calls.put(allocator, site.id, {});
+            break;
+        };
     }
 }

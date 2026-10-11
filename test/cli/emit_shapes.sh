@@ -27,7 +27,7 @@ sub main()
 EOF
 out=$("$RIG" emit bindings.rig 2>/dev/null) || fail "rig emit bindings.rig"
 expect_has "$out" 'var x: i64 = 1;' "reassigned binding"
-expect_has "$out" 'const y: i64 = two();' "unchanged binding"
+expect_has "$out" 'const y: i64 = rig.rt(two());' "unchanged binding"
 # A constant initializer is kept out of Zig's compile-time evaluation.
 expect_has "$out" 'var z: i64 = 5;' "constant initializer"
 expect_has "$out" 'const user: i64 = 1;' "fixed binding"
@@ -45,7 +45,7 @@ sub main()
   print(x)
 EOF
 out=$("$RIG" emit fallible.rig 2>/dev/null) || fail "rig emit fallible.rig"
-expect_has "$out" 'try bar()' "propagate"
+expect_has "$out" 'try rig.rt(bar())' "propagate"
 expect_has "$out" 'pub inline fn foo() anyerror!i64' "fallible return type"
 expect_has "$out" '__rig_run_main(__rig_init) catch |err| rig.failMain(err);' "fallible main"
 expect_has "$out" 'fn __rig_run_main(__rig_init: std.process.Init.Minimal) anyerror!void' "fallible main body"
@@ -92,7 +92,7 @@ sub main()
 EOF2
 out=$("$RIG" emit payload.rig 2>/dev/null) || fail "rig emit payload.rig"
 expect_has "$out" 'const r = &__rig_payload_1.r;' "payload viewed where it is"
-expect_has "$out" 'else => |*x| count(x),' "catch-all of a lent subject"
+expect_has "$out" 'else => |*x| rig.rt(count(x)),' "catch-all of a lent subject"
 expect_has "$out" 'const x = &e.*;' "guarded catch-all of a lent subject"
 
 # Emit takes no address of a Zig temporary value. A `?self` method on a
@@ -126,7 +126,7 @@ sub main()
   print(mks().pick(y: f(1), x: f(2)))
 EOF2
 out=$("$RIG" emit leaves.rig 2>/dev/null) || fail "rig emit leaves.rig"
-expect_has "$out" 'const r: []const u8 = (if (c) &a else &b).inner();' "branching receiver"
+expect_has "$out" 'const r: []const u8 = rig.rt((if (c) &a else &b).inner());' "branching receiver"
 expect_has "$out" '__rig_recv_' "kept receiver evaluated first"
 grep -q '@as(S, (if' <<<"$out" && fail "a branching receiver copied: $out"
 grep -qE 'var __rig_(arg|recv)_' <<<"$out" && fail "a temporary copied into the call's block: $out"

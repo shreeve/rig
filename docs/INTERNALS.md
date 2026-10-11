@@ -2692,12 +2692,26 @@ symbols); a query that decides more than that belongs in `Pending`.
   }
   ```
 
+  A value that crosses the boundary the other way is hidden the same way:
+  a call that may reach an inlined function (`Facts.callsInlined`) is
+  written `rig.rt(f(x))`. Zig knows the result of an inlined call that
+  no argument decides (`fun zero() -> Int  0`, one that ignores its
+  parameters, or one that passes on another's) at compile time, and so a
+  `const` bound to it, so `10 / z` would be a compile error in code that
+  never runs. `rig.rt` covers the whole result, an error or an optional
+  with its payload. The call graph holds every call emit makes: the `next`
+  of a `for` over an iterator is a call in the tree by then (the rewrite of
+  [Loops over an iterator](#loops-over-an-iterator)), and the only other
+  user function emit calls on its own, a type's `drop` body, is not inlined.
+
   The desugaring is that: a function that is called, with a copy of its
   parameters taken first (`var` where the parameter is a value that moves,
-  which it was already copied into). The checker walks the same function,
-  and the optimizer folds `rig.rt` away. The panic is the same one at the
-  same line. `test/behavior/emit/inline_*.rig` run calls with literal
-  arguments in debug and `--release`, `test/cli/inline.sh` checks which
+  which it was already copied into), and its calls read through `rig.rt`.
+  The checker walks the same function, and the optimizer folds `rig.rt`
+  away. The panic is the same one at the same line.
+  `test/behavior/emit/inline_*.rig` run calls with literal arguments in
+  debug and `--release`, `test/cli/inline_grid.sh` runs every shape of
+  result against every use in both, `test/cli/inline.sh` checks which
   functions are inlined, and `test/behavior/types/value_size_limit.rig`
   holds the frames to their limit.
 

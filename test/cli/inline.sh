@@ -158,3 +158,33 @@ out=$(emit entry.rig)
 expect_has "$out" 'pub inline fn entry(' "the small entry"
 expect_has "$out" 'pub fn run(' "the large function it calls"
 expect_lacks "$out" 'inline fn run(' "the large function it calls"
+
+# The `next` a `for` over an iterator calls is a call: a `next` that loops
+# over another of its own kind is on a cycle and called.
+cat >iter.rig <<'RIG'
+obj Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    if self.hi > 100
+      inner = Count(lo: 0, hi: 1)
+      for x in !inner
+        print("inner", x)
+    self.lo - 1
+
+sub main()
+  c = Count(lo: 0, hi: 3)
+  for n in !c
+    print(n)
+RIG
+out=$(emit iter.rig)
+expect_has "$out" 'pub fn next(' "an iterator that loops over itself"
+expect_lacks "$out" 'inline fn next' "an iterator that loops over itself"
+
+# A call that may reach an inlined function is read through rig.rt, so the
+# result is a run-time value.
+out=$(emit small.rig)
+expect_has "$out" 'rig.print(.{ rig.rt(next(41)) })' "a call of an inlined function"
