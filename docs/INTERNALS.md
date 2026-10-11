@@ -190,6 +190,24 @@ Nexus auto-wires the language module: when `src/rig.zig` declares a
 one, so `parser.Parser.init(allocator, source).parseProgram()` returns
 the finished semantic IR.
 
+### Keywords
+
+The reserved words (all but `new` and `of`) are literal lexer rules in
+`rig.grammar` ahead of the identifier rule (`"if" → if`), so the
+lexer's DFA classifies them; `src/rig.zig` keeps no keyword table and
+checks token categories. `new` needs the next token to be told from a
+name at statement start, and `of` is part of the wrapper's own
+bookkeeping, so both stay in the wrapper.
+
+`unique`, `from` and `static` are contextual. `@keywords ctx unique from
+static` with `@as IDENT = [ctx!]` lets the parser accept each wherever a
+name is legal, promoting it to its keyword only where the grammar
+expects it. The promotion is permissive: every state where one of these
+words could be a name or the keyword must stay free of LALR conflicts
+(`nexus check rig.grammar` reports none). Because promotion happens in
+the parser, `rig tokens` prints `ident` for `unique`, `from` and
+`static`, not the keyword.
+
 ### Conflicts policy
 
 The grammar has **no** LALR(1) conflicts (it has no `@conflicts`
