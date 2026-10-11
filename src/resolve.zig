@@ -2469,7 +2469,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
     try std.testing.expectEqual(ctx.list_sym_id, list);
-    try std.testing.expectEqual(@as(usize, 6), ctx.symbols.items[list].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 7), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 
