@@ -1562,12 +1562,17 @@ sentences 5 and 6), so in an accepted module every write between a
 fact and its use lies between them in the walk.
 
 **The walk** follows the emitted control flow: a block's statements in
-order, an assignment's value, then its target's indexes, then the store
-([Assignments](#assignments)); a loop's condition parts, its body, then
-its step ([Loops](#loops)); `and` and `or` left to right; each `defer`
-of a block where the block ends. Inside one expression it relies on no
+order; an assignment's value, then the store ([Assignments](#assignments));
+a loop's condition parts, its body, then its step ([Loops](#loops)); `and`
+and `or` left to right; each `defer` of a block where the block ends.
+Emit finds an assignment's place after its value only when the value can
+act (`actsBeforeStore`), so the target's indexes are walked from what
+holds either way: the facts before the value less what the value writes,
+never a fact the value made. Inside one expression the walk relies on no
 order: every write in the expression ends its facts before any part of
-it is read, and again after (`walkAtomic`). Where control flow joins
+it is read, each part starts from the facts before the expression, and
+the writes end what the parts made before the expression's own test is
+proven (`walkAtomic`). Where control flow joins
 (`if` and `else`, `match`, a ternary, `catch`, `??`, `or`, a labeled
 block, a loop and its `else`), the facts are those from before the
 construct less every write inside it. A loop starts from the facts
