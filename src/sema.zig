@@ -986,8 +986,11 @@ pub const Use = enum {
 /// A built-in method on the elements of a slice, an array, a List, or a
 /// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
 /// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`;
-/// and `x.not()`, the complement of an integer or a `Bool` (`elem` and
-/// `num` are its type).
+/// and the methods of an integer's bits: `x.not()`, the complement of an
+/// integer or a `Bool`, and `x.swap_bytes()` (`elem` and `num` are its
+/// type), and `x.leading_zeros()`, `x.trailing_zeros()`, and
+/// `x.count_ones()` (`num` is the integer's type, `elem` the `Int` they
+/// give).
 pub const ElemCall = struct {
     op: ElemOp,
     /// The receiver's element type.
@@ -996,7 +999,27 @@ pub const ElemCall = struct {
     num: TypeId = type_invalid,
 };
 
-pub const ElemOp = enum { copy, fill, swap, read, write, not };
+pub const ElemOp = enum {
+    copy,
+    fill,
+    swap,
+    read,
+    write,
+    not,
+    leading_zeros,
+    trailing_zeros,
+    count_ones,
+    swap_bytes,
+
+    /// Whether the method is one of a single integer's bits (`bitCall`),
+    /// not of the elements of a slice.
+    pub fn isBits(op: ElemOp) bool {
+        return switch (op) {
+            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => true,
+            .copy, .fill, .swap, .read, .write => false,
+        };
+    }
+};
 
 /// A call of a built-in String operation: `String(a, b, ...)`, which builds
 /// one, and the methods `!t.add(a, b, ...)`, `!t.push(b)`, and
@@ -6494,7 +6517,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Declarations and their parts.
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
-        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=", .iter, .kwarg => .none,
+        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
@@ -6507,7 +6530,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // with one.
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
         .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .box, .weak => .made,
-        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
+        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
 
@@ -6896,7 +6919,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return .not_constant,
             }
             const a = switch (ctFoldBy(ctx, ir.get(e, .left), names)) {
@@ -6908,7 +6931,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 else => |r| return r,
             };
             // A shift is in its left operand's type.
-            const shift = h == .@"<<" or h == .@">>";
+            const shift = h == .@"<<" or h == .@"<<%" or h == .@">>";
             if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
             const int = if (shift) a.int orelse names.literalInt(e) else a.int orelse b.int;
             // Wrapping arithmetic keeps the low bits of the result in its
@@ -6925,6 +6948,13 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                         else => a.v *% b.v,
                     };
                     return .{ .value = .{ .v = wrapTo(info, v), .int = info } };
+                },
+                // A shift keeps the low bits too, if its amount is below the
+                // width (reported where the operator is checked).
+                .@"<<%" => {
+                    const info = int orelse names.literalInt(e) orelse return .not_constant;
+                    if (b.v < 0 or b.v >= info.width()) return .not_constant;
+                    return .{ .value = .{ .v = wrapTo(info, a.v << @intCast(b.v)), .int = info } };
                 },
                 else => {},
             }

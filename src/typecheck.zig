@@ -977,7 +977,7 @@ const Checker = struct {
         };
 
         switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 const what = try self.ctx.arena.allocator().print("`{s}` has type", .{name});
                 try self.checkCompound(kind, declared, rhs, target.src.pos, what);
                 try self.ctx.recordType(target, declared);
@@ -1154,7 +1154,7 @@ const Checker = struct {
             return;
         }
         const req: Requirement = switch (op) {
-            .@"&", .@"|", .@"^", .@"<<", .@">>", .@"+%", .@"-%", .@"*%" => .integer,
+            .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"+%", .@"-%", .@"*%" => .integer,
             else => .numeric,
         };
         const tv: ?SymbolId = switch (self.ctx.types.get(target_ty)) {
@@ -1168,7 +1168,7 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
-        if (op == .@"<<" or op == .@">>") {
+        if (op == .@"<<" or op == .@"<<%" or op == .@">>") {
             _ = try self.checkShiftAmount(rhs, target_ty, spelled);
             return;
         }
@@ -3690,7 +3690,7 @@ const Checker = struct {
             .clone => self.synthClone(e),
             .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric, null),
             .@"&", .@"|", .@"^", .@"+%", .@"-%", .@"*%" => self.checkNumericOperands(e, @tagName(head), .integer, null),
-            .@"<<", .@">>" => self.synthShift(e, @tagName(head)),
+            .@"<<", .@"<<%", .@">>" => self.synthShift(e, @tagName(head)),
             .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
             .@"and", .@"or" => blk: {
@@ -4645,7 +4645,7 @@ const Checker = struct {
         return switch (e.kind() orelse return false) {
             .enum_lit => true,
             .member => self.ctx.isErrorMember(e) or try self.namesTypeConstant(e) or self.namesModuleConstant(e),
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>" => for (rig.children(e)) |c| {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>" => for (rig.children(e)) |c| {
                 if (!try self.isConstant(c)) break false;
             } else true,
             else => false,
@@ -5373,14 +5373,14 @@ const Checker = struct {
                 .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
-            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (op != .not) {
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits()) {
                 const shown = switch (op) {
                     .copy => "!xs.copy(src)",
                     .fill => "!xs.fill(v)",
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -6700,24 +6700,34 @@ const Checker = struct {
         return self.t().void_id;
     }
 
-    /// `x.not()`: the complement of an integer (every bit flipped) or a
-    /// `Bool`, of the receiver's own type. Null when `method` is not
-    /// `not` or the receiver is neither.
-    fn notCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        if (!std.mem.eql(u8, method, "not")) return null;
+    /// The methods of an integer's bits, all on its bit pattern, so a
+    /// negative value counts as its two's complement: `x.not()`, the
+    /// complement (every bit flipped), also of a `Bool`; `x.swap_bytes()`,
+    /// the bytes reversed; both in the receiver's own type. And
+    /// `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()`,
+    /// an `Int` (a zero has as many of each zero count as it has bits).
+    /// Null when `method` is none of them or the receiver is not an
+    /// integer.
+    fn bitCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
+        if (!op.isBits()) return null;
         const value = sema.unwrapViews(self.ctx, obj_ty);
         const is_bool = value == self.t().bool_id;
-        if (!is_bool and !sema.isInteger(self.ctx, value)) return null;
+        if (!(is_bool and op == .not) and !sema.isInteger(self.ctx, value)) return null;
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume its receiver");
         if (value == self.t().int_literal_id) try self.defaultIntLiteral(obj);
         const ty = if (value == self.t().int_literal_id) self.t().int_id else value;
+        const result = switch (op) {
+            .leading_zeros, .trailing_zeros, .count_ones => self.t().int_id,
+            else => ty,
+        };
         if (args.len > 0) {
-            try self.err(pos, "`not` takes no arguments; got {d}", .{args.len});
+            try self.err(pos, "`{s}` takes no arguments; got {d}", .{ method, args.len });
             try self.synthArgs(args);
         }
-        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ty}), .returns = ty, .is_sub = false });
-        try self.ctx.recordElemCall(callee, .{ .op = .not, .elem = ty, .num = ty });
-        return ty;
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ty}), .returns = result, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = result, .num = ty });
+        return result;
     }
 
     const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
@@ -7867,7 +7877,7 @@ const Checker = struct {
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     // Rig checks arithmetic only on constants: a compile-time
                     // parameter or a `const` binding of one differs per call.
-                    .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
+                    .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => blk: {
                         const obj = ir.Member.object(e);
                         // A number type's limits.
@@ -7923,7 +7933,7 @@ const Checker = struct {
         const h = e.kind() orelse return false;
         return switch (h) {
             .neg => self.isCtOperand(ir.Neg.operand(e)),
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.isCtOperand(ir.get(e, .left)) and self.isCtOperand(ir.get(e, .right)),
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => self.isCtOperand(ir.get(e, .left)) and self.isCtOperand(ir.get(e, .right)),
             else => false,
         };
     }
@@ -8231,7 +8241,7 @@ const Checker = struct {
 
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, if (std.meta.stringToEnum(sema.ElemOp, method) == .read) .read else .write, ty);
         if (ct == null) if (try self.stringCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .write, ty);
-        if (ct == null) if (try self.notCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
+        if (ct == null) if (try self.bitCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -8422,7 +8432,7 @@ const Checker = struct {
     /// them or the receiver has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
-        if (op == .not) return null;
+        if (op.isBits()) return null;
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -8450,14 +8460,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -8472,7 +8482,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => unreachable,
         }
         return self.t().void_id;
     }
@@ -10616,7 +10626,7 @@ const Checker = struct {
             .neg => integerOnlyOp(ir.Neg.operand(e)),
             .@"if" => integerOnlyOp(ir.If.then(e)) orelse integerOnlyOp(ir.If.@"else"(e)),
             .@"+", .@"-", .@"*", .@"/", .@"%" => integerOnlyOp(ir.get(e, .left)) orelse integerOnlyOp(ir.get(e, .right)),
-            .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^", .@"<<", .@">>" => e,
+            .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>" => e,
             else => null,
         };
     }
@@ -10645,7 +10655,7 @@ const Checker = struct {
                 try self.recordLiteralType(ir.get(e, .left), target);
                 try self.recordLiteralType(ir.get(e, .right), target);
             },
-            .@"<<", .@">>" => {
+            .@"<<", .@"<<%", .@">>" => {
                 try self.recordLiteralType(ir.get(e, .left), target);
                 if (self.ctx.types.get(target) != .int) return;
                 const amount = ir.get(e, .right);
@@ -10751,7 +10761,7 @@ const Checker = struct {
                     try self.checkLiteralFits(ir.get(e, .left), target);
                     try self.checkLiteralFits(ir.get(e, .right), target);
                 },
-                .@"<<", .@">>" => try self.checkLiteralFits(ir.get(e, .left), target),
+                .@"<<", .@"<<%", .@">>" => try self.checkLiteralFits(ir.get(e, .left), target),
                 .neg => try self.checkLiteralFits(ir.Neg.operand(e), target),
                 .@"if" => {
                     try self.checkLiteralFits(ir.If.then(e), target);
@@ -11791,7 +11801,7 @@ fn hasContinue(e: Sexp) bool {
 fn isArithmetic(e: Sexp) bool {
     const h = e.kind() orelse return false;
     return switch (h) {
-        .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => true,
+        .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => true,
         else => false,
     };
 }

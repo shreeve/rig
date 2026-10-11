@@ -423,7 +423,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     self.ctx.symbols.items[existing].flags.reassigned = true;
                 } else if (self.scope == self.module_scope) {
