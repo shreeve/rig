@@ -34,6 +34,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const diag = @import("diag.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
 const Wide = sema.Wide;
@@ -2775,7 +2776,7 @@ const Checker = struct {
                 const end = self.ctx.span(base).end;
                 const start = self.ctx.span(subject).start;
                 const stop = self.ctx.span(subject).end;
-                const rest = if (end >= start and end <= stop) std.mem.trimStart(u8, self.ctx.source[end..stop], ")") else whole;
+                const rest = if (end >= start and end <= stop) std.mem.trimStart(u8, diag.textBetween(self.ctx.source, end, stop), ")") else whole;
                 return a.print("bind the branch to a name first, `t = ({s})`, then match its part with `match !t{s}`", .{ branch_text, rest });
             }
         }
@@ -3839,10 +3840,10 @@ const Checker = struct {
         // parentheses around them).
         const gap_start = self.ctx.span(ir.get(operand, .left)).end;
         const gap_end = self.ctx.span(ir.get(operand, .right)).start;
-        const at = if (exact and gap_start <= gap_end) std.mem.find(u8, self.ctx.source[gap_start..gap_end], op) else null;
+        const at = if (exact and gap_start <= gap_end) std.mem.find(u8, diag.textBetween(self.ctx.source, gap_start, gap_end), op) else null;
         if (at) |i| {
             const o = gap_start + i;
-            const flip = try oneLine(a, try withoutComments(a, try std.mem.concat(a, u8, &.{ self.ctx.source[cmp.start..o], flipped, self.ctx.source[o + op.len .. cmp.end] })));
+            const flip = try oneLine(a, try withoutComments(a, try std.mem.concat(a, u8, &.{ diag.textBetween(self.ctx.source, cmp.start, o), flipped, diag.textBetween(self.ctx.source, o + op.len, cmp.end) })));
             return self.errAt(e, "write `{s}`, or `not ({s})`: `not` applies to the whole comparison", .{ flip, shown });
         }
         try self.errAt(e, "write `not ({s})`: `not` applies to the whole comparison", .{shown});
@@ -5709,7 +5710,7 @@ const Checker = struct {
     /// The source text of a node, for messages.
     fn sourceText(self: *Checker, node: Sexp) []const u8 {
         const sp = self.ctx.span(node);
-        return self.ctx.source[sp.start..sp.end];
+        return diag.textOf(self.ctx.source, sp);
     }
 
     /// `n` poison type arguments, for a generic whose given arguments
@@ -8867,7 +8868,7 @@ const Checker = struct {
         if (!self.isReceiverSigil(recv)) return false;
         const place = ir.get(recv, .operand);
         const at = self.ctx.span(place);
-        const name = self.ctx.source[at.start..at.end];
+        const name = diag.textOf(self.ctx.source, at);
         if (recv.isKind(.read)) {
             if (mode == .read) return false;
             const hint = if (returns == self.t().void_id) "" else try self.ctx.arena.allocator().print("; to lend the call's result, write `?({s})`", .{try self.callWith(recv, name, method)});
@@ -9446,7 +9447,7 @@ const Checker = struct {
                 const recv = ir.Member.object(callee);
                 const start = self.ctx.span(ir.Read.operand(recv)).start;
                 const end = self.ctx.span(e).end;
-                const call = self.ctx.source[start..end];
+                const call = diag.textBetween(self.ctx.source, start, end);
                 return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to lend the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, self.sourceText(ir.Read.operand(recv)), call });
             }
         }
@@ -10447,7 +10448,7 @@ const Checker = struct {
                 // The slice lent to read: `(?arr[..])[0]`.
                 const ps = self.ctx.span(path);
                 const ls = self.ctx.span(lend);
-                const fix = if (ls.start >= ps.start and ls.end <= ps.end) try std.mem.concat(a, u8, &.{ self.ctx.source[ps.start..ls.start], "?", place, self.ctx.source[ls.end..ps.end] }) else try a.print("?{s}", .{place});
+                const fix = if (ls.start >= ps.start and ls.end <= ps.end) try std.mem.concat(a, u8, &.{ diag.textBetween(self.ctx.source, ps.start, ls.start), "?", place, diag.textBetween(self.ctx.source, ls.end, ps.end) }) else try a.print("?{s}", .{place});
                 return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("`{s}` only reads the place it reaches", .{self.sourceText(path)}), fix });
             },
             .read_receiver => |method| {
@@ -10494,11 +10495,11 @@ const Checker = struct {
         // The parentheses stay where what is left needs them.
         const left = unlent(part);
         const bare = left == .src or left.isKind(.member) or left.isKind(.index) or left.isKind(.call);
-        if (bare and ps.start > ws.start and ps.end < ws.end and self.ctx.source[ps.start - 1] == '(' and self.ctx.source[ps.end] == ')') {
+        if (bare and ps.start > ws.start and ps.end < ws.end and diag.textBetween(self.ctx.source, ps.start - 1, ps.start).len == 1 and self.ctx.source[ps.start - 1] == '(' and diag.textBetween(self.ctx.source, ps.end, ps.end + 1).len == 1 and self.ctx.source[ps.end] == ')') {
             ps.start -= 1;
             ps.end += 1;
         }
-        return std.mem.concat(self.ctx.arena.allocator(), u8, &.{ self.ctx.source[ws.start..ps.start], with, self.ctx.source[ps.end..ws.end] });
+        return std.mem.concat(self.ctx.arena.allocator(), u8, &.{ diag.textBetween(self.ctx.source, ws.start, ps.start), with, diag.textBetween(self.ctx.source, ps.end, ws.end) });
     }
 
     /// A method's receiver with the sigils written before it taken off
@@ -10591,11 +10592,11 @@ const Checker = struct {
         for (order) |i| {
             const p = self.ctx.span(parts[i]);
             if (p.start < at or p.end > w.end) continue;
-            try out.appendSlice(a, self.ctx.source[at..p.start]);
+            try out.appendSlice(a, diag.textBetween(self.ctx.source, at, p.start));
             try out.appendSlice(a, withs[i]);
             at = p.end;
         }
-        try out.appendSlice(a, self.ctx.source[at..w.end]);
+        try out.appendSlice(a, diag.textBetween(self.ctx.source, at, w.end));
         return out.items;
     }
 
@@ -11015,7 +11016,7 @@ const Checker = struct {
     /// call `node` with Rig's names.
     fn zigQueryName(self: *Checker, node: Sexp, written: []const u8, rig_name: []const u8) Error!void {
         // From the name on: `@ sizeOf(I64)` is fixed as `@size(I64)`.
-        const args = self.ctx.source[self.ctx.span(ir.Builtin.name(node)).end..self.ctx.span(node).end];
+        const args = diag.textBetween(self.ctx.source, self.ctx.span(ir.Builtin.name(node)).end, self.ctx.span(node).end);
         const short = args.len <= 60 and std.mem.findScalar(u8, args, '\n') == null;
         const fix = if (short) try self.ctx.arena.allocator().print("@{s}{s}", .{ rig_name, try self.rigSpelling(args) }) else try self.ctx.arena.allocator().print("@{s}(...)", .{rig_name});
         try self.errAt(node, "write `{s}`: Rig's builtin is `@{s}`; Zig's `@{s}` works only inside `raw`", .{ fix, rig_name, written });

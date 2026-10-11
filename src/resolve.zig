@@ -20,6 +20,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const diag = @import("diag.zig");
 const sema = @import("sema.zig");
 const Wide = sema.Wide;
 
@@ -2023,7 +2024,7 @@ pub const TypeResolver = struct {
 
     fn sourceText(self: *const TypeResolver, node: Sexp) Error![]const u8 {
         const sp = self.ctx.span(node);
-        return self.ctx.source[sp.start..sp.end];
+        return diag.textOf(self.ctx.source, sp);
     }
 
     /// A declaration `module.Name` names in an imported module, or null

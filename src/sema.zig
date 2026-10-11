@@ -1223,12 +1223,12 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
             try t.print("{s} ", .{name});
             var span: parser.Span = .empty;
             if (node) |n| {
-                span = if (ctx.parser) |p| p.base.span(n) else diag.leafSpan(n);
+                span = if (ctx.parser) |p| p.span(n) else diag.leafSpan(n);
                 const kind = if (n == .src) "leaf" else if (n.kind()) |k| @tagName(k) else "group";
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
                 try t.print("{s} {d}:{d}-{d}:{d} \"", .{ kind, from.line, from.col, to.line, to.col });
-                for (ctx.source[span.start..@min(span.end, span.start + 40)]) |c|
+                for (diag.textBetween(ctx.source, span.start, @min(span.end, span.start + 40))) |c|
                     if (c == '\n') try t.writeAll("\\n") else try t.writeByte(c);
                 try t.writeAll("\"");
             } else try t.print("node#{d}", .{id});
@@ -1268,14 +1268,14 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
         inline for (@typeInfo(StorageKind).@"enum".field_names) |name| {
             const kind = @field(StorageKind, name);
             if (ctx.storageOf(n, kind)) |s| {
-                const span = if (ctx.parser) |p| p.base.span(n) else diag.leafSpan(n);
+                const span = if (ctx.parser) |p| p.span(n) else diag.leafSpan(n);
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
                 var text: std.Io.Writer.Allocating = .init(a);
                 const t = &text.writer;
                 const node_kind = if (n == .src) "leaf" else if (n.kind()) |k| @tagName(k) else "group";
                 try t.print("{s} {s} {d}:{d}-{d}:{d} \"", .{ @tagName(kind), node_kind, from.line, from.col, to.line, to.col });
-                for (ctx.source[span.start..@min(span.end, span.start + 40)]) |c|
+                for (diag.textBetween(ctx.source, span.start, @min(span.end, span.start + 40))) |c|
                     if (c == '\n') try t.writeAll("\\n") else try t.writeByte(c);
                 try t.print("\" {s} {s}", .{ @tagName(s.by), @tagName(s.life) });
                 try out.append(a, .{ .start = span.start, .end = span.end, .text = text.written() });
@@ -7667,6 +7667,38 @@ test "facts: a capture names the binding it captures" {
     try std.testing.expectEqual(outer, r.ctx.symbols.items[cap].origin);
 }
 
+test "a padded closure's hidden parameter spans its closure and reads as empty text" {
+    const source =
+        \\sub each(f: ?sub(Int, Int))
+        \\  f(1, 2)
+        \\
+        \\sub main()
+        \\  each(|a| print(a))
+        \\
+    ;
+    var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .tree = undefined, .ctx = undefined, .source = source };
+    defer r.p.deinit();
+    r.tree = try r.p.parseProgram();
+    r.ctx = try check(std.testing.allocator, source, r.tree, .{ .parser = &r.p });
+    defer r.ctx.deinit();
+    try std.testing.expect(!r.ctx.hasErrors());
+    const lambda = findNode(r.tree, .lambda).?;
+    const params = ir.Lambda.params(lambda).items();
+    try std.testing.expectEqual(@as(usize, 2), params.len);
+    const hidden = params[1];
+    try std.testing.expect(hidden.src.pos >= r.source.len);
+    const closure = r.ctx.span(lambda);
+    const at = r.ctx.span(hidden);
+    try std.testing.expect(at.start >= closure.start and at.start <= closure.end);
+    try std.testing.expectEqualStrings("|a| print(a)", diag.textOf(r.source, closure));
+    try std.testing.expectEqualStrings("", diag.textOf(r.source, at));
+    try std.testing.expectEqualStrings("", diag.textBetween(r.source, hidden.src.pos, hidden.src.pos + 1));
+    try std.testing.expectEqualStrings("_", identAt(r.source, hidden).?);
+    try r.ctx.errAt(hidden, "probe", .{});
+    const d = r.ctx.diagnostics.items[r.ctx.diagnostics.items.len - 1];
+    try std.testing.expect(d.pos >= closure.start and d.pos <= closure.end);
+}
+
 test "facts: keyword and omitted arguments record their slots" {
     var r = try factsRun(
         \\fun scaled(n: Int, by: Int = 10, plus: Int = 0) -> Int
@@ -8277,7 +8309,8 @@ const Coverage = struct {
 
     fn expectName(self: *Coverage, leaf: Sexp) void {
         if (leaf != .src) return;
-        const text = self.r.source[leaf.src.pos..][0..leaf.src.len];
+        const text = rig.leafText(self.r.source, leaf.src);
+        if (text.len == 0) return;
         if (isBuiltinCallName(text) or std.mem.eql(u8, text, "_")) return;
         if (!std.ascii.isAlphabetic(text[0]) and text[0] != '_') return;
         if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false") or std.mem.eql(u8, text, "none")) return;
@@ -8299,7 +8332,7 @@ const Coverage = struct {
         switch (e) {
             .src => {
                 self.expectName(e);
-                if (!isBuiltinCallName(self.r.source[e.src.pos..][0..e.src.len])) self.expectType(e);
+                if (!isBuiltinCallName(rig.leafText(self.r.source, e.src))) self.expectType(e);
             },
             .list => switch (e.kind() orelse return) {
                 .set => {
