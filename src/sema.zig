@@ -1623,6 +1623,9 @@ pub const SemContext = struct {
     storage: std.AutoHashMapUnmanaged(StorageKey, Storage) = .empty,
     /// The values expression statements discard (`discardsValue`).
     discards: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The functions and methods Zig inlines at every call, by where
+    /// their names are declared (`inlining.decide`).
+    inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
     /// The node `Question`s decided so far, each once.
     decided: *Decided,
     /// The `from` clause of each function and method that writes one
@@ -1696,6 +1699,7 @@ pub const SemContext = struct {
         self.plain_reqs.deinit(self.allocator);
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
+        self.inlined.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);
         self.allocator.destroy(self.decided);
         self.arena.deinit();

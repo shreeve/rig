@@ -165,6 +165,11 @@ pub const Facts = struct {
     pub fn startOf(f: Facts, node: Sexp) u32 {
         return f.c().startOf(node);
     }
+    /// Whether the function or method whose name leaf is `name` is
+    /// emitted `inline` (`inlining.decide`).
+    pub fn isInlined(f: Facts, name: Sexp) bool {
+        return f.c().inlined.contains(f.c().startOf(name));
+    }
     pub fn calleeOf(f: Facts, call: Sexp) Sexp {
         return f.c().calleeOf(call);
     }

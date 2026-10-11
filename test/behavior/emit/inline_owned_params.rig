@@ -1,0 +1,35 @@
+# An inlined function takes an owned argument, drops it, hands it back,
+# and writes through a lend, as one that is called does: nothing leaks and
+# nothing is dropped twice.
+
+obj Tag
+  name: String
+
+  drop(!self)
+    print("drop", self.name)
+
+sub consume(t: Tag)
+  print("consume", t.name)
+
+fun hand(t: Tag) -> Tag
+  t
+
+sub fill(out: !String, n: Int)
+  !out.add("n=")
+  !out.add(String(n))
+
+sub main()
+  consume(Tag(name: String("a")))
+  t = hand(Tag(name: String("b")))
+  print("held", t.name)
+  s = String()
+  fill(!s, 7)
+  print(s)
+
+# release
+# expect:
+# consume a
+# drop a
+# held b
+# n=7
+# drop b

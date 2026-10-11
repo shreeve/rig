@@ -2642,6 +2642,40 @@ symbols); a query that decides more than that belongs in `Pending`.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
+- **Inlining.** A small `fun` or `sub` is emitted `pub inline fn`,
+  decided once for the whole program by `inlining.decide` and read as
+  `Facts.isInlined`, because LLVM leaves a small hot helper as a call
+  once its body grows, with its prologue and stack protector at every
+  call. Desugaring: `inline fn f(p...) R { body }` is `fn f(__rig_arg...) R
+  { const p = rig.rt(__rig_arg); ...; body }`, with Zig substituting the body at
+  each call. The rule, all of it:
+
+  - the body has at most `inlining.max_size` nodes, counting each form of
+    the tree once (a call, an operator, a binding, an `if`);
+  - the function is on no cycle of calls, directly or through others;
+  - every mention of it is the callee of a call: it is never passed,
+    stored, returned, or captured, so no address of it is taken;
+  - it is not the root's `main`, has no compile-time parameters, is not a
+    member of a generic type, and holds no closure.
+
+  A call resolves by the callee's name (a function by its symbol), so two
+  functions of one name stand for each other: the analysis finds at most
+  more cycles and more value uses than there are. `extern` functions have
+  no body and are not candidates. Zig has no way to inline that keeps a
+  call's meaning: `inline fn` and `@call(.always_inline, ...)` both analyze
+  the body at each call, where an argument known at compile time is known
+  inside, so `a + 1` called with `255` as a `U8` is a compile error where
+  Rig specifies a panic when it runs, and so is an index past the end of
+  an array, a division by zero, or an `@intCast` that does not fit, in a
+  call the program never makes. Every parameter of an inlined function is
+  therefore bound through `rig.rt` at the top of the body (`const` for a
+  parameter that is only read, `var` where it is copied for a move),
+  which hides the value as it does for a constant. A call is not
+  transformed, and the optimizer folds `rig.rt` away, so a call of an
+  inlined function is what it was, with its arguments evaluated in
+  order. The panic is the same one at the same line. `test/behavior/emit/
+  inline_*.rig` check it with literal arguments, in debug and `--release`.
+
 - **Evaluation order of arguments.** A call's arguments are evaluated
   in the order they are written and passed in the order the parameters
   are declared: `f(b: e2, a: e1)` is `{ b = e2; a = e1; f(a, b) }`,
