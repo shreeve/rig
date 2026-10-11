@@ -8,61 +8,78 @@ from).
 ## Current state
 
 - **Release:** `v0.2.9` is the latest release (Zig 0.17.0, Nexus
-  2.0.0), with CI green on Linux and macOS. It checks and emits every
-  assignment as its value, then its store, closing the assignment holes
-  of earlier versions, and adds `--delta` runs that rerun only what
-  changed; its release notes list each change.
+  2.0.0). `main` is ahead of it toward `v0.3.0`, which is not yet
+  tagged. `main` has changed the language since `v0.2.9`:
+  - **Renames:** `Box[T]` is `^T`, `Vec` is `List`, the owned `Text` is
+    `String` and its read view is `?String`, and `Static` is the type of
+    literal text.
+  - **`obj`:** `struct` is spelled `obj`, a contextual keyword.
+    `struct` is an ordinary name, and a declaration written with it is
+    rejected with a hint. `unique`, `from`, and `static` are contextual
+    keywords too.
+  - **Syntax:** a deeper-indented line starting with `.` continues the
+    statement above (not after a line that opens a block); a closure may
+    omit trailing parameters; a bare `for X` loops over `X`; an iterator
+    in a place is written `for x in !it`.
+  - **Numbers:** `x.not()`, the integer bit methods `leading_zeros`,
+    `trailing_zeros`, `count_ones`, and `swap_bytes`, and the wrapping
+    left shift `<<%` and `<<%=`.
+  - **Text and lists:** String `reserve`, `push[T, e]`, and List
+    `reserve`; a byte order on a one-byte type is rejected.
+  - **Speed:** runtime fast paths for push, add, and clear; small,
+    only-called functions are emitted `inline` by a size rule the
+    compiler decides, with no syntax (`src/inlining.zig`); a `for` index
+    counter needs no per-iteration cast.
+  - **Compiler and tools:** a synthetic span outside its source reads as
+    empty; the package cache and the build store have size caps;
+    `src/parser.zig` is generated at build time from `rig.grammar`
+    with Nexus, which is co-developed with Rig; and `tools/migrate-0.3.py`
+    migrates 0.2 programs, each rename an independent pass (box, list,
+    string, `obj`).
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
   on `main` untagged until the next tag, which is cut only after the
   deep gate (AGENTS.md, "Land fast, release deep"); its release notes
-  include a migration guide for any renames.
+  include a migration guide for the renames.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires
   `test (ubuntu-latest)` and `test (macos-latest)`, and blocks force
   pushes and deletion.
-- **Toolchain:** Zig 0.17.0, pinned in `mise.toml`. Nexus 2.0.0, only
-  to regenerate the parser.
+- **Toolchain:** Zig 0.17.0, pinned in `mise.toml`. Nexus 2.0.0
+  generates the parser at every build, from the sibling checkout's
+  `nexus/bin/nexus` (AGENTS.md, "Workflow").
   - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
-- **Health:**
+- **Health:** the gates in "The gates" below are green on `main`: the
+  full suite (`./test/run`, with its pending examples the planned Core
+  rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
+  floors in `test/oracle/coverage`. `test/known/` holds no open bugs.
+  CI and each deep-gate run report the counts.
 
-  | Check | Result |
-  |---|---|
-  | `./test/run` | 2,626 passed, 7 pending (planned Core rules) |
-  | Corpus | 6,021 of 6,021 (`./test/run corpus`) |
-  | `test/matrix.py` | 3,070 programs, 0 failed |
-  | `zig build test` | 124 pass, 1 skip |
-  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,414, corpus 15,781, docs 437, matrix 15,911) |
+## Scope
 
-  `test/known/` holds no open bugs. The pending examples are the
-  planned rules of `docs/CORE.md`.
-
-## The feature freeze
-
-Rig is in a feature freeze. The North Star (AGENTS.md) and
-`docs/CORE.md` are fixed points.
+The North Star (AGENTS.md) and `docs/CORE.md` are fixed points.
 
 **In scope:**
 
 - **Building the Core's planned rules.** Each is marked *(planned)* in
   `docs/CORE.md` and shown by a `rig pending` example. Building one
   turns its pending example into an ordinary one, in the same change.
-- **The weak spots and open questions below,** and bug fixes, docs,
-  tests, and speed.
+- **The weak spots and open questions below,** bug fixes, docs, tests,
+  and speed.
+- **Language and library work toward `v0.3.0` and Trig,** listed under
+  "What comes next". Each fits the Core.
 
-**Out of scope:**
+**Needs the design owner first:**
 
-- **New language features or library modules** not in the Core.
-  Examples: io, fs, Map/Set, traits, threads.
 - **A change to a rule.** It goes through `docs/CORE.md` first, as its
   own reviewed change, and needs the user's agreement. Ask the "Rig"
   session (below).
+- **New library modules** beyond those in "What comes next". Examples:
+  io, fs, Map/Set, traits, threads.
 
-A change is in scope when it changes no accepted program's meaning and
-only turns wrong rejections into acceptances, or builds a planned Core
-rule. A change that rejects programs a release accepted lists them in
-the release notes.
+A change that rejects programs a release accepted lists them in the
+release notes.
 
 ## The consolidation
 
@@ -126,7 +143,7 @@ diagnostics name only forms that compile.
   `slices.contains(?v[..], ?t[4..5])`; decide whether implicit lends
   extend to branching values.
 - **`into` for stores, function-type `from`, and path tokens:** Core
-  changes, after the freeze.
+  changes, each its own reviewed change.
 
 ## Open questions
 
@@ -257,12 +274,38 @@ and run the corpus after.
 
 ## What comes next
 
-1. The design owner settles the open questions and the CORE wording.
-2. B5: what B4b left of the header temporaries rule, a header that
-   copies a value made in it.
-3. The structural address chokepoint.
-4. The per-expression "is a view" fact.
-5. The held items, as their prerequisites land.
+**In flight**, in landing order (each is a branch; none is on `main`):
+
+1. Runtime `List.clear` for plain elements (`rtclear`).
+2. SIMD round 1: `Simd[T, n]` vectors (`simd`).
+3. `m.first()`, and lowering `any` and `all` (`simdfirst`).
+4. One recorded evaluation order for assignments (`setorder`, PR #128),
+   which fixes a use-after-free on `main`.
+5. Checker-proved check elimination, redesigned around units
+   (`loopfacts`, then `proofs2`; the draft PR #126 closes).
+6. `std.json`, the JSON parser moving in from the Trig project; it
+   lands last.
+
+**Toward `v0.3.0`:** the docs pass, the deep gate, and the tag with a
+migration guide (`tools/migrate-0.3.py`).
+
+**Later:**
+
+- SIMD round 2: byte lookup, a joined shift, a saturating subtract (its
+  spelling is undecided), `pad:` reads, and `blocks(N)`.
+- A String API for part-word appends and windowed writes.
+- Multiple results.
+- A frame-size guard for every function.
+- Nexus's `Span.text`, in place of the position slicing Rig does.
+
+**Also open:**
+
+- The design owner settles the open questions and the CORE wording.
+- B5: what B4b left of the header temporaries rule, a header that
+  copies a value made in it.
+- The structural address chokepoint.
+- The per-expression "is a view" fact.
+- The held items, as their prerequisites land.
 
 ## The gates
 
@@ -278,8 +321,8 @@ Two gates (AGENTS.md, "Land fast, release deep"):
   a clean deep gate.
 
 The machines are shared: run heavy work through the job queue
-(`cpuq run --cores 2 -- …`, with `-j "$CPUQ_CORES"`), and start a job only
-when no one else is waiting. Full runs go to the Linux machine, pup, one
+(`cpuq run --cores 2 -- …`, with `-j "$CPUQ_CORES"`), which shares the
+CPUs fairly. Full runs go to the Linux machine, pup, one
 at a time with its spare cores.
 
 ```bash
