@@ -1684,7 +1684,7 @@ pub const Emitter = struct {
             .@"<<" => "@shlExact",
             else => null,
         };
-        const shift = op == .@"<<" or op == .@">>";
+        const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
         const order = try self.openAssign(target, value, if (value_ty) |t| self.peelViews(t) else null, .value);
@@ -1707,7 +1707,7 @@ pub const Emitter = struct {
             return self.closeAssign(order);
         }
         try self.emitPlace(target);
-        try self.w.print(" {s}= ", .{@tagName(op)});
+        try self.w.print(" {s}= ", .{if (op == .@"<<%") "<<" else @tagName(op)});
         if (shift) try self.w.writeAll("@intCast(");
         try self.emitBare(value);
         if (shift) try self.w.writeAll(")");
@@ -3894,7 +3894,7 @@ pub const Emitter = struct {
             else => {},
         }
         if (self.literal_ty == null) switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
                 // does not evaluate it again with other intermediate types.
@@ -3903,7 +3903,7 @@ pub const Emitter = struct {
             else => {},
         };
         switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .neg, .index => self.rt_names = true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .neg, .index => self.rt_names = true,
             else => {},
         }
         switch (head) {
@@ -4050,18 +4050,20 @@ pub const Emitter = struct {
                 try self.emitExpr(ir.get(sexp, .right));
                 if (!bare) try self.w.writeAll(")");
             },
-            .@"<<", .@">>" => {
+            .@"<<", .@"<<%", .@">>" => {
                 // Like `+`, a left shift that loses bits (or the sign)
-                // overflows (`@shlExact`). The shift amount is cast to the
-                // width Zig requires; the shifted value has the
-                // expression's type.
+                // overflows (`@shlExact`); `<<%` drops them, as Zig's `<<`
+                // does. The shift amount is cast to the width Zig requires,
+                // so one at or over the width panics in either; the shifted
+                // value has the expression's type.
                 const shl = head == .@"<<";
+                const wrap = head == .@"<<%";
                 const parens = !shl and !bare;
                 if (parens) try self.w.writeAll("(");
                 if (shl) try self.w.writeAll("@shlExact(");
                 try self.writeAsOpen(self.typeOf(sexp) orelse self.facts.types.int_id);
                 try self.emitBare(ir.get(sexp, .left));
-                try self.w.writeAll(if (shl) "), @intCast(" else ") >> @intCast(");
+                try self.w.writeAll(if (shl) "), @intCast(" else if (wrap) ") << @intCast(" else ") >> @intCast(");
                 try self.emitBare(ir.get(sexp, .right));
                 try self.w.writeAll(if (shl) "))" else ")");
                 if (parens) try self.w.writeAll(")");
@@ -5095,6 +5097,26 @@ pub const Emitter = struct {
                 try self.emitBare(obj);
                 return self.w.writeAll("))");
             },
+            // `@as(Int, @clz(x))`: the builtin counts in the receiver's
+            // type, a bit pattern for a signed one, and gives a smaller
+            // unsigned integer, which widens to `Int`.
+            .leading_zeros, .trailing_zeros, .count_ones => {
+                try self.writeAsOpen(ec.elem);
+                try self.w.writeAll(switch (ec.op) {
+                    .leading_zeros => "@clz(",
+                    .trailing_zeros => "@ctz(",
+                    else => "@popCount(",
+                });
+                try self.writeAsOpen(ec.num);
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")))");
+            },
+            .swap_bytes => {
+                try self.w.writeAll("@byteSwap(");
+                try self.writeAsOpen(ec.num);
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll("))");
+            },
             .copy, .fill, .swap => {
                 try self.w.print("rig.{s}(", .{@tagName(ec.op)});
                 try self.emitElems(ir.Member.object(callee));
@@ -5386,7 +5408,7 @@ pub const Emitter = struct {
         if (e.isKind(.enum_lit) or decl.isErrorMember(e)) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t)) |set| if (set.symbol().flags.error_set) {
             const name = if (e.isKind(.member)) ir.Member.name(e) else ir.EnumLit.name(e);
             try self.w.writeAll("error.");
-            return writeErrorName(self.w, set.facts, set.symbol().name, decl.source[name.src.pos..][0..name.src.len]);
+            return writeErrorName(self.w, set.facts, set.symbol().name, rig.leafText(decl.source, name.src));
         };
         if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
         if (decl.same(self.facts)) {
@@ -5397,7 +5419,7 @@ pub const Emitter = struct {
         }
         if (e.isKind(.member)) {
             const obj = ir.Member.object(e);
-            const name = decl.source[ir.Member.name(e).src.pos..][0..ir.Member.name(e).src.len];
+            const name = rig.leafText(decl.source, ir.Member.name(e).src);
             if (decl.intLimit(e)) |limit| return self.w.print("{d}", .{limit.v});
             const module = if (decl.symbolOf(obj)) |id| decl.symbols.items[id].kind == .module else false;
             if (!module) if (decl.typeOf(e)) |t| if (decl.types.get(t) == .float) {
@@ -5407,14 +5429,14 @@ pub const Emitter = struct {
                 return self.w.print("{s}std.math.floatMax(f{d})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", if (bits == 0) 64 else bits });
             };
             if (obj != .src) return self.unsupported(e, "this default value");
-            const local = decl.source[obj.src.pos..][0..obj.src.len];
+            const local = rig.leafText(decl.source, obj.src);
             for (0..decl.importCount()) |i| {
                 const imp = decl.importAt(i);
                 if (std.mem.eql(u8, imp.local_name, local)) return self.w.print("@import(\"{s}\").{f}", .{ imp.facts.zig_file, ident(name) });
             }
             return self.unsupported(e, "a default from an unresolved module");
         }
-        return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(decl.source[e.src.pos..][0..e.src.len]) });
+        return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(rig.leafText(decl.source, e.src)) });
     }
 
     /// The checked module whose source is `source`: this one, or one it
@@ -6716,7 +6738,7 @@ fn nameModule(ctx: Facts) []const u8 {
 fn isDefaultLiteralNode(source: []const u8, e: Sexp) bool {
     return switch (e) {
         .src => |s| blk: {
-            const t = source[s.pos..][0..s.len];
+            const t = rig.leafText(source, s);
             break :blk isLiteralText(t) or std.mem.eql(u8, t, "none");
         },
         .list => e.isKind(.enum_lit) or (e.isKind(.neg) and ir.Neg.operand(e) == .src),
@@ -6729,7 +6751,7 @@ fn isDefaultLiteralNode(source: []const u8, e: Sexp) bool {
 fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
     switch (e) {
         .src => |s| {
-            const t = source[s.pos..][0..s.len];
+            const t = rig.leafText(source, s);
             if (std.mem.eql(u8, t, "none")) return w.writeAll("null");
             if (t[0] == '\'') return writeSingleQuoted(w, t);
             // Zig has no `.5`.
@@ -6835,7 +6857,7 @@ fn provenTests(p: facts.Proven) ?[]const u8 {
 
 fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
     if (s != .src) return false;
-    const t = source[s.src.pos..][0..s.src.len];
+    const t = rig.leafText(source, s.src);
     for (t) |c| if (!std.ascii.isDigit(c) and c != '_') return false;
     return t.len > 0;
 }

@@ -20,6 +20,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const diag = @import("diag.zig");
 const sema = @import("sema.zig");
 const Wide = sema.Wide;
 
@@ -423,7 +424,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     try self.ctx.recordWrite(node, existing, .compound);
                 } else if (self.scope == self.module_scope) {
@@ -2024,7 +2025,7 @@ pub const TypeResolver = struct {
 
     fn sourceText(self: *const TypeResolver, node: Sexp) Error![]const u8 {
         const sp = self.ctx.span(node);
-        return self.ctx.source[sp.start..sp.end];
+        return diag.textOf(self.ctx.source, sp);
     }
 
     /// A declaration `module.Name` names in an imported module, or null

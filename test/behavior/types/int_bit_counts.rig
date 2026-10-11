@@ -1,0 +1,147 @@
+# `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()` count the bits of an
+# integer's own bit pattern, of any width and sign, and give an `Int`. Zero has no set
+# bit: both zero counts are the width.
+
+sub main()
+  x1: U8 = 0
+  print(x1.leading_zeros(), x1.trailing_zeros(), x1.count_ones())
+  x2: U8 = 1
+  print(x2.leading_zeros(), x2.trailing_zeros(), x2.count_ones())
+  x3: U8 = 255
+  print(x3.leading_zeros(), x3.trailing_zeros(), x3.count_ones())
+  x4: U8 = 128
+  print(x4.leading_zeros(), x4.trailing_zeros(), x4.count_ones())
+  x5: U16 = 0
+  print(x5.leading_zeros(), x5.trailing_zeros(), x5.count_ones())
+  x6: U16 = 1
+  print(x6.leading_zeros(), x6.trailing_zeros(), x6.count_ones())
+  x7: U16 = 65535
+  print(x7.leading_zeros(), x7.trailing_zeros(), x7.count_ones())
+  x8: U16 = 32768
+  print(x8.leading_zeros(), x8.trailing_zeros(), x8.count_ones())
+  x9: U32 = 0
+  print(x9.leading_zeros(), x9.trailing_zeros(), x9.count_ones())
+  x10: U32 = 1
+  print(x10.leading_zeros(), x10.trailing_zeros(), x10.count_ones())
+  x11: U32 = 4294967295
+  print(x11.leading_zeros(), x11.trailing_zeros(), x11.count_ones())
+  x12: U32 = 2147483648
+  print(x12.leading_zeros(), x12.trailing_zeros(), x12.count_ones())
+  x13: U64 = 0
+  print(x13.leading_zeros(), x13.trailing_zeros(), x13.count_ones())
+  x14: U64 = 1
+  print(x14.leading_zeros(), x14.trailing_zeros(), x14.count_ones())
+  x15: U64 = 18446744073709551615
+  print(x15.leading_zeros(), x15.trailing_zeros(), x15.count_ones())
+  x16: U64 = 9223372036854775808
+  print(x16.leading_zeros(), x16.trailing_zeros(), x16.count_ones())
+  x17: U128 = 0
+  print(x17.leading_zeros(), x17.trailing_zeros(), x17.count_ones())
+  x18: U128 = 1
+  print(x18.leading_zeros(), x18.trailing_zeros(), x18.count_ones())
+  x19: U128 = 340282366920938463463374607431768211455
+  print(x19.leading_zeros(), x19.trailing_zeros(), x19.count_ones())
+  x20: U128 = 170141183460469231731687303715884105728
+  print(x20.leading_zeros(), x20.trailing_zeros(), x20.count_ones())
+  x21: I8 = 0
+  print(x21.leading_zeros(), x21.trailing_zeros(), x21.count_ones())
+  x22: I8 = 1
+  print(x22.leading_zeros(), x22.trailing_zeros(), x22.count_ones())
+  x23: I8 = -1
+  print(x23.leading_zeros(), x23.trailing_zeros(), x23.count_ones())
+  x24: I8 = -128
+  print(x24.leading_zeros(), x24.trailing_zeros(), x24.count_ones())
+  x25: I8 = 127
+  print(x25.leading_zeros(), x25.trailing_zeros(), x25.count_ones())
+  x26: I8 = -2
+  print(x26.leading_zeros(), x26.trailing_zeros(), x26.count_ones())
+  x27: I16 = 0
+  print(x27.leading_zeros(), x27.trailing_zeros(), x27.count_ones())
+  x28: I16 = 1
+  print(x28.leading_zeros(), x28.trailing_zeros(), x28.count_ones())
+  x29: I16 = -1
+  print(x29.leading_zeros(), x29.trailing_zeros(), x29.count_ones())
+  x30: I16 = -32768
+  print(x30.leading_zeros(), x30.trailing_zeros(), x30.count_ones())
+  x31: I16 = 32767
+  print(x31.leading_zeros(), x31.trailing_zeros(), x31.count_ones())
+  x32: I32 = 0
+  print(x32.leading_zeros(), x32.trailing_zeros(), x32.count_ones())
+  x33: I32 = 1
+  print(x33.leading_zeros(), x33.trailing_zeros(), x33.count_ones())
+  x34: I32 = -1
+  print(x34.leading_zeros(), x34.trailing_zeros(), x34.count_ones())
+  x35: I32 = -2147483648
+  print(x35.leading_zeros(), x35.trailing_zeros(), x35.count_ones())
+  x36: I32 = 2147483647
+  print(x36.leading_zeros(), x36.trailing_zeros(), x36.count_ones())
+  x37: Int = 0
+  print(x37.leading_zeros(), x37.trailing_zeros(), x37.count_ones())
+  x38: Int = 1
+  print(x38.leading_zeros(), x38.trailing_zeros(), x38.count_ones())
+  x39: Int = -1
+  print(x39.leading_zeros(), x39.trailing_zeros(), x39.count_ones())
+  x40: Int = -9223372036854775807 - 1
+  print(x40.leading_zeros(), x40.trailing_zeros(), x40.count_ones())
+  x41: Int = 9223372036854775807
+  print(x41.leading_zeros(), x41.trailing_zeros(), x41.count_ones())
+  x42: I128 = 0
+  print(x42.leading_zeros(), x42.trailing_zeros(), x42.count_ones())
+  x43: I128 = 1
+  print(x43.leading_zeros(), x43.trailing_zeros(), x43.count_ones())
+  x44: I128 = -1
+  print(x44.leading_zeros(), x44.trailing_zeros(), x44.count_ones())
+  x45: I128 = -170141183460469231731687303715884105727 - 1
+  print(x45.leading_zeros(), x45.trailing_zeros(), x45.count_ones())
+  x46: I128 = 170141183460469231731687303715884105727
+  print(x46.leading_zeros(), x46.trailing_zeros(), x46.count_ones())
+
+# release
+
+# expect:
+# 8 8 0
+# 7 0 1
+# 0 0 8
+# 0 7 1
+# 16 16 0
+# 15 0 1
+# 0 0 16
+# 0 15 1
+# 32 32 0
+# 31 0 1
+# 0 0 32
+# 0 31 1
+# 64 64 0
+# 63 0 1
+# 0 0 64
+# 0 63 1
+# 128 128 0
+# 127 0 1
+# 0 0 128
+# 0 127 1
+# 8 8 0
+# 7 0 1
+# 0 0 8
+# 0 7 1
+# 1 0 7
+# 0 1 7
+# 16 16 0
+# 15 0 1
+# 0 0 16
+# 0 15 1
+# 1 0 15
+# 32 32 0
+# 31 0 1
+# 0 0 32
+# 0 31 1
+# 1 0 31
+# 64 64 0
+# 63 0 1
+# 0 0 64
+# 0 63 1
+# 1 0 63
+# 128 128 0
+# 127 0 1
+# 0 0 128
+# 0 127 1
+# 1 0 127

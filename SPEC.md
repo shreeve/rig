@@ -2190,9 +2190,37 @@ the result wraps around in two's complement, keeping the low bits in
 the operands' integer type, and never panics. They take integers of
 any type; a `Float` is rejected, as is a literal operand that would
 take a float type or a type parameter a float fills. The same holds
-for the integer operators `&`, `|`, `^`, `<<`, and `>>`. `+%=`, `-%=`, and `*%=` assign the
+for the integer operators `&`, `|`, `^`, `<<`, `<<%`, and `>>`. `+%=`, `-%=`, and `*%=` assign the
 wrapped result. Constant wrapping arithmetic is computed in its type,
 as the program computes it.
+
+`<<%` is the wrapping left shift: the high bits it shifts out are
+dropped, where `<<` panics. It binds as `<<` does, and its amount is
+checked as `<<`'s is: it must be below the width of the shifted type,
+and one at or over it is rejected if constant and panics when the
+program runs, never masked. `<<%=` assigns the shifted result.
+
+```rig
+sub main()
+  a: U8 = 0b1100_0001
+  n = 4
+  a <<%= 1
+  print(a, a <<% n, 255 <<% 60)
+```
+
+```output
+130 32 -1152921504606846976
+```
+
+```rig reject
+sub main()
+  a: U8 = 1
+  print(a <<% 8)
+```
+
+```error
+shift amount `8` is out of range for `U8` (0..7)
+```
 
 ```rig
 fun fnv1a(s: ?String) -> U64
@@ -2247,6 +2275,44 @@ sub main()
 
 ```error
 `not` takes a Bool; for the bitwise complement write `x.not()`
+```
+
+The other methods of an integer's bits take no arguments and work on
+its bit pattern, so a negative value counts as its two's complement.
+`x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()` give
+an `Int`: the zero bits above the highest set bit, the zero bits below
+the lowest, and the set bits. For `0` both zero counts are the width of
+its type, and `(-1).count_ones()` is 64. `x.swap_bytes()` reverses the
+bytes, in the integer's own type. A receiver that is not an integer is
+rejected.
+
+```rig
+sub main()
+  m: U64 = 0x0000_0080_0000_8000
+  b: I8 = -128
+  z: U16 = 0
+  print(m.trailing_zeros() / 8, m.leading_zeros(), m.count_ones())
+  print(b.leading_zeros(), b.trailing_zeros(), b.count_ones())
+  print(z.leading_zeros(), z.count_ones())
+  w: U32 = 0x1234_5678
+  print(w.swap_bytes() == 0x7856_3412)
+```
+
+```output
+1 24 2
+0 7 1
+16 0
+true
+```
+
+```rig reject
+sub main()
+  x = 1.5
+  print(x.count_ones())
+```
+
+```error
+type `Float` has no method `count_ones`
 ```
 
 `==` and `!=` compare two values of the same type, by content. The

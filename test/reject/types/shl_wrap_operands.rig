@@ -1,0 +1,19 @@
+# `<<%` needs an integer on the left and an integer amount below the width, as `<<` does.
+
+sub main()
+  f = 1.5
+  print(f <<% 1)
+  n: U8 = 1
+  print(n <<% 8)
+  print(n <<% 1.5)
+  m: U16 = 1
+  m <<%= 16
+  f <<%= 1
+  print(1 <<% true)
+
+# error: 5:9: operator `<<%` requires integer operands; got `Float`
+# error: shift amount `8` is out of range for `U8` (0..7)
+# error: a shift amount must be an integer; got `Float`
+# error: shift amount `16` is out of range for `U16` (0..15)
+# error: `<<%=` requires an integer target; `f` has type `Float`
+# error: a shift amount must be an integer; got `Bool`

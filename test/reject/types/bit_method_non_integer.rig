@@ -1,0 +1,14 @@
+# The bit methods are for integers.
+
+sub main()
+  f = 1.5
+  b = true
+  s = "ab"
+  print(f.count_ones(), b.leading_zeros(), s.trailing_zeros(), f.swap_bytes())
+  print(5.count_ones(1))
+
+# error: 7:11: type `Float` has no method `count_ones`
+# error: 7:27: type `Bool` has no method `leading_zeros`
+# error: 7:46: type `Static` has no method `trailing_zeros`
+# error: 7:66: type `Float` has no method `swap_bytes`
+# error: 8:11: `count_ones` takes no arguments; got 1

@@ -1,0 +1,34 @@
+# `x.swap_bytes()` reverses the bytes of an integer, in the integer's own type.
+
+sub main()
+  a: U8 = 0xAB
+  print(a.swap_bytes())
+  b: U16 = 0x1234
+  print(b.swap_bytes(), b.swap_bytes().swap_bytes() == b)
+  c: U32 = 0x1234_5678
+  print(c.swap_bytes())
+  d: U64 = 0x0102_0304_0506_0708
+  print(d.swap_bytes())
+  e: U128 = 1
+  print(e.swap_bytes())
+  f: I16 = -2
+  print(f.swap_bytes())
+  g: I32 = 1
+  print(g.swap_bytes())
+  h: Int = 1
+  print(h.swap_bytes())
+  i: I8 = -128
+  print(i.swap_bytes())
+
+# release
+
+# expect:
+# 171
+# 13330 true
+# 2018915346
+# 578437695752307201
+# 1329227995784915872903807060280344576
+# -257
+# 16777216
+# 72057594037927936
+# -128
