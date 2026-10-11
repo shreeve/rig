@@ -1546,8 +1546,16 @@ pub const max_len: u64 = (1 << 62) - 1;
 /// A length or count as a Rig `Int`; panics above `max_len`, which a
 /// 64-bit target tests with one compare and a 32-bit one never needs to.
 pub fn len(n: usize) Int {
-    if (@as(u64, n) > max_len) @panic("length out of range");
-    return @intCast(n);
+    if (@as(u64, n) > max_len) lenPanic();
+    // Exact: `n <= max_len` here.
+    return @bitCast(@as(u64, n));
+}
+
+/// Out of line and cold, so the test costs a caller's inlining one
+/// compare and a branch.
+noinline fn lenPanic() noreturn {
+    @branchHint(.cold);
+    @panic("length out of range");
 }
 
 fn indexPanic() noreturn {
