@@ -1005,11 +1005,18 @@ iteration. An `else` block runs when the loop ends without `break`.
 `for x, i in xs` also binds the index, after the element (not for an
 iterator). A sigil on the source says how the loop holds it.
 
+A `for` with no variable, `for source`, is `for _ in source`: it runs
+the body once per item and binds nothing. Any source works, including
+`for !it`, which advances an existing iterator. There is no implicit
+`it`; `it` is an ordinary name.
+
 ```rig
 sub main()
   total = 0
   for i in 0..5
     total += i
+  for 0..2
+    total += 100
   for c, i in ["a", "b"]
     print(i, c)
   print(total)
@@ -1022,7 +1029,7 @@ sub main()
 ```output
 0 a
 1 b
-10
+210
 [10, 20, 30]
 ```
 
@@ -1628,6 +1635,7 @@ if        = "if" value block ["else" (block | if)]
 while     = "while" value [":" step] block ["else" block]
 step      = assign | ["?" | "!" | "<"] postfix
 for       = "for" name ["," name] "in" value block ["else" block]
+          | "for" value block ["else" block]            # `for _ in value`
 match     = "match" value INDENT arm* DEDENT
 arm       = pattern, ... ["if" value] ("=>" simple | block)
 pattern   = patom [".." patom]

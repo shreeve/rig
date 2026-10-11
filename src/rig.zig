@@ -1253,11 +1253,15 @@ const HiddenName = enum(u16) {
     /// The binding that holds a loop's source. It has a space, so no
     /// program can write it, and a message that names it says what it is.
     iterator = 1,
+    /// The variable of a bare `for`, which binds nothing: `for xs` is
+    /// `for _ in xs`.
+    discard = 2,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
             .next => "next",
             .iterator => "for iterator",
+            .discard => "_",
         };
     }
 };
@@ -1764,7 +1768,8 @@ pub const Parser = struct {
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
-            .star => if (precededBy(src, tok.pos, "for")) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,
+            .star => if (precededBy(src, tok.pos, "for")) reserved_for_star else null,
+            .in => if (forStar(src, tok.pos)) reserved_for_star else null,
             .ident, .not_sym, .question => if (precededBy(src, tok.pos, "drop")) "a drop body takes its receiver in parentheses: `drop(!self)`" else null,
             else => null,
         };
@@ -1926,6 +1931,16 @@ pub const Parser = struct {
         return std.mem.endsWith(u8, text, word) and (text.len == word.len or !isIdentCont(text[text.len - word.len - 1]));
     }
 
+    const reserved_for_star = "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`";
+
+    /// Whether the `in` at `pos` closes a `for *x` header, which reads as
+    /// a bare `for` over `*x` until the `in`.
+    fn forStar(src: []const u8, pos: u32) bool {
+        const start = if (std.mem.findScalarLast(u8, src[0..pos], '\n')) |nl| nl + 1 else 0;
+        const line = std.mem.trimStart(u8, src[start..pos], " \t");
+        return std.mem.startsWith(u8, line, "for *");
+    }
+
     /// The word before `pos` is `word`.
     fn precededBy(src: []const u8, pos: u32, word: []const u8) bool {
         return endsWithWord(std.mem.trimEnd(u8, src[0..pos], " "), word);
@@ -1991,6 +2006,7 @@ pub const Parser = struct {
         // receiver rewrite can see it.
         if (sexp.kind() == .@"for") {
             const copy = try self.allocator().dupe(Sexp, items);
+            self.bareFor(sexp, copy);
             normFor(copy);
             items = copy;
         }
@@ -2487,6 +2503,15 @@ pub const Parser = struct {
         out[ir.slot(.@"while", .body)] = ir.For.body(loop);
         out[ir.slot(.@"while", .@"else")] = ir.For.@"else"(loop);
         return .{ .loop = .{ .list = parser.List.withId(out, loop.list.id) }, .hold = hold };
+    }
+
+    /// A bare `for xs` is `for _ in xs`: the variable the grammar left
+    /// out is the discard name, at the `for` keyword.
+    fn bareFor(self: *Parser, loop: Sexp, items: []Sexp) void {
+        const slot = ir.slot(.@"for", .@"var");
+        if (items[slot] != .nil) return;
+        const at = self.span(loop).start;
+        items[slot] = hiddenLeaf(at, .discard);
     }
 
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.

@@ -2290,6 +2290,17 @@ written to it: the resolver that writes the jump marks the label, so
 which labels appear needs no analysis of its own. The blocks are always
 there; an unused one is a plain `{ }`, which Zig compiles to nothing.
 
+### Bare `for`
+
+`for source` is `for _ in source`. The grammar's second `for`
+alternative leaves the `var` role empty; the Parser wrapper
+(`Parser.bareFor`) fills it with a hidden leaf named `_` at the `for`
+keyword, before the source sigil is promoted into the mode, so every
+later pass sees the `for` node of `for _ in source` and has no case for
+the bare form. LALR(1) needs no conflict: after `for`, a name followed
+by `in` or `,` is the binding form, and a name followed by anything
+else is the start of a source (`in` follows no expression).
+
 ### Loops over an iterator
 
 `for x in it` is `while (!it).next() as x`, and nothing else: no pass

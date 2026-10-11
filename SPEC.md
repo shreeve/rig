@@ -2653,6 +2653,11 @@ held for the loop, which owns its elements. A part of a value made
 there (`mk().arr`) is walked in that value, which the loop holds until
 it ends.
 
+`for source`, with no variable, is `for _ in source` and nothing else:
+the same sources, sigils, checks and lowering, with no binding. The
+parser takes `for NAME in` and `for NAME, NAME in` as the binding form
+and anything else as the bare one. `it` is not special.
+
 ```rig
 sub find(xs: ?[4]Int, target: Int)
   for x, i in xs

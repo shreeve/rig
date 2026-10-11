@@ -1,0 +1,122 @@
+# `for xs` with no variable is `for _ in xs`: it runs the body once per
+# item and binds nothing, over any source `for x in xs` takes. `it` is
+# an ordinary name. `break`, `continue`, labels, `else` and loop values
+# work as they do with a variable.
+# release
+
+struct Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    self.lo - 1
+
+fun upto(n: Int) -> Count
+  Count(lo: 0, hi: n)
+
+sub main()
+  hits = 0
+  for 0..3
+    hits += 1
+  print("range", hits)
+
+  xs = [10, 20, 30, 40]
+  hits = 0
+  for xs
+    hits += 1
+  print("list", hits)
+
+  hits = 0
+  for ?xs
+    hits += 1
+  print("read", hits)
+
+  hits = 0
+  for upto(5)
+    hits += 1
+  print("made", hits)
+
+  c = upto(6)
+  for !c
+    break if hits > 100
+    hits += 1
+    break if hits > 7
+  print("lent", hits, (!c).next() ?? -1)
+  for !c
+    hits += 1
+  print("rest", hits, (!c).next() ?? -1)
+
+  it = 5
+  for 0..it
+    it += 1
+  print("name", it)
+
+  hits = 0
+  for 0..3
+    for 0..4
+      hits += 1
+  print("nested", hits)
+
+  hits = 0
+  for 0..10
+    hits += 1
+    continue if hits < 3
+    break if hits == 5
+  print("jumps", hits)
+
+  :outer for 0..3
+    for 0..3
+      hits += 1
+      continue :outer if hits > 6
+  print("label", hits)
+
+  for upto(2)
+    hits += 1
+  else
+    print("else", hits)
+
+  for 0..9
+    break
+  else
+    print("never")
+
+  r = for 0..4
+    hits += 1
+    break hits if hits > 10
+  else
+    -1
+  print(r)
+
+  e = upto(3)
+  hits = 0
+  for <e
+    hits += 1
+  print("taken", hits)
+
+  for n in 0..2
+    print("var", n)
+  for x, i in xs
+    print(x, i)
+
+# expect:
+# range 3
+# list 4
+# read 4
+# made 5
+# lent 8 3
+# rest 10 -1
+# name 10
+# nested 12
+# jumps 5
+# label 9
+# else 11
+# 12
+# taken 3
+# var 0
+# var 1
+# 10 0
+# 20 1
+# 30 2
+# 40 3
