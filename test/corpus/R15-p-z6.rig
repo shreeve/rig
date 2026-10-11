@@ -3,4 +3,4 @@ fun n(x: Int) -> Int
 
 sub main()
   b: [3]U8 = [0, 0, 0]
-  !b.write[U8, .big](0, n(300))
+  !b.write[U8](0, n(300))

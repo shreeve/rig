@@ -776,7 +776,9 @@ order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
 integer or float type, or a type parameter every instance gives one;
 `e` is a compile-time value of the built-in enum
 `Endian`, `.little` or `.big` (a literal, `Endian.big`, a constant, or
-a compile-time parameter; there is no native order). `read` works on a
+a compile-time parameter; there is no native order). A one-byte `T`
+(`U8`, `I8`) has no byte order and takes no `e`: `read[U8](at)`,
+`write[U8](at, v)`. `read` works on a
 `[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, and a `?String`; `write` on
 the writable ones, written `!bytes` (or an `![]U8` binding). Every byte
 must be in range, `0 <= at` and `at + @size(T) <= len`: a constant

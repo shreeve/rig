@@ -25,7 +25,7 @@ sub main()
   put(!f.body, U32(0xdeadbeef))
   put(!f.body, I8(-1))
   g: ?String = ?f.body
-  print(g.len, g.read[U16, .big](0), g.read[U32, .big](2), g.read[I8, .big](6))
+  print(g.len, g.read[U16, .big](0), g.read[U32, .big](2), g.read[I8](6))
 
   s = String()
   !s.reserve(0)
@@ -34,7 +34,7 @@ sub main()
   print(s.len)
   !s.push[U8](65)
   !s.push[I8](66)
-  !s.push[U8, .big](67)
+  !s.push[U8](67)
   print(s)
 
   b = String()

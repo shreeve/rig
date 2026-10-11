@@ -1,0 +1,46 @@
+# Every append writes at the end of the live bytes and grows when the
+# room runs out: right after `reserve`, exactly filling the reserved
+# room, one past it, and a wide push that straddles the end of it.
+
+sub main()
+  ok = true
+  for room in 0..40
+    s = String()
+    !s.reserve(room)
+    for i in 0..room
+      !s.push(U8(i))
+    !s.push(U8(200))
+    !s.push[U32, .big](0x01020304)
+    !s.push[U16, .little](0xbeef)
+    !s.push[U64, .little](0x1122334455667788)
+    !s.add("xy")
+    !s.add(String("z"))
+    v: ?String = ?s
+    if v.len != room + 1 + 4 + 2 + 8 + 3
+      ok = false
+    for i in 0..room
+      if v[i] != U8(i)
+        ok = false
+    if v[room] != 200 or v.read[U32, .big](room + 1) != 0x01020304
+      ok = false
+    if v.read[U16, .little](room + 5) != 0xbeef or v.read[U64, .little](room + 7) != 0x1122334455667788
+      ok = false
+    if v[room + 15] != 120 or v[room + 17] != 122
+      ok = false
+  print(ok)
+
+  # A List appends the same way.
+  total = 0
+  for room in 0..40
+    l: List[Int] = List()
+    !l.reserve(room)
+    for i in 0..room
+      !l.push(i)
+    !l.push(1000)
+    !l.push(2000)
+    total += l.len + l[room] + l[room + 1]
+  print(total)
+
+# expect:
+# true
+# 120860
