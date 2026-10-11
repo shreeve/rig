@@ -392,6 +392,10 @@ pub const Facts = struct {
     pub fn stringCall(f: Facts, call: Sexp) ?StringCall {
         return storage.stringCall(f.c(), call);
     }
+    /// The integer type of a `t.push[T, e](v)` call.
+    pub fn stringNumOf(f: Facts, callee: Sexp) ?TypeId {
+        return f.c().stringNumOf(callee);
+    }
     pub fn isPrintCall(f: Facts, call: Sexp) bool {
         return storage.isPrintCall(f.c(), call);
     }
