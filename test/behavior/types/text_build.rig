@@ -24,7 +24,7 @@ sub main()
   print(t)
   o: Int? = none
   s = Shape.circle(r: 1.5)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   u = Text(Point(x: 1, y: 2.0), " ", User(name: "ada", age: 36), " ", s, " ", Shape.dot)

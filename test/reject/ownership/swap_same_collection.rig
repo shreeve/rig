@@ -2,13 +2,13 @@
 # twice; the collection's own `swap` exchanges them.
 
 struct Deck
-  cards: Vec[Int]
+  cards: List[Int]
 
 sub main()
   a = [1, 2, 3]
   i = 0
   swap(!a[i], !a[i + 2])
-  d = Deck(cards: Vec())
+  d = Deck(cards: List())
   swap(!d.cards[0], !d.cards[1])
   print(a, d.cards.len)
 

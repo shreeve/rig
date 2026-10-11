@@ -13,7 +13,7 @@ fun ci(x: I128) -> Int
 sub main()
   print(cls(0), cls(U128.max), cls(5), cls(1000))
   print(ci(I128.min), ci(0))
-  v = Vec[U128]()
+  v = List[U128]()
   !v.push(U128.max)
   print(v, v[0] == U128.max, "#{v[0]}")
   y: I128 = -5

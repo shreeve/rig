@@ -6,11 +6,11 @@ struct Point
   x: Int
   y: Int
 
-fun size(b: ?^?Vec[Int]) -> Int
+fun size(b: ?^?List[Int]) -> Int
   b.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   b = ^?v
@@ -23,7 +23,7 @@ sub main()
   print(bt.len, bt)
   moved = <b
   print(moved.len)
-  boxes: Vec[^?Vec[Int]] = Vec()
+  boxes: List[^?List[Int]] = List()
   !boxes.push(^?v)
   !boxes.push(^?v)
   print(boxes[0].len + boxes[1].len)

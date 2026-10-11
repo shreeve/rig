@@ -12,7 +12,7 @@ test "fails"
   print(f(1)!)
 
 test "leaks \"quoted\""
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
 
 test "last"

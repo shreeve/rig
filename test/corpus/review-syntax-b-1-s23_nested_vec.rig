@@ -2,8 +2,8 @@ fun keep(xs: []Int) -> []Int
   xs
 
 sub main()
-  vv: Vec[Vec[Int]] = Vec()
-  v: Vec[Int] = Vec()
+  vv: List[List[Int]] = List()
+  v: List[Int] = List()
   !v.push(1)
   !vv.push(<v)
   r = keep(?vv[0][..])

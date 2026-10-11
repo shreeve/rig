@@ -17,23 +17,23 @@ struct Item
   n: Int
 
 struct Bag
-  items: Vec[Item]
+  items: List[Item]
   count: Int
 
   fun first(!self) -> ?Item
     ?self.items[0]
 
-fun first(v: !Vec[Item]) -> ?Item
+fun first(v: !List[Item]) -> ?Item
   ?v[0]
 
-fun gfirst[T](v: !Vec[T]) -> ?T
+fun gfirst[T](v: !List[T]) -> ?T
   ?v[0]
 
-fun firstw(v: !Vec[Item]) -> !Item
+fun firstw(v: !List[Item]) -> !Item
   !v[0]
 
-fun items() -> Vec[Item]
-  v: Vec[Item] = Vec()
+fun items() -> List[Item]
+  v: List[Item] = List()
   !v.push(Item(n: 1))
   v
 
@@ -74,7 +74,7 @@ sub field()
   print(r.n)
 
 sub element()
-  rows: Vec[Vec[Item]] = Vec()
+  rows: List[List[Item]] = List()
   !rows.push(items())
   r = first(!rows[0])
   !rows.push(items())

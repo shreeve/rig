@@ -5,7 +5,7 @@ fun take(p: P) -> Int
   p.x
 
 sub main()
-  ps: Vec[P] = Vec()
+  ps: List[P] = List()
   !ps.push(P(x: 1))
   !ps.push(P(x: 2))
   total = 0

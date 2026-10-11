@@ -1,6 +1,6 @@
 struct C
   n: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.n.set(self.n.get() + 1)
@@ -10,7 +10,7 @@ struct S
   h: *C
 
 sub main()
-  o: *C? = *C(n: Cell(0), log: Cell(Vec()))
+  o: *C? = *C(n: Cell(0), log: Cell(List()))
   if o as k
     !k.hit()
   if !o as k

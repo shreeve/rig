@@ -1,7 +1,7 @@
 # v[0] = ?t2 where t2 is inner-scoped
 sub main()
   t = Text("a")
-  v: Vec[String] = Vec()
+  v: List[String] = List()
   !v.push(?t)
   if true
     t2 = Text("b")

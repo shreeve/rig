@@ -6,12 +6,12 @@ enum E
 struct H
   t: Text
 
-fun f(v: ?Vec[Text]) -> String from v
+fun f(v: ?List[Text]) -> String from v
   for x in ?v
     return ?x
   ""
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("a"))
   print(f(?v))

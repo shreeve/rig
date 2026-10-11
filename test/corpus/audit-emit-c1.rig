@@ -4,7 +4,7 @@ struct P
 
 struct Q
   name: String
-  v: Vec[Int]
+  v: List[Int]
 
 fun same(a: ?P, b: ?P) -> Bool
   a == b
@@ -22,6 +22,6 @@ sub main()
   o: P? = p
   n: P? = none
   print(eqopt(?o, ?n), o == n, o == none)
-  a = Q(name: "a", v: Vec())
-  b = Q(name: "a", v: Vec())
+  a = Q(name: "a", v: List())
+  b = Q(name: "a", v: List())
   print(sameq(?a, ?b))

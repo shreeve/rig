@@ -1,7 +1,7 @@
-sub walk(v: !Vec[Int], f: ?sub(Int))
+sub walk(v: !List[Int], f: ?sub(Int))
   !v.push(1)
   f(1)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   walk(!v, |?v, n| print(v.len + n))

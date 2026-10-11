@@ -1,17 +1,17 @@
 # A block-local struct at a branch's tail moves out before the branch's
 # defer writes it.
 struct R
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
   c = true
   x = if c
-    r = R(v: Vec())
+    r = R(v: List())
     !r.v.push(1)
     defer !r.v.push(2)
     r
   else
-    R(v: Vec())
+    R(v: List())
   !x.v.push(3)
   print(x.v.len, x.v[0])
 

@@ -6,11 +6,11 @@ enum E
 fun idx(s: String) -> Int
   s.len - 1
 
-fun getw(v: !Vec[E]) -> !Vec[E]
+fun getw(v: !List[E]) -> !List[E]
   v
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("hi")))
   match !getw(!v)[idx(?Text("a"))]
     .a(t) if t.len > 0

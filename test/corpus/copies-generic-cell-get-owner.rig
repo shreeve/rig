@@ -7,5 +7,5 @@ fun get[T](c: ?Cell[T]) -> T
 sub main()
   c = Cell(P(n: 3))
   print(get(?c).n)
-  d = Cell(Vec[Int]())
+  d = Cell(List[Int]())
   print(get(?d).len)

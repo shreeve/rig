@@ -1,5 +1,5 @@
 sub main()
-  c: Cell[Vec[Int]] = Cell(value: Vec())
+  c: Cell[List[Int]] = Cell(value: List())
   !c.push(1)
   !c.push(2)
   !c.swap(0, 1)

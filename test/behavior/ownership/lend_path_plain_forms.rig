@@ -2,7 +2,7 @@
 # The forms a lend written as a path's base is written as: the path
 # assigned bare (`arr[i] += 7`, `p.a[0] = 3`), the lend on the whole
 # path (`if !o[0] as w`, `!qs[1].bump()`, `match !p.e`), for an array, a
-# Vec, a field holding an array, a nested path, and a `!` parameter.
+# List, a field holding an array, a nested path, and a `!` parameter.
 # Three forms keep their parentheses, being no lend of a place as a
 # path's base: a lend as a method's receiver (`(!s).insert(k)`,
 # `(!w).put[2](3)`, `(!t.pickw()).b += 1`), a value that branches,
@@ -15,7 +15,7 @@ enum E
   b
 
 struct Set
-  items: Vec[Int]
+  items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
@@ -43,7 +43,7 @@ struct P
   fun pickw(!self) -> !Q
     !self.qs[1]
 
-sub set(v: !Vec[Int], q: !P, xs: ![]Int)
+sub set(v: !List[Int], q: !P, xs: ![]Int)
   v[0] = 4
   v[0] += 1
   q.a[1] += 10
@@ -60,7 +60,7 @@ sub main()
   arr[0] = 7
   arr[i] += 7
   print(arr)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   v[0] = 9
   v[0] += 1
@@ -72,7 +72,7 @@ sub main()
   if <o[0] as m
     print(m)
   print(o[0])
-  p = P(x: 1, o: 2, e: E.a(n: 1), a: [1, 2], qs: [Q(n: 1), Q(n: 2)], s: Set(items: Vec()))
+  p = P(x: 1, o: 2, e: E.a(n: 1), a: [1, 2], qs: [Q(n: 1), Q(n: 2)], s: Set(items: List()))
   p.x = 5
   p.a[0] = 3
   p.qs[0].n += 4
@@ -100,7 +100,7 @@ sub main()
   (!a if c else !b)[0] = 5
   (!b if c else !a)[1] += 1
   print(a, b)
-  r = P(x: 2, o: none, e: E.b, a: [0, 0], qs: [Q(n: 0), Q(n: 0)], s: Set(items: Vec()))
+  r = P(x: 2, o: none, e: E.b, a: [0, 0], qs: [Q(n: 0), Q(n: 0)], s: Set(items: List()))
   (!p if c else !r).x += 1
   n = (?p if c else ?r).s.items.len
   print(p.x, r.x, n)

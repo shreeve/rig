@@ -1,9 +1,9 @@
 enum Shape
   circle(r: Int)
-  poly(pts: Vec[Int])
+  poly(pts: List[Int])
 
 fun mk() -> Shape
-  pts: Vec[Int] = Vec()
+  pts: List[Int] = List()
   !pts.push(1)
   Shape.poly(pts: <pts)
 

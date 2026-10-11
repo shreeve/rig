@@ -1,8 +1,8 @@
-fun inner(b: ?^Vec[Int]) -> ^?Vec[Int]
+fun inner(b: ?^List[Int]) -> ^?List[Int]
   ^?b.value
 
 sub main()
-  ob = ^Vec[Int]()
+  ob = ^List[Int]()
   r = inner(?ob)
   <ob
   print(r.len)

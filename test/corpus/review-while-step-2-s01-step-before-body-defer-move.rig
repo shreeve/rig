@@ -10,21 +10,21 @@
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 3
     return S(s: ?v[..])
   none
 
-fun fresh(n: Int) -> Vec[Int]
-  a: Vec[Int] = Vec()
+fun fresh(n: Int) -> List[Int]
+  a: List[Int] = List()
   !a.push(n)
   a
 
-fun take(a: Vec[Int]) -> Int
+fun take(a: List[Int]) -> Int
   a[0]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(0)
   b = fresh(0)
   k = 0

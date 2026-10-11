@@ -12,12 +12,12 @@ struct H
 fun id[T](x: ?T) -> ?T from x
   x
 
-fun first(v: ?Vec[Text]) -> ?Text from v
+fun first(v: ?List[Text]) -> ?Text from v
   ?v[0]
 
 sub main()
   o = Text("hello")
-  vs: Vec[String] = Vec()
+  vs: List[String] = List()
   keep: String = ""
   !vs.push(?o)
   keep = vs[0]

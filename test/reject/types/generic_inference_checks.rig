@@ -19,13 +19,13 @@ struct Plain
 sub main()
   p = Plain(n: 1)
   x = Same(a: none, b: none)
-  v = Vec()
+  v = List()
   y = Same(a: 1, b: "two")
   z = Adder(v: "s")
   c = Cell(?p)
 
 # error: cannot infer `T` for `Same` from the arguments
-# error: `Vec()` needs its element type: name it (`Vec[T]()`)
+# error: `List()` needs its element type: name it (`List[T]()`)
 # error: conflicting types for `T` in `Same`: `Int` (argument 1) and `Static` (argument 2)
 # error: `Adder[Static]` cannot use `T = Static`
 # error: `Cell[T]` requires `T` to be a value that copies

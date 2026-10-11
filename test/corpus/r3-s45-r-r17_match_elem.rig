@@ -3,7 +3,7 @@ enum E
   b
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(Text("hi")))
   match v[0]
     .a(t) => print(t)

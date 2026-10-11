@@ -1,9 +1,9 @@
-# elements of a Vec inside a Box: assign, lend, take
+# elements of a List inside a Box: assign, lend, take
 struct S
-  v: Vec[Text?]
+  v: List[Text?]
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("a"))
   !v.push(Text("b"))
   b = ^S(v: <v)

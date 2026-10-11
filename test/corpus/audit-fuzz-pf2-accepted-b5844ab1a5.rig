@@ -58,7 +58,7 @@ fun fu4325(s: Bool) -> Float?
   x
 
 fun ret2548() -> I16
-  vv2548: Vec[I16] = Vec()
+  vv2548: List[I16] = List()
   !vv2548.push(32767)
   vv2548[0]
 
@@ -107,7 +107,7 @@ sub t2548()
   print(ret2548())
 
 sub t878()
-  gv878: Vec[Int] = Vec()
+  gv878: List[Int] = List()
   !gv878.push((-7439022870369575952))
   mk878 = rt_int(0)
   mz878: Int = match mk878
@@ -151,7 +151,7 @@ sub t794()
 
 sub t5304()
   arr5304: [2]I128 = [(-2), (-17)]
-  vw5304: Vec[I128] = Vec()
+  vw5304: List[I128] = List()
   pushit5304 = |!vw5304, x: I128| !vw5304.push(x)
   pushit5304(arr5304[1])
   print(vw5304)

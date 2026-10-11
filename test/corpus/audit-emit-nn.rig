@@ -13,7 +13,7 @@ enum Res[T]
       .err(c) => -c
       .ok(_) => 0
 
-fun total[T](rs: ?Vec[Res[T]], zero: T) -> T
+fun total[T](rs: ?List[Res[T]], zero: T) -> T
   t = zero
   for r in rs
     match r
@@ -24,7 +24,7 @@ fun total[T](rs: ?Vec[Res[T]], zero: T) -> T
   t
 
 sub main()
-  v: Vec[Res[Int]] = Vec()
+  v: List[Res[Int]] = List()
   !v.push(.ok(v: 3))
   !v.push(.err(code: 2))
   !v.push(.ok(v: -1))

@@ -9,7 +9,7 @@ fun f(k: Int) -> Int!
   k
 
 sub g(k: Int)!
-  v: Vec[*Node] = Vec()
+  v: List[*Node] = List()
   !v.push(*Node(n: f(k)!))
   print(v.len)
 

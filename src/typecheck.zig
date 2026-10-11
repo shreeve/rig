@@ -504,14 +504,14 @@ const Checker = struct {
     /// A parameter or field default, of type `ty`, means the same value
     /// wherever it is filled in: a literal, or a module constant (this
     /// module's or an imported one, or a number type's limit). A field's
-    /// may also be an empty or literal constructor, `Vec()`, `Cell(0)`,
+    /// may also be an empty or literal constructor, `List()`, `Cell(0)`,
     /// or `[n of 0]`, which each value gets a fresh one of.
     fn checkDefaultValue(self: *Checker, value: Sexp, ty: TypeId, what: []const u8) Error!void {
         const field = std.mem.eql(u8, what, "field");
         const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
         if (!ok) {
             if (field) {
-                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `Vec()`, `Cell(0)`, `[n of 0]`", .{});
+                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `List()`, `Cell(0)`, `[n of 0]`", .{});
             } else try self.errAt(value, "a default parameter value must be a literal, a module constant, or a number type's limit", .{});
             return;
         }
@@ -540,7 +540,7 @@ const Checker = struct {
         return foreign.kind == .local and foreign.flags.fixed;
     }
 
-    /// `Vec()`, `Vec[T]()`, `Cell(literal)`, `[n of literal]` (or of a
+    /// `List()`, `List[T]()`, `Cell(literal)`, `[n of literal]` (or of a
     /// constant).
     fn isConstructorDefault(self: *Checker, e: Sexp) Error!bool {
         if (e.isKind(.array_fill)) {
@@ -553,7 +553,7 @@ const Checker = struct {
         if (callee != .src) return false;
         const id = self.lookupQuiet(callee) orelse return false;
         const args = ir.Call.args(e);
-        if (id == self.ctx.vec_sym_id) return args.len == 0;
+        if (id == self.ctx.list_sym_id) return args.len == 0;
         if (id == self.ctx.cell_sym_id) return args.len == 1 and isDefaultLiteral(self.ctx.source, args[0]);
         return false;
     }
@@ -1107,9 +1107,9 @@ const Checker = struct {
         }
         const place_ty = try self.synthExpr(target);
         const place = self.placeOf(target);
-        if (place.cell_vec_elem) |elem| {
+        if (place.cell_list_elem) |elem| {
             if (!sameNode(elem, target) or kind.operator() != null) {
-                try self.errAt(target, "an element of a Cell's Vec is written whole, with `c[i] = e`: copy it out, change the copy, and write it back", .{});
+                try self.errAt(target, "an element of a Cell's List is written whole, with `c[i] = e`: copy it out, change the copy, and write it back", .{});
                 _ = try self.synthExpr(rhs);
                 return;
             }
@@ -1279,9 +1279,9 @@ const Checker = struct {
         /// step of the first kind that applies.
         blocked: ?struct { why: Block, pos: u32 } = null,
         /// The `c[i]` the path goes through where `c` is a
-        /// `Cell[Vec[E]]`: such an element is a copy, read or written
+        /// `Cell[List[E]]`: such an element is a copy, read or written
         /// whole.
-        cell_vec_elem: ?Sexp = null,
+        cell_list_elem: ?Sexp = null,
         /// The path starts at a lend to write, `(!c)[i]`.
         marked: bool = false,
         /// A read view, a slice, a String, or a `.len` stands between the
@@ -1325,13 +1325,13 @@ const Checker = struct {
             const inner = sema.unwrapViews(self.ctx, ty);
             const obj = self.ctx.types.get(inner);
             if (index) {
-                if (place.cell_vec_elem == null and cellVecElement(self.ctx, ty) != null) place.cell_vec_elem = step;
+                if (place.cell_list_elem == null and cellListElement(self.ctx, ty) != null) place.cell_list_elem = step;
                 const is_text = obj == .string or obj == .static;
                 if (is_text or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) {
                     place.block(if (is_text) .string else .slice, self.startOf(p));
                     if (!crossed) place.leaf_blocked = true;
                 }
-            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string or obj == .static or obj == .text or obj == .array or vecElementType(self.ctx, inner) != null or cellVecElement(self.ctx, inner) != null)) {
+            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string or obj == .static or obj == .text or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null)) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
             }
@@ -1457,10 +1457,10 @@ const Checker = struct {
                     if (hint.len > 0) {
                         try self.err(b.pos, "cannot {s}{s} through a read view (`?T`){s}", .{ through.head, through.tail, hint });
                     } else try self.err(b.pos, "cannot {s}{s} through a read view (`?T`); take a write view (`!T`) to mutate", .{ through.head, through.tail });
-                } else if (access == .assign and place.cell_vec_elem != null and place.marked) {
+                } else if (access == .assign and place.cell_list_elem != null and place.marked) {
                     return true;
-                } else if (access == .assign and place.cell_vec_elem != null) {
-                    const cell = ir.get(place.cell_vec_elem.?, .object);
+                } else if (access == .assign and place.cell_list_elem != null) {
+                    const cell = ir.get(place.cell_list_elem.?, .object);
                     try self.errAt(at, "write `(!{s})[i] = e`: changing a shared Cell is marked with `!`", .{try self.plainText(cell)});
                 } else if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
                     const shown = try self.plainText(place.node);
@@ -2041,15 +2041,15 @@ const Checker = struct {
                 // loop cannot both view and take, unless its elements copy.
                 const peeled_hands = self.hands(peeled_source);
                 const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.held_base == .nil);
-                const vec = vecElementType(self.ctx, source_ty) != null;
-                const moving = vec or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
+                const list = listElementType(self.ctx, source_ty) != null;
+                const moving = list or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
                     .array => |a| sema.copies(self.ctx, a.elem) == .no,
                     else => false,
                 };
-                // A Vec whose elements move is reported by `elementTypeForLoop`.
-                const vec_moves = if (vecElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
-                if (mode != .move and unbound and !vec_moves and (if (mode == .iter) moving else vec) and !self.isPoison(source_ty)) {
-                    const what = if (vec) "a Vec held in a place or made by a call" else "a place or takes a value made here";
+                // A List whose elements move is reported by `elementTypeForLoop`.
+                const list_moves = if (listElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
+                if (mode != .move and unbound and !list_moves and (if (mode == .iter) moving else list) and !self.isPoison(source_ty)) {
+                    const what = if (list) "a List held in a place or made by a call" else "a place or takes a value made here";
                     try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
                 }
                 self.loop_access = null;
@@ -2065,7 +2065,7 @@ const Checker = struct {
                 } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
                 // `for x in ?e` and `for x in !e` lend `e`: one made here would
                 // end with the header. A call's result is taken: `for x in e`.
-                if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
+                if ((mode == .read or mode == .write) and !(unbound and list) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
                     try self.errAt(source, "the loop would walk a view of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
                 }
             }
@@ -2100,7 +2100,7 @@ const Checker = struct {
 
     /// Whether a `for` source of type `ty` is an iterator: the one decision
     /// (docs/INTERNALS.md, "Loops over an iterator"). A positive list: a
-    /// struct or enum the program declares, or a std one (not a `Vec`, an
+    /// struct or enum the program declares, or a std one (not a `List`, an
     /// array, a slice, a `String`, or a range, which keep their own
     /// meaning), that declares `next(!self) -> T?`. A type with a `next`
     /// of another shape is `.malformed`, so the mistake is reported where
@@ -2111,7 +2111,7 @@ const Checker = struct {
         const peeled = sema.unwrapViews(self.ctx, ty);
         switch (self.ctx.types.get(peeled)) {
             .nominal, .imported_nominal => {},
-            .parameterized_nominal => if (vecElementType(self.ctx, peeled) != null) return .not_iterator,
+            .parameterized_nominal => if (listElementType(self.ctx, peeled) != null) return .not_iterator,
             else => return .not_iterator,
         }
         const next = (try self.findMethod(peeled, "next")) orelse return .not_iterator;
@@ -2341,7 +2341,7 @@ const Checker = struct {
         if (self.isPoison(source_ty)) return self.t().invalid_id;
         const peeled = sema.unwrapViews(self.ctx, source_ty);
         switch (self.ctx.types.get(peeled)) {
-            .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
+            .parameterized_nominal => if (listElementType(self.ctx, peeled)) |elem| {
                 // Elements that move (handles and boxes) are walked by
                 // view; every other element is plain data.
                 const is_resource = sema.moves(self.ctx, elem) == .yes;
@@ -2354,18 +2354,18 @@ const Checker = struct {
                         // bound with each name taken (`<a if c else <b`).
                         const made = self.madeBase(inner_source);
                         const bind = if (made != .nil) made else inner_source;
-                        const hint = if (self.hands(bind).kind == .branches) "bind the Vec to a name first" else try self.ctx.arena.allocator().print("bind `{s}` to a name first", .{self.sourceText(bind)});
-                        try self.err(pos, "a loop over a Vec of `{s}` walks a Vec that a name holds, or a field or element of one; {s}", .{ try self.tyName(elem), hint });
+                        const hint = if (self.hands(bind).kind == .branches) "bind the List to a name first" else try self.ctx.arena.allocator().print("bind `{s}` to a name first", .{self.sourceText(bind)});
+                        try self.err(pos, "a loop over a List of `{s}` walks a List that a name holds, or a field or element of one; {s}", .{ try self.tyName(elem), hint });
                         return self.t().invalid_id;
                     }
                 }
                 if (mode == .write) return self.writeElement(source, inner_source, elem);
                 // `for x in <v` hands each element over, which only the
-                // Vec's owner can do.
+                // List's owner can do.
                 if (mode == .move) {
                     if (peeled == source_ty) return self.loopElement(.take, elem);
                     const shown = try self.plainText(inner_source);
-                    try self.err(pos, "`<{s}` would move the elements out of a Vec that `{s}` only views; loop over `?{s}` or `!{s}`, or move the Vec itself", .{ shown, shown, shown, shown });
+                    try self.err(pos, "`<{s}` would move the elements out of a List that `{s}` only views; loop over `?{s}` or `!{s}`, or move the List itself", .{ shown, shown, shown, shown });
                     return self.ctx.intern(.{ .read_view = elem });
                 }
                 return self.loopElement(.read, elem);
@@ -2397,7 +2397,7 @@ const Checker = struct {
             return self.byteType();
         }
         const text_hint = if (sema.unwrapViews(self.ctx, source_ty) == self.t().text_id) "; walk a Text's bytes through its String view: `for b in ?t`" else "";
-        try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, a `Vec`, or an iterator (a type with `next(!self) -> T?`){s}", .{ try self.tyName(source_ty), text_hint });
+        try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, a `List`, or an iterator (a type with `next(!self) -> T?`){s}", .{ try self.tyName(source_ty), text_hint });
         return self.t().invalid_id;
     }
 
@@ -3402,7 +3402,7 @@ const Checker = struct {
         if (sema.moveSource(self.ctx, e) != .optional_part) return;
         const mark = self.ctx.diagnostics.items.len;
         const place = self.placeOf(e);
-        const ok = place.cell_vec_elem == null and try self.requireAccess(place, .take, e);
+        const ok = place.cell_list_elem == null and try self.requireAccess(place, .take, e);
         self.ctx.diagnostics.shrinkRetainingCapacity(mark);
         if (!ok) try self.ctx.recordUntakeable(e);
     }
@@ -4444,8 +4444,8 @@ const Checker = struct {
         // `?!x` only reads what `!x` lends.
         if (kind == .read and try self.writeLendRead(operand, inner, .lent_to_read)) return self.t().invalid_id;
         const place = self.placeOf(operand);
-        if (place.cell_vec_elem != null) {
-            try self.errAt(operand, "cannot lend an element of a Cell's Vec: the cell may change while the view lives; copy the element out with `c[i]`", .{});
+        if (place.cell_list_elem != null) {
+            try self.errAt(operand, "cannot lend an element of a Cell's List: the cell may change while the view lives; copy the element out with `c[i]`", .{});
             return self.t().invalid_id;
         }
         // `?f` of a stack closure lends it as a callable view.
@@ -4467,7 +4467,7 @@ const Checker = struct {
         }
         // `![]T` is a writable slice, which a read-only `[]T` cannot give.
         if (kind == .write and self.ctx.types.get(inner) == .slice) {
-            try self.errAt(operand, "cannot lend a `{s}` to write: its elements are read-only; take a writable slice of the array or Vec it views with `!xs[a..b]`", .{try self.tyName(inner)});
+            try self.errAt(operand, "cannot lend a `{s}` to write: its elements are read-only; take a writable slice of the array or List it views with `!xs[a..b]`", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
         if (kind == .write and inner == self.t().string_id) {
@@ -4765,7 +4765,7 @@ const Checker = struct {
     }
 
     /// `!xs[a..b]`: a write view of the elements from `a` up to `b`, of
-    /// an array or a Vec of plain data the code may write, or of a
+    /// an array or a List of plain data the code may write, or of a
     /// `![]T`. A String and a `[]T` are read-only.
     fn writeSlice(self: *Checker, slice: Sexp) Error!TypeId {
         const object = ir.Index.object(slice);
@@ -4797,7 +4797,7 @@ const Checker = struct {
                 len = sema.arrayLen(self.ctx, a);
                 break :blk a.elem;
             },
-            else => (try self.vecSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
+            else => (try self.listSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
         };
         try self.checkSliceBounds(range, len);
         // The binding it reaches may be one no view can write (a
@@ -4805,7 +4805,7 @@ const Checker = struct {
         const place = self.placeOf(slice);
         if (!try self.requireAccess(place, .lend_write, object)) return self.t().invalid_id;
         // A `![]T` may be resliced wherever it comes from; an array or a
-        // Vec is sliced where it is stored, a temporary's in its
+        // List is sliced where it is stored, a temporary's in its
         // statement's slot.
         if (place.root == .temporary) {
             if (!try self.lendsToWrite(object)) return self.t().invalid_id;
@@ -4830,8 +4830,8 @@ const Checker = struct {
         if (sema.moveSource(self.ctx, operand) != .optional_part) return ty;
         try self.ctx.recordTake(e);
         const place = self.placeOf(operand);
-        if (place.cell_vec_elem != null) {
-            try self.errAt(e, "an element of a Cell's Vec is read and written whole: copy it out with `c[i]`, then write `c[i] = none`", .{});
+        if (place.cell_list_elem != null) {
+            try self.errAt(e, "an element of a Cell's List is read and written whole: copy it out with `c[i]`, then write `c[i] = none`", .{});
             return ty;
         }
         if (!try self.requireAccess(place, .take, e)) return ty;
@@ -5341,7 +5341,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .array, .slice, .string, .static, .text => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
-            .parameterized_nominal => if ((vecElementType(self.ctx, peeled) != null or cellVecElement(self.ctx, peeled) != null) and std.mem.eql(u8, field, "len")) return self.t().int_id,
+            .parameterized_nominal => if ((listElementType(self.ctx, peeled) != null or cellListElement(self.ctx, peeled) != null) and std.mem.eql(u8, field, "len")) return self.t().int_id,
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
                 return self.t().invalid_id;
@@ -5360,7 +5360,7 @@ const Checker = struct {
             // An element method named without its call.
             const has_elems = switch (self.ctx.types.get(peeled)) {
                 .array, .slice, .string, .static => true,
-                else => vecElementType(self.ctx, peeled) != null,
+                else => listElementType(self.ctx, peeled) != null,
             };
             if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| {
                 const shown = switch (op) {
@@ -5619,7 +5619,7 @@ const Checker = struct {
     /// What the object of a bracket list names, when that makes the list
     /// compile-time arguments; null when it is an index.
     const InstTarget = union(enum) {
-        /// A generic type, local or built in: `Vec[Int]`.
+        /// A generic type, local or built in: `List[Int]`.
         generic: NamedType,
         /// A function, named directly, through its module, or through
         /// its type: `check[.strict]`, `m.f[2]`, `Pair.make[1]`.
@@ -5753,7 +5753,7 @@ const Checker = struct {
         return ty;
     }
 
-    /// A type argument written in an expression (`Vec[*Node]()`): a
+    /// A type argument written in an expression (`List[*Node]()`): a
     /// name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or `X[Y]`.
     fn typeArg(self: *Checker, e: Sexp) Error!TypeId {
         var r = self.resolver();
@@ -5867,13 +5867,13 @@ const Checker = struct {
         return ty;
     }
 
-    /// `Wrap[Int](v: 3)`, `Vec[Int]()`: a generic type constructed at the
+    /// `Wrap[Int](v: 3)`, `List[Int]()`: a generic type constructed at the
     /// given arguments.
     fn constructInstance(self: *Checker, call: Sexp, e: Sexp, nt: NamedType, args: []const Sexp) Error!TypeId {
         const ty = try self.typeInstance(e, nt);
         if (self.isPoison(ty)) return self.skipCall(args);
-        if (nt.id == self.ctx.vec_sym_id) {
-            try self.checkVecConstruction(call);
+        if (nt.id == self.ctx.list_sym_id) {
+            try self.checkListConstruction(call);
             return ty;
         }
         if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, e, stack_signal, .{});
@@ -6006,13 +6006,13 @@ const Checker = struct {
                 _ = try self.reachThrough(object, obj_ty, sema.unwrapViews(self.ctx, obj_ty));
                 return self.byteType();
             },
-            // A Vec's element is a place, as a field is: what its context
+            // A List's element is a place, as a field is: what its context
             // does with it is checked where it is used.
-            .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
+            .parameterized_nominal => if (listElementType(self.ctx, peeled)) |elem| {
                 return elem;
-            } else if (cellVecElement(self.ctx, peeled)) |elem| {
-                if ((try self.cannotCopy(elem, self.startOf(object), "reads an element of a Cell's Vec"))) {
-                    try self.errAt(object, cell_vec_handle, .{try self.tyName(peeled)});
+            } else if (cellListElement(self.ctx, peeled)) |elem| {
+                if ((try self.cannotCopy(elem, self.startOf(object), "reads an element of a Cell's List"))) {
+                    try self.errAt(object, cell_list_handle, .{try self.tyName(peeled)});
                     return self.t().invalid_id;
                 }
                 return elem;
@@ -6027,11 +6027,11 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
-    /// The element of Vec `peeled` (the type of `object`), sliced. Null
+    /// The element of List `peeled` (the type of `object`), sliced. Null
     /// after a diagnostic.
-    fn vecSliceElem(self: *Checker, object: Sexp, obj_ty: TypeId, peeled: TypeId) Error!?TypeId {
-        const elem = vecElementType(self.ctx, peeled) orelse {
-            try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
+    fn listSliceElem(self: *Checker, object: Sexp, obj_ty: TypeId, peeled: TypeId) Error!?TypeId {
+        const elem = listElementType(self.ctx, peeled) orelse {
+            try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a List, or a `[]T`", .{try self.tyName(obj_ty)});
             return null;
         };
         return elem;
@@ -6039,7 +6039,7 @@ const Checker = struct {
 
     /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
     /// String gives a String viewing what it views, and a `[]T` a `[]T`
-    /// viewing the same elements. An array or a `Vec` of plain data gives
+    /// viewing the same elements. An array or a `List` of plain data gives
     /// a `[]T`, and a Text a String, only as `?xs[a..b]` (`lent`), or as
     /// an argument, where it is lent as `?xs[a..b]` would be and its
     /// context decides whether it takes the view (`lendView`): the slice
@@ -6088,12 +6088,12 @@ const Checker = struct {
                 if (lent and !self.placeOf(object).named()) try self.lendTempIn(object, e);
                 return self.t().string_id;
             },
-            else => (try self.vecSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
+            else => (try self.listSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
         };
         const len: ?u64 = if (self.ctx.types.get(peeled) == .array) sema.arrayLen(self.ctx, self.ctx.types.get(peeled).array) else null;
         try self.checkSliceBounds(range, len);
         if (!lent) {
-            try self.errAt(e, "a slice of an array or Vec views it; write `?{s}`", .{try self.plainText(e)});
+            try self.errAt(e, "a slice of an array or List views it; write `?{s}`", .{try self.plainText(e)});
             return self.t().invalid_id;
         }
         if (!self.placeOf(object).named()) try self.lendTempIn(object, e);
@@ -6105,7 +6105,7 @@ const Checker = struct {
     /// what the slice views while it is used. Decided here, once, for
     /// every slice, written `?` or not, an argument or bound, by what
     /// holds the elements and how it is reached:
-    /// - the elements of an array or a Vec, owned or through any view,
+    /// - the elements of an array or a List, owned or through any view,
     ///   box, or handle: lent;
     /// - the elements a `![]T` views, which it writes: lent;
     /// - the bytes of a Text, owned, in a box or a `*T`, or through a
@@ -6194,7 +6194,7 @@ const Checker = struct {
         if (concrete != elem) {
             for (elems) |e| try self.checkExpr(e, concrete);
         } else for (elems, elem_tys) |e, ty| try self.adaptLiteral(e, ty, concrete);
-        // An array holds owners as a Vec does; a generic body's array
+        // An array holds owners as a List does; a generic body's array
         // of a `T` needs each instance to own nothing.
         _ = try self.needsCleanup(concrete, self.startOf(node), "puts in an array a value");
         const ty = try self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
@@ -6243,7 +6243,7 @@ const Checker = struct {
         if (self.isPoison(elem) or self.isPoison(len)) return self.t().invalid_id;
         if (try self.cannotCopy(elem, self.startOf(value), "copies into every slot of `[n of x]` a value")) {
             if (sema.typeHasDropGlue(self.ctx, elem)) {
-                try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `Vec`)", .{try self.tyName(elem)});
+                try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `List`)", .{try self.tyName(elem)});
             } else try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` {s}, so it cannot be copied", .{ try self.tyName(elem), self.movesBecause(elem) });
             return self.t().invalid_id;
         }
@@ -6335,7 +6335,7 @@ const Checker = struct {
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
                 .type_alias => return self.aliasCall(node, callee, name, sym.ty, args, callee.src.pos),
                 .generic_type => {
-                    if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type: name it (`Vec[T]()`), or give it where the value goes (`v: Vec[T] = Vec()`)", .{});
+                    if (sym_id == self.ctx.list_sym_id) return self.badCall(args, callee, "`List()` needs its element type: name it (`List[T]()`), or give it where the value goes (`v: List[T] = List()`)", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
                     return self.constructGeneric(callee, sym_id, args, name, callee.src.pos);
                 },
@@ -6364,8 +6364,8 @@ const Checker = struct {
         const nt = self.aliasNamedType(ty) orelse return self.badCall(args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
         if (nt.foreign) |fo| return self.construct(nt.id, args, pos, TypeSubst.empty, fo);
         if (nt.args) |targs| {
-            if (nt.id == self.ctx.vec_sym_id) {
-                try self.checkVecConstruction(call);
+            if (nt.id == self.ctx.list_sym_id) {
+                try self.checkListConstruction(call);
                 return ty;
             }
             if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
@@ -6671,7 +6671,7 @@ const Checker = struct {
         }
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
-            // One byte, as a Vec's `push` takes one element.
+            // One byte, as a List's `push` takes one element.
             .push => if (args.len == 1 and args[0].isKind(.kwarg)) {
                 try self.errAt(args[0], "`push` takes its byte by position, not by name: `!t.push({s})`", .{self.sourceText(ir.Kwarg.value(args[0]))});
                 try self.synthArgs(args);
@@ -7755,7 +7755,7 @@ const Checker = struct {
             else if (sema.writeSliceElem(self.ctx, actual)) |elem|
                 try self.bindArg(inf, p.elem, elem, arg, depth + 1)
             else if (sema.lentElem(self.ctx, actual)) |elem|
-                // An array or a Vec lent as a slice (`?a`, `!v`, a
+                // An array or a List lent as a slice (`?a`, `!v`, a
                 // temporary).
                 try self.bindArg(inf, p.elem, elem, arg, depth + 1)
             else
@@ -8006,7 +8006,7 @@ const Checker = struct {
         self.slot = try self.fieldSlot(info, args, fields);
         const saved_home = self.cell_home;
         defer self.cell_home = saved_home;
-        // A built-in generic's value (a Vec's, box's, or Cell's) is no
+        // A built-in generic's value (a List's, box's, or Cell's) is no
         // field a Cell may be made in.
         const homes = switch (self.ctx.types.get(info.instance)) {
             .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, pn.sym),
@@ -8239,7 +8239,7 @@ const Checker = struct {
             else => {},
         }
 
-        if (cellVecElement(self.ctx, obj_ty)) |elem| if (try self.cellVecCall(callee, obj, obj_ty, elem, pos, args)) |ty| {
+        if (cellListElement(self.ctx, obj_ty)) |elem| if (try self.cellListCall(callee, obj, obj_ty, elem, pos, args)) |ty| {
             const mode: MethodReceiver = if (std.mem.eql(u8, method, "get")) .read else .write;
             if (mode == .read and self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads the Cell");
             return self.noteMethod(callee, mode, ty);
@@ -8261,12 +8261,12 @@ const Checker = struct {
                     return self.callValue(callee, ty, args, method);
                 }
             }
-            const has_len = vecElementType(self.ctx, peeled) != null or switch (self.ctx.types.get(peeled)) {
+            const has_len = listElementType(self.ctx, peeled) != null or switch (self.ctx.types.get(peeled)) {
                 .string, .static, .array, .slice => true,
                 else => false,
             };
-            if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
-                try self.err(pos, "a Vec has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
+            if (listElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
+                try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
@@ -8304,11 +8304,11 @@ const Checker = struct {
         }
         try self.checkVisible(resolved.field, resolved.owner_sym, resolved.module, pos);
         // `pop` removes the element, so it hands over ownership; `get`
-        // would copy it out of the Vec.
-        if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
+        // would copy it out of the List.
+        if (resolved.nominal_sym == self.ctx.list_sym_id and std.mem.eql(u8, method, "get")) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if (try self.cannotCopy(elem, pos, "copies an element out of a Vec")) return self.badCall(args, pos, "`Vec.{s}` would copy an element out of a `Vec` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, try self.tyName(elem) });
+                if (try self.cannotCopy(elem, pos, "copies an element out of a List")) return self.badCall(args, pos, "`List.{s}` would copy an element out of a `List` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, try self.tyName(elem) });
             }
         }
 
@@ -8384,7 +8384,7 @@ const Checker = struct {
     }
 
     /// `copy`, `fill`, and `swap`: built-in methods on the elements of a
-    /// slice, an array, or a Vec, which write them in place; and `read`
+    /// slice, an array, or a List, which write them in place; and `read`
     /// and `write` on bytes (`bytesCall`). Null when `method` is none of
     /// them or the receiver has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
@@ -8398,7 +8398,7 @@ const Checker = struct {
                 break :blk a.elem;
             },
             .string, .static => try self.byteType(),
-            else => vecElementType(self.ctx, peeled) orelse return null,
+            else => listElementType(self.ctx, peeled) orelse return null,
         };
         if (obj.isKind(.move) and self.isReceiverSigil(obj)) {
             try self.misplacedSigil(obj, method, "does not consume its receiver");
@@ -8446,14 +8446,14 @@ const Checker = struct {
     /// `bytes.read[T, e](at)` and `!bytes.write[T, e](at, v)`: the integer
     /// or float `T` held in the `@size(T)` bytes from `at`, in byte
     /// order `e`, a compile-time `Endian`. The bytes are a `[]U8`, an
-    /// `![]U8`, a `[N]U8`, a `Vec[U8]`, or (for `read`) a String; `at` is
+    /// `![]U8`, a `[N]U8`, a `List[U8]`, or (for `read`) a String; `at` is
     /// checked now against an array's length when it is constant, and
     /// when the program runs otherwise.
     fn bytesCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, len: ?u64, op: sema.ElemOp, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const method = @tagName(op);
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         const byte = try self.byteType();
-        if (elem != byte) return self.badCall(args, obj, "`{s}` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, or a String; got `{s}`", .{ method, try self.tyName(obj_ty) });
+        if (elem != byte) return self.badCall(args, obj, "`{s}` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, or a String; got `{s}`", .{ method, try self.tyName(obj_ty) });
         if (op == .write) {
             if (!try self.writesElements(obj, obj_ty, peeled, method)) return self.skipCall(args);
         } else if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, method, "only reads its receiver");
@@ -8517,7 +8517,7 @@ const Checker = struct {
     }
 
     /// The receiver of a method that writes the elements of `peeled` (a
-    /// slice, an array, or a Vec): a `![]T`, or a place written `!xs`.
+    /// slice, an array, or a List): a `![]T`, or a place written `!xs`.
     /// False after a diagnostic.
     fn writesElements(self: *Checker, obj: Sexp, obj_ty: TypeId, peeled: TypeId, method: []const u8) Error!bool {
         switch (self.ctx.types.get(peeled)) {
@@ -8543,10 +8543,10 @@ const Checker = struct {
         return false;
     }
 
-    /// A `Cell[Vec[E]]` answers its Vec's `push`, `pop`, `clear`, and,
+    /// A `Cell[List[E]]` answers its List's `push`, `pop`, `clear`, and,
     /// for a plain-data `E`, `get(i)`, through any path to the cell, as
     /// `set` does. Null for the Cell's own members.
-    fn cellVecCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
+    fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
         const method = self.text(ir.Member.name(callee));
         const Member = enum { push, pop, clear, get };
         const member = std.meta.stringToEnum(Member, method) orelse return null;
@@ -8572,12 +8572,12 @@ const Checker = struct {
             // The receiver is read where it stands, as any `?self`
             // method's is (`readLeaf`).
             if (!self.hands(obj).hasStorage()) try self.readLeaf(obj);
-            if (try self.cannotCopy(elem, pos, "copies an element out of a Cell's Vec")) {
-                _ = try self.badCall(args, pos, cell_vec_handle, .{try self.tyName(cell)});
+            if (try self.cannotCopy(elem, pos, "copies an element out of a Cell's List")) {
+                _ = try self.badCall(args, pos, cell_list_handle, .{try self.tyName(cell)});
                 return f.returns;
             }
         } else {
-            // A write method of the Cell's Vec, marked as any is
+            // A write method of the Cell's List, marked as any is
             // (`checkReceiverMode`); the Cell is the handle's own, so
             // the handle is lent, not the Cell exclusively.
             const misplaced_sigil = try self.checkReceiverSigil(obj, .write, f.returns, method);
@@ -9321,7 +9321,7 @@ const Checker = struct {
         const target = self.liftTarget(expected);
         const owns = switch (self.ctx.types.get(target)) {
             .array => |arr| arr.elem == elem,
-            else => vecElementType(self.ctx, target) == elem,
+            else => listElementType(self.ctx, target) == elem,
         };
         if (!owns) return false;
         try self.errAt(e, "{s} takes a `{s}`, which owns its elements, and `{s}` only views `{s}`'s", .{ callee, try self.tyName(expected), shown, object });
@@ -9535,8 +9535,8 @@ const Checker = struct {
                 if (id == self.ctx.signal_sym_id and !sameNode(e, self.shared_operand)) {
                     try self.errAt(callee, stack_signal, .{});
                     try self.synthArgs(ir.Call.args(e));
-                } else if (id == self.ctx.vec_sym_id) {
-                    try self.checkVecConstruction(e);
+                } else if (id == self.ctx.list_sym_id) {
+                    try self.checkListConstruction(e);
                 } else {
                     const sym = self.ctx.symbols.items[id];
                     _ = try self.construct(id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
@@ -9738,9 +9738,9 @@ const Checker = struct {
         const obj = ir.get(e, .object);
         const lend = self.lendOf(obj) orelse return;
         if (self.methods.contains(nodeId(e))) return;
-        // The element of a Cell's Vec, assigned: the lend marks the Cell,
+        // The element of a Cell's List, assigned: the lend marks the Cell,
         // whose elements are copies and cannot be lent.
-        if (e.isKind(.index) and lend.isKind(.write) and cellVecElement(self.ctx, self.ctx.typeOf(obj) orelse sema.type_invalid) != null) return;
+        if (e.isKind(.index) and lend.isKind(.write) and cellListElement(self.ctx, self.ctx.typeOf(obj) orelse sema.type_invalid) != null) return;
         if (isCallee(root, e)) {
             // The receiver sigil the parser moved onto a call of a field
             // holding functions (`!p.f[0]()`) is the call's to report, and
@@ -10024,7 +10024,7 @@ const Checker = struct {
 
         /// The sigil a path read as a value takes from its context, or
         /// null where no plain form fits it:
-        /// - a slice of an array, a Vec, or a Text is a lend: `?` (`!`
+        /// - a slice of an array, a List, or a Text is a lend: `?` (`!`
         ///   where a write view goes);
         /// - where a write view is expected, `!`;
         /// - where a read view is, `?`, but none for an argument a `?T`
@@ -10852,24 +10852,24 @@ const Checker = struct {
         try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .module_id = module_id, .pos = pos, .kind = .variant, .call = call });
     }
 
-    /// `Vec()` / `Vec(capacity: n)`.
-    fn checkVecConstruction(self: *Checker, call: Sexp) Error!void {
+    /// `List()` / `List(capacity: n)`.
+    fn checkListConstruction(self: *Checker, call: Sexp) Error!void {
         var seen: ?u32 = null;
         for (ir.Call.args(call)) |a| {
             if (!a.isKind(.kwarg)) {
-                try self.errAt(a, "`Vec` constructor takes no positional arguments; use `Vec()` (empty) or `Vec(capacity: N)`", .{});
+                try self.errAt(a, "`List` constructor takes no positional arguments; use `List()` (empty) or `List(capacity: N)`", .{});
                 _ = try self.synthExpr(a);
                 continue;
             }
             const name = self.text(ir.Kwarg.name(a));
             const pos = ir.Kwarg.name(a).src.pos;
             if (!std.mem.eql(u8, name, "capacity")) {
-                try self.err(pos, "`Vec` constructor accepts only `capacity` as a kwarg; got `{s}`", .{name});
+                try self.err(pos, "`List` constructor accepts only `capacity` as a kwarg; got `{s}`", .{name});
                 _ = try self.synthExpr(ir.Kwarg.value(a));
                 continue;
             }
             if (seen) |first| {
-                try self.err(pos, "duplicate `capacity` kwarg in `Vec` constructor", .{});
+                try self.err(pos, "duplicate `capacity` kwarg in `List` constructor", .{});
                 try self.note(first, "first `capacity` here", .{});
             }
             seen = pos;
@@ -11091,7 +11091,7 @@ const Checker = struct {
                 return true;
             };
         }
-        // Written as in an expression: `Vec[Int]`, `?Point`, `Int?`.
+        // Written as in an expression: `List[Int]`, `?Point`, `Int?`.
         const ty = try self.typeArg(a);
         if (self.isPoison(ty)) return false;
         try self.ctx.recordType(a, ty);
@@ -11644,7 +11644,7 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return pn.args[0];
 }
 
-/// The element type of a Cell holding a Vec (`Cell[Vec[E]]`, `?Cell[Vec[E]]`, `*Cell[Vec[E]]`, ...).
+/// The element type of a Cell holding a List (`Cell[List[E]]`, `?Cell[List[E]]`, `*Cell[List[E]]`, ...).
 /// Whether `node` lies in the index of an element read in `tree`.
 fn inIndex(tree: Sexp, node: Sexp) bool {
     if (tree != .list) return false;
@@ -11669,14 +11669,14 @@ fn contains(tree: Sexp, node: Sexp) bool {
     return false;
 }
 
-fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    return vecElementType(ctx, cellElementType(ctx, ty) orelse return null);
+fn cellListElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return listElementType(ctx, cellElementType(ctx, ty) orelse return null);
 }
 
 
-const slice_of_temporary = "only a named array, Vec, or Text, or a field or element of one, can be sliced; bind this value to a name first";
+const slice_of_temporary = "only a named array, List, or Text, or a field or element of one, can be sliced; bind this value to a name first";
 
-const cell_vec_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `replace` the Vec to work on it";
+const cell_list_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `replace` the List to work on it";
 
 /// The data field (not a method or variant) named `name`.
 fn findDataField(fields: []const Field, name: []const u8) ?Field {
@@ -11686,13 +11686,13 @@ fn findDataField(fields: []const Field, name: []const u8) ?Field {
     return null;
 }
 
-/// The element type of a `Vec[T]`.
-fn vecElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
+/// The element type of a `List[T]`.
+fn listElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     const pn = switch (ctx.types.get(ty)) {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    if (pn.sym != ctx.vec_sym_id or pn.args.len != 1) return null;
+    if (pn.sym != ctx.list_sym_id or pn.args.len != 1) return null;
     return pn.args[0];
 }
 
@@ -12300,7 +12300,7 @@ fn frameBytes(ctx: *SemContext, tys: []const TypeId) Error!?u128 {
 
 fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?sema.InstanceRoot) Error!void {
     const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
-    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (16 MiB), the size of the stack. Keep large data in a `Vec`", .{ label, bytes, in, sema.max_frame_bytes });
+    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (16 MiB), the size of the stack. Keep large data in a `List`", .{ label, bytes, in, sema.max_frame_bytes });
 }
 
 /// The arrays a generic declaration makes, in one instance, and a generic
@@ -12318,7 +12318,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         const bytes = (try sema.arrayOversized(ctx, ty)) orelse continue;
         try ctx.oversized.put(ctx.allocator, ty, {});
         if (of == .type) try ctx.oversized.put(ctx.allocator, of.type, {});
-        try ctx.err(at, "`{s}` makes `{s}`, which takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `Vec`", .{ try sema.rootName(ctx, of), try sema.formatType(ctx, ty), bytes, sema.max_value_bytes });
+        try ctx.err(at, "`{s}` makes `{s}`, which takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `List`", .{ try sema.rootName(ctx, of), try sema.formatType(ctx, ty), bytes, sema.max_value_bytes });
         try ctx.noteIn(g.module_id, g.pos, "the array is made here", .{});
         return;
     }

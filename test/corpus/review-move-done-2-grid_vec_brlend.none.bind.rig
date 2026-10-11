@@ -2,43 +2,43 @@ error E
   bad
 
 struct W
-  f: Vec[Int]
-  o: Vec[Int]?
+  f: List[Int]
+  o: List[Int]?
 
 struct S
-  f: Vec[Int]
-  o: Vec[Int]?
+  f: List[Int]
+  o: List[Int]?
   w: W
 
 struct R
-  f: Vec[Int]
+  f: List[Int]
 
 struct RO
-  f: Vec[Int]?
+  f: List[Int]?
 
-fun mk(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mk(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 
-fun mko(n: Int) -> Vec[Int]?
+fun mko(n: Int) -> List[Int]?
   mk(n)
 
 fun mks(n: Int) -> S
   S(f: mk(n), o: mk(n + 1), w: W(f: mk(n + 2), o: mk(n + 3)))
 
-fun fail(c: Bool) -> Vec[Int]!
+fun fail(c: Bool) -> List[Int]!
   return E.bad if c
   mk(7)
 
-fun failo(c: Bool) -> Vec[Int]?!
+fun failo(c: Bool) -> List[Int]?!
   return E.bad if c
   mko(7)
 
-fun lk(x: ?Vec[Int]) -> Int
+fun lk(x: ?List[Int]) -> Int
   x[0] + x.len
 
-fun lko(x: ?Vec[Int]?) -> Int
+fun lko(x: ?List[Int]?) -> Int
   if x as y
     lk(y)
   else
@@ -47,19 +47,19 @@ fun lko(x: ?Vec[Int]?) -> Int
 fun lks(s: ?S) -> Int
   lk(?s.f) + lko(?s.o) + lk(?s.w.f) + lko(?s.w.o)
 
-fun eat(x: Vec[Int]) -> Int
+fun eat(x: List[Int]) -> Int
   lk(?x)
 
-fun eato(x: Vec[Int]?) -> Int
+fun eato(x: List[Int]?) -> Int
   lko(?x)
 
-sub eats(x: Vec[Int])
+sub eats(x: List[Int])
   print(lk(?x))
 
-sub eatso(x: Vec[Int]?)
+sub eatso(x: List[Int]?)
   print(lko(?x))
 
-fun idf(x: Vec[Int]) -> Vec[Int]
+fun idf(x: List[Int]) -> List[Int]
   x
 
 fun gw(s: !S) -> !S

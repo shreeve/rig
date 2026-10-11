@@ -1,7 +1,7 @@
 # A write slice of an array anywhere a place reaches one: a row of a 2D
-# array, a field of an element of a `![]T` or a Vec, and a parameter.
+# array, a field of an element of a `![]T` or a List, and a parameter.
 # A `![]T` also goes where a generic `[]T` does, is returned from a
-# `!Vec[T]` parameter, may be empty, and moves with `<`.
+# `!List[T]` parameter, may be empty, and moves with `<`.
 
 struct S
   arr: [3]Int
@@ -19,7 +19,7 @@ sub setrow(s: ![]S)
   w = !s[1].arr[..]
   w[2] = 42
 
-fun items(v: !Vec[Int]) -> ![]Int
+fun items(v: !List[Int]) -> ![]Int
   !v[..]
 
 sub main()
@@ -36,14 +36,14 @@ sub main()
   r = !grid[1][..]
   r[0] = 0
   print(grid)
-  vs: Vec[S] = Vec()
+  vs: List[S] = List()
   !vs.push(S(arr: [7, 8, 9]))
   q = !vs[0].arr[1..]
   q[0] = 80
   print(vs[0].arr)
   poke(!a[1..])
   print(a)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(3)
   it = items(!v)
   it[0] = 30

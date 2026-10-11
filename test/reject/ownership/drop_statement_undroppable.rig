@@ -1,17 +1,17 @@
 # `<x` does not drop a view parameter, a closure's capture, or a `for`
-# element that views a slot of the Vec it walks: the same rule the hint
+# element that views a slot of the List it walks: the same rule the hint
 # for a statement `-x` follows. A write view of an element, and a local
 # view, are dropped.
 
 sub each(f: ?sub(Int))
   f(1)
 
-sub look(o: ?Vec[Int])
+sub look(o: ?List[Int])
   <o
 
 sub main()
-  v: Vec[Vec[Int]] = Vec()
-  !v.push(Vec[Int]())
+  v: List[List[Int]] = List()
+  !v.push(List[Int]())
   s: String = "abc"
   r = ?v
   <r

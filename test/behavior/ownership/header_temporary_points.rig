@@ -24,7 +24,7 @@ struct C
 fun idx(s: ?Text) -> Int
   s.len - 1
 
-fun at2(v: ?Vec[E]) -> ?E from v
+fun at2(v: ?List[E]) -> ?E from v
   match ?v[idx(?Text("a"))]
     x => x
 
@@ -67,7 +67,7 @@ sub main()
   match ?hs[idx(?Text("a"))]
     .a(xs) => print(xs[3])
     _ => print(0)
-  ev: Vec[E] = Vec()
+  ev: List[E] = List()
   !ev.push(E.a(xs: [1, 2, 3, 4]))
   r = at2(?ev)
   print(clobber(1), r)

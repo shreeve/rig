@@ -1,12 +1,12 @@
 # A Cell changed through a marked call on each kind of place that reaches
-# it: a field of a shared value, a Vec element, an array element, and a
+# it: a field of a shared value, a List element, an array element, and a
 # slice element that hold a shared handle, a closure's `|+x|` capture, and
 # a shared handle's value, each in a loop that leaves early.
 # release
 
 struct C
   c: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
@@ -19,7 +19,7 @@ struct W
   inner: C
 
 fun mk() -> *C
-  *C(c: Cell(0), log: Cell(Vec()))
+  *C(c: Cell(0), log: Cell(List()))
 
 fun hits(s: []*C, k: Int) -> Int
   !s[k].hit()
@@ -30,8 +30,8 @@ fun maybe(n: Int) -> Int?
   n
 
 sub main()
-  w = *W(inner: C(c: Cell(0), log: Cell(Vec())))
-  v: Vec[*C] = Vec()
+  w = *W(inner: C(c: Cell(0), log: Cell(List())))
+  v: List[*C] = List()
   !v.push(mk())
   !v.push(mk())
   a = [mk(), mk()]

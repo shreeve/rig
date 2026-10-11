@@ -12,7 +12,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[^Res] = Vec()
+  v: List[^Res] = List()
   !v.push(^Res(n: 5, t: Text("five")))
   d = ^Res(n: 0, t: Text("d"))
   x = first(?v, ?d)

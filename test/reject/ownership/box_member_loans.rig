@@ -22,7 +22,7 @@ sub c()
   print(s)
 
 sub d()
-  v: ^Vec[Int] = ^Vec()
+  v: ^List[Int] = ^List()
   !v.push(1)
   w = ?v
   !v.push(2)

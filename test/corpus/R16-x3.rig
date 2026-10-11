@@ -1,13 +1,13 @@
 struct View
-  w: ?Vec[Int]
+  w: ?List[Int]
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   v = View(w: ?a)
-  set = |!v, w: ?Vec[Int]|
+  set = |!v, w: ?List[Int]|
     v = View(w: w)
   if true
-    local: Vec[Int] = Vec()
+    local: List[Int] = List()
     !local.push(7)
     set(?local)
   print(v.w.len)

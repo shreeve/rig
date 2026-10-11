@@ -5,12 +5,12 @@
 # oracle: main accept
 struct H
   t: Text
-  v: Vec[Int]
+  v: List[Int]
 
 fun wt(t: !Text) -> !Text
   t
 
-fun wv(v: !Vec[Int]) -> !Vec[Int]
+fun wv(v: !List[Int]) -> !List[Int]
   v
 
 fun wh(h: !H) -> !H
@@ -23,12 +23,12 @@ sub main()
   print(wt(!t).len)
   print(wt(!t).len)
   print(t)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !wv(!v).push(1)
   wv(!v).push(2)
   print(wv(!v).len)
   print(v)
-  h = H(t: Text("h"), v: Vec())
+  h = H(t: Text("h"), v: List())
   !wh(!h).t.add("i")
   !wh(!h).v.push(3)
   print(h.t, h.v)

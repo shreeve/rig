@@ -2,7 +2,7 @@ error Full
   full
 
 struct Box2
-  items: Vec[Int]
+  items: List[Int]
 
   sub add(!self, n: Int)!
     return Full.full if self.items.len >= 2
@@ -13,7 +13,7 @@ sub each(xs: []Int, f: ?fun(Int) -> Void!)!
     f(x)!
 
 sub main()
-  b = Box2(items: Vec())
+  b = Box2(items: List())
   !b.add(1)!
   !b.add(2)!
   !b.add(3) catch |e|

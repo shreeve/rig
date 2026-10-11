@@ -2,12 +2,12 @@ struct Res
   n: Int
   t: Text
 
-fun first(v: ?Vec[^Res], d: ?^Res) -> ?^Res
+fun first(v: ?List[^Res], d: ?^Res) -> ?^Res
   for b in v
     return ?b
   d
 
-fun firsth(v: ?Vec[*Res], d: ?*Res) -> ?*Res
+fun firsth(v: ?List[*Res], d: ?*Res) -> ?*Res
   for h in v
     return ?h
   d
@@ -17,13 +17,13 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[^Res] = Vec()
+  v: List[^Res] = List()
   !v.push(^Res(n: 5, t: Text("five")))
   d = ^Res(n: 0, t: Text("d"))
   x = first(?v, ?d)
   print(clobber(1000))
   print(x.n, x.t)
-  hv: Vec[*Res] = Vec()
+  hv: List[*Res] = List()
   !hv.push(*Res(n: 6, t: Text("six")))
   hd = *Res(n: 0, t: Text("d"))
   y = firsth(?hv, ?hd)

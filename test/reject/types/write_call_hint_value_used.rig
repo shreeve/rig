@@ -4,16 +4,16 @@
 # a write call whose value is used puts its `!` in parentheses.
 
 struct Box2
-  v: Vec[Int]
+  v: List[Int]
 
   fun take(!self) -> Int?
     !self.v.pop()
 
 fun mk() -> Box2
-  Box2(v: Vec())
+  Box2(v: List())
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   w = !v
   b = mk()
   x = v.pop()

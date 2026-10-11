@@ -18,16 +18,16 @@ fun cond(t: *Tok) -> Bool
 
 struct R
   t: *Tok
-  sink: *Cell[Vec[*Tok]]
+  sink: *Cell[List[*Tok]]
 
   drop(!self)
     !self.sink.push(+self.t)
 
 sub main()
-  sink: *Cell[Vec[*Tok]] = *Cell(Vec())
+  sink: *Cell[List[*Tok]] = *Cell(List())
   if true
     r = R(t: *Tok(n: 1), sink: +sink)
   print("len", sink.len)
-  v = (!sink).replace(Vec())
+  v = (!sink).replace(List())
   for t in ?v
     print("kept", t.n)

@@ -17,7 +17,7 @@ sub main()
   print(b.unbox)
   p = <b.unbox()
   print(p.unbox)
-  v: Vec[^Sh] = Vec()
+  v: List[^Sh] = List()
   !v.push(^Sh.s(k: 3))
   !v.push(^Sh.c(r: 2))
   for x in ?v

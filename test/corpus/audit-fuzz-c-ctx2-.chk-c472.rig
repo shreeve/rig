@@ -54,7 +54,7 @@ struct Bx472
 
 sub t472()
   bx472 = Bx472(f: 6)
-  av472: Vec[I32] = Vec()
+  av472: List[I32] = List()
   !av472.push(0)
   av472[0] = bx472.f
   aa472: [3]I32 = [3 of 0]

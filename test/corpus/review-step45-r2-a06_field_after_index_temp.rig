@@ -6,7 +6,7 @@ fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[S] = Vec()
+  v: List[S] = List()
   !v.push(S(o: Text("q")))
   if !v[idx(?Text("a"))].o as t
     !t.add("x")

@@ -1,10 +1,10 @@
 struct Player
   name: String
-  scores: Vec[Int]
+  scores: List[Int]
 
 sub main()
-  ps: Vec[^Player] = Vec()
-  p = Player(name: "a", scores: Vec())
+  ps: List[^Player] = List()
+  p = Player(name: "a", scores: List())
   !p.scores.push(3)
   !ps.push(^<p)
   print(ps[0].name)

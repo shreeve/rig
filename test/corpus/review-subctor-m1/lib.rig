@@ -16,7 +16,7 @@ pub struct W[T]
   item: T
 
 pub struct Res
-  items: Vec[Int]
+  items: List[Int]
 
 pub struct D
   n: Int = 7

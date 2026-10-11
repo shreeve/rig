@@ -1,4 +1,4 @@
 use lib
 
-pub fun first[T](v: ?Vec[T]) -> T?
+pub fun first[T](v: ?List[T]) -> T?
   lib.each_first(v)

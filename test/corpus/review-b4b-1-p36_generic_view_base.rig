@@ -3,10 +3,10 @@ struct Q
   a: Int
   b: Int
 
-fun first[T](v: ?Vec[T]) -> ?T from v
+fun first[T](v: ?List[T]) -> ?T from v
   ?v[0]
 
-fun firstw[T](v: !Vec[T]) -> !T from v
+fun firstw[T](v: !List[T]) -> !T from v
   !v[0]
 
 fun idx(s: ?Text) -> Int
@@ -17,7 +17,7 @@ fun clobber(n: Int) -> Int
   a[1] + a[15]
 
 sub main()
-  vv: Vec[[2]Q?] = Vec()
+  vv: List[[2]Q?] = List()
   !vv.push([Q(a: 41, b: 42), none])
   if first(?vv)[idx(?Text("a"))] as q
     print(clobber(1000), q.a, q.b)
@@ -25,7 +25,7 @@ sub main()
     q.a = 7
     print(clobber(1000), q.a, q.b)
   print(vv[0])
-  tv: Vec[[2]Text?] = Vec()
+  tv: List[[2]Text?] = List()
   !tv.push([Text("x"), none])
   if !firstw(!tv)[idx(?Text("a"))] as t
     !t.add("y")

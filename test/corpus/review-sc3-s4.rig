@@ -4,7 +4,7 @@ sub main()
   print([5, 6].get(1))
   s = ""
   print(s.get(0))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   w = !v[..]
   print(w.get(0), w.get(1))

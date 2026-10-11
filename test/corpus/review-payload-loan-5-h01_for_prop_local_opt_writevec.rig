@@ -1,5 +1,5 @@
-fun f(v: !Vec[Int]) -> Int?
-  o: (!Vec[Int])? = !v
+fun f(v: !List[Int]) -> Int?
+  o: (!List[Int])? = !v
   n = 0
   for x in o?
     if !o as w
@@ -10,7 +10,7 @@ fun f(v: !Vec[Int]) -> Int?
   1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..5
     !v.push(i + 1)
   _ = f(!v)

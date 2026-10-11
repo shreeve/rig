@@ -14,7 +14,7 @@ sub main()
   print(e, Endian.little)
   s = "\x01\x02\x03\x04"
   print(s.read[U32, .big](0))
-  v: Vec[U8] = Vec()
+  v: List[U8] = List()
   bs: [4]U8 = [1, 0, 0, 0]
   for b in bs
     !v.push(b)

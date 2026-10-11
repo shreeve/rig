@@ -1,5 +1,5 @@
 pub struct Wrap
-  pub v: Vec[Int]
+  pub v: List[Int]
 
 pub struct Holder
   pub b: ?Wrap

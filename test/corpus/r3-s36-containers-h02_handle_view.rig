@@ -5,6 +5,6 @@ fun get(p: ?*P) -> Int
   p.x
 
 sub main()
-  v: Vec[*P] = Vec()
+  v: List[*P] = List()
   !v.push(*P(x: 1))
   print(get(?v[0]))

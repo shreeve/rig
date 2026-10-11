@@ -7,7 +7,7 @@ struct S
   a: R?
 
 sub main()
-  v: Vec[^S] = Vec()
+  v: List[^S] = List()
   !v.push(^S(a: R(n: 1)))
   for x in !v
     y = <x.a

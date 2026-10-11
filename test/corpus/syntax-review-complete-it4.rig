@@ -2,13 +2,13 @@ struct Node
   v: Int
 
 struct Bag
-  items: Vec[*Node]
+  items: List[*Node]
 
   fun at(?self, i: Int) -> ?*Node
     ?self.items[i]
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(*Node(v: 1))
   for x in ?b.items
     print(x.v)

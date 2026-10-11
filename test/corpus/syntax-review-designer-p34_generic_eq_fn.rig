@@ -1,6 +1,6 @@
 struct Map[K, V]
-  keys: Vec[K]
-  vals: Vec[V]
+  keys: List[K]
+  vals: List[V]
 
   fun get(?self, k: K) -> V?
     for key, i in self.keys
@@ -13,6 +13,6 @@ struct Map[K, V]
     !self.vals.push(v)
 
 sub main()
-  m = Map[String, Int](keys: Vec(), vals: Vec())
+  m = Map[String, Int](keys: List(), vals: List())
   !m.put("a", 1)
   print(m.get("a"), m.get("b"))

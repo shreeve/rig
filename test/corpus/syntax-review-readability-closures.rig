@@ -1,6 +1,6 @@
 struct Button
   label: String
-  handlers: Vec[*sub(Int)]
+  handlers: List[*sub(Int)]
 
   sub on_click(!self, h: *sub(Int))
     !self.handlers.push(<h)
@@ -23,7 +23,7 @@ fun sum_by(xs: []Int, f: ?fun(Int) -> Int) -> Int
 
 sub main()
   clicks: *Cell[Int] = *Cell(value: 0)
-  b = Button(label: "ok", handlers: Vec())
+  b = Button(label: "ok", handlers: List())
   !b.on_click(*|+clicks, n| !clicks.set(clicks.get() + n))
   !b.on_click(*|n| print("clicked", n))
   b.click(2)

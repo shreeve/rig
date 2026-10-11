@@ -1,12 +1,12 @@
 error E
   bad
 
-fun f() -> Vec[Int]!
+fun f() -> List[Int]!
   return E.bad
 
 sub main()
   x = f() catch |_|
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     defer
       for i in 0..100

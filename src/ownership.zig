@@ -85,7 +85,7 @@
 //!   `break`, `continue` or `!`), no surviving value may hold a loan on a
 //!   var declared in it. A returned value, or one stored into something
 //!   the caller owns, may only carry views the caller handed in.
-//! * Values that own resources (`*T`, `~T`, `Vec[T]`, anything with drop
+//! * Values that own resources (`*T`, `~T`, `List[T]`, anything with drop
 //!   glue) cannot be copied implicitly. In a consuming position (binding,
 //!   argument, field, return, the branches of an `if`/`match` in such a
 //!   position) a place expression of such a type must be written `<x` or
@@ -213,7 +213,7 @@ const Var = struct {
     /// (`sema.dropRunsBody`): dropping it at scope exit may read what it
     /// captured.
     env_drop_reads: bool = false,
-    /// Element of `for x in ?vec` over a resource Vec: a view of
+    /// Element of `for x in ?list` over a resource List: a view of
     /// the slot.
     loop_view: bool = false,
     /// Element of a loop that does not consume its collection: a view of
@@ -431,13 +431,13 @@ const part_copies_rule = "cannot move out of `{s}`: it copies, so `<` would leav
 /// Why a module's constant cannot be moved or dropped.
 const module_level_rule = "cannot {s} module-level `{s}` inside a function; later calls would still use it";
 /// Why a loop view cannot leave its slot, for diagnostics.
-const loop_view_rule = "a `for x in ?vec` element is a read view of the Vec slot and cannot be cloned, moved, dropped, or stored";
+const loop_view_rule = "a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored";
 
 /// Owning kinds that cannot be copied implicitly.
 const Owning = union(enum) {
     shared,
     weak,
-    vec,
+    list,
     box,
     text,
     drop_glue: []const u8, // type name
@@ -2387,7 +2387,7 @@ pub const Checker = struct {
     }
 
     /// Whether `e`, a lend written here, lends the elements of its
-    /// operand (an array's or a Vec's, or a Text's bytes) rather than a
+    /// operand (an array's or a List's, or a Text's bytes) rather than a
     /// view of the operand or of what it holds.
     fn lendsElements(self: *const Checker, e: Sexp) bool {
         const lend = self.lendOf(e) orelse return false;
@@ -2488,7 +2488,7 @@ pub const Checker = struct {
     /// A view of the elements of `object`: `slice` is a slice of it
     /// (`?xs[a..b]`, `!xs[a..b]`), or a view of the whole array lent as
     /// one (`?a`). A slice of a String or a `[]T` views what that value
-    /// views. A slice of a Vec views the Vec, whose buffer it points
+    /// views. A slice of a List views the List, whose buffer it points
     /// into, and one of a `![]T` views the `![]T`, as a view of a
     /// view does. A slice of an array held in the storage of the var it
     /// is reached from, which may be a copy (a by-value parameter, a loop
@@ -2542,7 +2542,7 @@ pub const Checker = struct {
 
     /// Whether place `e` reaches its value through a read view: a step
     /// past a `?T`, a read-only `[]T`, or a String (`c.items[0]` with
-    /// `items: ?Vec[Item]`). Its memory is the view's, which the place's
+    /// `items: ?List[Item]`). Its memory is the view's, which the place's
     /// var does not own.
     fn throughReadView(self: *const Checker, e: Sexp) bool {
         var p = e;
@@ -2570,14 +2570,14 @@ pub const Checker = struct {
     }
 
     /// Whether the value of place `e` is stored in the var the place
-    /// starts from, rather than behind a pointer, a handle, or a Vec's
+    /// starts from, rather than behind a pointer, a handle, or a List's
     /// buffer, whose own loans cover it. A read view copies only
     /// scalars and views, which hold no array, so an array reached
     /// through one is behind a pointer.
     fn inVarStorage(self: *const Checker, e: Sexp) bool {
         if (self.exprType(e)) |ty| switch (self.typeData(ty)) {
             .write_view, .read_view, .shared, .slice => return false,
-            else => if (self.isVec(ty)) return false,
+            else => if (self.isList(ty)) return false,
         };
         if (e.isKind(.member) or e.isKind(.index)) return self.inVarStorage(ir.get(e, .object));
         return true;
@@ -3615,9 +3615,9 @@ pub const Checker = struct {
             const base = pathBase(target);
             const lent = try self.walk(base);
             try self.walkPlaceIndices(target);
-            // An element of a Cell's Vec, marked `(!c)[i] = v`, is stored
+            // An element of a Cell's List, marked `(!c)[i] = v`, is stored
             // in the Cell as one a name reaches is.
-            if (self.inCellVec(target)) return self.storeInCellVec(target, value);
+            if (self.inCellList(target)) return self.storeInCellList(target, value);
             if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
             return self.storeThroughLend(lent, value, self.startOf(target));
         };
@@ -3631,9 +3631,9 @@ pub const Checker = struct {
             try self.noteLoan(l);
             return;
         }
-        // An element of a Cell's Vec, or a field of one, is stored in
+        // An element of a Cell's List, or a field of one, is stored in
         // the Cell, which every handle to it reaches: it may hold no loan.
-        if (self.inCellVec(target)) return self.storeInCellVec(target, value);
+        if (self.inCellList(target)) return self.storeInCellList(target, value);
         if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
         if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
@@ -3687,19 +3687,19 @@ pub const Checker = struct {
         return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, depth);
     }
 
-    /// `value` stored into `target`, an element of the Vec a Cell holds
-    /// (`inCellVec`): every handle to the Cell reaches it, so it holds no
+    /// `value` stored into `target`, an element of the List a Cell holds
+    /// (`inCellList`): every handle to the Cell reaches it, so it holds no
     /// view.
-    fn storeInCellVec(self: *Checker, target: Sexp, value: Value) Error!void {
+    fn storeInCellList(self: *Checker, target: Sexp, value: Value) Error!void {
         const pos = self.startOf(target);
         try self.requireNoView(pos, self.exprType(target));
         const loans = (try self.carry(self.exprType(target), value)).loans;
         if (loans.len > 0) try self.err(pos, "cannot store a view of `{s}` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one{s}", .{ self.vars.items[loans[0].root].name, staticParamHint(loans[0]) });
     }
 
-    /// Whether place `target` is, or is a field of, an element of the Vec
+    /// Whether place `target` is, or is a field of, an element of the List
     /// a Cell holds (`c[i] = v`, `c[i].f = v`).
-    fn inCellVec(self: *const Checker, target: Sexp) bool {
+    fn inCellList(self: *const Checker, target: Sexp) bool {
         const ctx = self.sema orelse return false;
         var e = target;
         while (e.isKind(.member) or e.isKind(.index)) : (e = ir.get(e, .object)) {
@@ -3926,7 +3926,7 @@ pub const Checker = struct {
         const into = if (callee.isKind(.member) and !self.namesType(callee))
             self.builtinName(self.exprType(ir.Member.object(callee)))
         else if (self.namesType(callee)) self.builtinName(self.exprType(node)) else null;
-        const cell: ?[]const u8 = if (into != null and !std.mem.eql(u8, into.?, "Vec")) into else null;
+        const cell: ?[]const u8 = if (into != null and !std.mem.eql(u8, into.?, "List")) into else null;
         // A consuming receiver is passed like an argument.
         const consumed_recv = if (recv_mode == .value and callee.isKind(.member)) recv_value else Value{};
         // Which arguments the call passes loans on from (Core sentence
@@ -4037,7 +4037,7 @@ pub const Checker = struct {
     /// (`reader`: a call argument, a method's receiver, the value a call
     /// calls, a binary operator's left operand, an indexed value that is
     /// no place), when the value shares storage the place it reads owns
-    /// (a Vec's buffer, a box, a shared handle, a struct holding one;
+    /// (a List's buffer, a box, a shared handle, a struct holding one;
     /// through a write view, what it reaches). Its consumer uses that
     /// value only after the later operands run, so until then the place's
     /// root holds a read loan, and a later operand cannot lend to write or
@@ -4278,7 +4278,7 @@ pub const Checker = struct {
         return self.find("print") == null;
     }
 
-    /// `Cell`, `Signal`, or `Vec` when a value of type `ty` is one,
+    /// `Cell`, `Signal`, or `List` when a value of type `ty` is one,
     /// through views and shared handles.
     fn builtinName(self: *const Checker, ty: ?TypeId) ?[]const u8 {
         const ctx = self.sema orelse return null;
@@ -4288,7 +4288,7 @@ pub const Checker = struct {
             .parameterized_nominal => |pn| {
                 if (pn.sym == ctx.cell_sym_id) return "Cell";
                 if (pn.sym == ctx.signal_sym_id) return "Signal";
-                if (pn.sym == ctx.vec_sym_id) return "Vec";
+                if (pn.sym == ctx.list_sym_id) return "List";
                 return null;
             },
             else => return null,
@@ -5189,7 +5189,7 @@ pub const Checker = struct {
         moved: []const Loan = &.{},
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
-        resource_vec: bool = false,
+        resource_list: bool = false,
         /// The loop walks a collection it does not consume.
         elem_view: bool = false,
     };
@@ -5254,7 +5254,7 @@ pub const Checker = struct {
                 spec.source_root = id;
                 spec.source_loan = kind;
                 spec.source_pos = self.startOf(source);
-                spec.resource_vec = if (self.sema) |ctx| sema.forViewsSlot(ctx, node) else false;
+                spec.resource_list = if (self.sema) |ctx| sema.forViewsSlot(ctx, node) else false;
                 if (!self.flowLive(id) or try self.conflicts(id, if (kind == .write) .write else .read, spec.source_pos)) {
                     spec.source_root = null;
                 }
@@ -5430,7 +5430,7 @@ pub const Checker = struct {
                 .ty = ty,
                 .kind = .loop_elem,
                 .ref = self.refOfType(ty),
-                .loop_view = spec.resource_vec,
+                .loop_view = spec.resource_list,
                 .elem_view = spec.elem_view,
                 .elem_of = if (elem_loans.len > 0) spec.source_root else null,
             }, .{ .loans = if (self.mayCarryLoan(ty)) try self.unionLoans(elem_loans, spec.moved) else &.{} });
@@ -5764,14 +5764,14 @@ pub const Checker = struct {
         return t == ctx.types.text_id or sema.boxedType(ctx, t) == ctx.types.text_id;
     }
 
-    /// A `Vec[T]`.
-    fn isVec(self: *const Checker, ty: TypeId) bool {
+    /// A `List[T]`.
+    fn isList(self: *const Checker, ty: TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ctx.types.get(ty);
-        return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.vec_sym_id;
+        return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.list_sym_id;
     }
 
-    /// A Vec (or a view of one) whose elements move (`sema.moves`):
+    /// A List (or a view of one) whose elements move (`sema.moves`):
     /// walked by a view of each slot.
     /// Values of this type move (`sema.moves`) and cannot be copied
     /// implicitly: null for a value that copies. The kind only chooses
@@ -5812,7 +5812,7 @@ pub const Checker = struct {
             .shared => .shared,
             .weak => .weak,
             .text => .text,
-            .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) .vec else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = name },
+            .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) .list else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = name },
             else => .{ .drop_glue = name },
         };
     }
@@ -5837,7 +5837,7 @@ pub const Checker = struct {
         return sema.holdsWriteView(ctx, ty orelse return false);
     }
 
-    /// A bracket list of compile-time arguments (`Vec[Int]`, `max[Int]`),
+    /// A bracket list of compile-time arguments (`List[Int]`, `max[Int]`),
     /// which names a type or a function and holds no value.
     fn isInstance(self: *const Checker, e: Sexp) bool {
         const s = self.sema orelse return false;

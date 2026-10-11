@@ -1,5 +1,5 @@
 # A box lends the views of its value (Core §4), so member access reaches
-# through it: a struct's fields and methods, a Vec's and a Text's, and
+# through it: a struct's fields and methods, a List's and a Text's, and
 # a Text through a shared handle.
 
 struct S
@@ -24,7 +24,7 @@ sub main()
   !b.bump()
   !b.t.add("y")
   print(b.n, b.get(), read(?b), b.t)
-  v: ^Vec[Int] = ^Vec()
+  v: ^List[Int] = ^List()
   !v.push(3)
   !v.push(4)
   print(v.len)

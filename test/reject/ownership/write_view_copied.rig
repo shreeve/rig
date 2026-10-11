@@ -5,10 +5,10 @@
 # would be the view itself.
 
 struct Wrap
-  payload: Vec[Int]
+  payload: List[Int]
 
 sub main()
-  a = Wrap(payload: Vec())
+  a = Wrap(payload: List())
   w = !a
   w2 = w
   print(w2.payload.len)

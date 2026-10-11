@@ -1,6 +1,6 @@
 # An iterator whose `next` gives views of what it walks: each loop
 # variable is the view `as` binds over `(?Item)?`, and the loan on the
-# walked Vec lasts as long as a view of it is alive. A source the loop
+# walked List lasts as long as a view of it is alive. A source the loop
 # holds is dropped when the loop ends, by `break` too, after the `else`.
 # release
 
@@ -9,7 +9,7 @@ struct Item
   n: Int
 
 struct Walk
-  items: ?Vec[Item]
+  items: ?List[Item]
   at: Int
 
   fun next(!self) -> (?Item)?
@@ -18,7 +18,7 @@ struct Walk
     self.at += 1
     ?self.items[i]
 
-fun walk(items: ?Vec[Item]) -> Walk from items
+fun walk(items: ?List[Item]) -> Walk from items
   Walk(items: items, at: 0)
 
 struct Tracked
@@ -36,14 +36,14 @@ struct Tracked
 fun tracked(id: Int, n: Int) -> Tracked
   Tracked(id: id, left: n)
 
-fun longest(items: ?Vec[Item]) -> Int
+fun longest(items: ?List[Item]) -> Int
   best = 0
   for it in walk(items)
     best = it.n if it.n > best
   best
 
 sub main()
-  items: Vec[Item] = Vec()
+  items: List[Item] = List()
   !items.push(Item(name: "a", n: 3))
   !items.push(Item(name: "bb", n: 9))
   !items.push(Item(name: "c", n: 4))

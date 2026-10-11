@@ -16,7 +16,7 @@ sub main()
   for d in <a
     print("got", d.n)
     break if d.n == 1
-  keep: Vec[Text] = Vec()
+  keep: List[Text] = List()
   for t in mk()
     !keep.push(<t)
   ts = [Text("c"), Text("d")]

@@ -4,7 +4,7 @@ struct Wrap[T]
   w: T
 
 struct S
-  Wrap: Vec[Int]
+  Wrap: List[Int]
 
 fun f(lib: Int) -> Int
   x: lib.Wrap[Int] = lib.Wrap(v: 3)

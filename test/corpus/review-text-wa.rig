@@ -1,12 +1,12 @@
 struct Person
   name: String
-  tags: Vec[Int]
+  tags: List[Int]
 
   fun label(?self) -> String
     self.name
 
 sub main()
-  p = Person(name: "Ann", tags: Vec())
+  p = Person(name: "Ann", tags: List())
   l = ?p.label()
   !p.tags.push(1)
   print(l, p.tags)

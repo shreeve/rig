@@ -2,6 +2,6 @@
 # argument in an expression.
 
 sub main()
-  v = Vec[*fun(Int) -> Int]()
+  v = List[*fun(Int) -> Int]()
 
-# error: 5:12: a function type has no expression spelling
+# error: 5:13: a function type has no expression spelling

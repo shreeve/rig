@@ -16,6 +16,6 @@ sub main()
   m: B? = B(n: 2)
   if ?m as x
     print("as reads", x.n)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for x in ?v
     print(x)

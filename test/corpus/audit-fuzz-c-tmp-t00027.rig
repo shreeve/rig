@@ -120,7 +120,7 @@ fun h1() -> Int?
   m0 = M(r: mk(17))
   !m0.put(mk(18))
   print("val", m0.peek(hr(HR.two(a: mk(19), b: *mk(20)))))
-  v3: Vec[*R] = Vec()
+  v3: List[*R] = List()
   !v3.push(*mk(21))
   !v3.push(*mk(22))
   !v3.push(*mk(23))
@@ -136,7 +136,7 @@ fun h2() -> Int?
   0
 
 fun h3() -> Int?
-  v0: Vec[*R] = Vec()
+  v0: List[*R] = List()
   !v0.push(*mk(56))
   x2 = optr(rt_int(4057))?
   print("val", opt(rt_int(2))?)

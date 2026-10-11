@@ -1,4 +1,4 @@
-# H3: generic loop over ?Vec[T], body: pass by value to a T param
+# H3: generic loop over ?List[T], body: pass by value to a T param
 struct S
   t: Text
 
@@ -8,14 +8,14 @@ struct Holder[T]
 fun eat[T](x: T) -> Int
   1
 
-fun all[T](v: ?Vec[T]) -> Int
+fun all[T](v: ?List[T]) -> Int
   n = 0
   for x in v
     n += eat(x)
   n
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("a"))
   !v.push(Text("b"))
   print(all(?v))

@@ -1,9 +1,9 @@
 struct H
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  a = H(v: Vec())
-  b = H(v: Vec())
+  a = H(v: List())
+  b = H(v: List())
   !a.v.push(1)
   c = true
   for x in !(a if c else b).v

@@ -2,10 +2,10 @@
 # owning value, even as the last expression of its body.
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  x = Wrap(v: Vec())
+  x = Wrap(v: List())
   !x.v.push(5)
   s = |<x| x
   a = s()

@@ -1,10 +1,10 @@
-# `clear` on a Cell's Vec empties the cell before it drops the elements,
+# `clear` on a Cell's List empties the cell before it drops the elements,
 # so a drop body that reaches back into the cell finds a valid, empty
-# Vec, and may even push to it.
+# List, and may even push to it.
 
 struct Item
   id: Int
-  owner: ~Cell[Vec[*Item]]
+  owner: ~Cell[List[*Item]]
 
   drop(!self)
     if self.owner.upgrade() as cell
@@ -12,7 +12,7 @@ struct Item
       (!cell).push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
 
 sub main()
-  items: *Cell[Vec[*Item]] = *Cell(Vec())
+  items: *Cell[List[*Item]] = *Cell(List())
   !items.push(*Item(id: 1, owner: ~items))
   !items.push(*Item(id: 2, owner: ~items))
   !items.clear()

@@ -4,7 +4,7 @@ enum E
   b
 
 struct H
-  es: Vec[E]
+  es: List[E]
 
 fun get(h: !H) -> !H from h
   h
@@ -15,7 +15,7 @@ fun grow(h: !H, s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  h = H(es: Vec())
+  h = H(es: List())
   !h.es.push(E.a(t: Text("x")))
   match !get(!h).es[grow(!h, ?Text("a"))]
     .a(t) => !t.add("y")

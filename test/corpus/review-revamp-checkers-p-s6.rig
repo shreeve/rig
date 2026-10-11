@@ -1,12 +1,12 @@
 struct P
-  v: Vec[Int]
+  v: List[Int]
 
 enum E
   a(p: P)
   b
 
 sub main()
-  v0: Vec[Int] = Vec()
+  v0: List[Int] = List()
   !v0.push(1)
   e: E = .a(p: P(v: <v0))
   w = !e

@@ -458,7 +458,7 @@ pub fn WeakHandle(comptime T: type) type {
 }
 
 /// `+x` of a value that owns: a new value holding a clone of each part,
-/// as `+` gives it: a handle counted again, a Text's bytes and a Vec's
+/// as `+` gives it: a handle counted again, a Text's bytes and a List's
 /// elements copied, a box's value boxed again, plain data copied. Sema
 /// clones only types with no `drop` body and nothing unique
 /// (`sema.cloneable`).
@@ -474,7 +474,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             return out;
         },
         .@"struct" => |s| {
-            if (comptime @hasDecl(T, "__rig_text") or @hasDecl(T, "__rig_vec")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_text") or @hasDecl(T, "__rig_list")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
             if (comptime @hasDecl(T, "cloneWeak")) return value.cloneWeak();
             var out: T = undefined;
@@ -622,40 +622,40 @@ pub fn Cell(comptime T: type) type {
             dropElement(T, &self.value);
         }
 
-        // A `Cell(Vec(E))` answers its Vec's members. No user code runs
-        // while the Vec is in use: `push`, `pop`, `len`, and the element
+        // A `Cell(List(E))` answers its List's members. No user code runs
+        // while the List is in use: `push`, `pop`, `len`, and the element
         // reads and writes of a plain-data `E` run no destructor, and
         // `clear` empties the cell before it drops the elements.
 
-        /// The element type when `T` is a Vec; referenced only then.
+        /// The element type when `T` is a List; referenced only then.
         const E = @typeInfo(@FieldType(T, "buf")).pointer.child;
 
-        pub fn vecPush(self: *Self, value: E) void {
+        pub fn listPush(self: *Self, value: E) void {
             self.value.push(value);
         }
 
-        pub fn vecPop(self: *Self) ?E {
+        pub fn listPop(self: *Self) ?E {
             return self.value.pop();
         }
 
-        pub fn vecLen(self: *const Self) Int {
+        pub fn listLen(self: *const Self) Int {
             return len(self.value.len);
         }
 
-        pub fn vecAt(self: *const Self, i: anytype) E {
+        pub fn listAt(self: *const Self, i: anytype) E {
             return self.value.at(i);
         }
 
-        pub fn vecGet(self: *const Self, i: Int) ?E {
+        pub fn listGet(self: *const Self, i: Int) ?E {
             return self.value.get(i);
         }
 
-        pub fn vecSet(self: *Self, i: anytype, value: E) void {
+        pub fn listSet(self: *Self, i: anytype, value: E) void {
             self.value.slot(i).* = value;
         }
 
-        /// A drop that reaches back into the cell finds an empty Vec.
-        pub fn vecClear(self: *Self) void {
+        /// A drop that reaches back into the cell finds an empty List.
+        pub fn listClear(self: *Self) void {
             var old = self.value;
             self.value = .empty;
             old.__rig_drop();
@@ -792,7 +792,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
 pub fn Signal(comptime T: type) type {
     return struct {
         value: T,
-        subs: Vec(*RcBox(Callback)),
+        subs: List(*RcBox(Callback)),
         notifying: bool = false,
         pending: ?T = null,
 
@@ -844,12 +844,12 @@ pub fn Signal(comptime T: type) type {
 }
 
 // -----------------------------------------------------------------------------
-// Vec
+// List
 // -----------------------------------------------------------------------------
 
-/// `Vec(T)`: a growable array that owns its elements. Dropping it drops
+/// `List(T)`: a growable array that owns its elements. Dropping it drops
 /// the elements in reverse order, then frees the buffer.
-pub fn Vec(comptime T: type) type {
+pub fn List(comptime T: type) type {
     return struct {
         buf: []T = &.{},
         len: usize = 0,
@@ -870,9 +870,9 @@ pub fn Vec(comptime T: type) type {
             try writeList(w, self.items());
         }
 
-        pub const __rig_vec = {};
+        pub const __rig_list = {};
 
-        /// `+v`: a new Vec holding a clone of each element (`cloneValue`).
+        /// `+v`: a new List holding a clone of each element (`cloneValue`).
         pub fn clone(self: *const Self) Self {
             var out: Self = .empty;
             out.reserve(self.len);
@@ -946,32 +946,32 @@ pub fn Vec(comptime T: type) type {
             return value;
         }
 
-        /// `for x in <v`: the Vec's elements, each handed over in order.
+        /// `for x in <v`: the List's elements, each handed over in order.
         pub const IntoIter = struct {
-            vec: Self,
+            list: Self,
             next_index: usize = 0,
 
             pub fn next(it: *IntoIter) ?T {
-                if (it.next_index >= it.vec.len) return null;
-                const value = it.vec.buf[it.next_index];
+                if (it.next_index >= it.list.len) return null;
+                const value = it.list.buf[it.next_index];
                 it.next_index += 1;
                 return value;
             }
 
             /// Drop the elements not handed over (the loop left early),
-            /// last first as a Vec does, then free the buffer.
+            /// last first as a List does, then free the buffer.
             pub fn deinit(it: *IntoIter) void {
-                while (it.vec.len > it.next_index) {
-                    it.vec.len -= 1;
-                    dropElement(T, &it.vec.buf[it.vec.len]);
+                while (it.list.len > it.next_index) {
+                    it.list.len -= 1;
+                    dropElement(T, &it.list.buf[it.list.len]);
                 }
-                it.vec.len = 0;
-                it.vec.__rig_drop();
+                it.list.len = 0;
+                it.list.__rig_drop();
             }
         };
 
         pub fn intoIter(self: Self) IntoIter {
-            return .{ .vec = self };
+            return .{ .list = self };
         }
 
         /// Drop every element (last first), keeping the buffer.
@@ -2044,7 +2044,7 @@ var print_depth: u32 = 0;
 /// A value as Rig writes it: text as is at the top level and quoted
 /// inside other values, a float with a decimal point, `none` for an
 /// absent optional, `Name(field: v)` for a struct, `.variant` /
-/// `.variant(field: v)` for an enum, and `[a, b]` for arrays and Vecs. A
+/// `.variant(field: v)` for an enum, and `[a, b]` for arrays and Lists. A
 /// shared handle or a box prints its value, a function `<fun>`.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
@@ -2259,11 +2259,11 @@ test "Cell.replace hands the old value back without dropping it" {
     try expectNoLeaks(before);
 }
 
-test "Vec owns and drops its elements, last first" {
+test "List owns and drops its elements, last first" {
     const before = usage();
     var log: [16]u8 = undefined;
     var n: usize = 0;
-    var v: Vec(*RcBox(Order)) = .empty;
+    var v: List(*RcBox(Order)) = .empty;
     for (1..11) |i| v.push(rcNew(Order{ .log = &log, .n = &n, .id = @intCast(i) }));
     try testing.expectEqual(10, v.len);
     v.__rig_drop();
@@ -2271,9 +2271,9 @@ test "Vec owns and drops its elements, last first" {
     try expectNoLeaks(before);
 }
 
-test "Vec of plain data" {
+test "List of plain data" {
     const before = usage();
-    var v: Vec(i32) = .initCapacity(2);
+    var v: List(i32) = .initCapacity(2);
     v.push(4);
     v.push(9);
     v.push(16);
@@ -2287,9 +2287,9 @@ test "Vec of plain data" {
     try expectNoLeaks(before);
 }
 
-test "Vec insert and remove move the elements after the index" {
+test "List insert and remove move the elements after the index" {
     const before = usage();
-    var v: Vec(i32) = .empty;
+    var v: List(i32) = .empty;
     v.insert(0, 3);
     v.insert(0, 1);
     v.insert(2, 4);
@@ -2306,7 +2306,7 @@ test "a consuming loop left early drops the rest last first" {
     const before = usage();
     var log: [16]u8 = undefined;
     var n: usize = 0;
-    var v: Vec(Order) = .empty;
+    var v: List(Order) = .empty;
     for (1..5) |i| v.push(.{ .log = &log, .n = &n, .id = @intCast(i) });
     var it = v.intoIter();
     var first = it.next().?;

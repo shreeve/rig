@@ -1,9 +1,9 @@
 enum E
-  a(v: Vec[Int])
+  a(v: List[Int])
   b
 
 fun mk(n: Int) -> E
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   .a(v: <v)
 

@@ -5,20 +5,20 @@
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int]) -> S?
+fun mk(v: ?List[Int]) -> S?
   if v.len < 40
     return S(s: ?v[..])
   none
 
-fun eat(v: Vec[Int]) -> Int
+fun eat(v: List[Int]) -> Int
   v.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += h.s[0]
     k += eat(<v)
-    v = Vec()
+    v = List()
     !v.push(2)
   print(k)

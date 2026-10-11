@@ -5,7 +5,7 @@ sub take(t: Text)
   print(t)
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("a"))
   x = v[0]
   take(v[0])

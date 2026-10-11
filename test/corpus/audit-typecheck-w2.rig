@@ -1,13 +1,13 @@
 struct N
   v: Int
 
-sub take(w: ?Vec[*N]?)
+sub take(w: ?List[*N]?)
   if <w as v
     print(v.len)
   x = <w ?? return
   print(x.len)
 
 sub main()
-  o: Vec[*N]? = Vec[*N]()
+  o: List[*N]? = List[*N]()
   take(?o)
   take(?o)

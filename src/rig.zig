@@ -1771,9 +1771,9 @@ pub const Parser = struct {
     }
 
     /// Compile-time parameters and arguments written where Rig does not
-    /// take them: in parentheses (`struct Wrap(T)`, `Vec(Int)` in a type,
+    /// take them: in parentheses (`struct Wrap(T)`, `List(Int)` in a type,
     /// `pre n: Int`), on a type alias, or as a type an expression cannot
-    /// spell (`Vec[[]Int]()`). Also a struct declared with `type`.
+    /// spell (`List[[]Int]()`). Also a struct declared with `type`.
     fn bracketHint(self: *Parser, tok: Token) ?[]const u8 {
         const src = self.base.source;
         const before = std.mem.trimEnd(u8, src[0..tok.pos], if (tok.cat == .indent) " \r\n" else " ");
@@ -1805,7 +1805,7 @@ pub const Parser = struct {
                 return "an error set takes no type parameters";
             },
             .rbracket => if (before.len > 0 and before[before.len - 1] == '[') {
-                return "empty brackets: give the compile-time arguments, as in `Vec[Int]()`";
+                return "empty brackets: give the compile-time arguments, as in `List[Int]()`";
             },
             .fun, .sub => if (self.base.lexer.nesting > 0 and src[self.base.lexer.brackets[self.base.lexer.nesting - 1]] == '[') {
                 return "a function type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";

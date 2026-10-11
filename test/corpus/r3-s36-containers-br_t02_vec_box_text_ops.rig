@@ -1,7 +1,7 @@
 use std.text
 
 sub main()
-  v: Vec[^Text] = Vec()
+  v: List[^Text] = List()
   !v.push(^Text("b"))
   !v.push(^Text("a"))
   for t in ?v

@@ -2,8 +2,8 @@ struct Row
   name: String
   n: Int
 
-fun parse(t: ?Text) -> Vec[Row]
-  rows: Vec[Row] = Vec()
+fun parse(t: ?Text) -> List[Row]
+  rows: List[Row] = List()
   !rows.push(Row(name: t[0..1], n: 1))
   rows
 

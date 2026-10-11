@@ -7,7 +7,7 @@
 # once, with a hint that compiles or none.
 
 struct Set
-  items: Vec[Int]
+  items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     !self.items.push(k)
@@ -23,10 +23,10 @@ struct P
   x: Int
   o: Int?
   a: [2]Int
-  v: Vec[Int]
+  v: List[Int]
   q: Q
   s: Set
-  items: Vec[Int]
+  items: List[Int]
 
 fun double(n: Int) -> Int
   n * 2
@@ -38,7 +38,7 @@ fun twice(n: !Int) -> Int
   n * 2
 
 fun mk() -> P
-  P(x: 1, o: 3, a: [1, 2], v: Vec(), q: Q(n: 1), s: Set(items: Vec()), items: Vec())
+  P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1), s: Set(items: List()), items: List())
 
 fun last(p: !P) -> Int
   (!p).x

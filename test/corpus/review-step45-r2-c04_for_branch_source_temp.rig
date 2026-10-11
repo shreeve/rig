@@ -3,11 +3,11 @@ fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  m: Vec[Vec[Text]] = Vec()
-  r: Vec[Text] = Vec()
+  m: List[List[Text]] = List()
+  r: List[Text] = List()
   !r.push(Text("p"))
   !m.push(<r)
-  n: Vec[Text] = Vec()
+  n: List[Text] = List()
   c = m.len == 1
   for x in (!m[idx(?Text("a"))] if c else !n)
     for _ in 0..40

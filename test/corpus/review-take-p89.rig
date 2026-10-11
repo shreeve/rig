@@ -4,12 +4,12 @@ struct R
     print("drop", self.n)
 
 sub main()
-  v: Vec[*R?] = Vec()
+  v: List[*R?] = List()
   !v.push(*R(n: 1))
   !v.push(none)
   x = <v[0]
   print(x, v)
-  b: Vec[^R?] = Vec()
+  b: List[^R?] = List()
   !b.push(^R(n: 2))
   y = <b[0]
   z = replace(!b[0], ^R(n: 3))

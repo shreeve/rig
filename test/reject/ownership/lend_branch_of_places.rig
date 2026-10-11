@@ -10,7 +10,7 @@
 
 struct Res
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 enum E
   a(r: Res)
@@ -19,30 +19,30 @@ enum E
 struct W
   e: E
   o: Res?
-  v: Vec[Int]
+  v: List[Int]
 
   fun gvw(!self) -> ![]Int
     !self.v[..]
 
-fun first(v: ?Vec[Int]) -> []Int
+fun first(v: ?List[Int]) -> []Int
   ?v[..1]
 
-sub stmt_read(a: !Vec[Int], b: !Vec[Int], c: Bool)
+sub stmt_read(a: !List[Int], b: !List[Int], c: Bool)
   t = ?(a if c else b)
   print(t)
 
-sub stmt_write(a: !Vec[Int], b: !Vec[Int], c: Bool)
+sub stmt_write(a: !List[Int], b: !List[Int], c: Bool)
   t = !(a if c else b)
   print(t)
 
-sub argument(a: !Vec[Int], b: !Vec[Int], c: Bool)
+sub argument(a: !List[Int], b: !List[Int], c: Bool)
   print(first(?(a if c else b)))
 
-sub path_write(a: !Vec[W], b: !Vec[W], c: Bool)
+sub path_write(a: !List[W], b: !List[W], c: Bool)
   w = !(a if c else b)[0].o
   print(w)
 
-sub path_read(a: !Vec[W], b: !Vec[W], c: Bool)
+sub path_read(a: !List[W], b: !List[W], c: Bool)
   r = ?(a if c else b)[0].v
   print(r)
 
@@ -74,8 +74,8 @@ sub receiver(a: !W, b: !W, c: Bool)
   for x in (!(a if c else b)).gvw()
     print(x)
 
-sub coalesce(v: !Vec[Int], d: !Vec[Int])
-  o: (!Vec[Int])? = !v
+sub coalesce(v: !List[Int], d: !List[Int])
+  o: (!List[Int])? = !v
   r = ?(o ?? !d)
   print(r)
 

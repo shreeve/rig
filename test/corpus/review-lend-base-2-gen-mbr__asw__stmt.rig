@@ -12,7 +12,7 @@ fun yes(n: Int) -> Bool
   n > 0
 
 struct Set
-  items: Vec[Int]
+  items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     !self.items.push(k)
@@ -31,7 +31,7 @@ struct S
   x: Int
   o: Int?
   a: [2]Int
-  v: Vec[Int]
+  v: List[Int]
   q: Q
   e: E
   f: fun(Int) -> Int
@@ -40,7 +40,7 @@ struct S
   s: Set
 
 fun mk(n: Int) -> S
-  S(x: n, o: n, a: [n, n], v: Vec(), q: Q(n: n), e: E.a(n: n), f: double, g: yes, t: Text("t"), s: Set(items: Vec()))
+  S(x: n, o: n, a: [n, n], v: List(), q: Q(n: n), e: E.a(n: n), f: double, g: yes, t: Text("t"), s: Set(items: List()))
 
 fun pk(d: !S, k: Bool) -> (!S)?
   return none if k

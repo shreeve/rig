@@ -39,8 +39,8 @@ struct Tree
     if ?self.root as n
       n.walk(visit)
 
-  fun sorted(?self) -> Vec[Int]
-    out: Vec[Int] = Vec()
+  fun sorted(?self) -> List[Int]
+    out: List[Int] = List()
     self.each(|!out, k| !out.push(k))
     out
 

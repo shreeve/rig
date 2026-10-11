@@ -4,4 +4,4 @@ struct R
     pass
 
 sub main()
-  v: Vec[R] = Vec()
+  v: List[R] = List()

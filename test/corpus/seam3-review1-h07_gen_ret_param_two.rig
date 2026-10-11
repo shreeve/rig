@@ -2,8 +2,8 @@ fun first[T](a: T, b: T) -> T
   a
 
 sub main()
-  v: Vec[Int] = Vec()
-  w: Vec[Int] = Vec()
+  v: List[Int] = List()
+  w: List[Int] = List()
   !v.push(1)
   r = first(?w, ?v)
   <v

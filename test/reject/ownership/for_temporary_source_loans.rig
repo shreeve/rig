@@ -8,8 +8,8 @@ struct C
 fun halves(s: String) -> [2]String
   [s[..s.len / 2], s[s.len / 2..]]
 
-fun firsts(s: String) -> Vec[String]
-  v: Vec[String] = Vec()
+fun firsts(s: String) -> List[String]
+  v: List[String] = List()
   !v.push(s[..1])
   v
 
@@ -26,9 +26,9 @@ sub main()
     o = x
   <t
   print(o)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   sl = ?e[..]
   for x in [?v[..], ?v[..1]]
     sl = x

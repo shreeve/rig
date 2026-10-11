@@ -1,12 +1,12 @@
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
 struct O
   s: S
 
 sub main()
-  a = *O(s: S(c: Cell(Vec())))
-  b = *O(s: S(c: Cell(Vec())))
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
   k = a.s.c.len == 0
   !a.s.c.push(1)
   n = *O(s: a.s)

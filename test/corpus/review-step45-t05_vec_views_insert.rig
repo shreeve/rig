@@ -1,6 +1,6 @@
 # insert a view, then drop its source
 sub main()
-  w: Vec[String] = Vec()
+  w: List[String] = List()
   t = Text("t")
   !w.insert(0, ?t)
   <t

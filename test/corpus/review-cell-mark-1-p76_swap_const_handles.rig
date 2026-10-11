@@ -1,4 +1,4 @@
-sub f(a: *Cell[Int], v: ?Vec[*Cell[Int]])
+sub f(a: *Cell[Int], v: ?List[*Cell[Int]])
   b = *Cell(5)
   old = replace(!a, *Cell(7))
   for c in v
@@ -7,7 +7,7 @@ sub f(a: *Cell[Int], v: ?Vec[*Cell[Int]])
 
 sub main()
   const x = *Cell(1)
-  v = Vec[*Cell[Int]]()
+  v = List[*Cell[Int]]()
   !v.push(*Cell(2))
   f(+x, ?v)
   print(v[0].get())

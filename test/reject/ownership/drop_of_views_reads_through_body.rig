@@ -1,6 +1,6 @@
 # A container whose drop runs a `drop` body keeps the loans of the views
 # it holds until it is dropped, since the body could read them: a struct
-# with a `drop` body, a Vec, counted handle, or closure environment of
+# with a `drop` body, a List, counted handle, or closure environment of
 # one. A container used later, or in deferred code, keeps them too.
 # oracle: own_body reject C4
 # oracle: vec_of_bodies reject C4
@@ -29,7 +29,7 @@ sub own_body()
 
 sub vec_of_bodies()
   x = Item(n: 1)
-  gs: Vec[Guard] = Vec()
+  gs: List[Guard] = List()
   !gs.push(Guard(item: ?x))
   print(gs.len)
   x.n = 2
@@ -49,20 +49,20 @@ sub closure_env()
 
 sub used_later()
   x = Item(n: 1)
-  v: Vec[?Item] = Vec()
+  v: List[?Item] = List()
   !v.push(?x)
   x.n = 2
   print(v.len)
 
 sub deferred()
   x = Item(n: 1)
-  v: Vec[?Item] = Vec()
+  v: List[?Item] = List()
   defer print(v.len)
   !v.push(?x)
   x.n = 2
 
 sub outlived()
-  v: Vec[Plain] = Vec()
+  v: List[Plain] = List()
   if true
     t = Item(n: 3)
     !v.push(Plain(item: ?t))

@@ -1,8 +1,8 @@
 # re-point a ![]Text local in a loop at different Vecs, push the old one after re-point
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("a"))
-  u: Vec[Text] = Vec()
+  u: List[Text] = List()
   !u.push(Text("b"))
   s = !v[..]
   for i in 0..3

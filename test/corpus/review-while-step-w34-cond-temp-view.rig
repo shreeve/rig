@@ -1,15 +1,15 @@
-# The condition binds a view of a temporary Vec made in the condition;
+# The condition binds a view of a temporary List made in the condition;
 # the step reads it.
 #
 # oracle: mkv accept
 # oracle: first accept
 # oracle: main reject C5
-fun mkv(i: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv(i: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(i)
   v
 
-fun first(v: ?Vec[Int], i: Int) -> ([]Int)?
+fun first(v: ?List[Int], i: Int) -> ([]Int)?
   if i < 3
     return ?v[..]
   none

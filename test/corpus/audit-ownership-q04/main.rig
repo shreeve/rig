@@ -7,7 +7,7 @@ struct Tok
     print("drop", self.n)
 
 sub main()
-  v: Vec[*Tok] = Vec()
+  v: List[*Tok] = List()
   !v.push(*Tok(n: 1))
   if mid.first(?v) as t
     print(t.n)

@@ -24,7 +24,7 @@ sub main()
     .some(value) => print("some", value)
     .none => print("none")
   print(o.or(0), n.or(9), lib.Opt[String].none.or("x"))
-  v = Vec[?lib.Wrap[Int]]()
+  v = List[?lib.Wrap[Int]]()
   !v.push(a)
   !v.push(lib.Wrap(v: 5, count: 2))
   for x in v

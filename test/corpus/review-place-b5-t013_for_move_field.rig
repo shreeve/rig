@@ -1,10 +1,10 @@
 struct R
-  v: Vec[Int]
+  v: List[Int]
   n: Int
 
 sub main()
-  xs: Vec[R] = Vec()
-  !xs.push(R(v: Vec(), n: 1))
+  xs: List[R] = List()
+  !xs.push(R(v: List(), n: 1))
   for r in <xs
     r.n = 4
     !r.v.push(1)

@@ -18,12 +18,12 @@ struct Res
 sub eat(r: Res)
   print(r.id)
 
-sub each(xs: ?Vec[Int], f: ?sub(Int))
+sub each(xs: ?List[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
 sub write_while_read_captured()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   size = |?v| v.len
   !v.push(1)
   print(size())
@@ -36,7 +36,7 @@ sub read_while_write_captured()
   add(2)
 
 sub literal_conflicts()
-  c: Vec[Int] = Vec()
+  c: List[Int] = List()
   each(?c, |!c, n| !c.push(n))
 
 sub moves_its_capture()

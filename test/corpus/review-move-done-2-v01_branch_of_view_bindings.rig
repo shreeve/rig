@@ -2,10 +2,10 @@
 # bindings, and through a view binding's field. (A read lend of `s` before
 # `<(!s if c else !t).o` is rejected, as it should be: not kept here.)
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

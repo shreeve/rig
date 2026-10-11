@@ -1,10 +1,10 @@
 enum WS
-  a(s: ![]Vec[Int])
+  a(s: ![]List[Int])
   b
 
 sub main()
-  v: Vec[Vec[Int]] = Vec()
-  x: Vec[Int] = Vec()
+  v: List[List[Int]] = List()
+  x: List[Int] = List()
   !x.push(1)
   !v.push(<x)
   e = WS.a(!v[..])

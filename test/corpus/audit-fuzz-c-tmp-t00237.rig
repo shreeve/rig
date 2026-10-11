@@ -110,7 +110,7 @@ fun h0() -> Int?
   b0 = [two(mk(1), optr(rt_int(4002))?), pp(P(a: mk(3), b: mk(4)))]
   print("val", b0[0])
   x2 = mk(5)
-  v3: Vec[*R] = Vec()
+  v3: List[*R] = List()
   !v3.push(*mk(6))
   !v3.push(*mk(7))
   0

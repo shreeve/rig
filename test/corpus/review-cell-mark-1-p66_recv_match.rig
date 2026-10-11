@@ -1,6 +1,6 @@
 struct C
   n: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.n.set(self.n.get() + 1)
@@ -17,7 +17,7 @@ fun mk(k: ?*C) -> E
   E.a(c: +k)
 
 sub main()
-  k = *C(n: Cell(0), log: Cell(Vec()))
+  k = *C(n: Cell(0), log: Cell(List()))
   match mk(?k)
     .a(c) => !c.hit()
     .b => print("b")

@@ -14,7 +14,7 @@ struct S
     print("dropS", self.n)
 
 struct H
-  rs: Vec[String]
+  rs: List[String]
 
   sub keep(!self, r: String)
     !self.rs.push(r)
@@ -26,7 +26,7 @@ fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap"))
 
 fun mkh() -> H
-  H(rs: Vec())
+  H(rs: List())
 
 sub go[T](x: T)
   !mkh().keep(?mk(1).t)

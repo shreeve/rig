@@ -1,22 +1,22 @@
 struct Bag
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk() -> Bag
-  b = Bag(v: Vec())
+  b = Bag(v: List())
   return b
 
 fun mk2() -> Bag
-  b = Bag(v: Vec())
+  b = Bag(v: List())
   b
 
 fun mk4(c: Bool) -> Bag
-  b = Bag(v: Vec())
-  d = Bag(v: Vec())
+  b = Bag(v: List())
+  d = Bag(v: List())
   b if c else d
 
 fun mk5(c: Bool) -> Bag
-  b = Bag(v: Vec())
-  d = Bag(v: Vec())
+  b = Bag(v: List())
+  d = Bag(v: List())
   if c
     b
   else

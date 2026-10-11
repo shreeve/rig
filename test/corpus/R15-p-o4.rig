@@ -1,4 +1,4 @@
 sub main()
-  v: Vec[*Cell[Int]] = Vec()
+  v: List[*Cell[Int]] = List()
   !v.push(*Cell(value: 1))
   w = !v[..]

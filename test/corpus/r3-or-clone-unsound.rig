@@ -1,11 +1,11 @@
 # A clone of a value that holds views carries their loans (Core s2, s6).
 
 struct Bag
-  v: Vec[?Int]
+  v: List[?Int]
 
 sub views_kept()
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   w = +v
   <v
@@ -14,7 +14,7 @@ sub views_kept()
 
 sub through_view_kept()
   a = 1
-  bag = Bag(v: Vec())
+  bag = Bag(v: List())
   !bag.v.push(?a)
   r = ?bag
   c = +r

@@ -1,4 +1,4 @@
-# match v[idx(?Text("a"))] with a guard over Vec[E] holding a Cell holder
+# match v[idx(?Text("a"))] with a guard over List[E] holding a Cell holder
 struct C
   c: Cell[Int]
 
@@ -10,7 +10,7 @@ fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(x: C(c: Cell(1))))
   match !v[idx(?Text("a"))]
     .a(x) if x.c.get() == 1 => (!x.c).set(5)

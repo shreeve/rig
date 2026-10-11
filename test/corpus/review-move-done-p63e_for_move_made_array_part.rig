@@ -1,16 +1,16 @@
 struct S
-  v: Vec[Int]
-  w: Vec[Int]
-  arr: [2]Vec[Int]
+  v: List[Int]
+  w: List[Int]
+  arr: [2]List[Int]
 
 fun mk() -> S
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   !e.push(1)
-  f: Vec[Int] = Vec()
+  f: List[Int] = List()
   !f.push(2)
-  S(v: <v, w: Vec(), arr: [<e, <f])
+  S(v: <v, w: List(), arr: [<e, <f])
 
 sub main()
   a = mk()

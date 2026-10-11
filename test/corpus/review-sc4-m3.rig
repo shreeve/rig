@@ -12,7 +12,7 @@ sub keep(b: *B)
   print("kept", b.n)
 
 sub main()
-  v: Vec[Slot] = Vec()
+  v: List[Slot] = List()
   !v.push(.full(b: *B(n: 1)))
   !v.push(.empty)
   for x in ?v

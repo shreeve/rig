@@ -2,7 +2,7 @@
 # keeps its short form `!v.pop()`; the parenthesized form still works.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..5
     !v.push(i)
   _ = !v.pop()

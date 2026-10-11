@@ -1,16 +1,16 @@
-# Assigning an element of a Cell's Vec stores the value in the Cell,
+# Assigning an element of a Cell's List stores the value in the Cell,
 # which every handle reaches: a String that may view
 # a Text cannot go there, as with `set` and `push`. A literal can.
 
-sub put(c: !Cell[Vec[String]], s: String)
+sub put(c: !Cell[List[String]], s: String)
   (!c)[0] = s
 
-sub fill[T](c: !Cell[Vec[T]], x: T)
+sub fill[T](c: !Cell[List[T]], x: T)
   (!c)[0] = x
 
 sub main()
   t = Text("abcdefghijklmnop")
-  cv: *Cell[Vec[String]] = *Cell(Vec())
+  cv: *Cell[List[String]] = *Cell(List())
   !cv.push("lit")
   put(!cv, ?t[..3])
   (!cv)[0] = ?t[..2]

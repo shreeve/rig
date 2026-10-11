@@ -1,4 +1,4 @@
-# write match on an optional element via a temp index (enum in an optional in a Vec). Expect accept, clean.
+# write match on an optional element via a temp index (enum in an optional in a List). Expect accept, clean.
 enum E
   a(t: Text)
   b
@@ -7,7 +7,7 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[E?] = Vec()
+  v: List[E?] = List()
   !v.push(E.a(t: Text("x")))
   if !v[idx(?Text("a"))] as e
     match !e

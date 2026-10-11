@@ -10,7 +10,7 @@ struct D
 
 struct L
   t: Cell[Text]
-  v: Cell[Vec[Text]]
+  v: Cell[List[Text]]
   d: Cell[D]
 
   drop(!self)
@@ -20,13 +20,13 @@ fun mkd(n: Int) -> D
   D(c: Cell(n))
 
 fun mkl(s: String) -> L
-  L(t: Cell(Text(s)), v: Cell(Vec()), d: Cell(mkd(0)))
+  L(t: Cell(Text(s)), v: Cell(List()), d: Cell(mkd(0)))
 
 fun freshT() -> Cell[Text]
   Cell(Text("ft"))
 
-fun freshV() -> Cell[Vec[Text]]
-  w: Vec[Text] = Vec()
+fun freshV() -> Cell[List[Text]]
+  w: List[Text] = List()
   !w.push(Text("v0"))
   Cell(<w)
 

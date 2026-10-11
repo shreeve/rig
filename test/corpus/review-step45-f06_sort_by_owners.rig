@@ -1,4 +1,4 @@
-# sort_by on Vec[Text] and on an array of Box
+# sort_by on List[Text] and on an array of Box
 use std.sort
 
 struct P
@@ -11,7 +11,7 @@ fun bigger(a: ?^P, b: ?^P) -> Bool
   a.n > b.n
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   for i in 0..30
     t = Text("")
     for _ in 0..(30 - i)

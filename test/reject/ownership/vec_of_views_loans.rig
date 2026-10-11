@@ -1,8 +1,8 @@
-# A Vec of views keeps each pushed view's loan while it lives.
+# A List of views keeps each pushed view's loan while it lives.
 
 sub main()
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   a = 2
   print(v.len)

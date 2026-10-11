@@ -1,9 +1,9 @@
 struct B
-  items: Vec[Int]
+  items: List[Int]
   name: Text
 
 fun mk() -> B
-  b = B(items: Vec(), name: Text("hello world"))
+  b = B(items: List(), name: Text("hello world"))
   !b.items.push(4)
   b
 

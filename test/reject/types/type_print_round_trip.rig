@@ -40,8 +40,8 @@ sub main()
   x28: (*fun(Int) -> Int)? = 1
   x29: fun(N?) -> *N? = 1
   x30: fun((N?)?) -> (N?)? = 1
-  x31: *Vec[Int]? = 1
-  x32: *Vec[(N?)?] = 1
+  x31: *List[Int]? = 1
+  x32: *List[(N?)?] = 1
 
 # error: 12:15: type mismatch: expected `(N?)?`, got `Int`
 # error: 13:17: type mismatch: expected `(N?)?`, got `Int`
@@ -74,5 +74,5 @@ sub main()
 # error: 40:30: type mismatch: expected `(*fun(Int) -> Int)?`, got `Int`
 # error: 41:25: type mismatch: expected `fun(N?) -> *N?`, got `Int`
 # error: 42:30: type mismatch: expected `fun((N?)?) -> (N?)?`, got `Int`
-# error: 43:21: type mismatch: expected `*Vec[Int]?`, got `Int`
-# error: 44:22: type mismatch: expected `*Vec[(N?)?]`, got `Int`
+# error: 43:22: type mismatch: expected `*List[Int]?`, got `Int`
+# error: 44:23: type mismatch: expected `*List[(N?)?]`, got `Int`

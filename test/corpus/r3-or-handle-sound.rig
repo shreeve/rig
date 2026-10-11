@@ -14,7 +14,7 @@ struct User
   name: String
 
 struct Holder
-  r: ?Vec[Int]
+  r: ?List[Int]
 
 sub show(u: ?User)
   print(u.name)
@@ -47,7 +47,7 @@ sub clone_outlives()
   print(b.name)
 
 sub carries_then_done()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = *Holder(r: ?v)
   g = +h

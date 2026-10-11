@@ -25,8 +25,8 @@ sub main()
   m = 6
   i = first(?n, true) catch ?m
   j = first(?n, false) catch ?m
-  vs: Vec[Int] = Vec()
+  vs: List[Int] = List()
   !vs.push(3)
-  ws: Vec[Int] = Vec()
+  ws: List[Int] = List()
   k = first(?vs, true) catch ?ws
   print(v.x, u.x, i, j, k.len)

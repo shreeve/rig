@@ -1,9 +1,9 @@
-# take an optional element of a Vec reached through a shared handle: reject
+# take an optional element of a List reached through a shared handle: reject
 struct S
-  v: Vec[Text?]
+  v: List[Text?]
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("a"))
   h = *S(v: <v)
   t = <h.v[0]

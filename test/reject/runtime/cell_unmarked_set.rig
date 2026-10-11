@@ -1,12 +1,12 @@
 # A shared Cell changes only by a marked call, so a call that changes it
 # without `!` is rejected, with the mark in the hint: `set`, `replace`,
-# and a Cell of a Vec's `push`, `pop`, `clear`, and element assignment.
+# and a Cell of a List's `push`, `pop`, `clear`, and element assignment.
 
 sub main()
   c: *Cell[Int] = *Cell(1)
   c.set(5)
   old = c.replace(6)
-  v: *Cell[Vec[Int]] = *Cell(Vec())
+  v: *Cell[List[Int]] = *Cell(List())
   v.push(1)
   last = v.pop()
   v.clear()

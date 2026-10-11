@@ -1,4 +1,4 @@
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   for i in 0..100
     !v.push(i)
   0
@@ -10,6 +10,6 @@ fun total(xs: []Int) -> Int
   n
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   print(total(v[grow(!v)..]))

@@ -4,7 +4,7 @@ fun sum(xs: ([]Int)?) -> Int
   0
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(4)
-  o: Vec[Int]? = <v
+  o: List[Int]? = <v
   print(sum(?o))

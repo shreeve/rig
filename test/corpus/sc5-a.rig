@@ -6,7 +6,7 @@ enum Status
 
 struct Buf
   size: Int = LIMIT
-  items: Vec[Int] = Vec()
+  items: List[Int] = List()
 
 fun fnv(s: String) -> U64
   h: U64 = 14695981039346656037

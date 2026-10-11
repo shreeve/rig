@@ -5,7 +5,7 @@ struct Tag
   name: String
 
 sub main()
-  tags: Vec[Tag] = Vec()
+  tags: List[Tag] = List()
   !tags.push(Tag(name: label(3)))
   !tags.push(Tag(name: "x"))
   first = tags[0].name

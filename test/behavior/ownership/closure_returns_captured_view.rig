@@ -2,10 +2,10 @@
 # value; the result views what the closure holds.
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  x = Wrap(v: Vec())
+  x = Wrap(v: List())
   !x.v.push(42)
   r = ?x
   s = |<r| r

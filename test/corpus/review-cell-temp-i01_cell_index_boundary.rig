@@ -1,10 +1,10 @@
-# The `c[i] = e` boundary: direct on a temporary's Cell[Vec],
+# The `c[i] = e` boundary: direct on a temporary's Cell[List],
 # through a `?self` method, through a view a call returns, and compound.
 #
 # oracle: Log.drop accept
 # oracle: peek accept
 struct Log
-  lines: Cell[Vec[Int]]
+  lines: Cell[List[Int]]
 
   drop(!self)
     print("drop", self.lines.len)
@@ -13,7 +13,7 @@ struct Log
     (!self.lines)[0] = v
 
 fun made() -> Log
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(1)
   Log(lines: Cell(<w))
 

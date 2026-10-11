@@ -1,4 +1,4 @@
-# Branch SPEC §10 Text: `Vec[Text]` rejected, `Vec[^Text]` the workaround (run on rig-text only)
+# Branch SPEC §10 Text: `List[Text]` rejected, `List[^Text]` the workaround (run on rig-text only)
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   print(v.len)

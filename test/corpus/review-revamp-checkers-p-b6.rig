@@ -1,11 +1,11 @@
 fun get(i: Int) -> Int?
   none if i == 2 else i
 
-fun eat(v: Vec[Int]) -> Int
+fun eat(v: List[Int]) -> Int
   v.len
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   i = 0
   while i < 4 : i += 1
     n = get(i) ?? continue

@@ -1,10 +1,10 @@
-# write match on Vec element with a catch-all binding the whole element, then assigning it. Expect accept, clean.
+# write match on List element with a catch-all binding the whole element, then assigning it. Expect accept, clean.
 enum E
   a(n: Int, t: Text)
   b
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.b)
   !v.push(E.a(n: 1, t: Text("v")))
   i = 0

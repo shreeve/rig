@@ -5,7 +5,7 @@ struct C
     !self.hits.set(self.hits.get() + 1)
 
 sub main()
-  v: Vec[C] = Vec()
+  v: List[C] = List()
   !v.push(C(hits: Cell(0)))
   !v[0].hit()
   !v[0].hit()

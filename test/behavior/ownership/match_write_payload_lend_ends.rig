@@ -24,7 +24,7 @@ enum E
   b
 
 enum V
-  a(xs: Vec[Int])
+  a(xs: List[Int])
   b
 
 enum B
@@ -33,7 +33,7 @@ enum B
 
 struct P
   t: Text
-  xs: Vec[Int]
+  xs: List[Int]
 
   fun head(?self) -> String
     ?self.t[..1]
@@ -71,7 +71,7 @@ sub texts()
   print(e)
 
 sub vec()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   e = V.a(<v)
   match !e
@@ -97,7 +97,7 @@ sub boxed()
   print(e)
 
 sub parts()
-  e = S.a(P(t: Text("part"), xs: Vec()))
+  e = S.a(P(t: Text("part"), xs: List()))
   match !e
     .a(p)
       s = ?p.t[1..]

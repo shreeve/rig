@@ -1,4 +1,4 @@
-# if v[idx(?Text("a"))] as c over Vec[C?]: header temporary + element subject; Cell change must land
+# if v[idx(?Text("a"))] as c over List[C?]: header temporary + element subject; Cell change must land
 struct C
   c: Cell[Int]
 
@@ -6,7 +6,7 @@ fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[C?] = Vec()
+  v: List[C?] = List()
   !v.push(C(c: Cell(1)))
   if !v[idx(?Text("a"))] as c
     !c.c.set(5)

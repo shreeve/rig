@@ -2,9 +2,9 @@ struct P
   x: Int
 
 sub main()
-  ps: Vec[P] = Vec()
+  ps: List[P] = List()
   !ps.push(P(x: 1))
-  ws: Vec[!P] = Vec()
+  ws: List[!P] = List()
   q = P(x: 9)
   !ws.push(!q)
   e = ws[0]

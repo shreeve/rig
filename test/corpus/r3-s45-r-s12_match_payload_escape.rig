@@ -2,12 +2,12 @@ enum E
   a(t: Text)
   b
 
-fun pick(v: ?Vec[E]) -> String
+fun pick(v: ?List[E]) -> String
   match v[0]
     .a(t) => ?t
     .b => "b"
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(Text("hi")))
   print(pick(?v))

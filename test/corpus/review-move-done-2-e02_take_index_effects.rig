@@ -1,16 +1,16 @@
-# A take whose index writes the Vec it takes from.
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+# A take whose index writes the List it takes from.
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 
-fun grow(v: !Vec[Vec[Int]?]) -> Int
+fun grow(v: !List[List[Int]?]) -> Int
   for i in 0..100
     !v.push(mkv(i))
   0
 
 sub main()
-  v: Vec[Vec[Int]?] = Vec()
+  v: List[List[Int]?] = List()
   !v.push(mkv(1))
   x = <v[grow(!v)]
   print(x == none, v.len)

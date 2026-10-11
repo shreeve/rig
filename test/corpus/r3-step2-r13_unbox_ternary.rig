@@ -1,11 +1,11 @@
 struct N
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  p: Vec[Int] = Vec()
+  p: List[Int] = List()
   !p.push(5)
   a = ^N(v: <p)
-  b = ^N(v: Vec())
+  b = ^N(v: List())
   c = true
   n = (a if c else b).unbox()
   print(n.v.len)

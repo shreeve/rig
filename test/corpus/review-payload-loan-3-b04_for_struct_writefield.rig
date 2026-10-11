@@ -6,7 +6,7 @@ struct H
 
 sub main()
   p = P(t: Text("hello"))
-  hs: Vec[H] = Vec()
+  hs: List[H] = List()
   !hs.push(H(w: !p))
   for h in hs
     r = ?h.w.t[1..]

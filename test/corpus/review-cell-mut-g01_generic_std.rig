@@ -1,6 +1,6 @@
 # Cell holders through generic code: std.sort's comparator, std.slices,
 # a generic holder's callback, a generic function over a slice, and
-# generic Box/Vec/optional wrappers.
+# generic Box/List/optional wrappers.
 use std.sort
 use std.slices
 
@@ -48,7 +48,7 @@ fun total(xs: []C) -> Int
   t
 
 sub main()
-  v: Vec[C] = Vec()
+  v: List[C] = List()
   for k in [5, 3, 9, 1, 7]
     !v.push(mk(k))
   sort.sort_by(!v, less)

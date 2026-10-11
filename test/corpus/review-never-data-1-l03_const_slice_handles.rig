@@ -1,7 +1,7 @@
 struct D
   c: *Cell[Int]
 
-sub bump(s: []*Cell[Int], ds: []D, v: !Vec[*Cell[Int]])
+sub bump(s: []*Cell[Int], ds: []D, v: !List[*Cell[Int]])
   !s[0].set(s[0].get() + 1)
   !ds[0].c.set(ds[0].c.get() + 10)
   !v[0].set(v[0].get() + 100)
@@ -10,9 +10,9 @@ sub bump(s: []*Cell[Int], ds: []D, v: !Vec[*Cell[Int]])
 
 sub main()
   a = *Cell(0)
-  v: Vec[*Cell[Int]] = Vec()
+  v: List[*Cell[Int]] = List()
   !v.push(+a)
-  ds: Vec[D] = Vec()
+  ds: List[D] = List()
   !ds.push(D(c: +a))
   bump(?v[..], ?ds[..], v)
   print(a.get())

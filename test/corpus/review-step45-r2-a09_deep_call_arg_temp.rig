@@ -10,7 +10,7 @@ fun k(n: Int) -> Int
   n
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("hi")))
   match !v[k(idx(?Text("a")))]
     .a(t) if t.len > 0 => !t.add("!")

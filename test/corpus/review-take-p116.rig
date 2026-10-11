@@ -5,7 +5,7 @@ sub put(b: !^R)
   b.n = 5
 
 sub main()
-  b: Vec[^R] = Vec()
+  b: List[^R] = List()
   !b.push(^R(n: 2))
   put(!b[0])
   print(b)

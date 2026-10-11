@@ -1,8 +1,8 @@
 fun same[T](x: T) -> T
   x
 
-fun mk() -> ^?Vec[Int]
-  v: Vec[Int] = Vec()
+fun mk() -> ^?List[Int]
+  v: List[Int] = List()
   !v.push(1)
   ^same(?v)
 

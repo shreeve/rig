@@ -10,7 +10,7 @@ fun peek[T](g: ?G[T]) -> Int
     .a(_) => 1
     .b => 0
 
-fun loopit[T](v: ?Vec[T]) -> Int
+fun loopit[T](v: ?List[T]) -> Int
   c = 0
   for x in v
     c += 1
@@ -27,7 +27,7 @@ sub main()
     .a(x) => x.n = 9
     .b => pass
   q = P(n: 5)
-  v: Vec[!P] = Vec()
+  v: List[!P] = List()
   !v.push(!q)
   print(loopit(?v))
   for x in v

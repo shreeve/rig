@@ -1,7 +1,7 @@
 # A jump out of an assignment's value leaves the target's view pointing
 # at a local of the scope it leaves; a use of the view after is rejected.
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   k = 0
@@ -9,7 +9,7 @@ sub main()
     0
       w[0] = match k
         0
-          y: Vec[Int] = Vec()
+          y: List[Int] = List()
           !y.push(1)
           w = !y[0..1]
           break :out

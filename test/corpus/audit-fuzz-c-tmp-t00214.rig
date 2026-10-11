@@ -110,7 +110,7 @@ fun h0() -> Int?
   print("val", qq(Q(h: *mk(1), o: optr(rt_int(3002))?)))
   print("val", one(mk(3), opt(rt_int(5))?))
   p2 = P(a: mk(4), b: mk(5))
-  v3: Vec[*R] = Vec()
+  v3: List[*R] = List()
   !v3.push(*mk(6))
   m5 = M(r: mk(7))
   !m5.put(mk(8))
@@ -132,7 +132,7 @@ fun h2() -> Int?
   0
 
 fun h3() -> Int?
-  v0: Vec[*R] = Vec()
+  v0: List[*R] = List()
   !v0.push(*mk(51))
   !v0.push(*optr(rt_int(4052))?)
   print("val", pp(P(a: mk(53), b: mk(54))))

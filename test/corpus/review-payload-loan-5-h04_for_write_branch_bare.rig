@@ -1,10 +1,10 @@
-sub f(a: !Vec[Int], b: !Vec[Int], c: Bool)
+sub f(a: !List[Int], b: !List[Int], c: Bool)
   for x in !(a if c else b)
     x += 1
   print(a)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   f(!v, !u, true)

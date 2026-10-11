@@ -1,10 +1,10 @@
-# match on an element of Vec[E] with an owner payload; payload view escapes arm
+# match on an element of List[E] with an owner payload; payload view escapes arm
 enum E
   a(t: Text)
   b(n: Int)
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("hi")))
   s: String = "none"
   match v[0]

@@ -3,7 +3,7 @@
 
 struct Wrap
   payload: Int
-  log: Vec[Int]
+  log: List[Int]
 
 struct View
   box: ?Wrap
@@ -12,8 +12,8 @@ sub put(v: !View, b: ?Wrap)
   v.box = b
 
 sub main()
-  a = Wrap(payload: 1, log: Vec())
-  b = Wrap(payload: 2, log: Vec())
+  a = Wrap(payload: 1, log: List())
+  b = Wrap(payload: 2, log: List())
   v = View(box: ?a)
   put(!v, ?b)
   <b

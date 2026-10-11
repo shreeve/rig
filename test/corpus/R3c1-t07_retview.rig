@@ -3,7 +3,7 @@ struct P
   s: String
 
 struct Bag
-  items: Vec[P]
+  items: List[P]
 
   fun first(?self) -> ?P
     ?self.items[0]
@@ -26,6 +26,6 @@ sub main()
   u = "u"
   v = "v"
   print(pickS(?u, ?v) < pickS(?v, ?u), pickS(?u, ?v) == "u")
-  bag = Bag(items: Vec[P]())
+  bag = Bag(items: List[P]())
   !bag.items.push(P(x: 1, s: "a"))
   print(bag.first() == p, bag.items[0] == p, ?bag.items[0] == ?p)

@@ -8,5 +8,5 @@ pub struct P
 
 pub type IP = Pair[Int, String]
 pub type CI = Cell[Int]
-pub type VP = Vec[P]
+pub type VP = List[P]
 pub type Q = P

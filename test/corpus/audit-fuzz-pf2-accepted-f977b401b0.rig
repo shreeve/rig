@@ -3,7 +3,7 @@
 # long list one node at a time.
 
 sub elements()
-  v: Vec[Int?] = Vec()
+  v: List[Int?] = List()
   !v.push(5)
   a = <v[0]
   print(a, v)

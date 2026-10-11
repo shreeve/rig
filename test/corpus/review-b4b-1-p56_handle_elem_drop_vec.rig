@@ -1,4 +1,4 @@
-# read match through a handle element via temp index; arm drops the Vec then uses t. Expect reject.
+# read match through a handle element via temp index; arm drops the List then uses t. Expect reject.
 enum E
   a(t: Text)
   b
@@ -7,7 +7,7 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  hs: Vec[*E] = Vec()
+  hs: List[*E] = List()
   !hs.push(*E.a(t: Text("x")))
   match hs[idx(?Text("a"))]
     .a(t)

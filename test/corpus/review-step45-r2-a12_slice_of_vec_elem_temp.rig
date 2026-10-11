@@ -1,10 +1,10 @@
-# for x in !m[idx(?Text("a"))][0..1] : slice of a Vec element reached through a temp
+# for x in !m[idx(?Text("a"))][0..1] : slice of a List element reached through a temp
 fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  m: Vec[Vec[Text]] = Vec()
-  r: Vec[Text] = Vec()
+  m: List[List[Text]] = List()
+  r: List[Text] = List()
   !r.push(Text("p"))
   !m.push(<r)
   for x in !m[idx(?Text("a"))][0..1]

@@ -1,6 +1,6 @@
-# A read view of a Vec[Int] element, then a push that may realloc.
+# A read view of a List[Int] element, then a push that may realloc.
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   r = ?v[0]
   for i in 0..100

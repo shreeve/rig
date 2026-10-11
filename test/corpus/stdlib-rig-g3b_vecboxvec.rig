@@ -1,8 +1,8 @@
 struct Row
-  cells: Vec[Int]
+  cells: List[Int]
 
 sub main()
-  grid: Vec[^Vec[Int]] = Vec()
-  !grid.push(^Vec[Int]())
-  rows: Vec[Row] = Vec()
+  grid: List[^List[Int]] = List()
+  !grid.push(^List[Int]())
+  rows: List[Row] = List()
   print(grid.len)

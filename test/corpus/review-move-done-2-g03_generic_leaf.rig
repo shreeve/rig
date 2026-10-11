@@ -5,8 +5,8 @@ fun pick[T](c: Bool, a: T, b: T) -> T
 fun orr[T](o: T?, a: T) -> T
   <(o ?? a)
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

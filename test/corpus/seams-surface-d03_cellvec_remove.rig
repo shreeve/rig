@@ -1,5 +1,5 @@
 sub main()
-  c = Cell(Vec[Int]())
+  c = Cell(List[Int]())
   c.push(1)
   x = c.remove(0)
   !c.push(3)

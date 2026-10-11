@@ -1,25 +1,25 @@
 # A generic body may take the elements of a loop that does not consume
 # its collection when each instance is plain data: they are copies.
 
-fun last[T](v: ?Vec[T], d: T) -> T
+fun last[T](v: ?List[T], d: T) -> T
   r = <d
   for x in v
     r = <x
   r
 
-fun copyall[T](v: ?Vec[T]) -> Vec[T]
-  out = Vec[T]()
+fun copyall[T](v: ?List[T]) -> List[T]
+  out = List[T]()
   for x in v
     !out.push(<x)
   out
 
-fun first[T](v: ?Vec[T], d: T) -> T
+fun first[T](v: ?List[T], d: T) -> T
   for x in v
     return x
   <d
 
 sub main()
-  w = Vec[Int]()
+  w = List[Int]()
   !w.push(1)
   !w.push(2)
   print(last(?w, 0), first(?w, 0))

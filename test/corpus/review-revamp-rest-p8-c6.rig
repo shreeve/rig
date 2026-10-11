@@ -3,20 +3,20 @@ error E
 
 struct P
   n: Int
-  fun use(!self, a: Vec[Int], b: Vec[Int]) -> Int
+  fun use(!self, a: List[Int], b: List[Int]) -> Int
     self.n + a.len + b.len
 
-fun mk(c: !*Cell[Vec[P]]) -> Vec[Int]!
+fun mk(c: !*Cell[List[P]]) -> List[Int]!
   for i in 0..10000
     !c.push(P(n: i))
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
   v
 
-fun run(c: !*Cell[Vec[P]]) -> Int!
+fun run(c: !*Cell[List[P]]) -> Int!
   !c[0].use(mk(!c)!, mk(!c)!)
 
 sub main()
-  c = *Cell[Vec[P]](value: Vec())
+  c = *Cell[List[P]](value: List())
   !c.push(P(n: 41))
   print(run(!c) catch 0)

@@ -1,12 +1,12 @@
 # The condition binds a write view of an element; the step writes
-# through it; the body grows the Vec.
-fun at(v: !Vec[Int], i: Int) -> (!Int)?
+# through it; the body grows the List.
+fun at(v: !List[Int], i: Int) -> (!Int)?
   if i < v.len
     return !v[i]
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   i = 0

@@ -3,7 +3,7 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  a: Vec[Text?] = Vec()
+  a: List[Text?] = List()
   !a.push(Text("a"))
   while !a[idx(?Text("a"))] as t
     a[0] = none

@@ -1,6 +1,6 @@
 pub struct Tree
   key: Int
-  pub kids: Vec[^Tree]
+  pub kids: List[^Tree]
 
   pub fun total(?self) -> Int
     t = self.key
@@ -9,7 +9,7 @@ pub struct Tree
     t
 
 pub fun leaf(key: Int) -> ^Tree
-  ^Tree(key: key, kids: Vec())
+  ^Tree(key: key, kids: List())
 
 pub struct Ticket
   n: Int

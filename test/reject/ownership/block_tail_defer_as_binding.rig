@@ -1,16 +1,16 @@
 # An `if ... as` binding at the tail of the then-branch leaves it before
 # the branch's defer runs; the defer cannot write it.
 sub main()
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(1)
-  o: Vec[Int]? = <w
+  o: List[Int]? = <w
   x = if <o as v
     defer
       for i in 0..100
         !v.push(i)
     v
   else
-    Vec[Int]()
+    List[Int]()
   !x.push(3)
   print(x.len, x[0])
 

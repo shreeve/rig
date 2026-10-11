@@ -4,16 +4,16 @@
 fun same[T](x: T) -> T
   x
 
-fun boxed() -> ^?Vec[Int]
-  v: Vec[Int] = Vec()
+fun boxed() -> ^?List[Int]
+  v: List[Int] = List()
   ^?v
 
-fun through() -> ?Vec[Int]
-  v: Vec[Int] = Vec()
+fun through() -> ?List[Int]
+  v: List[Int] = List()
   same(?v)
 
-fun optional() -> (?Vec[Int])?
-  v: Vec[Int] = Vec()
+fun optional() -> (?List[Int])?
+  v: List[Int] = List()
   ?v
 
 sub main()

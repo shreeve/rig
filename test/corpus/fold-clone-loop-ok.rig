@@ -7,7 +7,7 @@ struct H
   t: Text
 
 sub main()
-  vs: Vec[Text] = Vec()
+  vs: List[Text] = List()
   !vs.push(Text("a"))
   keep = Text("")
   for x in ?vs

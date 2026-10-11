@@ -3,14 +3,14 @@ struct S
   n: Int
 
 sub main()
-  v: Vec[S] = Vec()
+  v: List[S] = List()
   !v.push(S(n: 7))
   w = !v[0]
   k = 0
   w.n += match k
     1 => 4
     _
-      u: Vec[S] = Vec()
+      u: List[S] = List()
       !u.push(S(n: 1))
       w = !u[0]
       3

@@ -1,9 +1,9 @@
-fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
   a
 
 sub main()
-  x: Vec[Int] = Vec()
-  y: Vec[Int] = Vec()
+  x: List[Int] = List()
+  y: List[Int] = List()
   r = first(b: ?y, a: ?x)
   !x.push(1)
   print(r.len)

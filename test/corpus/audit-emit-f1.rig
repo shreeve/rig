@@ -13,13 +13,13 @@ struct H
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-fun mkv(k: Int) -> Vec[Int]!
+fun mkv(k: Int) -> List[Int]!
   return E.bad if k < 0
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(k)
   v
 
-fun use3(v: Vec[Int], f: ?fun(Int) -> Int, w: Vec[Int]) -> Int
+fun use3(v: List[Int], f: ?fun(Int) -> Int, w: List[Int]) -> Int
   f(v.len + w.len)
 
 fun run(k: Int) -> Int!
@@ -34,7 +34,7 @@ sub main()
   print(g(5))
   h = H(cb: *|x| x * 3, name: "h")
   print(h.cb(4))
-  v: Vec[*fun(Int) -> Int] = Vec()
+  v: List[*fun(Int) -> Int] = List()
   !v.push(*|x| x + 1)
   for c in ?v
     print(c(1))

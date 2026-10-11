@@ -6,7 +6,7 @@
 
 struct N
   id: Int
-  v: Vec[Int]
+  v: List[Int]
 
   drop(!self)
     print("drop N", self.id)
@@ -20,7 +20,7 @@ struct R
 
 struct B
   s: String
-  v: Vec[Int]
+  v: List[Int]
 
   drop(!self)
     print("drop B", self.s)
@@ -32,14 +32,14 @@ fun f() -> Int!
   return Bad.no
 
 fun run() -> Int!
-  print(R(n: ?N(id: 1, v: Vec())).n.id, f()!)
+  print(R(n: ?N(id: 1, v: List())).n.id, f()!)
   0
 
 fun mkb(s: String) -> B
-  B(s: s, v: Vec())
+  B(s: s, v: List())
 
 sub main()
-  print(R(n: ?N(id: 2, v: Vec())).n.id)
+  print(R(n: ?N(id: 2, v: List())).n.id)
   print(run() catch -1)
   i = 0
   while mkb(?Text("pass", i)).s.len < 6

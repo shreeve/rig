@@ -1,13 +1,13 @@
 struct P
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  b = ^P(v: Vec())
+  b = ^P(v: List())
   !b.v.push(1)
   r = ?b.v
   w = <b.take()
   print(r.len)
-  c = ^P(v: Vec())
+  c = ^P(v: List())
   s = !c.v
   <c
   !s.push(3)

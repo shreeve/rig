@@ -24,7 +24,7 @@ sub touch[T](g: !Gn[T], x: T)
 fun pick(a: !C, b: !C, k: Bool) -> !C
   a if k else b
 
-fun find(v: !Vec[*C], n: Int) -> (!C)?
+fun find(v: !List[*C], n: Int) -> (!C)?
   return none if n >= v.len
   !v[n]
 
@@ -49,7 +49,7 @@ sub main()
     n = (!m).me()
     !n.hit()
   print(a.c.get(), b.c.get())
-  v: Vec[*C] = Vec()
+  v: List[*C] = List()
   !v.push(*C(c: Cell(0)))
   !v.push(*C(c: Cell(0)))
   for i in 0..4

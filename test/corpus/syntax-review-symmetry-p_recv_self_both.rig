@@ -1,6 +1,6 @@
 struct P
   n: Int
-  items: Vec[Int]
+  items: List[Int]
   sub bump(!self)
     self.n += 1
   sub twice(!self)
@@ -10,5 +10,5 @@ struct P
     print(self.n, self.items.len)
 
 sub main()
-  p = P(n: 0, items: Vec())
+  p = P(n: 0, items: List())
   !p.twice()

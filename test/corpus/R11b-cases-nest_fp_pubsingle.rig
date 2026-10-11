@@ -2,22 +2,22 @@ pub struct Pair[A, B]
   a: A
   b: B
 
-pub struct List[T]
-  items: Vec[T]
+pub struct Chain[T]
+  items: List[T]
 
-  fun zip[U](?self, other: ?List[U]) -> List[Pair[T, U]]
-    out: Vec[Pair[T, U]] = Vec()
+  fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]
+    out: List[Pair[T, U]] = List()
     i = 0
     while i < self.items.len and i < other.items.len
       !out.push(Pair(a: self.items[i], b: other.items[i]))
       i += 1
-    List(items: <out)
+    Chain(items: <out)
 
   fun count(?self) -> Int
     self.items.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  l = List(items: <v)
+  l = Chain(items: <v)
   print(l.count())

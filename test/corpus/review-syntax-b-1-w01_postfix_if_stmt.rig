@@ -1,5 +1,5 @@
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   c = v.len > 0
   !v.pop() if c

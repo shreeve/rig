@@ -26,13 +26,13 @@ sub sort_twice[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   sort_by(!xs, less)
   sort_by(!xs, less)
 
-fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
-  out: Vec[U] = Vec()
+fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
+  out: List[U] = List()
   for x in xs
     !out.push(f(?x))
   out
 
-fun map_view[T, U](xs: ?[]T, f: ?fun(?T) -> U) -> Vec[U]
+fun map_view[T, U](xs: ?[]T, f: ?fun(?T) -> U) -> List[U]
   map(xs, f)
 
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
@@ -49,7 +49,7 @@ fun look[T](x: T) -> Int
   n
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(3)
   !v.push(1)
   !v.push(2)

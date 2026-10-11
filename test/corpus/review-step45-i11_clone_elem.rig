@@ -1,7 +1,7 @@
-# +v[0] where v: Vec[Vec[Text]]
+# +v[0] where v: List[List[Text]]
 sub main()
-  v: Vec[Vec[Text]] = Vec()
-  r: Vec[Text] = Vec()
+  v: List[List[Text]] = List()
+  r: List[Text] = List()
   !r.push(Text("a"))
   !v.push(<r)
   c = +v[0]

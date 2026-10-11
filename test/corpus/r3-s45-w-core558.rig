@@ -1,6 +1,6 @@
 sub main()
-  rows: Vec[Vec[Int]] = Vec()
-  r: Vec[Int] = Vec()
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
   !r.push(5)
   !rows.push(<r)
   print(rows.len, rows[0].len)

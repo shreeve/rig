@@ -2,7 +2,7 @@ fun idx(s: ?Text) -> Int
   0
 
 sub main()
-  v: Vec[[2]Int] = Vec()
+  v: List[[2]Int] = List()
   !v.push([1, 2])
   for x in !v[idx(?Text("k"))]
     x = 9

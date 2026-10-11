@@ -13,7 +13,7 @@ struct User
   name: Text
 
 struct Holder
-  r: ?Vec[Int]
+  r: ?List[Int]
 
 sub drop_while_viewed()
   a = *User(name: Text("bob"))
@@ -28,7 +28,7 @@ sub lend_then_drop()
   print(u.name)
 
 sub clone_carries()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = *Holder(r: ?v)
   g = +h
@@ -37,7 +37,7 @@ sub clone_carries()
   print(g.r.len)
 
 sub weak_carries()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = *Holder(r: ?v)
   g = +h

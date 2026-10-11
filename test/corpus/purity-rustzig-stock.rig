@@ -11,7 +11,7 @@ struct Item
   qty: Int
 
 struct Stock
-  items: Vec[Item]
+  items: List[Item]
   shipped: Int = 0
 
   sub add(!self, name: String, qty: Int)
@@ -45,7 +45,7 @@ fun ship(stock: !Stock, name: String, qty: String) -> Int!
   (!stock).take(name, n)!
 
 sub main()
-  s = Stock(items: Vec())
+  s = Stock(items: List())
   !s.add("bolt", 10)
   !s.add("nut", 3)
   orders = [["bolt", "4"], ["nut", "5"], ["gear", "1"], ["bolt", "x2"], ["bolt", "6"]]

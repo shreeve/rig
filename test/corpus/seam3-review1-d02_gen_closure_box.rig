@@ -3,7 +3,7 @@ fun mk[T](x: T) -> *fun() -> Int
   *|<b| 1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f = mk(?v)
   <v
   print(f())

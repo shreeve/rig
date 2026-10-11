@@ -19,27 +19,27 @@ fun total(xs: []Int) -> Int
   n
 
 # The owner is written first, then lent and only read.
-fun grow_then_store(a: !Holder, b: !Vec[Int]) -> Int
+fun grow_then_store(a: !Holder, b: !List[Int]) -> Int
   !b.push(5)
   a.r = ?b[..]
   print(b.len, total(?b[..]))
   a.r[0] + a.r[1]
 
 # A method stores the view; the owner is read through other views.
-fun store_by_method(a: !Holder, b: !Vec[Int]) -> Int
+fun store_by_method(a: !Holder, b: !List[Int]) -> Int
   !a.set(?b[..])
   for x in ?b
     print(x)
   a.r.len
 
 # A caller's view stored in a parameter lends nothing here.
-fun store_caller_view(a: !Holder, b: []Int, c: !Vec[Int]) -> Int
+fun store_caller_view(a: !Holder, b: []Int, c: !List[Int]) -> Int
   a.r = b
   !c.push(7)
   a.r[0] + c.len
 
 # A local holder's loan ends at its last use.
-fun local_holder(b: !Vec[Int]) -> Int
+fun local_holder(b: !List[Int]) -> Int
   x = [9, 9]
   h = Holder(r: ?x[..])
   h.r = ?b[..]
@@ -48,7 +48,7 @@ fun local_holder(b: !Vec[Int]) -> Int
   n + b.len
 
 # A closure that captures `!a` and only reads leaves `b` readable.
-fun closure_reads(a: !Holder, b: !Vec[Int]) -> Int
+fun closure_reads(a: !Holder, b: !List[Int]) -> Int
   g = |!a, ?b| print(a.r.len, b.len)
   g()
   b.len
@@ -60,8 +60,8 @@ fun text_view(a: !Text2, b: !Text) -> Int
   print(a.s, b)
   b.len
 
-fun mk() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mk() -> List[Int]
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   v

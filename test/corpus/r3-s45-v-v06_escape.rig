@@ -1,6 +1,6 @@
-fun mk() -> Vec[?Int]
+fun mk() -> List[?Int]
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   v
 

@@ -1,10 +1,10 @@
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   for _ in 0..200
     !v.push(1)
   v.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0]
   k = 0

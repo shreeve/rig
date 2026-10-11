@@ -8,7 +8,7 @@ fun get(k: Int) -> Int?
   k if k != 2 else none
 
 sub main()
-  xs: Vec[^Res] = Vec()
+  xs: List[^Res] = List()
   for i in 1..5
     !xs.push(^Res(id: i))
   keep = Res(id: 99)

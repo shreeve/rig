@@ -44,22 +44,22 @@ write call whose result is used goes in parentheses, `if
 error Stack
   empty
 
-fun peek(v: ?Vec[Int]) -> Int?
+fun peek(v: ?List[Int]) -> Int?
   return none if v.len == 0
   v[v.len - 1]
 
-fun pop(v: !Vec[Int]) -> Int!
+fun pop(v: !List[Int]) -> Int!
   return Stack.empty if v.len == 0
   (!v).pop() ?? 0
 
-fun next(v: ?Vec[Int]) -> Int?
+fun next(v: ?List[Int]) -> Int?
   peek(?v)? + 1
 
-fun drain(v: !Vec[Int]) -> Int!
+fun drain(v: !List[Int]) -> Int!
   pop(!v)! + pop(!v)!
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   print(next(?v))
@@ -203,7 +203,7 @@ sub main()
 Square brackets hold what is known at compile time, and parentheses
 what is known when the program runs. Type arguments are usually
 inferred, and given in brackets when they are not: `max[Float](1, 2)`,
-`Vec[Int]()`. There are no trait bounds: each instance a program makes
+`List[Int]()`. There are no trait bounds: each instance a program makes
 is checked against what the generic body does with `T`, and an error
 names the call, with a note at the line of the body.
 
@@ -327,7 +327,7 @@ and environment variable. The suite runs on Linux and macOS in
 - moves, read and write views (including views returned from
   functions and held in structs) whose loans end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
-- shared `*T` and weak `~T` handles, `Cell`, `Vec`, `^T`, and `Signal`
+- shared `*T` and weak `~T` handles, `Cell`, `List`, `^T`, and `Signal`
 - `Text`, owned text built with `Text(a, b)` and `!t.add(...)`, whose
   Strings (`?t[a..b]`) view it
 - stack and owned closures with explicit captures, any arity, inferred

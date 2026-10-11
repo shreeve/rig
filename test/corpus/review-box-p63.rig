@@ -21,7 +21,7 @@ sub g(w: !^R)
   print(rd(?w))
 
 sub main()
-  v: Vec[^R] = Vec()
+  v: List[^R] = List()
   !v.push(^R(n: 1))
   for x in !v
     wr(x)

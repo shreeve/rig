@@ -13,7 +13,7 @@ struct S
     print("dropS", self.n)
 
 struct H
-  rs: Vec[String]
+  rs: List[String]
 
   sub keep(!self, r: String)
     !self.rs.push(r)
@@ -28,7 +28,7 @@ fun wrap(h: !H) -> !H
   h
 
 sub main()
-  h = H(rs: Vec())
+  h = H(rs: List())
   if true
     s = mk(1)
     !wrap(!h).keep(?s.t)

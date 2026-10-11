@@ -8,7 +8,7 @@ struct S
   rs: [1]R
   t: Text
 
-fun dup[T](v: ?Vec[T]) -> Vec[T]
+fun dup[T](v: ?List[T]) -> List[T]
   +v
 
 sub main()
@@ -16,5 +16,5 @@ sub main()
   c = +s
   print(c.t)
 
-# error: 12:4: `+x` cannot clone a `Vec[T]`: a type parameter has no deep clone in a generic body
+# error: 12:4: `+x` cannot clone a `List[T]`: a type parameter has no deep clone in a generic body
 # error: 16:8: `+x` cannot clone a `S`: it holds a unique value, which a copy would duplicate

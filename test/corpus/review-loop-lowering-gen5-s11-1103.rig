@@ -41,20 +41,20 @@ fun mkd(k: Int, c: Int, n: Int) -> D?
 fun gate(b: Bool) -> Int?
   none if b else 1
 
-fun mkvec(k: Int, n: Int) -> Vec[D]
-  v: Vec[D] = Vec()
+fun mkvec(k: Int, n: Int) -> List[D]
+  v: List[D] = List()
   for i in 0..n
     !v.push(D(n: 2000 * (k + 1) + i))
   v
 
-fun grow(v: !Vec[Int], n: Int, c: Int) -> Int
+fun grow(v: !List[Int], n: Int, c: Int) -> Int
   print("s", n, c)
   for i in 0..20
     !v.push(i)
   c + 1
 
-fun ints(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun ints(n: Int) -> List[Int]
+  v: List[Int] = List()
   for i in 0..n
     !v.push(10 + i)
   v

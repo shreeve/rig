@@ -87,14 +87,14 @@ expect_eq "$(grep ': error: ' out.txt)" "poison.rig:1:11: error: use of unbound 
 # A type parameter left unbound because an argument or the expected
 # type already has an error is not reported again: only the cause is.
 cat >poison.rig <<'EOF2'
-fun empty[T]() -> Vec[T]
-  Vec()
+fun empty[T]() -> List[T]
+  List()
 
 fun id[T](a: T) -> T
   a
 
 sub main()
-  z: Vec[Foo] = empty()
+  z: List[Foo] = empty()
   x = id(id(id(empty())))
   print(z.len, x.len)
 EOF2

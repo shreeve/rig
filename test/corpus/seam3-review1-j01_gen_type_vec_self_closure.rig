@@ -1,12 +1,12 @@
 struct Stack[T]
-  items: Vec[T]
+  items: List[T]
 
   fun later(<self) -> *sub()
     *|<self| print(self.items[0])
 
 sub main()
   b = ^Text("hello")
-  s: Stack[?^Text] = Stack(items: Vec())
+  s: Stack[?^Text] = Stack(items: List())
   !s.items.push(?b)
   f = <s.later()
   <b

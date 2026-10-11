@@ -1,7 +1,7 @@
 sub main()
-  hs: Vec[*^?Vec[Int]] = Vec()
+  hs: List[*^?List[Int]] = List()
   for i in 0..2
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(i)
     !hs.push(*^?v)
   print(hs[0].len)

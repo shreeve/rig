@@ -1,5 +1,5 @@
 sub main()
-  v: Vec[String] = Vec()
+  v: List[String] = List()
   s = "a"
   !v.push(s)
   print(s, v.len)

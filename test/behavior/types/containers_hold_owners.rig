@@ -14,7 +14,7 @@ struct C
   h: *Int
 
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
 fun total(s: []Bag) -> Int
   n = 0
@@ -28,12 +28,12 @@ sub main()
   print(xs.len)
   holder = A(items: [C(h: *1), C(h: *2)])
   print(holder.items[0].h, holder.items[1].h)
-  v: Vec[*B] = Vec()
+  v: List[*B] = List()
   !v.push(*B(n: 2))
   print(v[0..1])
-  rows: Vec[Vec[Int]] = Vec()
-  bags: Vec[Bag] = Vec()
-  b: Vec[Int] = Vec()
+  rows: List[List[Int]] = List()
+  bags: List[Bag] = List()
+  b: List[Int] = List()
   !b.push(7)
   !bags.push(Bag(items: <b))
   print(rows.len, total(?bags[..]))

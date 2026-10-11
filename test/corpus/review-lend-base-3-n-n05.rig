@@ -1,5 +1,5 @@
 struct Bag[T]
-  items: Vec[T]
+  items: List[T]
 
 fun total(b: ?Bag[Int]) -> Int
   t = 0
@@ -8,5 +8,5 @@ fun total(b: ?Bag[Int]) -> Int
   t
 
 sub main()
-  b = Bag[Int](items: Vec())
+  b = Bag[Int](items: List())
   print(total(?b))

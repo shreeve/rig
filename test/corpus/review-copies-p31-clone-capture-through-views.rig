@@ -8,7 +8,7 @@ struct N
 
 struct B
   t: Text
-  hs: Vec[*N]
+  hs: List[*N]
 
 fun vof(o: ?(*N)?) -> Int
   if o as n
@@ -21,7 +21,7 @@ fun tlen(o: ?Text?) -> Int
   0
 
 sub main()
-  hs: Vec[*N] = Vec()
+  hs: List[*N] = List()
   !hs.push(*N(v: 1))
   r = ?hs
   f = |+r| r.len + r[0].v
@@ -43,7 +43,7 @@ sub main()
   rot = ?ot
   m = |+rot| tlen(?rot)
   print(m())
-  b = B(t: Text("bee"), hs: Vec())
+  b = B(t: Text("bee"), hs: List())
   !b.hs.push(*N(v: 3))
   wb = !b
   q = |+wb| wb.t.len + wb.hs[0].v

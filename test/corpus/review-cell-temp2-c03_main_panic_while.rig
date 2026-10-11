@@ -39,8 +39,8 @@ struct WD
   inner: D
   n: Int
 
-fun vec1(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun vec1(n: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(n)
   v
 

@@ -1,7 +1,7 @@
 # for over an element of a temporary: for t in mk()[0]
-fun mk() -> Vec[Vec[Text]]
-  m: Vec[Vec[Text]] = Vec()
-  r: Vec[Text] = Vec()
+fun mk() -> List[List[Text]]
+  m: List[List[Text]] = List()
+  r: List[Text] = List()
   !r.push(Text("a"))
   !m.push(<r)
   <m

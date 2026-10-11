@@ -1,7 +1,7 @@
 fun get(i: Int) -> Int?
   none if i == 2 else i
 
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print(v.len)
 
 fun find(k: Int) -> Int
@@ -14,10 +14,10 @@ fun find(k: Int) -> Int
 
 sub main()
   :outer for i in 0..3
-    a: Vec[Int] = Vec()
+    a: List[Int] = List()
     for j in 0..3
       eat(<a)
       n = get(j) ?? continue :outer
-      a = Vec()
+      a = List()
       print(n, i)
   print(find(0), find(5))

@@ -4,15 +4,15 @@
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 40
     return S(s: ?v[..])
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   !e.push(0)
   last = S(s: ?e[..])
   k = 0

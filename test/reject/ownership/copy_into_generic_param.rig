@@ -4,14 +4,14 @@
 fun keep[T](x: T) -> T
   x
 
-fun first[T](xs: Vec[T]) -> Int
+fun first[T](xs: List[T]) -> Int
   xs.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   w = keep(v)
   print(w.len, first(v))
 
-# error: 12:12: `keep` takes ownership of a `Vec[Int]`, and `v` can't be copied: write `<v` to move it or `+v` to pass a clone; if `keep` only reads it, make its parameter a `?T`
-# error: 13:22: `first` takes ownership of a `Vec[Int]`, and `v` can't be copied: write `<v` to move it or `+v` to pass a clone; if `first` only reads it, make its parameter a `?Vec[T]`
+# error: 12:12: `keep` takes ownership of a `List[Int]`, and `v` can't be copied: write `<v` to move it or `+v` to pass a clone; if `keep` only reads it, make its parameter a `?T`
+# error: 13:22: `first` takes ownership of a `List[Int]`, and `v` can't be copied: write `<v` to move it or `+v` to pass a clone; if `first` only reads it, make its parameter a `?List[T]`
 # errors: 2

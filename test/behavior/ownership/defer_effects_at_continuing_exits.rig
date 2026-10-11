@@ -39,9 +39,9 @@ fun revive(ok: Bool) -> Int!
 
 # A defer that re-points a view, at a `?` that may leave with none.
 fun repoint(o: Int?) -> Int?
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   !a.push(10)
-  b: Vec[Int] = Vec()
+  b: List[Int] = List()
   !b.push(20)
   r = ?a
   defer print("deferred", r[0])

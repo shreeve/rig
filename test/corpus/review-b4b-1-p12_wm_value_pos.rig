@@ -1,10 +1,10 @@
-# write match on Vec element in value position, with a guard. Expect accept, clean.
+# write match on List element in value position, with a guard. Expect accept, clean.
 enum E
   a(n: Int, t: Text)
   b
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(n: 1, t: Text("v")))
   i = 0
   k = 3

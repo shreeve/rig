@@ -5,7 +5,7 @@ fun mk[T](x: T) -> Keep[T]
   Keep(c: *Cell(x))
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = mk(?v)
   <v

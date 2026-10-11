@@ -1,7 +1,7 @@
 # `h.o?` as a consuming receiver would copy the value out of the field
 # without moving it.
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun total(<self) -> Int
     self.items.len
@@ -14,7 +14,7 @@ fun go(h: !Holder) -> Int?
   n
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(3)
   h = Holder(o: <b)
   print(go(!h) ?? 0)

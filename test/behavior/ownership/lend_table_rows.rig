@@ -1,5 +1,5 @@
 # Each row of the lend table (Core §4) makes the view its context
-# expects: a Vec lends `[]T` and `![]T` as an array does, a `*T` lends
+# expects: a List lends `[]T` and `![]T` as an array does, a `*T` lends
 # the read views of its `T`, an `X?` lends a `View?`, a box lends the
 # views of its value through any number of boxes, and a view a
 # parameter holds lends what it views.
@@ -39,14 +39,14 @@ fun size(xs: ([]Int)?) -> Int
 fun name(s: String?) -> String
   s ?? "none"
 
-sub sort_held(v: !Vec[Int])
+sub sort_held(v: !List[Int])
   sort.sort(!v)
 
-fun sum_held(v: ?Vec[Int]) -> Int
+fun sum_held(v: ?List[Int]) -> Int
   total(v)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(3)
   !v.push(1)
   !v.push(2)
@@ -62,7 +62,7 @@ sub main()
   o: S? = S(n: 5)
   e: S? = none
   ot: Text? = Text("hi")
-  ov: Vec[Int]? = <v
+  ov: List[Int]? = <v
   print(maybe(?o), maybe(?e), name(?ot), size(?ov))
   a = [1, 2, 3]
   print(size(?a))
@@ -71,14 +71,14 @@ sub main()
   ba = ^[4, 5, 6]
   bt = ^Text("box")
   print(get(?bb), total(?ba), first(?bt))
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(7)
   !w.push(8)
   bv = ^<w
   zero_boxed(!bv)
   print(total(?bv))
 
-sub zero_boxed(b: !^Vec[Int])
+sub zero_boxed(b: !^List[Int])
   zero(!b)
 
 # expect:

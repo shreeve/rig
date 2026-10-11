@@ -1,5 +1,5 @@
 # A view the lend table makes (Core §4) carries the loan of what was
-# lent, whatever rows made it: a Vec's elements, a handle's value, an
+# lent, whatever rows made it: a List's elements, a handle's value, an
 # optional's value, a box's array, a box's box, a handle's Text, and a
 # view a parameter holds. Each owner below is changed while its view
 # is still used.
@@ -20,11 +20,11 @@ fun keep_o(xs: ([]Int)?) -> ([]Int)?
 fun keep_t(s: String) -> String
   s
 
-fun via(v: ?Vec[Int]) -> []Int
+fun via(v: ?List[Int]) -> []Int
   keep(v)
 
 sub vec_elems()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   s = keep(?v)
   !v.push(2)
@@ -37,8 +37,8 @@ sub handle_view()
   print(r.n)
 
 sub optional_view()
-  v: Vec[Int] = Vec()
-  o: Vec[Int]? = <v
+  v: List[Int] = List()
+  o: List[Int]? = <v
   s = keep_o(?o)
   o = none
   print(s)
@@ -62,13 +62,13 @@ sub handle_text()
   print(s)
 
 sub held_view()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   s = via(?v)
   <v
   print(s)
 
 sub write_elems()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   w = !v
   sort.sort(!v)
   print(w.len)

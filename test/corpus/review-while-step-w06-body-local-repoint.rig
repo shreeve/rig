@@ -1,15 +1,15 @@
-# The body re-points an outer view at a body-local Vec, which drops
+# The body re-points an outer view at a body-local List, which drops
 # at the body's end; the step then reads the view.
 #
 # oracle: main reject C5
 sub main()
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(7)
   s = ?w[..]
   k = 0
   i = 0
   while i < 3: k += s[0]
-    local: Vec[Int] = Vec()
+    local: List[Int] = List()
     !local.push(i)
     s = ?local[..]
     i += 1

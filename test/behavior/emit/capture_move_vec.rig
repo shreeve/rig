@@ -1,8 +1,8 @@
-# A closure that move-captures a `Vec` owns it and frees it when the
+# A closure that move-captures a `List` owns it and frees it when the
 # closure leaves scope.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   f = |<v|

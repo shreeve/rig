@@ -2,7 +2,7 @@ fun mk() -> [2]Text
   [Text("a"), Text("b")]
 
 sub main()
-  keep: Vec[Text] = Vec()
+  keep: List[Text] = List()
   for t in mk()
     !keep.push(<t)
   print(keep)

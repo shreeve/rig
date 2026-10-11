@@ -22,7 +22,7 @@ sub walk(slot: ?^Node?)
     walk(?n.right)
 
 sub main()
-  v: Vec[^Node] = Vec()
+  v: List[^Node] = List()
   !v.push(^Node(key: 1, left: none, right: none))
   !v.push(^Node(key: 2, left: none, right: none))
   keep: ^Node? = none

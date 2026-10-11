@@ -2,7 +2,7 @@
 sub main()
   t = Text("t")
   u = Text("u")
-  w: Vec[String] = Vec()
+  w: List[String] = List()
   !w.push(?t)
   w[0] = ?u
   <u

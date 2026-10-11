@@ -1,6 +1,6 @@
 struct P
-  xs: Vec[Int]
+  xs: List[Int]
 
 sub main()
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   print(v.len)

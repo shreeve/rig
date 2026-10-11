@@ -2,7 +2,7 @@
 # where it is, as any `==` operand reads.
 enum Shape
   dot
-  line(v: Vec[Int])
+  line(v: List[Int])
 
 struct H
   o: Shape?
@@ -12,7 +12,7 @@ fun f(h: ?H) -> Bool?
   r
 
 sub main()
-  p: Vec[Int] = Vec()
+  p: List[Int] = List()
   !p.push(1)
   h = H(o: Shape.line(<p))
   print(f(?h) ?? false)

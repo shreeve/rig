@@ -29,31 +29,31 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-sub write_match(v: !Vec[E])
+sub write_match(v: !List[E])
   match !v[idx(?Text("a"))]
     .a(t) if t.len > 1 => !t.add("x")
     .a(t) => !t.add("?")
     .b(n) => n += 1
 
-fun read_match(v: ?Vec[E]) -> Int
+fun read_match(v: ?List[E]) -> Int
   match v[idx(?Text("a"))]
     .a(t) => t.len
     .b(n) => n
 
-sub field_match(v: !Vec[S])
+sub field_match(v: !List[S])
   match !v[idx(?Text("a"))].e
     .a(t) => !t.add("f")
     .b(n) => print(n)
 
-sub write_as(v: !Vec[Text?])
+sub write_as(v: !List[Text?])
   if !v[idx(?Text("a"))] as t
     !t.add("w")
 
-sub read_as(v: ?Vec[(*C)?])
+sub read_as(v: ?List[(*C)?])
   if v[idx(?Text("a"))] as c
     !c.c.set(c.c.get() + 5)
 
-sub write_while(v: !Vec[Text?])
+sub write_while(v: !List[Text?])
   k = 0
   while !v[idx(?Text("ab"))] as t
     !t.add("l")
@@ -64,13 +64,13 @@ sub plain(arr: ![1]Int?)
   if !arr[idx(?Text("a"))] as n
     n = 50
 
-sub branch(v: !Vec[Text?], w: !Text?, c: Bool)
+sub branch(v: !List[Text?], w: !Text?, c: Bool)
   if (!v[idx(?Text("a"))] if c else !w) as t
     !t.add("b")
 
 sub main()
   es = [E.a(t: Text("e")), E.b(n: 3)]
-  ev: Vec[E] = Vec()
+  ev: List[E] = List()
   !ev.push(E.a(t: Text("q")))
   write_match(!ev)
   write_match(!ev)
@@ -78,19 +78,19 @@ sub main()
   match ev[0]
     .a(t) => print(t)
     .b(n) => print(n)
-  sv: Vec[S] = Vec()
+  sv: List[S] = List()
   !sv.push(S(e: E.a(t: Text("s")), o: none))
   field_match(!sv)
   match sv[0].e
     .a(t) => print(t)
     .b(n) => print(n)
-  tv: Vec[Text?] = Vec()
+  tv: List[Text?] = List()
   !tv.push(Text("t"))
   !tv.push(Text("u"))
   write_as(!tv)
   write_while(!tv)
   print(tv)
-  cv: Vec[(*C)?] = Vec()
+  cv: List[(*C)?] = List()
   !cv.push(*C(c: Cell(1)))
   read_as(?cv)
   read_as(?cv)
@@ -106,13 +106,13 @@ sub main()
   match es[idx(?Text("ab"))]
     .a(t) => print(t)
     .b(n) => print("b", n)
-  m: Vec[[2]Int] = Vec()
+  m: List[[2]Int] = List()
   !m.push([1, 2])
   for x in !m[idx(?Text("k"))]
     x *= 10
   for x in m[idx(?Text("k"))]
     print(clobber(x), x)
-  ws: Vec[[1]*C] = Vec()
+  ws: List[[1]*C] = List()
   !ws.push([*C(c: Cell(0))])
   for c in ws[idx(?Text("k"))]
     !c.c.set(7)

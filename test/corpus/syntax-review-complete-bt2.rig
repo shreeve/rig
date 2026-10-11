@@ -1,9 +1,9 @@
 struct Node
-  keys: Vec[Int]
-  kids: Vec[^Node]
+  keys: List[Int]
+  kids: List[^Node]
 
 sub main()
-  root = Node(keys: Vec(), kids: Vec())
-  !root.kids.push(^Node(keys: Vec(), kids: Vec()))
+  root = Node(keys: List(), kids: List())
+  !root.kids.push(^Node(keys: List(), kids: List()))
   c = !root.kids[0]
   !c.keys.push(1)

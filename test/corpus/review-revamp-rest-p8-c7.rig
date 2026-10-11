@@ -3,13 +3,13 @@ error E
 
 struct P
   n: Int
-  fun use(!self, a: Vec[Int], b: Vec[Int]) -> Int
+  fun use(!self, a: List[Int], b: List[Int]) -> Int
     self.n += 1
     self.n + a.len + b.len
 
-fun mk(n: Int) -> Vec[Int]!
+fun mk(n: Int) -> List[Int]!
   return E.bad if n < 0
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(n)
   v
 

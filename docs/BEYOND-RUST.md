@@ -34,7 +34,7 @@ translation, and nothing to unlearn.
 
 **One word for every view.** Rust's `&T`, `&mut T`, `&[T]`, and `&str`
 are four ideas to learn. In Rig they are one: a view, read or write,
-of a value, of part of an array or `Vec`, or of a `Text`'s bytes. The
+of a value, of part of an array or `List`, or of a `Text`'s bytes. The
 same rules cover all of them ([CORE §4](CORE.md#4-one-lend-table)).
 
 **A drop is a move.** Rust's `drop(x)` moves `x` into a function that

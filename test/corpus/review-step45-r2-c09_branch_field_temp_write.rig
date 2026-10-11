@@ -3,13 +3,13 @@ struct S
   o: Text?
 
 struct H
-  f: Vec[S]
+  f: List[S]
 
 fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  h = H(f: Vec())
+  h = H(f: List())
   !h.f.push(S(o: Text("q")))
   w: Text? = Text("w")
   c = h.f.len == 1

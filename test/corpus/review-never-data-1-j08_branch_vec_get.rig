@@ -1,6 +1,6 @@
 sub main()
-  a: Vec[Text] = Vec()
-  b: Vec[Text] = Vec()
+  a: List[Text] = List()
+  b: List[Text] = List()
   !a.push(Text("x"))
   !b.push(Text("y"))
   c = true

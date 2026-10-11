@@ -16,7 +16,7 @@ fun apply(op: ?Token, a: Int, b: Int) -> Int!
     .star => a * b
     .num(_) => return EvalError.unexpected
 
-fun eval(toks: ?Vec[Token]) -> Int!
+fun eval(toks: ?List[Token]) -> Int!
   acc = 0
   pending: Token? = none
   first = true
@@ -36,7 +36,7 @@ fun eval(toks: ?Vec[Token]) -> Int!
   acc
 
 sub main()
-  toks: Vec[Token] = Vec()
+  toks: List[Token] = List()
   !toks.push(.num(2))
   !toks.push(.plus)
   !toks.push(.num(3))

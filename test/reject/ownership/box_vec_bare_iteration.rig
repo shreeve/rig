@@ -1,5 +1,5 @@
-# A Vec of boxes is walked by viewed slot, written or not: each
-# element of `for x in v` is a view of a box the Vec still owns, which
+# A List of boxes is walked by viewed slot, written or not: each
+# element of `for x in v` is a view of a box the List still owns, which
 # cannot be moved out.
 
 struct R
@@ -8,12 +8,12 @@ struct R
 sub eat(b: ^R)
   print(b.n)
 
-sub f(v: ?Vec[^R])
+sub f(v: ?List[^R])
   for x in v
     eat(<x)
 
 sub main()
-  v: Vec[^R] = Vec()
+  v: List[^R] = List()
   !v.push(^R(n: 1))
   f(?v)
 

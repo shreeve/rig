@@ -1,12 +1,12 @@
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0]
   k = 0
   w = match k
     1 => 4
     _
-      u: Vec[Int] = Vec()
+      u: List[Int] = List()
       !u.push(1)
       w = !u[0]
       3

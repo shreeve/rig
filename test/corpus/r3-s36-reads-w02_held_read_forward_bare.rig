@@ -1,6 +1,6 @@
 struct S
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 fun get(s: ?S) -> Int
   s.n
@@ -9,5 +9,5 @@ fun via(s: ?S) -> Int
   get(s)
 
 sub main()
-  x = S(n: 1, v: Vec())
+  x = S(n: 1, v: List())
   print(via(?x))

@@ -6,7 +6,7 @@ pub struct Node[T]
     self.v
 
 pub struct Tree[T]
-  kids: Vec[Tree[T]]
+  kids: List[Tree[T]]
   v: T
 
 pub fun cons[T](v: T, rest: (*Node[T])?) -> *Node[T]

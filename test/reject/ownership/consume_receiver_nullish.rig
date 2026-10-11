@@ -1,14 +1,14 @@
 # A consuming method's receiver is taken like an argument: each name a
 # `??` receiver may be is moved with `<` (`(<o ?? <b)`).
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun total(<self) -> Int
     self.items.len
 
 sub main()
-  o: Bag? = Bag(items: Vec())
-  b = Bag(items: Vec())
+  o: Bag? = Bag(items: List())
+  b = Bag(items: List())
   print((o ?? b).total())
   print(b.items.len)
 

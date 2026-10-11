@@ -12,7 +12,7 @@ struct Noisy
   drop(!self)
     print("drop", self.id)
 
-fun find(xs: ?Vec[Int], k: Int) -> Int?
+fun find(xs: ?List[Int], k: Int) -> Int?
   for x, i in xs
     return i if x == k
   none
@@ -21,7 +21,7 @@ fun parse(s: String) -> Int!
   return E.bad if s == "x"
   s.len
 
-fun index_of(xs: ?Vec[Int], k: Int) -> Int!
+fun index_of(xs: ?List[Int], k: Int) -> Int!
   guard = Noisy(id: k)
   i = find(xs, k) ?? return E.missing
   print("found", guard.id)
@@ -35,12 +35,12 @@ fun describe(s: String) -> String
   n = parse(s) catch |e| return "error" if e == E.bad else "other"
   "ok" if n > 0 else "empty"
 
-sub report(xs: ?Vec[Int], k: Int)
+sub report(xs: ?List[Int], k: Int)
   i = find(xs, k) ?? return
   print("at", i)
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   for n in 1..5
     !xs.push(n * 2)
   print(index_of(?xs, 4) catch -1)

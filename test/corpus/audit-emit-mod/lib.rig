@@ -11,7 +11,7 @@ pub struct Cfg
   pub c: Color = .green
   pub s: String = "x"
   pub f: Float = .5
-  pub v: Vec[Int] = Vec()
+  pub v: List[Int] = List()
   pub m: U64 = big
 
 pub fun scale(x: Int, by: Int = limit, c: Color = .blue, top: U64 = big) -> Int

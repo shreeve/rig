@@ -1,12 +1,12 @@
-fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
   a
 
-fun swapped(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+fun swapped(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
   first(b, a)
 
 sub main()
-  x: Vec[Int] = Vec()
-  y: Vec[Int] = Vec()
+  x: List[Int] = List()
+  y: List[Int] = List()
   r = swapped(?x, ?y)
   !x.push(1)
   !y.push(1)

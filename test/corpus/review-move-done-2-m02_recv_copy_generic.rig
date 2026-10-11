@@ -7,7 +7,7 @@ struct P
     self.v
 
 struct HV
-  v: Vec[Int]
+  v: List[Int]
 
   fun into(<self) -> Int
     self.v.len
@@ -18,8 +18,8 @@ struct G[T]
 fun use_part[T](g: ?G[T]) -> Int
   g.f.into()
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

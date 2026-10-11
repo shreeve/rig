@@ -1,6 +1,6 @@
 struct Bx
   c: Cell[Int]
-  v: Vec[Int]
+  v: List[Int]
 
 struct Holder
   b: ?Bx
@@ -9,9 +9,9 @@ struct Holder
     print("holder drop reads", self.b.v[0])
 
 sub main()
-  y0 = Bx(c: Cell(0), v: Vec())
+  y0 = Bx(c: Cell(0), v: List())
   !y0.v.push(0)
   h = Holder(b: ?y0)
-  x = Bx(c: Cell(0), v: Vec())
+  x = Bx(c: Cell(0), v: List())
   !x.v.push(42)
   h.b = ?x

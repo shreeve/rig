@@ -1,8 +1,8 @@
-sub f(a: !Cell[Vec[Int]], b: !Cell[Vec[Int]])
+sub f(a: !Cell[List[Int]], b: !Cell[List[Int]])
   swap(!a, !b)
 
 sub main()
-  a: *Cell[Vec[Int]] = *Cell(Vec())
+  a: *Cell[List[Int]] = *Cell(List())
   !a.push(1)
   b = +a
   f(!a, !b)

@@ -28,7 +28,7 @@ fun last(c: !Counter) -> Int
   !c.next()
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   c = Counter(n: 0)

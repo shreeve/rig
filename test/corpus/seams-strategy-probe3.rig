@@ -5,7 +5,7 @@ struct Task
   priority: Int
 
 sub main()
-  board: Vec[^Task] = Vec()
+  board: List[^Task] = List()
   !board.push(^Task(name: Text("a"), priority: 2))
   !board.push(^Task(name: Text("b"), priority: 1))
   sort.sort_by(!board[..], |a, b| a.priority < b.priority)

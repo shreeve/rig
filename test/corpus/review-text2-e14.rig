@@ -1,4 +1,4 @@
-sub put(c: !Cell[Vec[String]], s: String)
+sub put(c: !Cell[List[String]], s: String)
   !c.push(s)
 
 sub main()

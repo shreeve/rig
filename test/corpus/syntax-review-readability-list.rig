@@ -2,7 +2,7 @@ struct Node
   value: Int
   next: ^Node?
 
-struct List
+struct Chain
   head: ^Node? = none
   len: Int = 0
 
@@ -40,7 +40,7 @@ sub bump(slot: !^Node?, by: Int)
     bump(!n.next, by)
 
 sub main()
-  l = List()
+  l = Chain()
   for v in 1..6
     !l.push(v)
   print(l.len, l.sum())

@@ -10,7 +10,7 @@
 
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
   sub bump(!self)
     self.n += 1
@@ -19,13 +19,13 @@ struct S
     !self.n
 
 fun mk() -> S
-  S(n: 1, items: Vec())
+  S(n: 1, items: List())
 
 fun mkh() -> *S
-  *S(n: 1, items: Vec())
+  *S(n: 1, items: List())
 
-fun mkv() -> Vec[Int]
-  Vec()
+fun mkv() -> List[Int]
+  List()
 
 sub setb(b: !Bool)
   b = true
@@ -36,7 +36,7 @@ sub main()
   c = a.n == 1
   mkv().push(1)
   !(a if c else b).bump()
-  !(*S(n: 1, items: Vec())).bump()
+  !(*S(n: 1, items: List())).bump()
   !mkh().bump()
   for x in !mk().items
     print(x)
@@ -45,7 +45,7 @@ sub main()
 
 # error: 37:3: `push` changes its receiver, a temporary no name holds; add `!`: `!mkv().push(1)`
 # error: 38:5: cannot lend `a if c else b` to write: it may be `a`, a value a name holds
-# error: 39:29: cannot call write-receiver method `bump` through a shared handle
+# error: 39:30: cannot call write-receiver method `bump` through a shared handle
 # error: 40:10: cannot call write-receiver method `bump` through a shared handle
 # error: 41:13: the loop would walk the temporary `mk()` after its header drops it
 # error: 43:3: cannot assign to a field or element of a temporary

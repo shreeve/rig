@@ -1,9 +1,9 @@
 struct P
   t: Text
-  xs: Vec[Int]
+  xs: List[Int]
 
 sub main()
-  p = P(t: Text("hello"), xs: Vec())
+  p = P(t: Text("hello"), xs: List())
   s = ?p.t[1..]
   !p.xs.push(1)
   print(s, p.xs.len)

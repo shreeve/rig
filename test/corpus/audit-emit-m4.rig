@@ -8,8 +8,8 @@ struct HasB
   b: ^Int
 
 sub main()
-  a: Vec[Int] = Vec(capacity: 8)
-  b: Vec[Int] = Vec()
+  a: List[Int] = List(capacity: 8)
+  b: List[Int] = List()
   !a.push(1)
   !b.push(1)
   x = ^1

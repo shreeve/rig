@@ -1,8 +1,8 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(5)
   hs = [H(w: !xs)]
   f = |+hs| hs[0].w[0]

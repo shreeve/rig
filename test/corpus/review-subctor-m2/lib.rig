@@ -11,4 +11,4 @@ pub struct W[T]
 pub type Km = circle
 
 pub struct Bag[T]
-  items: Vec[T]
+  items: List[T]

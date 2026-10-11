@@ -3,7 +3,7 @@
 # argument, a return value, a body's value.
 
 struct Set
-  items: Vec[Int]
+  items: List[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
       return false if x == k
@@ -24,7 +24,7 @@ fun fill(s: !Set) -> Int!
 
 # 1
 sub main()
-  set = Set(items: Vec())
+  set = Set(items: List())
   fresh = (!set).insert(1)
   print(fresh)
   print((!set).insert(1))

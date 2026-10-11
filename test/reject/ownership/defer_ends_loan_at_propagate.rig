@@ -9,9 +9,9 @@ fun maybe(ok: Bool) -> Int!
   1
 
 fun f(ok: Bool) -> Int!
-  keep: Vec[Int] = Vec()
+  keep: List[Int] = List()
   !keep.push(1)
-  x: Vec[Int] = Vec()
+  x: List[Int] = List()
   !x.push(41)
   r = ?x
   defer r = ?keep

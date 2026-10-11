@@ -1,5 +1,5 @@
 struct Bag[T]
-  items: Vec[T]
+  items: List[T]
 
   fun iter(?self) -> BagIter[T]
     BagIter(bag: self, i: 0)
@@ -14,7 +14,7 @@ struct BagIter[T]
     self.bag.items[self.i - 1]
 
 sub main()
-  b = Bag[Int](items: Vec())
+  b = Bag[Int](items: List())
   !b.items.push(4)
   !b.items.push(5)
   it = ?b.iter()

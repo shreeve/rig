@@ -1,30 +1,30 @@
 # The temporaries of an `if` header live through the `if`, and no
-# longer: a view of one the body leaves in a binding, a Vec, or through
+# longer: a view of one the body leaves in a binding, a List, or through
 # a view outlives them.
 
 use std.text
 
 struct N
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk() -> N
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   N(v: <v)
 
-fun idp(n: ?N) -> (?Vec[Int])?
+fun idp(n: ?N) -> (?List[Int])?
   ?n.v
 
 sub main()
   o: String = "init"
   if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
     o = rest
-  v: Vec[String] = Vec()
+  v: List[String] = List()
   if text.cut(?Text("q,r"), ",") as kv
     !v.push(kv.before)
   if text.cut(?Text("s,t"), ",") as kv and kv.before.len > 0
     o = kv.after
-  keep: Vec[Int] = Vec()
+  keep: List[Int] = List()
   p = ?keep
   if idp(?mk()) as r
     p = r

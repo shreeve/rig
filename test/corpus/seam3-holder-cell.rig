@@ -3,5 +3,5 @@ fun keep[T](x: T) -> Int
   1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   print(keep(?v))

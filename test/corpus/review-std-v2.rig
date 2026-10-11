@@ -5,7 +5,7 @@ struct Res
     print("drop", self.n)
 
 sub main()
-  v = Vec[^Res]()
+  v = List[^Res]()
   !v.push(^Res(n: 1))
   !v.insert(0, ^Res(n: 2))
   b = (!v).remove(1)

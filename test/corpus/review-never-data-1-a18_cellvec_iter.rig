@@ -1,8 +1,8 @@
 struct Box2
-  items: Cell[Vec[Int]]
+  items: Cell[List[Int]]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = *Box2(items: Cell(<v))
   !h.items.push(1)
   !h.items.push(2)

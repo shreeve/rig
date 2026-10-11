@@ -2,17 +2,17 @@
 # (A handle is lent as itself, `!*T`, only where it may be written; the
 # review probe of that name.)
 
-sub k(a: ?Cell[Vec[Int]], b: !*Cell[Vec[Int]])
-  b = *Cell(Vec[Int]())
+sub k(a: ?Cell[List[Int]], b: !*Cell[List[Int]])
+  b = *Cell(List[Int]())
   print(a.len)
 
 sub main()
-  v = Vec[*Cell[Vec[Int]]]()
-  w: *Cell[Vec[Int]] = *Cell(Vec())
+  v = List[*Cell[List[Int]]]()
+  w: *Cell[List[Int]] = *Cell(List())
   !w.push(1)
   !v.push(<w)
   for c in v
     k(v[0], !c)
 
-# error: 15:14: cannot lend to write through a read view `?*Cell[Vec[Int]]`; take a write view, or share a handle of your own with `+h`
+# error: 15:14: cannot lend to write through a read view `?*Cell[List[Int]]`; take a write view, or share a handle of your own with `+h`
 # errors: 1

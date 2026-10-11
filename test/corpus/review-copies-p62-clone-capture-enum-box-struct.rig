@@ -1,5 +1,5 @@
 # `|+x|` deep-clones an enum with an owning payload, a Box, and a struct
-# of a Text and a Vec of handles; each clone is dropped with its closure.
+# of a Text and a List of handles; each clone is dropped with its closure.
 struct N
   v: Int
 
@@ -13,7 +13,7 @@ enum E
 
 struct R
   name: Text
-  hs: Vec[*N]
+  hs: List[*N]
 
 fun elen(e: ?E) -> Int
   match e
@@ -30,7 +30,7 @@ sub main()
   b = ^Text("boxed")
   h = |+b| b.len
   <b
-  r = R(name: Text("rec"), hs: Vec())
+  r = R(name: Text("rec"), hs: List())
   !r.hs.push(*N(v: 2))
   k = *|+r| r.name.len + r.hs[0].v
   <r

@@ -7,7 +7,7 @@ struct Slot[V]
   v: V?
 
 sub main()
-  a: Vec[^Slot[*Node]] = Vec()
+  a: List[^Slot[*Node]] = List()
   !a.push(^Slot(v: *Node(id: 1)))
   for s in ?a
     if ?s.v as n

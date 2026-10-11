@@ -3,7 +3,7 @@ struct Pair[K, V]
   v: V
 
 struct Map[K, V]
-  slots: Vec[Pair[K, V]]
+  slots: List[Pair[K, V]]
 
   fun get(?self, k: K) -> V?
     for p in ?self.slots
@@ -18,7 +18,7 @@ struct Map[K, V]
     !self.slots.push(Pair(k: k, v: v))
 
 sub main()
-  m = Map[String, Int](slots: Vec())
+  m = Map[String, Int](slots: List())
   !m.put("a", 1)
   !m.put("b", 2)
   !m.put("a", 3)

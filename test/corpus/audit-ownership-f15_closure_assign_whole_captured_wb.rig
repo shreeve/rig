@@ -17,10 +17,10 @@ fun cond(t: *Tok) -> Bool
   false
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   f = |!v|
-    v = Vec()
+    v = List()
     !v.push(7)
   f()
   f()

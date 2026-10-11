@@ -4,13 +4,13 @@ enum E
   b(n: Int)
 
 struct S
-  es: Vec[E]
+  es: List[E]
 
   fun at(!self, s: String) -> !E
     !self.es[s.len - 1]
 
 sub main()
-  s = S(es: Vec())
+  s = S(es: List())
   !s.es.push(E.a(t: Text("hi")))
   match (!(!s)).at(?Text("a"))
     .a(t) if t.len > 0

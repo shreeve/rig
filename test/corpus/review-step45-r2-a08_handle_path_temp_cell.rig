@@ -7,13 +7,13 @@ enum E
   b(n: Int)
 
 struct S
-  v: Vec[E]
+  v: List[E]
 
 fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(x: C(c: Cell(1))))
   h = *S(v: <v)
   match h.v[idx(?Text("a"))]

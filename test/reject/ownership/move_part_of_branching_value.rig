@@ -15,49 +15,49 @@ error E
 
 struct S
   n: Int
-  v: Vec[Int]
+  v: List[Int]
   o: Int?
-  vs: Vec[Vec[Int]]
+  vs: List[List[Int]]
 
 fun mk() -> S
-  S(n: 3, v: Vec(), o: none, vs: Vec())
+  S(n: 3, v: List(), o: none, vs: List())
 
 fun get(bad: Bool) -> S!
   return E.bad if bad
   mk()
 
 sub owning(c: Bool)
-  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
-  b = S(n: 2, v: Vec(), o: 2, vs: Vec())
+  a = S(n: 1, v: List(), o: 1, vs: List())
+  b = S(n: 2, v: List(), o: 2, vs: List())
   !a.v.push(1)
   w = <(a if c else b).v
   x = <(a if c else mk()).v
   print(w.len, x.len, a.v.len)
 
 sub copying(c: Bool)
-  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
-  b = S(n: 2, v: Vec(), o: 2, vs: Vec())
+  a = S(n: 1, v: List(), o: 1, vs: List())
+  b = S(n: 2, v: List(), o: 2, vs: List())
   m = <(a if c else b).n
   print(m, a.n)
 
 sub others(c: Bool)
-  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
+  a = S(n: 1, v: List(), o: 1, vs: List())
   o: S? = mk()
-  !a.vs.push(Vec())
+  !a.vs.push(List())
   x = <(o ?? a).v
   y = <(get(c) catch a).v
   z = <(a if c else mk()).vs[0]
   print(x.len, y.len, z.len)
 
 sub optional(c: Bool)
-  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
-  b = S(n: 2, v: Vec(), o: 2, vs: Vec())
+  a = S(n: 1, v: List(), o: 1, vs: List())
+  b = S(n: 2, v: List(), o: 2, vs: List())
   t = <(a if c else b).o
   print(t)
 
 sub carried(c: Bool)
-  a = S(n: 1, v: Vec(), o: 1, vs: Vec())
-  b = S(n: 2, v: Vec(), o: 2, vs: Vec())
+  a = S(n: 1, v: List(), o: 1, vs: List())
+  b = S(n: 2, v: List(), o: 2, vs: List())
   for x in <(a if c else b).v
     print(x)
 

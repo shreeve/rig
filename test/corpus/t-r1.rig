@@ -1,8 +1,8 @@
 struct Node
   n: Int
 
-fun clear(ns: !Vec[*Node]) -> Int
-  ns = Vec()
+fun clear(ns: !List[*Node]) -> Int
+  ns = List()
   0
 
 fun reset(r: !*Node) -> Int
@@ -13,17 +13,17 @@ fun rebox(b: !^Int) -> Int
   b = ^5
   0
 
-fun clears(ss: !Vec[String]) -> Int
-  ss = Vec()
+fun clears(ss: !List[String]) -> Int
+  ss = List()
   0
 
 sub main()
-  ns: Vec[*Node] = Vec()
+  ns: List[*Node] = List()
   !ns.push(*Node(n: 1))
   rc = *Node(n: 1)
   print(rc, reset(!rc))
   b = ^3
   print(b, rebox(!b))
-  ss: Vec[String] = Vec()
+  ss: List[String] = List()
   !ss.push("hi")
   print(ss[0], clears(!ss))

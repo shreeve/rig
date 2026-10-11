@@ -2,14 +2,14 @@
 # `defer`, which is dropped after it runs.
 
 struct Res
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  y = Res(v: Vec())
+  y = Res(v: List())
   !y.v.push(7)
   r = ?y
   defer print("defer reads", r.v[0])
-  x = Res(v: Vec())
+  x = Res(v: List())
   !x.v.push(8)
   print(x.v[0])
 

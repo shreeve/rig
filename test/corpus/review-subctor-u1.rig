@@ -5,7 +5,7 @@ struct Name
   s: String
 
 struct Sl
-  items: Vec[String]
+  items: List[String]
 
 enum Kind
   one

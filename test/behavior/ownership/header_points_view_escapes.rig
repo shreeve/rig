@@ -12,7 +12,7 @@ enum E
 fun idx(s: ?Text, i: Int) -> Int
   s.len - 1 + i
 
-fun at2(v: ?Vec[E], i: Int) -> ?E from v
+fun at2(v: ?List[E], i: Int) -> ?E from v
   match ?v[idx(?Text("a"), i)]
     x => x
 
@@ -40,7 +40,7 @@ sub main()
       x if i == 0 => g = x
       _ => print("skip")
   show(g)
-  w: Vec[E] = Vec()
+  w: List[E] = List()
   !w.push(E.a(xs: [7, 7, 7, 7]))
   !w.push(E.a(xs: [8, 8, 8, 8]))
   s = at2(?w, 1)

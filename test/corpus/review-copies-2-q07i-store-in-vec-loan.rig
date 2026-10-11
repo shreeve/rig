@@ -15,7 +15,7 @@ fun get(r: ?P, ok: Bool) -> (?P)!
 sub main()
   a = P(x: 1)
   b = P(x: 2)
-  vs: Vec[?P] = Vec()
+  vs: List[?P] = List()
   !vs.push(get(?a, false) catch ?b)
   b.x = 5
   print(vs[0].x)

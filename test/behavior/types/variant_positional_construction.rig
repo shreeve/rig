@@ -25,7 +25,7 @@ fun half(n: Int) -> Option[Int]
   return .nothing if n % 2 == 1
   .some(n / 2)
 
-fun count(o: Option[Vec[Int]]) -> Int
+fun count(o: Option[List[Int]]) -> Int
   match o
     .some(v) => v.len
     .nothing => 0
@@ -40,9 +40,9 @@ sub main()
   s: Option[String] = .some("hi")
   print(o, f, s, half(8), half(3), Option[U8].some(9))
   print(<o.or(0), Option.some(5).or(0), half(3).or(-1))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  print(count(.some(<v)), count(Option.some(Vec[Int]())), count(.nothing))
+  print(count(.some(<v)), count(Option.some(List[Int]())), count(.nothing))
 
 # expect:
 # 12 3 .circle(radius: 1) .circle(radius: 1) 27

@@ -5,9 +5,9 @@ fun show(a: *Node?, b: *(Node?), c: ?*Node?, d: ~Node?) -> Int
   1
 
 sub main()
-  v = Vec[*Node?]()
-  w = Vec[*(Node?)]()
-  x = Vec[*(Node)?]()
+  v = List[*Node?]()
+  w = List[*(Node?)]()
+  x = List[*(Node)?]()
   !v.push(none)
   !v.push(*Node(value: 3))
   !w.push(*Node(value: 4))

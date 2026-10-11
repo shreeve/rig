@@ -1,9 +1,9 @@
 # take of an optional field through a branching value: emptied in which?
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   a = S(o: <v)
   b = S(o: none)

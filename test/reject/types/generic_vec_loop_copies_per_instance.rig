@@ -1,12 +1,12 @@
-# A generic loop over a `?Vec[T]` binds a copy of each element, which
+# A generic loop over a `?List[T]` binds a copy of each element, which
 # never holds a Cell: a value that holds one is never a type argument
-# (`Vec[C]`), since it lives only behind a shared handle.
+# (`List[C]`), since it lives only behind a shared handle.
 
 struct C
   c: Cell[Int]
 
 sub main()
-  v: *Vec[C] = *Vec[C]()
+  v: *List[C] = *List[C]()
   print(v.len)
 
 # error: 9:7: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`

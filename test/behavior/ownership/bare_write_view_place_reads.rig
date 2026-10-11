@@ -57,7 +57,7 @@ sub made()
   n = 3
   w = !n
   p = P(n: w)
-  vs: Vec[Int] = Vec()
+  vs: List[Int] = List()
   !vs.push(w)
   arr = [w, w + 1]
   print(p.n, vs[0], arr)

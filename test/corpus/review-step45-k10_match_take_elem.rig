@@ -1,10 +1,10 @@
-# match <v[0] on Vec[E?]... and match on an optional element taken
+# match <v[0] on List[E?]... and match on an optional element taken
 enum E
   a(t: Text)
   b(n: Int)
 
 sub main()
-  v: Vec[E?] = Vec()
+  v: List[E?] = List()
   !v.push(E.a(t: Text("hi")))
   if <v[0] as e
     match <e

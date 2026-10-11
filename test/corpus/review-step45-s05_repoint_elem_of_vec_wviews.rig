@@ -1,8 +1,8 @@
-# re-point an element of a Vec[!Text], then use the old target
+# re-point an element of a List[!Text], then use the old target
 sub main()
   a = Text("a")
   b = Text("b")
-  ws: Vec[!Text] = Vec()
+  ws: List[!Text] = List()
   !ws.push(!a)
   ws[0] = !b
   a = Text("A")

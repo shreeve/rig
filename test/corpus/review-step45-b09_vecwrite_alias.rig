@@ -1,7 +1,7 @@
-# Vec[!Int]: push !a, then read a while the Vec is live
+# List[!Int]: push !a, then read a while the List is live
 sub main()
   a = 1
-  w: Vec[!Int] = Vec()
+  w: List[!Int] = List()
   !w.push(!a)
   print(a)
   w[0] = 5

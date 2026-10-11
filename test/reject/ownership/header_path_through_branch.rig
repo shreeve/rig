@@ -9,7 +9,7 @@
 
 struct Res
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 enum E
   a(r: Res)
@@ -21,7 +21,7 @@ error Bad
 struct W
   e: E
   o: E?
-  v: Vec[Int]
+  v: List[Int]
 
 fun tg(w: !W, ok: Bool) -> (!W)!
   return Bad.nope if not ok
@@ -32,7 +32,7 @@ sub part(a: !W, b: !W, c: Bool)
     .a(r) => print(r.n)
     .b => pass
 
-sub part_index(a: !Vec[W], b: !Vec[W], c: Bool)
+sub part_index(a: !List[W], b: !List[W], c: Bool)
   match (a if c else b)[0].e
     .a(r) => print(r.n)
     .b => pass
@@ -55,18 +55,18 @@ sub for_part(a: !W, b: !W, c: Bool)
   for x in (a if c else b).v
     print(x)
 
-sub for_branch(a: !Vec[Int], b: !Vec[Int], c: Bool)
+sub for_branch(a: !List[Int], b: !List[Int], c: Bool)
   for x in (a if c else b)
     print(x)
 
-fun for_unwrapped(v: !Vec[Int]) -> Int?
-  o: (!Vec[Int])? = !v
+fun for_unwrapped(v: !List[Int]) -> Int?
+  o: (!List[Int])? = !v
   for x in o?
     print(x)
   1
 
-sub for_coalesce(v: !Vec[Int], d: !Vec[Int])
-  o: (!Vec[Int])? = !v
+sub for_coalesce(v: !List[Int], d: !List[Int])
+  o: (!List[Int])? = !v
   for x in o ?? !d
     print(x)
 

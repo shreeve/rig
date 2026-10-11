@@ -2,7 +2,7 @@ struct S
   arr: [2]Int
 
 sub main()
-  vs: Vec[S] = Vec()
+  vs: List[S] = List()
   !vs.push(S(arr: [1, 2]))
   a = [0, 0]
   w = !a[..]

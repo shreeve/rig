@@ -7,7 +7,7 @@ struct Holder
   sub set(!self, s: []Int)
     self.r = s
 
-fun f(a: !Holder, b: !Vec[Int]) -> Int
+fun f(a: !Holder, b: !List[Int]) -> Int
   !a.set(?b[..])
   for i in 0..100
     !b.push(i)
@@ -15,7 +15,7 @@ fun f(a: !Holder, b: !Vec[Int]) -> Int
 
 sub main()
   x = [9, 9]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = Holder(r: ?x[..])
   print(f(!h, !v))

@@ -1,5 +1,5 @@
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   for _ in v
@@ -8,7 +8,7 @@ sub main()
   t = Text("abc")
   for _ in t
     t = Text("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   if o as _
     o = none
   print("x")

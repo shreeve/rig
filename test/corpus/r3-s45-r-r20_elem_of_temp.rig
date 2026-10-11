@@ -1,5 +1,5 @@
-fun mk() -> Vec[Text]
-  v: Vec[Text] = Vec()
+fun mk() -> List[Text]
+  v: List[Text] = List()
   !v.push(Text("a"))
   v
 

@@ -14,14 +14,14 @@ struct S
     print("dropS", self.n)
 
 struct H
-  rs: Vec[String]
+  rs: List[String]
 
   drop(!self)
     print("dropH sees", self.rs)
 
 struct W[V]
   h: H
-  xs: Vec[V]
+  xs: List[V]
 
   sub put(!self, r: String, v: V)
     !self.h.rs.push(r)
@@ -31,7 +31,7 @@ fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap"))
 
 fun mkw[V]() -> W[V]
-  W(h: H(rs: Vec()), xs: Vec[V]())
+  W(h: H(rs: List()), xs: List[V]())
 
 sub go[V](v: V)
   !mkw[V]().put(?mk(1).t, <v)

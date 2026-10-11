@@ -21,7 +21,7 @@ struct P
 
 struct Bag
   n: Int
-  items: Vec[Int]
+  items: List[Int]
   p: P
 
   sub bump(!self)
@@ -32,7 +32,7 @@ struct Bag
     self.n += 1
     self.n
 
-  fun take(!self) -> Vec[Int]
+  fun take(!self) -> List[Int]
     r = +self.items
     !r.push(self.n)
     r
@@ -48,7 +48,7 @@ struct Bag
     print("drop", self.n)
 
 fun mk(n: Int) -> Bag
-  b = Bag(n: n, items: Vec(), p: P(k: n))
+  b = Bag(n: n, items: List(), p: P(k: n))
   !b.items.push(n)
   b
 

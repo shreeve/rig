@@ -11,7 +11,7 @@ sub f(e: ?WS)
     .b => pass
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("hello"))
   e = WS.a(!v[..])
   f(?e)

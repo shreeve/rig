@@ -11,7 +11,7 @@ fun g(k: Int) -> Int
   k
 
 sub main()
-  qs: Vec[*Q] = Vec()
+  qs: List[*Q] = List()
   !qs.push(*Q(n: 1))
   !qs.push(*Q(n: 2))
   print(qs[g(1)].get(k: g(1), j: g(2)))

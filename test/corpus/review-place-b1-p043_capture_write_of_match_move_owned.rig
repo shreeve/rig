@@ -1,12 +1,12 @@
 struct R
-  v: Vec[Int]
+  v: List[Int]
 
 enum S
   a(r: R)
   b
 
 sub main()
-  s: S = .a(r: R(v: Vec()))
+  s: S = .a(r: R(v: List()))
   match <s
     .a(r)
       g = |!r| !r.v.push(1)

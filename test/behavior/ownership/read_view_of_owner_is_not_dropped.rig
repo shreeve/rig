@@ -3,13 +3,13 @@
 # (Owned closures cannot capture views; stack closures can.)
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 struct View
   b: ?Wrap
 
 struct Holder
-  own: Vec[Int]
+  own: List[Int]
   b: ?Wrap
 
 struct Tracked
@@ -19,11 +19,11 @@ struct Tracked
     print("drop tracked", self.n)
 
 sub main()
-  x = Wrap(v: Vec())
+  x = Wrap(v: List())
   !x.v.push(41)
   s = *View(b: ?x)
   print(s.b.v[0])
-  h = Holder(own: Vec(), b: ?x)
+  h = Holder(own: List(), b: ?x)
   print(h.b.v[0])
   vw = View(b: ?x)
   f = |<vw| print("closure", vw.b.v[0])

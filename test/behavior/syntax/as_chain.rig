@@ -54,7 +54,7 @@ sub main()
     -1
   print(v)
 
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   for n in 1..8
     !xs.push(n)
   seen = 0

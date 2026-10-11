@@ -25,7 +25,7 @@ sub each(xs: []String, f: ?fun(String) -> Int!)!
     print("got", f(x)!)
 
 sub main()
-  v = Vec[String]()
+  v = List[String]()
   !v.push("keep")
   g: *fun(String) -> Int! = *|<v, s|
     r = R(n: v.len)
@@ -35,7 +35,7 @@ sub main()
   print(g("abcd") catch -1)
   print(g("") catch -2)
   print(g("ab") catch -3)
-  fs: Vec[*fun(String) -> Int!] = Vec()
+  fs: List[*fun(String) -> Int!] = List()
   !fs.push(+g)
   !fs.push(*|s| parse(s)! * 10)
   for f in ?fs

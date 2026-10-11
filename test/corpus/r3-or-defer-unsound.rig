@@ -17,25 +17,25 @@ error E
 struct H
   s: String
 
-sub take(v: Vec[Int])
+sub take(v: List[Int])
   print(v.len)
 
 fun half(n: Int) -> Int!
   return n / 2 if n % 2 == 0 else E.bad
 
 sub moved_before_exit()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   defer print(v.len)
   take(<v)
 
 fun moved_before_failing() -> Int!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   errdefer print(v.len)
   take(<v)
   return E.bad
 
 fun moved_before_propagate(n: Int) -> Int!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   errdefer print(v.len)
   take(<v)
   half(n)!
@@ -47,19 +47,19 @@ sub views_a_later_value()
   h.s = ?t
 
 sub writes_while_viewed()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   r = ?v
   defer print(r.len)
   defer !v.push(3)
   print("body")
 
 sub moves_outer()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   defer take(<v)
   print("body")
 
 sub drops_outer()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   defer <v
   print("body")
 

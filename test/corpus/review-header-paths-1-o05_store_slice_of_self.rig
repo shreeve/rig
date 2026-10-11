@@ -1,14 +1,14 @@
 struct H
-  v: Vec[Int]
+  v: List[Int]
 
-  sub put(!self, dst: !Vec[[]Int])
+  sub put(!self, dst: !List[[]Int])
     !self.v.push(1)
     !dst.push(?self.v[..])
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = H(v: <v)
-  d: Vec[[]Int] = Vec()
+  d: List[[]Int] = List()
   !h.put(!d)
   for i in 0..100
     !h.v.push(i)

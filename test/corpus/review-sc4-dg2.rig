@@ -5,12 +5,12 @@ struct B
     print("drop", self.n)
 
 enum Slot
-  full(b: B, v: Vec[Int])
+  full(b: B, v: List[Int])
   empty
 
 sub main()
-  s: Slot = .full(b: B(n: 1), v: Vec())
-  z: Vec[Int] = Vec()
+  s: Slot = .full(b: B(n: 1), v: List())
+  z: List[Int] = List()
   x = match <s
     .full(b, v) if b.n > 0 => ?v[..]
     _ => ?z[..]

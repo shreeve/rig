@@ -81,15 +81,15 @@ structural weak spots, which these steps removed (the evidence is in
    every path, running defers and reporting the loans it drops; the
    `classify` test keeps `handsOver` the only classifier.
 3. **Reads and lends.** A bare name reads in place where a view is
-   expected, one lend table serves every owner (Vec, Text, `^T`, `*T`,
+   expected, one lend table serves every owner (List, Text, `^T`, `*T`,
    optionals), and a header's subject is viewed or taken by its
    classification.
-4. **Containers hold anything.** `Vec[Text]`, nested Vecs, and records
+4. **Containers hold anything.** `List[Text]`, nested Lists, and records
    that own text work; `?v[i]`, `!v[i]`, and `<v[i]` lend or take an
    element; assigning a view place re-points it or writes through.
 5. **The remaining planned rules.** An error value meets `T!` only as
    `return`'s operand, `(!s).insert(k)`, `const x = e`, an owner moves
-   as a function's or block's last value, and `+x` deep-copies Vec, `^T`,
+   as a function's or block's last value, and `+x` deep-copies List, `^T`,
    and owning structs.
 6. **Result origins.** A call's result carries the loans of the
    arguments whose types could hold what it views, `from a` narrows
@@ -226,7 +226,7 @@ and run the corpus after.
 - **Review findings not fixed:**
   - Over-rejections main has too (review of B4b part 2, probes
     `test/corpus/review-b4b-2-p22`, `p24`, `p25`, `p43`): a payload
-    view pushed into a Vec inside a `for` stays rooted on the loop
+    view pushed into a List inside a `for` stays rooted on the loop
     binding; a view returned from a `match` nested on an outer payload
     binding (`match r.i` in `.a(r)`) is rooted on that binding; and a
     write-view local a payload view came through cannot be re-pointed
@@ -242,8 +242,8 @@ and run the corpus after.
     held view (`x77`), and re-pointing a write view a closure has lent
     (`x68`). Add them as `# oracle:` tests when the oracle learns them.
   - Whether an expression is a view is not one fact yet (CORE §9,
-    *planned*): a loop over a call's returned view of a Vec of owners is
-    rejected as if the Vec were made there.
+    *planned*): a loop over a call's returned view of a List of owners is
+    rejected as if the List were made there.
   - `bin/rig-oracle` in a worktree goes stale; `./test/run` rebuilds it,
     so rebuild before using it by hand.
 

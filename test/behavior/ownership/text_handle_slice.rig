@@ -15,7 +15,7 @@ sub main()
   print(s, first(?g[..]))
   w = W(t: +h)
   u = ?w.t[..2]
-  vs: Vec[*Text] = Vec()
+  vs: List[*Text] = List()
   !vs.push(+h)
   v = ?vs[0][3..]
   print(u, v)

@@ -1,10 +1,10 @@
 # Review probe c06_take_items.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
-  fun steal(!self) -> Vec[Int]
-    replace(!self.items, Vec())
+  fun steal(!self) -> List[Int]
+    replace(!self.items, List())
 
   fun into(<self) -> Int
     self.n
@@ -19,11 +19,11 @@ struct S
     print("drop", self.n, self.items)
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 
-sub take(v: Vec[Int])
+sub take(v: List[Int])
   print(v)
 
 sub main()

@@ -3,7 +3,7 @@ struct Holder
 
 sub main()
   x = [9, 9]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = Holder(r: ?x[..])
   a = !h

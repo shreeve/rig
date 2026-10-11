@@ -42,9 +42,9 @@ sub main()
   print(mname(ob2))
   hv = *^[1, 2, 3]
   print(total(hv))
-  ov: ^Vec[Int]? = ^Vec()
+  ov: ^List[Int]? = ^List()
   print(msl(ov))
-  vv: Vec[Int] = Vec()
+  vv: List[Int] = List()
   !vv.push(2)
   bv = ^^<vv
   print(total(bv))

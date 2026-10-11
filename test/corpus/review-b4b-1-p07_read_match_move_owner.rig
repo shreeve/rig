@@ -6,11 +6,11 @@ enum E
 fun idx(s: ?Text) -> Int
   s.len - 1
 
-sub eat(v: Vec[E])
+sub eat(v: List[E])
   print(v.len)
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("q")))
   match v[idx(?Text("a"))]
     .a(t)

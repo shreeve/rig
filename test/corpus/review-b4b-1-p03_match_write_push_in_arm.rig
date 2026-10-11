@@ -1,4 +1,4 @@
-# write match on Vec element through temp index; arm pushes then writes payload. Expect reject.
+# write match on List element through temp index; arm pushes then writes payload. Expect reject.
 enum E
   a(t: Text)
   b(n: Int)
@@ -7,7 +7,7 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("q")))
   match !v[idx(?Text("a"))]
     .a(t)

@@ -1,4 +1,4 @@
-# As p75 then the Vec grows. Expect reject.
+# As p75 then the List grows. Expect reject.
 enum Opt[T]
   some(v: T)
   nothing
@@ -14,7 +14,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub g[T](a: T, b: T, c: T, k: T)
-  v: Vec[Opt[T]] = Vec()
+  v: List[Opt[T]] = List()
   !v.push(Opt.some(v: <a))
   !v.push(Opt.some(v: <b))
   saved = ?k

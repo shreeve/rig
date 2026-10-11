@@ -2,7 +2,7 @@
 # through `for x in !xs`.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   for n in ?v
     n = n + 1

@@ -1,13 +1,13 @@
 error E
   bad
 
-fun mk(ok: Bool) -> Vec[Int]!
+fun mk(ok: Bool) -> List[Int]!
   if not ok
     return E.bad
-  Vec()
+  List()
 
 sub main()
-  d: Vec[Int] = Vec()
+  d: List[Int] = List()
   !d.push(1)
   _ = mk(false) catch d
   print(d[0])

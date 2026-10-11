@@ -203,12 +203,12 @@ grep -qE 'switch \(rig\.viewed\(' <<<"$out" && fail "a switch on a rig.viewed co
 # `0xAA` when its scope ends (`rig.poison`), after its drop; without it,
 # nothing is written.
 cat >poison.rig <<'EOF2'
-fun mk(n: Int) -> Vec[Int]!
-  v: Vec[Int] = Vec()
+fun mk(n: Int) -> List[Int]!
+  v: List[Int] = List()
   !v.push(n)
   v
 
-fun pair(a: Vec[Int], b: Vec[Int]) -> Int
+fun pair(a: List[Int], b: List[Int]) -> Int
   a[0] + b[0]
 
 fun run() -> Int!
@@ -244,7 +244,7 @@ fun size(s: String) -> Int
 sub main()
   t = Text("abc")
   v = ?t
-  names: Vec[Text] = Vec()
+  names: List[Text] = List()
   !names.push(Text("x"))
   for x in ?names
     print(size(?x))

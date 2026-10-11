@@ -27,8 +27,8 @@ sub main()
   x22: *fun(Int) -> Int? = 1
   x23: (*fun(Int) -> Int)? = 1
   x24: fun(N?) -> *N? = 1
-  x25: *Vec[Int]? = 1
-  x26: Vec[*N?] = 1
+  x25: *List[Int]? = 1
+  x26: List[*N?] = 1
   x27: Cell[(N?)?] = 1
   x28: *[]Int? = 1
   x29: (*[]Int)? = 1

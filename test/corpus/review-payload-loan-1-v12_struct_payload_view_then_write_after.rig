@@ -1,13 +1,13 @@
 struct P
   t: Text
-  xs: Vec[Int]
+  xs: List[Int]
 
 enum S
   a(p: P)
   b
 
 sub main()
-  e = S.a(P(t: Text("hello"), xs: Vec()))
+  e = S.a(P(t: Text("hello"), xs: List()))
   match !e
     .a(p)
       r = ?p.xs[..]

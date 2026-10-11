@@ -56,7 +56,7 @@ sub main()
   print(i)
   print(run(1) catch 7)
   print(early(none), early(2))
-  print(Vec[Int](), *Cell(5), ^Text("boxed"))
+  print(List[Int](), *Cell(5), ^Text("boxed"))
 
 # expect:
 # parsed 3

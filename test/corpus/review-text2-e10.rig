@@ -1,5 +1,5 @@
-fun mk() -> *Cell[Vec[String]]
-  cv: *Cell[Vec[String]] = *Cell(Vec())
+fun mk() -> *Cell[List[String]]
+  cv: *Cell[List[String]] = *Cell(List())
   !cv.push("lit")
   cv
 

@@ -3,7 +3,7 @@
 # a read view or a shared handle, nor out of a parameter, which is fixed.
 
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
 struct H
   o: Bag?

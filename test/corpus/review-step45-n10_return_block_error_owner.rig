@@ -2,12 +2,12 @@
 error Bad
   oops
 
-fun f(c: Bool) -> Vec[Text]!
-  v: Vec[Text] = Vec()
+fun f(c: Bool) -> List[Text]!
+  v: List[Text] = List()
   !v.push(Text("a"))
   errdefer print("errdefer")
   return (Bad.oops if c else <v)
 
 sub main()
-  print(f(true) catch Vec[Text]())
-  print(f(false) catch Vec[Text]())
+  print(f(true) catch List[Text]())
+  print(f(false) catch List[Text]())

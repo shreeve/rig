@@ -3,5 +3,5 @@ struct Wrap[T]
 
 sub main()
   w = Wrap(none)
-  u = Wrap(Vec())
+  u = Wrap(List())
   print(w, u)

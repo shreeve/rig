@@ -3,7 +3,7 @@ extern fun getchar() -> I32
 error InputError
   bad_number
 
-fun read_line(buf: !Vec[U8]) -> Bool
+fun read_line(buf: !List[U8]) -> Bool
   !buf.clear()
   while true
     c: I32 = 0
@@ -21,7 +21,7 @@ fun parse(line: []U8) -> Int!
   n
 
 sub main()
-  line: Vec[U8] = Vec()
+  line: List[U8] = List()
   total = 0
   count = 0
   biggest: Int? = none

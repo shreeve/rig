@@ -1,8 +1,8 @@
 # Takes through a write view held in a field, a read view held in a
 # field, a Box, and a loop's write view; then the owner is read.
 struct S
-  o: Vec[Int]?
-  v: Vec[Int]
+  o: List[Int]?
+  v: List[Int]
 
 struct K
   w: !S
@@ -10,8 +10,8 @@ struct K
 struct KR
   r: ?S
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 
@@ -32,7 +32,7 @@ sub b()
   print(y == none, bx.o == none, s.v.len)
 
 sub c()
-  v: Vec[S] = Vec()
+  v: List[S] = List()
   !v.push(mks(1))
   for e in !v
     z = <e.o

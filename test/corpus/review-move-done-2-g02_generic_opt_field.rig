@@ -12,8 +12,8 @@ fun walk[T](g: !G[T]) -> Int
     k += 1
   k
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

@@ -17,11 +17,11 @@ enum Shape
   square(s: Int)
 
 struct Bag
-  v: Vec[Int]
+  v: List[Int]
   o: Res?
 
 fun mk(n: Int) -> Bag
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   !v.push(n + 1)
   Bag(v: <v, o: Res(n: n))
@@ -33,12 +33,12 @@ fun bytes(t: ?Text) -> Int
   n
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   for x, i in v
     print(x, i)
-  rs: Vec[*Res] = Vec()
+  rs: List[*Res] = List()
   !rs.push(*Res(n: 7))
   for r in rs
     print(r.n)

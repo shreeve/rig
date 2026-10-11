@@ -1,16 +1,16 @@
 # The right-hand side runs before the target's place is found: here it
-# empties the Vec, so the store is out of bounds, and panics.
+# empties the List, so the store is out of bounds, and panics.
 
 struct B
-  xs: Vec[Int]
+  xs: List[Int]
 
 fun empty(b: !B) -> Int
   !b.xs.push(9)
-  b.xs = Vec()
+  b.xs = List()
   3
 
 sub main()
-  b = B(xs: Vec())
+  b = B(xs: List())
   !b.xs.push(1)
   b.xs[0] = empty(!b)
   print(b.xs.len)

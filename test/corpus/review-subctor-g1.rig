@@ -1,7 +1,7 @@
 struct R
-  items: Vec[Int]
+  items: List[Int]
 
 sub main()
-  v = Vec[Int]()
+  v = List[Int]()
   r = R(v)
   print(r, v)

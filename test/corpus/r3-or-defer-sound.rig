@@ -12,11 +12,11 @@
 error E
   bad
 
-sub take(v: Vec[Int])
+sub take(v: List[Int])
   print(v.len)
 
 sub reads_at_end()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   defer print(v.len)
   !v.push(1)
   !v.push(2)
@@ -24,14 +24,14 @@ sub reads_at_end()
 sub in_a_loop()
   k = 0
   while k < 4 : k += 1
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     defer print(k, v.len)
     !v.push(k)
     continue if k == 1
     break if k == 2
 
 fun errdefer_failing_only(ok: Bool) -> Int!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   errdefer print("failed", v.len)
   if ok
     take(<v)
@@ -39,7 +39,7 @@ fun errdefer_failing_only(ok: Bool) -> Int!
   return E.bad
 
 fun errdefer_maybe(n: Int) -> Int!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   errdefer print("failed", v.len)
   !v.push(n)
   return n if n > 0 else E.bad
@@ -48,7 +48,7 @@ fun half(n: Int) -> Int!
   return n / 2 if n % 2 == 0 else E.bad
 
 fun errdefer_propagate(n: Int) -> Int!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   errdefer print("failed", v.len)
   h = half(n)!
   take(<v)
@@ -56,7 +56,7 @@ fun errdefer_propagate(n: Int) -> Int!
 
 sub declares_and_moves()
   defer
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     take(<v)
   print("body")

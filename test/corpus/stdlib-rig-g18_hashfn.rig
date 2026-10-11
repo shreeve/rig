@@ -1,6 +1,6 @@
 struct Map[K, V]
-  keys: Vec[K]
-  vals: Vec[V]
+  keys: List[K]
+  vals: List[V]
 
   pub fun find(?self, k: K, h: ?fun(K) -> U64) -> Int?
     hk = h(k)
@@ -15,7 +15,7 @@ fun hs(s: String) -> U64
   U64(s.len)
 
 sub main()
-  m = Map[String, Int](keys: Vec(), vals: Vec())
+  m = Map[String, Int](keys: List(), vals: List())
   !m.keys.push("a")
   !m.vals.push(1)
   print(m.find("a", hs), m.find("b", |s| U64(s.len)))

@@ -12,7 +12,7 @@
 # oracle: main accept
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
   sub bump(!self)
     self.n += 1
@@ -34,7 +34,7 @@ struct S
     print("drop", self.n)
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 
@@ -48,7 +48,7 @@ sub two(a: !Int, b: !Int)
   print(a, b)
 
 fun mk2(r: ?S) -> S
-  S(n: r.n * 10, items: Vec())
+  S(n: r.n * 10, items: List())
 
 sub main()
   two((!mk(1)).at(), (!mk(1)).at())

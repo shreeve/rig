@@ -23,5 +23,5 @@ sub main()
   v.x = 7
   u = first(!b, false) catch !a
   u.x += 100
-  vs: Vec[Int] = Vec()
+  vs: List[Int] = List()
   print(a.x, b.x)

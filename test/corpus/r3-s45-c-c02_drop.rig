@@ -10,5 +10,5 @@ struct Holder
 sub main()
   a = File(name: Text("a"))
   b = +a
-  hs: Vec[Holder] = Vec()
+  hs: List[Holder] = List()
   c = +hs

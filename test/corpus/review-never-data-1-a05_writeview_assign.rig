@@ -1,12 +1,12 @@
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
 sub f(a: !S, b: !S)
   a = b
 
 sub main()
-  v: Vec[Int] = Vec()
-  w: Vec[Int] = Vec()
+  v: List[Int] = List()
+  w: List[Int] = List()
   h = *S(c: Cell(v))
   g = *S(c: Cell(w))
   f(!h, !g)

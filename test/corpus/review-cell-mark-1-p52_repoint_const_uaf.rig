@@ -1,8 +1,8 @@
-sub k(a: ?Cell[Vec[Int]], b: !*Cell[Vec[Int]])
-  b = *Cell(Vec[Int]())
+sub k(a: ?Cell[List[Int]], b: !*Cell[List[Int]])
+  b = *Cell(List[Int]())
   print(a.len)
 
 sub main()
-  const c: *Cell[Vec[Int]] = *Cell(Vec())
+  const c: *Cell[List[Int]] = *Cell(List())
   !c.push(1)
   k(c, !c)

@@ -1,4 +1,4 @@
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   a = [<v]
   print(a.len)

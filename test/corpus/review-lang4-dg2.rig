@@ -1,13 +1,13 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
-fun first(v: ?Vec[Int]) -> ?Int
+fun first(v: ?List[Int]) -> ?Int
   ?v[0]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = H(w: !v)
   r = first(?h.w)
-  h.w = Vec[Int]()
+  h.w = List[Int]()
   print(r)

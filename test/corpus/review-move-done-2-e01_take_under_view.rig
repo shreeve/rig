@@ -1,9 +1,9 @@
 # Taking an optional place while a view of its payload is live.
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 
@@ -22,7 +22,7 @@ sub b(q: !S)
     print(y[0], x == none)
 
 sub c()
-  v: Vec[Vec[Int]?] = Vec()
+  v: List[List[Int]?] = List()
   !v.push(mkv(1))
   for e in ?v
     x = <v[0]

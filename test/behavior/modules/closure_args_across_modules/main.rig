@@ -13,7 +13,7 @@ sub main()
   )
   lens = lib.map(?words[..], |w| w.len)
   print(words, lens, calls > 0)
-  bag = lib.Bag(items: Vec())
+  bag = lib.Bag(items: List())
   !bag.items.push(2)
   !bag.items.push(5)
   total = 0

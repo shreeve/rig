@@ -15,7 +15,7 @@ sub a(n: Int)!
 sub b(n: Int)!
   get(n) catch 0
 
-sub c(v: !Vec[Int])!
+sub c(v: !List[Int])!
   !v.pop()
 
 sub d(n: Int)!
@@ -33,7 +33,7 @@ fun sq(n: Int) -> Int
 sub main()
   a(1)!
   b(-1)!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   c(!v)!
   d(0)!

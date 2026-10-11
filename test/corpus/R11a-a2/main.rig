@@ -9,5 +9,5 @@ struct Res
 sub main()
   w = lib.Wrap(v: Res(n: 1))
   print(w.v.n)
-  k = lib.Keep[Vec[Int]](items: Vec())
+  k = lib.Keep[List[Int]](items: List())
   print(k.items.len)

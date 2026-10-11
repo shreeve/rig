@@ -16,8 +16,8 @@ sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
     while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
       !xs.swap(j, j - 1)
 
-fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
-  out: Vec[U] = Vec()
+fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
+  out: List[U] = List()
   for x in xs
     !out.push(f(?x))
   out
@@ -26,7 +26,7 @@ fun by_score(a: ?Player, b: ?Player) -> Bool
   a.score > b.score
 
 sub main()
-  nums: Vec[Int] = Vec()
+  nums: List[Int] = List()
   for n in [5, 3, 8, 1]
     !nums.push(n)
   compares = 0

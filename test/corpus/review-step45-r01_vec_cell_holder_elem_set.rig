@@ -1,4 +1,4 @@
-# Vec and array of Cell holders: set through an element, then read
+# List and array of Cell holders: set through an element, then read
 struct C
   c: Cell[Int]
 
@@ -6,7 +6,7 @@ struct C
     !self.c.set(self.c.get() + 1)
 
 sub main()
-  v: Vec[C] = Vec()
+  v: List[C] = List()
   !v.push(C(c: Cell(1)))
   !v[0].c.set(5)
   !v[0].hit()

@@ -14,7 +14,7 @@ sub main()
   a.fill(0)
   t = "abc"
   !t.swap(0, 1)
-  hs: Vec[*P] = Vec()
+  hs: List[*P] = List()
   !hs.fill(*P(x: 1))
   b: [2]U8 = [1, 2]
   !a.copy(?b[..])

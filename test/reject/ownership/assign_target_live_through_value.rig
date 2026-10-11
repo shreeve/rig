@@ -9,85 +9,85 @@ error E
 struct S
   n: Int
 
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   for _ in 0..200
     !v.push(1)
   v.len
 
-fun grows(v: !Vec[S]) -> Int
+fun grows(v: !List[S]) -> Int
   for _ in 0..200
     !v.push(S(n: 1))
   v.len
 
-fun sink(v: Vec[Int]) -> Int
+fun sink(v: List[Int]) -> Int
   v.len
 
 fun fail(n: Int) -> Int!
   return E.bad if n < 0
   n
 
-sub arm(v: !Vec[Int], k: Int)
+sub arm(v: !List[Int], k: Int)
   w = !v[0..1]
   w[0] = match k
     0 => grow(!v)
     _ => 3
 
-sub block_arm(v: !Vec[Int], k: Int)
+sub block_arm(v: !List[Int], k: Int)
   w = !v[0..1]
   w[0] = match k
     0
       grow(!v)
     _ => 3
 
-sub if_block(v: !Vec[Int], k: Bool)
+sub if_block(v: !List[Int], k: Bool)
   w = !v[0..1]
   w[0] = if k
     grow(!v)
   else
     3
 
-sub catch_block(v: !Vec[Int])
+sub catch_block(v: !List[Int])
   w = !v[0..1]
   w[0] = fail(-1) catch |_|
     grow(!v)
 
-sub ternary(v: !Vec[Int], k: Bool)
+sub ternary(v: !List[Int], k: Bool)
   w = !v[0..1]
   w[0] = grow(!v) if k else 3
 
-sub compound(v: !Vec[Int], k: Int)
+sub compound(v: !List[Int], k: Int)
   w = !v[0..1]
   w[0] += match k
     0 => grow(!v)
     _ => 3
 
-sub field(v: !Vec[S], k: Int)
+sub field(v: !List[S], k: Int)
   w = !v[0]
   w.n = match k
     0 => grows(!v)
     _ => 3
 
-sub index(v: !Vec[Int], u: !Vec[Int], k: Int)
+sub index(v: !List[Int], u: !List[Int], k: Int)
   w = ?v[0..1]
   u[w[0]] = match k
     0 => grow(!v)
     _ => 3
 
-sub read(v: !Vec[Int], k: Int)
+sub read(v: !List[Int], k: Int)
   w = !v[0..1]
   w[0] = match k
     0 => v.len
     _ => 3
 
 sub moved(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   w[0] = match k
     0 => sink(<v)
     _ => 3
 
-sub name_target(v: !Vec[Int], k: Int)
+sub name_target(v: !List[Int], k: Int)
   w = !v[0]
   w = match k
     0

@@ -43,8 +43,8 @@ sub main()
   r = random.Random.seeded(3)
   ok = true
   for n in [0, 1, 2, 19, 20, 21, 39, 40, 41, 100, 257, 1000]
-    v: Vec[Int] = Vec()
-    ps: Vec[P] = Vec()
+    v: List[Int] = List()
+    ps: List[P] = List()
     for i in 0..n
       !v.push((!r).int(-50, 50))
       !ps.push(P(key: (!r).int(0, 8), id: i))

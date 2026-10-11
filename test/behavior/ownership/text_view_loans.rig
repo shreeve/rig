@@ -1,5 +1,5 @@
 # A String viewing a Text carries the Text's loan wherever it goes: into
-# a binding, a struct, a Vec[String], a call's result, and a closure.
+# a binding, a struct, a List[String], a call's result, and a closure.
 # Each holds the Text viewed until its last use; then the Text can be
 # changed, moved, or dropped again. Strings from literals hold no loan.
 
@@ -21,7 +21,7 @@ sub main()
   s = Span(label: ?t[..5], width: 5)
   print(s)
   !t.add(" gamma")
-  words: Vec[String] = Vec()
+  words: List[String] = List()
   !words.push(?t[..5])
   !words.push(?t[6..10])
   !words.push("literal")

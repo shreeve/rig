@@ -2,13 +2,13 @@
 fun idx(s: ?Text) -> Int
   s.len - 1
 
-sub eat(v: Vec[Text?])
+sub eat(v: List[Text?])
   print(v.len)
 
 sub main()
-  a: Vec[Text?] = Vec()
+  a: List[Text?] = List()
   !a.push(Text("a"))
-  b: Vec[Text?] = Vec()
+  b: List[Text?] = List()
   !b.push(Text("b"))
   r = ?a
   while r[idx(?Text("a"))] as t

@@ -1,5 +1,5 @@
 struct H
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
 sub f(x: !H, y: !H)
   !x.log.push(1)
@@ -7,6 +7,6 @@ sub f(x: !H, y: !H)
   print(x.log.len)
 
 sub main()
-  h = *H(log: Cell(Vec()))
+  h = *H(log: Cell(List()))
   g = +h
   f(!h, !g)

@@ -1,10 +1,10 @@
 struct OV
-  ov: (?Vec[Int])?
+  ov: (?List[Int])?
 
 sub main()
-  z: Vec[Int] = Vec()
+  z: List[Int] = List()
   !z.push(1)
-  q: Vec[Int] = Vec()
+  q: List[Int] = List()
   !q.push(3)
   x = OV(ov: ?z)
   y = OV(ov: ?q)

@@ -1,5 +1,5 @@
-fun keep[T](x: T) -> *Cell[Vec[T]]
-  xs: Vec[T] = Vec()
+fun keep[T](x: T) -> *Cell[List[T]]
+  xs: List[T] = List()
   !xs.push(x)
   *Cell(<xs)
 
@@ -8,5 +8,5 @@ sub main()
   !t.add(" world, a long text that lives on the heap")
   c = keep(?t[..])
   <t
-  old = (!c).replace(Vec())
+  old = (!c).replace(List())
   print(old[0])

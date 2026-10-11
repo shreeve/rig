@@ -80,7 +80,7 @@ test/corpus/review-step45-r2-d08_repoint_defer_uses_w.rig main prod-rejects prod
 test/corpus/review-take-p53.rig main prod-rejects prod-strict deferred `<s.a` after `print(r)`, the last use of `r = ?s`
 test/corpus/review-take-p54.rig main prod-rejects prod-strict deferred `<s.a` runs after the deferred `print(w)`, the last use of `w = !s`
 
-# A `for k in ?v` element over a Vec of handles is a read view of the
+# A `for k in ?v` element over a List of handles is a read view of the
 # slot (Core §4); storing it in a binding declared before the loop keeps
 # the loan on `v`, which `v` outlives (Core s6).
 test/corpus/r3-review1-p33b_vec_store_opt.rig main prod-rejects prod-strict `saved = k` of a `for k in ?v` element view
@@ -113,7 +113,7 @@ test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` 
 # A view reached through a slice or a write view carries that view's
 # loans, not a loan on what holds it (Core s7).
 test/corpus/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` views an element of `vs`, which outlives the loop's `s`
-test/corpus/review-step3-l14_handle_in_vec_loop.rig main prod-rejects prod-strict `keep(h)` of a `for h in v` element of a Vec of handles, used within the iteration
+test/corpus/review-step3-l14_handle_in_vec_loop.rig main prod-rejects prod-strict `keep(h)` of a `for h in v` element of a List of handles, used within the iteration
 test/corpus/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !self.es` element views what `self` was lent
 
 # A place holding a write view, re-pointed or exchanged, holds the new
@@ -145,7 +145,7 @@ test/reject/ownership/call_write_lend_kept.rig write_result_whole prod-rejects p
 # lend lasts to the statement's end; the oracle reads the instance, whose
 # `?Item` result only reads `v` (Core s7). Per-instance origins are a
 # later refinement.
-test/corpus/review-c-rules-r2-cf_generic_ok.rig main prod-rejects prod-strict `print(gfirst(!v).n, v.len)` of a generic `gfirst[T](v: !Vec[T]) -> ?T`
+test/corpus/review-c-rules-r2-cf_generic_ok.rig main prod-rejects prod-strict `print(gfirst(!v).n, v.len)` of a generic `gfirst[T](v: !List[T]) -> ?T`
 
 # The matrix's view forms (`r = ?a`, `w = !a`) meet rules older than
 # them, which a number already met in v0.2.2. A read view read by an
@@ -222,10 +222,10 @@ test/corpus/review-move-done-p74_print_read_then_write_lend.rig main prod-reject
 # subject's view live in an earlier arm, and a view re-pointed by the
 # assignment keeps its old loan through the value. A reassigned owner's
 # old value is dropped after the value: a `drop` that reads a slice of a
-# Vec the value grew reads freed memory, which the oracle does not model.
+# List the value grew reads freed memory, which the oracle does not model.
 test/corpus/review-arm-temps-l07_subject_viewed_by_guard_after.rig main prod-rejects prod-strict `grow(!v)` in arm 0 while a later arm's guard reads `x`, a view of `v`
 test/corpus/review-arm-temps-2-m15_readview_repoint_overreject.rig main prod-rejects prod-strict `grow(!v)` in the value of `r = match`, which re-points `r` from a view of `v`
-test/corpus/review-arm-temps-2-m21_name_target_old_drop_reads_view.rig main prod-rejects prod-strict `grow(!v)` in the value of `h = match`, whose old value's `drop` reads `v` through a `?Vec[Int]`
+test/corpus/review-arm-temps-2-m21_name_target_old_drop_reads_view.rig main prod-rejects prod-strict `grow(!v)` in the value of `h = match`, whose old value's `drop` reads `v` through a `?List[Int]`
 test/corpus/review-arm-temps-2-m33_slice_holder_drop_reads.rig main prod-rejects ref-gap `grow(!v)` in the value of `h = match`, whose old value's `drop` reads a slice of `v`
 test/corpus/review-arm-temps-2-m34_slice_holder_drop_reads_plain.rig main prod-rejects ref-gap `h = growh(!v, ?u)`, whose old value's `drop` reads a slice of `v`
 

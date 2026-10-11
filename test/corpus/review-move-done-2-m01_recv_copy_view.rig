@@ -1,16 +1,16 @@
 # A receiver that copies but holds a read view: `s.rv.into()` takes a
 # copy; the result views what the receiver viewed.
 struct RV
-  r: ?Vec[Int]
+  r: ?List[Int]
 
-  fun into(<self) -> ?Vec[Int]
+  fun into(<self) -> ?List[Int]
     self.r
 
 struct S
   rv: RV
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

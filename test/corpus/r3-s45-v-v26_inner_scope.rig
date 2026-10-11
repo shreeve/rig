@@ -1,5 +1,5 @@
 sub main()
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   if true
     x = 5
     !v.push(?x)

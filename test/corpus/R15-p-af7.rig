@@ -1,8 +1,8 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  h: *S = *S(v: Vec())
+  h: *S = *S(v: List())
   r = ?h.v[..]
-  h = *S(v: Vec())
+  h = *S(v: List())
   print(r.len)

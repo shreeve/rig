@@ -2,14 +2,14 @@
 # captured, so it cannot outlive the viewed value.
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  y = Wrap(v: Vec())
+  y = Wrap(v: List())
   !y.v.push(1)
   out = ?y
   if true
-    x = Wrap(v: Vec())
+    x = Wrap(v: List())
     !x.v.push(42)
     r = ?x
     s = |<r| r

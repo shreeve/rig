@@ -1,31 +1,31 @@
 struct Res
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 enum E
   a(r: Res)
   b
 
 fun mk(n: Int) -> E
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   E.a(r: Res(n: n, v: <v))
 
 struct Q
   e: E
   o: E?
-  v: Vec[Int]
+  v: List[Int]
 
 struct W
   e: E
   o: E?
-  v: Vec[Int]
+  v: List[Int]
   q: Q?
 
   fun ge(?self) -> ?E
     ?self.e
 
-  fun gv(?self) -> ?Vec[Int]
+  fun gv(?self) -> ?List[Int]
     ?self.v
 
   fun go(?self) -> ?(E?)
@@ -34,14 +34,14 @@ struct W
   fun gew(!self) -> !E
     !self.e
 
-  fun gvw(!self) -> !Vec[Int]
+  fun gvw(!self) -> !List[Int]
     !self.v
 
 struct H
   w: !W
 
-fun mkv(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i + 1)
   v
@@ -52,7 +52,7 @@ fun mkw(n: Int) -> W
 fun id[T](x: T) -> T
   x
 
-fun f(a: !Vec[W], b: !Vec[W], c: Bool, d: E, dv: Vec[Int]) -> Int?
+fun f(a: !List[W], b: !List[W], c: Bool, d: E, dv: List[Int]) -> Int?
   if (a if c else b)[0].q?.o as x
     match x
       .a(r)
@@ -63,8 +63,8 @@ fun f(a: !Vec[W], b: !Vec[W], c: Bool, d: E, dv: Vec[Int]) -> Int?
   1
 
 sub main()
-  x: Vec[W] = Vec()
+  x: List[W] = List()
   !x.push(mkw(3))
-  y: Vec[W] = Vec()
+  y: List[W] = List()
   !y.push(mkw(3))
   _ = f(!x, !y, true, mk(7), mkv(2))

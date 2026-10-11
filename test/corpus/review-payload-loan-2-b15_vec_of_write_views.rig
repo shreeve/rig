@@ -2,12 +2,12 @@ struct P
   t: Text
 
 enum E
-  a(v: Vec[!P])
+  a(v: List[!P])
   b
 
 sub main()
   p = P(t: Text("hello"))
-  xs: Vec[!P] = Vec()
+  xs: List[!P] = List()
   !xs.push(!p)
   e = E.a(<xs)
   match e

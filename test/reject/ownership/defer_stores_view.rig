@@ -8,10 +8,10 @@ sub main()
     t = Text("abcdefghijklmnop")
     defer s = ?t[..]
   print(s)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   sl = ?e[..]
   if true
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(7)
     defer sl = ?v[..]
   print(sl)

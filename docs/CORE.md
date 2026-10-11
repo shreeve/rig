@@ -45,7 +45,7 @@ One lend makes one loan, which any number of views may carry:
 
 ```rig reject
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   a = ?v[..]
   b = a
@@ -69,7 +69,7 @@ side; Rig names everything from the side the sigil is on.
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
-| **owning** | `Vec[T]`, `^T`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
+| **owning** | `List[T]`, `^T`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
@@ -125,14 +125,14 @@ value leaves for good: `return x`, `break x`, or `x` as the last value
 of the function or block that declares `x`. *(built:* copies, `return x`, a function's last value, a
 block's last value when the block declares the name, `break x` of a
 name the loop declares, and reading in place: an argument where a view
-is expected (`size(v)` for a `?Vec[Int]` parameter), and a header's
-subject (a `for` over a `Vec`, `if o as x`, a `match` on a `^T`). Write
+is expected (`size(v)` for a `?List[Int]` parameter), and a header's
+subject (a `for` over a `List`, `if o as x`, a `match` on a `^T`). Write
 `<x` when `x` stays in scope after the move: a name declared outside
 the block or loop always takes `<x`.*)*
 
 ```rig
-fun make() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun make() -> List[Int]
+  v: List[Int] = List()
   !v.push(1)
   v
 
@@ -147,7 +147,7 @@ sub main()
 
 ```rig
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   for x in v
@@ -181,12 +181,12 @@ sub main()
 ```
 
 ```rig reject
-sub show(v: !Vec[Int])
+sub show(v: !List[Int])
   y = v
   print(y.len)
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   show(!xs)
 ```
 
@@ -195,10 +195,10 @@ bare use of write view `v` in binding would copy a write view, which is unique
 ```
 
 ```rig
-fun first() -> Vec[Int]
-  e: Vec[Int] = Vec()
+fun first() -> List[Int]
+  e: List[Int] = List()
   r = while true
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     break v
   else
@@ -241,7 +241,7 @@ end
 
 ```rig
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   w = +v
   !w.push(2)
@@ -254,14 +254,14 @@ sub main()
 
 ```rig file=bag.rig
 pub struct Bag
-  pub items: Vec[Int]
+  pub items: List[Int]
 ```
 
 ```rig pending
 use bag
 
 sub main()
-  a = bag.Bag(items: Vec())
+  a = bag.Bag(items: List())
   !a.items.push(1)
   b = +a
   !b.items.push(2)
@@ -296,14 +296,14 @@ argument the callee only reads. Write `x` to copy it, `?x` to lend it to
 read, or `!T` in the type to keep the write view. *(built)*
 
 ```rig
-sub grow(v: !Vec[Int])
+sub grow(v: !List[Int])
   !v.push(7)
 
-fun first(v: ?Vec[Int]) -> Int
+fun first(v: ?List[Int]) -> Int
   v[0]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   grow(!v)
   print(first(?v))
 ```
@@ -350,12 +350,12 @@ cannot lend `n` to read while a write loan is live
 **6. A loan lasts until the last use of every view that carries it,**
 wherever that view went: a field, an array, an optional, a closure, a
 result. Dropping a value uses the views it holds only when its
-drop runs a `drop` body, which could read them, so a `Vec[[]Int]`'s
+drop runs a `drop` body, which could read them, so a `List[[]Int]`'s
 loans end at its last use, not where it is dropped. *(built)*
 
 ```rig reject
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   r = ?v
   !v.push(2)
   print(r.len)
@@ -368,7 +368,7 @@ cannot lend `v` to write while a read loan is live
 ```rig
 sub main()
   a = [1, 2, 3]
-  v: Vec[[]Int] = Vec()
+  v: List[[]Int] = List()
   !v.push(?a[..2])
   print(v)
   a[0] = 9
@@ -413,8 +413,8 @@ the holder. The compiler checks each
 body against its signature. *(built)*
 
 ```rig reject
-fun pick(a: ?Vec[Int]) -> ?Vec[Int]
-  v: Vec[Int] = Vec()
+fun pick(a: ?List[Int]) -> ?List[Int]
+  v: List[Int] = List()
   ?v
 ```
 
@@ -423,14 +423,14 @@ which this function was not lent
 ```
 
 A `Cursor` holds only a view of the items, so an item `next` hands out
-views the Vec, not the cursor, which moves on:
+views the List, not the cursor, which moves on:
 
 ```rig
 struct Item
   n: Int
 
 struct Cursor
-  items: ?Vec[Item]
+  items: ?List[Item]
   i: Int
 
   fun next(!self) -> ?Item
@@ -438,7 +438,7 @@ struct Cursor
     ?self.items[self.i - 1]
 
 sub main()
-  v: Vec[Item] = Vec()
+  v: List[Item] = List()
   !v.push(Item(n: 1))
   !v.push(Item(n: 2))
   c = Cursor(items: ?v, i: 0)
@@ -452,12 +452,12 @@ sub main()
 ```
 
 ```rig
-fun head(v: !Vec[Int]) -> []Int
+fun head(v: !List[Int]) -> []Int
   !v.push(v.len)
   ?v[..1]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   r = head(!v)
   print(v.len, v[0])
   print(r)
@@ -471,12 +471,12 @@ sub main()
 ```
 
 ```rig reject
-fun head(v: !Vec[Int]) -> []Int
+fun head(v: !List[Int]) -> []Int
   !v.push(v.len)
   ?v[..1]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   r = head(!v)
   !v.push(5)
   print(r)
@@ -487,12 +487,12 @@ cannot lend `v` to write while a read loan is live
 ```
 
 ```rig
-fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
   a
 
 sub main()
-  x: Vec[Int] = Vec()
-  y: Vec[Int] = Vec()
+  x: List[Int] = List()
+  y: List[Int] = List()
   r = first(?x, ?y)
   !y.push(1)
   print(r.len)
@@ -662,16 +662,16 @@ whose every branch is made there (`mk() if c else <a`). So
 `if starts_with(?Text(a, b), "x")` works, but
 `if cut(?Text(a, b), "=") as kv` must bind the `Text` first, because
 `kv` outlives the header. *(built* for `if … as`, `while … as`, `match`,
-and a `for` over plain elements; *planned* for a `for` over a made Vec
+and a `for` over plain elements; *planned* for a `for` over a made List
 of owners, which is bound to a name first today.*)*
 
 ```rig
 struct User
   name: String
-  tags: Vec[Int]
+  tags: List[Int]
 
 fun load() -> User
-  User(name: "ada", tags: Vec())
+  User(name: "ada", tags: List())
 
 sub main()
   print(load().name)
@@ -708,8 +708,8 @@ a view of the temporary `Text("k", "=v")` outlives its statement
 ```
 
 ```rig pending
-fun names() -> Vec[Text]
-  v: Vec[Text] = Vec()
+fun names() -> List[Text]
+  v: List[Text] = List()
   !v.push(Text("ada"))
   v
 
@@ -730,7 +730,7 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | Owner `x` | `?x` lends | `!x` lends | Status |
 |---|---|---|---|
 | any `T` | `?T` | `!T` | built |
-| `[N]T`, `Vec[T]` | `[]T` | `![]T` | built |
+| `[N]T`, `List[T]` | `[]T` | `![]T` | built |
 | a place `p.f` or `v[i]` | the views of the field or element | its write views | built |
 | a held `!T` | `?T` | `!T` (lent on) | built |
 | `![]T` | `[]T` | `![]T` (lent on) | built |
@@ -745,7 +745,7 @@ expected, a plain struct, array, or optional as a number is, and the
 copy carries no loan but those of the views it holds, as with a call's
 `?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
 part of `x`, and goes unwritten as an argument where `x` does:
-`total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `Vec` as it does on an array,
+`total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `List` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `^Shape`, and a
 `*Shape`.
 
@@ -817,7 +817,7 @@ cannot lend `t` to write while a read loan is live
 use std.sort
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(3)
   !v.push(1)
   sort.sort(!v)
@@ -830,7 +830,7 @@ sub main()
 
 ## 5. Containers and fields hold values
 
-`Vec`, arrays, and fields hold any value but a write view; only a
+`List`, arrays, and fields hold any value but a write view; only a
 struct field may hold a `Cell`. Each field and element is a place:
 
 - `p.f` and `v[i]` read it (sentence 1);
@@ -852,8 +852,8 @@ no `<` (`m = p.n`). *(built)*
 `<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
 needs `<`. `copy`, `fill`, and `[n of x]` duplicate values, so they
 need elements that copy (§1), read views included, each copy carrying
-its loan *(built)*. So `Vec[Text]`,
-`Vec[Vec[Int]]`, and a list of records that each own a string just
+its loan *(built)*. So `List[Text]`,
+`List[List[Int]]`, and a list of records that each own a string just
 work. *(built)*
 
 ```rig
@@ -874,8 +874,8 @@ none
 
 ```rig
 sub main()
-  rows: Vec[Vec[Int]] = Vec()
-  r: Vec[Int] = Vec()
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
   !r.push(5)
   !rows.push(<r)
   print(rows.len, rows[0].len)
@@ -927,7 +927,7 @@ write lend in any other argument is a write loan at once, so
 
 ```rig
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(v.len)
   !v.push(v.len)
   print(v)
@@ -938,12 +938,12 @@ sub main()
 ```
 
 ```rig reject
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   !v.push(1)
   v.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   print(v, grow(!v))
 ```
 
@@ -1009,7 +1009,7 @@ sub main()
 
 ```rig
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   f = |+v| v.len
   print(f(), v.len)
@@ -1074,7 +1074,7 @@ sub main()
 
 ```rig reject
 struct Seen
-  items: Vec[Int]
+  items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
@@ -1083,7 +1083,7 @@ struct Seen
     true
 
 sub main()
-  s = Seen(items: Vec())
+  s = Seen(items: List())
   added = !s.insert(1)
   print(added)
 ```

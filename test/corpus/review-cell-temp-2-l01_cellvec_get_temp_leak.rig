@@ -1,16 +1,16 @@
-# `get(i)` on a Cell[Vec[Int]] that is a temporary: the temporary leaks.
+# `get(i)` on a Cell[List[Int]] that is a temporary: the temporary leaks.
 #
 # oracle: vec1 accept
-fun vec1(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun vec1(n: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(n)
   v
 
-fun mk(n: Int) -> Cell[Vec[Int]]
+fun mk(n: Int) -> Cell[List[Int]]
   Cell(vec1(n))
 
 struct H
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
 fun mkh(n: Int) -> H
   H(c: Cell(vec1(n)))

@@ -9,7 +9,7 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-sub f(v: !Vec[Text?], w: !Text?, c: Int)
+sub f(v: !List[Text?], w: !Text?, c: Int)
   if (!v[0] if yes(?Text("a")) else !w) as t
     !t.add("1")
   if (!v[idx(?Text("a"))] if c > 1 else (!w if c > 0 else !v[1])) as t
@@ -18,7 +18,7 @@ sub f(v: !Vec[Text?], w: !Text?, c: Int)
     print(clobber(1), t)
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("v"))
   !v.push(Text("u"))
   w: Text? = Text("w")

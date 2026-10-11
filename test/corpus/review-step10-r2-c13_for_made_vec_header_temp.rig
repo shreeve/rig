@@ -1,17 +1,17 @@
-# Header exception "a value made in the header": `for` over a Vec made
+# Header exception "a value made in the header": `for` over a List made
 # by a call whose argument is a header temporary (plain elements, and
 # Text elements taken), and over a made array of plain data.
 fun idx(s: ?Text) -> Int
   s.len
 
-fun mkv(k: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv(k: Int) -> List[Int]
+  v: List[Int] = List()
   for i in 0..k
     !v.push(i)
   v
 
-fun mkt(s: String) -> Vec[Text]
-  v: Vec[Text] = Vec()
+fun mkt(s: String) -> List[Text]
+  v: List[Text] = List()
   !v.push(Text(s, " one, long enough for the heap"))
   !v.push(Text(s, " two, long enough for the heap"))
   v

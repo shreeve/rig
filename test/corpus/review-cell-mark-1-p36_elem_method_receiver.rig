@@ -1,14 +1,14 @@
 struct S
   name: String
-  v: Vec[Int]
+  v: List[Int]
 
-  sub m(?self, d: !Cell[Vec[S]])
+  sub m(?self, d: !Cell[List[S]])
     !d.clear()
     print(self.v.len, self.name)
 
 sub main()
-  c: *Cell[Vec[S]] = *Cell(Vec())
-  w = Vec[Int]()
+  c: *Cell[List[S]] = *Cell(List())
+  w = List[Int]()
   !w.push(1)
   !c.push(S(name: "a", v: <w))
   d = +c

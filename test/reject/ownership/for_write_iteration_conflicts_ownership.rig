@@ -1,7 +1,7 @@
 # `for x in !xs` lends `xs` to write for the whole loop.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   r = ?v
   for x in !v

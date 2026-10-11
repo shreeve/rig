@@ -1,15 +1,15 @@
 struct S
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 struct V
   r: ?S
 
 sub main()
-  a = S(n: 1, v: Vec())
+  a = S(n: 1, v: List())
   v = V(r: ?a)
   w = !v
-  b = S(n: 2, v: Vec())
+  b = S(n: 2, v: List())
   w.r = ?b
-  b = S(n: 3, v: Vec())
+  b = S(n: 3, v: List())
   print(v.r.n)

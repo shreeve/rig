@@ -1,12 +1,12 @@
 struct H
-  w: !^Vec[Int]
+  w: !^List[Int]
 
 sub main()
-  b = ^Vec[Int]()
+  b = ^List[Int]()
   h = H(w: !b)
-  h.w = ^Vec[Int]()
+  h.w = ^List[Int]()
   i = 0
   while i < 3
-    h.w = ^Vec[Int]()
+    h.w = ^List[Int]()
     i += 1
   print(b)

@@ -16,11 +16,11 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub bump(v: !Vec[Int])
+sub bump(v: !List[Int])
   !v.push(9)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f = |!v| bump(!v)
   f()
   f()

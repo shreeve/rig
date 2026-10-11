@@ -3,13 +3,13 @@
 
 struct Wrap
   payload: Int
-  log: Vec[Int]
+  log: List[Int]
 
 struct View
   box: ?Wrap
 
 sub main()
-  b = Wrap(payload: 5, log: Vec())
+  b = Wrap(payload: 5, log: List())
   v = View(box: ?b)
   <b
   print(v.box.payload)

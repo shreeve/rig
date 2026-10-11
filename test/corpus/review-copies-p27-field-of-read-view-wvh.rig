@@ -1,11 +1,11 @@
 struct W
-  w: !Vec[Int]
+  w: !List[Int]
 
 struct O
   h: W
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   o = O(h: W(w: !a))
   r = ?o
   x = r.h

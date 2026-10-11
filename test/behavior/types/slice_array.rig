@@ -1,4 +1,4 @@
-# `?xs[a..b]` of an array or a Vec is a `[]T`: a read-only view of the
+# `?xs[a..b]` of an array or a List is a `[]T`: a read-only view of the
 # elements from `a` up to `b`, which views `xs`.
 
 fun total(xs: []Int) -> Int
@@ -28,7 +28,7 @@ sub main()
   print(first_two(?a))
   g = Grid(cells: [5, 6, 7, 8])
   print(total(?g.cells[1..4]))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(10)
   !v.push(20)
   !v.push(30)

@@ -1,15 +1,15 @@
 struct W
-  v: Vec[Int]
+  v: List[Int]
 
 fun make(k: Int) -> Int?
   k if k > 0 else none
 
 fun f(k: Int) -> Int
-  w = W(v: Vec())
+  w = W(v: List())
   !w.v.push(5)
   r = ?w
   n = make(k) ?? return -1
-  w = W(v: Vec())
+  w = W(v: List())
   print(r.v[0])
   n
 

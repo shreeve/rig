@@ -1,11 +1,11 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = H(w: !v)
   g = !h
   s = ?g.w[..]
-  h.w = Vec[Int]()
+  h.w = List[Int]()
   print(s)

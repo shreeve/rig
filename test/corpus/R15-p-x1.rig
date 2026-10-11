@@ -1,6 +1,6 @@
 struct Pkt
   hdr: [4]U8
-  body: Vec[U8]
+  body: List[U8]
   fun len(?self) -> U16
     self.hdr.read[U16, .big](0)
   fun tag(?self) -> U8
@@ -15,7 +15,7 @@ fun peek(p: ?Pkt) -> U16
   p.hdr.read[U16, .little](2)
 
 sub main()
-  b: Vec[U8] = Vec()
+  b: List[U8] = List()
   !b.push(3)
   p = Pkt(hdr: [0, 5, 0, 0], body: <b)
   print(p.len(), p.tag(), peek(?p))

@@ -1,18 +1,18 @@
 # A write view of an owning struct, re-pointed in the value, which then
-# grows the old Vec: the old value at y[0] is dropped and replaced.
+# grows the old List: the old value at y[0] is dropped and replaced.
 struct S
-  items: Vec[Int]
+  items: List[Int]
 
-fun grow(v: !Vec[S]) -> Int
+fun grow(v: !List[S]) -> Int
   for _ in 0..200
-    !v.push(S(items: Vec()))
+    !v.push(S(items: List()))
   v.len
 
 sub main()
-  x: Vec[S] = Vec()
-  !x.push(S(items: Vec()))
-  y: Vec[S] = Vec()
-  !y.push(S(items: Vec()))
+  x: List[S] = List()
+  !x.push(S(items: List()))
+  y: List[S] = List()
+  !y.push(S(items: List()))
   !y[0].items.push(5)
   w = !x[0]
   k = 0
@@ -20,10 +20,10 @@ sub main()
     0
       w = !y[0]
       n = grow(!x)
-      t: Vec[Int] = Vec()
+      t: List[Int] = List()
       !t.push(n)
       S(items: <t)
-    _ => S(items: Vec())
+    _ => S(items: List())
   print(x.len, x[0].items.len, y[0].items[0])
 
 # expect:

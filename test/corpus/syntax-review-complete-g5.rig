@@ -4,7 +4,7 @@ struct Val
     print("drop", self.n)
 
 struct Map
-  es: Vec[^Val]
+  es: List[^Val]
 
   fun find(?self, n: Int) -> (?Val)?
     for e in ?self.es
@@ -13,4 +13,4 @@ struct Map
     none
 
 sub main()
-  m = Map(es: Vec())
+  m = Map(es: List())

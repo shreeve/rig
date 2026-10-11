@@ -35,7 +35,7 @@ sub main()
   v = ?t
   print(size(v), size(?t), size(label("lit")))
 
-  names: Vec[Text] = Vec()
+  names: List[Text] = List()
   !names.push(Text("ab"))
   !names.push(Text("cde"))
   for x in ?names

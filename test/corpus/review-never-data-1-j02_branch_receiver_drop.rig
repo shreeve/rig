@@ -1,12 +1,12 @@
 struct H
-  v: Vec[Text]
+  v: List[Text]
 
   fun first(?self) -> ?Text
     ?self.v[0]
 
 sub main()
-  a = H(v: Vec())
-  b = H(v: Vec())
+  a = H(v: List())
+  b = H(v: List())
   !a.v.push(Text("a"))
   !b.v.push(Text("b"))
   c = a.v.len > 0

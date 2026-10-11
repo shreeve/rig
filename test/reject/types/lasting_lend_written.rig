@@ -5,7 +5,7 @@
 # implicitly, and so does a result that keeps nothing.
 
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun all(?self) -> []Int
     ?self.items[..]
@@ -25,13 +25,13 @@ fun count(xs: []Int) -> Int
 fun first(b: ?Bag) -> []Int
   head(b.items[..])
 
-fun window(v: ?Vec[Int]) -> []Int
+fun window(v: ?List[Int]) -> []Int
   head(v)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(2)
   r = head(v)
   xs = b.all()

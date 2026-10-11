@@ -13,7 +13,7 @@ struct Env
 
 sub main()
   env = Env(vars: [Var(name: "a", value: "1"), Var(name: "b", value: "2"), Var(name: "c", value: "3")])
-  out: Vec[String] = Vec()
+  out: List[String] = List()
   for n in ["a", "c"]
     q = Text(n)
     if env.get(?q) as v

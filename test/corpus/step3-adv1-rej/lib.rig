@@ -1,8 +1,8 @@
 pub struct Stack[T]
-  items: Vec[T]
+  items: List[T]
 
   fun new_stack() -> Self
-    Stack(items: Vec())
+    Stack(items: List())
 
   sub push(!self, x: T, note: String = "pushed")
     !self.items.push(<x)

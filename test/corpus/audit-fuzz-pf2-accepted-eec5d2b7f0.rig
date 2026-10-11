@@ -57,7 +57,7 @@ error Err344
   bad
 
 sub t344()
-  vec344: Vec[U16] = Vec()
+  vec344: List[U16] = List()
   !vec344.push((fal344(true) catch 34938))
   print(vec344)
 

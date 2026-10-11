@@ -4,13 +4,13 @@ enum E
   b(n: Int)
 
 struct S
-  v: Vec[E]
+  v: List[E]
 
 fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  b = ^S(v: Vec())
+  b = ^S(v: List())
   !b.v.push(E.a(t: Text("hi")))
   match !b.v[idx(?Text("a"))]
     .a(t) if t.len > 0 => !t.add("!")

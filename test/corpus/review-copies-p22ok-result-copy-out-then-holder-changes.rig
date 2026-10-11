@@ -1,15 +1,15 @@
 # The copy out of a view keeps the loans of the views S holds, not the
 # loan on s: s may change, xs may not.
 struct S
-  v: ?Vec[Int]
+  v: ?List[Int]
 
 fun keep(r: ?S) -> S
   r
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(1)
-  ys: Vec[Int] = Vec()
+  ys: List[Int] = List()
   s = S(v: ?xs)
   t = keep(?s)
   s = S(v: ?ys)

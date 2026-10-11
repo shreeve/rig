@@ -1,11 +1,11 @@
 struct Pair
-  a: ?Vec[Int]
+  a: ?List[Int]
 
-fun geta(p: ?Pair) -> ?Vec[Int]
+fun geta(p: ?Pair) -> ?List[Int]
   p.a
 
 sub main()
-  x: Vec[Int] = Vec()
+  x: List[Int] = List()
   !x.push(4)
   p = Pair(a: ?x)
   r = geta(?p)

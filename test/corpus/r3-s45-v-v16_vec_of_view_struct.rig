@@ -3,7 +3,7 @@ struct View
 
 sub main()
   a = 1
-  v: Vec[View] = Vec()
+  v: List[View] = List()
   !v.push(View(n: ?a))
   a = 2
   print(v.len)

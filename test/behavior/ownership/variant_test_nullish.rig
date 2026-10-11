@@ -2,10 +2,10 @@
 # the value `o` or `d` holds is read where it is, never dropped.
 enum Shape
   dot
-  line(v: Vec[Int])
+  line(v: List[Int])
 
 sub main()
-  p: Vec[Int] = Vec()
+  p: List[Int] = List()
   !p.push(1)
   o: Shape? = none
   d = Shape.line(<p)

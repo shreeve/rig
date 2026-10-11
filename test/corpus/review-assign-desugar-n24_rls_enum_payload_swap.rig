@@ -18,7 +18,7 @@ sub main()
   match e
     .pair(p) => print(p.a, p.b, p.c, p.d)
     .empty => pass
-  v: Vec[Pr] = Vec()
+  v: List[Pr] = List()
   !v.push(Pr.pair(P(a: 1, b: 2, c: 3, d: 4)))
   v[0] = match v[0]
     .pair(p) => Pr.pair(P(a: p.d, b: p.c, c: p.b, d: p.a))

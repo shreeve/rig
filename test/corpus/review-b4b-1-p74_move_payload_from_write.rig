@@ -10,7 +10,7 @@ sub eat(t: Text)
   print(t)
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("q")))
   match !v[idx(?Text("a"))]
     .a(t) => eat(<t)

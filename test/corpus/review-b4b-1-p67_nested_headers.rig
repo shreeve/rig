@@ -3,7 +3,7 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  vv: Vec[[2]Text?] = Vec()
+  vv: List[[2]Text?] = List()
   !vv.push([Text("a"), Text("b")])
   for row in !vv[idx(?Text("a"))..1]
     if !row[idx(?Text("ab"))] as t

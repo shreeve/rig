@@ -1,8 +1,8 @@
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
 fun mk() -> S
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   S(o: <v)
 

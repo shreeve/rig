@@ -1,4 +1,4 @@
-# A struct holding a String that views a Text, or a Vec of such
+# A struct holding a String that views a Text, or a List of such
 # Strings, cannot outlive the Text.
 
 struct Name
@@ -6,7 +6,7 @@ struct Name
 
 sub main()
   n = Name(s: "none")
-  names: Vec[String] = Vec()
+  names: List[String] = List()
   if true
     t = Text("inner")
     n = Name(s: ?t[..])

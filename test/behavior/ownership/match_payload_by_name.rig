@@ -11,7 +11,7 @@ struct B
     print("drop", self.n)
 
 enum Bag
-  three(a: *B, label: Text, xs: Vec[Int])
+  three(a: *B, label: Text, xs: List[Int])
   one(b: *B)
   empty
 
@@ -43,26 +43,26 @@ fun take(e: E) -> Res
     .none => Res(t: Text("none"))
 
 sub main()
-  x: Bag = .three(a: *B(n: 1), label: Text("one"), xs: Vec())
+  x: Bag = .three(a: *B(n: 1), label: Text("one"), xs: List())
   match <x
     .three(a: a)
       keep(<a)
       print("arm end")
     _ => pass
   print("after 1")
-  y: Bag = .three(a: *B(n: 2), label: Text("two"), xs: Vec())
+  y: Bag = .three(a: *B(n: 2), label: Text("two"), xs: List())
   match <y
     .three(xs: v, label: t)
       print(t, v.len)
       print("arm end")
     _ => pass
   print("after 2")
-  z: Bag = .three(a: *B(n: 3), label: Text("three"), xs: Vec())
+  z: Bag = .three(a: *B(n: 3), label: Text("three"), xs: List())
   match <z
     .three(label: t) => print(t)
     _ => pass
   print("after 3")
-  w: Bag = .three(a: *B(n: 4), label: Text("four"), xs: Vec())
+  w: Bag = .three(a: *B(n: 4), label: Text("four"), xs: List())
   match <w
     .three(label: t) if t.len > 9 => print("long")
     .three(xs: v) => print("xs", v.len)
@@ -71,7 +71,7 @@ sub main()
   # A read match's view of a field bound by name, past the arm.
   blank = Text("")
   dr = Res(t: Text(""))
-  g: Bag = .three(a: *B(n: 5), label: Text("five"), xs: Vec())
+  g: Bag = .three(a: *B(n: 5), label: Text("five"), xs: List())
   print(label(?g, ?blank))
   e: E = .pair(r: Res(t: Text("viewed")), k: 1)
   print(res(?e, ?dr).t)

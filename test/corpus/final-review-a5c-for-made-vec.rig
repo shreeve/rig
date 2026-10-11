@@ -1,6 +1,6 @@
-# A5c: for over a made Vec of owners directly
-fun mk() -> Vec[Text]
-  v: Vec[Text] = Vec()
+# A5c: for over a made List of owners directly
+fun mk() -> List[Text]
+  v: List[Text] = List()
   !v.push(Text("a"))
   v
 

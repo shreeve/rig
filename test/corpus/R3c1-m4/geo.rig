@@ -2,7 +2,7 @@ pub struct Point
   x: Int
 
 pub struct HasVec
-  v: Vec[Int]
+  v: List[Int]
 
 pub struct HasCell
   c: Cell[Int]

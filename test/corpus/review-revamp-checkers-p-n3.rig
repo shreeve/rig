@@ -1,8 +1,8 @@
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print(v.len)
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   for i in 0..2
     for j in 0..2
       for k in 0..2

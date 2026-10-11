@@ -1,4 +1,4 @@
-# A `match !p` whose subject is an element of a Vec, or a path through
+# A `match !p` whose subject is an element of a List, or a path through
 # one, writes its payloads where the element is: the switch is on the
 # place, never on a copy of the element.
 # release
@@ -11,9 +11,9 @@ struct S
   e: E
 
 struct H
-  f: Vec[E]
+  f: List[E]
 
-sub bump(p: !Vec[E], i: Int)
+sub bump(p: !List[E], i: Int)
   match !p[i]
     .a(n, t)
       n += 1
@@ -21,7 +21,7 @@ sub bump(p: !Vec[E], i: Int)
     .b => pass
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(n: 1, t: Text("v")))
   !v.push(E.b)
   i = 0
@@ -34,22 +34,22 @@ sub main()
     .a(n, _) => n += 100
     .b => pass
   bump(!v, i)
-  s: Vec[S] = Vec()
+  s: List[S] = List()
   !s.push(S(e: E.a(n: 2, t: Text("s"))))
   match !s[i].e
     .a(n, t)
       n += 20
       !t.add("y")
     .b => pass
-  h = H(f: Vec())
+  h = H(f: List())
   !h.f.push(E.a(n: 3, t: Text("h")))
   match !h.f[i]
     .a(n, t)
       n += 30
       !t.add("z")
     .b => pass
-  vv: Vec[Vec[E]] = Vec()
-  w: Vec[E] = Vec()
+  vv: List[List[E]] = List()
+  w: List[E] = List()
   !w.push(E.a(n: 4, t: Text("w")))
   !vv.push(<w)
   match !vv[0][i]

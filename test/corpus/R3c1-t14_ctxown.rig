@@ -5,7 +5,7 @@ struct R
     print("drop", self.n)
 
 enum A
-  v(items: Vec[Int])
+  v(items: List[Int])
   e
 
 enum D
@@ -14,7 +14,7 @@ enum D
 
 sub main()
   a: A = .e
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
   print(a == .v(items: <v))
   d: D = .r(res: R(n: 1))

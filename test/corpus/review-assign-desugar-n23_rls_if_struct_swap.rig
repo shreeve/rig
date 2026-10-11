@@ -14,7 +14,7 @@ sub main()
     0 => P(a: p.b, b: p.a)
     _ => p
   print(p.a, p.b)
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   !v.push(P(a: 3, b: 4))
   v[0] = P(a: v[0].b, b: v[0].a) if k == 0 else v[0]
   print(v[0].a, v[0].b)

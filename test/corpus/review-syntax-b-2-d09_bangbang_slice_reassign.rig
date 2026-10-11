@@ -4,9 +4,9 @@ sub f(x: !![]Int, y: ![]Int)
   print(s)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(2)
   w = !v[..]
   f(!w, !u[..])

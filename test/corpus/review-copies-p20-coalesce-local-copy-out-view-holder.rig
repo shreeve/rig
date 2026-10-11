@@ -1,10 +1,10 @@
 struct S
-  v: ?Vec[Int]
+  v: ?List[Int]
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(1)
-  ys: Vec[Int] = Vec()
+  ys: List[Int] = List()
   o: S? = S(v: ?xs)
   r = ?o
   c: S = r ?? S(v: ?ys)

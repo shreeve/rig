@@ -1,11 +1,11 @@
-fun getw(v: !Vec[Int]) -> !Vec[Int]
+fun getw(v: !List[Int]) -> !List[Int]
   v
 
 fun keep(xs: []Int) -> []Int
   xs
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   r = keep(?getw(!v)[..])
   !v.push(2)

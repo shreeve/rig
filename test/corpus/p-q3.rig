@@ -1,6 +1,6 @@
 sub main()
   t = Text("abc")
-  out: Vec[String] = Vec()
+  out: List[String] = List()
   put = |!out, s: String| !out.push(s)
   put(?t[..])
   !t.clear()

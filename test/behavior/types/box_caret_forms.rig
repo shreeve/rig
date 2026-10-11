@@ -19,7 +19,7 @@ fun wrap[T](x: T) -> ^T
 fun total(p: ?Pair) -> Int
   p.a + p.b
 
-fun first(xs: ?Vec[Int]) -> Int
+fun first(xs: ?List[Int]) -> Int
   xs.get(0) ?? -1
 
 sub main()
@@ -48,14 +48,14 @@ sub main()
 
   grid: [2]^Int = [^8, ^9]
   print(grid[0], grid[1])
-  vs: Vec[^Int] = Vec()
+  vs: List[^Int] = List()
   !vs.push(^10)
   !vs.push(^11)
   print(vs.len)
 
-  nums = Vec[Int]()
+  nums = List[Int]()
   !nums.push(4)
-  view_box: ^?Vec[Int] = ^?nums
+  view_box: ^?List[Int] = ^?nums
   print(first(?nums))
 
 # expect:

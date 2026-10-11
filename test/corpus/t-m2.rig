@@ -1,11 +1,11 @@
 struct S
-  a: Vec[Int]
+  a: List[Int]
   b: Int
 
   fun count(?self, n: Int) -> Int
     self.a.len + n
 
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   !v.push(7)
   2
 
@@ -13,14 +13,14 @@ fun grows(s: !S) -> Int
   !s.a.push(7)
   2
 
-fun growo(o: !Vec[Int]?) -> Int
+fun growo(o: !List[Int]?) -> Int
   o = none
   2
 
 sub main()
-  s = S(a: Vec(), b: 1)
+  s = S(a: List(), b: 1)
   print(s.count(grow(!s.a)))
   print(s.count(grows(!s)))
   !s.a.push(grow(!s.a))
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   print(o, growo(!o))

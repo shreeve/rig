@@ -4,7 +4,7 @@
 # binding, an owned closure, and through every row of the lend table.
 
 struct Bag
-  v: Vec[Int]
+  v: List[Int]
 
 struct S
   n: Int
@@ -27,7 +27,7 @@ fun first(s: String) -> String
   s[..1]
 
 fun mk(n: Int) -> Bag
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   Bag(v: <v)
 

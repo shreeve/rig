@@ -2,7 +2,7 @@
 # leads, also one moved in from a local.
 
 struct Res
-  v: Vec[Int]
+  v: List[Int]
 
 struct View
   r: ?Res
@@ -16,7 +16,7 @@ sub fill(o: !Outer, r: ?Res)
 sub main()
   a = Outer(inner: none)
   if true
-    x = Res(v: Vec())
+    x = Res(v: List())
     !x.v.push(5)
     w = !a
     fill(<w, ?x)

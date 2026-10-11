@@ -1,7 +1,7 @@
 # take an element of a write loop binding (for row in !v)
 sub main()
-  v: Vec[Vec[Text?]] = Vec()
-  r: Vec[Text?] = Vec()
+  v: List[List[Text?]] = List()
+  r: List[Text?] = List()
   !r.push(Text("a"))
   !v.push(<r)
   for row in !v

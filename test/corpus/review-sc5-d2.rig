@@ -1,5 +1,5 @@
 struct Bag[T]
-  items: Vec[T] = Vec()
+  items: List[T] = List()
   n: Int = 0
 
   sub add(!self, x: T)

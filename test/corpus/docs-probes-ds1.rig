@@ -1,4 +1,4 @@
-sub each(v: ?Vec[Int], f: ?fun(Int) -> Int)
+sub each(v: ?List[Int], f: ?fun(Int) -> Int)
   for x in ?v
     print(f(x))
 
@@ -9,7 +9,7 @@ struct P
   n: Int
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   total = 0
   each(?v, |!total, n| total += n)

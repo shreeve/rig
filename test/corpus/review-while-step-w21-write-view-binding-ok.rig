@@ -1,12 +1,12 @@
 # Valid: the step writes through the bound write view; the body only
 # counts.
-fun at(v: !Vec[Int], i: Int) -> (!Int)?
+fun at(v: !List[Int], i: Int) -> (!Int)?
   if i < v.len
     return !v[i]
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   i = 0

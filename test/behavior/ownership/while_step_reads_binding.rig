@@ -14,7 +14,7 @@
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 5
     return S(s: ?v[..])
   none
@@ -23,7 +23,7 @@ fun next(i: Int) -> Int?
   i if i % 2 == 0 else none
 
 sub reads()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(4)
   k = 0
   i = 0
@@ -32,7 +32,7 @@ sub reads()
   print(k, i)
 
 sub continued()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   k = 0
   i = 0
@@ -46,7 +46,7 @@ sub continued()
   print(k, i)
 
 sub body_uses()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   i = 0
@@ -56,7 +56,7 @@ sub body_uses()
   print(k, i, v.len)
 
 sub step_grows()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   i = 0

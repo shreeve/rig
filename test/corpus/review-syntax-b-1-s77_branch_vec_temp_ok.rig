@@ -4,8 +4,8 @@ fun total(xs: []Int) -> Int
     n += x
   n
 
-fun mkv() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv() -> List[Int]
+  v: List[Int] = List()
   !v.push(1)
   v
 

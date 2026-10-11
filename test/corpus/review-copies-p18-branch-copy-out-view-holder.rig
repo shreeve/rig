@@ -1,12 +1,12 @@
 # A branch whose arms are a read view of S and an S: the view is copied
 # out; the copy carries the loan of the view S holds.
 struct S
-  v: ?Vec[Int]
+  v: ?List[Int]
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(1)
-  ys: Vec[Int] = Vec()
+  ys: List[Int] = List()
   s = S(v: ?xs)
   r = ?s
   flag = xs.len > 0

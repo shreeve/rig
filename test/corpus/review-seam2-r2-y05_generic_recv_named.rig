@@ -13,14 +13,14 @@ struct S
     print("dropS", self.n)
 
 struct H
-  rs: Vec[String]
+  rs: List[String]
 
   drop(!self)
     print("dropH sees", self.rs)
 
 struct W[V]
   h: H
-  xs: Vec[V]
+  xs: List[V]
 
   sub put(!self, r: String, v: V)
     !self.h.rs.push(r)
@@ -33,7 +33,7 @@ fun wrapw[V](w: !W[V]) -> !W[V]
   w
 
 sub main()
-  w = W(h: H(rs: Vec()), xs: Vec[Int]())
+  w = W(h: H(rs: List()), xs: List[Int]())
   if true
     s = mk(2)
     wrapw(!w).put(?s.t, 1)

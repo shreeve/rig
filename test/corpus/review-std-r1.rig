@@ -8,7 +8,7 @@ sub main()
   one = [7]
   !r.shuffle(!one)
   print(one)
-  v = Vec[Int]()
+  v = List[Int]()
   !r.shuffle(!v[..])
   print(v.len)
   f = (!r).float()

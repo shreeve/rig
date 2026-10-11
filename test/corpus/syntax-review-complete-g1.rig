@@ -3,7 +3,7 @@ struct Entry
   v: Int
 
 struct Map
-  es: Vec[Entry]
+  es: List[Entry]
 
   fun get(?self, k: String) -> (?Int)?
     for e in ?self.es
@@ -12,7 +12,7 @@ struct Map
     none
 
 sub main()
-  m = Map(es: Vec())
+  m = Map(es: List())
   !m.es.push(Entry(k: "a", v: 1))
   if m.get("a") as v
     print(v)

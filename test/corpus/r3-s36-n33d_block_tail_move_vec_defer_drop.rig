@@ -1,11 +1,11 @@
 sub main()
   c = true
   x = if c
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     defer <v
     v
   else
-    w: Vec[Int] = Vec()
+    w: List[Int] = List()
     w
   print(x.len, x[0])

@@ -23,7 +23,7 @@ fun mkpr() -> PR
   PR(r: "")
 
 struct H
-  rs: Vec[String]
+  rs: List[String]
 
   sub keep(!self, r: String)
     !self.rs.push(r)
@@ -32,7 +32,7 @@ struct H
     print("drop", self.rs)
 
 fun mkh() -> H
-  H(rs: Vec())
+  H(rs: List())
 
 sub main()
   t = Text("kept")

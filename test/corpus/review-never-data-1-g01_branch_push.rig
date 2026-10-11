@@ -1,5 +1,5 @@
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   sub grow(!self)
     for i in 0..50
@@ -12,8 +12,8 @@ fun peek(o: ?O) -> ?S
   ?o.s
 
 sub main()
-  a = *O(s: S(c: Cell(Vec())))
-  b = *O(s: S(c: Cell(Vec())))
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
   k = a.s.c.len == 0
   !a.s.c.push(1)
   !(!a.s if k else !b.s).c.push(5)

@@ -746,7 +746,7 @@ fn decideDropsWhenTested(ctx: *const SemContext, e: Sexp) bool {
 }
 
 /// Whether `for` loop `loop` consumes its source, handing its elements
-/// over one at a time: a Vec it takes (`for x in <v`) or that its source
+/// over one at a time: a List it takes (`for x in <v`) or that its source
 /// makes and that owns resources, or an array of values that move, which
 /// it takes or its source makes. Decided once: emit lowers the loop so,
 /// the plan makes its iterator and elements, and the ownership checker
@@ -760,11 +760,11 @@ fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
     const source = ir.For.source(loop);
     if (source.isKind(.@"..")) return false;
     const t = typeOf(ctx, source) orelse return false;
-    if (isVecTy(ctx, t)) return mode == .move or (!hasStorage(ctx, source) and owns(ctx, t));
+    if (isListTy(ctx, t)) return mode == .move or (!hasStorage(ctx, source) and owns(ctx, t));
     return ctx.types.get(t) == .array and owns(ctx, ctx.types.get(t).array.elem) and (mode == .move or !hasStorage(ctx, source));
 }
 
-/// Whether a read `for` over an array, a slice, or a Vec binds the bytes
+/// Whether a read `for` over an array, a slice, or a List binds the bytes
 /// of each Text element: its binding is a `String`, the read view of a
 /// `Text`, so the loop walks the elements by address and the binding is
 /// each one's `.bytes()`.
@@ -778,7 +778,7 @@ pub fn loopBindsTextBytes(ctx: *const SemContext, loop: Sexp) bool {
     const elem = switch (ctx.types.get(t)) {
         .array => |a| a.elem,
         .slice => |sl| sl.elem,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) pn.args[0] else return false,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) pn.args[0] else return false,
         else => return false,
     };
     return sema.viewsTextBytes(ctx, elem, bound);
@@ -1410,7 +1410,7 @@ const Planner = struct {
     fn placeAssign(p: *Planner, target: Sexp, value: Sexp) !void {
         const ctx = p.ctx;
         const place_ty = typeOf(ctx, target);
-        if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellVecTy(ctx, t)) return p.openAssign(target, value);
+        if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellListTy(ctx, t)) return p.openAssign(target, value);
         if (target != .src and isPtrViewExpr(ctx, target)) return p.openAssign(target, value);
         if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(target, value);
         try p.record(value, .new_value, .owned, .assignment);
@@ -1498,18 +1498,18 @@ fn divides(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
     }
 }
 
-fn isVecTy(ctx: *const SemContext, ty: TypeId) bool {
+fn isListTy(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
-        .parameterized_nominal => |pn| pn.sym == ctx.vec_sym_id,
+        .parameterized_nominal => |pn| pn.sym == ctx.list_sym_id,
         else => false,
     };
 }
 
-/// A Cell holding a Vec, reached by value, view, or shared handle.
-fn isCellVecTy(ctx: *const SemContext, ty: TypeId) bool {
+/// A Cell holding a List, reached by value, view, or shared handle.
+fn isCellListTy(ctx: *const SemContext, ty: TypeId) bool {
     const cell = switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
         .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,
         else => return false,
     };
-    return isVecTy(ctx, cell);
+    return isListTy(ctx, cell);
 }

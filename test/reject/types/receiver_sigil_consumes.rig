@@ -2,14 +2,14 @@
 # must consume it (`<self`); a call's result moves without `<`.
 
 struct Stack
-  items: Vec[Int]
+  items: List[Int]
   fun top(?self) -> Int?
     self.items.get(0)
   fun pop(!self) -> Int?
     (!self.items).pop()
 
 sub main()
-  s = Stack(items: Vec())
+  s = Stack(items: List())
   a = <s.top()
   b = <s.pop()
   print(a ?? 0, b ?? 0)

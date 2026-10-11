@@ -4,7 +4,7 @@ sub run(w: !Int, k: Int)
   w += match k
     1 => 4
     _
-      u: Vec[Int] = Vec()
+      u: List[Int] = List()
       !u.push(1)
       w = !u[0]
       3

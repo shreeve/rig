@@ -1,15 +1,15 @@
 enum WV
-  a(w: !Vec[Text])
+  a(w: !List[Text])
   b
 
 struct H
   e: WV
 
-fun mk(v: !Vec[Text]) -> H from v
+fun mk(v: !List[Text]) -> H from v
   H(e: WV.a(!v))
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("hello"))
   match mk(!v).e
     .a(w)

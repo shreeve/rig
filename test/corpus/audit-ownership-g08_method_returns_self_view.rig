@@ -17,13 +17,13 @@ fun cond(t: *Tok) -> Bool
   false
 
 struct Bag
-  items: Vec[*Tok]
+  items: List[*Tok]
 
   fun first(?self) -> ?*Tok
     ?self.items[0]
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(*Tok(n: 1))
   r = ?b.first()
   !b.items.clear()

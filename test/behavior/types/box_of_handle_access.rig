@@ -9,7 +9,7 @@ enum K
 
 struct S
   n: Int
-  xs: Vec[Int]
+  xs: List[Int]
   t: Text
   k: K
   c: *Cell[Int]
@@ -18,11 +18,11 @@ struct S
     self.n + self.xs[0]
 
 fun mk(n: Int) -> S
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(n * 10)
   S(n: n, xs: <xs, t: Text("s", n), k: .a(n: n + 1), c: *Cell(n))
 
-fun first(v: ?Vec[Int]) -> Int
+fun first(v: ?List[Int]) -> Int
   v[0]
 
 fun viewed(b: ?^S) -> Int

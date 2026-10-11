@@ -1,9 +1,9 @@
-fun find(xs: ?Vec[Int], n: !Int) -> ?Int
+fun find(xs: ?List[Int], n: !Int) -> ?Int
   n += 1
   ?xs[0]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   n = 0
   r = find(?v, !n)

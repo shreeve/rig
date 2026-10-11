@@ -1,5 +1,5 @@
 sub main()
-  x = Vec[Int]()
+  x = List[Int]()
   !x.push(3)
   bx = ^<x
   print(bx)

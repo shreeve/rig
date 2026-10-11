@@ -1,5 +1,5 @@
-fun keep[T](x: T) -> Vec[T]
-  v: Vec[T] = Vec()
+fun keep[T](x: T) -> List[T]
+  v: List[T] = List()
   !v.push(x)
   v
 

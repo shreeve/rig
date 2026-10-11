@@ -5,8 +5,8 @@ fun at(i: Int, what: String) -> Int
   i
 
 sub main()
-  a: Vec[Vec[Int]] = Vec()
-  !a.push(Vec())
+  a: List[List[Int]] = List()
+  !a.push(List())
   !a[0].push(0)
   k = 0
   a[at(0, "i")][at(0, "j")] = match k

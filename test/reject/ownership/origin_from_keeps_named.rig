@@ -2,15 +2,15 @@
 # function lent as a value calls with its type's origins, which keep
 # every argument that could hold the result.
 
-fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
   a
 
-fun apply(f: ?fun(?Vec[Int], ?Vec[Int]) -> ?Vec[Int], a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+fun apply(f: ?fun(?List[Int], ?List[Int]) -> ?List[Int], a: ?List[Int], b: ?List[Int]) -> ?List[Int]
   f(a, b)
 
 sub main()
-  x: Vec[Int] = Vec()
-  y: Vec[Int] = Vec()
+  x: List[Int] = List()
+  y: List[Int] = List()
   r = first(?x, ?y)
   !x.push(1)
   print(r.len)

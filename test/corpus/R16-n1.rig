@@ -4,7 +4,7 @@ sub rec(n: Int, f: ?sub(Int))
   else
     rec(n - 1, |?f, +n, k| f(k + n))
 
-sub each(xs: ?Vec[Int], f: ?sub(Int))
+sub each(xs: ?List[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
@@ -14,10 +14,10 @@ sub main()
     total += k
   )
   print(total)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(10)
   !w.push(20)
   sum = 0

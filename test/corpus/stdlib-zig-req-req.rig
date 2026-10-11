@@ -12,10 +12,10 @@ error StdError
   overflow
 
 struct Text
-  bytes: Vec[U8]
+  bytes: List[U8]
 
   fun new() -> Text
-    Text(bytes: Vec())
+    Text(bytes: List())
 
   sub push(!self, s: String)
     for b in s
@@ -50,8 +50,8 @@ fun trim(s: String) -> String
 fun trim_view(s: []U8) -> []U8
   s
 
-fun split(s: String, sep: String) -> Vec[String]
-  v: Vec[String] = Vec()
+fun split(s: String, sep: String) -> List[String]
+  v: List[String] = List()
   !v.push(s)
   v
 
@@ -67,22 +67,22 @@ fun read_line() -> Text?!
   return StdError.io_failed if false
   none
 
-sub sort_by[T](v: !Vec[T], less: ?fun(T, T) -> Bool)
+sub sort_by[T](v: !List[T], less: ?fun(T, T) -> Bool)
   if v.len > 1
     print(less(v[0], v[1]))
 
-fun args() -> Vec[String]
-  Vec()
+fun args() -> List[String]
+  List()
 
 fun env(name: String) -> String?
   none
 
 struct Map[K, V]
-  keys: Vec[^K]
-  vals: Vec[V]
+  keys: List[^K]
+  vals: List[V]
 
   fun new() -> Map[K, V]
-    Map[K, V](keys: Vec(), vals: Vec())
+    Map[K, V](keys: List(), vals: List())
 
   fun put(!self, k: K, v: V) -> V?
     !self.keys.push(^<k)
@@ -101,8 +101,8 @@ struct Map[K, V]
   fun len(?self) -> Int
     self.keys.len
 
-fun sorted_keys[K, V](m: ?Map[K, V]) -> Vec[K]
-  Vec()
+fun sorted_keys[K, V](m: ?Map[K, V]) -> List[K]
+  List()
 
 struct Node
   id: Int
@@ -161,7 +161,7 @@ sub main()
   print("stdin lines", count, "longest", longest)
 
   # A Rig closure called back from Zig's std.mem.sort.
-  nums: Vec[Int] = Vec()
+  nums: List[Int] = List()
   for x in [5, 3, 9, 1]
     !nums.push(x)
   sort_by(!nums, |a, b| a > b)

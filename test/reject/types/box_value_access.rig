@@ -1,5 +1,5 @@
 # A box's value has its fields and methods reached through the box (a
-# Vec's `push`), but a box has no field `value` of its own. A box holds
+# List's `push`), but a box has no field `value` of its own. A box holds
 # has no `==`, and its own consuming `unbox` and its value's consuming
 # methods need an owned box.
 
@@ -17,7 +17,7 @@ sub f(b: ?^R)
 sub main()
   c = ^5
   print(c.value + 1)
-  v = ^Vec[Int]()
+  v = ^List[Int]()
   !v.push(3)
   a = ^R(n: 1)
   b = ^R(n: 1)

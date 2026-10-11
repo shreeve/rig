@@ -1,9 +1,9 @@
 struct N
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  xs: Vec[*N] = Vec()
-  !xs.push(*N(v: Vec()))
+  xs: List[*N] = List()
+  !xs.push(*N(v: List()))
   a = xs[0]
   b = ?xs[0]
   print(xs.len)

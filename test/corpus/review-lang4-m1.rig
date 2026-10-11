@@ -1,21 +1,21 @@
 struct Node
-  items: Vec[Int]
-  tag: *Vec[Int]
+  items: List[Int]
+  tag: *List[Int]
 
 struct H
   w: !Node
 
   sub reset(!self, k: Int)
-    fresh: Vec[Int] = Vec()
+    fresh: List[Int] = List()
     !fresh.push(k)
-    self.w = Node(items: <fresh, tag: *Vec())
+    self.w = Node(items: <fresh, tag: *List())
 
   sub grow(!self)
     !self.w.items.push(1)
 
 sub main()
-  sh: *Vec[Int] = *Vec()
-  node = Node(items: Vec(), tag: +sh)
+  sh: *List[Int] = *List()
+  node = Node(items: List(), tag: +sh)
   h = H(w: !node)
   i = 0
   while i < 5

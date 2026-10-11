@@ -2,15 +2,15 @@
 # `?v[..]` would be: the loan lasts the statement, so a later argument
 # may not write the owner.
 
-fun bump(v: !Vec[Int]) -> Int
+fun bump(v: !List[Int]) -> Int
   !v.push(1)
   v.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   print(v[..], (!v).pop())
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   t = Text(w[..], bump(!w))
   print(t)
 

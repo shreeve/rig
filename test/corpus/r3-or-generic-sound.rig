@@ -19,17 +19,17 @@ struct Pair[T]
   sub put(!self, x: T)
     self.a = <x
 
-fun first[T](v: ?Vec[T]) -> T
+fun first[T](v: ?List[T]) -> T
   v[0]
 
-fun take_both[T](x: T, y: T) -> Vec[T]
-  out: Vec[T] = Vec()
+fun take_both[T](x: T, y: T) -> List[T]
+  out: List[T] = List()
   !out.push(<x)
   !out.push(<y)
   out
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(3)
   p = Pair[Int](a: 1, b: 2)
   !p.put(first(?v))

@@ -4,7 +4,7 @@ enum E
   b(n: Int)
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("hi")))
   match v[0]
     .a(t) => (k = <t)

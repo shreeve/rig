@@ -4,8 +4,8 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun mk() -> Vec[^R]
-  v: Vec[^R] = Vec()
+fun mk() -> List[^R]
+  v: List[^R] = List()
   !v.push(^R(n: 1))
   v
 

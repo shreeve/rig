@@ -9,7 +9,7 @@ struct Node
   value: Int
 
 sub main()
-  nodes: Vec[*Node] = Vec()
+  nodes: List[*Node] = List()
   i = 0
   while i < 300
     !nodes.push(*Node(value: i))
@@ -30,7 +30,7 @@ struct Node
   next: *Cell[*Node?]
 
 sub main()
-  keep: Vec[*Node] = Vec()
+  keep: List[*Node] = List()
   i = 0
   while i < 100
     !keep.push(*Node(next: *Cell(none)))

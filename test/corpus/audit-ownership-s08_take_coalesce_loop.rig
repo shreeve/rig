@@ -27,7 +27,7 @@ struct H
   o: *Tok?
 
 sub main()
-  hs: Vec[^H] = Vec()
+  hs: List[^H] = List()
   !hs.push(^H(o: *Tok(n: 1)))
   !hs.push(^H(o: none))
   !hs.push(^H(o: *Tok(n: 3)))

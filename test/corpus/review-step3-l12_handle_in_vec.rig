@@ -6,7 +6,7 @@ fun keep(s: ?S) -> ?S
   s
 
 sub main()
-  v: Vec[*S] = Vec()
+  v: List[*S] = List()
   !v.push(*S(n: 1, t: Text("a")))
   k = keep(?v[0])
   !v.clear()

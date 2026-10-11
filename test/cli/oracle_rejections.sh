@@ -11,13 +11,13 @@ ORACLE="$ROOT/bin/rig-oracle"
 # it. `good` is accepted by both.
 cat >p.rig <<'RIG'
 sub bad()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   r = ?v
   !v.push(1)
   print(r.len)
 
 sub good()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   print(v.len)
 

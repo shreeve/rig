@@ -2,6 +2,6 @@ struct R
   name: ^Int
 
 sub main()
-  v: Vec[R] = Vec()
+  v: List[R] = List()
   !v.push(R(name: ^1))
   print(v.len)

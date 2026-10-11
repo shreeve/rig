@@ -1,9 +1,9 @@
-# if (!a if f(?Text("x")) else !b) as t: temp only in the branch condition (c01c), Vec leaf
+# if (!a if f(?Text("x")) else !b) as t: temp only in the branch condition (c01c), List leaf
 fun f(s: String) -> Bool
   s.len == 1
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("q"))
   w: Text? = Text("w")
   if (!v[0] if f(?Text("x")) else !w) as t

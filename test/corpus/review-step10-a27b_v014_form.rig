@@ -1,7 +1,7 @@
 # (a27 without `from`, for v0.1.4)
 # a05 sibling: the catch-all view of a header subject through a
 # temporary leaves the function as the match's value. The caller must
-# read the Vec's element, 8 8, never the callee's dead frame; the header
+# read the List's element, 8 8, never the callee's dead frame; the header
 # points at the element, so it does.
 enum E
   a(xs: [4]Int)
@@ -10,7 +10,7 @@ enum E
 fun idx(s: ?Text, i: Int) -> Int
   s.len - 1 + i
 
-fun at2(v: ?Vec[E], i: Int) -> ?E
+fun at2(v: ?List[E], i: Int) -> ?E
   match ?v[idx(?Text("a"), i)]
     x => x
 
@@ -19,7 +19,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(xs: [7, 7, 7, 7]))
   !v.push(E.a(xs: [8, 8, 8, 8]))
   s = at2(?v, 1)

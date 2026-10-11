@@ -17,11 +17,11 @@ struct C unique
 sub main()
   a = File(name: Text("a"))
   b = +a
-  hs: Vec[Holder] = Vec()
+  hs: List[Holder] = List()
   c = +hs
   d = C(n: 1, t: Text("x"))
   e = +d
 
 # error: 19:8: `+x` cannot clone a `File`: a value with a `drop` body
-# error: 21:8: `+x` cannot clone a `Vec[Holder]`
+# error: 21:8: `+x` cannot clone a `List[Holder]`
 # error: 23:8: `+x` cannot clone a `C`: it holds a unique value

@@ -1,11 +1,11 @@
-# +s where s owns Text and holds a read view ?Vec[Text] (a pointer in Zig)
+# +s where s owns Text and holds a read view ?List[Text] (a pointer in Zig)
 struct S
   own: Text
-  see: ?Vec[Text]
+  see: ?List[Text]
   box: ?^Int
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("x"))
   b = ^5
   s = S(own: Text("own"), see: ?v, box: ?b)

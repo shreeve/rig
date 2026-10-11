@@ -109,7 +109,7 @@ fun rt_int(n: Int) -> Int
 
 sub h0()!
   p0 = P(a: mayr(rt_int(4001))!, b: mk(2))
-  v1: Vec[*R] = Vec()
+  v1: List[*R] = List()
   !v1.push(*mayr(rt_int(0))!)
   !v1.push(*mayr(rt_int(0))!)
 
@@ -119,7 +119,7 @@ sub h1()!
   p2 = P(a: mk(17), b: mayr(rt_int(4018))!)
 
 fun h2() -> Int?
-  v0: Vec[*R] = Vec()
+  v0: List[*R] = List()
   !v0.push(*mk(29))
   !v0.push(*mk(30))
   b3 = [qq(Q(h: *mk(31), o: optr(rt_int(3032))?)), take3(mk(33), 5, mk(34))]

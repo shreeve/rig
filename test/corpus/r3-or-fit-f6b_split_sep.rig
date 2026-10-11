@@ -3,7 +3,7 @@ use std.text
 sub main()
   line = Text("a;b;c")
   sep = Text(";")
-  firsts: Vec[String] = Vec()
+  firsts: List[String] = List()
   parts = text.split(?line, ?sep)
   if (!parts).next() as p
     !firsts.push(p)

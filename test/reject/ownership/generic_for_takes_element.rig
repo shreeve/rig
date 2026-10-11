@@ -8,29 +8,29 @@ struct Res
   drop(!self)
     print("drop", self.n)
 
-fun steal[T](v: ?Vec[T], d: T) -> T
+fun steal[T](v: ?List[T], d: T) -> T
   r = <d
   for x in v
     r = <x
   r
 
-fun copyall[T](v: ?Vec[T]) -> Vec[T]
-  out = Vec[T]()
+fun copyall[T](v: ?List[T]) -> List[T]
+  out = List[T]()
   for x in v
     !out.push(<x)
   out
 
-sub dropall[T](v: ?Vec[T])
+sub dropall[T](v: ?List[T])
   for x in v
     <x
 
-fun first[T](v: ?Vec[T], d: T) -> T
+fun first[T](v: ?List[T], d: T) -> T
   for x in v
     return x
   <d
 
 struct Bag[T]
-  items: Vec[T]
+  items: List[T]
 
   fun steal(?self, d: T) -> T
     r = <d
@@ -39,13 +39,13 @@ struct Bag[T]
     r
 
 sub main()
-  w = Vec[*Res]()
+  w = List[*Res]()
   !w.push(*Res(n: 1))
   a = steal(?w, *Res(n: 10))
   c = copyall(?w)
   dropall(?w)
   f = first(?w, *Res(n: 10))
-  b: Bag[*Res] = Bag(items: Vec())
+  b: Bag[*Res] = Bag(items: List())
 
 # error: 44:7: `steal[*Res]` cannot use `T = *Res`
 # error: 45:7: `copyall[*Res]` cannot use `T = *Res`

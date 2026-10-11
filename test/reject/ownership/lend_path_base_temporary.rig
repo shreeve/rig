@@ -11,7 +11,7 @@ error Bad
 struct S
   n: Int
   t: Text
-  items: Vec[Int]
+  items: List[Int]
   e: E
 
 enum E
@@ -25,7 +25,7 @@ struct H
     print("drop", self.r)
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("x"), items: Vec(), e: E.a)
+  S(n: n, t: Text("x"), items: List(), e: E.a)
 
 fun mkh() -> H
   H(r: "init")

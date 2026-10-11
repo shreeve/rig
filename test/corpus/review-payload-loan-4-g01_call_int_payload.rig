@@ -5,7 +5,7 @@ enum F
   a(n: Int)
   s(t: Text)
   w(p: !P)
-  v(xs: Vec[Int])
+  v(xs: List[Int])
   b
 
 fun getf(f: !F) -> !F
@@ -32,7 +32,7 @@ sub main()
   match h
     .w(q) => print(q.t)
     _ => pass
-  vv: Vec[Int] = Vec()
+  vv: List[Int] = List()
   !vv.push(1)
   k = F.v(<vv)
   match getf(!k)

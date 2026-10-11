@@ -4,8 +4,8 @@
 # `e!` or `e?`, and an optional that branches, unwrapped with `?`. Each
 # value made here lives in its statement's slot, so a change to its
 # shared Cell lands in it and its `drop` sees it, and a read sees the
-# leaf it takes. A shared `Cell[Vec]` is reached the same way by its
-# Vec's members.
+# leaf it takes. A shared `Cell[List]` is reached the same way by its
+# List's members.
 # release
 
 error E
@@ -31,12 +31,12 @@ fun mko(n: Int) -> D?
   return none if n < 0
   mk(n)
 
-fun vec1(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun vec1(n: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(n)
   v
 
-fun mkv(n: Int) -> *Cell[Vec[Int]]
+fun mkv(n: Int) -> *Cell[List[Int]]
   *Cell(vec1(n))
 
 sub nested(k: Bool, j: Bool)

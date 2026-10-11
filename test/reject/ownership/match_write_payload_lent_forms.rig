@@ -1,7 +1,7 @@
 # Every form of lend of a `match !e` binding puts a loan on the binding,
 # which a write through it while the view is live conflicts with: a
 # `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
-# a struct, pushed to a Vec, or kept as an optional, and a view a `?self`
+# a struct, pushed to a List, or kept as an optional, and a view a `?self`
 # method returns.
 # oracle: capture reject C4
 # oracle: loop_over reject C4
@@ -70,7 +70,7 @@ sub pushed()
   e = E.a(Text("hello"))
   match !e
     .a(t)
-      v: Vec[String] = Vec()
+      v: List[String] = List()
       !v.push(?t[1..])
       !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
       print(v)

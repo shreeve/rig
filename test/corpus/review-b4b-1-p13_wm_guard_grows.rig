@@ -1,15 +1,15 @@
-# write match on Vec element; guard calls a function that grows the Vec. Expect reject.
+# write match on List element; guard calls a function that grows the List. Expect reject.
 enum E
   a(n: Int)
   b
 
-fun grow(v: !Vec[E]) -> Bool
+fun grow(v: !List[E]) -> Bool
   for _ in 0..64
     !v.push(E.b)
   true
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(n: 1))
   i = 0
   match !v[i]

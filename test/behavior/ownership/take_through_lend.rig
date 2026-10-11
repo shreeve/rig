@@ -5,13 +5,13 @@
 
 struct S
   n: Int
-  o: Vec[Int]?
+  o: List[Int]?
 
-fun take(p: !S) -> Vec[Int]?
+fun take(p: !S) -> List[Int]?
   <p.o
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   s = S(n: 2, o: <v)
   n = s.n

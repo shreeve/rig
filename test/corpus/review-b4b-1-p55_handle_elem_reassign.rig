@@ -7,7 +7,7 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  hs: Vec[*E] = Vec()
+  hs: List[*E] = List()
   !hs.push(*E.a(t: Text("x")))
   match hs[idx(?Text("a"))]
     .a(t)

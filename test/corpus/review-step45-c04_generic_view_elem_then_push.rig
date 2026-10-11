@@ -1,9 +1,9 @@
 # generic view of element held, then push (must reject)
-fun at[T](v: ?Vec[T], i: Int) -> ?T
+fun at[T](v: ?List[T], i: Int) -> ?T
   ?v[i]
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("a"))
   t = at(?v, 0)
   !v.push(Text("b"))

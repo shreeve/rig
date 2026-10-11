@@ -5,7 +5,7 @@ fun inc(n: Int) -> Int
   n + 1
 
 sub main()
-  v: Vec[fun(Int) -> Int] = Vec()
+  v: List[fun(Int) -> Int] = List()
   !v.push(double)
   !v.push(inc)
   for f in ?v

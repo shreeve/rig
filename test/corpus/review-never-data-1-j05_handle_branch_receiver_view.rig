@@ -1,12 +1,12 @@
 struct Counter
-  hits: Cell[Vec[Int]]
+  hits: Cell[List[Int]]
 
-  fun peek(?self) -> ?Cell[Vec[Int]]
+  fun peek(?self) -> ?Cell[List[Int]]
     ?self.hits
 
 sub main()
-  h = *Counter(hits: Cell(Vec()))
-  g = *Counter(hits: Cell(Vec()))
+  h = *Counter(hits: Cell(List()))
+  g = *Counter(hits: Cell(List()))
   c = true
   r = (h if c else g).peek()
   <h

@@ -1,7 +1,7 @@
-# continue, and moving x into a Vec
+# continue, and moving x into a List
 sub main()
   a = [Text("a"), Text("b"), Text("c")]
-  keep: Vec[Text] = Vec()
+  keep: List[Text] = List()
   for x in <a
     if x == "b"
       continue

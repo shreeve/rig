@@ -3,7 +3,7 @@ struct Entry
   v: Int
 
 struct Map
-  es: Vec[Entry]
+  es: List[Entry]
 
   fun get(?self, k: String) -> (?Entry)?
     for e, i in self.es
@@ -15,7 +15,7 @@ fun lookup(m: ?Map, k: String) -> Int?
   m.get(k)?.v
 
 sub main()
-  m = Map(es: Vec())
+  m = Map(es: List())
   !m.es.push(Entry(k: "a", v: 1))
   print(lookup(?m, "a"), lookup(?m, "z"))
   print(m.get("a") != none)

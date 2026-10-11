@@ -1,9 +1,9 @@
 # element view through an upgraded weak handle escapes the if
 struct S
-  v: Vec[Text]
+  v: List[Text]
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("a"))
   h = *S(v: <v)
   w = ~h

@@ -1,7 +1,7 @@
-# consuming loop over an array of Vec[Text], moving some into an outer Vec, break midway
+# consuming loop over an array of List[Text], moving some into an outer List, break midway
 sub main()
-  a = [Vec[Text](), Vec[Text](), Vec[Text]()]
-  keep: Vec[Vec[Text]] = Vec()
+  a = [List[Text](), List[Text](), List[Text]()]
+  keep: List[List[Text]] = List()
   for v, i in <a
     if i == 2
       break

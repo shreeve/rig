@@ -1,5 +1,5 @@
 # A view of a temporary cannot outlive its statement, which drops the
-# temporary: not in a binding, a field, a Vec, or a result. A `while`
+# temporary: not in a binding, a field, a List, or a result. A `while`
 # header's temporaries last one pass, since the next pass evaluates the
 # header again, so a view kept for a later pass is rejected.
 
@@ -14,7 +14,7 @@ fun f() -> String
 sub main()
   s = text.trim(?Text(" a "))
   e = E(s: text.trim(?Text(" b ")))
-  v: Vec[String] = Vec()
+  v: List[String] = List()
   !v.push(text.trim(?Text(" c ")))
   r = ?Text("d")
   last: String = "none"

@@ -14,7 +14,7 @@ struct Item
   n: Int
 
 struct Bag
-  items: Vec[Item]
+  items: List[Item]
   count: Int
 
   fun first(!self) -> ?Item
@@ -25,19 +25,19 @@ enum Res
   found(it: ?Item)
   missing
 
-fun first(v: !Vec[Item]) -> ?Item
+fun first(v: !List[Item]) -> ?Item
   ?v[0]
 
-fun all(v: !Vec[Item]) -> []Item
+fun all(v: !List[Item]) -> []Item
   !v.push(Item(n: v.len + 1))
   ?v[..]
 
-fun find(v: !Vec[Item]) -> Res
+fun find(v: !List[Item]) -> Res
   if v.len == 0
     return Res.missing
   Res.found(it: ?v[0])
 
-fun maybe(v: !Vec[Item]) -> (?Item)?
+fun maybe(v: !List[Item]) -> (?Item)?
   if v.len == 0
     return none
   ?v[0]
@@ -50,8 +50,8 @@ fun clobber(n: Int) -> Int
   b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1] + b[2]
 
-fun items() -> Vec[Item]
-  v: Vec[Item] = Vec()
+fun items() -> List[Item]
+  v: List[Item] = List()
   !v.push(Item(n: 1))
   v
 

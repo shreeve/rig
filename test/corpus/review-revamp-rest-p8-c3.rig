@@ -6,16 +6,16 @@ struct P
   fun plus(?self, k: Int) -> Int
     self.n + k
 
-fun grow(c: !*Cell[Vec[P]]) -> Int!
+fun grow(c: !*Cell[List[P]]) -> Int!
   for i in 0..10000
     !c.push(P(n: i))
   1
 
-fun run(c: ?*Cell[Vec[P]], d: !*Cell[Vec[P]]) -> Int!
+fun run(c: ?*Cell[List[P]], d: !*Cell[List[P]]) -> Int!
   c[0].plus(grow(!d)!)
 
 sub main()
-  c = *Cell[Vec[P]](value: Vec())
+  c = *Cell[List[P]](value: List())
   !c.push(P(n: 41))
   d = +c
   print(run(c, !d) catch 0)

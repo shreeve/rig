@@ -2,7 +2,7 @@
 fun idx(s: ?Text) -> Int
   s.len - 1
 
-fun get(v: ?Vec[Text?]) -> (?Text)? from v
+fun get(v: ?List[Text?]) -> (?Text)? from v
   if v[idx(?Text("a"))] as t
     return t
   none
@@ -12,7 +12,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("a"))
   r = get(?v)
   print(clobber(1), r)

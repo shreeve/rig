@@ -13,8 +13,8 @@ fun run(f: fun(Int) -> Int) -> Int
 fun mk() -> *fun(Int) -> Int
   *|a: Int| a + 5
 
-fun keep[T](x: T) -> Vec[T]
-  v: Vec[T] = Vec()
+fun keep[T](x: T) -> List[T]
+  v: List[T] = List()
   !v.push(x)
   v
 

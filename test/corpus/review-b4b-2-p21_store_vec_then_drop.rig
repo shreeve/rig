@@ -1,4 +1,4 @@
-# Payload views pushed into a Vec of views; the subject Vec then dropped. Expect reject.
+# Payload views pushed into a List of views; the subject List then dropped. Expect reject.
 struct Res
   n: Int
   t: Text
@@ -13,7 +13,7 @@ fun clobber(n: Int) -> Int
 
 sub main()
   es = [E.a(r: Res(n: 1, t: Text("one"))), E.b(r: Res(n: 2, t: Text("two")))]
-  views: Vec[?Res] = Vec()
+  views: List[?Res] = List()
   for e in es
     match e
       .a(r) => !views.push(?r)

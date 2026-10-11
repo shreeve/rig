@@ -24,7 +24,7 @@ function by function wherever Rust uses iterators. That has to flip.
 ```rig fragment
 struct Pak
   name: String
-  entries: Vec[PakEntry]
+  entries: List[PakEntry]
   next: (*Pak)?
 
   fun find(?self, name: String) -> (?PakEntry)?
@@ -34,7 +34,7 @@ struct Pak
     self.next = *<rest
     <self
 
-  fun read_file(?self, name: String) -> Vec[U8]?!
+  fun read_file(?self, name: String) -> List[U8]?!
     for p in self.path()
       if p.read_own(name)! as bytes
         return bytes
@@ -51,12 +51,12 @@ Getting there takes three changes: §0.2, §0.3 and §1.3.
 
 ### 0.2 Iterator helpers in std *(new, high priority)*
 `find`, `any`, `all`, `position`, `count`, `map`, `filter`, `sum`, `min`
-and `max` on slices and Vecs, each taking a closure that is not stored
+and `max` on slices and Lists, each taking a closure that is not stored
 (`|e| …`, no `*`).
 - `find` returns `(?T)?`, a view of the element with no lifetime written.
   That is Rust's `Option<&T>` without the `&` or the `'a`, and it is
   where Rig's inferred views look best.
-- `map` and `filter` build a new `Vec`, so the allocation is visible in
+- `map` and `filter` build a new `List`, so the allocation is visible in
   the type that comes back.
 
 ### 0.3 `for` over an iterator *(decided)*

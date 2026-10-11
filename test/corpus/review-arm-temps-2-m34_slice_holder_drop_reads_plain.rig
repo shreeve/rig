@@ -6,15 +6,15 @@ struct H
   drop(!self)
     print("drop", self.v[0])
 
-fun growh(v: !Vec[Int], u: ?Vec[Int]) -> H
+fun growh(v: !List[Int], u: ?List[Int]) -> H
   for _ in 0..200
     !v.push(1)
   H(v: ?u[0..1])
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(8)
   h = H(v: ?v[0..1])
   h = growh(!v, ?u)

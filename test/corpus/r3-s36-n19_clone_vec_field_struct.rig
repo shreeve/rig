@@ -1,8 +1,8 @@
 struct H
-  h: *Vec[Int]
+  h: *List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   a = H(h: *<v)
   b = +a

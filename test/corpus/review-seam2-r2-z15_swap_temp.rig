@@ -15,7 +15,7 @@ struct S
 
 struct H
   r: String
-  rs: Vec[String]
+  rs: List[String]
 
   fun me(!self) -> !H
     self
@@ -27,14 +27,14 @@ fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap ", n))
 
 fun mkh() -> H
-  H(r: "init", rs: Vec())
+  H(r: "init", rs: List())
 
 fun wrap(h: !H) -> !H
   h
 
 sub main()
   s = mk(1)
-  v: Vec[String] = Vec()
+  v: List[String] = List()
   !v.push(?s.t)
   swap(!mkh().rs, !v)
   print("end")

@@ -1,6 +1,6 @@
-# defer writes v (plain Vec[Int]) while a later read view is used before scope end
+# defer writes v (plain List[Int]) while a later read view is used before scope end
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   defer !v.push(2)
   x = ?v

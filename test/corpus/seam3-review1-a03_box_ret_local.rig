@@ -1,5 +1,5 @@
-fun wrap() -> ^?Vec[Int]
-  v: Vec[Int] = Vec()
+fun wrap() -> ^?List[Int]
+  v: List[Int] = List()
   !v.push(1)
   ^?v
 

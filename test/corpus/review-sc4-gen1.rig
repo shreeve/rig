@@ -35,8 +35,8 @@ sub main()
   o: Opt[*B] = .some(v: *B(n: 1))
   x = unwrap(<o, *B(n: 2))
   print(x.n)
-  o2: Opt[Vec[Int]] = .nothing
-  v = unwrap(<o2, Vec())
+  o2: Opt[List[Int]] = .nothing
+  v = unwrap(<o2, List())
   print(v.len)
   t: Tree = .node(l: ^Tree.leaf(b: *B(n: 3)), r: ^Tree.leaf(b: *B(n: 4)))
   print(count(?t))

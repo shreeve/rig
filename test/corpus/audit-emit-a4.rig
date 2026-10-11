@@ -1,13 +1,13 @@
-fun pick(o: Vec[Int]?, d: Vec[Int]) -> Vec[Int]
+fun pick(o: List[Int]?, d: List[Int]) -> List[Int]
   o ?? <d
 
 sub main()
-  d: Vec[Int] = Vec()
+  d: List[Int] = List()
   !d.push(1)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   !e.push(2)
   r = pick(none, <d)
   print(r)
-  o: Vec[Int]? = none
+  o: List[Int]? = none
   s = o ?? <e
   print(s)

@@ -93,11 +93,11 @@ sub main()
   show[g.Wrap[Point]](@name(g.Wrap[Point]))
   show[Pair[Int, Text]](@name(Pair[Int, Text]))
   show[Ring[Int, 4]](@name(Ring[Int, 4]))
-  show[Vec[Int]](@name(Vec[Int]))
+  show[List[Int]](@name(List[Int]))
   show[*Cell[Bool]](@name(*Cell[Bool]))
   show[^Point](@name(^Point))
   show[Signal[F32]](@name(Signal[F32]))
-  show[Vec[Vec[I8]]](@name(Vec[Vec[I8]]))
+  show[List[List[I8]]](@name(List[List[I8]]))
   show[Int?](@name(Int?))
   show[OO](@name(OO))
   show[*Point](@name(*Point))
@@ -152,11 +152,11 @@ sub main()
 # g.Wrap[Point]
 # Pair[Int, Text]
 # Ring[Int, 4]
-# Vec[Int]
+# List[Int]
 # *Cell[Bool]
 # ^Point
 # Signal[F32]
-# Vec[Vec[I8]]
+# List[List[I8]]
 # Int?
 # (Int?)?
 # *Point

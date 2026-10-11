@@ -28,7 +28,7 @@ fun last(c: !Counter) -> Int
   return (!c).next() if c.n > 50
   (!c).next()
 
-fun drain(v: !Vec[Int]) -> Int?
+fun drain(v: !List[Int]) -> Int?
   !v.pop()?
   (!v).pop()
 
@@ -38,7 +38,7 @@ fun fill(c: !Counter) -> Int!
   (!c).take()! + 1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..6
     !v.push(i)
   c = Counter(n: 0)

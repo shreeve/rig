@@ -15,7 +15,7 @@ sub main()
   match ?bs[idx(?Text("a"))]
     .a(xs) if k > 2 => print(xs[0])
     _ => print(0)
-  v: Vec[^E] = Vec()
+  v: List[^E] = List()
   !v.push(^E.a(xs: [8, 8, 8, 8]))
   match ?v[idx(?Text("a"))]
     .a(xs) if k > 2 => print(xs[0])

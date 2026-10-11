@@ -1,5 +1,5 @@
 struct Reg
-  names: Vec[String]
+  names: List[String]
 
   sub add(!self, n: String)
     !self.names.push(n)
@@ -8,7 +8,7 @@ struct Reg
     self.names[0]
 
 sub main()
-  r = Reg(names: Vec())
+  r = Reg(names: List())
   !r.add("x")
   f = ?r.first()
   !r.add("y")

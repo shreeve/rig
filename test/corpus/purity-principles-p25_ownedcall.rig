@@ -2,11 +2,11 @@ struct Node
   id: Int
 
 sub main()
-  hs: Vec[*fun(Int) -> Int] = Vec()
+  hs: List[*fun(Int) -> Int] = List()
   !hs.push(*|x| x * 10)
   for h in ?hs
     print(h(3))
-  ns: Vec[*Node] = Vec()
+  ns: List[*Node] = List()
   !ns.push(*Node(id: 1))
   for n in ?ns
     k = +n

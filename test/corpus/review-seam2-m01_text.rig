@@ -8,7 +8,7 @@
 # oracle: app accept
 struct H
   t: Text
-  ts: Vec[Text]
+  ts: List[Text]
 
   fun tv(!self) -> !Text
     !self.t
@@ -21,7 +21,7 @@ struct H
     print("dropH", self.t)
 
 fun mkh(s: String) -> H
-  h = H(t: Text(s), ts: Vec())
+  h = H(t: Text(s), ts: List())
   !h.ts.push(Text(s, "0"))
   h
 

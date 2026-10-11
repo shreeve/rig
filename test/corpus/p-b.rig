@@ -3,6 +3,6 @@ struct View
 
 sub main()
   a = [1, 2]
-  v: Vec[View] = Vec()
+  v: List[View] = List()
   c: Cell[View] = Cell(View(s: ?a[..]))
   print(v.len)

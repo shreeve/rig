@@ -1,8 +1,8 @@
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  a: Vec[Int]? = <v
-  b: Vec[Int]? = none
+  a: List[Int]? = <v
+  b: List[Int]? = none
   c = true
   if (a if c else b) != none
     print("some")

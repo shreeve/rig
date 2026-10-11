@@ -24,7 +24,7 @@ fun fail(k: Int) -> Int!
   k
 
 fun run() -> Int!
-  v: Vec[*Tok] = Vec()
+  v: List[*Tok] = List()
   for i in 0..4
     !v.push(*Tok(n: i))
   for t in <v

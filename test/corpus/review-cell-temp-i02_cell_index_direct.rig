@@ -1,15 +1,15 @@
-# Direct `c[i] = e` and `c[i] += e` into a temporary's Cell[Vec].
+# Direct `c[i] = e` and `c[i] += e` into a temporary's Cell[List].
 #
 struct Log
-  lines: Cell[Vec[Int]]
+  lines: Cell[List[Int]]
 
 fun made() -> Log
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(1)
   Log(lines: Cell(<w))
 
-fun freshv() -> Cell[Vec[Int]]
-  w: Vec[Int] = Vec()
+fun freshv() -> Cell[List[Int]]
+  w: List[Int] = List()
   !w.push(1)
   Cell(<w)
 

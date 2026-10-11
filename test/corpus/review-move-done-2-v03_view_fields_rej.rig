@@ -1,8 +1,8 @@
 # Rejected: through a read view held in a field, and an owning part
 # through a write view held in a field.
 struct S
-  o: Vec[Int]?
-  v: Vec[Int]
+  o: List[Int]?
+  v: List[Int]
 
 struct K
   w: !S
@@ -10,8 +10,8 @@ struct K
 struct KR
   r: ?S
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

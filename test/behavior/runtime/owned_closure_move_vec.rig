@@ -1,8 +1,8 @@
-# An owned closure that move-captures a Vec frees it when the last handle
+# An owned closure that move-captures a List frees it when the last handle
 # to the closure drops.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   !v.push(3)

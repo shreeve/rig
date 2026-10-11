@@ -1,14 +1,14 @@
 # m39 with the re-pointing arm last: its scope ends where the assignment
 # ends, at the position the target's uses are recorded.
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   k = 0
   w[0] = match k
     1 => 4
     _
-      u: Vec[Int] = Vec()
+      u: List[Int] = List()
       !u.push(1)
       w = !u[0..1]
       3

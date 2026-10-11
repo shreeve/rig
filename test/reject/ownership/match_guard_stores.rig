@@ -3,7 +3,7 @@
 # the guarded arm's body never falls through.
 
 struct Big
-  v: Vec[Int]
+  v: List[Int]
 
 struct View
   b: ?Big
@@ -17,22 +17,22 @@ fun put(v: !View, t: ?Big) -> Bool
   false
 
 sub payload()
-  x0 = Big(v: Vec())
+  x0 = Big(v: List())
   vw = View(b: ?x0)
-  o: O = .some(x: Big(v: Vec()))
+  o: O = .some(x: Big(v: List()))
   match <o
     .some(x) if put(!vw, ?x) => return
     _ => print("other")
   print(vw.b.v.len)
 
 sub outer(n: Int)
-  x0 = Big(v: Vec())
+  x0 = Big(v: List())
   vw = View(b: ?x0)
-  y = Big(v: Vec())
+  y = Big(v: List())
   match n
     3 if put(!vw, ?y) => return
     _ => print("other")
-  y = Big(v: Vec())
+  y = Big(v: List())
   print(vw.b.v.len, y.v.len)
 
 sub main()

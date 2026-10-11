@@ -3,5 +3,5 @@ fun cap[T](x: T) -> Int
   f()
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   print(cap(<v))

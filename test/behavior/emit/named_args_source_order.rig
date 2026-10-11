@@ -20,7 +20,7 @@ fun grow(t: !Text) -> Int
     !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
   1
 
-fun fill(v: !Vec[Int]) -> Int
+fun fill(v: !List[Int]) -> Int
   for i in 0..300
     !v.push(i)
   1
@@ -49,7 +49,7 @@ sub main()
   show(n: grow(!t), s: ?t)
   u = Text("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
   show_text(n: grow(!u), s: ?u)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   total(n: fill(!v), xs: ?v)
   x = 1

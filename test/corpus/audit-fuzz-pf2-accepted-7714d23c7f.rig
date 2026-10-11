@@ -2,13 +2,13 @@
 # or a constructor lends it, written `!w`: the result writes through it.
 
 struct Ed
-  t: !Vec[Int]
+  t: !List[Int]
 
-fun id(t: !Vec[Int]) -> !Vec[Int]
+fun id(t: !List[Int]) -> !List[Int]
   t
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   if true
     w = !v
     r = id(!w)

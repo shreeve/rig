@@ -1,17 +1,17 @@
-# A String copied out of a view, a struct, or a Vec views what the
+# A String copied out of a view, a struct, or a List views what the
 # String views, not the place it was read from: the place is free again,
 # and a String a function copies out of its parameter can be returned.
 # A value views a Text only where it can reach one.
 
 struct Person
   name: String
-  tags: Vec[Int]
+  tags: List[Int]
 
   fun label(?self) -> String
     self.name
 
 struct Reg
-  names: Vec[String]
+  names: List[String]
 
   sub add(!self, n: String)
     !self.names.push(n)
@@ -48,16 +48,16 @@ sub main()
   x: String = v
   v = "free"
   print(x, v, copy(?t), pick(E.a(?t[..3])))
-  p = Person(name: "Ann", tags: Vec())
+  p = Person(name: "Ann", tags: List())
   l = ?p.label()
   !p.tags.push(1)
   print(l, p.tags)
-  reg = Reg(names: Vec())
+  reg = Reg(names: List())
   !reg.add("x")
   f = ?reg.first()
   !reg.add("y")
   print(f, reg.names)
-  lits: Vec[String] = Vec()
+  lits: List[String] = List()
   !lits.push("a")
   last: String = "z"
   for n in ?lits

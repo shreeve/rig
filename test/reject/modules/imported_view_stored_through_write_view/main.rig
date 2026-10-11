@@ -5,11 +5,11 @@
 use a
 
 sub main()
-  y = a.Wrap(v: Vec())
+  y = a.Wrap(v: List())
   !y.v.push(1)
   holder = a.Holder(b: ?y)
   if true
-    x = a.Wrap(v: Vec())
+    x = a.Wrap(v: List())
     !x.v.push(42)
     a.put(!holder, ?x)
   print(holder.b.v[0])

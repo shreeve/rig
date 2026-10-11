@@ -1,11 +1,11 @@
 # Valid: `wv[0][0] = match` whose last arm re-points the slice at another
-# outer Vec of Vecs; the store lands there.
+# outer List of Vecs; the store lands there.
 sub main()
-  a: Vec[Vec[Int]] = Vec()
-  !a.push(Vec())
+  a: List[List[Int]] = List()
+  !a.push(List())
   !a[0].push(0)
-  b: Vec[Vec[Int]] = Vec()
-  !b.push(Vec())
+  b: List[List[Int]] = List()
+  !b.push(List())
   !b[0].push(0)
   wv = !a[0..1]
   k = 0

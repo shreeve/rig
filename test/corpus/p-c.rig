@@ -4,6 +4,6 @@ struct User
 sub main()
   c = Cell(User(name: "a"))
   s: Signal[String] = Signal("x")
-  v: Vec[User] = Vec()
+  v: List[User] = List()
   !v.push(User(name: "b"))
   print(c.get().name, s.get(), v.len)

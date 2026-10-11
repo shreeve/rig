@@ -4,7 +4,7 @@
 error E
   bad
 
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print("eat", v.len)
 
 fun maybe(ok: Bool) -> Int!
@@ -12,9 +12,9 @@ fun maybe(ok: Bool) -> Int!
   1
 
 fun f(ok: Bool) -> Int!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(41)
-  defer v = Vec()
+  defer v = List()
   eat(<v)
   k = maybe(ok)!
   print(v[0] + k)

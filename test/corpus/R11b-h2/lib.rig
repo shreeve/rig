@@ -1,17 +1,17 @@
 pub struct Wrap[T]
   v: T
 
-  fun conv2[U](?self) -> Vec[U]
-    Vec()
+  fun conv2[U](?self) -> List[U]
+    List()
 
-  fun empty2[U]() -> Vec[U]
-    Vec()
+  fun empty2[U]() -> List[U]
+    List()
 
 pub struct Plain
   x: Int
 
-  fun empty3[U]() -> Vec[U]
-    Vec()
+  fun empty3[U]() -> List[U]
+    List()
 
 pub fun max[T](a: T, b: T) -> T
   a

@@ -3,15 +3,15 @@ struct Job
   drop(!self)
     print("free", self.id)
 
-fun filter[T](xs: ?Vec[T], keep: ?fun(?T) -> Bool) -> Vec[T]
-  out: Vec[T] = Vec()
+fun filter[T](xs: ?List[T], keep: ?fun(?T) -> Bool) -> List[T]
+  out: List[T] = List()
   for x in ?xs
     if keep(?x)
       !out.push(+x)
   out
 
 sub main()
-  jobs: Vec[*Job] = Vec()
+  jobs: List[*Job] = List()
   !jobs.push(*Job(id: 1))
   !jobs.push(*Job(id: 2))
   keep = filter(?jobs, |j| j.id > 1)

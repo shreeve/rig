@@ -1,16 +1,16 @@
-# H3: generic loop over ?Vec[T], body: swap the Vec while looping
+# H3: generic loop over ?List[T], body: swap the List while looping
 struct S
   t: Text
 
 struct Holder[T]
   x: T?
 
-sub sw[T](v: !Vec[T])
+sub sw[T](v: !List[T])
   for x in v
     !v.swap(0, 1)
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("a"))
   !v.push(Text("b"))
   sw(!v)

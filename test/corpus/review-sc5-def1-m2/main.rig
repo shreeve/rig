@@ -10,15 +10,15 @@ enum Color
 DEF = Color.blue
 
 struct Inner
-  xs: Vec[String] = Vec()
+  xs: List[String] = List()
   c: Cell[String] = Cell("x")
 
 struct Outer
   inner: Inner
-  names: Vec[^Inner] = Vec()
+  names: List[^Inner] = List()
   words: [N]String = [N of WORD]
   col: Color = DEF
-  hs: Vec[*Inner] = Vec()
+  hs: List[*Inner] = List()
 
 sub main()
   t = lib.Thing()

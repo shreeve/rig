@@ -1,9 +1,9 @@
 enum V
-  a(xs: Vec[Text])
+  a(xs: List[Text])
   b
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("hello"))
   e = V.a(<v)
   match !e

@@ -1,7 +1,7 @@
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-sub each(xs: ?Vec[Int], f: ?sub(Int))
+sub each(xs: ?List[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
@@ -16,7 +16,7 @@ sub main()
   print(apply(?add_k, 4))
   inc: *fun(Int) -> Int = *|a| a + 100
   print(apply(?inc, 4))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   !v.push(3)

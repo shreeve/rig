@@ -1,6 +1,6 @@
-# In a type, type arguments go in brackets: `Vec[Int]`, not `Vec(Int)`.
+# In a type, type arguments go in brackets: `List[Int]`, not `List(Int)`.
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: List(Int) = List()
 
-# error: 4:9: type arguments go in brackets: `Vec[...]`
+# error: 4:10: type arguments go in brackets: `List[...]`

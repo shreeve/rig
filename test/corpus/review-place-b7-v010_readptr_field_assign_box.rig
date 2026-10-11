@@ -1,12 +1,12 @@
 struct Big
-  v: Vec[Int]
+  v: List[Int]
 
 struct H
   r: ?Big
 
 sub main()
-  a = Big(v: Vec())
-  bx = ^Big(v: Vec())
+  a = Big(v: List())
+  bx = ^Big(v: List())
   !bx.v.push(1)
   h = H(r: ?a)
   h.r = ?bx

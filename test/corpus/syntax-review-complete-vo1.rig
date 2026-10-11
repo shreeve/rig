@@ -2,7 +2,7 @@ struct Node
   id: Int
 
 sub main()
-  a: Vec[*Node?] = Vec()
-  b: Vec[^Node?] = Vec()
-  c: Vec[Vec[Int]] = Vec()
-  d: Vec[(*Node)?] = Vec()
+  a: List[*Node?] = List()
+  b: List[^Node?] = List()
+  c: List[List[Int]] = List()
+  d: List[(*Node)?] = List()

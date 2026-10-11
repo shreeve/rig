@@ -1,5 +1,5 @@
 sub main()
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   if ?o as x
     o = none
     print(x.len)

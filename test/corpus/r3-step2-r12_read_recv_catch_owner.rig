@@ -2,7 +2,7 @@ error E
   bad
 
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun total(?self) -> Int
     self.items.len
@@ -10,10 +10,10 @@ struct Bag
 fun mk(ok: Bool) -> Bag!
   if not ok
     return E.bad
-  Bag(items: Vec())
+  Bag(items: List())
 
 sub main()
-  d = Bag(items: Vec())
+  d = Bag(items: List())
   !d.items.push(4)
   print((mk(false) catch d).total())
   print((mk(true) catch d).total())

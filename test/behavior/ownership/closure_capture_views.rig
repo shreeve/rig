@@ -14,7 +14,7 @@ sub grow(w: !Wrap, by: Int)
   inc()
   inc()
 
-fun count_of[T](xs: ?Vec[T]) -> Int
+fun count_of[T](xs: ?List[T]) -> Int
   count = 0
   f = |!count, ?xs| count += xs.len
   f()
@@ -32,7 +32,7 @@ sub main()
   print(peek(), peek())
   grow(!w, 5)
   print(w.n)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   push = |!v, x: Int|
     !v.push(x)
   push(1)

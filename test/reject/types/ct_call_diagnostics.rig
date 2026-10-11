@@ -13,7 +13,7 @@ sub show[n: Int]()
 fun scaled[n: Int](x: Int) -> Int
   x * n
 
-fun f[Vec](x: Vec) -> Vec
+fun f[List](x: List) -> List
   x
 
 fun g[Self](x: Self) -> Self
@@ -46,7 +46,7 @@ sub main()
   n = s.gen[Int]
   print(plain[0], f(1), g(2), Wrap(v: 1).m("s"))
 
-# error: 16:7: generic parameter `Vec` has the name of a built-in type
+# error: 16:7: generic parameter `List` has the name of a built-in type
 # error: 19:7: generic parameter `Self` has the name of a built-in type
 # error: 34:9: parameter `T` has the name of the generic parameter `T`
 # error: 38:3: `show` takes 1 compile-time argument in brackets: `show[...]()`

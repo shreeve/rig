@@ -1,8 +1,8 @@
-# A bare copy of a `Vec` is rejected: both bindings would free the same
+# A bare copy of a `List` is rejected: both bindings would free the same
 # buffer.
 
 sub main()
-  v: Vec[Int] = Vec()
-  v2: Vec[Int] = v
+  v: List[Int] = List()
+  v2: List[Int] = v
 
-# error: `v` owns a `Vec[Int]`, which can't be copied by `=`: write `<v` to move it, `+v` to clone it, or `?v` to view it
+# error: `v` owns a `List[Int]`, which can't be copied by `=`: write `<v` to move it, `+v` to clone it, or `?v` to view it

@@ -16,13 +16,13 @@ fun mkh() -> H
   H(e: E.a(r: Res(n: 1, t: Text("a"))))
 
 sub loops()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   for x in v
     !v.push(x)
 
 sub ifs()
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   if o as x
     o = none
     print(x.len)

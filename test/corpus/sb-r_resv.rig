@@ -1,4 +1,4 @@
-struct Vec
+struct List
   x: Int
 
 sub main()

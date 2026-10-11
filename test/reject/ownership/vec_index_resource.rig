@@ -1,11 +1,11 @@
-# An element of a Vec of handles is a place: a bare use would copy the
+# An element of a List of handles is a place: a bare use would copy the
 # handle out of it.
 
 struct N
   v: Int
 
 sub main()
-  xs: Vec[*N] = Vec()
+  xs: List[*N] = List()
   a = *N(v: 1)
   !xs.push(<a)
   b = xs[0]

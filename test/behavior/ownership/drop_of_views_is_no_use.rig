@@ -1,4 +1,4 @@
-# Dropping a container of views is not a use of those views: a Vec, a
+# Dropping a container of views is not a use of those views: a List, a
 # generic instance, a struct, or a closure's environment that holds views and runs no
 # `drop` body keeps their loans only until its last use, not until it is
 # dropped where its scope ends (Core sentence 6). So the viewed owners may
@@ -18,26 +18,26 @@ struct Item
   name: String
 
 struct Holder[T]
-  items: Vec[T]
+  items: List[T]
 
 struct Views
   first: ?Item
-  rest: Vec[?Item]
+  rest: List[?Item]
 
 fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1] + b[2]
 
-fun firsts(a: ?Item, b: ?Item) -> Vec[?Item]
-  v: Vec[?Item] = Vec()
+fun firsts(a: ?Item, b: ?Item) -> List[?Item]
+  v: List[?Item] = List()
   !v.push(a)
   !v.push(b)
   v
 
 sub slices()
   a = [1, 2, 3]
-  v: Vec[[]Int] = Vec()
+  v: List[[]Int] = List()
   !v.push(?a[..2])
   !v.push(?a[1..])
   print(clobber(1))
@@ -57,7 +57,7 @@ sub returned()
 sub fields()
   x = Item(n: 1, name: "x")
   y = Item(n: 2, name: "y")
-  s = Views(first: ?x, rest: Vec())
+  s = Views(first: ?x, rest: List())
   !s.rest.push(?y)
   print(clobber(3))
   print(s.first.name, s.rest[0].name)
@@ -67,8 +67,8 @@ sub fields()
 
 sub elements()
   x = Item(n: 1, name: "x")
-  rows: Vec[Vec[?Item]] = Vec()
-  row: Vec[?Item] = Vec()
+  rows: List[List[?Item]] = List()
+  row: List[?Item] = List()
   !row.push(?x)
   !rows.push(<row)
   print(clobber(4))
@@ -78,7 +78,7 @@ sub elements()
 
 sub generic()
   a = [4, 5]
-  h: Holder[[]Int] = Holder(items: Vec())
+  h: Holder[[]Int] = Holder(items: List())
   !h.items.push(?a[..])
   print(clobber(5))
   print(h.items[0])
@@ -87,7 +87,7 @@ sub generic()
 
 sub loops()
   xs = [Item(n: 1, name: "a"), Item(n: 2, name: "b")]
-  seen: Vec[?Item] = Vec()
+  seen: List[?Item] = List()
   for i in 0..2
     !seen.push(?xs[i])
     print(seen.len, seen[i].name)
@@ -95,7 +95,7 @@ sub loops()
   print(xs[0].name)
 
 sub inner_block()
-  v: Vec[?Item] = Vec()
+  v: List[?Item] = List()
   if true
     t = Item(n: 8, name: "inner")
     !v.push(?t)
@@ -106,14 +106,14 @@ sub inner_block()
 sub deferred()
   x = Item(n: 1, name: "x")
   defer print("deferred", x.n)
-  v: Vec[?Item] = Vec()
+  v: List[?Item] = List()
   !v.push(?x)
   print(v.len)
   x.n = 2
 
 sub in_closure()
   x = Item(n: 1, name: "x")
-  v: Vec[?Item] = Vec()
+  v: List[?Item] = List()
   !v.push(?x)
   f = |<v| print(v.len, v[0].name)
   f()

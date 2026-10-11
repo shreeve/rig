@@ -4,9 +4,9 @@ struct Node
   n: Int
   next: lib.Two[Node]
 
-struct List
+struct Chain
   n: Int
-  rest: lib.Opt[List]
+  rest: lib.Opt[Chain]
 
 sub main()
   print(1)

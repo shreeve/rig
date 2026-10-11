@@ -1,10 +1,10 @@
-fun grow(c: !Cell[Vec[String]]) -> String
+fun grow(c: !Cell[List[String]]) -> String
   for _ in 0..200
     !c.push("x")
   "y"
 
 sub main()
-  c: *Cell[Vec[String]] = *Cell(Vec())
+  c: *Cell[List[String]] = *Cell(List())
   d = +c
   !c.push(grow(!d))
   print(c.len)

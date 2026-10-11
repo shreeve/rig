@@ -1140,7 +1140,7 @@ const Lowerer = struct {
         return switch (self.ctx.types.get(ty)) {
             .array => |arr| arr.elem,
             .slice => |sl| sl.elem,
-            .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) pn.args[0] else null,
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.list_sym_id and pn.args.len == 1) pn.args[0] else null,
             else => null,
         };
     }
@@ -2332,7 +2332,7 @@ const Lowerer = struct {
             .read_view, .write_view => ty != p.ty,
             else => false,
         };
-        // A generic loop's element of a `?Vec[T]` is a copy the iteration
+        // A generic loop's element of a `?List[T]` is a copy the iteration
         // holds (SPEC "Generic bodies"): `?x` lends that copy, whose loan
         // ends with the iteration.
         const loop_copy = p.path.len == 0 and mode == .read and self.loop_elems.contains(p.root) and self.genericLoopCopy(p.root);
@@ -2570,7 +2570,7 @@ const Lowerer = struct {
         var uses: std.ArrayList(VarId) = .empty;
         var access: ?core.Access = null;
         var activation: ?core.LoanId = null;
-        // The var whose elements the call hands back, for a Vec's `get`,
+        // The var whose elements the call hands back, for a List's `get`,
         // `pop`, and `remove`.
         var elem_from: ?VarId = null;
         // A write receiver reached through a write view.
@@ -2712,11 +2712,11 @@ const Lowerer = struct {
                     },
                     .swap, .read, .write => all_read = true,
                 } else all_read = true;
-                // `get`, `pop`, and `remove` hand back an element of a Vec:
-                // a value it held, which carries the loans the Vec's
-                // elements carry, and no loan on the Vec (Core s7: a view
+                // `get`, `pop`, and `remove` hand back an element of a List:
+                // a value it held, which carries the loans the List's
+                // elements carry, and no loan on the List (Core s7: a view
                 // reached through another carries that view's loans).
-                const elem_method = self.isVec(recv_ty) and for ([_][]const u8{ "get", "pop", "remove" }) |m| {
+                const elem_method = self.isList(recv_ty) and for ([_][]const u8{ "get", "pop", "remove" }) |m| {
                     if (std.mem.eql(u8, m, ir.Member.name(callee).getText(self.src))) break true;
                 } else false;
                 switch (recv_mode) {
@@ -2951,16 +2951,16 @@ const Lowerer = struct {
         return result;
     }
 
-    /// Whether `ty` is a Vec, or a view of one.
-    fn isVec(self: *Lowerer, ty: TypeId) bool {
+    /// Whether `ty` is a List, or a view of one.
+    fn isList(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
-            .parameterized_nominal => |pn| pn.sym == self.ctx.vec_sym_id,
+            .parameterized_nominal => |pn| pn.sym == self.ctx.list_sym_id,
             else => false,
         };
     }
 
     /// A built-in generic's method parameters at the receiver's type
-    /// arguments: `push(x: T)` of a `Vec[?Int]` takes a `?Int`, which it
+    /// arguments: `push(x: T)` of a `List[?Int]` takes a `?Int`, which it
     /// stores (Core §5).
     fn instParams(self: *Lowerer, recv_ty: TypeId, params: []const TypeId) Error![]const TypeId {
         const pn = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
@@ -3156,7 +3156,7 @@ const Lowerer = struct {
     /// type arguments (SPEC "Generic bodies"): each of plain data; or an
     /// owner that holds no view, where the body, and every generic body
     /// it calls at its own type parameters, never copies a value of a
-    /// type parameter (so `sort.sort_by(!v, less)` of a `Vec[Text]`). In
+    /// type parameter (so `sort.sort_by(!v, less)` of a `List[Text]`). In
     /// a generic body, a call at its own type parameters is that body's
     /// to answer for its instances (`t_calls`).
     fn genericCall(self: *Lowerer, e: Sexp, type_args: []const TypeId) Error!void {
@@ -3286,11 +3286,11 @@ const Lowerer = struct {
                 if (try self.methodOf(inner_decl, mname)) |found_method| return found_method;
             }
         }
-        // A `Cell[Vec[T]]` answers its Vec's members, each marked as the
-        // Vec's own are (SPEC "Cell").
+        // A `Cell[List[T]]` answers its List's members, each marked as the
+        // List's own are (SPEC "Cell").
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id and pn.args.len == 1) {
-                if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.vec_sym_id) {
+                if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.list_sym_id) {
                     if (try self.methodOf(held, mname)) |found_method| return found_method;
                 };
             },

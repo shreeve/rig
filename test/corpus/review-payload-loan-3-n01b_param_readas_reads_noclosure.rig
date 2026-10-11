@@ -1,7 +1,7 @@
 struct P
   t: Text
   n: Int
-  xs: Vec[Int]
+  xs: List[Int]
 
 sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?), to: ?((!Text)?))
   if o as x
@@ -18,7 +18,7 @@ sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?), to: ?((!Text)?))
     print(t, t.len, t == "abc", t[1..])
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(7)
   p = P(t: Text("hello"), n: 3, xs: <xs)
   o: (!P)? = !p

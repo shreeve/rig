@@ -85,7 +85,7 @@ struct Pair[T, U]
     ?self.first
 
 struct Shelf[T]
-  items: Vec[T]
+  items: List[T]
 
   sub add(!self, x: T)
     !self.items.push(<x)
@@ -103,7 +103,7 @@ fun get_or[T](m: Maybe[T], d: T) -> T
     .nada => d
 
 fun fill_shelf[T](a: T, b: T) -> Shelf[T]
-  s = Shelf[T](items: Vec())
+  s = Shelf[T](items: List())
   !s.add(<a)
   !s.add(<b)
   s

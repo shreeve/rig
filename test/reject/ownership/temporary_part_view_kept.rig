@@ -11,11 +11,11 @@ struct N
   t: Text
   inner: In
   arr: [2]Int
-  v: Vec[Int]
+  v: List[Int]
   name: String
 
 fun mk() -> N
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   N(t: Text("tt"), inner: In(t: Text("in")), arr: [1, 2], v: <v, name: "nm")
 

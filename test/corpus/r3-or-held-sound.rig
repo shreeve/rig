@@ -18,12 +18,12 @@ enum E
 
 struct H
   e: E
-  v: Vec[Int]
+  v: List[Int]
   o: Res?
   k: Int
 
 fun mkh() -> H
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(4)
   H(e: E.a(r: Res(n: 1, t: Text("a"))), v: <v, o: Res(n: 2, t: Text("b")), k: 3)
 

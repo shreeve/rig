@@ -3,7 +3,7 @@ enum Sh
   s(k: Int)
 
 sub main()
-  v: Vec[^Sh] = Vec()
+  v: List[^Sh] = List()
   !v.push(^Sh.s(k: 3))
   for x in ?v
     match x

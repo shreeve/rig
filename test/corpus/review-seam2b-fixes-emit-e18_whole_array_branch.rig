@@ -42,7 +42,7 @@ struct K2
 struct S
   n: Int
   t: Text
-  items: Vec[Int]
+  items: List[Int]
   arr: [3]Int
   kk: K2
   oi: Int?
@@ -70,7 +70,7 @@ struct Pair
 
 fun mk(n: Int) -> S
   print("make", n)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(3)
   !v.push(1)
   S(n: n, t: Text("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
@@ -115,8 +115,8 @@ fun f2(n: Int) -> Int
 fun arr3(n: Int) -> [3]Int
   [n, 1, 2]
 
-fun vec3(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun vec3(n: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(n)
   !v.push(1)
   v

@@ -1,19 +1,19 @@
-# A Vec whose elements move, bound to a name first as the loop
+# A List whose elements move, bound to a name first as the loop
 # diagnostic says (`test/reject/ownership/vec_for_moving_elements_source.rig`),
 # is walked where the name holds it, or taken with `<`.
 
 struct H
-  items: Vec[Text]
+  items: List[Text]
 
-fun mk() -> Vec[Text]
-  v: Vec[Text] = Vec()
+fun mk() -> List[Text]
+  v: List[Text] = List()
   !v.push(Text("a"))
   v
 
 fun mkh() -> H
   H(items: mk())
 
-fun items(v: ?Vec[Text], k: ?Vec[Text]) -> ?Vec[Text]
+fun items(v: ?List[Text], k: ?List[Text]) -> ?List[Text]
   v
 
 sub main()

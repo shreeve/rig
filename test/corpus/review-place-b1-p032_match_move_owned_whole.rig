@@ -1,5 +1,5 @@
 struct R
-  v: Vec[Int]
+  v: List[Int]
   n: Int
 
 enum S
@@ -7,9 +7,9 @@ enum S
   b
 
 sub main()
-  s: S = .a(r: R(v: Vec(), n: 1))
+  s: S = .a(r: R(v: List(), n: 1))
   match <s
     .a(r)
-      r = R(v: Vec(), n: 9)
+      r = R(v: List(), n: 9)
       print(r.n)
     .b => print("b")

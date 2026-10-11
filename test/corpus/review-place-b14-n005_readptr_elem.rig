@@ -1,9 +1,9 @@
 struct Big
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  a = Big(v: Vec())
-  b = Big(v: Vec())
+  a = Big(v: List())
+  b = Big(v: List())
   !b.v.push(1)
   rs = [?a, ?a]
   rs[1] = ?b

@@ -9,20 +9,20 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("first text long enough to live on the heap"))
   if <v[idx(?Text("a"))] as t
     print(t)
   print(v[0] == none)
-  w: Vec[E?] = Vec()
+  w: List[E?] = List()
   !w.push(E.a(t: Text("an enum text long enough for the heap")))
   if <w[idx(?Text("a"))] as e
     match <e
       .a(t) => print(t)
       .b => print("b")
   print(w.len)
-  o: [1](Vec[Int]?) = [none]
-  vv: Vec[Int] = Vec()
+  o: [1](List[Int]?) = [none]
+  vv: List[Int] = List()
   !vv.push(3)
   o[0] = <vv
   while <o[idx(?Text("a"))] as xs

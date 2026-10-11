@@ -14,25 +14,25 @@ enum Res
   found(it: ?Item)
   missing
 
-fun first(v: !Vec[Item]) -> ?Item
+fun first(v: !List[Item]) -> ?Item
   ?v[0]
 
-fun firstw(v: !Vec[Item]) -> !Item
+fun firstw(v: !List[Item]) -> !Item
   !v[0]
 
-fun all(v: !Vec[Item]) -> []Item
+fun all(v: !List[Item]) -> []Item
   ?v[..]
 
-fun find(v: !Vec[Item]) -> Res
+fun find(v: !List[Item]) -> Res
   if v.len == 0
     return Res.missing
   Res.found(it: ?v[0])
 
-fun both(a: ?Item, v: !Vec[Item]) -> Int
+fun both(a: ?Item, v: !List[Item]) -> Int
   a.n + v.len
 
-fun items() -> Vec[Item]
-  v: Vec[Item] = Vec()
+fun items() -> List[Item]
+  v: List[Item] = List()
   !v.push(Item(n: 1))
   v
 

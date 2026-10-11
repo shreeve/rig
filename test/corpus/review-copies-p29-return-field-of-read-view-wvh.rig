@@ -1,5 +1,5 @@
 struct W
-  w: !Vec[Int]
+  w: !List[Int]
 
 struct O
   h: W
@@ -7,11 +7,11 @@ struct O
 fun get(r: ?O) -> W
   r.h
 
-fun getw(r: ?O) -> !Vec[Int]
+fun getw(r: ?O) -> !List[Int]
   r.h.w
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   o = O(h: W(w: !a))
   x = get(?o)
   !x.w.push(1)

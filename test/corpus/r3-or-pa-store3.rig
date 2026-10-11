@@ -1,12 +1,12 @@
 struct Holder
-  v: ?Vec[Int]
+  v: ?List[Int]
 
-sub put(h: !Holder, x: ?Vec[Int])
+sub put(h: !Holder, x: ?List[Int])
   h.v = x
 
 sub main()
-  a: Vec[Int] = Vec()
-  b: Vec[Int] = Vec()
+  a: List[Int] = List()
+  b: List[Int] = List()
   !b.push(1)
   h = Holder(v: ?a)
   put(!h, ?b)

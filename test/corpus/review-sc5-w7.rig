@@ -19,7 +19,7 @@ sub main()
   b = ^C(n: 255, big: 0)
   b.n +%= 1
   print(b.n)
-  v = Vec[U8]()
+  v = List[U8]()
   !v.push(250)
   v[0] +%= 10
   print(v[0])

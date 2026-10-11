@@ -31,7 +31,7 @@ sub main()
   euro: [3]U8 = [226, 130, 172]
   print(text.valid_utf8(?ok), text.valid_utf8(?bad), text.valid_utf8(?empty), text.valid_utf8(?cut_short), text.valid_utf8(?euro))
   print(text.valid_utf8(?ok[1..3]), text.valid_utf8(?ok[2..]))
-  v: Vec[U8] = Vec()
+  v: List[U8] = List()
   !v.push(255)
   print(text.valid_utf8(?v[..]))
 

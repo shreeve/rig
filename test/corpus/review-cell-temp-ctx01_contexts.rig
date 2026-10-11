@@ -48,7 +48,7 @@ sub main()
   y = 0
   while true
     break
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(mkh(8).d.c.replace(5))
   print(v[0])
   z = [mkh(9).d.c.replace(5), mkh(10).d.hit()]

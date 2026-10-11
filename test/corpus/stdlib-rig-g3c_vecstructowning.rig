@@ -1,9 +1,9 @@
 struct Row
-  cells: Vec[Int]
+  cells: List[Int]
 
 sub main()
-  rows: Vec[^Row] = Vec()
-  !rows.push(^Row(cells: Vec()))
+  rows: List[^Row] = List()
+  !rows.push(^Row(cells: List()))
   for r in !rows
     !r.cells.push(4)
   for r in ?rows

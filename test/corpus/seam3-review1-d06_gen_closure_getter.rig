@@ -5,7 +5,7 @@ fun mk[T](x: T) -> *fun() -> T
   *|<x| x
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   f = mk(?v)
   <v

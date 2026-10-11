@@ -11,10 +11,10 @@
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
-fun empty[T]() -> Vec[T]
-  Vec()
+fun empty[T]() -> List[T]
+  List()
 
-fun first[T](xs: ?Vec[T]) -> T?
+fun first[T](xs: ?List[T]) -> T?
   if xs.len > 0
     return xs[0]
   none
@@ -71,8 +71,8 @@ enum Opt[T]
   some(value: T)
   nothing
 
-fun wrap[T](x: T) -> Vec[T]
-  v: Vec[T] = empty()
+fun wrap[T](x: T) -> List[T]
+  v: List[T] = empty()
   !v.push(<x)
   v
 
@@ -86,7 +86,7 @@ struct Holder
 sub main()
   z: U8 = max(1, 2)
   print(z, @size(@type(z)))
-  v: Vec[Int] = empty()
+  v: List[Int] = empty()
   !v.push(3)
   o: Int? = first(?v)
   print(v.len, o ?? 0)
@@ -104,7 +104,7 @@ sub main()
   h.n = max(10, 11)
   q: F32 = half(5)
   print(h.n, q)
-  w: Vec[Float] = empty()
+  w: List[Float] = empty()
   !w.push(max(1, 2.5))
   print(w[0])
   r: U8 = parse(true, 5) catch 0
@@ -112,7 +112,7 @@ sub main()
   print(r, t, twice() catch 0, @size(@type(r)))
   pr: Pair[U8, Float] = Pair.make(1, 2)
   op: Opt[U8] = Opt.some(1)
-  ws: Vec[U8] = wrap(max(1, 2))
+  ws: List[U8] = wrap(max(1, 2))
   on: Int? = id(none)
   print(pr.first, pr.second, op, ws[0], on ?? 5, max(max(1, 2), 2.5))
   print(@size(@type(pr.first)), @size(@type(ws[0])))

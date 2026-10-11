@@ -2,7 +2,7 @@ struct N
   k: Int
 
 sub main()
-  xs: Vec[^N] = Vec()
+  xs: List[^N] = List()
   !xs.push(^N(k: 1))
   print(xs[0].k)
   for b in ?xs

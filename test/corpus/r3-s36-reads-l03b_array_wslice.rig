@@ -4,7 +4,7 @@ sub zero(xs: ![]Int)
 sub main()
   a = [4, 5]
   zero(!a)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(4)
   zero(!v[..])
   print(a, v)

@@ -27,7 +27,7 @@ sub main()
   match <h
     .held(res) => eat(<res)
     _ => print("none")
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   for x in ?v
     print("x", x)

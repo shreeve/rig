@@ -3,7 +3,7 @@ struct P
   y: Int
 
 struct S
-  a: Vec[Int]
+  a: List[Int]
   b: Int
 
   fun count(?self, n: Int) -> Int
@@ -12,7 +12,7 @@ struct S
   sub add(!self, n: Int)
     !self.a.push(n)
 
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   !v.push(7)
   2
 
@@ -25,7 +25,7 @@ struct Q
   b: Int
 
 sub main()
-  s = S(a: Vec(), b: 1)
+  s = S(a: List(), b: 1)
   print(s.count(0), grow(!s.a), s.count(0))
   !s.add(s.count(0))
   !s.add(s.a.len)
@@ -33,5 +33,5 @@ sub main()
   p = P(x: 1, y: 2)
   q = Q(a: p, b: bump(!p))
   print(q, p)
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   print(o, o)

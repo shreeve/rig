@@ -1,4 +1,4 @@
-# A Vec holds boxes as it holds handles: a box moves in with `push`,
+# A List holds boxes as it holds handles: a box moves in with `push`,
 # is walked by viewed slot (`for x in ?v`, `for x in !v`), and moves
 # out with `pop`.
 
@@ -12,7 +12,7 @@ struct R
     self.n += 10
 
 sub main()
-  v: Vec[^R] = Vec()
+  v: List[^R] = List()
   !v.push(^R(n: 1))
   b = ^R(n: 2)
   !v.push(<b)

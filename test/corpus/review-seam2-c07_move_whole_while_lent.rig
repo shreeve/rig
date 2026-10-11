@@ -6,7 +6,7 @@
 # oracle: main reject C4
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
   fun at(!self) -> !Int
     !self.n
@@ -15,7 +15,7 @@ struct S
     print("drop", self.n, self.items)
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 

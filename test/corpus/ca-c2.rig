@@ -10,7 +10,7 @@ sub grow(w: !Wrap, by: Int)
   inc()
   inc()
 
-fun total_of[T](xs: ?Vec[T], pick: Int) -> Int
+fun total_of[T](xs: ?List[T], pick: Int) -> Int
   count = 0
   f = |!count, ?xs|
     count += xs.len
@@ -21,7 +21,7 @@ sub main()
   w = Wrap(n: 1)
   grow(!w, 5)
   print(w.n)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   push = |!v, x: Int|
     v.push(x)
   push(1)
@@ -31,7 +31,7 @@ sub main()
     w = Wrap(n: 99)
   swap()
   print(w.n)
-  s: Vec[String] = Vec()
+  s: List[String] = List()
   !s.push("a")
   print(total_of(?s, 10))
   outer = |?w|

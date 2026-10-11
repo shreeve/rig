@@ -4,7 +4,7 @@ struct S
 sub main()
   b = ^Text("boxed")
   x = S(s: ?b)
-  cv: Cell[Vec[String]] = Cell(Vec())
+  cv: Cell[List[String]] = Cell(List())
   !cv.push("lit")
   (!cv)[0] = ?b[..]
   !cv.push(?b)

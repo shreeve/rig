@@ -10,20 +10,20 @@ struct Rec
     self.n += 1
     !self.name.add("+")
 
-fun size(v: ?Vec[Int]) -> Int
+fun size(v: ?List[Int]) -> Int
   v.len
 
 fun nm(s: String) -> Int
   s.len
 
 sub main()
-  rs: Vec[Rec] = Vec()
+  rs: List[Rec] = List()
   !rs.push(Rec(name: Text("a"), n: 1))
   !rs.push(Rec(name: Text("bb"), n: 2))
   !rs[0].bump()
   print(rs[0].show(), rs[1].show(), rs[0].name == rs[1].name, nm(rs[1].name), nm(?rs[0].name))
-  vv: Vec[Vec[Int]] = Vec()
-  !vv.push(Vec())
+  vv: List[List[Int]] = List()
+  !vv.push(List())
   !vv[0].push(vv.len)
   print(size(vv[0]), vv[0][0] + vv[0][0])
   arr = [^Rec(name: Text("x"), n: 3)]

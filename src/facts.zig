@@ -89,7 +89,7 @@ pub const Facts = struct {
     /// The program's root module.
     is_root: bool,
     cell_sym_id: SymbolId,
-    vec_sym_id: SymbolId,
+    list_sym_id: SymbolId,
     signal_sym_id: SymbolId,
     box_sym_id: SymbolId,
     endian_sym_id: SymbolId,
@@ -106,7 +106,7 @@ pub const Facts = struct {
             .zig_file = ctx.zig_file,
             .is_root = ctx.is_root,
             .cell_sym_id = ctx.cell_sym_id,
-            .vec_sym_id = ctx.vec_sym_id,
+            .list_sym_id = ctx.list_sym_id,
             .signal_sym_id = ctx.signal_sym_id,
             .box_sym_id = ctx.box_sym_id,
             .endian_sym_id = ctx.endian_sym_id,

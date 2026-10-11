@@ -203,7 +203,7 @@ const Scan = struct {
                     return;
                 }
                 for (pn.args) |arg| try self.walk(ctx, arg, depth + 1, in_generic);
-                if (pn.sym != ctx.vec_sym_id and pn.sym != ctx.box_sym_id) try self.fields(ctx, pn.sym, depth, true);
+                if (pn.sym != ctx.list_sym_id and pn.sym != ctx.box_sym_id) try self.fields(ctx, pn.sym, depth, true);
             },
             else => {},
         }
@@ -328,7 +328,7 @@ pub const Reach = struct {
                 const s = try self.a.create(Subst);
                 s.* = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .ctx = ctx, .outer = n.subst };
                 // A built-in generic holds its arguments' values (a
-                // Vec's buffer, a Box's value, a Cell's).
+                // List's buffer, a Box's value, a Cell's).
                 if (sym.decl_pos == sema.builtin_decl_pos) {
                     for (pn.args) |arg| try out.append(self.a, .{ .ctx = ctx, .ty = arg, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true });
                 }

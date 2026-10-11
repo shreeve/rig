@@ -1,9 +1,9 @@
 enum Shape
   circle(r: Int)
-  poly(pts: Vec[Int])
+  poly(pts: List[Int])
 
 sub main()
-  pts: Vec[Int] = Vec()
+  pts: List[Int] = List()
   !pts.push(1)
   h = *Shape.poly(pts: <pts)
   match h

@@ -16,7 +16,7 @@ sub each(xs: [2]Cell[Int], s: []Counter)
 
 sub main()
   a: Cell[Int]? = none
-  v: Vec[Counter] = Vec()
+  v: List[Counter] = List()
   print(a, v.len)
 
 # error: 8:13: a value of `Counter` holds a Cell, so it lives only behind a shared handle: write `*Counter`

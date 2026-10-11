@@ -1,5 +1,5 @@
 sub main()
-  cv: *Cell[Vec[String]] = *Cell(Vec())
+  cv: *Cell[List[String]] = *Cell(List())
   !cv.push("lit")
   keep = +cv
   if true

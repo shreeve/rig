@@ -29,7 +29,7 @@ sub main()
   <s.f
   print("field", s.f == none)
   <mk(4)
-  v: Vec[F?] = Vec()
+  v: List[F?] = List()
   !v.push(mk(5))
   <v[0]
   print("element", v[0] == none)

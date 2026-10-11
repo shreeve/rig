@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 enum E
   a(r: Res)
@@ -10,7 +10,7 @@ error Bad
   nope
 
 fun mk(n: Int) -> E
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   E.a(r: Res(n: n, v: <v))
 
@@ -29,7 +29,7 @@ fun id[T](x: T) -> T
   x
 
 struct W
-  v: Vec[Int]
+  v: List[Int]
 
 sub f(a: !W, b: !W, c: Bool)
   for x in (a if c else b).v
@@ -39,7 +39,7 @@ sub f(a: !W, b: !W, c: Bool)
   print(a.v.len)
 
 sub main()
-  x = W(v: Vec())
+  x = W(v: List())
   !x.v.push(1)
-  y = W(v: Vec())
+  y = W(v: List())
   f(!x, !y, true)

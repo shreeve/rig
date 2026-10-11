@@ -14,10 +14,10 @@ struct P
 fun eat(p: P) -> Int
   p.v
 
-fun eatv(v: Vec[Int]) -> Int
+fun eatv(v: List[Int]) -> Int
   v.len
 
-fun look(v: ?Vec[Int]) -> Int
+fun look(v: ?List[Int]) -> Int
   v.len
 
 sub main()
@@ -27,15 +27,15 @@ sub main()
   h = |+p| eat(<p)
   m = 5
   k = |<m| twice(<m)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   r = |?v| look(<v)
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   x = |!w| look(<w)
   hh = *P(v: 1)
   y = |~hh| <hh
   yy = y()
   print(yy.upgrade() != none)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   z = |<u| eatv(<u)
   q = |+n, c: Bool| twice(<(n if c else 4))
   print(g(), h(), k(), r(), x(), z(), q(true))

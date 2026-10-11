@@ -15,14 +15,14 @@ fun maybe(k: Int) -> N?
   N(id: k) if k > 0 else none
 
 struct W
-  v: Vec[Int]
+  v: List[Int]
   t: Text
 
 fun mkw() -> W
   W(v: mkv(), t: Text("wt"))
 
-fun mkv() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv() -> List[Int]
+  v: List[Int] = List()
   !v.push(3)
   v
 
@@ -43,7 +43,7 @@ sub main()
     !t.push(text.to_lower(b))
   !t.add(" ", U8(65))
   print(t)
-  texts: Vec[^Text] = Vec()
+  texts: List[^Text] = List()
   !texts.push(^Text(" one "))
   !texts.push(^Text("two"))
   for b in ?texts

@@ -5,12 +5,12 @@ fun sq(n: Int) -> Int
 sub a(n: Int)!
   sq(n)
 
-sub b(v: !Vec[Int])!
+sub b(v: !List[Int])!
   !v.push(1)
   !v.pop()
 
 sub main()
   a(3)!
-  v = Vec[Int]()
+  v = List[Int]()
   b(!v)!
   print(v)

@@ -5,7 +5,7 @@ struct Holder
   r: []Int
 
 struct Src
-  items: Vec[Int]
+  items: List[Int]
 
   sub put(?self, out: !Holder)
     out.r = ?self.items[..]
@@ -13,7 +13,7 @@ struct Src
 sub main()
   x = [1, 2]
   h = Holder(r: ?x[..])
-  s = Src(items: Vec())
+  s = Src(items: List())
   !s.items.push(5)
   s.put(!h)
   <s

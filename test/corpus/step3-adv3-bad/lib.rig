@@ -10,8 +10,8 @@ pub struct Keep[T]
   fun peek(?self) -> ?T
     ?self.v
 
-pub fun collect[T](a: T, b: T) -> Vec[T]
-  v = Vec[T]()
+pub fun collect[T](a: T, b: T) -> List[T]
+  v = List[T]()
   !v.push(<a)
   !v.push(<b)
   v

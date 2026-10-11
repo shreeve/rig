@@ -1,18 +1,18 @@
 # As n34 with a read match (`?`): the payload views the subject temporary.
 enum Bx
   nothing
-  has(v: Vec[Int])
+  has(v: List[Int])
 
 fun mk() -> Bx
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   Bx.has(<v)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = ?v[0..1]
-  t: Vec[Int] = Vec()
+  t: List[Int] = List()
   for _ in 0..3
     !t.push(0)
   t[w[0]] = match ?mk()

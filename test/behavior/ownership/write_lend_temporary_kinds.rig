@@ -1,5 +1,5 @@
 # `!` lends a temporary of any kind to write (Core sentence 4): a handle,
-# lent as the handle itself (`!*P`); a Vec and an array, whose element
+# lent as the handle itself (`!*P`); a List and an array, whose element
 # methods write them; a write method whose `Bool` value is used, written
 # `(!e).insert(k)`; a Box, which lends what it holds; a `Bool`, where a
 # `!Bool` is expected.
@@ -11,7 +11,7 @@ struct P
     self.n += 1
 
 struct Seen
-  items: Vec[Int]
+  items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
@@ -27,8 +27,8 @@ sub repoint(h: !*P)
   h = *P(n: 9)
   print("now", h.n)
 
-fun mkv() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv() -> List[Int]
+  v: List[Int] = List()
   !v.push(3)
   v
 
@@ -36,7 +36,7 @@ fun mka() -> [3]Int
   [3, 1, 2]
 
 fun mks() -> Seen
-  Seen(items: Vec())
+  Seen(items: List())
 
 fun mkbox() -> ^P
   ^P(n: 5)

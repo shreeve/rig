@@ -4,7 +4,7 @@
 # viewed value is gone.
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 struct View
   b: ?Wrap
@@ -13,15 +13,15 @@ sub stash(c: !Cell[*View], vw: *View)
   !c.set(<vw)
 
 sub park(h: *Cell[*View])
-  x = Wrap(v: Vec())
+  x = Wrap(v: List())
   !x.v.push(42)
   _ = !h.replace(*View(b: ?x))
 
 sub main()
-  y0 = Wrap(v: Vec())
+  y0 = Wrap(v: List())
   a: *Cell[*View] = *Cell(*View(b: ?y0))
   if true
-    x = Wrap(v: Vec())
+    x = Wrap(v: List())
     !x.v.push(41)
     b = +a
     !b.set(*View(b: ?x))

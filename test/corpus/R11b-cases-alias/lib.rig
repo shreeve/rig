@@ -9,7 +9,7 @@ struct Hidden[T]
 
 pub type IntWrap = Wrap[Int]
 pub type H = Hidden[Int]
-pub type VW = Vec[Wrap[String]]
+pub type VW = List[Wrap[String]]
 
 pub fun mkh() -> H
   Hidden(v: 5)

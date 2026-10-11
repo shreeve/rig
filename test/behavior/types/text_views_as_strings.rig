@@ -23,10 +23,10 @@ fun n(p: ?Text) -> Int
   text.trim(p).len + p[1..].len
 
 struct W
-  s: Vec[String]
+  s: List[String]
 
 fun mkw() -> W
-  s: Vec[String] = Vec()
+  s: List[String] = List()
   !s.push("lit")
   W(s: <s)
 

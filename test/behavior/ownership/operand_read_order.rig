@@ -5,14 +5,14 @@
 # accepted (the rejected shapes are the reject tests named *_read_then_*).
 
 struct P
-  v: Vec[Int]
+  v: List[Int]
   n: Int
 
   fun sum(?self, k: Int) -> Int
     self.v[0] + k
 
 fun mk(k: Int) -> P
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(k)
   P(v: <v, n: k)
 
@@ -21,7 +21,7 @@ fun growp(p: !P) -> Int
     !p.v.push(i)
   0
 
-fun growv(v: !Vec[Int]) -> Int
+fun growv(v: !List[Int]) -> Int
   for i in 0..100
     !v.push(i)
   0
@@ -51,7 +51,7 @@ sub main()
   z = mk(3)
   print((a if c else b).sum(growp(!z)), z.v.len)
   print(a.v[growp(!a)], a.v.len)
-  vs: Vec[Int] = Vec()
+  vs: List[Int] = List()
   !vs.push(5)
   print(vs[growv(!vs)], vs.len)
   t = Text("a")

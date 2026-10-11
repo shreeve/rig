@@ -5,7 +5,7 @@ sub main()
   u = !t[0..]
   z = !u[..0]
   print(z.len)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   s = !v[..]
   print(s.len)
   s2 = !s[0..0]

@@ -1,6 +1,6 @@
 struct Doc
   title: String
-  words: Vec[String]
+  words: List[String]
 
 struct View
   doc: ?Doc
@@ -10,9 +10,9 @@ fun longest(a: ?Doc, b: ?Doc) -> ?Doc
   a if a.words.len > b.words.len else b
 
 sub main()
-  d1 = Doc(title: "a", words: Vec())
+  d1 = Doc(title: "a", words: List())
   !d1.words.push("x")
-  d2 = Doc(title: "b", words: Vec())
+  d2 = Doc(title: "b", words: List())
   v = View(doc: ?d1, pos: 0)
   w = longest(?d1, ?d2)
   print(v.doc.title, w.title)

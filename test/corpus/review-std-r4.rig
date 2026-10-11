@@ -8,7 +8,7 @@ struct Res
 
 sub main()
   r = random.Random.new()
-  v = Vec[*Res]()
+  v = List[*Res]()
   !v.push(*Res(n: 1))
   !v.push(*Res(n: 2))
   !v.push(*Res(n: 3))

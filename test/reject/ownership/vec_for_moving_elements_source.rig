@@ -1,22 +1,22 @@
-# A loop over a Vec whose elements move walks a Vec a name holds, or a
-# field or element of one. Any other source, a Vec made here (bare,
+# A loop over a List whose elements move walks a List a name holds, or a
+# field or element of one. Any other source, a List made here (bare,
 # taken, or lent), a call's returned view of one, a part of a value made
 # here, or a branching value, gets one diagnostic, whose hint compiles
 # (`test/behavior/ownership/vec_for_moving_elements_bound.rig`); a
 # branching value is read in place, so it is a lend of a name it may be.
 
 struct H
-  items: Vec[Text]
+  items: List[Text]
 
-fun mk() -> Vec[Text]
-  v: Vec[Text] = Vec()
+fun mk() -> List[Text]
+  v: List[Text] = List()
   !v.push(Text("a"))
   v
 
 fun mkh() -> H
   H(items: mk())
 
-fun items(v: ?Vec[Text], k: ?Vec[Text]) -> ?Vec[Text]
+fun items(v: ?List[Text], k: ?List[Text]) -> ?List[Text]
   v
 
 sub main()
@@ -38,11 +38,11 @@ sub main()
   for x in v if c else k
     print(x)
 
-# error: 26:12: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 28:13: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 30:13: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 32:13: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 34:12: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `items(?v, ?k)` to a name first
-# error: 36:12: a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mkh()` to a name first
+# error: 26:12: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 28:13: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 30:13: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 32:13: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 34:12: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `items(?v, ?k)` to a name first
+# error: 36:12: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mkh()` to a name first
 # error: 38:12: cannot lend `v if c else k`: it may be `v`, a value a name holds
 # errors: 7

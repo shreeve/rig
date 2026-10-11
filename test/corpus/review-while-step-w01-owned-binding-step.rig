@@ -1,9 +1,9 @@
-# The condition binds an owned Vec; the step reads it after the body.
+# The condition binds an owned List; the step reads it after the body.
 # Emit: a native `while (c) |x| : (step)`; is `x` dropped before the
 # step runs?
-fun mk(i: Int) -> Vec[Int]?
+fun mk(i: Int) -> List[Int]?
   if i < 4
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(i + 10)
     !v.push(i + 20)
     return v

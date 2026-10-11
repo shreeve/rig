@@ -1,12 +1,12 @@
 struct N
   v: Int
 
-sub drain(w: ?Vec[*N])
+sub drain(w: ?List[*N])
   for x in <w
     print(x.v)
 
 sub main()
-  v = Vec[*N]()
+  v = List[*N]()
   (!v).push(*N(v: 1))
   drain(?v)
   print(v.len)

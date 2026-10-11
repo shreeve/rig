@@ -6,7 +6,7 @@ struct B
     print("drop", self.n)
 
 sub main()
-  v: Vec[*B?] = Vec()
+  v: List[*B?] = List()
   !v.push(*B(n: 1))
   if <v[0] as b
     print("took", b.n)

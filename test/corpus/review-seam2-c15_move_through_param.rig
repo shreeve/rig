@@ -3,14 +3,14 @@
 # oracle: main accept
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
 sub steal(p: !S)
   x = <(!p).items
   print(x)
 
 sub main()
-  s = S(n: 1, items: Vec())
+  s = S(n: 1, items: List())
   !s.items.push(1)
   steal(!s)
   print(s.items)

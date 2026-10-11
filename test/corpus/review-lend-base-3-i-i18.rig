@@ -1,12 +1,12 @@
 struct P
   x: Int
   o: Int?
-  items: Vec[Int]
+  items: List[Int]
   s: Text
   arr: [3]Int
 
 sub main()
-  p = P(x: 1, o: 2, items: Vec[Int](), s: Text("hi"), arr: [1, 2, 3])
+  p = P(x: 1, o: 2, items: List[Int](), s: Text("hi"), arr: [1, 2, 3])
   y = (!p).o?
   print(y)
   print(p.x, p.items.len)

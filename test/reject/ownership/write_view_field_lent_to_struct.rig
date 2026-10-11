@@ -3,7 +3,7 @@
 # while the first would push, freeing the buffer).
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   !v.push(3)

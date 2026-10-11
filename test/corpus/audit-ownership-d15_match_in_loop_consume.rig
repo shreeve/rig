@@ -17,7 +17,7 @@ fun cond(t: *Tok) -> Bool
   false
 
 sub main()
-  v: Vec[Slot] = Vec()
+  v: List[Slot] = List()
   i = 0
   while i < 3 : i += 1
     s: Slot = .full(t: *Tok(n: i))

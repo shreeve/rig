@@ -1,8 +1,8 @@
 struct B
-  items: Vec[Text]
+  items: List[Text]
 
 sub main()
-  b = B(items: Vec())
+  b = B(items: List())
   !b.items.push(Text("a"))
   for x in b.items
     <x

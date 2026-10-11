@@ -1,8 +1,8 @@
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = *S(c: Cell(v))
   x = <h.c
   print(1)

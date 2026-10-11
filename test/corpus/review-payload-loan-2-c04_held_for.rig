@@ -2,10 +2,10 @@ struct P
   t: Text
 
 struct H
-  ws: Vec[!P]
+  ws: List[!P]
 
 fun mk(p: !P) -> H from p
-  v: Vec[!P] = Vec()
+  v: List[!P] = List()
   !v.push(!p)
   H(ws: <v)
 

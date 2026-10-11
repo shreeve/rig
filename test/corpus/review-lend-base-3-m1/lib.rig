@@ -1,6 +1,6 @@
 pub struct P
   x: Int
-  items: Vec[Int]
+  items: List[Int]
 
 pub fun getx(p: ?P) -> Int
   (?p).x

@@ -1,6 +1,6 @@
 sub main()
-  vv: Vec[Vec[Int]] = Vec()
-  v: Vec[Int] = Vec()
+  vv: List[List[Int]] = List()
+  v: List[Int] = List()
   !v.push(1)
   !vv.push(<v)
   x = !vv[0].pop()

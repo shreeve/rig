@@ -1,8 +1,8 @@
 struct Wrap[T]
   v: T
 
-  fun empty2[U]() -> Vec[U]
-    Vec()
+  fun empty2[U]() -> List[U]
+    List()
 
 sub main()
   x = Wrap.empty2[Int]()

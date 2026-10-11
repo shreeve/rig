@@ -141,7 +141,7 @@ const SymbolResolver = struct {
             .flags = flags,
         };
         const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
-        // `Text` and `Static` are built-in types, like `Vec`, though no
+        // `Text` and `Static` are built-in types, like `List`, though no
         // symbol holds them.
         const reserved = self.scope == self.module_scope and (std.mem.eql(u8, name, "Text") or std.mem.eql(u8, name, "Static"));
         if (reserved) try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
@@ -634,7 +634,7 @@ pub const DeferredCheck = union(enum) {
     /// `[N]T` spelled at `at`, with `T` spelled at `node`; `ty` is the
     /// array type, when its size is still to be checked.
     array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
-    /// `Vec[T]`, `^T`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
+    /// `List[T]`, `^T`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// An instance of a generic type the program declares, spelled at
     /// `pos`: none of its fields or methods may stack two holdings.
@@ -2187,7 +2187,7 @@ pub const TypeResolver = struct {
 };
 
 /// Element-type rules of the built-in generics. An instance over generic
-/// parameters (`Vec[T]` in `Stack[T]`) is checked for each instantiation
+/// parameters (`List[T]` in `Stack[T]`) is checked for each instantiation
 /// instead (`sema.expandInstantiations`).
 pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
     if (args.len != 1 or sema.containsTypeVar(ctx, args[0])) return null;
@@ -2195,10 +2195,10 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
         if (sema.isPlainData(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
-        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
+        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `List[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
     }
-    if (sym_id == ctx.vec_sym_id) {
-        // A Vec holds any value, views included: its elements move in
+    if (sym_id == ctx.list_sym_id) {
+        // A List holds any value, views included: its elements move in
         // and out whole, and each is a place (Core §5). A viewed
         // callable is only a parameter's, a local's, or a result's.
         if (!sema.holdsCallable(ctx, args[0])) return null;
@@ -2312,7 +2312,7 @@ pub fn isNumericTypeName(name: []const u8) bool {
 // =============================================================================
 // Built-in generic types
 //
-// `Cell[T]`, `Vec[T]`, `^T`, and `Signal[T]`, and the enum `Endian`, registered
+// `Cell[T]`, `List[T]`, `^T`, and `Signal[T]`, and the enum `Endian`, registered
 // in every module scope before user declarations. The generics' methods
 // are ordinary method Fields on generic symbols, so calls go through the
 // same lookup and substitution as user generics; the runtime
@@ -2339,10 +2339,10 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
-    // Vec[T]: growable buffer that owns its elements.
+    // List[T]: growable buffer that owns its elements.
     {
-        const g = try addGeneric(ctx, module_scope, module_scope, "Vec", &.{"T"});
-        ctx.vec_sym_id = g.sym;
+        const g = try addGeneric(ctx, module_scope, module_scope, "List", &.{"T"});
+        ctx.list_sym_id = g.sym;
         const t = g.params[0];
         const read_self = try ctx.intern(.{ .read_view = g.self_ty });
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
@@ -2411,7 +2411,7 @@ const Generic = struct {
     sym: SymbolId,
     /// `type_var` TypeIds of the parameters, in order.
     params: []const TypeId,
-    /// The type applied to its own parameters: `Vec[T]`.
+    /// The type applied to its own parameters: `List[T]`.
     self_ty: TypeId,
 };
 
@@ -2463,9 +2463,9 @@ test "builtins: registered with methods" {
     defer ctx.deinit();
     const scope = try ctx.pushScopeKind(sema.scope_invalid, .module);
     try registerBuiltins(&ctx, scope);
-    const vec = ctx.lookup(scope, "Vec").?;
-    try std.testing.expectEqual(ctx.vec_sym_id, vec);
-    try std.testing.expectEqual(@as(usize, 6), ctx.symbols.items[vec].fields.?.len);
+    const list = ctx.lookup(scope, "List").?;
+    try std.testing.expectEqual(ctx.list_sym_id, list);
+    try std.testing.expectEqual(@as(usize, 6), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 

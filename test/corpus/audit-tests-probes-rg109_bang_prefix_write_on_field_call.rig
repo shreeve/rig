@@ -1,7 +1,7 @@
 struct C
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  c = C(v: Vec())
+  c = C(v: List())
   c.v.push(1)
   print(c.v.len)

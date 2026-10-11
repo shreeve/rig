@@ -1,9 +1,9 @@
 struct P
-  x: Vec[Int]
-  y: Vec[Int]
+  x: List[Int]
+  y: List[Int]
 
 sub main()
-  p = P(x: Vec(), y: Vec())
+  p = P(x: List(), y: List())
   w = !p.x
   print(p.y.len)
   !w.push(1)

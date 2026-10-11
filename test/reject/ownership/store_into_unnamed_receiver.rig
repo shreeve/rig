@@ -15,7 +15,7 @@ struct S
 
 struct H
   r: String
-  rs: Vec[String]
+  rs: List[String]
 
   sub keep(!self, r: String)
     !self.rs.push(r)
@@ -30,12 +30,12 @@ fun mk(n: Int) -> S
   S(n: n, t: Text("hello"))
 
 fun mkh() -> H
-  H(r: "init", rs: Vec())
+  H(r: "init", rs: List())
 
 fun wrap(h: !H) -> !H
   h
 
-fun wv(v: !Vec[H]) -> !Vec[H]
+fun wv(v: !List[H]) -> !List[H]
   v
 
 fun f(n: Int) -> Int
@@ -74,7 +74,7 @@ sub assign_view()
     wrap(!h).r = ?s.t
 
 sub assign_elem()
-  v: Vec[H] = Vec()
+  v: List[H] = List()
   !v.push(mkh())
   if f(1) == 1
     s = mk(8)

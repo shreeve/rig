@@ -1,5 +1,5 @@
 struct Inner
-  x: !Vec[Int]
+  x: !List[Int]
 
 struct Outer
   i: !Inner
@@ -8,11 +8,11 @@ struct Top
   o: !Outer
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   inn = Inner(x: !v)
   o = Outer(i: !inn)
   if true
-    k: Vec[Int] = Vec()
+    k: List[Int] = List()
     inn2 = Inner(x: !k)
     t = Top(o: !o)
     t.o.i = <inn2

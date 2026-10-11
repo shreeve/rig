@@ -10,7 +10,7 @@ fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(x: C(c: Cell(1))))
   c = v.len == 1
   match (?v[idx(?Text("a"))] if c else ?v[0])

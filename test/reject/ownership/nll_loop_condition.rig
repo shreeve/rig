@@ -11,7 +11,7 @@ struct Wrap
     print("drop", self.n)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   r = ?v
   while r.len < 3
     !v.push(1)

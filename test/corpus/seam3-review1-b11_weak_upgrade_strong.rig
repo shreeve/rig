@@ -2,7 +2,7 @@ struct Hold[T]
   v: T
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = *Hold(v: ?v)
   w = ~h

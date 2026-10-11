@@ -1,8 +1,8 @@
 struct R
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk() -> R
-  r = R(v: Vec())
+  r = R(v: List())
   !r.v.push(1)
   defer !r.v.push(2)
   r

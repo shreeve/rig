@@ -1,4 +1,4 @@
-fun f(v: Vec[Int] = Vec()) -> Int
+fun f(v: List[Int] = List()) -> Int
   v.len
 
 sub main()

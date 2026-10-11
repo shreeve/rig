@@ -1,12 +1,12 @@
 # `print` reads a Cell when it is called: a later argument that replaces
-# its Vec through another handle, dropping the old one, leaves the new Vec
+# its List through another handle, dropping the old one, leaves the new List
 # to print.
-fun reset(c: !Cell[Vec[Int]]) -> Int
-  !c.set(Vec())
+fun reset(c: !Cell[List[Int]]) -> Int
+  !c.set(List())
   0
 
 sub main()
-  c: *Cell[Vec[Int]] = *Cell(Vec())
+  c: *Cell[List[Int]] = *Cell(List())
   for i in 0..50
     !c.push(i * 3)
   d = +c

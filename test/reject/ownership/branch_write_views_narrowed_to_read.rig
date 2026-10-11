@@ -3,18 +3,18 @@
 # lent through each branch, so the loan on the name taken is kept.
 
 struct W
-  v: Vec[Int]
+  v: List[Int]
 
 struct RV
-  r: ?Vec[Int]
+  r: ?List[Int]
 
-fun sl(v: ?Vec[Int]) -> []Int
+fun sl(v: ?List[Int]) -> []Int
   ?v[..]
 
 fun sw(w: ?W) -> []Int
   ?w.v[..]
 
-sub f(a: !Vec[Int], b: !Vec[Int], c: Bool)
+sub f(a: !List[Int], b: !List[Int], c: Bool)
   s = sl(a if c else b)
   h = RV(r: a if c else b)
   !a.push(1)
@@ -29,8 +29,8 @@ fun g(a: !W) -> Int?
   1
 
 sub main()
-  x: Vec[Int] = Vec()
-  y: Vec[Int] = Vec()
+  x: List[Int] = List()
+  y: List[Int] = List()
   f(!x, !y, true)
   z = W(v: <x)
   _ = g(!z)

@@ -1,11 +1,11 @@
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun slice(?self) -> []Int
     ?self.items[..]
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(1)
   !b.items.push(2)
   for x in b.slice()

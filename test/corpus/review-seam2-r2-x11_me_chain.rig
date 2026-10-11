@@ -21,7 +21,7 @@ struct S
     print("dropS", self.n)
 
 struct H
-  rs: Vec[String]
+  rs: List[String]
 
   sub keep(!self, r: String)
     !self.rs.push(r)
@@ -41,7 +41,7 @@ struct H
 
 struct HH
   inner: H
-  hs: Vec[H]
+  hs: List[H]
 
   fun in(!self) -> !H
     !self.inner
@@ -50,16 +50,16 @@ fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap ", n))
 
 fun mkh() -> H
-  H(rs: Vec())
+  H(rs: List())
 
 fun mkhh() -> HH
-  hh = HH(inner: H(rs: Vec()), hs: Vec())
-  !hh.hs.push(H(rs: Vec()))
+  hh = HH(inner: H(rs: List()), hs: List())
+  !hh.hs.push(H(rs: List()))
   hh
 
 fun mkhopt(n: Int) -> H?
   return none if n == 0
-  H(rs: Vec())
+  H(rs: List())
 
 fun wrap(h: !H) -> !H
   h

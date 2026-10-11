@@ -13,7 +13,7 @@ sub main()
       w = !a
     !w.add("x")
   print(a, b)
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("p"))
   !v.push(Text("q"))
   m = Text("m")

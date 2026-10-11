@@ -1,6 +1,6 @@
 sub main()
-  a: Vec[Int] = Vec()
-  b: Vec[Int] = Vec()
+  a: List[Int] = List()
+  b: List[Int] = List()
   !a.push(1)
   k = 1
   x = match k

@@ -4,8 +4,8 @@ enum E
   b
 
 sub main()
-  vv: Vec[Vec[E]] = Vec()
-  w: Vec[E] = Vec()
+  vv: List[List[E]] = List()
+  w: List[E] = List()
   !w.push(E.a(n: 4))
   !vv.push(<w)
   i = 0

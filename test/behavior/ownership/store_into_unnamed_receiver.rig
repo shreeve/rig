@@ -5,7 +5,7 @@
 
 struct H
   r: String
-  rs: Vec[String]
+  rs: List[String]
 
   sub keep(!self, r: String)
     !self.rs.push(r)
@@ -13,7 +13,7 @@ struct H
 fun wrap(h: !H) -> !H
   h
 
-fun wv(v: !Vec[H]) -> !Vec[H]
+fun wv(v: !List[H]) -> !List[H]
   v
 
 fun f(n: Int) -> Int
@@ -22,11 +22,11 @@ fun f(n: Int) -> Int
 sub main()
   t = Text("one")
   u = Text("two")
-  h = H(r: "", rs: Vec())
-  a = H(r: "", rs: Vec())
-  b = H(r: "", rs: Vec())
-  v: Vec[H] = Vec()
-  !v.push(H(r: "", rs: Vec()))
+  h = H(r: "", rs: List())
+  a = H(r: "", rs: List())
+  b = H(r: "", rs: List())
+  v: List[H] = List()
+  !v.push(H(r: "", rs: List()))
   c = f(1) == 1
   wrap(!h).keep(?t)
   (!a if c else !b).keep(?u)

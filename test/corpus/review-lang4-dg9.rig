@@ -1,12 +1,12 @@
 struct H
-  w: !^Vec[Int]
+  w: !^List[Int]
 
-fun inner(b: ?^Vec[Int]) -> ?Vec[Int]
+fun inner(b: ?^List[Int]) -> ?List[Int]
   ?b.value
 
 sub main()
-  b = ^Vec[Int]()
+  b = ^List[Int]()
   h = H(w: !b)
   s = inner(?h.w)
-  h.w = ^Vec[Int]()
+  h.w = ^List[Int]()
   print(s)

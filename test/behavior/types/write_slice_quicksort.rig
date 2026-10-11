@@ -20,7 +20,7 @@ sub main()
   a = [5, 3, 9, 1, 5, 8, -2, 7, 0, 3]
   quicksort(!a[..])
   print(a)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for x in [4, 1, 3, 2]
     !v.push(x)
   quicksort(!v[1..])

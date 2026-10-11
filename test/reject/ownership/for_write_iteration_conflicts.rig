@@ -1,9 +1,9 @@
 # `for x in !xs` needs a place it may write.
 
-fun make() -> Vec[Int]
-  Vec()
+fun make() -> List[Int]
+  List()
 
-sub read_only(xs: ?Vec[Int])
+sub read_only(xs: ?List[Int])
   for x in !xs
     x += 1
 

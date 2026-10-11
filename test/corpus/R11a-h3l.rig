@@ -29,7 +29,7 @@ sub main()
     .some(value) => print("peek", value.n)
     .none => print("none")
   q: Opt[Res] = .none
-  t = Two(a: Res(n: 3), b: Vec[Int]())
+  t = Two(a: Res(n: 3), b: List[Int]())
   !t.b.push(1)
   u = <t
   print(u.a.n, u.b.len)

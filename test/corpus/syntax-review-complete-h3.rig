@@ -1,10 +1,10 @@
 struct Map[K, V]
-  keys: Vec[K?]
-  vals: Vec[V?]
+  keys: List[K?]
+  vals: List[V?]
   hash: fun(?K) -> U64
 
   fun new(h: fun(?K) -> U64) -> Self
-    Map(keys: Vec(), vals: Vec(), hash: h)
+    Map(keys: List(), vals: List(), hash: h)
 
   fun slot(?self, k: ?K) -> Int
     h = self.hash(k)

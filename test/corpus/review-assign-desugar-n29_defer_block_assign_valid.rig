@@ -5,7 +5,7 @@ fun tick(n: Int) -> Int
   n
 
 sub run(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   defer

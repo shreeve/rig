@@ -1,6 +1,6 @@
 # take of optional through a read view: must be rejected (it writes)
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
 fun rget(s: ?S) -> ?S
   s
@@ -23,7 +23,7 @@ sub r3()
   print(w)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   s = S(o: <v)
   w = <wget(!s).o

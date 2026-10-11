@@ -1,5 +1,5 @@
-fun boxes() -> Vec[^Text]
-  v: Vec[^Text] = Vec()
+fun boxes() -> List[^Text]
+  v: List[^Text] = List()
   !v.push(^Text("one"))
   v
 

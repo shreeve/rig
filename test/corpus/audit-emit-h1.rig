@@ -6,10 +6,10 @@ struct R
 struct S
   a: ^R
   b: R?
-  xs: Vec[^R]
+  xs: List[^R]
 
 sub main()
-  s = S(a: ^R(n: 1), b: R(n: 2), xs: Vec())
+  s = S(a: ^R(n: 1), b: R(n: 2), xs: List())
   !s.xs.push(^R(n: 3))
   !s.xs.push(^R(n: 4))
   old = replace(!s.a, ^R(n: 10))

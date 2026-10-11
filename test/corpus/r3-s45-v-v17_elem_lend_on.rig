@@ -3,7 +3,7 @@ sub bump(x: !Int)
 
 sub main()
   a = 1
-  v: Vec[!Int] = Vec()
+  v: List[!Int] = List()
   !v.push(!a)
   bump(!v[0])
   bump(v[0])

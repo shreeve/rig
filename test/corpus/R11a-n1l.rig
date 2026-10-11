@@ -4,7 +4,7 @@ fun maker[T](x: T) -> *fun() -> T
 fun apply[T](x: T, f: *fun(T) -> T) -> T
   f(<x)
 
-fun each[T](v: ?Vec[T], f: fun(?T) -> Int) -> Int
+fun each[T](v: ?List[T], f: fun(?T) -> Int) -> Int
   t = 0
   for x in v
     t += f(?x)

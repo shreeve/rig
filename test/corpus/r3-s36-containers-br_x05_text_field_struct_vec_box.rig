@@ -3,7 +3,7 @@ struct Rec
   n: Int
 
 sub main()
-  v: Vec[^Rec] = Vec()
+  v: List[^Rec] = List()
   !v.push(^Rec(name: Text("x"), n: 1))
   for r in ?v
     print(r.name, r.n)

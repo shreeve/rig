@@ -1,5 +1,5 @@
 sub main()
-  c = *Cell[Vec[Text]](Vec())
+  c = *Cell[List[Text]](List())
   !c.push(Text("hello"))
   d = +c
   for x in c

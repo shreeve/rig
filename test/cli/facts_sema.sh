@@ -4,7 +4,7 @@ source "$ROOT/test/cli/_lib.sh"
 
 cat >main.rig <<'EOF2'
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   print(v.len)
 EOF2

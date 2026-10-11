@@ -6,19 +6,19 @@ struct Item
   n: Int
 
 struct Cursor
-  items: ?Vec[Item]
+  items: ?List[Item]
 
-  fun next(!self, extra: ?Vec[Item]) -> ?Item
+  fun next(!self, extra: ?List[Item]) -> ?Item
     self.items = extra
     ?self.items[0]
 
 sub main()
-  v: Vec[Item] = Vec()
+  v: List[Item] = List()
   !v.push(Item(n: 1))
   c = Cursor(items: ?v)
   r = ?v[0]
   if true
-    w: Vec[Item] = Vec()
+    w: List[Item] = List()
     !w.push(Item(n: 2))
     r = (!c).next(?w)
   print(r.n)

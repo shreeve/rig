@@ -2,7 +2,7 @@ struct N
   v: Int
 
 sub main()
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
   !v.push(2)
   t = Text("ab")

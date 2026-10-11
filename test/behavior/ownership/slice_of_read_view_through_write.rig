@@ -28,7 +28,7 @@ sub shared(w: !RS, u: ?*Text)
   w.f = u
   print(s)
 
-sub element(w: !Vec[?Text], u: ?Text)
+sub element(w: !List[?Text], u: ?Text)
   s = w[0][1..]
   w[0] = u
   print(s)
@@ -47,7 +47,7 @@ sub main()
   hu = *Text("other")
   rs = RS(f: ?h)
   shared(!rs, ?hu)
-  v: Vec[?Text] = Vec()
+  v: List[?Text] = List()
   !v.push(?t)
   element(!v, ?u)
   r2 = R(f: ?t)

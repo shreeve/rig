@@ -1,5 +1,5 @@
 struct Set
-  items: Vec[Int]
+  items: List[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
       return false if x == k
@@ -10,7 +10,7 @@ fun get(k: Int) -> Int?
   k if k > 0 else none
 
 sub main()
-  set = Set(items: Vec())
+  set = Set(items: List())
   a = true == (!set).insert(1)
   print(a)
   match (!set).insert(4)

@@ -18,7 +18,7 @@ sub main()
   i = 0
   o = opt()
   arr = [1, 2, 3]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   w = !n
   print(w + 1)

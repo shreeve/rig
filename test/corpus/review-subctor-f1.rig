@@ -22,7 +22,7 @@ sub main()
   print(a)
   o = Outer(Inner(2))
   print(o, o.inner.n)
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
 
   w2 = Wrap(<v)

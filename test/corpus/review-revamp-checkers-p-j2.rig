@@ -1,6 +1,6 @@
 struct Res
   id: Int
-  v: Vec[Int]
+  v: List[Int]
 
 struct H
   r: ?Res
@@ -10,10 +10,10 @@ fun store(h: !H, r: ?Res) -> Bool
   false
 
 fun make(k: Int) -> Res?
-  Res(id: k, v: Vec()) if k > 0 else none
+  Res(id: k, v: List()) if k > 0 else none
 
 sub main()
-  z = Res(id: 0, v: Vec())
+  z = Res(id: 0, v: List())
   h = H(r: ?z)
   i = 1
   while make(i) as a and store(!h, ?a) : i += 1

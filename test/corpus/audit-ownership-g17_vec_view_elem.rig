@@ -21,7 +21,7 @@ struct View
 
 sub main()
   x = Tok(n: 1)
-  v: Vec[View] = Vec()
+  v: List[View] = List()
   !v.push(View(b: ?x))
   <x
   print(v.len)

@@ -1,5 +1,5 @@
 # An optional-returning function and a fallible one, TS/Python habits
-fun find_index(xs: ?Vec[String], target: String) -> Int?
+fun find_index(xs: ?List[String], target: String) -> Int?
   for x, i in ?xs
     if x == target
       return i
@@ -14,7 +14,7 @@ fun divide(a: Int, b: Int) -> Int!
   a / b
 
 sub main()
-  names: Vec[String] = Vec()
+  names: List[String] = List()
   !names.push("ann")
   !names.push("bob")
   idx = find_index(?names, "bob")

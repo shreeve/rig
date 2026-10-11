@@ -1,5 +1,5 @@
 # An alias names its type in every role: a call through an alias of a
-# generic instance, of `Vec`, `Cell`, or `Signal`, constructs a
+# generic instance, of `List`, `Cell`, or `Signal`, constructs a
 # value of it, as naming the instance does, and one through an alias of
 # a number type converts to it. An alias of a float type names its
 # limits, which a default value may be.
@@ -15,7 +15,7 @@ enum Mode
   b(n: Int)
 
 type IW = Wrap[Int]
-type IV = Vec[Int]
+type IV = List[Int]
 type IC = Cell[Int]
 type IS = Signal[Int]
 type M = Mode

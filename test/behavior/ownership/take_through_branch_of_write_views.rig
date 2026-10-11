@@ -6,10 +6,10 @@
 # oracle: bindings accept
 
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

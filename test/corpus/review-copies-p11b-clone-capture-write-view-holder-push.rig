@@ -1,13 +1,13 @@
-# `|+h|` of a struct holding a write view of a Vec: the closure's copy
+# `|+h|` of a struct holding a write view of a List: the closure's copy
 # writes through the view while the original also does.
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
-sub bump(v: !Vec[Int])
+sub bump(v: !List[Int])
   !v.push(9)
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   h = H(w: !xs)
   f = |+h| bump(!h.w)
   !h.w.push(1)

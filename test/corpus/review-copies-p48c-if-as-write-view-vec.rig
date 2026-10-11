@@ -1,12 +1,12 @@
 struct W
-  w: !Vec[Int]
+  w: !List[Int]
 
-fun mk(v: !Vec[Int]) -> W?
+fun mk(v: !List[Int]) -> W?
   return W(w: !v)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   if mk(!v) as h
-    v = Vec()
+    v = List()
     !h.w.push(7)
   print(v.len)

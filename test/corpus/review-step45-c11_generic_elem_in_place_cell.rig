@@ -5,12 +5,12 @@ struct C
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-sub each[T](v: ?Vec[T], f: ?sub(?T))
+sub each[T](v: ?List[T], f: ?sub(?T))
   for x in v
     f(x)
 
 sub main()
-  v: Vec[C] = Vec()
+  v: List[C] = List()
   !v.push(C(c: Cell(1)))
   each(?v, |x| x.hit())
   print(v[0].c.get())

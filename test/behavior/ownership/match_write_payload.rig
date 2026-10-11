@@ -16,7 +16,7 @@ struct Holder
   s: Shape
 
 enum Slot
-  full(b: *B, v: Vec[Int])
+  full(b: *B, v: List[Int])
   empty
 
 sub grow(s: !Shape)
@@ -42,7 +42,7 @@ sub main()
     .circle(r) => r = 50
     _ => print("other")
   print(b)
-  s: Slot = .full(b: *B(n: 1), v: Vec())
+  s: Slot = .full(b: *B(n: 1), v: List())
   match !s
     .full(h, v)
       h = *B(n: 2)

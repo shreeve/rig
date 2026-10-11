@@ -52,7 +52,7 @@ const ResourceKind = enum {
     shared,
     /// `~T`: `x.dropWeak()`.
     weak,
-    /// A value with drop glue (`Vec`, a struct owning resources, ...):
+    /// A value with drop glue (`List`, a struct owning resources, ...):
     /// `rig.drop(&x)`. Needs `var` storage.
     value,
     /// An optional resource such as `*T?`: `rig.drop(&x)`. Needs `var`.
@@ -247,7 +247,7 @@ pub const Emitter = struct {
     /// The loops and labeled blocks around the current point that a jump
     /// can name, innermost last.
     targets: std.ArrayList(JumpTarget) = .empty,
-    /// The place being emitted is only read: a Vec element on its path
+    /// The place being emitted is only read: a List element on its path
     /// is reached through `constSlot`.
     read_place: bool = false,
     /// The `match` subject being emitted, which it reaches where it is
@@ -1522,7 +1522,7 @@ pub const Emitter = struct {
 
     /// `{ const __rig_new_N: T = value`: a new value, computed before the
     /// one it replaces is dropped. The type lets a context-typed value
-    /// (`Vec()`, `.variant(...)`) resolve.
+    /// (`List()`, `.variant(...)`) resolve.
     fn openNewValue(self: *Emitter, ty: ?TypeId, value: Sexp) Error!NewValue {
         const id = self.nextId();
         const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
@@ -1542,10 +1542,10 @@ pub const Emitter = struct {
     /// (`openAssign`).
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
         const place_ty = self.typeOf(target);
-        if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
+        if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellListTy(t)) {
             const order = try self.openAssign(target, value, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
-            try self.w.writeAll(".vecSet(");
+            try self.w.writeAll(".listSet(");
             try self.emitBare(ir.Index.index(target));
             try self.w.writeAll(", ");
             try self.emitBare(value);
@@ -2239,10 +2239,10 @@ pub const Emitter = struct {
         if (source.isKind(.@"..")) return self.emitRangeFor(sexp, lp);
 
         const src_ty = self.typeOf(source);
-        const is_vec = src_ty != null and self.isVecTy(src_ty.?);
-        // A Vec or an array of values that move, which the loop takes or
+        const is_list = src_ty != null and self.isListTy(src_ty.?);
+        // A List or an array of values that move, which the loop takes or
         // its source makes, hands its elements over one at a time.
-        if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_vec);
+        if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_list);
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.facts.headerOf(sexp);
@@ -2282,7 +2282,7 @@ pub const Emitter = struct {
         const l = try self.openLabeled(lp.loop);
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
-        const array_ptr = by_ptr and !is_vec and src_ty != null and self.facts.types.get(self.peelViews(src_ty.?)) == .array;
+        const array_ptr = by_ptr and !is_list and src_ty != null and self.facts.types.get(self.peelViews(src_ty.?)) == .array;
         if (owned) try self.w.print("&{s}", .{taken}) else if (try self.headerPoints(source)) {
             // A place reached through temporaries is walked where it is.
             try self.emitSubjectPtr(source, mode == .write);
@@ -2292,7 +2292,7 @@ pub const Emitter = struct {
             try self.emitExpr(source);
             try self.closeHeader(h);
         }
-        if (is_vec) try self.w.writeAll(".items()");
+        if (is_list) try self.w.writeAll(".items()");
         // `for b in ?t` walks the bytes of a Text, boxed or not.
         if (src_ty) |t| if (self.textReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
         const counter = try self.fmt("__rig_i_{d}", .{self.nextId()});
@@ -2320,7 +2320,7 @@ pub const Emitter = struct {
         try self.popScope();
     }
 
-    /// `for x in <v`: the Vec (or the array, `array`) is consumed; each
+    /// `for x in <v`: the List (or the array, `array`) is consumed; each
     /// element is handed to `x`, which owns it for one iteration.
     /// Elements a `break` or `return` leaves behind are dropped with it.
     ///
@@ -2489,7 +2489,7 @@ pub const Emitter = struct {
             if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         } else if (info.mode == .write and try self.need(self.facts.handsOver(subject), subject) == .place and throughElement(subject)) {
             // A place through an element that a write match writes is
-            // switched on where it is (a Vec's element reads as a
+            // switched on where it is (a List's element reads as a
             // value): `(&v.slot(i).*).*`.
             try self.w.writeAll("(");
             try self.emitSubjectPtr(subject, true);
@@ -3404,11 +3404,11 @@ pub const Emitter = struct {
             } else {
                 const operand = if (written) ir.get(sexp, .operand) else sexp;
                 from = self.facts.unwrapViews(self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped lend"));
-                const vec = self.facts.types.get(from) == .parameterized_nominal;
+                const list = self.facts.types.get(from) == .parameterized_nominal;
                 if (lend.has(.text)) {
                     try self.emitExpr(operand);
                     at.ptr = false;
-                } else if (first == .handle or first == .optional or (first == .elems and vec)) {
+                } else if (first == .handle or first == .optional or (first == .elems and list)) {
                     try self.emitMemberBase(operand, self.typeOf(operand));
                     at.ptr = false;
                 } else {
@@ -3451,7 +3451,7 @@ pub const Emitter = struct {
                 at = .{ .text = try self.fmt("{s}.value", .{handle}), .ptr = false };
                 from = types.get(from).shared;
             },
-            // An array's address is a slice; a Vec's elements are its items.
+            // An array's address is a slice; a List's elements are its items.
             .elems => return if (types.get(from) == .array)
                 (if (at.ptr) at.text else try self.fmt("&{s}", .{at.text}))
             else
@@ -3685,7 +3685,7 @@ pub const Emitter = struct {
     fn emitLendAddress(self: *Emitter, e: Sexp) Error!void {
         if (!sameNode(e, self.lending)) if (self.facts.lendOf(e)) |lend| if (!lend.has(.read_only) and lend.callable() == null) return self.emitLend(e, lend, false, true);
         const operand = ir.get(e, .operand);
-        // A read view reaches a Vec element through a read-only slot, a
+        // A read view reaches a List element through a read-only slot, a
         // write view through a writable one.
         const saved_read = self.read_place;
         defer self.read_place = saved_read;
@@ -4210,7 +4210,7 @@ pub const Emitter = struct {
     }
 
     /// `x[i]`: bounds-checked element of an array, slice, string, or
-    /// `Vec` of plain data. As a place, a `Vec` element is `x.slot(i).*`,
+    /// `List` of plain data. As a place, a `List` element is `x.slot(i).*`,
     /// and the base of any element is a place too.
     fn emitIndex(self: *Emitter, sexp: Sexp, as_place: bool) Error!void {
         const base = ir.Index.object(sexp);
@@ -4221,10 +4221,10 @@ pub const Emitter = struct {
         self.place_chain = as_place;
 
         if (index.isKind(.@"..")) return self.emitSlice(sexp, base, base_ty, index);
-        // An element of a Cell's Vec is a copy; `c[i] = x` is `emitPlaceAssign`'s.
-        if (base_ty != null and self.isCellVecTy(base_ty.?)) {
+        // An element of a Cell's List is a copy; `c[i] = x` is `emitPlaceAssign`'s.
+        if (base_ty != null and self.isCellListTy(base_ty.?)) {
             try self.emitCellPtr(base);
-            try self.w.writeAll(".vecAt(");
+            try self.w.writeAll(".listAt(");
             self.place_chain = false;
             try self.emitBare(index);
             return self.w.writeAll(")");
@@ -4234,7 +4234,7 @@ pub const Emitter = struct {
         // An element that is not copied (`readsInPlace`) is reached
         // where it is, as a field is: never a copy of its bits.
         const in_place = as_place or self.elemInPlace(sexp);
-        if (held_ty != null and self.isVecTy(held_ty.?)) {
+        if (held_ty != null and self.isListTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
             try self.w.writeAll(if (!in_place) ".at(" else if (self.read_place or !as_place or self.throughReadView(base)) ".constSlot(" else ".slot(");
             // The index itself is a value, even inside an assignment target.
@@ -4366,7 +4366,7 @@ pub const Emitter = struct {
 
     /// `xs[a..b]` → `rig.slice(items, a, b)`, which checks the bounds;
     /// `xs[a..]` → `rig.slice(items, a, null)`. An array is sliced in
-    /// place, through its address; a Vec through its items.
+    /// place, through its address; a List through its items.
     fn emitSlice(self: *Emitter, slice: Sexp, base: Sexp, base_ty: ?TypeId, range: Sexp) Error!void {
         self.place_chain = false;
         const writes = self.isWriteSliceExpr(slice);
@@ -4375,14 +4375,14 @@ pub const Emitter = struct {
         // A constant is sliced where it is stored, not through a copy.
         const saved_rt = self.rt_names;
         self.rt_names = false;
-        if (self.isVecTy(ty)) {
+        if (self.isListTy(ty)) {
             try self.emitBaseExpr(base);
             try self.w.writeAll(".items()");
         } else if (self.textReach(ty)) |reach| {
             try self.emitBaseExpr(base);
             try self.w.print("{s}.bytes()", .{reach});
         } else if (self.facts.types.get(ty) == .array) {
-            // A read slice only reads through: a Vec element on the way
+            // A read slice only reads through: a List element on the way
             // is reached through a read-only slot.
             const saved_read = self.read_place;
             self.read_place = !writes;
@@ -4399,7 +4399,7 @@ pub const Emitter = struct {
     }
 
     /// `(member obj name)`. A shared handle auto-dereferences through
-    /// `.value`; `.len` of an array, slice, string, or Vec is an `Int`.
+    /// `.value`; `.len` of an array, slice, string, or List is an `Int`.
     fn emitMember(self: *Emitter, sexp: Sexp) Error!void {
         const obj = ir.Member.object(sexp);
         const field = self.srcText(ir.Member.name(sexp));
@@ -4425,9 +4425,9 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, obj_ty);
             return self.w.print(".{f})", .{ident(field)});
         };
-        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.isCellVecTy(obj_ty.?)) {
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.isCellListTy(obj_ty.?)) {
             try self.emitCellPtr(obj);
-            return self.w.writeAll(".vecLen()");
+            return self.w.writeAll(".listLen()");
         }
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.facts.unwrapAccess(obj_ty.?) == self.facts.types.text_id) {
             try self.emitMemberBase(obj, obj_ty);
@@ -4440,7 +4440,7 @@ pub const Emitter = struct {
             try self.w.writeAll(".len)");
             return;
         }
-        // The length of an array or Vec in a box.
+        // The length of an array or List in a box.
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.facts.boxedType(self.facts.unwrapReadAccess(obj_ty.?)) != null and self.hasLen(self.facts.unwrapAccess(obj_ty.?))) {
             try self.w.writeAll("rig.len(");
             try self.emitMemberBase(obj, obj_ty);
@@ -5062,15 +5062,15 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// The elements of a method's receiver (a slice, an array, a Vec, or
+    /// The elements of a method's receiver (a slice, an array, a List, or
     /// a String, viewed or not) as a Zig slice or array pointer: a
     /// slice or String as it is, an array through its address (writable
-    /// when the receiver is written `!xs`), a Vec through its items.
+    /// when the receiver is written `!xs`), a List through its items.
     fn emitElems(self: *Emitter, recv: Sexp) Error!void {
         const writes = recv.isKind(.write);
         const place = if (recv.isKind(.write) or recv.isKind(.read)) ir.get(recv, .operand) else recv;
         const ty = self.peelViews(self.typeOf(place) orelse return self.unsupported(recv, "an untyped receiver"));
-        if (self.isVecTy(ty)) {
+        if (self.isListTy(ty)) {
             try self.emitExpr(place);
             return self.w.writeAll(".items()");
         }
@@ -5098,7 +5098,7 @@ pub const Emitter = struct {
             if (self.facts.isNumeric(t)) return self.emitConversion(sexp);
             if (self.facts.types.get(t) == .parameterized_nominal) {
                 const g = self.facts.types.get(t).parameterized_nominal.sym;
-                if (g == self.facts.vec_sym_id) return self.emitVecConstruction(sexp);
+                if (g == self.facts.list_sym_id) return self.emitListConstruction(sexp);
                 if (g == self.facts.signal_sym_id) {
                     try self.emitTypeTy(t);
                     return self.emitSignalConstruction(sexp);
@@ -5117,7 +5117,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             };
             if (self.facts.symbolOf(callee)) |sym_id| {
-                if (sym_id == self.facts.vec_sym_id) return self.emitVecConstruction(sexp);
+                if (sym_id == self.facts.list_sym_id) return self.emitListConstruction(sexp);
                 if (sym_id == self.facts.signal_sym_id) return self.emitSignalConstruction(sexp);
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
@@ -5159,16 +5159,16 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
 
-        // A Cell holding a Vec answers the Vec's members.
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellVecTy(t)) {
+        // A Cell holding a List answers the List's members.
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellListTy(t)) {
             const m = self.srcText(ir.Member.name(callee));
             const method: ?[]const u8 = if (std.mem.eql(u8, m, "push"))
-                "vecPush"
+                "listPush"
             else if (std.mem.eql(u8, m, "pop"))
-                "vecPop"
+                "listPop"
             else if (std.mem.eql(u8, m, "clear"))
-                "vecClear"
-            else if (std.mem.eql(u8, m, "get") and ir.Call.args(sexp).len == 1) "vecGet" else null;
+                "listClear"
+            else if (std.mem.eql(u8, m, "get") and ir.Call.args(sexp).len == 1) "listGet" else null;
             if (method) |name| {
                 try self.emitCellPtr(ir.Member.object(callee));
                 try self.w.print(".{s}(", .{name});
@@ -5553,13 +5553,13 @@ pub const Emitter = struct {
     /// call itself runs last. An owned temporary, including a receiver
     /// the method consumes, is dropped if a later argument leaves, and
     /// handed to the callee (its flag cleared) only when the call runs.
-    /// `pair(mk(1)!, mk(2)!)`, with `mk` returning a `Vec[Int]`:
+    /// `pair(mk(1)!, mk(2)!)`, with `mk` returning a `List[Int]`:
     ///
     ///     __rig_call_N: {
-    ///         var __rig_arg_N_0: rig.Vec(i64) = try mk(1);
+    ///         var __rig_arg_N_0: rig.List(i64) = try mk(1);
     ///         var __rig_live_N_0 = true;
     ///         defer if (__rig_live_N_0) rig.drop(&__rig_arg_N_0);
-    ///         var __rig_arg_N_1: rig.Vec(i64) = try mk(2);
+    ///         var __rig_arg_N_1: rig.List(i64) = try mk(2);
     ///         ...
     ///         break :__rig_call_N pair(rig.take(&__rig_live_N_0, __rig_arg_N_0), ...);
     ///     }
@@ -5684,7 +5684,7 @@ pub const Emitter = struct {
         if (!e.isKind(.call) or self.facts.calleeOf(e) != .src) return false;
         if (self.localOf(self.facts.calleeOf(e))) |local| if (local.stack_closure) return false;
         const sym_id = self.facts.symbolOf(self.facts.calleeOf(e)) orelse return false;
-        return sym_id != self.facts.vec_sym_id and sym_id != self.facts.signal_sym_id and sym_id != self.facts.box_sym_id and self.isTypeSym(sym_id);
+        return sym_id != self.facts.list_sym_id and sym_id != self.facts.signal_sym_id and sym_id != self.facts.box_sym_id and self.isTypeSym(sym_id);
     }
 
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
@@ -5705,7 +5705,7 @@ pub const Emitter = struct {
         return decl.symbol().fields orelse &.{};
     }
 
-    /// The type a constructor's bracket list gives (`Vec[Int]()`), before
+    /// The type a constructor's bracket list gives (`List[Int]()`), before
     /// the decl literal that builds it.
     fn emitGivenType(self: *Emitter, call: Sexp) Error!void {
         const inst = self.facts.instanceOf(ir.Call.callee(call)) orelse return;
@@ -5737,12 +5737,12 @@ pub const Emitter = struct {
         try self.w.writeAll(if (args.len > 0) " }" else "}");
     }
 
-    /// `Vec()` / `Vec(capacity: n)`: a decl literal of the type sema gave
+    /// `List()` / `List(capacity: n)`: a decl literal of the type sema gave
     /// it, which a `catch` or `??` handler cannot take from its result
     /// location.
-    fn emitVecConstruction(self: *Emitter, call: Sexp) Error!void {
+    fn emitListConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
-        try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped Vec construction"));
+        try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped List construction"));
         if (args.len == 1) {
             try self.w.writeAll(".initCapacity(");
             try self.emitBare(ir.Kwarg.value(args[0]));
@@ -6254,7 +6254,7 @@ pub const Emitter = struct {
         }
     }
 
-    /// A user nominal, or a runtime one (`Vec` → `rig.Vec`), or another
+    /// A user nominal, or a runtime one (`List` → `rig.List`), or another
     /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.facts.symbols.items[sym];
@@ -6352,17 +6352,17 @@ pub const Emitter = struct {
         };
     }
 
-    /// A Cell holding a Vec, reached by value, view, or shared handle.
-    fn isCellVecTy(self: *Emitter, ty: TypeId) bool {
+    /// A Cell holding a List, reached by value, view, or shared handle.
+    fn isCellListTy(self: *Emitter, ty: TypeId) bool {
         const cell = switch (self.facts.types.get(self.facts.unwrapReadAccess(ty))) {
             .parameterized_nominal => |pn| if (pn.sym == self.facts.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,
             else => return false,
         };
-        return self.isVecTy(cell);
+        return self.isListTy(cell);
     }
 
-    fn isVecTy(self: *Emitter, ty: TypeId) bool {
-        return self.isBuiltinInstance(ty, self.facts.vec_sym_id);
+    fn isListTy(self: *Emitter, ty: TypeId) bool {
+        return self.isBuiltinInstance(ty, self.facts.list_sym_id);
     }
 
     /// Whether a value of `ty` is a shared handle, or a view of one: a
@@ -6387,14 +6387,14 @@ pub const Emitter = struct {
         };
     }
 
-    /// The element a `for` over a value of `ty` walks: a Vec's, an
+    /// The element a `for` over a value of `ty` walks: a List's, an
     /// array's, or a slice's, through views; null for any other.
     fn loopElem(self: *Emitter, ty: TypeId) ?TypeId {
         const t = self.peelViews(ty);
         return switch (self.facts.types.get(t)) {
             .array => |a| a.elem,
             .slice => |sl| sl.elem,
-            .parameterized_nominal => |pn| if (self.isVecTy(t)) pn.args[0] else null,
+            .parameterized_nominal => |pn| if (self.isListTy(t)) pn.args[0] else null,
             else => null,
         };
     }
@@ -6410,7 +6410,7 @@ pub const Emitter = struct {
         const peeled = self.peelViews(ty);
         return switch (self.facts.types.get(peeled)) {
             .array, .slice, .string, .static => true,
-            else => self.isVecTy(peeled),
+            else => self.isListTy(peeled),
         };
     }
 

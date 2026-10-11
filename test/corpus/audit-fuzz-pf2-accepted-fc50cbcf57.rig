@@ -31,7 +31,7 @@ struct Pt2
     Pt2(x: self.x + o.x, y: self.y + o.y)
 
 sub main()
-  v0: Vec[String] = Vec()
+  v0: List[String] = List()
   !v0.push("a")
   v0[1] = "a"
   print((!v0).pop())

@@ -5,9 +5,9 @@ struct R
     print("drop", self.n)
 
 sub main()
-  v: Vec[^R] = Vec()
+  v: List[^R] = List()
   !v.push(^R(n: 1))
-  keep: Vec[^R] = Vec()
+  keep: List[^R] = List()
   for x in ?v
     !keep.push(x)
   print("end")

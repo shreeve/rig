@@ -1,6 +1,6 @@
 # `!dst.copy(src)` copies a `[]T` of the same length into the elements,
 # `!s.fill(v)` sets every element, and `!s.swap(i, j)` exchanges two, on a
-# `![]T`, an array, or a Vec. `swap` also moves handles in a Vec of them.
+# `![]T`, an array, or a List. `swap` also moves handles in a List of them.
 
 struct P
   x: Int
@@ -18,7 +18,7 @@ sub main()
   !w.swap(0, 1)
   !w.fill(4)
   print(a)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   !v.swap(0, 1)
@@ -31,7 +31,7 @@ sub main()
   f: [3]F32 = [1.0, 2.0, 3.0]
   !f.fill(1.5)
   print(f)
-  hs: Vec[*P] = Vec()
+  hs: List[*P] = List()
   !hs.push(*P(x: 1))
   !hs.push(*P(x: 2))
   !hs.swap(0, 1)

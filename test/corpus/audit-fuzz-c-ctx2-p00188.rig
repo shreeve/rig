@@ -119,7 +119,7 @@ sub t4483()
   print(acc4483)
 
 sub t1640()
-  gv1640: Vec[U128] = Vec()
+  gv1640: List[U128] = List()
   cmp1640: U128 = id_u128(4)
   print(cmp1640 == (gv1640.get(0) ?? 5), (gv1640.get(0) ?? 5) < cmp1640, (gv1640.get(0) ?? 5) >= cmp1640)
 

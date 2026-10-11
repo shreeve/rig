@@ -13,7 +13,7 @@ fun idx(k: !K, s: ?Text) -> Int
 
 sub main()
   k = K(n: Cell(0))
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("x")))
   !v.push(E.b)
   match !v[idx(?k, ?Text("a"))]
@@ -30,7 +30,7 @@ sub main()
     .a(t) if g > 5 => print(t)
     x => print(x)
   print(k.n.get())
-  o: Vec[Text?] = Vec()
+  o: List[Text?] = List()
   !o.push(Text("o"))
   n = 0
   while !o[idx(?k, ?Text("a"))] as e

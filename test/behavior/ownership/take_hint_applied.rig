@@ -1,7 +1,7 @@
 # The forms the copy rejection offers for an optional field, applied.
 
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
 struct H
   o: Bag?
@@ -16,7 +16,7 @@ sub viawrite(p: !H)
   print(x == none, p.o == none)
 
 sub main()
-  h = H(o: Bag(items: Vec()))
+  h = H(o: Bag(items: List()))
   viaread(?h)
   viawrite(!h)
   x = <h.o

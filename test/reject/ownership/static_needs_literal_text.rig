@@ -16,7 +16,7 @@ sub main()
   s: String = ?t[..]
   need(s)
   tag = Tag(name: s)
-  v: Vec[Static] = Vec()
+  v: List[Static] = List()
   !v.push(s)
   print(tag.name, v.len)
 

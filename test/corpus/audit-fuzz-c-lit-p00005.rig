@@ -169,7 +169,7 @@ sub t1959()
   print(take_float((gfail(3, false) catch 3)))
 
 sub t1411()
-  v1411: Vec[Float] = Vec()
+  v1411: List[Float] = List()
   !v1411.push(4)
   print(v1411[0])
 

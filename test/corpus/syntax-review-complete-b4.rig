@@ -1,7 +1,7 @@
 struct Node
   v: Int
-  kids: Vec[Int]
+  kids: List[Int]
 
 sub main()
-  v: Vec[Node] = Vec()
+  v: List[Node] = List()
   print(v.len)

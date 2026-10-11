@@ -1,13 +1,13 @@
 struct Holder
   r: []Int
-  own: Vec[Int]
+  own: List[Int]
 
 sub f(a: !Holder)
   a.r = ?a.own[..]
 
 sub main()
   x = [9, 9]
-  h = Holder(r: ?x[..], own: Vec())
+  h = Holder(r: ?x[..], own: List())
   !h.own.push(1)
   f(!h)
   for i in 0..100

@@ -1,15 +1,15 @@
 # A branch block of a function's result: its block-local tail is
 # returned before the branch's defer runs.
-fun mk(c: Bool) -> Vec[Int]
+fun mk(c: Bool) -> List[Int]
   if c
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     defer
       for i in 0..100
         !v.push(i)
     v
   else
-    Vec()
+    List()
 
 sub main()
   x = mk(true)

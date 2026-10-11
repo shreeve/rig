@@ -4,7 +4,7 @@ struct Text
   n: Int
 
 sub main()
-  xs: Vec[Text] = Vec()
+  xs: List[Text] = List()
   ys: [2]Text = [Text("a"), Text("b")]
   print(xs.len, ys.len)
 

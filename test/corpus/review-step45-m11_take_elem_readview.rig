@@ -1,8 +1,8 @@
 # take an optional element through a read view param: reject
-fun grab(v: ?Vec[Text?]) -> Text?
+fun grab(v: ?List[Text?]) -> Text?
   <v[0]
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("a"))
   print(grab(?v))

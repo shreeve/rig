@@ -4,9 +4,9 @@
 #
 
 sub owners()
-  c: Cell[Vec[Int]] = Cell(Vec())
+  c: Cell[List[Int]] = Cell(List())
   !c.push(1)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(2)
   old = (!c).replace(<v)
   print(old.len, c.len)

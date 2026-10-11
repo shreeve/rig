@@ -6,7 +6,7 @@ type BN = ^Node
 type OBN = ^Node?
 type SN = *Node
 type OSN = *Node?
-type VI = Vec[Int]
+type VI = List[Int]
 
 sub main()
   b: ^Node? = none

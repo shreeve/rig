@@ -1,10 +1,10 @@
 struct P
   t: Text
-  xs: Vec[Int]
+  xs: List[Int]
 
 sub main()
-  v: Vec[P] = Vec()
-  !v.push(P(t: Text("hello"), xs: Vec()))
+  v: List[P] = List()
+  !v.push(P(t: Text("hello"), xs: List()))
   for p in !v
     s = ?p.t[1..]
     !p.xs.push(1)

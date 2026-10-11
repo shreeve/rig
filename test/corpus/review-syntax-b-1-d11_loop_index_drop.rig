@@ -1,6 +1,6 @@
 sub main()
-  vv: Vec[Vec[Text]] = Vec()
-  v: Vec[Text] = Vec()
+  vv: List[List[Text]] = List()
+  v: List[Text] = List()
   !v.push(Text("a"))
   !vv.push(<v)
   for x in vv[0]

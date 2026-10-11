@@ -4,12 +4,12 @@ struct S
 fun id[T](x: T) -> T
   x
 
-sub keep[T](v: !Vec[T], x: T)
+sub keep[T](v: !List[T], x: T)
   !v.push(x)
 
 sub main()
   a = id(?S(n: 1))
   print(a.n)
-  v: Vec[?S] = Vec()
+  v: List[?S] = List()
   keep(!v, ?S(n: 2))
   print(v[0].n)

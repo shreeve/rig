@@ -14,7 +14,7 @@ fun at(i: Int, what: String) -> Int
   i
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(0)
   v[at(0, "index")] = mk(5).n
   print(v[0])

@@ -1,12 +1,12 @@
-sub stash[T](c: *Cell[Vec[T]], x: T)
-  xs: Vec[T] = Vec()
+sub stash[T](c: *Cell[List[T]], x: T)
+  xs: List[T] = List()
   !xs.push(x)
   _ = (!c).replace(<xs)
 
 sub main()
-  c: *Cell[Vec[?^Text]] = *Cell(Vec())
+  c: *Cell[List[?^Text]] = *Cell(List())
   b = ^Text("hello")
   stash(+c, ?b)
   <b
-  old = (!c).replace(Vec())
+  old = (!c).replace(List())
   print(old[0])

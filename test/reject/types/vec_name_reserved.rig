@@ -1,9 +1,9 @@
-# `Vec` is a built-in nominal name and cannot be redefined.
+# `List` is a built-in nominal name and cannot be redefined.
 
-struct Vec
+struct List
   x: Int
 
 sub main()
   print("hi")
 
-# error: `Vec` is a reserved built-in nominal name
+# error: `List` is a reserved built-in nominal name

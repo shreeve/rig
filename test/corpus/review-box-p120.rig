@@ -5,7 +5,7 @@ struct R
     print("drop", self.n)
 
 sub main()
-  c: Cell[Vec[^R]] = Cell(value: Vec())
+  c: Cell[List[^R]] = Cell(value: List())
   !c.push(^R(n: 1))
   if (!c).pop() as b
     print(b.n)

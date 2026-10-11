@@ -2,7 +2,7 @@ struct H
   s: ![]Text
 
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("hello"))
   h = H(s: !v[..])
   r = ?h.s[0][1..]

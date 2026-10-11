@@ -10,18 +10,18 @@ fun idxf(s: ?Text) -> Int!
   return Bad.long if s.len > 3
   s.len - 1
 
-fun go(v: !Vec[Text?], w: Text) -> Int?
+fun go(v: !List[Text?], w: Text) -> Int?
   if !v[idxo(?Text(w))?] as t
     !t.add("o")
   1
 
-fun gof(v: !Vec[Text?], w: Text) -> Int!
+fun gof(v: !List[Text?], w: Text) -> Int!
   if !v[idxf(?Text(w))!] as t
     !t.add("f")
   1
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("a"))
   print(go(!v, Text("a")), go(!v, Text("abcd")))
   print(gof(!v, Text("a")) catch 0, gof(!v, Text("abcd")) catch 0)

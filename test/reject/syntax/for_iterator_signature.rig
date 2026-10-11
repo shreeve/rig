@@ -1,6 +1,6 @@
 # A `for` walks a type whose `next` is `next(!self) -> T?`: a `next`
 # that takes `?self`, takes more, or gives no optional is not one, and
-# a loop over such a type says why. Plain `Vec`, array and `String`
+# a loop over such a type says why. Plain `List`, array and `String`
 # sources keep their own meaning.
 
 struct Reads
@@ -47,5 +47,5 @@ sub main()
 # error: 35:12: cannot iterate over `Wants`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes more than `self`
 # error: 38:12: cannot iterate over `Plain`: a `for` walks a type with `next(!self) -> T?`, but its `next` does not give an optional
 # error: 41:12: cannot iterate over `Free`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes no `self`
-# error: 43:12: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a String, a `Vec`, or an iterator (a type with `next(!self) -> T?`)
+# error: 43:12: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a String, a `List`, or an iterator (a type with `next(!self) -> T?`)
 # errors: 5

@@ -1,5 +1,5 @@
 sub main()
-  c: *Cell[Vec[String]] = *Cell(Vec())
+  c: *Cell[List[String]] = *Cell(List())
   !c.push("a")
   if true
     t = Text("abcdefghijklmnop")

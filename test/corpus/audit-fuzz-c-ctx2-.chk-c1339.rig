@@ -50,7 +50,7 @@ fun id_f32(x: F32) -> F32
   x
 
 sub t1339()
-  gv1339: Vec[Float] = Vec()
+  gv1339: List[Float] = List()
   qo1339: Float? = id_float(10.25)
   print(qo1339 ?? (gv1339.get(0) ?? (-2)))
 

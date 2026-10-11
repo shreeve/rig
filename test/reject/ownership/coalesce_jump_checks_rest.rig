@@ -4,33 +4,33 @@
 fun make(k: Int) -> Int?
   k if k > 0 else none
 
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print(v.len)
 
 fun ret(k: Int) -> Int
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   n = make(k) ?? return -1
   eat(<a)
   eat(<a)
   n
 
 fun lent(k: Int) -> Int
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   r = ?a
   n = make(k) ?? return -1
-  a = Vec()
+  a = List()
   print(r.len)
   n
 
 sub brk()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   while true
     n = make(1) ?? break
     eat(<a)
     print(n)
 
 sub cont()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   for k in 0..3
     n = make(k) ?? continue
     eat(<a)

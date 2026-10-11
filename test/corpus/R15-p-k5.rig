@@ -2,6 +2,6 @@ sub fillall[T](s: ![]T, v: T)
   !s.fill(v)
 
 sub main()
-  v: Vec[*Cell[Int]] = Vec()
+  v: List[*Cell[Int]] = List()
   !v.push(*Cell(value: 1))
   fillall(!v[..], *Cell(value: 2))

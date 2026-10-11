@@ -2,7 +2,7 @@ struct Node
   val: Int
   next: ^Node?
 
-struct List
+struct Chain
   head: ^Node?
   len: Int = 0
 
@@ -28,7 +28,7 @@ struct List
     total
 
 sub main()
-  l = List(head: none)
+  l = Chain(head: none)
   for i in 0..5
     !l.push(i)
   print(l.len, l.sum())

@@ -7,7 +7,7 @@ struct Counter
 sub main()
   k = *Counter()
   j = *Counter()
-  v: Vec[*Counter] = Vec()
+  v: List[*Counter] = List()
   !v.push(+k)
   !v.push(+j)
   for r in ?v

@@ -3,7 +3,7 @@ struct P
 
 type Q = P
 type V = ?P
-type W = Vec[Int]
+type W = List[Int]
 
 fun get(v: V) -> Q
   v

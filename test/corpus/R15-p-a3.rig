@@ -1,8 +1,8 @@
 # root reassigned
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   w = !v[..]
-  v = Vec()
+  v = List()
   w[0] = 5
   print(v)

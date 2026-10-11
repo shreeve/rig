@@ -1,8 +1,8 @@
-# The step grows the Vec an outer view reads in the body.
+# The step grows the List an outer view reads in the body.
 #
 # oracle: main reject C4
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   s = ?v[..]
   k = 0

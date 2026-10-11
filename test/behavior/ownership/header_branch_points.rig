@@ -8,13 +8,13 @@ struct S
   o: Text?
 
 struct H
-  f: Vec[S]
+  f: List[S]
 
 fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[Text?] = Vec()
+  v: List[Text?] = List()
   !v.push(Text("q"))
   w: Text? = Text("w")
   c = v.len == 1
@@ -26,7 +26,7 @@ sub main()
   while (!v[idx(?Text("a"))] if c else !w) as t
     !t.add("x")
     break
-  h = H(f: Vec())
+  h = H(f: List())
   !h.f.push(S(o: Text("q")))
   if (!h.f[idx(?Text("a"))].o if c else !w) as t
     !t.add("x")

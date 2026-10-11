@@ -1,13 +1,13 @@
 struct H
-  log: Cell[Vec[Int]]
-  items: Vec[Int]
+  log: Cell[List[Int]]
+  items: List[Int]
 
-sub f(x: !H, y: !Vec[Int])
+sub f(x: !H, y: !List[Int])
   swap(!x.items, y)
 
 sub main()
-  h = *H(log: Cell(Vec()), items: Vec())
-  v = Vec()
+  h = *H(log: Cell(List()), items: List())
+  v = List()
   v.push(1)
   f(!h, !v)
   print(h.items.len)

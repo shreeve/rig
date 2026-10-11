@@ -1,16 +1,16 @@
 # <mk(!v).w: a write view moved out of a made value whose drop body uses it
 struct G
-  w: !Vec[Int]
+  w: !List[Int]
 
   drop(!self)
     !self.w.push(99)
     print("drop", self.w.len)
 
-fun mk(v: !Vec[Int]) -> G
+fun mk(v: !List[Int]) -> G
   G(w: !v)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   w = <mk(!v).w
   !w.push(1)
   print(w.len)

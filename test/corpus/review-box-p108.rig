@@ -15,7 +15,7 @@ sub main()
   match ?h.b
     .c(r) => print("c", r)
     .s(k) => print("s", k)
-  v: Vec[^Sh] = Vec()
+  v: List[^Sh] = List()
   !v.push(^Sh.s(k: 3))
   for x in ?v
     match ?x

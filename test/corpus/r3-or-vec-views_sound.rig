@@ -1,12 +1,12 @@
-# A Vec or array of views holds the loans pushed into it until its last
+# A List or array of views holds the loans pushed into it until its last
 # use; an element read out of it carries the element's loans, not one
-# on the Vec; an element holding a write view is written through and
+# on the List; an element holding a write view is written through and
 # re-pointed (Core §4, §5, §6).
 
 sub dropped_then_assign()
   a = 1
   b = 2
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   !v.insert(0, ?b)
   print(v)
@@ -17,7 +17,7 @@ sub dropped_then_assign()
 
 sub popped_outlives_vec()
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   r = (!v).pop()
   <v
@@ -25,7 +25,7 @@ sub popped_outlives_vec()
 
 sub got_then_push()
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   r = ?v.get(0)
   !v.push(?a)
@@ -35,7 +35,7 @@ sub write_elements()
   a = 1
   b = 2
   c = 3
-  v: Vec[!Int] = Vec()
+  v: List[!Int] = List()
   !v.push(!a)
   !v.push(!b)
   v[0] = 10
@@ -56,7 +56,7 @@ sub write_array()
 
 sub popped_write()
   a = 1
-  v: Vec[!Int] = Vec()
+  v: List[!Int] = List()
   !v.push(!a)
   if (!v).pop() as w
     w = 4
@@ -64,13 +64,13 @@ sub popped_write()
   print(a)
 
 sub owners()
-  rows: Vec[Vec[Int]] = Vec()
-  r: Vec[Int] = Vec()
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
   !r.push(5)
   !rows.push(<r)
   !rows[0].push(6)
   print(rows.len, rows[0].len)
-  o: Vec[Text?] = Vec()
+  o: List[Text?] = List()
   !o.push(Text("a"))
   if <o[0] as t
     print(t)

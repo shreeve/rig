@@ -31,7 +31,7 @@ fun g(o: Text?) -> Int?
   print(o? == "hi")
   1
 
-fun h(o: Vec[Int]?) -> Int?
+fun h(o: List[Int]?) -> Int?
   print(o?[0])
   1
 

@@ -4,7 +4,7 @@ struct R
     print("d")
 
 sub main()
-  v: Vec[*R] = Vec()
+  v: List[*R] = List()
   !v.push(*R(n: 1))
   x = ?v[0]
   print(x.n)

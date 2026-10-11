@@ -1,16 +1,16 @@
 # A take beside a lend of the same place in one call.
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
-  sub set(!self, x: Vec[Int]?)
+  sub set(!self, x: List[Int]?)
     self.o = <x
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 
-fun both(a: ?Vec[Int]?, b: Vec[Int]?) -> Int
+fun both(a: ?List[Int]?, b: List[Int]?) -> Int
   n = 0
   if a as x
     n += x.len
@@ -18,7 +18,7 @@ fun both(a: ?Vec[Int]?, b: Vec[Int]?) -> Int
     n += y.len
   n
 
-fun both2(b: Vec[Int]?, a: ?S) -> Int
+fun both2(b: List[Int]?, a: ?S) -> Int
   n = 0
   if b as y
     n += y.len
@@ -40,7 +40,7 @@ sub three()
   print(s.o == none)
 
 sub four()
-  v: Vec[Vec[Int]?] = Vec()
+  v: List[List[Int]?] = List()
   !v.push(mkv(1))
   !v.push(<v[0])
   print(v.len, v[0] == none)

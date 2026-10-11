@@ -7,7 +7,7 @@ fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[E] = Vec()
+  v: List[E] = List()
   !v.push(E.a(t: Text("hi")))
   match v[idx(?Text("a"))]
     .a(t) => print(t)

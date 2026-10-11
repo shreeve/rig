@@ -4,7 +4,7 @@ fun inc(x: Int) -> Int
   x + 1
 
 sub main()
-  a = geo.HasVec(v: Vec[Int]())
+  a = geo.HasVec(v: List[Int]())
   print(a == a)
   b = geo.HasCell(c: Cell[Int](1))
   print(b == b)

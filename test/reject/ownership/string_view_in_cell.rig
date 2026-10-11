@@ -14,7 +14,7 @@ sub main()
   sig: *Signal[String] = *Signal("x")
   !sig.set(?s)
   old = (!c).replace(?s)
-  cv: *Cell[Vec[String]] = *Cell(Vec())
+  cv: *Cell[List[String]] = *Cell(List())
   !cv.push(?s)
   f = |?s| s
   !c.set(f())

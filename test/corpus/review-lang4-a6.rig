@@ -1,9 +1,9 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
-  m: Vec[Int] = Vec()
+  v: List[Int] = List()
+  m: List[Int] = List()
   !m.push(1)
   h = H(w: !v)
   new w2 = !m

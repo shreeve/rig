@@ -6,7 +6,7 @@ fun f(xs: []Int) -> []Int!
   xs
 
 fun run() -> Int!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   r = f(v[..])!
   !v.push(2)

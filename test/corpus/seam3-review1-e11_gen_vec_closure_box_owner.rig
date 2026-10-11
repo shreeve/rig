@@ -2,7 +2,7 @@ struct P
   x: Int
 
 fun mk[T](x: T) -> *sub()
-  xs: Vec[T] = Vec()
+  xs: List[T] = List()
   !xs.push(x)
   *|<xs| print(xs[0])
 

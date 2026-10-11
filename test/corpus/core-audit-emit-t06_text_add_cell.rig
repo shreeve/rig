@@ -1,9 +1,9 @@
-fun reset(c: !Cell[Vec[Int]]) -> Int
-  !c.set(Vec())
+fun reset(c: !Cell[List[Int]]) -> Int
+  !c.set(List())
   0
 
 sub main()
-  c: Cell[Vec[Int]] = Cell(Vec())
+  c: Cell[List[Int]] = Cell(List())
   for i in 0..40
     !c.push(i * 1000)
   t = Text()

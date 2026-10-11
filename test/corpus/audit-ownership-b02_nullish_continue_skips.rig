@@ -1,11 +1,11 @@
 fun make(k: Int) -> Int?
   k if k > 0 else none
 
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print("eat", v.len)
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   for k in 0..3
     n = make(k) ?? continue
     print(n)

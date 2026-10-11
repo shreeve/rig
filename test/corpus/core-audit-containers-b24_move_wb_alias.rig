@@ -1,7 +1,7 @@
 sub main()
-  m: Vec[Int] = Vec()
+  m: List[Int] = List()
   !m.push(1)
-  n: Vec[Int] = Vec()
+  n: List[Int] = List()
   w = !m
   w2 = !n
   w = <w2

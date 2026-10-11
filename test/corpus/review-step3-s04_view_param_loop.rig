@@ -1,5 +1,5 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 fun total(s: ?S) -> Int
   n = 0
@@ -7,11 +7,11 @@ fun total(s: ?S) -> Int
     n += x
   n
 
-fun get(s: ?S) -> ?Vec[Int]
+fun get(s: ?S) -> ?List[Int]
   ?s.v
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   s = S(v: <v)

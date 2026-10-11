@@ -5,7 +5,7 @@ struct Pair[A, B]
 type IP = Pair[Int, String]
 type CI = Cell[Int]
 type BI = ^Int
-type VI = Vec[Int]
+type VI = List[Int]
 type SI = *Signal[Int]
 
 sub main()

@@ -11,7 +11,7 @@ sub wr(r: !R)
   r = R(n: r.n + 100)
 
 sub main()
-  v: Vec[^R] = Vec()
+  v: List[^R] = List()
   !v.push(^R(n: 1))
   for x in !v
     wr(x)

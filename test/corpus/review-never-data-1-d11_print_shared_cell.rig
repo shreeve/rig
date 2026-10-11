@@ -1,5 +1,5 @@
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
 struct O
   s: S
@@ -9,7 +9,7 @@ fun grow(s: !S) -> Int
     !s.c.push(i)
   5
 
-fun growc(c: !Cell[Vec[Int]]) -> Int
+fun growc(c: !Cell[List[Int]]) -> Int
   for i in 0..100
     !c.push(i)
   5
@@ -18,7 +18,7 @@ sub x()
   pass
 
 sub main()
-  c = *Cell(Vec[Int]())
+  c = *Cell(List[Int]())
   c2 = +c
   print(c, growc(!c2))
   print(c if true else c, growc(!c2))

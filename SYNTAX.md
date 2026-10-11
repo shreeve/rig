@@ -229,7 +229,7 @@ is a reserved name, the absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
-The built-in types `Cell`, `Vec`, `Text`, `Signal`, and
+The built-in types `Cell`, `List`, `Text`, `Signal`, and
 `Endian` are reserved names. The built-in functions `print`, `replace`, and `swap`
 are names a declaration may hide.
 
@@ -406,7 +406,7 @@ where the value is discarded: a statement, alone or under `!`, `?`, or
 
 ```rig
 struct Stack
-  items: Vec[Int]
+  items: List[Int]
 
   sub push(!self, k: Int)
     !self.items.push(k)
@@ -421,7 +421,7 @@ struct Stack
     sum
 
 sub main()
-  s = Stack(items: Vec())
+  s = Stack(items: List())
   !s.push(1)
   !s.push(2)
   !s.items.push(3)
@@ -470,7 +470,7 @@ operator does, and which types it takes, is in
 | Form | Written | Meaning |
 |---|---|---|
 | a named type | `Int`, `Point`, `geo.Point` | a built-in, local, or imported type |
-| a generic instance | `Vec[Int]`, `Pair[Int, String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
+| a generic instance | `List[Int]`, `Pair[Int, String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
 | read view | `?T` | [SPEC §7](SPEC.md#lending) |
@@ -502,7 +502,7 @@ handle, while a box or handle of an optional is written `^(Node?)`,
 type after it, suffixes included: `?User?` and `!User?` view an
 optional, and `?*User?` views an optional handle. Prefixes compose right
 to left: `?*Node` is a read view of a shared handle, and
-`*Cell[Vec[*sub()]]` a shared cell holding a list of owned closures.
+`*Cell[List[*sub()]]` a shared cell holding a list of owned closures.
 The element of a slice or array takes the suffixes (`[]Int?` is a slice
 of optionals), and a function type takes none, so an optional slice,
 array, or function type is written in parentheses: `([]Int)?`,
@@ -1000,7 +1000,7 @@ iteration. An `else` block runs when the loop ends without `break`.
 ### for
 
 `for x in source` walks a range `a..b`, an array, a slice, a `String`
-(its bytes), a `Vec`, or an iterator, a value whose type has
+(its bytes), a `List`, or an iterator, a value whose type has
 `next(!self) -> T?` (`for x in it` is `while (!it).next() as x`).
 `for x, i in xs` also binds the index, after the element (not for an
 iterator). A sigil on the source says how the loop holds it.
@@ -1030,7 +1030,7 @@ sub main()
 |---|---|
 | `for x in xs`, `for x in ?xs` | each element read in place: a copy of plain data, a view of anything else |
 | `for x in !xs` | a write view of each element |
-| `for x in <v` | each element of a Vec, owned; `v` is consumed |
+| `for x in <v` | each element of a List, owned; `v` is consumed |
 | `for x in it`, `for x in !it` | each value an iterator gives, advancing `it` where it stands |
 
 A source made there (`for x in mk()`) is taken; [SPEC §6](SPEC.md#for)
@@ -1295,9 +1295,9 @@ with exactly one field also takes it by position: `Meters(3.5)`, and
 the built-ins `^x`, `*Cell(0)`, and `*Signal(0)`. A payload variant
 is built the same way, `.rect(w: 2, h: 5)` or `Shape.circle(2)`, and a
 generic type's arguments may be given in brackets:
-`Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,
-`Option[Int].some(7)`. A `Vec` is built empty, `Vec()` or
-`Vec(capacity: 16)`. A `Text` is built from any values, each written
+`Pair[Int, Float](first: 1, second: 2.5)`, `List[Int]()`,
+`Option[Int].some(7)`. A `List` is built empty, `List()` or
+`List(capacity: 16)`. A `Text` is built from any values, each written
 as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
 
 ### Members, indexes, and slices
@@ -1307,7 +1307,7 @@ as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
 | `p.x`, `p.m()` | a field (a field read never runs code), a method call |
 | `xs[i]` | an element, bounds-checked |
 | `s[a..b]` | a slice of a String, itself a String |
-| `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or Vec |
+| `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or List |
 | `?t[a..b]` | a lend of part of a Text: a String viewing it |
 | `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a String: a slice argument is lent as its name is |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
@@ -1355,7 +1355,7 @@ sub show[n: Int]()
 sub main()
   xs = [10, 20, 30]
   ops = [double, double]
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(xs[2])
   show[2]()
   a = Wrap[Row](v: [1, 2, 3])
@@ -1391,7 +1391,7 @@ generic type `Pair` expects 2 type arguments, got 1
 
 ```rig reject
 sub main()
-  v = Vec[[]Int]()
+  v = List[[]Int]()
 ```
 
 ```error

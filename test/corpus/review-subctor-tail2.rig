@@ -6,7 +6,7 @@ sub t1()!
   defer print("t1 defer")
 
 sub t2()!
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
   <v
 

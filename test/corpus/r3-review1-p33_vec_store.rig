@@ -1,8 +1,8 @@
 struct P
   n: Int
 
-fun mk() -> Vec[*P]
-  v: Vec[*P] = Vec()
+fun mk() -> List[*P]
+  v: List[*P] = List()
   !v.push(*P(n: 4))
   v
 

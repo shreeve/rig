@@ -1,10 +1,10 @@
-sub put(h: !*Vec[?Vec[Int]], x: ?Vec[Int])
+sub put(h: !*List[?List[Int]], x: ?List[Int])
   !h.push(x)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  h: *Vec[?Vec[Int]] = *Vec()
+  h: *List[?List[Int]] = *List()
   h2 = +h
   put(!h, ?v)
   <h

@@ -10,9 +10,9 @@ fun signal[T](x: T) -> Int
   1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   print(cell(?v), signal(?v))
 
-# error: 14:9: `cell[?Vec[Int]]` instantiates `Cell[?Vec[Int]]`
-# error: 14:19: `signal[?Vec[Int]]` instantiates `Signal[?Vec[Int]]`
+# error: 14:9: `cell[?List[Int]]` instantiates `Cell[?List[Int]]`
+# error: 14:19: `signal[?List[Int]]` instantiates `Signal[?List[Int]]`
 # errors: 2

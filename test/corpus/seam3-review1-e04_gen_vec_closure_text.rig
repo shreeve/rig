@@ -1,5 +1,5 @@
 fun mk[T](x: T) -> *fun() -> String
-  xs: Vec[T] = Vec()
+  xs: List[T] = List()
   !xs.push(x)
   *|<xs| "{xs[0]}"
 

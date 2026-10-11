@@ -13,7 +13,7 @@ sub main()
   h = Holder(k: +k, cb: *|+k| (!k).hit())
   h.cb()
   !h.k.hit()
-  v: Vec[Holder] = Vec()
+  v: List[Holder] = List()
   !v.push(<h)
   v[0].cb()
   for x in v

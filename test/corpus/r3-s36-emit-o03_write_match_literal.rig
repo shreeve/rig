@@ -5,7 +5,7 @@ fun s(tag: String, v: Int) -> Int
   v
 
 sub main()
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(5)
   !v.push(6)
   print("-- guarded match on a call")

@@ -1,14 +1,14 @@
 sub add(a: !Int, b: ?Int)
   a += b
 
-sub addv(a: !Vec[Int], b: ?Vec[Int])
+sub addv(a: !List[Int], b: ?List[Int])
   !a.push(b.len)
 
 sub main()
   n = 1
   add(b: n, a: !n)
   add(a: !n, b: n)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   addv(b: v, a: !v)
   addv(!v, v)
   print(n)

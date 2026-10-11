@@ -4,7 +4,7 @@
 struct Holder
   r: []Int
 
-fun f(b: !Vec[Int]) -> Int
+fun f(b: !List[Int]) -> Int
   x = [9, 9]
   hs = [Holder(r: ?x[..])]
   for k in !hs
@@ -14,7 +14,7 @@ fun f(b: !Vec[Int]) -> Int
   hs[0].r[0]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   print(f(!v))
 

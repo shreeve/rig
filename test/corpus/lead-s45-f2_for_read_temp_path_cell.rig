@@ -5,8 +5,8 @@ fun idx(s: ?Text) -> Int
   0
 
 sub main()
-  v: Vec[Vec[C]] = Vec()
-  inner: Vec[C] = Vec()
+  v: List[List[C]] = List()
+  inner: List[C] = List()
   !inner.push(C(hits: Cell(0)))
   !v.push(<inner)
   for c in v[idx(?Text("k"))]

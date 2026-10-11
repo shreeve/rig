@@ -1,16 +1,16 @@
-# A Vec holds views: it holds the loans of every view pushed into it,
+# A List holds views: it holds the loans of every view pushed into it,
 # until it is dropped.
 
 struct Bag
-  items: Vec[?Int]
+  items: List[?Int]
 
-sub keep(v: !Vec[?Int], x: ?Int)
+sub keep(v: !List[?Int], x: ?Int)
   !v.push(x)
 
 sub main()
   a = 1
   b = 2
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   keep(!v, ?b)
   print(v[0] + v[1], v)
@@ -19,14 +19,14 @@ sub main()
   <v
   a = 5
   print(a)
-  bag = Bag(items: Vec())
+  bag = Bag(items: List())
   !bag.items.push(?b)
   print(bag.items)
   e = 8
   if true
     !bag.items.push(?e)
   print(bag.items.len)
-  s: Vec[[]Int] = Vec()
+  s: List[[]Int] = List()
   arr = [1, 2, 3]
   !s.push(?arr[..2])
   print(s)

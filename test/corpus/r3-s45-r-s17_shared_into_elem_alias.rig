@@ -1,8 +1,8 @@
 sub main()
-  v: Vec[Vec[Int]] = Vec()
-  w: Vec[Int] = Vec()
+  v: List[List[Int]] = List()
+  w: List[Int] = List()
   !v.push(<w)
   r = !v[0]
   !r.push(1)
-  !v.push(Vec())
+  !v.push(List())
   !r.push(2)

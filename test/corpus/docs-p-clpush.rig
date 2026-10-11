@@ -1,4 +1,4 @@
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   add = |!v, x: Int| v.push(x)
   add(1)

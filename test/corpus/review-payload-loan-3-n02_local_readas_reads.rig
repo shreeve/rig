@@ -1,10 +1,10 @@
 struct P
   t: Text
   n: Int
-  xs: Vec[Int]
+  xs: List[Int]
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(7)
   p = P(t: Text("hello"), n: 3, xs: <xs)
   o: (!P)? = !p

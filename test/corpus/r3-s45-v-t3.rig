@@ -2,7 +2,7 @@ sub main()
   a = 1
   b = 2
   c = 3
-  v: Vec[!Int] = Vec()
+  v: List[!Int] = List()
   !v.push(!a)
   !v.push(!b)
   !v.push(!c)

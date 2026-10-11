@@ -5,7 +5,7 @@ sub fillall[T](s: ![]T, v: T)
   !s.fill(v)
 
 sub main()
-  v: Vec[String] = Vec()
+  v: List[String] = List()
   !v.push("a")
   fillall(!v[..], "b")
   print(v)

@@ -1,5 +1,5 @@
 # A call evaluates its arguments left to right and uses them all when
-# it runs. An argument that reads a value owning storage (a Vec, a Box,
+# it runs. An argument that reads a value owning storage (a List, a Box,
 # a shared handle, or a struct holding one) shares that storage with
 # the place it reads, so a later argument cannot lend to write or move
 # that place: the call would see a stale or freed value. A view, a
@@ -10,21 +10,21 @@ struct Node
   n: Int
 
 struct S
-  a: Vec[Int]
+  a: List[Int]
   b: Int
 
   fun count(?self, n: Int) -> Int
     self.a.len + n
 
 struct View
-  r: ?Vec[Int]
+  r: ?List[Int]
   n: Int
 
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   !v.push(7)
   2
 
-fun eat(v: Vec[Int]) -> Int
+fun eat(v: List[Int]) -> Int
   v.len
 
 fun reset(r: !*Node) -> Int
@@ -35,40 +35,40 @@ fun rebox(b: !^Int) -> Int
   b = ^5
   0
 
-fun clear(o: !Vec[Int]?) -> Int
+fun clear(o: !List[Int]?) -> Int
   o = none
   0
 
-fun rd(v: ?Vec[Int], n: Int) -> Int
+fun rd(v: ?List[Int], n: Int) -> Int
   v.len + n
 
 fun take(s: []Int, n: Int) -> Int
   s.len + n
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(0)
   print(v, grow(!v), v)
   print(v, eat(<v))
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   w = !u
   print(w, grow(!w))
-  s = S(a: Vec(), b: 1)
+  s = S(a: List(), b: 1)
   print(s, grow(!s.a))
   print(s.a, grow(!s.a))
   rc = *Node(n: 1)
   print(rc, reset(!rc))
   b = ^3
   print(b, rebox(!b))
-  x: Vec[Int] = Vec()
+  x: List[Int] = List()
   print(x, (!x).pop() ?? 0)
-  z: Vec[Int] = Vec()
+  z: List[Int] = List()
   print(rd(?z, grow(!z)))
   print(take(?z[..], grow(!z)))
   vw = View(r: ?z, n: grow(!z))
   print(z.len, vw.n)
   print(s.count(grow(!s.a)))
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   print(o, clear(!o))
 
 # error: 51:18: cannot lend `v` to write while an earlier argument's read of it is in use

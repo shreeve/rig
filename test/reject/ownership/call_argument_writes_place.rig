@@ -3,30 +3,30 @@
 # the place's root, as Rust's two-phase views also forbid.
 
 struct B
-  xs: Vec[Int]
+  xs: List[Int]
 
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   for i in 0..100
     !v.push(i)
   5
 
-fun pair(v: !Vec[Int]) -> [2]Int
+fun pair(v: !List[Int]) -> [2]Int
   !v.push(0)
   [5, 6]
 
-fun renew(b: !B) -> Vec[Int]
-  b.xs = Vec()
-  Vec()
+fun renew(b: !B) -> List[Int]
+  b.xs = List()
+  List()
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   !v.push(8)
   old = replace(!v[0], grow(!v))
   !v.push(grow(!v))
   !v[..].fill(grow(!v))
   !v[..2].copy(pair(!v))
-  b = B(xs: Vec())
+  b = B(xs: List())
   xs = replace(!b.xs, renew(!b))
   print(old, v, xs)
 

@@ -7,12 +7,12 @@ struct S
 sub f()!
   pass
 
-sub cb(n: Int, xs: Vec[Int])
+sub cb(n: Int, xs: List[Int])
   pass
 
 sub main()
   f()!
-  cb(1, Vec())
+  cb(1, List())
   s = S(n: 1)
   !s.hook(3)
   t: sub(Int) = |k|

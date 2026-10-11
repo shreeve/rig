@@ -1,11 +1,11 @@
 # UNSOUND on main: a `!` in the tail runs the errdefers on the failure
 # exit, and their effects stay in the state the success exit's defers
 # are checked against. The errdefer revives `x`; on success it does
-# not run, so the defer reads the moved Vec.
+# not run, so the defer reads the moved List.
 error E
   bad
 
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print("eat", v.len)
 
 fun maybe(ok: Bool) -> Int!
@@ -13,10 +13,10 @@ fun maybe(ok: Bool) -> Int!
   1
 
 fun f(ok: Bool) -> Int!
-  x: Vec[Int] = Vec()
+  x: List[Int] = List()
   !x.push(1)
   defer print("deferred", x[0])
-  errdefer x = Vec()
+  errdefer x = List()
   eat(<x)
   maybe(ok)!
 

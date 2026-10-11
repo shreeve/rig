@@ -2,13 +2,13 @@
 # struct, a `?self` chain, and a part of a temporary, in loops.
 # release
 
-fun build(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun build(n: Int) -> List[Int]
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i)
   v
 
-fun look(x: !Cell[Vec[Int]]) -> Int
+fun look(x: !Cell[List[Int]]) -> Int
   !x.push(10)
   x.len
 
@@ -17,7 +17,7 @@ fun bump(x: !Cell[Int]) -> Int
   x.get()
 
 struct V
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   drop(!self)
     print("drop", self.c.len)
@@ -44,7 +44,7 @@ fun maybe(n: Int) -> Int?
   n
 
 sub main()
-  a: *Cell[Vec[Int]] = *Cell(build(1))
+  a: *Cell[List[Int]] = *Cell(build(1))
   print(look(!a), a.len)
   n: *Cell[Int] = *Cell(0)
   s = 0

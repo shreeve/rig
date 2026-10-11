@@ -1,6 +1,6 @@
 struct T
   k: Int
-  kids: Vec[^T]
+  kids: List[^T]
 
 struct Q
   k: Int
@@ -15,15 +15,15 @@ struct Q2
   q: ^Q?
 
 sub main()
-  root = ^T(k: 0, kids: Vec())
+  root = ^T(k: 0, kids: List())
   i = 1
   while i < 300000
-    root = ^T(k: i, kids: Vec())
+    root = ^T(k: i, kids: List())
     i += 1
   deep: ^T? = none
   i = 0
   while i < 300000
-    kids: Vec[^T] = Vec()
+    kids: List[^T] = List()
     if <deep as d
       !kids.push(<d)
     deep = ^T(k: i, kids: <kids)

@@ -1,27 +1,27 @@
 # A `break` value leaves its loop like a returned value leaves its
-# function: an owning value moves out (the rest of a consumed Vec is
+# function: an owning value moves out (the rest of a consumed List is
 # dropped), and a view keeps what it views lent.
 
 struct Wrap
   n: Int
 
-fun pick(boxes: Vec[*Wrap], want: Int) -> *Wrap?
+fun pick(boxes: List[*Wrap], want: Int) -> *Wrap?
   for b in <boxes
     break <b if b.n == want
   else
     none
 
 sub main()
-  v: Vec[*Wrap] = Vec()
+  v: List[*Wrap] = List()
   !v.push(*Wrap(n: 1))
   !v.push(*Wrap(n: 2))
   !v.push(*Wrap(n: 3))
   if pick(<v, 2) as b
     print(b.n)
-  w: Vec[*Wrap] = Vec()
+  w: List[*Wrap] = List()
   !w.push(*Wrap(n: 1))
   print(pick(<w, 9) == none)
-  u: Vec[*Wrap] = Vec()
+  u: List[*Wrap] = List()
   !u.push(*Wrap(n: 4))
   !u.push(*Wrap(n: 5))
   fallback = *Wrap(n: 0)

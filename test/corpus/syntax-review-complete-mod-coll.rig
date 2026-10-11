@@ -1,9 +1,9 @@
 pub struct Stack
-  items: Vec[Int]
+  items: List[Int]
   count: Int
 
   fun new() -> Self
-    Stack(items: Vec(), count: 0)
+    Stack(items: List(), count: 0)
 
   sub push(!self, x: Int)
     !self.items.push(x)

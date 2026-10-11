@@ -8,7 +8,7 @@ struct Res
 
 sub main()
   print(lib.dup(Res(n: 1)).n)
-  v = Vec[Res]()
+  v = List[Res]()
   !v.push(Res(n: 2))
   print(lib.last(?v, Res(n: 3)).n)
   print(lib.eq(Res(n: 1), Res(n: 1)))
@@ -17,4 +17,4 @@ sub main()
   u: U8 = 3
   print(lib.fit(u))
   print(lib.add("a", "b"))
-  print(lib.dup(Vec[Int]()).len)
+  print(lib.dup(List[Int]()).len)

@@ -1,14 +1,14 @@
 struct View
-  w: ?Vec[Int]
+  w: ?List[Int]
 
-sub run(f: ?sub(?Vec[Int]))
-  local: Vec[Int] = Vec()
+sub run(f: ?sub(?List[Int]))
+  local: List[Int] = List()
   !local.push(7)
   !local.push(8)
   f(?local)
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   v = View(w: ?a)
   v = View(w: ?a)
   run(|!v, w|

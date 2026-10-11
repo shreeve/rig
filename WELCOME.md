@@ -61,7 +61,7 @@ arithmetic negation (`y = -n`):
 
 ```rig
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   done = false
@@ -99,22 +99,22 @@ its `!` never reads as "not"; one whose result is dropped is written
 error Stack
   empty
 
-fun peek(v: ?Vec[Int]) -> Int?
+fun peek(v: ?List[Int]) -> Int?
   return none if v.len == 0
   v[v.len - 1]
 
-fun pop(v: !Vec[Int]) -> Int!
+fun pop(v: !List[Int]) -> Int!
   return Stack.empty if v.len == 0
   (!v).pop() ?? 0
 
-fun next(v: ?Vec[Int]) -> Int?
+fun next(v: ?List[Int]) -> Int?
   peek(?v)? + 1
 
-fun drain(v: !Vec[Int]) -> Int!
+fun drain(v: !List[Int]) -> Int!
   pop(!v)! + pop(!v)!
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   print(next(?v))
@@ -355,7 +355,7 @@ support file.
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
 | interior mutability | `Rc<RefCell<T>>` | by hand | `*Cell[T]` |
 | heap box | `Box<T>` | `allocator.create(T)` | `^T` |
-| growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec[T]` |
+| growable array | `Vec<T>` | `std.ArrayList(T)` | `List[T]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
 | closure argument | `f: &dyn Fn(i64) -> i64` | a context pointer and a function | `f: ?fun(Int) -> Int` |
 | drop early | `drop(x)` | `x.deinit()` | `<x` alone on a line |
@@ -391,7 +391,7 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | what `T` may do | what its bounds say | what each instance compiles | what each instance supports, checked per call |
 | generic type | `struct Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `struct Wrap[T]` |
-| type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
+| type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `List[Int]()` |
 | generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` |
 | compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
 | its call | `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
@@ -438,7 +438,7 @@ correspondences:
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
 | `*T`, `~T` | a runtime `RcBox(T)` pointer, a weak handle |
-| `Vec[T]`, `Cell[T]`, `^T`, `Signal[T]` | runtime generic types |
+| `List[T]`, `Cell[T]`, `^T`, `Signal[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
 | a stack closure | a local struct holding its captures, with an `__rig_invoke` method |
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
@@ -770,7 +770,7 @@ Some habits need no error, only a different spelling: `xs.len` is a
 field, not `xs.len()`, since reading it runs no code; a constructor
 names its fields, `P(x: 1)`, not `.{ .x = 1 }`; `switch`'s `else =>` is
 `match`'s `_ =>`; and an allocator is never passed, because `*x`,
-`^v`, `Vec`, and owned closures are the only things that allocate
+`^v`, `List`, and owned closures are the only things that allocate
 (besides the runtime's list of the program's arguments), and the
 compiler frees them.
 
@@ -783,7 +783,7 @@ You will reach for these and not find them:
 - **string interpolation**: text is built with `Text(...)` and
   `!t.add(...)`, which write values as `print` does;
 - **concurrency and async**;
-- **a large standard library**: beyond `print`, `Cell`, `Vec`,
+- **a large standard library**: beyond `print`, `Cell`, `List`,
   `Text`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,
   `std.os`, `std.time`, `std.random`, `std.sort`, `std.slices`, and

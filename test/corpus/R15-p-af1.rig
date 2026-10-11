@@ -1,9 +1,9 @@
 struct S
   arr: [2]Int
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  h: *S = *S(arr: [1, 2], v: Vec())
+  h: *S = *S(arr: [1, 2], v: List())
   h2 = +h
   w = !h.arr[..]
   t = !h2.arr[..]

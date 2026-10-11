@@ -9,5 +9,5 @@ fun mk() -> R
 sub main()
   a = R(n: 1)
   h = *R(n: 2)
-  Vec[Int]()
+  List[Int]()
   print("end")

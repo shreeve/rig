@@ -21,7 +21,7 @@ sub main()
   print(r)
   o: Disk? = .timeout
   print(o, opt(0), opt(1))
-  v = Vec[Disk]()
+  v = List[Disk]()
   !v.push(.full)
   !v.push(Disk.timeout)
   print(v, dflt(), dflt(.full))

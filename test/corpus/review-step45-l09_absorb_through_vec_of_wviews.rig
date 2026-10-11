@@ -1,7 +1,7 @@
-# store a view through a write view held in a Vec; the target must keep the loan
+# store a view through a write view held in a List; the target must keep the loan
 sub main()
-  inner: Vec[String] = Vec()
-  w: Vec[!Vec[String]] = Vec()
+  inner: List[String] = List()
+  w: List[!List[String]] = List()
   !w.push(!inner)
   t = Text("x")
   !w[0].push(?t)

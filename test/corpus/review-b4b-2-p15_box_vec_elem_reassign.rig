@@ -1,4 +1,4 @@
-# Box element of a Vec via a view param; view escapes; element replaced. Expect reject.
+# Box element of a List via a view param; view escapes; element replaced. Expect reject.
 struct Res
   n: Int
   t: Text

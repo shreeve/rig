@@ -1,10 +1,10 @@
-# write match on a Box element of a Vec, and on a handle element. Expect accept, clean.
+# write match on a Box element of a List, and on a handle element. Expect accept, clean.
 enum E
   a(n: Int, t: Text)
   b
 
 sub main()
-  v: Vec[^E] = Vec()
+  v: List[^E] = List()
   !v.push(^E.a(n: 1, t: Text("v")))
   i = 0
   match !v[i]

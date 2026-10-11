@@ -1,6 +1,6 @@
 # `|+b|` of a viewed handle (a `for b in ?v` element, a `?*B`
 # parameter) clones the handle into the closure, which then outlives the
-# view and the Vec.
+# view and the List.
 
 struct B
   n: Int
@@ -12,10 +12,10 @@ fun keep(b: ?*B) -> *fun() -> Int
   *|+b| b.n * 100
 
 sub main()
-  v: Vec[*B] = Vec()
+  v: List[*B] = List()
   !v.push(*B(n: 1))
   !v.push(*B(n: 2))
-  fs: Vec[*fun() -> Int] = Vec()
+  fs: List[*fun() -> Int] = List()
   for b in ?v
     !fs.push(*|+b| b.n * 10)
   <v

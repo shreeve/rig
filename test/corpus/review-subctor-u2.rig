@@ -1,5 +1,5 @@
 struct Bag[T]
-  items: Vec[T]
+  items: List[T]
 
 struct Opt[T]
   o: T?
@@ -11,12 +11,12 @@ struct Node
   v: Int
 
 sub main()
-  a = Bag(Vec[Int]())
-  b: Bag[String] = Bag(Vec())
+  a = Bag(List[Int]())
+  b: Bag[String] = Bag(List())
   c = Opt(3)
   d: Opt[Int] = Opt(none)
   e = Sh(*Node(1))
-  f: Bag[Int] = Bag(items: Vec())
+  f: Bag[Int] = Bag(items: List())
   print(a, b, c, d, e, f)
   g: ^Opt[Int] = ^Opt(none)
   print(g)

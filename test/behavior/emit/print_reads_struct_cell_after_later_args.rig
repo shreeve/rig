@@ -1,7 +1,7 @@
 # `print` reads a struct holding a Cell when it is called, after a later
-# argument has grown the Cell's Vec through another handle of the struct.
+# argument has grown the Cell's List through another handle of the struct.
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
 fun grow(s: !S) -> Int
   for i in 0..20
@@ -9,7 +9,7 @@ fun grow(s: !S) -> Int
   5
 
 sub main()
-  s = *S(c: Cell(Vec()))
+  s = *S(c: Cell(List()))
   !s.c.push(42)
   d = +s
   print(s, grow(!d))

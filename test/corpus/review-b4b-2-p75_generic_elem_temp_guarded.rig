@@ -1,4 +1,4 @@
-# Generic: guarded match on a Vec element with a header temporary; the view escapes. Expect accept, prints the element, and a push after is rejected (see p76).
+# Generic: guarded match on a List element with a header temporary; the view escapes. Expect accept, prints the element, and a push after is rejected (see p76).
 enum Opt[T]
   some(v: T)
   nothing
@@ -14,7 +14,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub g[T](a: T, b: T, k: T)
-  v: Vec[Opt[T]] = Vec()
+  v: List[Opt[T]] = List()
   !v.push(Opt.some(v: <a))
   !v.push(Opt.some(v: <b))
   saved = ?k

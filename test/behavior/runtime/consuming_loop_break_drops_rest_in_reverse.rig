@@ -1,5 +1,5 @@
 # A consuming loop that leaves early drops the elements it did not reach
-# last first, as dropping the Vec would.
+# last first, as dropping the List would.
 
 struct B
   n: Int
@@ -8,7 +8,7 @@ struct B
     print("drop", self.n)
 
 sub main()
-  v: Vec[*B] = Vec()
+  v: List[*B] = List()
   for i in 1..5
     !v.push(*B(n: i))
   for b in <v

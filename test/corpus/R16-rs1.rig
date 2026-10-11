@@ -15,10 +15,10 @@ sub main()
   swap()
   swap()
   print("mid", r.id)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   run(|!v|
-    v = Vec()
+    v = List()
   )
   print(v.len)
   run(|!r|

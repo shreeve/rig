@@ -20,7 +20,7 @@ sub each(xs: []Int, f: ?sub(Int)!)!
     f(x)!
 
 struct Bin
-  items: Vec[Int]
+  items: List[Int]
 
   sub add(!self, n: Int)!
     return Bad.full if self.items.len >= 2
@@ -35,7 +35,7 @@ sub main()
     print("stopped", e)
   h: sub(Int)! = check
   h(4)!
-  b = Bin(items: Vec())
+  b = Bin(items: List())
   !b.add(1)!
   !b.add(2)!
   !b.add(3) catch |e|

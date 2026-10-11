@@ -16,7 +16,7 @@ fun mk(i: Int) -> Res!
   Res(id: i)
 
 sub main()
-  xs: Vec[^Res] = Vec()
+  xs: List[^Res] = List()
   for i in 1..5
     !xs.push(^Res(id: i))
   total = 0
@@ -24,7 +24,7 @@ sub main()
     n = parse(?b) catch continue
     total += n
   print("total", total)
-  ys: Vec[*Res] = Vec()
+  ys: List[*Res] = List()
   for i in 1..5
     !ys.push(*Res(id: 10 + i))
   got = for y in ?ys

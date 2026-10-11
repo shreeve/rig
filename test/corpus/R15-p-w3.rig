@@ -1,13 +1,13 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub grow(h: ?H)
   h.w.push(2)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  d: Vec[Int] = Vec()
+  d: List[Int] = List()
   xs = [H(w: !v)]
   ys = [H(w: !d)]
   !ys.copy(?xs[..])

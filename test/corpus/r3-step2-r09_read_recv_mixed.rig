@@ -1,16 +1,16 @@
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun total(?self) -> Int
     self.items.len
 
 fun mk() -> Bag
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(7)
   b
 
 sub main()
-  a = Bag(items: Vec())
+  a = Bag(items: List())
   !a.items.push(1)
   !a.items.push(2)
   for i in 0..2

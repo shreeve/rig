@@ -1,13 +1,13 @@
-# pop / remove / insert on Vec[Text] and Vec[^Text]
+# pop / remove / insert on List[Text] and List[^Text]
 sub main()
-  v: Vec[Text] = Vec()
+  v: List[Text] = List()
   !v.push(Text("a"))
   !v.push(Text("b"))
   !v.insert(0, Text("z"))
   x = (!v).remove(1)
   if (!v).pop() as y
     print(x, y, v)
-  w: Vec[^Text] = Vec()
+  w: List[^Text] = List()
   !w.push(^Text("q"))
   !w.clear()
   print(w.len)

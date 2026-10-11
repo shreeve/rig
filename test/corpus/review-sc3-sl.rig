@@ -21,7 +21,7 @@ sub u(k: Int)
   print("u", p.b)
 
 sub v(k: Int)
-  xs: Vec[^Res] = Vec()
+  xs: List[^Res] = List()
   !xs.push(^Res(id: get(k) ?? return))
   print("v", xs.len)
 

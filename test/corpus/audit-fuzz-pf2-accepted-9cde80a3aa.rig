@@ -34,7 +34,7 @@ fun id_float(x: Float) -> Float
 
 sub main()
   print("before")
-  v: Vec[I128] = Vec()
+  v: List[I128] = List()
   !v.push((-170141183460469231731687303715884105728))
   x = v[id_int(1)]
   print("after", x)

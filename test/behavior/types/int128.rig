@@ -13,7 +13,7 @@ sub main()
   print(a, b, c, w.hi, w.lo)
   d = U128(18446744073709551615) * 3
   print(d, I128(d) - 1, Int(U128(42)), Float(c))
-  v = Vec[I128]()
+  v = List[I128]()
   !v.push(-5)
   !v.push(170141183460469231731687303715884105727)
   print(v.len, v[1] > v[0], [U128(1), 2, 3])

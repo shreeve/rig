@@ -1,6 +1,6 @@
 struct H
   name: Text
-  tags: Vec[Int]
+  tags: List[Int]
   h: *Int
   o: ^Text?
 
@@ -10,7 +10,7 @@ enum E
   c
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   w = +v
   !w.push(2)
@@ -18,20 +18,20 @@ sub main()
   b = ^Text("x")
   c = +b
   print(b, c)
-  h = H(name: Text("n"), tags: Vec(), h: *5, o: ^Text("ob"))
+  h = H(name: Text("n"), tags: List(), h: *5, o: ^Text("ob"))
   !h.tags.push(3)
   g = +h
   !g.tags.push(4)
   !g.name.add("!")
   print(h.name, h.tags, g.name, g.tags, g.h, g.o)
-  vs: Vec[Vec[Text]] = Vec()
-  row: Vec[Text] = Vec()
+  vs: List[List[Text]] = List()
+  row: List[Text] = List()
   !row.push(Text("q"))
   !vs.push(<row)
   ws = +vs
   !ws[0][0].add("z")
   print(vs, ws, +vs[0])
-  es: Vec[E] = Vec()
+  es: List[E] = List()
   !es.push(E.a(t: Text("ea")))
   !es.push(E.b(n: 2))
   !es.push(.c)

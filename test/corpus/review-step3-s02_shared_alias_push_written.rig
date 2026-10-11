@@ -1,8 +1,8 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = *S(v: <v)
   g = +h

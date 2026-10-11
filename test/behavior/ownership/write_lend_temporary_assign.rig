@@ -13,7 +13,7 @@ struct S
 
 struct H
   r: String
-  rs: Vec[String]
+  rs: List[String]
 
   fun me(!self) -> !H
     self
@@ -28,7 +28,7 @@ fun mk(n: Int) -> S
   S(n: n, t: Text("text ", n))
 
 fun mkh() -> H
-  H(r: "init", rs: Vec())
+  H(r: "init", rs: List())
 
 fun wrap(h: !H) -> !H
   h

@@ -1,11 +1,11 @@
 struct Node
-  keys: Vec[Int]
-  kids: Vec[^Node]
+  keys: List[Int]
+  kids: List[^Node]
 
 sub main()
-  root = Node(keys: Vec(), kids: Vec())
-  !root.kids.push(^Node(keys: Vec(), kids: Vec()))
-  !root.kids.insert(0, ^Node(keys: Vec(), kids: Vec()))
+  root = Node(keys: List(), kids: List())
+  !root.kids.push(^Node(keys: List(), kids: List()))
+  !root.kids.insert(0, ^Node(keys: List(), kids: List()))
   x = (!root.kids).remove(0)
   !root.keys.push(3)
   !root.keys.insert(0, 1)

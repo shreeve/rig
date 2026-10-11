@@ -1,6 +1,6 @@
 # H1: inside a generic body, a `T` local and a `?T` parameter lent to a
 # `?T` parameter of a hoisted call (keyword arguments out of order); and
-# a `?Vec[Int]` parameter lent as `[]Int`, a `*Q` place as `?Q`.
+# a `?List[Int]` parameter lent as `[]Int`, a `*Q` place as `?Q`.
 struct Q
   xs: [4]Int
   t: Text
@@ -23,13 +23,13 @@ fun sl(s: []Int, n: Int) -> []Int from s
 fun pq(q: ?Q, n: Int) -> ?Q from q
   q
 
-fun viaview(v: ?Vec[Int]) -> []Int from v
+fun viaview(v: ?List[Int]) -> []Int from v
   sl(n: g(1), s: v)
 
 sub main()
   print(outer(5, ?g(6)))
   print(outer([1, 2], ?[3, 4]))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   print(viaview(?v))

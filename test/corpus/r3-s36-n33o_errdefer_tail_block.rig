@@ -1,9 +1,9 @@
 error E
   bad
 
-fun g(c: Bool) -> Vec[Int]!
+fun g(c: Bool) -> List[Int]!
   x = if c
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     errdefer !v.push(2)
     v

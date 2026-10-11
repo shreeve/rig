@@ -1,8 +1,8 @@
-# `|+v|` deep-clones a Vec of Strings viewing a Text; the Text is
+# `|+v|` deep-clones a List of Strings viewing a Text; the Text is
 # then dropped while the closure lives.
 sub main()
   t = Text("a long heap allocated text here")
-  v: Vec[String] = Vec()
+  v: List[String] = List()
   !v.push(?t)
   f = |+v| v[0].len
   <v

@@ -1,14 +1,14 @@
 # A Cell changed through `if as` and `while as` bindings of each kind.
 struct C
   c: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
     !self.log.push(self.c.get())
 
 fun mk(n: Int) -> C
-  C(c: Cell(n), log: Cell(Vec()))
+  C(c: Cell(n), log: Cell(List()))
 
 fun mko(n: Int) -> C?
   return none if n < 0
@@ -32,7 +32,7 @@ sub main()
     z.hit()
     z.hit()
     print(z.c.get(), z.log.len)
-  v: Vec[C] = Vec()
+  v: List[C] = List()
   !v.push(mk(1))
   !v.push(mk(2))
   n = 0

@@ -10,10 +10,10 @@
 
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 
@@ -56,8 +56,8 @@ sub main()
   rs = ?s
   y = <rs.items
   z = <rd(?mk(2)).items
-  v: Vec[Vec[Int]] = Vec()
-  !v.push(Vec())
+  v: List[List[Int]] = List()
+  !v.push(List())
   rv = ?v
   w = <rv[0]
   wv = !v

@@ -7,7 +7,7 @@ enum WP
 
 sub main()
   p = P(t: Text("hello"))
-  v: Vec[WP] = Vec()
+  v: List[WP] = List()
   !v.push(WP.a(!p))
   for x in !v
     match x

@@ -1,5 +1,5 @@
 struct R
-  v: Vec[Int]
+  v: List[Int]
 
 fun a(o: ?R?) -> Int
   if <o as x
@@ -7,7 +7,7 @@ fun a(o: ?R?) -> Int
   0
 
 sub main()
-  o: R? = R(v: Vec())
+  o: R? = R(v: List())
   if !o as w
     !w.v.push(3)
   print(a(?o))

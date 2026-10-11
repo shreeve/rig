@@ -1,8 +1,8 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  h: *S = *S(v: Vec())
+  h: *S = *S(v: List())
   w = !h.v[..]
   !h.v.fill(1)
   !h.v.swap(0, 0)

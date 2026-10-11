@@ -17,7 +17,7 @@ expression, `e?` passes `none` up and `e!` passes a failure up.
 
 **Reading is unmarked; writing is marked.** A bare argument is lent to
 read where its parameter is a read view: `size(v)` is `size(?v)` for
-`size(xs: ?Vec[Int])`. Where the parameter owns its value, a bare owner
+`size(xs: ?List[Int])`. Where the parameter owns its value, a bare owner
 is rejected: write `<v` to move it or `+v` to pass a clone (plain data
 such as an `Int` just copies). A write is always written: `grow(!v)`, or
 `!v.push(3)` for a method that changes `v`. A write call whose result
@@ -88,13 +88,13 @@ struct Account
   drop(!self)
     print("closed")
 
-fun size(xs: ?Vec[Int]) -> Int
+fun size(xs: ?List[Int]) -> Int
   xs.len
 
 sub main()
   a = Account(cents: 100)
   !a.pay(30)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(a.balance())
   w = +v
   print(size(v), (!w).pop() ?? 0, w.len, not (a.balance() > 50))

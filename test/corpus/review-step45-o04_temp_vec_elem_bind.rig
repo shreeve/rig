@@ -1,6 +1,6 @@
-# bind an owning element of a temporary Vec (copy out of a temp)
-fun mk() -> Vec[Text]
-  v: Vec[Text] = Vec()
+# bind an owning element of a temporary List (copy out of a temp)
+fun mk() -> List[Text]
+  v: List[Text] = List()
   !v.push(Text("a"))
   <v
 

@@ -1,6 +1,6 @@
-# store a view through a local write view of a Box of a Vec of views
+# store a view through a local write view of a Box of a List of views
 sub main()
-  b = ^Vec[String]()
+  b = ^List[String]()
   w = !b
   t = Text("x")
   !w.push(?t)

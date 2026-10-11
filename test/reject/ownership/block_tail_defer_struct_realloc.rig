@@ -1,19 +1,19 @@
-# A struct holding a Vec, moved out at a branch's tail: the defer that
-# grows the Vec would write a value the result now owns.
+# A struct holding a List, moved out at a branch's tail: the defer that
+# grows the List would write a value the result now owns.
 struct R
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
   c = true
   x = if c
-    r = R(v: Vec())
+    r = R(v: List())
     !r.v.push(1)
     defer
       for i in 0..100
         !r.v.push(i)
     r
   else
-    R(v: Vec())
+    R(v: List())
   !x.v.push(3)
   print(x.v.len, x.v[0])
 

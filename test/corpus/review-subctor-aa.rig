@@ -18,7 +18,7 @@ sub main()
   b.show()!
   s = *Acc(5)
   s.show()!
-  v = Vec[Acc]()
+  v = List[Acc]()
   !v.push(Acc(7))
   !v[0].bump(1)!
   v[0].show()!

@@ -5,7 +5,7 @@ fun total(xs: []Int) -> Int
   n
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   f = |?v| total(v[..])
   !v.push(2)

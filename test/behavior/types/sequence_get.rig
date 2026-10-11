@@ -1,6 +1,6 @@
 # `get(i)` on an array, a slice, or a String gives the element as `T?`
 # (a String's byte as `U8?`): `none` when `i` is out of range, as for a
-# Vec.
+# List.
 
 struct Point
   x: Int
@@ -21,7 +21,7 @@ fun byte(s: String, i: Int) -> U8
 sub main()
   a = [10, 20, 30]
   print(a.get(1), a.get(3), a.get(-1), first(?a))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for n in 1..5
     !v.push(n)
   print(at(?v[1..], 0), at(?v[..], 4), at(?a[..2], 1))

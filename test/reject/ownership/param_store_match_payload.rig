@@ -8,7 +8,7 @@ enum E
   one(h: Holder)
   zero
 
-fun f(a: !E, b: !Vec[Int]) -> Int
+fun f(a: !E, b: !List[Int]) -> Int
   match !a
     .one(h) => h.r = ?b[..]
     .zero => print(0)
@@ -20,7 +20,7 @@ fun f(a: !E, b: !Vec[Int]) -> Int
 
 sub main()
   x = [9, 9]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   e: E = .one(h: Holder(r: ?x[..]))
   print(f(!e, !v))

@@ -7,7 +7,7 @@ struct V
   r: ?R
 
 sub main()
-  hs: Vec[*V] = Vec()
+  hs: List[*V] = List()
   if true
     a = R(n: 1)
     !hs.push(*V(r: ?a))

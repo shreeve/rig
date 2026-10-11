@@ -2,7 +2,7 @@ struct R
   n: Int
 
 sub main()
-  v: Vec[^R] = Vec()
+  v: List[^R] = List()
   !v.push(^R(n: 1))
   a = v[0]
   print(v.get(0))

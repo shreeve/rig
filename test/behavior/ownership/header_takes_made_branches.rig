@@ -13,8 +13,8 @@ enum Shape
   dot
   line(n: N)
 
-fun mkv(k: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv(k: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(k)
   !v.push(k * 10)
   v

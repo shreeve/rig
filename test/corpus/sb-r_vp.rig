@@ -1,4 +1,4 @@
-fun g(v: Vec[Int]) -> ![]Int
+fun g(v: List[Int]) -> ![]Int
   !v[..]
 
 struct S

@@ -1,4 +1,4 @@
-# Bare Cell[Vec] temporaries and branch leaves changed by members whose
+# Bare Cell[List] temporaries and branch leaves changed by members whose
 # argument jumps or fails after the receiver is reached.
 #
 # oracle: vec1 accept
@@ -8,12 +8,12 @@
 error E
   bad
 
-fun vec1(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun vec1(n: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(n)
   v
 
-fun mkv(n: Int) -> Cell[Vec[Int]]
+fun mkv(n: Int) -> Cell[List[Int]]
   Cell(vec1(n))
 
 fun maybe(n: Int) -> Int?
