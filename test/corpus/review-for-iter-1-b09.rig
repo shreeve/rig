@@ -64,6 +64,6 @@ fun mkbuf() -> Buf
 
 sub main()
   b = mkbuf()
-  for it in b
+  for it in !b
     b = mkbuf()
     print(it.name)

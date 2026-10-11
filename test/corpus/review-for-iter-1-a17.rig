@@ -62,6 +62,6 @@ struct Buf
 sub main()
   b = Buf(buf: mkitems(), at: 0)
   first = (!b).next()
-  for it in b
+  for it in !b
     print(it.name)
   print(first.name)

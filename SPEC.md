@@ -2799,9 +2799,9 @@ fun upto(n: Int) -> Count
 
 sub main()
   c = upto(5)
-  for n in c
+  for n in !c
     break if n == 1
-  for n in c
+  for n in !c
     print("then", n)
   first = for w in text.words("a bb ccc")
     break w if w.len > 1

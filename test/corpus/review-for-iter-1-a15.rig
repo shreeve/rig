@@ -61,6 +61,6 @@ struct Buf
 
 sub main()
   b = Buf(buf: mkitems(), at: 0)
-  for it in b
+  for it in !b
     print(it.name)
     !b.buf.push(Item(name: "z", n: 0))

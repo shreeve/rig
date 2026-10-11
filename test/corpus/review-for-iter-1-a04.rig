@@ -53,7 +53,7 @@ fun mkitems() -> List[Item]
 
 sub main()
   c = upto(4)
-  for a in c
-    for b in c
+  for a in !c
+    for b in !c
       print(a, b)
   print("done")

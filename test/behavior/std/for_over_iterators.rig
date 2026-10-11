@@ -7,14 +7,14 @@ sub main()
   for part in text.split("ann,,bob", ",")
     print("[", part, "]")
   rows = text.lines("x 1\r\ny  2\n")
-  for row in rows
+  for row in !rows
     for w in text.words(row)
       print(w)
   more = text.split("a-b-c", "-")
-  for p in more
+  for p in !more
     print("first", p)
     break
-  for p in more
+  for p in !more
     print(p)
   n = for w in text.words("one two three")
     break w if w.len == 5

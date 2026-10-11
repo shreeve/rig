@@ -7,6 +7,6 @@ struct C
 
 sub main()
   c = C(hi: 2)
-  for n in c
+  for n in !c
     print(n)
   x: Int = "s"

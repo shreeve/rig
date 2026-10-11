@@ -64,6 +64,6 @@ fun mkbuf() -> Buf
 
 sub main()
   c = upto(3)
-  for n in c
+  for n in !c
     c = upto(1)
     print(n)

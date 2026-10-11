@@ -67,5 +67,5 @@ sub main()
   for n in !c
     print(n)
     break
-  for n in c
+  for n in !c
     print(n)
