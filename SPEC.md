@@ -5514,7 +5514,7 @@ capture list is unaffected: entries with a sigil are captures, and bare
 names are parameters, so `|+count, a|` still captures `count`.
 
 ```rig
-struct Gone
+obj Gone
   n: Int
 
   drop(!self)
