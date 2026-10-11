@@ -36,23 +36,26 @@ jobs:
         with:
           version: 0.17.0
 
-      # Nexus is pinned, so its binary is built once per runner and Zig
-      # version and then restored from the cache. It is built for a
-      # baseline CPU, since a cached binary can land on an older runner.
+      # Nexus is co-developed with Rig: always its main. Its binary is
+      # built for a baseline CPU, since a cached one can land on an older
+      # runner, and cached by the commit it was built from.
+      - name: Check out Nexus
+        uses: actions/checkout@v4
+        with:
+          repository: shreeve/nexus
+          ref: main
+          path: nexus
+
+      - name: Find the Nexus commit
+        id: sha
+        run: echo "sha=$(git -C ../nexus rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Nexus
         id: nexus
         uses: actions/cache@v4
         with:
           path: nexus/bin/nexus
-          key: nexus-v2.2.0-baseline-zig-0.17.0-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Check out Nexus
-        if: steps.nexus.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: shreeve/nexus
-          ref: v2.2.0
-          path: nexus
+          key: nexus-${{ steps.sha.outputs.sha }}-baseline-zig-0.17.0-${{ runner.os }}-${{ runner.arch }}
 
       - name: Build Nexus
         if: steps.nexus.outputs.cache-hit != 'true'

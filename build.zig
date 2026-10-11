@@ -2,15 +2,17 @@
 //!
 //! Steps:
 //!   zig build              — build bin/rig (with `-p PREFIX`: also PREFIX/bin/rig)
-//!   zig build parser       — regenerate src/parser.zig from rig.grammar via Nexus
+//!   zig build parser       — generate src/parser.zig from rig.grammar via Nexus
+//!                            (every other step does this first; it is not tracked)
 //!   zig build run -- ...   — run bin/rig with args
 //!   zig build test         — run the Zig unit tests (./test/run runs these too)
 //!   zig build oracle       — build bin/rig-oracle, the test suite's reference
 //!                            ownership checker (test/oracle/)
 //!
-//! `zig build parser` runs Nexus: `-Dnexus=PATH` (relative to where `zig build`
-//! runs), else nexus/bin/nexus in the nearest parent directory (build it with
-//! `zig build -Doptimize=safe`).
+//! src/parser.zig is generated, not committed. Nexus runs again only when
+//! rig.grammar or the Nexus binary changes. The binary is `-Dnexus=PATH`
+//! (relative to where `zig build` runs), else nexus/bin/nexus in the nearest
+//! parent directory (build it with `zig build -Doptimize=safe`).
 
 const std = @import("std");
 
@@ -24,15 +26,35 @@ pub fn build(b: *std.Build) void {
     // parser generation step
     // -----------------------------------------------------------------
 
-    const parser_step = b.step("parser", "Regenerate src/parser.zig from rig.grammar");
-    // A relative `-Dnexus` names a path from where `zig build` was run.
-    const nexus = if (b.option([]const u8, "nexus", "Path to the Nexus binary")) |p|
+    const parser_step = b.step("parser", "Generate src/parser.zig from rig.grammar");
+    // `null` when Nexus is missing: the failing step below stops every target.
+    const nexus: ?[]const u8 = if (b.option([]const u8, "nexus", "Path to the Nexus binary")) |p|
         b.pathResolve(&.{ std.process.currentPathAlloc(b.graph.io, b.allocator) catch @panic("cannot read the working directory"), p })
     else
         findNexus(b);
-    const gen_cmd = b.addSystemCommand(&.{ nexus, "rig.grammar", "src/parser.zig" });
-    gen_cmd.setCwd(b.path("."));
-    parser_step.dependOn(&gen_cmd.step);
+    // Every compile step depends on `parser_gen`.
+    const parser_gen: *std.Build.Step = blk: {
+        const path = nexus orelse {
+            const fail = b.addFail("cannot generate src/parser.zig: Nexus not found.\n" ++
+                "Looked for nexus/bin/nexus in every parent directory of the Rig checkout (normally ../nexus/bin/nexus).\n" ++
+                "Get it: git clone https://github.com/shreeve/nexus ../nexus && (cd ../nexus && zig build -Doptimize=safe)\n" ++
+                "or name a binary: zig build -Dnexus=PATH");
+            parser_step.dependOn(&fail.step);
+            break :blk &fail.step;
+        };
+        // The Nexus binary and the grammar are the run's inputs, so the
+        // output is cached until either changes.
+        // Nexus reports progress on stderr; the wrapper shows it only on failure.
+        const gen = std.Build.Step.Run.create(b, "nexus rig.grammar");
+        gen.addArgs(&.{ "sh", "-c", "\"$@\" 2>\"$3.log\" || { cat \"$3.log\" >&2; exit 1; }", "nexus" });
+        gen.addFileArg(.{ .cwd_relative = path });
+        gen.addFileArg(b.path("rig.grammar"));
+        const out = gen.addOutputFileArg("parser.zig");
+        const place = b.addUpdateSourceFiles();
+        place.addCopyFileToSource(out, "src/parser.zig");
+        parser_step.dependOn(&place.step);
+        break :blk &place.step;
+    };
 
     // -----------------------------------------------------------------
     // rig executable
@@ -53,6 +75,7 @@ pub fn build(b: *std.Build) void {
         .name = "rig",
         .root_module = main_mod,
     });
+    exe.step.dependOn(parser_gen);
 
     // bin/rig in the checkout, where ./test/run and the docs expect it,
     // and PREFIX/bin/rig (zig-out/bin/rig without `-p`).
@@ -73,7 +96,9 @@ pub fn build(b: *std.Build) void {
     // -----------------------------------------------------------------
 
     const test_step = b.step("test", "Run the Zig unit tests of the compiler and the runtime");
-    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = main_mod })).step);
+    const unit = b.addTest(.{ .root_module = main_mod });
+    unit.step.dependOn(parser_gen);
+    test_step.dependOn(&b.addRunArtifact(unit).step);
 
     // -----------------------------------------------------------------
     // the reference ownership checker (test only)
@@ -96,6 +121,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{ .name = "rig_lib", .module = lib_mod }},
         }),
     });
+    oracle_exe.step.dependOn(parser_gen);
     const oracle_bin = b.addUpdateSourceFiles();
     oracle_bin.addCopyFileToSource(oracle_exe.getEmittedBin(), "bin/rig-oracle");
     b.step("oracle", "Build bin/rig-oracle, the reference ownership checker").dependOn(&oracle_bin.step);
@@ -104,8 +130,8 @@ pub fn build(b: *std.Build) void {
 /// `nexus/bin/nexus` in the nearest parent directory of the build root
 /// that has one (the checkout's sibling, also from nested git worktrees).
 /// The configuration is cached: a found binary is a declared input, and
-/// without one every `zig build` looks again.
-fn findNexus(b: *std.Build) []const u8 {
+/// without one every `zig build` looks again. Null when there is none.
+fn findNexus(b: *std.Build) ?[]const u8 {
     var dir: []const u8 = b.pathResolve(&.{b.fmt("{f}", .{b.root})});
     while (std.fs.path.dirname(dir)) |parent| : (dir = parent) {
         const candidate = b.pathJoin(&.{ parent, "nexus", "bin", "nexus" });
@@ -114,5 +140,5 @@ fn findNexus(b: *std.Build) []const u8 {
         return candidate;
     }
     b.graph.poisonCache();
-    return "../nexus/bin/nexus";
+    return null;
 }
