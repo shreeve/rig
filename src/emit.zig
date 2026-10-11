@@ -2221,11 +2221,16 @@ pub const Emitter = struct {
         return if (self.usage.used.contains(sym)) sym else null;
     }
 
-    /// `const i: Int = @intCast(counter);` at the top of a loop body.
+    /// `const i: Int = @as(i64, @bitCast(@as(u64, counter)));` at the top of a
+    /// loop body. The counter is an index below a length: a length is at
+    /// most `maxInt(isize)` on a 64-bit target and below 2^32 on a 32-bit
+    /// one, so it fits `u64` (a widening, the identity on 64-bit) and its
+    /// bits read as `i64` are exact on every target, with no per-iteration
+    /// check.
     fn bindLoopIndex(self: *Emitter, sexp: Sexp, counter: []const u8) Error!void {
         const sym = self.loopIndex(sexp) orelse return;
         const local = try self.declare(.{ .sym = sym, .ty = self.symType(sym) }, self.srcText(ir.For.index(sexp)));
-        try self.line("const {s}: {s} = @intCast({s});", .{ local.zig_name, int_zig, counter });
+        try self.line("const {s}: {s} = @as({s}, @bitCast(@as(u64, {s})));", .{ local.zig_name, int_zig, int_zig, counter });
     }
 
     /// `(for mode binding index-binding source body else?)` (`emitLoop`):

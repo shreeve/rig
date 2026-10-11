@@ -24,23 +24,27 @@ The renames of 0.3.0, applied in this order to each file:
 Then, in `apply`, one change that needs the compiler: `for x in it` over
 an iterator that is a place is written `for x in !it`. The tool runs
 `rig check` (`$RIG`, else bin/rig of the checkout beside this tool, else
-`rig` on PATH) on each `.rig` file and inserts the `!` where the
+`rig` on PATH) on each `.rig` file it rewrote and inserts the `!` where the
 compiler asks for it. Without a compiler it prints a `MANUAL` line.
 
-A file is migrated only if it is 0.2: it spells `Vec[`, `Vec(`, `Box[`,
-`Box(`, `Text`, or a `struct` declaration in code, or the 0.3 compiler (`rig check`, found as
-below) reports an error in it. A file that spells nothing the old way and
-passes the check is already 0.3: it is left byte-identical, and `scan` and
-`apply` print `CURRENT path` for it. Without a compiler only the spelling
-decides (a NOTE says so). `--force FILE...` (after the PATHs) migrates the
-named files whatever they look like. A `List` is renamed `Chain` only where
-the file, or a program beside it, declares `struct List`, `obj List` or `enum List`.
+Each rename is its own pass with its own applicability test (`PASSES`).
+`obj` is purely textual and safe on any version, so it runs on every file
+and is idempotent. The 0.2 renames (box, list, string) run only on a file
+that is 0.2: it spells `Vec[`, `Vec(`, `Box[`, `Box(`, or `Text` in code.
+Only such a spelling decides; a failing `rig check` does not (a 0.3 file
+fails it for any error). A file that spells none of them is 0.3: only
+`obj` touches it, and `scan` and `apply` print `CURRENT path` if that
+changes nothing. `--force FILE...` (after the PATHs) runs the 0.2 renames
+on the named files whatever they look like, and is the way to migrate a 0.2
+file that has no such spelling. A `List` is renamed `Chain` only where the
+file, or a program beside it, declares `struct List`, `obj List` or `enum List`.
 
-`apply` is idempotent: it records the files it migrated, with the hash of
-what it wrote, in DIR/.rig-migrated-0.3, and skips a file whose hash is
-the same. A file you edited since is migrated again, so run it once on
-a tree that is still 0.2 and then compile. It prints one line for each
-thing it could not decide (`MANUAL path:line: why`) and a summary.
+`apply` is idempotent: it records the 0.2 files it migrated, with the hash
+of what it wrote, in DIR/.rig-migrated-0.3, and skips the 0.2 renames of a
+file whose hash is the same. The record never holds back a later rename
+(obj). A file you edited since is migrated again, so run it once on a tree
+that is still 0.2 and then compile. It prints one line for each thing it
+could not decide (`MANUAL path:line: why`) and a summary.
 Not rewritten: `!String` (a 0.2 write view of text, which 0.3.0 cannot
 write), a `Box[T](...)` that names its type argument, and the prose of
 Markdown files. Commit first; the rewrite is textual.
@@ -610,10 +614,24 @@ def package_declares_list(path):
     return False
 
 
-def migrate(text, path, report, full=None):
+# The renames, in order. Each is one mode (see `source_edits`) and one
+# applicability test over `is02`, whether the file spells something the
+# 0.2 way. A 0.2 rename is not idempotent (`String` -> `?String`), so it
+# runs only on a 0.2 file. A purely textual rename that is safe on any
+# version (obj) applies to every file. A later rename adds one line here.
+PASSES = (
+    ("box", lambda is02: is02),
+    ("list", lambda is02: is02),
+    ("string", lambda is02: is02),
+    ("obj", lambda is02: True),
+)
+
+
+def migrate(text, path, report, full=None, is02=True):
     LISTS_OWN[0] = bool(full) and package_declares_list(full)
-    for mode in ("box", "list", "string", "obj"):
-        text = rewrite_source(mode, text, path, report)
+    for mode, applies in PASSES:
+        if applies(is02):
+            text = rewrite_source(mode, text, path, report)
     LISTS_OWN[0] = False
     return text
 
@@ -624,30 +642,19 @@ ERR_LINE = re.compile(r"^(.+?):\d+:\d+: error:")
 def has_old_spelling(path, text):
     """An unambiguous 0.2 spelling: `Vec[`, `Vec(`, `Box[`, `Box(`, or
     `Text` (a type or constructor; `String` reserves the name now)."""
-    pat = re.compile(r"(?<![A-Za-z0-9_.])(?:(?:Box|Vec)[\[(]|Text\b)|(?m:^[ \t]*(?:pub[ \t]+)?struct(?=[ \t]+[A-Za-z_]))")
+    pat = re.compile(r"(?<![A-Za-z0-9_.])(?:(?:Box|Vec)[\[(]|Text\b)")
     if not path.endswith(".rig"):
         return pat.search(text) is not None
     code = spans(text)[0]
     return any(pat.search(text, a, b) for a, b in code)
 
 
-def classify(path, text, rig):
-    """'0.2' or '0.3': a file is 0.2 if it spells something the 0.2 way, or
-    the 0.3 compiler rejects it (an error in the file itself). Without a
-    compiler only the spelling decides."""
-    if has_old_spelling(path, text):
-        return "0.2"
-    if rig is None or not path.endswith(".rig"):
-        return "0.3"
-    here = os.path.dirname(path)
-    r = subprocess.run([rig, "check", path], capture_output=True, text=True, cwd=here)
-    if r.returncode == 0:
-        return "0.3"
-    for l in (r.stderr + r.stdout).split("\n"):
-        m = ERR_LINE.match(l)
-        if m and os.path.abspath(os.path.join(here, m.group(1))) == path:
-            return "0.2"
-    return "0.3"
+def is_02(path, text):
+    """Whether a file is 0.2: it spells something the 0.2 way (see
+    `has_old_spelling`). Only a 0.2-only spelling decides: a failing
+    `rig check` does not, since a 0.3 file fails it for any error, or for
+    a rename a later release makes."""
+    return has_old_spelling(path, text)
 
 
 ITER_DIAG = re.compile(r"^(.+?):(\d+):(\d+): error: write `for \S+ in !\S+`: the loop advances")
@@ -721,35 +728,39 @@ def main():
                     if l:
                         h, p = l.split("  ", 1)
                         marks[root][p] = h
-    if rig is None:
-        report.append("NOTE: no `rig` compiler found (set RIG); files are classified by spelling only")
-    written = []
+    touched, record = [], []
     for root, path in work:
         rel = os.path.relpath(path, root)
         text = open(path).read()
         total += 1
         force = path in forced
         h = hashlib.sha256(text.encode()).hexdigest()
-        if not force and marks[root].get(rel) == h:
-            skipped += 1
-            continue
-        if not force and classify(path, text, rig) == "0.3":
-            current += 1
-            report.append("CURRENT %s: already 0.3, left alone" % os.path.relpath(path))
-            continue
-        new = migrate(text, rel, report, path)
+        # The record says the 0.2 renames are done for this text; it
+        # holds back those passes only, never a later rename.
+        done = not force and marks[root].get(rel) == h
+        is02 = force or (not done and is_02(path, text))
+        new = migrate(text, rel, report, path, is02)
         if new != text:
             changed += 1
             if act == "apply":
                 open(path, "w").write(new)
+        elif done:
+            skipped += 1
+        elif not is02:
+            current += 1
+            report.append("CURRENT %s: already 0.3, left alone" % os.path.relpath(path))
         if act == "apply":
-            written.append((root, rel, path))
-    if act == "apply" and written:
+            if is02 or new != text:
+                touched.append(path)
+            if is02 or rel in marks[root]:
+                record.append((root, rel, path))
+    if act == "apply" and touched:
         if rig is None:
             report.append("MANUAL: no `rig` compiler found (set RIG); write `for x in !it` over an iterator in a place by hand")
         else:
-            iterator_loops(rig, [p for _, _, p in written])
-        for root, rel, path in written:
+            iterator_loops(rig, touched)
+    if act == "apply" and record:
+        for root, rel, path in record:
             marks[root][rel] = hashlib.sha256(open(path).read().encode()).hexdigest()
         for root, m in marks.items():
             open(os.path.join(root, MARK), "w").write("".join("%s  %s\n" % (h, p) for p, h in sorted(m.items())))

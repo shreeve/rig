@@ -154,3 +154,70 @@ expect_has "$(cat objs/old.rig)" 'print("struct Point", p.x, struct)' "a string 
 expect_eq "$(cat objs/new.rig)" "$(cat objs.before)" "the obj file is byte-identical"
 (cd objs && rig run old.rig >../out.txt 2>../err.txt) || fail "obj run: $(cat err.txt)"
 expect_eq "$(cat out.txt)" "struct Point 3 3" "the migrated program runs"
+
+# Each rename is its own pass. `obj` is safe on any version and runs on
+# every file; the 0.2 renames run only on a file that spells something the
+# 0.2 way, never because the check fails.
+M="$ROOT/tools/migrate-0.3.py"
+mkdir -p passes
+cat >passes/native.rig <<'EOF2'
+# A struct Native in a comment, and "struct Native" in a string.
+pub struct Native
+  text: String
+  tag: ?String
+
+fun show(s: ?String) -> ?String
+  s
+
+fun more(s: !String) -> Int
+  s.len
+
+sub main()
+  t = String("x")
+  print(show(t), "struct Text")
+EOF2
+cat >passes/old.rig <<'EOF2'
+struct Old
+  name: Text
+  xs: Vec[Int]
+  b: Box[Old]?
+
+fun f(s: String) -> String
+  s
+EOF2
+cat >passes/obj.rig <<'EOF2'
+obj Done
+  name: String
+EOF2
+cp passes/obj.rig obj.before
+# recorded.rig: the 0.2 renames are done (as an older run left it, struct
+# still in it).
+printf 'struct Rec\n  v: List[Int]\n' >passes/recorded.rig
+h=$(python3 -c 'import hashlib;print(hashlib.sha256(open("passes/recorded.rig").read().encode()).hexdigest())')
+printf '%s  recorded.rig\n' "$h" >passes/.rig-migrated-0.3
+
+python3 "$M" apply passes >out.txt 2>&1 || fail "apply passes: $(cat out.txt)"
+! grep -q MANUAL out.txt || fail "MANUAL: $(cat out.txt)"
+# A 0.3-native file: only struct -> obj.
+expect_has "$(cat passes/native.rig)" "pub obj Native" "native: obj"
+expect_has "$(cat passes/native.rig)" "  text: String" "native: String kept"
+expect_has "$(cat passes/native.rig)" "tag: ?String" "native: ?String kept"
+expect_has "$(cat passes/native.rig)" "fun more(s: !String)" "native: !String kept"
+expect_has "$(cat passes/native.rig)" "t = String(\"x\")" "native: String() kept"
+expect_has "$(cat passes/native.rig)" '# A struct Native in a comment, and "struct Native" in a string.' "native: comment and string kept"
+expect_has "$(cat passes/native.rig)" 'print(show(t), "struct Text")' "native: string kept"
+# A recorded file still gets obj, and its 0.2 renames are not redone.
+expect_eq "$(cat passes/recorded.rig)" "$(printf 'obj Rec\n  v: List[Int]')" "recorded: obj only"
+# A true 0.2 file gets every rename.
+expect_has "$(cat passes/old.rig)" "obj Old" "old: obj"
+expect_has "$(cat passes/old.rig)" "name: String" "old: Text"
+expect_has "$(cat passes/old.rig)" "xs: List[Int]" "old: Vec"
+expect_has "$(cat passes/old.rig)" "b: ^Old?" "old: Box"
+expect_has "$(cat passes/old.rig)" "fun f(s: ?String) -> ?String" "old: read view"
+expect_eq "$(cat passes/obj.rig)" "$(cat obj.before)" "a current file is untouched"
+# A second run changes nothing.
+cat passes/*.rig >twice.before
+python3 "$M" apply passes >out.txt 2>&1 || fail "apply passes again: $(cat out.txt)"
+cat passes/*.rig >twice.after
+expect_eq "$(cat twice.after)" "$(cat twice.before)" "the second run changes nothing"
+expect_has "$(cat out.txt)" "0 rewritten" "the second run rewrites nothing"
