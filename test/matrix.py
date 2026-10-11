@@ -3,7 +3,7 @@
 
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
-for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
+for one type (Int, String, Text, Vec, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
 stores into a view parameter (`store.`, below), the views of a
@@ -324,7 +324,7 @@ CONTEXTS = {
     # the value a call makes there, so it binds that value.
     "match_subject_temp": dict(inline='match pass_t(E, ?Text("t"))\n    y => print(look(?y))', temp=True),
     "as_temp": dict(inline='if some_t(E, ?Text("t")) as y\n    print(look(?y))', temp=True),
-    # A method that consumes its receiver (`<self`, `Box.unbox`).
+    # A method that consumes its receiver (`<self`, `^T.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
     # A method that writes its receiver: a value made there, or one
     # lent with `!` (a place without one is rejected).
@@ -1727,7 +1727,6 @@ HOLDER_OWNERS = {
 
 HOLDER_FORMS = {
     "box": dict(setup=["h = ^@V"], read="h{R}"),
-    "boxbox": dict(setup=["h = ^^@V"], read="h{R}"),
     "generic_fn": dict(setup=["h = same(@V)"], read="h{R}"),
     "generic_box": dict(setup=["h = boxed(@V)"], read="h{R}"),
     "optional": dict(setup=["h: (?T)? = @V"], read=None, opt=True),
@@ -1789,7 +1788,7 @@ NEST_WRAPPERS = {
 }
 NEST_HOMES = ("cell", "closure")
 NEST_OWNERS = {
-    "box": dict(make="b = Box(Text(\"hello\"))", arg="?b"),
+    "box": dict(make="b = ^Text(\"hello\")", arg="?b"),
     "text": dict(make="b = Text(\"hello\")", arg="?b[..]"),
     "vec": dict(make="b: Vec[Int] = Vec()", arg="?b"),
     "string": dict(make="b: String = \"lit\"", arg="b"),

@@ -73,6 +73,9 @@ side; Rig names everything from the side the sigil is on.
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
+**A `^T` is held like a handle and behaves like an owner:** one owner,
+moved by `<b`, with `+b` copying its value into a new box. *(built)*
+
 **A struct's or enum's kind follows from its parts:** it is owning if
 any part is owning or a handle; otherwise a view if any part is a view;
 otherwise plain. No part is a write view (§5). *(built)*
@@ -123,7 +126,7 @@ of the function or block that declares `x`. *(built:* copies, `return x`, a func
 block's last value when the block declares the name, `break x` of a
 name the loop declares, and reading in place: an argument where a view
 is expected (`size(v)` for a `?Vec[Int]` parameter), and a header's
-subject (a `for` over a `Vec`, `if o as x`, a `match` on a `Box`). Write
+subject (a `for` over a `Vec`, `if o as x`, a `match` on a `^T`). Write
 `<x` when `x` stays in scope after the move: a name declared outside
 the block or loop always takes `<x`.*)*
 
@@ -499,10 +502,14 @@ sub main()
 0
 ```
 
-**8. `*<x` moves `x` into a counted box, and `*S(...)` boxes a new
-value.** Handles only read (a `Cell` inside one changes by a marked
-call: sentence 9). `~h` holds the box weakly, and `h.upgrade()` is the
-way back. *(built)*
+**8. `*<x` moves `x` into a counted handle, and `*S(...)` makes a new
+value there; `^<x` and `^S(...)` put a value alone in a box.** A box has
+one owner and no count: it moves, and `+b` copies its value into a new
+box. A value is held one way on the heap, as `^T`, `*T`, or `~T`, so a
+holding sigil over a held value (`^*T`, `**T`) is rejected. Handles only
+read (a `Cell` inside one changes by a marked call: sentence 9). `~h`
+holds the counted value weakly, and `h.upgrade()` is the way back.
+*(built)*
 
 ```rig
 struct User

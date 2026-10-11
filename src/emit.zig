@@ -4789,7 +4789,8 @@ pub const Emitter = struct {
         try self.w.print(", \"{s}\" }},\n    }},\n    .generics = .{{\n", .{try ctx.formatTypeValue(a, .{ .nominal = ctx.endian_sym_id })});
         for (0..ctx.symbols.items.len) |i| {
             const sym: SymbolId = @intCast(i);
-            if (!ctx.isBuiltinGeneric(sym)) continue;
+            // A box is named as a handle is, from its shape (`rig.typeName`).
+            if (!ctx.isBuiltinGeneric(sym) or sym == ctx.box_sym_id) continue;
             try self.w.writeAll("        .{ ");
             try self.writeNominalName(sym);
             try self.w.writeAll(", ");

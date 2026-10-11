@@ -81,7 +81,7 @@ structural weak spots, which these steps removed (the evidence is in
    every path, running defers and reporting the loans it drops; the
    `classify` test keeps `handsOver` the only classifier.
 3. **Reads and lends.** A bare name reads in place where a view is
-   expected, one lend table serves every owner (Vec, Text, Box, `*T`,
+   expected, one lend table serves every owner (Vec, Text, `^T`, `*T`,
    optionals), and a header's subject is viewed or taken by its
    classification.
 4. **Containers hold anything.** `Vec[Text]`, nested Vecs, and records
@@ -89,7 +89,7 @@ structural weak spots, which these steps removed (the evidence is in
    element; assigning a view place re-points it or writes through.
 5. **The remaining planned rules.** An error value meets `T!` only as
    `return`'s operand, `(!s).insert(k)`, `const x = e`, an owner moves
-   as a function's or block's last value, and `+x` deep-copies Vec, Box,
+   as a function's or block's last value, and `+x` deep-copies Vec, `^T`,
    and owning structs.
 6. **Result origins.** A call's result carries the loans of the
    arguments whose types could hold what it views, `from a` narrows
@@ -208,7 +208,7 @@ and run the corpus after.
   values in Cells, generics, and closures.
 - **Evaluation order versus what is emitted:** call arguments, `print`
   and `Text(...)` arguments, and assignment targets.
-- **`defer`/`errdefer` at exits,** owners behind `Cell`, `Box`, and
+- **`defer`/`errdefer` at exits,** owners behind `Cell`, `^T`, and
   `*T`, and generic instances.
 - **Statement-long loans the Core does not need** (compiler-stricter,
   listed in `test/oracle/differences`): a call's result's read loans,

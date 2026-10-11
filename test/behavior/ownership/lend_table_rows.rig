@@ -66,7 +66,7 @@ sub main()
   print(maybe(?o), maybe(?e), name(?ot), size(?ov))
   a = [1, 2, 3]
   print(size(?a))
-  bb = ^^S(n: 6)
+  bb = ^S(n: 6)
   inc(!bb)
   ba = ^[4, 5, 6]
   bt = ^Text("box")

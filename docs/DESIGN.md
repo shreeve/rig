@@ -51,7 +51,7 @@ achieves correctness through rigor; Rig aims for rigor plus visibility.
 it happens, and reading is unmarked. Sharing and weak handles, failure,
 capture modes, compile-time parameters, and the unsafe boundary are
 written too. Like Rust, Rig leaves some effects implicit: a drop where
-a scope ends, the allocation a `Vec`, `Box`, or `Text` makes, and a plain
+a scope ends, the allocation a `Vec`, `^T`, or `Text` makes, and a plain
 copy. A change to a shared `Cell` is marked, `!c.set(5)`; a `Cell` lives
 only behind a shared handle, so it takes only values that carry no loan.
 A count is added only where
@@ -114,7 +114,8 @@ For a value `x` of type `T`:
 | `!x` | `!T` | exclusive, writable loan | none: checked statically |
 | `+x` | `T` | a new owner (`T` is plain data or a handle) | a count bump for a handle |
 | `<x` as a statement | (none) | release now: a move to nowhere | runs the drop glue |
-| `*x` | `*T` | move into a new counted box | one allocation |
+| `^x` | `^T` | move into a new box | one allocation |
+| `*x` | `*T` | move into a new counted handle | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
 | `e?` | `T` when `e : T?` | return `none` from the function | a branch |
@@ -125,7 +126,7 @@ whenever it type-checks. That is the first law.
 **Totality.** A sigil never fails at run time; failure belongs to
 methods. This is why the way back from a weak handle is a method:
 `w.upgrade()` returns an optional `*U?`, because the value may be
-gone. A sigil for it (say `^w`) would be the only partial sigil. The
+gone. A sigil for it (say `$w`) would be the only partial sigil. The
 round trip is total going down (`~x`), fallible coming up
 (`upgrade()`).
 

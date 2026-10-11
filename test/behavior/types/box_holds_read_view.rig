@@ -21,8 +21,8 @@ sub main()
   t = Text("hello")
   bt = ^?t
   print(bt.len, bt)
-  both = ^<b
-  print(both.len)
+  moved = <b
+  print(moved.len)
   boxes: Vec[^?Vec[Int]] = Vec()
   !boxes.push(^?v)
   !boxes.push(^?v)

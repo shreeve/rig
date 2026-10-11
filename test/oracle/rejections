@@ -1412,6 +1412,7 @@ test/corpus/R16-pw1.rig f
 test/corpus/R16-r1.rig mk
 test/corpus/R16-r2.rig mk
 test/corpus/R16-rs3.rig main
+test/corpus/R16-rs5.rig main
 test/corpus/R16-rv2.rig main
 test/corpus/R16-sc4.rig twice
 test/corpus/R16-x1.rig main

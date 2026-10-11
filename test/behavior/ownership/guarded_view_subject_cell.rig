@@ -1,7 +1,6 @@
 # A guarded match on a view a call returns holds the view as the pointer
 # it is, never a copy of the value it views, so a payload's Cell changed
-# in an arm is the matched value's own: through `!E` lent from a `*E`, and
-# through a `!^*E` with a header temporary.
+# in an arm is the matched value's own: through `!E` lent from a `*E`.
 
 struct Counter
   hits: Cell[Int]
@@ -16,9 +15,6 @@ enum E
 fun get(e: !E) -> !E
   e
 
-fun getb(b: !^*E, n: Int) -> !^*E
-  b
-
 sub main()
   e = *E.a(c: Counter(hits: Cell(1)))
   match get(!e)
@@ -26,12 +22,6 @@ sub main()
     .a(c) => !c.hit()
     .b => pass
   print(e)
-  b = ^*E.a(c: Counter(hits: Cell(1)))
-  match getb(!b, Text("xyz").len)
-    .a(c) if c.hits.get() > 0 => !c.hit()
-    _ => pass
-  print(b)
 
 # expect:
-# .a(c: Counter(hits: Cell(value: 2)))
 # .a(c: Counter(hits: Cell(value: 2)))

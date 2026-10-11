@@ -1,4 +1,4 @@
-# A box of a handle, a boxed value's data field named `unbox` (the box's
+# A boxed value's data field named `unbox` (the box's
 # own `unbox` is only called), and `match` on each boxed enum a loop
 # walks by viewed slot.
 
@@ -13,8 +13,6 @@ enum Sh
   s(k: Int)
 
 sub main()
-  h = ^*R(n: 1)
-  print(h)
   b = ^P(unbox: 4)
   print(b.unbox)
   p = <b.unbox()
@@ -28,7 +26,6 @@ sub main()
       .s(k) => print("s", k)
 
 # expect:
-# R(n: 1)
 # 4
 # 4
 # s 3

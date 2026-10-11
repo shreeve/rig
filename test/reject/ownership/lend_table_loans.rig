@@ -49,8 +49,8 @@ sub boxed_array()
   <b
   print(s)
 
-sub boxed_box()
-  b = ^^S(n: 2)
+sub boxed_struct()
+  b = ^S(n: 2)
   r = keep_s(?b)
   <b
   print(r.n)

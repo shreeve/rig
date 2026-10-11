@@ -1,4 +1,4 @@
-# A Text reached through handles and boxes is sliced in place: the
+# A Text reached through a handle is sliced in place: the
 # String views the Text the handle shares, and the handle stays lent
 # while it is used.
 
@@ -18,15 +18,11 @@ sub main()
   vs: Vec[*Text] = Vec()
   !vs.push(+h)
   v = ?vs[0][3..]
-  b = ^*Text("boxed")
-  x = ?b[..3]
-  y = *^Text("handle")
-  z = ?y[..1]
-  print(u, v, x, z)
+  print(u, v)
   <h
   print(g)
 
 # expect:
 # ello h
-# he lo box h
+# he lo
 # hello

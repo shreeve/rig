@@ -41,16 +41,17 @@ happens, as a one-character **sigil**:
 | `!x` | lend `x` to write | `&mut x` | `&x` |
 | `+x` | clone: a new owner | `x.clone()`, `Rc::clone(&x)` | copy, or a manual refcount bump |
 | `<x` alone on a line | drop now | `drop(x)` | `x.deinit()` |
-| `*x` | move into a shared, counted box | `Rc::new(x)` | a hand-written refcounted box |
+| `^x` | move into a box with one owner | `Box::new(x)` | `allocator.create(T)` |
+| `*x` | move into a shared, counted handle | `Rc::new(x)` | a hand-written refcounted box |
 | `~x` | weak handle | `Rc::downgrade(&x)` | a hand-written weak count |
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
 **Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
-and `!x` lend it, `<x` moves it, `+x` clones it, `*x` and `~x` make
-handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
+and `!x` lend it, `<x` moves it, `+x` clones it, `^x` boxes it, `*x` and
+`~x` make handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
 up, `e!` passes a failure up). Types follow suit: `?T`
-and `!T` are views, `*T` a shared handle and `~T` a weak one, while
+and `!T` are views, `^T` a box, `*T` a shared handle and `~T` a weak one, while
 `T?` is an optional and `T!` a `T` that may fail. Rig has no `!` for
 "not": logical negation is `not`, so `!v.pop()` lends `v` to write,
 and never negates (`if !done` is an error that says to use `not`; see
@@ -782,7 +783,7 @@ You will reach for these and not find them:
 - **string interpolation**: text is built with `Text(...)` and
   `!t.add(...)`, which write values as `print` does;
 - **concurrency and async**;
-- **a large standard library**: beyond `print`, `Cell`, `Vec`, `Box`,
+- **a large standard library**: beyond `print`, `Cell`, `Vec`,
   `Text`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,
   `std.os`, `std.time`, `std.random`, `std.sort`, `std.slices`, and

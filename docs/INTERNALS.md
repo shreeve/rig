@@ -138,7 +138,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Box`, `Signal` as built-in generics, `Endian` as a built-in enum, and the built-in type names (`Int`, `String`, `Text`, ...), symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian` as a built-in enum, and the built-in type names (`Int`, `String`, `Text`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
@@ -380,7 +380,7 @@ tree.
 ## The semantic IR
 
 The IR's design rule: **every effect visible in the source stays a
-named node**: move, lend, clone, drop, share, weak,
+named node**: move, lend, clone, drop, box, share, weak,
 capture mode, propagation (`propagate` for `e!`, `propagate_none` for
 `e?`), and compile-time parameters. The parse stage
 adds no type information; sema records types separately, keyed by node.
@@ -499,7 +499,10 @@ A few kinds serve more than one surface form:
   builds from the bar list (the one `@wrapper` kind), or `_`.
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
   qualified type `module.Type`; the other type kinds (`optional`,
-  `shared`, `fun_type`, ...) appear only in type positions.
+  `shared`, `boxed`, `fun_type`, ...) appear only in type positions.
+  `^x` is `(box x)` and the type `^T` is `(boxed T)`. The box is the
+  one built-in generic type that no name reaches: `^` resolves to its
+  instance (`TypeResolver.boxOf`), and sema prints it as `^T`.
 - A bracket list after a value is `(index object index)` with one
   argument and `(inst object args...)` with more; in a type,
   `Vec[Int]` is `(generic_inst Vec Int)`, and another module's
@@ -545,7 +548,8 @@ A few kinds serve more than one surface form:
   `params`.
 
 An owned closure is `(share (lambda ...))`, and its type
-`(shared (fun_type ...))`.
+`(shared (fun_type ...))`. `(box (lambda ...))` and `(boxed (fun_type
+...))` are rejected: a function has no box, and `^fun` is reserved.
 
 `(zig_extern "file.zig" decls...)` is an `extern zig` block of the
 standard library: its declarations are `fun` and `sub` nodes (or `pub`
@@ -1271,10 +1275,10 @@ emitter ask these, never a predicate built for another question:
 
 | Function | Answer |
 |---|---|
-| `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, Vec, Box, Text, or owned closure |
+| `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, Vec, `^T`, Text, or owned closure |
 | `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
 | `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
-| `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a Vec's or Box's buffer): a value of it lives only behind a shared handle (below) |
+| `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a Vec's or box's buffer): a value of it lives only behind a shared handle (below) |
 | `changesByMark` | a `Cell`, a `Signal`, or a value that holds a Cell by value: what a write lend reaches through a `*`, by a marked call (below). A write view of such a value changes its Cells and Signals only; the checker blocks every other write through it as one through a shared handle |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
@@ -1487,7 +1491,7 @@ signature holds. A value takes at most `sema.max_value_bytes`
 (8 MiB), from `sema.minBytes`, which counts what a value holds inline:
 a `Cell[T]` is its `T`, a `Signal[T]` its value twice (the current and
 a pending one) and its subscriber list, a `Vec` its buffer's slice and
-length, and a `Box` its pointer. An array type is checked where it is
+length, and a `^T` its pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
 from an argument, at that argument (`checkArraysIn`); a synthesis whose
 diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
@@ -1695,7 +1699,7 @@ in another keeps the first lent for the rest of the body: after
 bytes that live for the whole program, so the contents pass
 treats it as a view the value may or may not hold: `String` sets a
 `string` bit in a type's `Views` (reaching through optionals, fields,
-handles, and a Vec's or Box's elements, but not into a Cell or Signal),
+handles, and a Vec's or box's elements, but not into a Cell or Signal),
 and the checker tracks the loans of any value whose type has it, while
 sema's type-level `holdsMarkedView` ignores it (a struct holding a String
 is not a view type, and `Vec[String]` is plain data). `?t[a..b]` of a
@@ -1956,12 +1960,12 @@ argument holds a write view (a write view is never stored in a value),
 and an instance whose argument may view something (a read view, a slice,
 a String) where the body stores a value that reaches a `T`, at any depth
 (`sema.reachedTypeVars`: through `Vec`, arrays, optionals, `*`, `~`,
-`Box`, and every argument of a generic instance), in a Cell, a Signal,
+`^T`, and every argument of a generic instance), in a Cell, a Signal,
 or an owned closure, which carry no loan (`checkViews`). A call site sees the
 instance's signature, so moves, lends, and the loans a result carries
 are checked there with the real types.
 
-**A holder of a read view.** A `Box`, an optional, a generic function's
+**A holder of a read view.** A `^T`, an optional, a generic function's
 `T`, and a generic struct's field or `T` hold a read view as a `Vec`
 element does, by one rule: a value whose type may hold a view
 (`sema.mayHoldView`) carries the loans of every view it was made from.
@@ -2114,7 +2118,7 @@ are elements: an array's, a slice's, or a generic instance's argument
 (`elem_view`), never a field, so a struct's `n: Int` cannot be what an
 `[]Int` views. A holder type
 reaches a target `owned` when a path of parts it holds by value (fields,
-payloads, an optional's, array's, Vec's, Box's, Cell's or Signal's
+payloads, an optional's, array's, Vec's, box's, Cell's or Signal's
 contents, a handle's) and write views leads to memory of the target's
 type, `through_view` when every path crosses a read view (`?T`, `[]T`,
 a String), and `none` when no path does. Types are compared across
@@ -2706,7 +2710,7 @@ reviewed.
 | Piece | Role |
 |---|---|
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
-| `^T` | `^T`: a pointer to one heap `T`. `init` allocates, `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
+| `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |

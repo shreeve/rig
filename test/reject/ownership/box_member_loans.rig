@@ -1,4 +1,4 @@
-# Member access through boxes lends what it reaches, with a loan on the
+# Member access through a box lends what it reaches, with a loan on the
 # box's binding: the box may not be dropped or written while a view
 # through it is used.
 
@@ -10,13 +10,13 @@ fun first(s: String) -> String
   s
 
 sub a()
-  b = ^^S(n: 1, t: Text("x"))
+  b = ^S(n: 1, t: Text("x"))
   r = first(?b.t)
   <b
   print(r)
 
 sub c()
-  bt = ^^Text("hi")
+  bt = ^Text("hi")
   s = first(?bt)
   !bt.add("!")
   print(s)

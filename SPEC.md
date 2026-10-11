@@ -821,6 +821,7 @@ no variant `native` on enum `Endian`
 | `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§13](#13-errors) |
 | `?T` | read view of a `T` (parameters, returns, locals, fields) | [§7](#7-ownership) |
 | `!T` | write view of a `T` (parameters, receivers, returns, locals) | [§7](#write-views) |
+| `^T` | box: one `T` alone on the heap, with one owner | [§10](#box) |
 | `*T` | shared handle: reference-counted, single-threaded | [§9](#9-shared-and-weak-handles) |
 | `~T` | weak handle to a shared value | [§9](#9-shared-and-weak-handles) |
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
@@ -859,7 +860,7 @@ where its value is taken ([§7](#reading)):
 | Kind | Types | A bare name where the value is taken |
 |---|---|---|
 | **plain** | numbers, `Bool`, plain enums, and optionals, arrays, structs, and enums of them | copies it |
-| **owning** | `Vec`, `Box`, `Text`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
+| **owning** | `Vec`, `^T`, `Text`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
 | **handle** | `*T`, `~T`, and owned closures | the same: `<h` moves it, `+h` adds a count |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
 
@@ -3247,7 +3248,8 @@ value that is not moved is dropped where its scope ends, with no mark:
 | `!x` | lend to write | a write view, the only view while it lives |
 | `+x` | clone | a new owner, as the type says ([Clone](#clone)) |
 | `<x` (a statement) | drop | release `x` now |
-| `*x` | share | move `x` into a new shared box ([§9](#9-shared-and-weak-handles)) |
+| `^x` | box | move `x` into a new box with one owner ([§10](#box)) |
+| `*x` | share | move `x` into a new shared handle ([§9](#9-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§9](#9-shared-and-weak-handles)) |
 
 Plain data and read views copy, so they are used freely
@@ -3590,7 +3592,7 @@ are rejected. A local binding is no constant, whatever it holds:
 | a function or closure | `?fun` | |
 
 So `sort.sort(!v)` works on a Vec as it does on an array, and one `fun
-area(s: ?Shape)` takes `?s` of a `Shape`, a `Box[Shape]`, and a
+area(s: ?Shape)` takes `?s` of a `Shape`, a `^Shape`, and a
 `*Shape` ([§9](#shared-handles), [§10](#box)). A slice `x[a..b]` is the
 same lend, of part of `x` ([§2](#slices)), and as an argument it goes
 unwritten where `x` does.
@@ -3914,7 +3916,7 @@ to right and uses them all when it runs, so what an earlier argument
 holds is still in use while the later ones are evaluated. A view (`?v`)
 or a slice (`?v[..]`) in an earlier argument keeps its loan until the
 call ends. So does an argument that reads a place by value when that
-value shares storage the place owns: a Vec, a `Box`, a `*T` or `~T`
+value shares storage the place owns: a Vec, a `^T`, a `*T` or `~T`
 handle, a struct holding one, or what a write view reaches, as
 `print(v)` reads it. A later argument of the same call (`print`
 included) cannot lend that place to write or move it, since the call
@@ -5039,16 +5041,19 @@ drop 1
 
 ### Box
 
-`^T` owns one `T` on the heap. A struct or enum can hold itself
-through a box (`next: ^Node?`), since a box is a pointer whatever
-`T` is. A box is the value's one owner: it moves (`<b`), is never
-copied, `+b` boxes a clone of its value ([§7](#clone)), and dropping it
-drops the value and frees the memory.
-Long chains of boxes are released without deep recursion.
+`^T` is a box: one `T` alone on the heap, with one owner. A struct or
+enum can hold itself through a box (`next: ^Node?`), since a box is a
+pointer whatever `T` is. A box moves (`<b`), is never copied, `+b`
+boxes a clone of its value ([§7](#clone)), and dropping it drops the
+value and frees the memory. Long chains of boxes are released without
+deep recursion. The sigil binds tighter than a suffix: `^Node?` is an
+optional box, and a box of an optional is `^(Node?)`.
 
 | Member | Meaning |
 |---|---|
-| `^v` | move `v` into a new box |
+| `^Node(...)` | a box of a new `Node` |
+| `^<x` | move the owner `x` into a new box |
+| `^x` | copy the plain value `x` into a new box |
 | `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a Vec's (`!b.push(x)`, `b.len`), a Text's (`!b.add(s)`, `b.len`) |
 | `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or Vec, a `String` of a boxed Text, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
@@ -5056,15 +5061,32 @@ Long chains of boxes are released without deep recursion.
 | `match b`, `match !b` | match a boxed enum where it is |
 
 The box is reached as it is held: through an owned box or a `!^T`
-its value can be written, through a `?^T` only read. A box of a
-shared handle (`^*S`) reaches the value through the handle, as
-`*^S` does: it is read, and written only through a Cell. A consuming
+its value can be written, through a `?^T` only read. A consuming
 (`<self`) method of the value, `<b.m()`, takes the value out of the box
 first. `T` may be a read view (`^?v`, a `^?Vec[Int]`): the box keeps
-`v` lent while it is used. `T` holds no write view. A box has no field of its own: `b.value`
-of a `^Int` names nothing, and the number is lent (`?b`) or taken
-apart. A Vec holds boxes as it holds handles:
-walked by viewed slot and moved out with `pop` ([Vec](#vec)).
+`v` lent while it is used. `T` holds no write view. A box has no field
+of its own: `b.value` of a `^Int` names nothing, and the number is lent
+(`?b`) or taken apart. A Vec holds boxes as it holds handles: walked by
+viewed slot and moved out with `pop` ([Vec](#vec)).
+
+**A value is held one way on the heap:** `^T` with one owner, `*T`
+counted, or `~T` weak. A holding sigil over a held value (`^^T`, `^*T`,
+`*^T`, `^~T`, `**T`) is rejected wherever the type comes from: written,
+named by an alias, or reached through a generic's parameter. `^none`
+boxes nothing (an optional box with no value is `none`), and a
+function has no box: `^fun` is rejected and reserved, and an owned
+closure is `*|...| body`.
+
+```rig reject
+struct Holder
+  inner: ^*Int
+  twice: ^^Int
+```
+
+```error
+`^*Int` stacks one heap holding on another
+`^^Int` stacks one heap holding on another
+```
 
 A recursive enum holds its children in boxes, and a function reads one
 through a view of the box:
@@ -6332,7 +6354,7 @@ A field or method is private to its module unless it is declared `pub`:
 `pub sub push(!self, x: Int)`. Inside the declaring module every member
 is visible; another module that reads or writes a private field, or
 calls a private method or associated function, is rejected, whichever
-way it reaches the member: through a view, a `*T` handle, a `Box`, or
+way it reaches the member: through a view, a `*T` handle, a `^T`, or
 an instance of a generic type. Another module constructs a struct only
 when every one of its fields is `pub`; a type with a private field is
 made by its own module, which can hand it out through a `pub` function.
@@ -6685,7 +6707,7 @@ direct call; it is not a value.
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
-| `Box` | the value it holds |
+| `^T` | the value it holds |
 | `Cell`, `Signal` | `Cell(value: 5)`, `Signal(value: 5)` |
 | weak handle | `~(alive)` or `~(gone)` |
 | owned closure | `<closure>` |

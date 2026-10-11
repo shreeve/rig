@@ -25,8 +25,7 @@ sub main()
   print(s)
   bs = Vec[^String]()
   !bs.push(^"a")
-  bb = ^^"x"
-  print(bs, bb)
+  print(bs)
   v = <b.unbox()
   print(v.len)
 
@@ -34,5 +33,5 @@ sub main()
 # 3 [1, 2]
 # 7
 # hi
-# ["a"] x
+# ["a"]
 # 2

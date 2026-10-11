@@ -19,7 +19,7 @@ sub main()
   b = A([3 of 0])
   n = Name("bob")
   bb = ^^1
-  bc = Box[^Int](^2)
+  bc = ^^2
   k = K(.two)
   kk = ^K(.one)
   print(a, b, n, bb, bc, k, kk)

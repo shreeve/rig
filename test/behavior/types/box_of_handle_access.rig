@@ -1,8 +1,7 @@
-# Fields and methods reach through every combination of boxes and
-# shared handles: `^*S`, `*^S`, `^^S`, `^^*S`,
-# and `^*^S`, read in place, lent to read, and matched. A shared
-# Cell in the value changes through any of them, and `<b.unbox()`
-# takes the handle out of its box.
+# Fields and methods reach through a box and through a shared handle,
+# read in place, lent to read, and matched. A shared Cell in the value
+# changes through either, and `<b.unbox()` takes the value out of its
+# box.
 
 enum K
   a(n: Int)
@@ -26,34 +25,29 @@ fun mk(n: Int) -> S
 fun first(v: ?Vec[Int]) -> Int
   v[0]
 
-fun viewed(b: ?^*S) -> Int
+fun viewed(b: ?^S) -> Int
   b.n + b.get()
 
-sub show(n: Int, get: Int, x0: Int, len: Int, t: ?Text, k: ?K, c: Int)
+sub show(n: Int, get: Int, x0: Int, len: Int, t: ?String, k: ?K, c: Int)
   match k
     .a(m) => print(n, get, x0, len, t, m, c)
     .b => pass
 
 sub main()
-  bh: ^*S = ^*mk(1)
+  bh: ^S = ^mk(1)
   !bh.c.set(bh.c.get() + 100)
   show(bh.n, bh.get(), first(?bh.xs), bh.xs.len, ?bh.t, ?bh.k, bh.c.get())
   print(viewed(?bh))
-  hb: *^S = *^mk(2)
+  hb: *S = *mk(2)
   show(hb.n, hb.get(), first(?hb.xs), hb.xs.len, ?hb.t, ?hb.k, hb.c.get())
-  bb: ^^S = ^^mk(3)
-  !bb.xs.push(1)
-  bb.n = 30
-  show(bb.n, bb.get(), first(?bb.xs), bb.xs.len, ?bb.t, ?bb.k, bb.c.get())
-  bbh: ^^*S = ^^*mk(4)
-  show(bbh.n, bbh.get(), first(?bbh.xs), bbh.xs.len, ?bbh.t, ?bbh.k, bbh.c.get())
-  bhb: ^*^S = ^*^mk(5)
-  show(bhb.n, bhb.get(), first(?bhb.xs), bhb.xs.len, ?bhb.t, ?bhb.k, bhb.c.get())
-  for x in bhb.xs
+  bh.n = 30
+  !bh.xs.push(1)
+  show(bh.n, bh.get(), first(?bh.xs), bh.xs.len, ?bh.t, ?bh.k, bh.c.get())
+  for x in bh.xs
     print(x)
   h = <bh.unbox()
   print(h.n)
-  e: ^*K = ^*K.a(n: 7)
+  e: ^K = ^K.a(n: 7)
   match e
     .a(n) => print(n)
     .b => pass
@@ -62,9 +56,8 @@ sub main()
 # 1 11 10 1 s1 2 101
 # 12
 # 2 22 20 1 s2 3 2
-# 30 60 30 2 s3 4 3
-# 4 44 40 1 s4 5 4
-# 5 55 50 1 s5 6 5
-# 50
+# 30 40 10 2 s1 2 101
+# 10
 # 1
+# 30
 # 7

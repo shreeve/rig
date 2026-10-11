@@ -543,8 +543,6 @@ pub fn Box(comptime T: type) type {
         value: *T,
 
         const Self = @This();
-        /// Its arguments, for `typeName`.
-        pub const __rig_args = .{T};
 
         pub fn init(value: T) Self {
             const p = create(T);
@@ -1104,6 +1102,8 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
             qualifier(T.__rig_name.module, names) ++ spell(T.__rig_name.name, .{}, names)
         else if (@hasDecl(T, "__rig_weak"))
             handleName("~", T.__rig_weak, names)
+        else if (@hasDecl(T, "__rig_box"))
+            handleName("^", @typeInfo(@FieldType(T, "value")).pointer.child, names)
         else if (@hasDecl(T, "__rig_fn"))
             fnName(T.__rig_fn[0], T.__rig_fn[1], names)
         else
@@ -1182,12 +1182,17 @@ fn takesNoSuffix(comptime T: type, comptime names: anytype) bool {
     return switch (@typeInfo(T)) {
         .array => true,
         .pointer => |p| if (isStrongHandle(T)) takesNoSuffix(@FieldType(p.child, "value"), names) else true,
-        .@"struct" => if (@hasDecl(T, "__rig_weak")) takesNoSuffix(T.__rig_weak, names) else @hasDecl(T, "__rig_fn"),
+        .@"struct" => if (@hasDecl(T, "__rig_weak"))
+            takesNoSuffix(T.__rig_weak, names)
+        else if (@hasDecl(T, "__rig_box"))
+            takesNoSuffix(@typeInfo(@FieldType(T, "value")).pointer.child, names)
+        else
+            @hasDecl(T, "__rig_fn"),
         else => false,
     };
 }
 
-/// `*T` / `~T`, with `T` in parentheses when it is suffixed.
+/// `*T` / `~T` / `^T`, with `T` in parentheses when it is suffixed.
 fn handleName(comptime sigil: []const u8, comptime T: type, comptime names: anytype) []const u8 {
     const suffixed = @typeInfo(T) == .optional or @typeInfo(T) == .error_union;
     return if (suffixed) sigil ++ "(" ++ nameOf(T, names) ++ ")" else sigil ++ nameOf(T, names);

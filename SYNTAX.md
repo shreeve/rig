@@ -229,7 +229,7 @@ is a reserved name, the absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
-The built-in types `Cell`, `Vec`, `Box`, `Text`, `Signal`, and
+The built-in types `Cell`, `Vec`, `Text`, `Signal`, and
 `Endian` are reserved names. The built-in functions `print`, `replace`, and `swap`
 are names a declaration may hide.
 
@@ -297,8 +297,8 @@ So a sigil touches what it marks, and spacing shows how a line reads:
   `a<b`, never `a <b` or `a< b`. This holds for every operator between
   two values: arithmetic, comparisons, `??`, `..`, the bitwise
   operators, and `=` and the compound assignments.
-- A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in
-  an expression and in a type: `-b`, `<x`, `*T`, `[]?T`.
+- A prefix sigil (`<` `+` `-` `*` `^` `?` `!` `~`) touches its operand, in
+  an expression and in a type: `-b`, `<x`, `*T`, `^T`, `[]?T`.
 - A postfix `?` or `!` touches what it follows: `f()!`, `x?`, `T?`.
 - A call's parenthesis and an index's bracket touch what they follow:
   `f(x)`, `xs[0]`, never `f (x)` or `xs [0]`.
@@ -475,6 +475,7 @@ operator does, and which types it takes, is in
 | fallible | `T!` | a `T` or an error; a return type only |
 | read view | `?T` | [SPEC §7](SPEC.md#lending) |
 | write view | `!T` | a parameter's, a receiver's, a result's, or a binding's type ([SPEC §2](SPEC.md#composite-and-handle-types)) |
+| box | `^T` | [SPEC §10](SPEC.md#box) |
 | shared handle | `*T` | [SPEC §9](SPEC.md#9-shared-and-weak-handles) |
 | weak handle | `~T` | |
 | array | `[4]Int`, `[LIMIT * 2]U8`, `[n]T` | a length known at compile time |
@@ -491,10 +492,13 @@ The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 what each holds. `Text`, owned text, is a built-in type
 ([SPEC §10](SPEC.md#text)).
 
-**How the sigils combine.** The handle sigils `*` and `~` bind to the
-type after them, tighter than the suffixes: `*User?` is an optional
-shared handle and `~User?` an optional weak handle, while a handle to
-an optional is written `*(User?)`. A view sigil applies to the whole
+**How the sigils combine.** The holding sigils `^`, `*` and `~` bind to
+the type after them, tighter than the suffixes: `^Node?` is an optional
+box, `*User?` an optional shared handle and `~User?` an optional weak
+handle, while a box or handle of an optional is written `^(Node?)`,
+`*(User?)`. A value is held one way on the heap, so `^^T`, `^*T`, `*^T`,
+`^~T`, and `**T` are rejected. A box may hold a read view, written
+`^?T`. A view sigil applies to the whole
 type after it, suffixes included: `?User?` and `!User?` view an
 optional, and `?*User?` views an optional handle. Prefixes compose right
 to left: `?*Node` is a read view of a shared handle, and
@@ -1442,7 +1446,9 @@ the same sigil means the same thing in every position:
 | statement (drop now) | | | `<x` | | |
 
 `*x` moves a value into a new shared handle (`*<x` for a named owning
-value, `*Point(x: 1)` for a new one). `<x` alone on a line drops `x`
+value, `*Point(x: 1)` for a new one), and `^x` into a new box (`^<x`,
+`^Point(x: 1)`). Between two values `^` is the bit-wise exclusive or,
+and a prefix `^` touches its operand. `<x` alone on a line drops `x`
 now; where a value is expected, it moves it there. A sigil may reach
 into a place: `+p.a` clones the handle in a field, `<p.f` takes an optional
 field, and `?xs[0]` lends an element. [SPEC §7](SPEC.md#7-ownership)
@@ -1595,9 +1601,9 @@ zdecl     = "fun" name [tparams] params ["->" type [from]]
           | "sub" name [tparams] params ["!"]
 
 type      = ("?" | "!") type | ptype | tsuffix
-ptype     = ("*" | "~")* ("[" [dim] "]" type
+ptype     = ("^" | "*" | "~")* ("[" [dim] "]" type
           | "fun" "(" [type, ...] ")" "->" type | "sub" "(" [type, ...] ")" ["!"])
-tsuffix   = tsuffix ("?" | "!") | ("*" | "~")* tatom
+tsuffix   = tsuffix ("?" | "!") | ("^" | "*" | "~")* tatom
 tatom     = tname | tname "[" targ, ... "]" | "(" type ")"
 tname     = name | name "." name
 targ      = type | ["-"] integer | "(" integer ")" | cexp
@@ -1639,7 +1645,7 @@ logic     = logic "or" conj | conj
 conj      = conj "and" neg | neg
 neg       = "not" neg | infix "as" name | infix
 infix     = unary (op unary)*                       # the table in section 6
-unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
+unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~" | "^") unary | postfix
 postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]"
           | "[" expr, expr, ... "]" | "(" args ")" | "!" | "?") | atom
 args      = [(name ":" expr | expr), ...] | (name ":" expr | expr), ..., tail-closure

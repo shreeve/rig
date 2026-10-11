@@ -1,6 +1,6 @@
 # A box lends the views of its value (Core §4), so member access reaches
-# through it, and through every box it holds: a struct's fields and
-# methods, a Vec's and a Text's, and a Text through a shared handle.
+# through it: a struct's fields and methods, a Vec's and a Text's, and
+# a Text through a shared handle.
 
 struct S
   n: Int
@@ -15,11 +15,11 @@ struct S
   sub eat(<self)
     print("eat", self.n)
 
-fun read(b: ?^^S) -> Int
+fun read(b: ?^S) -> Int
   b.n + b.get()
 
 sub main()
-  b = ^^S(n: 1, t: Text("x"))
+  b = ^S(n: 1, t: Text("x"))
   b.n = 5
   !b.bump()
   !b.t.add("y")

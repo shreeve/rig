@@ -243,7 +243,8 @@ libraries are written in Rig itself (see
 | `?` | `?x` lend to read; `x?` propagate `none` | `?T` read view; `T?` optional |
 | `!` | `!x` lend to write; `f()!` propagate failure | `!T` write view; `T!` fallible |
 | `+` | `+x` clone (a new owner) | |
-| `*` | `*x` share: move into a counted box | `*T` shared handle |
+| `^` | `^x` box: move into a box with one owner | `^T` box |
+| `*` | `*x` share: move into a counted handle | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
 
 A sigil is a prefix where an operand starts, and an operator after a
@@ -326,7 +327,7 @@ and environment variable. The suite runs on Linux and macOS in
 - moves, read and write views (including views returned from
   functions and held in structs) whose loans end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
-- shared `*T` and weak `~T` handles, `Cell`, `Vec`, `Box`, and `Signal`
+- shared `*T` and weak `~T` handles, `Cell`, `Vec`, `^T`, and `Signal`
 - `Text`, owned text built with `Text(a, b)` and `!t.add(...)`, whose
   Strings (`?t[a..b]`) view it
 - stack and owned closures with explicit captures, any arity, inferred

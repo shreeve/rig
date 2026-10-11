@@ -1,5 +1,5 @@
 # An alias names its type in every role: a call through an alias of a
-# generic instance, of `Vec`, `Cell`, `Box`, or `Signal`, constructs a
+# generic instance, of `Vec`, `Cell`, or `Signal`, constructs a
 # value of it, as naming the instance does, and one through an alias of
 # a number type converts to it. An alias of a float type names its
 # limits, which a default value may be.
@@ -17,7 +17,6 @@ enum Mode
 type IW = Wrap[Int]
 type IV = Vec[Int]
 type IC = Cell[Int]
-type IB = ^Int
 type IS = Signal[Int]
 type M = Mode
 type Real = F32
@@ -36,10 +35,9 @@ sub main()
   v = IV(capacity: 2)
   e: IV = IV()
   c = *IC(5)
-  b = IB(6)
   s = *IS(7)
   m = M.b(n: 8)
-  print(w.v, u.v, v.len, e.len, c.get(), ?b, s.get())
+  print(w.v, u.v, v.len, e.len, c.get(), s.get())
   match m
     .b(n) => print(n, M.a == Mode.a)
     .a => print("a")
@@ -47,6 +45,6 @@ sub main()
   print(d.hi > 3.0e38, d.lo < -3.0e38, low(), Real(2), Small(-5), Small.min)
 
 # expect:
-# 3 4 0 0 5 6 7
+# 3 4 0 0 5 7
 # 8 true
 # true true true 2.0 -5 -128

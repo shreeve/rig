@@ -1,7 +1,7 @@
 # `print` reads every place that owns storage when it is called, after
 # its later arguments ran, however the shared Cell is reached: through
-# a read or write view, a generic `?T`, an optional, a Box, or a
-# closure's capture. Each later argument here grows the Cell's Vec
+# a read or write view, a generic `?T`, an optional, or a closure's
+# capture. Each later argument here grows the Cell's Vec
 # through another handle, which moves its buffer.
 # release
 struct S
@@ -40,8 +40,8 @@ sub main()
   o: (*S)? = *S(c: Cell(Vec()))
   print(o, grow_opt(?o))
   s0 = *S(c: Cell(Vec()))
-  b = ^+s0
-  print(b, grow_s(!s0))
+  s1 = +s0
+  print(s1, grow_s(!s0))
   e: *Cell[Vec[Int]] = *Cell(Vec())
   f = +e
   g = |+f| grow(!f)
