@@ -341,6 +341,46 @@ sub main()
 ["bob", "ann", "cy"] 1 false
 ```
 
+## List
+
+`List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room
+for `n` more elements without changing the length, so the next `n`
+pushes allocate nothing; a negative `n` panics.
+
+```rig
+sub main()
+  v: List[Int] = List()
+  !v.reserve(3)
+  for i in 0..3
+    !v.push(i * i)
+  print(v.len, v)
+```
+
+```output
+3 [0, 1, 4]
+```
+
+## String
+
+`String` is built in ([SPEC §10](../SPEC.md#string)). Besides `add` and
+`push(b)`, it takes two methods for building binary text: `!t.reserve(n)`
+makes room for `n` more bytes without changing the length, and
+`!t.push[T, e](v)` appends the bytes of the integer `v` in byte order `e`
+in one write, as `bytes.read[T, e](at)` reads them back.
+
+```rig
+sub main()
+  t = String()
+  !t.reserve(8)
+  !t.push[U32, .big](0x52696721)
+  !t.push[U16, .little](0x2121)
+  print(t, t.len)
+```
+
+```output
+Rig!!! 6
+```
+
 ## std.text
 
 Searching, slicing, splitting, and parsing text, which every function

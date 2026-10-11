@@ -5,7 +5,7 @@
 
 sub main()
   s = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
-  print(s.read[Simd[U8, 4]](0), s.read[Simd[U8, 2], .big](30))
+  print(s.read[Simd[U8, 4]](0), s.read[Simd[U8, 2]](30))
   t = String(s)
   r = ?t
   v = r.read[Simd[U8, 16]](16)

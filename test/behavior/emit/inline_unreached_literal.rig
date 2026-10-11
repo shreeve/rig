@@ -1,0 +1,31 @@
+# A call of an inlined function that would panic, but does not run, is
+# not an error: each call below passes literals that overflow, index past
+# the end, or divide by zero, and the program never makes them.
+use std.os
+
+fun next(n: Int) -> Int
+  n + 1
+
+fun at(xs: ?[3]Int, i: Int) -> Int
+  xs[i]
+
+fun share(a: Int, b: Int) -> Int
+  a / b
+
+fun narrow(n: Int) -> U8
+  U8(n)
+
+sub main()
+  xs = [1, 2, 3]
+  if os.args().len > 50
+    print(next(9223372036854775807))
+    print(at(?xs, 7))
+    print(share(1, 0))
+    print(narrow(300))
+  print(next(1))
+  print("ok")
+
+# release
+# expect:
+# 2
+# ok

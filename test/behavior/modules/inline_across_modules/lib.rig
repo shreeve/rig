@@ -1,0 +1,5 @@
+pub fun bump(n: Int) -> Int
+  n + 1
+
+pub fun twice(n: Int) -> Int
+  n * 2

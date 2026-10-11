@@ -1,0 +1,15 @@
+# An inlined function divides with the checks of any other: a literal
+# zero divisor panics when the program runs.
+
+fun share(a: Int, b: Int) -> Int
+  a / b
+
+sub main()
+  print(share(8, 2))
+  print(share(8, 0))
+
+# release
+# expect-panic: division by zero
+
+# expect:
+# 4

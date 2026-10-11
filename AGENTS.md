@@ -168,6 +168,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/typecheck.zig` | Expression pass: types every expression, records facts, checks fallibility and the `raw` boundary |
 | `src/storage.zig` | Storage facts: the hidden storage emit makes, decided once |
 | `src/ownership.zig` | Move / loan / drop checking |
+| `src/inlining.zig` | Which small functions are emitted `inline`, decided once for the whole program |
 | `src/facts.zig` | What emit may know: the recorded facts, read-only; emit imports no classifier |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |

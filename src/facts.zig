@@ -165,6 +165,16 @@ pub const Facts = struct {
     pub fn startOf(f: Facts, node: Sexp) u32 {
         return f.c().startOf(node);
     }
+    /// Whether the function or method whose name leaf is `name` is
+    /// emitted `inline` (`inlining.decide`).
+    pub fn isInlined(f: Facts, name: Sexp) bool {
+        return f.c().inlined.contains(f.c().startOf(name));
+    }
+    /// Whether the call may reach a function emitted `inline`, whose
+    /// result Zig could know at compile time.
+    pub fn callsInlined(f: Facts, call: Sexp) bool {
+        return call == .list and f.c().inlined_calls.contains(call.list.id);
+    }
     pub fn calleeOf(f: Facts, call: Sexp) Sexp {
         return f.c().calleeOf(call);
     }
@@ -394,6 +404,10 @@ pub const Facts = struct {
     /// The built-in String operation `call` is.
     pub fn stringCall(f: Facts, call: Sexp) ?StringCall {
         return storage.stringCall(f.c(), call);
+    }
+    /// The integer type of a `t.push[T, e](v)` call.
+    pub fn stringNumOf(f: Facts, callee: Sexp) ?TypeId {
+        return f.c().stringNumOf(callee);
     }
     pub fn isPrintCall(f: Facts, call: Sexp) bool {
         return storage.isPrintCall(f.c(), call);

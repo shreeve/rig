@@ -88,6 +88,9 @@ const Local = struct {
     /// A parameter copied into `zig_name` at the top of the body: the
     /// name the signature gives it.
     param_name: []const u8 = "",
+    /// A parameter of an inlined function, bound through `rig.rt`
+    /// (`emitFunPrologue`).
+    launder: bool = false,
 };
 
 const LocalRef = struct { scope: u32, index: u32 };
@@ -157,6 +160,9 @@ const FunState = struct {
     /// `params` are.
     tparams: Sexp = .nil,
     leak_check: bool = false,
+    /// The function is emitted `inline`: its parameters are bound as
+    /// run-time values (`emitFunPrologue`).
+    inlined: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
 };
@@ -679,7 +685,7 @@ pub const Emitter = struct {
         const params = ir.DropDecl.params(node);
         self.fun = .{ .params = params };
         try self.pushScope();
-        try self.bindParams(params);
+        try self.bindParams(params, false);
         try self.emitBlock(ir.DropDecl.body(node));
         try self.popScope();
         try self.w.writeAll("\n\n");
@@ -709,7 +715,8 @@ pub const Emitter = struct {
         const main_status = is_main and !f.is_sub;
 
         const tparams = facts.syntax.tparamsOf(node);
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main };
+        const inlined = self.facts.isInlined(name_node);
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
@@ -723,15 +730,15 @@ pub const Emitter = struct {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus(__rig_run_main(__rig_init){s});\n}}\n\n", .{catches});
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    __rig_run_main(__rig_init){s};\n}}\n\n", .{catches});
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub fn {f}(", .{ident(name)});
+        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else "", ident(name) });
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
         defer self.popScope() catch {};
         // Compile-time parameters come first, after a method's receiver,
         // which Zig's method call syntax needs first.
-        try self.bindParams(tparams);
-        try self.bindParams(params);
+        try self.bindParams(tparams, false);
+        try self.bindParams(params, inlined);
         const rt = params.items();
         const recv: usize = @intFromBool(self.nominal != null and rt.len > 0 and self.isReceiverParam(rt[0]));
         var n: usize = 0;
@@ -756,7 +763,7 @@ pub const Emitter = struct {
     /// holding a Cell) is copied into a `var` at the top of the body, so
     /// it can be dropped or changed; the Zig parameter then gets a
     /// generated name. An owning `_` is dropped under a hidden name.
-    fn bindParams(self: *Emitter, params: Sexp) Error!void {
+    fn bindParams(self: *Emitter, params: Sexp, inlined: bool) Error!void {
         if (params != .list) return;
         for (params.items()) |p| {
             const name_node = facts.syntax.paramNameNode(p) orelse continue;
@@ -777,6 +784,9 @@ pub const Emitter = struct {
             }
             if (local.kind == .value or local.kind == .optional) {
                 local.param_name = try self.fmt("__rig_arg_{d}", .{self.nextId()});
+            } else if (inlined and !unused) {
+                local.param_name = try self.fmt("__rig_in_{s}", .{rig_name});
+                local.launder = true;
             }
             _ = try self.declare(local, rig_name);
         }
@@ -819,7 +829,15 @@ pub const Emitter = struct {
         for ([_]Sexp{ tparams, params }) |group| for (group.items()) |p| {
             const local = self.localOf(facts.syntax.paramNameNode(p) orelse continue) orelse continue;
             if (local.param_name.len > 0) {
-                try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
+                // Zig analyzes an inlined body at each call, so an argument
+                // known at compile time would be known inside; `rig.rt`
+                // keeps the arithmetic and the indexing on it checked when
+                // the program runs, as in a function that is called.
+                if (local.launder) {
+                    try self.line("const {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
+                } else if (self.fun.inlined) {
+                    try self.line("var {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
+                } else try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
             }
             if (local.guard != .none) {
                 try self.writeIndent(self.indent);
@@ -5035,19 +5053,31 @@ pub const Emitter = struct {
     /// `String(a, b)` → `rig.String.of(.{ a, &b })`; `!t.add(a, b)` →
     /// `t.add(.{ a, &b })`, the arguments written as `print`'s are
     /// (`emitPrintArgs`), so a place is read at the call; `!t.clear()` →
-    /// `t.clear()`.
+    /// `t.clear()`; `!t.reserve(n)` → `t.reserve(n)`; `!t.push[T, e](v)` →
+    /// `t.pushInt(T, v, e)`.
     fn emitStringCall(self: *Emitter, call: Sexp, op: facts.StringCall) Error!void {
         const args = ir.Call.args(call);
         switch (op) {
             .new => try self.w.writeAll("rig.String.of("),
-            .add, .push, .clear => {
+            .add, .push, .push_int, .reserve, .clear => {
                 const recv = ir.Member.object(self.facts.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
                 if (self.typeOf(recv)) |t| try self.writeReach(t);
                 if (op == .clear) return self.w.writeAll(".clear()");
-                if (op == .push) {
-                    try self.w.writeAll(".push(");
+                if (op == .push or op == .reserve) {
+                    try self.w.print(".{s}(", .{@tagName(op)});
                     try self.emitBare(args[0]);
+                    return self.w.writeAll(")");
+                }
+                // `.pushInt(T, v, endian)`; a one-byte `T` takes `.little`.
+                if (op == .push_int) {
+                    try self.w.writeAll(".pushInt(");
+                    try self.emitTypeTy(self.facts.stringNumOf(self.facts.calleeOf(call)) orelse return self.unsupported(call, "a `push` without its type"));
+                    try self.w.writeAll(", ");
+                    try self.emitBare(args[0]);
+                    try self.w.writeAll(", ");
+                    const given = self.facts.ctArgsOf(call);
+                    if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
                     return self.w.writeAll(")");
                 }
                 try self.w.writeAll(".add(");
@@ -5087,8 +5117,8 @@ pub const Emitter = struct {
                     try self.emitBare(a);
                 }
                 try self.w.writeAll(", ");
-                const ct = self.facts.ctArgsOf(call);
-                if (ct.len > 1) try self.emitBare(ct[1]) else try self.w.writeAll(".little");
+                const given = self.facts.ctArgsOf(call);
+                if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
             },
             // `rig.rt(@as(V, @splat(x)))`.
             .splat => {
@@ -5246,7 +5276,20 @@ pub const Emitter = struct {
         try self.emitBare(place);
     }
 
+    /// A call. One that may reach an inlined function is read through
+    /// `rig.rt`: Zig analyzes that body at the call, where a result that
+    /// does not depend on the arguments is known at compile time, as is a
+    /// `const` bound to it, so arithmetic on it would be folded where Rig
+    /// specifies a check when the program runs. `rig.rt` keeps the
+    /// whole result, error or optional included, a run-time value.
     fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
+        if (!self.facts.callsInlined(sexp)) return self.emitCallPlain(sexp);
+        try self.w.writeAll("rig.rt(");
+        try self.emitCallPlain(sexp);
+        try self.w.writeAll(")");
+    }
+
+    fn emitCallPlain(self: *Emitter, sexp: Sexp) Error!void {
         const callee = self.facts.calleeOf(sexp);
         const args = ir.Call.args(sexp);
 
@@ -6071,7 +6114,7 @@ pub const Emitter = struct {
         const saved_fun = self.fun;
         defer self.fun = saved_fun;
         self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env) "" else env };
-        try self.bindParams(params);
+        try self.bindParams(params, false);
         for (params.items()) |p| {
             try self.w.writeAll(", ");
             try self.emitParam(p, false);

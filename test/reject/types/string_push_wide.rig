@@ -1,0 +1,30 @@
+# `push[T, e]` takes an integer type and, for more than one byte, a
+# byte order; `reserve` takes a count.
+
+sub main()
+  s = String()
+  !s.push[F32, .big](1.5)
+  !s.push[Bool, .big](true)
+  !s.push[U16](1)
+  !s.push[U16, .native](1)
+  !s.push[U8, .big, .little](1)
+  !s.push[U16, .big]()
+  !s.push[U16, .big](1, 2)
+  !s.push[U16, .big]("x")
+  !s.reserve()
+  !s.reserve[U8](1)
+  !s.reserve("x")
+  !s.push()
+
+# error: 6:11: `push` appends an integer type; got `F32`
+# error: 7:11: `push` appends an integer type; got `Bool`
+# error: 8:4: `push` of a `U16` takes a byte order too: `push[U32, .little](value)`
+# error: 9:17: no variant `native` on enum `Endian`
+# error: 10:4: `push` takes the integer type and, for more than one byte, the byte order in brackets: `push[U32, .little](value)`
+# error: 11:6: `push` takes one argument, the integer to append; got 0 arguments
+# error: 12:6: `push` takes one argument, the integer to append; got 2 arguments
+# error: 13:22: type mismatch: expected `U16`, got `Static`
+# error: 14:6: `reserve` takes one argument, the number of bytes to make room for; got 0 arguments
+# error: 15:4: `reserve` takes no compile-time arguments
+# error: 16:14: type mismatch: expected `Int`, got `Static`
+# error: 17:6: `push` takes one byte, a `U8`; got 0 arguments

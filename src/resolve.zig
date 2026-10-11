@@ -2379,6 +2379,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id),
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
+            try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
             try method(ctx, "pop", .write, &.{write_self}, opt_t),
             try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id),
@@ -2505,7 +2506,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
     try std.testing.expectEqual(ctx.list_sym_id, list);
-    try std.testing.expectEqual(@as(usize, 6), ctx.symbols.items[list].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 7), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 

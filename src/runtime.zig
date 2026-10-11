@@ -847,6 +847,13 @@ pub fn Signal(comptime T: type) type {
 // List
 // -----------------------------------------------------------------------------
 
+/// A fact the runtime's fast paths rely on in place of a check. Debug
+/// builds verify it; optimized builds trust it, so the hot path carries
+/// no branch for a case that cannot happen.
+inline fn invariant(ok: bool) void {
+    if (builtin.mode == .debug) std.debug.assert(ok);
+}
+
 /// `List(T)`: a growable array that owns its elements. Dropping it drops
 /// the elements in reverse order, then frees the buffer.
 pub fn List(comptime T: type) type {
@@ -862,7 +869,7 @@ pub fn List(comptime T: type) type {
 
         pub fn initCapacity(capacity: Int) Self {
             var v: Self = .empty;
-            v.reserve(std.math.cast(usize, capacity) orelse @panic("negative size"));
+            v.reserve(capacity);
             return v;
         }
 
@@ -875,7 +882,7 @@ pub fn List(comptime T: type) type {
         /// `+v`: a new List holding a clone of each element (`cloneValue`).
         pub fn clone(self: *const Self) Self {
             var out: Self = .empty;
-            out.reserve(self.len);
+            out.reserveTotal(self.len);
             for (self.items()) |*e| out.push(cloneValue(e));
             return out;
         }
@@ -885,9 +892,17 @@ pub fn List(comptime T: type) type {
             return self.buf[0..self.len];
         }
 
-        fn reserve(self: *Self, want: usize) void {
+        /// Room for `want` elements in all.
+        fn reserveTotal(self: *Self, want: usize) void {
             if (want <= self.buf.len) return;
             self.grow(want);
+        }
+
+        /// `!v.reserve(n)`: room for `n` more elements; the length is
+        /// unchanged. Panics when `n` is negative.
+        pub fn reserve(self: *Self, n: Int) void {
+            const extra = std.math.cast(usize, n) orelse @panic("negative size");
+            self.reserveTotal(self.len +| extra);
         }
 
         /// The out-of-line growth, so `push` stays small enough to inline.
@@ -895,10 +910,14 @@ pub fn List(comptime T: type) type {
             self.buf = defaultAllocator().realloc(self.buf, @max(want, 4, self.buf.len * 2)) catch oom();
         }
 
+        /// `len <= buf.len` always holds. When the buffer is full, `grow`
+        /// leaves `len < buf.len`, so the slot at `len` exists, `len + 1`
+        /// cannot overflow, and the store needs no bounds check.
         pub fn push(self: *Self, value: T) void {
-            if (self.len == self.buf.len) self.grow(self.len + 1);
-            self.buf[self.len] = value;
-            self.len += 1;
+            if (self.len == self.buf.len) self.grow(self.len +% 1);
+            invariant(self.len < self.buf.len);
+            self.buf.ptr[self.len] = value;
+            self.len +%= 1;
         }
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
@@ -934,7 +953,7 @@ pub fn List(comptime T: type) type {
         /// one; `i` may be `len`. Panics unless `0 <= i <= len`.
         pub fn insert(self: *Self, i: Int, value: T) void {
             const idx = index(i, self.len + 1);
-            self.reserve(self.len + 1);
+            self.reserveTotal(self.len + 1);
             std.mem.copyBackwards(T, self.buf[idx + 1 .. self.len + 1], self.buf[idx..self.len]);
             self.buf[idx] = value;
             self.len += 1;
@@ -1033,15 +1052,55 @@ pub const String = struct {
         inline for (@typeInfo(@TypeOf(parts)).@"struct".field_names) |f| writeValue(&out.writer, @field(parts, f), true) catch oom();
     }
 
+    // The list's `items.len <= capacity` always holds, so every append
+    // below tests the room once, grows when short, and then stores
+    // through `items.ptr` at `items.len`: the slot is inside the
+    // capacity by construction, and the new length cannot overflow
+    // because it is at most the capacity. Debug builds check both (`invariant`).
+
     /// `!t.push(b)`: append one byte.
     pub fn push(self: *String, b: u8) void {
-        if (self.list.items.len == self.list.capacity) self.grow(1);
-        self.list.items.len += 1;
-        self.list.items[self.list.items.len - 1] = b;
+        const l = &self.list;
+        if (l.items.len == l.capacity) self.grow(1);
+        invariant(l.items.len < l.capacity);
+        l.items.ptr[l.items.len] = b;
+        l.items.len +%= 1;
     }
 
+    /// `!t.reserve(n)`: room for `n` more bytes; the length is unchanged.
+    pub fn reserve(self: *String, n: Int) void {
+        const extra = std.math.cast(usize, n) orelse @panic("negative size");
+        const l = &self.list;
+        if (l.capacity -% l.items.len < extra) self.grow(extra);
+        invariant(l.capacity -% l.items.len >= extra);
+    }
+
+    /// `!t.push[T, e](v)`: append the bytes of the integer `v`, in byte
+    /// order `endian`, in one write.
+    pub fn pushInt(self: *String, comptime T: type, value: T, comptime endian: Endian) void {
+        const n = @divExact(@bitSizeOf(T), 8);
+        const l = &self.list;
+        const used = l.items.len;
+        if (l.capacity -% used < n) self.grow(n);
+        invariant(l.capacity -% used >= n);
+        const Bits = @Int(.unsigned, @bitSizeOf(T));
+        const raw: Bits = @bitCast(value);
+        // One store of the whole integer, through an unaligned pointer
+        // at `used`; `used + n <= capacity` puts all `n` bytes inside
+        // the allocation, and keeps `used + n` from overflowing.
+        const dst: *align(1) Bits = @ptrCast(l.items.ptr + used);
+        dst.* = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw;
+        l.items.len = used +% n;
+    }
+
+    /// Append `bytes_`, which does not alias this String's buffer.
     fn appendBytes(self: *String, bytes_: []const u8) void {
-        self.list.appendSlice(defaultAllocator(), bytes_) catch oom();
+        const l = &self.list;
+        const used = l.items.len;
+        if (l.capacity -% used < bytes_.len) self.grow(bytes_.len);
+        invariant(l.capacity -% used >= bytes_.len);
+        @memcpy((l.items.ptr + used)[0..bytes_.len], bytes_);
+        l.items.len = used +% bytes_.len;
     }
 
     noinline fn grow(self: *String, extra: usize) void {
