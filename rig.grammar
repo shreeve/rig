@@ -15,10 +15,11 @@
 #     a closure body that starts below its bar list, which is laid out in
 #     blocks as anywhere else and ends with the bracket around it on a
 #     line of its own;
-#   * classifies keywords (every keyword is reserved, but reads as a name
-#     where it names a member or a builtin: after `.` or `@`, before `:`
-#     inside ( ), and in a member list before `:` or after `fun` /
-#     `sub`); `of` is a keyword
+#   * reads a reserved word (each is a lexer rule) as a name where it
+#     names a member or a builtin: after `.` or `@`, before `:` inside
+#     ( ), and in a member list before `:` or after `fun` / `sub`;
+#   * classifies the contextual words: `new` is a keyword only at the
+#     start of a statement before a name or `const`; `of` is a keyword
 #     only after a value directly inside [ ] (`[n of x]`), `unique` only
 #     after a struct header's name or type parameters (`struct Random
 #     unique`), `from` only after a function's result type (`-> ?Item
@@ -56,7 +57,9 @@ tokens
     string_sq       # 'single'
     string_dq       # "double"
 
-    # Keywords (classified by the rewriter; every keyword is reserved)
+    # Keywords, `true` first and `yield` last (src/rig.zig reads the range
+    # as Rig's keywords). Every keyword but `new` is reserved, and is a
+    # lexer rule; `new` is classified by the rewriter.
     true
     false
     and
@@ -260,6 +263,52 @@ tokens
 ','                                         → comma
 ':'                                         → colon
 '.'                                         → dot
+
+# Reserved words: a keyword rule ties with the identifier rule on its own
+# text and wins by coming first; a longer word (`iffy`) is a name. `new`
+# and the contextual words (`of`, `unique`, `from`, `static`) lex as
+# names, and the rewriter classifies them.
+"true"                                      → true
+"false"                                     → false
+"and"                                       → and
+"as"                                        → as
+"break"                                     → break
+"catch"                                     → catch
+"continue"                                  → continue
+"defer"                                     → defer
+"drop"                                      → drop
+"else"                                      → else
+"enum"                                      → enum
+"errdefer"                                  → errdefer
+"error"                                     → error
+"extern"                                    → extern
+"for"                                       → for
+"fun"                                       → fun
+"if"                                        → if
+"in"                                        → in
+"match"                                     → match
+"not"                                       → not
+"or"                                        → or
+"pass"                                      → pass
+"pub"                                       → pub
+"raw"                                       → raw
+"return"                                    → return
+"struct"                                    → struct
+"sub"                                       → sub
+"test"                                      → test
+"try"                                       → try
+"type"                                      → type
+"use"                                       → use
+"while"                                     → while
+"zig"                                       → zig
+"async"                                     → async
+"await"                                     → await
+"const"                                     → const
+"impl"                                      → impl
+"trait"                                     → trait
+"when"                                      → when
+"where"                                     → where
+"yield"                                     → yield
 
 [a-zA-Z_][a-zA-Z0-9_]*                      → ident
 

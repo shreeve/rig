@@ -162,58 +162,27 @@ pub fn shadows(op: Sexp) bool {
 // Keywords
 // =============================================================================
 
-/// Every Rig keyword is reserved, except `new`, which is a keyword only
-/// at the start of a statement followed by a name or `const` (`new x =
-/// ...`, `new const x = ...`), so
+/// The categories from `true` to `yield` in rig.grammar's `tokens`
+/// block are Rig's keywords. Every keyword is reserved and is a lexer
+/// rule, so the base lexer gives it its own category, except `new`, which
+/// lexes as a name and is a keyword only at the start of a statement
+/// followed by a name or `const` (`new x = ...`, `new const x = ...`), so
 /// `fun new(...)` and `Point.new(...)` stay ordinary names.
-const keywords = std.StaticStringMap(TokenCat).initComptime(.{
-    .{ "and", .@"and" },
-    .{ "as", .as },
-    .{ "async", .async },
-    .{ "await", .await },
-    .{ "break", .@"break" },
-    .{ "catch", .@"catch" },
-    .{ "const", .@"const" },
-    .{ "continue", .@"continue" },
-    .{ "defer", .@"defer" },
-    .{ "drop", .drop },
-    .{ "else", .@"else" },
-    .{ "enum", .@"enum" },
-    .{ "errdefer", .@"errdefer" },
-    .{ "error", .@"error" },
-    .{ "extern", .@"extern" },
-    .{ "false", .false },
-    .{ "for", .@"for" },
-    .{ "fun", .fun },
-    .{ "if", .@"if" },
-    .{ "impl", .impl },
-    .{ "in", .in },
-    .{ "match", .match },
-    .{ "new", .new },
-    .{ "not", .not },
-    .{ "or", .@"or" },
-    .{ "pass", .pass },
-    .{ "pub", .@"pub" },
-    .{ "raw", .raw },
-    .{ "return", .@"return" },
-    .{ "struct", .@"struct" },
-    .{ "sub", .sub },
-    .{ "test", .@"test" },
-    .{ "trait", .trait },
-    .{ "true", .true },
-    .{ "try", .@"try" },
-    .{ "type", .type },
-    .{ "use", .use },
-    .{ "when", .when },
-    .{ "where", .where },
-    .{ "while", .@"while" },
-    .{ "yield", .yield },
-    .{ "zig", .zig },
-});
+pub fn isKeyword(cat: TokenCat) bool {
+    return @intFromEnum(cat) >= @intFromEnum(TokenCat.true) and @intFromEnum(cat) <= @intFromEnum(TokenCat.yield);
+}
 
-/// The token category of a reserved word, or null for a plain name.
+/// A word the base lexer reads: a name or a reserved word.
+fn isWord(cat: TokenCat) bool {
+    return cat == .ident or isKeyword(cat);
+}
+
+/// The token category of a keyword, or null for a plain name.
 pub fn keyword(word: []const u8) ?TokenCat {
-    return keywords.get(word);
+    if (std.mem.eql(u8, word, "new")) return .new;
+    var base = BaseLexer.init(word);
+    const tok = base.next();
+    return if (tok.len == word.len and isKeyword(tok.cat)) tok.cat else null;
 }
 
 // =============================================================================
@@ -784,7 +753,7 @@ pub const Lexer = struct {
         var probe = self.base;
         probe.pos = pos;
         const tok = probe.next();
-        return tok.cat == .ident and std.mem.eql(u8, self.base.text(tok), "else");
+        return tok.cat == .@"else";
     }
 
     fn endOfInput(self: *Lexer, eof: Token) Token {
@@ -846,7 +815,7 @@ pub const Lexer = struct {
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
             .err => return self.lexError(tok),
-            else => tok.cat,
+            else => if (isKeyword(tok.cat)) self.classifyKeyword(tok.cat) else tok.cat,
         };
         // A prefix sigil touches its operand (`-b`, `<x`, `*T`); `i++`
         // is no increment.
@@ -919,20 +888,19 @@ pub const Lexer = struct {
         return true;
     }
 
+    fn classifyKeyword(self: *const Lexer, kw: TokenCat) TokenCat {
+        if (kw != .@"if") return self.memberName() orelse kw;
+        switch (self.last_cat) {
+            .@"return", .@"break", .@"continue", .pass => return .post_if,
+            else => {},
+        }
+        if (!self.after_value) return .@"if";
+        return if (self.elseFollows()) .ternary_if else .post_if;
+    }
+
     fn classifyWord(self: *const Lexer, tok: Token) TokenCat {
         const word = self.base.text(tok);
-        if (keyword(word)) |kw| switch (kw) {
-            .@"if" => {
-                switch (self.last_cat) {
-                    .@"return", .@"break", .@"continue", .pass => return .post_if,
-                    else => {},
-                }
-                if (!self.after_value) return .@"if";
-                return if (self.elseFollows()) .ternary_if else .post_if;
-            },
-            .new => return if (self.stmtStart() and (self.nextIsName() or self.nextIsConst())) .new else .ident,
-            else => return self.memberName() orelse kw,
-        };
+        if (std.mem.eql(u8, word, "new")) return if (self.stmtStart() and (self.nextIsName() or self.nextIsConst())) .new else .ident;
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
         if (std.mem.eql(u8, word, "of") and self.isFillOf()) return .of;
         if (std.mem.eql(u8, word, "unique") and self.isStructUnique()) return .unique;
@@ -983,7 +951,7 @@ pub const Lexer = struct {
     fn isBuiltinCall(self: *const Lexer) bool {
         var probe = self.base;
         const name = probe.next();
-        if (name.cat != .ident) return false;
+        if (!isWord(name.cat)) return false;
         return probe.next().cat == .lparen;
     }
 
@@ -1011,7 +979,7 @@ pub const Lexer = struct {
             if (t.cat == .plus or t.cat == .lt or t.cat == .tilde or t.cat == .question or t.cat == .not_sym) t = probe.next();
             // A keyword entry still makes a bar list, so that the parser
             // reports the keyword (`|when: Int|`).
-            if (t.cat != .ident) return true;
+            if (!isWord(t.cat)) return true;
             var sep = probe.next();
             if (sep.cat == .colon) sep = skipType(&probe) orelse return true;
             switch (sep.cat) {
@@ -1049,7 +1017,7 @@ pub const Lexer = struct {
                 .ident, .integer, .dot, .question, .not_sym, .star, .tilde, .caret, .arrow => {},
                 // Arithmetic in an array size: `[N + 1]Int`.
                 .plus, .minus, .slash, .percent => if (depth == 0) return null,
-                else => return null,
+                else => if (!isKeyword(t.cat)) return null,
             }
         }
     }
@@ -1070,7 +1038,7 @@ pub const Lexer = struct {
                     depth -= 1;
                 },
                 .comma => if (depth == 0) return false,
-                .ident => if (depth == 0 and std.mem.eql(u8, self.base.text(t), "else")) return true,
+                .@"else" => if (depth == 0) return true,
                 else => {},
             }
         }
@@ -1112,10 +1080,10 @@ pub const Lexer = struct {
 
     /// The next token is `return`, `break`, or `continue`.
     fn nextIsJump(self: *const Lexer) bool {
-        const t = self.nextJoined();
-        if (t.cat != .ident) return false;
-        const kw = keyword(self.base.text(t)) orelse return false;
-        return kw == .@"return" or kw == .@"break" or kw == .@"continue";
+        return switch (self.nextJoined().cat) {
+            .@"return", .@"break", .@"continue" => true,
+            else => false,
+        };
     }
 
     /// A literal comes next: a number, a string, or an array.
@@ -1129,13 +1097,12 @@ pub const Lexer = struct {
     fn nextIsName(self: *const Lexer) bool {
         var probe = self.base;
         const t = probe.next();
-        return t.cat == .ident and keyword(self.base.text(t)) == null;
+        return t.cat == .ident and !std.mem.eql(u8, self.base.text(t), "new");
     }
 
     fn nextIsConst(self: *const Lexer) bool {
         var probe = self.base;
-        const t = probe.next();
-        return t.cat == .ident and std.mem.eql(u8, self.base.text(t), "const");
+        return probe.next().cat == .@"const";
     }
 
     /// Why the grammar produced an `err` token.
@@ -1720,7 +1687,7 @@ pub const Parser = struct {
         const n = if (end.cat == .integer) std.fmt.parseInt(i64, text, 0) catch null else null;
         const fix = if (n) |v|
             self.format("`..={s}` is written `..{d}`", .{ text, v + 1 })
-        else if (end.cat == .ident)
+        else if (isWord(end.cat))
             self.format("`..={s}` is written `..{s} + 1`", .{ text, text })
         else
             "`..=b` is written `..b + 1`";
@@ -1849,7 +1816,7 @@ pub const Parser = struct {
         };
         const operand = switch (next.cat) {
             .ident, .integer, .real, .string_sq, .string_dq => src[next.pos .. next.pos + next.len],
-            else => "x",
+            else => if (isKeyword(next.cat)) src[next.pos .. next.pos + next.len] else "x",
         };
         return self.format("a prefix `{c}` touches its operand: write `{c}{s}`", .{ src[tok.pos], src[tok.pos], operand });
     }
@@ -2554,6 +2521,12 @@ test "keywords are reserved; `new` only at statement start" {
         try testing.expect(keyword(w) != null);
     }
     try testing.expect(keyword("var") == null);
+    // Every keyword category but `new` is a lexer rule.
+    for (@intFromEnum(TokenCat.true)..@intFromEnum(TokenCat.yield) + 1) |c| {
+        const cat: TokenCat = @enumFromInt(c);
+        try testing.expectEqual(cat, keyword(@tagName(cat)).?);
+        if (cat != .new) try expectCats(@tagName(cat), &.{cat});
+    }
     try expectCats("new x = 1", &.{ .new, .ident, .assign, .integer });
     try expectCats("p = Point.new(1)", &.{ .ident, .assign, .ident, .dot, .ident, .lparen, .integer, .rparen });
 }
