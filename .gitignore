@@ -3,3 +3,4 @@ zig-out/
 bin/
 .claude/
 .equiv-docs/
+src/parser.zig

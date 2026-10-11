@@ -7,7 +7,7 @@
 #   filter      only run tests whose id contains one of these substrings;
 #               ids look like behavior/ownership/move_into_fn, known/emit/...,
 #               reject/types/..., examples/hello, ir/..., torture/..., cli/..., unit,
-#               parser, classify, vocab, style, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
+#               classify, vocab, style, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
 #               oracle/corpus (the reference ownership checker over a set).
 #               A bare kind name (`known`, `doc`, ...) selects that kind.
 #   -v          also list passing and known-failing tests
@@ -17,12 +17,12 @@
 #               with no filter does first, and exit
 #   --shard I/N run only the selected tests whose id hashes to shard I
 #               of N (1 <= I <= N); shard 1 also runs the whole-program
-#               checks (unit, parser, classify, vocab, style)
+#               checks (unit, classify, vocab, style)
 #   --delta     check every program, but do not run again one whose run
 #               passed before with the same inputs (the results cache,
 #               test/README.md); it counts as passed, carried over
 #
-# Environment: ZIG (the Zig executable), NEXUS (the Nexus executable),
+# Environment: ZIG (the Zig executable),
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
 # `# timeout: N` line can raise its limit), RIG_TEST_OUT (where test
 # output goes, default .zig-cache/rig-test; one run at a time uses a
@@ -51,17 +51,6 @@ SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 cd "$(dirname "$SELF")/.."
 ROOT=$(pwd)
 RIG="$ROOT/bin/rig"
-# Nexus: $NEXUS, else nexus/bin/nexus next to this checkout or any parent
-# directory (so git worktrees nested inside the checkout find it too).
-find_nexus() {
-    local dir=$ROOT
-    while [[ "$dir" != "/" ]]; do
-        dir=$(dirname "$dir")
-        [[ -x "$dir/nexus/bin/nexus" ]] && { echo "$dir/nexus/bin/nexus"; return; }
-    done
-    echo "$ROOT/../nexus/bin/nexus"
-}
-NEXUS=${NEXUS:-$(find_nexus)}
 PANIC_RE='Segmentation fault|panic:|panic at|reached unreachable|index out of bounds|General protection|GENERAL PROTECTION|Bus error|Illegal instruction'
 POS_RE='\.rig:[0-9]+:[0-9]+'
 LEAK_RE='rig: memory leak detected'
@@ -777,7 +766,7 @@ fi
 export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE DELTA RESULTS_CACHE RESULTS_BASE SHA256 FIXED_INPUTS
 
 is_kind() {
-    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|classify|vocab|style|doc|corpus|oracle) return 0 ;; esac
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|classify|vocab|style|doc|corpus|oracle) return 0 ;; esac
     return 1
 }
 
@@ -849,7 +838,7 @@ select_tests() { # select_tests <file> → the selected lines of it
         BEGIN {
             for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i
             split(ENVIRON["FILTER_LIST"], filter, "\n")
-            split("behavior reject known examples ir torture cli unit parser classify vocab style doc corpus oracle", ks, " ")
+            split("behavior reject known examples ir torture cli unit classify vocab style doc corpus oracle", ks, " ")
             for (k in ks) kinds[ks[k]] = 1
         }
         function selected(id,    i, f) {
@@ -1050,19 +1039,6 @@ if selected unit; then
     "$ZIG" build test >"$UNIT_LOG" 2>&1 &
     UNIT_PID=$!
 fi
-if selected parser; then
-    if [[ -x "$NEXUS" ]]; then
-        if "$NEXUS" rig.grammar "$WORK/parser.zig" >"$WORK/parser.log" 2>&1 &&
-            cmp -s "$WORK/parser.zig" src/parser.zig; then
-            printf 'pass\tparser\t\n' >"$RESULTS/st/parser"
-        else
-            printf 'fail\tparser\tsrc/parser.zig is stale or hand-edited; run zig build parser\n' >"$RESULTS/st/parser"
-        fi
-    else
-        printf '%snote: %s not built; skipping parser freshness check%s\n' "$Y" "$NEXUS" "$X"
-    fi
-fi
-
 # What an expression hands over is decided once, by `sema.handsOver`: no
 # pass keeps a classifier of its own. Emit names hidden storage only
 # through the storage facts (`Emitter.hiddenStorage`, whose table of
@@ -1249,7 +1225,7 @@ if grep -qE '^(oracle/|cli/oracle_)' "$LIST" && ! "$ZIG" build oracle 2>&1; then
 fi
 
 TOTAL=$(wc -l <"$LIST" | tr -d ' ')
-if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser && ! selected classify && ! selected vocab && ! selected style; then
+if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected classify && ! selected vocab && ! selected style; then
     # Only kinds named (`./test/run known`) is not a mistyped filter: a
     # kind can be empty, as test/known/ is when no bug is open.
     for f in "${FILTERS[@]}"; do is_kind "$f" || { echo "no test matches ${FILTERS[*]}" >&2; exit 2; }; done
