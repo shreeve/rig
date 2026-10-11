@@ -84,6 +84,10 @@ const usage =
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
     \\                   any use of freed memory crash where it happens
     \\                   (much slower; `./test/run` sets it)
+    \\  RIG_VERIFY_PROOFS
+    \\                   Set to 1 when building with --release to make
+    \\                   the tests the compiler proved, and omits, as
+    \\                   assertions, as every debug build does
     \\  RIG_STD          For developing the standard library: a directory
     \\                   to read it from, in place of the copy built into
     \\                   rig
@@ -142,19 +146,25 @@ const Env = struct {
         return env.flag("RIG_SANITIZE");
     }
 
+    fn verifyProofs(env: Env) bool {
+        return env.flag("RIG_VERIFY_PROOFS");
+    }
+
     /// Set, and not to `0`.
     fn flag(env: Env, name: []const u8) bool {
         const value = env.get(name) orelse return false;
         return !std.mem.eql(u8, value, "0");
     }
 
-    /// The declarations that ask the runtime for leak traces or the
-    /// sanitizer, written into the root module (`runtime.zig`); and, in a
+    /// The declarations that ask the runtime for leak traces, the
+    /// sanitizer, or the assertions of proven tests, written into the root
+    /// module (`runtime.zig`); and, in a
     /// package `rig run` or `rig test` builds (`hook`), the variable
     /// naming the file the program creates as it starts (`buildCommand`).
     fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool) !void {
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
+        if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
     }
 };
@@ -656,7 +666,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.poison = env.sanitize();
         try em.emit(m.ir);
         links_libc = links_libc or em.links_libc;
-        if (i == 0 and (env.leakTrace() or env.sanitize() or hook)) {
+        if (i == 0 and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook)) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook);
         }

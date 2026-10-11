@@ -166,6 +166,11 @@ const Pass = struct {
     proven: std.AutoHashMapUnmanaged(sema.NodeKey, Proven) = .empty,
     /// The writes under each list node (`killsOf`), computed once.
     kills_memo: std.AutoHashMapUnmanaged(sema.NodeKey, Kills) = .empty,
+    /// When set, each assignment's node id, in the order the walk visits
+    /// it outside closures and defers (`walkOrder`).
+    trace: ?*std.ArrayList(sema.NodeKey) = null,
+    /// Closures and defers being walked around the current point.
+    untraced: u32 = 0,
 
     // ------------------------------------------------------------------
     // Subjects and bounds (positive lists)
@@ -508,7 +513,15 @@ const Pass = struct {
     fn walkAtomic(p: *Pass, node: Sexp, st: *State) Error!void {
         const kills = try p.killsOf(node);
         applyKills(st, &kills);
-        for (rig.children(node)) |c| try p.walk(c, st);
+        // Each part starts from the facts before the expression, so no part
+        // relies on another having run first; what each makes holds once
+        // all have run.
+        const pre = try st.clone(p.a);
+        for (rig.children(node)) |c| {
+            var part = try pre.clone(p.a);
+            try p.walk(c, &part);
+            for (part.facts.items) |f| try st.add(p.a, f);
+        }
         try p.recordUse(node, st);
         // G4: a length read ran `rig.len`'s test.
         if (p.lenOf(node)) |s| try st.add(p.a, .{ .fits = s });
@@ -555,6 +568,8 @@ const Pass = struct {
     /// A `defer` or `errdefer` body runs at its scope's exits, from facts
     /// this pass does not track: it is walked from none.
     fn walkDeferBody(p: *Pass, node: Sexp) Error!void {
+        p.untraced += 1;
+        defer p.untraced -= 1;
         var fresh: State = .{};
         try p.walk(ir.get(node, .body), &fresh);
     }
@@ -562,13 +577,24 @@ const Pass = struct {
     /// An assignment: its value, then its target's indexes, then the
     /// store (docs/INTERNALS.md, "Assignments").
     fn walkSet(p: *Pass, node: Sexp, st: *State) Error!void {
+        if (p.trace) |t| if (p.untraced == 0 and node == .list) try t.append(p.a, node.list.id);
         const target = ir.Set.target(node);
         const value = ir.Set.value(node);
         const kind = rig.bindingKindOf(ir.Set.op(node));
+        const before = try st.clone(p.a);
         try p.walk(value, st);
         // G2, before the store, which may end what it gives.
         if (kind.operator() == null) try p.genCheck(value, st);
-        if (target != .src) try p.walk(target, st);
+        // Emit finds the place after the value only when the value can act
+        // (`actsBeforeStore`), and otherwise Zig may find it first: the
+        // target's indexes see what holds either way, the facts from
+        // before the value less what the value writes.
+        if (target != .src) {
+            var t = before;
+            applyKills(&t, &(try p.killsOf(value)));
+            try p.walk(target, &t);
+            applyKills(st, &(try p.killsOf(target)));
+        }
         // `i += c`: the add's own test.
         if (kind == .@"+=") if (p.intLocal(target)) |i| if (p.intLiteral(value)) |c| {
             try p.record(node, .{ .no_overflow = addFits(st, i, c) });
@@ -701,6 +727,8 @@ const Pass = struct {
     /// A closure's body starts with no facts; making it is the writes its
     /// `|!x|` captures make.
     fn walkLambda(p: *Pass, node: Sexp, st: *State) Error!void {
+        p.untraced += 1;
+        defer p.untraced -= 1;
         try p.walkBody(node, ir.Lambda.body(node));
         applyKills(st, &(try p.killsOf(ir.Lambda.captures(node))));
     }
@@ -736,6 +764,19 @@ pub fn check(ctx: *SemContext, root: Sexp) Error!void {
     }
     var it = p.proven.iterator();
     while (it.next()) |e| if (e.value_ptr.any()) try ctx.proven.put(ctx.allocator, e.key_ptr.*, e.value_ptr.*);
+}
+
+/// The assignments of a module's functions, outside closures and defers,
+/// in the order the pass walks them (appended to `out`, in `a`).
+pub fn walkOrder(ctx: *SemContext, a: std.mem.Allocator, root: Sexp, out: *std.ArrayList(sema.NodeKey)) Error!void {
+    var arena = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer arena.deinit();
+    var trace: std.ArrayList(sema.NodeKey) = .empty;
+    var p: Pass = .{ .ctx = ctx, .a = arena.allocator(), .trace = &trace };
+    if (root.kind() == .module) {
+        for (ir.Module.decls(root)) |d| try p.walkDecl(d);
+    }
+    try out.appendSlice(a, trace.items);
 }
 
 /// `rig check --facts=proofs`: each node with a test known to pass, one
@@ -1063,4 +1104,91 @@ test "joins: a fact made in a branch ends with it; a loop keeps only what it doe
         \\12:11 index lower
         \\
     );
+}
+
+/// The assignments of a module's functions, outside closures, defers,
+/// and `raw` blocks, in source order: the ones both the walk and emit's
+/// trace hold.
+fn collectSets(a: std.mem.Allocator, node: Sexp, out: *std.AutoHashMapUnmanaged(sema.NodeKey, void)) !void {
+    if (node != .list) return;
+    if (node.kind()) |k| switch (k) {
+        .lambda, .@"defer", .@"errdefer", .raw_block => return,
+        .set => try out.put(a, node.list.id, {}),
+        else => {},
+    };
+    for (node.items()) |c| try collectSets(a, c, out);
+}
+
+fn collectBodies(a: std.mem.Allocator, decl: Sexp, out: *std.AutoHashMapUnmanaged(sema.NodeKey, void)) !void {
+    switch (decl.kind() orelse return) {
+        .@"pub" => try collectBodies(a, ir.Pub.decl(decl), out),
+        .fun, .sub, .drop_decl, .@"test" => try collectSets(a, ir.get(decl, .body), out),
+        .@"struct", .@"enum", .generic_struct, .generic_enum => for (ir.rest(decl, .members)) |m| try collectBodies(a, m, out),
+        else => {},
+    }
+}
+
+test "the walk visits each assignment where the emitted Zig runs it" {
+    // Every program of test/behavior/emit: the order in which the pass
+    // walks the assignments of each function body (a loop's condition,
+    // its body, then its step; each branch in turn) is the order emit
+    // writes them, with a step Zig runs as a loop's continue expression
+    // placed after the body, where it runs. Closures, defers, and `raw`
+    // blocks are left out of both: the pass walks the first two from no
+    // facts, and proves nothing in the third.
+    const emit = @import("emit.zig");
+    const facts = @import("facts.zig");
+    const modules = @import("modules.zig");
+    const a = std.testing.allocator;
+    const io = std.testing.io;
+    var dir = try std.Io.Dir.cwd().openDir(io, "test/behavior/emit", .{ .iterate = true });
+    defer dir.close(io);
+    var names: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (names.items) |n| a.free(n);
+        names.deinit(a);
+    }
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        const path = switch (entry.kind) {
+            .file => if (std.mem.endsWith(u8, entry.name, ".rig")) try std.fs.path.join(a, &.{ "test/behavior/emit", entry.name }) else continue,
+            .directory => try std.fs.path.join(a, &.{ "test/behavior/emit", entry.name, "main.rig" }),
+            else => continue,
+        };
+        try names.append(a, path);
+    }
+    try std.testing.expect(names.items.len > 100);
+    var compared: usize = 0;
+    for (names.items) |path| {
+        var graph = modules.ModuleGraph.init(a, io);
+        defer graph.deinit();
+        graph.loadRoot(path) catch continue;
+        if (graph.hasErrors()) continue;
+        const m = graph.root();
+        var arena = std.heap.ArenaAllocator.init(a);
+        defer arena.deinit();
+        const aa = arena.allocator();
+        var eligible: std.AutoHashMapUnmanaged(sema.NodeKey, void) = .empty;
+        if (m.ir.kind() == .module) for (ir.Module.decls(m.ir)) |d| try collectBodies(aa, d, &eligible);
+        var walked: std.ArrayList(sema.NodeKey) = .empty;
+        try walkOrder(m.sema, aa, m.ir, &walked);
+        var emitted: std.ArrayList(u32) = .empty;
+        defer emitted.deinit(a);
+        var out: std.Io.Writer.Allocating = .init(a);
+        defer out.deinit();
+        var em = emit.Emitter.init(a, m.source, &out.writer, facts.Facts.of(m.sema));
+        defer em.deinit();
+        em.trace = &emitted;
+        try em.emit(m.ir);
+        var want: std.ArrayList(sema.NodeKey) = .empty;
+        for (emitted.items) |id| if (eligible.contains(id)) try want.append(aa, id);
+        var got: std.ArrayList(sema.NodeKey) = .empty;
+        for (walked.items) |id| if (eligible.contains(id)) try got.append(aa, id);
+        std.testing.expectEqualSlices(sema.NodeKey, want.items, got.items) catch |err| {
+            std.debug.print("{s}: the walk's assignments differ from emit's\n", .{path});
+            return err;
+        };
+        compared += 1;
+    }
+    try std.testing.expect(compared > 100);
 }

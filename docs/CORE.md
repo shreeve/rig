@@ -1141,6 +1141,11 @@ no pass decides them again by looking at syntax.
   *(planned)*.
 - **Per path, one exit primitive,** which runs defers, reports any loan
   it would drop, and rewinds when the path goes on. *(built)*
+- **Per check, one fact:** whether an index, byte read, or integer
+  `+` is known to pass. It is, when a guard or check made the same
+  test on every path to it and nothing it tested was written in
+  between. A binding changes only where an assignment or a `!` says so
+  (sentences 4 and 9), so the compiler sees every write. *(built)*
 
 ## 10. How a feature earns its way in
 

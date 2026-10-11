@@ -266,6 +266,10 @@ pub const Emitter = struct {
     /// (`rig.poison`), so a view that outlives it reads garbage: set for
     /// the sanitizer (`RIG_SANITIZE`).
     poison: bool = false,
+    /// When set, each assignment's node id, in the order the emitted Zig
+    /// runs them: the test that the proof pass walks what emit writes
+    /// (`proofs.zig`, "the walk follows the emitted control flow").
+    trace: ?*std.ArrayList(u32) = null,
     /// The Zig error set of every error of the module's error sets,
     /// which its fallible Zig-backed functions may return.
     module_errors: []const u8 = "error{}",
@@ -1326,6 +1330,7 @@ pub const Emitter = struct {
 
     /// `(set kind target type expr)`.
     fn emitSet(self: *Emitter, sexp: Sexp) Error!void {
+        if (self.trace) |t| if (sexp == .list) try t.append(self.allocator, sexp.list.id);
         const kind = rig.bindingKindOf(ir.Set.op(sexp));
         const target = ir.Set.target(sexp);
         const type_node = ir.Set.type(sexp);
@@ -2147,9 +2152,16 @@ pub const Emitter = struct {
         try self.enterLoop(lp, .{ .word = "continue", .label = lp.loop });
         const l = try self.openLabeled(lp.loop);
         try self.w.writeAll("while (true) ");
+        // Zig runs a continue expression after the body: what the step
+        // traces goes after what the body does.
+        var step_trace: std.ArrayList(u32) = .empty;
+        defer step_trace.deinit(self.allocator);
+        const trace = self.trace;
         if (step != .nil and !step_inside) {
             try self.w.writeAll(": (");
+            if (trace != null) self.trace = &step_trace;
             try self.emitStep(step, lp);
+            self.trace = trace;
             try self.w.writeAll(") ");
         }
         try self.openBrace();
@@ -2175,6 +2187,7 @@ pub const Emitter = struct {
         const body = try self.openLoopBody(lp);
         try self.closeLoopBody(lp, body, ir.While.body(sexp));
         try self.w.writeAll("\n");
+        if (trace) |t| try t.appendSlice(self.allocator, step_trace.items);
         if (step != .nil and step_inside) {
             try self.writeIndent(self.indent);
             try self.emitStep(step, lp);
