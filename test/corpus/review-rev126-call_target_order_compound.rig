@@ -1,0 +1,14 @@
+# compound: target object is a call that writes i
+fun pick(t: ![]U8, n: !Int) -> ![]U8 from t
+  n += 1
+  t
+
+sub put(t: ![]U8, s: ?String, at: Int)
+  i = at
+  if i < s.len
+    pick(!t, !i)[0] += s[i]
+
+sub main()
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", 3)
+  print(a)
