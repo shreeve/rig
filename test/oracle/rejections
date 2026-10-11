@@ -104,7 +104,6 @@ box.recv_read_then_write.write_view run
 box.recv_view_then_write.call run
 box.recv_view_then_write.catch run
 box.recv_view_then_write.clone run
-box.recv_view_then_write.ctor run
 box.recv_view_then_write.field run
 box.recv_view_then_write.nullish run
 box.recv_view_then_write.place run
@@ -3315,7 +3314,7 @@ test/reject/ownership/kept_receiver_view_leaves_tail.rig view
 test/reject/ownership/kept_receiver_view_outlives_statement.rig main
 test/reject/ownership/labeled_break_carries_move.rig main
 test/reject/ownership/lend_table_loans.rig boxed_array
-test/reject/ownership/lend_table_loans.rig boxed_box
+test/reject/ownership/lend_table_loans.rig boxed_struct
 test/reject/ownership/lend_table_loans.rig handle_text
 test/reject/ownership/lend_table_loans.rig handle_view
 test/reject/ownership/lend_table_loans.rig held_view

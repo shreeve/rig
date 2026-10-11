@@ -9433,7 +9433,16 @@ const Checker = struct {
         }
         const match_hint = if (self.ctx.types.get(expected) == .write_view) try self.readMatchHint(place.sym) else "";
         if (match_hint.len > 0) return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`{s}", .{ try self.tyName(expected), try self.tyName(actual), match_hint });
-        try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`{s}{s}", .{ try self.tyName(expected), try self.tyName(actual), try self.loopOrderHint(e, expected), self.staticHint(e, expected, actual) });
+        try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`{s}{s}{s}", .{ try self.tyName(expected), try self.tyName(actual), try self.loopOrderHint(e, expected), self.staticHint(e, expected, actual), try self.ownerHint(e, expected, actual) });
+    }
+
+    /// Where a `String` is expected and a `?String` (or a `Static`) is
+    /// given: a `String` owns its text, so the way out is a copy, or a
+    /// place that only reads, `?String`.
+    fn ownerHint(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error![]const u8 {
+        if (expected != self.t().string_id) return "";
+        if (actual != self.t().string_view_id and actual != self.t().static_id) return "";
+        return self.ctx.arena.allocator().print("; a `String` owns its text: write `String({s})` to copy it, or declare the place `?String` to only read it", .{try self.plainText(e)});
     }
 
     /// Why a `?String` is not a `Static`, and the way out, when `actual`

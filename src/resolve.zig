@@ -749,7 +749,7 @@ fn isValueSpelling(source: []const u8, node: Sexp) bool {
 fn literalTypeName(text: []const u8) ?[]const u8 {
     if (sema.isFloatLiteralText(text)) return "Float";
     if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return "Bool";
-    if (text.len > 0 and (text[0] == '"' or text[0] == '\'')) return "String";
+    if (text.len > 0 and (text[0] == '"' or text[0] == '\'')) return "?String";
     return null;
 }
 
@@ -777,8 +777,8 @@ pub const TypeResolver = struct {
         if (name.len > 0 and std.ascii.isLower(name[0])) {
             const upper = try a.dupe(u8, name);
             upper[0] = std.ascii.toUpper(upper[0]);
+            if (std.mem.eql(u8, name, "str") or std.mem.eql(u8, name, "string")) return "; Rig's text is a `String` (owned), and `?String` is its read view";
             if (isBuiltinTypeName(self.ctx, upper)) return a.print("; Rig's types are capitalized: `{s}`", .{upper});
-            if (std.mem.eql(u8, name, "str")) return "; Rig's text is a `String` (owned), and `?String` is its read view";
         }
         var s: sema.Suggest = .{ .name = name };
         self.ctx.offerVisible(&s, self.scope, pos, struct {

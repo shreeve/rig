@@ -5814,7 +5814,7 @@ const TypePrinter = struct {
         const s = try p.id(inner);
         return switch (p.ctx.types.get(inner)) {
             // A handle binds tighter than a suffix, and takes no view prefix.
-            .optional, .fallible, .read_view, .write_view => p.a.print("{c}({s})", .{ sigil, s }),
+            .optional, .fallible, .read_view, .write_view, .string_view => p.a.print("{c}({s})", .{ sigil, s }),
             else => p.a.print("{c}{s}", .{ sigil, s }),
         };
     }
@@ -5830,7 +5830,7 @@ fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const Typ
 /// type (`fun(Int) -> Int?` returns an optional), or a handle to one.
 fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .read_view, .write_view, .function, .slice, .array => true,
+        .read_view, .write_view, .string_view, .function, .slice, .array => true,
         .shared, .weak => |inner| takesNoSuffix(ctx, inner),
         .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and takesNoSuffix(ctx, pn.args[0]),
         else => false,

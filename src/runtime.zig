@@ -1178,7 +1178,8 @@ fn suffixedName(comptime T: type, comptime suffix: []const u8, comptime names: a
 /// An array or a function, or a handle to one: a type whose spelling a
 /// suffix cannot follow.
 fn takesNoSuffix(comptime T: type, comptime names: anytype) bool {
-    if (builtinName(T, names) != null) return false;
+    // A built-in type's name takes a suffix, unless it is a view's: `?String`.
+    if (builtinName(T, names)) |name| return name[0] == '?';
     return switch (@typeInfo(T)) {
         .array => true,
         .pointer => |p| if (isStrongHandle(T)) takesNoSuffix(@FieldType(p.child, "value"), names) else true,
@@ -1194,7 +1195,8 @@ fn takesNoSuffix(comptime T: type, comptime names: anytype) bool {
 
 /// `*T` / `~T` / `^T`, with `T` in parentheses when it is suffixed.
 fn handleName(comptime sigil: []const u8, comptime T: type, comptime names: anytype) []const u8 {
-    const suffixed = @typeInfo(T) == .optional or @typeInfo(T) == .error_union;
+    const view = if (builtinName(T, names)) |name| name[0] == '?' else false;
+    const suffixed = view or @typeInfo(T) == .optional or @typeInfo(T) == .error_union;
     return if (suffixed) sigil ++ "(" ++ nameOf(T, names) ++ ")" else sigil ++ nameOf(T, names);
 }
 

@@ -24,13 +24,13 @@ expect_has "$(cat main.zig)" '.{ rig.List, .{ "List[", 0, "]" } },' "the table o
 # The names the table holds: each built-in type's, and the name that
 # starts each generic type's spelling.
 names=$(sed -n '/^const __rig_names = /,/^};/p' main.zig |
-    sed -nE 's/^ *\.\{ [^,]+, "([A-Za-z0-9]+)" \},$/\1/p; s/^ *\.\{ [^,]+, \.\{ "([A-Za-z0-9]+)\[".*/\1/p')
+    sed -nE 's/^ *\.\{ [^,]+, "([?A-Za-z0-9]+)" \},$/\1/p; s/^ *\.\{ [^,]+, \.\{ "([A-Za-z0-9]+)\[".*/\1/p')
 (( $(wc -l <<<"$names") >= 20 )) || fail "too few names in the table: $names"
 
 section=$(sed -n '/^\/\/ Type names$/,/^\/\/ Zig-backed declarations$/p' "$ROOT/src/runtime.zig")
 expect_has "$section" "pub fn typeName(" "the runtime's section that names types"
 while read -r n; do
-    if grep -nE "\"$n(\"|\\[)" <<<"$section"; then fail "src/runtime.zig spells the type name $n"; fi
+    if grep -nE "\"${n//\?/\\?}(\"|\\[)" <<<"$section"; then fail "src/runtime.zig spells the type name $n"; fi
 done <<<"$names"
 
 rig run main.rig >out.txt 2>err.txt || fail "rig run: $(cat err.txt)"

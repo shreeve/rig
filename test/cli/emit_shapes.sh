@@ -226,10 +226,10 @@ grep -q 'rig.poison' <<<"$out" && fail "poisoned without the sanitizer: $out"
 out=$(RIG_SANITIZE=1 "$RIG" run poison.rig 2>&1) || fail "rig run poison.rig: $out"
 expect_eq "$out" "3 3" "poisoned program runs"
 
-# The read view of a Text is its bytes wherever it is bound: `?t`, a loop
-# over Text elements, a payload, an `as` binding, a capture, and a
-# generic `?T` at `T = Text`. No Zig names a pointer to a Text as a
-# view, and `+s` of a String makes a Text.
+# The read view of a String is its bytes wherever it is bound: `?t`, a loop
+# over String elements, a payload, an `as` binding, a capture, and a
+# generic `?T` at `T = String`. No Zig names a pointer to a String as a
+# view, and `+s` of a `?String` makes a String.
 cat >textview.rig <<'EOF2'
 enum Slot
   full(item: String)
@@ -266,7 +266,7 @@ expect_has "$out" 'const x = __rig_elem_' "a loop binds each element's bytes"
 expect_has "$out" 'const p = __rig_opt_' "an as binding is the bytes"
 expect_has "$out" 'const item = __rig_payload_' "a payload binding is the bytes"
 expect_has "$out" '.cap_t = t.bytes()' "a capture is the bytes"
-expect_has "$out" 'same(rig.Text, t.bytes(), t.bytes())' "a generic ?T at a Text is the bytes"
-expect_has "$out" 'var u = rig.Text.of(.{ v });' "+s of a String makes a Text"
-grep -q '\*const rig.Text' <<<"$out" && fail "a pointer view of a Text: $out"
+expect_has "$out" 'same(rig.String, t.bytes(), t.bytes())' "a generic ?T at a Text is the bytes"
+expect_has "$out" 'var u = rig.String.of(.{ v });' "+s of a String makes a Text"
+grep -q '\*const rig.String' <<<"$out" && fail "a pointer view of a Text: $out"
 true

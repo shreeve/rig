@@ -1,0 +1,22 @@
+# `^?T` is a box that holds a read view, and it is written the same in a
+# field, a parameter, and a result.
+
+struct P
+  x: Int
+
+struct Holder
+  b: ^?P
+
+fun wrap(p: ?P) -> ^?P from p
+  ^?p
+
+fun read(b: ?^?P) -> Int
+  b.x
+
+sub main()
+  p = P(x: 4)
+  h = Holder(b: wrap(?p))
+  print(read(?h.b), h.b.x)
+
+# expect:
+# 4 4

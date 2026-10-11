@@ -2183,6 +2183,9 @@ pub const Parser = struct {
     fn touchesOperand(self: *Parser, node: Sexp) void {
         const at = self.span(node).start;
         const src = self.base.source;
+        // The view inside `^?T` has no sigil of its own: the box's `^?` is
+        // checked as one token pair.
+        if (at >= src.len or std.mem.findScalar(u8, "<+-?!*~^", src[at]) == null) return;
         if (!isSpace(if (at + 1 < src.len) src[at + 1] else 0) or self.failure != null) return;
         self.failure = .{ .severity = .@"error", .pos = at, .end = at + 1, .message = self.detachedPrefix(.{ .cat = .err, .pre = 0, .pos = at, .len = 1 }) };
     }

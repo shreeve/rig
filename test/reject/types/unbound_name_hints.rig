@@ -32,7 +32,7 @@ sub main()
   print(p.wdith, p.aera(), Point.orgin(), a, b, c, d, e)
 
 # error: 19:10: use of unbound type `i32`; Rig's types are capitalized: `I32`
-# error: 19:18: use of unbound type `string`; Rig's types are capitalized: `?String`
+# error: 19:18: use of unbound type `string`; Rig's text is a `String` (owned), and `?String` is its read view
 # error: 19:29: use of unbound type `Piont`; did you mean `Point`?
 # error: 24:7: use of unbound name `null`; Rig's absent value is `none`
 # error: 25:7: use of unbound name `True`; Rig writes `true`

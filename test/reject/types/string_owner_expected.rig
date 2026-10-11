@@ -1,0 +1,16 @@
+# A `String` owns its text, so a place that expects one is not given a
+# literal or a read view: the hint is a copy, `String(...)`, or a place
+# that only reads, `?String`.
+
+fun size(s: String) -> Int
+  s.len
+
+sub main()
+  t = String("a")
+  print(size("x"))
+  print(size(?t))
+  x: String = "lit"
+
+# error: 10:14: type mismatch: expected `String`, got `Static`; a `String` owns its text: write `String("x")` to copy it, or declare the place `?String` to only read it
+# error: 11:14: type mismatch: expected `String`, got `?String`; a `String` owns its text: write `String(?t)` to copy it
+# error: 12:15: type mismatch: expected `String`, got `Static`; a `String` owns its text: write `String("lit")` to copy it
