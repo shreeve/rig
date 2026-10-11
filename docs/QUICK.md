@@ -70,6 +70,11 @@ b`. `!` never negates. On an integer, `x.not()` flips every bit
 `x.leading_zeros()`, and `x.trailing_zeros()` count bits, and `x <<% n`
 shifts left, dropping the bits that fall off.
 
+**Vectors.** `Simd[U8, 16]` holds 16 lanes, operated on together:
+`v + 1` and `v == q` work lane by lane, a comparison gives a mask
+(`Simd[Bool, 16]`), and `m.bits()`, `m.any()`, or `m.all()` reduce it.
+A vector copies like an `Int`, and `v[i]` reads a lane.
+
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a
 read parameter (`print(w[1..3])`);
 `String(a, b)` builds text the same way; `@size(T)`, `@align(T)`, and

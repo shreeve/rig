@@ -1,0 +1,16 @@
+# `v.with(i, x)` checks its index when the program runs.
+
+fun put(v: Simd[U8, 4], i: Int) -> Simd[U8, 4]
+  v.with(i, 9)
+
+sub main()
+  v = Simd[U8, 4]([1, 2, 3, 4])
+  print(put(v, 0))
+  print(put(v, -1))
+
+# expect-panic: index out of bounds
+
+# release
+
+# expect:
+# [9, 2, 3, 4]

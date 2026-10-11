@@ -1,0 +1,24 @@
+# A vector's `==` is lane by lane and gives a mask, so a value that holds
+# a vector has no `==`, and neither has a generic `T` that is one.
+
+obj L
+  v: Simd[U8, 4]
+
+fun same[T](a: T, b: T) -> Bool
+  a == b
+
+sub main()
+  a = L(v: Simd[U8, 4].splat(1))
+  b = L(v: Simd[U8, 4].splat(1))
+  print(a == b)
+  o: Simd[U8, 4]? = none
+  print(o == a.v, o == none)
+  print(same(a.v, b.v))
+  arr = [a.v, b.v]
+  print(arr == arr)
+
+# error: 13:9: `==` is not defined for `L`: field `v` is a `Simd[U8, 4]`, whose `==` compares lane by lane; compare the fields and reduce the mask: `(x.v == y.v).all()`
+# error: 15:9: `==` is not defined for `Simd[U8, 4]?`: `Simd[U8, 4]` holds a vector, whose `==` compares lane by lane
+# error: 18:9: `==` is not defined for `[2]Simd[U8, 4]`: `Simd[U8, 4]` holds a vector, whose `==` compares lane by lane
+# error: 16:9: `same[Simd[U8, 4]]` cannot use `T = Simd[U8, 4]`: the generic body applies `==` to `T`, which `Simd[U8, 4]` does not support: `Simd[U8, 4]` holds a vector, whose `==` compares lane by lane
+# errors: 4

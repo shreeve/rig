@@ -148,6 +148,12 @@ const Checker = struct {
     receiver_obj: Sexp = .nil,
     /// The operand of the `not` being checked, which must be a `Bool`.
     not_operand: Sexp = .nil,
+    /// The `and` or `or` being checked, and its operands, which must be
+    /// `Bool`s.
+    logic_op: []const u8 = "",
+    logic_operands: [2]Sexp = .{ .nil, .nil },
+    /// The condition of the `if` value being checked.
+    ternary_cond: Sexp = .nil,
     /// A call whose value a `!` written before it lends to write, with
     /// the sigil outside the call (`!(v.pop())`, `!o?.pop()`), or the
     /// source of a `for` whose `!` is the loop's mode: a write method on
@@ -1108,6 +1114,10 @@ const Checker = struct {
             else => {},
         }
         const place_ty = try self.synthExpr(target);
+        if (try self.rejectLane(target, .assign)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         const place = self.placeOf(target);
         if (place.cell_list_elem) |elem| {
             if (!sameNode(elem, target) or kind.operator() != null) {
@@ -1157,6 +1167,7 @@ const Checker = struct {
             .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"+%", .@"-%", .@"*%" => .integer,
             else => .numeric,
         };
+        if (sema.simdOf(self.ctx, target_ty) != null) return self.simdCompound(op, spelled, sema.unwrapViews(self.ctx, target_ty), rhs, pos);
         const tv: ?SymbolId = switch (self.ctx.types.get(target_ty)) {
             .type_var => |tv| tv,
             else => null,
@@ -1600,9 +1611,12 @@ const Checker = struct {
         // A ternary or a postfix guard has no block to bind a name for.
         const saved_hold = self.no_hold;
         self.no_hold = saved_hold or position == .value;
+        const saved_cond = self.ternary_cond;
+        if (position == .value) self.ternary_cond = cond;
         if (!self.isBlockIf(node) and rig.bindsInCondition(cond)) {
             try self.checkExpr(cond, self.t().bool_id);
         } else try self.checkCondition(cond);
+        self.ternary_cond = saved_cond;
         self.no_hold = saved_hold;
         const then_ty = try self.branch(then_node, expected, position);
         self.scope = prev;
@@ -3694,6 +3708,14 @@ const Checker = struct {
             .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
             .@"and", .@"or" => blk: {
+                const saved_op = self.logic_op;
+                const saved_operands = self.logic_operands;
+                defer {
+                    self.logic_op = saved_op;
+                    self.logic_operands = saved_operands;
+                }
+                self.logic_op = @tagName(head);
+                self.logic_operands = .{ ir.get(e, .left), ir.get(e, .right) };
                 try self.checkExpr(ir.get(e, .left), self.t().bool_id);
                 try self.checkExpr(ir.get(e, .right), self.t().bool_id);
                 break :blk self.t().bool_id;
@@ -3800,6 +3822,11 @@ const Checker = struct {
         const a = try self.synthReached(l);
         const b = try self.synthReached(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        // Lane by lane: a mask.
+        if (sema.simdOf(self.ctx, a) != null or sema.simdOf(self.ctx, b) != null) {
+            const vt = try self.simdOperands(e, op, .ordered, a, b);
+            return if (self.isPoison(vt)) vt else self.maskOf(self.ctx.types.get(vt).simd);
+        }
         if (!self.isBytes(a) and !self.isBytes(b)) {
             _ = try self.checkIntDefaultOperands(e, op, .ordered, .{ a, b });
             return self.t().bool_id;
@@ -3890,6 +3917,11 @@ const Checker = struct {
             _ = try self.synthExpr(ir.get(e, .right));
             return ty;
         }
+        if (sema.simdOf(self.ctx, ty) != null) {
+            try self.errAt(left, "operator `{s}` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons", .{op});
+            _ = try self.synthExpr(ir.get(e, .right));
+            return self.t().invalid_id;
+        }
         switch (self.ctx.types.get(ty)) {
             .type_var => |tv| try self.require(tv, .integer, self.startOf(left), op),
             else => if (!sema.isInteger(self.ctx, ty)) {
@@ -3942,6 +3974,7 @@ const Checker = struct {
         const b = if (synthesized) |ts| ts[1] else try self.synthOperandValue(operands[1]);
         const pos = self.startOf(operands[0]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
+        if (sema.simdOf(self.ctx, a) != null or sema.simdOf(self.ctx, b) != null) return self.simdOperands(e, op, req, a, b);
 
         const ta = self.ctx.types.get(a);
         const tb = self.ctx.types.get(b);
@@ -4024,6 +4057,16 @@ const Checker = struct {
         const operand = ir.Neg.operand(e);
         const ty = try self.synthOperandValue(operand);
         if (self.isPoison(ty)) return ty;
+        const lane = if (sema.simdOf(self.ctx, ty)) |v| v.elem else ty;
+        if (lane != ty) switch (self.ctx.types.get(lane)) {
+            .int => |info| if (info.signed) return ty,
+            .float => return ty,
+            else => {},
+        };
+        if (lane != ty) {
+            try self.errAt(operand, "operator `-` negates signed integer or float lanes; got `{s}`", .{try self.tyName(ty)});
+            return self.t().invalid_id;
+        }
         switch (self.ctx.types.get(ty)) {
             .int => |info| {
                 if (!info.signed) {
@@ -4090,6 +4133,13 @@ const Checker = struct {
             b = try self.synthReached(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        // Lane by lane: a mask. (An optional vector has no `==`, which
+        // the optional's comparison reports.)
+        const optional = self.ctx.types.get(a) == .optional or self.ctx.types.get(b) == .optional;
+        if (!optional and (sema.simdOf(self.ctx, a) != null or sema.simdOf(self.ctx, b) != null)) {
+            const vt = try self.simdOperands(e, op, .equatable, a, b);
+            return if (self.isPoison(vt)) vt else self.maskOf(self.ctx.types.get(vt).simd);
+        }
         // An owning temporary compared is dropped with its statement; a
         // view compared owns nothing.
         for ([2]Sexp{ l, r }) |operand| {
@@ -4450,6 +4500,7 @@ const Checker = struct {
         else
             try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
+        if (try self.rejectLane(operand, if (kind == .write) .lend_write else .lend_read)) return self.t().invalid_id;
         // A branch is a value, never a place: lent only where it is made.
         if (!try self.lendsBranch(operand, .nil, kind)) return self.t().invalid_id;
         // `?!x` only reads what `!x` lends.
@@ -4837,6 +4888,7 @@ const Checker = struct {
         const ty = try self.synthExpr(operand);
         if (try self.payloadViewTaken(operand, "move")) return self.t().invalid_id;
         if (self.isPoison(ty)) return ty;
+        if (try self.rejectLane(operand, .take)) return self.t().invalid_id;
         if (try self.rejectMadeParts(e, operand)) return self.t().invalid_id;
         if (sema.moveSource(self.ctx, operand) != .optional_part) return ty;
         try self.ctx.recordTake(e);
@@ -5373,14 +5425,14 @@ const Checker = struct {
                 .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
-            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits()) {
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd()) {
                 const shown = switch (op) {
                     .copy => "!xs.copy(src)",
                     .fill => "!xs.fill(v)",
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .any, .all, .array, .with, .select => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -5510,7 +5562,7 @@ const Checker = struct {
     fn namedType(self: *Checker, obj: Sexp) Error!?NamedType {
         if (rig.isBracketList(obj)) {
             const target = (try self.instTarget(ir.get(obj, .object))) orelse return null;
-            if (target != .generic) return null;
+            if (target != .generic or target.generic.id == self.ctx.simd_sym_id) return null;
             var nt = target.generic;
             const ty = try self.typeInstance(obj, nt);
             const arity = if (nt.sym.type_params) |tps| tps.len else 0;
@@ -6000,6 +6052,13 @@ const Checker = struct {
         if (!sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`{s}", .{ try self.tyName(idx_ty), try self.loopOrderHint(index, self.t().int_id) });
         } else if (idx_ty == self.t().int_literal_id) try self.defaultIntLiteral(index);
+        // A lane of a vector is a value: the vector is read, and a constant
+        // index is checked against the lane count now.
+        if (sema.simdOf(self.ctx, obj_ty)) |v| {
+            _ = try self.readThrough(object, obj_ty, sema.unwrapViews(self.ctx, obj_ty));
+            try self.checkLaneIndex(index, sema.unwrapViews(self.ctx, obj_ty));
+            return v.elem;
+        }
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
             .array => |a| {
@@ -6313,7 +6372,7 @@ const Checker = struct {
         // `f[...](args)`, `Wrap[Int](args)`: compile-time arguments.
         var ct: ?Sexp = null;
         if (rig.isBracketList(callee)) if (try self.instTarget(ir.get(callee, .object))) |target| switch (target) {
-            .generic => |nt| return self.constructInstance(node, callee, nt, args),
+            .generic => |nt| return if (nt.id == self.ctx.simd_sym_id) self.simdConvert(try self.typeInstance(callee, nt), args, self.startOf(callee)) else self.constructInstance(node, callee, nt, args),
             .function => {
                 ct = callee;
                 callee = ir.get(callee, .object);
@@ -6348,6 +6407,7 @@ const Checker = struct {
                 .type_alias => return self.aliasCall(node, callee, name, sym.ty, args, callee.src.pos),
                 .generic_type => {
                     if (sym_id == self.ctx.list_sym_id) return self.badCall(args, callee, "`List()` needs its element type: name it (`List[T]()`), or give it where the value goes (`v: List[T] = List()`)", .{});
+                    if (sym_id == self.ctx.simd_sym_id) return self.badCall(args, callee, "a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
                     return self.constructGeneric(callee, sym_id, args, name, callee.src.pos);
                 },
@@ -6371,6 +6431,10 @@ const Checker = struct {
     fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
         if (self.isPoison(ty)) return self.skipCall(args);
         if (sema.isNumeric(self.ctx, ty)) return self.checkConversion(ty, name, args, pos);
+        if (self.ctx.types.get(ty) == .simd) {
+            if (callee == .src) if (self.lookupQuiet(callee)) |id| try self.ctx.recordName(callee, id);
+            return self.simdConvert(ty, args, pos);
+        }
         if (ty == self.t().string_id) return self.checkStringNew(call, args);
         if (sema.boxedType(self.ctx, ty) != null) return self.badCall(args, callee, "`{s}` is a type alias for `{s}`; a box is made with `^`: write `^value`", .{ name, try self.tyName(ty) });
         const nt = self.aliasNamedType(ty) orelse return self.badCall(args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
@@ -6712,8 +6776,10 @@ const Checker = struct {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
         if (!op.isBits()) return null;
         const value = sema.unwrapViews(self.ctx, obj_ty);
-        const is_bool = value == self.t().bool_id;
-        if (!(is_bool and op == .not) and !sema.isInteger(self.ctx, value)) return null;
+        // `v.not()` of a vector: lane by lane, of integer or `Bool` lanes.
+        const lane = if (sema.simdOf(self.ctx, value)) |v| (if (op == .not) v.elem else return null) else value;
+        const is_bool = lane == self.t().bool_id;
+        if (!(is_bool and op == .not) and !sema.isInteger(self.ctx, lane)) return null;
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume its receiver");
         if (value == self.t().int_literal_id) try self.defaultIntLiteral(obj);
         const ty = if (value == self.t().int_literal_id) self.t().int_id else value;
@@ -6728,6 +6794,297 @@ const Checker = struct {
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ty}), .returns = result, .is_sub = false });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = result, .num = ty });
         return result;
+    }
+
+    // ---- vectors --------------------------------------------------------------
+
+    /// What is done to a lane where a place would be.
+    const LaneUse = enum { assign, lend_read, lend_write, take };
+
+    /// `v[i]` assigned, lent, or taken: a lane of a vector is a part of
+    /// its value, not a place (docs/CORE.md §1, `sema.isLane`), as an
+    /// `Int`'s bits are. True when reported.
+    fn rejectLane(self: *Checker, e: Sexp, use: LaneUse) Error!bool {
+        if (!sema.isLane(self.ctx, e)) return false;
+        const v = try self.plainText(ir.Index.object(e));
+        const i = try self.plainText(ir.Index.index(e));
+        switch (use) {
+            .assign => try self.errAt(e, "a lane of `{s}` is a value, not a place, so it is not assigned: write `{s} = {s}.with({s}, x)`", .{ v, v, v, i }),
+            .lend_read => try self.errAt(e, "a lane of `{s}` is a value, not a place, so it is not lent: read it as `{s}[{s}]`", .{ v, v, i }),
+            .lend_write => try self.errAt(e, "a lane of `{s}` is a value, not a place, so it is not lent to write: change it with `{s} = {s}.with({s}, x)`", .{ v, v, v, i }),
+            .take => try self.errAt(e, "a lane of `{s}` is a value, not a place, so it is not taken: read it as `{s}[{s}]`", .{ v, v, i }),
+        }
+        return true;
+    }
+
+    /// `e` as the receiver of a method, in parentheses unless it is a
+    /// name, a field, an element, or a call: `(v == 1).any()`.
+    fn receiverText(self: *Checker, e: Sexp) Error![]const u8 {
+        const shown = try self.plainText(e);
+        const bare = e == .src or e.isKind(.member) or e.isKind(.index) or e.isKind(.call);
+        return if (bare) shown else self.ctx.arena.allocator().print("({s})", .{shown});
+    }
+
+    /// The mask a comparison of two `v`s gives: `Simd[Bool, n]`.
+    fn maskOf(self: *Checker, v: sema.SimdType) Error!TypeId {
+        return self.ctx.intern(.{ .simd = .{ .elem = self.t().bool_id, .len = v.len } });
+    }
+
+    /// The vector type `obj` names where a value could stand: `Simd[T, n]`
+    /// (recorded as its instance), or an alias of one, also another
+    /// module's (`lib.Block`); null when it names none. Poison after a
+    /// diagnostic.
+    fn simdNamed(self: *Checker, obj: Sexp) Error!?TypeId {
+        if (rig.isBracketList(obj)) {
+            const target = (try self.instTarget(ir.get(obj, .object))) orelse return null;
+            if (target != .generic or target.generic.id != self.ctx.simd_sym_id) return null;
+            return try self.typeInstance(obj, target.generic);
+        }
+        if (obj.isKind(.member)) {
+            const id = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
+            const found = self.foreignLookup(id, self.text(ir.Member.name(obj))) orelse return null;
+            if (found.sym.kind != .type_alias or found.ctx.types.get(found.sym.ty) != .simd) return null;
+            return try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
+        }
+        if (obj != .src) return null;
+        const id = self.lookupQuiet(obj) orelse return null;
+        const sym = self.ctx.symbols.items[id];
+        if (sym.kind != .type_alias or self.ctx.types.get(sym.ty) != .simd) return null;
+        try self.ctx.recordName(obj, id);
+        return sym.ty;
+    }
+
+    /// `Simd[T, n].splat(x)`: a vector of type `vt` whose every lane is
+    /// `x`, a `T` or a literal that fits it. A vector type has no other
+    /// function.
+    fn simdTypeCall(self: *Checker, callee: Sexp, vt: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        if (self.isPoison(vt)) return self.skipCall(args);
+        const v = self.ctx.types.get(vt).simd;
+        if (!std.mem.eql(u8, method, "splat")) return self.badCall(args, pos, "`{s}` has no function `{s}`; a vector is made with `{s}.splat(x)`, every lane `x`, or from an array of its lanes, `{s}([...])`", .{ try self.tyName(vt), method, try self.tyName(vt), try self.tyName(vt) });
+        if (ct) |b| return self.badCall(args, b, "`splat` takes no compile-time arguments", .{});
+        if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, pos, "`splat` takes one argument, the value of every lane; got {d}", .{args.len});
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{v.elem}), .returns = vt, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .splat, .elem = v.elem, .num = vt });
+        try self.checkExpr(args[0], v.elem);
+        return vt;
+    }
+
+    /// `Simd[T, n](a)`: the vector of type `vt` whose lanes are the
+    /// elements of `a`, a `[n]T`.
+    fn simdConvert(self: *Checker, vt: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
+        if (self.isPoison(vt)) return self.skipCall(args);
+        const v = self.ctx.types.get(vt).simd;
+        const arr = try self.ctx.intern(.{ .array = .{ .elem = v.elem, .len = v.len } });
+        if (args.len != 1 or args[0].isKind(.kwarg)) {
+            _ = try self.badCall(args, pos, "`{s}(a)` makes a vector of the lanes of an array `{s}`; it takes one argument", .{ try self.tyName(vt), try self.tyName(arr) });
+            return vt;
+        }
+        try self.checkExpr(args[0], arr);
+        return vt;
+    }
+
+    /// The methods of a vector (docs/SPEC.md, "Vectors"), which read the
+    /// receiver as a value and make a new one: `m.bits()`, a `U64` whose
+    /// bit `i` is lane `i` of mask `m`; `m.any()` and `m.all()`;
+    /// `m.select(a, b)`, lane `i` of `a` where `m`'s is true and of `b`
+    /// where it is false; `v.array()`, the lanes as a `[n]T`; and
+    /// `v.with(i, x)`, a copy of `v` whose lane `i` is `x`. Null when the
+    /// receiver is no vector or `method` none of them.
+    fn simdCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const v = sema.simdOf(self.ctx, obj_ty) orelse return null;
+        const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
+        if (!op.isSimd() or op == .splat) return null;
+        const vt = sema.unwrapViews(self.ctx, obj_ty);
+        const mask_op = op == .bits or op == .any or op == .all or op == .select;
+        if (mask_op and v.elem != self.t().bool_id) return try self.badCall(args, pos, "`{s}` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `{s}`", .{ method, try self.tyName(vt) });
+        if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "reads its receiver as a value");
+        const want: usize = switch (op) {
+            .select, .with => 2,
+            else => 0,
+        };
+        for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
+        if (args.len != want) return try self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, switch (op) {
+            .select => "two arguments, the lanes where the mask is true and where it is false",
+            .with => "two arguments, the lane's index and its new value",
+            else => "no arguments",
+        }, args.len, plural(args.len) });
+        var elem = v.elem;
+        const result: TypeId = switch (op) {
+            .bits => try self.ctx.intern(.{ .int = .{ .bits = 64, .signed = false } }),
+            .any, .all => self.t().bool_id,
+            .array => try self.ctx.intern(.{ .array = .{ .elem = v.elem, .len = v.len } }),
+            .with => vt,
+            .select => blk: {
+                const picked = (try self.selectOperands(args, v)) orelse return self.t().invalid_id;
+                elem = self.ctx.types.get(picked).simd.elem;
+                break :blk picked;
+            },
+            else => unreachable,
+        };
+        const params: []const TypeId = switch (op) {
+            .with => &.{ vt, self.t().int_id, v.elem },
+            .select => &.{ vt, result, result },
+            else => &.{vt},
+        };
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem, .num = vt });
+        if (op == .with) {
+            try self.checkIndexArg(args[0], null);
+            try self.checkLaneIndex(args[0], vt);
+            try self.checkExpr(args[1], v.elem);
+        }
+        return result;
+    }
+
+    /// A constant lane index of a vector of type `vt` is checked against
+    /// its lane count now; any other when the program runs.
+    fn checkLaneIndex(self: *Checker, index: Sexp, vt: TypeId) Error!void {
+        const n = sema.simdLen(self.ctx, self.ctx.types.get(vt).simd) orelse return;
+        const i = self.constInt(index) orelse return;
+        if (i >= 0 and i < n) return;
+        try self.errAt(index, "lane `{d}` is out of range for `{s}`, whose lanes are 0 to {d}", .{ i, try self.tyName(vt), n - 1 });
+    }
+
+    /// The operands of `m.select(a, b)` for a mask of `mask`'s lanes:
+    /// two vectors of one type with as many lanes, or a vector and a
+    /// scalar of its lane type or a literal that fits it, or two scalars
+    /// of one lane type; each scalar stands for every lane (a splat). The
+    /// vector type they give, or null after a diagnostic.
+    fn selectOperands(self: *Checker, args: []const Sexp, mask: sema.SimdType) Error!?TypeId {
+        const a = try self.synthOperandValue(args[0]);
+        const b = try self.synthOperandValue(args[1]);
+        if (self.isPoison(a) or self.isPoison(b)) return null;
+        const lit = [2]bool{ self.isLiteralType(a), self.isLiteralType(b) };
+        if (sema.simdOf(self.ctx, a) != null and sema.simdOf(self.ctx, b) != null and a != b) {
+            try self.errAt(args[0], "`select` picks lanes from two vectors of one type; got `{s}` and `{s}`", .{ try self.tyName(a), try self.tyName(b) });
+            return null;
+        }
+        const vt: TypeId = if (sema.simdOf(self.ctx, a) != null) a else if (sema.simdOf(self.ctx, b) != null) b else blk: {
+            // Two scalars: the lane type is theirs, an `Int` or a `Float`
+            // for two literals.
+            const lane = if (!lit[0]) a else if (!lit[1]) b else if (a == self.t().float_literal_id or b == self.t().float_literal_id) self.t().float_id else self.t().int_id;
+            if (!sema.isLaneType(self.ctx, lane)) {
+                try self.errAt(args[if (lit[0]) 1 else 0], "`select` picks lanes of a number or `Bool`; got `{s}`", .{try self.tyName(lane)});
+                return null;
+            }
+            break :blk try self.ctx.intern(.{ .simd = .{ .elem = lane, .len = mask.len } });
+        };
+        const v = self.ctx.types.get(vt).simd;
+        if (v.len != mask.len) {
+            try self.errAt(args[0], "`select` on a mask of {s} lanes picks from vectors of as many lanes; got `{s}`", .{ try self.tyName(mask.len), try self.tyName(vt) });
+            return null;
+        }
+        for (args, [2]TypeId{ a, b }) |arg, ty| {
+            if (ty == vt) continue;
+            if (!try self.splatOperand(arg, ty, vt, "select")) return null;
+        }
+        return vt;
+    }
+
+    /// Whether `ty` is an untyped literal's.
+    fn isLiteralType(self: *Checker, ty: TypeId) bool {
+        return ty == self.t().int_literal_id or ty == self.t().float_literal_id;
+    }
+
+    /// `operand`, of type `ty`, where a vector of type `vt` goes: a scalar
+    /// of its lane type, or a literal that fits it, stands for every lane
+    /// (recorded as a splat). False after a diagnostic.
+    fn splatOperand(self: *Checker, operand: Sexp, ty: TypeId, vt: TypeId, op: []const u8) Error!bool {
+        const v = self.ctx.types.get(vt).simd;
+        if (self.isLiteralType(ty)) {
+            const mark = self.ctx.diagnostics.items.len;
+            try self.checkExpr(operand, v.elem);
+            if (self.ctx.diagnostics.items.len != mark) return false;
+        } else if (ty != v.elem) {
+            const hint = if (sema.isLaneType(self.ctx, ty)) try self.ctx.arena.allocator().print("; a scalar beside a vector is of its lane type, `{s}`", .{try self.tyName(v.elem)}) else "";
+            try self.errAt(operand, "operator `{s}` operands have different types `{s}` and `{s}`{s}", .{ op, try self.tyName(vt), try self.tyName(ty), hint });
+            return false;
+        }
+        try self.ctx.recordSplat(operand, vt);
+        return true;
+    }
+
+    /// A lane-wise operator `(op left right)` with a vector operand: both
+    /// of one `Simd[T, n]`, or one a scalar of its lane type `T`, or a
+    /// literal that fits it, which stands for every lane (`splatOperand`).
+    /// `req` applies to `T` as it would to two scalars; `&`, `|`, and `^`
+    /// combine masks too. `a` and `b` are the operands' value types. The
+    /// vector's type, or poison after a diagnostic.
+    fn simdOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, a: TypeId, b: TypeId) Error!TypeId {
+        const operands = [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
+        const vt = if (sema.simdOf(self.ctx, a) != null) a else b;
+        const v = self.ctx.types.get(vt).simd;
+        const head = e.kind().?;
+        switch (head) {
+            .@"/", .@"%" => {
+                try self.errAt(operands[0], "operator `{s}` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons", .{op});
+                return self.t().invalid_id;
+            },
+            else => {},
+        }
+        const bitwise = head == .@"&" or head == .@"|" or head == .@"^";
+        const lane_ok = switch (req) {
+            .integer => sema.isInteger(self.ctx, v.elem) or (bitwise and v.elem == self.t().bool_id),
+            .equatable => true,
+            else => sema.isNumeric(self.ctx, v.elem),
+        };
+        if (!lane_ok) {
+            if (req == .ordered) {
+                try self.errAt(operands[0], "operator `{s}` orders numbers; the lanes of `{s}` are not", .{ op, try self.tyName(vt) });
+            } else try self.errAt(operands[0], "operator `{s}` requires {s} operands; got `{s}`", .{ op, if (req == .integer) "integer" else "numeric", try self.tyName(vt) });
+            return self.t().invalid_id;
+        }
+        for (operands, [2]TypeId{ a, b }) |operand, ty| {
+            if (ty == vt) continue;
+            if (sema.simdOf(self.ctx, ty) != null) {
+                try self.errAt(operands[0], "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
+                return self.t().invalid_id;
+            }
+            if (!try self.splatOperand(operand, ty, vt, op)) return self.t().invalid_id;
+        }
+        return vt;
+    }
+
+    /// `v op= x` of a vector `v` of type `vt`: the lane-wise operator, as
+    /// `v = v op x` (`simdOperands`).
+    fn simdCompound(self: *Checker, op: Tag, spelled: []const u8, vt: TypeId, rhs: Sexp, pos: u32) Error!void {
+        const v = self.ctx.types.get(vt).simd;
+        const req: Requirement = switch (op) {
+            .@"+", .@"-", .@"*" => .numeric,
+            .@"&", .@"|", .@"^", .@"+%", .@"-%", .@"*%" => .integer,
+            else => {
+                try self.err(pos, "`{s}` does not take a `Simd`: a vector has `+=`, `-=`, `*=`, their wrapping forms, `&=`, `|=`, and `^=`", .{spelled});
+                _ = try self.synthExpr(rhs);
+                return;
+            },
+        };
+        const bitwise = op == .@"&" or op == .@"|" or op == .@"^";
+        const lane_ok = if (req == .integer) sema.isInteger(self.ctx, v.elem) or (bitwise and v.elem == self.t().bool_id) else sema.isNumeric(self.ctx, v.elem);
+        if (!lane_ok) {
+            try self.err(pos, "`{s}` requires {s} lanes; got `{s}`", .{ spelled, if (req == .integer) "integer" else "numeric", try self.tyName(vt) });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        const ty = try self.synthOperandValue(rhs);
+        if (self.isPoison(ty) or ty == vt) return;
+        if (sema.simdOf(self.ctx, ty) != null) return self.mismatch(rhs, vt, ty);
+        _ = try self.splatOperand(rhs, ty, vt, spelled);
+    }
+
+    /// A mask where a `Bool` is expected: it is no `Bool`, so a condition,
+    /// `and`, `or`, and `not` reject it, each with the form that reduces
+    /// or combines it.
+    fn maskAsBool(self: *Checker, e: Sexp, actual: TypeId) Error!void {
+        const shown = try self.plainText(e);
+        const recv = try self.receiverText(e);
+        const ty = try self.tyName(actual);
+        if (sameSite(e, self.not_operand)) return self.errAt(e, "`not` takes a Bool, and `{s}` is a mask, `{s}`: write `{s}.not()` for its lanes flipped, or reduce it with `.any()` or `.all()`", .{ shown, ty, recv });
+        if (self.logic_op.len > 0 and (sameSite(e, self.logic_operands[0]) or sameSite(e, self.logic_operands[1]))) {
+            const sym: []const u8 = if (std.mem.eql(u8, self.logic_op, "and")) "&" else "|";
+            return self.errAt(e, "`{s}` takes Bools, and `{s}` is a mask, `{s}`: combine masks lane by lane with `{s}`, each in parentheses, or reduce each with `.any()` or `.all()`", .{ self.logic_op, shown, ty, sym });
+        }
+        if (sameSite(e, self.ternary_cond)) return self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: a ternary runs one side, so pick lanes with `{s}.select(a, b)`, or reduce the mask with `.any()` or `.all()`", .{ shown, ty, recv });
+        try self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: write `{s}.any()` or `{s}.all()`", .{ shown, ty, recv, recv });
     }
 
     const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
@@ -7808,6 +8165,12 @@ const Checker = struct {
                 try self.bindArg(inf, p.elem, at.array.elem, arg, depth + 1);
                 try self.bindArg(inf, p.len, at.array.len, arg, depth + 1);
             } else self.noteMismatch(inf, pattern, actual, arg),
+            .simd => |p| if (at == .simd) {
+                inf.exact += 1;
+                defer inf.exact -= 1;
+                try self.bindArg(inf, p.elem, at.simd.elem, arg, depth + 1);
+                try self.bindArg(inf, p.len, at.simd.len, arg, depth + 1);
+            } else self.noteMismatch(inf, pattern, actual, arg),
             // A value parameter binds exactly the value (or parameter)
             // the argument's type holds there: an array length, or a
             // generic type's value argument.
@@ -8224,6 +8587,7 @@ const Checker = struct {
             }
         }
         if (try self.moduleNamed(obj)) |id| return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
+        if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
         if (try self.namedType(obj)) |nt| return self.misreachedWrite(misreached, obj, method, try self.associatedCall(obj, nt, method, pos, args, ct));
 
         // A consuming (`<self`) method may take a temporary, and a
@@ -8242,6 +8606,7 @@ const Checker = struct {
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, if (std.meta.stringToEnum(sema.ElemOp, method) == .read) .read else .write, ty);
         if (ct == null) if (try self.stringCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .write, ty);
         if (ct == null) if (try self.bitCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
+        if (ct == null) if (try self.simdCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -8432,7 +8797,7 @@ const Checker = struct {
     /// them or the receiver has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
-        if (op.isBits()) return null;
+        if (op.isBits() or op.isSimd()) return null;
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -8460,14 +8825,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .any, .all, .array, .with, .select => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .any, .all, .array, .with, .select => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -8482,7 +8847,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .any, .all, .array, .with, .select => unreachable,
         }
         return self.t().void_id;
     }
@@ -8505,17 +8870,22 @@ const Checker = struct {
         const b = ct orelse return self.badCall(args, pos, "`{s}` takes the type and the byte order in brackets: `{s}`", .{ method, example });
         try self.ctx.recordInstance(b, .function);
         const given = sema.bracketArgs(b);
-        if (given.len != 2) return self.badCall(args, b, "`{s}` takes two compile-time arguments, the type and the byte order: `{s}`", .{ method, example });
+        if (given.len < 1 or given.len > 2) return self.badCall(args, b, "`{s}` takes two compile-time arguments, the type and the byte order: `{s}`", .{ method, example });
         const num = try self.typeArg(given[0]);
         if (self.isPoison(num)) return self.skipCall(args);
-        switch (self.ctx.types.get(num)) {
+        // A vector of numbers is read lane by lane, each lane in the byte
+        // order; one-byte lanes have none, so it may be left out.
+        const lanes = if (sema.simdOf(self.ctx, num)) |v| v.elem else null;
+        switch (self.ctx.types.get(lanes orelse num)) {
             .int, .float => {},
             // A type parameter: each instance must be a number.
             .type_var => |param| try self.require(param, .bytes, self.startOf(given[0]), method),
-            else => return self.badCall(args, given[0], "`{s}` {s} an integer or float type; got `{s}`", .{ method, if (op == .read) "reads" else "writes", try self.tyName(num) }),
+            else => return self.badCall(args, given[0], "`{s}` {s} an integer or float type, or a `Simd` of them; got `{s}`", .{ method, if (op == .read) "reads" else "writes", try self.tyName(num) }),
         }
+        const one_byte = if (lanes) |l| (try sema.minBytes(self.ctx, l)) == 1 else false;
+        if (given.len == 1 and !one_byte) return self.badCall(args, b, "`{s}` takes two compile-time arguments, the type and the byte order: `{s}`; only a vector of one-byte lanes may leave the byte order out", .{ method, example });
         const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
-        try self.checkCtValue(given[1], endian, 1, method);
+        if (given.len == 2) try self.checkCtValue(given[1], endian, 1, method);
         for (args) |a| if (a.isKind(.kwarg)) return self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         const want: usize = if (op == .read) 1 else 2;
         if (args.len != want) return self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, if (op == .read) "one argument, the offset of the first byte" else "two arguments, the offset of the first byte and the value", args.len, if (args.len == 1) "" else "s" });
@@ -8540,6 +8910,7 @@ const Checker = struct {
         const size: Wide = switch (self.ctx.types.get(num)) {
             .int => |i| if (i.bits == 0) 8 else i.bits / 8,
             .float => |f| if (f.bits == 0) 8 else f.bits / 8,
+            .simd => |v| @intCast(((try sema.minBytes(self.ctx, v.elem)) orelse return) * (sema.simdLen(self.ctx, v) orelse return)),
             else => return,
         };
         if (at < 0) return self.errAt(a, "an offset cannot be negative; got `{d}`", .{at});
@@ -8800,6 +9171,7 @@ const Checker = struct {
     /// one: the built-in generics' element rules, and every generic's
     /// requirements (through its instantiation site).
     fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: u32) Error!TypeId {
+        if (sym_id == self.ctx.simd_sym_id) return resolve.simdInstance(self.ctx, args, pos);
         if (try resolve.builtinElementError(self.ctx, sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
         const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
         if (!sema.containsTypeVar(self.ctx, ty)) {
@@ -9475,6 +9847,8 @@ const Checker = struct {
             },
             else => {},
         }
+        // A mask is no `Bool`: it is reduced or combined.
+        if (expected == self.t().bool_id and sema.isMask(self.ctx, actual)) return self.maskAsBool(e, sema.unwrapViews(self.ctx, actual));
         // `not n` of an integer: the complement is a method.
         if (sameSite(e, self.not_operand) and expected == self.t().bool_id and sema.isInteger(self.ctx, sema.unwrapViews(self.ctx, actual))) {
             return self.errAt(e, "`not` takes a Bool; for the bitwise complement write `x.not()`", .{});
@@ -11152,6 +11526,17 @@ const Checker = struct {
         const ty = try self.typeArg(a);
         if (self.isPoison(ty)) return false;
         try self.ctx.recordType(a, ty);
+        // A vector's size and alignment are the target's, so Rig gives
+        // neither, nor those of a type that holds one inline.
+        if (!std.mem.eql(u8, name, "name")) {
+            if (sema.holdsVector(self.ctx, ty)) {
+                try self.err(pos, "`@{s}` takes no type that holds a vector: `{s}` holds a `Simd`, whose size and alignment differ from target to target", .{ name, try self.tyName(ty) });
+                return false;
+            }
+            var params: std.ArrayList(SymbolId) = .empty;
+            try sema.heldTypeVars(self.ctx, ty, &params, self.ctx.arena.allocator());
+            for (params.items) |param| try self.require(param, .sized, self.startOf(a), name);
+        }
         return true;
     }
 
@@ -12459,6 +12844,8 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 else
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
                 .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
+                .lane_count => try ctx.err(at, cannot ++ "uses `{s}` as a lane count, a power of two from 2 to 64", .{ inst, pname, aname, pname }),
+                .sized => try ctx.err(at, cannot ++ "takes `@{s}` of a type that holds a `{s}`, and `{s}` holds a vector, whose size and alignment differ from target to target", .{ inst, pname, aname, req.op, pname, aname }),
                 .bytes => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` in bytes, which takes an integer or float type", .{ inst, pname, aname, req.op, pname }),
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
@@ -12472,6 +12859,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
             switch (req.req) {
                 .copies, .no_cleanup => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
+                .lane_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a lane count here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
@@ -12496,6 +12884,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
         .view => a.print("field `{s}` holds a `?T`, `!T`, or slice", .{n.path}),
         .drop => a.print("field `{s}` is a `{s}`: `{s}` declares `drop`", .{ n.path, t, t }),
         .unique => a.print("field `{s}` is a `{s}`, which is unique", .{ n.path, t }),
+        .lanes => a.print("field `{s}` is a `{s}`, whose `==` compares lane by lane; compare the fields and reduce the mask: `(x.{s} == y.{s}).all()`", .{ n.path, t, n.path, n.path }),
     };
     return switch (n.why) {
         .handle => a.print("`{s}` is a handle, which could compare by identity or by content", .{t}),
@@ -12505,6 +12894,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
         .view => a.print("`{s}` is a view", .{t}),
         .drop => a.print("`{s}` declares `drop`", .{t}),
         .unique => a.print("`{s}` is unique", .{t}),
+        .lanes => a.print("`{s}` holds a vector, whose `==` compares lane by lane", .{t}),
     };
 }
 
@@ -12526,6 +12916,11 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         },
         .copies => sema.copies(ctx, ty) != .no,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
+        .lane_count => switch (ctx.types.get(ty)) {
+            .ct_value => |v| sema.lanesInRange(v.int),
+            else => false,
+        },
+        .sized => !sema.holdsVector(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {
             .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
             else => false,

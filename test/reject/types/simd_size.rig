@@ -1,0 +1,29 @@
+# A vector's size and alignment are the target's, so `@size` and
+# `@align` take no type that holds one, and no generic `T` that is one.
+
+obj L
+  v: Simd[U8, 16]
+  n: Int
+
+fun size[T]() -> Int
+  @size(T)
+
+obj Two[T]
+  a: T
+  b: T
+
+fun boxed[T]() -> Int
+  @align(Two[T])
+
+sub main()
+  print(@size(Simd[U8, 4]), @align(Simd[Bool, 64]), @size(L), @size(Simd[U8, 4]?))
+  print(@size(List[Simd[U8, 4]]), @name(Simd[U8, 4]))
+  print(size[Simd[U8, 4]](), boxed[L]())
+
+# error: 19:10: `@size` takes no type that holds a vector: `Simd[U8, 4]` holds a `Simd`, whose size and alignment differ from target to target
+# error: 19:30: `@align` takes no type that holds a vector: `Simd[Bool, 64]` holds a `Simd`, whose size and alignment differ from target to target
+# error: 19:54: `@size` takes no type that holds a vector: `L` holds a `Simd`, whose size and alignment differ from target to target
+# error: 19:64: `@size` takes no type that holds a vector: `Simd[U8, 4]?` holds a `Simd`, whose size and alignment differ from target to target
+# error: 21:9: `size[Simd[U8, 4]]` cannot use `T = Simd[U8, 4]`: the generic body takes `@size` of a type that holds a `T`, and `Simd[U8, 4]` holds a vector, whose size and alignment differ from target to target
+# error: 21:30: `boxed[L]` cannot use `T = L`: the generic body takes `@align` of a type that holds a `T`, and `L` holds a vector, whose size and alignment differ from target to target
+# errors: 6

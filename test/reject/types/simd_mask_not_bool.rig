@@ -1,0 +1,28 @@
+# A mask is no `Bool`: a condition, `and`, `or`, `not`, and a ternary
+# reject it, each with the form that reduces or combines it.
+
+sub main()
+  v = Simd[U8, 4].splat(1)
+  m = v == 1
+  if m
+    print("if")
+  while v == 2
+    print("while")
+  print("guard") if m
+  print(m and v == 2)
+  print(not m)
+  x = 1 if v < 3 else 2
+  ok: Bool = m
+  print(x, ok, m or m)
+
+# error: 7:6: `m` is a mask, `Simd[Bool, 4]`, not a `Bool`: write `m.any()` or `m.all()`
+# error: 9:9: `v == 2` is a mask, `Simd[Bool, 4]`, not a `Bool`: write `(v == 2).any()` or `(v == 2).all()`
+# error: 11:21: `m` is a mask, `Simd[Bool, 4]`, not a `Bool`: write `m.any()` or `m.all()`
+# error: 12:9: `and` takes Bools, and `m` is a mask, `Simd[Bool, 4]`: combine masks lane by lane with `&`, each in parentheses, or reduce each with `.any()` or `.all()`
+# error: 12:15: `and` takes Bools, and `v == 2` is a mask, `Simd[Bool, 4]`: combine masks lane by lane with `&`, each in parentheses, or reduce each with `.any()` or `.all()`
+# error: 13:13: `not` takes a Bool, and `m` is a mask, `Simd[Bool, 4]`: write `m.not()` for its lanes flipped, or reduce it with `.any()` or `.all()`
+# error: 14:12: `v < 3` is a mask, `Simd[Bool, 4]`, not a `Bool`: a ternary runs one side, so pick lanes with `(v < 3).select(a, b)`, or reduce the mask with `.any()` or `.all()`
+# error: 15:14: `m` is a mask, `Simd[Bool, 4]`, not a `Bool`: write `m.any()` or `m.all()`
+# error: 16:16: `or` takes Bools, and `m` is a mask, `Simd[Bool, 4]`: combine masks lane by lane with `|`, each in parentheses, or reduce each with `.any()` or `.all()`
+# error: 16:21: `or` takes Bools, and `m` is a mask, `Simd[Bool, 4]`: combine masks lane by lane with `|`, each in parentheses, or reduce each with `.any()` or `.all()`
+# errors: 10

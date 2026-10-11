@@ -183,6 +183,9 @@ pub const Facts = struct {
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
     }
+    pub fn splatOf(f: Facts, node: Sexp) ?TypeId {
+        return f.c().splatOf(node);
+    }
     pub fn callableOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().callableOf(node);
     }

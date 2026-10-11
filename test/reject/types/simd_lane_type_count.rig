@@ -1,0 +1,42 @@
+# A lane is a number or `Bool`, and the lane count a power of two from 2
+# to 64, so every mask fits a `U64`.
+
+obj P
+  x: Int
+
+fun a(v: Simd[?String, 4]) -> Int
+  1
+
+fun b(v: Simd[P, 4]) -> Int
+  1
+
+fun c(v: Simd[U8, 48]) -> Int
+  1
+
+fun d(v: Simd[U8, 128]) -> Int
+  1
+
+fun e(v: Simd[U8, 0]) -> Int
+  1
+
+fun f(v: Simd[U8, 1]) -> Int
+  1
+
+fun g[T](v: Simd[T, 4]) -> Int
+  1
+
+fun h[n: Int]() -> Simd[U8, n]
+  Simd[U8, n].splat(0)
+
+sub main()
+  print(h[16](), h[24]())
+
+# error: 7:10: a lane of a `Simd` is a number or `Bool`; got `?String`
+# error: 10:10: a lane of a `Simd` is a number or `Bool`; got `P`
+# error: 13:10: a lane count is a power of two from 2 to 64; got 48
+# error: 16:10: a lane count is a power of two from 2 to 64; got 128
+# error: 19:10: a lane count is a power of two from 2 to 64; got 0
+# error: 22:10: a lane count is a power of two from 2 to 64; got 1
+# error: 25:13: a lane of a `Simd` is a number or `Bool`; got `T`
+# error: 32:18: `h[24]` cannot use `n = 24`: the generic body uses `n` as a lane count, a power of two from 2 to 64
+# errors: 8

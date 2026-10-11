@@ -1178,7 +1178,8 @@ instead of re-deriving it by name:
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (the receiver too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
-| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
+| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...) |
+| `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
@@ -1338,7 +1339,9 @@ emitter ask these, never a predicate built for another question:
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell, a Signal, and an owned closure's parameters and result hold |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
-| `readsAsValue` | a scalar (a primitive or a plain enum): an operator, generic inference, and a binding with no type read a read view of one as the value |
+| `readsAsValue` | a scalar (`isScalar`) or a plain enum: an operator, generic inference, and a binding with no type read a read view of one as the value |
+| `isScalar` | a primitive that copies, or a vector: a method takes it by value, never by address |
+| `holdsVector` | is or holds inline a vector, whose size and alignment are the target's: `@size` and `@align` take none |
 
 A generic body that copies a `T` records `Requirement.copies`; one
 that discards, overwrites, or stores a `T` in an array or slice records
@@ -1648,6 +1651,85 @@ language's spelling of a Rig form (`null`, `True`, `this`,
 `println`, ...; `unboundHint` in typecheck) names Rig's. A local that
 is never read is reported as a *lint* (`Diagnostic.lint`), the one
 error that does not keep ownership from checking the module.
+
+### Vectors
+
+`Simd[T, n]` (SPEC §2, "Vectors") is a type of its own kind,
+`Type.simd`, not a generic instance: `resolve.registerBuiltins` names
+`Simd` as a built-in generic with a type and an `Int` parameter, so it is
+spelled, reserved, and given its arguments as `Ring[T, n: Int]` is, and
+every instance of it, written in a type or an expression, is made by
+`resolve.simdInstance`, which checks the lane type (a number or `Bool`,
+`sema.isLaneType`) and the count (a power of two from 2 to 64,
+`sema.lanesInRange`; a compile-time parameter records
+`Requirement.lane_count`, checked at each instance) and interns
+`.simd`. Interning, substitution (`substituteType`), import, and the
+type's children follow `.array`'s. A vector is plain data (Core §1):
+`holdsIn` gives it `plain`, so every ownership fact (`copies`, `moves`,
+`isPlainData`, `readByAddress`, `dropRunsBody`, `isUnique`) answers as
+for an `Int` with no rule of its own, and `TypeInfo.vector` records that
+a type holds one inline (`holdsVector`, which `@size`, `@align`, and
+`Requirement.sized` read).
+
+Every vector operation lowers to an operator on values, a call of a
+runtime function with value arguments, or the existing `read` and
+`write`:
+
+| Rig | Zig |
+|---|---|
+| `Simd[T, n]` | `@Vector(n, T)` (`bool` lanes for a mask) |
+| `Simd[T, n].splat(x)` | `@as(@Vector(n, T), @splat(x))` |
+| `Simd[T, n](a)` | `@as(@Vector(n, T), a)` |
+| `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows |
+| a scalar beside a vector, `v + 1` | `@as(V, @splat(1))` where the scalar stands (`splatOf`) |
+| `v.not()` | `~v`, or `!m` of a mask |
+| `m.bits()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
+| `m.select(a, b)` | `@select(T, m, a, b)` |
+| `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)` |
+| `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
+
+None of these makes hidden storage or takes an address: a splat is an
+rvalue, and the runtime functions take their vectors by value. So the
+ownership checker walks a vector operation as it walks the same
+operation on an `Int`, and needs nothing new beyond `sema.isScalar`,
+which counts a vector as a scalar: a method takes it by value, and a
+read view of it is read as its value by an operator, inference, and a
+binding with no type (`readsAsValue`), and is a copy in Zig
+(`lendByValue`, `rig.ReadView`). A lane is no place: `handsOver` lists
+`v[i]` (`sema.isLane`) with an operator's result as `made`, and
+typecheck rejects a lane assigned, lent, or taken (`rejectLane`), with
+`with` to write.
+
+Typecheck decides each operation once and records it: an operator with
+a vector operand goes through `simdOperands` (one type on both sides,
+or a scalar of the lane type, recorded as a splat), comparisons give the
+mask type, and the methods are `ElemCall`s (`ElemOp.isSimd`), recorded
+on the callee as `x.not()` is; a call of a vector type is emitted as the
+conversion it is (`Emitter.simdConversion`, from the call's type and its
+callee's instance). A mask where a `Bool` is expected is reported by
+`maskAsBool`, from where it stands: a condition, `and`, `or`, `not`, or
+a ternary.
+
+The runtime picks each target's lowering of `maskBits`, guarded by
+compile-time feature tests, so an intrinsic is named only where LLVM
+builds the code and the CPU has the feature (an intrinsic for a missing
+feature stops LLVM, and Zig's own backends know none). Each form gives
+the same bits, which a runtime test checks on random masks of every
+count, and `rig.simdRead` loads through an `align(1)` pointer, so an
+unaligned offset is never read with the vector's own alignment. The
+measured forms (Zig 0.17, ReleaseFast, instructions for a 64-byte
+compare-and-mask kernel):
+
+| Target | Form | 64 lanes |
+|---|---|---:|
+| aarch64 with NEON, LLVM | lane weights, then pairwise adds (`llvm.aarch64.neon.addp.v16i8`), for 32 and 64 lanes | 47 |
+| x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`) | 39, 21 |
+| WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` through them | 64 (511 by `@bitCast`) |
+| WASM without SIMD | each lane a byte, eight gathered by one multiply | 851, but 1.75x faster under wasmtime than `@bitCast`'s 779 |
+
+`test/behavior/types/simd_*` and `test/reject/types/simd_*` hold the
+behavior and rejections, including every block offset from 0 to 130
+against a scan byte by byte.
 
 ## Ownership
 
@@ -2527,8 +2609,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   order, including early returns, loop exits, and error propagation.
 - **Views.** `!T` parameters, `!self` receivers, and bindings of a
   write view are pointers, read through `.*`. A `?T` of a scalar or a view (a
-  number, `Bool`, a plain enum, an error, a slice or `?String`, a
-  function, or an optional of one) is a copy: Zig parameters are
+  number, `Bool`, a vector, a plain enum, an error, a slice or
+  `?String`, a function, or an optional of one) is a copy: Zig parameters are
   immutable. Any other `?T` (a struct, an array, an enum with
   payloads) is a pointer, since a copy of a value with drop glue
   would be dropped with whatever holds it, and a `Cell` can change
@@ -2802,7 +2884,7 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
-| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
+| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
@@ -2813,6 +2895,7 @@ reviewed.
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 16 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
+| `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
