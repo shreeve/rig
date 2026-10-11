@@ -67,7 +67,7 @@ or `f() catch d`.
 `not (a > b)`, or is flipped, `a <= b`. `not a and b` is `(not a) and
 b`. `!` never negates. On an integer, `x.not()` flips every bit
 (`0.not() == -1`); `not x` is rejected. `x.count_ones()`,
-`x.leading_zeros()`, and `x.trailing_zeros()` count bits, and `x <<% n`
+`x.leading_zeros()`, and `x.trailing_zeros()` count bits, `x.swap_bytes()` reverses bytes, and `x <<% n`
 shifts left, dropping the bits that fall off.
 
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a

@@ -493,7 +493,8 @@ and b` is `(not a) and b`. `as` binds tighter than `and`, in a condition that
 binds ([§10](#conditions-that-bind)). There is no `&&`, `||`, `**`,
 `++`, or `--`, and prefix `!` lends to write, never "not". The bitwise
 complement of an integer is the method `x.not()`, and the counts of its bits
-are the methods `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()`. What each
+are the methods `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()`;
+`x.swap_bytes()` reverses its bytes. What each
 operator does, and which types it takes, is in
 [SPEC §5](SPEC.md#operators).
 
