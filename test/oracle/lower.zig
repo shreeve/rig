@@ -2710,7 +2710,7 @@ const Lowerer = struct {
                         shapes = &.{.view};
                         stored = &.{true};
                     },
-                    .swap, .read, .write => all_read = true,
+                    .swap, .read, .write, .not => all_read = true,
                 } else all_read = true;
                 // `get`, `pop`, and `remove` hand back an element of a List:
                 // a value it held, which carries the loans the List's
