@@ -270,3 +270,14 @@ expect_has "$out" 'same(rig.String, t.bytes(), t.bytes())' "a generic ?T at a Te
 expect_has "$out" 'var u = rig.String.of(.{ v });' "+s of a String makes a Text"
 grep -q '\*const rig.String' <<<"$out" && fail "a pointer view of a Text: $out"
 true
+
+cat >loop_index.rig <<'EOF2'
+sub main()
+  xs = [1, 2, 3]
+  for x, i in ?xs[..]
+    print(x, i)
+EOF2
+out=$("$RIG" emit loop_index.rig 2>/dev/null) || fail "rig emit loop_index.rig"
+expect_has "$out" '@as(isize, @bitCast(__rig_i_' "a loop index reads the counter's bits"
+grep -qF '@intCast(__rig_i_' <<<"$out" && fail "a loop index is range-checked each iteration: $out"
+true

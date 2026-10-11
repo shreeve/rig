@@ -2221,11 +2221,14 @@ pub const Emitter = struct {
         return if (self.usage.used.contains(sym)) sym else null;
     }
 
-    /// `const i: Int = @intCast(counter);` at the top of a loop body.
+    /// `const i: Int = @as(isize, @bitCast(counter));` at the top of a loop
+    /// body. The counter is an index below a length, and a length never
+    /// exceeds `maxInt(isize)`, so reading its bits as `isize` is exact on
+    /// every target and costs no per-iteration check.
     fn bindLoopIndex(self: *Emitter, sexp: Sexp, counter: []const u8) Error!void {
         const sym = self.loopIndex(sexp) orelse return;
         const local = try self.declare(.{ .sym = sym, .ty = self.symType(sym) }, self.srcText(ir.For.index(sexp)));
-        try self.line("const {s}: {s} = @intCast({s});", .{ local.zig_name, int_zig, counter });
+        try self.line("const {s}: {s} = @as(isize, @bitCast({s}));", .{ local.zig_name, int_zig, counter });
     }
 
     /// `(for mode binding index-binding source body else?)` (`emitLoop`):
