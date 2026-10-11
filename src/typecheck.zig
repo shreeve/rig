@@ -1326,12 +1326,12 @@ const Checker = struct {
             const obj = self.ctx.types.get(inner);
             if (index) {
                 if (place.cell_list_elem == null and cellListElement(self.ctx, ty) != null) place.cell_list_elem = step;
-                const is_text = obj == .string or obj == .static;
+                const is_text = obj == .string_view or obj == .static;
                 if (is_text or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) {
                     place.block(if (is_text) .string else .slice, self.startOf(p));
                     if (!crossed) place.leaf_blocked = true;
                 }
-            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string or obj == .static or obj == .text or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null)) {
+            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null)) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
             }
@@ -2375,7 +2375,7 @@ const Checker = struct {
                 if (mode != .move) return self.readElement(pos, a.elem);
                 return self.loopElement(.take, a.elem);
             },
-            .slice, .string, .static => {
+            .slice, .string_view, .static => {
                 if (mode == .write) {
                     if (sema.writeSliceElem(self.ctx, source_ty)) |elem| {
                         if (!rig.isRangeIndex(inner_source)) _ = try self.requireAccess(self.placeOf(inner_source), .write_iterate, source);
@@ -2392,11 +2392,11 @@ const Checker = struct {
             else => {},
         }
         // `for b in ?t` walks the bytes of the String `?t` lends.
-        if (mode == .read and textOrBoxed(self.ctx, peeled) == self.t().text_id) {
+        if (mode == .read and stringOrBoxed(self.ctx, peeled) == self.t().string_id) {
             if (!self.placeOf(source).named()) try self.lendTemp(source);
             return self.byteType();
         }
-        const text_hint = if (sema.unwrapViews(self.ctx, source_ty) == self.t().text_id) "; walk a Text's bytes through its String view: `for b in ?t`" else "";
+        const text_hint = if (sema.unwrapViews(self.ctx, source_ty) == self.t().string_id) "; walk a Text's bytes through its String view: `for b in ?t`" else "";
         try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, a `List`, or an iterator (a type with `next(!self) -> T?`){s}", .{ try self.tyName(source_ty), text_hint });
         return self.t().invalid_id;
     }
@@ -3233,7 +3233,7 @@ const Checker = struct {
                 else => try self.ctx.intern(.{ .write_view = reached }),
             },
             .read => switch (self.ctx.types.get(reached)) {
-                .read_view, .slice, .string => reached,
+                .read_view, .slice, .string_view => reached,
                 .write_view => |inner| switch (self.ctx.types.get(inner)) {
                     .slice => inner,
                     else => try self.ctx.intern(.{ .read_view = inner }),
@@ -3794,8 +3794,8 @@ const Checker = struct {
             return self.t().bool_id;
         }
         // Ordering reads both texts: a `Static` beside a `String`.
-        const a_read = if (a == self.t().static_id) self.t().string_id else a;
-        const b_read = if (b == self.t().static_id) self.t().string_id else b;
+        const a_read = if (a == self.t().static_id) self.t().string_view_id else a;
+        const b_read = if (b == self.t().static_id) self.t().string_view_id else b;
         if (a_read != b_read) try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
         return self.t().bool_id;
     }
@@ -3849,7 +3849,7 @@ const Checker = struct {
     /// A String or a `[]U8`: bytes ordered as text is.
     fn isBytes(self: *Checker, ty: TypeId) bool {
         return switch (self.ctx.types.get(ty)) {
-            .string, .static => true,
+            .string_view, .static => true,
             .slice => |s| switch (self.ctx.types.get(s.elem)) {
                 .int => |info| info.bits == 8 and !info.signed,
                 else => false,
@@ -3955,7 +3955,7 @@ const Checker = struct {
                     try self.errAt(operands[i], "operator `{s}` orders numbers, Strings, and `[]U8` slices; got `{s}`", .{ op, try self.tyName(ty) });
                 } else {
                     // Text is built, not added: `Text(a, b)`, `!t.add(b)`.
-                    const is_text = ty == self.t().string_id or ty == self.t().static_id or ty == self.t().text_id;
+                    const is_text = ty == self.t().string_view_id or ty == self.t().static_id or ty == self.t().string_id;
                     const hint = if (is_text and std.mem.eql(u8, op, "+")) "; Rig has no `+` on text: build it with `Text(a, b)` or `!t.add(...)`" else "";
                     try self.errAt(operands[i], "operator `{s}` requires {s} operands; got `{s}`{s}", .{ op, if (want_int) "integer" else "numeric", try self.tyName(ty), hint });
                 }
@@ -4116,14 +4116,14 @@ const Checker = struct {
         if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
         // A Text, boxed or not, compares with a String or a Text by
         // content.
-        const text_ty = self.t().text_id;
         const string_ty = self.t().string_id;
+        const string_view_ty = self.t().string_view_id;
         // Comparing reads both texts: a `Static` beside a `String`.
-        const a_read = if (a == self.t().static_id) string_ty else a;
-        const b_read = if (b == self.t().static_id) string_ty else b;
-        const ta_text = textOrBoxed(self.ctx, a_read);
-        const tb_text = textOrBoxed(self.ctx, b_read);
-        if ((ta_text == text_ty or tb_text == text_ty) and (ta_text == text_ty or ta_text == string_ty) and (tb_text == text_ty or tb_text == string_ty)) return self.t().bool_id;
+        const a_read = if (a == self.t().static_id) string_view_ty else a;
+        const b_read = if (b == self.t().static_id) string_view_ty else b;
+        const ta_text = stringOrBoxed(self.ctx, a_read);
+        const tb_text = stringOrBoxed(self.ctx, b_read);
+        if ((ta_text == string_ty or tb_text == string_ty) and (ta_text == string_ty or ta_text == string_view_ty) and (tb_text == string_ty or tb_text == string_view_ty)) return self.t().bool_id;
         if (a_read != b_read) {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
@@ -4145,7 +4145,7 @@ const Checker = struct {
             .type_var => |tv| tv,
             else => null,
         };
-        if (value != inner and !readsAsString(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
+        if (value != inner and !readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
         if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
         return true;
@@ -4231,13 +4231,13 @@ const Checker = struct {
 
     /// The type of `a ?? b` or `a catch b` when `a` gives a `Static` and
     /// the fallback is a `String`: the `String`, which reads the `Static`
-    /// (`readsAsString`), as a branch joins the two.
+    /// (`readsAsStringView`), as a branch joins the two.
     fn joinFallback(self: *Checker, result: TypeId, fallback: Sexp) Error!TypeId {
         if (result != self.t().static_id) return result;
         self.tentative += 1;
         defer self.tentative -= 1;
         const ty = try self.synthQuiet(fallback);
-        return if (readValue(self.ctx, ty) == self.t().string_id) self.t().string_id else result;
+        return if (readValue(self.ctx, ty) == self.t().string_view_id) self.t().string_view_id else result;
     }
 
     /// The type of `a ?? b` or `a catch b`, where `a` gives an `inner`:
@@ -4470,7 +4470,7 @@ const Checker = struct {
             try self.errAt(operand, "cannot lend a `{s}` to write: its elements are read-only; take a writable slice of the array or List it views with `!xs[a..b]`", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
-        if (kind == .write and inner == self.t().string_id) {
+        if (kind == .write and inner == self.t().string_view_id) {
             try self.errAt(operand, "cannot lend `{s}` to write: it holds a read view of text, `String`, which is pointed at other text by assigning to it; to change text in place, hold a `Text`", .{self.sourceText(operand)});
             return self.t().invalid_id;
         }
@@ -4511,7 +4511,7 @@ const Checker = struct {
     /// the lend records its `text` row.
     fn readViewOf(self: *Checker, e: Sexp, base: TypeId) Error!TypeId {
         const view = try self.ctx.intern(.{ .read_view = base });
-        if (base == self.t().text_id) {
+        if (base == self.t().string_id) {
             if (sema.lendsAs(self.ctx, base, .read, view)) |lend| try self.ctx.recordLend(e, lend);
         }
         return view;
@@ -4778,11 +4778,11 @@ const Checker = struct {
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
-            .string, .static => {
+            .string_view, .static => {
                 try self.errAt(object, "cannot lend a slice of a String to write; a String is read-only", .{});
                 return self.t().invalid_id;
             },
-            .text => {
+            .string => {
                 try self.errAt(object, "cannot lend a slice of a Text to write; a Text changes only through its methods (`!t.add(...)`, `!t.push(b)`, `!t.clear()`)", .{});
                 return self.t().invalid_id;
             },
@@ -5050,7 +5050,7 @@ const Checker = struct {
             },
         }
         // A `String` view clones into the `Text` that owns a copy of its bytes.
-        return if (value == self.t().string_id) self.t().text_id else value;
+        return if (value == self.t().string_view_id) self.t().string_id else value;
     }
 
     /// The value an operator reads from `e` (`operandValue`).
@@ -5340,7 +5340,7 @@ const Checker = struct {
                 try self.err(pos, "cannot access `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ field, try self.tyName(peeled) });
                 return self.t().invalid_id;
             },
-            .array, .slice, .string, .static, .text => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
+            .array, .slice, .string_view, .static, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
             .parameterized_nominal => if ((listElementType(self.ctx, peeled) != null or cellListElement(self.ctx, peeled) != null) and std.mem.eql(u8, field, "len")) return self.t().int_id,
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
@@ -5359,7 +5359,7 @@ const Checker = struct {
         const decl = sema.nominalDecl(self.ctx, peeled) orelse {
             // An element method named without its call.
             const has_elems = switch (self.ctx.types.get(peeled)) {
-                .array, .slice, .string, .static => true,
+                .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
             if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| {
@@ -6002,7 +6002,7 @@ const Checker = struct {
                 _ = try self.reachThrough(object, obj_ty, sema.unwrapViews(self.ctx, obj_ty));
                 return s.elem;
             },
-            .string, .static => {
+            .string_view, .static => {
                 _ = try self.reachThrough(object, obj_ty, sema.unwrapViews(self.ctx, obj_ty));
                 return self.byteType();
             },
@@ -6019,7 +6019,7 @@ const Checker = struct {
             },
             else => {},
         }
-        if (sema.unwrapViews(self.ctx, obj_ty) == self.t().text_id) {
+        if (sema.unwrapViews(self.ctx, obj_ty) == self.t().string_id) {
             try self.errAt(object, "cannot index a value of type `{s}`; index its String view: `(?{s}[..])[i]`", .{ try self.tyName(obj_ty), try self.plainText(stripSigil(object)) });
             return self.t().invalid_id;
         }
@@ -6062,9 +6062,9 @@ const Checker = struct {
         // What the slice lends, which the ownership checker reads.
         if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(e, lend);
         // A boxed Text is sliced through its box.
-        const peeled = textOrBoxed(self.ctx, sema.unwrapViews(self.ctx, obj_ty));
+        const peeled = stringOrBoxed(self.ctx, sema.unwrapViews(self.ctx, obj_ty));
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
-            .string, .static, .slice => {
+            .string_view, .static, .slice => {
                 _ = try self.reachThrough(object, obj_ty, peeled);
                 try self.checkSliceBounds(range, null);
                 // A `![]T` is lent like the array it views: a read
@@ -6077,7 +6077,7 @@ const Checker = struct {
             },
             .array => |a| a.elem,
             // A view of a Text is a String that views it.
-            .text => {
+            .string => {
                 try self.checkSliceBounds(range, null);
                 // A slice of a view of a Text views what it lends, as a
                 // slice of a String does.
@@ -6086,7 +6086,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 if (lent and !self.placeOf(object).named()) try self.lendTempIn(object, e);
-                return self.t().string_id;
+                return self.t().string_view_id;
             },
             else => (try self.listSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
         };
@@ -6118,9 +6118,9 @@ const Checker = struct {
     ///   `[]T` itself does not free: not lent.
     fn sliceLendsObject(self: *Checker, obj_ty: TypeId) bool {
         if (sema.writeSliceElem(self.ctx, obj_ty) != null) return true;
-        return switch (self.ctx.types.get(textOrBoxed(self.ctx, sema.unwrapViews(self.ctx, obj_ty)))) {
-            .string, .static, .slice => false,
-            .text => self.ctx.types.get(obj_ty) != .read_view,
+        return switch (self.ctx.types.get(stringOrBoxed(self.ctx, sema.unwrapViews(self.ctx, obj_ty)))) {
+            .string_view, .static, .slice => false,
+            .string => self.ctx.types.get(obj_ty) != .read_view,
             else => true,
         };
     }
@@ -6317,7 +6317,7 @@ const Checker = struct {
             const name = self.text(callee);
             if (self.lookupQuiet(callee) == null) {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
-                if (std.mem.eql(u8, name, "Text")) return self.checkTextNew(node, args);
+                if (std.mem.eql(u8, name, "Text")) return self.checkStringNew(node, args);
                 if (std.mem.eql(u8, name, "replace")) return self.checkReplace(callee, args);
                 if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
                 if (resolve.isNumericTypeName(name)) {
@@ -6359,7 +6359,7 @@ const Checker = struct {
     fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
         if (self.isPoison(ty)) return self.skipCall(args);
         if (sema.isNumeric(self.ctx, ty)) return self.checkConversion(ty, name, args, pos);
-        if (ty == self.t().text_id) return self.checkTextNew(call, args);
+        if (ty == self.t().string_id) return self.checkStringNew(call, args);
         if (sema.boxedType(self.ctx, ty) != null) return self.badCall(args, callee, "`{s}` is a type alias for `{s}`; a box is made with `^`: write `^value`", .{ name, try self.tyName(ty) });
         const nt = self.aliasNamedType(ty) orelse return self.badCall(args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
         if (nt.foreign) |fo| return self.construct(nt.id, args, pos, TypeSubst.empty, fo);
@@ -6637,24 +6637,24 @@ const Checker = struct {
 
     /// `Text(a, b, ...)`: a new Text holding each value as `print` writes
     /// it, with no separators; `Text()` is empty.
-    fn checkTextNew(self: *Checker, call: Sexp, args: []const Sexp) Error!TypeId {
+    fn checkStringNew(self: *Checker, call: Sexp, args: []const Sexp) Error!TypeId {
         try self.checkFormatArgs(args, "`Text(...)`", "write");
-        try self.ctx.recordTextCall(call, .new);
-        return self.t().text_id;
+        try self.ctx.recordStringCall(call, .new);
+        return self.t().string_id;
     }
 
     /// `!t.add(a, b, ...)`, which appends each value as `print` writes
     /// it, and `!t.clear()`, on a Text receiver written `!t`, recorded
     /// on the callee. Null when the receiver is no Text or the method
     /// none of these.
-    fn textCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+    fn stringCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         // A box lends the Text it holds.
         var held = sema.unwrapViews(self.ctx, obj_ty);
         while (sema.boxedType(self.ctx, held)) |inner| held = sema.unwrapViews(self.ctx, inner);
-        if (held != self.t().text_id) return null;
-        const op = std.meta.stringToEnum(sema.TextCall, method) orelse return null;
+        if (held != self.t().string_id) return null;
+        const op = std.meta.stringToEnum(sema.StringCall, method) orelse return null;
         if (op == .new) return null;
-        const recv = try self.ctx.intern(.{ .write_view = self.t().text_id });
+        const recv = try self.ctx.intern(.{ .write_view = self.t().string_id });
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{recv}), .returns = self.t().void_id, .is_sub = true });
         if (!try self.checkReceiverSigil(obj, .write, self.t().void_id, method)) {
             const kind: ReceiverTypeKind = switch (self.ctx.types.get(obj_ty)) {
@@ -6684,7 +6684,7 @@ const Checker = struct {
                 try self.synthArgs(args);
             },
         }
-        try self.ctx.recordTextCall(callee, op);
+        try self.ctx.recordStringCall(callee, op);
         return self.t().void_id;
     }
 
@@ -7296,17 +7296,17 @@ const Checker = struct {
         // where it is checked.
         for (inf.bound) |*b| {
             if (b.conflict == sema.type_invalid) continue;
-            const string_ty = self.t().string_id;
+            const string_view_ty = self.t().string_view_id;
             const static_ty = self.t().static_id;
-            if ((b.ty == static_ty and b.conflict == string_ty) or (b.ty == string_ty and b.conflict == static_ty)) {
-                b.ty = if (b.held_ty == sema.type_invalid) string_ty else b.held_ty;
+            if ((b.ty == static_ty and b.conflict == string_view_ty) or (b.ty == string_view_ty and b.conflict == static_ty)) {
+                b.ty = if (b.held_ty == sema.type_invalid) string_view_ty else b.held_ty;
                 b.conflict = sema.type_invalid;
             }
         }
         // A `T` that only `?T`s met a `String` is the `Text` it views:
         // a read view of `T` is that `String`.
         for (inf.bound) |*b| if (b.text_view and b.conflict == sema.type_invalid) {
-            b.ty = self.t().text_id;
+            b.ty = self.t().string_id;
             b.text_view = false;
         };
         return inf;
@@ -7712,9 +7712,9 @@ const Checker = struct {
                     b.text_view = inf.viewing;
                 } else if (b.ty == value) {
                     if (!inf.viewing) b.text_view = false;
-                } else if (b.ty == self.t().text_id and inf.viewing and value == self.t().string_id) {
+                } else if (b.ty == self.t().string_id and inf.viewing and value == self.t().string_view_id) {
                     // A `?T` meets the read view of the `Text` that `T` is.
-                } else if (b.text_view and value == self.t().text_id) {
+                } else if (b.text_view and value == self.t().string_id) {
                     b.ty = value;
                     b.arg = arg;
                     b.text_view = false;
@@ -7732,7 +7732,7 @@ const Checker = struct {
                 defer inf.exact -= held;
                 const viewing = inf.viewing;
                 defer inf.viewing = viewing;
-                inf.viewing = at == .string and self.ctx.types.get(pattern) == .read_view;
+                inf.viewing = at == .string_view and self.ctx.types.get(pattern) == .read_view;
                 try self.bindArg(inf, p, switch (at) {
                     .read_view, .write_view => |inner| inner,
                     else => actual,
@@ -8198,7 +8198,7 @@ const Checker = struct {
         }
 
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, if (std.meta.stringToEnum(sema.ElemOp, method) == .read) .read else .write, ty);
-        if (ct == null) if (try self.textCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .write, ty);
+        if (ct == null) if (try self.stringCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .write, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -8262,7 +8262,7 @@ const Checker = struct {
                 }
             }
             const has_len = listElementType(self.ctx, peeled) != null or switch (self.ctx.types.get(peeled)) {
-                .string, .static, .array, .slice => true,
+                .string_view, .static, .array, .slice => true,
                 else => false,
             };
             if (listElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
@@ -8397,7 +8397,7 @@ const Checker = struct {
                 len = sema.arrayLen(self.ctx, a);
                 break :blk a.elem;
             },
-            .string, .static => try self.byteType(),
+            .string_view, .static => try self.byteType(),
             else => listElementType(self.ctx, peeled) orelse return null,
         };
         if (obj.isKind(.move) and self.isReceiverSigil(obj)) {
@@ -8521,7 +8521,7 @@ const Checker = struct {
     /// False after a diagnostic.
     fn writesElements(self: *Checker, obj: Sexp, obj_ty: TypeId, peeled: TypeId, method: []const u8) Error!bool {
         switch (self.ctx.types.get(peeled)) {
-            .string, .static => {
+            .string_view, .static => {
                 try self.errAt(obj, "cannot `{s}` a String; a String is read-only", .{method});
                 return false;
             },
@@ -8602,7 +8602,7 @@ const Checker = struct {
         const elem: TypeId = switch (self.ctx.types.get(seq)) {
             .array => |a| a.elem,
             .slice => |sl| sl.elem,
-            .string, .static => try self.byteType(),
+            .string_view, .static => try self.byteType(),
             else => return null,
         };
         const recv = try self.ctx.intern(.{ .read_view = seq });
@@ -9006,7 +9006,7 @@ const Checker = struct {
         if (self.isPoison(expected)) return null;
         return switch (self.ctx.types.get(self.liftTarget(expected))) {
             .write_view => .write,
-            .read_view, .slice, .string => if (self.readsInPlace(e)) .read else null,
+            .read_view, .slice, .string_view => if (self.readsInPlace(e)) .read else null,
             else => null,
         };
     }
@@ -9026,7 +9026,7 @@ const Checker = struct {
         for (leaves.items) |leaf| {
             const ty = self.ctx.typeOf(leaf) orelse continue;
             switch (self.ctx.types.get(self.liftTarget(ty))) {
-                .read_view, .slice, .string, .static, .none_literal, .noreturn, .invalid, .unknown => {},
+                .read_view, .slice, .string_view, .static, .none_literal, .noreturn, .invalid, .unknown => {},
                 else => return true,
             }
         }
@@ -9067,7 +9067,7 @@ const Checker = struct {
         if (self.readViewSlot(expected) and try self.writeLendRead(e, actual, .{ .read_view = expected })) return;
         if (try self.lendView(e, actual, expected)) return;
         if (try self.arrayAsSlice(e, actual, expected)) return;
-        if (try self.textAsString(e, actual, expected)) return;
+        if (try self.stringAsStringView(e, actual, expected)) return;
         if (self.ctx.types.get(expected) == .function and sema.callableFnTy(self.ctx, actual) == expected) {
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; a lent closure goes to a parameter declared `{s}`", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(actual) });
         }
@@ -9187,7 +9187,7 @@ const Checker = struct {
             if (e.isKind(.read) or e.isKind(.write)) for (lend.steps()) |step| switch (step) {
                 .lift => {},
                 .elems => try self.ctx.recordType(e, expected),
-                .text => try self.ctx.recordType(e, self.t().string_id),
+                .text => try self.ctx.recordType(e, self.t().string_view_id),
                 else => break,
             };
         }
@@ -9308,7 +9308,7 @@ const Checker = struct {
             try self.errAt(e, "{s} writes the elements of `{s}`, and a slice is lent to read unless it is written `!`; write `{s}`", .{ callee, shown, fix });
             return true;
         }
-        if ((actual == self.t().string_id or actual == self.t().static_id) and self.liftTarget(expected) == self.t().text_id) {
+        if ((actual == self.t().string_view_id or actual == self.t().static_id) and self.liftTarget(expected) == self.t().string_id) {
             const copy = try a.print("Text(?{s})", .{shown});
             const fix = if (in_call) try self.spliced(slot.call, &.{e}, &.{copy}) else copy;
             try self.errAt(e, "{s} takes a `Text`, which owns its bytes, and `{s}` only views `{s}`'s; write `{s}` to pass a copy", .{ callee, shown, object, fix });
@@ -9376,17 +9376,17 @@ const Checker = struct {
 
     /// A Text, or a write view of one, where a String is expected: it
     /// is lent as a String to read, `?t`. True when handled.
-    fn textAsString(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+    fn stringAsStringView(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
         // Where a `String?` is expected, too: the view is lifted.
         const want = switch (self.ctx.types.get(expected)) {
             .optional => |inner| inner,
             else => expected,
         };
-        if (want != self.t().string_id) return false;
-        const text_ty = self.t().text_id;
+        if (want != self.t().string_view_id) return false;
+        const string_ty = self.t().string_id;
         const is_text = switch (self.ctx.types.get(actual)) {
-            .text => true,
-            .write_view => |inner| inner == text_ty,
+            .string => true,
+            .write_view => |inner| inner == string_ty,
             else => false,
         };
         if (!is_text) return false;
@@ -9450,7 +9450,7 @@ const Checker = struct {
             .optional => |inner| inner,
             else => actual,
         });
-        if (got != self.t().string_id and got != self.t().text_id) return "";
+        if (got != self.t().string_view_id and got != self.t().string_id) return "";
         if (self.static_target.len > 0 and sameSite(e, self.static_target_value)) return self.ctx.arena.allocator().print("; `{s}` is a `Static`, bound to a literal's text, and a `String` may view a `Text`: declare it `{s}: String = ...` to hold other text", .{ self.static_target, self.static_target }) catch "";
         return "; a `Static` is a literal, or text derived only from literals, and a `String` may view a `Text`. A parameter or field that only reads its text is declared `String`, which takes a `Static` too";
     }
@@ -10066,7 +10066,7 @@ const Checker = struct {
                 switch (c.ctx.types.get(inner)) {
                     .write_view => return "!",
                     .read_view => return if (!opt and f.implicitArg(at)) "" else "?",
-                    .slice, .string => if (!sema.holdsWriteView(c.ctx, inner)) {
+                    .slice, .string_view => if (!sema.holdsWriteView(c.ctx, inner)) {
                         if (sema.writeSliceElem(c.ctx, inner) != null) return "!";
                         return if (compatible(c.ctx, top_ty, inner)) "" else "?";
                     },
@@ -10361,7 +10361,7 @@ const Checker = struct {
         const lifted = self.liftTarget(ty);
         if (sema.holdsWriteView(self.ctx, lifted)) return false;
         return switch (self.ctx.types.get(lifted)) {
-            .read_view, .slice, .string => true,
+            .read_view, .slice, .string_view => true,
             else => false,
         };
     }
@@ -11007,7 +11007,7 @@ const Checker = struct {
                 },
                 else => {
                     if (!(try self.builtinTypeArg(name, args, pos))) break :blk self.t().invalid_id;
-                    break :blk if (q == .name) self.t().string_id else self.t().int_literal_id;
+                    break :blk if (q == .name) self.t().string_view_id else self.t().int_literal_id;
                 },
             };
             if (args.len != 1) {
@@ -11323,7 +11323,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .write_view => |base| return if (kind == .write) ty else self.ctx.intern(.{ .read_view = base }),
-            .string => {
+            .string_view => {
                 if (kind == .read) return ty;
                 try self.err(pos, "cannot lend `{s}` to write: it holds a read view of text, `String`, which is pointed at other text by assigning to it; to change text in place, hold a `Text`", .{name});
                 return self.t().invalid_id;
@@ -11430,7 +11430,7 @@ const Checker = struct {
         return switch (sema.cloneable(self.ctx, ty)) {
             .copy, .bump, .deep => ty,
             // A `String` view clones into the `Text` that owns its bytes.
-            .text => if (ty == self.t().string_id) self.t().text_id else ty,
+            .text => if (ty == self.t().string_view_id) self.t().string_id else ty,
             .depends => if (try self.cannotCopy(ty, pos, "copies into a closure a value")) null else ty,
             .no => null,
         };
@@ -11544,13 +11544,13 @@ fn copiedOut(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
 /// a read view of it (`?Static` as `?String`), and an optional of either
 /// (a `Static?` as a `String?`). A write view, a handle, and the elements
 /// of anything else hold exactly their type.
-fn readsAsString(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
-    if (actual == ctx.types.static_id) return expected == ctx.types.string_id;
+fn readsAsStringView(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+    if (actual == ctx.types.static_id) return expected == ctx.types.string_view_id;
     const a = ctx.types.get(actual);
     const e = ctx.types.get(expected);
     return switch (a) {
-        .read_view => |inner| e == .read_view and readsAsString(ctx, inner, e.read_view),
-        .optional => |inner| e == .optional and readsAsString(ctx, inner, e.optional),
+        .read_view => |inner| e == .read_view and readsAsStringView(ctx, inner, e.read_view),
+        .optional => |inner| e == .optional and readsAsStringView(ctx, inner, e.optional),
         else => false,
     };
 }
@@ -11568,14 +11568,14 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         .optional => |inner| {
             if (a == .none_literal) return true;
             // A `Static?` is read as a `String?`.
-            if (a == .optional) if (readsAsString(ctx, a.optional, inner)) return true;
+            if (a == .optional) if (readsAsStringView(ctx, a.optional, inner)) return true;
             return meets(ctx, actual, inner);
         },
         // A `Static` is read as the `String` it is, a view that carries
         // no loan. Only where the text is read: a place that can be
         // written (`!x`) holds exactly its type.
-        .string => if (a == .static) return true,
-        .read_view => |inner| if (readsAsString(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner,
+        .string_view => if (a == .static) return true,
+        .read_view => |inner| if (readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner,
         // A `T!` holds a `T`; an error value meets it only as `return`'s
         // operand (`Checker.isReturnLeaf`).
         .fallible => |inner| return meets(ctx, actual, inner),
@@ -11583,7 +11583,7 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         .slice => |want| switch (a) {
             .read_view, .write_view => |inner| if (inner == expected) return true,
             // The elements of a `[]Static` are read as `String`s.
-            .slice => |have| if (readsAsString(ctx, have.elem, want.elem)) return true,
+            .slice => |have| if (readsAsStringView(ctx, have.elem, want.elem)) return true,
             else => {},
         },
         else => {},
@@ -11737,8 +11737,8 @@ fn sliceArgLend(ctx: *const SemContext, actual: TypeId, view: TypeId) ?sema.Lend
     return if (compatible(ctx, actual, view)) .{ .view = view } else null;
 }
 
-fn textOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
-    return if (sema.unwrapAccess(ctx, ty) == ctx.types.text_id) ctx.types.text_id else ty;
+fn stringOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
+    return if (sema.unwrapAccess(ctx, ty) == ctx.types.string_id) ctx.types.string_id else ty;
 }
 
 fn numericBits(t: sema.Type) ?u16 {
@@ -12431,7 +12431,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
         .numeric, .bytes => sema.isNumeric(ctx, ty),
-        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string or ctx.types.get(ty) == .static,
+        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static,
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {
             .int => |info| info.signed,

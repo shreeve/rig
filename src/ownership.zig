@@ -950,7 +950,7 @@ pub const Checker = struct {
             const hv = self.vars.items[h];
             if (hv.name.len > 0) {
                 try self.note(root.decl, "`{s}` goes out of scope while `{s}` still views it", .{ root.name, hv.name });
-                return self.noteStringOfText(l, hv.ty);
+                return self.noteStringViewOfString(l, hv.ty);
             }
         }
         try self.note(root.decl, "`{s}` goes out of scope while it is still lent", .{root.name});
@@ -959,10 +959,10 @@ pub const Checker = struct {
     /// Where loan `l` of a Text outlives the Text in a value of type
     /// `held` whose only views are Strings (a String field or result):
     /// the String was meant to own its text.
-    fn noteStringOfText(self: *Checker, l: Loan, held: ?TypeId) Error!void {
+    fn noteStringViewOfString(self: *Checker, l: Loan, held: ?TypeId) Error!void {
         const ctx = self.sema orelse return;
         const t = held orelse return;
-        if (!self.isText(self.vars.items[l.root].ty) or !sema.holdsViewOnly(ctx, t)) return;
+        if (!self.isString(self.vars.items[l.root].ty) or !sema.holdsViewOnly(ctx, t)) return;
         try self.note(l.pos, "a `String` views text it doesn't own; store a `Text` to own it", .{});
     }
 
@@ -2311,7 +2311,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return false;
         const info = ctx.typeInfo(ty);
         if (info.poison or info.holds_type_var or info.views.write) return false;
-        return info.views.marked or info.views.string;
+        return info.views.marked or info.views.string_view;
     }
 
     /// A call whose result `v` only reads what it views has returned: the
@@ -2549,7 +2549,7 @@ pub const Checker = struct {
         while (p.isKind(.member) or p.isKind(.index)) {
             const obj = ir.get(p, .object);
             if (self.exprType(obj)) |t| switch (self.typeData(t)) {
-                .read_view, .slice, .string => return true,
+                .read_view, .slice, .string_view => return true,
                 else => {},
             };
             p = obj;
@@ -2724,7 +2724,7 @@ pub const Checker = struct {
         while (p.isKind(.member) or p.isKind(.index)) {
             const obj = ir.get(p, .object);
             if (self.exprType(obj)) |t| switch (self.typeData(t)) {
-                .read_view, .write_view, .slice, .string => return .{ .value = obj, .shared = false },
+                .read_view, .write_view, .slice, .string_view => return .{ .value = obj, .shared = false },
                 .shared => return .{ .value = obj, .shared = true },
                 else => {},
             };
@@ -3649,7 +3649,7 @@ pub const Checker = struct {
                     return;
                 };
                 try self.err(pos, "cannot store a view of `{s}` in `{s}`: `{s}` outlives it", .{ stored, into, v.name });
-                return self.noteStringOfText(l, self.exprType(target));
+                return self.noteStringViewOfString(l, self.exprType(target));
             };
             return self.storeInLent(id, pos, value, self.placeDepth(target, false));
         }
@@ -3901,7 +3901,7 @@ pub const Checker = struct {
         // `print`, `Text(...)`, and `!t.add(...)` only read their
         // arguments, and hold none of them past the call: a Text keeps
         // their text, not them.
-        const text_op = if (self.sema) |ctx| ctx.textCallOf(node) orelse ctx.textCallOf(callee) else null;
+        const text_op = if (self.sema) |ctx| ctx.stringCallOf(node) orelse ctx.stringCallOf(callee) else null;
         if (self.isPrint(callee) or text_op != null) {
             for (args) |a| {
                 // A slice there is lent to read, as `?a` would be.
@@ -4776,12 +4776,12 @@ pub const Checker = struct {
             if (r.kind == .param) {
                 const shown = if (self.sema != null and r.ty != null) try sema.formatTypeIn(self.sema.?, self.arena(), r.ty.?) else "T";
                 try self.err(l.pos, "cannot return a view of `{s}`: a parameter taken by value belongs to this function and ends with it; take `{s}: ?{s}` to return a view of the caller's value", .{ r.name, r.name, shown });
-                try self.noteStringOfText(l, self.func.ret_ty);
+                try self.noteStringViewOfString(l, self.func.ret_ty);
                 continue;
             }
             try self.err(l.pos, "cannot return a view of `{s}`, which this function was not lent", .{r.name});
             try self.note(r.decl, "`{s}` is local to this {s}", .{ r.name, if (self.func.in_closure) "closure" else "function" });
-            try self.noteStringOfText(l, self.func.ret_ty);
+            try self.noteStringViewOfString(l, self.func.ret_ty);
         }
     }
 
@@ -5116,7 +5116,7 @@ pub const Checker = struct {
         const ty = self.symType(pos);
         // The bytes of a Text field are a view of it, as any read view of
         // a field is, though a `String` copies.
-        const text_view = if (self.sema) |ctx| (if (ctx.payloadFieldOf(node)) |field| sema.viewsTextBytes(ctx, field, ty orelse sema.type_invalid) else false) else false;
+        const text_view = if (self.sema) |ctx| (if (ctx.payloadFieldOf(node)) |field| sema.viewsStringBytes(ctx, field, ty orelse sema.type_invalid) else false) else false;
         var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = if (text_view) .read else self.refOfType(ty) };
         var loans: []const Loan = &.{};
         // A payload that copies (`sema.copies`) is copied out of the
@@ -5758,10 +5758,10 @@ pub const Checker = struct {
     }
 
     /// A `Text`, whose bytes a String may view.
-    fn isText(self: *const Checker, ty: ?TypeId) bool {
+    fn isString(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
-        return t == ctx.types.text_id or sema.boxedType(ctx, t) == ctx.types.text_id;
+        return t == ctx.types.string_id or sema.boxedType(ctx, t) == ctx.types.string_id;
     }
 
     /// A `List[T]`.
@@ -5811,7 +5811,7 @@ pub const Checker = struct {
         return switch (ctx.types.get(inner)) {
             .shared => .shared,
             .weak => .weak,
-            .text => .text,
+            .string => .text,
             .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) .list else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = name },
             else => .{ .drop_glue = name },
         };

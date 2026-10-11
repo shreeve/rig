@@ -64,13 +64,13 @@ fn needsDrop(comptime T: type) bool {
 /// How a read view `?T` is held: a copy of a scalar or a view (a
 /// number, `Bool`, a plain enum, an error, a slice or `String`, a
 /// function, or an optional of one), a pointer to anything else, and
-/// for a `Text` its bytes, the one text view. The
+/// for a `String` its bytes, the one text view. The
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments. A type argument never holds a Cell (a Cell lives
 /// only behind a shared handle), so the pointer is read-only.
 pub fn ReadView(comptime T: type) type {
-    if (T == Text) return []const u8;
+    if (T == String) return []const u8;
     return if (needsDrop(T) or !copiedByReadView(T)) *const T else T;
 }
 
@@ -84,19 +84,19 @@ fn copiedByReadView(comptime T: type) bool {
 
 /// A read view of what `ptr` points to.
 pub fn lend(ptr: anytype) ReadView(@TypeOf(ptr.*)) {
-    if (comptime @TypeOf(ptr.*) == Text) return ptr.bytes();
+    if (comptime @TypeOf(ptr.*) == String) return ptr.bytes();
     return if (comptime ReadView(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
 }
 
-/// What a read view `?T` reaches: the `T`, and for a `Text` its bytes,
+/// What a read view `?T` reaches: the `T`, and for a `String` its bytes,
 /// which is all a read view of one holds.
 fn Reached(comptime T: type) type {
-    return if (T == Text) []const u8 else T;
+    return if (T == String) []const u8 else T;
 }
 
 /// The `T` a read view `?T` reaches.
 pub fn viewed(comptime T: type, view: ReadView(T)) Reached(T) {
-    if (comptime T == Text) return view;
+    if (comptime T == String) return view;
     return if (comptime ReadView(T) == T) view else view.*;
 }
 
@@ -111,7 +111,7 @@ pub fn poison(ptr: anytype) void {
 /// The `T` a read view `?T`, held where `view` points, reaches:
 /// the value itself when the view is a pointer, else the view's copy.
 pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const Reached(T) {
-    if (comptime T == Text) return view;
+    if (comptime T == String) return view;
     return if (comptime ReadView(T) == T) view else view.*;
 }
 
@@ -229,30 +229,30 @@ pub fn create(comptime T: type) *T {
 pub fn eql(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
-    // A Text compares with a Text or a String by its bytes.
-    if (comptime isText(A) or isText(B)) return std.mem.eql(u8, textBytes(a), textBytes(b));
+    // A String compares with a String or a String by its bytes.
+    if (comptime isString(A) or isString(B)) return std.mem.eql(u8, stringBytes(a), stringBytes(b));
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
 }
 
-/// A `Text`, or a pointer to one (a viewed Text), or a box or shared
+/// A `String`, or a pointer to one (a viewed String), or a box or shared
 /// handle holding one.
-fn isText(comptime T: type) bool {
+fn isString(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .@"struct" => @hasDecl(T, "__rig_text") or ((@hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_rcbox")) and isText(@TypeOf(@as(T, undefined).value))),
-        .pointer => |p| p.size == .one and isText(p.child),
+        .@"struct" => @hasDecl(T, "__rig_string") or ((@hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_rcbox")) and isString(@TypeOf(@as(T, undefined).value))),
+        .pointer => |p| p.size == .one and isString(p.child),
         else => false,
     };
 }
 
-/// The bytes of a Text, a viewed, boxed, or shared Text, or a String.
-fn textBytes(x: anytype) []const u8 {
+/// The bytes of a String, a viewed, boxed, or shared String, or a String.
+fn stringBytes(x: anytype) []const u8 {
     const X = @TypeOf(x);
-    if (comptime !isText(X)) return x;
-    if (comptime @typeInfo(X) == .pointer) return textBytes(x.*);
-    if (comptime @hasDecl(X, "__rig_box")) return textBytes(x.value.*);
-    if (comptime @hasDecl(X, "__rig_rcbox")) return textBytes(x.value);
+    if (comptime !isString(X)) return x;
+    if (comptime @typeInfo(X) == .pointer) return stringBytes(x.*);
+    if (comptime @hasDecl(X, "__rig_box")) return stringBytes(x.value.*);
+    if (comptime @hasDecl(X, "__rig_rcbox")) return stringBytes(x.value);
     return x.list.items;
 }
 
@@ -264,7 +264,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             return eqlAs(o.child, x, y);
         },
         .pointer => |p| {
-            if (comptime isString(T)) return std.mem.eql(u8, a, b);
+            if (comptime isStringView(T)) return std.mem.eql(u8, a, b);
             if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
             if (comptime isScalar(p.child)) return std.mem.eql(p.child, a, b);
             if (a.len != b.len) return false;
@@ -276,7 +276,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             return true;
         },
         .@"struct" => |s| {
-            if (@hasDecl(T, "__rig_text")) return std.mem.eql(u8, a.list.items, b.list.items);
+            if (@hasDecl(T, "__rig_string")) return std.mem.eql(u8, a.list.items, b.list.items);
             inline for (s.field_names, s.field_types) |name, F| if (!eqlAs(F, @field(a, name), @field(b, name))) return false;
             return true;
         },
@@ -323,7 +323,7 @@ fn isScalar(comptime T: type) bool {
 /// as numbers, and Strings by their bytes, where the first byte that
 /// differs decides and a prefix sorts first.
 pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bool {
-    if (comptime isString(@TypeOf(a, b))) return std.mem.order(u8, a, b).compare(op);
+    if (comptime isStringView(@TypeOf(a, b))) return std.mem.order(u8, a, b).compare(op);
     return std.math.compare(a, op, b);
 }
 
@@ -458,7 +458,7 @@ pub fn WeakHandle(comptime T: type) type {
 }
 
 /// `+x` of a value that owns: a new value holding a clone of each part,
-/// as `+` gives it: a handle counted again, a Text's bytes and a List's
+/// as `+` gives it: a handle counted again, a String's bytes and a List's
 /// elements copied, a box's value boxed again, plain data copied. Sema
 /// clones only types with no `drop` body and nothing unique
 /// (`sema.cloneable`).
@@ -474,7 +474,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             return out;
         },
         .@"struct" => |s| {
-            if (comptime @hasDecl(T, "__rig_text") or @hasDecl(T, "__rig_list")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
             if (comptime @hasDecl(T, "cloneWeak")) return value.cloneWeak();
             var out: T = undefined;
@@ -991,64 +991,64 @@ pub fn List(comptime T: type) type {
 }
 
 // -----------------------------------------------------------------------------
-// Text
+// String
 // -----------------------------------------------------------------------------
 
-/// `Text`: owned, growable bytes, UTF-8 by convention. `Text(a, b)` and
+/// `String`: owned, growable bytes, UTF-8 by convention. `String(a, b)` and
 /// `!t.add(a, b)` write each value as `print` does at the top level
-/// (`writeValue`), with no separators; a String taken from a Text views
+/// (`writeValue`), with no separators; a String taken from a String views
 /// its buffer, which the ownership checker keeps from changing while a
 /// view is in use.
-pub const Text = struct {
+pub const String = struct {
     list: std.ArrayList(u8) = .empty,
 
     /// Printed as its bytes (`writeValue`), compared by them (`eql`).
-    pub const __rig_text = {};
+    pub const __rig_string = {};
 
-    pub const empty: Text = .{};
+    pub const empty: String = .{};
 
-    /// `Text(a, b, ...)`.
-    pub fn of(parts: anytype) Text {
-        var t: Text = .empty;
+    /// `String(a, b, ...)`.
+    pub fn of(parts: anytype) String {
+        var t: String = .empty;
         t.add(parts);
         return t;
     }
 
     /// `!t.add(a, b, ...)`.
-    pub fn add(self: *Text, parts: anytype) void {
+    pub fn add(self: *String, parts: anytype) void {
         var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
         defer self.list = out.toArrayList();
         inline for (@typeInfo(@TypeOf(parts)).@"struct".field_names) |f| writeValue(&out.writer, @field(parts, f), true) catch oom();
     }
 
     /// `!t.push(b)`: append one byte.
-    pub fn push(self: *Text, b: u8) void {
+    pub fn push(self: *String, b: u8) void {
         self.list.append(defaultAllocator(), b) catch oom();
     }
 
     /// `!t.clear()`: empty, keeping the buffer.
-    pub fn clear(self: *Text) void {
+    pub fn clear(self: *String) void {
         self.list.clearRetainingCapacity();
     }
 
     /// The bytes, as a String: `?t[..]`, `?t` where a String goes.
-    pub fn bytes(self: Text) []const u8 {
+    pub fn bytes(self: String) []const u8 {
         return self.list.items;
     }
 
     /// `t.len`.
-    pub fn length(self: Text) Int {
+    pub fn length(self: String) Int {
         return @intCast(self.list.items.len);
     }
 
-    /// `+t`: a new Text holding the same bytes.
-    pub fn clone(self: Text) Text {
-        var t: Text = .empty;
+    /// `+t`: a new String holding the same bytes.
+    pub fn clone(self: String) String {
+        var t: String = .empty;
         t.list.appendSlice(defaultAllocator(), self.list.items) catch oom();
         return t;
     }
 
-    pub fn __rig_drop(self: *Text) void {
+    pub fn __rig_drop(self: *String) void {
         self.list.deinit(defaultAllocator());
         self.list = .empty;
     }
@@ -2010,9 +2010,9 @@ pub fn runTests(modules: []const TestModule) void {
     if (failed > 0) std.process.exit(1);
 }
 
-/// Text: a string literal (`*const [N:0]u8`) or a `String` slice. An
+/// String: a string literal (`*const [N:0]u8`) or a `String` slice. An
 /// array of bytes held by pointer is a list of numbers.
-fn isString(comptime T: type) bool {
+fn isStringView(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| switch (p.size) {
             .slice => p.child == u8,
@@ -2048,7 +2048,7 @@ var print_depth: u32 = 0;
 /// shared handle or a box prints its value, a function `<fun>`.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
-    if (comptime isString(T)) {
+    if (comptime isStringView(T)) {
         return if (top) w.writeAll(value) else w.print("\"{s}\"", .{value});
     }
     switch (@typeInfo(T)) {
@@ -2065,7 +2065,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         .@"fn" => return w.writeAll("<fun>"),
         .@"struct" => {
             if (@hasDecl(T, "__rig_box")) return writeValue(w, value.value.*, top);
-            if (@hasDecl(T, "__rig_text")) return writeValue(w, value.list.items, top);
+            if (@hasDecl(T, "__rig_string")) return writeValue(w, value.list.items, top);
         },
         .optional => return if (value) |v| writeValue(w, v, top) else w.writeAll("none"),
         .pointer => |p| {
@@ -2175,7 +2175,7 @@ test "guardStack holds the stack to 16 MiB on Linux" {
 }
 
 test "viewedPtr reaches what a read view views, or the view's own copy" {
-    const Pair = struct { a: i64, t: Text };
+    const Pair = struct { a: i64, t: String };
     var p: Pair = .{ .a = 3, .t = .{} };
     const b: ReadView(Pair) = lend(&p);
     try std.testing.expect(viewedPtr(Pair, &b) == &p);
@@ -2501,10 +2501,10 @@ test "values print the way Rig writes them" {
     try expectNoLeaks(before);
 }
 
-test "Text writes values as print does, and compares and frees its bytes" {
+test "String writes values as print does, and compares and frees its bytes" {
     const before = usage();
     const P = struct { name: []const u8, n: ?i64 };
-    var t = Text.of(.{ "n=", @as(i64, 42), " ", P{ .name = "a", .n = null }, " ", @as(f64, 2.0) });
+    var t = String.of(.{ "n=", @as(i64, 42), " ", P{ .name = "a", .n = null }, " ", @as(f64, 2.0) });
     try testing.expectEqualStrings("n=42 P(name: \"a\", n: none) 2.0", t.bytes());
     var i: usize = 0;
     while (i < 1000) : (i += 1) t.add(.{ @as(i64, @intCast(i % 10)), "," });
@@ -2514,8 +2514,8 @@ test "Text writes values as print does, and compares and frees its bytes" {
     u.clear();
     u.add(.{ "hi", true });
     try testing.expect(eql(u, "hi" ++ "true") and eql("hitrue", &u));
-    const Holder = struct { t: Text };
-    var h = Holder{ .t = Text.of(.{"in"}) };
+    const Holder = struct { t: String };
+    var h = Holder{ .t = String.of(.{"in"}) };
     var buf: [64]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try writeValue(&w, h, true);

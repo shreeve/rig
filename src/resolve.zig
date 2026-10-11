@@ -1655,7 +1655,7 @@ pub const TypeResolver = struct {
                         if (try self.misplacedAt(inner_node, inner, home)) return t.invalid_id;
                         // Nothing lends a `String` place to write: it holds a read
                         // view of text, pointed elsewhere by assigning to it.
-                        if (head == .write_view and inner == t.string_id) {
+                        if (head == .write_view and inner == t.string_view_id) {
                             try self.ctx.errAt(sexp, "`!String` cannot be written: a `String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `Text` to change text in place", .{});
                             return t.invalid_id;
                         }
@@ -2240,7 +2240,7 @@ const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "T
 
 fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
-    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.text_id, t.static_id, t.void_id };
+    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_view_id, t.string_id, t.static_id, t.void_id };
     for (primitive_type_names, ids) |n, id| {
         if (std.mem.eql(u8, name, n)) return id;
     }

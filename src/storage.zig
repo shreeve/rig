@@ -81,9 +81,9 @@ pub fn isPrintCall(ctx: *const SemContext, call: Sexp) bool {
 
 /// The built-in Text operation `call` is: `Text(...)`, `!t.add(...)`,
 /// or `!t.clear()`.
-pub fn textCall(ctx: *const SemContext, call: Sexp) ?sema.TextCall {
+pub fn stringCall(ctx: *const SemContext, call: Sexp) ?sema.StringCall {
     if (!call.isKind(.call)) return null;
-    return ctx.textCallOf(call) orelse ctx.textCallOf(ctx.calleeOf(call));
+    return ctx.stringCallOf(call) orelse ctx.stringCallOf(ctx.calleeOf(call));
 }
 
 /// The object of `Type.f(...)`, `module.f(...)`, or
@@ -226,7 +226,7 @@ pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
 }
 
 fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
-    if (!call.isKind(.call) or isPrintCall(ctx, call) or textCall(ctx, call) != null) return false;
+    if (!call.isKind(.call) or isPrintCall(ctx, call) or stringCall(ctx, call) != null) return false;
     const args = ir.Call.args(call);
     // A closure literal lent to the call gets an environment first.
     for (args) |a| if (lentLiteral(ctx, argValue(a))) return true;
@@ -378,7 +378,7 @@ fn decideReachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     const ty = typeOf(ctx, e) orelse return false;
     if (!sema.readByAddress(ctx, ty)) return false;
     return switch (ctx.types.get(ty)) {
-        .text, .array, .nominal, .parameterized_nominal, .imported_nominal => true,
+        .string, .array, .nominal, .parameterized_nominal, .imported_nominal => true,
         else => false,
     };
 }
@@ -680,7 +680,7 @@ fn payloadByAddress(ctx: *const SemContext, b: Sexp, in_place: bool) bool {
     if (!fieldIsPointee(ctx, field)) return false;
     if (writes) return true;
     const binding = known(ctx, ctx.bindingTypeOf(b) orelse return false) orelse return false;
-    if (ctx.types.get(binding) == .read_view or sema.viewsTextBytes(ctx, field, binding)) return true;
+    if (ctx.types.get(binding) == .read_view or sema.viewsStringBytes(ctx, field, binding)) return true;
     return in_place and !sema.isReadOrWriteView(ctx, binding) and sema.copies(ctx, binding) == .depends;
 }
 
@@ -768,7 +768,7 @@ fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
 /// of each Text element: its binding is a `String`, the read view of a
 /// `Text`, so the loop walks the elements by address and the binding is
 /// each one's `.bytes()`.
-pub fn loopBindsTextBytes(ctx: *const SemContext, loop: Sexp) bool {
+pub fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
     if (ir.For.mode(loop).tag == .write) return false;
     const source = ir.For.source(loop);
     if (source.isKind(.@"..") or forConsumes(ctx, loop)) return false;
@@ -781,18 +781,18 @@ pub fn loopBindsTextBytes(ctx: *const SemContext, loop: Sexp) bool {
         .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) pn.args[0] else return false,
         else => return false,
     };
-    return sema.viewsTextBytes(ctx, elem, bound);
+    return sema.viewsStringBytes(ctx, elem, bound);
 }
 
 /// Whether `if value as name` binds the bytes of a Text that a write
 /// view in the optional points at (`(!Text)?`): the binding is a
 /// `String`, the read view of that Text.
-pub fn optionalBindsTextBytes(ctx: *const SemContext, cond: Sexp) bool {
+pub fn optionalBindsStringBytes(ctx: *const SemContext, cond: Sexp) bool {
     const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
     const bound = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
     const t = typeOf(ctx, ir.As.value(cond)) orelse return false;
     return switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
-        .optional => |inner| ctx.types.get(inner) == .write_view and sema.viewsTextBytes(ctx, inner, bound),
+        .optional => |inner| ctx.types.get(inner) == .write_view and sema.viewsStringBytes(ctx, inner, bound),
         else => false,
     };
 }
@@ -1169,7 +1169,7 @@ const Planner = struct {
                     _ = argumentHold(ctx, argValue(a));
                 }
                 // How `print` and the Text operations read each argument.
-                if (isPrintCall(ctx, e) or textCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
+                if (isPrintCall(ctx, e) or stringCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
                     _ = printsByAddress(ctx, a);
                 };
                 try p.call(e);
@@ -1249,13 +1249,13 @@ const Planner = struct {
         if (ty != null and owns(ctx, ty.?)) try p.record(cond, .as_value, .owned, .body);
         // The bytes of the Text a captured write view points at: the
         // pointer is captured, and the binding takes its bytes.
-        if (used and optionalBindsTextBytes(ctx, cond)) try p.record(cond, .as_value, .pointer, .body);
+        if (used and optionalBindsStringBytes(ctx, cond)) try p.record(cond, .as_value, .pointer, .body);
     }
 
     fn forLoop(p: *Planner, loop: Sexp) !void {
         const ctx = p.ctx;
         const source = ir.For.source(loop);
-        if (loopBindsTextBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
+        if (loopBindsStringBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);
             try p.record(loop, .range_end, .owned, .construct);

@@ -51,7 +51,7 @@ pub const FunctionType = sema.FunctionType;
 pub const ParamNominal = sema.ParamNominal;
 pub const Lend = sema.Lend;
 pub const LendStep = sema.LendStep;
-pub const TextCall = sema.TextCall;
+pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
 pub const GenericCall = sema.GenericCall;
 pub const Use = sema.Use;
@@ -279,12 +279,12 @@ pub const Facts = struct {
     }
     /// Whether `if … as` binds the bytes of the Text a write view in the
     /// optional points at.
-    pub fn optionalBindsTextBytes(f: Facts, cond: Sexp) bool {
-        return storage.optionalBindsTextBytes(f.c(), cond);
+    pub fn optionalBindsStringBytes(f: Facts, cond: Sexp) bool {
+        return storage.optionalBindsStringBytes(f.c(), cond);
     }
     /// Whether a read `for` binds the bytes of each Text element.
-    pub fn loopBindsTextBytes(f: Facts, loop: Sexp) bool {
-        return storage.loopBindsTextBytes(f.c(), loop);
+    pub fn loopBindsStringBytes(f: Facts, loop: Sexp) bool {
+        return storage.loopBindsStringBytes(f.c(), loop);
     }
     /// Whether a payload binding points at the field it binds.
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
@@ -389,8 +389,8 @@ pub const Facts = struct {
         return sema.intLimit(f.c(), e);
     }
     /// The built-in Text operation `call` is.
-    pub fn textCall(f: Facts, call: Sexp) ?TextCall {
-        return storage.textCall(f.c(), call);
+    pub fn stringCall(f: Facts, call: Sexp) ?StringCall {
+        return storage.stringCall(f.c(), call);
     }
     pub fn isPrintCall(f: Facts, call: Sexp) bool {
         return storage.isPrintCall(f.c(), call);
@@ -544,9 +544,9 @@ pub const Facts = struct {
         return sema.lendByValue(f.c(), inner);
     }
     /// Whether a view of type `view` of a slot of type `slot` is the bytes
-    /// of a Text (`sema.viewsTextBytes`).
-    pub fn viewsTextBytes(f: Facts, slot: TypeId, view: TypeId) bool {
-        return sema.viewsTextBytes(f.c(), slot, view);
+    /// of a Text (`sema.viewsStringBytes`).
+    pub fn viewsStringBytes(f: Facts, slot: TypeId, view: TypeId) bool {
+        return sema.viewsStringBytes(f.c(), slot, view);
     }
     /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {

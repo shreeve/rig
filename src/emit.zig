@@ -1303,7 +1303,7 @@ pub const Emitter = struct {
         var e = expr;
         while (e.isKind(.propagate)) e = ir.Propagate.value(e);
         if (!e.isKind(.call)) return true;
-        if (self.isPrintCall(e) or self.textCall(e) != null) return false;
+        if (self.isPrintCall(e) or self.stringCall(e) != null) return false;
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (self.facts.calleeOf(e).isKind(.lambda)) return true;
@@ -2257,8 +2257,8 @@ pub const Emitter = struct {
         const elem_is_view = if (src_ty) |t| if (self.loopElem(t)) |e| e == elem_ty else false else false;
         // A binding that is the bytes of a Text element walks the elements
         // by address and takes each one's bytes.
-        const text_bytes = self.facts.loopBindsTextBytes(sexp);
-        const by_ptr = mode == .write or owned or text_bytes or
+        const string_bytes = self.facts.loopBindsStringBytes(sexp);
+        const by_ptr = mode == .write or owned or string_bytes or
             (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view and !elem_is_view);
 
         // A value the loop holds, or the array it takes, lives in the
@@ -2294,7 +2294,7 @@ pub const Emitter = struct {
         }
         if (is_list) try self.w.writeAll(".items()");
         // `for b in ?t` walks the bytes of a Text, boxed or not.
-        if (src_ty) |t| if (self.textReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
+        if (src_ty) |t| if (self.stringReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
         const counter = try self.fmt("__rig_i_{d}", .{self.nextId()});
         // An index nobody reads needs no counter.
         const indexed = self.loopIndex(sexp) != null;
@@ -2303,8 +2303,8 @@ pub const Emitter = struct {
         var bytes_of: []const u8 = "";
         var bytes_name: []const u8 = "";
         if (elem_sym) |s| if (self.usage.used.contains(s)) {
-            const stored = try self.declare(.{ .sym = s, .ty = elem_ty, .is_ptr = by_ptr and !text_bytes }, self.srcText(binding));
-            if (text_bytes) {
+            const stored = try self.declare(.{ .sym = s, .ty = elem_ty, .is_ptr = by_ptr and !string_bytes }, self.srcText(binding));
+            if (string_bytes) {
                 bytes_of = try self.hiddenStorage(sexp, .element, .pointer, .next);
                 bytes_name = stored.zig_name;
                 elem_name = try self.fmt("*{s}", .{bytes_of});
@@ -2899,7 +2899,7 @@ pub const Emitter = struct {
             // A write binds a pointer to each field, and a read one to a
             // field it views (`?F`) or reads in place.
             const addr = try self.need(self.facts.bindsByAddress(b), b);
-            const bytes = self.bindsTextBytes(b, local.ty);
+            const bytes = self.bindsStringBytes(b, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(b));
             try self.line("const {s} = {s}{s}.{f}.{f}{s};", .{ stored.zig_name, if (addr and !bytes) "&" else "", subj, ident(vname), ident(f.name), if (bytes) ".bytes()" else "" });
         }
@@ -2951,10 +2951,10 @@ pub const Emitter = struct {
     const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, bytes: bool = false };
 
     /// Whether payload binding `b`, of type `bound`, is the bytes of the
-    /// Text field it binds (`Facts.viewsTextBytes`).
-    fn bindsTextBytes(self: *Emitter, b: Sexp, bound: ?TypeId) bool {
+    /// Text field it binds (`Facts.viewsStringBytes`).
+    fn bindsStringBytes(self: *Emitter, b: Sexp, bound: ?TypeId) bool {
         const field = self.facts.payloadFieldOf(b) orelse return false;
-        return self.facts.viewsTextBytes(field, bound orelse return false);
+        return self.facts.viewsStringBytes(field, bound orelse return false);
     }
 
     /// A part of a value a `match <x` arm owns: a field, or the whole
@@ -3066,7 +3066,7 @@ pub const Emitter = struct {
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
             const addr = try self.need(self.facts.bindsByAddress(c), c);
-            const bytes = self.bindsTextBytes(c, local.ty);
+            const bytes = self.bindsStringBytes(c, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
             try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr, .bytes = bytes });
@@ -3202,7 +3202,7 @@ pub const Emitter = struct {
         }
         if (sym == null or !self.usage.used.contains(sym.?)) {
             try self.w.writeAll("|_| ");
-        } else if (self.facts.optionalBindsTextBytes(cond)) {
+        } else if (self.facts.optionalBindsStringBytes(cond)) {
             const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
             try self.w.print("|{s}| ", .{tmp});
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .value = true } };
@@ -3235,7 +3235,7 @@ pub const Emitter = struct {
         // A binding of the Text inside, or of the Text a write view inside
         // points at, is its bytes.
         const inner = self.optionalInner(ir.As.value(o.cond));
-        const bytes = if (inner) |i| self.facts.viewsTextBytes(i, ty) else false;
+        const bytes = if (inner) |i| self.facts.viewsStringBytes(i, ty) else false;
         const through_ptr = bytes and self.facts.types.get(inner.?) == .write_view and !o.value;
         if (o.copy) {
             const copy = try self.hiddenStorage(o.cond, .as_copy, .copy, .{ .copy_of = o.tmp });
@@ -3733,7 +3733,7 @@ pub const Emitter = struct {
         };
         // A branch's String is a slice, so a literal in one branch and a
         // slice in another have one Zig type.
-        if (ty) |t| if (self.unwrapOptional(t) == self.facts.types.string_id or self.unwrapOptional(t) == self.facts.types.static_id) {
+        if (ty) |t| if (self.unwrapOptional(t) == self.facts.types.string_view_id or self.unwrapOptional(t) == self.facts.types.static_id) {
             try self.w.writeAll("@as(");
             try self.emitTypeTy(t);
             try self.w.writeAll(", ");
@@ -3929,8 +3929,8 @@ pub const Emitter = struct {
                     },
                     // `+t` of a Text copies its bytes, and `+s` of a `String`
                     // view makes a Text of them.
-                    .text => if (self.facts.unwrapViews(ty) == self.facts.types.string_id) {
-                        try self.w.writeAll("rig.Text.of(.{ ");
+                    .text => if (self.facts.unwrapViews(ty) == self.facts.types.string_view_id) {
+                        try self.w.writeAll("rig.String.of(.{ ");
                         try self.emitBare(operand);
                         try self.w.writeAll(" })");
                     } else {
@@ -4378,7 +4378,7 @@ pub const Emitter = struct {
         if (self.isListTy(ty)) {
             try self.emitBaseExpr(base);
             try self.w.writeAll(".items()");
-        } else if (self.textReach(ty)) |reach| {
+        } else if (self.stringReach(ty)) |reach| {
             try self.emitBaseExpr(base);
             try self.w.print("{s}.bytes()", .{reach});
         } else if (self.facts.types.get(ty) == .array) {
@@ -4429,7 +4429,7 @@ pub const Emitter = struct {
             try self.emitCellPtr(obj);
             return self.w.writeAll(".listLen()");
         }
-        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.facts.unwrapAccess(obj_ty.?) == self.facts.types.text_id) {
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.facts.unwrapAccess(obj_ty.?) == self.facts.types.string_id) {
             try self.emitMemberBase(obj, obj_ty);
             try self.writeReach(obj_ty.?);
             return self.w.writeAll(".length()");
@@ -4966,10 +4966,10 @@ pub const Emitter = struct {
 
     /// How a value of type `ty` (viewed or not) reaches the Text it
     /// views: directly, or through a `^Text`; null for anything else.
-    fn textReach(self: *Emitter, ty: TypeId) ?[]const u8 {
+    fn stringReach(self: *Emitter, ty: TypeId) ?[]const u8 {
         var t = self.peelViews(ty);
         var reach: []const u8 = "";
-        while (t != self.facts.types.text_id) {
+        while (t != self.facts.types.string_id) {
             const boxed = self.facts.types.get(t) != .shared;
             var held_view = false;
             t = switch (self.facts.types.get(t)) {
@@ -4989,19 +4989,19 @@ pub const Emitter = struct {
         return reach;
     }
 
-    /// `storage.textCall`.
-    fn textCall(self: *Emitter, call: Sexp) ?facts.TextCall {
-        return self.facts.textCall(call);
+    /// `storage.stringCall`.
+    fn stringCall(self: *Emitter, call: Sexp) ?facts.StringCall {
+        return self.facts.stringCall(call);
     }
 
-    /// `Text(a, b)` → `rig.Text.of(.{ a, &b })`; `!t.add(a, b)` →
+    /// `Text(a, b)` → `rig.String.of(.{ a, &b })`; `!t.add(a, b)` →
     /// `t.add(.{ a, &b })`, the arguments written as `print`'s are
     /// (`emitPrintArgs`), so a place is read at the call; `!t.clear()` →
     /// `t.clear()`.
-    fn emitTextCall(self: *Emitter, call: Sexp, op: facts.TextCall) Error!void {
+    fn emitStringCall(self: *Emitter, call: Sexp, op: facts.StringCall) Error!void {
         const args = ir.Call.args(call);
         switch (op) {
-            .new => try self.w.writeAll("rig.Text.of("),
+            .new => try self.w.writeAll("rig.String.of("),
             .add, .push, .clear => {
                 const recv = ir.Member.object(self.facts.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
@@ -5088,7 +5088,7 @@ pub const Emitter = struct {
         const args = ir.Call.args(sexp);
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
-        if (self.textCall(sexp)) |op| return self.emitTextCall(sexp, op);
+        if (self.stringCall(sexp)) |op| return self.emitStringCall(sexp, op);
         if (self.builtinCall(sexp)) |name| return self.emitSwapCall(name, args);
         if (callee == .src and self.facts.symbolOf(callee) == null and facts.syntax.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         // A call through an alias: a conversion to the number type it
@@ -5204,7 +5204,7 @@ pub const Emitter = struct {
     /// An array, a slice, or a String, or a view of one.
     fn isSequence(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(self.peelViews(ty))) {
-            .array, .slice, .string, .static => true,
+            .array, .slice, .string_view, .static => true,
             else => false,
         };
     }
@@ -5968,8 +5968,8 @@ pub const Emitter = struct {
                     try self.w.writeAll(".cloneWeak()");
                 },
             },
-            .text, .deep => if (self.facts.unwrapViews(ty) == self.facts.types.string_id) {
-                try self.w.writeAll("rig.Text.of(.{ ");
+            .text, .deep => if (self.facts.unwrapViews(ty) == self.facts.types.string_view_id) {
+                try self.w.writeAll("rig.String.of(.{ ");
                 try self.writeLocalPlace(outer);
                 try self.w.writeAll(" })");
             } else {
@@ -5992,7 +5992,7 @@ pub const Emitter = struct {
             return self.w.print(".of(@TypeOf({s}), &{s})", .{ outer.zig_name, outer.zig_name });
         };
         // A read view of a Text is its bytes.
-        if (outer.ty) |t| if (self.facts.viewsTextBytes(self.facts.unwrapViews(t), ty)) {
+        if (outer.ty) |t| if (self.facts.viewsStringBytes(self.facts.unwrapViews(t), ty)) {
             try self.writeLocalPlace(outer);
             return self.w.writeAll(".bytes()");
         };
@@ -6147,7 +6147,7 @@ pub const Emitter = struct {
     fn emitTypeTy(self: *Emitter, ty: TypeId) Error!void {
         const ctx = self.facts;
         switch (ctx.types.get(ty)) {
-            .void, .any_error, .bool, .string, .static, .text, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
+            .void, .any_error, .bool, .string_view, .static, .string, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
             .optional => |inner| {
                 try self.w.writeAll("?");
                 try self.emitTypeTy(inner);
@@ -6229,8 +6229,8 @@ pub const Emitter = struct {
             .void => try self.w.writeAll("void"),
             .any_error => try self.w.writeAll("anyerror"),
             .bool => try self.w.writeAll("bool"),
-            .string, .static => try self.w.writeAll("[]const u8"),
-            .text => try self.w.writeAll("rig.Text"),
+            .string_view, .static => try self.w.writeAll("[]const u8"),
+            .string => try self.w.writeAll("rig.String"),
             .int_literal => try self.w.writeAll(int_zig),
             .float_literal => try self.w.writeAll(float_zig),
             .int => |i| if (i.bits == 0) try self.w.writeAll(int_zig) else try self.w.print("{c}{d}", .{ @as(u8, if (i.signed) 'i' else 'u'), i.bits }),
@@ -6409,7 +6409,7 @@ pub const Emitter = struct {
     fn hasLen(self: *Emitter, ty: TypeId) bool {
         const peeled = self.peelViews(ty);
         return switch (self.facts.types.get(peeled)) {
-            .array, .slice, .string, .static => true,
+            .array, .slice, .string_view, .static => true,
             else => self.isListTy(peeled),
         };
     }
@@ -6420,7 +6420,7 @@ pub const Emitter = struct {
     /// not a pointer to one.
     fn isPlainTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string, .static, .function => true,
+            .int, .float, .int_literal, .float_literal, .bool, .string_view, .static, .function => true,
             .optional => |inner| self.isPlainTy(inner),
             else => false,
         };
@@ -6515,7 +6515,7 @@ pub const Emitter = struct {
             const ty = self.typeOf(o) orelse continue;
             const t = self.peelViews(ty);
             switch (self.facts.types.get(t)) {
-                .string, .static, .slice => bytes = true,
+                .string_view, .static, .slice => bytes = true,
                 else => generic = generic or self.facts.containsTypeVar(t),
             }
         }

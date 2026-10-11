@@ -160,9 +160,9 @@ pub const Type = union(enum) {
 
     void,
     bool,
-    string,
+    string_view,
     /// `Text`: owned, growable UTF-8 bytes; `String` is its view.
-    text,
+    string,
     /// `Static`: a `String` known to view only bytes that live for the
     /// whole program (a literal, or text derived only from literals). It
     /// is plain data that carries no loan, and it is read as a `String`
@@ -253,8 +253,8 @@ pub const TypeStore = struct {
     unknown_id: TypeId = type_invalid,
     void_id: TypeId = type_invalid,
     bool_id: TypeId = type_invalid,
+    string_view_id: TypeId = type_invalid,
     string_id: TypeId = type_invalid,
-    text_id: TypeId = type_invalid,
     static_id: TypeId = type_invalid,
     int_id: TypeId = type_invalid,
     float_id: TypeId = type_invalid,
@@ -291,8 +291,8 @@ pub const TypeStore = struct {
         s.unknown_id = try s.intern(allocator, .unknown);
         s.void_id = try s.intern(allocator, .void);
         s.bool_id = try s.intern(allocator, .bool);
+        s.string_view_id = try s.intern(allocator, .string_view);
         s.string_id = try s.intern(allocator, .string);
-        s.text_id = try s.intern(allocator, .text);
         s.int_id = try s.intern(allocator, .{ .int = .{} });
         s.float_id = try s.intern(allocator, .{ .float = .{} });
         s.int_literal_id = try s.intern(allocator, .int_literal);
@@ -351,7 +351,7 @@ pub const TypeStore = struct {
             .read_view => |inner| inner,
             else => return null,
         };
-        if (inner == self.string_id or (inner == self.text_id and self.text_id != type_invalid)) return self.string_id;
+        if (inner == self.string_view_id or (inner == self.string_id and self.string_id != type_invalid)) return self.string_view_id;
         return if (self.items.items[inner] == .read_view) inner else null;
     }
 
@@ -365,7 +365,7 @@ pub const TypeStore = struct {
     fn typeEqual(a: Type, b: Type) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
-            .invalid, .unknown, .void, .bool, .string, .text, .static, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
+            .invalid, .unknown, .void, .bool, .string_view, .string, .static, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
@@ -709,8 +709,8 @@ pub const Facts = struct {
     /// not plain data -> how the header has it (`Header`).
     headers: std.AutoHashMapUnmanaged(NodeKey, HeaderFact) = .empty,
     /// `Text(...)` call node, or `t.add` / `t.clear` callee node -> the
-    /// built-in Text operation it is (`TextCall`).
-    text_calls: std.AutoHashMapUnmanaged(NodeKey, TextCall) = .empty,
+    /// built-in Text operation it is (`StringCall`).
+    string_calls: std.AutoHashMapUnmanaged(NodeKey, StringCall) = .empty,
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -1000,7 +1000,7 @@ pub const ElemOp = enum { copy, fill, swap, read, write };
 /// one, and the methods `!t.add(a, b, ...)`, `!t.push(b)`, and
 /// `!t.clear()`. `new` and `add` format their arguments as `print` does,
 /// reading them; `push` appends one byte.
-pub const TextCall = enum { new, add, push, clear };
+pub const StringCall = enum { new, add, push, clear };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -1295,7 +1295,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        TextCall, Use => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use => try w.print(" {s}", .{@tagName(v)}),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
         Lend => {
             if (v.implicit) try w.writeAll(" implicit");
@@ -2272,14 +2272,14 @@ pub const SemContext = struct {
         return self.headerOf(match) == .taken;
     }
 
-    pub fn recordTextCall(self: *SemContext, call: Sexp, op: TextCall) !void {
-        try self.facts.text_calls.put(self.allocator, recordKey(call), op);
+    pub fn recordStringCall(self: *SemContext, call: Sexp, op: StringCall) !void {
+        try self.facts.string_calls.put(self.allocator, recordKey(call), op);
     }
 
     /// The built-in Text operation a `Text(...)` call or a method's
     /// callee (`member`) is.
-    pub fn textCallOf(self: *const SemContext, node: Sexp) ?TextCall {
-        return self.facts.text_calls.get(nodeKey(node) orelse return null);
+    pub fn stringCallOf(self: *const SemContext, node: Sexp) ?StringCall {
+        return self.facts.string_calls.get(nodeKey(node) orelse return null);
     }
 
     pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {
@@ -2512,7 +2512,7 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
         const agrees = if (sym.access) |a| switch (a) {
             .write => ty == .write_view,
             .read => switch (ty) {
-                .read_view, .slice, .string => true,
+                .read_view, .slice, .string_view => true,
                 else => copies(ctx, sym.ty) == .depends,
             },
         } else switch (ty) {
@@ -2888,10 +2888,10 @@ pub const Contents = struct {
 pub const Views = packed struct(u4) {
     marked: bool = false,
     write: bool = false,
-    string: bool = false,
+    string_view: bool = false,
     /// Reaches a Text, which a String may view: by value, through a
     /// handle, a List's, box's, Cell's, or Signal's value, or a view.
-    text: bool = false,
+    string: bool = false,
 };
 
 /// Facts about an interned type, recorded when it is interned
@@ -2993,8 +2993,8 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string, .static, .any_error, .ct_value, .ct_param => .{ .plain = true },
-        .text => .{ .glue = true },
+        .bool, .int, .float, .string_view, .static, .any_error, .ct_value, .ct_param => .{ .plain = true },
+        .string => .{ .glue = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
         .fallible => |inner| .{ .type_var = (try holdsIn(ctx, inner, params, held)).type_var },
@@ -3033,16 +3033,16 @@ const Reach = packed struct(u6) {
     unique: bool = false,
     views: Views = .{},
 
-    const all: Reach = .{ .cell = true, .unique = true, .views = .{ .marked = true, .write = true, .string = true, .text = true } };
+    const all: Reach = .{ .cell = true, .unique = true, .views = .{ .marked = true, .write = true, .string_view = true, .string = true } };
     /// What reaches through a handle or heap memory: no Cell or unique
     /// value is inline.
-    const views_only: Reach = .{ .views = .{ .marked = true, .write = true, .string = true, .text = true } };
+    const views_only: Reach = .{ .views = .{ .marked = true, .write = true, .string_view = true, .string = true } };
     /// What reaches through a view, or into a Cell's or Signal's value:
     /// only a Text matters.
-    const text_only: Reach = .{ .views = .{ .text = true } };
+    const string_only: Reach = .{ .views = .{ .string = true } };
     /// What reaches through a type argument a generic holds only behind
     /// a handle, a view, or heap memory: everything but an inline Cell.
-    const no_cell: Reach = .{ .unique = true, .views = .{ .marked = true, .write = true, .string = true, .text = true } };
+    const no_cell: Reach = .{ .unique = true, .views = .{ .marked = true, .write = true, .string_view = true, .string = true } };
 
     fn with(a: Reach, b: Reach) Reach {
         return @bitCast(@as(u6, @bitCast(a)) | @as(u6, @bitCast(b)));
@@ -3121,10 +3121,10 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
 fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayList(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
     const r: Reach = switch (ctx.types.get(ty)) {
         .slice => .{ .views = .{ .marked = true } },
-        .read_view => |inner| (Reach{ .views = .{ .marked = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
-        .write_view => |inner| (Reach{ .views = .{ .marked = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
+        .read_view => |inner| (Reach{ .views = .{ .marked = true } }).with(try reachOf(ctx, inner, mask.within(Reach.string_only), into)),
+        .write_view => |inner| (Reach{ .views = .{ .marked = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.string_only), into)),
+        .string_view => .{ .views = .{ .string_view = true } },
         .string => .{ .views = .{ .string = true } },
-        .text => .{ .views = .{ .text = true } },
         .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
         .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.views_only), into),
@@ -3137,7 +3137,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
                 var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id };
-                for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.text_only), into));
+                for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.string_only), into));
                 break :blk r;
             }
             const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.views_only) else mask;
@@ -3436,8 +3436,8 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .bool => 1,
         .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
-        .string, .static, .slice => 16,
-        .text => 24,
+        .string_view, .static, .slice => 16,
+        .string => 24,
         .any_error => 2,
         // A null handle or view is its null address; anything else
         // needs a flag.
@@ -3497,7 +3497,7 @@ fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocat
 /// 0: an optional of it is null there.
 fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .read_view, .write_view, .string, .static, .slice => true,
+        .shared, .weak, .read_view, .write_view, .string_view, .static, .slice => true,
         else => false,
     };
 }
@@ -3966,7 +3966,7 @@ const EquatableWalk = struct {
 /// Primitive values that are copied freely.
 pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
     return switch (ctx.types.get(ty_id)) {
-        .bool, .int, .float, .string, .static, .int_literal, .float_literal => true,
+        .bool, .int, .float, .string_view, .static, .int_literal, .float_literal => true,
         else => false,
     };
 }
@@ -4328,7 +4328,7 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 /// error, or an optional of one of those.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string, .static, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
+        .bool, .string_view, .static, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
@@ -4483,20 +4483,20 @@ pub fn mayHoldMarkedView(ctx: *const SemContext, ty: TypeId) bool {
 /// Text: the ownership checker tracks the loans such a value carries.
 pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
     const b = ctx.holds(ty).views;
-    return b.marked or b.string;
+    return b.marked or b.string_view;
 }
 
 /// Whether a view of type `view` of a slot of type `slot` (a Text, or a
 /// write view of one) is the bytes of a Text: the read view of a `Text`
 /// is a `String` (`TypeStore.absorbed`), held by value, so a binding that
 /// views a Text slot takes its `.bytes()`.
-pub fn viewsTextBytes(ctx: *const SemContext, slot: TypeId, view: TypeId) bool {
-    return unwrapViews(ctx, slot) == ctx.types.text_id and view == ctx.types.string_id;
+pub fn viewsStringBytes(ctx: *const SemContext, slot: TypeId, view: TypeId) bool {
+    return unwrapViews(ctx, slot) == ctx.types.string_id and view == ctx.types.string_view_id;
 }
 
 /// Whether a value of `ty` reaches a Text (`Views.text`), which a
 /// String may view.
-pub fn reachesText(ctx: *const SemContext, ty: TypeId) bool {
+pub fn reachesString(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).views.text;
 }
 
@@ -4614,7 +4614,7 @@ pub fn findUse(ctx: *const SemContext, node: Sexp, sym: SymbolId) ?Sexp {
 /// parameter: it may view a Text, and nothing else.
 pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
-    return info.views.string and !info.views.marked and !info.holds_type_var and !info.poison;
+    return info.views.string_view and !info.views.marked and !info.holds_type_var and !info.poison;
 }
 
 // -----------------------------------------------------------------------------
@@ -4763,7 +4763,7 @@ const TargetWalk = struct {
         const ctx = node.ctx;
         const t = ctx.types.get(node.ty);
         const is_view = switch (t) {
-            .read_view, .write_view, .slice, .string, .function, .callable => true,
+            .read_view, .write_view, .slice, .string_view, .function, .callable => true,
             else => false,
         };
         if (is_view and (!self.written_only or self.written)) switch (t) {
@@ -4774,7 +4774,7 @@ const TargetWalk = struct {
             }),
             .read_view => |inner| try self.target(.{ .ctx = ctx, .ty = inner, .args = node.args }),
             .slice => |sl| try self.target(.{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true }),
-            .string => self.out.bytes = true,
+            .string_view => self.out.bytes = true,
             else => self.out.any = true,
         };
         switch (t) {
@@ -4910,8 +4910,8 @@ const ReachWalk = struct {
                 try self.push(next, .{ .read = path.read, .viewed = true });
             },
             // A String views bytes; a Text owns them.
-            .string => if (self.targets.bytes) self.reached(read, true),
-            .text => if (self.targets.bytes) self.reached(path, path.viewed),
+            .string_view => if (self.targets.bytes) self.reached(read, true),
+            .string => if (self.targets.bytes) self.reached(path, path.viewed),
             else => {
                 self.cur = path;
                 try ownedParts(node, self);
@@ -5177,7 +5177,7 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
     switch (ctx.types.get(value)) {
         .shared, .weak => return .bump,
         // `+s` of a `String` view makes a new owner of its bytes.
-        .text, .string => return .text,
+        .string, .string_view => return .text,
         .optional => |o| switch (ctx.types.get(o)) {
             .shared, .weak => return .bump,
             else => {},
@@ -5219,7 +5219,7 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
     if (info.unique or info.cell or info.views.write or info.poison) return false;
     if (!info.glue and !info.holds_type_var) return true;
     return switch (ctx.types.get(ty)) {
-        .text, .shared, .weak => true,
+        .string, .shared, .weak => true,
         .optional => |inner| deepCloneable(ctx, inner, frame, seen),
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
@@ -5306,7 +5306,7 @@ pub fn importType(
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
-        .invalid, .unknown, .void, .bool, .string, .text, .static, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
+        .invalid, .unknown, .void, .bool, .string_view, .string, .static, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
         inline .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
@@ -5722,8 +5722,8 @@ const TypePrinter = struct {
             .unknown => "unknown",
             .void => "Void",
             .bool => "Bool",
-            .string => "String",
-            .text => "Text",
+            .string_view => "String",
+            .string => "Text",
             .static => "Static",
             .int => |info| if (info.bits == 0) "Int" else try a.print("{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
             .float => |info| if (info.bits == 0) "Float" else try a.print("F{d}", .{info.bits}),
@@ -6003,7 +6003,7 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
         return lend;
     }
     var t = unwrapViews(ctx, from);
-    if (unwrapAccess(ctx, t) == ctx.types.text_id) {
+    if (unwrapAccess(ctx, t) == ctx.types.string_id) {
         while (true) {
             switch (ctx.types.get(t)) {
                 .read_view, .write_view => |inner| t = inner,
@@ -6011,7 +6011,7 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
                     if (!lend.push(.handle)) return null;
                     t = inner;
                 },
-                .text => {
+                .string => {
                     _ = lend.push(.text);
                     return lend;
                 },
@@ -6023,7 +6023,7 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
         }
     }
     switch (ctx.types.get(t)) {
-        .string, .static, .slice => return lend,
+        .string_view, .static, .slice => return lend,
         .array => {
             _ = lend.push(.elems);
             return lend;
@@ -6087,7 +6087,7 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
             else => {},
         },
         // A Text lends its bytes; never to write.
-        .text => return kind == .read and view == types.string_id and lend.push(.text),
+        .string => return kind == .read and view == types.string_view_id and lend.push(.text),
         // A `*T` lends the read views of its `T`; `!h` lends the handle.
         .shared => |inner| return (kind == .read or changesByMark(ctx, inner)) and lend.push(.handle) and lendRows(ctx, inner, kind, view, lend),
         else => {
@@ -7179,7 +7179,7 @@ test "TypeStore: primitives are pre-interned and distinct" {
     var store = try TypeStore.init(std.testing.allocator);
     defer store.deinit(std.testing.allocator);
     try std.testing.expectEqual(type_invalid, store.invalid_id);
-    const ids = [_]TypeId{ store.unknown_id, store.void_id, store.bool_id, store.string_id, store.static_id, store.int_id, store.float_id, store.none_id, store.noreturn_id };
+    const ids = [_]TypeId{ store.unknown_id, store.void_id, store.bool_id, store.string_view_id, store.static_id, store.int_id, store.float_id, store.none_id, store.noreturn_id };
     for (ids, 0..) |a, i| {
         try std.testing.expect(a != type_invalid);
         for (ids[i + 1 ..]) |b| try std.testing.expect(a != b);
@@ -7214,16 +7214,16 @@ test "TypeStore: a read view of text is the String, and a read view of a view is
     var store = try TypeStore.init(a);
     defer store.deinit(a);
     // The one text view: `?Text` and `?String` are `String`.
-    try std.testing.expectEqual(store.string_id, try store.intern(a, .{ .read_view = store.text_id }));
-    try std.testing.expectEqual(store.string_id, try store.intern(a, .{ .read_view = store.string_id }));
+    try std.testing.expectEqual(store.string_view_id, try store.intern(a, .{ .read_view = store.string_id }));
+    try std.testing.expectEqual(store.string_view_id, try store.intern(a, .{ .read_view = store.string_view_id }));
     // `?(?T)` is `?T`.
     const read_int = try store.intern(a, .{ .read_view = store.int_id });
     try std.testing.expectEqual(read_int, try store.intern(a, .{ .read_view = read_int }));
     // A view of an optional Text stays a view of the optional.
-    const opt_text = try store.intern(a, .{ .optional = store.text_id });
-    const read_opt_text = try store.intern(a, .{ .read_view = opt_text });
-    try std.testing.expect(read_opt_text != store.string_id);
-    try std.testing.expect(read_opt_text != opt_text);
+    const opt_string = try store.intern(a, .{ .optional = store.string_id });
+    const read_opt_string = try store.intern(a, .{ .read_view = opt_string });
+    try std.testing.expect(read_opt_string != store.string_view_id);
+    try std.testing.expect(read_opt_string != opt_string);
     // Static is its own plain type.
     try std.testing.expect(try store.intern(a, .{ .read_view = store.static_id }) != store.static_id);
 }
@@ -7767,7 +7767,7 @@ test "origins: a view reached through a read view is that view's" {
     }.of;
     const item = ty(&r, "Item");
     const view = try r.ctx.intern(.{ .read_view = item });
-    const string = r.ctx.types.string_id;
+    const string = r.ctx.types.string_view_id;
     const reach = struct {
         fn of(run: *FactsRun, al: std.mem.Allocator, h: TypeId, v: TypeId) !ViewReach {
             return viewReach(&run.ctx, al, h, v);
@@ -7780,7 +7780,7 @@ test "origins: a view reached through a read view is that view's" {
     try std.testing.expectEqual(ViewReach.none, try reach(&r, al, r.ctx.types.int_id, view));
     try std.testing.expectEqual(ViewReach.none, try reach(&r, al, string, view));
     try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Cut"), string));
-    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, r.ctx.types.text_id, string));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, r.ctx.types.string_id, string));
     try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Keeps"), string));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Shared"), view));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Boxed"), view));
@@ -7981,7 +7981,7 @@ test "type facts: moves, copies, cloneable" {
     const Case = struct { ty: TypeId, moves: Answer, copies: Answer, clone: Clone };
     const cases = [_]Case{
         .{ .ty = ty.int_id, .moves = .no, .copies = .yes, .clone = .copy },
-        .{ .ty = ty.string_id, .moves = .no, .copies = .yes, .clone = .text },
+        .{ .ty = ty.string_view_id, .moves = .no, .copies = .yes, .clone = .text },
         .{ .ty = ty.static_id, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = p, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = read_p, .moves = .no, .copies = .yes, .clone = .copy },
@@ -7989,7 +7989,7 @@ test "type facts: moves, copies, cloneable" {
         .{ .ty = v, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = w, .moves = .no, .copies = .no, .clone = .no },
         .{ .ty = list_int, .moves = .yes, .copies = .no, .clone = .deep },
-        .{ .ty = ty.text_id, .moves = .yes, .copies = .no, .clone = .text },
+        .{ .ty = ty.string_id, .moves = .yes, .copies = .no, .clone = .text },
         .{ .ty = shared_p, .moves = .yes, .copies = .no, .clone = .bump },
         .{ .ty = weak_p, .moves = .yes, .copies = .no, .clone = .bump },
         .{ .ty = opt_shared, .moves = .yes, .copies = .no, .clone = .bump },
@@ -8094,17 +8094,17 @@ test "lend table: each row makes its view" {
     const arr = try ctx.intern(.{ .array = .{ .elem = ty.int_id, .len = try ctInt(ctx, 3) } });
     const slice = try ctx.intern(.{ .slice = .{ .elem = ty.int_id } });
     const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
-    const box_text = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{ty.text_id} } });
+    const box_string = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{ty.string_id} } });
     const fn_ty = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ty.int_id, .is_sub = false } });
     const owned = try ctx.intern(.{ .shared = fn_ty });
     const callable = try callableOfFn(ctx, fn_ty);
+    const opt_string_view = try ctx.intern(.{ .optional = ty.string_view_id });
     const opt_string = try ctx.intern(.{ .optional = ty.string_id });
-    const opt_text = try ctx.intern(.{ .optional = ty.text_id });
     const box_box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
     const box_arr = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{arr} } });
     const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{ty.int_id} } });
     const shared_p = try ctx.intern(.{ .shared = p });
-    const shared_text = try ctx.intern(.{ .shared = ty.text_id });
+    const shared_string = try ctx.intern(.{ .shared = ty.string_id });
     const opt_p = try ctx.intern(.{ .optional = p });
     const opt_read_p = try ctx.intern(.{ .optional = try read(ctx, p) });
     const opt_list = try ctx.intern(.{ .optional = list_int });
@@ -8125,15 +8125,15 @@ test "lend table: each row makes its view" {
         .{ .from = slice, .kind = .write, .view = slice, .rows = &.{.read_only} },
         // A Text: a String, also where a `String?` is expected; never to
         // write.
-        .{ .from = ty.text_id, .kind = .read, .view = ty.string_id, .rows = &.{.text} },
-        .{ .from = ty.text_id, .kind = .read, .view = opt_string, .rows = &.{ .lift, .text } },
-        .{ .from = opt_text, .kind = .read, .view = opt_string, .rows = &.{ .optional, .text } },
-        .{ .from = ty.text_id, .kind = .write, .view = ty.string_id, .rows = null },
+        .{ .from = ty.string_id, .kind = .read, .view = ty.string_view_id, .rows = &.{.text} },
+        .{ .from = ty.string_id, .kind = .read, .view = opt_string_view, .rows = &.{ .lift, .text } },
+        .{ .from = opt_string, .kind = .read, .view = opt_string_view, .rows = &.{ .optional, .text } },
+        .{ .from = ty.string_id, .kind = .write, .view = ty.string_view_id, .rows = null },
         // A box: the views of its value.
         .{ .from = box_p, .kind = .read, .view = try read(ctx, p), .rows = &.{.unbox} },
         .{ .from = box_p, .kind = .write, .view = try write(ctx, p), .rows = &.{.unbox} },
         .{ .from = box_p, .kind = .read, .view = try write(ctx, p), .rows = null },
-        .{ .from = box_text, .kind = .read, .view = ty.string_id, .rows = &.{ .unbox, .text } },
+        .{ .from = box_string, .kind = .read, .view = ty.string_view_id, .rows = &.{ .unbox, .text } },
         // Boxes compose.
         .{ .from = box_box_p, .kind = .read, .view = try read(ctx, p), .rows = &.{ .unbox, .unbox } },
         .{ .from = box_arr, .kind = .read, .view = slice, .rows = &.{ .unbox, .elems } },
@@ -8142,7 +8142,7 @@ test "lend table: each row makes its view" {
         .{ .from = list_int, .kind = .write, .view = try write(ctx, slice), .rows = &.{.elems} },
         // A `*T` lends the read views of its `T`, never a write view.
         .{ .from = shared_p, .kind = .read, .view = try read(ctx, p), .rows = &.{.handle} },
-        .{ .from = shared_text, .kind = .read, .view = ty.string_id, .rows = &.{ .handle, .text } },
+        .{ .from = shared_string, .kind = .read, .view = ty.string_view_id, .rows = &.{ .handle, .text } },
         .{ .from = shared_p, .kind = .write, .view = try write(ctx, p), .rows = null },
         // An `X?` lends a `View?`; `?o` of an `S?` is a `?(S?)`.
         .{ .from = opt_p, .kind = .read, .view = opt_read_p, .rows = &.{.optional} },

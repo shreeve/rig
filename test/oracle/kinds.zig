@@ -79,7 +79,7 @@ pub const Kinds = struct {
         try scan.walk(ctx, ty, 0, self.generic);
         const kind: Kind = switch (ctx.types.get(ty)) {
             .write_view => .write_view,
-            .read_view, .slice, .string => .read_view,
+            .read_view, .slice, .string_view => .read_view,
             // A unique value moves and is dropped once, like an owner
             // (Core §1): a declared one, and under the planned rule one
             // holding a Cell.
@@ -87,14 +87,14 @@ pub const Kinds = struct {
                 .owning
             else if (ti.views.write)
                 .write_view
-            else if (ti.views.marked or ti.views.string)
+            else if (ti.views.marked or ti.views.string_view)
                 .read_view
             else
                 .plain,
         };
         const info: Info = .{
             .kind = kind,
-            .holds_views = ti.views.marked or ti.views.string,
+            .holds_views = ti.views.marked or ti.views.string_view,
             .holds_pointers = ti.views.marked,
             .holds_writes = ti.views.write,
             .drop_reads = scan.drop_body and kind == .owning,
@@ -390,7 +390,7 @@ pub const Reach = struct {
                     else => .{ .ctx = n.ctx, .ty = inner, .subst = n.subst },
                 },
                 .slice => |sl| .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .elem = true },
-                .string => blk: {
+                .string_view => blk: {
                     t.bytes = true;
                     break :blk null;
                 },
@@ -448,10 +448,10 @@ pub const Reach = struct {
                     .slice => |sl| try work.append(self.a, .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .past_read = n.past_read, .past_view = true, .elem = true }),
                     else => try work.append(self.a, .{ .ctx = n.ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = true }),
                 },
-                .string => if (t.bytes) {
+                .string_view => if (t.bytes) {
                     r.viewed = true;
                 },
-                .text => if (t.bytes) {
+                .string => if (t.bytes) {
                     if (!n.past_read) r.owned = true;
                     if (n.past_view) r.viewed = true;
                 },
@@ -503,7 +503,7 @@ pub const Reach = struct {
             const tt = n.ctx.types.get(n.ty);
             // A slot in written memory may get any value of its type.
             if (n.past_view) switch (tt) {
-                .read_view, .write_view, .slice, .string => {
+                .read_view, .write_view, .slice, .string_view => {
                     const v = try self.targetsOf(n.ctx, n.ty);
                     if (v.any) t.any = true;
                     if (v.bytes) t.bytes = true;
@@ -520,7 +520,7 @@ pub const Reach = struct {
                     };
                     try work.append(self.a, .{ .ctx = n.ctx, .ty = elem, .subst = n.subst, .past_view = true });
                 },
-                .read_view, .slice, .string => {},
+                .read_view, .slice, .string_view => {},
                 // What a handle holds is only read, but a handle stored in
                 // a slot brings what its box holds.
                 .shared, .weak => |inner| if (n.past_view) {
