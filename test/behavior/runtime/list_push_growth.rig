@@ -1,0 +1,45 @@
+# Pushing across every growth boundary keeps each element, and a List of
+# owned elements cleared and reused drops and refills without leaks.
+
+fun fill(n: Int) -> List[Int]
+  v: List[Int] = List()
+  i = 0
+  while i < n : i += 1
+    !v.push(i)
+  v
+
+fun sum(v: ?List[Int]) -> Int
+  t = 0
+  for x in v
+    t += x
+  t
+
+sub main()
+  for n in [0, 1, 3, 4, 5, 8, 9, 1000]
+    v = fill(n)
+    print(n, v.len, sum(?v))
+  names: List[String] = List()
+  r = 0
+  while r < 3 : r += 1
+    i = 0
+    while i < 10 : i += 1
+      !names.push(String("n", i))
+    print(names.len, names[9])
+    !names.clear()
+    print(names.len)
+
+# expect:
+# 0 0 0
+# 1 1 0
+# 3 3 3
+# 4 4 6
+# 5 5 10
+# 8 8 28
+# 9 9 36
+# 1000 1000 499500
+# 10 n9
+# 0
+# 10 n9
+# 0
+# 10 n9
+# 0

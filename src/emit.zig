@@ -2223,11 +2223,16 @@ pub const Emitter = struct {
         return if (self.usage.used.contains(sym)) sym else null;
     }
 
-    /// `const i: Int = @intCast(counter);` at the top of a loop body.
+    /// `const i: Int = @as(i64, @bitCast(@as(u64, counter)));` at the top of a
+    /// loop body. The counter is an index below a length: a length is at
+    /// most `maxInt(isize)` on a 64-bit target and below 2^32 on a 32-bit
+    /// one, so it fits `u64` (a widening, the identity on 64-bit) and its
+    /// bits read as `i64` are exact on every target, with no per-iteration
+    /// check.
     fn bindLoopIndex(self: *Emitter, sexp: Sexp, counter: []const u8) Error!void {
         const sym = self.loopIndex(sexp) orelse return;
         const local = try self.declare(.{ .sym = sym, .ty = self.symType(sym) }, self.srcText(ir.For.index(sexp)));
-        try self.line("const {s}: {s} = @intCast({s});", .{ local.zig_name, int_zig, counter });
+        try self.line("const {s}: {s} = @as({s}, @bitCast(@as(u64, {s})));", .{ local.zig_name, int_zig, int_zig, counter });
     }
 
     /// `(for mode binding index-binding source body else?)` (`emitLoop`):
@@ -5482,7 +5487,7 @@ pub const Emitter = struct {
         if (e.isKind(.enum_lit) or decl.isErrorMember(e)) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t)) |set| if (set.symbol().flags.error_set) {
             const name = if (e.isKind(.member)) ir.Member.name(e) else ir.EnumLit.name(e);
             try self.w.writeAll("error.");
-            return writeErrorName(self.w, set.facts, set.symbol().name, decl.source[name.src.pos..][0..name.src.len]);
+            return writeErrorName(self.w, set.facts, set.symbol().name, rig.leafText(decl.source, name.src));
         };
         if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
         if (decl.same(self.facts)) {
@@ -5493,7 +5498,7 @@ pub const Emitter = struct {
         }
         if (e.isKind(.member)) {
             const obj = ir.Member.object(e);
-            const name = decl.source[ir.Member.name(e).src.pos..][0..ir.Member.name(e).src.len];
+            const name = rig.leafText(decl.source, ir.Member.name(e).src);
             if (decl.intLimit(e)) |limit| return self.w.print("{d}", .{limit.v});
             const module = if (decl.symbolOf(obj)) |id| decl.symbols.items[id].kind == .module else false;
             if (!module) if (decl.typeOf(e)) |t| if (decl.types.get(t) == .float) {
@@ -5503,14 +5508,14 @@ pub const Emitter = struct {
                 return self.w.print("{s}std.math.floatMax(f{d})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", if (bits == 0) 64 else bits });
             };
             if (obj != .src) return self.unsupported(e, "this default value");
-            const local = decl.source[obj.src.pos..][0..obj.src.len];
+            const local = rig.leafText(decl.source, obj.src);
             for (0..decl.importCount()) |i| {
                 const imp = decl.importAt(i);
                 if (std.mem.eql(u8, imp.local_name, local)) return self.w.print("@import(\"{s}\").{f}", .{ imp.facts.zig_file, ident(name) });
             }
             return self.unsupported(e, "a default from an unresolved module");
         }
-        return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(decl.source[e.src.pos..][0..e.src.len]) });
+        return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(rig.leafText(decl.source, e.src)) });
     }
 
     /// The checked module whose source is `source`: this one, or one it
@@ -6821,7 +6826,7 @@ fn nameModule(ctx: Facts) []const u8 {
 fn isDefaultLiteralNode(source: []const u8, e: Sexp) bool {
     return switch (e) {
         .src => |s| blk: {
-            const t = source[s.pos..][0..s.len];
+            const t = rig.leafText(source, s);
             break :blk isLiteralText(t) or std.mem.eql(u8, t, "none");
         },
         .list => e.isKind(.enum_lit) or (e.isKind(.neg) and ir.Neg.operand(e) == .src),
@@ -6834,7 +6839,7 @@ fn isDefaultLiteralNode(source: []const u8, e: Sexp) bool {
 fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
     switch (e) {
         .src => |s| {
-            const t = source[s.pos..][0..s.len];
+            const t = rig.leafText(source, s);
             if (std.mem.eql(u8, t, "none")) return w.writeAll("null");
             if (t[0] == '\'') return writeSingleQuoted(w, t);
             // Zig has no `.5`.
@@ -6931,7 +6936,7 @@ fn isNumberText(t: []const u8) bool {
 
 fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
     if (s != .src) return false;
-    const t = source[s.src.pos..][0..s.src.len];
+    const t = rig.leafText(source, s.src);
     for (t) |c| if (!std.ascii.isDigit(c) and c != '_') return false;
     return t.len > 0;
 }

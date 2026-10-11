@@ -887,11 +887,16 @@ pub fn List(comptime T: type) type {
 
         fn reserve(self: *Self, want: usize) void {
             if (want <= self.buf.len) return;
+            self.grow(want);
+        }
+
+        /// The out-of-line growth, so `push` stays small enough to inline.
+        noinline fn grow(self: *Self, want: usize) void {
             self.buf = defaultAllocator().realloc(self.buf, @max(want, 4, self.buf.len * 2)) catch oom();
         }
 
         pub fn push(self: *Self, value: T) void {
-            self.reserve(self.len + 1);
+            if (self.len == self.buf.len) self.grow(self.len + 1);
             self.buf[self.len] = value;
             self.len += 1;
         }
@@ -1016,6 +1021,13 @@ pub const String = struct {
 
     /// `!t.add(a, b, ...)`.
     pub fn add(self: *String, parts: anytype) void {
+        const fields = @typeInfo(@TypeOf(parts)).@"struct".field_names;
+        if (comptime fields.len == 1) {
+            const part = @field(parts, fields[0]);
+            const P = @TypeOf(part);
+            if (comptime isStringView(P)) return self.appendBytes(part);
+            if (comptime P == String) return self.appendBytes(part.list.items);
+        }
         var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
         defer self.list = out.toArrayList();
         inline for (@typeInfo(@TypeOf(parts)).@"struct".field_names) |f| writeValue(&out.writer, @field(parts, f), true) catch oom();
@@ -1023,12 +1035,22 @@ pub const String = struct {
 
     /// `!t.push(b)`: append one byte.
     pub fn push(self: *String, b: u8) void {
-        self.list.append(defaultAllocator(), b) catch oom();
+        if (self.list.items.len == self.list.capacity) self.grow(1);
+        self.list.items.len += 1;
+        self.list.items[self.list.items.len - 1] = b;
+    }
+
+    fn appendBytes(self: *String, bytes_: []const u8) void {
+        self.list.appendSlice(defaultAllocator(), bytes_) catch oom();
+    }
+
+    noinline fn grow(self: *String, extra: usize) void {
+        self.list.ensureUnusedCapacity(defaultAllocator(), extra) catch oom();
     }
 
     /// `!t.clear()`: empty, keeping the buffer.
     pub fn clear(self: *String) void {
-        self.list.clearRetainingCapacity();
+        self.list.items.len = 0;
     }
 
     /// The bytes, as a `?String`: `?t[..]`, `?t` where a `?String` goes.

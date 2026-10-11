@@ -2431,7 +2431,11 @@ or the pattern a generic call matches it against), by calling
 `Parser.padLambda`, which appends hidden `_` leaves to the `params` role
 (each at a position past the end of the source, so facts keyed by
 position stay apart) and declares a `param` symbol for each, as the
-resolver declares a written `_`. It changes nothing when the closure
+resolver declares a written `_`. A hidden leaf is a synthetic span: its
+`Parser.span` is the start of its closure, its text is `_` through
+`rig.leafText`, and any other slice of the source by its position is
+empty, because every pass slices through `diag.textBetween` or
+`diag.textOf`, which clamp to the source. It changes nothing when the closure
 already has the parameters, so a closure checked twice is padded once.
 Every later pass (the ownership checker, storage, emit) sees the full
 parameter list and has no case for the short form. Captures are a role of

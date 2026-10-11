@@ -973,7 +973,7 @@ pub const Checker = struct {
     fn reportArmView(self: *Checker, l: Loan) Error!void {
         var end = l.pos;
         while (end < self.source.len and (std.ascii.isAlphanumeric(self.source[end]) or self.source[end] == '_')) end += 1;
-        const name = self.source[l.pos..end];
+        const name = diag.textBetween(self.source, l.pos, end);
         const root = self.vars.items[l.root];
         const clones = if (self.sema) |ctx| (if (ctx.symbolAt(l.pos)) |sym| sema.cloneable(ctx, ctx.symbols.items[sym].ty) != .no else false) else false;
         const a = self.arena();
@@ -4254,7 +4254,7 @@ pub const Checker = struct {
 
     fn spanText(self: *const Checker, node: Sexp) []const u8 {
         const sp = self.span(node);
-        return self.source[sp.start..sp.end];
+        return diag.textOf(self.source, sp);
     }
 
     /// `!a.x` and `!a.y`: write views of two fields of one binding,

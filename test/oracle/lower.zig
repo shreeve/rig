@@ -2096,7 +2096,7 @@ const Lowerer = struct {
 
     fn textOf(self: *Lowerer, e: Sexp) []const u8 {
         const span = self.parser.span(e);
-        return self.src[span.start..span.end];
+        return lib.diag.textOf(self.src, span);
     }
 
     fn copy(self: *Lowerer, p: Place, ty: TypeId, pos: u32) Error!VarId {
