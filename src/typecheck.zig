@@ -146,6 +146,8 @@ const Checker = struct {
     handle_exempt: bool = true,
     /// The receiver of the method call being checked, while it is typed.
     receiver_obj: Sexp = .nil,
+    /// The operand of the `not` being checked, which must be a `Bool`.
+    not_operand: Sexp = .nil,
     /// A call whose value a `!` written before it lends to write, with
     /// the sigil outside the call (`!(v.pop())`, `!o?.pop()`), or the
     /// source of a `for` whose `!` is the loop's mode: a write method on
@@ -3697,6 +3699,9 @@ const Checker = struct {
                 break :blk self.t().bool_id;
             },
             .not => blk: {
+                const saved_not = self.not_operand;
+                defer self.not_operand = saved_not;
+                self.not_operand = ir.Not.operand(e);
                 try self.checkExpr(ir.Not.operand(e), self.t().bool_id);
                 try self.checkNotScope(e);
                 break :blk self.t().bool_id;
@@ -5368,13 +5373,14 @@ const Checker = struct {
                 .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
-            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| {
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (op != .not) {
                 const shown = switch (op) {
                     .copy => "!xs.copy(src)",
                     .fill => "!xs.fill(v)",
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
+                    .not => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -6692,6 +6698,26 @@ const Checker = struct {
         }
         try self.ctx.recordStringCall(callee, op);
         return self.t().void_id;
+    }
+
+    /// `x.not()`: the complement of an integer (every bit flipped) or a
+    /// `Bool`, of the receiver's own type. Null when `method` is not
+    /// `not` or the receiver is neither.
+    fn notCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        if (!std.mem.eql(u8, method, "not")) return null;
+        const value = sema.unwrapViews(self.ctx, obj_ty);
+        const is_bool = value == self.t().bool_id;
+        if (!is_bool and !sema.isInteger(self.ctx, value)) return null;
+        if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume its receiver");
+        if (value == self.t().int_literal_id) try self.defaultIntLiteral(obj);
+        const ty = if (value == self.t().int_literal_id) self.t().int_id else value;
+        if (args.len > 0) {
+            try self.err(pos, "`not` takes no arguments; got {d}", .{args.len});
+            try self.synthArgs(args);
+        }
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ty}), .returns = ty, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .not, .elem = ty, .num = ty });
+        return ty;
     }
 
     const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
@@ -8205,6 +8231,7 @@ const Checker = struct {
 
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, if (std.meta.stringToEnum(sema.ElemOp, method) == .read) .read else .write, ty);
         if (ct == null) if (try self.stringCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .write, ty);
+        if (ct == null) if (try self.notCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -8395,6 +8422,7 @@ const Checker = struct {
     /// them or the receiver has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
+        if (op == .not) return null;
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -8422,14 +8450,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write => unreachable,
+            .read, .write, .not => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write => unreachable,
+            .read, .write, .not => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -8444,7 +8472,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write => unreachable,
+            .read, .write, .not => unreachable,
         }
         return self.t().void_id;
     }
@@ -9436,6 +9464,10 @@ const Checker = struct {
                 return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend it to {s}: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), try self.plainText(e) });
             },
             else => {},
+        }
+        // `not n` of an integer: the complement is a method.
+        if (sameSite(e, self.not_operand) and expected == self.t().bool_id and sema.isInteger(self.ctx, sema.unwrapViews(self.ctx, actual))) {
+            return self.errAt(e, "`not` takes a Bool; for the bitwise complement write `x.not()`", .{});
         }
         const match_hint = if (self.ctx.types.get(expected) == .write_view) try self.readMatchHint(place.sym) else "";
         if (match_hint.len > 0) return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`{s}", .{ try self.tyName(expected), try self.tyName(actual), match_hint });

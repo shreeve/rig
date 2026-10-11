@@ -461,7 +461,8 @@ written in parentheses, `not (a == b)`, never `not a == b`, which
 could read as `(not a) == b` ([SPEC §5](SPEC.md#operators)). `not a
 and b` is `(not a) and b`. `as` binds tighter than `and`, in a condition that
 binds ([§10](#conditions-that-bind)). There is no `&&`, `||`, `**`,
-`++`, or `--`, and prefix `!` lends to write, never "not". What each
+`++`, or `--`, and prefix `!` lends to write, never "not". The bitwise
+complement of an integer is the method `x.not()`. What each
 operator does, and which types it takes, is in
 [SPEC §5](SPEC.md#operators).
 

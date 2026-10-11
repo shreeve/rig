@@ -1368,7 +1368,12 @@ pub fn readInt(comptime T: type, bytes: anytype, offset: anytype, comptime endia
     const n = @divExact(@bitSizeOf(T), 8);
     const i = byteOffset(bytes.len, offset, n) orelse @panic("byte read out of range");
     const Bits = @Int(.unsigned, @bitSizeOf(T));
-    return @bitCast(std.mem.readInt(Bits, bytes[i..][0..n], zigEndian(endian)));
+    // One load of the `n` bytes, however wide, whatever the target's
+    // native integer width (an integer array load is split into bytes
+    // where the integer is not native).
+    const lanes: @Vector(n, u8) = bytes[i..][0..n].*;
+    const raw: Bits = @bitCast(lanes);
+    return @bitCast(if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw);
 }
 
 /// `!bytes.write[T, e](at, value)`: store `value` in the `@sizeOf(T)`
@@ -1378,7 +1383,13 @@ pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, com
     const n = @divExact(@bitSizeOf(T), 8);
     const i = byteOffset(bytes.len, offset, n) orelse @panic("byte write out of range");
     const Bits = @Int(.unsigned, @bitSizeOf(T));
-    std.mem.writeInt(Bits, bytes[i..][0..n], @bitCast(value), zigEndian(endian));
+    const raw: Bits = @bitCast(value);
+    const ordered = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw;
+    // One store of the whole integer, through an unaligned pointer: a
+    // vector store would be scalarized to byte stores where vectors
+    // are not native.
+    const dst: *align(1) Bits = @ptrCast(bytes[i..][0..n]);
+    dst.* = ordered;
 }
 
 /// `offset` as a `usize` with `offset + n <= count`, or null.

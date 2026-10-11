@@ -985,7 +985,9 @@ pub const Use = enum {
 
 /// A built-in method on the elements of a slice, an array, a List, or a
 /// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
-/// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`.
+/// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`;
+/// and `x.not()`, the complement of an integer or a `Bool` (`elem` and
+/// `num` are its type).
 pub const ElemCall = struct {
     op: ElemOp,
     /// The receiver's element type.
@@ -994,7 +996,7 @@ pub const ElemCall = struct {
     num: TypeId = type_invalid,
 };
 
-pub const ElemOp = enum { copy, fill, swap, read, write };
+pub const ElemOp = enum { copy, fill, swap, read, write, not };
 
 /// A call of a built-in String operation: `String(a, b, ...)`, which builds
 /// one, and the methods `!t.add(a, b, ...)`, `!t.push(b)`, and
