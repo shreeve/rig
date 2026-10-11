@@ -1,0 +1,8 @@
+# A closure with no type from context keeps its declared parameters: a
+# call must pass every one.
+
+sub main()
+  f = |a: Int, b: Int| print(a, b)
+  f(1)
+
+# error: expects 2 arguments, got 1

@@ -1292,6 +1292,10 @@ pub const Parser = struct {
     /// out their parameter list, each reported, so that one run shows
     /// every header to fix.
     more_failures: std.ArrayList(diag.Diagnostic) = .empty,
+    /// How many hidden parameters `padLambda` has made; each takes the
+    /// next position past the end of the source, which no leaf of the
+    /// source holds, so facts keyed by position stay apart.
+    padded: u32 = 0,
     /// The node ids of the `(read place)`, `(write place)`, and
     /// `(move place)` receivers written in front of the call
     /// (`!v.push(x)`), not in parentheses.
@@ -2382,6 +2386,28 @@ pub const Parser = struct {
     pub fn dropTail(self: *const Parser, slot: *Sexp) std.mem.Allocator.Error!void {
         const mutable: *Parser = @constCast(self);
         try mutable.dropTailOf(slot);
+    }
+
+    /// A closure that declares fewer parameters than the function type it
+    /// is checked against is the same closure with `_` for each trailing
+    /// parameter it leaves out. The type checker calls it on a closure
+    /// literal before any pass reads the parameters; it changes nothing
+    /// when the closure already has `count` parameters.
+    pub fn padLambda(self: *const Parser, lambda: Sexp, count: usize) std.mem.Allocator.Error!void {
+        const mutable: *Parser = @constCast(self);
+        const slot = &@constCast(lambda.items())[ir.slot(.lambda, .params)];
+        const have = slot.items();
+        if (have.len >= count) return;
+        const out = try mutable.allocator().alloc(Sexp, count);
+        @memcpy(out[0..have.len], have);
+        const at = mutable.span(lambda).start;
+        for (out[have.len..]) |*p| {
+            mutable.padded += 1;
+            var leaf = hiddenLeaf(at, .discard);
+            leaf.src.pos = @intCast(mutable.base.source.len + mutable.padded);
+            p.* = leaf;
+        }
+        slot.* = try mutable.base.newList(out, .{ .start = at, .end = at });
     }
 
     fn dropTailOf(self: *Parser, slot: *Sexp) std.mem.Allocator.Error!void {

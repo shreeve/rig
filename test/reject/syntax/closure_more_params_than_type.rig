@@ -1,0 +1,9 @@
+# A closure takes at most the parameters its type passes.
+
+sub each(f: ?sub(Int))
+  f(1)
+
+sub main()
+  each(|a, b| print(a, b))
+
+# error: this closure takes 2 parameters, but its type `sub(Int)` passes 1
