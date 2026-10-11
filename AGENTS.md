@@ -139,9 +139,12 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
   fails generation or the parser check. To use another binary, name it
   in both places: `zig build parser -Dnexus=PATH` and
   `NEXUS=PATH ./test/run`.
-- The machine is shared: before a full run, check
-  `sysctl -n vm.loadavg` and wait while the 1-minute load is above
-  about 12. Under load, rerun a timeout failure alone before trusting it.
+- The machine is shared: run a full run, a grid, or a corpus pass
+  through the machine's job queue (`cpuq run --cores 2-6 -- …`, with
+  `-j "$CPUQ_CORES"`), which shares the CPUs fairly instead of waiting
+  on the load. Pass `-j` to `zig build` there too; without it Zig uses
+  every CPU. Under load, rerun a timeout failure alone before trusting
+  it.
 - Fixing a bug starts with a failing test that reproduces it.
 - Every change keeps `./test/run` green.
 - Commit messages are short, imperative, and describe the change.
