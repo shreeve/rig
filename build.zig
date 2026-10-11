@@ -44,8 +44,9 @@ pub fn build(b: *std.Build) void {
         };
         // The Nexus binary and the grammar are the run's inputs, so the
         // output is cached until either changes.
+        // Nexus reports progress on stderr; the wrapper shows it only on failure.
         const gen = std.Build.Step.Run.create(b, "nexus rig.grammar");
-        gen.expectExitCode(0); // Nexus reports on stderr
+        gen.addArgs(&.{ "sh", "-c", "\"$@\" 2>\"$3.log\" || { cat \"$3.log\" >&2; exit 1; }", "nexus" });
         gen.addFileArg(.{ .cwd_relative = path });
         gen.addFileArg(b.path("rig.grammar"));
         const out = gen.addOutputFileArg("parser.zig");
