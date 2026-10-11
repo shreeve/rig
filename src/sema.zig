@@ -161,11 +161,11 @@ pub const Type = union(enum) {
     void,
     bool,
     string_view,
-    /// `Text`: owned, growable UTF-8 bytes; `String` is its view.
+    /// `String`: owned, growable UTF-8 bytes; `?String` is its view.
     string,
-    /// `Static`: a `String` known to view only bytes that live for the
+    /// `Static`: a `?String` known to view only bytes that live for the
     /// whole program (a literal, or text derived only from literals). It
-    /// is plain data that carries no loan, and it is read as a `String`
+    /// is plain data that carries no loan, and it is read as a `?String`
     /// where the text is only read (`typecheck.meets`).
     static,
     int: IntInfo,
@@ -340,12 +340,12 @@ pub const TypeStore = struct {
         return id;
     }
 
-    /// The type a read view of a read view, or of a `Text` or a `String`,
+    /// The type a read view of a read view, or of a `String` or a `?String`,
     /// is: a read view of a read view is that read view (`?(?T)` is `?T`),
-    /// and the read view of a `Text` is its bytes, the one text view,
-    /// `String`, which is already a read view.
+    /// and the read view of a `String` is its bytes, the one text view,
+    /// `?String`, which is already a read view.
     /// Null for any other type. Every way to name such a view interns
-    /// through here, so no type holds a pointer view of a `Text`.
+    /// through here, so no type holds a pointer view of a `String`.
     fn absorbed(self: *const TypeStore, ty: Type) ?TypeId {
         const inner = switch (ty) {
             .read_view => |inner| inner,
@@ -708,8 +708,8 @@ pub const Facts = struct {
     /// Header nodes (`for`, `match`, `as`) whose subject is bare and
     /// not plain data -> how the header has it (`Header`).
     headers: std.AutoHashMapUnmanaged(NodeKey, HeaderFact) = .empty,
-    /// `Text(...)` call node, or `t.add` / `t.clear` callee node -> the
-    /// built-in Text operation it is (`StringCall`).
+    /// `String(...)` call node, or `t.add` / `t.clear` callee node -> the
+    /// built-in String operation it is (`StringCall`).
     string_calls: std.AutoHashMapUnmanaged(NodeKey, StringCall) = .empty,
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
@@ -919,7 +919,7 @@ pub const Question = enum(u8) {
     /// Of a `for`: whether it consumes its source, handing its elements
     /// over one at a time (`storage.forConsumes`).
     for_consumes,
-    /// Of a `print`, `Text(...)`, or `add` argument: whether it is read
+    /// Of a `print`, `String(...)`, or `add` argument: whether it is read
     /// by address (`storage.printsByAddress`).
     print_by_address,
     /// Of an operand of `==` or `!=` beside `none` or a bare `.variant`:
@@ -984,7 +984,7 @@ pub const Use = enum {
 };
 
 /// A built-in method on the elements of a slice, an array, a List, or a
-/// String: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
+/// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
 /// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`.
 pub const ElemCall = struct {
     op: ElemOp,
@@ -996,7 +996,7 @@ pub const ElemCall = struct {
 
 pub const ElemOp = enum { copy, fill, swap, read, write };
 
-/// A call of a built-in Text operation: `Text(a, b, ...)`, which builds
+/// A call of a built-in String operation: `String(a, b, ...)`, which builds
 /// one, and the methods `!t.add(a, b, ...)`, `!t.push(b)`, and
 /// `!t.clear()`. `new` and `add` format their arguments as `print` does,
 /// reading them; `push` appends one byte.
@@ -1008,7 +1008,7 @@ pub const StringCall = enum { new, add, push, clear };
 /// function with compile-time parameters instantiates, anything else
 /// is indexed) and records the instances here.
 pub const Instance = union(enum) {
-    /// `List[Int]`, `Pair[Int, String]`: the generic type's instance.
+    /// `List[Int]`, `Pair[Int, ?String]`: the generic type's instance.
     type: TypeId,
     /// `check[.strict]`, `p.scale[2]`: a function's compile-time
     /// arguments.
@@ -1443,7 +1443,7 @@ pub const PlainRequirement = struct {
     element: bool = false,
     /// Not a copy: the value is stored where no loan is tracked (a Cell,
     /// a Signal, an owned closure), so each instance's argument must
-    /// hold no String, which may view a Text.
+    /// hold no `?String`, which may view a String.
     view: bool = false,
     /// The module whose source `pos` is in; 0 for this one.
     module_id: u32 = 0,
@@ -1946,7 +1946,7 @@ pub const SemContext = struct {
 
     /// `node` yields a view where its context reads the value it
     /// reaches: a Copy value where the value is expected, an operand, the
-    /// optional of `??`, `?`, or `as`, a String or slice indexed, or a
+    /// optional of `??`, `?`, or `as`, a `?String` or slice indexed, or a
     /// clone.
     pub fn recordRead(self: *SemContext, node: Sexp) !void {
         try self.facts.reads.put(self.allocator, recordExprKey(node) orelse return, {});
@@ -2276,7 +2276,7 @@ pub const SemContext = struct {
         try self.facts.string_calls.put(self.allocator, recordKey(call), op);
     }
 
-    /// The built-in Text operation a `Text(...)` call or a method's
+    /// The built-in String operation a `String(...)` call or a method's
     /// callee (`member`) is.
     pub fn stringCallOf(self: *const SemContext, node: Sexp) ?StringCall {
         return self.facts.string_calls.get(nodeKey(node) orelse return null);
@@ -2498,7 +2498,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
 
 /// Every binding whose access typecheck decided has the type that access
 /// gives it (`Checker.viewOfAccess`): `.write` a write view, `.read` a
-/// read view, a slice, a String, or a type parameter's value read where
+/// read view, a slice, a `?String`, or a type parameter's value read where
 /// it is, and none a value, owned or copied. A binding typed some other
 /// way than from its access is a compiler bug, reported where the
 /// binding is declared (docs/INTERNALS.md, "Binding access"). Debug and
@@ -2879,17 +2879,17 @@ pub const Contents = struct {
 };
 
 /// Whether values hold a marked view (`?T`, `!T`, a slice), whether they
-/// hold a write view (`!T`), and whether they hold a String, which may
-/// view a Text, directly or through an optional, array, field, variant
+/// hold a write view (`!T`), and whether they hold a `?String`, which may
+/// view a String, directly or through an optional, array, field, variant
 /// payload, shared or weak handle, or any argument of a generic
-/// instance. What a Cell or Signal holds holds no view. A String is no
+/// instance. What a Cell or Signal holds holds no view. A `?String` is no
 /// marked view to the type rules (`holdsMarkedView`); the ownership checker
 /// follows the loans its values carry (`mayHoldView`).
 pub const Views = packed struct(u4) {
     marked: bool = false,
     write: bool = false,
     string_view: bool = false,
-    /// Reaches a Text, which a String may view: by value, through a
+    /// Reaches a String, which a `?String` may view: by value, through a
     /// handle, a List's, box's, Cell's, or Signal's value, or a view.
     string: bool = false,
 };
@@ -3038,7 +3038,7 @@ const Reach = packed struct(u6) {
     /// value is inline.
     const views_only: Reach = .{ .views = .{ .marked = true, .write = true, .string_view = true, .string = true } };
     /// What reaches through a view, or into a Cell's or Signal's value:
-    /// only a Text matters.
+    /// only a String matters.
     const string_only: Reach = .{ .views = .{ .string = true } };
     /// What reaches through a type argument a generic holds only behind
     /// a handle, a view, or heap memory: everything but an inline Cell.
@@ -3662,6 +3662,7 @@ pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
 /// The hint for a name that earlier releases gave a built-in type: what
 /// it is written now. Null for any other name.
 pub fn retiredNameHint(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "Text")) return "; owned text is `String`, and its read view is `?String` (`Text` and `String` before 0.3.0)";
     if (std.mem.eql(u8, name, "Vec")) return "; a growable array is `List[T]` (`Vec[T]` before 0.3.0)";
     if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression (`Box[T]` and `Box(value)` before 0.3.0)";
     return null;
@@ -3737,7 +3738,7 @@ pub fn instanceHeapStacked(ctx: *SemContext, inst: TypeId) std.mem.Allocator.Err
 pub const held_callable = "a callable view `{s}` is only a parameter's, a local's, or a result's type; no value can hold one";
 
 /// A value an owned closure can take or return: plain data
-/// (`isPlainData`), which carries no loan but a String's (Core sentence
+/// (`isPlainData`), which carries no loan but a `?String`'s (Core sentence
 /// 9).
 pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
@@ -3840,7 +3841,7 @@ pub const NotEquatable = struct {
 };
 
 /// Why `==` does not compare values of `ty`, or null when it does:
-/// numbers, Bool, String, error values, plain enums, and, when all they
+/// numbers, Bool, `?String`, error values, plain enums, and, when all they
 /// hold is equatable, optionals, arrays, slices, structs without `drop`,
 /// and payload enums. Handles, functions, `Void`, List, Cell, Signal, and
 /// views held in a field are not equatable. Each generic parameter
@@ -4323,7 +4324,7 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
     return copiedByReadView(ctx, inner);
 }
 
-/// A type a read view copies: a number, `Bool`, `String`, a slice, a
+/// A type a read view copies: a number, `Bool`, `?String`, a slice, a
 /// function or callable view (a `rig.FnRef`), a plain enum, an
 /// error, or an optional of one of those.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
@@ -4479,23 +4480,23 @@ pub fn mayHoldMarkedView(ctx: *const SemContext, ty: TypeId) bool {
     return info.views.marked or info.holds_type_var;
 }
 
-/// Whether a value of `ty` holds a marked view or a String, which may view a
-/// Text: the ownership checker tracks the loans such a value carries.
+/// Whether a value of `ty` holds a marked view or a `?String`, which may view a
+/// String: the ownership checker tracks the loans such a value carries.
 pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
     const b = ctx.holds(ty).views;
     return b.marked or b.string_view;
 }
 
-/// Whether a view of type `view` of a slot of type `slot` (a Text, or a
-/// write view of one) is the bytes of a Text: the read view of a `Text`
-/// is a `String` (`TypeStore.absorbed`), held by value, so a binding that
-/// views a Text slot takes its `.bytes()`.
+/// Whether a view of type `view` of a slot of type `slot` (a String, or a
+/// write view of one) is the bytes of a String: the read view of a `String`
+/// is a `?String` (`TypeStore.absorbed`), held by value, so a binding that
+/// views a String slot takes its `.bytes()`.
 pub fn viewsStringBytes(ctx: *const SemContext, slot: TypeId, view: TypeId) bool {
     return unwrapViews(ctx, slot) == ctx.types.string_id and view == ctx.types.string_view_id;
 }
 
-/// Whether a value of `ty` reaches a Text (`Views.text`), which a
-/// String may view.
+/// Whether a value of `ty` reaches a String (`Views.string`), which a
+/// `?String` may view.
 pub fn reachesString(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).views.text;
 }
@@ -4610,8 +4611,8 @@ pub fn findUse(ctx: *const SemContext, node: Sexp, sym: SymbolId) ?Sexp {
     return null;
 }
 
-/// Whether a value of `ty` holds a String but no marked view or type
-/// parameter: it may view a Text, and nothing else.
+/// Whether a value of `ty` holds a `?String` but no marked view or type
+/// parameter: it may view a String, and nothing else.
 pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
     return info.views.string_view and !info.views.marked and !info.holds_type_var and !info.poison;
@@ -4629,7 +4630,7 @@ pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
 pub const ViewReach = enum(u2) {
     /// It never does.
     none,
-    /// Only by crossing a read view it holds (`?T`, `[]T`, a String):
+    /// Only by crossing a read view it holds (`?T`, `[]T`, a `?String`):
     /// the memory is that view's, never the holder's own.
     through_view,
     /// Through what it owns, or a write view it holds: the memory may be
@@ -4637,7 +4638,7 @@ pub const ViewReach = enum(u2) {
     owned,
 };
 
-/// The memory a view may point into: a set of `ViewAtom`s, a Text's or
+/// The memory a view may point into: a set of `ViewAtom`s, a String's or
 /// a literal's bytes, or anything at all.
 pub const ViewTargets = struct {
     any: bool = false,
@@ -4821,7 +4822,7 @@ pub fn storeTargets(ctx: *const SemContext, a: std.mem.Allocator, params: []cons
 }
 
 /// Which of a holder's memory counts: all of it, or only what it leads
-/// to through a view (`?T`, `!T`, `[]T`, a String), as for a parameter
+/// to through a view (`?T`, `!T`, `[]T`, a `?String`), as for a parameter
 /// taken by value, whose own memory is the callee's copy.
 pub const ReachFrom = enum { all, views };
 
@@ -4909,7 +4910,7 @@ const ReachWalk = struct {
                 };
                 try self.push(next, .{ .read = path.read, .viewed = true });
             },
-            // A String views bytes; a Text owns them.
+            // A `?String` views bytes; a String owns them.
             .string_view => if (self.targets.bytes) self.reached(read, true),
             .string => if (self.targets.bytes) self.reached(path, path.viewed),
             else => {
@@ -5015,8 +5016,8 @@ pub fn holdsWriteView(ctx: *const SemContext, ty: TypeId) bool {
 
 /// Plain data, Core §1's plain kind: a value that owns nothing and
 /// holds no `?T`, `!T`, slice, function value, or type parameter, but
-/// may hold a String. It copies (`copies`), and carries no loan but a
-/// String's: what a `Cell` or `Signal` holds, and what an owned closure
+/// may hold a `?String`. It copies (`copies`), and carries no loan but a
+/// `?String`'s: what a `Cell` or `Signal` holds, and what an owned closure
 /// takes and returns (Core sentence 9).
 pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
@@ -5116,7 +5117,7 @@ pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
 /// Whether a value of `ty` copies: it is duplicated by a bit copy, with
 /// no owner involved. It does not move (`moves`: it owns nothing and is
 /// not unique) and holds no write view (`!T`), of which there is only
-/// one. So numbers, `Bool`, `String`, function values, plain enums,
+/// one. So numbers, `Bool`, `?String`, function values, plain enums,
 /// structs, enums, arrays, and optionals of values that copy, and read
 /// views, copy (Core §1: the plain kind and read views). `depends` when
 /// each instance decides. Every place that duplicates a value asks this
@@ -5154,12 +5155,12 @@ pub const Clone = enum {
     copy,
     /// Bumps a handle's count: `*T`, `~T`, or an optional of one.
     bump,
-    /// Copies a Text's bytes into a new Text.
+    /// Copies a String's bytes into a new String.
     text,
     /// Copies the value, where each instance of the type parameters it
     /// holds is copied.
     depends,
-    /// Makes a new owner part by part (`deepCloneable`): a Text's bytes
+    /// Makes a new owner part by part (`deepCloneable`): a String's bytes
     /// and a List's elements copied, a box's value boxed again, a handle
     /// counted again, plain data and read views copied.
     deep,
@@ -5176,7 +5177,7 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
     const value = unwrapViews(ctx, ty);
     switch (ctx.types.get(value)) {
         .shared, .weak => return .bump,
-        // `+s` of a `String` view makes a new owner of its bytes.
+        // `+s` of a `?String` view makes a new owner of its bytes.
         .string, .string_view => return .text,
         .optional => |o| switch (ctx.types.get(o)) {
             .shared, .weak => return .bump,
@@ -5198,7 +5199,7 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
 const CloneFrame = struct { params: []const SymbolId, args: []const TypeId, parent: ?*const CloneFrame };
 
 /// Whether `+x` can make a new owner of a `ty` part by part (Core
-/// sentence 2): a Text, a List, a box, an optional, an array, or a
+/// sentence 2): a String, a List, a box, an optional, an array, or a
 /// struct or enum declared in this module, of parts that clone; a
 /// handle, counted again; plain data and read views, copied. A type with
 /// a `drop` body has no clone, and neither has a unique type, a Cell, a
@@ -5722,8 +5723,8 @@ const TypePrinter = struct {
             .unknown => "unknown",
             .void => "Void",
             .bool => "Bool",
-            .string_view => "String",
-            .string => "Text",
+            .string_view => "?String",
+            .string => "String",
             .static => "Static",
             .int => |info| if (info.bits == 0) "Int" else try a.print("{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
             .float => |info| if (info.bits == 0) "Float" else try a.print("F{d}", .{info.bits}),
@@ -5778,7 +5779,7 @@ const TypePrinter = struct {
         return p.ctx.symbols.items[sym].name;
     }
 
-    /// Generic type `name` at arguments `args`: `Pair[Int, String]`.
+    /// Generic type `name` at arguments `args`: `Pair[Int, ?String]`.
     fn instance(p: TypePrinter, name: []const u8, args: []const u8) std.mem.Allocator.Error![]const u8 {
         return p.a.print("{s}[{s}]", .{ name, args });
     }
@@ -5926,7 +5927,7 @@ pub const LendStep = enum(u8) {
     /// An array or a List lends its elements, `[]T` to read and `![]T` to
     /// write.
     elems,
-    /// A `Text` lends its bytes, a `String`.
+    /// A `String` lends its bytes, a `?String`.
     text,
     /// A `![]T` is lent on to read, as a `[]T`.
     read_only,
@@ -5990,8 +5991,8 @@ pub const LendKind = enum { read, write };
 /// does. The one place that knows which views a value lends.
 /// What a slice `xs[a..b]` of a value of type `from` lends, as rows of
 /// the lend table (`Lend`): the elements of an array or a List, or a
-/// Text's bytes reached through handles (`*Text`) and boxes, each a row
-/// on the way; nothing of a value that is itself a view (a String, a
+/// String's bytes reached through handles (`*String`) and boxes, each a row
+/// on the way; nothing of a value that is itself a view (a `?String`, a
 /// `[]T`), whose elements it views as that view does; a `![]T` lent on
 /// to read. Null for a value that cannot be sliced. The type checker
 /// slices by it and records it (`SemContext.sliceLendOf`), and the
@@ -6086,7 +6087,7 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
             .slice => |v| return v.elem == sl.elem and lend.push(.read_only),
             else => {},
         },
-        // A Text lends its bytes; never to write.
+        // A String lends its bytes; never to write.
         .string => return kind == .read and view == types.string_view_id and lend.push(.text),
         // A `*T` lends the read views of its `T`; `!h` lends the handle.
         .shared => |inner| return (kind == .read or changesByMark(ctx, inner)) and lend.push(.handle) and lendRows(ctx, inner, kind, view, lend),
@@ -6346,7 +6347,7 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
 
 /// Whether the element a `for` binds views a slot of the List it walks
 /// in place, a List of values that move: `for x in ?v`, or a bare
-/// `for x in v`, over a `List[Text]`. The List owns what the slot holds,
+/// `for x in v`, over a `List[String]`. The List owns what the slot holds,
 /// so the element is never moved, dropped, cloned, or stored. Decided
 /// here, once: the type checker marks the element (`slot_view`), and the
 /// ownership checker walks it as a loop view.
@@ -7209,17 +7210,17 @@ test "TypeStore: composites intern by structure" {
     try std.testing.expect(f1 != f4);
 }
 
-test "TypeStore: a read view of text is the String, and a read view of a view is that view" {
+test "TypeStore: a read view of a String is the ?String, and a read view of a view is that view" {
     const a = std.testing.allocator;
     var store = try TypeStore.init(a);
     defer store.deinit(a);
-    // The one text view: `?Text` and `?String` are `String`.
+    // The one text view: the read view of a `String`, and of a `?String`, is the `?String`.
     try std.testing.expectEqual(store.string_view_id, try store.intern(a, .{ .read_view = store.string_id }));
     try std.testing.expectEqual(store.string_view_id, try store.intern(a, .{ .read_view = store.string_view_id }));
     // `?(?T)` is `?T`.
     const read_int = try store.intern(a, .{ .read_view = store.int_id });
     try std.testing.expectEqual(read_int, try store.intern(a, .{ .read_view = read_int }));
-    // A view of an optional Text stays a view of the optional.
+    // A view of an optional String stays a view of the optional.
     const opt_string = try store.intern(a, .{ .optional = store.string_id });
     const read_opt_string = try store.intern(a, .{ .read_view = opt_string });
     try std.testing.expect(read_opt_string != store.string_view_id);
@@ -7719,7 +7720,7 @@ test "origins: a result carries what could hold what it views" {
     try std.testing.expectEqual(@as(ParamMask, 0), o(&r, "at").stores);
     try std.testing.expectEqual(@as(ParamMask, 0b11), o(&r, "first").result);
     try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "pick").result);
-    // `fill` may store `x` in `h.r`; a number or a String it cannot.
+    // `fill` may store `x` in `h.r`; a number or a `?String` it cannot.
     try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "fill").stores);
     // A type parameter could be anything, but a value taken by value is
     // the callee's own.
@@ -8123,7 +8124,7 @@ test "lend table: each row makes its view" {
         .{ .from = arr, .kind = .read, .view = try write(ctx, slice), .rows = null },
         // A `![]T` lent on to read.
         .{ .from = slice, .kind = .write, .view = slice, .rows = &.{.read_only} },
-        // A Text: a String, also where a `String?` is expected; never to
+        // A String: a `?String`, also where a `(?String)?` is expected; never to
         // write.
         .{ .from = ty.string_id, .kind = .read, .view = ty.string_view_id, .rows = &.{.text} },
         .{ .from = ty.string_id, .kind = .read, .view = opt_string_view, .rows = &.{ .lift, .text } },

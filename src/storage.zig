@@ -79,7 +79,7 @@ pub fn isPrintCall(ctx: *const SemContext, call: Sexp) bool {
     return callee == .src and ctx.symbolOf(callee) == null and std.mem.eql(u8, srcText(ctx, callee), "print");
 }
 
-/// The built-in Text operation `call` is: `Text(...)`, `!t.add(...)`,
+/// The built-in String operation `call` is: `String(...)`, `!t.add(...)`,
 /// or `!t.clear()`.
 pub fn stringCall(ctx: *const SemContext, call: Sexp) ?sema.StringCall {
     if (!call.isKind(.call)) return null;
@@ -152,7 +152,7 @@ fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
         .list => return switch (e.kind().?) {
             .enum_lit => true,
             // A view held as a pointer is the name's address; a view
-            // held by value (a String's bytes, a slice, a copy of a
+            // held by value (a `?String`'s bytes, a slice, a copy of a
             // number) reads the name where the call runs, after the
             // arguments written before it.
             .read, .write => ir.get(e, .operand) == .src and ((isPtrViewExpr(ctx, e) and ctx.lendOf(e) == null) or isPureArg(ctx, ir.get(e, .operand))),
@@ -366,7 +366,7 @@ pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
 /// address (`sema.readByAddress`), as the ownership checker reads
 /// each leaf in place (`holdBranchReads`). Zig would copy it into a
 /// temporary, and a `?self` method would view the copy; a struct, an
-/// array, or a Text is instead reached through the address of its
+/// array, or a String is instead reached through the address of its
 /// leaf, which Zig follows for a field, an element, or a method.
 pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     return decide(ctx, e, .reaches_leaf);
@@ -502,7 +502,7 @@ fn reachesPlace(ctx: *const SemContext, e: Sexp) bool {
 
 /// Whether the field or element path `e` starts outside the statement
 /// temporaries its header makes: at a name, or at a view whose
-/// evaluation makes none (`get(!v)[idx(?Text("a"))]`), which therefore
+/// evaluation makes none (`get(!v)[idx(?String("a"))]`), which therefore
 /// cannot point into one. A path from a view of a value the header makes
 /// (`id(?mk()).e`, `(?mk()).e`, `id(?mkh()).xs`) lives inside a
 /// temporary the header's block drops.
@@ -694,7 +694,7 @@ fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
     return in_place and !sema.isReadOrWriteView(ctx, ty) and sema.copies(ctx, ty) == .depends;
 }
 
-/// Whether a `print`, `Text(...)`, or `add` argument `a` is read where it
+/// Whether a `print`, `String(...)`, or `add` argument `a` is read where it
 /// is, by address: a place that owns storage, or a view of one (a
 /// function's binding, or a field or element of a value, not a slice,
 /// which is a new value). Plain data is copied whole where it is read.
@@ -765,8 +765,8 @@ fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
 }
 
 /// Whether a read `for` over an array, a slice, or a List binds the bytes
-/// of each Text element: its binding is a `String`, the read view of a
-/// `Text`, so the loop walks the elements by address and the binding is
+/// of each String element: its binding is a `?String`, the read view of a
+/// `String`, so the loop walks the elements by address and the binding is
 /// each one's `.bytes()`.
 pub fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
     if (ir.For.mode(loop).tag == .write) return false;
@@ -784,9 +784,9 @@ pub fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
     return sema.viewsStringBytes(ctx, elem, bound);
 }
 
-/// Whether `if value as name` binds the bytes of a Text that a write
-/// view in the optional points at (`(!Text)?`): the binding is a
-/// `String`, the read view of that Text.
+/// Whether `if value as name` binds the bytes of a String that a write
+/// view in the optional points at (`(!String)?`): the binding is a
+/// `?String`, the read view of that String.
 pub fn optionalBindsStringBytes(ctx: *const SemContext, cond: Sexp) bool {
     const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
     const bound = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
@@ -1168,7 +1168,7 @@ const Planner = struct {
                     _ = isPureArg(ctx, argValue(a));
                     _ = argumentHold(ctx, argValue(a));
                 }
-                // How `print` and the Text operations read each argument.
+                // How `print` and the String operations read each argument.
                 if (isPrintCall(ctx, e) or stringCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
                     _ = printsByAddress(ctx, a);
                 };
@@ -1247,7 +1247,7 @@ const Planner = struct {
         } else null;
         // A resource is captured, then owned by the binding.
         if (ty != null and owns(ctx, ty.?)) try p.record(cond, .as_value, .owned, .body);
-        // The bytes of the Text a captured write view points at: the
+        // The bytes of the String a captured write view points at: the
         // pointer is captured, and the binding takes its bytes.
         if (used and optionalBindsStringBytes(ctx, cond)) try p.record(cond, .as_value, .pointer, .body);
     }

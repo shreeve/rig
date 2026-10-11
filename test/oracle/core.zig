@@ -102,7 +102,7 @@ pub const Loan = struct {
     /// write loan may leave one there.
     stores_views: bool = false,
     /// The lend made a `?T` or `!T` pointing at the place (not a slice
-    /// or a String, which view its bytes).
+    /// or a `?String`, which view its bytes).
     pointer: bool = true,
     /// The type of what is lent: the place, or what a slice slices. A
     /// view carries the loan only where that type could hold what it
@@ -164,7 +164,7 @@ pub const Op = struct {
     /// For a kill: the end of a statement or scope ("does not live long
     /// enough"), rather than `-x`.
     scope_end: bool = false,
-    /// A view reached through a slice or String view stored in `reads`:
+    /// A view reached through a slice or `?String` view stored in `reads`:
     /// it carries that view's loans, not the loans that point at their
     /// holder (Core s7). The flow leaves out pointer loans.
     carry: bool = false,

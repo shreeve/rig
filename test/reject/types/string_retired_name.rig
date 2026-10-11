@@ -1,0 +1,12 @@
+# Owned text is `String` and its read view is `?String`. `Text` is
+# unbound, with a hint.
+
+fun size(t: Text) -> Int
+  t.len
+
+sub main()
+  a = Text("x")
+  print(size(?a))
+
+# error: 4:13: use of unbound type `Text`; owned text is `String`, and its read view is `?String`
+# error: 8:7: use of unbound name `Text`; owned text is `String`, and its read view is `?String`

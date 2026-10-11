@@ -2255,7 +2255,7 @@ pub const Emitter = struct {
         // A resource element is a view of its slot; an element that is
         // itself a read view is the view, copied.
         const elem_is_view = if (src_ty) |t| if (self.loopElem(t)) |e| e == elem_ty else false else false;
-        // A binding that is the bytes of a Text element walks the elements
+        // A binding that is the bytes of a String element walks the elements
         // by address and takes each one's bytes.
         const string_bytes = self.facts.loopBindsStringBytes(sexp);
         const by_ptr = mode == .write or owned or string_bytes or
@@ -2293,7 +2293,7 @@ pub const Emitter = struct {
             try self.closeHeader(h);
         }
         if (is_list) try self.w.writeAll(".items()");
-        // `for b in ?t` walks the bytes of a Text, boxed or not.
+        // `for b in ?t` walks the bytes of a String, boxed or not.
         if (src_ty) |t| if (self.stringReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
         const counter = try self.fmt("__rig_i_{d}", .{self.nextId()});
         // An index nobody reads needs no counter.
@@ -2951,7 +2951,7 @@ pub const Emitter = struct {
     const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false, bytes: bool = false };
 
     /// Whether payload binding `b`, of type `bound`, is the bytes of the
-    /// Text field it binds (`Facts.viewsStringBytes`).
+    /// String field it binds (`Facts.viewsStringBytes`).
     fn bindsStringBytes(self: *Emitter, b: Sexp, bound: ?TypeId) bool {
         const field = self.facts.payloadFieldOf(b) orelse return false;
         return self.facts.viewsStringBytes(field, bound orelse return false);
@@ -3232,7 +3232,7 @@ pub const Emitter = struct {
         // view of what it views: the write view itself, or the value it
         // points at, copied out (`Facts.readsThroughWrite`).
         const through: ?facts.ThroughWrite = if (self.optionalInner(ir.As.value(o.cond))) |inner| self.facts.readsThroughWrite(sym, inner) else null;
-        // A binding of the Text inside, or of the Text a write view inside
+        // A binding of the String inside, or of the String a write view inside
         // points at, is its bytes.
         const inner = self.optionalInner(ir.As.value(o.cond));
         const bytes = if (inner) |i| self.facts.viewsStringBytes(i, ty) else false;
@@ -3731,7 +3731,7 @@ pub const Emitter = struct {
             }
             if (e.isKind(.@"if") and self.typeOf(e) == self.facts.types.none_id) return self.emitIfYieldAs(e, .value, t);
         };
-        // A branch's String is a slice, so a literal in one branch and a
+        // A branch's `?String` is a slice, so a literal in one branch and a
         // slice in another have one Zig type.
         if (ty) |t| if (self.unwrapOptional(t) == self.facts.types.string_view_id or self.unwrapOptional(t) == self.facts.types.static_id) {
             try self.w.writeAll("@as(");
@@ -3927,8 +3927,8 @@ pub const Emitter = struct {
                             try self.w.writeAll(".cloneWeak()");
                         },
                     },
-                    // `+t` of a Text copies its bytes, and `+s` of a `String`
-                    // view makes a Text of them.
+                    // `+t` of a String copies its bytes, and `+s` of a `?String`
+                    // view makes a String of them.
                     .text => if (self.facts.unwrapViews(ty) == self.facts.types.string_view_id) {
                         try self.w.writeAll("rig.String.of(.{ ");
                         try self.emitBare(operand);
@@ -4524,7 +4524,7 @@ pub const Emitter = struct {
         // in place, reached through the element's slot, unless it was
         // hoisted to run before the arguments.
         if (obj.isKind(.write) and (o.isKind(.index) or o.isKind(.member)) and self.hoistedOf(o) == null) return self.emitPlace(o);
-        // `Pair[Int, String].make(...)`: the instance named.
+        // `Pair[Int, ?String].make(...)`: the instance named.
         if (self.facts.instanceOf(o)) |inst| if (inst == .type) return self.emitTypeTy(inst.type);
         // `Wrap.make(...)` of a generic type: the instance sema inferred.
         if (o == .src) if (self.facts.symbolOf(o)) |id| if (self.facts.symbols.items[id].kind == .generic_type) {
@@ -4546,7 +4546,7 @@ pub const Emitter = struct {
             return self.derefToHandle(self.typeOf(o));
         }
         // A value that branches is read as its Rig type: Zig would take
-        // a field of each branch's own type (a literal's, a String's);
+        // a field of each branch's own type (a literal's, a `?String`'s);
         // a receiver evaluated first is read where it was kept. One its
         // statement's slot keeps (`sema.dropsTemp`), lent to write
         // (`sema.writesTemp`) or not, is reached in the slot (below),
@@ -4964,8 +4964,8 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// How a value of type `ty` (viewed or not) reaches the Text it
-    /// views: directly, or through a `^Text`; null for anything else.
+    /// How a value of type `ty` (viewed or not) reaches the String it
+    /// views: directly, or through a `^String`; null for anything else.
     fn stringReach(self: *Emitter, ty: TypeId) ?[]const u8 {
         var t = self.peelViews(ty);
         var reach: []const u8 = "";
@@ -4994,7 +4994,7 @@ pub const Emitter = struct {
         return self.facts.stringCall(call);
     }
 
-    /// `Text(a, b)` → `rig.String.of(.{ a, &b })`; `!t.add(a, b)` →
+    /// `String(a, b)` → `rig.String.of(.{ a, &b })`; `!t.add(a, b)` →
     /// `t.add(.{ a, &b })`, the arguments written as `print`'s are
     /// (`emitPrintArgs`), so a place is read at the call; `!t.clear()` →
     /// `t.clear()`.
@@ -5063,8 +5063,8 @@ pub const Emitter = struct {
     }
 
     /// The elements of a method's receiver (a slice, an array, a List, or
-    /// a String, viewed or not) as a Zig slice or array pointer: a
-    /// slice or String as it is, an array through its address (writable
+    /// a `?String`, viewed or not) as a Zig slice or array pointer: a
+    /// slice or `?String` as it is, an array through its address (writable
     /// when the receiver is written `!xs`), a List through its items.
     fn emitElems(self: *Emitter, recv: Sexp) Error!void {
         const writes = recv.isKind(.write);
@@ -5176,7 +5176,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
-        // `get` on an array, a slice, or a String.
+        // `get` on an array, a slice, or a `?String`.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isSequence(t) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "get")) {
             try self.w.writeAll("rig.elementAt(");
             try self.emitBare(ir.Member.object(callee));
@@ -5201,7 +5201,7 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// An array, a slice, or a String, or a view of one.
+    /// An array, a slice, or a `?String`, or a view of one.
     fn isSequence(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(self.peelViews(ty))) {
             .array, .slice, .string_view, .static => true,
@@ -5812,7 +5812,7 @@ pub const Emitter = struct {
         try self.w.writeAll(if (args.len > 0) " }" else "}");
     }
 
-    /// Whether a `print`, `Text(...)`, or `add` argument `a` reads a
+    /// Whether a `print`, `String(...)`, or `add` argument `a` reads a
     /// place that owns storage, or is lent from one: a local, or a
     /// field or element of one (not a slice, which is a new value).
     fn printsByAddress(self: *Emitter, a: Sexp) Error!bool {
@@ -5991,7 +5991,7 @@ pub const Emitter = struct {
             try self.emitCallableTy("FnRef", f);
             return self.w.print(".of(@TypeOf({s}), &{s})", .{ outer.zig_name, outer.zig_name });
         };
-        // A read view of a Text is its bytes.
+        // A read view of a String is its bytes.
         if (outer.ty) |t| if (self.facts.viewsStringBytes(self.facts.unwrapViews(t), ty)) {
             try self.writeLocalPlace(outer);
             return self.w.writeAll(".bytes()");
@@ -6414,7 +6414,7 @@ pub const Emitter = struct {
         };
     }
 
-    /// Numbers, Bool, String, functions, and optionals of them: bindings
+    /// Numbers, Bool, `?String`, functions, and optionals of them: bindings
     /// of these types are annotated, since a literal or branch value alone
     /// has no runtime type, and a function name alone is a function body,
     /// not a pointer to one.
@@ -6460,7 +6460,7 @@ pub const Emitter = struct {
     }
 
     /// Whether `a == b` compares with `rig.eql` rather than Zig's `==`:
-    /// an operand is not a scalar (a String, a struct, a payload enum, an
+    /// an operand is not a scalar (a `?String`, a struct, a payload enum, an
     /// array or slice, an optional of one, an optional error, or a type
     /// parameter's value). `none` compares with any optional by `==`.
     fn comparesStructurally(self: *Emitter, operands: [2]Sexp) bool {

@@ -31,8 +31,8 @@
 //! * Cells, Signals and owned closures hold no views: every handle to
 //!   one reaches what it holds, so tracking loans per handle var would
 //!   miss the other handles.
-//! * A String is a view: one taken from a Text (`?t[a..b]`) views it,
-//!   and any value whose type holds a String carries loans as a view
+//! * A `?String` is a view: one taken from a String (`?t[a..b]`) views it,
+//!   and any value whose type holds a `?String` carries loans as a view
 //!   does.
 //! * A view carries the loans of only what could hold what it views
 //!   (`carry`): a loan on a var whose type reaches that memory only
@@ -700,8 +700,8 @@ pub const Checker = struct {
         }
     }
 
-    /// An instance whose argument for `param` holds a view, or a String,
-    /// which may view a Text, where a generic body stores a `param`
+    /// An instance whose argument for `param` holds a view, or a `?String`,
+    /// which may view a String, where a generic body stores a `param`
     /// where no loan is tracked.
     fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!void {
         const ctx = self.sema orelse return;
@@ -709,7 +709,7 @@ pub const Checker = struct {
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or !r.view) continue;
-            const why = if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a String may view a Text (a `Static` carries no loan)";
+            const why = if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a `?String` may view a String (a `Static` carries no loan)";
             try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, or an owned closure, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, why });
             try self.noteIn(r.module_id, r.pos, "`{s}` stored here", .{pname});
             return;
@@ -956,14 +956,14 @@ pub const Checker = struct {
         try self.note(root.decl, "`{s}` goes out of scope while it is still lent", .{root.name});
     }
 
-    /// Where loan `l` of a Text outlives the Text in a value of type
-    /// `held` whose only views are Strings (a String field or result):
-    /// the String was meant to own its text.
+    /// Where loan `l` of a String outlives the String in a value of type
+    /// `held` whose only views are Strings (a `?String` field or result):
+    /// the `?String` was meant to own its text.
     fn noteStringViewOfString(self: *Checker, l: Loan, held: ?TypeId) Error!void {
         const ctx = self.sema orelse return;
         const t = held orelse return;
         if (!self.isString(self.vars.items[l.root].ty) or !sema.holdsViewOnly(ctx, t)) return;
-        try self.note(l.pos, "a `String` views text it doesn't own; store a `Text` to own it", .{});
+        try self.note(l.pos, "a `?String` views text it doesn't own; store a `String` to own it", .{});
     }
 
     /// A view of a read match's binding `l` names, kept past its arm.
@@ -1922,7 +1922,7 @@ pub const Checker = struct {
             }
             // A view read through a view is a copy of the view: it
             // keeps what the view keeps, not the view that reached it.
-            // A String's views end here but for those it keeps.
+            // A `?String`'s views end here but for those it keeps.
             if (sema.holdsViewOnly(ctx, reached)) {
                 const temps_start = self.temps.items.len;
                 return self.keepViewTemps(temps_start, try self.carry(reached, try self.walkList(sexp, kind)));
@@ -1949,7 +1949,7 @@ pub const Checker = struct {
                     self.walkRejectedLend(ir.get(sexp, .operand))
                 else if (self.lendsElements(sexp))
                     // `?a` lent as `?a[..]`, `!a` as `!a[..]`, `?t` of a
-                    // Text as `?t[..]`.
+                    // String as `?t[..]`.
                     self.walkElems(sexp, ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write)
                 else
                     self.walkLend(ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write),
@@ -2387,7 +2387,7 @@ pub const Checker = struct {
     }
 
     /// Whether `e`, a lend written here, lends the elements of its
-    /// operand (an array's or a List's, or a Text's bytes) rather than a
+    /// operand (an array's or a List's, or a String's bytes) rather than a
     /// view of the operand or of what it holds.
     fn lendsElements(self: *const Checker, e: Sexp) bool {
         const lend = self.lendOf(e) orelse return false;
@@ -2487,7 +2487,7 @@ pub const Checker = struct {
 
     /// A view of the elements of `object`: `slice` is a slice of it
     /// (`?xs[a..b]`, `!xs[a..b]`), or a view of the whole array lent as
-    /// one (`?a`). A slice of a String or a `[]T` views what that value
+    /// one (`?a`). A slice of a `?String` or a `[]T` views what that value
     /// views. A slice of a List views the List, whose buffer it points
     /// into, and one of a `![]T` views the `![]T`, as a view of a
     /// view does. A slice of an array held in the storage of the var it
@@ -2541,7 +2541,7 @@ pub const Checker = struct {
     }
 
     /// Whether place `e` reaches its value through a read view: a step
-    /// past a `?T`, a read-only `[]T`, or a String (`c.items[0]` with
+    /// past a `?T`, a read-only `[]T`, or a `?String` (`c.items[0]` with
     /// `items: ?List[Item]`). Its memory is the view's, which the place's
     /// var does not own.
     fn throughReadView(self: *const Checker, e: Sexp) bool {
@@ -3212,7 +3212,7 @@ pub const Checker = struct {
         return self.addRequirement(pos, ty, .{ .param = 0, .pos = pos, .element = element });
     }
 
-    /// Every type parameter `ty` holds must hold no String in each
+    /// Every type parameter `ty` holds must hold no `?String` in each
     /// instance, because the value is stored where no loan is tracked:
     /// in a Cell, a Signal, or an owned closure.
     fn requireNoView(self: *Checker, pos: u32, ty: ?TypeId) Error!void {
@@ -3898,8 +3898,8 @@ pub const Checker = struct {
             if (self.errors_found == callee_found) try self.holdRead(callee, .callee);
         }
 
-        // `print`, `Text(...)`, and `!t.add(...)` only read their
-        // arguments, and hold none of them past the call: a Text keeps
+        // `print`, `String(...)`, and `!t.add(...)` only read their
+        // arguments, and hold none of them past the call: a String keeps
         // their text, not them.
         const text_op = if (self.sema) |ctx| ctx.stringCallOf(node) orelse ctx.stringCallOf(callee) else null;
         if (self.isPrint(callee) or text_op != null) {
@@ -3961,13 +3961,13 @@ pub const Checker = struct {
             // lend, read, or move it.
             for (v.loans) |l| if (l.kind == .write and !l.ext and !containsLoan(self.temps.items[@min(temps_start, self.temps.items.len)..], l)) try self.addTemp(l);
             // A generic body's `T` holds no loan here, but an instance's
-            // may be a String viewing a Text.
+            // may be a `?String` viewing a String.
             if (cell != null) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));
             if (cell != null and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
                 const held = v.*;
                 v.* = .{};
                 if (self.readsPlainValue(a)) continue;
-                // A view of a String stores the String it reaches: what
+                // A view of a `?String` stores the `?String` it reaches: what
                 // it views, not the view.
                 const arg_ty = self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a);
                 const loans = (try self.carry(self.reachedType(arg_ty), held)).loans;
@@ -4026,7 +4026,7 @@ pub const Checker = struct {
             return .{};
         }
         // The result views only what could hold it (Core sentence 7). A
-        // String's views end here but for those it keeps.
+        // `?String`'s views end here but for those it keeps.
         const ty = self.exprType(node) orelse return result;
         if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carryResult(ty, result));
         if (self.viewsOnlyRead(ty)) return self.endWriteLends(temps_start, stored, try self.carryResult(ty, result));
@@ -4381,7 +4381,7 @@ pub const Checker = struct {
     /// view parameter holds the loans the caller handed in, as any
     /// var does. `via` is as for `absorbThroughWrites`.
     fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
-        // A value that holds only Strings keeps only what leads to a Text.
+        // A value that holds only Strings keeps only what leads to a String.
         // What lands in a value that holds only Strings needs only what
         // could hold them (`carry`).
         const t = self.pointee(self.vars.items[id].ty);
@@ -5114,8 +5114,8 @@ pub const Checker = struct {
     fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Value) Error!VarId {
         const pos = node.src.pos;
         const ty = self.symType(pos);
-        // The bytes of a Text field are a view of it, as any read view of
-        // a field is, though a `String` copies.
+        // The bytes of a String field are a view of it, as any read view of
+        // a field is, though a `?String` copies.
         const text_view = if (self.sema) |ctx| (if (ctx.payloadFieldOf(node)) |field| sema.viewsStringBytes(ctx, field, ty orelse sema.type_invalid) else false) else false;
         var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = if (text_view) .read else self.refOfType(ty) };
         var loans: []const Loan = &.{};
@@ -5748,7 +5748,7 @@ pub const Checker = struct {
         return sema.copiedThrough(ctx, ty orelse return false) != null;
     }
 
-    /// A scalar: a number, `Bool`, `String`, or an error. A method call
+    /// A scalar: a number, `Bool`, `?String`, or an error. A method call
     /// takes any other receiver by address, so a later argument must
     /// not change it before the call reads it.
     fn isScalar(self: *const Checker, ty: ?TypeId) bool {
@@ -5757,7 +5757,7 @@ pub const Checker = struct {
         return sema.isCopyPrimitive(ctx, t) or ctx.types.get(t) == .any_error;
     }
 
-    /// A `Text`, whose bytes a String may view.
+    /// A `String`, whose bytes a `?String` may view.
     fn isString(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
@@ -5817,8 +5817,8 @@ pub const Checker = struct {
         };
     }
 
-    /// Whether a value of this type can hold a marked view, or a String that
-    /// may view a Text. Unknown types are assumed to.
+    /// Whether a value of this type can hold a marked view, or a `?String` that
+    /// may view a String. Unknown types are assumed to.
     fn mayCarryLoan(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return true;
         return sema.mayHoldView(ctx, ty orelse return true);

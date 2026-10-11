@@ -188,8 +188,8 @@ const Checker = struct {
     }
 
     /// Add the flowing loans a var can carry: none if its type holds no
-    /// view, and only those it keeps (`core.Func.keeps`): a String read
-    /// out through a `?String` carries the String's loans, not the loan
+    /// view, and only those it keeps (`core.Func.keeps`): a `?String` read
+    /// out through a `?String` carries the `?String`'s loans, not the loan
     /// on the place it was read from.
     fn take(self: *Checker, v: VarId, st: State, flow: Bits) void {
         const vr = self.f.vars.items[v];

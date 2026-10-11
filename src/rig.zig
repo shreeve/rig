@@ -360,7 +360,7 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   After a function's result type, on its header's line, `from` says
 //   what the result views (`-> ?Item from a, b`), and `static` right
 //   after it says the result views only what lives for the whole
-//   program (`-> String from static`). Elsewhere each is a name.
+//   program (`-> ?String from static`). Elsewhere each is a name.
 //
 // `..`
 //   Before `]` (past any line break, which is whitespace inside
@@ -2546,9 +2546,9 @@ test "`unique` is a keyword only after a struct header's name or type parameters
 test "`from` and `static` are keywords only after a function's result type" {
     try testing.expect(keyword("from") == null and keyword("static") == null);
     try expectCats("fun f(a: ?T) -> ?T from a", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .question, .ident, .rparen, .arrow, .question, .ident, .from, .ident });
-    try expectCats("pub fun f() -> String from static", &.{ .@"pub", .fun, .ident, .lparen, .rparen, .arrow, .ident, .from, .static });
+    try expectCats("pub fun f() -> ?String from static", &.{ .@"pub", .fun, .ident, .lparen, .rparen, .arrow, .question, .ident, .from, .static });
     try expectCats("fun f() -> T? from a, b", &.{ .fun, .ident, .lparen, .rparen, .arrow, .ident, .question, .from, .ident, .comma, .ident });
-    try expectCats("extern fun f(s: String) -> String from s", &.{ .@"extern", .fun, .ident, .lparen, .kwarg_name, .colon, .ident, .rparen, .arrow, .ident, .from, .ident });
+    try expectCats("extern fun f(s: ?String) -> ?String from s", &.{ .@"extern", .fun, .ident, .lparen, .kwarg_name, .colon, .question, .ident, .rparen, .arrow, .question, .ident, .from, .ident });
     try expectCats("fun span(from: Int) -> Int", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .ident, .rparen, .arrow, .ident });
     try expectCats("from = static", &.{ .ident, .assign, .ident });
     try expectCats("f = |x: Int| x\nfrom = 1", &.{ .ident, .assign, .bar_capture, .ident, .colon, .ident, .bar_capture, .ident, .newline, .ident });

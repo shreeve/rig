@@ -62,9 +62,9 @@ fn needsDrop(comptime T: type) bool {
 }
 
 /// How a read view `?T` is held: a copy of a scalar or a view (a
-/// number, `Bool`, a plain enum, an error, a slice or `String`, a
+/// number, `Bool`, a plain enum, an error, a slice or `?String`, a
 /// function, or an optional of one), a pointer to anything else, and
-/// for a `String` its bytes, the one text view. The
+/// for a `String` its bytes, the one text view, `?String`. The
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments. A type argument never holds a Cell (a Cell lives
@@ -221,22 +221,22 @@ pub fn create(comptime T: type) *T {
 
 /// `a == b` for any equatable value, decided at compile time: numbers,
 /// Bools, enum values, and errors by `==` (floats as IEEE numbers, so
-/// NaN equals nothing); Strings and slices by length and elements;
+/// NaN equals nothing); `?String`s and slices by length and elements;
 /// arrays element by element; structs field by field; tagged unions by
 /// tag, then payload; optionals both null or both holding equal values.
 /// A value beside an optional compares as the optional's value; other
-/// operands take their peer type, so a string literal is a String.
+/// operands take their peer type, so a string literal is a `?String`.
 pub fn eql(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
-    // A String compares with a String or a String by its bytes.
+    // A String compares with a String or a `?String` by its bytes.
     if (comptime isString(A) or isString(B)) return std.mem.eql(u8, stringBytes(a), stringBytes(b));
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
 }
 
-/// A `String`, or a pointer to one (a viewed String), or a box or shared
+/// A `String`, or a pointer to one (a viewed `String`), or a box or shared
 /// handle holding one.
 fn isString(comptime T: type) bool {
     return switch (@typeInfo(T)) {
@@ -246,7 +246,7 @@ fn isString(comptime T: type) bool {
     };
 }
 
-/// The bytes of a String, a viewed, boxed, or shared String, or a String.
+/// The bytes of a `String`, a viewed, boxed, or shared `String`, or a `?String`.
 fn stringBytes(x: anytype) []const u8 {
     const X = @TypeOf(x);
     if (comptime !isString(X)) return x;
@@ -320,7 +320,7 @@ fn isScalar(comptime T: type) bool {
 }
 
 /// `a op b` for an ordering operator in a generic body: numbers compare
-/// as numbers, and Strings by their bytes, where the first byte that
+/// as numbers, and `?String`s by their bytes, where the first byte that
 /// differs decides and a prefix sorts first.
 pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bool {
     if (comptime isStringView(@TypeOf(a, b))) return std.mem.order(u8, a, b).compare(op);
@@ -458,7 +458,7 @@ pub fn WeakHandle(comptime T: type) type {
 }
 
 /// `+x` of a value that owns: a new value holding a clone of each part,
-/// as `+` gives it: a handle counted again, a String's bytes and a List's
+/// as `+` gives it: a handle counted again, a `String`'s bytes and a List's
 /// elements copied, a box's value boxed again, plain data copied. Sema
 /// clones only types with no `drop` body and nothing unique
 /// (`sema.cloneable`).
@@ -501,7 +501,7 @@ pub fn isNone(value: anytype) bool {
     return value == null;
 }
 
-/// `xs.get(i)` on an array (or a pointer to one), a slice, or a String:
+/// `xs.get(i)` on an array (or a pointer to one), a slice, or a `?String`:
 /// the element at `i`, or null when out of range.
 pub fn elementAt(items: anytype, i: Int) ?ElementOf(@TypeOf(items)) {
     const idx = std.math.cast(usize, i) orelse return null;
@@ -996,7 +996,7 @@ pub fn List(comptime T: type) type {
 
 /// `String`: owned, growable bytes, UTF-8 by convention. `String(a, b)` and
 /// `!t.add(a, b)` write each value as `print` does at the top level
-/// (`writeValue`), with no separators; a String taken from a String views
+/// (`writeValue`), with no separators; a `?String` taken from a `String` views
 /// its buffer, which the ownership checker keeps from changing while a
 /// view is in use.
 pub const String = struct {
@@ -1031,7 +1031,7 @@ pub const String = struct {
         self.list.clearRetainingCapacity();
     }
 
-    /// The bytes, as a String: `?t[..]`, `?t` where a String goes.
+    /// The bytes, as a `?String`: `?t[..]`, `?t` where a `?String` goes.
     pub fn bytes(self: String) []const u8 {
         return self.list.items;
     }
@@ -1825,7 +1825,7 @@ var process_args: []const []const u8 = &.{};
 
 /// Called first in the emitted `main` (after `guardStack`) and in
 /// `rig test`'s: store what the process started with. The arguments are
-/// gathered into Strings once, freed by `finish`.
+/// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
     // Only a program `rig run` or `rig test` builds declares
@@ -2010,7 +2010,7 @@ pub fn runTests(modules: []const TestModule) void {
     if (failed > 0) std.process.exit(1);
 }
 
-/// String: a string literal (`*const [N:0]u8`) or a `String` slice. An
+/// `?String`: a string literal (`*const [N:0]u8`) or a `?String` slice. An
 /// array of bytes held by pointer is a list of numbers.
 fn isStringView(comptime T: type) bool {
     return switch (@typeInfo(T)) {

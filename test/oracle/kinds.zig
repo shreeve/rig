@@ -232,8 +232,8 @@ const Scan = struct {
 /// sentence 7: "a call passes on only the loans its signature shows";
 /// "a view reached through another view carries that view's loans, not
 /// a loan on its holder"). The memory a view points into has a type: a
-/// `?T` or `!T` a `T`, a `[]T` or `![]T` its `T` elements, a String a
-/// Text's or a literal's bytes. A function, a lent callable, a type
+/// `?T` or `!T` a `T`, a `[]T` or `![]T` its `T` elements, a `?String` a
+/// String's or a literal's bytes. A function, a lent callable, a type
 /// parameter, and a type not known may point anywhere.
 pub const Reach = struct {
     a: std.mem.Allocator,

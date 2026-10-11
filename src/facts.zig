@@ -277,12 +277,12 @@ pub const Facts = struct {
     pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
         return storage.decided(f.c(), pattern, .catch_all_by_address);
     }
-    /// Whether `if … as` binds the bytes of the Text a write view in the
+    /// Whether `if … as` binds the bytes of the String a write view in the
     /// optional points at.
     pub fn optionalBindsStringBytes(f: Facts, cond: Sexp) bool {
         return storage.optionalBindsStringBytes(f.c(), cond);
     }
-    /// Whether a read `for` binds the bytes of each Text element.
+    /// Whether a read `for` binds the bytes of each String element.
     pub fn loopBindsStringBytes(f: Facts, loop: Sexp) bool {
         return storage.loopBindsStringBytes(f.c(), loop);
     }
@@ -310,7 +310,7 @@ pub const Facts = struct {
             else => null,
         };
     }
-    /// Whether a `print`, `Text(...)`, or `add` argument is read by address
+    /// Whether a `print`, `String(...)`, or `add` argument is read by address
     /// (`storage.printsByAddress`).
     pub fn printsByAddress(f: Facts, a: Sexp) ?bool {
         return storage.decided(f.c(), a, .print_by_address);
@@ -388,7 +388,7 @@ pub const Facts = struct {
     pub fn intLimit(f: Facts, e: Sexp) ?TypedInt {
         return sema.intLimit(f.c(), e);
     }
-    /// The built-in Text operation `call` is.
+    /// The built-in String operation `call` is.
     pub fn stringCall(f: Facts, call: Sexp) ?StringCall {
         return storage.stringCall(f.c(), call);
     }
@@ -544,7 +544,7 @@ pub const Facts = struct {
         return sema.lendByValue(f.c(), inner);
     }
     /// Whether a view of type `view` of a slot of type `slot` is the bytes
-    /// of a Text (`sema.viewsStringBytes`).
+    /// of a String (`sema.viewsStringBytes`).
     pub fn viewsStringBytes(f: Facts, slot: TypeId, view: TypeId) bool {
         return sema.viewsStringBytes(f.c(), slot, view);
     }
@@ -791,7 +791,7 @@ test "Facts reads every match decision the plan made" {
             const pattern = ir.Arm.pattern(arm);
             if (pattern == .src) try std.testing.expect(f.catchAllCaptured(pattern) != null);
             if (pattern.isKind(.variant_pattern)) for (f.payloadBindings(pattern).?) |b| {
-                // `t` is a view of the Text where it is; `n` a copy.
+                // `t` is a view of the String where it is; `n` a copy.
                 const by_addr = f.bindsByAddress(b).?;
                 try std.testing.expectEqual(std.mem.eql(u8, source[b.src.pos..][0..b.src.len], "t"), by_addr);
             };

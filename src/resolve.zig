@@ -141,9 +141,9 @@ const SymbolResolver = struct {
             .flags = flags,
         };
         const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
-        // `Text` and `Static` are built-in types, like `List`, though no
+        // `String` and `Static` are built-in types, like `List`, though no
         // symbol holds them.
-        const reserved = self.scope == self.module_scope and (std.mem.eql(u8, name, "Text") or std.mem.eql(u8, name, "Static"));
+        const reserved = self.scope == self.module_scope and (std.mem.eql(u8, name, "String") or std.mem.eql(u8, name, "Static"));
         if (reserved) try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
         if (dup) |prev| {
             const p = self.ctx.symbols.items[prev];
@@ -745,7 +745,7 @@ fn isValueSpelling(source: []const u8, node: Sexp) bool {
 }
 
 /// The type of a literal other than an integer: `Float`, `Bool`, or
-/// `String`.
+/// `?String`.
 fn literalTypeName(text: []const u8) ?[]const u8 {
     if (sema.isFloatLiteralText(text)) return "Float";
     if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return "Bool";
@@ -778,7 +778,7 @@ pub const TypeResolver = struct {
             const upper = try a.dupe(u8, name);
             upper[0] = std.ascii.toUpper(upper[0]);
             if (isBuiltinTypeName(self.ctx, upper)) return a.print("; Rig's types are capitalized: `{s}`", .{upper});
-            if (std.mem.eql(u8, name, "str")) return "; Rig's string type is `String`";
+            if (std.mem.eql(u8, name, "str")) return "; Rig's text is a `String` (owned), and `?String` is its read view";
         }
         var s: sema.Suggest = .{ .name = name };
         self.ctx.offerVisible(&s, self.scope, pos, struct {
@@ -790,7 +790,7 @@ pub const TypeResolver = struct {
             }
         }.keep);
         for (self.nominal.type_params) |tp| s.offer(self.ctx.symbols.items[tp].name);
-        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Static", "Void" }) |p| s.offer(p);
+        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Void" }) |p| s.offer(p);
         return s.hint(a);
     }
 
@@ -901,7 +901,7 @@ pub const TypeResolver = struct {
                 return self.ctx.types.invalid_id;
             }
             if (!isCtValueType(self.ctx, ty)) {
-                try self.ctx.errAt(type_node, "compile-time parameter `{s}` cannot have the type `{s}`; a compile-time value is a number, `Bool`, `String`, an enum whose variants carry nothing, or an optional of one", .{ name, try sema.formatType(self.ctx, ty) });
+                try self.ctx.errAt(type_node, "compile-time parameter `{s}` cannot have the type `{s}`; a compile-time value is a number, `Bool`, `?String`, an enum whose variants carry nothing, or an optional of one", .{ name, try sema.formatType(self.ctx, ty) });
                 return self.ctx.types.invalid_id;
             }
             return ty;
@@ -1653,10 +1653,10 @@ pub const TypeResolver = struct {
                             else => .element,
                         };
                         if (try self.misplacedAt(inner_node, inner, home)) return t.invalid_id;
-                        // Nothing lends a `String` place to write: it holds a read
+                        // Nothing lends a `?String` place to write: it holds a read
                         // view of text, pointed elsewhere by assigning to it.
                         if (head == .write_view and inner == t.string_view_id) {
-                            try self.ctx.errAt(sexp, "`!String` cannot be written: a `String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `Text` to change text in place", .{});
+                            try self.ctx.errAt(sexp, "`!?String` cannot be written: a `?String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `String` to change text in place", .{});
                             return t.invalid_id;
                         }
                         // `?fun(...)` written as such is a callable
@@ -2195,7 +2195,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
         if (sema.isPlainData(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
-        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `List[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
+        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`), plain data (a struct, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `List[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
     }
     if (sym_id == ctx.list_sym_id) {
         // A List holds any value, views included: its elements move in
@@ -2206,7 +2206,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isPlainData(ctx, args[0])) return null;
-        return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
+        return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
 }
@@ -2220,11 +2220,11 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
     for (f.params, 0..) |p, i| {
         if (sema.isClosureValue(ctx, p)) continue;
         const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure takes plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data); `{s}` is not one", .{try sema.formatType(ctx, p)});
+        try ctx.err(pos, "an owned closure takes plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data); `{s}` is not one", .{try sema.formatType(ctx, p)});
     }
     if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
         const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
+        try ctx.err(pos, "an owned closure returns plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
     }
 }
 
@@ -2236,11 +2236,11 @@ pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 
-const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Static", "Void" };
+const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Void" };
 
 fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
-    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_view_id, t.string_id, t.static_id, t.void_id };
+    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.static_id, t.void_id };
     for (primitive_type_names, ids) |n, id| {
         if (std.mem.eql(u8, name, n)) return id;
     }
@@ -2279,14 +2279,16 @@ fn sizedType(name: []const u8) ?Type {
 
 /// Every built-in type a name spells, once each (`I64` is `Int`): the
 /// types `@name` of a type parameter names from a table (`emit`), which
-/// is keyed by the Zig type. A `Static` is the Zig type of a `String`, so
-/// a type parameter bound to either is named `String`.
+/// is keyed by the Zig type. A `Static` is the Zig type of a `?String`, so
+/// a type parameter bound to either is named `?String`.
 pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const Type {
     var out: std.ArrayList(Type) = .empty;
     for (primitive_type_names) |name| {
         const ty = ctx.types.get(primitiveTypeId(ctx, name).?);
         if (ty != .static) try out.append(a, ty);
     }
+    // The read view of a `String` has no name of its own, but `@name` names it.
+    try out.append(a, ctx.types.get(ctx.types.string_view_id));
     var buf: [4]u8 = undefined;
     for ("IUF") |prefix| for ([_]u8{ 8, 16, 32, 64, 128 }) |bits| {
         const ty = sizedType(std.fmt.bufPrint(&buf, "{c}{d}", .{ prefix, bits }) catch unreachable) orelse continue;

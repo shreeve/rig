@@ -44,7 +44,7 @@ fn abstain(why: []const u8) Error {
 
 /// What the context does with a value (Core §3).
 const How = enum {
-    /// Reads it: a `print` or `Text` argument, an operand, a condition,
+    /// Reads it: a `print` or `String` argument, an operand, a condition,
     /// an object whose field or element is read. Never moves a name.
     read,
     /// Takes it: a binding, an owned parameter, a stored field or
@@ -70,7 +70,7 @@ const Place = struct {
     slice: bool = false,
     /// For a slice, the type of what is sliced.
     slice_of: TypeId = 0,
-    /// The path passes through a `[]T` or String stored in a place or
+    /// The path passes through a `[]T` or `?String` stored in a place or
     /// seen through a view: what it reaches carries that view's loans,
     /// not a loan on its holder (Core s7).
     carry: bool = false,
@@ -890,7 +890,7 @@ const Lowerer = struct {
         /// The subject's type, whose elements or payloads the header binds.
         ty: TypeId,
         /// For a read lend of a place (`match ?h`): the place's root, whose
-        /// loans a String payload carries instead of the loan on it.
+        /// loans a `?String` payload carries instead of the loan on it.
         carry_from: ?VarId = null,
         /// For a lend of a value the header made (`match ?mk()`): the
         /// header's temporary, which the tests of the statement may read
@@ -1091,14 +1091,14 @@ const Lowerer = struct {
         if (h.lent_temp and (xv.holds_views or (xv.kind != .plain and (hv.kind == .read_view or hv.kind == .write_view)))) {
             return self.found(.C5, leaf.src.pos, "a loan of a temporary the header made outlives its statement", .{});
         }
-        // A binding of a Text's bytes, a `String`, views the Text it is
+        // A binding of a String's bytes, a `?String`, views the String it is
         // stored in: a lend of the holder, as a `?T` of a stored `T` is.
         const slot = stored orelse self.ctx.payloadFieldOf(leaf);
         const views_string = slot != null and sema.viewsStringBytes(self.ctx, slot.?, xv.ty);
-        // Its bytes are in the Text's storage: a pointer into it, as a
+        // Its bytes are in the String's storage: a pointer into it, as a
         // `?T` of a stored `T` is.
         if (views_string) xv.holds_pointers = true;
-        // A String payload of a read lend carries the String's loans, not
+        // A `?String` payload of a read lend carries the `?String`'s loans, not
         // the loan on what holds it (Core s7).
         if (h.carry_from) |r| if (self.ctx.types.get(xv.ty) == .string_view and !views_string) {
             try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(r), .uses = try self.one(h.v), .def = x, .carry = true });
@@ -1529,7 +1529,7 @@ const Lowerer = struct {
     }
 
     /// Whether a slice of a value of type `ty`, itself or through a
-    /// write view, slices a String or a read view: what that views
+    /// write view, slices a `?String` or a read view: what that views
     /// cannot change while its own loans live, which the slice carries.
     fn slicesStringView(self: *Lowerer, ty: TypeId) bool {
         const t = switch (self.ctx.types.get(ty)) {
@@ -1696,8 +1696,8 @@ const Lowerer = struct {
                 // `+x` reads `x` and makes a new owner of its value, part by
                 // part (Core s2): it carries the loans of the views the value
                 // holds; through a view, `+r` of a `?T` is a new `T`, which
-                // carries no loan on what `r` sees, and `+s` of a String view
-                // makes a Text that holds none.
+                // carries no loan on what `r` sees, and `+s` of a `?String` view
+                // makes a String that holds none.
                 const through = p.via != .own or self.isRef(p.ty) or sema.unwrapViews(self.ctx, p.ty) == self.ctx.types.string_view_id;
                 try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .unpoint = through, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read } });
                 return t;
@@ -1994,9 +1994,9 @@ const Lowerer = struct {
             .shared => handle = true,
             .weak => return abstain("an access through a weak handle"),
             // A view reached through a slice carries that view's loans,
-            // through a write view too (Core s7). A String reached through
-            // a view is that view's, loans and all: the bytes of a Text
-            // are that Text's, and a String a call returned views what its
+            // through a write view too (Core s7). A `?String` reached through
+            // a view is that view's, loans and all: the bytes of a String
+            // are that String's, and a `?String` a call returned views what its
             // arguments view.
             .string_view => {
                 if (via == .own) via = .read;
@@ -2031,7 +2031,7 @@ const Lowerer = struct {
         if (info.unsupported) |why| return abstain(why);
         // A bare slice of a place lends it (Core §4), and so does one
         // through a write view, which may change or replace what the
-        // slice views; a slice of a String or of a read view copies the
+        // slice views; a slice of a `?String` or of a read view copies the
         // view and its loans.
         if (p.slice and !self.slicesStatic(p.slice_of) and (p.via == .own or (p.via == .write and !self.slicesStringView(p.slice_of)))) return try self.lend(p, .read, e, p.ty);
         // A value holding a write view moves as an owner does (Core §1);
@@ -2350,7 +2350,7 @@ const Lowerer = struct {
         }
         const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
         const loan = try self.lentLoan(p, mode, deref, 0, pos);
-        // A slice or a String views the place's bytes, and copies of it
+        // A slice or a `?String` views the place's bytes, and copies of it
         // carry the loan; a `?T` or `!T` points at the place.
         self.f.loans.items[loan].pointer = switch (self.ctx.types.get(ty)) {
             .slice, .string_view => false,
@@ -2623,7 +2623,7 @@ const Lowerer = struct {
                 group = self.groups;
                 if (std.mem.eql(u8, name, "swap")) all_read = true else shapes = &.{ .view, .take };
             } else if (self.ctx.stringCallOf(e) == .new) {
-                // `Text(...)` formats its arguments as `print` does.
+                // `String(...)` formats its arguments as `print` does.
                 all_read = true;
             } else if (sym == null) {
                 // A conversion, `Int(x)`, reads its argument.
@@ -2984,7 +2984,7 @@ const Lowerer = struct {
     fn storesViews(self: *Lowerer, p: Place) Error!bool {
         var ty = p.ty;
         if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
-        // A slice's place is its elements; a slice of a Text, its bytes.
+        // A slice's place is its elements; a slice of a String, its bytes.
         switch (self.ctx.types.get(ty)) {
             .slice => |sl| ty = sl.elem,
             .string_view => if (p.slice) return false,
@@ -3139,7 +3139,7 @@ const Lowerer = struct {
         return false;
     }
 
-    /// A type argument of plain data. An instance at a String is checked
+    /// A type argument of plain data. An instance at a `?String` is checked
     /// against whether the body stores a `T` where no loan may go (Core
     /// s9), which the oracle does not answer either.
     fn plainInstanceArg(self: *Lowerer, t: TypeId) Error!void {
@@ -3156,7 +3156,7 @@ const Lowerer = struct {
     /// type arguments (SPEC "Generic bodies"): each of plain data; or an
     /// owner that holds no view, where the body, and every generic body
     /// it calls at its own type parameters, never copies a value of a
-    /// type parameter (so `sort.sort_by(!v, less)` of a `List[Text]`). In
+    /// type parameter (so `sort.sort_by(!v, less)` of a `List[String]`). In
     /// a generic body, a call at its own type parameters is that body's
     /// to answer for its instances (`t_calls`).
     fn genericCall(self: *Lowerer, e: Sexp, type_args: []const TypeId) Error!void {
@@ -3272,7 +3272,7 @@ const Lowerer = struct {
             else => {},
         }
         const decl = sema.nominalDecl(self.ctx, recv_ty) orelse {
-            // A built-in method of an array, slice, or String: it writes
+            // A built-in method of an array, slice, or `?String`: it writes
             // its receiver only where `!` says so.
             return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
                 .array, .slice, .string_view => .{ if (obj.isKind(.write)) .write else .read, null },
