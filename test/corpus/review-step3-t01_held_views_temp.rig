@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -9,7 +9,7 @@ enum E
   a(r: ?Res)
   b
 
-struct H
+obj H
   e: E
 
 fun mkh(r: ?Res) -> H

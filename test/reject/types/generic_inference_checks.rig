@@ -3,17 +3,17 @@
 # instance must meet the generic body's requirements and the built-in
 # generics' element rules.
 
-struct Same[T]
+obj Same[T]
   a: T
   b: T
 
-struct Adder[T]
+obj Adder[T]
   v: T
 
   fun next(?self) -> T
     self.v + 1
 
-struct Plain
+obj Plain
   n: Int
 
 sub main()

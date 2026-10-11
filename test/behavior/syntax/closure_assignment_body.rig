@@ -2,7 +2,7 @@
 # compound, to a captured write view or a field through one: as a
 # bound closure, and as a closure lent to a call in its last argument.
 
-struct Wrap
+obj Wrap
   n: Int
 
 sub each(xs: ?List[Int], f: ?sub(Int))

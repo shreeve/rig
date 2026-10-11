@@ -2,7 +2,7 @@
 # after the body grew the List it views (a reallocation frees the old
 # buffer). Main rejects the step's use (the holder does not copy); the
 # branch asks `mustTake`, which lets it through to C1.
-struct S
+obj S
   s: ![]Int
 
 fun mk(v: !List[Int], i: Int) -> S?

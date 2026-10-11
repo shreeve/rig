@@ -14,7 +14,7 @@
 error E
   bad
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -35,7 +35,7 @@ struct D
     !self.c.set(self.c.get() + 1000)
     self.c.get()
 
-struct WD
+obj WD
   inner: D
   n: Int
 
@@ -55,7 +55,7 @@ fun mkf(n: Int) -> WD!
   return E.bad if n < 0
   mk(n)
 
-struct WW
+obj WW
   t: WD
 
 fun mkww(n: Int) -> WW

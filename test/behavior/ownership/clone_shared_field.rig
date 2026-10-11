@@ -2,13 +2,13 @@
 # field each own a count, and the value is dropped once, when the last
 # handle goes.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
-struct Pair
+obj Pair
   a: *Wrap
 
 sub main()

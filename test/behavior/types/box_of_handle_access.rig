@@ -7,7 +7,7 @@ enum K
   a(n: Int)
   b
 
-struct S
+obj S
   n: Int
   xs: List[Int]
   t: String

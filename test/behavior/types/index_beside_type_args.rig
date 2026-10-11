@@ -8,7 +8,7 @@ fun double(n: Int) -> Int
 fun next(n: Int) -> Int
   n + 1
 
-struct Table
+obj Table
   ops: [2]fun(Int) -> Int
 
   fun apply(?self, i: Int, x: Int) -> Int

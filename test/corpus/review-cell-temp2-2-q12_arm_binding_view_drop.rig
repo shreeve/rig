@@ -1,17 +1,17 @@
 # A temporary made in a `match` arm whose drop reads a view of the arm's
 # binding. Where emit keeps the arm's temporary past the arm, the drop
 # would read a binding whose scope has ended.
-struct P
+obj P
   n: Int
 
-struct HI
+obj HI
   v: ?Int
   t: String
 
   drop(!self)
     print("drop hi", self.v)
 
-struct HP
+obj HP
   v: ?P
   t: String
 

@@ -3,13 +3,13 @@
 #
 # oracle: C.hit accept
 # oracle: main accept
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-struct W
+obj W
   inner: C
 
 error E

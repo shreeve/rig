@@ -1,18 +1,18 @@
 # A consuming method called on a part of generic type, instantiated with
 # a type that copies and with one that owns.
-struct P
+obj P
   v: Int
 
   fun into(<self) -> Int
     self.v
 
-struct HV
+obj HV
   v: List[Int]
 
   fun into(<self) -> Int
     self.v.len
 
-struct G[T]
+obj G[T]
   f: T
 
 fun use_part[T](g: ?G[T]) -> Int

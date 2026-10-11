@@ -1,6 +1,6 @@
 # A view, a struct holding a view, has no `==`.
 
-struct Window
+obj Window
   items: []Int
   at: Int
 

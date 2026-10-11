@@ -3,7 +3,7 @@ LIMIT = 4
 fun f(k: Int = LIMIT) -> Int
   k
 
-struct S
+obj S
   v: Int = LIMIT
 
 sub main()

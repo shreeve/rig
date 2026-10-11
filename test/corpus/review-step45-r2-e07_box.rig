@@ -1,8 +1,8 @@
 # H3: generic loop over ?List[T], body: ^x
-struct S
+obj S
   t: String
 
-struct Holder[T]
+obj Holder[T]
   x: T?
 
 fun bx[T](v: ?List[T]) -> Int

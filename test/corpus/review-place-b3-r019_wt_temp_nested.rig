@@ -1,7 +1,7 @@
-struct Q
+obj Q
   n: Int
 
-struct H
+obj H
   q: !Q
 
 fun mk(q: !Q) -> H

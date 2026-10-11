@@ -1,5 +1,5 @@
 # Box element of a List via a view param; view escapes; element replaced. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

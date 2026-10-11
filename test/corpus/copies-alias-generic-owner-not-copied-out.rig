@@ -1,4 +1,4 @@
-struct Pair[T]
+obj Pair[T]
   a: T
   b: T
 

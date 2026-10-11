@@ -1,17 +1,17 @@
 # A type that holds itself by value, directly, through an optional, or
 # through another type, has no finite size.
 
-struct Node
+obj Node
   n: Int
   next: Node?
 
-struct A
+obj A
   b: B
 
-struct B
+obj B
   a: A?
 
-struct Chain[T]
+obj Chain[T]
   head: T
   tail: Chain[T]?
 

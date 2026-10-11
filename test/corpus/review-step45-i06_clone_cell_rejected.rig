@@ -1,5 +1,5 @@
 # +s where s holds a Cell must be rejected
-struct S
+obj S
   c: Cell[Int]
   t: String
 

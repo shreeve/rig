@@ -2,7 +2,7 @@
 # lent to write: the statement's slot keeps the value the branch takes,
 # moved in, and the change lands there.
 
-struct N
+obj N
   c: Int
 
 fun poke(x: !N) -> Int

@@ -1,14 +1,14 @@
 # A view held by pointer lifted into an optional of that view stays the
 # pointer: bound, assigned, passed, stored in a field, and returned.
 
-struct Counter
+obj Counter
   hits: Int
   name: String
 
-struct P
+obj P
   x: Int
 
-struct H
+obj H
   o: (?Counter)?
 
 enum E

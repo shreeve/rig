@@ -1,13 +1,13 @@
-struct Bag[T]
+obj Bag[T]
   items: List[T]
 
-struct Opt[T]
+obj Opt[T]
   o: T?
 
-struct Sh[T]
+obj Sh[T]
   h: *T
 
-struct Node
+obj Node
   v: Int
 
 sub main()

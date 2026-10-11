@@ -4,10 +4,10 @@
 error E
   bad
 
-struct P
+obj P
   n: Int
 
-struct HT
+obj HT
   v: ?P
   t: String
 

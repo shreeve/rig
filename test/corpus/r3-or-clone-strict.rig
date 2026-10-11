@@ -3,7 +3,7 @@
 # may change while the clone lives. The compiler keeps the clone's loan
 # on `bag` (test/oracle/differences).
 
-struct Bag
+obj Bag
   v: List[?Int]
 
 sub main()

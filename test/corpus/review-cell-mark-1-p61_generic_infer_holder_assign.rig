@@ -1,8 +1,8 @@
-struct H
+obj H
   n: Cell[Int]
   items: List[Int]
 
-struct S
+obj S
   h: *H
 
 sub zap[T](a: !T, b: !T)

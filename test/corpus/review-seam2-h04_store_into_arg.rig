@@ -2,7 +2,7 @@
 # oracle: S.at accept
 # oracle: S.drop accept
 # oracle: mk accept
-struct S
+obj S
   n: Int
   big: [4]Int
 
@@ -13,7 +13,7 @@ struct S
     print("dropS", self.n)
     self.n = 777
 
-struct H
+obj H
   ws: List[!Int]
 
   drop(!self)

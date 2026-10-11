@@ -1,10 +1,10 @@
-struct Res
+obj Res
   id: Int
 
   drop(!self)
     print("drop", self.id)
 
-struct Box
+obj Box
   r: Res
 
 sub main()

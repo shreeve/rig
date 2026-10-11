@@ -1,5 +1,5 @@
 # +p of a generic struct instance Pair[Text]
-struct Pair[T]
+obj Pair[T]
   a: T
   b: T
 

@@ -1,9 +1,9 @@
-struct Val
+obj Val
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct Map
+obj Map
   es: List[^Val]
 
   fun find(?self, n: Int) -> (?Val)?

@@ -5,7 +5,7 @@ enum S
   one(k: Int)
   empty
 
-struct H
+obj H
   v: List[Int]
 
 sub reset(v: !List[Int])

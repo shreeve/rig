@@ -1,4 +1,4 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 fun two() -> [2]Counter

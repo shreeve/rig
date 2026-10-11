@@ -1,5 +1,5 @@
 # a read view of an element obtained via ?self through a held write view, then push through the holder (expect reject)
-struct Cur
+obj Cur
   items: !List[String]
 
   fun peek(?self) -> ?String

@@ -1,7 +1,7 @@
-struct View
+obj View
   xs: []Int
 
-struct Counter
+obj Counter
   n: Int
 
   sub stash(!self, v: !View, ys: []Int)

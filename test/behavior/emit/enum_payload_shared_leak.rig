@@ -1,7 +1,7 @@
 # An enum variant carrying a shared handle owns it: the enum drops the
 # handle when it goes.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 enum Slot

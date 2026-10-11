@@ -5,18 +5,18 @@
 # the value to a name first. (A part of plain data is read in the
 # header: header_plain_part_temporary.rig.)
 
-struct Res
+obj Res
   n: Int
   t: String
 
-struct Counter unique
+obj Counter unique
   hits: Int
 
 enum E
   a(c: Counter)
   b
 
-struct H
+obj H
   e: E
   arr: [2]Counter
   o: Counter?

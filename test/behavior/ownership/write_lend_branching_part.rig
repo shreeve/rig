@@ -5,13 +5,13 @@
 
 use std.sort
 
-struct K2
+obj K2
   n: Int
 
   sub put2(!self, a: Int, b: Int)
     self.n = a * 10 + b
 
-struct S
+obj S
   n: Int
   t: String
   arr: [3]Int

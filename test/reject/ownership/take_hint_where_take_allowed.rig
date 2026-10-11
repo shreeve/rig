@@ -2,10 +2,10 @@
 # and leaves `none`, only where the take itself is accepted: not through
 # a read view or a shared handle, nor out of a parameter, which is fixed.
 
-struct Bag
+obj Bag
   items: List[Int]
 
-struct H
+obj H
   o: Bag?
 
 sub viaread(p: ?H)

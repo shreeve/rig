@@ -6,7 +6,7 @@
 # b`, `o ?? a`, `e catch a`, and `o?`, and for a receiver evaluated
 # before keyword arguments.
 
-struct S
+obj S
   t: String
   xs: [4]Int
 

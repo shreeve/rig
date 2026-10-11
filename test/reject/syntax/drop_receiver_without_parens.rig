@@ -1,6 +1,6 @@
 # A `drop` body takes its receiver in parentheses, like a method.
 
-struct File
+obj File
   fd: Int
 
   drop self: !Self

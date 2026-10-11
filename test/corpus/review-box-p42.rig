@@ -1,7 +1,7 @@
-struct W[T]
+obj W[T]
   v: T
 
-struct P
+obj P
   x: Int
 
 fun mk() -> ^W[?P]

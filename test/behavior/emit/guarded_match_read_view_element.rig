@@ -3,7 +3,7 @@
 # payloads (the last behind a shared handle), through a parameter and
 # through a field.
 
-struct C
+obj C
   c: Cell[Int]
 
 enum E
@@ -18,7 +18,7 @@ enum K
   a(x: C)
   b
 
-struct H
+obj H
   es: List[E]
 
 fun plain(v: ?List[E]) -> Int

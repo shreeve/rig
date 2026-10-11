@@ -1,5 +1,5 @@
 # for over a plain-data part of a made value. Expect accept, clean.
-struct H
+obj H
   xs: [2]Int
   t: String
 

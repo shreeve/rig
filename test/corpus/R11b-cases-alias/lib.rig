@@ -1,7 +1,7 @@
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
-struct Hidden[T]
+obj Hidden[T]
   v: T
 
   fun get(?self) -> T

@@ -1,6 +1,6 @@
 # oracle: main reject C4
 
-struct S
+obj S
   s: []Int
 
 sub main()

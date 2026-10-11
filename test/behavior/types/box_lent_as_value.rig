@@ -3,13 +3,13 @@
 # view local, an argument evaluated out of order, a generic result, a
 # write view of the box read as the value.
 
-struct R
+obj R
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct S
+obj S
   b: ^Int
 
 fun add(x: ?Int, y: Int) -> Int

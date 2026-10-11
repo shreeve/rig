@@ -1,4 +1,4 @@
-struct Child
+obj Child
   n: Int
   parent: ~Cell[*Child?]
 

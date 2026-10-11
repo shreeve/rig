@@ -3,7 +3,7 @@
 
 use lib
 
-struct Big
+obj Big
   a: [530000]Int
 
 sub main()

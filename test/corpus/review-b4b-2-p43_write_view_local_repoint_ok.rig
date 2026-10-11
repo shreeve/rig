@@ -1,5 +1,5 @@
 # Write-view local re-pointed after the match; e1 untouched. Expect accept, prints one.
-struct Res
+obj Res
   n: Int
   t: String
 

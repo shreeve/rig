@@ -1,6 +1,6 @@
 # A move inside a `for` body is seen by the next iteration.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub eat(rc: *Wrap)

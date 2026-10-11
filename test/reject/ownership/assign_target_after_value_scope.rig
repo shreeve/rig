@@ -5,7 +5,7 @@
 error E
   bad
 
-struct S
+obj S
   n: Int
 
 fun fail(n: Int) -> Int!

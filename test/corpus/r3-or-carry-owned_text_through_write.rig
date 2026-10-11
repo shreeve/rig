@@ -1,7 +1,7 @@
 # A String sliced from a Text the holder owns, through `!self`, lends
 # `self`: the holder cannot change while the String is used.
 
-struct P
+obj P
   src: String
   pos: Int
 

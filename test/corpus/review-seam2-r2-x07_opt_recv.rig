@@ -14,14 +14,14 @@
 # oracle: f accept
 # oracle: go reject C5
 # oracle: main accept
-struct S
+obj S
   n: Int
   t: String
 
   drop(!self)
     print("dropS", self.n)
 
-struct H
+obj H
   rs: List[?String]
 
   sub keep(!self, r: ?String)
@@ -40,7 +40,7 @@ struct H
   drop(!self)
     print("dropH sees", self.rs)
 
-struct HH
+obj HH
   inner: H
   hs: List[H]
 

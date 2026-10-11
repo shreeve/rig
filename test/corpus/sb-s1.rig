@@ -1,4 +1,4 @@
-struct Frame
+obj Frame
   buf: List[U8]
 
 sub put(f: !Frame, v: U32)

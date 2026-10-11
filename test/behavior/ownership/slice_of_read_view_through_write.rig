@@ -4,13 +4,13 @@
 # field or element may be re-pointed while the slice is used.
 # release
 
-struct R
+obj R
   f: ?String
 
-struct RB
+obj RB
   f: ?^String
 
-struct RS
+obj RS
   f: ?*String
 
 sub field(w: !R, u: ?String)

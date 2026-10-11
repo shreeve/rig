@@ -1,8 +1,8 @@
-struct Res
+obj Res
   n: Int
   t: String
 
-struct W[T]
+obj W[T]
   arr: [2]T
   tag: String
 

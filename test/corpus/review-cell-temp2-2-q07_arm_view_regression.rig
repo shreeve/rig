@@ -1,10 +1,10 @@
 # A temporary made in a `match` arm that views the arm's binding: the
 # arm's body is a statement of its own, so the temporary ends with the
 # arm, inside the binding's scope.
-struct P
+obj P
   n: Int
 
-struct HT
+obj HT
   v: ?P
   t: String
 

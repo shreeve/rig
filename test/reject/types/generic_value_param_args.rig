@@ -3,13 +3,13 @@
 # which its parameter's type holds and, used as an array length, is in
 # range. Its value parameters are values, not types.
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
-struct Small[n: U8]
+obj Small[n: U8]
   items: [n]Int
 
-struct Bad[n: Int]
+obj Bad[n: Int]
   x: n
 
 sub main()

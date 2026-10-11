@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -25,7 +25,7 @@ fun optw(e: !E, ok: Bool) -> (!E)?
   return none if not ok
   e
 
-struct H
+obj H
   w: !E
 
 sub f(x: !E, h2: ?H)

@@ -4,7 +4,7 @@
 fun Self() -> Int
   3
 
-struct W[T]
+obj W[T]
   v: T
 
   fun get(?self) -> Int

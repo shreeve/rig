@@ -1,6 +1,6 @@
 use std.text
 
-struct Split
+obj Split
   rest: ?String
   sep: ?String
   done: Bool

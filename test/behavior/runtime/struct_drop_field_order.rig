@@ -1,13 +1,13 @@
 # Generated drop glue drops resource fields in reverse declaration
 # order: `b` (declared second) is dropped before `a`.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)
     print(self.id)
 
-struct Pair
+obj Pair
   a: *Noisy
   b: *Noisy
 

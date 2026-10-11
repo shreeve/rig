@@ -1,4 +1,4 @@
-struct View[T]
+obj View[T]
   w: ?T
 
 fun double(n: Int) -> Int

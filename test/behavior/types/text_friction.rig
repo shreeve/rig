@@ -5,7 +5,7 @@
 
 use std.text
 
-struct N
+obj N
   id: Int
 
   drop(!self)
@@ -14,7 +14,7 @@ struct N
 fun maybe(k: Int) -> N?
   N(id: k) if k > 0 else none
 
-struct W
+obj W
   v: List[Int]
   t: String
 

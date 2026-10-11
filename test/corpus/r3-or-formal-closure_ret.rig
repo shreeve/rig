@@ -1,4 +1,4 @@
-struct Item
+obj Item
   n: Int
 
 fun call(f: ?fun(?Item) -> ?Item, k: ?Item) -> ?Item

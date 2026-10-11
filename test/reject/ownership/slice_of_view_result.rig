@@ -5,7 +5,7 @@
 fun keep(s: ?String) -> ?String
   s
 
-struct H
+obj H
   t: String
 
   fun at(!self) -> !String

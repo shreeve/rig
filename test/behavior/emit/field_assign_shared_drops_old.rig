@@ -1,13 +1,13 @@
 # Assigning a shared handle into a struct field drops the old handle at
 # the assignment; the struct drops the new one when it goes.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)
     print(self.id)
 
-struct Pair
+obj Pair
   a: *Noisy
 
 sub main()

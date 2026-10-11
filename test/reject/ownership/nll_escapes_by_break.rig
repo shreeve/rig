@@ -1,7 +1,7 @@
 # A view of a loop-body local that is used after the loop cannot
 # leave the loop by `break`.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

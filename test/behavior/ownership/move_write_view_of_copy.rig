@@ -2,7 +2,7 @@
 # points to: `w = <a` of an `a: !Int` binds a `!Int`, and writing `w`
 # writes the caller's value, as it does for a struct.
 
-struct C
+obj C
   n: Int
 
 sub set(a: !Int)

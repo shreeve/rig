@@ -1,4 +1,4 @@
-pub struct T
+pub obj T
   pub n: Int
 
   pub fun bump(!self) -> Int

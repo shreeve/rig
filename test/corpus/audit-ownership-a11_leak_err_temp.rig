@@ -1,7 +1,7 @@
 error E
   bad
 
-struct B
+obj B
   n: Int
 
 fun fail(k: Int) -> Int!

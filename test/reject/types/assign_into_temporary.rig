@@ -1,7 +1,7 @@
 # A field or element of a value no binding holds is gone after the
 # statement, so assigning to it is rejected.
 
-struct P
+obj P
   x: Int
 
 fun mk() -> P

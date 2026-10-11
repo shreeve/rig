@@ -1,11 +1,11 @@
 # Header exception, `if … as` sibling of c04: `pick(?mkh(?String(..)))`
 # returns `?Q?`, a view of an optional inside the header's temporary
 # `mkh(...)`; the plain-data binding copies it when the body starts.
-struct Q
+obj Q
   s: ?String
   n: Int
 
-struct H
+obj H
   q: Q?
 
 fun mkh(s: ?String) -> H from s

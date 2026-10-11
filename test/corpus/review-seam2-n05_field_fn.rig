@@ -1,5 +1,5 @@
 # Review probe n05_field_fn.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
-struct P
+obj P
   f: *fun(Int) -> Int
   fs: List[*fun(Int) -> Int]
 

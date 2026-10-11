@@ -1,7 +1,7 @@
 # A statement `<?a` or `<!a` moves a view nowhere. A view owns nothing,
 # so the statement does nothing, and is rejected; `<a` drops `a`.
 
-struct F
+obj F
   n: Int
 
   drop(!self)

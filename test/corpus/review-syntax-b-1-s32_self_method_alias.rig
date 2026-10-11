@@ -1,4 +1,4 @@
-struct B
+obj B
   items: List[Int]
 
   sub add_all(!self, xs: []Int)

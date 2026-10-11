@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -11,12 +11,12 @@ fun mk(n: Int) -> E
   !v.push(n)
   E.a(r: Res(n: n, v: <v))
 
-struct Q
+obj Q
   e: E
   o: E?
   v: List[Int]
 
-struct W
+obj W
   e: E
   o: E?
   v: List[Int]
@@ -37,7 +37,7 @@ struct W
   fun gvw(!self) -> !List[Int]
     !self.v
 
-struct H
+obj H
   w: !W
 
 fun mkv(n: Int) -> List[Int]
@@ -52,7 +52,7 @@ fun mkw(n: Int) -> W
 fun id[T](x: T) -> T
   x
 
-struct HB
+obj HB
   w: !E
 
 fun f(h1: HB, h2: HB, c: Bool) -> Int?

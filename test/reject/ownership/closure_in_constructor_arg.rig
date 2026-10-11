@@ -1,7 +1,7 @@
 # A lambda literal passed as a struct constructor argument escapes its
 # scope and is rejected.
 
-struct Holder
+obj Holder
   cb: sub()
 
 sub main()

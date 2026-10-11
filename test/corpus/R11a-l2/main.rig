@@ -4,7 +4,7 @@ fun g[k: Int]() -> Int
   z = lib.zeros[k]()
   z.len
 
-struct Mine[T, m: Int]
+obj Mine[T, m: Int]
   r: lib.Ring[T, m]
 
   fun cap(?self) -> Int

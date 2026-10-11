@@ -1,4 +1,4 @@
-struct W
+obj W
   s: ?String
 
 sub main()

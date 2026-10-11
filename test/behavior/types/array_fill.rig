@@ -5,7 +5,7 @@
 N = 3
 ZEROS = [4 of 0]
 
-struct Point
+obj Point
   x: Int
   y: Int
 

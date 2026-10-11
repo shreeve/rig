@@ -2,7 +2,7 @@
 # condition binds, view the value they reach while they are used: a
 # write lend of it in the body, or in a later part, is rejected.
 
-struct H
+obj H
   o: ^Int?
 
 fun clear(h: !H) -> Bool

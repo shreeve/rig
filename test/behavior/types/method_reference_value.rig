@@ -1,13 +1,13 @@
 # `Type.method` is a function value whose first parameter is the
 # receiver, however the method takes it.
 
-struct B
+obj B
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct P
+obj P
   x: Int
 
   fun make(x: Int) -> P
@@ -22,7 +22,7 @@ struct P
   fun total(<self, k: Int) -> Int
     self.x + k
 
-struct H
+obj H
   b: B
 
   fun take(<self) -> Int

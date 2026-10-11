@@ -1,13 +1,13 @@
 # A field default is a literal of the field's type, like a parameter
 # default; a variant payload field has no default.
 
-struct B
+obj B
   n: Int
 
 fun three() -> Int
   3
 
-struct P
+obj P
   b: *B = *B(n: 1)
   k: Int = three()
   s: Int = "s"

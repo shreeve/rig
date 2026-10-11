@@ -1,7 +1,7 @@
 fun n(x: Int) -> Int
   x
 
-struct P
+obj P
   x: Int
   sub bump(!self)
     self.x += 1

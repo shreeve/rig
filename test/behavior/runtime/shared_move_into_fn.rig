@@ -1,7 +1,7 @@
 # `use_rc(<rc)` moves a shared handle into a function, which owns and
 # drops it; the caller does not drop it again.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub use_rc(rc: *Wrap)

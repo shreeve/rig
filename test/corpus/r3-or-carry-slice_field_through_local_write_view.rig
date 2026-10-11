@@ -1,10 +1,10 @@
 # A view reached through a slice field of what a local write view sees
 # carries the slice's loans, not the write loan on the holder.
 
-struct Tok
+obj Tok
   kind: Int
 
-struct P
+obj P
   toks: []Tok
   pos: Int
 

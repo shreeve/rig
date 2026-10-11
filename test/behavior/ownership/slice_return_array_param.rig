@@ -4,16 +4,16 @@
 # what the parameter views. A local read view of an array is a
 # pointer too, so a slice of it may outlive the view.
 
-struct View
+obj View
   xs: []Int
 
-struct S
+obj S
   arr: [3]Int
 
   fun head(?self) -> []Int
     ?self.arr[0..2]
 
-struct Pt
+obj Pt
   x: Int
 
 fun f(a: ?[3]Int) -> []Int

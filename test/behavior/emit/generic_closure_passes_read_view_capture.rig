@@ -1,6 +1,6 @@
 # A generic closure passes on a `|?w|` capture of a read view to a function taking `?T`.
 
-struct P
+obj P
   n: Int
   t: String
 

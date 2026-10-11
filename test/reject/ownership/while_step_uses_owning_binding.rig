@@ -1,7 +1,7 @@
 # The body drops an owning `as` binding before the loop step runs, so
 # the step cannot use it.
 
-struct B
+obj B
   n: Int
 
 sub main()

@@ -1,6 +1,6 @@
 # A read-through of plain data ends its loan at once; a later argument
 # may then grow the List. Does the call still read the old element?
-struct P
+obj P
   a: Int
   b: Int
   c: Int

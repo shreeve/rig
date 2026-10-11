@@ -8,7 +8,7 @@
 # A write view a call returns is no temporary: the method writes through
 # it (`test/behavior/ownership/write_receiver_through_returned_view.rig`).
 
-struct S
+obj S
   n: Int
   inner: T
 
@@ -22,13 +22,13 @@ struct S
   fun at(!self) -> !Int
     !self.n
 
-struct T
+obj T
   k: Int
 
   sub bump(!self)
     self.k += 1
 
-struct Wrap[V]
+obj Wrap[V]
   v: V
 
   sub bump(!self)

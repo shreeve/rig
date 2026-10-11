@@ -1,7 +1,7 @@
-struct Meters
+obj Meters
   v: Float
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
 type Km = Meters

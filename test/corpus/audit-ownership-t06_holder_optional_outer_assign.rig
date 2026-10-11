@@ -1,4 +1,4 @@
-struct Big
+obj Big
   v: List[Int]
 
 fun mk(k: Int) -> Big
@@ -6,7 +6,7 @@ fun mk(k: Int) -> Big
   !b.v.push(k)
   <b
 
-struct Holder
+obj Holder
   b: ?Big
 
   drop(!self)

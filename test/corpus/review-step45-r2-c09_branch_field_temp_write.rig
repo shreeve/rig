@@ -1,8 +1,8 @@
 # if (!s.f[idx(?Text("a"))].o if c else !w) as t : field after index, inside a branch
-struct S
+obj S
   o: String?
 
-struct H
+obj H
   f: List[S]
 
 fun idx(s: ?String) -> Int

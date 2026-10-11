@@ -1,6 +1,6 @@
 # `<` of a branching value whose leaf is a name or part that copies:
 # the source is left as it was.
-struct S
+obj S
   n: Int
 
 fun f(k: Int) -> Int!

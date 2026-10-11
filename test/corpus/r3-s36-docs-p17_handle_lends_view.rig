@@ -1,5 +1,5 @@
 # Core §4: one `fun area(s: ?Shape)` serves a Shape, a ^Shape, and a *Shape
-struct Shape
+obj Shape
   w: Int
 
 fun area(s: ?Shape) -> Int

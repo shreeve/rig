@@ -4,7 +4,7 @@
 # each leaves the statement the temporary ends with. (A write method on
 # a temporary is rejected outright: `write_receiver_temporary.rig`.)
 
-struct S
+obj S
   n: Int
   m: Int
 

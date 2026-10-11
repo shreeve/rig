@@ -3,11 +3,11 @@
 # loan, so it goes where no loan is tracked: in a `Cell`, a `Signal`, an
 # owned closure, and in a struct field or a generic `T` stored there.
 
-struct Tag
+obj Tag
   name: Static
   n: Int
 
-struct Pair[T]
+obj Pair[T]
   a: T
   b: T
 

@@ -1,4 +1,4 @@
-struct N
+obj N
   v: Int
 
 sub take_read(o: ?*N?)

@@ -1,7 +1,7 @@
 # Reassigning a shared-handle binding drops the previous handle at the
 # reassignment; the new one is dropped at scope exit.
 
-struct Counter
+obj Counter
   value: Int
 
   drop(!self)

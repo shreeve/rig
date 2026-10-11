@@ -1,4 +1,4 @@
-struct Holder
+obj Holder
   r: []Int
 
 fun f(a: !Holder, b: []Int) -> []Int

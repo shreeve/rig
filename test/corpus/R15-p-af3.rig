@@ -1,4 +1,4 @@
-struct S
+obj S
   arr: [2]Int
 
 sub main()

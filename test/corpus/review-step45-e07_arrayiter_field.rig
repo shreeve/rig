@@ -1,5 +1,5 @@
 # consuming a struct's array field
-struct S
+obj S
   arr: [2]String
   n: Int
 

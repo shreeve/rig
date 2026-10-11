@@ -14,7 +14,7 @@
 error E
   bad
 
-struct H
+obj H
   s: ?String
 
 sub take(v: List[Int])

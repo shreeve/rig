@@ -4,7 +4,7 @@
 # (A closure whose type returns nothing treats its last line as a
 # statement: test/behavior/syntax/closure_no_value_tail.rig.)
 
-struct F
+obj F
   n: Int
 
   drop(!self)

@@ -2,7 +2,7 @@
 # is then the only owner; the Noisy is dropped (printing its id) when the
 # closure's last handle drops at scope exit.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

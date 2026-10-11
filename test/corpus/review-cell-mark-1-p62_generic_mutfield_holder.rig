@@ -1,8 +1,8 @@
-struct H
+obj H
   n: Cell[Int]
   k: In
 
-struct S
+obj S
   h: *H
 
 sub bumpk[T](a: !T)

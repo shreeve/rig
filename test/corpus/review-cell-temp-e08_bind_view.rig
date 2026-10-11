@@ -2,7 +2,7 @@
 # a view the callee returns.
 #
 # oracle: touch accept
-struct D
+obj D
   c: Cell[Int]
 
 fun mkd(n: Int) -> D

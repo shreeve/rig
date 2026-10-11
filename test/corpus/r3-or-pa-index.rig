@@ -1,4 +1,4 @@
-struct Row
+obj Row
   a: Int
   b: Int
 

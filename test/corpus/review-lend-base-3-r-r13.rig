@@ -1,10 +1,10 @@
-struct P
+obj P
   x: Int
   name: String
   arr: [3]Int
   items: List[Int]
 
-struct H
+obj H
   r: ?List[Int]
 
 fun sum(xs: []Int) -> Int

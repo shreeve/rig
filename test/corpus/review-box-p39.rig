@@ -1,8 +1,8 @@
-struct A
+obj A
   n: Int
   next: *B?
 
-struct B
+obj B
   n: Int
   next: ^A?
 

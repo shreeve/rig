@@ -1,4 +1,4 @@
-struct H
+obj H
   v: List[String]
 
   fun first(?self) -> ?String

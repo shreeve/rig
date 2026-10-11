@@ -1,4 +1,4 @@
-struct P
+obj P
   xs: [3]Int
 
 fun mk(p: !P) -> !P

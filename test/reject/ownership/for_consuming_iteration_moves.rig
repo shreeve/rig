@@ -1,7 +1,7 @@
 # `for x in <v` moves `v`: it cannot be used afterwards, consumed while
 # viewed, or consumed again by a later loop iteration.
 
-struct B
+obj B
   n: Int
 
 sub main()

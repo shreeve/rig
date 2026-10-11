@@ -1,4 +1,4 @@
-struct Box2
+obj Box2
   label: ?String
 
   fun show(?self, s: ?String) -> Int

@@ -5,7 +5,7 @@
 # value on the last line of a closure that returns nothing does nothing
 # (test/reject/syntax/closure_no_value_expression.rig).
 
-struct F
+obj F
   n: Int
 
   drop(!self)

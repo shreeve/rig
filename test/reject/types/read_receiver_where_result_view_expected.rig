@@ -2,7 +2,7 @@
 # is kept (a binding), the hint puts the view around the call. (As an
 # argument, the result is lent as a temporary of the statement.)
 
-struct Point
+obj Point
   x: Int
 
   fun shifted(?self, d: Int) -> Point

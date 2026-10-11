@@ -2,7 +2,7 @@
 # assignment `x op= e`, on names, fields, elements, and lent to write
 # parameters. The place is evaluated once.
 
-struct P
+obj P
   n: Int
 
 sub twiddle(c: !Int)

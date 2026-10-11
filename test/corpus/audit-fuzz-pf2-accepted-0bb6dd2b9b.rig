@@ -2,7 +2,7 @@
 # `!s.add(x)` wherever its `!` cannot read as negation: a binding, an
 # argument, a return value, a body's value.
 
-struct Set
+obj Set
   items: List[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items

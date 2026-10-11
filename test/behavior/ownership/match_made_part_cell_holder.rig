@@ -6,7 +6,7 @@
 #
 # oracle: main accept
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)
@@ -16,7 +16,7 @@ enum E
   a(c: *Counter)
   b
 
-struct H
+obj H
   e: E
 
 fun mkh(n: Int) -> H

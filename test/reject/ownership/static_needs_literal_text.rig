@@ -2,7 +2,7 @@
 # cannot go where one is required: a `Static` parameter, a `Static`
 # field, a `Cell[Static]`, or an owned closure's `Static`.
 
-struct Tag
+obj Tag
   name: Static
 
 sub need(s: Static)

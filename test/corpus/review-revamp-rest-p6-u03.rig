@@ -1,4 +1,4 @@
-struct S
+obj S
   pub x(a: Int)
 
 sub main()

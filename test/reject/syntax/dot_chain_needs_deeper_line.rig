@@ -1,0 +1,8 @@
+# A leading `.` line at the statement's own indentation is a new statement.
+
+sub main()
+  x = 5
+  .abs()
+  print(x)
+
+# error: 5:3: variant `.abs(...)` needs a known enum type; annotate the binding

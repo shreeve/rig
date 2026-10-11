@@ -4,10 +4,10 @@
 # out: whether it is a name, a field, an element, an array, or a `??`
 # operand.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
-struct Holder
+obj Holder
   c: Counter
 
 sub main()

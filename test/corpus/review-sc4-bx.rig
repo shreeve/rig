@@ -1,4 +1,4 @@
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -8,7 +8,7 @@ enum Slot
   full(b: *B, k: Int)
   empty
 
-struct H
+obj H
   s: ^Slot
 
 sub edit(h: !H)

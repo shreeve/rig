@@ -1,8 +1,8 @@
 # The result views the `?Int` argument as well.
-struct Entry
+obj Entry
   name: ?String
 
-struct Table
+obj Table
   rows: [2]Entry
 
 fun at(t: ?Table, i: ?Int) -> ?Entry

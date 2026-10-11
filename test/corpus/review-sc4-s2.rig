@@ -1,7 +1,7 @@
-struct V
+obj V
   n: Int
 
-struct H
+obj H
   r: ?V
   v: V
 

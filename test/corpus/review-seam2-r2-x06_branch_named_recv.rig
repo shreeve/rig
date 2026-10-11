@@ -12,14 +12,14 @@
 # oracle: mkhopt accept
 # oracle: wrap accept
 # oracle: f accept
-struct S
+obj S
   n: Int
   t: String
 
   drop(!self)
     print("dropS", self.n)
 
-struct H
+obj H
   rs: List[?String]
 
   sub keep(!self, r: ?String)
@@ -38,7 +38,7 @@ struct H
   drop(!self)
     print("dropH sees", self.rs)
 
-struct HH
+obj HH
   inner: H
   hs: List[H]
 

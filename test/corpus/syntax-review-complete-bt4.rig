@@ -1,4 +1,4 @@
-struct Node[K, V]
+obj Node[K, V]
   keys: List[K]
   vals: List[V]
   kids: List[^Node[K, V]]

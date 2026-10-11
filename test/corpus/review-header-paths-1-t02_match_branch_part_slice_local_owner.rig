@@ -1,4 +1,4 @@
-struct SV
+obj SV
   sl: []Int
   n: Int
 

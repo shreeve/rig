@@ -13,14 +13,14 @@
 # oracle: inner_block accept
 # oracle: deferred accept
 
-struct Item
+obj Item
   n: Int
   name: ?String
 
-struct Holder[T]
+obj Holder[T]
   items: List[T]
 
-struct Views
+obj Views
   first: ?Item
   rest: List[?Item]
 

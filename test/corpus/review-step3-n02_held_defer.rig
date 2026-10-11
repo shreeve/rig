@@ -1,13 +1,13 @@
-struct Noisy
+obj Noisy
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
-struct H
+obj H
   arr: [2]Counter
   z: Noisy
 
@@ -15,7 +15,7 @@ enum E
   a(c: Counter, z: Noisy)
   b
 
-struct HE
+obj HE
   e: E
 
 fun mk(n: Int) -> H

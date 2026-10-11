@@ -7,7 +7,7 @@ LIMIT = 4
 fun seed() -> Int
   1
 
-struct S
+obj S
   a: Int = seed()
   b: List[Int] = List(capacity: 2)
   c: Cell[Int] = Cell(LIMIT + 1)

@@ -1,4 +1,4 @@
-struct Int
+obj Int
   x: Int
 
 sub main()

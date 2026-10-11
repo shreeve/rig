@@ -4,13 +4,13 @@
 # own release, so a guard held to the end of its scope needs no other
 # use. Parameters need not be read.
 
-struct Lock
+obj Lock
   id: Int
 
   drop(!self)
     print("unlock", self.id)
 
-struct P
+obj P
   n: Int
 
 enum Shape

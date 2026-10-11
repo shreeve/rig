@@ -2,7 +2,7 @@
 # header: an `if` or `while` condition, an `if … as` subject that binds
 # plain data of it, and a `match` subject.
 
-struct B
+obj B
   n: Int
   items: List[Int]
   o: Int?

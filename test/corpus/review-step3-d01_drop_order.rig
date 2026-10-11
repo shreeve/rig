@@ -1,4 +1,4 @@
-struct Noisy
+obj Noisy
   n: Int
 
   drop(!self)
@@ -8,7 +8,7 @@ enum E
   a(n: Int)
   b
 
-struct H
+obj H
   e: E
   arr: [2]Int
   z: Noisy

@@ -5,7 +5,7 @@ use std.text
 
 # The step reads a String the condition's binding holds, after the
 # body grew the Text it views.
-struct S
+obj S
   s: ?String
 
 fun mk(t: ?String) -> S?

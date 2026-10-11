@@ -1,7 +1,7 @@
 # Pushing to a Cell's List takes an owning element as List push does: moved
 # (`<a`) or cloned (`+a`).
 
-struct N
+obj N
   id: Int
 
 sub main()

@@ -2,7 +2,7 @@
 # `!v.remove(i)` hands the element at `i` over, moving the rest down.
 # An owning element moves in and out, and the List drops what is left.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

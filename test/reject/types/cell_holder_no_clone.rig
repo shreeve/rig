@@ -1,10 +1,10 @@
 # A value that holds a Cell is unique, also as a field of a value behind
 # `*`: it has no `+x` clone, and `[n of x]` does not copy one.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
-struct Holder
+obj Holder
   c: Counter
   k: Cell[Int]
 

@@ -3,7 +3,7 @@
 # (Core sentence 4): written in its statement's slot, never in a copy.
 # oracle: main accept
 
-struct P
+obj P
   k: Int
 
   sub bump(!self)
@@ -13,7 +13,7 @@ struct P
     self.k += 1
     self.k
 
-struct S
+obj S
   n: Int
   p: P
 

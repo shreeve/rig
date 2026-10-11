@@ -2,7 +2,7 @@
 # dropped without deep recursion: releasing a box that releases boxes is
 # queued past a fixed depth.
 
-struct Node
+obj Node
   value: Int
   next: ^Node?
 

@@ -1,8 +1,8 @@
 # The same copy-out into `P?` at an argument, a return, a field.
-struct P
+obj P
   x: Int
 
-struct S
+obj S
   o: P?
 
 fun px(o: P?) -> Int

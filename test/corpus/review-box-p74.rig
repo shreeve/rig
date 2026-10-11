@@ -1,4 +1,4 @@
-struct Leaf
+obj Leaf
   n: Int
 
   drop(!self)

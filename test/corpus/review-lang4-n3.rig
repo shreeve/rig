@@ -1,4 +1,4 @@
-struct H
+obj H
   w: !List[Int]
 
 fun make(v: !List[Int]) -> H

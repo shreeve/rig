@@ -3,7 +3,7 @@
 # dropping it does nothing. (A String may view a Text: dropping one is
 # accepted, in behavior/ownership/drop_ends_string_view.rig.)
 
-struct P
+obj P
   x: Int
 
 enum Color

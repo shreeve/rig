@@ -4,7 +4,7 @@
 fun answer -> Int
   42
 
-struct Box
+obj Box
   n: Int
 
   fun get -> Int

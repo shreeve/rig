@@ -32,7 +32,7 @@ fun gfail[T](a: T, ok: Bool) -> T!
 error GE
   bad
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun get(?self) -> T
@@ -50,7 +50,7 @@ enum Opt[T]
       .some(v) => v
       .nothing => d
 
-struct Pair[T, U]
+obj Pair[T, U]
   a: T
   b: U
 

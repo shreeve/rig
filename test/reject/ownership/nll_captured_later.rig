@@ -1,6 +1,6 @@
 # Capturing a view into a closure is a use of it.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

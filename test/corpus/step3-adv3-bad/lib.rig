@@ -1,10 +1,10 @@
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
   fun get(?self) -> T
     self.v
 
-pub struct Keep[T]
+pub obj Keep[T]
   v: T
 
   fun peek(?self) -> ?T

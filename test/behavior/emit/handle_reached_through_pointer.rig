@@ -2,7 +2,7 @@
 # leaf a branch of lends takes, is dereferenced before its value is
 # reached: a field, and a method whose arguments run first.
 
-struct Q
+obj Q
   n: Int
 
   fun get(?self, j: Int, k: Int) -> Int

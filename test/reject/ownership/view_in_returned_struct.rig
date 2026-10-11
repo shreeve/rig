@@ -1,13 +1,13 @@
 # A call whose result can hold a view views from its viewed
 # arguments: `v` keeps `h` viewed.
 
-struct Wrap
+obj Wrap
   payload: Int
 
-struct Holder
+obj Holder
   inner: *Wrap
 
-struct View
+obj View
   h: ?Holder
 
 fun mk(h: ?Holder) -> View

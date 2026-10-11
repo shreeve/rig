@@ -5,7 +5,7 @@ fun f(n: Int) -> Int!
   return E.bad if n < 0
   n
 
-struct P
+obj P
   x: Int
 
 fun rd(p: ?P, a: ?[3]Int, n: ?Int) -> Int

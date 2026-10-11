@@ -1,7 +1,7 @@
 # Returning an owned parameter from a match arm moves it out; the arms
 # that don't return it leave it to be dropped.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

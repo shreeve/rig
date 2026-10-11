@@ -1,4 +1,4 @@
-struct Holder
+obj Holder
   one: Int?
 
   fun val(?self) -> (?Int)?

@@ -2,7 +2,7 @@
 # view of it changes its Cells and nothing else: its other fields change
 # only through a handle that owns them, which handles only read.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
   n: Int
   items: List[Int]

@@ -3,15 +3,15 @@
 # field of any type, nor as a List's element. Each is rejected where it
 # is written.
 
-struct P
+obj P
   x: Int
 
-struct H
+obj H
   w: !Int
   v: !List[Int]
   p: !P
 
-struct HS
+obj HS
   s: !String
 
 sub main()

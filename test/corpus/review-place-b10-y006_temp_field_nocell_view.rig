@@ -1,7 +1,7 @@
-struct P
+obj P
   n: Int
 
-struct Q
+obj Q
   p: P
 
 fun mk() -> Q

@@ -1,7 +1,7 @@
-struct N
+obj N
   n: Int
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
   fun same(?self, o: ?Self) -> Bool
@@ -10,7 +10,7 @@ struct Wrap[T]
   fun has(?self, v: ?T) -> Bool
     self.item == v
 
-struct Outer[T]
+obj Outer[T]
   w: Wrap[T]
   tag: Int
 

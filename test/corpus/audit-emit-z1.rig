@@ -1,4 +1,4 @@
-struct C
+obj C
   n: Int
 
   fun sub2(!self, a: Int, b: Int) -> Int

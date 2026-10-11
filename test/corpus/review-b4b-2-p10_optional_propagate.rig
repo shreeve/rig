@@ -1,5 +1,5 @@
 # Subject reached through an optional with propagate-none; the view escapes the arm. Expect accept, prints one.
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -11,7 +11,7 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-struct Hold
+obj Hold
   e: E?
 
 fun go() -> Int?

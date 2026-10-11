@@ -5,12 +5,12 @@
 error Empty
   none_left
 
-struct Cell2
+obj Cell2
   n: Int
   sub bump(!self)
     self.n += 1
 
-struct Bag
+obj Bag
   items: List[Int]
   sub add(!self, k: Int)
     !self.items.push(k)
@@ -21,12 +21,12 @@ struct Bag
     !self.items.push(k)
     self
 
-struct Conn
+obj Conn
   name: ?String
   fun close(<self) -> Int
     self.name.len
 
-struct Builder
+obj Builder
   parts: List[Int]
   # `self: Self` is the long form of `<self`.
   fun with(self: Self, k: Int) -> Builder
@@ -39,10 +39,10 @@ struct Builder
       total += p
     total
 
-struct Holder
+obj Holder
   v: List[Int]
 
-struct Row
+obj Row
   cell: Cell2
 
 fun drain(b: !Bag) -> Int!

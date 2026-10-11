@@ -1,5 +1,5 @@
 # Guarded match on a branching value of views; view escapes; then e2 reassigned. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -7,7 +7,7 @@ enum E
   a(r: Res)
   b(r: Res)
 
-struct H
+obj H
   e: E
 
 fun clobber(n: Int) -> Int

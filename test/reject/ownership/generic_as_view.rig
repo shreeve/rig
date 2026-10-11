@@ -2,7 +2,7 @@
 # optional of `T` moves a `T` out of a view, so every instance must
 # be plain data.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

@@ -2,7 +2,7 @@ enum Shape
   dot
   circle(r: Int)
 
-struct P
+obj P
   x: Int
   s: Shape
 

@@ -3,7 +3,7 @@
 # oracle: wv accept
 # oracle: wh accept
 # oracle: main accept
-struct H
+obj H
   t: String
   v: List[Int]
 

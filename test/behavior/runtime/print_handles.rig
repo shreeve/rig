@@ -3,10 +3,10 @@
 # held in a struct or array as `<fun>`. A shared handle prints the value
 # it holds.
 
-struct B
+obj B
   n: Int
 
-struct H
+obj H
   f: fun(Int) -> Int
   n: Int
 

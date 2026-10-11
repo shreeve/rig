@@ -2,7 +2,7 @@
 # through a `*List[T]` is rejected like any `!self` method, since other
 # handles may be reading it. Shared mutable state goes in a Cell.
 
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)

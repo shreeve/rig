@@ -1,5 +1,5 @@
 # DESIGN "Absorption": a !T is accepted where a ?T is expected
-struct P
+obj P
   x: Int
 
 fun read_x(p: ?P) -> Int

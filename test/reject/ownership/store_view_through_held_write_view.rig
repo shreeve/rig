@@ -2,10 +2,10 @@
 # what a write view it views reaches in turn: here the parameter `p`,
 # which outlives the local `t`. The error names the store, not a call.
 
-struct S
+obj S
   n: Int
 
-struct H
+obj H
   r: ?S
 
 sub put(p: !H)

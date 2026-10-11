@@ -1,5 +1,5 @@
-pub struct Wrap
+pub obj Wrap
   pub v: List[Int]
 
-pub struct WV
+pub obj WV
   pub b: !Wrap

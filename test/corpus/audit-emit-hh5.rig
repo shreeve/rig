@@ -1,6 +1,6 @@
 n = 3
 
-struct R[n: Int]
+obj R[n: Int]
   a: [n]Int
 
 sub main()

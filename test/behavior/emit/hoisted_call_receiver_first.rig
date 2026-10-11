@@ -1,7 +1,7 @@
 # A method call runs its receiver before its arguments, as written, also
 # when keyword arguments are evaluated into temporaries first.
 
-struct K
+obj K
   n: Int
 
   fun add(?self, a: Int, b: Int) -> Int

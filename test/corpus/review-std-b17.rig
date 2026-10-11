@@ -1,7 +1,7 @@
-struct View
+obj View
   xs: []Int
 
-struct Slot[T]
+obj Slot[T]
   v: T
 
   sub put(!self, x: T)

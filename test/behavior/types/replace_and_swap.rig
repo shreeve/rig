@@ -1,7 +1,7 @@
 # `replace(!place, v)` stores `v` and hands back the old value; `swap`
 # exchanges two places, which may be different fields of one value.
 
-struct Tree
+obj Tree
   key: Int
   left: ^Tree?
   right: ^Tree?

@@ -1,4 +1,4 @@
-struct Meters
+obj Meters
   value: Float
 
 sub main()

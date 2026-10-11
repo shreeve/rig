@@ -8,7 +8,7 @@
 # be a name's is planned). Each branch is lent instead, in a statement,
 # an argument, a method's receiver, and every header.
 
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -16,7 +16,7 @@ enum E
   a(r: Res)
   b
 
-struct W
+obj W
   e: E
   o: Res?
   v: List[Int]

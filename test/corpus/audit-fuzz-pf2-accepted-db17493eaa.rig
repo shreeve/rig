@@ -57,7 +57,7 @@ fun fu287(s: Bool) -> F32?
   x = fo287(s)?
   x
 
-struct W1879
+obj W1879
   f: Int
   g: Int = 1
 
@@ -75,7 +75,7 @@ fun ret934() -> U8
       2, 3 => 11
       _ => 69
 
-struct Bx1071
+obj Bx1071
   f: U32
 
 sub t2063()

@@ -4,7 +4,7 @@
 
 use lib
 
-struct Q
+obj Q
   n: Int
 
   fun get(?self) -> Int

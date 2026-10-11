@@ -1,4 +1,4 @@
-struct Hold
+obj Hold
   v: *fun() -> Int
 
   fun peek(?self) -> ?*fun() -> Int

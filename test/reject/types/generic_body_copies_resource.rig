@@ -2,10 +2,10 @@
 # leaves one as a temporary, or copies one into a closure, every
 # instantiation must use plain data for `T`.
 
-struct B
+obj B
   n: Int
 
-struct Keeper[T]
+obj Keeper[T]
   v: T
 
   fun id(?self, x: T) -> T
@@ -14,7 +14,7 @@ struct Keeper[T]
   sub run(?self, x: T)
     self.id(<x)
 
-struct Counter[T]
+obj Counter[T]
   v: T
 
   fun count(?self, x: T) -> Int

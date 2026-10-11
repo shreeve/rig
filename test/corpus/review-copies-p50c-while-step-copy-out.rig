@@ -2,7 +2,7 @@
 # views a List the body grows.
 #
 # oracle: main accept
-struct S
+obj S
   s: []Int
 
 sub main()

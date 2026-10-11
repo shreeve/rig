@@ -4,7 +4,7 @@
 
 TEXT = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs. A quick fox, a lazy dog!"
 
-struct Entry
+obj Entry
   word: ?String
   count: Int
 

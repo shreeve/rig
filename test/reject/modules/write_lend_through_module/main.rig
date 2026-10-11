@@ -5,7 +5,7 @@
 # `Bool`, that `!` is not negation.
 use lib
 
-struct U
+obj U
   n: Int
 
   fun bump(!self) -> Int

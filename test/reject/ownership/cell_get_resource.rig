@@ -1,7 +1,7 @@
 # `Cell.get` on a Cell of shared handles is rejected: the copy would
 # alias the owned handle.
 
-struct User
+obj User
   age: Int
 
 sub main()

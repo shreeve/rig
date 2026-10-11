@@ -1,7 +1,7 @@
 # `match <o` may yield a payload as its value, returned or bound: the
 # payload moves out of the consumed scrutinee.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

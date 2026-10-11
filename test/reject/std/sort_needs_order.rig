@@ -2,7 +2,7 @@
 # `sort_by` and a comparator instead.
 use std.sort
 
-struct P
+obj P
   x: Int
 
 sub main()

@@ -2,7 +2,7 @@
 # view comes from a call's `?User` result. (A view of a value that copies
 # is copied out instead.)
 
-struct User
+obj User
   name: String
 
   sub consume(self: User)

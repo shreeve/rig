@@ -2,16 +2,16 @@
 # assigning `x` (or its fields) writes the element in place, and a
 # resource element that is replaced is dropped.
 
-struct P
+obj P
   x: Int
 
-struct B
+obj B
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct H
+obj H
   v: List[Int]
 
 sub bump(xs: !List[Int])

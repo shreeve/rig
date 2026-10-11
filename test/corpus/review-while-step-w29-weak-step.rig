@@ -3,7 +3,7 @@
 #
 # oracle: count accept
 # oracle: main accept
-struct Node
+obj Node
   val: Int
 
 fun count(w: ?~Node) -> Int

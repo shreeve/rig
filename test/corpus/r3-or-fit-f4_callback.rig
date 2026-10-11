@@ -1,4 +1,4 @@
-struct Item
+obj Item
   id: Int
 
 fun find_by(xs: []Item, pred: ?fun(?Item) -> Bool) -> (?Item)?

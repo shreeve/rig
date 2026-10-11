@@ -4,17 +4,17 @@
 # `T`, so a `Wrap` holds plain data. They are inferred or given in brackets, and a
 # method called through its type takes the receiver first.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Pair[A, B]
+obj Pair[A, B]
   first: A
   second: B
 
-struct Tagger
+obj Tagger
   label: ?String
 
   sub show[T](?self, x: T)
@@ -25,13 +25,13 @@ struct Tagger
       return <a
     <b
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun with[U](?self, u: U) -> Pair[T, U]
     Pair(first: self.v, second: <u)
 
-struct Cup[T]
+obj Cup[T]
   v: T
 
   fun into[U](self: Cup[T], u: U) -> Cup[U]

@@ -4,7 +4,7 @@
 # `*Node?` as an optional handle, so `*(Node?)` there is rejected with the
 # ways to name it.
 
-struct Node
+obj Node
   value: Int
 
 sub main()

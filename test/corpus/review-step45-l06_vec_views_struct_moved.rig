@@ -1,5 +1,5 @@
 # struct holding a List of views moved into a List of structs, then source dropped
-struct Bag
+obj Bag
   items: List[?String]
 
 sub main()

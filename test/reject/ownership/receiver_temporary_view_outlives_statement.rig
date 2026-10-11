@@ -4,20 +4,20 @@
 # Cell of one. A value of plain data that branches is read as a copy,
 # which its statement keeps the same way.
 
-struct P
+obj P
   xs: [4]Int
 
   fun arr(?self) -> ?[4]Int
     ?self.xs
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
   fun me(?self) -> ?Q
     self
 
-struct H
+obj H
   q: Q
 
 error Bad

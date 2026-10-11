@@ -1,7 +1,7 @@
 # A shared handle chosen by an if-expression is still a bare copy of
 # the handle: each branch must write `<rc` or `+rc`.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub main()

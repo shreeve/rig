@@ -7,7 +7,7 @@
 # oracle: for_body_writes reject C4
 # oracle: write_result_split reject C4
 
-struct Item
+obj Item
   n: Int
 
 enum Res

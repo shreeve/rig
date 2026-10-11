@@ -5,7 +5,7 @@
 
 LIMIT = 2
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
   head: Int = 0
   log: List[Int]
@@ -21,11 +21,11 @@ struct Ring[T, n: Int]
   fun cap(?self) -> Int
     n
 
-struct Pool[T, m: Int]
+obj Pool[T, m: Int]
   ring: Ring[T, m]
   spare: [m]T
 
-struct Pair[n: Int]
+obj Pair[n: Int]
   items: [n]Int
 
 enum Slot[n: Int]

@@ -4,7 +4,7 @@
 # oracle: D.drop accept
 # oracle: D.hit accept
 # oracle: main accept
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -13,7 +13,7 @@ struct D
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-struct H
+obj H
   d: D
 
 fun mkd(n: Int) -> D

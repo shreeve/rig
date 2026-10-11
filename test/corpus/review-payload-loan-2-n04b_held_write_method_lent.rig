@@ -1,4 +1,4 @@
-struct P
+obj P
   t: String
 
   sub put(!self, s: String)
@@ -8,7 +8,7 @@ enum WP
   a(w: !P)
   b
 
-struct H
+obj H
   e: WP
 
 fun mk(p: !P) -> H from p

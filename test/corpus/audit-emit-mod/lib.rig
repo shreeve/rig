@@ -6,7 +6,7 @@ pub enum Color
   green = 5
   blue
 
-pub struct Cfg
+pub obj Cfg
   pub n: Int = limit
   pub c: Color = .green
   pub s: ?String = "x"
@@ -20,7 +20,7 @@ pub fun scale(x: Int, by: Int = limit, c: Color = .blue, top: U64 = big) -> Int
 pub fun ident[T](x: T) -> T
   x
 
-pub struct Pair[T]
+pub obj Pair[T]
   pub a: T
   pub b: T
 

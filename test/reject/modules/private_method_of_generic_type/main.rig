@@ -4,7 +4,7 @@
 
 use lib
 
-struct Many
+obj Many
   a: [1]Int
   b: [2]Int
   c: [3]Int

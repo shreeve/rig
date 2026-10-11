@@ -1,9 +1,9 @@
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop R", self.n)
 
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
   sub push(!self, x: T)

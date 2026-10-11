@@ -1,6 +1,6 @@
 # Taking a read view (`?packet`) of a moved value is rejected.
 
-struct Packet
+obj Packet
   payload: Int
 
 fun make_packet() -> Packet

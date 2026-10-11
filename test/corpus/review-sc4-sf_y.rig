@@ -6,7 +6,7 @@ fun mk() -> Shape
   print("mk")
   .circle(r: 3)
 
-struct H
+obj H
   s: Shape
 
   fun get(?self) -> Shape

@@ -1,10 +1,10 @@
 # A struct may hold a view while the viewed value is alive, whether
 # built locally or returned from a function taking the view.
 
-struct Wrap
+obj Wrap
   payload: Int
 
-struct View
+obj View
   box: ?Wrap
 
 fun view_of(b: ?Wrap) -> View

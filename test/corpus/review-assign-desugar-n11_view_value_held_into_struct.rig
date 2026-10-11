@@ -1,6 +1,6 @@
 # A value that is a view, made in __v and stored into a struct local:
 # the struct's loan on `v` lasts, so a later grow must be rejected.
-struct H
+obj H
   r: ?Int
 
 fun grow(v: !List[Int]) -> Int

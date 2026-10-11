@@ -1,5 +1,5 @@
 # The step reads `h` inside an `if ... as` expression.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

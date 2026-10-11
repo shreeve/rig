@@ -3,10 +3,10 @@
 # there (lent as a temporary of the statement), a literal, a closure
 # binding, an owned closure, and through every row of the lend table.
 
-struct Bag
+obj Bag
   v: List[Int]
 
-struct S
+obj S
   n: Int
 
 type F = fun(Int) -> Int

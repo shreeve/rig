@@ -2,7 +2,7 @@
 # with `!`, used within its statement (Core sentence 4); without the `!`
 # the call is rejected (`test/reject/ownership/write_receiver_temporary.rig`).
 
-struct S
+obj S
   n: Int
   m: Int
 

@@ -1,7 +1,7 @@
 # `rc2 = rc` on a shared handle is rejected: it would alias the handle
 # without a refcount bump. Use `<rc` or `+rc`.
 
-struct Wrap
+obj Wrap
   value: Int
 
 sub main()

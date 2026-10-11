@@ -1,4 +1,4 @@
-struct S
+obj S
   b: ^Int
 
 fun add(x: ?Int, y: Int) -> Int

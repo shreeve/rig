@@ -3,13 +3,13 @@
 # argument the body returns is handed back to the caller, and one it
 # does not return is dropped when the call ends. A Copy type is copied.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 fun pick[T](a: T, b: T, first: Bool) -> T

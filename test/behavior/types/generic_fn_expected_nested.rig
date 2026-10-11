@@ -12,7 +12,7 @@ error Bad
 fun id[T](a: T) -> T
   a
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun make(v: T) -> Wrap[T]

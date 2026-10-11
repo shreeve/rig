@@ -4,12 +4,12 @@ fun double(n: Int) -> Int
 fun yes(n: Int) -> Bool
   n > 0
 
-struct T
+obj T
   f: fun(Int) -> Int
   g: fun(Int) -> Bool
   n: Int
 
-struct W
+obj W
   t: T
   ts: [2]T
 

@@ -2,11 +2,11 @@
 # L0 alone keeps `p` lent after `next` (Parser can own a Tok itself,
 # in `scratch`); `from self.toks` frees it. Rust: `-> &'a Tok` in
 # `impl<'a> Parser<'a>` accepts the twin.
-struct Tok
+obj Tok
   kind: Int
   start: Int
 
-struct Parser
+obj Parser
   toks: []Tok
   scratch: List[Tok]
   pos: Int

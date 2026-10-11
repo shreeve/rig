@@ -1,4 +1,4 @@
-pub struct Stack[T]
+pub obj Stack[T]
   items: List[T]
 
   fun new_stack() -> Self
@@ -11,7 +11,7 @@ pub struct Stack[T]
   fun size(?self) -> Int
     self.items.len
 
-pub struct Slot[T]
+pub obj Slot[T]
   c: Cell[T]
 
   fun swap(!self, x: T) -> T
@@ -23,5 +23,5 @@ pub fun wrap[T](x: T, label: ?String = "w") -> Stack[T]
   print(label)
   s
 
-pub struct View[T]
+pub obj View[T]
   r: ?T

@@ -1,7 +1,7 @@
 # `+x` of a List, a box, an array, or a struct or enum of owners makes a
 # new owner part by part (Core sentence 2); each changes on its own.
 
-struct H
+obj H
   name: String
   tags: List[Int]
   h: *Int

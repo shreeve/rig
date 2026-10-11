@@ -1,4 +1,4 @@
-struct H
+obj H
   h: *Int
 
 sub main()

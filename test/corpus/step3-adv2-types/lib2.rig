@@ -1,10 +1,10 @@
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
   fun make(v: T) -> Self
     Wrap(v: v)
 
-pub struct Pair[A, B]
+pub obj Pair[A, B]
   first: A
   second: B
 

@@ -1,4 +1,4 @@
-struct Tree[T]
+obj Tree[T]
   kids: List[Tree[T]]
   v: T
 

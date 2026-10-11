@@ -40,5 +40,5 @@ sub main()
   b = Res[P].err(code: 5)
   print(b.code_of())
 
-struct P
+obj P
   x: Int

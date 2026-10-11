@@ -1,9 +1,9 @@
 # A lent to write counter argument stays lent to write while the
 # result lives, so it cannot even be read.
-struct Entry
+obj Entry
   name: ?String
 
-struct Table
+obj Table
   rows: [2]Entry
 
 fun get_counted(t: ?Table, i: Int, count: !Int) -> ?Entry

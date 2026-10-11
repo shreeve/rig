@@ -1,16 +1,16 @@
-struct Noisy
+obj Noisy
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-struct H
+obj H
   arr: [2]Counter
   z: Noisy
 

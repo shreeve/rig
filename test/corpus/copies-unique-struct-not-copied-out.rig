@@ -1,4 +1,4 @@
-struct Rng unique
+obj Rng unique
   s: Int
 
 fun out(p: ?Rng) -> Rng

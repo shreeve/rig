@@ -5,13 +5,13 @@
 # same order.
 # release
 
-struct Acc
+obj Acc
   total: Int
 
   sub put(!self, s: ?String, n: Int)
     self.total += n + s.len
 
-struct P
+obj P
   x: Int
   y: Int
 

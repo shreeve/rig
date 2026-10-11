@@ -1,6 +1,6 @@
 const N = 4
 
-pub struct Buf[T]
+pub obj Buf[T]
   items: [N]T
 
   fun first(?self) -> T

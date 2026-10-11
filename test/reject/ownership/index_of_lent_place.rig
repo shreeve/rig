@@ -4,7 +4,7 @@
 # memory the place is in. (An assignment's target is found after its
 # indices run, so there an index may.)
 
-struct P
+obj P
   a: [4]Int
 
 fun grow(v: !List[P]) -> Int

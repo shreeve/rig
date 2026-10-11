@@ -1,4 +1,4 @@
-struct Opt[T]
+obj Opt[T]
   v: T
 
 sub main()

@@ -1,7 +1,7 @@
 # A view binding read only by its drop: dropping the read view `r`
 # ends it, so the write view `w` is allowed.
 
-struct User
+obj User
   name: ?String
 
 sub main()

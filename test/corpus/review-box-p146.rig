@@ -1,7 +1,7 @@
-struct R
+obj R
   n: Int
 
-struct S
+obj S
   b: ^R
 
 fun add(x: ?R, y: Int) -> Int

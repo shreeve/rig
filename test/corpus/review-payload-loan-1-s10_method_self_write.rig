@@ -1,4 +1,4 @@
-struct R
+obj R
   t: String
 
   fun head(?self) -> ?String

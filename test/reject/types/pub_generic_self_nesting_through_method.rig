@@ -2,10 +2,10 @@
 # type's method (`f[T]` calls `Hidden[T].m`, which calls `f[Wrap[T]]`)
 # is reported where it is declared.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
-struct Hidden[T]
+obj Hidden[T]
   v: T
 
   fun m(?self) -> Int

@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   v: List[Int]
   arr: [3]Int
@@ -6,7 +6,7 @@ struct P
   fun vr(?self) -> ?List[Int]
     ?self.v
 
-struct S
+obj S
   b: ^P
 
 fun rd(s: ?S) -> Int

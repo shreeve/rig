@@ -13,10 +13,10 @@ sub w()
 sub f(n: Int)
   return Bad.neg if n > 0
 
-struct M
+obj M
   v: Int
 
-struct Empty
+obj Empty
   sub hi(?self)
     print("hi")
 

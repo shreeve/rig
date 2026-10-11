@@ -1,8 +1,8 @@
 # H3: generic loop over ?List[T], body: push into List[T] by bare x
-struct S
+obj S
   t: String
 
-struct Holder[T]
+obj Holder[T]
   x: T?
 
 fun cp[T](v: ?List[T]) -> List[T]

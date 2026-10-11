@@ -1,7 +1,7 @@
 # A view a `?self` method returns of a receiver that branches (`(a if c
 # else b).inner()`), held while `a.t` is replaced: rejected.
 
-struct S
+obj S
   t: String
 
   fun inner(?self) -> ?String

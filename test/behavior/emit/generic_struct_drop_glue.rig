@@ -1,11 +1,11 @@
 # A generic struct instantiated with a handle (`Holder[*Noisy]`) drops the
 # handle it holds.
 
-struct Holder[T]
+obj Holder[T]
   value: T
   id: Int
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

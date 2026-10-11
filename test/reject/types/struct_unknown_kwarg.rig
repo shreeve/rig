@@ -1,6 +1,6 @@
 # A constructor keyword must name a declared field.
 
-struct User
+obj User
   name: ?String
   age: Int
 

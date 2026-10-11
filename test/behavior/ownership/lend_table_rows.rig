@@ -5,7 +5,7 @@
 # parameter holds lends what it views.
 use std.sort
 
-struct S
+obj S
   n: Int
 
 fun total(xs: []Int) -> Int

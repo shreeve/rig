@@ -2,7 +2,7 @@
 # statement lends implicitly (test/reject/types/lasting_lend_written.rig
 # rejects the unwritten kept forms).
 
-struct Bag
+obj Bag
   items: List[Int]
 
   fun all(?self) -> []Int
@@ -11,7 +11,7 @@ struct Bag
   fun size(?self) -> Int
     self.items.len
 
-struct Holder
+obj Holder
   seen: []Int
 
 fun head(xs: []Int) -> []Int

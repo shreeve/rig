@@ -1,6 +1,6 @@
 type Arr = [1_000_000]Int
 
-struct Big
+obj Big
   a: Cell[Arr]
   b: Cell[Arr]
   c: Cell[Arr]

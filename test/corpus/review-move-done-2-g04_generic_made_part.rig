@@ -1,5 +1,5 @@
 # A part of a generic made value, through a for source and a leaf.
-struct G[T]
+obj G[T]
   f: T
 
 fun wrap[T](x: T) -> G[T]

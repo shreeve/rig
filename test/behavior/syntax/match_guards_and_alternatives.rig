@@ -3,7 +3,7 @@
 # through to the later arms. It works in value and statement position,
 # on enums, integers, ranges, and Bool, and for `match !e` and `match <e`.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

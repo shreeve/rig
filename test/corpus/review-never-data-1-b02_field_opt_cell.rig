@@ -1,4 +1,4 @@
-struct S
+obj S
   a: Cell[Int]?
 
 sub main()

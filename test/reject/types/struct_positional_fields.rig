@@ -1,11 +1,11 @@
 # A type with one field takes it by position (`^x`); with more
 # fields, they are set by name.
 
-struct P
+obj P
   x: Int
   y: Int
 
-struct Pair[T]
+obj Pair[T]
   a: T
   b: T
 

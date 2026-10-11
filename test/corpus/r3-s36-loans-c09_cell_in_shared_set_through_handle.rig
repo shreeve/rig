@@ -1,8 +1,8 @@
 # A view put into a Cell through a viewed path of a shared handle.
-struct R
+obj R
   n: Int
 
-struct V
+obj V
   r: ?R
 
 sub stash(c: !Cell[V?], v: V)

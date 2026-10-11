@@ -12582,7 +12582,7 @@ test "check: integer literal range" {
 
 test "check: lending on a view parameter" {
     var r = try checkSource(std.testing.allocator,
-        \\struct B
+        \\obj B
         \\  n: Int
         \\
         \\fun g(b: ?B) -> Int
@@ -12602,7 +12602,7 @@ test "check: a fallible call must be wrapped with `!` or `catch`" {
         \\fun load(id: Int) -> Int!
         \\  id
         \\
-        \\struct U
+        \\obj U
         \\  n: Int
         \\
         \\  fun check(?self) -> Int!
@@ -12670,7 +12670,7 @@ test "check: `!` needs a fallible operand and a function that can fail" {
 
 test "check: each distinct instance of a generic function is recorded once" {
     var r = try checkSource(std.testing.allocator,
-        \\struct P
+        \\obj P
         \\  a: Int
         \\
         \\fun size[T](x: T) -> Int

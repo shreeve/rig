@@ -73,7 +73,7 @@ structural weak spots, which these steps removed (the evidence is in
 
 1. **Type facts.** One fact per question (copies, unique, needs
    cleanup, may hold a loan, cloneable, how a read view is represented)
-   replaced the disagreeing proxies; `struct T unique` exists,
+   replaced the disagreeing proxies; `obj T unique` exists,
    `std.random.Rng` became the unique `Random`, and a type holding a
    `Cell` is unique.
 2. **One classifier and one exit.** `sema.handsOver` decides what every

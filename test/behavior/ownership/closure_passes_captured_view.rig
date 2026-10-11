@@ -2,7 +2,7 @@
 # for the call, and call methods through a captured write view; the
 # closure keeps the view for its next call.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

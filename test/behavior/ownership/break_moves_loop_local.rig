@@ -4,7 +4,7 @@
 # says the same.
 # release
 
-struct R
+obj R
   n: Int
 
   drop(!self)

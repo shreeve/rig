@@ -5,7 +5,7 @@
 # value, for as long as the subject's loan allows.
 # release
 
-struct Res
+obj Res
   n: Int
   t: String
   xs: [2]Int
@@ -14,7 +14,7 @@ enum E
   a(r: Res)
   b(r: Res)
 
-struct Hold
+obj Hold
   r: ?Res
 
 enum Opt[T]
@@ -25,7 +25,7 @@ enum K
   k(t: String)
   none
 
-struct Key unique
+obj Key unique
   n: Int
 
 enum U

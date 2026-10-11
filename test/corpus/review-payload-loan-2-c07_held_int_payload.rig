@@ -2,7 +2,7 @@ enum WI
   a(w: !Int)
   b
 
-struct H
+obj H
   e: WI
 
 fun mk(x: !Int) -> H from x

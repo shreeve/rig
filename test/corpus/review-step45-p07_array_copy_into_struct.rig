@@ -1,5 +1,5 @@
 # struct literal field takes an array of owners bare (copy): reject
-struct S
+obj S
   arr: [2]String
 
 sub main()

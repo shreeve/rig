@@ -1,12 +1,12 @@
 use lib
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Holder
+obj Holder
   s: lib.Stack[*Res]
   c: lib.Slot[Int]
 

@@ -1,4 +1,4 @@
-struct N
+obj N
   k: Int
 
 sub main()

@@ -4,7 +4,7 @@ enum Shape
   dot
   line(v: List[Int])
 
-struct H
+obj H
   o: Shape?
 
 fun f(h: ?H) -> Bool?

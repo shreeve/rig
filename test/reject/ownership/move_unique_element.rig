@@ -1,10 +1,10 @@
 # A unique element stays in its array, and a field in its struct: `<`
 # cannot take one out while the container still holds it.
 
-struct Seed unique
+obj Seed unique
   n: Int
 
-struct H
+obj H
   s: Seed
   n: Int
 

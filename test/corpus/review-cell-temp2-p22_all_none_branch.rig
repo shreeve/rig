@@ -4,7 +4,7 @@
 # oracle: mk accept
 # oracle: go accept
 # oracle: main accept
-struct Q
+obj Q
   n: Int
   t: String
 

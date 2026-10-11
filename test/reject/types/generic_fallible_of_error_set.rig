@@ -8,7 +8,7 @@ error E
 fun id[T](x: T) -> T!
   x
 
-struct Slot[T]
+obj Slot[T]
   v: T
 
   fun get(?self) -> T!

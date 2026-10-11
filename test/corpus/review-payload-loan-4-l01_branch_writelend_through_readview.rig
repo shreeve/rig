@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -14,7 +14,7 @@ fun mk(n: Int) -> E
 fun getw(e: !E) -> !E
   e
 
-struct H
+obj H
   w: !E
 
 sub f(h1: ?H, h2: ?H, c: Bool)

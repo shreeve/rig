@@ -1,4 +1,4 @@
-struct Holder
+obj Holder
   r: []Int
   own: List[Int]
 

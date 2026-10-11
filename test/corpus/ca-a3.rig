@@ -1,7 +1,7 @@
-struct Wrap
+obj Wrap
   n: Int
 
-struct View
+obj View
   w: ?Wrap
 
 sub fill(out: !View, f: ?fun() -> ?Wrap)

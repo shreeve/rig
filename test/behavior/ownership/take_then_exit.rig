@@ -1,13 +1,13 @@
 # A taken field is `none` at once, so an early exit (`!`, `?`, `break`)
 # after the take drops only what was taken, and the place is left empty.
 
-struct R
+obj R
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct S
+obj S
   a: R?
   b: R?
 

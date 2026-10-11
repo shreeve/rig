@@ -11,7 +11,7 @@ error Net
 
 type N = Net
 
-struct H
+obj H
   e: lib.Disk = lib.DEF
 
 fun g(e: lib.Disk = lib.DEF) -> lib.Disk

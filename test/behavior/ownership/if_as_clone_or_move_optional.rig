@@ -1,7 +1,7 @@
 # An optional handle held in a binding is bound with `as` by cloning it
 # (`if +m as h`) or moving it (`if <m as h`).
 
-struct B
+obj B
   n: Int
 
   drop(!self)

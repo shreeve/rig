@@ -1,7 +1,7 @@
-struct Item
+obj Item
   n: Int
 
-struct S
+obj S
   own: [2]Item
   items: ?[2]Item
 

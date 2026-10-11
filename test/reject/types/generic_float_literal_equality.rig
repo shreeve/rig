@@ -1,7 +1,7 @@
 # Comparing a generic `T` with a float literal needs a float `T`; the
 # diagnostic names the literal, not `==`.
 
-struct Acc[T]
+obj Acc[T]
   t: T
   fun is(?self) -> Bool
     self.t == 1.5

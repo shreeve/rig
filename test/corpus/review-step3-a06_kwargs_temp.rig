@@ -1,4 +1,4 @@
-struct Bag
+obj Bag
   n: Int
 
   drop(!self)

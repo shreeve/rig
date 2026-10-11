@@ -1,4 +1,4 @@
-struct P
+obj P
   t: String
 
 fun name(p: ?P) -> ?String

@@ -1,11 +1,11 @@
 # `continue` leaves the body scope: a view of a body local held by
 # an outer var is used on the next iteration.
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct V
+obj V
   r: ?R
 
 sub main()

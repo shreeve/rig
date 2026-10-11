@@ -1,5 +1,5 @@
 # Rejected: a take through a read payload view.
-struct S
+obj S
   o: List[Int]?
 
 enum E

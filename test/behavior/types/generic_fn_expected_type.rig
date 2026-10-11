@@ -54,13 +54,13 @@ fun checked(ok: Bool) -> U8!
     return Bad.bad
   max(7, 8)
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun pick[U](?self, a: U, b: U) -> U
     a if self.v > 0 else b
 
-struct Pair[T, U]
+obj Pair[T, U]
   first: T
   second: U
 
@@ -79,7 +79,7 @@ fun wrap[T](x: T) -> List[T]
 fun id[T](x: T) -> T
   x
 
-struct Holder
+obj Holder
   n: U8
   f: F32
 

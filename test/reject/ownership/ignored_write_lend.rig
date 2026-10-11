@@ -14,19 +14,19 @@ enum Opt[T]
   some(v: T)
   nothing
 
-struct H[T]
+obj H[T]
   r: T
 
-struct G[T]
+obj G[T]
   r: T
 
   sub set(!self, x: T)
     self.r = x
 
-struct P
+obj P
   x: Int
 
-struct Q
+obj Q
   a: Int
   b: Int
 

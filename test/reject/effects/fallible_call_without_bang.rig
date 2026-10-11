@@ -1,7 +1,7 @@
 # A call to a fallible function must be wrapped with `!` (propagate) or
 # `catch` (handle); a bare call would hide the failure path.
 
-struct User
+obj User
   name: ?String
 
 fun loadUser(id: U64) -> User!

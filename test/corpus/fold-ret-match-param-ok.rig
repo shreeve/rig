@@ -3,7 +3,7 @@ enum E
   full(t: String)
   empty
 
-struct H
+obj H
   t: String
 
 fun f(e: ?E) -> ?String from e

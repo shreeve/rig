@@ -1,7 +1,7 @@
 # A payload binding views the matched value, which cannot be moved while
 # the binding is in use.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 enum Slot

@@ -2,10 +2,10 @@
 # `?Q?`, a view of an optional inside the header's own temporary (which
 # owns a Text, dropped when the header ends); the plain-data binding
 # copies the value out of it after the header block.
-struct Q
+obj Q
   xs: [4]Int
 
-struct H
+obj H
   q: Q?
   t: String
 

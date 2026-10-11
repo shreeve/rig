@@ -1,7 +1,7 @@
 # `and` runs its right side only sometimes: a move there is a move on
 # one path only. The checker treats it as always moved; does the
 # emitted code drop `x` when the move did not happen?
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)

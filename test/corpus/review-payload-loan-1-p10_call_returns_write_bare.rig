@@ -2,7 +2,7 @@ enum E
   a(t: String)
   b
 
-struct H
+obj H
   e: E
 
 fun get(h: !H) -> !E

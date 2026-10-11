@@ -1,6 +1,6 @@
 # WELCOME "`!` is not not": "Every place where the habit would change a program's meaning is an error"
 # DESIGN `and`, `or`, `not`: "A habit can make a program fail to compile, never change what it means."
-struct Set
+obj Set
   items: List[Int]
 
   fun insert(!self, k: Int) -> Bool

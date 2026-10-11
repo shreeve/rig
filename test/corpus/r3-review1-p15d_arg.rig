@@ -1,4 +1,4 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 sub take(c: Counter)

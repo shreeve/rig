@@ -3,7 +3,7 @@ enum Opt[T]
   some(v: T)
   nothing
 
-struct Hd[T]
+obj Hd[T]
   o: Opt[T]
 
 fun idx(s: ?String) -> Int

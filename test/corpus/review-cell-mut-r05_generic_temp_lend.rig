@@ -1,9 +1,9 @@
 # Read lends of a temporary, and of a part of one, inside generic code,
 # at an instance whose value holds a Cell.
-struct T
+obj T
   c: Cell[Int]
 
-struct H[X]
+obj H[X]
   x: X
 
 sub bump(t: !T)

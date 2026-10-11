@@ -1,4 +1,4 @@
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
 sub main()

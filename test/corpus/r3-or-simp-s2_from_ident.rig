@@ -1,5 +1,5 @@
 # `from` is an ordinary name today: the clause must be contextual.
-struct Move
+obj Move
   from: Int
   to: Int
 

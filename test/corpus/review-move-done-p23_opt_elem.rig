@@ -1,5 +1,5 @@
 # optional elements holding owners: taken and emptied
-struct S
+obj S
   v: List[Int]
 
 fun len_of(o: S?) -> Int

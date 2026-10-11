@@ -3,7 +3,7 @@
 # says how, in a form that compiles (see
 # test/behavior/types/weak_in_box_upgrade.rig).
 
-struct S
+obj S
   n: Int
 
 sub main()

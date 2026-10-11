@@ -2,7 +2,7 @@
 # optional views, branches, `defer`, and early exits hand on, in loops.
 # release
 
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)
@@ -12,7 +12,7 @@ struct C
     !self.hit()
     self
 
-struct Gn[T]
+obj Gn[T]
   c: Cell[T]
 
   sub put(!self, x: T)

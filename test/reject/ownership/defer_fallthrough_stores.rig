@@ -1,6 +1,6 @@
 # A `defer` that stores a loan on a local of its scope runs as the
 # scope ends, after which the local is gone.
-struct H
+obj H
   r: ?List[Int]
 
 sub main()

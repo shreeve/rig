@@ -1,6 +1,6 @@
 # A `continue` after a loop inside a nested loop's `else` targets the loop
 # around the nested one.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

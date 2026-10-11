@@ -1,6 +1,6 @@
 pub limit = 7
 
-pub struct P
+pub obj P
   pub x: Int
 
 pub fun twice(n: Int) -> Int

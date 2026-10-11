@@ -7,7 +7,7 @@
 # lends each leaf; a part of a branch of lends is matched to write once
 # the branch has a name.
 
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -18,7 +18,7 @@ enum E
 error Bad
   nope
 
-struct W
+obj W
   e: E
   o: E?
   v: List[Int]

@@ -3,7 +3,7 @@
 # reached; a generic closure's read capture of a write view binding is
 # the read view of what it points at.
 
-struct P
+obj P
   n: Int
 
 enum G[T]

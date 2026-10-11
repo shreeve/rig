@@ -1,4 +1,4 @@
-struct W
+obj W
   w: [1](!Int)?
 
 fun out(p: ?W) -> W

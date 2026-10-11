@@ -1,13 +1,13 @@
 # Pushing a shared view into a List makes the List hold that view's
 # view.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
-struct View
+obj View
   b: ?Wrap
 
 sub main()

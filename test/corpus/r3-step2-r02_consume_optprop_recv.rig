@@ -1,10 +1,10 @@
-struct Bag
+obj Bag
   items: List[Int]
 
   fun total(<self) -> Int
     self.items.len
 
-struct Holder
+obj Holder
   o: Bag?
 
 fun go(h: !Holder) -> Int?

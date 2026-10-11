@@ -2,7 +2,7 @@
 # view is used, as `?x` does, and a value made there is a temporary of
 # its statement.
 
-struct Bag
+obj Bag
   v: List[Int]
 
 fun keep(b: ?Bag) -> ?Bag

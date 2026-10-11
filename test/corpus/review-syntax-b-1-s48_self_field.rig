@@ -1,7 +1,7 @@
 fun keep(xs: []Int) -> []Int
   xs
 
-struct B
+obj B
   items: List[Int]
 
   sub go(!self)

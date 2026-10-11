@@ -2,7 +2,7 @@ enum E
   full(v: List[Int])
   empty
 
-struct S
+obj S
   o: List[Int]?
   v: List[Int]
   arr: [2]Int

@@ -1,5 +1,5 @@
 # <mk(!v).w: a write view moved out of a made value whose drop body uses it
-struct G
+obj G
   w: !List[Int]
 
   drop(!self)

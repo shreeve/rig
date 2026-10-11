@@ -10,7 +10,7 @@ fun each[T](v: ?List[T], f: fun(?T) -> Int) -> Int
     t += f(?x)
   t
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

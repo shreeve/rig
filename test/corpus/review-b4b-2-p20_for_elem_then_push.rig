@@ -1,5 +1,5 @@
 # for element binding matched; view escapes the loop; the List then grows. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

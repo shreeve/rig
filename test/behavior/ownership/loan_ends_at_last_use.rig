@@ -2,7 +2,7 @@
 # last use, not at the end of the block: after that the value can be
 # written, moved, dropped, or reassigned.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)
@@ -11,7 +11,7 @@ struct Wrap
   drop(!self)
     print("drop", self.n)
 
-struct View
+obj View
   box: ?Wrap
 
 sub eat(b: Wrap)

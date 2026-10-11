@@ -1,11 +1,11 @@
 # a method taking <self on a plain field: with and without `<`
-struct P
+obj P
   x: Int
 
   fun into(<self) -> Int
     self.x
 
-struct S
+obj S
   p: P
 
 sub main()

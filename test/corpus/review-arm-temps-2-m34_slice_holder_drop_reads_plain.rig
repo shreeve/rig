@@ -1,6 +1,6 @@
 # The same as m33 with no nested statement: the right side grows `v`, then
 # the store drops the old `h`, whose `drop` reads a slice of `v`.
-struct H
+obj H
   v: []Int
 
   drop(!self)

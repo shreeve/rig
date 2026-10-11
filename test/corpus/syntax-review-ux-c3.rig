@@ -1,4 +1,4 @@
-struct Ring[n: Int]
+obj Ring[n: Int]
   buf: [n]U8
   head: Int = 0
   tail: Int = 0

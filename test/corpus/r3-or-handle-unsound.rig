@@ -9,10 +9,10 @@
 # oracle: weak_carries reject C4
 # oracle: moved_handle reject C1
 
-struct User
+obj User
   name: String
 
-struct Holder
+obj Holder
   r: ?List[Int]
 
 sub drop_while_viewed()

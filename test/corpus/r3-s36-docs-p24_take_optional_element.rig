@@ -1,5 +1,5 @@
 # Core §5: `<v[i]` takes an optional element
-struct B
+obj B
   n: Int
 
   drop(!self)

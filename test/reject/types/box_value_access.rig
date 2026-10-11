@@ -3,7 +3,7 @@
 # has no `==`, and its own consuming `unbox` and its value's consuming
 # methods need an owned box.
 
-struct R
+obj R
   n: Int
 
   sub eat(<self)

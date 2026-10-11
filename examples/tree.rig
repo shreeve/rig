@@ -5,13 +5,13 @@
 # the walk ends; the reads walk down with read views. Dropping the
 # tree drops every node.
 
-struct Node[T]
+obj Node[T]
   key: T
   count: Int
   left: ^Node[T]?
   right: ^Node[T]?
 
-struct Tree[T]
+obj Tree[T]
   root: ^Node[T]?
   size: Int
 

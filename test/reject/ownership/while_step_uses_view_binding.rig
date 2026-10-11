@@ -2,7 +2,7 @@
 # so the step, which runs after it, cannot use it; a box's value is
 # reached the same way.
 
-struct P
+obj P
   n: Int
 
 sub main()

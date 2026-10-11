@@ -1,7 +1,7 @@
 pub fun dbl[T](x: T) -> T
   x + x
 
-pub struct W[T]
+pub obj W[T]
   v: T
 
   fun d(?self) -> T

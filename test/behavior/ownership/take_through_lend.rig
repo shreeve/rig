@@ -3,7 +3,7 @@
 # read with no `<` (`test/reject/ownership/move_through_lend.rig` and
 # `move_part_that_copies.rig` have the moves rejected).
 
-struct S
+obj S
   n: Int
   o: List[Int]?
 

@@ -4,7 +4,7 @@
 error E
   bad
 
-struct N
+obj N
   c: Cell[Int]
 
   fun me(!self) -> ?N
@@ -18,7 +18,7 @@ fun mkf(n: Int) -> N!
   return E.bad if n < 0
   mk(n)
 
-struct WW
+obj WW
   t: N
 
 fun mkww(n: Int) -> WW

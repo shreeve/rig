@@ -3,11 +3,11 @@
 # may store what it captured to read through a write capture: the
 # written value then views it.
 
-struct View
+obj View
   w: ?List[Int]
   n: Int
 
-struct Wrap
+obj Wrap
   n: Int
 
 fun seed(n: Int) -> Int

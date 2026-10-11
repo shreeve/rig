@@ -3,7 +3,7 @@
 
 use lib
 
-struct S
+obj S
   n: Int
 
   fun lib(?self) -> Int

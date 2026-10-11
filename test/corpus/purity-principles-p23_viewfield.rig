@@ -1,4 +1,4 @@
-struct Tally
+obj Tally
   count: !Int
 
 sub record(t: !Tally)

@@ -13,10 +13,10 @@
 # oracle: deferred reject C4
 # oracle: closure reject C4
 
-struct Item
+obj Item
   n: Int
 
-struct Bag
+obj Bag
   items: List[Item]
   count: Int
 

@@ -1,7 +1,7 @@
 # Branches are checked independently: a move in the `then` branch does
 # not make the value unusable in the `else` branch.
 
-struct Packet
+obj Packet
   payload: Int
 
 sub send(p: Packet)

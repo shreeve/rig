@@ -1,7 +1,7 @@
-struct Item
+obj Item
   n: Int
 
-struct Ops
+obj Ops
   pick: ?fun(?Item, ?Item) -> ?Item
 
 fun left(a: ?Item, b: ?Item) -> ?Item

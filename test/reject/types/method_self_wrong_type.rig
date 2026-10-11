@@ -1,9 +1,9 @@
 # A method's `self` must have the enclosing type (or `Self`).
 
-struct Order
+obj Order
   id: Int
 
-struct User
+obj User
   name: ?String
 
   fun bad(self: ?Order) -> Int

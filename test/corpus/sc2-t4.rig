@@ -1,7 +1,7 @@
 fun of(of: Int) -> Int
   of + 1
 
-struct Pair
+obj Pair
   of: Int
 
 sub main()

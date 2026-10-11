@@ -4,10 +4,10 @@
 # type `Q`, the constructor that makes the value, and the temporary the
 # call makes.
 
-struct P
+obj P
   c: Cell[Int]
 
-struct Q
+obj Q
   p: P
 
 fun mk() -> Q

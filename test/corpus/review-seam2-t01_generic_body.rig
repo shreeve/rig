@@ -5,7 +5,7 @@
 # oracle: go2 accept
 # oracle: go3 accept
 # oracle: main accept
-struct Box2[T]
+obj Box2[T]
   v: T
   n: Int
 

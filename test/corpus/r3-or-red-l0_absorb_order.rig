@@ -2,10 +2,10 @@
 # so the result views `w`. If the call rule replaces the result's loan
 # on `c` by `c`'s flow *before* the call's stores are absorbed into `c`,
 # `r` carries only `v`'s loan and outlives `w`.
-struct Item
+obj Item
   n: Int
 
-struct Cursor
+obj Cursor
   items: ?List[Item]
 
   fun next(!self, extra: ?List[Item]) -> ?Item

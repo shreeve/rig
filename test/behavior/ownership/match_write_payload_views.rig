@@ -1,11 +1,11 @@
 # Bindings of a `match !e` point into the matched value: a write through
 # one, a view returned from one, and a whole-value write all land in it.
 
-struct P
+obj P
   x: Int
   y: Int
 
-struct Res
+obj Res
   n: Int
   t: String
 

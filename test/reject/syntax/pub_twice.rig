@@ -1,6 +1,6 @@
 # `pub` marks a member once.
 
-struct S
+obj S
   pub pub x: Int
 
 sub main()

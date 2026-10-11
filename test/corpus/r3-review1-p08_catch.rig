@@ -1,7 +1,7 @@
 error Bad
   oops
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 fun mk(n: Int) -> Counter!

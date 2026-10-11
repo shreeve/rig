@@ -1,7 +1,7 @@
 # A struct constructor with keyword fields; member access types each
 # field from the declaration.
 
-struct User
+obj User
   name: ?String
   age: Int
 

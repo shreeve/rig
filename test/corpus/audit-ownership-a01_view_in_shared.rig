@@ -1,7 +1,7 @@
-struct Bx
+obj Bx
   v: List[Int]
 
-struct View
+obj View
   b: ?Bx
 
 sub main()

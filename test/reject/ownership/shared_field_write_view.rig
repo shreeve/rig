@@ -2,13 +2,13 @@
 # it cannot be lent to write, lent to a `!T` parameter, given to a
 # `!self` method, or write-iterated.
 
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct Holder
+obj Holder
   v: List[Int]
   c: Counter
 

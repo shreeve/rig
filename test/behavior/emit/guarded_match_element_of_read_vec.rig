@@ -6,7 +6,7 @@ enum E
   a(n: Int)
   b(n: Int)
 
-struct W
+obj W
   e: E
 
 fun f(v: ?List[E]) -> Int

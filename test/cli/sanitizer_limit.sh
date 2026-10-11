@@ -5,7 +5,7 @@
 source "$ROOT/test/cli/_lib.sh"
 
 cat >many.rig <<'EOF2'
-struct Node
+obj Node
   value: Int
 
 sub main()
@@ -26,7 +26,7 @@ expect_eq "$(cat out.txt)" "total 44850" "stdout past the limit"
 expect_eq "$(grep -c 'rig: sanitizer: mapping limit reached; further allocations are not guarded' err.txt)" 1 "one note"
 
 cat >cycle.rig <<'EOF2'
-struct Node
+obj Node
   next: *Cell[*Node?]
 
 sub main()

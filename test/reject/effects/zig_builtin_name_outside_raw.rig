@@ -3,7 +3,7 @@
 # `@typeName`) work only inside `raw`; the fix-it rewrites the call,
 # its argument included, once.
 
-struct P
+obj P
   a: Int
 
 sub main()

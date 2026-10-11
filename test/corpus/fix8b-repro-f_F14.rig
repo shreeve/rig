@@ -1,6 +1,6 @@
 const N: I8 = 100
 
-struct Ring[T, n: I8]
+obj Ring[T, n: I8]
   items: [n]T
 
 fun f() -> Int

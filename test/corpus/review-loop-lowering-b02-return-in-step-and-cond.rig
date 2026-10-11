@@ -7,7 +7,7 @@
 # oracle: f accept
 # oracle: h3 accept
 # oracle: main accept
-struct D
+obj D
   n: Int
   drop(!self)
     print("drop", self.n)

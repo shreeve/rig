@@ -1,13 +1,13 @@
 error E
   bad
 
-struct Q
+obj Q
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct P
+obj P
   x: Int
   o: Int?
   a: [2]Int

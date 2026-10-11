@@ -1,13 +1,13 @@
 # Where a generic body copies a `T`, every instance must be plain data:
 # a copy of an owning value would duplicate the resource it owns.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Pair[A, B]
+obj Pair[A, B]
   first: A
   second: B
 

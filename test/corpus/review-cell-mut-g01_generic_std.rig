@@ -4,7 +4,7 @@
 use std.sort
 use std.slices
 
-struct C
+obj C
   c: Cell[Int]
   k: Int
 
@@ -19,7 +19,7 @@ fun less(a: !C, b: !C) -> Bool
   !b.hit()
   a.k < b.k
 
-struct Hold[T]
+obj Hold[T]
   x: T
   n: Cell[Int]
 

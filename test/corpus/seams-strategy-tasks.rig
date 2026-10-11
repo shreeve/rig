@@ -2,7 +2,7 @@
 # with a text report.
 use std.sort
 
-struct Task
+obj Task
   name: String
   priority: Int
   done: Bool = false

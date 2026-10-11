@@ -1,11 +1,11 @@
 # A call may store the views it is given into its `!` arguments, so
 # after `put(!v, ?b)` the view keeps `b` viewed.
 
-struct Wrap
+obj Wrap
   payload: Int
   log: List[Int]
 
-struct View
+obj View
   box: ?Wrap
 
 sub put(v: !View, b: ?Wrap)

@@ -1,6 +1,6 @@
 use util
 
-struct Q
+obj Q
   n: Int
 
 sub main()

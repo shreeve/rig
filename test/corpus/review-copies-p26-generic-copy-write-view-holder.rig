@@ -1,5 +1,5 @@
 # A generic body copies a T out of a read view; T = W holds a write view.
-struct W
+obj W
   w: !List[Int]
 
 fun first[T](xs: ?[2]T) -> T

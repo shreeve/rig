@@ -1,4 +1,4 @@
-struct H
+obj H
   s: ![]String
 
 sub main()

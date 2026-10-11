@@ -7,7 +7,7 @@
 # oracle: temp accept
 # oracle: branch accept
 # oracle: main accept
-struct H[X]
+obj H[X]
   x: X
 
   sub run(?self, f: ?sub(?X))

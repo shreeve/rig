@@ -1,4 +1,4 @@
-struct T
+obj T
   n: Int
   fun total(<self) -> Int
     self.n

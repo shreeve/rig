@@ -4,7 +4,7 @@
 # them in place; a `!self` method writes a place it is lent (`!p.m()`);
 # a `<self` method takes a value made there.
 
-struct D
+obj D
   id: Int
   t: String
 

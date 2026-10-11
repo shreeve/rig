@@ -5,7 +5,7 @@
 # oracle: V.add accept
 # oracle: build accept
 # oracle: maybe accept
-struct V
+obj V
   c: Cell[List[Int]]
 
   fun add(!self, n: Int) -> Int

@@ -1,6 +1,6 @@
 use lib
 
-struct T
+obj T
   n: Int
 
   fun make(n: Int) -> T

@@ -1,16 +1,16 @@
 # The diagnostic names the field path to what has no `==`, through
 # nested structs, arrays, optionals, and enum payloads; a List has none.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Inner
+obj Inner
   items: List[Int]
 
-struct Outer
+obj Outer
   tag: Int
   inner: Inner
 
@@ -18,7 +18,7 @@ enum Slot
   empty
   full(held: Res)
 
-struct Rack
+obj Rack
   slots: [2]Slot?
 
 sub main()

@@ -9,7 +9,7 @@
 # oracle: take_both accept
 # oracle: main accept
 
-struct Pair[T]
+obj Pair[T]
   a: T
   b: T
 

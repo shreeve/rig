@@ -1,6 +1,6 @@
 # Catch-all match bindings of a Cell holder: read, write, consume, on an
 # enum, a struct, and an optional, plus alternatives that consume.
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)

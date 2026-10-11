@@ -1,11 +1,11 @@
-struct P
+obj P
   t: String
 
 enum E
   a(w: !P)
   b
 
-struct H
+obj H
   e: E
 
 fun get(h: !H) -> !E

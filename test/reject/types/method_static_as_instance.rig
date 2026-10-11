@@ -1,6 +1,6 @@
 # A method without a `self` receiver can't be called on an instance.
 
-struct User
+obj User
   name: ?String
 
   fun make(default: ?String) -> User

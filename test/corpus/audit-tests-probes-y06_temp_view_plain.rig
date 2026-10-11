@@ -1,8 +1,8 @@
-struct S
+obj S
   n: Int
   m: Int
 
-struct H
+obj H
   s: ?S
 
 fun rt(n: Int) -> Int

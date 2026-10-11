@@ -1,7 +1,7 @@
 # A take empties its place, so the place needs an owner that sees it:
 # not a temporary, and not a plain-data `as` binding, which is a copy.
 
-struct S
+obj S
   a: Int?
 
 fun mk() -> S

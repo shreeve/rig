@@ -1,904 +1,904 @@
-struct S0
+obj S0
   x: S1
 
-struct S1
+obj S1
   x: S2
 
-struct S2
+obj S2
   x: S3
 
-struct S3
+obj S3
   x: S4
 
-struct S4
+obj S4
   x: S5
 
-struct S5
+obj S5
   x: S6
 
-struct S6
+obj S6
   x: S7
 
-struct S7
+obj S7
   x: S8
 
-struct S8
+obj S8
   x: S9
 
-struct S9
+obj S9
   x: S10
 
-struct S10
+obj S10
   x: S11
 
-struct S11
+obj S11
   x: S12
 
-struct S12
+obj S12
   x: S13
 
-struct S13
+obj S13
   x: S14
 
-struct S14
+obj S14
   x: S15
 
-struct S15
+obj S15
   x: S16
 
-struct S16
+obj S16
   x: S17
 
-struct S17
+obj S17
   x: S18
 
-struct S18
+obj S18
   x: S19
 
-struct S19
+obj S19
   x: S20
 
-struct S20
+obj S20
   x: S21
 
-struct S21
+obj S21
   x: S22
 
-struct S22
+obj S22
   x: S23
 
-struct S23
+obj S23
   x: S24
 
-struct S24
+obj S24
   x: S25
 
-struct S25
+obj S25
   x: S26
 
-struct S26
+obj S26
   x: S27
 
-struct S27
+obj S27
   x: S28
 
-struct S28
+obj S28
   x: S29
 
-struct S29
+obj S29
   x: S30
 
-struct S30
+obj S30
   x: S31
 
-struct S31
+obj S31
   x: S32
 
-struct S32
+obj S32
   x: S33
 
-struct S33
+obj S33
   x: S34
 
-struct S34
+obj S34
   x: S35
 
-struct S35
+obj S35
   x: S36
 
-struct S36
+obj S36
   x: S37
 
-struct S37
+obj S37
   x: S38
 
-struct S38
+obj S38
   x: S39
 
-struct S39
+obj S39
   x: S40
 
-struct S40
+obj S40
   x: S41
 
-struct S41
+obj S41
   x: S42
 
-struct S42
+obj S42
   x: S43
 
-struct S43
+obj S43
   x: S44
 
-struct S44
+obj S44
   x: S45
 
-struct S45
+obj S45
   x: S46
 
-struct S46
+obj S46
   x: S47
 
-struct S47
+obj S47
   x: S48
 
-struct S48
+obj S48
   x: S49
 
-struct S49
+obj S49
   x: S50
 
-struct S50
+obj S50
   x: S51
 
-struct S51
+obj S51
   x: S52
 
-struct S52
+obj S52
   x: S53
 
-struct S53
+obj S53
   x: S54
 
-struct S54
+obj S54
   x: S55
 
-struct S55
+obj S55
   x: S56
 
-struct S56
+obj S56
   x: S57
 
-struct S57
+obj S57
   x: S58
 
-struct S58
+obj S58
   x: S59
 
-struct S59
+obj S59
   x: S60
 
-struct S60
+obj S60
   x: S61
 
-struct S61
+obj S61
   x: S62
 
-struct S62
+obj S62
   x: S63
 
-struct S63
+obj S63
   x: S64
 
-struct S64
+obj S64
   x: S65
 
-struct S65
+obj S65
   x: S66
 
-struct S66
+obj S66
   x: S67
 
-struct S67
+obj S67
   x: S68
 
-struct S68
+obj S68
   x: S69
 
-struct S69
+obj S69
   x: S70
 
-struct S70
+obj S70
   x: S71
 
-struct S71
+obj S71
   x: S72
 
-struct S72
+obj S72
   x: S73
 
-struct S73
+obj S73
   x: S74
 
-struct S74
+obj S74
   x: S75
 
-struct S75
+obj S75
   x: S76
 
-struct S76
+obj S76
   x: S77
 
-struct S77
+obj S77
   x: S78
 
-struct S78
+obj S78
   x: S79
 
-struct S79
+obj S79
   x: S80
 
-struct S80
+obj S80
   x: S81
 
-struct S81
+obj S81
   x: S82
 
-struct S82
+obj S82
   x: S83
 
-struct S83
+obj S83
   x: S84
 
-struct S84
+obj S84
   x: S85
 
-struct S85
+obj S85
   x: S86
 
-struct S86
+obj S86
   x: S87
 
-struct S87
+obj S87
   x: S88
 
-struct S88
+obj S88
   x: S89
 
-struct S89
+obj S89
   x: S90
 
-struct S90
+obj S90
   x: S91
 
-struct S91
+obj S91
   x: S92
 
-struct S92
+obj S92
   x: S93
 
-struct S93
+obj S93
   x: S94
 
-struct S94
+obj S94
   x: S95
 
-struct S95
+obj S95
   x: S96
 
-struct S96
+obj S96
   x: S97
 
-struct S97
+obj S97
   x: S98
 
-struct S98
+obj S98
   x: S99
 
-struct S99
+obj S99
   x: S100
 
-struct S100
+obj S100
   x: S101
 
-struct S101
+obj S101
   x: S102
 
-struct S102
+obj S102
   x: S103
 
-struct S103
+obj S103
   x: S104
 
-struct S104
+obj S104
   x: S105
 
-struct S105
+obj S105
   x: S106
 
-struct S106
+obj S106
   x: S107
 
-struct S107
+obj S107
   x: S108
 
-struct S108
+obj S108
   x: S109
 
-struct S109
+obj S109
   x: S110
 
-struct S110
+obj S110
   x: S111
 
-struct S111
+obj S111
   x: S112
 
-struct S112
+obj S112
   x: S113
 
-struct S113
+obj S113
   x: S114
 
-struct S114
+obj S114
   x: S115
 
-struct S115
+obj S115
   x: S116
 
-struct S116
+obj S116
   x: S117
 
-struct S117
+obj S117
   x: S118
 
-struct S118
+obj S118
   x: S119
 
-struct S119
+obj S119
   x: S120
 
-struct S120
+obj S120
   x: S121
 
-struct S121
+obj S121
   x: S122
 
-struct S122
+obj S122
   x: S123
 
-struct S123
+obj S123
   x: S124
 
-struct S124
+obj S124
   x: S125
 
-struct S125
+obj S125
   x: S126
 
-struct S126
+obj S126
   x: S127
 
-struct S127
+obj S127
   x: S128
 
-struct S128
+obj S128
   x: S129
 
-struct S129
+obj S129
   x: S130
 
-struct S130
+obj S130
   x: S131
 
-struct S131
+obj S131
   x: S132
 
-struct S132
+obj S132
   x: S133
 
-struct S133
+obj S133
   x: S134
 
-struct S134
+obj S134
   x: S135
 
-struct S135
+obj S135
   x: S136
 
-struct S136
+obj S136
   x: S137
 
-struct S137
+obj S137
   x: S138
 
-struct S138
+obj S138
   x: S139
 
-struct S139
+obj S139
   x: S140
 
-struct S140
+obj S140
   x: S141
 
-struct S141
+obj S141
   x: S142
 
-struct S142
+obj S142
   x: S143
 
-struct S143
+obj S143
   x: S144
 
-struct S144
+obj S144
   x: S145
 
-struct S145
+obj S145
   x: S146
 
-struct S146
+obj S146
   x: S147
 
-struct S147
+obj S147
   x: S148
 
-struct S148
+obj S148
   x: S149
 
-struct S149
+obj S149
   x: S150
 
-struct S150
+obj S150
   x: S151
 
-struct S151
+obj S151
   x: S152
 
-struct S152
+obj S152
   x: S153
 
-struct S153
+obj S153
   x: S154
 
-struct S154
+obj S154
   x: S155
 
-struct S155
+obj S155
   x: S156
 
-struct S156
+obj S156
   x: S157
 
-struct S157
+obj S157
   x: S158
 
-struct S158
+obj S158
   x: S159
 
-struct S159
+obj S159
   x: S160
 
-struct S160
+obj S160
   x: S161
 
-struct S161
+obj S161
   x: S162
 
-struct S162
+obj S162
   x: S163
 
-struct S163
+obj S163
   x: S164
 
-struct S164
+obj S164
   x: S165
 
-struct S165
+obj S165
   x: S166
 
-struct S166
+obj S166
   x: S167
 
-struct S167
+obj S167
   x: S168
 
-struct S168
+obj S168
   x: S169
 
-struct S169
+obj S169
   x: S170
 
-struct S170
+obj S170
   x: S171
 
-struct S171
+obj S171
   x: S172
 
-struct S172
+obj S172
   x: S173
 
-struct S173
+obj S173
   x: S174
 
-struct S174
+obj S174
   x: S175
 
-struct S175
+obj S175
   x: S176
 
-struct S176
+obj S176
   x: S177
 
-struct S177
+obj S177
   x: S178
 
-struct S178
+obj S178
   x: S179
 
-struct S179
+obj S179
   x: S180
 
-struct S180
+obj S180
   x: S181
 
-struct S181
+obj S181
   x: S182
 
-struct S182
+obj S182
   x: S183
 
-struct S183
+obj S183
   x: S184
 
-struct S184
+obj S184
   x: S185
 
-struct S185
+obj S185
   x: S186
 
-struct S186
+obj S186
   x: S187
 
-struct S187
+obj S187
   x: S188
 
-struct S188
+obj S188
   x: S189
 
-struct S189
+obj S189
   x: S190
 
-struct S190
+obj S190
   x: S191
 
-struct S191
+obj S191
   x: S192
 
-struct S192
+obj S192
   x: S193
 
-struct S193
+obj S193
   x: S194
 
-struct S194
+obj S194
   x: S195
 
-struct S195
+obj S195
   x: S196
 
-struct S196
+obj S196
   x: S197
 
-struct S197
+obj S197
   x: S198
 
-struct S198
+obj S198
   x: S199
 
-struct S199
+obj S199
   x: S200
 
-struct S200
+obj S200
   x: S201
 
-struct S201
+obj S201
   x: S202
 
-struct S202
+obj S202
   x: S203
 
-struct S203
+obj S203
   x: S204
 
-struct S204
+obj S204
   x: S205
 
-struct S205
+obj S205
   x: S206
 
-struct S206
+obj S206
   x: S207
 
-struct S207
+obj S207
   x: S208
 
-struct S208
+obj S208
   x: S209
 
-struct S209
+obj S209
   x: S210
 
-struct S210
+obj S210
   x: S211
 
-struct S211
+obj S211
   x: S212
 
-struct S212
+obj S212
   x: S213
 
-struct S213
+obj S213
   x: S214
 
-struct S214
+obj S214
   x: S215
 
-struct S215
+obj S215
   x: S216
 
-struct S216
+obj S216
   x: S217
 
-struct S217
+obj S217
   x: S218
 
-struct S218
+obj S218
   x: S219
 
-struct S219
+obj S219
   x: S220
 
-struct S220
+obj S220
   x: S221
 
-struct S221
+obj S221
   x: S222
 
-struct S222
+obj S222
   x: S223
 
-struct S223
+obj S223
   x: S224
 
-struct S224
+obj S224
   x: S225
 
-struct S225
+obj S225
   x: S226
 
-struct S226
+obj S226
   x: S227
 
-struct S227
+obj S227
   x: S228
 
-struct S228
+obj S228
   x: S229
 
-struct S229
+obj S229
   x: S230
 
-struct S230
+obj S230
   x: S231
 
-struct S231
+obj S231
   x: S232
 
-struct S232
+obj S232
   x: S233
 
-struct S233
+obj S233
   x: S234
 
-struct S234
+obj S234
   x: S235
 
-struct S235
+obj S235
   x: S236
 
-struct S236
+obj S236
   x: S237
 
-struct S237
+obj S237
   x: S238
 
-struct S238
+obj S238
   x: S239
 
-struct S239
+obj S239
   x: S240
 
-struct S240
+obj S240
   x: S241
 
-struct S241
+obj S241
   x: S242
 
-struct S242
+obj S242
   x: S243
 
-struct S243
+obj S243
   x: S244
 
-struct S244
+obj S244
   x: S245
 
-struct S245
+obj S245
   x: S246
 
-struct S246
+obj S246
   x: S247
 
-struct S247
+obj S247
   x: S248
 
-struct S248
+obj S248
   x: S249
 
-struct S249
+obj S249
   x: S250
 
-struct S250
+obj S250
   x: S251
 
-struct S251
+obj S251
   x: S252
 
-struct S252
+obj S252
   x: S253
 
-struct S253
+obj S253
   x: S254
 
-struct S254
+obj S254
   x: S255
 
-struct S255
+obj S255
   x: S256
 
-struct S256
+obj S256
   x: S257
 
-struct S257
+obj S257
   x: S258
 
-struct S258
+obj S258
   x: S259
 
-struct S259
+obj S259
   x: S260
 
-struct S260
+obj S260
   x: S261
 
-struct S261
+obj S261
   x: S262
 
-struct S262
+obj S262
   x: S263
 
-struct S263
+obj S263
   x: S264
 
-struct S264
+obj S264
   x: S265
 
-struct S265
+obj S265
   x: S266
 
-struct S266
+obj S266
   x: S267
 
-struct S267
+obj S267
   x: S268
 
-struct S268
+obj S268
   x: S269
 
-struct S269
+obj S269
   x: S270
 
-struct S270
+obj S270
   x: S271
 
-struct S271
+obj S271
   x: S272
 
-struct S272
+obj S272
   x: S273
 
-struct S273
+obj S273
   x: S274
 
-struct S274
+obj S274
   x: S275
 
-struct S275
+obj S275
   x: S276
 
-struct S276
+obj S276
   x: S277
 
-struct S277
+obj S277
   x: S278
 
-struct S278
+obj S278
   x: S279
 
-struct S279
+obj S279
   x: S280
 
-struct S280
+obj S280
   x: S281
 
-struct S281
+obj S281
   x: S282
 
-struct S282
+obj S282
   x: S283
 
-struct S283
+obj S283
   x: S284
 
-struct S284
+obj S284
   x: S285
 
-struct S285
+obj S285
   x: S286
 
-struct S286
+obj S286
   x: S287
 
-struct S287
+obj S287
   x: S288
 
-struct S288
+obj S288
   x: S289
 
-struct S289
+obj S289
   x: S290
 
-struct S290
+obj S290
   x: S291
 
-struct S291
+obj S291
   x: S292
 
-struct S292
+obj S292
   x: S293
 
-struct S293
+obj S293
   x: S294
 
-struct S294
+obj S294
   x: S295
 
-struct S295
+obj S295
   x: S296
 
-struct S296
+obj S296
   x: S297
 
-struct S297
+obj S297
   x: S298
 
-struct S298
+obj S298
   x: S299
 
-struct S299
+obj S299
   x: S300
 
-struct S300
+obj S300
   x: *Int
 
 sub main()

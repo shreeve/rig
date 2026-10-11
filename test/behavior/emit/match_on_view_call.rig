@@ -1,7 +1,7 @@
 # A match on a call returning a view held by pointer (a `?Shape` whose
 # payload is a handle, a `!Shape`) switches on the value it reaches.
 
-struct B
+obj B
   n: Int
 
 enum Shape

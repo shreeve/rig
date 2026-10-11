@@ -3,7 +3,7 @@
 # from a lent to read array parameter views the caller's array, which
 # must outlive it.
 
-struct Pt
+obj Pt
   x: Int
 
 fun f(a: [3]Int) -> []Int

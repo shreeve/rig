@@ -1,4 +1,4 @@
-struct C
+obj C
   n: Int
 
   fun get(?self) -> Int

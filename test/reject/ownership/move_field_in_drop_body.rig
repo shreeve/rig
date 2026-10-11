@@ -1,7 +1,7 @@
 # A drop body cannot move a resource field out: fields are dropped
 # automatically after the body returns.
 
-struct Owner
+obj Owner
   cell: *Cell[Int]
 
   drop(!self)

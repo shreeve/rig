@@ -1,7 +1,7 @@
 # A store through a local write view of parameter `a` lands in `a`'s
 # value, which keeps `b` lent for the rest of the body.
 
-struct Holder
+obj Holder
   r: []Int
 
 fun f(a: !Holder, b: !List[Int]) -> Int

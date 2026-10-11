@@ -1,7 +1,7 @@
 # An owned closure held in a field is read before the call's arguments
 # run: an argument cannot lend the value holding it to write.
 
-struct H
+obj H
   f: *fun(Int) -> Int
 
 fun reset(h: !H) -> Int

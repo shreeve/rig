@@ -4,7 +4,7 @@
 
 use lib
 
-struct P
+obj P
   x: I64
   y: I64
 
@@ -13,7 +13,7 @@ struct P
 
 type P2 = P
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun size(?self) -> Int

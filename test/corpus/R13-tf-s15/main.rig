@@ -1,9 +1,9 @@
 use geo
 
-struct N
+obj N
   a: Int
 
-struct W[T]
+obj W[T]
   v: T
 
 sub main()

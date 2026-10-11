@@ -4,15 +4,15 @@
 # Cell's List members, a weak handle's `upgrade`, and a field holding a
 # function.
 
-struct Point
+obj Point
   x: Int
   fun origin() -> Point
     Point(x: 0)
 
-struct Node
+obj Node
   n: Int
 
-struct Hooks
+obj Hooks
   on: *fun(Int) -> Int
 
 sub main()

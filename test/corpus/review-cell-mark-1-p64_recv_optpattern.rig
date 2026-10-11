@@ -1,4 +1,4 @@
-struct C
+obj C
   n: Cell[Int]
   log: Cell[List[Int]]
 
@@ -6,7 +6,7 @@ struct C
     !self.n.set(self.n.get() + 1)
     !self.log.push(self.n.get())
 
-struct S
+obj S
   h: *C
 
 sub main()

@@ -1,15 +1,15 @@
 use lib
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Loop
+obj Loop
   s: lib.Stack[Loop]
 
-struct Holds
+obj Holds
   b: lib.View[Int]
 
 fun boxed[T](x: T) -> lib.Stack[T]

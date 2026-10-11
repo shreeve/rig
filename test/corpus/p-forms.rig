@@ -1,4 +1,4 @@
-struct P
+obj P
   c: Cell[Int]
 
   sub hit(!self)
@@ -9,7 +9,7 @@ enum E
   a(p: P)
   b
 
-struct Q
+obj Q
   p: P
   o: P?
   ps: [2]P

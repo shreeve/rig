@@ -1,4 +1,4 @@
-struct Guard
+obj Guard
   n: Int
 
   drop(!self)

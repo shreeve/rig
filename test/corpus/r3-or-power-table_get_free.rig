@@ -1,5 +1,5 @@
 # Same as table_get, as a free function: isolates the read-receiver bug.
-struct Env
+obj Env
   keys: []?String
   vals: []?String
 

@@ -1,4 +1,4 @@
-pub struct Counter
+pub obj Counter
   pub hits: Cell[Int] = Cell(0)
 
   pub sub hit(!self)
@@ -6,7 +6,7 @@ pub struct Counter
 
 pub type C = Cell[Int]
 
-pub struct Wrap[T]
+pub obj Wrap[T]
   pub v: T
 
 pub fun mk() -> *Counter

@@ -1,4 +1,4 @@
-struct H
+obj H
   w: !Int
 
 sub put(h: !H, w2: !Int, w3: !Int, c: Bool)

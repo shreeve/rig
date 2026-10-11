@@ -1,5 +1,5 @@
 # field re-point at an inner-scope local, then use the field after
-struct H
+obj H
   w: !String
 
 sub main()

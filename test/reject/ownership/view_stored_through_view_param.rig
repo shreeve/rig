@@ -1,10 +1,10 @@
 # A function cannot store a view of its own local into a struct the
 # caller owns: the local dies when the function returns.
 
-struct Wrap
+obj Wrap
   payload: Int
 
-struct View
+obj View
   box: ?Wrap
 
 sub put(v: !View)

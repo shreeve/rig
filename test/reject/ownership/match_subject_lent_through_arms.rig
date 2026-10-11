@@ -14,7 +14,7 @@ fun grow(v: !List[Shape]) -> Bool
     !v.push(.point)
   false
 
-struct H
+obj H
   o: ^Int?
 
 fun clear(h: !H) -> Bool

@@ -1,4 +1,4 @@
-struct Obj
+obj Obj
   n: Int
   home: ~Cell[List[*Obj]]
 

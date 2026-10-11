@@ -1,4 +1,4 @@
-struct S
+obj S
   v: ?List[Int]
 
 fun pick(r: ?S?, d: S) -> S

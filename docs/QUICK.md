@@ -74,7 +74,7 @@ read parameter (`print(w[1..3])`);
 `@name(T)` describe a type.
 
 ```rig
-struct Account
+obj Account
   cents: Int
 
   fun balance(?self) -> Int

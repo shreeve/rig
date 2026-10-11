@@ -1,6 +1,6 @@
 # A `continue` in a nested `while`'s `else` targets the loop around it,
 # and goes through that loop's step, which refills `a`.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

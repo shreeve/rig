@@ -8,7 +8,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 
 ## Language
 
-- **More compile-time values on generic types**: `Bool` and enum value parameters (`struct Ring[T, n: Int]` takes integers only).
+- **More compile-time values on generic types**: `Bool` and enum value parameters (`obj Ring[T, n: Int]` takes integers only).
 - **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
 - **`?String` values**: matching on them.
 - **Reading more through temporaries and optionals**: `o?` of an owned optional parameter read through a view where only read (`o?.len`), and a read-only use of an owning field of a temporary (`print(mk().t)`), both rejected today.
@@ -40,7 +40,7 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 
 ## Libraries
 
-- **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`struct File owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
+- **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`obj File owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
   Settled so far: containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
 - **String building in std.text**: functions that build new text into a `String`, such as an upper-case copy, a replacement, and a join.
 - **A reactive library** in userland, grown from `examples/memo_canary.rig`.

@@ -1,7 +1,7 @@
 # A shared handle cannot itself be shared: `*(*T)` adds a second
 # refcount for nothing. Clone the handle with `+x` instead.
 
-struct Noisy
+obj Noisy
   id: Int
 
 sub main()

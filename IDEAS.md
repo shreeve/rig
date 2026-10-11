@@ -22,7 +22,7 @@ function by function wherever Rust uses iterators. That has to flip.
 
 ### 0.1 The target: `pak.rs`'s core, as Rig should read *(new)*
 ```rig fragment
-struct Pak
+obj Pak
   name: ?String
   entries: List[PakEntry]
   next: (*Pak)?

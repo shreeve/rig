@@ -1,7 +1,7 @@
 # A `drop` declaration's receiver is lent to write, `drop(!self)`; a
 # read view is rejected.
 
-struct File
+obj File
   fd: Int
 
   drop(?self)

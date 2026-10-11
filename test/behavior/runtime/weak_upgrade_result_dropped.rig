@@ -1,7 +1,7 @@
 # The `*T?` returned by `w.upgrade()` owns a strong handle: `m` keeps
 # the Noisy alive after `<rc` and drops it at scope exit.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

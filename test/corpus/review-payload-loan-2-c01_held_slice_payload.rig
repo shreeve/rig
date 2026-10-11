@@ -2,7 +2,7 @@ enum WS
   a(s: ![]String)
   b
 
-struct H
+obj H
   e: WS
 
 fun mk(s: ![]String) -> H from s

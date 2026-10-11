@@ -3,19 +3,19 @@
 # of an owner, a Text, or an array of handles, which the closure drops.
 # The owner may change afterward without the closure seeing it.
 
-struct P
+obj P
   x: Int
 
-struct N
+obj N
   v: Int
 
   drop(!self)
     print("drop", self.v)
 
-struct S
+obj S
   r: ?List[Int]
 
-struct R
+obj R
   r: ?Int
 
 # Through a view, the copy keeps what the value holds, not the view's

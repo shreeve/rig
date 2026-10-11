@@ -2,10 +2,10 @@
 # value: the younger value is dropped first, while what it views is
 # still alive.
 
-struct Wrap
+obj Wrap
   n: Int
 
-struct Guard
+obj Guard
   b: ?Wrap
 
   drop(!self)

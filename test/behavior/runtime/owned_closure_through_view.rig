@@ -1,7 +1,7 @@
 # An owned closure is called through a view of its handle: one a
 # method returns, one bound to a name, and a view parameter.
 
-struct Hold
+obj Hold
   v: *fun(Int) -> Int
 
   fun peek(?self) -> ?*fun(Int) -> Int

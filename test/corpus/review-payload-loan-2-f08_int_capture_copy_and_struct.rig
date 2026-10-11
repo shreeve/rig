@@ -2,7 +2,7 @@ enum WI
   a(w: !Int)
   b
 
-struct Box2
+obj Box2
   v: ?Int
 
 sub main()

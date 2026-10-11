@@ -1,8 +1,8 @@
-struct Res
+obj Res
   n: Int
   t: String
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 enum E

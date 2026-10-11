@@ -4,11 +4,11 @@
 # holds is dropped when the loop ends, by `break` too, after the `else`.
 # release
 
-struct Item
+obj Item
   name: ?String
   n: Int
 
-struct Walk
+obj Walk
   items: ?List[Item]
   at: Int
 
@@ -21,7 +21,7 @@ struct Walk
 fun walk(items: ?List[Item]) -> Walk from items
   Walk(items: items, at: 0)
 
-struct Tracked
+obj Tracked
   id: Int
   left: Int
 

@@ -5,14 +5,14 @@
 # `unique`, is unique, Core §1), as it would duplicate an owner or a
 # `*` handle. Each branch is lent instead (`?a if c else ?mkc()`).
 
-struct C
+obj C
   c: Cell[Int]
 
-struct H
+obj H
   d: C
   e: C
 
-struct R unique
+obj R unique
   seed: Int
 
 fun mkc() -> *C

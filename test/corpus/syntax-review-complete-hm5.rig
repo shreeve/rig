@@ -1,4 +1,4 @@
-struct H
+obj H
   hash: fun(?String) -> U64
   n: Int
 

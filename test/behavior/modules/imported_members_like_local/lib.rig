@@ -1,7 +1,7 @@
 pub fun inc(n: Int) -> Int
   n + 1
 
-pub struct P
+pub obj P
   pub n: Int
   pub f: fun(Int) -> Int
 

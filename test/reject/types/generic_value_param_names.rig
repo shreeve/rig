@@ -5,22 +5,22 @@
 
 LIMIT = 4
 
-struct A[T, Int: Int]
+obj A[T, Int: Int]
   items: [2]T
 
-struct B[T, LIMIT: Int]
+obj B[T, LIMIT: Int]
   items: [2]T
 
-struct C[T, n: Int, n: Int]
+obj C[T, n: Int, n: Int]
   items: [n]T
 
-struct D[T, n: Int]
+obj D[T, n: Int]
   items: [n]T
 
   fun n() -> Int
     1
 
-struct E[T, n: Int]
+obj E[T, n: Int]
   items: [n]T
 
   fun get(n: Int) -> Int
@@ -33,9 +33,9 @@ struct E[T, n: Int]
 sub main()
   print(LIMIT)
 
-# error: 8:13: generic parameter `Int` has the name of a built-in type
-# error: 11:13: generic parameter `LIMIT` has the same name as the module-level declaration `LIMIT`
-# error: 14:21: duplicate generic parameter `n` on `C`
-# error: 17:13: generic parameter `n` has the same name as a method of the type
+# error: 8:10: generic parameter `Int` has the name of a built-in type
+# error: 11:10: generic parameter `LIMIT` has the same name as the module-level declaration `LIMIT`
+# error: 14:18: duplicate generic parameter `n` on `C`
+# error: 17:10: generic parameter `n` has the same name as a method of the type
 # error: 26:11: parameter `n` has the name of the generic parameter `n`
 # error: 30:5: local `n` has the name of the generic parameter `n`

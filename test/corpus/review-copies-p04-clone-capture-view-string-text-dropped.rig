@@ -1,4 +1,4 @@
-struct S
+obj S
   s: ?String
 
 fun mk() -> Int

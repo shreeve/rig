@@ -1,4 +1,4 @@
-struct S
+obj S
   r: ?Int
 
 sub main()

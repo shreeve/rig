@@ -1,4 +1,4 @@
-struct W
+obj W
   p: !Int
 
 fun f(r: ?W?) -> Int?

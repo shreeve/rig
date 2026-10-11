@@ -1,12 +1,12 @@
 # A consuming method on a read-view parameter, a write-view parameter,
 # and a part through each.
-struct P
+obj P
   v: Int
 
   fun into(<self) -> Int
     self.v
 
-struct S
+obj S
   p: P
 
 fun r1(p: ?P) -> Int

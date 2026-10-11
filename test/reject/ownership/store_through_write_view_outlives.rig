@@ -1,13 +1,13 @@
 # A view a call stores through a write view lands in the value the
 # write view leads to, so it may not outlive that value.
 
-struct In
+obj In
   v: List[Int]
 
-struct Wrap
+obj Wrap
   r: ?In
 
-struct View
+obj View
   b: ?In
 
 sub fill(w: !View, b: ?In)

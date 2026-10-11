@@ -1,6 +1,6 @@
 # Headers over values made there (a call's result) whose payloads or
 # elements hold a Cell and are changed in the body.
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)

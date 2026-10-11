@@ -1,5 +1,5 @@
 # Subject is a write-view local; view escapes; then a value is assigned through it. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

@@ -1,7 +1,7 @@
 # Deferred code runs at scope exit: a view it uses is live until
 # then.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

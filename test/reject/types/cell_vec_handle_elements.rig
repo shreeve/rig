@@ -2,7 +2,7 @@
 # place: that would copy a handle out, or release one, while the cell
 # holds the List. `pop` them, or `replace` the List.
 
-struct N
+obj N
   id: Int
 
 sub main()

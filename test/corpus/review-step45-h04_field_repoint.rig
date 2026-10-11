@@ -1,5 +1,5 @@
 # field re-point: h.w = !n replaces the field's loans (n39)
-struct H
+obj H
   w: !String
 
 sub main()

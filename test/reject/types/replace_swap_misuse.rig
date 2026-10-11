@@ -2,7 +2,7 @@
 # whose values hold no view, and the value `replace` stores has the
 # place's type.
 
-struct V
+obj V
   p: ?Int
 
 sub main()

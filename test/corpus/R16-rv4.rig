@@ -1,4 +1,4 @@
-struct Bag
+obj Bag
   items: List[Int]
 
   sub each(?self, f: ?sub(Int))

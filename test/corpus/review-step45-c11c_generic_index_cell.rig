@@ -1,5 +1,5 @@
 # generic body passes ?v[0] (view of element) with T = C: Cell change must land
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)

@@ -1,6 +1,6 @@
 # The owner List is replaced while `h` holds a live write view of it:
 # the view is then used.
-struct W
+obj W
   w: !List[Int]
 
 fun mk(v: !List[Int]) -> W?

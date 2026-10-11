@@ -3,25 +3,25 @@
 # a loop over such a type says why. Plain `List`, array and `?String`
 # sources keep their own meaning.
 
-struct Reads
+obj Reads
   n: Int
 
   fun next(?self) -> Int?
     none
 
-struct Wants
+obj Wants
   n: Int
 
   fun next(!self, step: Int) -> Int?
     none
 
-struct Plain
+obj Plain
   n: Int
 
   fun next(!self) -> Int
     self.n
 
-struct Free
+obj Free
   n: Int
 
   fun next() -> Int?

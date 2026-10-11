@@ -1,4 +1,4 @@
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)
@@ -16,10 +16,10 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-struct Keep
+obj Keep
   r: ?R
 
-struct R
+obj R
   t: *Tok
 
   drop(!self)

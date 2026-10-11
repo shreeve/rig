@@ -1,7 +1,7 @@
 use lib
 use util
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

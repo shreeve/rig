@@ -1,5 +1,5 @@
 # Siblings: a branch and a bare view into `P?`.
-struct P
+obj P
   x: Int
 
 fun px(o: P?) -> Int

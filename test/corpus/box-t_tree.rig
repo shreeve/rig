@@ -2,7 +2,7 @@
 # inside an optional box in place, and assigning to a `!^Node?`
 # slot stores a new subtree.
 
-struct Node
+obj Node
   key: Int
   left: ^Node?
   right: ^Node?

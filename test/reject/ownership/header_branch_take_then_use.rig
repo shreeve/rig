@@ -4,7 +4,7 @@
 #
 # oracle: loops reject C1
 # oracle: matches reject C1
-struct Counter unique
+obj Counter unique
   hits: Int
 
 enum E

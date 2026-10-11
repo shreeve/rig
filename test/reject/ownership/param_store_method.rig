@@ -1,7 +1,7 @@
 # A method that stores its argument in `!self` stores a view of `b` in
 # parameter `a`, which keeps `b` lent for the rest of the body.
 
-struct Holder
+obj Holder
   r: []Int
 
   sub set(!self, s: []Int)

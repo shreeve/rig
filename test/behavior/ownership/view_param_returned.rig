@@ -1,7 +1,7 @@
 # A function may return one of its view parameters, chosen by an
 # if-expression; the result views from both arguments.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 fun pick(a: ?Wrap, b: ?Wrap, first: Bool) -> ?Wrap

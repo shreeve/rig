@@ -1,6 +1,6 @@
 # The built-in `upgrade` on a weak handle takes no arguments.
 
-struct User
+obj User
   name: ?String
 
 sub main()

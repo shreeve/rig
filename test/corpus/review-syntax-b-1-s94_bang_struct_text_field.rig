@@ -1,7 +1,7 @@
 fun word(s: ?String) -> ?String
   s
 
-struct B
+obj B
   name: String
 
 sub f(b: !B)

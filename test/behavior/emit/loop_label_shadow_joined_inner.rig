@@ -1,6 +1,6 @@
 # An inner joined `:a` loop inside an outer `:a` loop: its `continue :a`
 # goes through its own step.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

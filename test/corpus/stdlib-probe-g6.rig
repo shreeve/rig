@@ -1,4 +1,4 @@
-struct String
+obj String
   bytes: List[U8]
 
   sub add(!self, s: ?String)

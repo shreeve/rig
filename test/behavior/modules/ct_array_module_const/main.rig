@@ -5,7 +5,7 @@
 
 use lib
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
 sub main()

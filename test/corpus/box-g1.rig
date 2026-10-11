@@ -1,7 +1,7 @@
-struct View
+obj View
   p: ?Int
 
-struct P
+obj P
   x: Int
 
 sub main()

@@ -1,4 +1,4 @@
-struct R
+obj R
   name: String
 
 sub main()

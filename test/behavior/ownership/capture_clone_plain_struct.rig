@@ -1,7 +1,7 @@
 # `|+p|` captures a copy of plain data, which the closure may pass on
 # or return like any value it owns.
 
-struct P
+obj P
   x: Int
 
 sub take(p: P)

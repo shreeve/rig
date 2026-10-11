@@ -1,6 +1,6 @@
 # `print` reads a struct holding a Cell when it is called, after a later
 # argument has grown the Cell's List through another handle of the struct.
-struct S
+obj S
   c: Cell[List[Int]]
 
 fun grow(s: !S) -> Int

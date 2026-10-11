@@ -13,7 +13,7 @@ enum Color
   red
   green
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun get(?self) -> T

@@ -1,9 +1,9 @@
 # The holder both owns `Item`s and views them: the type rule cannot
 # free `c` (it answers "owned"), only `from self.items` (stage 3) can.
-struct Item
+obj Item
   n: Int
 
-struct Cursor
+obj Cursor
   items: ?List[Item]
   scratch: List[Item]
   i: Int

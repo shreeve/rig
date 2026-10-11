@@ -1,7 +1,7 @@
 # Moving a payload binding of `match <s` out is allowed: `s` was
 # consumed by the match, so it is not dropped again.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

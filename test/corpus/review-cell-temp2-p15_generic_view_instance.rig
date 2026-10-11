@@ -9,19 +9,19 @@
 # oracle: showi accept
 # oracle: temp accept
 # oracle: branch accept
-struct T
+obj T
   c: Cell[Int]
 
   drop(!self)
     print("drop", self.c.get())
 
-struct H[X]
+obj H[X]
   x: X
 
   sub run(?self, f: ?sub(?X))
     f(?self.x)
 
-struct P[X]
+obj P[X]
   h: H[X]
 
 fun mkh[X](x: X) -> H[X]

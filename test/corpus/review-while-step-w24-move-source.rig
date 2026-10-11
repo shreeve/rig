@@ -2,7 +2,7 @@
 # oracle: eat accept
 # oracle: main reject C4
 
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int]) -> S?

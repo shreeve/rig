@@ -2,7 +2,7 @@
 # where the value is: a later argument cannot lend what the value may
 # be to write.
 
-struct P
+obj P
   v: List[Int]
 
 fun mk(k: Int) -> P

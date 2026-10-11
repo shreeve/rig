@@ -1,7 +1,7 @@
 # A Cell holds a `Random`: `replace` hands back the old one, which moves.
 use std.random
 
-struct Game
+obj Game
   rng: random.Random
   score: Int
 

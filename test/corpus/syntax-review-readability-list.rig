@@ -1,8 +1,8 @@
-struct Node
+obj Node
   value: Int
   next: ^Node?
 
-struct Chain
+obj Chain
   head: ^Node? = none
   len: Int = 0
 

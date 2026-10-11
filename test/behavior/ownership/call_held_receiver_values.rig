@@ -2,7 +2,7 @@
 # that a call holds while it runs: what the method returns that views
 # nothing of it, and a view of it the statement discards, are fine.
 
-struct S
+obj S
   n: Int
   m: Int
 
@@ -12,14 +12,14 @@ struct S
   fun sum(?self) -> Int
     self.n + self.m
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
   fun get(?self) -> Int
     self.c.get() + self.n
 
-struct H
+obj H
   q: Q
 
 fun mk() -> S

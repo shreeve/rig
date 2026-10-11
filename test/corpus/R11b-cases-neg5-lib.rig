@@ -1,8 +1,8 @@
-pub struct Pub
+pub obj Pub
   x: Int
 
   fun nest[U](?self, u: U) -> Int
     self.nest(Pub2(v: u))
 
-struct Pub2[T]
+obj Pub2[T]
   v: T

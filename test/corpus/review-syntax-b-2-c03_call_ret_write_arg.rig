@@ -1,7 +1,7 @@
 fun keep(s: ?String) -> ?String
   s
 
-struct H
+obj H
   t: String
 
 fun get(h: !H) -> !String

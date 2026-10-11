@@ -1,4 +1,4 @@
-struct R
+obj R
   s: U64
 
   sub touch(!self, xs: ![]Int)

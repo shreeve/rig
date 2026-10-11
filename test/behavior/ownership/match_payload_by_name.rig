@@ -4,7 +4,7 @@
 # arm as a positional one does, and a write match writes it in place.
 # release
 
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -15,7 +15,7 @@ enum Bag
   one(b: *B)
   empty
 
-struct Res
+obj Res
   t: String
 
 enum E

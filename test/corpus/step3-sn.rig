@@ -1,19 +1,19 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
-struct Walker
+obj Walker
   n: Int
 
   fun walk[U](?self, x: U) -> Int
     self.walk(Wrap(v: x))
 
-struct Quiet
+obj Quiet
   n: Int
 
   fun walk[U](?self, x: U) -> Int
     self.walk(Wrap(v: x))
 
-pub struct Gen[A]
+pub obj Gen[A]
   a: A
 
   fun go[B](?self, b: B) -> Int

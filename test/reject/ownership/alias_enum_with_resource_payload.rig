@@ -1,7 +1,7 @@
 # An enum whose payload holds a shared handle owns it; copying the enum
 # would drop the handle twice.
 
-struct Wrap
+obj Wrap
   n: Int
 
 enum Slot

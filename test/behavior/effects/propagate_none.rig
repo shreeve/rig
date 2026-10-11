@@ -2,11 +2,11 @@
 # function returns `none`. Deferred code runs on that path, and owning
 # values made earlier in the expression are dropped.
 
-struct User
+obj User
   name: ?String
   age: Int
 
-struct Wrap
+obj Wrap
   n: Int
 
 fun find(id: Int) -> User?

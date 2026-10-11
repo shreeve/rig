@@ -1,4 +1,4 @@
-struct Random
+obj Random
   s: U64
 
   fun next(!self) -> U64

@@ -1,6 +1,6 @@
 # A deferred body runs at scope exit, after the move that follows it.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub eat(rc: *Wrap)

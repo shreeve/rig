@@ -1,5 +1,5 @@
 # `s = match k` whose arm moves `s`: the store must not drop the moved value.
-struct D
+obj D
   n: Int
 
   drop(!self)

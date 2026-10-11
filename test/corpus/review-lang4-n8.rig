@@ -1,4 +1,4 @@
-struct Inner
+obj Inner
   x: !List[Int]
 
 sub main()

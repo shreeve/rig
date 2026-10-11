@@ -1,7 +1,7 @@
-pub struct N
+pub obj N
   a: Int
 
-pub struct W[T]
+pub obj W[T]
   v: T
 
 pub fun id[T](x: T) -> T

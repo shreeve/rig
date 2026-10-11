@@ -3,7 +3,7 @@
 # whose every leaf is made there is one temporary, dropped when its
 # statement ends; `o?` reads `o` in place.
 
-struct N
+obj N
   id: Int
   t: String
 

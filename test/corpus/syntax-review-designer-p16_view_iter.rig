@@ -1,7 +1,7 @@
-struct Bag
+obj Bag
   items: [4]Int
 
-struct Iter
+obj Iter
   bag: ?Bag
   i: Int
 

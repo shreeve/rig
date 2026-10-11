@@ -2,7 +2,7 @@ enum Shape
   circle(r: Int)
   sq(s: Int)
 
-struct W
+obj W
   b: ^?Shape
 
 sub main()

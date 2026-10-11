@@ -1,7 +1,7 @@
 # A guard that fails leaves its arm's scope: a loan on the arm's own
 # payload binding, stored in an outer value, cannot survive it, even
 # when the arm leaves a labeled `match`.
-struct H
+obj H
   r: ?List[Int]
 
 enum S

@@ -1,8 +1,8 @@
 # H3: generic loop over ?List[T], body: match x on T? binding
-struct S
+obj S
   t: String
 
-struct Holder[T]
+obj Holder[T]
   x: T?
 
 fun cnt[T](v: ?List[T?]) -> Int

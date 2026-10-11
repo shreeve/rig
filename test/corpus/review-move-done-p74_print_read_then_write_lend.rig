@@ -1,6 +1,6 @@
 # aside (pre-existing, not this branch): a copied-out read of `id(?s).n`
 # keeps `s` lent for the rest of the call's arguments
-struct S
+obj S
   n: Int
 
 fun bump(s: !S) -> Int

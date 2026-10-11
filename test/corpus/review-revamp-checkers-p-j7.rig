@@ -1,8 +1,8 @@
-struct Res
+obj Res
   id: Int
   v: List[Int]
 
-struct H
+obj H
   r: ?Res
 
 fun store(h: !H, r: ?Res) -> Bool

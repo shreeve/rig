@@ -1,6 +1,6 @@
 use lib
 
-struct lib[T]
+obj lib[T]
   v: T
 
 sub main()

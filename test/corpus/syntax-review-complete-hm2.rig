@@ -1,4 +1,4 @@
-struct H[K]
+obj H[K]
   hash: fun(?K) -> U64
   n: Int
 

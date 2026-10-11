@@ -1,6 +1,6 @@
 # A closure body can only use outer locals it captures.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub eat(rc: *Wrap)

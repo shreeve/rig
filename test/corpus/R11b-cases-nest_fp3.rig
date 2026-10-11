@@ -1,4 +1,4 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun tag[U](?self, u: U) -> Wrap[Wrap[U]]

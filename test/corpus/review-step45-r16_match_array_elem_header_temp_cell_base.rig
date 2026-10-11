@@ -1,5 +1,5 @@
 # guarded match on an array element (Cell holder) with a header temporary (base comparison)
-struct C
+obj C
   c: Cell[Int]
 
 enum E

@@ -5,7 +5,7 @@ fun helper[m: Int]() -> Int
 pub sub show[k: Int]()
   print(helper[k]())
 
-pub struct Grid[T, n: Int]
+pub obj Grid[T, n: Int]
   cells: [n]T
 
   fun make(x: T) -> Self

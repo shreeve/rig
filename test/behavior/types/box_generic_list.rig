@@ -1,7 +1,7 @@
 # A generic struct holds itself through a box, and generic functions
 # build and walk it.
 
-struct Node[T]
+obj Node[T]
   value: T
   next: ^Node[T]?
 

@@ -5,7 +5,7 @@ enum E
   a(n: Int, t: String)
   b
 
-struct H
+obj H
   e: E
 
 fun mkh(k: Int) -> H

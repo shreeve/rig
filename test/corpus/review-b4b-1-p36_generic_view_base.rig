@@ -1,5 +1,5 @@
 # base is a generic function's returned view (`?T`, `!T`), indexed with a temp-making index. Expect clean, correct.
-struct Q
+obj Q
   a: Int
   b: Int
 

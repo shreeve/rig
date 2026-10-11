@@ -1,8 +1,8 @@
 # Review probe diag/d15_as_hint_followed.rig (seam2b fixes): rejected, or runs sanitizer-clean.
-struct O
+obj O
   o: !^Int?
 
-struct S
+obj S
   n: Int
 
 fun pick(h: !O, s: ?S) -> !O

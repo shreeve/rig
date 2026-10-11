@@ -1,4 +1,4 @@
-struct Counter
+obj Counter
   hits: Cell[Int] = Cell(0)
 
   sub hit(!self)

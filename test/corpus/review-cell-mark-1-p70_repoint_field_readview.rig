@@ -1,4 +1,4 @@
-struct S
+obj S
   h: *Cell[Int]
 
 sub g(x: !*Cell[Int])

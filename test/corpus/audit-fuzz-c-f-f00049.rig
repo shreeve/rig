@@ -14,7 +14,7 @@ fun apply0(f: ?fun(Int) -> Int, x: Int) -> Int
 fun mx1[T](a: T, b: T) -> T
   a if a > b else b
 
-struct Pair1[T, U]
+obj Pair1[T, U]
   first: T
   second: U
 
@@ -33,7 +33,7 @@ enum Opt1[T]
       .some(v) => v
       .nothing => d
 
-struct Ring1[T, n: Int]
+obj Ring1[T, n: Int]
   items: [n]T
   head: Int = 0
 

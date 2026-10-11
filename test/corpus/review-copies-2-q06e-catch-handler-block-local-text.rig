@@ -1,7 +1,7 @@
 error Bad
   oops
 
-struct N
+obj N
   s: ?String
   k: Int
 

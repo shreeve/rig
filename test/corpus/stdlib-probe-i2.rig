@@ -1,4 +1,4 @@
-struct Words
+obj Words
   s: ?String
   i: Int = 0
 

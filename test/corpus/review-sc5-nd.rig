@@ -1,8 +1,8 @@
-struct In
+obj In
   n: Int = 1
   xs: List[Int] = List()
 
-struct Out
+obj Out
   i: In
   o: Int? = none
   c: Cell[Int?] = Cell(none)

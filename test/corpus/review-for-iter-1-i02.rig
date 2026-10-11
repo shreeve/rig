@@ -1,4 +1,4 @@
-struct C
+obj C
   hi: In
   fun next(!self) -> Int?
     return none if self.hi == 0

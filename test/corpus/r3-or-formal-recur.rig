@@ -1,4 +1,4 @@
-struct Item
+obj Item
   n: Int
 
 fun pick(a: ?Item, b: ?Item, n: Int) -> ?Item

@@ -1,7 +1,7 @@
-struct Q
+obj Q
   t: String
 
-struct H
+obj H
   q: !Q
 
 enum Out

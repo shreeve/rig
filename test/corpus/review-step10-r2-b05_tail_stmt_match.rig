@@ -1,14 +1,14 @@
 # B3 / discardsValue: a function whose tail is a `match` with block arms is the call `mkh(42).q.me(k: g(1), j: g(2))`
 # (it holds a mutable copy of the Cell-holding part `mkh(42).q` while it
 # runs); its view is the block's value and is read afterwards.
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
   fun me(?self, j: Int, k: Int) -> ?Q
     self
 
-struct H
+obj H
   q: Q
 
 fun mkh(k: Int) -> H

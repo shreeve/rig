@@ -1,7 +1,7 @@
 # One branch drops the handle explicitly, the other does not; either
 # way the handle is dropped exactly once (the auto-drop is path-aware).
 
-struct C
+obj C
   v: Int
 
   drop(!self)

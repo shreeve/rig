@@ -1,4 +1,4 @@
-struct U
+obj U
   n: Int
 
 fun peek(u: ?U) -> Int

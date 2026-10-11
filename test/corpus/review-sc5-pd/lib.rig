@@ -3,7 +3,7 @@ use other
 pub fun f(x: Int = other.K, m: other.Mode = .slow) -> Int
   x + (1 if m == .slow else 0)
 
-pub struct T
+pub obj T
   pub v: Int = other.K
 
   pub fun g(?self, k: Int = other.K) -> Int

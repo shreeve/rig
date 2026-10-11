@@ -2,10 +2,10 @@
 # a binding, a field, or a returned value, it would outlive the
 # temporary it points to; used within the statement, it is fine.
 
-struct S
+obj S
   n: Int
 
-struct H
+obj H
   s: ?S
 
 fun rt(n: Int) -> Int

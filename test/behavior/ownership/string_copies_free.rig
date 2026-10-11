@@ -3,14 +3,14 @@
 # and a String a function copies out of its parameter can be returned.
 # A value views a Text only where it can reach one.
 
-struct Person
+obj Person
   name: ?String
   tags: List[Int]
 
   fun label(?self) -> ?String
     self.name
 
-struct Reg
+obj Reg
   names: List[?String]
 
   sub add(!self, n: ?String)

@@ -1,6 +1,6 @@
 # The kept boundary: how a read view of a plain struct reads in each
 # form, beside a write view of one and a read view of an Int.
-struct P
+obj P
   x: Int
 
 fun id[T](v: T) -> T

@@ -1,4 +1,4 @@
-struct I16
+obj I16
   x: Int
 
 sub main()

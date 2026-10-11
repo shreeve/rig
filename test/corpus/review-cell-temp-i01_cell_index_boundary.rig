@@ -3,7 +3,7 @@
 #
 # oracle: Log.drop accept
 # oracle: peek accept
-struct Log
+obj Log
   lines: Cell[List[Int]]
 
   drop(!self)

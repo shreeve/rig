@@ -1,6 +1,6 @@
 # `?? continue` leaves the body's scope: a loan on a body local stored
 # in an outer value cannot survive it.
-struct H
+obj H
   r: ?List[Int]
 
 fun opt(n: Int) -> Int?

@@ -1,10 +1,10 @@
 # A payload copied out of the matched value still views what it views:
 # `x` cannot be written while `k` is used.
 
-struct N
+obj N
   n: Int
 
-struct V
+obj V
   r: ?N
 
 enum E

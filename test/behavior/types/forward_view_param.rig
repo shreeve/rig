@@ -1,7 +1,7 @@
 # A lent to read parameter can be forwarded: `?b` with `b: ?B` lends on
 # as `?B` rather than nesting.
 
-struct B
+obj B
   n: Int
 
 fun g(b: ?B) -> Int

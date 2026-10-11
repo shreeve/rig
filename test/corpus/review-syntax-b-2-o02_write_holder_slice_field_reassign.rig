@@ -1,4 +1,4 @@
-struct R
+obj R
   xs: []Int
 
 sub g(w: !R, u: []Int)

@@ -1,4 +1,4 @@
-struct Doc
+obj Doc
   title: String
 
   fun head(?self) -> ?String

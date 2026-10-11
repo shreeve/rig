@@ -1,4 +1,4 @@
-struct Stats
+obj Stats
   hits: Cell[Int]
 
 sub run(f: ?sub())

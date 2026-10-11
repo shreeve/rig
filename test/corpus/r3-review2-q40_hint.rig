@@ -1,7 +1,7 @@
 use std.random
 use std.random as rnd
 
-struct S
+obj S
   r: random.Rng?
   h: *random.Rng
 

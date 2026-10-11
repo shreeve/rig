@@ -4,7 +4,7 @@
 # oracle: R.peek accept
 # oracle: mkr accept
 # oracle: look accept
-struct R unique
+obj R unique
   seed: Int
 
   fun peek(?self) -> Int

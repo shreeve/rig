@@ -1,7 +1,7 @@
 SECRET = 7
 pub OPEN = 3
 
-pub struct Counter
+pub obj Counter
   pub label: ?String
   count: Int
 
@@ -14,7 +14,7 @@ pub struct Counter
   pub fun twice[T](?self, t: T) -> Int
     self.peek() * 2
 
-pub struct Pair[T]
+pub obj Pair[T]
   pub a: T
   b: T
 

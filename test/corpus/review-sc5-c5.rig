@@ -6,7 +6,7 @@ fun fail(n: Int) -> Int!
     return E.bad
   n
 
-struct S
+obj S
   f: *fun(Int) -> Int!
   g: *sub(Int)!
 

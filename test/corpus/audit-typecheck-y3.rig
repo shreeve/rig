@@ -1,4 +1,4 @@
-struct S
+obj S
   f: Int?
 
 sub main()

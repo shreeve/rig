@@ -4,7 +4,7 @@
 # `end 3 3`.
 #
 # oracle: mk accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

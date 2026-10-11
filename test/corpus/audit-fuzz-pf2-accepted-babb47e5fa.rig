@@ -13,7 +13,7 @@ enum Tag[T]
     on = Tag[T].on
     self == .on and on == .on
 
-struct Marker[T]
+obj Marker[T]
   n: Int
 
   fun next(?self) -> Marker[T]

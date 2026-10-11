@@ -6,7 +6,7 @@
 # `Cell[*(Node)?]` hold optional handles. A handle to an optional,
 # `*(Node?)`, is named there with a `type` alias.
 
-struct Node
+obj Node
   value: Int
 
 type Held = *(Node?)

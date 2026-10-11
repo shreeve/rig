@@ -1,6 +1,6 @@
 # Order: does a temporary the value makes drop before the target's
 # index runs ({ __v = value; place = __v }), or after the store?
-struct D
+obj D
   n: Int
 
   drop(!self)

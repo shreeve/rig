@@ -6,7 +6,7 @@
 # else !b)`, then `match !t.e`), and a write view a method returns.
 # release
 
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -14,10 +14,10 @@ enum E
   a(r: Res)
   b
 
-struct W
+obj W
   e: E
 
-struct H
+obj H
   w: E
 
   fun gw(!self) -> !E

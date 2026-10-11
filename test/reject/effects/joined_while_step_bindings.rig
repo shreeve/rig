@@ -2,7 +2,7 @@
 # the body, inside the `if`s that bind it: every binding there must be
 # plain data, and no `continue` in the condition may skip binding one.
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)

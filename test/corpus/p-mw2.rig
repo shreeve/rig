@@ -1,4 +1,4 @@
-struct W
+obj W
   v: List[Int]
 
 fun mkw() -> W

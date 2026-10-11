@@ -2,10 +2,10 @@
 # an element: a write view is never stored inside a value, so a struct
 # field or a variant field that is one is rejected where it is declared.
 
-struct Holder
+obj Holder
   v: List[Int]
 
-struct Ed
+obj Ed
   t: !Holder
 
 enum E

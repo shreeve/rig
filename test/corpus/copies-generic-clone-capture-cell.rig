@@ -2,7 +2,7 @@ fun cap[T](x: T) -> Int
   f = |+x| 1
   f()
 
-struct P
+obj P
   n: Int
 
 sub main()

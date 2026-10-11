@@ -1,7 +1,7 @@
 # A boxed value holding a Cell changes through any path to it, and a
 # Cell can hold a box.
 
-struct C
+obj C
   hits: Cell[Int]
 
   sub hit(!self)

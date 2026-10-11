@@ -1,4 +1,4 @@
-struct Bag[T]
+obj Bag[T]
   items: List[T]
 
   sub each(?self, f: ?sub(T))
@@ -17,7 +17,7 @@ struct Bag[T]
       self.items[i] = f(self.items[i])
       i += 1
 
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self, f: ?fun(Int) -> Int)

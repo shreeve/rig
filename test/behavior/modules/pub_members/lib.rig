@@ -1,4 +1,4 @@
-pub struct Counter
+pub obj Counter
   pub label: ?String
   pub step: Int = 1
   count: Int
@@ -16,7 +16,7 @@ pub struct Counter
   sub note(?self)
     print("bumped", self.label, self.count)
 
-pub struct Pair[T]
+pub obj Pair[T]
   pub a: T
   pub b: T
 

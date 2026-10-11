@@ -1,4 +1,4 @@
-pub struct Stack[T]
+pub obj Stack[T]
   items: List[T]
 
   pub fun new() -> Stack[T]
@@ -13,7 +13,7 @@ pub struct Stack[T]
   pub fun len(?self) -> Int
     self.items.len
 
-struct N
+obj N
   k: Int
 
 sub main()

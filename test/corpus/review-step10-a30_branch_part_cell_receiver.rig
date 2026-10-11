@@ -2,7 +2,7 @@
 # branching value of places, `(h1 if c else h2).q.bump()`, plain and in
 # a hoisted call (keyword arguments out of order). The change must land
 # in h1.q. Expected: 2 / 3, then h1.q.c = 3.
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
@@ -14,7 +14,7 @@ struct Q
     !self.c.set(self.c.get() + 1)
     self.c.get()
 
-struct H
+obj H
   q: Q
 
 fun g(k: Int) -> Int

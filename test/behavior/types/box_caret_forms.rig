@@ -3,11 +3,11 @@
 # sigil binds tighter than a suffix: `^Node?` is an optional box and
 # `^(Int?)` a box of an optional.
 
-struct Node
+obj Node
   n: Int
   next: ^Node?
 
-struct Pair
+obj Pair
   a: Int
   b: Int
 

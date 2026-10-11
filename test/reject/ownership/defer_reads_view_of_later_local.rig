@@ -1,7 +1,7 @@
 # Deferred code runs after the locals declared after the `defer` are
 # dropped, so it cannot read one through a view taken later.
 
-struct Res
+obj Res
   v: List[Int]
 
 error Bad

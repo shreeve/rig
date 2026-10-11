@@ -2,7 +2,7 @@
 # one as an owned value. Each handle is dropped exactly once: `old` at
 # scope exit, the stored one by the cell's drop glue.
 
-struct User
+obj User
   age: Int
 
 sub main()

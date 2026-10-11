@@ -2,10 +2,10 @@
 # stored in an outer value is still there after the match, even when
 # the guarded arm's body never falls through.
 
-struct Big
+obj Big
   v: List[Int]
 
-struct View
+obj View
   b: ?Big
 
 enum O

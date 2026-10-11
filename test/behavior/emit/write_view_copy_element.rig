@@ -4,7 +4,7 @@
 # written there would be read, its `!` ignored, and is rejected:
 # test/reject/ownership/ignored_write_lend.rig.)
 
-struct S
+obj S
   n: Int
 
   fun get(!self) -> !Int

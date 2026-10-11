@@ -2,13 +2,13 @@
 # branch, as one that may be a name's is: lending it whole would copy
 # the part out of its temporary, which the write would miss.
 
-struct S
+obj S
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct Pair
+obj Pair
   a: S
   b: S
 

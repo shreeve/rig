@@ -1,5 +1,5 @@
 # Subject is a view local; it is re-pointed after the match, then the original owner is reassigned. Expect reject at reassign of e1.
-struct Res
+obj Res
   n: Int
   t: String
 

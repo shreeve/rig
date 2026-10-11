@@ -1,7 +1,7 @@
 # header_value copy, `for` sibling of a05: `for ?x in vs[idx(?String("a"))]`
 # makes a header temporary, so the loop iterates a copy of the array.
 # Store the plain-data element view and read it after the loop.
-struct P
+obj P
   n: [4]Int
 
 fun idx(s: ?String) -> Int

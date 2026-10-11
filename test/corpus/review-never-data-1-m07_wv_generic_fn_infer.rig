@@ -1,4 +1,4 @@
-struct G[T]
+obj G[T]
   v: T
 
 fun mk[T](x: T) -> G[T]

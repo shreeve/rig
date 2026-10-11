@@ -4,7 +4,7 @@
 error Bad
   no
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
@@ -20,7 +20,7 @@ struct Q
   fun get(?self) -> Int
     self.n
 
-struct H
+obj H
   q: Q
 
 fun mkh(k: Int) -> H

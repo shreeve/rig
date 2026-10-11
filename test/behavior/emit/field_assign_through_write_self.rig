@@ -1,13 +1,13 @@
 # Assigning a field through `!self` drops the old value and keeps the new
 # one in the caller's struct.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)
     print(self.id)
 
-struct Slot
+obj Slot
   held: *Noisy
 
   sub put(!self, n: *Noisy)

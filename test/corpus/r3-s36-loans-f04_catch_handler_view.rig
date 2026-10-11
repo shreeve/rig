@@ -2,12 +2,12 @@
 error E
   bad
 
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct V
+obj V
   r: ?R
 
 fun fail() -> Int!

@@ -10,7 +10,7 @@
 # oracle: two accept
 # oracle: mk2 accept
 # oracle: main accept
-struct S
+obj S
   n: Int
   items: List[Int]
 

@@ -1,5 +1,5 @@
 # `o ?? r` gives a `?P`, copied out where a `P` is expected.
-struct P
+obj P
   x: Int
   y: Int
 

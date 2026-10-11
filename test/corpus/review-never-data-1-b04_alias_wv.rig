@@ -1,6 +1,6 @@
 type W = !Int
 
-struct H
+obj H
   w: W
 
 sub main()

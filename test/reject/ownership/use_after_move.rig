@@ -1,6 +1,6 @@
 # A bare use of a moved value is rejected.
 
-struct Packet
+obj Packet
   payload: Int
 
 fun make_packet() -> Packet

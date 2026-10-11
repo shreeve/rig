@@ -1,7 +1,7 @@
 # A function may return a write view it was given; writes through the
 # returned view reach the caller's value.
 
-struct C
+obj C
   n: Int
 
 fun pick(c: !C) -> !C

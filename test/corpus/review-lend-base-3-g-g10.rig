@@ -1,4 +1,4 @@
-struct K
+obj K
   hits: Cell[Int]
   log: Cell[List[Int]]
   n: Int
@@ -6,7 +6,7 @@ struct K
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-struct N
+obj N
   v: Int
   next: (~N)?
 

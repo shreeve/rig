@@ -1,8 +1,8 @@
-struct P
+obj P
   x: Int
   y: Int
 
-struct S
+obj S
   a: List[Int]
   b: Int
 
@@ -20,7 +20,7 @@ fun bump(p: !P) -> Int
   p.x += 1
   0
 
-struct Q
+obj Q
   a: P
   b: Int
 

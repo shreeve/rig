@@ -1,7 +1,7 @@
 # Each mistake around write slices gets one diagnostic that names it,
 # and no hint that suggests code which fails too.
 
-struct S
+obj S
   arr: [2]Int
 
 fun by_value(a: [2]Int) -> ![]Int

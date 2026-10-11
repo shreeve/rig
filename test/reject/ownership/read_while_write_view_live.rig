@@ -1,7 +1,7 @@
 # Reading a value while a write view of it is live (used later) is
 # rejected.
 
-struct User
+obj User
   name: ?String
 
 sub main()

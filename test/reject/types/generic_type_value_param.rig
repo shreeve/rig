@@ -4,10 +4,10 @@ enum Mode
   fast
   slow
 
-struct Tuned[m: Mode]
+obj Tuned[m: Mode]
   first: Int
 
 sub main()
   print(1)
 
-# error: 7:17: a compile-time value parameter of a type is an integer; `m` has the type `Mode`
+# error: 7:14: a compile-time value parameter of a type is an integer; `m` has the type `Mode`

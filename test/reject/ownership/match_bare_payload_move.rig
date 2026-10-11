@@ -1,7 +1,7 @@
 # A bare `match e` on a value that owns a resource reads it: moving a
 # payload out takes `match <e`, which consumes `e`.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

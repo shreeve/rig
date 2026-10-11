@@ -1,4 +1,4 @@
-struct Wrap
+obj Wrap
   n: Int
   v: List[Int]
 

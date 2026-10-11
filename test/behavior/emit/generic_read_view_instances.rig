@@ -3,7 +3,7 @@
 # pointer to a value that owns resources, a shared Cell included. Both
 # sides of a method call, a field, and a payload agree.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun get(?self) -> ?T
@@ -23,14 +23,14 @@ struct Wrap[T]
     r = self.get()
     print(r)
 
-struct Num[T]
+obj Num[T]
   v: T
 
   fun copy(?self) -> T
     r = ?self.v
     +r
 
-struct Ref[T]
+obj Ref[T]
   r: ?T
 
   fun val(?self) -> ?T

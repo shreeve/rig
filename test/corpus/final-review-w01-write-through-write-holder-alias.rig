@@ -1,8 +1,8 @@
 # s7: a write view reached through a held write view: two calls give two write views of one element? (expect reject at b)
-struct Item
+obj Item
   n: Int
 
-struct Cur
+obj Cur
   items: !List[Item]
 
   fun at(!self) -> !Item

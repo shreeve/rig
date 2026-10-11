@@ -1,5 +1,5 @@
 # take an optional element of a List reached through a shared handle: reject
-struct S
+obj S
   v: List[String?]
 
 sub main()

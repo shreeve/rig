@@ -1,6 +1,6 @@
 # A returned view must come from a view parameter, not a local.
 
-struct User
+obj User
   name: String
 
 fun bad() -> ?String

@@ -1,8 +1,8 @@
-struct Pair[A, B]
+obj Pair[A, B]
   a: A
   b: B
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun tag[U](?self, u: U) -> Wrap[Pair[T, U]]

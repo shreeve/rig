@@ -2,7 +2,7 @@
 # temporary or a moved optional: nothing is copied, and on `none` the
 # jump leaves.
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)
@@ -20,7 +20,7 @@ fun take(k: Int) -> Int
   r = <o ?? return -2
   r.id * 2
 
-struct Holder
+obj Holder
   r: Res?
 
 fun out(h: !Holder) -> Int

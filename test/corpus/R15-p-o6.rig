@@ -1,4 +1,4 @@
-struct H
+obj H
   c: *Cell[Int]
 
 sub main()

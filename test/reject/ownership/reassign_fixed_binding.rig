@@ -1,6 +1,6 @@
 # A binding made with `const` is fixed and cannot be reassigned.
 
-struct User
+obj User
   name: ?String
 
 fun loadUser(id: Int) -> User

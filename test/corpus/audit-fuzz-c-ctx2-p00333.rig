@@ -49,7 +49,7 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-struct GP3713[T]
+obj GP3713[T]
   f: T
 
 fun cf18(ok: Bool) -> U16!
@@ -71,13 +71,13 @@ enum Op5013
   some(v: U64)
   nothing
 
-struct FA1759
+obj FA1759
   f: Float
 
-struct Bx1497
+obj Bx1497
   f: U64
 
-struct FA1218
+obj FA1218
   f: U8
 
 fun fal3588(ok: Bool) -> U32!
@@ -94,7 +94,7 @@ fun fal387(ok: Bool) -> U128!
 error Err387
   bad
 
-struct W387
+obj W387
   f: U128
   g: Int = 1
 

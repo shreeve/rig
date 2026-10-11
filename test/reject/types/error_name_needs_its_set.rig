@@ -16,7 +16,7 @@ enum Color
   red
   green
 
-struct S
+obj S
   err: Net
 
 fun fetch(n: Int) -> Int!

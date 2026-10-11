@@ -1,8 +1,8 @@
-struct S
+obj S
   v: List[Int]
   w: List[Int]
 
-struct T
+obj T
   o: S?
 
 fun mk() -> S

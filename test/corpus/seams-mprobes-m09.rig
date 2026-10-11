@@ -1,4 +1,4 @@
-struct Acc
+obj Acc
   total: Int
 
 fun spill(v: !List[Acc]) -> Int

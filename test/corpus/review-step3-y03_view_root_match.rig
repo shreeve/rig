@@ -1,11 +1,11 @@
-struct Res
+obj Res
   t: String
 
 enum E
   a(r: Res)
   b
 
-struct S
+obj S
   e: E
 
 sub main()

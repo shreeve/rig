@@ -4,7 +4,7 @@
 # under the stored view. Base compiler (rig-base) accepts it too.
 # A store through a write parameter does not put the stored loan in the
 # parameter's flow, so the owner can be written while the stored view is live.
-struct Holder
+obj Holder
   r: []Int
 
 fun f(a: !Holder, b: !List[Int]) -> Int

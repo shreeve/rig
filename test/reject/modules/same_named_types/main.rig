@@ -3,7 +3,7 @@
 
 use other
 
-struct Point
+obj Point
   x: Int
   y: Int
 

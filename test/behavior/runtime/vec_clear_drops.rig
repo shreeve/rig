@@ -2,7 +2,7 @@
 # List that can be reused; elements pushed afterwards are dropped with the
 # List. A handle cloned into the List keeps its value alive past the clear.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

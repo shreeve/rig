@@ -3,7 +3,7 @@
 # block), `return`, a closure's result, a `break` value, a loop's
 # `else`, and a binding's `if`, `match`, or `if … as` value.
 
-struct D
+obj D
   id: Int
 
   drop(!self)

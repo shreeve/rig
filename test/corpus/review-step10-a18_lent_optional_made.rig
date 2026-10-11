@@ -1,7 +1,7 @@
 # lent (pointer): `?mko(k)` where a `(?Q)?` is expected lends the value
 # inside the made optional, captured `|*__rig_lent_N|`. Is the operand an
 # lvalue (a slot) or a Zig rvalue? The result views it after the call.
-struct Q
+obj Q
   xs: [4]Int
   n: Int
 

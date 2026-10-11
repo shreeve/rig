@@ -1,4 +1,4 @@
-struct W
+obj W
   s: [2]*W
 
 sub main()

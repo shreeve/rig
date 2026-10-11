@@ -1,5 +1,5 @@
 # SPEC §10 List: elements exclude owning values other than handles and boxes
-struct Row
+obj Row
   cells: List[Int]
 
 sub main()

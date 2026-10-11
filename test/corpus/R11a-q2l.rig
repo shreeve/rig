@@ -6,7 +6,7 @@ fun cap3[T](x: T) -> Int
   c = |<x| 1
   c() + c()
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

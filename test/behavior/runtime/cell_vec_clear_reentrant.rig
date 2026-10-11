@@ -2,7 +2,7 @@
 # so a drop body that reaches back into the cell finds a valid, empty
 # List, and may even push to it.
 
-struct Item
+obj Item
   id: Int
   owner: ~Cell[List[*Item]]
 

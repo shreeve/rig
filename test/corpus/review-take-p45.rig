@@ -1,4 +1,4 @@
-struct P
+obj P
   a: !Int
   b: !Int
 

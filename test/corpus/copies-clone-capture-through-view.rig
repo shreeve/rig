@@ -1,4 +1,4 @@
-struct S
+obj S
   r: ?Int
 
 sub through_view_frees_holder()

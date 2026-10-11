@@ -3,10 +3,10 @@
 # not hold a view: another path to the cell could read it after the
 # viewed value is gone.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
-struct View
+obj View
   b: ?Wrap
 
 sub stash(c: !Cell[*View], vw: *View)

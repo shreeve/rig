@@ -1,4 +1,4 @@
-struct Meters
+obj Meters
   v: Float
 
 type Km = Meters

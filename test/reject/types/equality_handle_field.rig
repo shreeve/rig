@@ -1,10 +1,10 @@
 # A struct holding a handle has no `==`: it could compare the handles or
 # the values behind them. The diagnostic names the field.
 
-struct Node
+obj Node
   n: Int
 
-struct Link
+obj Link
   id: Int
   to: *Node
 

@@ -6,7 +6,7 @@
 # through it.
 # release
 
-struct P
+obj P
   t: String
   n: Int
 

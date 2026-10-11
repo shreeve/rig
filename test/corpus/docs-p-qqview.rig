@@ -1,4 +1,4 @@
-struct S
+obj S
   n: Int
   drop(!self)
     print("d")

@@ -4,7 +4,7 @@ enum F
   a(n: Int)
   b(n: Int)
 
-struct P
+obj P
   xs: [2]F
 
 fun look(p: ?P) -> ?P from p

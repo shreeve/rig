@@ -1,5 +1,5 @@
 # An owned closure made in the arm copies a String view of the payload; the subject is then reassigned. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

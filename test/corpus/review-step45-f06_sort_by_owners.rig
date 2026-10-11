@@ -1,7 +1,7 @@
 # sort_by on List[Text] and on an array of Box
 use std.sort
 
-struct P
+obj P
   n: Int
 
 fun longer(a: ?String, b: ?String) -> Bool

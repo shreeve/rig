@@ -1,7 +1,7 @@
 # A closure that move-captures a struct with drop glue owns it: the
 # struct is dropped when the closure leaves scope, not at the move.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

@@ -1,9 +1,9 @@
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct W[T]
+obj W[T]
   x: T?
 
 fun first[T](o: W[T]?) -> T?

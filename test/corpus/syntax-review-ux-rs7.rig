@@ -1,4 +1,4 @@
-struct Job
+obj Job
   id: Int
   drop(!self)
     print("free", self.id)

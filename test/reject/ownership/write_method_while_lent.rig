@@ -1,6 +1,6 @@
 # A write-receiver method call needs the receiver not lent.
 
-struct User
+obj User
   age: Int
 
   sub bump(!self, by: Int)

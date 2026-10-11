@@ -2,7 +2,7 @@
 # handle (Core §4: a `*T` lends the read views of its `T`): the handle may
 # not be dropped, moved, or replaced while the String is used.
 
-struct W
+obj W
   t: *String
 
 fun peek(h: *String) -> ?String

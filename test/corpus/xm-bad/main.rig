@@ -1,6 +1,6 @@
 use lib
 
-struct P
+obj P
   x: Int
 
 sub main()

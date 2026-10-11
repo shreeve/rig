@@ -6,7 +6,7 @@ enum E
   a(xs: [4]Int)
   b
 
-struct Wrap[T]
+obj Wrap[T]
   e: E
   v: T
 

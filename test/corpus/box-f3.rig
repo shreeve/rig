@@ -1,4 +1,4 @@
-struct C
+obj C
   hits: Cell[Int]
 
   sub hit(!self)

@@ -1,4 +1,4 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 fun or_else[T](o: T?, d: T) -> T

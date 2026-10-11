@@ -1,7 +1,7 @@
-struct Self
+obj Self
   x: Int
 
-struct Box2[T]
+obj Box2[T]
   v: T
   fun get(?self) -> Self
     Self(x: 1)

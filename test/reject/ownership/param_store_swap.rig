@@ -1,7 +1,7 @@
 # `swap` moves a value holding a String that views `b` into parameter
 # `a`, which keeps `b` lent for the rest of the body.
 
-struct Holder
+obj Holder
   s: ?String
 
 fun f(a: !Holder, b: !String) -> Int

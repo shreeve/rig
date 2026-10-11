@@ -2,7 +2,7 @@
 # parameter) clones the handle into the closure, which then outlives the
 # view and the List.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

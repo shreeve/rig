@@ -1,5 +1,5 @@
 # Core §3: `print(o ?? d)` moves nothing
-struct R
+obj R
   n: Int
 
   drop(!self)

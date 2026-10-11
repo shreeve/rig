@@ -2,10 +2,10 @@
 # value holds one, and no clone, weak handle, or clone capture of a
 # handle can give two handles that both write through it.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
-struct Ed
+obj Ed
   t: !Wrap
 
 sub main()

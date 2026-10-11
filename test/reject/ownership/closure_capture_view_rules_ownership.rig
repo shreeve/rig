@@ -3,10 +3,10 @@
 # views nothing; and nothing a view of the closure's own values is
 # stored through a captured write view.
 
-struct Wrap
+obj Wrap
   n: Int
 
-struct View
+obj View
   w: ?Wrap
 
 sub go()

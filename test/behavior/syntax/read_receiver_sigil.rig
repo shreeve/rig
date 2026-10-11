@@ -2,7 +2,7 @@
 # and its fields and elements, and in a `while` step; `?(p.m())`
 # views the call's result.
 
-struct Point
+obj Point
   x: Int
 
   fun shifted(?self, d: Int) -> Point
@@ -11,7 +11,7 @@ struct Point
   sub show(?self, label: ?String)
     print(label, self.x)
 
-struct Line
+obj Line
   a: Point
   b: Point
 

@@ -5,13 +5,13 @@
 
 use std.text
 
-struct S
+obj S
   t: String
 
   fun get(?self) -> ?String
     ?self.t
 
-struct E
+obj E
   value: String
 
 fun find(e: ?E, ok: Bool) -> (?String)?
@@ -22,7 +22,7 @@ fun find(e: ?E, ok: Bool) -> (?String)?
 fun n(p: ?String) -> Int
   text.trim(p).len + p[1..].len
 
-struct W
+obj W
   s: List[?String]
 
 fun mkw() -> W

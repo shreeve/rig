@@ -3,7 +3,7 @@
 # Each holds the Text viewed until its last use; then the Text can be
 # changed, moved, or dropped again. Strings from literals hold no loan.
 
-struct Span
+obj Span
   label: ?String
   width: Int
 

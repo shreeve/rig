@@ -1,5 +1,5 @@
 # base-comparable: generic loop over a ?[1]T with T = C (Cell holder), ?self method changes the Cell
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)

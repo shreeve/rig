@@ -2,7 +2,7 @@
 # a `(*T)?` is expected, and a box of an optional holds `none` as any
 # other value. (`*none` is rejected: test/reject/types/share_of_none.rig.)
 
-struct S
+obj S
   h: (*Int)?
 
 sub f(h: (*Int)?)

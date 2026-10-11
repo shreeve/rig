@@ -4,7 +4,7 @@ pub fun max[T](a: T, b: T) -> T
 pub fun apply(f: fun(Int, Int) -> Int) -> Int
   f(1, 2)
 
-pub struct W[T]
+pub obj W[T]
   v: T
 
   fun get(?self) -> T

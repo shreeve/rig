@@ -11,7 +11,7 @@ enum E
   a(n: Int)
   b
 
-struct S
+obj S
   e: E
   xs: [3]Int
   o: Int?

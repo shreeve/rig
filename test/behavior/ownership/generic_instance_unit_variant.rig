@@ -1,7 +1,7 @@
 # A unit variant of an explicit instance (`Opt[Res].nothing`) is a fresh
 # value, as `Opt.nothing` is, also in a generic body.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

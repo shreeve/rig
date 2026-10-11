@@ -3,7 +3,7 @@
 # never an array's element nor a generic type argument, and the array
 # is rejected where it is written.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 sub each[T](xs: ?[2]T, f: ?fun(?T) -> Int)

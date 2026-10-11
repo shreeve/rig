@@ -1,4 +1,4 @@
-struct P
+obj P
   n: Int
   fun get(self) -> Int
     self.n

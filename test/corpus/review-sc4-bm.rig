@@ -1,4 +1,4 @@
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -8,7 +8,7 @@ enum Slot
   full(b: *B)
   empty
 
-struct W
+obj W
   b: *B
 
 fun get(s: Slot, d: *B) -> *B

@@ -1,8 +1,8 @@
-struct N
+obj N
   v: Int
   next: ^N?
 
-struct S
+obj S
   top: ^N?
   name: ?String
   n: N

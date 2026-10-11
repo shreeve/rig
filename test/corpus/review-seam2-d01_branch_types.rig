@@ -6,7 +6,7 @@
 # oracle: mks accept
 # oracle: opt accept
 # oracle: main accept
-struct S
+obj S
   n: Int
 
   sub bump(!self)

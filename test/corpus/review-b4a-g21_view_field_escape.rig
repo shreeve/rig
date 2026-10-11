@@ -7,7 +7,7 @@ enum Opt[T]
   some(v: T)
   none
 
-struct V[T]
+obj V[T]
   r: ?Opt[T]
 
 fun get[T](w: ?V[T], d: ?T) -> ?T from w, d

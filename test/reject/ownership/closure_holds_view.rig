@@ -1,7 +1,7 @@
 # A closure that captured a view keeps the owner viewed while the
 # closure binding is live.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

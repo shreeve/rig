@@ -2,7 +2,7 @@
 # Where a generic body takes such an element (moves, drops, or returns
 # it), every instance must be plain data: the collection still owns it.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
@@ -29,7 +29,7 @@ fun first[T](v: ?List[T], d: T) -> T
     return x
   <d
 
-struct Bag[T]
+obj Bag[T]
   items: List[T]
 
   fun steal(?self, d: T) -> T

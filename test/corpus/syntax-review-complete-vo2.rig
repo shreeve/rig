@@ -1,9 +1,9 @@
-struct Node
+obj Node
   id: Int
   drop(!self)
     print("drop", self.id)
 
-struct Slot[V]
+obj Slot[V]
   v: V?
 
 sub main()

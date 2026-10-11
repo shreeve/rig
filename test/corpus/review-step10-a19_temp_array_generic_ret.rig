@@ -1,7 +1,7 @@
 # lendsTempArray: a temporary array lent as a `[]T` to a call that
 # "keeps no view of it" (callRetains). With a generic element type the
 # result is an element: can it view the array's slot?
-struct P
+obj P
   xs: [4]Int
 
 fun firstOf[T](xs: []T, k: Int) -> T

@@ -2,7 +2,7 @@
 # numbers: pushed, indexed, assigned (whole or by field), iterated, and
 # popped by value.
 
-struct P
+obj P
   x: Int
   y: Int
 

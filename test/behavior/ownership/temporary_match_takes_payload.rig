@@ -1,7 +1,7 @@
 # A `match` takes a call's result, as `match <e` does: an arm may move a
 # payload out, and what it leaves is dropped with the arm.
 
-struct N
+obj N
   id: Int
 
   drop(!self)

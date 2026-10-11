@@ -1,4 +1,4 @@
-struct P
+obj P
   age: Int
   fun get(?self) -> Int
     age

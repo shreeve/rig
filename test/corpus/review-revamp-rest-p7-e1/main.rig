@@ -1,6 +1,6 @@
 use lib
 
-struct Local
+obj Local
   p: lib.Pt
   w: lib.W[lib.Pt]
 

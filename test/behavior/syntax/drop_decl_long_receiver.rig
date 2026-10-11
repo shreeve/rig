@@ -1,13 +1,13 @@
 # A `drop` receiver may be spelled as a method's is: `drop(!self)` or
 # `drop(self: !Self)`, which may name the struct.
 
-struct A
+obj A
   n: Int
 
   drop(self: !Self)
     print("a", self.n)
 
-struct B
+obj B
   n: Int
 
   drop(self: !B)

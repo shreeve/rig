@@ -3,7 +3,7 @@
 fun id(n: Int) -> Int
   n
 
-struct S
+obj S
   f: fun(Int) -> Int
   g: *fun(Int) -> Int
 

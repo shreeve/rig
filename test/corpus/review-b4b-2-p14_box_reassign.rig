@@ -1,5 +1,5 @@
 # Box subject; view escapes; the box is reassigned. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

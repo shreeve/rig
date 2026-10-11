@@ -3,7 +3,7 @@
 # lends, leaving `none` in the element of the place the branch took: the
 # branch is indexed as a whole, in a binding and in an `if … as` header.
 
-struct S
+obj S
   a: [2]Int?
 
 sub main()

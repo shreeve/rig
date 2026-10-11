@@ -1,10 +1,10 @@
 # `+x` names why a value has no clone: it holds a unique value, or, in
 # a generic body, a type parameter, which has no deep clone there.
 
-struct R unique
+obj R unique
   seed: Int
 
-struct S
+obj S
   rs: [1]R
   t: String
 

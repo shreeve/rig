@@ -1,7 +1,7 @@
 # Literals combined with a generic `T` take the instance's type: the
 # instances here hold every literal the body uses.
 
-struct Acc[T]
+obj Acc[T]
   total: T
 
   fun bumped(?self) -> T
@@ -14,7 +14,7 @@ struct Acc[T]
     self.total += x
     self.total -= 1
 
-struct Bits[T]
+obj Bits[T]
   v: T
 
   fun doubled(?self) -> T

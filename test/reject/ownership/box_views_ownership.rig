@@ -1,7 +1,7 @@
 # Views reach a boxed value through the box: its owner cannot be
 # reassigned or dropped while one is live.
 
-struct Node
+obj Node
   key: Int
   left: ^Node?
 

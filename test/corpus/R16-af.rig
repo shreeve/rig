@@ -7,7 +7,7 @@ fun inc(n: Int) -> Int
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-struct H
+obj H
   f: fun(Int) -> Int
 
 sub main()

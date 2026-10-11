@@ -1,7 +1,7 @@
-struct S
+obj S
   arr: [3]Int
 
-struct V
+obj V
   s: ![]Int
 
 fun first[T](xs: []T) -> T

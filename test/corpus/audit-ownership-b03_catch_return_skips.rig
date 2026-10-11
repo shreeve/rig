@@ -1,7 +1,7 @@
 error E
   bad
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)

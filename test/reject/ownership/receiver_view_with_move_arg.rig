@@ -1,10 +1,10 @@
 # A method call views its receiver for the whole call, so
 # `rc.show(<rc)` is rejected like `show(?rc, <rc)`.
 
-struct Inner
+obj Inner
   x: Int
 
-struct Wrap
+obj Wrap
   inner: *Inner
 
   sub show(?self, other: *Wrap)

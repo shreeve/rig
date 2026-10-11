@@ -3,7 +3,7 @@
 # most 16 MiB together, the size of the stack. Closures, `main`, and
 # each instance of a generic function or type are checked the same way.
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
   fun spread(?self) -> Int

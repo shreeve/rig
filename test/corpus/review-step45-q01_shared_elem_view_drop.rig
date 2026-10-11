@@ -1,5 +1,5 @@
 # view of an element in a shared handle's List; drop the only handle
-struct S
+obj S
   v: List[String]
 
 sub main()

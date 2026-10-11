@@ -1,4 +1,4 @@
-struct A3
+obj A3
   arr: [3]Int
 
 sub f(a: !List[A3], b: !List[A3], c: Bool)

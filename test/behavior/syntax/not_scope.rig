@@ -2,7 +2,7 @@
 # another `not`. It binds tighter than `and` and `or`, so `not a and b`
 # is `(not a) and b`, and it needs no parentheses there.
 
-struct Bag
+obj Bag
   items: List[Int]
 
   fun is_empty(?self) -> Bool

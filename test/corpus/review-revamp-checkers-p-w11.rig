@@ -1,10 +1,10 @@
-struct S
+obj S
   n: Int
 
-struct H
+obj H
   r: ?S
 
-struct V
+obj V
   h: !H
 
 sub put(p: !H)

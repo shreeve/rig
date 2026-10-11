@@ -1,6 +1,6 @@
 use std.sort
 
-struct Task
+obj Task
   name: String
   priority: Int
 

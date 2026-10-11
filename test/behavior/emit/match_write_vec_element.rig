@@ -7,10 +7,10 @@ enum E
   a(n: Int, t: String)
   b
 
-struct S
+obj S
   e: E
 
-struct H
+obj H
   f: List[E]
 
 sub bump(p: !List[E], i: Int)

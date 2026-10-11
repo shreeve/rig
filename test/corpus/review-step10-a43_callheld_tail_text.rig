@@ -1,14 +1,14 @@
 # a35 with a Q that owns a Text: the call's copy of the Cell-holding part
 # `mkh(43).q` is dropped (`defer rig.drop(&__rig_recv_N)`) when the call
 # returns, and the value block yields a view of it: use of freed memory.
-struct Q
+obj Q
   c: Cell[Int]
   t: String
 
   fun me(?self, j: Int, k: Int) -> ?Q
     self
 
-struct H
+obj H
   q: Q
 
 fun mkh(k: Int) -> H

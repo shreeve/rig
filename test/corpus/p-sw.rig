@@ -1,4 +1,4 @@
-struct W
+obj W
   n: Int
 
   drop(!self)

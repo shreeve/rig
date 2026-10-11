@@ -2,16 +2,16 @@
 # handle, so dropping `o` at scope exit drops the Noisy (its drop body
 # prints the id).
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)
     print(self.id)
 
-struct Inner
+obj Inner
   r: *Noisy
 
-struct Outer
+obj Outer
   inner: Inner
 
 sub main()

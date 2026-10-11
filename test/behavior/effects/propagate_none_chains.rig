@@ -4,7 +4,7 @@
 error Bad
   odd
 
-struct Node
+obj Node
   next: Int?
   val: Int
 

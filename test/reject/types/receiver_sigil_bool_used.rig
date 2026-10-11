@@ -3,7 +3,7 @@
 # `Bool` in a binding, an argument, a `return`, a body's value, a
 # `match` subject, a ternary's branch, a `catch` value that is used.
 
-struct Set
+obj Set
   items: List[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items

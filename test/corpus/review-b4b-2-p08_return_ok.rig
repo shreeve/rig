@@ -1,5 +1,5 @@
 # A function returns a payload view of a List element, guarded match. Expect accept, prints one 1.
-struct Res
+obj Res
   n: Int
   t: String
 

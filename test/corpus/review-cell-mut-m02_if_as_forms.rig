@@ -1,5 +1,5 @@
 # A Cell changed through `if as` and `while as` bindings of each kind.
-struct C
+obj C
   c: Cell[Int]
   log: Cell[List[Int]]
 

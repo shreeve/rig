@@ -1,4 +1,4 @@
-struct Box2[T]
+obj Box2[T]
   a: T
 
 fun out(p: ?Box2[!Int]) -> Box2[!Int]

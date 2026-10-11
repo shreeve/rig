@@ -22,7 +22,7 @@ sub show[n: Int]()
 sub report[mode: Mode, n: Int](label: ?String)
   print(label, check[mode](n))
 
-struct Scale
+obj Scale
   k: Int
 
   fun times[n: Int](?self) -> Int

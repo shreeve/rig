@@ -3,7 +3,7 @@
 # the value `Cell.replace` hands back.
 use std.random
 
-struct G
+obj G
   r: random.Random
   n: Int
 

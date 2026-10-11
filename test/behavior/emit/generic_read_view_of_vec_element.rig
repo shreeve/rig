@@ -1,11 +1,11 @@
 # A read view of a List element through a lent to read receiver reads
 # the element in place.
 
-struct P
+obj P
   x: Int
   y: Int
 
-struct Bag[T]
+obj Bag[T]
   items: List[T]
 
   fun first(?self) -> ?T

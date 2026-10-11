@@ -1,8 +1,8 @@
-struct T
+obj T
   k: Int
   kids: List[^T]
 
-struct Q
+obj Q
   k: Int
   a: ^Q?
   s: *Q2?
@@ -11,7 +11,7 @@ struct Q
     if self.k % 100000 == 0
       print("drop q", self.k)
 
-struct Q2
+obj Q2
   q: ^Q?
 
 sub main()

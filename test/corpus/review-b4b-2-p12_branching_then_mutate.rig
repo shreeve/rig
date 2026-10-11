@@ -1,5 +1,5 @@
 # Subject is a branching value of views; payload view escapes; then one owner is reassigned. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

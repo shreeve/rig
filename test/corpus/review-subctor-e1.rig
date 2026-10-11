@@ -1,7 +1,7 @@
-struct D
+obj D
   n: Int = 7
 
-struct R
+obj R
   items: List[Int]
 
   fun total(?self) -> Int

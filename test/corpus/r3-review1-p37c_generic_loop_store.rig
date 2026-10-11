@@ -1,7 +1,7 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
-struct Box2[T]
+obj Box2[T]
   item: T?
 
 fun grab[T](xs: ?[2]T, out: !Box2[T])

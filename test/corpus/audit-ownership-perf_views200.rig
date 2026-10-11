@@ -1,7 +1,7 @@
-struct Tok
+obj Tok
   n: Int
 
-struct V
+obj V
   b: ?Tok
 
 sub main()

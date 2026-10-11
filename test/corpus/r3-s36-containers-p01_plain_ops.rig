@@ -1,6 +1,6 @@
 use std.sort
 
-struct P
+obj P
   x: Int
   y: Int
 

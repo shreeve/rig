@@ -3,10 +3,10 @@
 # plain struct, or a view, through the owner, a write view, a `!self`
 # receiver, or a `defer`, as a take whose value is bound does.
 
-struct P
+obj P
   x: Int
 
-struct S
+obj S
   n: Int?
   p: P?
   s: (?String)?

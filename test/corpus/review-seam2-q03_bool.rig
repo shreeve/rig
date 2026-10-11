@@ -1,5 +1,5 @@
 # Review probe q03_bool.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
-struct Set
+obj Set
   xs: List[Int]
 
   fun insert(!self, x: Int) -> Bool

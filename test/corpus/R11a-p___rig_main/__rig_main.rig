@@ -1,4 +1,4 @@
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
 pub fun one() -> Int

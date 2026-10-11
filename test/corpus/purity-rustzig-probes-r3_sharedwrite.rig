@@ -1,4 +1,4 @@
-struct Acct
+obj Acct
   bal: Int
 
   sub dep(!self, n: Int)

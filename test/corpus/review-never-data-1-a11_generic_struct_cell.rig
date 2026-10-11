@@ -1,4 +1,4 @@
-struct W[T]
+obj W[T]
   c: Cell[T]
 
   sub put(!self, x: T)

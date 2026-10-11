@@ -1,7 +1,7 @@
-struct View
+obj View
   xs: []Int
 
-struct Holder
+obj Holder
   b: ^View
 
   sub put(!self, ys: []Int)

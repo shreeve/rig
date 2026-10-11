@@ -1,7 +1,7 @@
 # `a = +a` clones before the old handle is dropped, so the new value is
 # read from a live box.
 
-struct Wrap
+obj Wrap
   n: Int
 
 sub main()

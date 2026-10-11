@@ -101,7 +101,7 @@ sub element_of_owner()
   t = <v[0]
   print(t)
 
-struct Bag
+obj Bag
   items: List[?Int]
 
 sub field_inner_scope()
@@ -121,7 +121,7 @@ sub through_write_views()
   <t
   print(inner)
 
-struct Holder
+obj Holder
   s: ?String
 
 sub swapped_view()
@@ -140,7 +140,7 @@ sub replaced_view()
   !t.add("!")
   print(old, h.s)
 
-struct Ed
+obj Ed
   w: !Int
 
 sub field_write_view()

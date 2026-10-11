@@ -7,7 +7,7 @@ fun mk() -> String
 fun id(r: ?String) -> ?String
   r
 
-struct H
+obj H
   t: String
 
 fun name(h: ?H) -> ?String

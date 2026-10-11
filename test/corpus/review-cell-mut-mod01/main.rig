@@ -2,14 +2,14 @@
 # a generic type of that module instantiated here with a local holder.
 use lib
 
-struct M
+obj M
   w: lib.W
   k: Int
 
   sub hit(?self)
     self.w.c.hit()
 
-struct L
+obj L
   c: Cell[Int]
 
 sub bump(l: ?L)

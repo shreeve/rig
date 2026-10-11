@@ -5,7 +5,7 @@
 error E
   bad
 
-struct N
+obj N
   c: Cell[Int]
 
 fun mk(n: Int) -> N

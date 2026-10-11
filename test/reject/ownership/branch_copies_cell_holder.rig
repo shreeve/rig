@@ -6,10 +6,10 @@ enum E
   p
   q
 
-struct S
+obj S
   c: Cell[List[Int]]
 
-struct O
+obj O
   s: S
 
 fun grow(s: !S) -> Int

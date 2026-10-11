@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int = 1 + 2
 
 sub main()

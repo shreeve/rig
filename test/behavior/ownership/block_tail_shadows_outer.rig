@@ -1,6 +1,6 @@
 # The tail of a value block names the block's own binding, not an outer
 # one of the same name: it moves out, and the outer binding stays.
-struct R
+obj R
   n: Int
 
   drop(!self)

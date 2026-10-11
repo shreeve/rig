@@ -1,7 +1,7 @@
-struct S
+obj S
   v: List[Int]
 
-struct T
+obj T
   s: S
 
 sub main()

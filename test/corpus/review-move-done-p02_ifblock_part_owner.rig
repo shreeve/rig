@@ -1,5 +1,5 @@
 # multi-line if-expression used as base of a part move
-struct S
+obj S
   n: Int
   v: List[Int]
 

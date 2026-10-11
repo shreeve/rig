@@ -1,4 +1,4 @@
-struct Node
+obj Node
   keys: List[Int]
   kids: List[^Node]
 

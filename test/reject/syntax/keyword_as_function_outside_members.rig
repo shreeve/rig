@@ -1,7 +1,7 @@
 # The name after `fun` may be a keyword only in a member list: a
 # top-level function cannot be named `type`.
 
-struct S
+obj S
   x: Int
 
   fun test(?self) -> Int

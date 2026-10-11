@@ -3,10 +3,10 @@
 # Text while the holder writes it. Each field is rejected where it is
 # declared.
 
-struct W
+obj W
   t: !String
 
-struct It
+obj It
   t: !String
 
 sub main()

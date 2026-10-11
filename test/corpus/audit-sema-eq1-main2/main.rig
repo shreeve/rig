@@ -1,9 +1,9 @@
 use lib
 
-struct Q
+obj Q
   w: Wrap[*Int]
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 sub main()

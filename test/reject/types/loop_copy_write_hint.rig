@@ -1,10 +1,10 @@
 # A loop element or an `as` binding of a place is a copy; writing it
 # would change nothing, so the error points at the write form.
 
-struct C
+obj C
   n: Int
 
-struct Box2
+obj Box2
   items: List[C]
 
 sub main()

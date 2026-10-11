@@ -2,7 +2,7 @@
 # `w = !v`) calls a `!self` method as an owned binding does, `!x.m()`:
 # lending a write view always shows its sigil.
 
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)

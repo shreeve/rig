@@ -1,4 +1,4 @@
-struct OV
+obj OV
   ov: (?List[Int])?
 
 sub main()

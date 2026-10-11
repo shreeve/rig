@@ -1,6 +1,6 @@
 # A step that reads a binding of a joined condition runs after the body's
 # defers: here it moves `b`, which a body `defer` reads.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

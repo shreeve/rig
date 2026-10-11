@@ -3,13 +3,13 @@
 # and a `?self` receiver. It is rejected with `?x`, which lends to
 # read. A held write view (`w`) passes there as it is.
 
-struct P
+obj P
   x: Int
 
   fun get(?self) -> Int
     self.x
 
-struct G[T]
+obj G[T]
   r: T
 
 fun rd(x: ?Int) -> Int

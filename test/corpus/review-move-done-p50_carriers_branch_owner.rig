@@ -1,9 +1,9 @@
 # owning part of a branching value, in every carrier
-struct S
+obj S
   n: Int
   v: List[Int]
 
-struct W
+obj W
   v: List[Int]
 
 sub eat(v: List[Int])

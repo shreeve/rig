@@ -1,5 +1,5 @@
 # cf4e2c4b: a generic read result read in the same statement as the List.
-struct Item
+obj Item
   n: Int
 
 fun gfirst[T](v: !List[T]) -> ?T

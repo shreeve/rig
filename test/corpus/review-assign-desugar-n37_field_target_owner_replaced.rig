@@ -1,6 +1,6 @@
 # Valid: the value moves the target's owner and makes a new one; the
 # field store lands in the new owner.
-struct S
+obj S
   items: List[Int]
   n: Int
 

@@ -4,7 +4,7 @@
 # oracle: D.drop accept
 # oracle: D.hit accept
 # oracle: main accept
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)

@@ -7,7 +7,7 @@
 error Bad
   bad
 
-struct Tracked
+obj Tracked
   id: Int
   left: Int
 

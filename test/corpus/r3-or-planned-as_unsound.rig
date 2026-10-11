@@ -14,7 +14,7 @@
 # oracle: escape reject C5
 # oracle: match_assign reject C4
 
-struct N
+obj N
   v: Int
 
   drop(!self)
@@ -49,7 +49,7 @@ sub move_view_then_assign()
     o = none
     print(y.v)
 
-struct L
+obj L
   v: Int
   next: ^L?
 

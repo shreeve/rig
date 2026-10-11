@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
 
 fun pick(a: !P, b: !P, c: Bool) -> P

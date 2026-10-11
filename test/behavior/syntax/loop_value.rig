@@ -2,7 +2,7 @@
 # the value of the `break` that leaves it, or its `else` value when
 # none does. `while true` needs no `else`.
 
-struct Grid
+obj Grid
   rows: [3]Int
   cols: [3]Int
 

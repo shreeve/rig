@@ -1,13 +1,13 @@
 error Bad
   boom
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)
     print("drop", self.id)
 
-struct Tree
+obj Tree
   vals: List[Int]
 
   sub each(?self, f: ?sub(Int))

@@ -1,7 +1,7 @@
 # An `if`, ternary, or `match` yielding a view where an optional
 # view is expected yields the view itself.
 
-struct D
+obj D
   n: Int
 
   drop(!self)
@@ -30,7 +30,7 @@ fun slot(m: !Int, k: Int) -> (!Int)?
 fun cell(m: !Int) -> (!Int)?
   m
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun get(?self, k: Int) -> (?T)?

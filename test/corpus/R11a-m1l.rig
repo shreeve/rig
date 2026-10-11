@@ -1,11 +1,11 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
-struct Two[T]
+obj Two[T]
   a: Wrap[T]
   n: Int
 
-struct Node
+obj Node
   n: Int
   next: Two[Node]
 

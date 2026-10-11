@@ -1,5 +1,5 @@
 # A labeled `:a match` inside an `:a` loop: its `break :a` leaves the match.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

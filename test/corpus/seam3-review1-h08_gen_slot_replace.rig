@@ -1,4 +1,4 @@
-struct Slot[T]
+obj Slot[T]
   x: T
 
   fun swap(!self, n: T) -> T

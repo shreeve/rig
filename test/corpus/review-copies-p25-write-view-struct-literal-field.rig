@@ -1,10 +1,10 @@
 # A bare write view of a plain struct read as a field value: Core
 # sentence 1 says it reads the value it sees.
-struct P
+obj P
   x: Int
   y: Int
 
-struct Q
+obj Q
   p: P
   o: P?
 

@@ -2,7 +2,7 @@
 # optional through `!` on the header, takes it with `<`, or reads it
 # bare.
 
-struct P
+obj P
   o: Int?
 
 sub main()

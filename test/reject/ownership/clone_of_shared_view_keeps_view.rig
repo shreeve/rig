@@ -1,13 +1,13 @@
 # A clone of a shared handle whose value holds a view reaches that
 # view too: the viewed value stays lent while the clone lives.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
-struct View
+obj View
   b: ?Wrap
 
 sub main()

@@ -8,7 +8,7 @@ fun first_of[T](xs: []T) -> T
 fun keep[T](h: *T) -> Int
   1
 
-struct N
+obj N
   n: Int
 
 sub main()

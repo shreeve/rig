@@ -1,11 +1,11 @@
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
 pub enum Opt[T]
   some(value: T)
   none
 
-pub struct Ring[T, n: Int]
+pub obj Ring[T, n: Int]
   items: [n]T
 
   fun cap(?self) -> Int

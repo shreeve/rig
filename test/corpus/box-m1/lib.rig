@@ -1,4 +1,4 @@
-pub struct Tree
+pub obj Tree
   key: Int
   kids: List[^Tree]
 

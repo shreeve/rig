@@ -4,10 +4,10 @@
 # reaches changes through them, in debug and in an optimized build.
 # release
 
-struct C
+obj C
   c: Cell[Int]
 
-struct G[T]
+obj G[T]
   h: T
 
 fun tot(xs: []G[*C]) -> Int

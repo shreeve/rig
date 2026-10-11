@@ -1,7 +1,7 @@
 pub fun peek[T](x: ?T) -> ?T
   x
 
-pub struct Hold[T]
+pub obj Hold[T]
   h: ?T
 
 pub fun hold[T](x: ?T) -> Hold[T]

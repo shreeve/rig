@@ -1,10 +1,10 @@
 # Locals the fact now makes `var` that Zig might find never mutated: a
 # Cell holder only read, a generic local at a plain instance, an array
 # of holders only read, an optional holder only tested.
-struct C
+obj C
   c: Cell[Int]
 
-struct G[T]
+obj G[T]
   x: T
 
 fun id[T](x: T) -> T

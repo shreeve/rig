@@ -1,4 +1,4 @@
-struct R
+obj R
   s: []Int
 
 fun t() -> Bool

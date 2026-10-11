@@ -1,4 +1,4 @@
-struct View
+obj View
   w: ?List[Int]
 
 sub run[T](x: ?T, f: ?sub(?T))

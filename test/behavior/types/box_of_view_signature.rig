@@ -1,10 +1,10 @@
 # `^?T` is a box that holds a read view, and it is written the same in a
 # field, a parameter, and a result.
 
-struct P
+obj P
   x: Int
 
-struct Holder
+obj Holder
   b: ^?P
 
 fun wrap(p: ?P) -> ^?P from p

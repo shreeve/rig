@@ -1,12 +1,12 @@
 # `o.d = match k` whose arm moves `o.d` out: a conditional partial move,
 # then the store reinitializes it.
-struct D
+obj D
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct O
+obj O
   d: D
 
 fun sink(d: D) -> D

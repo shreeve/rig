@@ -1,8 +1,8 @@
-struct F
+obj F
   v: Float
   w: F32
 
-struct B
+obj B
   b: U8
   i: I64
 

@@ -1,13 +1,13 @@
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)
     print("drop tok", self.n)
 
-struct Bx
+obj Bx
   v: List[*Tok]
 
-struct Ed
+obj Ed
   t: !Bx
 
 fun dup(e: Ed) -> Ed

@@ -5,11 +5,11 @@ enum Opt[T]
 fun wrap[T](x: T) -> Opt[T]
   .some(value: <x)
 
-struct Two[A, B]
+obj Two[A, B]
   a: A
   b: B
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

@@ -1,9 +1,9 @@
-struct D
+obj D
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct H
+obj H
   d: D
   o: D?
 

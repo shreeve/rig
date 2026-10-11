@@ -4,7 +4,7 @@
 # a number type converts to it. An alias of a float type names its
 # limits, which a default value may be.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun make(n: T) -> Wrap[T]
@@ -22,7 +22,7 @@ type M = Mode
 type Real = F32
 type Small = I8
 
-struct D
+obj D
   hi: Real = Real.max
   lo: Real = Real.min
 

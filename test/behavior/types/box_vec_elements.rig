@@ -2,7 +2,7 @@
 # is walked by viewed slot (`for x in ?v`, `for x in !v`), and moves
 # out with `pop`.
 
-struct R
+obj R
   n: Int
 
   drop(!self)

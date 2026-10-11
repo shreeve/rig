@@ -1,5 +1,5 @@
 const N = 3
 pub const F = 2.5
 
-pub struct S
+pub obj S
   x: Int

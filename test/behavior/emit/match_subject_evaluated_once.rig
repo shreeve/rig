@@ -4,7 +4,7 @@
 # call owns and drops what the call made; so does a `match <` of a
 # call with alternatives, and a `match !` of an element bound whole.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

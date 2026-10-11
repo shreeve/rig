@@ -3,14 +3,14 @@
 error Bad
   no
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
-struct H
+obj H
   q: Q
 
-struct S
+obj S
   cb: fun(String, ?Q, Int) -> Int
 
 fun gf(k: Int) -> Int!

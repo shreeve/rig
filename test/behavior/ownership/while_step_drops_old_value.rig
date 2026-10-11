@@ -1,7 +1,7 @@
 # The `: step` of a `while` is a statement: assigning a resource there
 # drops the value it replaces.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

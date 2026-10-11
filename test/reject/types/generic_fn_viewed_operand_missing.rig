@@ -2,10 +2,10 @@
 # an instance whose type lacks the operation is reported at the call,
 # with a note at the body line.
 
-struct P
+obj P
   n: Int
 
-struct H
+obj H
   p: *P
 
 fun same[T](a: ?T, b: ?T) -> Bool

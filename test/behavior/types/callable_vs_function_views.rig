@@ -4,7 +4,7 @@
 # function value may be lent to write and reassigned through `!T`. A
 # closure captured with `|?f|` is lent, and can be passed on.
 
-struct View[T]
+obj View[T]
   w: ?T
 
 enum Opt[T]

@@ -1,9 +1,9 @@
 use util
 
-pub struct Wrap[T]
+pub obj Wrap[T]
   c: util.Cell2[T]
 
-pub struct Ord[T]
+pub obj Ord[T]
   v: T
 
   fun bigger(?self, o: ?Self) -> Bool

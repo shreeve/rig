@@ -1,4 +1,4 @@
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
 fun mk() -> Wrap[?List[Int]]

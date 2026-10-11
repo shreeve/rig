@@ -3,7 +3,7 @@
 # `<x`, since it stays in scope after the move. A `defer` that reads the
 # name runs after it moved.
 
-struct R
+obj R
   n: Int
 
   drop(!self)

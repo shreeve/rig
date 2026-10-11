@@ -1,6 +1,6 @@
 T = 3
 
-struct W[T]
+obj W[T]
   v: T
 
 fun id[T](x: T) -> T

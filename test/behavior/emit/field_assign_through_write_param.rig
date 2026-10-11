@@ -1,7 +1,7 @@
 # Assigning a field through a `!T` parameter updates the caller's value;
 # compound assignment works on fields too.
 
-struct Counter
+obj Counter
   hits: Int
   label: ?String
 

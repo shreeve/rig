@@ -1,6 +1,6 @@
 # Whether a `continue` in the condition runs the step depends on whether
 # the step reads a binding of the condition.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

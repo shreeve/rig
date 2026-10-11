@@ -1,7 +1,7 @@
 # A value whose type has drop glue is used by its drop at scope exit,
 # which may reach what it views.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)
@@ -10,7 +10,7 @@ struct Wrap
   drop(!self)
     print("drop", self.n)
 
-struct Guard
+obj Guard
   box: ?Wrap
 
   drop(!self)

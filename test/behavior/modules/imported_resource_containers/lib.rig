@@ -1,4 +1,4 @@
-pub struct B
+pub obj B
   pub n: Int
 
   drop(!self)

@@ -1,6 +1,6 @@
 # A float default written with a leading dot (`.5`, `-.25`).
 
-struct P
+obj P
   x: Float = .5
 
 fun f(y: Float = -.25) -> Float

@@ -111,7 +111,7 @@ EOF2
 cat >main.rig <<'EOF2'
 use lib
 
-struct P
+obj P
   x: Int
 
 sub main()
@@ -136,7 +136,7 @@ expect_has "$out" "$m/foreign_instance_ownership/lib.rig:2:7:   note: \`T\` copi
 out=$("$RIG" check "$m/foreign_array_len/main.rig" 2>&1)
 expect_has "$out" "$m/foreign_array_len/lib.rig:12:11:   note: \`n\` used as an array length here" "an array length note names its file"
 expect_has "$out" "$m/foreign_array_len/lib.rig:1:28:   note: the array is made here" "an array note names its file"
-printf 'pub struct Wrap[T]\n  v: T\n' >lib.rig
+printf 'pub obj Wrap[T]\n  v: T\n' >lib.rig
 printf 'use lib\n\nsub main()\n  print(lib.Wrap[Int].nope())\n' >main.rig
 out=$("$RIG" check main.rig 2>&1); expect_rc $? 1 "rig check of a missing method of another module's generic"
 expect_has "$out" "lib.rig:1:12:   note: \`lib.Wrap\` declared here" "a declaration note names its file"

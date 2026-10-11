@@ -1,7 +1,7 @@
 # The forms the hints of test/reject/types/weak_in_box_upgrade_hint.rig
 # suggest: a weak handle behind a handle is lent out and upgraded.
 
-struct S
+obj S
   n: Int
 
 sub main()

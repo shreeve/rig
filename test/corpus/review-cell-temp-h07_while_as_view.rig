@@ -2,7 +2,7 @@
 #
 # oracle: D.drop accept
 # oracle: some accept
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)

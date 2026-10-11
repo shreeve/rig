@@ -2,7 +2,7 @@
 # writable where the loop stands: a read view, a `const`, and `?it`
 # cannot be advanced, and `!` needs a place, not a value made there.
 
-struct Count
+obj Count
   lo: Int
   hi: Int
 

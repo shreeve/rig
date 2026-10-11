@@ -1,7 +1,7 @@
 # A header lending a Cell-holding temporary whose view a binding keeps.
 #
 # oracle: first accept
-struct D
+obj D
   c: Cell[Int]
 
 fun mkd(n: Int) -> D

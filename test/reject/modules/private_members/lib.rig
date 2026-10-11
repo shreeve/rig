@@ -1,4 +1,4 @@
-pub struct Counter
+pub obj Counter
   pub label: ?String
   count: Int
 
@@ -14,7 +14,7 @@ pub struct Counter
   sub reset(!self)
     self.count = 0
 
-pub struct Pair[T]
+pub obj Pair[T]
   pub a: T
   b: T
 

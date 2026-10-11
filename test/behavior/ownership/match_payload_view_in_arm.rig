@@ -4,11 +4,11 @@
 # that is itself a view points where it pointed, so it may leave.
 # oracle: pick accept
 
-struct P
+obj P
   x: Int
   y: Int
 
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -16,7 +16,7 @@ enum E
   a(r: Res)
   b(p: P)
 
-struct H
+obj H
   e: E
 
 enum V

@@ -2,7 +2,7 @@
 # views, as a function's String result or a String field, the
 # diagnostic says so and points at Text, which owns its bytes.
 
-struct User
+obj User
   name: ?String
 
 fun name() -> ?String

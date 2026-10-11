@@ -1,6 +1,6 @@
 use std.random
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
 enum E

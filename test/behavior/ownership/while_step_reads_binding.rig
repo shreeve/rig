@@ -11,7 +11,7 @@
 # oracle: step_grows accept
 # oracle: step_continues accept
 
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

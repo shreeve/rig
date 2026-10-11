@@ -2,7 +2,7 @@
 # optional reads the optional through the view once: emit used to
 # dereference a field's view twice, which Zig rejects.
 
-struct H
+obj H
   o: ?String?
 
 sub show(h: ?H)

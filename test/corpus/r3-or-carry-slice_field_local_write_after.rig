@@ -1,10 +1,10 @@
 # A view reached through a slice field carries the slice's loan on the
 # array it views.
 
-struct Tok
+obj Tok
   kind: Int
 
-struct P
+obj P
   toks: []Tok
 
 sub main()

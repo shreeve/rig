@@ -1,7 +1,7 @@
 # A view of a loop-body local cannot survive into the next iteration or
 # past the loop.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub main()

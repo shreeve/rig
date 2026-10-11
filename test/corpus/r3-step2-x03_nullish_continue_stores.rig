@@ -1,4 +1,4 @@
-struct H
+obj H
   r: ?List[Int]
 
 fun opt(n: Int) -> Int?

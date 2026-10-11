@@ -1,6 +1,6 @@
 # A view parameter cannot be dropped; the caller owns it.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub kill(rc: ?*Wrap)

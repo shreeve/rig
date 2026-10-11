@@ -94,7 +94,7 @@ returns a value. Every call has its parentheses.
 ### Lending
 
 ```rig
-struct User
+obj User
   name: ?String
   visits: Int
 
@@ -126,7 +126,7 @@ many readers or one writer at a time, never both.
 ### Resources and drop
 
 ```rig
-struct File
+obj File
   name: ?String
 
   drop(!self)
@@ -158,7 +158,7 @@ happens at a point you can see.
 ### Shared handles
 
 ```rig
-struct Config
+obj Config
   level: Int
 
   drop(!self)
@@ -184,7 +184,7 @@ value goes when its last owner does.
 ### Generics
 
 ```rig
-struct Pair[T, U]
+obj Pair[T, U]
   first: T
   second: U
 
@@ -316,7 +316,7 @@ and environment variable. The suite runs on Linux and macOS in
 - structs with field defaults, enums with payloads, error sets, type
   aliases, module-level constants, methods with explicit receivers,
   exhaustive `match`
-- generic types, functions, and methods (`struct Wrap[T]`,
+- generic types, functions, and methods (`obj Wrap[T]`,
   `fun max[T](a: T, b: T) -> T`), with inferred type arguments and
   per-instance checking, and compile-time value parameters
   (`fun check[mode: Mode](n: Int)`)

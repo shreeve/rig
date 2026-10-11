@@ -34,7 +34,7 @@ out=$(rig test util.rig 2>&1); expect_rc $? 0 "tests without main"
 expect_has "$out" "1 passed, 0 failed" "tests without main"
 
 cat >failing.rig <<'EOF'
-struct Node
+obj Node
   next: *Cell[*Node?]
 
 fun pick(xs: [3]Int, i: Int) -> Int

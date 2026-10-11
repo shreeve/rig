@@ -1,3 +1,3 @@
-pub struct Stack
+pub obj Stack
   pub items: List[Int]
   count: Int

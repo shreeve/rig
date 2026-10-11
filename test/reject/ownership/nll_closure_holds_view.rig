@@ -1,7 +1,7 @@
 # A closure that captured a view holds it for as long as the closure
 # lives.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

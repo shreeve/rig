@@ -1,7 +1,7 @@
 # A field of a branching argument is read where the branch is: a later
 # argument cannot lend what the branch may be to write.
 
-struct P
+obj P
   v: List[Int]
 
 fun mk(k: Int) -> P

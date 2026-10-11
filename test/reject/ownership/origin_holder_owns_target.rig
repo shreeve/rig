@@ -1,10 +1,10 @@
 # A cursor that also owns items of the type it hands out keeps itself
 # lent, to read: its result may view its own `scratch`.
 
-struct Item
+obj Item
   n: Int
 
-struct Cursor
+obj Cursor
   items: ?List[Item]
   scratch: List[Item]
   i: Int

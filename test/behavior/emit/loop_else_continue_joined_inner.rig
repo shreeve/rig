@@ -1,6 +1,6 @@
 # A `continue` in the `else` of a nested joined loop targets the loop
 # around it.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

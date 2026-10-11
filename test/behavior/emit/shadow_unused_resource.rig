@@ -1,7 +1,7 @@
 # `new rc = ...` shadows a resource that was never used; the first box is
 # still dropped at the end of the scope.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub main()

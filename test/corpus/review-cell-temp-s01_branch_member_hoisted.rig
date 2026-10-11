@@ -8,7 +8,7 @@
 # oracle: two accept
 # oracle: three accept
 # oracle: main accept
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -17,7 +17,7 @@ struct D
   sub hitn(!self, n: Int)
     !self.c.set(self.c.get() + n)
 
-struct H
+obj H
   d: D
   k: Int
 

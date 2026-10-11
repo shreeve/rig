@@ -2,10 +2,10 @@
 # the List cannot change while a view the loop binds is alive, as for
 # `while (!w).next() as it`.
 
-struct Item
+obj Item
   n: Int
 
-struct Walk
+obj Walk
   items: ?List[Item]
   at: Int
 

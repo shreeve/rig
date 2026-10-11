@@ -1,4 +1,4 @@
-struct Tag[T]
+obj Tag[T]
   n: Int
 
 sub main()

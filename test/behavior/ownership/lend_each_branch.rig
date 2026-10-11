@@ -4,7 +4,7 @@
 # first (`t = (!a if c else !b)`), then lent on with `!t.v` and `!t.o`.
 # release
 
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -17,12 +17,12 @@ fun mk(n: Int) -> E
   !v.push(n)
   E.a(r: Res(n: n, v: <v))
 
-struct Q
+obj Q
   e: E
   o: E?
   v: List[Int]
 
-struct W
+obj W
   e: E
   o: E?
   v: List[Int]

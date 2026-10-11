@@ -2,7 +2,7 @@
 # weak handle, `raw`, an optional field's `?.` call, an enum's own
 # `?self` method, nested arrays and their slices, a rebound view, a
 # write view, and a view of a shared handle.
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)
@@ -17,7 +17,7 @@ enum E
       .has(x) => x.hit()
       .nothing => pass
 
-struct B
+obj B
   b: ^C
   o: C?
 

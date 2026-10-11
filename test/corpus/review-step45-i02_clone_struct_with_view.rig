@@ -1,5 +1,5 @@
 # +s where s owns a Text and holds a read view of another Text
-struct S
+obj S
   own: String
   see: ?String
 

@@ -1,5 +1,5 @@
 # `s = match k` whose block arm drops `s` now: the store must not drop it again.
-struct D
+obj D
   n: Int
 
   drop(!self)

@@ -5,10 +5,10 @@
 # oracle: moved_view reject C4
 # oracle: closure_arg reject C4
 
-struct Item
+obj Item
   n: Int
 
-struct Bag
+obj Bag
   items: List[Item]
 
   fun firstw(!self) -> !Item

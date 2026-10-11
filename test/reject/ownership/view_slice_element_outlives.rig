@@ -1,7 +1,7 @@
 # A returned view of a slice element keeps the slice's source
 # viewed, so the source cannot go first.
 
-struct Val
+obj Val
   n: Int
 
 fun first(xs: []Val) -> ?Val

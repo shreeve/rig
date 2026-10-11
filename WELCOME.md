@@ -191,7 +191,7 @@ values and separates them with spaces.
 ### Structs, methods, and lending
 
 ```rig
-struct Account
+obj Account
   owner: ?String
   balance: Int
 
@@ -224,7 +224,7 @@ A read is written when its view is kept: `xs = ?b.all()` and
 ### Moves, clones, and drops
 
 ```rig
-struct File
+obj File
   name: ?String
 
   drop(!self)
@@ -382,7 +382,7 @@ rule; where Rust writes `let x = x + 1`, Rig shadows on purpose with
 ```rig reject
 T = 3
 
-struct W[T]
+obj W[T]
   v: T
 ```
 
@@ -397,14 +397,14 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 | generic function | `fn max<T: PartialOrd>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | what `T` may do | what its bounds say | what each instance compiles | what each instance supports, checked per call |
-| generic type | `struct Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `struct Wrap[T]` |
+| generic type | `obj Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `obj Wrap[T]` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `List[Int]()` |
 | generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` |
 | compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
 | its call | `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
 | an array of it | `fn sum<const N: usize>(xs: [i64; N])` | `fn sum(comptime n: usize, xs: [n]i64)` | `fun sum[n: Int](xs: [n]Int)` |
 | its length inferred | `sum([1, 2, 3])` | `sum(3, .{ 1, 2, 3 })` | `sum([1, 2, 3])` |
-| a type with a value | `struct Ring<T, const N: usize>` | `fn Ring(comptime T: type, comptime n: usize) type` | `struct Ring[T, n: Int]` |
+| a type with a value | `obj Ring<T, const N: usize>` | `fn Ring(comptime T: type, comptime n: usize) type` | `obj Ring[T, n: Int]` |
 | its instance | `Ring<i64, 4>` | `Ring(i64, 4)` | `Ring[Int, 4]` |
 | a filled array | `[0; N]` | `@as([n]i64, @splat(0))` | `[n of 0]` |
 
@@ -431,11 +431,11 @@ correspondences:
 |---|---|
 | `Int`, `U8`, `Float`, `?String`, `Static` | `i64`, `u8`, `f64`, `[]const u8` |
 | `String` | `rig.String`, a growable byte buffer the runtime frees |
-| `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
+| `obj`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@backingInt(e)))` |
 | `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
 | `error E` | an error set, each member named with its set (`error.@"E.name"`), so two sets' members never coincide |
-| `struct Wrap[T]` | `fn Wrap(comptime T: type) type` |
+| `obj Wrap[T]` | `fn Wrap(comptime T: type) type` |
 | `fun max[T](a: T, b: T) -> T`, `max(3, 7)` | `fn max(comptime T: type, a: T, b: T) T`, `max(i64, 3, 7)` |
 | `fun f[n: Int](x: Int)`, `f[3](x)` | `fn f(comptime n: i64, x: i64) i64`, `f(3, x)` |
 | `[n of x]` | `@as([n]T, @splat(x))` |
@@ -472,7 +472,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | increment | `i++` | `i += 1` | `i++` | `i += 1` |
 | counting loop | `for (i = 0; i < n; i++)` | `for i in range(n)` / `n.times` | `for i := 0; i < n; i++` | `for i in 0..n` |
 | index and element | by hand | `for i, x in enumerate(xs)` | `for i, x := range xs` | `for x, i in xs` (element first) |
-| class | `struct` + functions | `class` | `class` / `struct` + methods | `struct` with methods |
+| class | `struct` + functions | `class` | `class` / `struct` + methods | `obj` with methods |
 | `this` / `self` | a pointer argument | `self` (implicit in Ruby) | `this` / a receiver | `self`, always written |
 | switch | `switch` | `match` / `case` | `switch` | `match` |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
@@ -489,7 +489,7 @@ a Debug build reports any allocation still live when `main` returns.
 Each habit below is a compile error, and the error names the Rig
 spelling.
 
-**Another language's keywords.** Rig has `fun`, `sub`, `struct`,
+**Another language's keywords.** Rig has `fun`, `sub`, `obj`,
 `else if`, and `match`, and no semicolons:
 
 ```rig reject
@@ -564,7 +564,7 @@ lowercase, the receiver is `self` and always written, and a line is
 printed with `print`:
 
 ```rig reject
-struct Counter
+obj Counter
   n: Int
 
   fun get(?self) -> Int
@@ -634,7 +634,7 @@ sub main()
 a value you own (Rust writes `v.push(x)`):
 
 ```rig reject
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)
@@ -655,7 +655,7 @@ declares, or `x` as the last value of the function or block that
 declares it); anywhere else the error names the fix:
 
 ```rig reject
-struct Res
+obj Res
   n: Int
 
   drop(!self)

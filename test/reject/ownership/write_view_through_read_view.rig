@@ -2,13 +2,13 @@
 # value: a field reached through `?T` cannot be lent to write, given to
 # a `!self` method, or write-iterated.
 
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct Holder
+obj Holder
   c: Counter
   xs: [2]Int
 

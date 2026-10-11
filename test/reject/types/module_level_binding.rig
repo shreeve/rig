@@ -1,7 +1,7 @@
 # A module-level binding is a constant whose value is known at compile
 # time, bound once, and whose name no function reuses.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

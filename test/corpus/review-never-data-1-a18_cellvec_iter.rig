@@ -1,4 +1,4 @@
-struct Box2
+obj Box2
   items: Cell[List[Int]]
 
 sub main()

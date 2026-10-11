@@ -1,5 +1,5 @@
 # Multi-field payload with guard; views of each escape. Expect accept, prints r s.
-struct Res
+obj Res
   n: Int
   t: String
 

@@ -1,4 +1,4 @@
-struct H
+obj H
   n: List[Int]
   w: !List[?List[Int]]
 

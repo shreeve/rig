@@ -5,11 +5,11 @@
 # read receiver whose call ends before the write, and a write receiver
 # whose argument reads it are fine too.
 
-struct P
+obj P
   x: Int
   y: Int
 
-struct S
+obj S
   a: List[Int]
   b: Int
 
@@ -19,7 +19,7 @@ struct S
   sub add(!self, n: Int)
     !self.a.push(n)
 
-struct Q
+obj Q
   p: P
   n: Int
 

@@ -1,6 +1,6 @@
 # A branch whose arms are a read view of S and an S: the view is copied
 # out; the copy carries the loan of the view S holds.
-struct S
+obj S
   v: ?List[Int]
 
 sub main()

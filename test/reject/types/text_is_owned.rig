@@ -1,6 +1,6 @@
 # `String` is a built-in type: its name is reserved.
 
-struct String
+obj String
   n: Int
 
 sub main()
@@ -8,4 +8,4 @@ sub main()
   ys: [2]String = [String("a"), String("b")]
   print(xs.len, ys.len)
 
-# error: 3:8: `String` is a reserved built-in nominal name and cannot be redefined
+# error: 3:5: `String` is a reserved built-in nominal name and cannot be redefined

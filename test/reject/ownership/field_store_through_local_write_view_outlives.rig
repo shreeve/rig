@@ -2,10 +2,10 @@
 # views, which outlives a later local and the function's own values
 # when it is a view parameter.
 
-struct In
+obj In
   n: Int
 
-struct View
+obj View
   b: ?In
 
 sub fill(p: !View)

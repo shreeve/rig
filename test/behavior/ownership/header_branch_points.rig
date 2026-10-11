@@ -4,10 +4,10 @@
 # lands there, whichever branch is taken.
 # release
 
-struct S
+obj S
   o: String?
 
-struct H
+obj H
   f: List[S]
 
 fun idx(s: ?String) -> Int

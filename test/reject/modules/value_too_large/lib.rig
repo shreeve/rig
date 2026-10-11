@@ -1,2 +1,2 @@
-pub struct Big
+pub obj Big
   cells: [500000]Int

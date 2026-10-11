@@ -38,7 +38,7 @@ C32 = C31 + C31 + C31
 C33 = C32 + 1
 C34 = C33 + 1
 
-struct Row
+obj Row
   cells: [C34]Int
 
 fun f(xs: [C34]Int) -> Int

@@ -1,4 +1,4 @@
-struct S
+obj S
   a: Int?
 
 fun f() -> Int?

@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   arr: [2]Int
   sub bump(!self)

@@ -2,13 +2,13 @@
 # is neither, so moving it would copy the place out and leave its owner
 # still dropping it. The move is written at the place.
 
-struct R
+obj R
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct S
+obj S
   a: R?
   b: R
 

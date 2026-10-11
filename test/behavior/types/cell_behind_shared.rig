@@ -2,7 +2,7 @@
 # holds one in a field, set by a field default or a field argument. A
 # read view of either changes it in place.
 
-struct Counter
+obj Counter
   hits: Cell[Int] = Cell(0)
   name: ?String
 

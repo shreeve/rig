@@ -1,6 +1,6 @@
 # A drop inside a `while` body is seen by the next iteration's read.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub main()

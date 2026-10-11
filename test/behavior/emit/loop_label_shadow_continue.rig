@@ -1,6 +1,6 @@
 # An inner `:a for` inside an outer `:a` loop: `continue :a` targets the
 # inner loop, the innermost of that name.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

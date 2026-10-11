@@ -2,7 +2,7 @@
 # reads an element of the value it holds, as a field read does, through
 # a view of the handle, a field holding one, and a nested index.
 
-struct Grid
+obj Grid
   rows: *[2][2]Int
 
 fun second(h: ?*[2]Int) -> Int

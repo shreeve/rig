@@ -1,7 +1,7 @@
 # A field read from a fresh `*User(...)` reads the temporary handle,
 # which its statement drops.
 
-struct User
+obj User
   age: Int
 
 sub main()

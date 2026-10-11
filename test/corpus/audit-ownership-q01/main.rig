@@ -1,6 +1,6 @@
 use lib
 
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)

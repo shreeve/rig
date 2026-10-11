@@ -1,6 +1,6 @@
 # Dropping a view binding ends the view.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

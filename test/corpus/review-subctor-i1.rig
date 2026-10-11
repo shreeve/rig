@@ -1,10 +1,10 @@
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
   fun rewrap(?self) -> Wrap[T]
     Wrap(self.item)
 
-struct M
+obj M
   v: Int
 
   fun twice(?self) -> M

@@ -4,7 +4,7 @@
 # oracle: C.me accept
 # oracle: both accept
 # oracle: main accept
-struct C
+obj C
   c: Cell[Int]
   pad: [16]Int
 

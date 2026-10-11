@@ -2,7 +2,7 @@
 #
 # oracle: poke accept
 # oracle: main accept
-struct N
+obj N
   c: Cell[Int]
 
 fun poke(x: !N) -> Int

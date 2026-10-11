@@ -1,4 +1,4 @@
-struct Wrap
+obj Wrap
   n: Int
 
 fun pick(f: ?fun() -> ?Wrap, a: ?Wrap) -> ?Wrap

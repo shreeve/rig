@@ -1,5 +1,5 @@
 # for x in (a[idx(?Text("a"))] if c else b): branching read source over arrays of Cell holders
-struct C
+obj C
   c: Cell[Int]
 
 fun idx(s: ?String) -> Int

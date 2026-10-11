@@ -3,13 +3,13 @@
 # and a one-field generic type, whose argument is inferred from the
 # value. The named form stays legal.
 
-struct Meters
+obj Meters
   value: Float
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
-struct Node
+obj Node
   key: Int
   next: ^Node?
 

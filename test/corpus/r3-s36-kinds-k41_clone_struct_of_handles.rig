@@ -1,7 +1,7 @@
-struct N
+obj N
   n: Int
 
-struct Pair
+obj Pair
   a: *N
   b: *N
 

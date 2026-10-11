@@ -2,7 +2,7 @@
 # form, brackets after an unresolved variant, a type used as an index,
 # and a call through an indexed value.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 enum Option[T]

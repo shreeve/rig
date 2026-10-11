@@ -17,7 +17,7 @@ sub zero(s: ![]Int)
 fun three(k: Int) -> [3]Int
   [k, k + 1, k + 2]
 
-struct View
+obj View
   xs: []Int
 
 fun head(a: ?[3]Int) -> Int

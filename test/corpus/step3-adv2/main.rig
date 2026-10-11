@@ -1,6 +1,6 @@
 use lib
 
-struct A
+obj A
   b: lib.Box[A]
 
 sub main()

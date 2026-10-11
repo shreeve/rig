@@ -11,14 +11,14 @@ fun double(n: Int) -> Int
 fun yes(n: Int) -> Bool
   n > 0
 
-struct Set
+obj Set
   items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     !self.items.push(k)
     true
 
-struct Q
+obj Q
   n: Int
 
   sub bump(!self)
@@ -27,7 +27,7 @@ struct Q
   fun get(?self) -> Int
     self.n
 
-struct S
+obj S
   x: Int
   o: Int?
   a: [2]Int

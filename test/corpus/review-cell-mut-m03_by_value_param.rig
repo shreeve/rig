@@ -1,6 +1,6 @@
 # A Cell changed through a value parameter, a moved local, a returned
 # value, and a value captured by a closure that moves it in.
-struct C
+obj C
   c: Cell[Int]
   log: Cell[List[Int]]
 

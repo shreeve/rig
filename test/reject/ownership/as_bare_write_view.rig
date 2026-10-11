@@ -1,7 +1,7 @@
 # `as` over a held write view of an optional lends it on, so it is
 # written `!o`, as when passing it on.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

@@ -1,7 +1,7 @@
 # `new w = !y` points the name of a local write view at another value;
 # the first is free again once nothing views it.
 
-struct Wrap
+obj Wrap
   n: Int
 
 sub main()

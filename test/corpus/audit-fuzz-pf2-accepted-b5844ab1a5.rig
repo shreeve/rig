@@ -72,7 +72,7 @@ error Err5678
 fun take4183(a: F32) -> F32
   a
 
-struct GP794[T]
+obj GP794[T]
   f: T
 
 fun ri2601(go: Bool) -> I16
@@ -81,7 +81,7 @@ fun ri2601(go: Bool) -> I16
     return ce2601.get()
   0
 
-struct Bx332
+obj Bx332
   f: I128
 
 fun ri332(go: Bool) -> I128

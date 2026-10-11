@@ -2,7 +2,7 @@
 # call; when its elements are handles to values that hold a Cell, the
 # callee changes them there, and reads its own changes.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)

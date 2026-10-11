@@ -1,5 +1,5 @@
 # Non-generic catch-all of a place: by-copy capture, so arm-local. Expect reject (conservative), never a dangling view.
-struct Res
+obj Res
   n: Int
   t: String
 

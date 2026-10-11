@@ -2,7 +2,7 @@
 #
 # oracle: touch accept
 # oracle: main accept
-struct D
+obj D
   c: Cell[Int]
 
 fun mkd(n: Int) -> D

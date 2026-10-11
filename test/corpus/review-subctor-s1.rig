@@ -1,7 +1,7 @@
 type T1 = fun(Int) -> Void
 type T2 = *fun(Int) -> Void!
 
-struct S
+obj S
   cb: *fun() -> Void
 
   fun m(?self)

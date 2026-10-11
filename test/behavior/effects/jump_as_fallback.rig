@@ -6,7 +6,7 @@ error E
   missing
   bad
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

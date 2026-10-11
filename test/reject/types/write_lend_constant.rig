@@ -38,7 +38,7 @@ sub inc(n: !Int)
 sub setu(u: !U8)
   u = 1
 
-struct P
+obj P
   x: Int
 
   fun origin() -> P

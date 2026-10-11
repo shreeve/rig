@@ -1,9 +1,9 @@
 # To-do list, first attempt, Python/TS habits
-struct Todo
+obj Todo
   title: ?String
   done: Bool = false
 
-struct TodoList
+obj TodoList
   items: List[Todo]
 
   sub add(!self, title: ?String)

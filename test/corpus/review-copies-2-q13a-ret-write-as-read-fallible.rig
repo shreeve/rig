@@ -1,7 +1,7 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
 fun ri(w: !Int, ok: Bool) -> (?Int)!

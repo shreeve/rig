@@ -1,7 +1,7 @@
 error Full
   full
 
-struct Box2
+obj Box2
   items: List[Int]
 
   sub add(!self, n: Int)!

@@ -20,14 +20,14 @@
 # oracle: f accept
 # oracle: PQ.get accept
 # oracle: main reject C5
-struct S
+obj S
   n: Int
   t: String
 
   drop(!self)
     print("dropS", self.n)
 
-struct H
+obj H
   r: ?String
   rs: List[?String]
 
@@ -40,7 +40,7 @@ struct H
   drop(!self)
     print("dropH sees", self.r, self.rs)
 
-struct PR
+obj PR
   r: ?String
 
   sub set(!self, r: ?String)
@@ -54,7 +54,7 @@ struct PR
     self.r = r
     PR(r: self.r)
 
-struct P
+obj P
   h: !H
 
   sub put(!self, r: ?String)
@@ -63,31 +63,31 @@ struct P
   fun hh(!self) -> !H
     !self.h
 
-struct Hold[T]
+obj Hold[T]
   v: T
 
   sub set(!self, v: T)
     self.v = v
 
-struct VH
+obj VH
   hs: List[H]
 
   sub add(!self, r: ?String)
     !self.hs.push(H(r: r, rs: List()))
 
-struct OH
+obj OH
   o: H?
 
   sub add(!self, r: ?String)
     self.o = H(r: r, rs: List())
 
-struct AH
+obj AH
   a: [1]H
 
   sub add(!self, r: ?String)
     self.a[0] = H(r: r, rs: List())
 
-struct BH
+obj BH
   b: ^H
 
   sub add(!self, r: ?String)
@@ -121,7 +121,7 @@ fun clobber(n: Int) -> Int
 fun f(n: Int) -> Int
   n
 
-struct PQ
+obj PQ
   r: ?String
 
   fun get(!self, r: ?String) -> (?String)?

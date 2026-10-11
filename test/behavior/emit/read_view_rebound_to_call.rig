@@ -7,7 +7,7 @@ enum Dir
   n
   s
 
-struct Pair[T]
+obj Pair[T]
   x: T
 
   fun left(?self, other: ?T) -> ?T

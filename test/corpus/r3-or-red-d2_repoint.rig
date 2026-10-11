@@ -1,9 +1,9 @@
 # Must stay rejected under D2 depth tokens: after `self.src = other`,
 # a projection of `self.src` is not `ext(self, src)` alone.
-struct Tok
+obj Tok
   n: Int
 
-struct Parser
+obj Parser
   src: ?List[Tok]
   scratch: List[Tok]
 

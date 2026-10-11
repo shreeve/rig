@@ -1,5 +1,5 @@
 # +v of List[~D] and optionals of handles
-struct D
+obj D
   n: Int
 
   drop(!self)

@@ -1,4 +1,4 @@
-struct RV
+obj RV
   rv: ?List[Int]
   n: Int
 

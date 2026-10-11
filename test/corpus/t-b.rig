@@ -1,7 +1,7 @@
 # A `break` value may not lend what the loop declared: it goes out of
 # scope as the loop ends.
 
-struct P
+obj P
   n: Int
 
 sub main()

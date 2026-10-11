@@ -1,7 +1,7 @@
 # The same shape through a free function lent `?mkc(5)` (no receiver).
 #
 # oracle: opt accept
-struct C
+obj C
   c: Cell[Int]
 
 fun opt(p: !C) -> (?C)?

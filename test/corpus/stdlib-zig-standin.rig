@@ -11,7 +11,7 @@ error StdError
   invalid
   overflow
 
-struct String
+obj String
   bytes: List[U8]
 
   fun new() -> String
@@ -37,7 +37,7 @@ struct String
   fun lines(?self) -> Lines
     Lines(rest: ?self.bytes[..], done: false)
 
-struct Lines
+obj Lines
   rest: []U8
   done: Bool
 
@@ -77,7 +77,7 @@ fun args() -> List[?String]
 fun env(name: ?String) -> (?String)?
   none
 
-struct Map[K, V]
+obj Map[K, V]
   keys: List[^K]
   vals: List[V]
 
@@ -104,7 +104,7 @@ struct Map[K, V]
 fun sorted_keys[K, V](m: ?Map[K, V]) -> List[K]
   List()
 
-struct Node
+obj Node
   id: Int
 
   drop(!self)

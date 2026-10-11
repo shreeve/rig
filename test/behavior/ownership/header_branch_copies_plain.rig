@@ -6,7 +6,7 @@
 # oracle: run accept
 # oracle: matches accept
 
-struct P
+obj P
   x: Int
 
 enum E

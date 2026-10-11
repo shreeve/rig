@@ -1,14 +1,14 @@
 # The matched value stays lent while a payload binding is in use:
 # overwriting it would drop the value the payload views.
 
-struct Tok
+obj Tok
   v: List[Int]
 
 enum Slot
   empty
   full(t: *Tok)
 
-struct Holder
+obj Holder
   s: Slot
 
 sub clear(h: !Slot)

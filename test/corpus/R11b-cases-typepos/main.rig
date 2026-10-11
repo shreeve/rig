@@ -2,7 +2,7 @@ use lib
 
 type W = lib.Wrap[Int]
 
-struct Holder
+obj Holder
   w: lib.Wrap[Int]
   o: lib.Wrap[Int]?
   arr: [2]lib.Wrap[Int]

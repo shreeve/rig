@@ -1,5 +1,5 @@
 # reassign an array of owners whole, and an element of a List of arrays
-struct D
+obj D
   n: Int
 
   drop(!self)

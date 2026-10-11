@@ -2,10 +2,10 @@
 # fails, `x` goes out of scope; a view of it that the part stored in
 # an outer value cannot survive, even when the body never falls through.
 
-struct Big
+obj Big
   v: List[Int]
 
-struct View
+obj View
   b: ?Big
 
 fun put(v: !View, t: ?Big) -> Bool

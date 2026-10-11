@@ -1,5 +1,5 @@
 # Multi-field payload; views of each escape; then subject moved. Expect reject at the move.
-struct Res
+obj Res
   n: Int
   t: String
 

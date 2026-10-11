@@ -1,6 +1,6 @@
 # The copy out of a view keeps the loans of the views S holds, not the
 # loan on s: s may change, xs may not.
-struct S
+obj S
   v: ?List[Int]
 
 fun keep(r: ?S) -> S

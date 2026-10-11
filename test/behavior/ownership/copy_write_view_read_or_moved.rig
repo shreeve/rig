@@ -4,7 +4,7 @@
 # Where a `!T` goes, as a binding of a branch of moves, it is moved
 # with `<w`.
 
-struct P
+obj P
   x: Int
 
 fun read(n: Int) -> Int

@@ -1,7 +1,7 @@
 # A `fun` declared in a struct body without `self` is called through the
 # type name.
 
-struct User
+obj User
   name: ?String
 
   fun greet() -> ?String

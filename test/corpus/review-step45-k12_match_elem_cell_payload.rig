@@ -1,5 +1,5 @@
 # match on element whose payload holds a Cell: change must land in the element
-struct C
+obj C
   c: Cell[Int]
 
 enum E

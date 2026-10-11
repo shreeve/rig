@@ -1,6 +1,6 @@
 # `|+h|` of a struct holding a write view: the closure reads through
 # its copy of the write view while the original writes.
-struct H
+obj H
   w: !List[Int]
 
 sub main()

@@ -1,5 +1,5 @@
 # elements of a List inside a Box: assign, lend, take
-struct S
+obj S
   v: List[String?]
 
 sub main()

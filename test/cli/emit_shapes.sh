@@ -64,7 +64,7 @@ expect_has "$out" "var @\"rig'\": i64 = 4;" "emitter name"
 # a catch-all binding of a lent subject is the address of the value
 # switched on.
 cat >payload.rig <<'EOF2'
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -102,7 +102,7 @@ expect_has "$out" 'const x = &e.*;' "guarded catch-all of a lent subject"
 # called on a kept temporary, where the statement's slot holds it, never
 # through a copy in the call's block.
 cat >leaves.rig <<'EOF2'
-struct S
+obj S
   t: String
 
   fun inner(?self) -> ?String
@@ -162,7 +162,7 @@ enum Opt[T]
   some(v: T)
   none
 
-struct V[T]
+obj V[T]
   r: ?Opt[T]
 
 fun look[T](x: ?T) -> Int

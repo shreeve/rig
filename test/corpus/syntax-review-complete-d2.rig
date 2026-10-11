@@ -1,4 +1,4 @@
-struct C
+obj C
   m: Int = -1
   e: Int? = none
 

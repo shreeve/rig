@@ -1,4 +1,4 @@
-struct Bag
+obj Bag
   v: List[Int]
 
 fun pick(a: ?Bag) -> ?Bag

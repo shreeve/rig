@@ -1,6 +1,6 @@
 # Methods are not reachable through an optional.
 
-struct U
+obj U
   n: Int
 
   fun get(?self) -> Int

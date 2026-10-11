@@ -1,5 +1,5 @@
 # for x in a[idx(?Text("a"))][0..1] over arrays of Cell holders (read slice), Cell change
-struct C
+obj C
   c: Cell[Int]
 
 fun idx(s: ?String) -> Int

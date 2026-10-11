@@ -1,8 +1,8 @@
 # +x where a unique type sits inside an array in a struct: reject
-struct R unique
+obj R unique
   seed: Int
 
-struct S
+obj S
   rs: [1]R
   t: String
 

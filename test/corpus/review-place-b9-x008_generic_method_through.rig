@@ -1,4 +1,4 @@
-struct H[T]
+obj H[T]
   w: !T
 
   sub put(!self, v: T)

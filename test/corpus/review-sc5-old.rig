@@ -1,4 +1,4 @@
-struct P
+obj P
   n: Int
 
 sub show(a: [1]Int)

@@ -2,7 +2,7 @@ enum Opt[T]
   some(v: T)
   nothing
 
-struct W[T]
+obj W[T]
   o: Opt[T]
   p: T?
 

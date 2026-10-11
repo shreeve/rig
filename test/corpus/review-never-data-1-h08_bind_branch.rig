@@ -1,7 +1,7 @@
-struct S
+obj S
   c: Cell[List[Int]]
 
-struct O
+obj O
   s: S
 
 sub main()

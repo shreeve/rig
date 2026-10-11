@@ -3,11 +3,11 @@
 # the view is the temporary's own, and a view the call returns stays
 # good until the statement ends.
 
-struct P
+obj P
   c: *Cell[Int]
   n: Int
 
-struct H
+obj H
   p: P
 
 fun mk(n: Int) -> H

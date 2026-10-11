@@ -4,7 +4,7 @@
 #
 # oracle: main reject C1
 
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int]) -> S?

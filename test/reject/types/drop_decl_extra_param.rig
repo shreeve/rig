@@ -1,6 +1,6 @@
 # A `drop` declaration takes exactly one parameter, its receiver.
 
-struct File
+obj File
   fd: Int
 
   drop(!self, extra: Int)

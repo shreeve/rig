@@ -1,4 +1,4 @@
-pub struct Bag[T]
+pub obj Bag[T]
   items: List[T]
 
   sub add(!self, x: T)

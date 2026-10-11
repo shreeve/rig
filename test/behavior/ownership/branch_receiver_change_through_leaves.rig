@@ -8,7 +8,7 @@
 error Bad
   no
 
-struct Q
+obj Q
   c: Cell[Int]
   t: String
 
@@ -20,7 +20,7 @@ struct Q
     !self.c.set(self.c.get() + j)
     self.c.get()
 
-struct H
+obj H
   q: Q
   qs: [2]*Q
 

@@ -2,10 +2,10 @@
 # never stored inside a value, so the field is rejected where it is
 # declared, and no two items such a cursor hands out can alias.
 
-struct Item
+obj Item
   n: Int
 
-struct Cursor
+obj Cursor
   items: ![]Item
   i: Int
 

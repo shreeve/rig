@@ -1,9 +1,9 @@
-struct Tok
+obj Tok
   kind: Int
   start: Int
   len: Int
 
-struct Parser
+obj Parser
   src: ?String
   toks: []Tok
   pos: Int

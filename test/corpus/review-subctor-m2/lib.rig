@@ -2,13 +2,13 @@ pub enum Shape
   circle(r: Float)
   dot
 
-pub struct circle
+pub obj circle
   r: Float
 
-pub struct W[T]
+pub obj W[T]
   item: T
 
 pub type Km = circle
 
-pub struct Bag[T]
+pub obj Bag[T]
   items: List[T]

@@ -1,5 +1,5 @@
 # take of optional through a read view: must be rejected (it writes)
-struct S
+obj S
   o: List[Int]?
 
 fun rget(s: ?S) -> ?S

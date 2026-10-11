@@ -12,10 +12,10 @@ enum E
   a(xs: [4]Int)
   b
 
-struct P
+obj P
   x: Int
 
-struct H
+obj H
   e: E
   t: String
 

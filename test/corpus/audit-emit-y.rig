@@ -2,7 +2,7 @@ enum C
   a
   b
 
-struct P
+obj P
   a: I32
   b: I32
 

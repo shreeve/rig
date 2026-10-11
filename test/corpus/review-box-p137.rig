@@ -1,10 +1,10 @@
-struct Wrap
+obj Wrap
   v: List[Int]
 
-struct Ed
+obj Ed
   t: !Wrap
 
-struct Rd
+obj Rd
   t: ?Wrap
 
 enum Hold

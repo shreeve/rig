@@ -7,7 +7,7 @@
 # oracle: mv accept
 # oracle: pick accept
 # oracle: lim accept
-struct D
+obj D
   n: Int
   drop(!self)
     print("drop", self.n)

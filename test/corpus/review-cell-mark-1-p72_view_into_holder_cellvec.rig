@@ -1,4 +1,4 @@
-struct H
+obj H
   log: Cell[List[?String]]
 
 sub put(x: !H, s: ?String)

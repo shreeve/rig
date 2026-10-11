@@ -2,7 +2,7 @@
 # where it stands: main runs it; the branch stops at emit's backstop.
 #
 # oracle: main accept
-struct N
+obj N
   c: Cell[Int]
 
 fun mk(n: Int) -> N

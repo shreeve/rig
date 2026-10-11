@@ -1,19 +1,19 @@
 error E
   bad
 
-struct W
+obj W
   f: List[Int]
   o: List[Int]?
 
-struct S
+obj S
   f: List[Int]
   o: List[Int]?
   w: W
 
-struct R
+obj R
   f: List[Int]
 
-struct RO
+obj RO
   f: List[Int]?
 
 fun mk(n: Int) -> List[Int]

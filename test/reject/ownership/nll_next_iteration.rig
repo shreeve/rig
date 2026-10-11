@@ -1,7 +1,7 @@
 # A view used earlier in a loop body is used again by the next
 # iteration: it is live at the end of the body.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

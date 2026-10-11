@@ -1,5 +1,5 @@
 # +v of List[*D]: each handle counted again; D dropped once, after the last
-struct D
+obj D
   n: Int
 
   drop(!self)

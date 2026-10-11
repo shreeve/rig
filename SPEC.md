@@ -53,7 +53,7 @@ The standard library, imported with `use std.NAME`, is described in
 ## 1. Programs
 
 A Rig program is a file of declarations: functions (`fun`, `sub`),
-types (`struct`, `enum`, `error`, `type`), constants (`name = value`),
+types (`obj`, `enum`, `error`, `type`), constants (`name = value`),
 imports (`use`), `extern` declarations, and `test` blocks, written as
 [SYNTAX.md](SYNTAX.md) shows. Statements live inside functions. A
 program that runs declares its entry point as `sub main()`, with no
@@ -294,7 +294,7 @@ generic `T` kept there. A `?String` there is rejected by its type, with
 a hint that points to a `?String` parameter for text that is only read.
 
 ```rig
-struct Tag
+obj Tag
   name: Static
   n: Int
 
@@ -435,7 +435,7 @@ the stack guard below the main stack` and exit status 1
 ([INTERNALS](docs/INTERNALS.md) describes the mechanism).
 
 ```rig reject
-struct Grid
+obj Grid
   cells: [1024][1024]Int
   more: [8]Int
 
@@ -881,7 +881,7 @@ optional, array, struct, or enum of them. It copies freely. A `?String` in
 it is still a view, which may carry a String's loan ([strings](#strings)).
 
 A **unique** value owns nothing to release but must not be copied: a
-struct declared `unique` (`struct Random unique`, a generator whose
+struct declared `unique` (`obj Random unique`, a generator whose
 copy would repeat its numbers), or any struct, enum, array, or generic
 instance that holds one inline. It moves like an owning value, has no
 clone (`+x`) and no `==`, and nothing copies it out of a place; it has
@@ -892,7 +892,7 @@ would fork the state it shares: it lives only behind a shared handle,
 which is what is copied, moved, or cloned ([Cell](#cell)).
 
 ```rig reject
-struct Seed unique
+obj Seed unique
   n: Int
 
 sub main()
@@ -953,7 +953,7 @@ name.
 
 ### Structs
 
-A `struct` lists its fields, then its methods. It is constructed by
+An `obj` lists its fields, then its methods. It is constructed by
 naming its fields, `Point(x: 1, y: 2)`, and a struct with exactly one
 field also takes it by position: `Meters(3.5)` is
 `Meters(value: 3.5)`, as `^x`, `*Cell(0)`, and `*Signal(0)` are
@@ -971,13 +971,13 @@ only behind a shared handle, so it is made under `*`
 ```rig
 RETRIES = 3
 
-struct Config
+obj Config
   retries: Int = RETRIES
   name: ?String = "anon"
   tags: List[?String] = List()
   verbose: Bool
 
-struct Stats
+obj Stats
   hits: Cell[Int] = Cell(0)
 
 sub main()
@@ -1011,7 +1011,7 @@ method, a local `w = !p`), which lends it on visibly: `!w.m()`,
 `!self.m()`. A held read view is lent on bare.
 
 ```rig reject
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)
@@ -1048,7 +1048,7 @@ statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`, and
 `_ = !v.pop()`, since `_ =` discards.
 
 ```rig
-struct Tally
+obj Tally
   seen: List[Int]
 
   fun insert(!self, k: Int) -> Bool
@@ -1078,7 +1078,7 @@ true false
 ```
 
 ```rig reject
-struct Queue
+obj Queue
   items: List[Int]
 
   fun is_empty(?self) -> Bool
@@ -1095,7 +1095,7 @@ sub main()
 ```
 
 ```rig reject
-struct Stack
+obj Stack
   items: List[Int]
 
   fun top(?self) -> Int?
@@ -1111,7 +1111,7 @@ sub main()
 ```
 
 ```rig reject
-struct Tally
+obj Tally
   seen: List[Int]
 
   fun insert(!self, k: Int) -> Bool
@@ -1141,7 +1141,7 @@ write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
 ```
 
 ```rig
-struct Set
+obj Set
   items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
@@ -1166,7 +1166,7 @@ true
 ```
 
 ```rig
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)
@@ -1204,7 +1204,7 @@ unseen; write a closure instead. Methods of generic types cannot be
 named as values.
 
 ```rig
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)
@@ -1307,11 +1307,11 @@ timed out
 
 ### Generic types
 
-`struct Name[T, ...]` declares a generic struct and `enum Name[T, ...]`
+`obj Name[T, ...]` declares a generic struct and `enum Name[T, ...]`
 a generic enum; `error Name[T]` is rejected, and so is a struct declared
 with `type`, which only names an [alias](#type-aliases). Their
 parameters are type parameters and compile-time integers
-([§16](#16-compile-time-parameters)): `struct Ring[T, n: Int]`. A value
+([§16](#16-compile-time-parameters)): `obj Ring[T, n: Int]`. A value
 parameter is named in the type's fields and methods, as an array length
 (`items: [n]T`) or as a value in a method's body.
 An instance names its compile-time arguments in brackets, in a type
@@ -1336,7 +1336,7 @@ parameter gives. Its body follows the rules of
 [generic bodies](#generic-bodies).
 
 ```rig
-struct Pair[T, U]
+obj Pair[T, U]
   first: T
   second: U
 
@@ -1377,7 +1377,7 @@ and a constructor infers it from an array field:
 ```rig
 LIMIT = 2
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
   head: Int = 0
 
@@ -1400,7 +1400,7 @@ sub main()
 ```
 
 ```rig reject
-struct Flag[on: Bool]
+obj Flag[on: Bool]
   first: Int
 
 sub main()
@@ -1478,13 +1478,13 @@ is never generic. Another module's generic function is called as a
 local one is ([§14](#14-modules)).
 
 ```rig
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun with[U](?self, u: U) -> U
@@ -1674,13 +1674,13 @@ handle of a function: an owned closure is held as a `T`, with
 `T = *fun(Int) -> Int`.
 
 ```rig
-struct Track
+obj Track
   title: ?String
 
   drop(!self)
     print("free", self.title)
 
-struct Shelf[T]
+obj Shelf[T]
   items: List[T]
 
   sub add(!self, x: T)
@@ -1723,7 +1723,7 @@ methods of a `pub` type, whose instances other modules make, where it
 is declared.
 
 ```rig reject
-struct Point
+obj Point
   x: Int
 
 fun max[T](a: T, b: T) -> T
@@ -1749,13 +1749,13 @@ sub main()
 ```
 
 ```rig reject
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Pair[A, B]
+obj Pair[A, B]
   first: A
   second: B
 
@@ -1785,7 +1785,7 @@ An alias is not a value, and an alias of any other type (`?String`,
 `Int?`) has no constructor.
 
 ```rig
-struct Point
+obj Point
   x: Int
   y: Int
 
@@ -2058,7 +2058,7 @@ element's, or a type argument. To change a value from another one,
 pass `!x` to each call that changes it, or hold the value itself.
 
 ```rig
-struct Counter
+obj Counter
   hits: Int
 
 sub bump(c: !Counter)
@@ -2112,7 +2112,7 @@ sub main()
 ```
 
 ```rig reject
-struct Tally
+obj Tally
   count: !Int
 
 sub main()
@@ -2272,7 +2272,7 @@ that differs decides, and a prefix sorts before the longer string.
 Structs, enums, and other slices have no ordering.
 
 ```rig
-struct Point
+obj Point
   x: Int
   y: Int
 
@@ -2296,10 +2296,10 @@ true true false true
 ```
 
 ```rig reject
-struct Node
+obj Node
   n: Int
 
-struct Link
+obj Link
   id: Int
   to: *Node
 
@@ -2314,7 +2314,7 @@ operator `<` orders numbers, Strings, and `[]U8` slices; got `Link`
 ```
 
 ```rig
-struct Node
+obj Node
   n: Int
 
 enum Slot
@@ -2331,7 +2331,7 @@ false true
 ```
 
 ```rig reject
-struct Node
+obj Node
   n: Int
 
 enum Slot
@@ -2387,7 +2387,7 @@ true true true
 ```
 
 ```rig reject
-struct Item
+obj Item
   qty: Int
 
 sub main()
@@ -2462,13 +2462,13 @@ a closure's capture, or a `for` element that views a slot of the List it
 walks, which `<` rejects.
 
 ```rig
-struct F
+obj F
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct S
+obj S
   f: F?
 
 sub main()
@@ -2539,7 +2539,7 @@ in an expression (`List[Int]`, `?P`, `Int?`; a slice, array, or function
 type through a `type` alias).
 
 ```rig
-struct P
+obj P
   a: I32
   b: I64
 
@@ -2561,7 +2561,7 @@ geo as g`). In a generic body, a type parameter is named for each
 instance, as the generic's module writes it:
 
 ```rig
-struct Pair[A, B]
+obj Pair[A, B]
   a: A
   b: B
 
@@ -2723,7 +2723,7 @@ source sigils change that:
   `v` must own the List: through a view, loop over `?v` or `!v`.
 
 ```rig
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -2771,7 +2771,7 @@ one, so a call's result, or a part of a value made there (`mk().items`),
 is bound to a name first:
 
 ```rig reject
-struct H
+obj H
   items: List[String]
 
 fun mk() -> H
@@ -2817,7 +2817,7 @@ keep the meanings above.
 ```rig
 use std.text
 
-struct Count
+obj Count
   lo: Int
   hi: Int
 
@@ -2856,13 +2856,13 @@ made 1
 ```
 
 ```rig reject
-struct Reads
+obj Reads
   n: Int
 
   fun next(?self) -> Int?
     none
 
-struct Count
+obj Count
   lo: Int
 
   fun next(!self) -> Int?
@@ -3085,7 +3085,7 @@ so its payloads are read where they are; a part of plain data is read
 in the header, whose temporaries end with it.
 
 ```rig
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -3120,7 +3120,7 @@ end
 ```
 
 ```rig reject
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -3145,7 +3145,7 @@ cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fi
 ```
 
 ```rig
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -3173,7 +3173,7 @@ hi 1
 ```
 
 ```rig reject
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -3331,7 +3331,7 @@ an argument where a parameter takes a view, or as a header's subject,
 it is lent to read where it is ([Lending](#lending)).
 
 ```rig reject
-struct Wrap
+obj Wrap
   n: Int
 
 sub main()
@@ -3385,7 +3385,7 @@ or block that declares it, and `break x` of a name the loop declares.
 After a move the name cannot be used until it is reassigned.
 
 ```rig
-struct Packet
+obj Packet
   id: Int
 
   drop(!self)
@@ -3414,7 +3414,7 @@ released 2
 ```
 
 ```rig reject
-struct Packet
+obj Packet
   payload: Int
 
   drop(!self)
@@ -3439,7 +3439,7 @@ the top of the next iteration, unless the loop is left or the value is
 reassigned first.
 
 ```rig reject
-struct Wrap
+obj Wrap
   n: Int
 
 sub eat(b: *Wrap)
@@ -3472,7 +3472,7 @@ gives up only its leaves made there, so a leaf that is a name or a
 part is moved where it is: `<a if c else <b`, `(<o)?`.
 
 ```rig reject
-struct P
+obj P
   n: Int
 
 sub main()
@@ -3526,7 +3526,7 @@ of numbers drops nothing, and is rejected. A `?String` may view a `String`
 it carries.
 
 ```rig
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)
@@ -3586,7 +3586,7 @@ is used, and a value made there (`balance_of(open())`) is lent as a
 temporary of its statement.
 
 ```rig
-struct Account
+obj Account
   balance: Int
 
 fun balance_of(a: ?Account) -> Int
@@ -3728,7 +3728,7 @@ copy, which the change would miss, so it is rejected: lend each branch,
 `!a if c else !b`. A constant is no temporary, and is never lent to write (above).
 
 ```rig
-struct Wrap
+obj Wrap
   n: Int
 
   fun next(!self) -> Int
@@ -3750,7 +3750,7 @@ sub main()
 ```
 
 ```rig reject
-struct Wrap
+obj Wrap
   n: Int
 
 fun first(b: !Wrap) -> !Int
@@ -3783,7 +3783,7 @@ indexes. A written `!` on such a slice the path only reads,
 `(?arr[..])[0]`.
 
 ```rig
-struct P
+obj P
   x: Int
   o: Int?
 
@@ -3849,7 +3849,7 @@ whatever its type: even a number is not read until the view's last use,
 so `w = !n` then `w += n` is rejected.
 
 ```rig reject
-struct User
+obj User
   name: ?String
 
 sub main()
@@ -3884,13 +3884,13 @@ until its last use. The binding's block ending, `<r`, or reassigning it
 also end the view.
 
 ```rig
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct View
+obj View
   box: ?Wrap
 
 sub main()
@@ -3911,7 +3911,7 @@ sub main()
 ```
 
 ```rig reject
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)
@@ -3967,7 +3967,7 @@ values as they were read. A write receiver's arguments may read it,
 `!v.push(v.len)`, since they finish before the call writes.
 
 ```rig
-struct P
+obj P
   x: Int
 
 fun grow(v: !List[Int]) -> Int
@@ -4022,7 +4022,7 @@ its target only after the indexes run ([§4](#4-bindings-and-assignment)),
 so `v[grow(!v)] = 1` is accepted.
 
 ```rig reject
-struct P
+obj P
   a: [4]Int
 
 fun grow(v: !List[P]) -> Int
@@ -4088,10 +4088,10 @@ the checker tracks where every one came from.
   its block, not through `break`, and not out of the function.
 
 ```rig
-struct Wrap
+obj Wrap
   payload: Int
 
-struct View
+obj View
   box: ?Wrap
 
 fun pick(a: ?Wrap, b: ?Wrap, first: Bool) -> ?Wrap
@@ -4113,7 +4113,7 @@ sub main()
 ```
 
 ```rig reject
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)
@@ -4135,7 +4135,7 @@ cannot drop `y` while it is lent
 ```
 
 ```rig
-struct Bag
+obj Bag
   items: List[Int]
   taken: Int
 
@@ -4180,7 +4180,7 @@ never a temporary: it lives only behind a shared handle
 ([Cell](#cell)).
 
 ```rig
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -4211,7 +4211,7 @@ block is: a temporary made there is dropped where the arm ends, while
 the arm's bindings are still in scope, so it may view them.
 
 ```rig
-struct Tag
+obj Tag
   n: ?Int
 
   drop(!self)
@@ -4237,7 +4237,7 @@ after 1
 ```
 
 ```rig
-struct Log
+obj Log
   lines: List[Int]
 
   fun count(?self) -> Int
@@ -4262,7 +4262,7 @@ The method sees the temporary in its statement's slot, and its result
 may be used, or not:
 
 ```rig reject
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)
@@ -4277,7 +4277,7 @@ sub main()
 ```
 
 ```rig
-struct Counter
+obj Counter
   n: Int
   log: List[Int]
 
@@ -4348,7 +4348,7 @@ k v
 ```rig reject
 use std.text
 
-struct S
+obj S
   n: Int
 
 sub main()
@@ -4393,7 +4393,7 @@ i`) or binds plain data of it. Bind the value, the index, or the
 argument to a name first.
 
 ```rig reject
-struct P
+obj P
   o: Int?
 
 fun mk(s: ?String) -> P
@@ -4419,7 +4419,7 @@ receiver that branches lends each leaf where it is:
 change while the view lives.
 
 ```rig
-struct S
+obj S
   t: String
 
   fun name(?self) -> ?String
@@ -4437,7 +4437,7 @@ aa cc
 ```
 
 ```rig reject
-struct S
+obj S
   t: String
 
   fun name(?self) -> ?String
@@ -4461,7 +4461,7 @@ when the statement ends; a branch that takes a name's handle changes
 the value that name shares:
 
 ```rig
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   drop(!self)
@@ -4524,11 +4524,11 @@ the take writes the place. Nothing else is moved out through any of
 them (`replace(!p.f, v)` exchanges it).
 
 ```rig
-struct Node
+obj Node
   value: Int
   next: ^Node?
 
-struct Stack
+obj Stack
   top: ^Node?
 
   sub push(!self, v: Int)
@@ -4572,7 +4572,7 @@ and the values hold no `?T`, `!T`, or slice. A place that holds a view, a
 other text. Like `print`, both are names a declaration may hide.
 
 ```rig
-struct Pair
+obj Pair
   left: String
   right: String
 
@@ -4630,7 +4630,7 @@ type is released. It takes exactly one parameter, its receiver
 lent to write, spelled as a method's: `drop(!self)`, or `drop(self: !Self)`.
 
 ```rig
-struct File
+obj File
   fd: Int
 
   drop(!self)
@@ -4654,13 +4654,13 @@ reverse declaration order, recursively. Glue does not depend on the
 order of declarations in the file.
 
 ```rig
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)
     print("noisy", self.id)
 
-struct Pair
+obj Pair
   a: *Noisy
   b: *Noisy
 
@@ -4703,7 +4703,7 @@ another handle to the same box, and the value is released when the last
 strong handle goes.
 
 ```rig
-struct User
+obj User
   name: ?String
 
   drop(!self)
@@ -4746,7 +4746,7 @@ is rejected, because other handles share it, so `!h.push(x)` through a
 ([§10](#cell)): a shared List is a `*Cell[List[T]]`.
 
 ```rig reject
-struct User
+obj User
   age: Int
 
 sub main()
@@ -4765,7 +4765,7 @@ keep the value alive. `w.upgrade()` returns an optional strong handle
 `*T?`: a new owner while the value is alive, `none` after.
 
 ```rig
-struct Node
+obj Node
   id: Int
 
   drop(!self)
@@ -4892,11 +4892,11 @@ hint is to pass `+h` for a handle of your own. A read view of a handle, or
 of a value that holds one, is not lent to write at all: `?` changes nothing.
 
 ```rig reject
-struct S
+obj S
   n: Int
   c: Cell[Int]
 
-struct O
+obj O
   a: S
   b: S
 
@@ -4910,10 +4910,10 @@ sub main()
 ```
 
 ```rig reject
-struct C
+obj C
   n: Cell[Int]
 
-struct W
+obj W
   h: *C
 
 sub repoint(h: !*C, other: *C)
@@ -4929,7 +4929,7 @@ type mismatch: expected `!*C`, got `!C`
 ```
 
 ```rig
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)
@@ -5047,11 +5047,11 @@ b ["a", "c"]
 ```
 
 ```rig
-struct P
+obj P
   x: Int
   y: Int
 
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -5117,7 +5117,7 @@ function has no box: `^fun` is rejected and reserved, and an owned
 closure is `*|...| body`.
 
 ```rig reject
-struct Holder
+obj Holder
   inner: ^*Int
   twice: ^^Int
 ```
@@ -5156,7 +5156,7 @@ With `if ?o as x` and `if !o as x` ([§12](#12-optionals)), an optional
 box is used where it is:
 
 ```rig
-struct Node
+obj Node
   key: Int
   left: ^Node?
   right: ^Node?
@@ -5222,7 +5222,7 @@ with `String(...)` and `!t.add(...)`, and every change to a String is
 written with `!`.
 
 ```rig
-struct Point
+obj Point
   x: Int
   y: Float
 
@@ -5270,7 +5270,7 @@ fun first_word(s: ?String) -> ?String
     i += 1
   s[..i]
 
-struct Entry
+obj Entry
   name: ?String
 
 sub main()
@@ -5604,7 +5604,7 @@ what it moved in. It costs one indirect call per invocation and
 allocates nothing.
 
 ```rig
-struct Res
+obj Res
   id: Int
 
   drop(!self)
@@ -5776,7 +5776,7 @@ one ([§11](#parameters-and-results)), and not in deferred code. The early retur
 function owns, including values already computed for the same call.
 
 ```rig
-struct User
+obj User
   name: ?String
   boss: Int?
 
@@ -5815,7 +5815,7 @@ every `T`). A view cannot give up
 a resource it holds, so `?` and `??` reject one.
 
 ```rig
-struct Res
+obj Res
   n: Int
 
   drop(!self)
@@ -5848,7 +5848,7 @@ drop 12
 ```
 
 ```rig reject
-struct User
+obj User
   name: ?String
 
 sub main()
@@ -6311,7 +6311,7 @@ annotations. A type's members are named through the module too:
 order, each module once; a cycle is an error.
 
 ```rig file=geo.rig
-pub struct Point
+pub obj Point
   pub x: Int
   pub y: Int
 
@@ -6402,7 +6402,7 @@ they are the type's shape; its methods follow the rule above. A `drop`
 body is not called by name, so it takes no `pub`.
 
 ```rig file=bank.rig
-pub struct Account
+pub obj Account
   pub owner: ?String
   balance: Int
 
@@ -6431,7 +6431,7 @@ ada 100
 Here `audit` and `balance` are private to `bank`:
 
 ```rig file=bank.rig
-pub struct Account
+pub obj Account
   pub owner: ?String
   balance: Int
 
@@ -6471,7 +6471,7 @@ hold an instance of a private generic type, which importers hold and
 use as they do a private type.
 
 ```rig file=boxes.rig
-pub struct Wrap[T]
+pub obj Wrap[T]
   pub v: T
 
   pub fun get(?self) -> T
@@ -6758,7 +6758,7 @@ is dropped when the statement ends ([§7](#temporaries)). A `[]U8` and a `?Strin
 `print` rejects a value that holds a `[]U8`; print its bytes one by one.
 
 ```rig
-struct User
+obj User
   name: ?String
   age: Int
 

@@ -1,4 +1,4 @@
-struct Button
+obj Button
   label: ?String
   handlers: List[*sub(Int)]
 

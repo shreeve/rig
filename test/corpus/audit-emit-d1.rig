@@ -3,7 +3,7 @@ enum Sh
   rect(w: Int, h: Int)
   dot
 
-struct Box2
+obj Box2
   s: Sh
   tag: ?String
 

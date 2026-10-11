@@ -1,9 +1,9 @@
 # A weak handle, a Cell, a Signal, and an owned closure have no `==`.
 
-struct N
+obj N
   n: Int
 
-struct H
+obj H
   c: Cell[Int]
 
 sub main()

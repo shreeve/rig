@@ -1,5 +1,5 @@
 # +v of List[^*D] -- handle inside box inside vec
-struct D
+obj D
   n: Int
 
   drop(!self)

@@ -1,7 +1,7 @@
 # A method takes a plain struct receiver by address and reads it when
 # it runs, after its arguments: a later argument cannot write it first.
 
-struct P
+obj P
   x: Int
 
   fun show(?self, n: Int) -> Int

@@ -12,17 +12,17 @@
 # oracle: made_whole reject C5
 # oracle: made_fallback reject C5
 
-struct S
+obj S
   t: String
   xs: [4]Int
 
   fun inner(?self) -> ?String
     ?self.t
 
-struct W
+obj W
   s: S
 
-struct P
+obj P
   xs: [4]Int
 
   fun arr(?self) -> ?[4]Int

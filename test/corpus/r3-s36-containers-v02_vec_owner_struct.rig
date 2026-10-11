@@ -1,4 +1,4 @@
-struct R
+obj R
   name: ^Int
 
 sub main()

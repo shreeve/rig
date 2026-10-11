@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   sub set(!self, s: []Int)
     self.x = s[0]

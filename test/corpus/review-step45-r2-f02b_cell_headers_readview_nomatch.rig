@@ -1,5 +1,5 @@
 # H2: Cell changes (viaMatch not called; see f03/f04) through header bindings over elements of read views
-struct C
+obj C
   c: Cell[Int]
 
 enum E

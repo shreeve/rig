@@ -1,6 +1,6 @@
 # `unbox` consumes its receiver: each name a branching receiver yields is
 # moved with `<`.
-struct N
+obj N
   v: List[Int]
 
 sub main()

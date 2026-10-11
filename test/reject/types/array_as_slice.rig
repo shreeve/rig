@@ -12,7 +12,7 @@ fun id(xs: []Int) -> []Int
 sub zero(s: ![]Int)
   !s.fill(0)
 
-struct View
+obj View
   xs: []Int
 
 sub main()

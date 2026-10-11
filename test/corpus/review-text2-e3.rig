@@ -1,4 +1,4 @@
-struct W
+obj W
   t: !String
 
 fun grab(b: ?^W) -> ?String

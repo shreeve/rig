@@ -1,4 +1,4 @@
-struct H
+obj H
   n: Int
   s: ?String
   t: String
@@ -6,7 +6,7 @@ struct H
 fun mkh(n: Int) -> H
   H(n: n, s: "hi", t: String("x"))
 
-struct P
+obj P
   n: Int
 
 sub main()

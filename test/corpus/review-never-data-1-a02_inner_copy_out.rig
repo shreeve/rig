@@ -1,7 +1,7 @@
-struct Inner
+obj Inner
   c: Cell[Int] = Cell(0)
 
-struct S
+obj S
   inner: Inner
 
 sub main()

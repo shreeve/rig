@@ -4,7 +4,7 @@
 # oracle: mk accept
 # oracle: both accept
 # oracle: main reject C4
-struct S
+obj S
   n: Int
   items: List[Int]
 

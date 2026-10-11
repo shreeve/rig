@@ -1,7 +1,7 @@
 # A write view passed on keeps its holder viewed while the result
 # is used.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

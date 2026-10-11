@@ -15,7 +15,7 @@ fun strip_suffix(s: ?String, suffix: ?String) -> (?String)?
   return none if suffix.len > s.len or s[s.len - suffix.len..] != suffix
   s[..s.len - suffix.len]
 
-struct Cut
+obj Cut
   before: ?String
   after: ?String
 
@@ -23,7 +23,7 @@ fun cut(s: ?String, sep: ?String) -> Cut?
   i = find(s, sep)?
   Cut(before: s[..i], after: s[i + sep.len..])
 
-struct Lines
+obj Lines
   rest: ?String
 
   fun next(!self) -> (?String)?

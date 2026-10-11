@@ -1,4 +1,4 @@
-struct C
+obj C
   v: List[Int]
 
 sub main()

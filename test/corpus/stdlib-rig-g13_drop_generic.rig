@@ -1,4 +1,4 @@
-struct Handle[T]
+obj Handle[T]
   v: T
   drop(!self)
     print("closing")

@@ -11,7 +11,7 @@ sub elements()
   b = <arr[1]
   print(b, arr)
 
-struct Node
+obj Node
   v: Int
   next: ^Node?
 
@@ -20,7 +20,7 @@ struct Node
     while <cur as n
       cur = <n.next
 
-struct W[T]
+obj W[T]
   x: T?
 
   fun grab(!self) -> T?

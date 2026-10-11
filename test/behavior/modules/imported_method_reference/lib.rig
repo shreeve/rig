@@ -1,4 +1,4 @@
-pub struct P
+pub obj P
   pub n: Int
 
   pub fun get(?self) -> Int

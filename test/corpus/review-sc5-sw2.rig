@@ -1,4 +1,4 @@
-struct H
+obj H
   xs: [3]?String
 
 sub main()

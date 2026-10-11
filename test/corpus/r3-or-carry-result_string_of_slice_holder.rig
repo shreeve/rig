@@ -1,7 +1,7 @@
 # A String a method makes from the holder's String field views only Text
 # bytes: the holder's slice of an array stays free to change.
 
-struct P
+obj P
   src: ?String
   toks: []Int
 

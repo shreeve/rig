@@ -17,7 +17,7 @@ fun hoisted[T](x: T) -> Int
   print(pick(n: g(1), q: x), pick(n: g(2), q: ?x))
   2
 
-struct P
+obj P
   t: String
 
 sub main()

@@ -1,14 +1,14 @@
 # h16 with an owned Text first argument: the plan (and emit) align the
 # arguments with the field callable's parameters shifted by one, so the
 # Text is held as if lent to `?Q`.
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
-struct H
+obj H
   q: Q
 
-struct S
+obj S
   cb: fun(String, ?Q, Int) -> Int
 
 fun g(k: Int) -> Int

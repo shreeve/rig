@@ -2,13 +2,13 @@
 #
 # oracle: D.drop accept
 # oracle: L.drop accept
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
     print("drop", self.c.get())
 
-struct L
+obj L
   t: Cell[String]
   v: Cell[List[String]]
   d: Cell[D]

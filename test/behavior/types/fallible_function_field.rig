@@ -4,7 +4,7 @@
 error Bad
   zero
 
-struct Job
+obj Job
   run: fun(Int) -> Int!
 
 fun inv(n: Int) -> Int!

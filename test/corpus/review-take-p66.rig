@@ -1,12 +1,12 @@
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct S
+obj S
   a: R?
 
-struct H
+obj H
   w: !S
 
 sub go(h: ?H)

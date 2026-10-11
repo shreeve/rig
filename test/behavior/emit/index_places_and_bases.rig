@@ -1,11 +1,11 @@
 # An array inside a List element is assignable, a nested array is too, and
 # indexing a string a call returns evaluates the call once.
 
-struct P
+obj P
   a: [2]Int
   q: Q
 
-struct Q
+obj Q
   z: Int
 
 fun name() -> ?String

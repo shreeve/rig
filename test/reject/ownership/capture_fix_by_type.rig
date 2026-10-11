@@ -3,10 +3,10 @@
 # clone of an owner, another handle (or a weak one) of a `*T`, and
 # nothing for a value with no clone.
 
-struct N
+obj N
   k: Int
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

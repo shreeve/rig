@@ -1,13 +1,13 @@
 # Drop glue nests even when `Outer` is declared before the `Inner` it
 # contains: dropping `o` still reaches the `*Noisy` inside `Inner`.
 
-struct Outer
+obj Outer
   inner: Inner
 
-struct Inner
+obj Inner
   r: *Noisy
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

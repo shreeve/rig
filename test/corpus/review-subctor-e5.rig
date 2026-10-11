@@ -2,7 +2,7 @@ enum Shape
   circle(r: Float)
   dot
 
-struct circle
+obj circle
   r: Float
 
 sub main()

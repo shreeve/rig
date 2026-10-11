@@ -1,7 +1,7 @@
 # `+b` on a viewed shared handle makes a new strong handle; the caller's
 # handle stays valid.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

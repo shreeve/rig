@@ -1,5 +1,5 @@
 # SPEC §2 Slices: a slice's elements are plain data
-struct B
+obj B
   n: Int
 
 fun count(xs: []*B) -> Int

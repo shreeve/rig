@@ -1,6 +1,6 @@
 # If either branch moves a value, using it after the `if` is rejected.
 
-struct Packet
+obj Packet
   payload: Int
 
 sub send(p: Packet)

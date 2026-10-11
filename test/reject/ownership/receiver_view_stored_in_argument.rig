@@ -9,7 +9,7 @@
 # oracle: store_slice reject C4
 # oracle: store_into_struct reject C4
 
-struct H
+obj H
   n: Int
   v: List[Int]
 
@@ -25,7 +25,7 @@ struct H
     !self.v.push(1)
     dst.s = ?self.v[..]
 
-struct Slot
+obj Slot
   s: []Int
 
 sub store_read_view()

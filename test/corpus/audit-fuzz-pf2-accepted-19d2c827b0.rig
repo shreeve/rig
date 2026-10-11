@@ -1,13 +1,13 @@
 # Field reads and method calls through a struct's shared-handle field
 # (`p.a.n`, `p.a.twice()`) auto-erence the handle.
 
-struct Wrap
+obj Wrap
   n: Int
 
   fun twice(self: ?Wrap) -> Int
     self.n * 2
 
-struct Pair
+obj Pair
   a: *Wrap
 
 sub main()

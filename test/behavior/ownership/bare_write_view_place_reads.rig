@@ -13,7 +13,7 @@
 # oracle: deferred accept
 # oracle: take accept
 
-struct P
+obj P
   n: Int
 
 fun get(w: !Int) -> Int

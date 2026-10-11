@@ -6,7 +6,7 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
 fun pick(o: (?P)?, r: ?P) -> P

@@ -1,7 +1,7 @@
 # A match payload of plain data is a copy of the field: `<p` copies it
 # out and leaves the matched value whole, as `<n` does for an `Int`.
 
-struct P
+obj P
   x: Int
 
 enum Color

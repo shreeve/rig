@@ -3,7 +3,7 @@
 error E
   bad
 
-struct Bag
+obj Bag
   items: List[Int]
 
   fun total(<self) -> Int

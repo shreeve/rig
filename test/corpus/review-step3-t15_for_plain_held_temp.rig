@@ -1,4 +1,4 @@
-struct H
+obj H
   arr: [2]Int
 
 fun mkh(s: ?String) -> H

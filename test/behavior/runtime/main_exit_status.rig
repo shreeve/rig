@@ -1,7 +1,7 @@
 # `fun main -> Int` returns the exit status; `main`'s drops run first,
 # and the status of 0 here lets the program pass.
 
-struct Guard
+obj Guard
   name: ?String
 
   drop(!self)

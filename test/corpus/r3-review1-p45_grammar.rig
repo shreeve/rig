@@ -1,16 +1,16 @@
-struct unique
+obj unique
   n: Int
 
-pub struct S unique # comment
+pub obj S unique # comment
   unique: Int
 
   fun get(?self) -> Int
     self.unique
 
-struct W[T] unique
+obj W[T] unique
   item: T
 
-struct Z
+obj Z
   unique: Bool
 
 sub main()

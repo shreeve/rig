@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -7,7 +7,7 @@ fun mkr(n: Int) -> Res?
   !v.push(n)
   Res(n: n, v: <v)
 
-struct H
+obj H
   w: (!(Res?))?
 
 fun f(h: ?H) -> Int?

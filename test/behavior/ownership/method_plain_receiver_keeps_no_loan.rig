@@ -2,7 +2,7 @@
 # receiver only when the receiver's type can hold a view: a receiver
 # of plain data keeps none, so the argument's view ends with the call.
 
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self, xs: ![]Int)

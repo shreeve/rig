@@ -11,7 +11,7 @@
 error E
   bad
 
-struct V
+obj V
   c: Cell[List[Int]]
 
   drop(!self)
@@ -21,7 +21,7 @@ struct V
     !self.c.push(n)
     self.c.len
 
-struct WV
+obj WV
   t: V
 
 fun mkv(n: Int) -> V

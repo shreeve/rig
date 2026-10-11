@@ -1,14 +1,14 @@
 # A view of a field reached through a view a call returns keeps what
 # the call views, bound by `=` or by `as`.
 
-struct R
+obj R
   n: Int
 
-struct H2
+obj H2
   r: R
   b: ^R?
 
-struct H
+obj H
   h2: H2
 
 fun inner(h: ?H) -> ?H2

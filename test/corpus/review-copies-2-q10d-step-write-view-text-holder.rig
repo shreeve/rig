@@ -1,5 +1,5 @@
 # The step writes through a write view of a Text the body replaced.
-struct W
+obj W
   t: !String
 
 fun mk(t: !String, i: Int) -> W?

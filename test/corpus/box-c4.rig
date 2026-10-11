@@ -1,10 +1,10 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun get(?self) -> T
     self.v
 
-struct H
+obj H
   b: ^Wrap[Int]
 
 sub main()

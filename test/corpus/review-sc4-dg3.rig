@@ -1,10 +1,10 @@
-struct B
+obj B
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct V
+obj V
   b: ?B
 
 enum Slot

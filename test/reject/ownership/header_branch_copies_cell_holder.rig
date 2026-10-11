@@ -5,14 +5,14 @@
 # type (test/reject/ownership/header_branch_moves_unique.rig).
 #
 # oracle: matches reject C2
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 enum E
   a(c: Counter)
   b
 
-struct P
+obj P
   x: E
   y: E
 

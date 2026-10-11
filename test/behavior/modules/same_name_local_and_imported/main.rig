@@ -3,7 +3,7 @@
 
 use lib
 
-struct P
+obj P
   y: Int
 
 sub main()

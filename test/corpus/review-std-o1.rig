@@ -1,6 +1,6 @@
 use std.os
 
-struct Keep
+obj Keep
   a: []?String
 
   drop(!self)

@@ -5,7 +5,7 @@
 #
 # oracle: mk accept
 # oracle: grow accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

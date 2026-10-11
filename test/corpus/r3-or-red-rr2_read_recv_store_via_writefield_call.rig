@@ -1,10 +1,10 @@
-struct Holder
+obj Holder
   name: ?String
 
   sub rename(!self, s: ?String)
     self.name = s
 
-struct Ctx
+obj Ctx
   w: !Holder
 
   fun put(?self, s: ?String) -> Int

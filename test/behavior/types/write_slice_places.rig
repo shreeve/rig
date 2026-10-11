@@ -3,7 +3,7 @@
 # A `![]T` also goes where a generic `[]T` does, is returned from a
 # `!List[T]` parameter, may be empty, and moves with `<`.
 
-struct S
+obj S
   arr: [3]Int
 
 fun first[T](xs: []T) -> T

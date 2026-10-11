@@ -1,5 +1,5 @@
 # bad: while ?h.o as p keeps bytes, then drop h
-struct H
+obj H
   o: String?
 
 sub main()

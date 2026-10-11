@@ -1,6 +1,6 @@
 # An owned closure stores a String-holding struct param into a captured
 # Cell it shares; the Text dies before the Cell is read.
-struct P
+obj P
   s: ?String
 
 sub main()

@@ -1,8 +1,8 @@
 # H3: generic loop over ?List[T], body: store into a struct field
-struct S
+obj S
   t: String
 
-struct Holder[T]
+obj Holder[T]
   x: T?
 
 fun hold[T](v: ?List[T]) -> Holder[T]

@@ -1,4 +1,4 @@
-struct Node
+obj Node
   k: Int
   next: ^Node?
 

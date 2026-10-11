@@ -1,4 +1,4 @@
-struct D
+obj D
   v: Int
 
   drop(!self)
@@ -10,19 +10,19 @@ struct D
 error E
   bad
 
-struct W
+obj W
   f: D
   o: D?
 
-struct S
+obj S
   f: D
   o: D?
   w: W
 
-struct R
+obj R
   f: D
 
-struct RO
+obj RO
   f: D?
 
 fun mk(n: Int) -> D

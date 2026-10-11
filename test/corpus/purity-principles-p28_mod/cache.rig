@@ -1,4 +1,4 @@
-pub struct Cache
+pub obj Cache
   pub size: Int
   seen: Cell[List[Int]]
 

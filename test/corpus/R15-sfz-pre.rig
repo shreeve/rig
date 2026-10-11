@@ -1,7 +1,7 @@
-struct G
+obj G
   arr: [3]Int
 
-struct H
+obj H
   arr: [3]Int
 
 const E = Endian.little

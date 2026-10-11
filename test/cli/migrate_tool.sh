@@ -110,10 +110,47 @@ python3 "$ROOT/tools/migrate-0.3.py" apply mixed --force mixed/new.rig >out.txt 
 expect_has "$(cat mixed/new.rig)" "xs: List[Int]" "--force migrates the named file (List is not declared here)"
 expect_has "$(cat mixed/new.rig)" "text: ?String" "--force rewrites the String"
 
-# A `struct List` of a 0.2 file still becomes `Chain`.
+# A `struct List` of a 0.2 file still becomes `obj Chain`.
 mkdir -p own
 printf 'struct List\n  n: Int\n\nsub main()\n  l = List(n: 2)\n  v: Vec[Int] = Vec()\n  print(l.n, v.len)\n' >own/a.rig
 python3 "$ROOT/tools/migrate-0.3.py" apply own >out.txt 2>&1 || fail "apply own: $(cat out.txt)"
-expect_has "$(cat own/a.rig)" "struct Chain" "the program's List is renamed"
+expect_has "$(cat own/a.rig)" "obj Chain" "the program's List is renamed"
 expect_has "$(cat own/a.rig)" "l = Chain(n: 2)" "its constructor too"
 expect_has "$(cat own/a.rig)" "v: List[Int] = List()" "Vec becomes the built-in List"
+
+# A `struct Name` declaration becomes `obj Name`, after `pub` and with type
+# parameters or `unique`; `struct` as a name, in a comment, or in a string is
+# left, and so is a file already written with `obj`.
+mkdir -p objs
+cat >objs/old.rig <<'EOF2'
+# A struct Point in a comment stays.
+pub struct Pair[T] unique
+  a: T
+
+struct Point
+  x: Int
+
+sub main()
+  struct = 3
+  p = Point(x: struct)
+  print("struct Point", p.x, struct)
+EOF2
+cat >objs/new.rig <<'EOF2'
+obj Point
+  x: Int
+
+sub main()
+  struct = 4
+  print(Point(x: struct).x)
+EOF2
+cp objs/new.rig objs.before
+python3 "$ROOT/tools/migrate-0.3.py" apply objs >out.txt 2>&1 || fail "apply objs: $(cat out.txt)"
+expect_has "$(cat out.txt)" "2 files: 1 rewritten, 0 already migrated, 1 already 0.3" "the obj file is current"
+expect_has "$(cat objs/old.rig)" "pub obj Pair[T] unique" "a public generic unique struct"
+expect_has "$(cat objs/old.rig)" "obj Point" "a struct"
+expect_has "$(cat objs/old.rig)" "# A struct Point in a comment stays." "a comment"
+expect_has "$(cat objs/old.rig)" "struct = 3" "a name"
+expect_has "$(cat objs/old.rig)" 'print("struct Point", p.x, struct)' "a string and a name"
+expect_eq "$(cat objs/new.rig)" "$(cat objs.before)" "the obj file is byte-identical"
+(cd objs && rig run old.rig >../out.txt 2>../err.txt) || fail "obj run: $(cat err.txt)"
+expect_eq "$(cat out.txt)" "struct Point 3 3" "the migrated program runs"

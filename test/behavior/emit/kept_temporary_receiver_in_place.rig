@@ -3,7 +3,7 @@
 # its arguments are evaluated first: the slot alone drops the value, once,
 # when the statement ends, and a view the method returns views the slot.
 
-struct P
+obj P
   c: *Cell[Int]
   n: Int
   t: String
@@ -15,11 +15,11 @@ struct P
     !self.c.set(self.c.get() + 1)
     self.c.get()
 
-struct H
+obj H
   p: P
   u: String
 
-struct S
+obj S
   t: String
 
   fun pick(?self, x: Int, y: Int) -> ?String

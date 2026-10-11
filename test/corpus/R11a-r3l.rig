@@ -1,4 +1,4 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun make(v: T) -> Self
@@ -7,7 +7,7 @@ struct Wrap[T]
   fun count(n: Int) -> Int
     n + 1
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

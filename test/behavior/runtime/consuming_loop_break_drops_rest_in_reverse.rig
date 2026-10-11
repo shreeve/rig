@@ -1,7 +1,7 @@
 # A consuming loop that leaves early drops the elements it did not reach
 # last first, as dropping the List would.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

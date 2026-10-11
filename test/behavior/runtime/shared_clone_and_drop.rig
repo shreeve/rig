@@ -1,7 +1,7 @@
 # `+rc` bumps the strong count; each handle is dropped explicitly with
 # `-`, and the clone reads the same value as the original.
 
-struct Counter
+obj Counter
   value: Int
 
 sub main()

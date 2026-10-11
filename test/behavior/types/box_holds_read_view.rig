@@ -2,7 +2,7 @@
 # while the box is used, and the box reaches the viewed value as a
 # view reaches it.
 
-struct Point
+obj Point
   x: Int
   y: Int
 

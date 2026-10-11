@@ -1,12 +1,12 @@
-struct P
+obj P
   x: Int
   y: Int
 
-struct S
+obj S
   a: List[Int]
   b: Int
 
-struct Q
+obj Q
   a: P
   b: Int
 

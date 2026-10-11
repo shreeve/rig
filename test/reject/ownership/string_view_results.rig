@@ -9,13 +9,13 @@ fun trim(s: ?String) -> ?String
 fun strip(s: ?String) -> (?String)?
   s[1..]
 
-struct Cut
+obj Cut
   before: ?String
 
 fun cut(s: ?String) -> Cut?
   Cut(before: s[..1])
 
-struct Split
+obj Split
   rest: ?String
 
   fun next(!self) -> (?String)?

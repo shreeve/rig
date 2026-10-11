@@ -5,13 +5,13 @@
 # oracle: H.put accept
 # oracle: look accept
 # oracle: main accept
-struct In
+obj In
   n: Int
 
   drop(!self)
     print("in drop", self.n)
 
-struct H
+obj H
   c: Cell[In]
 
   sub put(!self, n: Int)

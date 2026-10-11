@@ -1,4 +1,4 @@
-struct T
+obj T
   seen: List[Int]
 
   fun total(<self) -> Int

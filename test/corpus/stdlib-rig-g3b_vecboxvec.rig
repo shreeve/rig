@@ -1,4 +1,4 @@
-struct Row
+obj Row
   cells: List[Int]
 
 sub main()

@@ -1,4 +1,4 @@
-struct Iter
+obj Iter
   i: Int
   n: Int
 

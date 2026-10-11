@@ -4,7 +4,7 @@
 # optional parameter, would be lent as a copy, which the change would
 # miss: it is rejected.
 
-struct P
+obj P
   n: Int
 
 sub g(p: !*P)

@@ -1,4 +1,4 @@
-struct Res
+obj Res
   id: Int
 
   drop(!self)
@@ -10,7 +10,7 @@ fun first[T](a: T?, b: T?) -> T?
   else
     none
 
-struct Holder
+obj Holder
   a: Res?
   b: Res?
 

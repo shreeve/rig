@@ -6,7 +6,7 @@ enum E
   a(xs: [4]Int)
   b
 
-struct H
+obj H
   e: E
   n: Int
 

@@ -6,7 +6,7 @@
 source "$ROOT/test/cli/_lib.sh"
 
 cat >main.rig <<'EOF2'
-struct Point
+obj Point
   x: Int
 
 fun name[T]() -> ?String

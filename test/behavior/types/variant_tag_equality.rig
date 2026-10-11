@@ -3,7 +3,7 @@
 # has no `==`. It compares no payload, so it needs none to be equatable.
 # A temporary that owns a resource is dropped once tested.
 
-struct N
+obj N
   n: Int
 
 enum Slot
@@ -18,7 +18,7 @@ enum Opt[T]
   some(value: T)
   nothing
 
-struct R
+obj R
   n: Int
 
   drop(!self)

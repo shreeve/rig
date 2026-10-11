@@ -2,7 +2,7 @@ pub type Byte = U8
 pub type F = F32
 pub type P = Point
 
-pub struct Point
+pub obj Point
   pub x: Int
   pub y: Int
 

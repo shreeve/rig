@@ -1,17 +1,17 @@
 # A payload of a matched field views the field: moving or dropping it
 # out would leave the parent owning it too.
 
-struct Tok
+obj Tok
   n: Int
 
 enum Slot
   empty
   full(t: *Tok)
 
-struct Holder
+obj Holder
   s: Slot
 
-struct Outer
+obj Outer
   h: Holder
 
 sub eat(t: *Tok)

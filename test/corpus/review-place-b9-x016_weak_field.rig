@@ -1,7 +1,7 @@
-struct P
+obj P
   x: Int
 
-struct N
+obj N
   back: ~P
 
 sub main()

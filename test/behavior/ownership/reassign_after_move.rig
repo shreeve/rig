@@ -1,6 +1,6 @@
 # Reassigning a moved binding makes it usable again.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

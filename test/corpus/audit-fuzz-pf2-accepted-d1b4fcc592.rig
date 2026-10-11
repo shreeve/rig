@@ -2,7 +2,7 @@
 # held: an optional not reached stays with its owner, and a binding
 # made before a part that fails is dropped before `else` runs.
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)

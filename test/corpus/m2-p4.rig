@@ -1,10 +1,10 @@
-struct Inner
+obj Inner
   x: !List[Int]
 
-struct Outer
+obj Outer
   i: !Inner
 
-struct Top
+obj Top
   o: !Outer
 
 sub main()

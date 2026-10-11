@@ -1,7 +1,7 @@
 fun keep(s: ?String) -> ?String
   s
 
-struct P
+obj P
   t: String
 
 enum F

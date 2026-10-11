@@ -1,4 +1,4 @@
-struct Page
+obj Page
   buf: [4096]U8
 
 fun key(p: ?Page, at: Int) -> U64

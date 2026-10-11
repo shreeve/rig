@@ -3,14 +3,14 @@
 # through `!self`, and a field of an `as` binding that owns its value is
 # taken and written.
 
-struct Node
+obj Node
   value: Int
   next: ^Node?
 
   drop(!self)
     print("drop", self.value)
 
-struct Stack
+obj Stack
   top: ^Node?
 
   sub push(!self, v: Int)

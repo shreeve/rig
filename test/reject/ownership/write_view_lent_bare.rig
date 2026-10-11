@@ -3,7 +3,7 @@
 # parameter, a `!self` receiver, or an element method as `!w`. A held
 # read view is lent on bare.
 
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)

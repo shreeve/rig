@@ -1,10 +1,10 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun conv[U](?self, u: U) -> U
     u + u
 
-pub struct Plain
+pub obj Plain
   x: Int
 
   fun sq[U](?self, u: U) -> U

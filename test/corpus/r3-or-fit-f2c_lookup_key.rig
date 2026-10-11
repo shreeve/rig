@@ -1,11 +1,11 @@
-struct Key
+obj Key
   id: Int
 
-struct Entry
+obj Entry
   id: Int
   score: Int
 
-struct Table
+obj Table
   rows: [3]Entry
 
   fun find(?self, key: ?Key) -> (?Entry)?

@@ -19,7 +19,7 @@ fun name(t: String) -> Int
 fun view(xs: ?[]Int) -> Int
   xs.len
 
-struct S
+obj S
   xs: []Int
 
 fun back(a: ?[4]Int) -> []Int

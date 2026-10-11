@@ -6,20 +6,20 @@
 # oracle: mkw accept
 # oracle: go reject C5
 # oracle: main accept
-struct S
+obj S
   n: Int
   t: String
 
   drop(!self)
     print("dropS", self.n)
 
-struct H
+obj H
   rs: List[?String]
 
   drop(!self)
     print("dropH sees", self.rs)
 
-struct W[V]
+obj W[V]
   h: H
   xs: List[V]
 

@@ -2,14 +2,14 @@
 # values, `?input` lends on a view parameter, a compile-time
 # parameter specializes the function, and a user type may be named `Bytes`.
 
-struct User
+obj User
   name: ?String
   id: U64
 
-struct Profile
+obj Profile
   name: ?String
 
-struct UserView
+obj UserView
   user: ?User
   profile: ?Profile
 
@@ -17,10 +17,10 @@ enum ParseMode
   strict
   loose
 
-struct Ast
+obj Ast
   ok: Bool
 
-struct Bytes
+obj Bytes
   data: Int
 
 fun parseStrict(input: ?Bytes) -> Ast
@@ -45,7 +45,7 @@ fun parse[mode: ParseMode](input: ?Bytes) -> Ast
   else
     parseLoose(?input)
 
-struct Wrap[T]
+obj Wrap[T]
   value: T
 
 sub main()

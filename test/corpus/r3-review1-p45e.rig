@@ -1,2 +1,2 @@
-struct S(unique)
+obj S(unique)
   n: Int

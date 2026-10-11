@@ -4,7 +4,7 @@ pub enum Mode
 
 pub type M = Mode
 
-pub struct P
+pub obj P
   pub n: Int
 
   pub fun mk() -> P

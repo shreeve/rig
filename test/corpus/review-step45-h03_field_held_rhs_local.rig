@@ -1,5 +1,5 @@
 # w = h.w where w: !Text local and h.w: !Text held -> writes through?
-struct H
+obj H
   w: !String
 
 sub main()

@@ -1,4 +1,4 @@
-struct Q
+obj Q
   v: List[Int]
 
 fun grow(v: !List[Int]) -> Int

@@ -10,10 +10,10 @@
 # oracle: match_subject accept
 # oracle: if_as accept
 
-struct Item
+obj Item
   n: Int
 
-struct Bag
+obj Bag
   items: List[Item]
   count: Int
 

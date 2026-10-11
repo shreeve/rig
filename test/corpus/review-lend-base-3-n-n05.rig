@@ -1,4 +1,4 @@
-struct Bag[T]
+obj Bag[T]
   items: List[T]
 
 fun total(b: ?Bag[Int]) -> Int

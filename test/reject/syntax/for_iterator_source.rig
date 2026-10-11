@@ -4,7 +4,7 @@
 # value, and `!` of a value made there cannot be advanced, and an
 # iterator has no index binding.
 
-struct Count
+obj Count
   lo: Int
   hi: Int
 
@@ -13,7 +13,7 @@ struct Count
     self.lo += 1
     self.lo - 1
 
-struct Pair
+obj Pair
   a: Count
   b: Count
 

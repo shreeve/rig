@@ -1,7 +1,7 @@
-struct W
+obj W
   f: !String
 
-struct V
+obj V
   w: W
 
 sub g(v: !V)

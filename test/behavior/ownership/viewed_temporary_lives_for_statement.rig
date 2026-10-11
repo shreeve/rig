@@ -3,7 +3,7 @@
 # it copies. (A header that binds a view of a temporary it makes is
 # rejected: `test/reject/ownership/header_temporary_rejected.rig`.)
 
-struct P
+obj P
   x: Int
 
 fun mk(n: Int) -> P

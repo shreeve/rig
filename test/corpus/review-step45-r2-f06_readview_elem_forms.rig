@@ -1,5 +1,5 @@
 # element of a read-view List in each form: while-as, lends of fields, implicit lend args, ?self method
-struct R
+obj R
   t: String
   n: Int
 

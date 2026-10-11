@@ -1,10 +1,10 @@
-struct Meters
+obj Meters
   value: Float
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
-struct Node
+obj Node
   key: Int
   next: ^Node?
 

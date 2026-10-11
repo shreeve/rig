@@ -2,10 +2,10 @@
 # own `unbox` is only called), and `match` on each boxed enum a loop
 # walks by viewed slot.
 
-struct R
+obj R
   n: Int
 
-struct P
+obj P
   unbox: Int
 
 enum Sh

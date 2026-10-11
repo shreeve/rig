@@ -1,0 +1,17 @@
+# The body of a match arm written below its pattern is a block, so a
+# `.variant` line there is a statement of that block, not a chain.
+
+enum Color
+  red
+  blue
+
+fun f(c: Color) -> Int
+  match c
+    .red
+      .blue
+    .blue => 2
+
+sub main()
+  print(f(.red))
+
+# error: 11:8: `.blue` is an enum variant, but the expected type `Int` is not an enum

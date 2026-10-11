@@ -1,4 +1,4 @@
-struct P
+obj P
   n: Int
 
 sub f(o: ?((!P)?))

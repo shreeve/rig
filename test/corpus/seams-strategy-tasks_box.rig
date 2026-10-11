@@ -1,5 +1,5 @@
 # The same board, with the workaround the compiler allows: boxed tasks.
-struct Task
+obj Task
   name: String
   priority: Int
   done: Bool = false

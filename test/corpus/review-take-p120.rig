@@ -1,4 +1,4 @@
-struct R
+obj R
   n: Int
 
   fun take(!self) -> Int

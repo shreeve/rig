@@ -192,12 +192,18 @@ the finished semantic IR.
 
 ### Keywords
 
-The reserved words (all but `new` and `of`) are literal lexer rules in
-`rig.grammar` ahead of the identifier rule (`"if" → if`), so the
-lexer's DFA classifies them; `src/rig.zig` keeps no keyword table and
-checks token categories. `new` needs the next token to be told from a
-name at statement start, and `of` is part of the wrapper's own
-bookkeeping, so both stay in the wrapper.
+The reserved words (all but `new`, `obj` and `of`) are literal lexer
+rules in `rig.grammar` ahead of the identifier rule (`"if" → if`), so
+the lexer's DFA classifies them; `src/rig.zig` keeps no keyword table and
+checks token categories. `new` and `obj` need the next token to be told
+from a name at statement start (`new x = 1`, `obj Point`; but `new = 1`,
+`obj = 5`, `obj.x`), and `of` is part of the wrapper's own bookkeeping,
+so all three stay in the wrapper. `obj` cannot use `@keywords`: a
+statement may start with a name or with a declaration, so the parser's
+state accepts both and promotion would turn every statement-initial
+`obj` into the keyword. `struct` is an ordinary name; a declaration
+written `struct Name` fails to parse and is reported with the word to
+write (`foreignWord` in the Parser wrapper).
 
 `unique`, `from` and `static` are contextual. `@keywords ctx unique from
 static` with `@as IDENT = [ctx!]` lets the parser accept each wherever a
@@ -253,9 +259,11 @@ detached sigil, is the one reported.
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | `while c : step` vs `?? break :outer`, `break :outer` | `STEP_COLON` vs `:` | the first `:` at a `while` header's bracket depth starts its step; any other `:` after a jump names a label, and the grammar takes a label after every `break` and `continue` |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
-| keywords | one token each | every keyword is reserved; `new` only at statement start |
+| keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts |
+| `obj Point`, `pub obj Pair[T]` vs `obj = 5`, `obj.x`, `f(obj: 1)` | `OBJ` vs `IDENT` | `obj` is a keyword at the start of a statement (after any `pub`) when a name follows it on the line; the parser's `@keywords` promotion cannot tell the two apart by state, since a statement may start with either |
+| `b\n  .add(1)` vs `match c\n  .red => 1` | no token | a line starting with `.` and a name, indented deeper than the statement above it, is joined to it (no `NEWLINE`, no `INDENT`) when that statement is complete and opens no block; see The lexer rewriter |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
-| `struct Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on a `struct` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
+| `obj Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on an `obj` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
 | `-> ?T from a, b`, `-> ?String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `@type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `@`; sema rejects a keyword parameter |
@@ -297,6 +305,17 @@ forms to `value`, an expression without blocks or closures (conditions,
   the layout to write, once the source parses;
 - lets `else` continue the `if`, `while`, or `for` whose block just
   closed;
+- joins a line that starts with `.` and a name to the statement above it
+  (a method chain written down the page) when the line is indented
+  deeper than that statement. The rule is positive: the statement just
+  ended with a complete operand, its first token starts no header
+  (`fun`, `sub`, `enum`, `error`, `if`, `else`, `while`, `for`, `match`,
+  `test`, `raw`, `extern`, `drop`, or an `obj` declaration), and its block
+  is not a member list or the arms of a `match`. Under any other line a
+  deeper `.variant` is the first line of the block that line opens, so
+  `match` arms parse as before. Blank and comment lines are skipped
+  before the rule is asked, so they do not end a chain; the joined line
+  produces no `NEWLINE` and no `INDENT`;
 - classifies keywords, the characters read by position, `if`, and
   closure bars as above;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
@@ -442,7 +461,7 @@ so the Zig compiler rejects a dispatch site that misses a new kind.
 For this program, `packet.rig`:
 
 ```rig
-struct Packet
+obj Packet
   size: Int
 
 fun size_of(p: ?Packet) -> Int
@@ -468,7 +487,7 @@ area of the language.
 ```text
 $ rig normalize packet.rig
 (module
-  (struct Packet _ (: size Int))
+  (obj Packet _ (: size Int))
   (fun size_of _ ((: p (read_view Packet))) Int (block (member p size)))
   (sub send _ ((: p Packet)) _ (block (call print (member p size))))
   (sub main _ () _ (block

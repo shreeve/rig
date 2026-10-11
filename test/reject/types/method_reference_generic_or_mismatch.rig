@@ -1,13 +1,13 @@
 # A method of a generic type cannot be named as a value, and a method
 # value has the method's full signature, receiver first.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun get(?self) -> T
     self.v
 
-struct P
+obj P
   x: Int
 
   fun get(?self) -> Int

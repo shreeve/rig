@@ -1,4 +1,4 @@
-struct B
+obj B
   b: U8
 
 sub main()

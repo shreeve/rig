@@ -5,13 +5,13 @@
 fun inc(a: Int) -> Int
   a + 1
 
-struct H[T]
+obj H[T]
   h: T
 
-struct L[T]
+obj L[T]
   l: List[T]
 
-struct S[T]
+obj S[T]
   s: *T
 
 sub main()

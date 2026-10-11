@@ -7,13 +7,13 @@
 # nothing (Core sentence 6), as for a name.
 # oracle: main accept
 
-struct PR
+obj PR
   r: ?String
 
   sub set(!self, r: ?String)
     self.r = r
 
-struct S
+obj S
   t: String
 
 fun mk(n: Int) -> S
@@ -22,7 +22,7 @@ fun mk(n: Int) -> S
 fun mkpr() -> PR
   PR(r: "")
 
-struct H
+obj H
   rs: List[?String]
 
   sub keep(!self, r: ?String)

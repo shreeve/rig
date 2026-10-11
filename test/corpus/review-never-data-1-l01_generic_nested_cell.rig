@@ -1,10 +1,10 @@
-struct In[T]
+obj In[T]
   c: Cell[T]
 
   sub put(!self, x: T)
     !self.c.set(x)
 
-struct W[T]
+obj W[T]
   i: In[T]
   n: Int
 

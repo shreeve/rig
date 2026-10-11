@@ -2,7 +2,7 @@
 # value whose type is a type parameter: there are no traits to say what
 # every instance has.
 
-struct P
+obj P
   n: Int
 
   fun get(?self) -> Int

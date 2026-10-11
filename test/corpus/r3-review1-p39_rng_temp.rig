@@ -1,6 +1,6 @@
 use std.random
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   fun peek(?self) -> Int

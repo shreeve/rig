@@ -2,7 +2,7 @@ enum Sh
   c(r: Int)
   s(k: Int)
 
-struct H
+obj H
   b: ^Sh
 
 fun area(b: ?^Sh) -> Int

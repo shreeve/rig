@@ -2,10 +2,10 @@
 # not copied, so a change through the Cell reaches `o`. A write view a
 # call returns is bound as one, as `!o` is.
 
-struct C
+obj C
   hits: Cell[Int]
 
-struct R
+obj R
   n: Int
 
 fun get(h: !R?) -> !R?

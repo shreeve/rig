@@ -5,7 +5,7 @@
 # oracle: C.hit accept
 # oracle: bump accept
 # oracle: main accept
-struct C
+obj C
   c: Cell[Int]
 
   fun hit(!self) -> Int

@@ -1,4 +1,4 @@
-pub struct Stack[T]
+pub obj Stack[T]
   items: List[T]
 
   sub push(!self, x: T)
@@ -10,7 +10,7 @@ pub struct Stack[T]
       !out.push(f(?x))
     out
 
-pub struct Node[T]
+pub obj Node[T]
   v: T
   next: (*Node[T])?
 
@@ -19,14 +19,14 @@ pub struct Node[T]
       return n.len() + 1
     1
 
-pub struct Pair[A, B]
+pub obj Pair[A, B]
   a: A
   b: B
 
   fun swap(?self) -> Pair[B, A]
     Pair(a: self.b, b: self.a)
 
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
   fun twin(?self) -> Pair[Self, Self]
@@ -40,7 +40,7 @@ pub fun odd[T](n: Int, x: T) -> Bool
   return false if n == 0
   even(n - 1, x)
 
-pub struct Grid[T, n: Int]
+pub obj Grid[T, n: Int]
   cells: [n][n]T
 
   fun row(?self, i: Int) -> [n]T

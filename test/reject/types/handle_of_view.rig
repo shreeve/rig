@@ -2,7 +2,7 @@
 # a handle to a view is rejected as a type, as a type argument, and
 # when a view is shared.
 
-struct P
+obj P
   x: Int
 
   fun boxed(?self) -> Int

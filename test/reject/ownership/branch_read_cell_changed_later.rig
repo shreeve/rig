@@ -3,10 +3,10 @@
 # the copy: a branch of places that hold a Cell is rejected, and lent on
 # each branch instead.
 
-struct S
+obj S
   c: Cell[List[Int]]
 
-struct O
+obj O
   s: S
 
 fun grow(s: !S) -> Int

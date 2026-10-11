@@ -2,7 +2,7 @@
 # parentheses, `(!s).m(...)`, so a leading `!` never reads as negation:
 # here, a `Bool` in a condition and an operand of `and`, `or`, or `not`.
 
-struct Set
+obj Set
   items: List[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items

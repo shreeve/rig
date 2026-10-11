@@ -1,4 +1,4 @@
-struct S
+obj S
   a: List[Int]
   c: List[Int]
 

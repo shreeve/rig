@@ -3,7 +3,7 @@ enum E
   a(t: String)
   b
 
-struct H
+obj H
   es: [2]E
 
 fun get(h: !H) -> !H from h

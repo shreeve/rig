@@ -4,10 +4,10 @@
 # List.
 # release
 
-struct C
+obj C
   c: Cell[Int]
 
-struct H
+obj H
   cs: List[*C]
 
 sub bump(a: ![2]*C, s: ![]*C, v: !List[*C], w: !List[*Cell[Int]], m: !List[List[*C]], h: !H)

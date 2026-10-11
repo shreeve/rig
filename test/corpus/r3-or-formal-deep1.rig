@@ -1,4 +1,4 @@
-struct Pair
+obj Pair
   a: ?List[Int]
 
 fun geta(p: ?Pair) -> ?List[Int]

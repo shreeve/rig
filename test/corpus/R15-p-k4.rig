@@ -1,4 +1,4 @@
-struct S
+obj S
   x: Int
 
 sub fillall[T](s: ![]T, v: T)

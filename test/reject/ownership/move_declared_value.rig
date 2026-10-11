@@ -3,7 +3,7 @@
 # alike; a plain use copies it. (An enum variant is a value made there.)
 # oracle: main reject C3
 
-struct Point
+obj Point
   x: Int
 
   fun origin() -> Point

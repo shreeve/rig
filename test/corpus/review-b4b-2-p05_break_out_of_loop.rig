@@ -1,5 +1,5 @@
 # A payload view carried out of a loop through break, then the subject is reassigned. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

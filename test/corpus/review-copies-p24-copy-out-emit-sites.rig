@@ -1,10 +1,10 @@
 # Copy-out of a read view of a plain struct at many sites: each must
 # emit a dereference and copy, and the copy must not see later writes.
-struct P
+obj P
   x: Int
   y: Int
 
-struct Q
+obj Q
   p: P
   o: P?
   a: [2]P

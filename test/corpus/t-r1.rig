@@ -1,4 +1,4 @@
-struct Node
+obj Node
   n: Int
 
 fun clear(ns: !List[*Node]) -> Int

@@ -13,10 +13,10 @@
 
 use std.text
 
-struct H
+obj H
   s: ?String
 
-struct R
+obj R
   t: String
 
   fun head(?self) -> ?String

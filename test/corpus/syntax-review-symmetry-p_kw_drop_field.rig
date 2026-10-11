@@ -1,4 +1,4 @@
-struct T
+obj T
   drop: Int
 
 sub main()

@@ -1,10 +1,10 @@
-struct Q
+obj Q
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct P
+obj P
   x: Int
   a: [2]Int
   q: Q

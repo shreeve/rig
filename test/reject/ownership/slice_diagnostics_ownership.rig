@@ -1,7 +1,7 @@
 # Each mistake in how long a write slice lives, or where it goes, gets
 # one diagnostic that names it.
 
-struct R
+obj R
   s: []Int
 
 fun t() -> Bool

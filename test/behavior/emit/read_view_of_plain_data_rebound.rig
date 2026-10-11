@@ -2,11 +2,11 @@
 # parameter, and a result alike, generic or not: a local bound to a lend
 # takes a call's result, and a generic `?T` agrees with its instance.
 
-struct Pt
+obj Pt
   x: Int
   y: Int
 
-struct Pair[T]
+obj Pair[T]
   x: T
   r: ?T
 

@@ -1,11 +1,11 @@
-struct Hidden
+obj Hidden
   pub shown: Int
   secret: Int
 
   fun peek(?self) -> Int
     self.secret
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
   pub w: T
 

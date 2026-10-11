@@ -1,6 +1,6 @@
 use std.random
 
-struct Game
+obj Game
   rng: random.Random
   score: Int
 

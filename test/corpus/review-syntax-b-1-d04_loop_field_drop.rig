@@ -1,4 +1,4 @@
-struct B
+obj B
   items: List[String]
 
 sub main()

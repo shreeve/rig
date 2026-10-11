@@ -1,10 +1,10 @@
 # A view reached through a slice field carries the slice's loans, not a
 # loan on the holder: the holder's other fields stay writable.
 
-struct Tok
+obj Tok
   kind: Int
 
-struct P
+obj P
   toks: []Tok
   pos: Int
 

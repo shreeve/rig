@@ -10,14 +10,14 @@
 error E
   bad
 
-struct N
+obj N
   c: Cell[Int]
 
   fun me(!self) -> Int
     !self.c.set(self.c.get() + 1)
     self.c.get()
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -27,7 +27,7 @@ struct D
     !self.c.set(self.c.get() + 1)
     self.c.get()
 
-struct WW
+obj WW
   t: *N
 
 fun mkn(n: Int) -> *N

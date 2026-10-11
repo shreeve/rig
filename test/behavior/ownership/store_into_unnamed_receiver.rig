@@ -3,7 +3,7 @@
 # (`test/reject/ownership/store_into_unnamed_receiver.rig`): values that
 # outlive the holder may be stored there.
 
-struct H
+obj H
   r: ?String
   rs: List[?String]
 

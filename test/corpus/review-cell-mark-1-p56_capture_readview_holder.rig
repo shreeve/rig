@@ -1,4 +1,4 @@
-struct H
+obj H
   n: Cell[Int]
 
 sub f(x: ?H)

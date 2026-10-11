@@ -1,7 +1,7 @@
 # Field access on an optional (`u.name` with `u: User?`) requires
 # unwrapping it first.
 
-struct User
+obj User
   name: ?String
 
 fun name_of(u: User?) -> ?String

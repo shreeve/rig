@@ -1,6 +1,6 @@
 # Structs have no ordering, whatever their fields.
 
-struct Point
+obj Point
   x: Int
   y: Int
 

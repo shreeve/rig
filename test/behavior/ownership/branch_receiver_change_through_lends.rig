@@ -2,7 +2,7 @@
 # on what each branch lends, changes the value the branch takes, also when
 # its arguments are evaluated first.
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
@@ -14,10 +14,10 @@ struct Q
     !self.c.set(self.c.get() + j)
     self.c.get()
 
-struct H
+obj H
   q: Q
 
-struct P
+obj P
   n: Int
 
   fun inc(!self) -> Int

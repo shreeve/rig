@@ -1,4 +1,4 @@
-struct Holder[V]
+obj Holder[V]
   one: V?
 
   fun val(!self) -> (!V)?
@@ -6,7 +6,7 @@ struct Holder[V]
       return v
     none
 
-struct N
+obj N
   n: Int
   drop(!self)
     print("drop", self.n)

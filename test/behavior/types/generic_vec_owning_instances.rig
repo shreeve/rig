@@ -1,9 +1,9 @@
 # `List[T]` in a generic type holds whatever each instance gives it.
 
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
-struct Owner
+obj Owner
   h: *Int
 
 sub main()

@@ -1,5 +1,5 @@
 # if !v[idx(?Text("a"))].o as t : field after an index with a temp (must reject)
-struct S
+obj S
   o: String?
 
 fun idx(s: ?String) -> Int

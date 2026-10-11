@@ -2,13 +2,13 @@
 # parameters, where it declares the struct unique (`struct Random unique`).
 # Everywhere else it is an ordinary name.
 
-struct Seed unique
+obj Seed unique
   value: Int
 
-pub struct Ring[T] unique
+pub obj Ring[T] unique
   item: T
 
-struct Flags
+obj Flags
   unique: Bool
 
   fun only(?self, unique: Bool) -> Bool

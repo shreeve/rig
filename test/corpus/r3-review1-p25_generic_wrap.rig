@@ -1,7 +1,7 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
 fun f[T](w: Wrap[T]) -> Int

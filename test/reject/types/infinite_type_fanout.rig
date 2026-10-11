@@ -1,15 +1,15 @@
 # Two types holding each other by value many times over are found in one
 # search, and each is reported; `A` holds them but not itself.
 
-struct A
+obj A
   b: B
 
-struct B
+obj B
   c1: C
   c2: C
   c3: C
 
-struct C
+obj C
   b1: B
   b2: B
   b3: B

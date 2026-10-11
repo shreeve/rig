@@ -1,7 +1,7 @@
 # `for !it` is `for _ in !it`, so the iterator must be writable where the
 # loop stands, as for `for n in !it`.
 
-struct Count
+obj Count
   lo: Int
   hi: Int
 

@@ -1,4 +1,4 @@
-struct W[T]
+obj W[T]
   c: Cell[T]
 
 sub swap[T](w: ?W[T], x: T) -> T

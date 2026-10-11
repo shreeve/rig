@@ -1,5 +1,5 @@
 # Payload views pushed into a List of views; the subject List then dropped. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

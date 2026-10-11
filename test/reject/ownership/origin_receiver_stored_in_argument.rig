@@ -1,10 +1,10 @@
 # A method may store a view of what its receiver holds in what it was
 # lent to write: the receiver stays lent while that view lives.
 
-struct Holder
+obj Holder
   r: []Int
 
-struct Src
+obj Src
   items: List[Int]
 
   sub put(?self, out: !Holder)

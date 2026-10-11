@@ -1,4 +1,4 @@
-struct W
+obj W
   w: !Int
 
 fun dup[T](x: ?T) -> [2]T

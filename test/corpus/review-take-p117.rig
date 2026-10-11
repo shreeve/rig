@@ -1,11 +1,11 @@
-struct Node
+obj Node
   value: Int
   next: ^Node?
 
   drop(!self)
     print("drop", self.value)
 
-struct Stack
+obj Stack
   top: ^Node?
 
   fun find(!self, k: Int) -> Int?

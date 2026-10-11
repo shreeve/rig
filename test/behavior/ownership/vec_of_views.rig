@@ -1,7 +1,7 @@
 # A List holds views: it holds the loans of every view pushed into it,
 # until it is dropped.
 
-struct Bag
+obj Bag
   items: List[?Int]
 
 sub keep(v: !List[?Int], x: ?Int)

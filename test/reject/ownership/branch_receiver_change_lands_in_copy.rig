@@ -5,7 +5,7 @@
 # the leaf where it is
 # (`test/behavior/ownership/branch_receiver_change_through_leaves.rig`).
 
-struct P
+obj P
   n: Int
 
   fun inc(!self) -> Int

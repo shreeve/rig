@@ -1,7 +1,7 @@
 error E
   bad
 
-struct S
+obj S
   v: List[Int]
 
 fun mk() -> S

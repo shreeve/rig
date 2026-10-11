@@ -1,13 +1,13 @@
 # A box clones its value as `+` would; one whose value has a `drop`
 # body has no clone.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct H
+obj H
   r: Res
 
 sub main()

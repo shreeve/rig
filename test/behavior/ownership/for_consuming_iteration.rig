@@ -2,7 +2,7 @@
 # owns it for one iteration (and may move it on). Elements a `break` or
 # `return` leaves behind are dropped with the buffer.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

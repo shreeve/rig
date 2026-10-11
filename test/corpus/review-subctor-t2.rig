@@ -4,7 +4,7 @@ error Bad
 sub check(n: Int)!
   return Bad.neg if n < 0
 
-struct M
+obj M
   v: Int
 
 sub main()

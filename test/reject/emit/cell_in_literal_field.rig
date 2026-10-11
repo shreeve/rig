@@ -2,7 +2,7 @@
 # type that holds one cannot stand as a temporary lent to a call: the
 # rule that a Cell lives only behind `*` rejects it.
 
-struct P
+obj P
   c: Cell[Int]
 
 sub bump(p: !P)

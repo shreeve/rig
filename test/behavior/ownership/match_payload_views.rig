@@ -4,11 +4,11 @@
 # returns (held as the pointer it is, also under a guard), and a generic
 # body. A `Cell` it changes is the matched value's own.
 
-struct Res
+obj Res
   n: Int
   t: String
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)

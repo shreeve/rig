@@ -13,7 +13,7 @@
 error E
   bad
 
-struct S
+obj S
   n: Int
   v: List[Int]
   o: Int?

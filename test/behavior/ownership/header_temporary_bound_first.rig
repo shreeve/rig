@@ -11,10 +11,10 @@ enum F
   a(n: Int)
   b(n: Int)
 
-struct C
+obj C
   c: Cell[Int]
 
-struct P
+obj P
   x: Int
 
 fun idx(s: ?String) -> Int

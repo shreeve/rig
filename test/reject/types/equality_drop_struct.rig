@@ -1,7 +1,7 @@
 # A struct with a `drop` body owns a resource and has no `==`, even when
 # its fields compare.
 
-struct File
+obj File
   fd: Int
 
   drop(!self)

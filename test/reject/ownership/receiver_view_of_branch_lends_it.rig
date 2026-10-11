@@ -7,7 +7,7 @@
 # may not outlive its statement. (The forms that keep working:
 # `test/behavior/ownership/receiver_view_of_branch_lends_leaves.rig`.)
 
-struct S
+obj S
   t: String
   xs: [4]Int
 
@@ -20,10 +20,10 @@ struct S
   fun arr(?self) -> ?[4]Int
     ?self.xs
 
-struct W
+obj W
   s: S
 
-struct P
+obj P
   xs: [4]Int
 
   fun arr(?self) -> ?[4]Int

@@ -1,7 +1,7 @@
 # A `defer` that stores in parameter `a` runs when its block ends; from
 # there on, `b` stays lent for the rest of the body.
 
-struct Holder
+obj Holder
   r: []Int
 
 fun f(a: !Holder, b: !List[Int]) -> Int

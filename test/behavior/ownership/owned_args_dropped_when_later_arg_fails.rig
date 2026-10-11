@@ -5,13 +5,13 @@
 error E
   bad
 
-struct B
+obj B
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct P
+obj P
   a: B
   k: Int
 
@@ -45,7 +45,7 @@ sub vec(v: List[Int], n: Int)
 sub call(f: *fun() -> Int, n: Int)
   print("call", f(), n)
 
-struct S
+obj S
   b: B
 
   sub put(!self, b: B, n: Int)

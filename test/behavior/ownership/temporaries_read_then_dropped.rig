@@ -4,7 +4,7 @@
 # early; one in a loop's condition, a header, when the condition ends.
 # A `match` takes a call's result and drops what its arms leave.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

@@ -1,7 +1,7 @@
 # Loops used as values in every value position: a returned value, a
 # nested loop, a match arm, closure bodies, and with a type from context.
 
-struct P
+obj P
   n: Int
 
 fun first_even(xs: ?[4]Int) -> Int

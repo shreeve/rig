@@ -1,6 +1,6 @@
 # A `Wrap[?String]` field types as String, so print formats it as text.
 
-struct Wrap[T]
+obj Wrap[T]
   value: T
 
 sub main()

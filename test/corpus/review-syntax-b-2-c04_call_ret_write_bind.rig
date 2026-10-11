@@ -1,4 +1,4 @@
-struct H
+obj H
   t: String
 
 fun get(h: !H) -> !String

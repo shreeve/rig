@@ -2,10 +2,10 @@
 # generic call that infers its type arguments from it: by position or
 # by keyword, and inside another array.
 
-struct Big
+obj Big
   a: [530000]Int
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 fun first[T](x: T) -> Int

@@ -1,10 +1,10 @@
 # A payload of plain data that holds a view copies: `<v` copies it out
 # of the matched value, and the copy views what `v` views.
 
-struct N
+obj N
   n: Int
 
-struct V
+obj V
   r: ?N
 
 enum E

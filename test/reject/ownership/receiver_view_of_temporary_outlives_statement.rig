@@ -4,20 +4,20 @@
 # So does a field or element of a temporary, a Cell-holding part
 # included, and a branching value all of whose values are plain data.
 
-struct P
+obj P
   xs: [4]Int
 
   fun arr(?self) -> ?[4]Int
     ?self.xs
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
   fun me(?self) -> ?Q
     self
 
-struct H
+obj H
   q: Q
   p: P
 

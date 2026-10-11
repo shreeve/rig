@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
 
   drop(!self)
@@ -10,9 +10,9 @@ sub main()
   <r
   print(p.first.n)
 
-struct Pair[A, B]
+obj Pair[A, B]
   first: A
   second: B
 
-struct View[T]
+obj View[T]
   r: ?T

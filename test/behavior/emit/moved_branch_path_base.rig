@@ -3,7 +3,7 @@
 # view of the place the branch took: a field or element of it is
 # reached through that place, read or written.
 
-struct P
+obj P
   x: Int
   a: [2]Int
 

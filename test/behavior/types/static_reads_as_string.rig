@@ -6,7 +6,7 @@
 use std.os
 use std.text
 
-struct Line
+obj Line
   text: ?String
 
 fun shout(s: ?String) -> Int

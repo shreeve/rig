@@ -1,7 +1,7 @@
 fun dbl(x: Int) -> Int
   x * 2
 
-struct Op
+obj Op
   f: fun(Int) -> Int
 
 sub main()

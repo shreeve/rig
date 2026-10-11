@@ -1,5 +1,5 @@
 # generic body reading an element holding a Cell (T = C), calling a ?self method
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)

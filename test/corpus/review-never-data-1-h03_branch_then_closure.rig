@@ -1,4 +1,4 @@
-struct S
+obj S
   c: Cell[List[Int]]
 
   fun growi(!self) -> Int
@@ -6,7 +6,7 @@ struct S
       !self.c.push(i)
     5
 
-struct O
+obj O
   s: S
 
 fun grow(s: !S) -> Int

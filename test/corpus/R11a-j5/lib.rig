@@ -1,11 +1,11 @@
-pub struct Counter[T]
+pub obj Counter[T]
   c: Cell[Int]
   v: T
 
   sub bump(!self)
     !self.c.set(self.c.get() + 1)
 
-pub struct Box2[T]
+pub obj Box2[T]
   v: T
 
 pub fun counter[T](x: T) -> Counter[T]

@@ -1,11 +1,11 @@
 use lib
 
-struct Loop
+obj Loop
   w: lib.Wrap[Loop?]
 
 type Arr = [1_000_000]Int
 
-struct Big
+obj Big
   a: lib.Wrap[Arr]
   b: lib.Wrap[Arr]
 

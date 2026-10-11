@@ -1,9 +1,9 @@
 use geo
 
-struct Point
+obj Point
   y: Int
 
-struct L
+obj L
   g: geo.Tagged
   p: Point
 
