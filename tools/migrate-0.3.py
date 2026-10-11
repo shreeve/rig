@@ -2,7 +2,7 @@
 """Migrate Rig 0.2 programs to Rig 0.3.0.
 
     migrate-0.3.py scan  PATH...  report what would change, change nothing
-    migrate-0.3.py apply PATH...  rewrite the programs in place
+    migrate-0.3.py apply PATH... [--force FILE...]  rewrite the programs in place
 
 A PATH is a directory (every `.rig` and `.rig.tmpl` file under it) or a
 file of either kind. `scan` also prints a `HINT` for each other text
@@ -23,6 +23,15 @@ an iterator that is a place is written `for x in !it`. The tool runs
 `rig check` (`$RIG`, else bin/rig of the checkout beside this tool, else
 `rig` on PATH) on each `.rig` file and inserts the `!` where the
 compiler asks for it. Without a compiler it prints a `MANUAL` line.
+
+A file is migrated only if it is 0.2: it spells `Vec[`, `Vec(`, `Box[`,
+`Box(`, or `Text` in code, or the 0.3 compiler (`rig check`, found as
+below) reports an error in it. A file that spells nothing the old way and
+passes the check is already 0.3: it is left byte-identical, and `scan` and
+`apply` print `CURRENT path` for it. Without a compiler only the spelling
+decides (a NOTE says so). `--force FILE...` (after the PATHs) migrates the
+named files whatever they look like. A `List` is renamed `Chain` only where
+the file, or a program beside it, declares `struct List` or `enum List`.
 
 `apply` is idempotent: it records the files it migrated, with the hash of
 what it wrote, in DIR/.rig-migrated-0.3, and skips a file whose hash is
@@ -360,13 +369,23 @@ def backticks(text):
     return [(m.start(1), m.end(1)) for m in re.finditer(r"`([^`\n]*)`", text)]
 
 
+def declares_list(src):
+    return re.search(r"(?m)^\s*(?:pub\s+)?(?:struct|enum)\s+List\b", src) is not None
+
+
 def list_edits(src, path, report):
     """`List` (a name some program declares for itself) -> `Chain`, then
-    `Vec` -> `List`, in code and comments; one pass, so the two never meet."""
+    `Vec` -> `List`, in code and comments; one pass, so the two never meet.
+    A `List` is the program's own only where this file, or its package
+    (the files beside it), declares a `struct List` or `enum List`;
+    elsewhere it is left alone."""
     code, comment, string = spans(src)
     edits = []
+    own = PROSE[0] or LISTS_OWN[0] or declares_list(src)
     for m in re.finditer(r"(?<![A-Za-z0-9_])(Vec|List)\b(?!<|::)", src):
         off = m.start()
+        if m.group(1) == "List" and not own:
+            continue
         # In prose a `List.` is a name of the compiler's own (a parser
         # node list); in a program it is the program's type.
         if PROSE[0] and m.group(1) == "List" and src[m.end():m.end() + 1] == ".":
@@ -473,6 +492,7 @@ def rewrite_source(mode, src, path, report, directives=True):
 
 
 PROSE = [False]
+LISTS_OWN = [False]  # the package of the file being migrated declares a `List`
 INLINE = re.compile(r"(?<!`)(`+)(?!`)([^`\n]+?)(?<!`)\1(?!`)")
 
 
@@ -556,10 +576,62 @@ def hints(paths):
     return out
 
 
-def migrate(text, path, report):
+def package_declares_list(path):
+    """Whether a program beside `path` (its package) declares `List`."""
+    d = os.path.dirname(os.path.abspath(path))
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        return False
+    for n in names:
+        f = os.path.join(d, n)
+        if is_program(n) and os.path.isfile(f):
+            try:
+                if declares_list(open(f, encoding="utf-8").read()):
+                    return True
+            except (UnicodeDecodeError, OSError):
+                pass
+    return False
+
+
+def migrate(text, path, report, full=None):
+    LISTS_OWN[0] = bool(full) and package_declares_list(full)
     for mode in ("box", "list", "string"):
         text = rewrite_source(mode, text, path, report)
+    LISTS_OWN[0] = False
     return text
+
+
+ERR_LINE = re.compile(r"^(.+?):\d+:\d+: error:")
+
+
+def has_old_spelling(path, text):
+    """An unambiguous 0.2 spelling: `Vec[`, `Vec(`, `Box[`, `Box(`, or
+    `Text` (a type or constructor; `String` reserves the name now)."""
+    pat = re.compile(r"(?<![A-Za-z0-9_.])(?:(?:Box|Vec)[\[(]|Text\b)")
+    if not path.endswith(".rig"):
+        return pat.search(text) is not None
+    code = spans(text)[0]
+    return any(pat.search(text, a, b) for a, b in code)
+
+
+def classify(path, text, rig):
+    """'0.2' or '0.3': a file is 0.2 if it spells something the 0.2 way, or
+    the 0.3 compiler rejects it (an error in the file itself). Without a
+    compiler only the spelling decides."""
+    if has_old_spelling(path, text):
+        return "0.2"
+    if rig is None or not path.endswith(".rig"):
+        return "0.3"
+    here = os.path.dirname(path)
+    r = subprocess.run([rig, "check", path], capture_output=True, text=True, cwd=here)
+    if r.returncode == 0:
+        return "0.3"
+    for l in (r.stderr + r.stdout).split("\n"):
+        m = ERR_LINE.match(l)
+        if m and os.path.abspath(os.path.join(here, m.group(1))) == path:
+            return "0.2"
+    return "0.3"
 
 
 ITER_DIAG = re.compile(r"^(.+?):(\d+):(\d+): error: write `for \S+ in !\S+`: the loop advances")
@@ -610,9 +682,19 @@ def main():
     args = sys.argv[1:]
     if len(args) < 2 or args[0] not in ("scan", "apply"):
         sys.exit(__doc__)
-    act, paths = args[0], args[1:]
+    act, rest = args[0], args[1:]
+    forced = []
+    if "--force" in rest:
+        i = rest.index("--force")
+        rest, forced = rest[:i], [os.path.abspath(f) for f in rest[i + 1:]]
+        if not forced:
+            sys.exit("--force needs at least one FILE")
+    paths = rest + forced
+    if not paths:
+        sys.exit(__doc__)
+    rig = find_rig()
     marks = {}
-    report, changed, skipped, total = [], 0, 0, 0
+    report, changed, skipped, total, current = [], 0, 0, 0, 0
     work = targets(paths)
     for root, _ in work:
         if root not in marks:
@@ -623,16 +705,23 @@ def main():
                     if l:
                         h, p = l.split("  ", 1)
                         marks[root][p] = h
+    if rig is None:
+        report.append("NOTE: no `rig` compiler found (set RIG); files are classified by spelling only")
     written = []
     for root, path in work:
         rel = os.path.relpath(path, root)
         text = open(path).read()
         total += 1
+        force = path in forced
         h = hashlib.sha256(text.encode()).hexdigest()
-        if marks[root].get(rel) == h:
+        if not force and marks[root].get(rel) == h:
             skipped += 1
             continue
-        new = migrate(text, rel, report)
+        if not force and classify(path, text, rig) == "0.3":
+            current += 1
+            report.append("CURRENT %s: already 0.3, left alone" % os.path.relpath(path))
+            continue
+        new = migrate(text, rel, report, path)
         if new != text:
             changed += 1
             if act == "apply":
@@ -640,7 +729,6 @@ def main():
         if act == "apply":
             written.append((root, rel, path))
     if act == "apply" and written:
-        rig = find_rig()
         if rig is None:
             report.append("MANUAL: no `rig` compiler found (set RIG); write `for x in !it` over an iterator in a place by hand")
         else:
@@ -657,7 +745,7 @@ def main():
     if act == "scan":
         for h in hints(paths):
             print(h)
-    print("%d files: %d %s, %d already migrated" % (total, changed, "rewritten" if act == "apply" else "to rewrite", skipped))
+    print("%d files: %d %s, %d already migrated, %d already 0.3" % (total, changed, "rewritten" if act == "apply" else "to rewrite", skipped, current))
 
 
 if __name__ == "__main__":

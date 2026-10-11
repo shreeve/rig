@@ -81,3 +81,39 @@ expect_has "$(cat iter.rig)" "for n in !c" "the iterator in a place is advanced 
 expect_has "$(cat iter.rig)" "for m in Count(lo: 0, hi: 1)" "a made iterator stays bare"
 rig run iter.rig >out.txt 2>err.txt || fail "iter run: $(cat err.txt)"
 expect_eq "$(cat out.txt | tr '\n' ' ')" "0 1 2 0 " "the migrated loops run"
+
+# A file already written in 0.3 is never rewritten: not by name, not in a
+# directory beside a 0.2 file, and `scan` says so. `--force` overrides.
+mkdir -p mixed
+printf 'sub main()\n  v: Vec[Int] = Vec()\n  print(v.len)\n' >mixed/old.rig
+cat >mixed/new.rig <<'EOF2'
+fun show(s: ?String) -> ?String
+  s
+
+sub main()
+  text: String = String("x")
+  xs: List[Int] = List()
+  print(show(text), xs.len)
+EOF2
+cp mixed/new.rig new.before
+python3 "$ROOT/tools/migrate-0.3.py" scan mixed >out.txt 2>&1 || fail "scan mixed: $(cat out.txt)"
+expect_has "$(cat out.txt)" "CURRENT mixed/new.rig: already 0.3" "scan reports the 0.3 file"
+expect_has "$(cat out.txt)" "2 files: 1 to rewrite" "scan counts one to rewrite"
+python3 "$ROOT/tools/migrate-0.3.py" apply mixed >out.txt 2>&1 || fail "apply mixed: $(cat out.txt)"
+expect_has "$(cat out.txt)" "2 files: 1 rewritten, 0 already migrated, 1 already 0.3" "one of two migrated"
+expect_has "$(cat mixed/old.rig)" "v: List[Int] = List()" "the 0.2 file is migrated"
+expect_eq "$(cat mixed/new.rig)" "$(cat new.before)" "the 0.3 file is byte-identical"
+! grep -q MANUAL out.txt || fail "MANUAL for a 0.3 file: $(cat out.txt)"
+python3 "$ROOT/tools/migrate-0.3.py" apply mixed/new.rig >out.txt 2>&1 || fail "apply named 0.3: $(cat out.txt)"
+expect_eq "$(cat mixed/new.rig)" "$(cat new.before)" "a named 0.3 file is left"
+python3 "$ROOT/tools/migrate-0.3.py" apply mixed --force mixed/new.rig >out.txt 2>&1 || fail "force: $(cat out.txt)"
+expect_has "$(cat mixed/new.rig)" "xs: List[Int]" "--force migrates the named file (List is not declared here)"
+expect_has "$(cat mixed/new.rig)" "text: ?String" "--force rewrites the String"
+
+# A `struct List` of a 0.2 file still becomes `Chain`.
+mkdir -p own
+printf 'struct List\n  n: Int\n\nsub main()\n  l = List(n: 2)\n  v: Vec[Int] = Vec()\n  print(l.n, v.len)\n' >own/a.rig
+python3 "$ROOT/tools/migrate-0.3.py" apply own >out.txt 2>&1 || fail "apply own: $(cat out.txt)"
+expect_has "$(cat own/a.rig)" "struct Chain" "the program's List is renamed"
+expect_has "$(cat own/a.rig)" "l = Chain(n: 2)" "its constructor too"
+expect_has "$(cat own/a.rig)" "v: List[Int] = List()" "Vec becomes the built-in List"
