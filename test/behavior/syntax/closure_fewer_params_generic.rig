@@ -1,0 +1,37 @@
+# Fewer parameters with a generic expected type, and with capture
+# lists: sigiled entries are captures and bare names are parameters, so
+# a closure that omits parameters still captures what it names.
+
+sub each_pair[T](a: T, b: T, f: ?sub(T, T))
+  f(a, b)
+
+fun pick[T](a: T, b: T, f: ?fun(T, T) -> T) -> T
+  f(a, b)
+
+sub main()
+  each_pair(1, 2, |a| print(a))
+  each_pair(1, 2, || print("none"))
+  each_pair("x", "y", |a| print(a))
+  print(pick(3, 4, |a| a + 100))
+  print(pick(3, 4, || 0))
+  count = 10
+  step = 5
+  each_pair(1, 2, |+count, a| print(count + a))
+  each_pair(1, 2, |+count, +step| print(count + step))
+  each_pair(1, 2, |+count, a: Int| print(count * a))
+  total: *Cell[Int] = *Cell(0)
+  add: *sub(Int, Int) = *|+total, a| !total.set(total.get() + a)
+  add(2, 100)
+  add(3, 100)
+  print(total.get())
+
+# expect:
+# 1
+# none
+# x
+# 103
+# 0
+# 11
+# 15
+# 10
+# 5

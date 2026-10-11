@@ -2319,6 +2319,32 @@ the bare form. LALR(1) needs no conflict: after `for`, a name followed
 by `in` or `,` is the binding form, and a name followed by anything
 else is the start of a source (`in` follows no expression).
 
+### Closures with fewer parameters
+
+A closure literal that declares fewer parameters than the function type
+it is checked against is the same closure with `_` for each trailing
+parameter it leaves out: `*|| f()` against `*sub(A, B, C)` is
+`*|_, _, _| f()`. `Checker.checkLambdaGiven` decides it in one place,
+where the closure meets its type (a typed binding, a parameter, a field,
+or the pattern a generic call matches it against), by calling
+`Parser.padLambda`, which appends hidden `_` leaves to the `params` role
+(each at a position past the end of the source, so facts keyed by
+position stay apart) and declares a `param` symbol for each, as the
+resolver declares a written `_`. It changes nothing when the closure
+already has the parameters, so a closure checked twice is padded once.
+Every later pass (the ownership checker, storage, emit) sees the full
+parameter list and has no case for the short form. Captures are a role of
+their own: a sigil makes an entry a capture, a bare name a parameter, and
+padding appends only to parameters.
+
+Ownership follows from the desugaring and adds no rule: an argument
+passed for an omitted parameter is one passed to `_`. A lend ends as the
+call's other lends do, and an owned argument is dropped at the end of the
+closure's body, after the body's own locals, with the closure's other
+owning parameters in reverse order. A closure with no type from its
+context (`f = || ...`) is not padded, and one with more parameters than
+its type passes is rejected.
+
 ### Loops over an iterator
 
 `for x in !it` is `while (!it).next() as x`, and nothing else: no pass
