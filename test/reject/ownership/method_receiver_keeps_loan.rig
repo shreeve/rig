@@ -2,7 +2,7 @@
 # method's arguments view, so the view lives as long as it does,
 # even when the receiver is written through a write view.
 
-struct View
+obj View
   xs: []Int
 
   sub point(!self, ys: []Int)

@@ -1,6 +1,6 @@
 # Direct `c[i] = e` and `c[i] += e` into a temporary's Cell[List].
 #
-struct Log
+obj Log
   lines: Cell[List[Int]]
 
 fun made() -> Log

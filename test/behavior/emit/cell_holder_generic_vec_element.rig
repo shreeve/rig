@@ -5,10 +5,10 @@
 # reaches is read through them, in debug and in an optimized build.
 # release
 
-struct C
+obj C
   c: Cell[Int]
 
-struct G[T]
+obj G[T]
   items: List[T]
   k: Int
 

@@ -6,11 +6,11 @@
 # oracle: f accept
 # oracle: g accept
 # oracle: main accept
-struct P
+obj P
   k: Int
   s: ?String
 
-struct S
+obj S
   n: Int
 
   fun pop(!self) -> Int

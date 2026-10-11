@@ -1,7 +1,7 @@
 # The right-hand side runs before the target's place is found: here it
 # empties the List, so the store is out of bounds, and panics.
 
-struct B
+obj B
   xs: List[Int]
 
 fun empty(b: !B) -> Int

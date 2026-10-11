@@ -1,4 +1,4 @@
-struct B
+obj B
   xs: []Int
   sub set(!self, s: []Int)
     self.xs = s

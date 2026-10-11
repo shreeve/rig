@@ -1,4 +1,4 @@
-struct Bag
+obj Bag
   items: List[Int]
 
   sub grow(!self, f: ?fun(Int) -> Int)

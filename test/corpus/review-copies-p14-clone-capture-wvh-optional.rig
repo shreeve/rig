@@ -1,4 +1,4 @@
-struct H
+obj H
   w: !List[Int]
 
 fun first(o: ?H?) -> Int

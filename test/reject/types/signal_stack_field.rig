@@ -1,6 +1,6 @@
 # A struct holds a Signal through a shared handle (`s: *Signal[Int]`).
 
-struct H
+obj H
   s: Signal[Int]
 
 sub main()

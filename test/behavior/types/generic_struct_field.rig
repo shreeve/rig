@@ -1,7 +1,7 @@
 # A generic struct instantiated as `Wrap[Int]`; the constructor's field is
 # checked against the substituted type and `b.value` types as Int.
 
-struct Wrap[T]
+obj Wrap[T]
   value: T
 
 sub main()

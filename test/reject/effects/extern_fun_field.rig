@@ -3,7 +3,7 @@
 
 extern fun abs(n: I32) -> I32
 
-struct Op
+obj Op
   f: fun(I32) -> I32
 
 sub main()

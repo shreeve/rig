@@ -1,5 +1,5 @@
 # Takes through match payload views and loop bindings; `while <e as x`.
-struct S
+obj S
   o: List[Int]?
 
 enum E

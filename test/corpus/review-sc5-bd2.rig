@@ -2,7 +2,7 @@ ARR = [1, 2, 3]
 NAME = "x"
 LIST: []Int = [1, 2]
 
-struct S
+obj S
   a: [3]Int = ARR
   l: []Int = LIST
 

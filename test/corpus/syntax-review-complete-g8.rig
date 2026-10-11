@@ -1,4 +1,4 @@
-struct Val
+obj Val
   n: Int
 
 fun first(xs: []Val) -> ?Val

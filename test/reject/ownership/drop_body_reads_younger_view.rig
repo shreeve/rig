@@ -3,19 +3,19 @@
 # through a view: the younger one is dropped first, and the body would
 # read it after.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
-struct View
+obj View
   b: ?Wrap
 
-struct Holder
+obj Holder
   b: ?Wrap
 
   drop(!self)
     print("holder drop reads", self.b.v[0])
 
-struct Watcher
+obj Watcher
   w: ?View
 
   drop(!self)

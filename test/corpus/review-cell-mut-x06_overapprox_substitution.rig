@@ -1,10 +1,10 @@
 # sema's answer is not stable under substitution: `?G[T]` in generic
 # code is `*const G(T)` (no: G holds T only behind a handle), while the
 # concrete `?G[C]` is `*G(C)` (yes: an argument holds a Cell).
-struct C
+obj C
   c: Cell[Int]
 
-struct G[T]
+obj G[T]
   h: *T
 
 fun pick[T](a: ?G[T], b: ?G[T], k: Bool) -> ?G[T]

@@ -1,6 +1,6 @@
 # A consuming receiver that branches takes each name with `<`; a read
 # receiver reads a name's value in place and drops a made one.
-struct Bag
+obj Bag
   items: List[Int]
 
   fun total(<self) -> Int

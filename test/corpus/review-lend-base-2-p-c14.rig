@@ -1,4 +1,4 @@
-struct Q
+obj Q
   n: Int
 
   sub bump(!self)
@@ -7,7 +7,7 @@ struct Q
   fun get(?self) -> Int
     self.n
 
-struct P
+obj P
   x: Int
   o: Int?
   a: [2]Int

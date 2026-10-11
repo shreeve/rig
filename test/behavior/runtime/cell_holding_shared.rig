@@ -1,7 +1,7 @@
 # A `Cell[*Noisy]` has drop glue: when the last handle to it, `c`, leaves
 # scope, it drops the handle it holds, which runs Noisy's drop body.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

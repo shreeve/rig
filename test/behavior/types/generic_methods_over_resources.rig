@@ -3,13 +3,13 @@
 # `T` are dropped when they go out of scope, a replaced field drops its
 # old value, and a consumed enum yields its payload.
 
-struct B
+obj B
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   sub put(!self, x: T)

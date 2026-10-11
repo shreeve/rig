@@ -1,7 +1,7 @@
 # some padding so positions differ from main
 # more padding
 # and more
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
   count: Int = 10
 

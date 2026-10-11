@@ -4,7 +4,7 @@ fun dbl(n: Int) -> Int
 fun tpl(n: Int) -> Int
   n * 3
 
-struct P
+obj P
   x: Int
   items: List[Int]
   s: String

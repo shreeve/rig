@@ -1,10 +1,10 @@
 # Returning a shared-handle field would copy the handle without a
 # refcount bump; clone it with `+o.inner`.
 
-struct Wrap
+obj Wrap
   payload: Int
 
-struct Outer
+obj Outer
   inner: *Wrap
 
 fun take(o: Outer) -> *Wrap

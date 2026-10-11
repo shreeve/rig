@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   y: Int
 
@@ -6,7 +6,7 @@ enum E
   a(p: P, q: ?P)
   b
 
-struct H
+obj H
   e: E
 
 sub main()

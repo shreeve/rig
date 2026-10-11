@@ -5,7 +5,7 @@
 # and a view, slice, array, or function type takes parentheses before
 # a suffix.
 
-struct N
+obj N
   a: Int
 
 sub main()

@@ -4,7 +4,7 @@
 # capture. Each later argument here grows the Cell's List
 # through another handle, which moves its buffer.
 # release
-struct S
+obj S
   c: Cell[List[Int]]
 
 fun grow(c: !Cell[List[Int]]) -> Int

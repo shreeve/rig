@@ -1,4 +1,4 @@
-struct P
+obj P
   t: String
   n: Int
 
@@ -10,10 +10,10 @@ enum WI
   a(w: !Int)
   b
 
-struct H
+obj H
   e: WP
 
-struct HI
+obj HI
   e: WI
 
 fun mk(p: !P) -> H from p

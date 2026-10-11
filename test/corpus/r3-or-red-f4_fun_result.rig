@@ -1,6 +1,6 @@
 # Must stay rejected once `left` says `from a` and `right` says `from b`:
 # `choose`'s result type must not take `left`'s narrower origins.
-struct Item
+obj Item
   n: Int
 
 fun left(a: ?Item, b: ?Item) -> ?Item

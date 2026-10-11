@@ -2,7 +2,7 @@ pub error Disk
   full
   empty
 
-pub struct Bx[T]
+pub obj Bx[T]
   pub v: T
   pub e: Disk = .full
 

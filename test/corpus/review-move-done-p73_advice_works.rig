@@ -1,8 +1,8 @@
 # the advised fix ("drop the `<`") for each carrier the reject test covers
-struct P
+obj P
   x: Int
 
-struct S
+obj S
   n: Int
   p: P
   arr: [2]Int

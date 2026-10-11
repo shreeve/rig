@@ -1,5 +1,5 @@
 # Review probe c10_move_part_plain.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
-struct S
+obj S
   n: Int
   items: List[Int]
 

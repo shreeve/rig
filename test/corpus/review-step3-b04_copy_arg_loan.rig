@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
 
 sub setp(a: !P, b: ?P)

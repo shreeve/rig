@@ -1,7 +1,7 @@
 # `break :outer` leaves both loops, so a value moved just before it is
 # only unavailable after the outer loop, not after the inner one.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

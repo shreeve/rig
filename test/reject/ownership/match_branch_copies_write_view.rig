@@ -6,7 +6,7 @@
 # lends on only write lends and calls), so no binding writes through a
 # copy. The hint lends each leaf.
 
-struct Res
+obj Res
   n: Int
   v: List[Int]
 

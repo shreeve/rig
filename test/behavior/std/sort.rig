@@ -6,7 +6,7 @@ use std.random
 use std.slices
 use std.sort
 
-struct P
+obj P
   key: Int
   id: Int
 

@@ -14,7 +14,7 @@
 error E
   bad
 
-struct V
+obj V
   c: Cell[List[Int]]
 
   drop(!self)
@@ -59,7 +59,7 @@ fun mkf(n: Int) -> V!
   return E.bad if n < 0
   V(c: Cell(vec1(n)))
 
-struct WW
+obj WW
   t: V
 
 fun mkww(n: Int) -> WW

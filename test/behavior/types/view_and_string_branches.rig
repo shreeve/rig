@@ -5,7 +5,7 @@
 
 use std.text
 
-struct S
+obj S
   t: String
 
   fun get(?self) -> ?String

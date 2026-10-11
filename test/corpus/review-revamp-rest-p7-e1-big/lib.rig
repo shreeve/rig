@@ -1,11 +1,11 @@
-pub struct Pt
+pub obj Pt
   pub x: Int
   pub y: Int
 
-pub struct Big
+pub obj Big
   pub a: [300000]Int
 
-pub struct W[T]
+pub obj W[T]
   pub v: T
 
 pub enum Sh

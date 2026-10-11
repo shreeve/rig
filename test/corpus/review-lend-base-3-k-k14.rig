@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   arr: [3]Int
   items: List[Int]

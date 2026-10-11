@@ -1,6 +1,6 @@
 use std.random
 
-struct G
+obj G
   r: random.Random
   n: Int
 

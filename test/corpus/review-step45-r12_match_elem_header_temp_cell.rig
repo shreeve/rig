@@ -1,5 +1,5 @@
 # match v[idx(?Text("a"))] with a guard over List[E] holding a Cell holder
-struct C
+obj C
   c: Cell[Int]
 
 enum E

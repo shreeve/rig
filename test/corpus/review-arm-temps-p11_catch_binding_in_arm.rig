@@ -1,7 +1,7 @@
 error E
   bad
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -18,7 +18,7 @@ struct D
     !self.c.set(self.c.get() + 1)
     self
 
-struct WW
+obj WW
   t: D
 
 fun mk(n: Int) -> D
@@ -50,7 +50,7 @@ sub main()
     .nothing => pass
   print("end")
 
-struct HC
+obj HC
   v: ?D
   c: Cell[Int]
 

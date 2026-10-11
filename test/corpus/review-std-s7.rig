@@ -1,7 +1,7 @@
 use std.sort
 use std.random
 
-struct P
+obj P
   k: Int
   id: Int
 

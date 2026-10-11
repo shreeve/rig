@@ -2,7 +2,7 @@
 # `const` global (read-only memory).
 #
 # oracle: N.hit accept
-struct N
+obj N
   c: Cell[Int]
 
   sub hit(!self)

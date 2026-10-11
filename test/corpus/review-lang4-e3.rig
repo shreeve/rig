@@ -1,4 +1,4 @@
-struct R
+obj R
   id: Int
 
   drop(!self)

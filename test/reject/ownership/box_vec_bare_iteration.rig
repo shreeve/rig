@@ -2,7 +2,7 @@
 # element of `for x in v` is a view of a box the List still owns, which
 # cannot be moved out.
 
-struct R
+obj R
   n: Int
 
 sub eat(b: ^R)

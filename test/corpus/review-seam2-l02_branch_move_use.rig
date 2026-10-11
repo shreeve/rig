@@ -9,7 +9,7 @@
 # oracle: clobber accept
 # oracle: f accept
 # oracle: main reject C1
-struct S
+obj S
   n: Int
   items: List[Int]
 

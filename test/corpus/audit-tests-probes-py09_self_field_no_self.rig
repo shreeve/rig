@@ -1,4 +1,4 @@
-struct Person
+obj Person
   age: Int
 
   fun older(?self) -> Int

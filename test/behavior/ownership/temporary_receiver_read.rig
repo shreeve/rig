@@ -1,7 +1,7 @@
 # A `?self` receiver only reads: a value made there, a cloned handle
 # included, is a temporary its statement drops.
 
-struct B
+obj B
   n: Int
 
   fun get(?self) -> Int

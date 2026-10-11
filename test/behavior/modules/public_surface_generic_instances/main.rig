@@ -5,7 +5,7 @@
 
 use lib
 
-struct Wrap
+obj Wrap
   v: Int
 
 sub main()

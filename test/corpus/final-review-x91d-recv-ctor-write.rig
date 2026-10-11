@@ -1,5 +1,5 @@
 # constructor receiver of a write method, no sigil (expect reject)
-struct S
+obj S
   n: Int
 
   sub bump(!self)

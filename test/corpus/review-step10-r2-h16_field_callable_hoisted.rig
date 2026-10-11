@@ -2,14 +2,14 @@
 # whose arguments are evaluated first (one lends a Cell-holding part of
 # a temporary). The plan drops the first parameter as if `s` were a
 # receiver, so `g(1)` is planned against `?Q` instead of `Int`.
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
-struct H
+obj H
   q: Q
 
-struct S
+obj S
   cb: fun(Int, ?Q, Int) -> Int
 
 fun g(k: Int) -> Int

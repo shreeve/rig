@@ -1,7 +1,7 @@
 # A store through local write view `c` lands in local `h`, which then
 # holds the view of parameter `b`: `b` stays lent while `h` is used.
 
-struct Holder
+obj Holder
   r: []Int
 
 fun f(b: !List[Int]) -> Int

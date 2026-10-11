@@ -1,4 +1,4 @@
-struct T
+obj T
   true: Int
 
 sub main()

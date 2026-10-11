@@ -9,7 +9,7 @@ sub twice(f: !Bool)
   flip(!f)
   print(f)
 
-struct Flags
+obj Flags
   ready: Bool
 
 sub main()

@@ -1,7 +1,7 @@
 # `+x` of a struct clones each part: a handle inside is counted again,
 # so both structs share the one Cell.
 
-struct Holder
+obj Holder
   inner: *Cell[Int]
 
 sub main()

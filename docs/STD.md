@@ -193,7 +193,7 @@ true
 
 `Random` is a small, fast pseudorandom generator (splitmix64), written in
 Rig. Its state is one `U64`, which its methods change, so they take
-`!self`. A `Random` is unique (`struct Random unique`): it moves (`a = <r`)
+`!self`. A `Random` is unique (`obj Random unique`): it moves (`a = <r`)
 and is never copied, since a copy would draw the same numbers as the
 original; `fork` makes a second generator on purpose. A seeded `Random` gives the same sequence on every
 platform. It is not for cryptography.
@@ -253,7 +253,7 @@ O(log n) stack, with no other memory.
 ```rig
 use std.sort
 
-struct Player
+obj Player
   name: ?String
   score: Int
 
@@ -304,7 +304,7 @@ sub main()
 ```rig reject
 use std.sort
 
-struct Player
+obj Player
   name: ?String
   score: Int
 
@@ -463,7 +463,7 @@ key that is a `?String`:
 use std.sort
 use std.text
 
-struct City
+obj City
   name: ?String
   pop: Int
 

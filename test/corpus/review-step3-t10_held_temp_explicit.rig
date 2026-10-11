@@ -1,18 +1,18 @@
-struct Res
+obj Res
   n: Int
   t: String
 
   drop(!self)
     print("drop", self.n)
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 enum E
   a(c: Counter)
   b
 
-struct H
+obj H
   e: E
   arr: [2]Counter
   o: Counter?

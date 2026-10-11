@@ -6,7 +6,7 @@ fun mk(ok: Bool) -> Int!
     return E.bad
   1
 
-struct H
+obj H
   r: ?List[Int]
 
 sub main()

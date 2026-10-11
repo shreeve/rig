@@ -3,14 +3,14 @@
 # yields its value. Here the call holds `mkh(42).q` (a Cell-holding part
 # of a temporary) in a mutable copy `__rig_recv_N` while it runs; the
 # view it returns is yielded out of the arm into `r`.
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
   fun me(?self, j: Int, k: Int) -> ?Q
     self
 
-struct H
+obj H
   q: Q
 
 fun mkh(k: Int) -> H

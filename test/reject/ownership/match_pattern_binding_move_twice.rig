@@ -1,7 +1,7 @@
 # `match <s` consumes the matched value, so a second match on `s` is a
 # use after move.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 enum Slot

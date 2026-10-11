@@ -4,7 +4,7 @@
 # the copy changes nothing else; assigning one write view from another
 # writes the value through.
 
-struct P
+obj P
   x: Int
   y: Int
 

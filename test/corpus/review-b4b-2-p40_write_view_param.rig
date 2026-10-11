@@ -1,5 +1,5 @@
 # Subject is a write-view param read by match; view escapes; then assigned through. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

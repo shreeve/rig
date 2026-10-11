@@ -2,7 +2,7 @@
 #
 # oracle: D.drop accept
 # oracle: mkd accept
-struct D
+obj D
   s: []Int
   drop(!self)
     print("drop", self.s[0])

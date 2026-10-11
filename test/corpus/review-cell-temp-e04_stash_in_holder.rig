@@ -1,10 +1,10 @@
 # A callee that stores the view it is lent into a holder that outlives the statement.
 #
 # oracle: stash accept
-struct D
+obj D
   c: Cell[Int]
 
-struct K
+obj K
   r: ?D
 
 fun mkd(n: Int) -> D

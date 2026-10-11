@@ -9,7 +9,7 @@
 # oracle: match_place accept
 # oracle: plain_copies accept
 
-struct N
+obj N
   v: Int
 
   drop(!self)
@@ -38,7 +38,7 @@ sub field_as(h: ?Holder)
   if h.o as x
     print(x.v)
 
-struct Holder
+obj Holder
   o: ^N?
 
 sub match_place()

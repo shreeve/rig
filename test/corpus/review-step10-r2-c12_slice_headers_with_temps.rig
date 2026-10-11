@@ -1,7 +1,7 @@
 # Header exception "slices": `for` over a slice whose bounds make a
 # header temporary: of a place, of an element, and of a field of a
 # branching value of places, written through `!`. Every write must land.
-struct P
+obj P
   xs: [4]Int
 
 fun idx(s: ?String) -> Int

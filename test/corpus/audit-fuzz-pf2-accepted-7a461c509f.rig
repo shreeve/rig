@@ -1,7 +1,7 @@
 # A resource may be moved in each of two match arms: the arms are
 # alternatives, anéd whichever runs consumes it.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub eat(rc: *Wrap)

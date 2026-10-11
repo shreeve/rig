@@ -8,7 +8,7 @@ enum Opt[T]
   some(v: T)
   none
 
-struct V[T]
+obj V[T]
   r: ?Opt[T]
 
 fun look[T](x: ?T) -> Int

@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -33,7 +33,7 @@ sub f(h: ?H)
     .a(r) => r.n = 77
     .b => pass
 
-struct H
+obj H
   w: !E
 
 sub main()

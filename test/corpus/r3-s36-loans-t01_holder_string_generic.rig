@@ -1,5 +1,5 @@
 # A generic type with methods, instantiated with String.
-struct Holder[T]
+obj Holder[T]
   v: T
 
   fun get(?self) -> T

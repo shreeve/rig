@@ -10,10 +10,10 @@
 # oracle: weak_after_drop accept
 # oracle: lends_the_handle accept
 
-struct User
+obj User
   name: ?String
 
-struct Holder
+obj Holder
   r: ?List[Int]
 
 sub show(u: ?User)

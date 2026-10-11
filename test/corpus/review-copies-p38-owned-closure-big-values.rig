@@ -1,9 +1,9 @@
-struct P
+obj P
   s: ?String
   n: Int
   a: [3]Int
 
-struct Q
+obj Q
   ps: [4]P
   o: P?
 

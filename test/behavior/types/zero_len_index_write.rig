@@ -1,10 +1,10 @@
 # A write into a field of length 0 panics when the program runs, both
 # through `!self` and through a generic type's instance.
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
-struct S
+obj S
   xs: [0]Int
 
   sub put(!self, i: Int)

@@ -7,7 +7,7 @@ fun mkv(n: Int) -> List[Int]
 fun eat(x: List[Int]) -> Int
   x.len
 
-struct S
+obj S
   v: List[Int]
   o: List[Int]?
 

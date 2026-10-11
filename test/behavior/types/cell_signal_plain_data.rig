@@ -2,7 +2,7 @@
 # enum, an optional, or an array that owns nothing; `get` returns a
 # copy.
 
-struct Point
+obj Point
   x: Int
   y: Int
 

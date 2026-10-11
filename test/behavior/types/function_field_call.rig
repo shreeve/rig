@@ -3,10 +3,10 @@
 fun g(n: Int) -> Int
   n + 1
 
-struct S
+obj S
   f: fun(Int) -> Int
 
-struct O
+obj O
   k: *fun(Int) -> Int
 
 fun via(s: ?S) -> Int

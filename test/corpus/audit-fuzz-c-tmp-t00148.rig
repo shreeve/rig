@@ -1,4 +1,4 @@
-struct R
+obj R
   id: Int
 
   drop(!self)
@@ -8,11 +8,11 @@ struct R
     print("use", self.id)
     self.id
 
-struct P
+obj P
   a: R
   b: R
 
-struct Q
+obj Q
   h: *R
   o: R?
 
@@ -21,7 +21,7 @@ enum HR
   two(a: R, b: *R)
   empty
 
-struct M
+obj M
   r: R
 
   fun with(<self, n: Int) -> Int

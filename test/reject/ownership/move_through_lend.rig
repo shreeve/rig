@@ -8,7 +8,7 @@
 # oracle: from_read_branch reject C3
 # oracle: from_call reject C3
 
-struct S
+obj S
   n: Int
   items: List[Int]
 

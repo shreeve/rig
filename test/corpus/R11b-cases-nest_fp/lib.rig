@@ -1,8 +1,8 @@
-pub struct Pair[A, B]
+pub obj Pair[A, B]
   a: A
   b: B
 
-pub struct Chain[T]
+pub obj Chain[T]
   items: List[T]
 
   fun map[U](?self, f: fun(T) -> U) -> Chain[U]

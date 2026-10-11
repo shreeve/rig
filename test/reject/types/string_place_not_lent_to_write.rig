@@ -3,7 +3,7 @@
 # rejected, as for any read view. Assign to it to point it at other
 # text, or hold a `String` to change the text in place.
 
-struct Pair
+obj Pair
   left: ?String
   right: ?String
 

@@ -1,4 +1,4 @@
-struct U
+obj U
   name: ?String
   boss: Int?
 

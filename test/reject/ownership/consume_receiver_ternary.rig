@@ -1,6 +1,6 @@
 # A consuming method's receiver is taken like an argument: each name a
 # branching receiver yields is moved with `<` (`(<a if c else <b)`).
-struct Bag
+obj Bag
   items: List[Int]
 
   fun total(<self) -> Int

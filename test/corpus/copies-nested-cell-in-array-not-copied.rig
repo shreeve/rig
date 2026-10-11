@@ -1,4 +1,4 @@
-struct C
+obj C
   c: [2]Cell[Int]?
 
 fun out(p: ?C) -> C

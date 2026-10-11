@@ -2,13 +2,13 @@
 # reach the viewed value, whether the view is built locally, returned
 # from a function, nested in another struct, passed on, or rebound.
 
-struct Wrap
+obj Wrap
   n: Int
 
-struct Ed
+obj Ed
   t: !Wrap
 
-struct Outer
+obj Outer
   e: Ed
 
 fun mk(b: !Wrap) -> Ed

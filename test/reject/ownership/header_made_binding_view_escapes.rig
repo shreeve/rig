@@ -9,14 +9,14 @@
 # oracle: loop_of_made reject C5
 # oracle: loop_of_part reject C5
 
-struct P
+obj P
   x: Int
 
 enum E
   a(p: P)
   b
 
-struct H
+obj H
   e: E
   arr: [2]P
 

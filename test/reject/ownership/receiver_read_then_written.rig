@@ -2,7 +2,7 @@
 # arguments: a later argument cannot lend what it may be to write, or
 # the call would read the copy after its buffer was freed.
 
-struct P
+obj P
   v: List[Int]
 
   fun peek(?self, other: !P) -> Int

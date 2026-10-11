@@ -3,7 +3,7 @@ enum In
   x(t: String)
   y
 
-struct Res
+obj Res
   n: Int
   i: In
 

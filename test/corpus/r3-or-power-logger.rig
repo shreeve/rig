@@ -1,7 +1,7 @@
 # The store channel: a logger whose context holds a String field.
 # Today `m` stays lent because `log` is assumed to keep `msg` in `ctx`.
 # Fixed only by `into` (stores default to nothing) or inference.
-struct Ctx
+obj Ctx
   name: ?String
   count: Int
 

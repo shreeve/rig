@@ -1,7 +1,7 @@
 # Review probe diag/d08_module_enum.rig (seam2b fixes): rejected, or runs sanitizer-clean.
 use lib
 
-struct U
+obj U
   n: Int
 
   fun bump(!self) -> Int
@@ -14,7 +14,7 @@ struct U
   fun make() -> U
     U(n: 1)
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun bump(!self) -> Int

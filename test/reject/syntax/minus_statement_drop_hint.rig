@@ -4,7 +4,7 @@
 # takes; any other field or element is dropped with what holds it. A
 # view parameter is not dropped: the caller owns what it views.
 
-struct S
+obj S
   r: List[Int]
   o: List[Int]?
   n: Int

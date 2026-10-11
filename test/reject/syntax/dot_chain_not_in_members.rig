@@ -1,0 +1,10 @@
+# A member list holds fields and methods: a deeper `.` line is not a chain.
+
+obj P
+  x: Int
+    .abs()
+
+sub main()
+  pass
+
+# error: 5:5: unexpected indentation

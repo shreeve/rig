@@ -1,6 +1,6 @@
 # `|+h|` of a struct holding a write view of a List: the closure's copy
 # writes through the view while the original also does.
-struct H
+obj H
   w: !List[Int]
 
 sub bump(v: !List[Int])

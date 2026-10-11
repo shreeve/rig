@@ -1,7 +1,7 @@
 # Assigning a local is not reading it: a local that is only reassigned,
 # move-assigned, or updated in place is still never read.
 
-struct P
+obj P
   n: Int
 
 sub main()

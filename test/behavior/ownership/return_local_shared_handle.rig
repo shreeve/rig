@@ -1,7 +1,7 @@
 # A factory returns a local shared handle with a bare `return rc`; the
 # caller owns it and it is dropped once, at the caller's scope exit.
 
-struct Counter
+obj Counter
   value: Int
 
   drop(!self)

@@ -1,5 +1,5 @@
 # Struct field named `if`.
-struct Node
+obj Node
   if: Int
 
 sub main()

@@ -2,11 +2,11 @@
 # type or a function that declares them; anything else must be
 # indexable, and a type argument must be a type.
 
-struct Pair[T, U]
+obj Pair[T, U]
   a: T
   b: U
 
-struct Point
+obj Point
   x: Int
 
 fun plain(n: Int) -> Int

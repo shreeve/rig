@@ -7,7 +7,7 @@
 # oracle: arr accept
 # oracle: mk accept
 # oracle: main accept
-struct D
+obj D
   n: Int
   drop(!self)
     print("drop", self.n)

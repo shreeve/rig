@@ -1,4 +1,4 @@
-struct H
+obj H
   o: (!String)?
 
 sub f(h: ?H, a: ?((!String)?), c: Bool)

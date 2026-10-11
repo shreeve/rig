@@ -1,7 +1,7 @@
 # A `break` value takes what it yields: each name a branching value
 # may be, a place, a field, a `??` operand, or a `catch` handler, is
 # moved with `<`, as in any other taking position.
-struct H
+obj H
   f: String
 
 fun fail(c: Bool) -> String!

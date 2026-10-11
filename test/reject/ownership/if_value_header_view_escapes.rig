@@ -4,7 +4,7 @@
 
 use std.text
 
-struct H
+obj H
   s: ?String
 
 fun g() -> Int

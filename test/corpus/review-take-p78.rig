@@ -1,4 +1,4 @@
-struct S
+obj S
   a: Int?
 
 const G = S(a: 1)

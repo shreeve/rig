@@ -2,7 +2,7 @@
 error E
   bad
 
-struct S
+obj S
   o: Int?
   n: Int
 

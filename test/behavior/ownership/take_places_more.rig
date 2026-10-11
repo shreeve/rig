@@ -3,10 +3,10 @@
 # returns `none` when there was nothing; `if <slot as t` moves a held
 # write view of an optional into the binding.
 
-struct S
+obj S
   a: Int?
 
-struct T
+obj T
   s: S
 
 fun mk() -> S
@@ -28,10 +28,10 @@ sub places()
   b = <a[1].a
   print(b, a)
 
-struct N
+obj N
   v: Int
 
-struct H
+obj H
   a: ^N?
 
 fun first(h: !H) -> Int?

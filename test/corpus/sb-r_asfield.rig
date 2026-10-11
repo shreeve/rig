@@ -1,4 +1,4 @@
-struct View
+obj View
   xs: []Int
 
 sub main()

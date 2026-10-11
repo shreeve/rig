@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   o: Int?
   arr: [3]Int

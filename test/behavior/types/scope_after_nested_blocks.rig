@@ -6,7 +6,7 @@ enum Color
   red
   green
 
-struct P
+obj P
   n: Int
 
   fun describe(?self) -> Int

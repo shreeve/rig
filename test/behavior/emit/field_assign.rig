@@ -1,6 +1,6 @@
 # `u.name = "y"` assigns a field.
 
-struct User
+obj User
   name: ?String
 
 sub main()

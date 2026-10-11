@@ -8,17 +8,17 @@
 error E
   bad
 
-struct D
+obj D
   c: Cell[Int]
 
   fun me(!self) -> ?D
     !self.c.set(self.c.get() + 1)
     self
 
-struct WD
+obj WD
   inner: D
 
-struct WW
+obj WW
   t: WD
 
 fun mk(n: Int) -> WD

@@ -3,7 +3,7 @@
 fun twice(n: Int) -> Int
   n * 2
 
-struct P
+obj P
   v: Int
 
 fun eat(p: P) -> Int

@@ -1,5 +1,5 @@
 # Cell change through a loop over a ?List[C] parameter, and over an element List
-struct C
+obj C
   c: Cell[Int]
 
 sub bump(v: ?List[C])

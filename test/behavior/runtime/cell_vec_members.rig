@@ -5,17 +5,17 @@
 # them all; a plain-data element is read and written by index or `get`.
 # release
 
-struct P
+obj P
   x: Int
   y: Int
 
-struct N
+obj N
   id: Int
 
   drop(!self)
     print("drop", self.id)
 
-struct Holder
+obj Holder
   items: Cell[List[Int]]
 
   sub add(!self, n: Int)

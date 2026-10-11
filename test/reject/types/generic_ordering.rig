@@ -1,7 +1,7 @@
 # `<` in a generic body is checked per instance: numbers and Strings are
 # ordered, structs are not.
 
-struct Point
+obj Point
   x: Int
 
 fun max[T](a: T, b: T) -> T

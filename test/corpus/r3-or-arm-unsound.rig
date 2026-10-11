@@ -8,7 +8,7 @@
 # oracle: guarded_return accept
 # oracle: Opt.peek accept
 
-struct Res
+obj Res
   n: Int
   t: String
 

@@ -2,10 +2,10 @@
 # lent to write; its receiver is lent to write only for the call, so
 # the argument keeps what it stored, and the receiver is free after.
 
-struct View
+obj View
   xs: []Int
 
-struct Counter
+obj Counter
   n: Int
 
   sub stash(!self, v: !View, ys: []Int)

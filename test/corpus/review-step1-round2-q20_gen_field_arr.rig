@@ -1,14 +1,14 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-struct H[T]
+obj H[T]
   arr: [2]T
   n: Int
 
-struct W[T]
+obj W[T]
   item: T
 
 fun f1[T](h: ?H[T], f: ?fun(?T) -> Int) -> Int

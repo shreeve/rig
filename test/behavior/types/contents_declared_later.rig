@@ -3,15 +3,15 @@
 # closure over a plain enum, each spelled before the type it names is
 # declared.
 
-struct A
+obj A
   c: *Cell[B]
   v: List[P]
   f: *fun(Color) -> Int
 
-struct B
+obj B
   h: *Int
 
-struct P
+obj P
   n: Int
 
 enum Color

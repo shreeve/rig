@@ -1,4 +1,4 @@
-pub struct View
+pub obj View
   s: ![]Int
 
 pub fun tail(s: ![]Int) -> ![]Int

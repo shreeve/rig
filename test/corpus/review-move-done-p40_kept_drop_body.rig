@@ -1,5 +1,5 @@
 # <mk().n where the made value has a drop body
-struct D
+obj D
   n: Int
   t: String
 

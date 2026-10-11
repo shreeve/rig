@@ -2,7 +2,7 @@
 # that holds a Cell: the rule that a Cell lives only behind `*` rejects
 # `^C` as a generic type argument that holds a Cell.
 
-struct C
+obj C
   hits: Cell[Int]
 
 fun peek(b: ?^C) -> Int

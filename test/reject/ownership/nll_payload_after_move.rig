@@ -1,7 +1,7 @@
 # A match payload views its scrutinee: moving the scrutinee out is
 # rejected while the payload is still used.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

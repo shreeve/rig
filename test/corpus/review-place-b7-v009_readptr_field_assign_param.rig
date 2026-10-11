@@ -1,7 +1,7 @@
-struct Big
+obj Big
   v: List[Int]
 
-struct H
+obj H
   r: ?Big
 
 sub f(b: ?Big)

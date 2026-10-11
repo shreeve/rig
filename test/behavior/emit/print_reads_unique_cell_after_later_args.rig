@@ -2,7 +2,7 @@
 # where it is, when the call runs, as it reads a Cell of a List
 # (print_reads_cell_after_later_set.rig): a later argument that changes
 # the Cell through another handle shows in what is printed.
-struct K
+obj K
   hits: Cell[Int]
 
 fun bump(k: !K) -> Int

@@ -1,4 +1,4 @@
-struct W
+obj W
   xs: []Int
 
 fun wrap(xs: []Int) -> W

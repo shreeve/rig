@@ -1,6 +1,6 @@
 # A fallible instance method called without `!` or `catch` is rejected.
 
-struct User
+obj User
   name: ?String
 
   fun check(?self) -> Int!

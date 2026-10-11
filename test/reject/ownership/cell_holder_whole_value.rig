@@ -3,21 +3,21 @@
 # so it is not exchanged as a whole, nor is the handle that holds it
 # pointed elsewhere through a field of a value a handle shares.
 
-struct S
+obj S
   n: Int
   c: Cell[Int]
 
-struct O
+obj O
   a: S
   b: S
 
-struct C
+obj C
   n: Cell[Int]
 
   sub hit(!self)
     !self.n.set(self.n.get() + 1)
 
-struct W
+obj W
   h: *C
 
 sub repoint(h: !*C, other: *C)

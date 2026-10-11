@@ -1,5 +1,5 @@
 # Subject is a branching value of views; payload view escapes. Expect accept, prints two then reject variant separately.
-struct Res
+obj Res
   n: Int
   t: String
 

@@ -2,7 +2,7 @@
 # and a shared handle in another. Returning the handle `x` hands
 # ownership to the caller instead of dropping it at function exit.
 
-struct U
+obj U
   v: Int
 
   drop(!self)

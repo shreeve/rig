@@ -1,5 +1,5 @@
 # The step grows `w` after the body's `defer` has read its view of `w`.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

@@ -6,7 +6,7 @@ W: U8 = 200
 N: I8 = 4
 BIG = 9223372036854775807
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
 sub main()

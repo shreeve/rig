@@ -2,7 +2,7 @@
 # One that only reads a value is a mistake, and a function name alone was
 # meant as a call.
 
-struct P
+obj P
   n: Int
 
 sub greet()

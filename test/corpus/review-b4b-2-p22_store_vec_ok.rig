@@ -1,5 +1,5 @@
 # Payload views pushed into a List of views; ok. Expect accept, prints one two.
-struct Res
+obj Res
   n: Int
   t: String
 

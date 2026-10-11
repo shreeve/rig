@@ -2,7 +2,7 @@
 # oracle: mkn accept
 # oracle: main reject C4
 
-struct Node
+obj Node
   vals: List[Int]
 
 fun all(n: ?Node, i: Int) -> ([]Int)?

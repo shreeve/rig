@@ -1,7 +1,7 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
-struct Holder
+obj Holder
   c: Counter
   n: Int
 

@@ -1,7 +1,7 @@
-struct V
+obj V
   s: ?[]U8
 
-struct W
+obj W
   s: [2]?[]U8
 
 enum E

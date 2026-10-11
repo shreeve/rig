@@ -1,4 +1,4 @@
-struct V
+obj V
   s: ![]U8
 
 sub touch(v: !V)

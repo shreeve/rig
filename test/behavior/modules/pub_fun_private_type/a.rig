@@ -1,6 +1,6 @@
 # `Secret` is private, but the public `make_secret` returns it.
 
-struct Secret
+obj Secret
   pub value: Int
 
 pub fun make_secret() -> Secret

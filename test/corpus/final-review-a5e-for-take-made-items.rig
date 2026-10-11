@@ -1,5 +1,5 @@
 # A5e: for x in <mk().items
-struct H
+obj H
   items: List[String]
 
 fun mk() -> H

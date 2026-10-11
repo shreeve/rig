@@ -5,7 +5,7 @@
 
 type Subscribers = List[*sub()]
 
-struct IntSource
+obj IntSource
   value: Cell[Int]
   subs: Cell[Subscribers]
 

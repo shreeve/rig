@@ -1,5 +1,5 @@
 # method with !self and a ![]T param from the same object
-struct B
+obj B
   a: [4]Int
   sub go(!self, s: ![]Int)
     s[0] = 1

@@ -1,4 +1,4 @@
-struct S
+obj S
   n: Int
 
 fun id[T](x: T) -> T

@@ -2,7 +2,7 @@
 # move it on, and what an arm does not move (a binding it leaves, a `_`
 # field, a value no binding names) is dropped at the end of the arm.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

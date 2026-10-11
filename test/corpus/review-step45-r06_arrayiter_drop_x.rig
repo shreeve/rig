@@ -1,5 +1,5 @@
 # for x in <a with -x in the body: no double drop
-struct D
+obj D
   n: Int
 
   drop(!self)

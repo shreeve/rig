@@ -1,5 +1,5 @@
 # Payload view of a List element escapes the arm; the List then grows. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

@@ -3,7 +3,7 @@ enum E
   a(t: String)
   b(n: Int)
 
-struct S
+obj S
   v: List[E]
 
 sub main()

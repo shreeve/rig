@@ -4,7 +4,7 @@ pub fun three[n: Int]() -> Int
   c = [2; n]
   a[0] + b[0] + c[0]
 
-pub struct Ring[T, n: Int]
+pub obj Ring[T, n: Int]
   items: [n]T
 
 pub fun ring[T, n: Int](x: T) -> Int

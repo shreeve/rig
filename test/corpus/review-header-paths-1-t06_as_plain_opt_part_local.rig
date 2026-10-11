@@ -1,4 +1,4 @@
-struct A3
+obj A3
   o: Int?
 
 sub main()

@@ -1,10 +1,10 @@
 # A read view of `b` stored in parameter `a` keeps `b` lent: `b` cannot
 # be written while the read loan is live.
 
-struct Item
+obj Item
   n: Int
 
-struct Holder
+obj Holder
   r: ?Item
 
 fun f(a: !Holder, b: !Item) -> Int

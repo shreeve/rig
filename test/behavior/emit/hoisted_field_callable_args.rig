@@ -7,14 +7,14 @@
 error Bad
   no
 
-struct Q
+obj Q
   c: Int
   n: Int
 
-struct H
+obj H
   q: Q
 
-struct S
+obj S
   cb: fun(String, ?Q, Int) -> Int
   wr: fun(!Q, Int) -> Int
 

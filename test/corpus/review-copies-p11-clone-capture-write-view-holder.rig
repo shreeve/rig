@@ -1,5 +1,5 @@
 # `|+h|` of a struct holding a write view: two holders of one write view.
-struct H
+obj H
   w: !Int
 
 sub main()

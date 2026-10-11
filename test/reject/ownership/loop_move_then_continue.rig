@@ -1,7 +1,7 @@
 # A move followed by `continue` reaches the loop head, so the next
 # iteration sees the value moved.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub eat(rc: *Wrap)

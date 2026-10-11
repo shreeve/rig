@@ -1,6 +1,6 @@
 # The body re-points `h` at a List declared before the loop, then grows
 # that List; the step reads `h`.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

@@ -2,7 +2,7 @@
 # call's result, and a branching value whose every leaf is made there
 # (`mk() if c else mk2()`, `<a if c else <b`).
 
-struct N
+obj N
   id: Int
   t: String
 

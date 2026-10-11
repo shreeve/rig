@@ -3,10 +3,10 @@
 # they cannot outlive the captured values; and a callable's result that
 # views the callee's own local cannot be returned.
 
-struct Wrap
+obj Wrap
   n: Int
 
-struct View
+obj View
   w: ?Wrap
 
 sub fill(out: !View, f: ?fun() -> ?Wrap)

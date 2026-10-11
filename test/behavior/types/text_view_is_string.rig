@@ -3,7 +3,7 @@
 # `?T`, or captured. A `?String` written as a type is that String, so a
 # literal goes where one is expected, and `+v` of a String makes a Text.
 
-struct Item
+obj Item
   name: String
 
 enum Slot

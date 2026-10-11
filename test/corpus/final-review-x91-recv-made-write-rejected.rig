@@ -1,5 +1,5 @@
 # !self method on a made receiver: change lost (expect reject)
-struct S
+obj S
   n: Int
 
   sub bump(!self)

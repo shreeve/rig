@@ -1,12 +1,12 @@
-struct Val
+obj Val
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct Slot
+obj Slot
   v: Val?
 
-struct Map
+obj Map
   slots: List[^Slot]
   one: Val?
 

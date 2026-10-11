@@ -2,13 +2,13 @@
 # could hold what it views (Core sentence 7): a key, an index, or a
 # counter is free again after the call.
 
-struct Item
+obj Item
   n: Int
 
-struct Key
+obj Key
   id: Int
 
-struct Table
+obj Table
   items: [4]Item
 
   fun get(?self, k: ?Int) -> ?Item

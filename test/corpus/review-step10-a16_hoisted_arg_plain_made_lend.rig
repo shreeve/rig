@@ -1,7 +1,7 @@
 # argument (`owned`, not walked by B3): a plain made value implicitly
 # lent to a `?Q` parameter in a hoisted call is `&mkq()`, the address of
 # a Zig rvalue in the call's block; the result views it after the block.
-struct Q
+obj Q
   xs: [4]Int
   n: Int
 

@@ -1,6 +1,6 @@
 use lib
 
-struct Holder
+obj Holder
   k: lib.Counter[Int]
 
 sub main()

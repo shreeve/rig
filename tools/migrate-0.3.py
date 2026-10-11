@@ -17,6 +17,9 @@ The renames of 0.3.0, applied in this order to each file:
   string  `Text` -> `String` (the owned text), and the read view
           `String` -> `?String` (`String?` -> `(?String)?`, `String!` ->
           `(?String)!`); `?Text` -> `?String`.
+  obj     a declaration `struct Name` (after any `pub`, at the start of
+          a line) -> `obj Name`. `struct` is an ordinary name elsewhere,
+          so nothing else changes.
 
 Then, in `apply`, one change that needs the compiler: `for x in it` over
 an iterator that is a place is written `for x in !it`. The tool runs
@@ -25,13 +28,13 @@ an iterator that is a place is written `for x in !it`. The tool runs
 compiler asks for it. Without a compiler it prints a `MANUAL` line.
 
 A file is migrated only if it is 0.2: it spells `Vec[`, `Vec(`, `Box[`,
-`Box(`, or `Text` in code, or the 0.3 compiler (`rig check`, found as
+`Box(`, `Text`, or a `struct` declaration in code, or the 0.3 compiler (`rig check`, found as
 below) reports an error in it. A file that spells nothing the old way and
 passes the check is already 0.3: it is left byte-identical, and `scan` and
 `apply` print `CURRENT path` for it. Without a compiler only the spelling
 decides (a NOTE says so). `--force FILE...` (after the PATHs) migrates the
 named files whatever they look like. A `List` is renamed `Chain` only where
-the file, or a program beside it, declares `struct List` or `enum List`.
+the file, or a program beside it, declares `struct List`, `obj List` or `enum List`.
 
 `apply` is idempotent: it records the files it migrated, with the hash of
 what it wrote, in DIR/.rig-migrated-0.3, and skips a file whose hash is
@@ -361,7 +364,7 @@ def in_spans(sp, off):
 
 
 def declares(src, name):
-    return re.search(r"(?m)^\s*(?:pub\s+)?(?:struct|enum|type|union|error)\s+" + name + r"\b", src) is not None
+    return re.search(r"(?m)^\s*(?:pub\s+)?(?:struct|obj|enum|type|union|error)\s+" + name + r"\b", src) is not None
 
 
 def backticks(text):
@@ -370,7 +373,7 @@ def backticks(text):
 
 
 def declares_list(src):
-    return re.search(r"(?m)^\s*(?:pub\s+)?(?:struct|enum)\s+List\b", src) is not None
+    return re.search(r"(?m)^\s*(?:pub\s+)?(?:struct|obj|enum)\s+List\b", src) is not None
 
 
 def list_edits(src, path, report):
@@ -433,7 +436,7 @@ def string_edits(src, path, report, permissive=False):
                 continue
             # The name a declaration gives its own type stays: `String` is
             # reserved, as `Text` was.
-            if re.search(r"\b(struct|enum|type|union|error)\s+$", src[max(0, off - 12):off]):
+            if re.search(r"\b(struct|obj|enum|type|union|error)\s+$", src[max(0, off - 12):off]):
                 continue
             # The read view.
             if before == "?":
@@ -469,6 +472,17 @@ def string_edits(src, path, report, permissive=False):
     return edits
 
 
+# A declaration `struct Name`: at the start of a line, after any `pub`.
+STRUCT_DECL = re.compile(r"(?m)^([ \t]*(?:pub[ \t]+)?)(struct)(?=[ \t]+[A-Za-z_])")
+
+
+def obj_edits(src, path, report, permissive=False):
+    """`struct Name` -> `obj Name` for each declaration in code; `struct`
+    elsewhere (a name, a word in a comment or a string) is left."""
+    code = [(0, len(src))] if permissive else spans(src)[0]
+    return [(m.start(2), m.end(2), "obj") for m in STRUCT_DECL.finditer(src) if in_spans(code, m.start(2))]
+
+
 # ---------------------------------------------------------------------------
 # Walking the tree
 # ---------------------------------------------------------------------------
@@ -481,6 +495,8 @@ def source_edits(mode, src, path, report):
         return list_edits(src, path, report)
     if mode == "string":
         return string_edits(src, path, report)
+    if mode == "obj":
+        return obj_edits(src, path, report)
     raise SystemExit("no such mode: " + mode)
 
 
@@ -516,7 +532,7 @@ def rewrite_prose(mode, line, path, n, report):
 
 MARK = ".rig-migrated-0.3"
 SKIP_DIRS = ("zig-cache", "zig-out", "node_modules")
-OLD_SPELLING = re.compile(r"(?<![A-Za-z0-9_.])(Box[\[(]|Vec\b|Text\b)")
+OLD_SPELLING = re.compile(r"(?<![A-Za-z0-9_.])(Box[\[(]|Vec\b|Text\b)|(?m:^[ \t]*(?:pub[ \t]+)?(struct)(?=[ \t]+[A-Za-z_]))")
 
 
 def is_program(name):
@@ -571,7 +587,7 @@ def hints(paths):
             for n, line in enumerate(text.split("\n"), 1):
                 m = OLD_SPELLING.search(line)
                 if m:
-                    out.append("HINT %s:%d: old spelling `%s` (not rewritten)" % (os.path.relpath(f), n, m.group(1)))
+                    out.append("HINT %s:%d: old spelling `%s` (not rewritten)" % (os.path.relpath(f), n, m.group(1) or m.group(2)))
                     break
     return out
 
@@ -596,7 +612,7 @@ def package_declares_list(path):
 
 def migrate(text, path, report, full=None):
     LISTS_OWN[0] = bool(full) and package_declares_list(full)
-    for mode in ("box", "list", "string"):
+    for mode in ("box", "list", "string", "obj"):
         text = rewrite_source(mode, text, path, report)
     LISTS_OWN[0] = False
     return text
@@ -608,7 +624,7 @@ ERR_LINE = re.compile(r"^(.+?):\d+:\d+: error:")
 def has_old_spelling(path, text):
     """An unambiguous 0.2 spelling: `Vec[`, `Vec(`, `Box[`, `Box(`, or
     `Text` (a type or constructor; `String` reserves the name now)."""
-    pat = re.compile(r"(?<![A-Za-z0-9_.])(?:(?:Box|Vec)[\[(]|Text\b)")
+    pat = re.compile(r"(?<![A-Za-z0-9_.])(?:(?:Box|Vec)[\[(]|Text\b)|(?m:^[ \t]*(?:pub[ \t]+)?struct(?=[ \t]+[A-Za-z_]))")
     if not path.endswith(".rig"):
         return pat.search(text) is not None
     code = spans(text)[0]

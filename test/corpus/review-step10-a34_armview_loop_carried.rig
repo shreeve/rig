@@ -2,14 +2,14 @@
 # it in `__rig_subject_N`; the non-plain payload view `p` is arm-local.
 # Store it through `keep(p, !h)`, and read `h` only on the next
 # iteration (loop-carried), after the arm and the subject have ended.
-struct P
+obj P
   t: String
 
 enum E
   a(p: P)
   b
 
-struct Holder
+obj Holder
   r: (?P)?
 
 fun mk(k: Int) -> E

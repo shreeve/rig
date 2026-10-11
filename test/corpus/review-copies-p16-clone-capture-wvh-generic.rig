@@ -1,7 +1,7 @@
-struct H
+obj H
   w: !List[Int]
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
 sub main()

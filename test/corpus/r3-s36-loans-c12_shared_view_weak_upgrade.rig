@@ -1,11 +1,11 @@
 # A weak handle to a box holding a view, upgraded after the viewed
 # value's scope ended.
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct V
+obj V
   r: ?R
 
 sub main()

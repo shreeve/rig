@@ -1,13 +1,13 @@
-struct Node
+obj Node
   n: Int
 
-struct Bag
+obj Bag
   items: List[*Node]
 
   fun iter(?self) -> BagIter
     BagIter(bag: self, i: 0)
 
-struct BagIter
+obj BagIter
   bag: ?Bag
   i: Int
 

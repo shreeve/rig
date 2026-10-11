@@ -3,7 +3,7 @@
 # is never stored inside a value, and the field is rejected where it is
 # declared.
 
-struct H
+obj H
   w: !Int
 
 sub main()

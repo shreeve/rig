@@ -1,7 +1,7 @@
 # A field read from a resource-returning call reads the temporary
 # handle, which its statement drops.
 
-struct User
+obj User
   age: Int
 
 fun make_user() -> *User

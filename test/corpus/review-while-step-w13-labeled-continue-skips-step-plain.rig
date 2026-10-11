@@ -5,7 +5,7 @@
 # oracle: fresh accept
 # oracle: take accept
 # oracle: main accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

@@ -6,13 +6,13 @@
 # out the same way: `p.into()` with `p: ?P` or `p: !P`.
 # oracle: main accept
 
-struct P
+obj P
   x: Int
 
   fun into(<self) -> Int
     self.x
 
-struct S
+obj S
   p: P
 
 fun through_read(p: ?P) -> Int

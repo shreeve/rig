@@ -1,7 +1,7 @@
 # A generic type can hold a `List[T]`: the element rules are checked for
 # each instance, here `Int` and the shared handle `*Int`.
 
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
   sub push(!self, x: T)

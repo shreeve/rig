@@ -9,7 +9,7 @@ pub MINUTE = 60_000_000_000
 # A reading of the monotonic clock, which never goes back. Only the
 # time between two readings means anything: `since` and `elapsed` give
 # it, and nothing mixes a reading with the wall clock.
-pub struct Instant
+pub obj Instant
   ns: Int
 
   # Nanoseconds from `earlier` to this reading; negative when `earlier`

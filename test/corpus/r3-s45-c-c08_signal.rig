@@ -1,4 +1,4 @@
-struct S
+obj S
   sig: *Signal[Int]
   t: String
 

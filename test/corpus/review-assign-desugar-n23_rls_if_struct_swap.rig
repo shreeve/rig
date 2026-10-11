@@ -1,7 +1,7 @@
 # Valid: pure values (no call) that read the place they replace, through
 # an `if`, a `match`, an array literal, and a write view. Zig result-
 # location aliasing must not show through: __v semantics.
-struct P
+obj P
   a: Int
   b: Int
 

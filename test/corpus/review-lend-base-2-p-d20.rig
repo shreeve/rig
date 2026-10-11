@@ -1,7 +1,7 @@
 fun double(n: Int) -> Int
   n * 2
 
-struct T
+obj T
   f: fun(Int) -> Int
   n: Int
 

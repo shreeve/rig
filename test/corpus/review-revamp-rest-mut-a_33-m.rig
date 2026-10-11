@@ -4,7 +4,7 @@
 ARR = [1, 2, 3]
 NAME = "x"
 
-struct S
+obj S
   a: [3]Int = ARR
 
 fun g(a: [3]I32 = ARR, n: ?String = NAME) -> Int

@@ -1,4 +1,4 @@
-struct B
+obj B
   n: Int
 
   fun get(?self) -> Int

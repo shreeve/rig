@@ -1,4 +1,4 @@
-struct B
+obj B
   xs: List[Int]
 
 fun mk(b: !B) -> Int

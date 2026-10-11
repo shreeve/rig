@@ -2,7 +2,7 @@
 # (`ping[T]` calls `pong[T]`, which calls `ping[Wrap[T]]`) is reported
 # where it is declared.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 pub fun ping[T](x: T, n: Int) -> Int

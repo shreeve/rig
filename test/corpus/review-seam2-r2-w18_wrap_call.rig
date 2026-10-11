@@ -5,7 +5,7 @@
 # oracle: f accept
 # oracle: wrap accept
 # oracle: main reject C3
-struct S
+obj S
   n: Int
   items: List[Int]
   o: List[Int]?

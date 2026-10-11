@@ -3,13 +3,13 @@
 # store, and written once the holder's caller is done with it; a caller's
 # view stored there lends nothing of the callee's.
 
-struct Holder
+obj Holder
   r: []Int
 
   sub set(!self, s: []Int)
     self.r = s
 
-struct Text2
+obj Text2
   s: ?String
 
 fun total(xs: []Int) -> Int

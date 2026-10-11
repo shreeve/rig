@@ -1,4 +1,4 @@
-struct Holder[V]
+obj Holder[V]
   one: V?
 
   fun val(?self) -> (?V)?

@@ -5,7 +5,7 @@ sub each(v: ?List[Int], f: ?fun(Int) -> Int)
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
-struct P
+obj P
   n: Int
 
 sub main()

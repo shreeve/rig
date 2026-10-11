@@ -12,17 +12,17 @@
 # oracle: nested_held accept
 # oracle: made_in_stmt accept
 
-struct S
+obj S
   t: String
   xs: [4]Int
 
   fun inner(?self) -> ?String
     ?self.t
 
-struct W
+obj W
   s: S
 
-struct P
+obj P
   xs: [4]Int
 
   fun arr(?self) -> ?[4]Int

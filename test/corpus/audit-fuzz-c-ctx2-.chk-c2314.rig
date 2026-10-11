@@ -56,7 +56,7 @@ fun fal2314(ok: Bool) -> F32!
 error Err2314
   bad
 
-struct GP2314[T]
+obj GP2314[T]
   f: T
 
 sub t2314()

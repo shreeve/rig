@@ -2,20 +2,20 @@
 # not keep otherwise (plain data, or a field holding a Cell), held past
 # the statement: rejected.
 
-struct P
+obj P
   xs: [4]Int
 
   fun arr(?self) -> ?[4]Int
     ?self.xs
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
   fun me(?self) -> ?Q
     self
 
-struct H
+obj H
   q: Q
 
 fun mk() -> P

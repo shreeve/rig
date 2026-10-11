@@ -1,4 +1,4 @@
-struct Wrap
+obj Wrap
   n: Int
 
 sub main()

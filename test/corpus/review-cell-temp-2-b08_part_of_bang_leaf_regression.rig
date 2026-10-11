@@ -7,13 +7,13 @@
 error E
   bad
 
-struct N
+obj N
   c: Cell[Int]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-struct WW
+obj WW
   t: N
 
 fun mk(n: Int) -> N

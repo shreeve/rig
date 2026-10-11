@@ -2,7 +2,7 @@
 # whole, and a read view of a field bound by name ends where the subject
 # changes, as one bound in order does.
 
-struct B
+obj B
   n: Int
 
 enum Bag

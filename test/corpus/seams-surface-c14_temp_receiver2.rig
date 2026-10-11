@@ -1,4 +1,4 @@
-struct Log
+obj Log
   lines: List[Int]
 
   fun count(?self) -> Int

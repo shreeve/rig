@@ -1,7 +1,7 @@
 # Forms the new rule should keep accepting, run in release: leaves with
 # drop glue (slotted), all-name leaves, a returned view leaf, `??` over
 # names, and a read-only method on a branch of plain parts.
-struct T
+obj T
   c: Cell[Int]
   log: Cell[List[Int]]
 
@@ -12,7 +12,7 @@ struct T
   fun score(?self) -> Int
     self.c.get() * 100 + self.log.len
 
-struct D
+obj D
   t: T
   v: List[Int]
 

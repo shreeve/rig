@@ -7,7 +7,7 @@
 # expected, `*none` is that handle holding `none`:
 # test/behavior/types/optional_handle_binding.rig.)
 
-struct S
+obj S
   h: (*Int)?
 
 sub f(h: (*Int)?)

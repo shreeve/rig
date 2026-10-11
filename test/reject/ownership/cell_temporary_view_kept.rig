@@ -4,10 +4,10 @@
 #
 # oracle: main reject C5
 
-struct C
+obj C
   c: Cell[Int]
 
-struct K
+obj K
   r: ?C
 
 fun mkc() -> *C

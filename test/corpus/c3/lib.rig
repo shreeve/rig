@@ -2,7 +2,7 @@ use util
 
 type R = F32
 
-pub struct S
+pub obj S
   pub b: util.Byte = util.Byte.max
   pub r: util.Real = util.Real.min
   pub q: R = R.max

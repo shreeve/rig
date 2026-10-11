@@ -1,10 +1,10 @@
 # Types named `std` or `rig` are renamed in the Zig, and print with
 # their Rig names.
 
-struct std
+obj std
   x: Int
 
-struct rig[T]
+obj rig[T]
   y: T
 
 sub main()

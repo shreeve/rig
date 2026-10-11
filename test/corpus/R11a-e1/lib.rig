@@ -2,7 +2,7 @@ enum Color
   red
   green
 
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
   n: Int = 5
   c: Color = .green

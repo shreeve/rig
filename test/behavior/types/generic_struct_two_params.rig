@@ -1,7 +1,7 @@
 # A generic struct with two type parameters; each field gets its own
 # substituted type.
 
-struct Pair[T, U]
+obj Pair[T, U]
   first: T
   second: U
 

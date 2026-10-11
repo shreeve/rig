@@ -4,7 +4,7 @@
 # pass's body runs. A value whose `drop` body reads a temporary it
 # views is dropped before that temporary.
 
-struct N
+obj N
   id: Int
   v: List[Int]
 
@@ -12,13 +12,13 @@ struct N
     print("drop N", self.id)
     self.id = -99
 
-struct R
+obj R
   n: ?N
 
   drop(!self)
     print("drop R of", self.n.id)
 
-struct B
+obj B
   s: ?String
   v: List[Int]
 

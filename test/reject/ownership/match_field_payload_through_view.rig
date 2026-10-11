@@ -1,14 +1,14 @@
 # A payload of a field reached through a view or a shared handle is
 # owned by someone else: it cannot be moved or dropped.
 
-struct Tok
+obj Tok
   n: Int
 
 enum Slot
   empty
   full(t: *Tok)
 
-struct Holder
+obj Holder
   s: Slot
 
 sub eat(t: *Tok)

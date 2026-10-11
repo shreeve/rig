@@ -1,7 +1,7 @@
 # An array whose elements own is moved, never copied: a bare use names
 # the array's type.
 
-struct S
+obj S
   arr: [2]String
 
 sub main()

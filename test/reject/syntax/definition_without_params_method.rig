@@ -1,7 +1,7 @@
 # A method with compile-time parameters and no run-time ones still
 # writes `()`: after its brackets, as a call does (`w.get[Int]()`).
 
-struct Wrap
+obj Wrap
   n: Int
 
   pub fun get[T] -> T?

@@ -1,10 +1,10 @@
-struct R
+obj R
   s: []Int
 
-struct In
+obj In
   n: Int
 
-struct V
+obj V
   b: ?In
 
 sub main()

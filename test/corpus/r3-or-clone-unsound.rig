@@ -1,6 +1,6 @@
 # A clone of a value that holds views carries their loans (Core s2, s6).
 
-struct Bag
+obj Bag
   v: List[?Int]
 
 sub views_kept()

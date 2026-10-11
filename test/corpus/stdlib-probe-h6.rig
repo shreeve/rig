@@ -1,4 +1,4 @@
-struct It
+obj It
   i: Int
   n: Int
   fun next(!self) -> Int?

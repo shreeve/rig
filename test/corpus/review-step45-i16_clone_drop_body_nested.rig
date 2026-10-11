@@ -1,5 +1,5 @@
 # +x where a drop-body type sits deep inside (List[^(D?)]): reject
-struct D
+obj D
   n: Int
 
   drop(!self)

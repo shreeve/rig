@@ -1,4 +1,4 @@
-struct Wrap
+obj Wrap
   n: Int
 
 fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]

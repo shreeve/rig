@@ -1,7 +1,7 @@
-pub struct Ring[T, n: Int]
+pub obj Ring[T, n: Int]
   items: [n]T
 
-pub struct Pair[A, B]
+pub obj Pair[A, B]
   a: A
   b: B
 

@@ -1,7 +1,7 @@
 # Reading a field through the element of `for n in ?xs`, where `xs` holds
 # `*Node` handles, auto-derefs the handle.
 
-struct Node
+obj Node
   v: Int
 
 sub main()

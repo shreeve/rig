@@ -3,10 +3,10 @@
 # stands, its value is copied out first, and a later argument may read
 # the receiver (test/reject/ownership/argument_write_loan_held.rig).
 
-struct Item
+obj Item
   n: Int
 
-struct Bag
+obj Bag
   items: List[Item]
 
   fun firstw(!self) -> !Item

@@ -6,17 +6,17 @@
 # slice, or a read receiver in an earlier argument holds it the same
 # way.
 
-struct Node
+obj Node
   n: Int
 
-struct S
+obj S
   a: List[Int]
   b: Int
 
   fun count(?self, n: Int) -> Int
     self.a.len + n
 
-struct View
+obj View
   r: ?List[Int]
   n: Int
 

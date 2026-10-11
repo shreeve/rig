@@ -2,13 +2,13 @@
 # that moves: the owner keeps it, and `<` cannot move it out, nor out of
 # a temporary. (One that copies is taken as a copy.)
 
-struct D
+obj D
   v: List[Int]
 
   fun into(<self) -> Int
     self.v.len
 
-struct K
+obj K
   d: D
 
 fun mk() -> K

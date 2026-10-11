@@ -1,4 +1,4 @@
-struct Holder
+obj Holder
   n: Int
 
   sub run(!self, f: ?fun() -> Int)

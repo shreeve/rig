@@ -1,16 +1,16 @@
 # A view stored through a moved write view is held by the value the
 # view leads to, whose `drop` body could read it after it is dropped.
 
-struct Res
+obj Res
   v: List[Int]
 
-struct View
+obj View
   r: ?Res
 
   drop(!self)
     print("view drop reads", self.r.v[0])
 
-struct Outer
+obj Outer
   inner: View?
 
 sub fill(o: !Outer, r: ?Res)

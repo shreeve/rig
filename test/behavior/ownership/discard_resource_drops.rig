@@ -1,6 +1,6 @@
 # `_ = value` discards a value; a discarded resource is dropped at once.
 
-struct Wrap
+obj Wrap
   n: Int
 
   drop(!self)

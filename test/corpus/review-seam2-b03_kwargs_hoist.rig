@@ -11,7 +11,7 @@
 # oracle: T.drop accept
 # oracle: mkt accept
 # oracle: main accept
-struct S
+obj S
   n: Int
   items: List[Int]
 
@@ -43,7 +43,7 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-struct T
+obj T
   k: Int
 
   fun two(!self, a: !Int, b: Int) -> Int

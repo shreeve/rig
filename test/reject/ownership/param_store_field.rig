@@ -2,7 +2,7 @@
 # lent for the rest of the body: the caller reads `a` after the return,
 # so `!b.push` cannot reallocate the buffer `a.r` views.
 
-struct Holder
+obj Holder
   r: []Int
 
 fun f(a: !Holder, b: !List[Int]) -> Int

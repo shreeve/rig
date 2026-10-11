@@ -4,7 +4,7 @@ error Disk
 fun f() -> Int!
   return Disk.full
 
-struct Holder
+obj Holder
   e: Disk
   n: Int
 

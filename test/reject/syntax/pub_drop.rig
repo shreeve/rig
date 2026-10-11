@@ -1,6 +1,6 @@
 # A `drop` body is never called by name, so it takes no `pub`.
 
-struct S
+obj S
   n: Int
 
   pub drop(!self)

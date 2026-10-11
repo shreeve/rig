@@ -1,8 +1,8 @@
-struct Res
+obj Res
   n: Int
   t: String
 
-struct H
+obj H
   o: Res?
   d: Res
 

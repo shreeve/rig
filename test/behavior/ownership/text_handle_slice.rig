@@ -2,7 +2,7 @@
 # String views the Text the handle shares, and the handle stays lent
 # while it is used.
 
-struct W
+obj W
   t: *String
 
 fun first(s: ?String) -> ?String

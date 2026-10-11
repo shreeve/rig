@@ -4,7 +4,7 @@
 # with the header is rejected:
 # `test/reject/ownership/header_temporary_rejected.rig`.)
 
-struct P
+obj P
   x: Int
   y: Int
 
@@ -12,10 +12,10 @@ enum Q
   a(p: P, q: ?P)
   b
 
-struct W
+obj W
   q: Q
 
-struct G
+obj G
   n: Int
 
 sub main()

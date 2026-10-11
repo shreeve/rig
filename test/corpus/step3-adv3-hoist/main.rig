@@ -1,6 +1,6 @@
 use lib2
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

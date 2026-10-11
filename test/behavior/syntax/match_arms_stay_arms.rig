@@ -1,0 +1,45 @@
+# A `.variant` line under a line that opens a block is not a chain: the
+# arms of a `match` are arms, an arm may be a pattern with a body below
+# it, and a line deeper than a one-line arm's own is not allowed.
+
+enum Color
+  red
+  green
+  blue
+
+fun name(c: Color) -> Int
+  match c
+    .red => 10
+    .green
+      20
+    .blue => 30
+
+fun code(c: Color) -> Int
+  match c
+    .red => 1
+    .green => 2
+    .blue
+      new k = 3
+      k
+
+fun value(c: Color) -> Int
+  k = match c
+    .red => 1
+    .green => 2
+    .blue
+      3
+  return match c
+    .red => k
+    .green => k + 10
+    .blue => k + 20
+
+sub main()
+  print(value(.red), value(.green), value(.blue))
+  print(name(.red), name(.green), name(.blue))
+  print(code(.red), code(.green), code(.blue))
+
+# release
+# expect:
+# 1 12 23
+# 10 20 30
+# 1 2 3

@@ -3,7 +3,7 @@
 # slot, and the change through the view would land in the copy.
 #
 # oracle: bump accept
-struct C
+obj C
   c: Cell[Int]
 
 fun mkc() -> C

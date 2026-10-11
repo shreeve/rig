@@ -1,10 +1,10 @@
-struct Counter
+obj Counter
   hits: Cell[Int] = Cell(0)
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-struct Outer
+obj Outer
   a: Counter
   b: Counter
 

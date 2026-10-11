@@ -3,7 +3,7 @@
 # field, or method it is a typo of (one edit for a short name, two for
 # a longer one).
 
-struct Point
+obj Point
   x: Int
   width: Int
 

@@ -210,14 +210,14 @@ pub const Type = union(enum) {
     imported_nominal: ImportedNominal,
     /// A generic type applied to arguments: `Wrap[Int]`.
     parameterized_nominal: ParamNominal,
-    /// A generic parameter (`T` inside `struct Wrap[T]`).
+    /// A generic parameter (`T` inside `obj Wrap[T]`).
     type_var: SymbolId,
     /// A compile-time integer where a type argument or an array length
     /// goes: `4` in `Ring[Int, 4]` and `[4]Int`. Not a type of values.
     ct_value: CtValue,
     /// A compile-time value parameter used where a `ct_value` goes, the
     /// way a `type_var` stands for a type: `n` in `[n]T` inside `fun
-    /// f[n: Int]` or `struct Ring[T, n: Int]`.
+    /// f[n: Int]` or `obj Ring[T, n: Int]`.
     ct_param: SymbolId,
 };
 
@@ -392,9 +392,9 @@ pub const SymbolKind = enum {
     local,
     /// `type UserId = Int`. Transparent: the alias's `ty` is its target.
     type_alias,
-    /// `struct Wrap[T]` / `enum Option[T]` and the built-in generics.
+    /// `obj Wrap[T]` / `enum Option[T]` and the built-in generics.
     generic_type,
-    /// `T` in `struct Wrap[T]`, detached: not in any scope, reached through
+    /// `T` in `obj Wrap[T]`, detached: not in any scope, reached through
     /// the owning type's `type_params`. Also `T` in `fun max[T]`, bound
     /// in the function's scope.
     generic_param,
@@ -432,7 +432,7 @@ pub const SymbolFlags = packed struct(u16) {
     error_set: bool = false,
     /// A local bound to a closure literal: a stack closure.
     closure: bool = false,
-    /// A type declared `unique` (`struct T unique`): its values are never
+    /// A type declared `unique` (`obj T unique`): its values are never
     /// copied (`Contents.unique`).
     unique: bool = false,
     /// A read match's binding of a payload, or the whole value, that is
@@ -7338,7 +7338,7 @@ test "storage: a header points at a place its temporaries reach, never into one"
         \\  a(n: Int)
         \\  b
         \\
-        \\struct S
+        \\obj S
         \\  e: E
         \\  xs: [3]Int
         \\  o: Int?
@@ -7553,7 +7553,7 @@ test "facts: expression nodes carry their types" {
 
 test "facts: captures, parameters, and self resolve to their symbols" {
     var r = try factsRun(
-        \\struct P
+        \\obj P
         \\  n: Int
         \\
         \\  fun get(?self) -> Int
@@ -7633,7 +7633,7 @@ test "facts: scopes are keyed by the node that opens them" {
 
 test "facts: declaration names carry their function type" {
     var r = try factsRun(
-        \\struct P
+        \\obj P
         \\  n: Int
         \\
         \\  fun get(?self) -> Int
@@ -7691,10 +7691,10 @@ test "facts: keyword and omitted arguments record their slots" {
 
 test "origins: a result carries what could hold what it views" {
     var r = try factsRun(
-        \\struct Item
+        \\obj Item
         \\  n: Int
         \\
-        \\struct Holder
+        \\obj Holder
         \\  r: []Int
         \\
         \\fun at(v: ?[4]Item, k: !Int) -> ?Item
@@ -7733,27 +7733,27 @@ test "origins: a result carries what could hold what it views" {
 
 test "origins: a view reached through a read view is that view's" {
     var r = try factsRun(
-        \\struct Item
+        \\obj Item
         \\  n: Int
         \\
-        \\struct Cursor
+        \\obj Cursor
         \\  items: ?List[Item]
         \\  i: Int
         \\
-        \\struct Owner
+        \\obj Owner
         \\  items: ?List[Item]
         \\  scratch: List[Item]
         \\
-        \\struct Cut
+        \\obj Cut
         \\  before: ?String
         \\
-        \\struct Keeps
+        \\obj Keeps
         \\  t: ?String
         \\
-        \\struct Shared
+        \\obj Shared
         \\  item: *Item
         \\
-        \\struct Boxed
+        \\obj Boxed
         \\  b: ^Item
         \\
         \\enum Maybe
@@ -7795,7 +7795,7 @@ test "origins: a view reached through a read view is that view's" {
 
 test "facts: a checked call records what fills each parameter" {
     var r = try factsRun(
-        \\struct Acc
+        \\obj Acc
         \\  n: Int
         \\
         \\  fun add(?self, k: Int, by: Int = 1) -> Int
@@ -7852,7 +7852,7 @@ test "symbols: functions at module scope, parameters in the function scope" {
 
 test "symbols: binding flags" {
     var r = try factsRun(
-        \\struct U
+        \\obj U
         \\  n: Int
         \\
         \\fun read(u: ?U) -> Int
@@ -7906,7 +7906,7 @@ test "declarations: wrapper, sized, and alias types" {
 
 test "declarations: struct fields, methods, and enum variants" {
     var r = try factsRun(
-        \\struct User
+        \\obj User
         \\  name: ?String
         \\  age: Int
         \\
@@ -7943,8 +7943,8 @@ test "check: a long chain of types each holding the next by value" {
     var src: std.ArrayList(u8) = .empty;
     defer src.deinit(std.testing.allocator);
     const a = std.testing.allocator;
-    for (0..n) |i| try src.print(a, "struct S{d}\n  x: S{d}\n\n", .{ i, i + 1 });
-    try src.print(a, "struct S{d}\n  x: Int\n\nfun same(a: ?S0, b: ?S0) -> Bool\n  a == b\n", .{n});
+    for (0..n) |i| try src.print(a, "obj S{d}\n  x: S{d}\n\n", .{ i, i + 1 });
+    try src.print(a, "obj S{d}\n  x: Int\n\nfun same(a: ?S0, b: ?S0) -> Bool\n  a == b\n", .{n});
     var r = try factsRun(src.items);
     defer r.deinit();
     const s0 = try r.ctx.intern(.{ .nominal = r.ctx.lookup(module_scope, "S0").? });
@@ -7953,13 +7953,13 @@ test "check: a long chain of types each holding the next by value" {
 
 test "type facts: moves, copies, cloneable" {
     var r = try factsRun(
-        \\struct P
+        \\obj P
         \\  x: Int
         \\
-        \\struct V
+        \\obj V
         \\  p: ?P
         \\
-        \\struct Wrap[T]
+        \\obj Wrap[T]
         \\  item: T
         \\
     );
@@ -8033,7 +8033,7 @@ test "type facts: moves, copies, cloneable" {
 
 test "heap holdings: a box prints as ^T, and a holding over a held value is stacked" {
     var r = try factsRun(
-        \\struct P
+        \\obj P
         \\  x: Int
         \\
     );
@@ -8082,7 +8082,7 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
 
 test "lend table: each row makes its view" {
     var r = try factsRun(
-        \\struct P
+        \\obj P
         \\  x: Int
         \\
     );
@@ -8180,25 +8180,25 @@ test "lend table: each row makes its view" {
 
 test "type facts: unique reaches what holds it inline" {
     var r = try factsRun(
-        \\struct U unique
+        \\obj U unique
         \\  n: Int
         \\
-        \\struct Ring[T] unique
+        \\obj Ring[T] unique
         \\  item: T
         \\
-        \\struct Wrap[T]
+        \\obj Wrap[T]
         \\  item: T
         \\
-        \\struct Holder
+        \\obj Holder
         \\  u: U
         \\
-        \\struct Far
+        \\obj Far
         \\  h: Holder
         \\
-        \\struct Ptr
+        \\obj Ptr
         \\  u: *U
         \\
-        \\struct Counter
+        \\obj Counter
         \\  hits: Cell[Int]
         \\
         \\enum Slot
@@ -8378,7 +8378,7 @@ const Coverage = struct {
 
 test "facts: every name and expression in a program has a fact" {
     var r = try factsRun(
-        \\struct Account
+        \\obj Account
         \\  owner: ?String
         \\  balance: Int
         \\
@@ -8392,7 +8392,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  circle(radius: Int)
         \\  dot
         \\
-        \\struct Wrap[T]
+        \\obj Wrap[T]
         \\  value: T
         \\
         \\  fun get(?self) -> T
@@ -8513,7 +8513,7 @@ const HandsRun = struct {
 
 test "hands over: one kind per expression, by a positive list" {
     var h: HandsRun = .{ .r = try factsRun(
-        \\struct P
+        \\obj P
         \\  x: Int
         \\  t: String
         \\

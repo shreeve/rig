@@ -1,4 +1,4 @@
-struct R[T, b: Bool]
+obj R[T, b: Bool]
   v: T
 
 sub main()

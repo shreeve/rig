@@ -2,13 +2,13 @@
 # reach says an instance at a Cell holder holds a Cell, the runtime's
 # holdsCell says it does not. A view of it from generic code
 # (`rig.ReadPtr`) meets one from concrete code (`*G(C)`).
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-struct G[T]
+obj G[T]
   h: *T
   n: Int
 

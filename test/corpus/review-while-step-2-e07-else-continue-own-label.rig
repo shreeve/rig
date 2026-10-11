@@ -3,7 +3,7 @@
 # or `continue :a` must mean something the emitted code does.
 #
 # oracle: mk accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

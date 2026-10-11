@@ -1,7 +1,7 @@
 # A `!self` method writes its receiver: a branching value that may be a
 # name's would be written as a copy (plain data too), and a place is
 # lent with `!`.
-struct P
+obj P
   x: Int
 
   sub bump(!self)

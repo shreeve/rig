@@ -1,4 +1,4 @@
-pub struct Wrap[T]
+pub obj Wrap[T]
   pub v: T
   pub count: Int = 1
 
@@ -11,7 +11,7 @@ pub struct Wrap[T]
   pub fun with[U](?self, u: U) -> Pair[T, U]
     Pair(first: self.v, second: u)
 
-pub struct Pair[A, B]
+pub obj Pair[A, B]
   pub first: A
   pub second: B
 

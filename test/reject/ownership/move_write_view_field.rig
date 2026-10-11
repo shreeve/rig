@@ -1,7 +1,7 @@
 # A write view is never held in a field, so no `<h.w` can move one out
 # of its holder: the field is rejected where it is declared.
 
-struct H
+obj H
   w: !Int
 
 sub main()

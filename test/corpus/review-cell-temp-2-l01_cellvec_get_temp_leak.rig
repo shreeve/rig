@@ -9,7 +9,7 @@ fun vec1(n: Int) -> List[Int]
 fun mk(n: Int) -> Cell[List[Int]]
   Cell(vec1(n))
 
-struct H
+obj H
   c: Cell[List[Int]]
 
 fun mkh(n: Int) -> H

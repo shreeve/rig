@@ -1,7 +1,7 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
 fun g(r: ?P, k: Int) -> ((?P)?)?!

@@ -1,5 +1,5 @@
 # `<g.o` of a generic optional, and `for x in <` of a generic part.
-struct G[T]
+obj G[T]
   f: T
   o: T?
 

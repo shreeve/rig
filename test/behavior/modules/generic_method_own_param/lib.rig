@@ -1,8 +1,8 @@
-pub struct Pair[A, B]
+pub obj Pair[A, B]
   pub a: A
   pub b: B
 
-pub struct Chain[T]
+pub obj Chain[T]
   pub items: List[T]
 
   pub fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]
@@ -13,7 +13,7 @@ pub struct Chain[T]
       i += 1
     Chain(items: <out)
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun tag[U](?self, u: U) -> Wrap[Pair[T, U]]

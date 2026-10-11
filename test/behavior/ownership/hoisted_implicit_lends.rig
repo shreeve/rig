@@ -4,7 +4,7 @@
 # receiver): it is kept once, and dropped once at the statement's end,
 # as `?mk(1)` is (the explicit forms are the controls).
 
-struct Bag
+obj Bag
   n: Int
 
   drop(!self)

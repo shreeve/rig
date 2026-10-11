@@ -1,12 +1,12 @@
 # `|+r|` through read and write views of owners and handles: each
 # closure holds its own clone, dropped once with the closure.
-struct N
+obj N
   v: Int
 
   drop(!self)
     print("drop", self.v)
 
-struct B
+obj B
   t: String
   hs: List[*N]
 

@@ -4,7 +4,7 @@
 # test/behavior/ownership/copies_write_view_reads.rig); one of an owner
 # would be the view itself.
 
-struct Wrap
+obj Wrap
   payload: List[Int]
 
 sub main()

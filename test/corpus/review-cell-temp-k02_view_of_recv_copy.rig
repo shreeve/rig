@@ -5,7 +5,7 @@
 # oracle: C.me accept
 # oracle: both accept
 # oracle: burn accept
-struct C
+obj C
   c: Cell[Int]
   pad: [8]Int
 
@@ -13,7 +13,7 @@ struct C
     !self.c.set(self.c.get() + 1)
     self
 
-struct W
+obj W
   inner: C
 
 fun mkc(n: Int) -> C

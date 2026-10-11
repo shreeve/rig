@@ -1,4 +1,4 @@
-struct Logger
+obj Logger
   prefix: ?String
   lines: Int
 

@@ -1,5 +1,5 @@
 # `+w` of a write view of an Int reads the Int (Core sentence 1).
-struct P
+obj P
   x: Int
 
 sub main()

@@ -3,7 +3,7 @@
 # generic struct, each of a List. The owner can be neither written nor
 # moved nor dropped until the last use of the holder.
 
-struct Hold[T]
+obj Hold[T]
   v: T
 
 fun same[T](x: T) -> T

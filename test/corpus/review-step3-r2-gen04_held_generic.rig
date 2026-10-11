@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -9,7 +9,7 @@ enum Opt[T]
   some(v: T)
   nothing
 
-struct W[T]
+obj W[T]
   e: Opt[T]
   tag: String
 

@@ -1,4 +1,4 @@
-struct H
+obj H
   w: !List[Int]
 
 sub take(a: !List[Int], b: !H)

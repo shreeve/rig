@@ -1,6 +1,6 @@
 use geo
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
 fun eqT[T](a: ?T, b: ?T) -> Bool

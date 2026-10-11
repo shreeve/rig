@@ -1,6 +1,6 @@
 # A take through a write lend of a shared handle, while another handle
 # to the same box holds a view of the field.
-struct S
+obj S
   o: List[Int]?
 
 fun mkv(n: Int) -> List[Int]

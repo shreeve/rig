@@ -5,14 +5,14 @@
 # oracle: D.drop accept
 # oracle: peek accept
 # oracle: mkint accept
-struct G[T]
+obj G[T]
   c: Cell[T]
   n: Int
 
   sub bump(!self, v: T)
     !self.c.set(<v)
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)

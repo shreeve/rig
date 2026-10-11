@@ -1,7 +1,7 @@
 # A guarded statement's operands are all used when it runs, though the
 # guard comes last in the source.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

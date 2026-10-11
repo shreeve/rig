@@ -2,7 +2,7 @@
 # in it (Core sentence 4: nothing changes through a read view), so a key
 # that dies each iteration is fine.
 
-struct Box2
+obj Box2
   label: ?String
 
   fun show(?self, s: ?String) -> Int

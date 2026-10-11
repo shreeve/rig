@@ -1,7 +1,7 @@
 # A move in an `if` branch that ends in `return` does not affect the code
 # after the `if`.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

@@ -1,4 +1,4 @@
-struct Text2
+obj Text2
   t: String
 
 sub main()

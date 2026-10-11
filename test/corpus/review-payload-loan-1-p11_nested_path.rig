@@ -2,10 +2,10 @@ enum E
   a(t: String)
   b
 
-struct H
+obj H
   e: E
 
-struct G
+obj G
   h: H
 
 sub f(p: !G)

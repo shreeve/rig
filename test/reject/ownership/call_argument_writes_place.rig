@@ -2,7 +2,7 @@
 # before its later arguments run: a later argument cannot lend to write
 # the place's root, as Rust's two-phase views also forbid.
 
-struct B
+obj B
   xs: List[Int]
 
 fun grow(v: !List[Int]) -> Int

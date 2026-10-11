@@ -1,5 +1,5 @@
 # `<g.f` in a generic body, where an instance makes `f` optional.
-struct G[T]
+obj G[T]
   f: T
 
 fun take[T](g: !G[T]) -> T

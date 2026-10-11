@@ -2,7 +2,7 @@
 # literal, or a call's result) carry what that value views, so one
 # stored outside the loop keeps it viewed.
 
-struct C
+obj C
   s: ?String
 
 fun halves(s: ?String) -> [2]?String

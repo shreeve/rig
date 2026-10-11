@@ -3,7 +3,7 @@
 error E
   bad
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -24,7 +24,7 @@ struct D
     !self.c.set(self.c.get() + 1)
     D(c: Cell(self.c.get() * 10))
 
-struct WW
+obj WW
   t: D
 
 fun mk(n: Int) -> D
@@ -52,7 +52,7 @@ fun two(x: !D, n: Int) -> Int
 fun rd(x: ?D, n: Int) -> Int
   x.c.get() + n
 
-struct HV
+obj HV
   v: !D
 
 fun tk(x: D, n: Int) -> Int
@@ -77,7 +77,7 @@ fun maybe(n: Int) -> Int?
 fun tk3(x: D, n: Int, y: D, m: Int) -> Int
   x.c.get() + n + y.c.get() + m
 
-struct HC
+obj HC
   v: ?D
   c: Cell[Int]
 

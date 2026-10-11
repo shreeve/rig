@@ -9,7 +9,7 @@
 # oracle: run2 reject C2
 use std.random
 
-struct Die
+obj Die
   r: random.Random
 
 enum E

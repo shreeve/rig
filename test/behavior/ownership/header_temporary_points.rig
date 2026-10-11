@@ -18,7 +18,7 @@ enum G
   a(n: Int)
   b
 
-struct C
+obj C
   c: Cell[Int]
 
 fun idx(s: ?String) -> Int

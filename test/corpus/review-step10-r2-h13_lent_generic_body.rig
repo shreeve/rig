@@ -1,7 +1,7 @@
 # H1: inside a generic body, a `T` local and a `?T` parameter lent to a
 # `?T` parameter of a hoisted call (keyword arguments out of order); and
 # a `?List[Int]` parameter lent as `[]Int`, a `*Q` place as `?Q`.
-struct Q
+obj Q
   xs: [4]Int
   t: String
 

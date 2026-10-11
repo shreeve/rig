@@ -2,7 +2,7 @@
 # never stored inside a value, so the field is rejected where it is
 # declared.
 
-struct H
+obj H
   w: !Int
 
 sub main()

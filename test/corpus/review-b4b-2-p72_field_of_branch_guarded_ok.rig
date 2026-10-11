@@ -1,5 +1,5 @@
 # Guarded and unguarded match on a field of a branching value of views; the payload view escapes. Expect accept, prints two two.
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -7,7 +7,7 @@ enum E
   a(r: Res)
   b(r: Res)
 
-struct H
+obj H
   e: E
 
 fun clobber(n: Int) -> Int

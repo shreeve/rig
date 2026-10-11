@@ -81,7 +81,7 @@ any part is owning or a handle; otherwise a view if any part is a view;
 otherwise plain. No part is a write view (§5). *(built)*
 
 ```rig
-struct Point
+obj Point
   x: Int
   y: Int
 
@@ -100,7 +100,7 @@ sub main()
 
 - **A type that must not be copied but owns nothing**, such as a random
   generator whose copy would repeat its numbers, says so on the type:
-  `struct Random unique`. It moves like an owner. *(built)*
+  `obj Random unique`. It moves like an owner. *(built)*
 - **A type that holds a `Cell`**, or a bare `Cell[T]`, lives only
   behind `*`: see sentence 9. *(built)*
 
@@ -221,7 +221,7 @@ a deep copy of a type declared in another module, or of one holding a
 `Signal`, is *planned*.*)*
 
 ```rig
-struct File
+obj File
   name: ?String
 
   drop(!self)
@@ -253,7 +253,7 @@ sub main()
 ```
 
 ```rig file=bag.rig
-pub struct Bag
+pub obj Bag
   pub items: List[Int]
 ```
 
@@ -313,7 +313,7 @@ sub main()
 ```
 
 ```rig
-struct Counter
+obj Counter
   n: Int
 
   fun next(!self) -> Int
@@ -381,7 +381,7 @@ sub main()
 ```
 
 ```rig reject
-struct Guard
+obj Guard
   items: []Int
 
   drop(!self)
@@ -427,10 +427,10 @@ A `Cursor` holds only a view of the items, so an item `next` hands out
 views the List, not the cursor, which moves on:
 
 ```rig
-struct Item
+obj Item
   n: Int
 
-struct Cursor
+obj Cursor
   items: ?List[Item]
   i: Int
 
@@ -513,7 +513,7 @@ holds the counted value weakly, and `h.upgrade()` is the way back.
 *(built)*
 
 ```rig
-struct User
+obj User
   name: ?String
 
 sub main()
@@ -582,7 +582,7 @@ expected `Static`, got `?String`
 ```
 
 ```rig reject
-struct Edit
+obj Edit
   w: !Int
 
 sub main()
@@ -692,7 +692,7 @@ and a `for` over plain elements; *planned* for a `for` over a made List
 of owners, which is bound to a name first today.*)*
 
 ```rig
-struct User
+obj User
   name: ?String
   tags: List[Int]
 
@@ -796,7 +796,7 @@ sub main()
 ```
 
 ```rig
-struct P
+obj P
   x: Int
   y: Int
 
@@ -892,7 +892,7 @@ its loan *(built)*. So `List[String]`,
 work. *(built)*
 
 ```rig
-struct Slot
+obj Slot
   item: ^Int?
 
 sub main()
@@ -1108,7 +1108,7 @@ sub main()
 ```
 
 ```rig reject
-struct Seen
+obj Seen
   items: List[Int]
 
   fun insert(!self, k: Int) -> Bool

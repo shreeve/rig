@@ -1,4 +1,4 @@
-struct H
+obj H
   h: *List[Int]
 
 sub main()

@@ -2,7 +2,7 @@
 # each binding is visible in the conditions after it and in the body,
 # and `else` runs when any of them is `none` or false.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

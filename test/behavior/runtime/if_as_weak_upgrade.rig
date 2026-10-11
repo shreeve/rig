@@ -1,7 +1,7 @@
 # `if w.upgrade() as n` binds a strong handle while the value is alive;
 # the binding owns the handle and drops it when the branch ends.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

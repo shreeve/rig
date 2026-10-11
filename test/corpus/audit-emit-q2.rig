@@ -1,4 +1,4 @@
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop R", self.n)
@@ -9,7 +9,7 @@ fun peek[T](o: T?) -> Int
     return 1
   0
 
-struct Holder[T]
+obj Holder[T]
   o: T?
 
   fun has(?self) -> Bool

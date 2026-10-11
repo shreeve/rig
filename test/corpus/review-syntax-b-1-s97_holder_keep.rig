@@ -1,4 +1,4 @@
-struct H
+obj H
   xs: []Int
 
   sub keep(!self, xs: []Int)

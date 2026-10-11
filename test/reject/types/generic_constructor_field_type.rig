@@ -1,7 +1,7 @@
 # A generic constructor's fields are checked against the substituted
 # type from the expected `Wrap[Int]`.
 
-struct Wrap[T]
+obj Wrap[T]
   value: T
 
 sub main()

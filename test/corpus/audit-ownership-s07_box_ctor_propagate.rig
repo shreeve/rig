@@ -1,4 +1,4 @@
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)
@@ -23,7 +23,7 @@ fun fail(k: Int) -> Int!
   return E.bad if k > 0
   k
 
-struct Node
+obj Node
   a: *Tok
   next: ^Node?
 

@@ -1,8 +1,8 @@
-pub struct Pair[A, B]
+pub obj Pair[A, B]
   first: A
   second: B
 
-pub struct View[T]
+pub obj View[T]
   r: ?T
 
 pub fun view[T](x: ?T) -> View[T]

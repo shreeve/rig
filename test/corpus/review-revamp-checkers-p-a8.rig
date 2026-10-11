@@ -1,4 +1,4 @@
-struct S
+obj S
   arr: [3]Int
 
 fun f(p: ?S) -> []Int

@@ -2,7 +2,7 @@
 # only reads it is the habit of `!` as negation: use `not`, or drop the
 # `!` when the method returns no `Bool`.
 
-struct Queue
+obj Queue
   items: List[Int]
   fun is_empty(?self) -> Bool
     self.items.len == 0

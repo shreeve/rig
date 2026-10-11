@@ -2,7 +2,7 @@ enum Shape
   dot
   line(v: List[Int])
 
-struct H
+obj H
   s: Shape
 
 fun mk() -> H

@@ -1,8 +1,8 @@
 # H3: generic loop over ?List[T], body: if <x as y : take out of the T? loop binding
-struct S
+obj S
   t: String
 
-struct Holder[T]
+obj Holder[T]
   x: T?
 
 fun grab[T](v: ?List[T?]) -> T?

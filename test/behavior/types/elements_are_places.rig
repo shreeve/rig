@@ -2,13 +2,13 @@
 # is (Core §5): it is read in place, lent with `?v[i]` and `!v[i]`, and
 # assigning it drops the value it held, once.
 
-struct D
+obj D
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Rec
+obj Rec
   name: String
   n: Int
 

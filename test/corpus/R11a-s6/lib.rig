@@ -7,7 +7,7 @@ pub fun f[m: Mode, s: ?String, b: Bool, n: U8, T](x: T) -> T
     print(s, n)
   x
 
-pub struct R[T, n: Int]
+pub obj R[T, n: Int]
   items: [n]T
 
   fun g[m: Mode, U](?self, u: U) -> U

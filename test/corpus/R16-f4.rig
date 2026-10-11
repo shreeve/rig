@@ -1,4 +1,4 @@
-struct View[T]
+obj View[T]
   w: ?T
 
 sub main()

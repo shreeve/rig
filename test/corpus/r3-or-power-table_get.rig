@@ -1,6 +1,6 @@
 # Symbol table: same-typed key and value, method with ?self.
 # Rust (elision rule 3) accepts the twin. Needs `from self`.
-struct Env
+obj Env
   keys: []?String
   vals: []?String
 

@@ -1,4 +1,4 @@
-struct Holder
+obj Holder
   f: *fun() -> Int
 
   sub set(!self, g: *fun() -> Int)

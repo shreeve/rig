@@ -1,10 +1,10 @@
-struct File
+obj File
   name: String
 
   drop(!self)
     print("closing", self.name)
 
-struct Holder
+obj Holder
   f: File
 
 sub main()

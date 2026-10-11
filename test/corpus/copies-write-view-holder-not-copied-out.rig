@@ -1,4 +1,4 @@
-struct S
+obj S
   w: !Int
 
 fun get(p: ?S) -> S

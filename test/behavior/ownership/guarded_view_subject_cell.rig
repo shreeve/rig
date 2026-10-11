@@ -2,7 +2,7 @@
 # it is, never a copy of the value it views, so a payload's Cell changed
 # in an arm is the matched value's own: through `!E` lent from a `*E`.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)

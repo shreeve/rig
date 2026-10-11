@@ -5,7 +5,7 @@
 # (`test/behavior/ownership/vec_for_moving_elements_bound.rig`); a
 # branching value is read in place, so it is a lend of a name it may be.
 
-struct H
+obj H
   items: List[String]
 
 fun mk() -> List[String]

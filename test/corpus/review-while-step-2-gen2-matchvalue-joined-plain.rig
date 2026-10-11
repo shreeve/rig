@@ -10,10 +10,10 @@
 error E
   bad
 
-struct S
+obj S
   s: []Int
 
-struct D
+obj D
   n: Int
   drop(!self)
     print("drop", self.n)

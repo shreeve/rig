@@ -1,5 +1,5 @@
 # different fields of one struct: conservative?
-struct P
+obj P
   x: [2]Int
   y: [2]Int
 

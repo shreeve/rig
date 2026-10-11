@@ -1,7 +1,7 @@
 # A drop body may replace an owning field: the new value is released
 # with the other fields after the body returns.
 
-struct Owner
+obj Owner
   cell: *Cell[Int]
 
   drop(!self)

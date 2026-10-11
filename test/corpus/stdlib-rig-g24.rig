@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
 
 fun remove_at[T](v: !List[T], i: Int) -> T?

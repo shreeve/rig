@@ -1,6 +1,6 @@
 # A generic method `left(?self, other: ?T) -> ?T` at `T = Int`, its result
 # bound to a name that held a lend of a place.
-struct Pair[T]
+obj Pair[T]
   x: T
 
   fun left(?self, other: ?T) -> ?T

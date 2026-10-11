@@ -12,7 +12,7 @@ fun pick(s: ?String, n: Int) -> ?String
     return s
   "none"
 
-struct P
+obj P
   x: Int
   t: String
 

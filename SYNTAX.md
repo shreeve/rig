@@ -80,7 +80,15 @@ at the end of its line.
 **Line joining.** Inside `( )` and `[ ]` a newline is plain whitespace,
 so a call, an array, a parenthesized expression, or a method chain can
 span lines at any indentation. A `\` at the end of a line joins the
-next line anywhere. A list may end with a comma: an array, a call's
+next line anywhere. Outside brackets, a line that starts with `.` (a
+member access or a method call) and is indented deeper than the
+statement above it continues that statement, and so does each such line
+after it, whatever its own depth; blank and comment lines between them
+do not end the chain. It applies only after a statement that is complete
+and opens no block: under a line that opens one (`match`, `if`, `else`,
+`for`, `while`, `fun`, `sub`, `enum`, `obj`, a closure's bar list, an arm
+header), a deeper `.red` or `.variant` line is the block's first line, as
+it always was. A list may end with a comma: an array, a call's
 arguments, a parameter list, a list of compile-time parameters or
 arguments, a closure's bar list, and a variant pattern's bindings.
 
@@ -110,6 +118,24 @@ sub main()
 
 ```output
 24 34 25 [1, 2]
+```
+
+```rig
+obj Acc
+  n: Int
+
+  fun add(?self, k: Int) -> Acc
+    Acc(n: self.n + k)
+
+sub main()
+  acc = Acc(n: 0)
+    .add(1)
+    .add(2)
+  print(acc.n)
+```
+
+```output
+3
 ```
 
 **Closure bodies inside brackets.** A closure's body may be an indented
@@ -173,7 +199,7 @@ not used.
 
 | Role | Keywords |
 |---|---|
-| declarations | `fun` `sub` `struct` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
+| declarations | `fun` `sub` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
 | bindings | `const` |
 | control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
@@ -182,7 +208,7 @@ not used.
 | held for later | `async` `await` `impl` `trait` `when` `where` `yield` |
 
 A keyword may still name a member, where it cannot be mistaken for the
-keyword: a struct field, a method, or a payload field. It reads as a
+keyword: an `obj` field, a method, or a payload field. It reads as a
 name right after `.` (`t.type`, `t.error()`), before `:` inside
 parentheses (a keyword argument or payload field, `Token(type: 1)`),
 and in a member list before `:` (a field) or after `fun` / `sub` (a
@@ -191,7 +217,7 @@ Everywhere else a keyword names nothing: not a local, a parameter, a
 top-level declaration, or an enum variant.
 
 ```rig
-struct Token
+obj Token
   type: Int
   in: Bool
   drop: Bool
@@ -217,12 +243,16 @@ fun f(in: Int) -> Int
 `in` is a keyword and cannot name a parameter
 ```
 
-Six words are keywords only in one position. `new` is a keyword at
+Seven words are keywords only in one position. `new` is a keyword at
 the start of a statement (`new x = ...`, `new const x = ...`), so a
-method may be named `new`. `of` is a keyword only after a value directly inside `[ ]`,
+method may be named `new`. `obj` is a keyword at the start of a
+declaration, before the type's name (`obj Point`, `pub obj Pair[T]`),
+so `obj = 5`, `obj.x` and `fun f(obj: Int)` are ordinary; `struct` is
+an ordinary name too, and a declaration written `struct Point` is
+rejected with the spelling to write. `of` is a keyword only after a value directly inside `[ ]`,
 where it separates a fill literal's count from its element
-(`[n of x]`). `unique` is a keyword only after a struct's name or type
-parameters (`struct Random unique`). `from` is a keyword only after a
+(`[n of x]`). `unique` is a keyword only after an `obj`'s name or type
+parameters (`obj Random unique`). `from` is a keyword only after a
 function's result type (`-> ?Item from a`), and `static` only right
 after that `from`; a parameter or a local may be named either. `none`
 is a reserved name, the absent optional. The words
@@ -405,7 +435,7 @@ where the value is discarded: a statement, alone or under `!`, `?`, or
 `catch` ([SPEC §3](SPEC.md#structs) has the checks).
 
 ```rig
-struct Stack
+obj Stack
   items: List[Int]
 
   sub push(!self, k: Int)
@@ -512,7 +542,7 @@ is an operator. Suffixes read left to right: `S?!` is an `S?` that may
 fail, and `(?S)?` an optional read view of an `S`.
 
 ```rig
-struct User
+obj User
   name: ?String
 
 fun named(u: ?*User?) -> Bool
@@ -529,7 +559,7 @@ false true
 ```
 
 ```rig reject
-struct User
+obj User
   name: ?String
 
 sub main()
@@ -614,12 +644,12 @@ write `sub main()`: a function's parameter list is always written, even when emp
 
 ### Structs
 
-A `struct` lists its fields, then its methods and at most one `drop`
+An `obj` lists its fields, then its methods and at most one `drop`
 body. A field is `name: Type`, with an optional default value
 (`y: Int = 0`).
 
 ```rig
-struct Point
+obj Point
   x: Int
   y: Int = 0
 
@@ -668,7 +698,7 @@ struct, whose values move instead of copying
 ([SPEC](SPEC.md#kinds-of-value)):
 
 ```rig
-struct Ticket unique
+obj Ticket unique
   id: Int
 
 sub main()
@@ -747,7 +777,7 @@ NetError.timeout true
 ```rig
 type UserId = Int
 
-struct Point
+obj Point
   x: Int
 
 type P = Point
@@ -771,13 +801,13 @@ value. There is no `<T>` and no `comptime` keyword.
 
 | | Declared | Used |
 |---|---|---|
-| generic type | `struct Pair[T, U]`, `enum Option[T]` | `Pair[Int, ?String]`, `Pair(first: 1, second: "x")`, `Option[Int].some(7)` |
+| generic type | `obj Pair[T, U]`, `enum Option[T]` | `Pair[Int, ?String]`, `Pair(first: 1, second: "x")`, `Option[Int].some(7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
 | generic method | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
 | both | `sub rep[T, n: Int](x: T)` | `rep[?String, 3]("hi")` |
 | a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
-| a type with a value | `struct Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [4 of 0])` |
+| a type with a value | `obj Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [4 of 0])` |
 
 A method's own parameters sit beside its type's: inside `Wrap[T]`,
 `fun map[U]` has both `T` and `U`. A call gives every compile-time
@@ -787,7 +817,7 @@ parameters writes `()` after its brackets, in its declaration as in a
 call: `sub show[n: Int]()` is called `show[3]()`.
 
 ```rig
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun map[U](?self, f: fun(T) -> U) -> Wrap[U]
@@ -1274,7 +1304,7 @@ fun twice(n: Int) -> Int
 fun apply(f: fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-struct Counter
+obj Counter
   n: Int
 
   sub bump(!self)
@@ -1349,7 +1379,7 @@ spelling: name them with a `type` alias, or write the type where the
 value goes.
 
 ```rig
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 type Row = [3]Int
@@ -1377,7 +1407,7 @@ sub main()
 ```
 
 ```rig reject
-struct Pair[T, U]
+obj Pair[T, U]
   a: T
   b: U
 
@@ -1407,7 +1437,7 @@ a slice or array type has no expression spelling
 ```
 
 ```rig
-struct Node
+obj Node
   value: Int
 
 type Held = *(Node?)
@@ -1425,7 +1455,7 @@ true
 ```
 
 ```rig reject
-struct Node
+obj Node
   value: Int
 
 sub main()
@@ -1583,7 +1613,7 @@ so that the rejection can show the header with it.
 
 ```text
 program   = decl*
-decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | constant)
+decl      = ["pub"] (fun | sub | obj | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" ["std" "."] name ["as" name]
 fun       = "fun" name [tparams] params "->" type [from] block
@@ -1592,7 +1622,7 @@ sub       = "sub" name [tparams] params ["!"] block
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "self"
-struct    = "struct" name [tparams] ["unique"] INDENT member* DEDENT
+obj       = "obj" name [tparams] ["unique"] INDENT member* DEDENT
 enum      = "enum" name [tparams] INDENT member* DEDENT
 member    = ["pub"] (field | fun | sub) | variant | "drop" params block
 field     = name ":" type ["=" expr]

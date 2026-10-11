@@ -1,7 +1,7 @@
 # A payload field of `match <s` may be moved out; the variant's other
 # fields are plain data.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

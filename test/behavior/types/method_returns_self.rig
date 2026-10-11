@@ -1,7 +1,7 @@
 # An associated method (no `self`) returning `Self`; `User.make(...)`
 # types as `User`.
 
-struct User
+obj User
   name: ?String
 
   fun make(default: ?String) -> Self

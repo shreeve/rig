@@ -1,10 +1,10 @@
 # A value that holds a Cell is read through a branch of lends, never
 # copied: another handle's change shows.
 
-struct S
+obj S
   c: Cell[List[Int]]
 
-struct O
+obj O
   s: S
 
 fun grow(s: !S) -> Int

@@ -1,4 +1,4 @@
-struct P
+obj P
   o: Int?
 
 sub main()

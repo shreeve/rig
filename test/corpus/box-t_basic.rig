@@ -2,7 +2,7 @@
 # reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
 # `<b.take()` moves the value out and frees the box.
 
-struct Point
+obj Point
   x: Int
   y: Int
 
@@ -12,7 +12,7 @@ struct Point
   sub shift(!self, d: Int)
     self.x += d
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

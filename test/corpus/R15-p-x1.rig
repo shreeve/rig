@@ -1,4 +1,4 @@
-struct Pkt
+obj Pkt
   hdr: [4]U8
   body: List[U8]
   fun len(?self) -> U16

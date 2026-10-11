@@ -2,7 +2,7 @@
 # it, to the value the call was lent: the receiver is a view, not a
 # temporary (`test/reject/ownership/write_receiver_temporary.rig`).
 
-struct S
+obj S
   n: Int
 
   sub bump(!self)

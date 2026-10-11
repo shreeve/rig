@@ -3,7 +3,7 @@
 #
 # oracle: D.drop accept
 # oracle: D.hit accept
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -13,7 +13,7 @@ struct D
     !self.c.set(5)
     1
 
-struct H
+obj H
   d: D
   n: Int
 
@@ -32,7 +32,7 @@ fun ret2() -> Int
 fun ret3(c: Bool) -> Int
   mkh(3).d.c.replace(5) if c else 0
 
-struct P
+obj P
   a: Int
 
 sub main()

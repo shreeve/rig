@@ -1,7 +1,7 @@
 error E
   bad
 
-struct P
+obj P
   n: Int
   fun plus(?self, k: Int) -> Int
     self.n + k

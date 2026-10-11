@@ -1,7 +1,7 @@
 # A store through an `if !a as h` binding lands in parameter `a`'s value,
 # which keeps `b` lent for the rest of the body.
 
-struct Holder
+obj Holder
   r: []Int
 
 fun f(a: !Holder?, b: !List[Int]) -> Int

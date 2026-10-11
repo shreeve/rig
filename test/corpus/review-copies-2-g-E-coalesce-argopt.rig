@@ -5,10 +5,10 @@ enum T
   a
   b
 
-struct H
+obj H
   t: T
 
-struct HO
+obj HO
   t: T?
 
 fun get(r: ?T, ok: Bool) -> (?T)!

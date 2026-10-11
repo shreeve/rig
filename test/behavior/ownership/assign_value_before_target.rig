@@ -3,7 +3,7 @@
 # so a store goes through the view as the value left it, for a name
 # written through as for an element, a field, or a compound.
 # release
-struct P
+obj P
   a: Int
   b: Int
 

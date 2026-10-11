@@ -1,6 +1,6 @@
 # Each constructor keyword's value must match the field's declared type.
 
-struct User
+obj User
   name: ?String
   age: Int
 

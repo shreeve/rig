@@ -1,17 +1,17 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
-struct Q
+obj Q
   r: ?P
   n: Int
 
-struct W
+obj W
   w: !P
 
-struct WI
+obj WI
   w: !Int
 
 fun f(h: !W, ok: Bool) -> (!P)!

@@ -1,5 +1,5 @@
 # a view of an inner-scope Int pushed to an outer struct's List field
-struct Bag
+obj Bag
   items: List[?Int]
 
 sub main()

@@ -2,7 +2,7 @@
 # its values: the match still needs an arm for them, and the error says
 # why a variant with only a guarded arm is missed.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

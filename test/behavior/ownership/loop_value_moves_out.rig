@@ -2,7 +2,7 @@
 # function: an owning value moves out (the rest of a consumed List is
 # dropped), and a view keeps what it views lent.
 
-struct Wrap
+obj Wrap
   n: Int
 
 fun pick(boxes: List[*Wrap], want: Int) -> *Wrap?

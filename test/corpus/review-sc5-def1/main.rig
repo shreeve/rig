@@ -9,7 +9,7 @@ enum Color
 
 DEF = Color.blue
 
-struct S
+obj S
   a: U8 = LIMIT
   b: Cell[U8] = Cell(300)
   c: Int = List()

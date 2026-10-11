@@ -1,7 +1,7 @@
-struct P
+obj P
   x: Int
 
-struct Chain[T]
+obj Chain[T]
   items: List[T]
   fun at(?self, i: Int) -> ?T
     ?self.items[i]

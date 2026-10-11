@@ -1,7 +1,7 @@
 fun keep(s: ?String) -> ?String
   s
 
-struct Wrap[T]
+obj Wrap[T]
   x: T
 
 sub f(w: !Wrap[String])

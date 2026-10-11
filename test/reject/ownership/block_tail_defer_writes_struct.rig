@@ -1,6 +1,6 @@
 # A block-local struct at a branch's tail moves out before the branch's
 # defer writes it.
-struct R
+obj R
   v: List[Int]
 
 sub main()

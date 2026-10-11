@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
 
 fun wrap[T](v: T) -> ^T

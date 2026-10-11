@@ -1,10 +1,10 @@
 # base is a view a call returns of a NAMED plain-data value (a view of plain data may be a copy); index makes an owning temp.
 # Expect: accept and the binding sees the place (no dangling into the header block).
-struct Q
+obj Q
   a: Int
   b: Int
 
-struct P
+obj P
   xs: [2]Q?
 
 fun look(p: ?P) -> ?P from p

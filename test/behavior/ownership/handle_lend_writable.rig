@@ -3,7 +3,7 @@
 # handle field of a value reached through a write view. A `const` handle
 # or a read-only parameter lends what it holds.
 
-struct W
+obj W
   h: *Cell[Int]
 
 sub repoint(x: !*Cell[Int])

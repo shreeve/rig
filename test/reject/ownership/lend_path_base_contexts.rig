@@ -6,20 +6,20 @@
 # through, and a write through a shared handle are reported too, each
 # once, with a hint that compiles or none.
 
-struct Set
+obj Set
   items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     !self.items.push(k)
     true
 
-struct Q
+obj Q
   n: Int
 
   fun get(?self) -> Int
     self.n
 
-struct P
+obj P
   x: Int
   o: Int?
   a: [2]Int
@@ -31,7 +31,7 @@ struct P
 fun double(n: Int) -> Int
   n * 2
 
-struct Table
+obj Table
   ops: [2]fun(Int) -> Int
 
 fun twice(n: !Int) -> Int

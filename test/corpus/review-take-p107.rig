@@ -1,7 +1,7 @@
-struct S
+obj S
   a: Int?
 
-struct T
+obj T
   s: S
 
 fun mk() -> S

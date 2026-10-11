@@ -1,4 +1,4 @@
-struct Box2[T]
+obj Box2[T]
   x: T
 
 fun mk(v: ?List[Int]) -> (Box2[[]Int])?

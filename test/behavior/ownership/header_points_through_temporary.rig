@@ -7,7 +7,7 @@
 # header's temporary is gone.
 # release
 
-struct C
+obj C
   c: Cell[Int]
 
 enum E
@@ -18,7 +18,7 @@ enum F
   a(n: Int)
   b(n: Int)
 
-struct S
+obj S
   e: E
   o: String?
 

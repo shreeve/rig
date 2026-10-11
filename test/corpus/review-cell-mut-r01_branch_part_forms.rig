@@ -1,12 +1,12 @@
 # Parts of a value that branches between a name's leaf and one made
 # there, lent or iterated rather than used as a `?self` receiver.
-struct T
+obj T
   c: Cell[Int]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-struct W
+obj W
   t: T
   n: Int
 

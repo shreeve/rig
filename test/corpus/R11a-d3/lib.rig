@@ -4,7 +4,7 @@ pub fun first[T](v: ?List[T]) -> ?T
 pub fun pick[T](a: ?T, b: ?T) -> ?T
   a
 
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
   fun peek(?self) -> ?T

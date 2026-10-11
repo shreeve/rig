@@ -3,11 +3,11 @@
 # the loop runs out, breaks, has an `else`, or is labeled, as the
 # `h = …; while (!h).next() as it` it is written as does.
 
-struct Item
+obj Item
   name: ?String
   n: Int
 
-struct Buf
+obj Buf
   buf: List[Item]
   at: Int
 

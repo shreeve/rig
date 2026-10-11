@@ -4,7 +4,7 @@
 
 type Str = String
 
-struct Note
+obj Note
   title: String
   n: Int
 

@@ -1,4 +1,4 @@
-struct P
+obj P
   v: List[Int]
 
   fun peek(?self, other: !P) -> Int

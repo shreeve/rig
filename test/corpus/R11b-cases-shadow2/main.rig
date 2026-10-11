@@ -1,9 +1,9 @@
 use lib
 
-struct Wrap[T]
+obj Wrap[T]
   w: T
 
-struct S
+obj S
   Wrap: List[Int]
 
 fun f(lib: Int) -> Int

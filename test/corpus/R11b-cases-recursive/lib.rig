@@ -1,11 +1,11 @@
-pub struct Node[T]
+pub obj Node[T]
   v: T
   next: (*Node[T])?
 
   fun val(?self) -> T
     self.v
 
-pub struct Tree[T]
+pub obj Tree[T]
   kids: List[Tree[T]]
   v: T
 

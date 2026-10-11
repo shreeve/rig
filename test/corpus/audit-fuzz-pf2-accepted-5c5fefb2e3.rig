@@ -1,6 +1,6 @@
 type UserId = Int
 
-struct Point
+obj Point
   x: Int
 
 type P = Point

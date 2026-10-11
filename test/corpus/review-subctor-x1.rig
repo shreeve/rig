@@ -1,7 +1,7 @@
 error Bad
   neg
 
-struct Node
+obj Node
   v: Int
 
 sub main()

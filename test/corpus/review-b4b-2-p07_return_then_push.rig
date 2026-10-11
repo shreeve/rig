@@ -1,5 +1,5 @@
 # A function returns a payload view of a List element; the caller then pushes. Expect reject at the push.
-struct Res
+obj Res
   n: Int
   t: String
 

@@ -1,5 +1,5 @@
 # A counter shared between two owners, attempt 3: a shared Cell
-struct Clicker
+obj Clicker
   name: ?String
   counter: *Cell[Int]
 

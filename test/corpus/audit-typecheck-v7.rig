@@ -1,4 +1,4 @@
-struct N
+obj N
   v: Int
 
 fun mk(o: ?*N?) -> ?*N?

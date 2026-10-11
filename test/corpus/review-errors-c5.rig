@@ -2,7 +2,7 @@ error Disk
   full
   empty
 
-struct H
+obj H
   e: Disk
   o: Disk? = .empty
 

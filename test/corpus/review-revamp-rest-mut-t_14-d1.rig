@@ -1,7 +1,7 @@
 # `if e as _` tests for a value without binding it; a resource inside is
 # dropped at once.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

@@ -1,4 +1,4 @@
-struct V
+obj V
   s: ![]Int
 
 fun mk(a: ![3]Int) -> V

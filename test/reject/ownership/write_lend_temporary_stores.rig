@@ -6,12 +6,12 @@
 # oracle: pushes_string reject C5
 # oracle: stores_through_bang reject C5
 
-struct S
+obj S
   n: Int
   t: String
   items: List[Int]
 
-struct H
+obj H
   rs: List[?String]
 
   sub keep(!self, r: ?String)

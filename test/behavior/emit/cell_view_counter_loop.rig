@@ -3,7 +3,7 @@
 # build keeps every change.
 # release
 
-struct C
+obj C
   c: Cell[Int]
   log: Cell[List[Int]]
 

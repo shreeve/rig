@@ -1,9 +1,9 @@
-struct Big
+obj Big
   a: Int
   b: Int
   c: Int
 
-struct Two
+obj Two
   x: Big
   y: Big
 

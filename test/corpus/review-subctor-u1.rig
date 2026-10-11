@@ -1,17 +1,17 @@
-struct A
+obj A
   xs: [3]Int
 
-struct Name
+obj Name
   s: ?String
 
-struct Sl
+obj Sl
   items: List[?String]
 
 enum Kind
   one
   two
 
-struct K
+obj K
   k: Kind
 
 sub main()

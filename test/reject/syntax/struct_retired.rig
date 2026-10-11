@@ -1,0 +1,10 @@
+# `struct` is spelled `obj`.
+
+struct Point
+  x: Int
+
+sub main()
+  print(1)
+
+# error: 3:1: write `obj Name`: `struct` is spelled `obj`
+# errors: 1

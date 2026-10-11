@@ -1,4 +1,4 @@
-struct Lexer
+obj Lexer
   src: ?String
   pos: Int
 

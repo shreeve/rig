@@ -2,10 +2,10 @@
 # the arguments whose types could be held there (Core sentence 7): a
 # counter's name is free after the call, while the view stored stays.
 
-struct Counter
+obj Counter
   n: Int
 
-struct Holder
+obj Holder
   r: []Int
 
 sub bump(c: !Counter, name: ?String)

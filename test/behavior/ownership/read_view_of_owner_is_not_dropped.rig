@@ -2,17 +2,17 @@
 # struct, box, or closure holding the view never drops what it views.
 # (Owned closures cannot capture views; stack closures can.)
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
-struct View
+obj View
   b: ?Wrap
 
-struct Holder
+obj Holder
   own: List[Int]
   b: ?Wrap
 
-struct Tracked
+obj Tracked
   n: Int
 
   drop(!self)

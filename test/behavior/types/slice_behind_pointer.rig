@@ -1,7 +1,7 @@
 # An array behind a pointer (a lent to write parameter, a List's buffer)
 # is not the function's copy, so a slice of it can be returned.
 
-struct S
+obj S
   arr: [3]Int
 
 fun head(xs: ![3]Int) -> []Int

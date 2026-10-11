@@ -1,6 +1,6 @@
 # A block-local name at the tail of a branch stored in a field leaves the
 # branch before its defer runs; the defer cannot write it.
-struct H
+obj H
   v: List[Int]
 
 sub main()

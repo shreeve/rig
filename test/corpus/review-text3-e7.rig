@@ -1,6 +1,6 @@
 use std.text
 
-struct N
+obj N
   id: Int
   t: String
 

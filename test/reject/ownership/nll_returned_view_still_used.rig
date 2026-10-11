@@ -1,7 +1,7 @@
 # A view a function returns views every viewed argument, until
 # its last use.
 
-struct Wrap
+obj Wrap
   n: Int
 
   sub bump(!self)

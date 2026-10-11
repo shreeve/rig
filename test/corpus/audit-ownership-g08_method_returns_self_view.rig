@@ -1,4 +1,4 @@
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)
@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-struct Bag
+obj Bag
   items: List[*Tok]
 
   fun first(?self) -> ?*Tok

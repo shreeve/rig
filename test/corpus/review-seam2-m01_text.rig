@@ -6,7 +6,7 @@
 # oracle: mkt accept
 # oracle: f accept
 # oracle: app accept
-struct H
+obj H
   t: String
   ts: List[String]
 

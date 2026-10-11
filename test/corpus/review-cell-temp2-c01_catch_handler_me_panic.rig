@@ -7,7 +7,7 @@
 error E
   bad
 
-struct N
+obj N
   c: Cell[Int]
 
   fun me(!self) -> ?N

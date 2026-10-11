@@ -1,11 +1,11 @@
 # A view stored in a struct field keeps its owner viewed while the
 # struct is live.
 
-struct Wrap
+obj Wrap
   payload: Int
   log: List[Int]
 
-struct View
+obj View
   box: ?Wrap
 
 sub main()

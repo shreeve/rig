@@ -1,6 +1,6 @@
 # A Cell changed through each kind of match payload binding: read,
 # write, consumed, in a loop that continues, and a guard.
-struct C
+obj C
   c: Cell[Int]
   log: Cell[List[Int]]
 

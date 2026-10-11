@@ -1,6 +1,6 @@
 use lib
 
-struct Q
+obj Q
   f: fun(?Int) -> Int
 
 fun twice(n: ?Int) -> Int

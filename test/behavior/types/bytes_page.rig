@@ -4,7 +4,7 @@
 
 MAGIC: U32 = 0x52494721
 
-struct Header
+obj Header
   magic: U32
   count: U16
   free: U16

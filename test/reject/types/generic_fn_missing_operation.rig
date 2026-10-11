@@ -2,7 +2,7 @@
 # make: `>` is defined for numbers and Strings, not for a struct, and
 # the error names the call and, in a note, the body line that needs it.
 
-struct P
+obj P
   n: Int
 
 fun max[T](a: T, b: T) -> T

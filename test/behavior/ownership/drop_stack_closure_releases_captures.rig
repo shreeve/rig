@@ -1,7 +1,7 @@
 # `<f` on a closure that owns its captures releases them now; a closure
 # that is not dropped releases them at scope exit.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

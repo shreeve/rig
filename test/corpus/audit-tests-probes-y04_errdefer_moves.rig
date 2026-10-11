@@ -1,7 +1,7 @@
 error E
   bad
 
-struct R
+obj R
   v: List[Int]
 
 sub eat(r: R)

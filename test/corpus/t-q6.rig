@@ -1,12 +1,12 @@
-struct P
+obj P
   x: Int
   y: Int
 
-struct S
+obj S
   a: List[Int]
   b: Int
 
-struct Q
+obj Q
   a: P
   b: Int
 
@@ -27,7 +27,7 @@ fun rp(p: P, n: Int) -> Int
 fun rs(s: []Int, n: Int) -> Int
   s.len + n
 
-struct T
+obj T
   x: Int
   fun get(?self, n: Int) -> Int
     self.x + n

@@ -1,6 +1,6 @@
 # held / taken: a view of a loop element over a made value's field
 # (`held`) or a made array (`taken`) stored past the loop.
-struct H
+obj H
   items: [2]String
   n: Int
 

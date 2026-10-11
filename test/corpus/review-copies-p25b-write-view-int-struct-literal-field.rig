@@ -1,4 +1,4 @@
-struct Q
+obj Q
   p: Int
   o: Int?
 

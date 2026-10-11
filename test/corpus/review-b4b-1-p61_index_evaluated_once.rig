@@ -4,7 +4,7 @@ enum E
   a(t: String)
   b
 
-struct K
+obj K
   n: Cell[Int]
 
 fun idx(k: !K, s: ?String) -> Int

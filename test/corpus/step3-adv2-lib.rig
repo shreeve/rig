@@ -1,4 +1,4 @@
-pub struct Box[T]
+pub obj Box[T]
   v: T
 
   fun get(?self) -> T
@@ -9,7 +9,7 @@ pub struct Box[T]
     print(b.v.v)
     1
 
-pub struct Deep[T]
+pub obj Deep[T]
   v: T
 
   fun deeper(?self) -> Int
@@ -17,7 +17,7 @@ pub struct Deep[T]
     print(d == none)
     1
 
-pub struct Tagger
+pub obj Tagger
   label: ?String
 
   fun add[T](?self, x: T) -> T

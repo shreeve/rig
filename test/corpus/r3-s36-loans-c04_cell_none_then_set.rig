@@ -1,8 +1,8 @@
 # Per value: a Cell whose type may hold a view, made from `none`.
-struct R
+obj R
   n: Int
 
-struct V
+obj V
   r: ?R
 
 sub main()

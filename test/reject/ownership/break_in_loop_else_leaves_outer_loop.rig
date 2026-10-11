@@ -1,7 +1,7 @@
 # A loop's `else` runs after the loop, so a `break` there leaves the
 # loop around it: `b` is moved when the outer loop ends.
 
-struct B
+obj B
   n: Int
 
 sub eat(b: *B)

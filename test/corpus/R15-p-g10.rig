@@ -1,4 +1,4 @@
-struct S
+obj S
   x: [2]Int
   y: [2]Int
 

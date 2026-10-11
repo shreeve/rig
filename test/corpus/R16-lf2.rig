@@ -1,11 +1,11 @@
-struct Wrap
+obj Wrap
   n: Int
 
   drop(!self)
     self.n = 0
     print("drop")
 
-struct View
+obj View
   w: ?Wrap
 
 sub fill(out: !View, f: ?sub(!View))

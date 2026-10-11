@@ -1,7 +1,7 @@
 error E
   bad
 
-struct C
+obj C
   n: Int
 
   sub put(!self, v: List[Int], b: Int)

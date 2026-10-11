@@ -1,7 +1,7 @@
 # leaf storage: `(mko() ?? b).me()` -- the left leaf is a made optional
 # (a Zig rvalue); `|*__rig_leaf|` captures a pointer into it. Does the
 # checker let the view outlive the statement?
-struct Q
+obj Q
   a: Int
   n: Int
 

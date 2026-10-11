@@ -1,7 +1,7 @@
 # A struct holding a Text compares field by field after the right
 # operand runs: the right operand cannot lend the left one to write.
 
-struct Q
+obj Q
   t: String
 
 fun growq(q: !Q) -> Q

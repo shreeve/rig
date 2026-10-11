@@ -6,7 +6,7 @@
 # while they live.
 # release
 
-struct Res
+obj Res
   n: Int
   t: String
 

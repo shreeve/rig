@@ -11,7 +11,7 @@ K = util.Byte.max - 250
 F = util.Real.min
 C = Local(3) + 1
 
-struct D
+obj D
   b: util.Byte = util.Byte.max
   r: util.Real = util.Real.max
 

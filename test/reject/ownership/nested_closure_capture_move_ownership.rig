@@ -1,7 +1,7 @@
 # A nested closure cannot move an outer closure's capture: the outer
 # closure may run again.
 
-struct B
+obj B
   n: Int
 
 sub main()

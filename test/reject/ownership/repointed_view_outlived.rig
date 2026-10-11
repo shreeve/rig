@@ -1,7 +1,7 @@
 # A view pointed elsewhere may not outlive what it views, in a field or
 # a local.
 
-struct H
+obj H
   r: ?Int
 
 sub main()

@@ -1,4 +1,4 @@
-struct Bag
+obj Bag
   n: Int
   v: List[Int]
 
@@ -16,7 +16,7 @@ fun size(b: ?Bag) -> Int
 sub eat(b: Bag)
   print(b.n)
 
-struct Hold
+obj Hold
   b: Bag
 
 sub main()

@@ -1,10 +1,10 @@
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Holder
+obj Holder
   r: Res
 
 sub main()

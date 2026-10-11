@@ -2,7 +2,7 @@
 # `!self` method may lend it a view of a local: nothing of `self` can
 # keep the view.
 
-struct Map[K]
+obj Map[K]
   hash: fun(?K) -> U64
   n: Int
 

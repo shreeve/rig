@@ -1,6 +1,6 @@
 # `~x` needs a shared handle `*T`; a plain struct value has no weak form.
 
-struct User
+obj User
   name: ?String
 
 sub main()

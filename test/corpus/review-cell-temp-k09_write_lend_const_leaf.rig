@@ -3,7 +3,7 @@
 #
 # oracle: P.bumpw accept
 # oracle: main accept
-struct P
+obj P
   n: Int
 
   sub bumpw(!self)

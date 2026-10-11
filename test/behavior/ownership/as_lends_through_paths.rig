@@ -2,13 +2,13 @@
 # field, a call returning a view, a local holding one. `as _` tests
 # without binding, and `while !o as v` changes the value each time.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Holder
+obj Holder
   r: Res?
 
 fun get(h: ?Holder) -> ?Res?

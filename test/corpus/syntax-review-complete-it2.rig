@@ -1,4 +1,4 @@
-struct Bag
+obj Bag
   items: List[Int]
 
   fun slice(?self) -> []Int

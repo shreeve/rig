@@ -1,4 +1,4 @@
-struct Node
+obj Node
   n: Int
   drop(!self)
     print("drop", self.n)

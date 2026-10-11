@@ -1,5 +1,5 @@
 # a Cell change through an element of a read-viewed array/slice/List
-struct C
+obj C
   c: Cell[Int]
 
 sub bump(a: ![2]C, s: []C, v: !List[C])

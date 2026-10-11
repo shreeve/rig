@@ -1,7 +1,7 @@
 # Deeply nested loops are checked in time that grows with the nesting,
 # not exponentially: each loop settles once for every walk of its body.
 
-struct Tok
+obj Tok
   n: Int
 
 sub eat(t: *Tok)

@@ -5,7 +5,7 @@
 # A Random is unique: it moves rather than copies, since a copy would draw
 # the same numbers as the original. `fork` makes a second generator on
 # purpose.
-pub struct Random unique
+pub obj Random unique
   state: U64
 
   # A generator whose sequence is fixed by `seed`.

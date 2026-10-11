@@ -1,4 +1,4 @@
-struct C
+obj C
   c: Cell[Int]
 
 sub f(o: ?((!C)?))

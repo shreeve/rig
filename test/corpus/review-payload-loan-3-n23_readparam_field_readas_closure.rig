@@ -1,8 +1,8 @@
-struct P
+obj P
   t: String
   n: Int
 
-struct H
+obj H
   o: (!P)?
 
 sub f(h: ?H)

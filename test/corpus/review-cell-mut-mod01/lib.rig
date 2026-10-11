@@ -1,10 +1,10 @@
-pub struct C
+pub obj C
   pub c: Cell[Int]
 
   pub sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-pub struct W
+pub obj W
   pub c: C
   pub n: Int
 
@@ -12,7 +12,7 @@ pub struct W
     !self.c.hit()
     !self.c.hit()
 
-pub struct G[T]
+pub obj G[T]
   pub x: T
 
   pub sub run(?self, f: ?sub(?T))

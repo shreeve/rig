@@ -1,7 +1,7 @@
 # A block-bodied closure naming an outer loop label. Expected: rejected.
 #
 # oracle: mk accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

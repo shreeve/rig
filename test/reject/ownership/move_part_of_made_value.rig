@@ -15,7 +15,7 @@
 error E
   bad
 
-struct S
+obj S
   n: Int
   v: List[Int]
   arr: [2]Int
@@ -37,7 +37,7 @@ fun mkh() -> *S
 fun gw(s: !S) -> !S
   s
 
-struct G[T]
+obj G[T]
   f: T
 
 fun generic[T](x: T) -> T

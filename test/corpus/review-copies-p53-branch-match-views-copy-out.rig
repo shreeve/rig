@@ -1,6 +1,6 @@
 # Branching values whose every arm is a `?P`, where a `P` is expected:
 # a branch, a match, a block, and a `??` whose fallback is a view too.
-struct P
+obj P
   x: Int
 
 fun two(a: ?P, b: ?P, f: Bool) -> P

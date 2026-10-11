@@ -1,12 +1,12 @@
 # Review probe r2/z03_assign_me_temp.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
-struct S
+obj S
   n: Int
   t: String
 
   drop(!self)
     print("dropS", self.n)
 
-struct H
+obj H
   r: ?String
 
   fun me(!self) -> !H

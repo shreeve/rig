@@ -1,7 +1,7 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
 fun get(r: ?P, ok: Bool) -> (?P)!

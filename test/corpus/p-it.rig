@@ -6,7 +6,7 @@ fun find(s: ?String, pat: ?String) -> Int?
     i += 1
   none
 
-struct Split
+obj Split
   rest: ?String
   sep: ?String
   done: Bool
@@ -21,7 +21,7 @@ struct Split
     self.rest = self.rest[at + self.sep.len..]
     part
 
-struct Lines
+obj Lines
   rest: ?String
 
   fun next(!self) -> (?String)?
@@ -35,7 +35,7 @@ struct Lines
     self.rest = self.rest[end + 1..]
     strip_suffix(line, "\r") ?? line
 
-struct Cut
+obj Cut
   before: ?String
   after: ?String
 

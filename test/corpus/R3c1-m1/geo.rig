@@ -1,7 +1,7 @@
-pub struct Node
+pub obj Node
   n: Int
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
   id: Int
 
@@ -9,11 +9,11 @@ enum Opt[T]
   some(value: T)
   nothing
 
-pub struct Point
+pub obj Point
   x: Int
   y: Int
 
-pub struct Tagged
+pub obj Tagged
   id: Int
   h: *Node
 

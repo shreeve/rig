@@ -5,21 +5,21 @@
 # `break` value, and the tail of a value `if` or `match` block all yield
 # it past that statement.
 
-struct S
+obj S
   n: Int
   m: Int
 
   fun me(?self) -> ?S
     self
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
   fun me(?self, j: Int, k: Int) -> ?Q
     self
 
-struct H
+obj H
   q: Q
 
 fun mk(k: Int) -> S

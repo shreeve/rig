@@ -1,6 +1,6 @@
 # `?? return` leaves; the rest stays reachable and a loan taken
 # before it must stay in force after.
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)

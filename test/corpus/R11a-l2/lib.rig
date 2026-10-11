@@ -11,7 +11,7 @@ pub sub show[k: Int]()
 pub fun plain[k: Int]() -> Int
   k
 
-pub struct Maker
+pub obj Maker
   x: Int
 
   fun zeros[n: Int]() -> [n]Int
@@ -23,7 +23,7 @@ pub fun sum[n: Int](xs: [n]Int) -> Int
     t += x
   t
 
-pub struct Ring[T, n: Int]
+pub obj Ring[T, n: Int]
   items: [n]T
 
   fun cap(?self) -> Int

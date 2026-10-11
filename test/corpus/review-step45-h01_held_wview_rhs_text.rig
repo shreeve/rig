@@ -1,6 +1,6 @@
 # h.w = w2: a bare held write view on the right writes the value it reaches.
 # For Text this would copy the buffer pointer (double free) unless rejected.
-struct H
+obj H
   w: !String
 
 sub main()

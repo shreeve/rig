@@ -1,4 +1,4 @@
-struct A3
+obj A3
   arr: [3]Int
 
 sub main()

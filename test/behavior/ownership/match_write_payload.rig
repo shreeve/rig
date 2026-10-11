@@ -2,7 +2,7 @@
 # assigning it writes the matched value in place (a resource replaced is
 # dropped), through a local, a `!T` parameter, a field, or a box.
 
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -12,7 +12,7 @@ enum Shape
   circle(r: Int)
   rect(w: Int, h: Int)
 
-struct Holder
+obj Holder
   s: Shape
 
 enum Slot

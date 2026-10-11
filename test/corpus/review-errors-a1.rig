@@ -5,7 +5,7 @@ error Disk
 error Net
   timeout
 
-struct Rec
+obj Rec
   e: Disk = .full
   f: Disk? = none
 

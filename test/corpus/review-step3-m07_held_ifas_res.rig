@@ -1,11 +1,11 @@
-struct Res
+obj Res
   n: Int
   t: String
 
   drop(!self)
     print("drop", self.n)
 
-struct Bag
+obj Bag
   o: Res?
   p: Res?
 

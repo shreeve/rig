@@ -4,13 +4,13 @@
 # result keeps no view reads a value that branches as before, and one
 # called on what each branch lends keeps every branch lent.
 
-struct P
+obj P
   xs: [4]Int
 
   fun arr(?self) -> ?[4]Int
     ?self.xs
 
-struct S
+obj S
   t: String
 
   fun inner(?self) -> ?String

@@ -1,4 +1,4 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun conv[U](?self, u: U) -> U

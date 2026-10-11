@@ -2,7 +2,7 @@
 # in turn; the loop drops the ones a `break` leaves, and the array is
 # not dropped again. An array made in the header is taken the same way.
 
-struct D
+obj D
   n: Int
 
   drop(!self)

@@ -1,6 +1,6 @@
 # The step pushes through a write view the binding holds while the body
 # replaced the List (two writers of `v` across the body).
-struct W
+obj W
   v: !List[Int]
 
 fun mk(v: !List[Int], i: Int) -> W?

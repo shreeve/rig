@@ -2,13 +2,13 @@
 # value built from it keeps the owner lent while it, or a view it gave
 # out, is used.
 
-struct Hold[T]
+obj Hold[T]
   v: T
 
   fun get(?self) -> T
     self.v
 
-struct Pair[A, B]
+obj Pair[A, B]
   a: A
   b: B
 

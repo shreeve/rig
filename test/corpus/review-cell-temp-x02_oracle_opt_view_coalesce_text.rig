@@ -3,7 +3,7 @@
 # oracle: T.opt accept
 # oracle: mkt accept
 # oracle: main accept
-struct T
+obj T
   t: String
   n: Int
 

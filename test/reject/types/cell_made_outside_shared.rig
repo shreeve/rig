@@ -2,7 +2,7 @@
 # made there, or as a field's default: a bare one, a temporary, and a
 # Cell in a built-in generic's value are rejected.
 
-struct Counter
+obj Counter
   hits: Cell[Int] = Cell(0)
 
   fun hit(!self) -> Int

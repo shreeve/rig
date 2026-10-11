@@ -1,4 +1,4 @@
-struct S
+obj S
   n: Int
 
   fun add(!self, x: Int) -> Bool

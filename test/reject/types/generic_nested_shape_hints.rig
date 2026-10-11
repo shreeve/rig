@@ -3,7 +3,7 @@
 # mismatch that follows says how to pass the expected type on. A hint
 # never spells a type an expression cannot.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun make(v: T) -> Wrap[T]

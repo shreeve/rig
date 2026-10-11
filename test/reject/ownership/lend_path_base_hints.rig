@@ -7,10 +7,10 @@
 # that draws another error of its own, or a path spread over lines. A
 # method a call does not find is the call's to report.
 
-struct Log
+obj Log
   log: Cell[List[Int]]
 
-struct P
+obj P
   x: Int
   o: Int?
   arr: [3]Int

@@ -3,10 +3,10 @@
 # instantiations reached through another generic's body (`Opt[*B]`
 # through `Holder[*B]`).
 
-struct B
+obj B
   n: Int
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun get(?self) -> T
@@ -21,7 +21,7 @@ enum Opt[T]
       .some(v) => v
       .nothing => <d
 
-struct Holder[T]
+obj Holder[T]
   v: T
 
   fun peek(?self, x: T, d: T) -> Int

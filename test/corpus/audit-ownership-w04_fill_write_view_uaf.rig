@@ -1,4 +1,4 @@
-struct Ed
+obj Ed
   t: !List[Int]
 
 sub clear(e: Ed)

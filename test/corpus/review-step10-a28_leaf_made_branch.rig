@@ -2,7 +2,7 @@
 # a place leaf, read where its leaves are (`reachesLeaf`). Is the made
 # leaf in a slot, or `&mkq(5)`, the address of a Zig rvalue? A hoisted
 # call (keyword arguments out of order) holds it in `__rig_recv_N`.
-struct Q
+obj Q
   xs: [4]Int
 
   fun me(?self) -> ?Q

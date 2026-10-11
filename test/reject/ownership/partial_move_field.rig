@@ -2,13 +2,13 @@
 # struct's drop glue would still drop the field at scope exit. Move the
 # struct whole, or clone a shared field with `+p.a`.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)
     print(self.payload + 100)
 
-struct Pair
+obj Pair
   a: *Wrap
   b: *Wrap
 

@@ -1,7 +1,7 @@
 # The defers run at `o?` only on the path that leaves with `none`. On
 # the path that goes on, the defer has not run, so its reassignment
 # does not revive the moved `x`.
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)

@@ -2,13 +2,13 @@
 # even through a read view of its holder, gives two handles that write
 # through one view: the field is rejected where it is declared.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
-struct WV
+obj WV
   b: !Wrap
 
-struct Hold
+obj Hold
   h: *WV
 
 sub main()

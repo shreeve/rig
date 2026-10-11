@@ -1,5 +1,5 @@
 # Core §5: arrays hold anything (decided); SPEC §18 rejects arrays of owning values
-struct B
+obj B
   n: Int
 
 sub main()

@@ -1,7 +1,7 @@
-struct Big
+obj Big
   v: List[Int]
 
-struct View
+obj View
   b: ?Big
 
 fun put(v: !View, t: ?Big) -> Bool

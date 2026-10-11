@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   fun eq(?self, o: ?P) -> Bool
     self.x == o.x

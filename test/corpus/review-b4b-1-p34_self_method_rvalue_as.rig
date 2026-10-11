@@ -1,5 +1,5 @@
 # `if … as` through a `?self` view of a plain made receiver; index makes an owning temp.
-struct P
+obj P
   xs: [2]Int?
 
   fun items(?self) -> ?[2]Int? from self

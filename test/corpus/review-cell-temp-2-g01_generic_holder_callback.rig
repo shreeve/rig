@@ -5,10 +5,10 @@
 # oracle: Hold.read accept
 # oracle: bump accept
 # oracle: bumped accept
-struct N
+obj N
   c: Cell[Int]
 
-struct Hold[T]
+obj Hold[T]
   x: T
 
   sub run(?self, f: ?sub(?T))

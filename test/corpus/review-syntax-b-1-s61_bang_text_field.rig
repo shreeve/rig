@@ -1,7 +1,7 @@
 fun word(s: ?String) -> ?String
   s
 
-struct H
+obj H
   t: !String
 
 sub main()

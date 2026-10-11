@@ -1,4 +1,4 @@
-struct View
+obj View
   s: ![]U8
 
 sub f(v: ?View)

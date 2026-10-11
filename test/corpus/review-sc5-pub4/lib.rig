@@ -1,4 +1,4 @@
-pub struct Res
+pub obj Res
   pub n: Int
   secret: Int = 9
 
@@ -11,7 +11,7 @@ pub struct Res
 pub fun mk(n: Int) -> Res
   Res(n: n)
 
-pub struct Holder[T]
+pub obj Holder[T]
   pub v: T
   hidden: Int = 0
 

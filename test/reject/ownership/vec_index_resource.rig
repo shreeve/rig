@@ -1,7 +1,7 @@
 # An element of a List of handles is a place: a bare use would copy the
 # handle out of it.
 
-struct N
+obj N
   v: Int
 
 sub main()

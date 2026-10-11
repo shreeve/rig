@@ -1,7 +1,7 @@
 # Field reads and read-receiver method calls auto-deref through a shared
 # `*User` handle.
 
-struct User
+obj User
   age: Int
 
   fun read_age(self: ?User) -> Int

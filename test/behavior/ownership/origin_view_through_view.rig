@@ -2,10 +2,10 @@
 # loan on its holder (Core sentence 7): a cursor holding a view of a List
 # hands out views of the List's items, and stays free to move on.
 
-struct Item
+obj Item
   n: Int
 
-struct Cursor
+obj Cursor
   items: ?List[Item]
   i: Int
 
@@ -14,7 +14,7 @@ struct Cursor
     self.i += 1
     ?self.items[k]
 
-struct Pair
+obj Pair
   a: ?List[Int]
   b: ?List[Int]
 

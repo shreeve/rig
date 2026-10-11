@@ -1,6 +1,6 @@
 # Control: a `break v` in a step (and `-1` as a statement-loop else) is
 # rejected by both main and the branch.
-struct D
+obj D
   n: Int
   drop(!self)
     print("drop", self.n)

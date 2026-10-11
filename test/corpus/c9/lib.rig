@@ -1,4 +1,4 @@
-pub struct Pair[T]
+pub obj Pair[T]
   pub a: T
   pub b: T
 

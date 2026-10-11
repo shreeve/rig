@@ -1,4 +1,4 @@
-struct Hold[T]
+obj Hold[T]
   v: T
 
 sub main()

@@ -2,7 +2,7 @@
 # `for` header cannot make one by value to lend: the made value is
 # rejected where it is written.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 sub main()

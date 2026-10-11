@@ -1,10 +1,10 @@
 # A resource nested deep inside generic wrappers still gives the whole
 # value drop glue, so copying it is rejected.
 
-struct P
+obj P
   n: Int
 
-struct Wrap[T]
+obj Wrap[T]
   value: T
 
 sub main()

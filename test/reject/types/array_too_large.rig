@@ -3,24 +3,24 @@
 # checked for the arrays it makes and for its own size. A type that
 # holds a type too large is not reported again.
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
-struct Half
+obj Half
   a: [600000]Int
 
-struct Two
+obj Two
   a: [600000]Int
   b: [600000]Int
 
-struct Outer
+obj Outer
   t: Two
   more: [2]Two
 
-struct Wrap[T]
+obj Wrap[T]
   items: [2]T
 
-struct Pair[T]
+obj Pair[T]
   a: T
   b: T
 
@@ -28,7 +28,7 @@ enum Color
   red
   green
 
-struct Paint
+obj Paint
   shades: [9000000]Color?
 
 BIG = [4000000000 of 7]
@@ -53,7 +53,7 @@ sub main()
   print(a.len, b.len, c.len, r.items.len, z.len, w == none, p == none, d.len, [1048577 of 0].len)
 
 # error: 32:11: `[9000000]Color?` takes 18000000 bytes
-# error: 12:8: `Two` takes 9600000 bytes; a value takes at most 8388608 (8 MiB)
+# error: 12:5: `Two` takes 9600000 bytes; a value takes at most 8388608 (8 MiB)
 # error: 34:7: `[4000000000]Int` takes 32000000000 bytes
 # error: 44:6: `[4294967295]U8` takes 4294967295 bytes
 # error: 45:6: `[2]Half` takes 9600000 bytes

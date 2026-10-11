@@ -1,4 +1,4 @@
-struct S
+obj S
   b: ^String
 
 sub f(w: !S)

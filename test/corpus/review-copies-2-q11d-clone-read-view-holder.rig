@@ -1,5 +1,5 @@
 # A value holding only read views copies, so it clones.
-struct R
+obj R
   r: ?Int
   s: ?String
 

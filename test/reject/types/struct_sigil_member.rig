@@ -1,7 +1,7 @@
 # Sigil-prefixed names (`?x`) are sugar for `self` parameters only, not
 # struct members.
 
-struct S
+obj S
   name: ?String
   ?x
 

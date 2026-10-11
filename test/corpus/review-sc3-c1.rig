@@ -2,7 +2,7 @@ error E
   bad
   worse
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)

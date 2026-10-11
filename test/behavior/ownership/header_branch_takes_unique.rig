@@ -5,7 +5,7 @@
 # oracle: loops accept
 use std.random
 
-struct Die
+obj Die
   r: random.Random
 
 enum E

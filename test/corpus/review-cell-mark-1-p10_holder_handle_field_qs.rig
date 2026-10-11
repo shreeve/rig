@@ -1,7 +1,7 @@
-struct I
+obj I
   n: Cell[Int]
 
-struct S
+obj S
   h: *I
 
 sub f(s: ?S)

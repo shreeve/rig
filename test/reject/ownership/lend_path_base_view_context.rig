@@ -4,16 +4,16 @@
 # read view is lent for an argument. A leaf of a value that branches
 # takes the branch's, as its other leaves show.
 
-struct Q
+obj Q
   n: Int
 
-struct P
+obj P
   x: Int
   a: [2]Int
   q: Q
   items: List[Int]
 
-struct W
+obj W
   r: ?List[Int]
 
 sub bump(n: !Int)

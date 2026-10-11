@@ -1,11 +1,11 @@
-struct Wrap[T]
+obj Wrap[T]
   items: List[T]
 
   fun get(?self, i: Int) -> (?T)?
     return none if i >= self.items.len
     ?self.items[i]
 
-struct B
+obj B
   n: Int
   drop(!self)
     print("drop", self.n)

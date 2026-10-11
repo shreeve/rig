@@ -1,11 +1,11 @@
 # Taking an optional out of a field writes the field: not through a read
 # view or a shared handle.
 
-struct N
+obj N
   v: Int
   next: ^N?
 
-struct S
+obj S
   top: ^N?
   n: N
 

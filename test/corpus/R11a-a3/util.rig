@@ -5,7 +5,7 @@ pub fun dup[T](x: T) -> T
   y = x
   y
 
-pub struct Cell2[T]
+pub obj Cell2[T]
   v: T
 
   fun get(?self) -> T

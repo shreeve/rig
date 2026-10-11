@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   fun area(?self) -> Int
     self.x * 2

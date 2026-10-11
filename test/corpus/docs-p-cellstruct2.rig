@@ -1,4 +1,4 @@
-struct G
+obj G
   a: Cell[[1000000]Int]
   b: [100000]Int
 

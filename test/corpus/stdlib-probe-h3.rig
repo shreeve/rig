@@ -1,9 +1,9 @@
-struct B
+obj B
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct Pair[K, V]
+obj Pair[K, V]
   k: K
   v: V
 

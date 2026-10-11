@@ -1,4 +1,4 @@
-struct P
+obj P
   n: Int
   items: List[Int]
   sub bump(!self)

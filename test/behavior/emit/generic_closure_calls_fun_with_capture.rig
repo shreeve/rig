@@ -1,6 +1,6 @@
 # A generic closure calls a captured `fun(?T)` with a `|?w|` capture.
 
-struct P
+obj P
   n: Int
   t: String
 

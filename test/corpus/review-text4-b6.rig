@@ -1,9 +1,9 @@
-struct N
+obj N
   id: Int
   drop(!self)
     print("drop", self.id)
 
-struct W
+obj W
   h: *N
   c: Cell[Int]
 

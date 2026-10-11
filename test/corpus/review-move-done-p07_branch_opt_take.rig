@@ -1,5 +1,5 @@
 # take of an optional field through a branching value: emptied in which?
-struct S
+obj S
   o: List[Int]?
 
 sub main()

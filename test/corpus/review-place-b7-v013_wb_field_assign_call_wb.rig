@@ -1,4 +1,4 @@
-struct H
+obj H
   w: !Int
 
 fun pick(a: !Int) -> !Int

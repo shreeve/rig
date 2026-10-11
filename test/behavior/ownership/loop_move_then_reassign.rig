@@ -2,7 +2,7 @@
 # iteration is live again at the top of the loop; each value is dropped
 # once.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

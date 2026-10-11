@@ -3,7 +3,7 @@
 # (`holderLive`). Here `h` is read only on the NEXT iteration, through the
 # loop's back edge, after the call's storage (`__rig_recv_N`, a mutable
 # copy of `mkh().q`, poisoned) has ended.
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
@@ -11,10 +11,10 @@ struct Q
     h.r = self
     self.n
 
-struct Holder
+obj Holder
   r: (?Q)?
 
-struct H
+obj H
   q: Q
 
 fun mkh(k: Int) -> H

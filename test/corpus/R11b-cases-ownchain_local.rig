@@ -6,7 +6,7 @@ fun dup[T](x: T) -> T
 fun f[T](x: T) -> T
   dup(<x)
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

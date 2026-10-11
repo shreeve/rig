@@ -4,13 +4,13 @@
 # target lies in (through a List, a field, a Box, or a write view bound
 # to a local), and the store lands in the value as the call left it.
 
-struct Acc
+obj Acc
   total: Int
 
-struct P
+obj P
   a: [4]Int
 
-struct B
+obj B
   xs: List[Int]
 
 fun grow(v: !List[Int]) -> Int

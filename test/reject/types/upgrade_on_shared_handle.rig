@@ -1,7 +1,7 @@
 # `upgrade` is a built-in only on weak handles; calling it on a shared
 # handle (whose type has no `upgrade` method) points at `~rc`.
 
-struct User
+obj User
   name: ?String
 
 sub main()

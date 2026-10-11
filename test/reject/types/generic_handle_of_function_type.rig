@@ -10,23 +10,23 @@
 fun inc(a: Int) -> Int
   a + 1
 
-struct H[T]
+obj H[T]
   h: *T
 
-struct Wk[T]
+obj Wk[T]
   w: ~T
 
 enum E[T]
   a(h: *T)
   b
 
-struct V[T]
+obj V[T]
   hs: List[*T]
 
-struct O[T]
+obj O[T]
   h: (*T)?
 
-struct G[U]
+obj G[U]
   g: H[U]
 
 fun lend[T](h: ?*T) -> Int

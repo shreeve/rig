@@ -1,7 +1,7 @@
 # Two nominal types each have a `self` method with a different return
 # type; each call's result is formatted by its own type.
 
-struct User
+obj User
   name: ?String
 
   fun greet(?self) -> ?String

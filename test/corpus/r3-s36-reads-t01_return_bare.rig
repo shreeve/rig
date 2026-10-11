@@ -1,4 +1,4 @@
-struct Bag
+obj Bag
   v: List[Int]
 
 fun mk() -> Bag

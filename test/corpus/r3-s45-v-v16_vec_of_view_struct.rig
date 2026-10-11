@@ -1,4 +1,4 @@
-struct View
+obj View
   n: ?Int
 
 sub main()

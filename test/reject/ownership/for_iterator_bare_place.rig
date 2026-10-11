@@ -2,7 +2,7 @@
 # written `!it`; a value made in the header is held by the loop and
 # stays bare.
 
-struct Count
+obj Count
   lo: Int
   hi: Int
 

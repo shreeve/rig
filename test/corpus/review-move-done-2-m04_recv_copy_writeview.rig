@@ -1,12 +1,12 @@
 # A consuming method on a part holding a write view: it does not copy.
-struct WV
+obj WV
   w: !Int
 
   fun into(<self) -> Int
     self.w += 1
     self.w
 
-struct S
+obj S
   k: WV
 
 sub main()

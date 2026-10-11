@@ -1,6 +1,6 @@
 # A payload cannot be moved out of a viewed value.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 enum Slot

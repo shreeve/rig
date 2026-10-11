@@ -1,4 +1,4 @@
-struct BankAccount
+obj BankAccount
   owner: ?String
   balance: Float = 0.0
   history: List[Float]

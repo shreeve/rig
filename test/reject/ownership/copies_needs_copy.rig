@@ -2,7 +2,7 @@
 # `[n of x]`: one that owns a resource moves, and a write view has one
 # holder.
 
-struct O
+obj O
   v: List[Int]
 
 fun owner_out(p: ?O) -> O

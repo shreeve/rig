@@ -5,10 +5,10 @@
 # optimized build.
 # release
 
-struct C
+obj C
   c: Cell[Int]
 
-struct G[T]
+obj G[T]
   h: T
 
 fun pick[T](a: ?G[T], b: ?G[T], k: Bool) -> ?G[T]

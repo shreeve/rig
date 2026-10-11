@@ -1,4 +1,4 @@
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)
@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
   sub push(!self, x: T)

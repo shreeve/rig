@@ -1,6 +1,6 @@
 use geo
 
-struct P
+obj P
   x: Int
 
 enum S

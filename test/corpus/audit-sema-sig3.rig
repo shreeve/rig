@@ -1,4 +1,4 @@
-struct S
+obj S
   s: Cell[Signal[Int]]
 
 sub main()

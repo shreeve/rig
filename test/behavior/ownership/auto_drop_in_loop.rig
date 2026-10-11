@@ -1,7 +1,7 @@
 # A handle declared inside a loop body is dropped at the end of each
 # iteration.
 
-struct C
+obj C
   v: Int
 
   drop(!self)

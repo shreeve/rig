@@ -1,8 +1,8 @@
-struct Res
+obj Res
   n: Int
   t: String
 
-struct P
+obj P
   a: Int
   b: Int
 
@@ -10,7 +10,7 @@ enum E
   a(p: P)
   b
 
-struct H
+obj H
   e: E
   t: String
 

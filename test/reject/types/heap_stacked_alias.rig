@@ -4,7 +4,7 @@
 type Boxed = ^Int
 type Counted = *Int
 
-struct Holder
+obj Holder
   a: ^Boxed
   b: *Boxed
   c: ^Counted

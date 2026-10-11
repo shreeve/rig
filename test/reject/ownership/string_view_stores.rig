@@ -2,7 +2,7 @@
 # through an element method (`copy`, `fill`) and an element or field
 # assignment, so the Text cannot be dropped while the place is in use.
 
-struct Name
+obj Name
   s: ?String
 
 sub main()

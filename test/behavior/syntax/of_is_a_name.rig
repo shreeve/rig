@@ -2,7 +2,7 @@
 # separates a fill literal's count from its element (`[n of x]`).
 # Everywhere else it is an ordinary name.
 
-struct Pair
+obj Pair
   of: Int
 
 fun twice(of: Int) -> Int

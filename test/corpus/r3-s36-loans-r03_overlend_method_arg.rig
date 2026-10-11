@@ -1,12 +1,12 @@
 # A `?self` method whose result can only view self still views
 # every viewed argument.
-struct Entry
+obj Entry
   name: ?String
 
-struct Pick
+obj Pick
   which: Int
 
-struct Table
+obj Table
   rows: [2]Entry
 
   fun get(?self, p: ?Pick) -> ?Entry

@@ -13,7 +13,7 @@ fun tail(xs: []Int) -> []Int
 fun first_two(xs: ?[4]Int) -> Int
   total(?xs[0..2])
 
-struct Grid
+obj Grid
   cells: [4]Int
 
 sub main()

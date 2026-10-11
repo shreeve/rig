@@ -1,19 +1,19 @@
 # A `?self` call on a part of a branching value inside generic code,
 # where whether the part holds a Cell depends on the instance.
-struct T
+obj T
   c: Cell[Int]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-struct H[X]
+obj H[X]
   x: X
   n: Int
 
   sub run(?self, f: ?sub(?X))
     f(?self.x)
 
-struct P[X]
+obj P[X]
   h: H[X]
 
 sub bump(t: !T)

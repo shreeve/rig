@@ -2,7 +2,7 @@
 # the optional cannot be used under a write view, nor dropped or
 # reassigned under any view.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

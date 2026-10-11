@@ -1,4 +1,4 @@
-struct H
+obj H
   log: Cell[List[Int]]
 
 sub f(x: !H, y: !H)

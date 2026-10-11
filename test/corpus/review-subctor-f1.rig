@@ -1,16 +1,16 @@
 error Bad
   neg
 
-struct Wrap[T]
+obj Wrap[T]
   item: T
 
-struct Inner
+obj Inner
   n: Int
 
-struct Outer
+obj Outer
   inner: Inner
 
-struct H
+obj H
   cb: *sub(Int)!
 
 fun get(n: Int) -> Int!

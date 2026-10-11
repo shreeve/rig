@@ -1,6 +1,6 @@
 use lib
 
-struct Q
+obj Q
   n: Int
 
   fun upgrade(?self) -> Int

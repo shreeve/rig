@@ -1,7 +1,7 @@
-struct Q
+obj Q
   s: ?String
 
-struct H
+obj H
   q: !Q
 
 sub main()

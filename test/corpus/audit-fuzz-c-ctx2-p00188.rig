@@ -49,10 +49,10 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-struct FA4395
+obj FA4395
   f: U8
 
-struct W244
+obj W244
   f: I8
   g: Int = 1
 
@@ -64,7 +64,7 @@ fun fu2185(s: Bool) -> Int?
   x = fo2185(s)?
   x
 
-struct GP3517[T]
+obj GP3517[T]
   f: T
 
 fun fal4734(ok: Bool) -> Float!

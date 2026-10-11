@@ -1,10 +1,10 @@
-struct Item
+obj Item
   n: Int
 
-struct Holder
+obj Holder
   r: ?Item
 
-struct Box2
+obj Box2
   h: !Holder
 
 sub put(h: !Holder)

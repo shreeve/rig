@@ -1,7 +1,7 @@
 # `U128` and `I128` are sized integers like the others: literals up to
 # their bounds, checked arithmetic and conversions, and printing.
 
-struct Wide
+obj Wide
   hi: U128
   lo: I128
 

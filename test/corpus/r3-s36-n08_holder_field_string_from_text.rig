@@ -1,4 +1,4 @@
-struct Holder[T]
+obj Holder[T]
   v: T
 
   fun get(?self) -> T

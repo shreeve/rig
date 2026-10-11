@@ -1,5 +1,5 @@
 # SPEC §7 Moves: "An optional field or element is the exception: `<p.f` takes"
-struct N
+obj N
   v: Int
 
 sub main()

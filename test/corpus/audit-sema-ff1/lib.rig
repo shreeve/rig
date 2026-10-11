@@ -1,7 +1,7 @@
 fun twice(n: ?Int) -> Int
   n * 2
 
-pub struct P
+pub obj P
   pub f: fun(?Int) -> Int
 
   pub fun make() -> P

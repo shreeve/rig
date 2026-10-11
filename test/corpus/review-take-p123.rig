@@ -1,4 +1,4 @@
-struct Tree
+obj Tree
   key: Int
   left: ^Tree?
 

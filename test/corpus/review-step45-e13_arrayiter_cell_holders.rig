@@ -1,5 +1,5 @@
 # consuming loop over an array of Cell holders
-struct C
+obj C
   c: Cell[Int]
 
 sub main()

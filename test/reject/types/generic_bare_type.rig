@@ -1,7 +1,7 @@
 # A generic type in type position needs its type arguments: `Wrap`
 # alone is not a type, `Wrap[Int]` is.
 
-struct Wrap[T]
+obj Wrap[T]
   value: T
 
 sub main()

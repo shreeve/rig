@@ -1,5 +1,5 @@
 # match (v[idx(?Text("a"))] if c else v[0]) guarded with Cell payload
-struct C
+obj C
   c: Cell[Int]
 
 enum E

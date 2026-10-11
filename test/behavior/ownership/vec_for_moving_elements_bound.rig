@@ -2,7 +2,7 @@
 # diagnostic says (`test/reject/ownership/vec_for_moving_elements_source.rig`),
 # is walked where the name holds it, or taken with `<`.
 
-struct H
+obj H
   items: List[String]
 
 fun mk() -> List[String]

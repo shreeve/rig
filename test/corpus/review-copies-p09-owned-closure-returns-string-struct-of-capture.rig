@@ -1,6 +1,6 @@
 # An owned closure returns a plain struct whose String views its own
 # captured Text; the closure is then dropped.
-struct P
+obj P
   s: ?String
 
 sub main()

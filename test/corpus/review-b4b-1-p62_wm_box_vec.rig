@@ -3,7 +3,7 @@ enum E
   a(n: Int, t: String)
   b
 
-struct H
+obj H
   f: List[E]
 
 sub viaparam(h: !H, i: Int)

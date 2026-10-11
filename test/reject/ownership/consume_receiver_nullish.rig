@@ -1,6 +1,6 @@
 # A consuming method's receiver is taken like an argument: each name a
 # `??` receiver may be is moved with `<` (`(<o ?? <b)`).
-struct Bag
+obj Bag
   items: List[Int]
 
   fun total(<self) -> Int

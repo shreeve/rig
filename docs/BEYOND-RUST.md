@@ -80,10 +80,10 @@ Polonius was designed to accept it. Rig accepts it today: the path that
 returns `r` ends there, so its loan never reaches the path that writes.
 
 ```rig
-struct Item
+obj Item
   n: Int
 
-struct Bag
+obj Bag
   items: [4]Item
 
 fun get_or_add(b: !Bag) -> ?Item
@@ -106,10 +106,10 @@ sub main()
 The same write is rejected on a path where the view is still live:
 
 ```rig reject
-struct Item
+obj Item
   n: Int
 
-struct Bag
+obj Bag
   items: [4]Item
 
 fun get_and_add(b: !Bag) -> ?Item

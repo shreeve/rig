@@ -1,12 +1,12 @@
 # guarded match h.v[idx(?Text("a"))] through a shared handle, Cell payload
-struct C
+obj C
   c: Cell[Int]
 
 enum E
   a(x: C)
   b(n: Int)
 
-struct S
+obj S
   v: List[E]
 
 fun idx(s: ?String) -> Int

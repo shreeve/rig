@@ -5,7 +5,7 @@ error E
 error F
   bad
 
-struct R
+obj R
   e: E
   oe: E?
 

@@ -9,7 +9,7 @@
 
 use std.sort
 
-struct Wrap[V]
+obj Wrap[V]
   v: V
 
   sub set(!self, v: V)
@@ -26,7 +26,7 @@ struct Wrap[V]
   sub again(?self)
     !(self.twice()).set(self.v)
 
-struct C
+obj C
   c: Int
 
   sub bump(!self)
@@ -36,7 +36,7 @@ struct C
     self.c += 10
     self.c
 
-struct B
+obj B
   n: Int
   items: List[Int]
 

@@ -1,6 +1,6 @@
 # A struct holding a List, moved out at a branch's tail: the defer that
 # grows the List would write a value the result now owns.
-struct R
+obj R
   v: List[Int]
 
 sub main()

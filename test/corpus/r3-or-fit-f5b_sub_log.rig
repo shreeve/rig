@@ -1,4 +1,4 @@
-struct Ctx
+obj Ctx
   name: ?String
   count: Int
 

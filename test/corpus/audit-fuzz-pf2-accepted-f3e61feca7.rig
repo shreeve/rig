@@ -10,7 +10,7 @@ fun thrice(n: Int) -> Int
 fun half(n: Int) -> Int!
   n / 2
 
-struct Op
+obj Op
   f: fun(Int) -> Int
   n: Int
 

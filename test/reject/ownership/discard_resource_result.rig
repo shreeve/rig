@@ -1,7 +1,7 @@
 # An expression statement whose value has drop glue (here the old value
 # from `c.replace`) cannot be discarded.
 
-struct User
+obj User
   age: Int
 
 sub main()

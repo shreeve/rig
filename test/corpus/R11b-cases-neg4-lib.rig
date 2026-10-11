@@ -1,4 +1,4 @@
-struct Hidden[T]
+obj Hidden[T]
   v: T
 
   fun m(?self) -> Int

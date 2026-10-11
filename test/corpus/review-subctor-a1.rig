@@ -1,7 +1,7 @@
 error Bad
   neg
 
-struct Acc
+obj Acc
   n: Int
 
   sub bump(!self, k: Int)!

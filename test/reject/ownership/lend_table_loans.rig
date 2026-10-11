@@ -5,7 +5,7 @@
 # is still used.
 use std.sort
 
-struct S
+obj S
   n: Int
 
 fun keep(xs: []Int) -> []Int

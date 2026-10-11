@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -9,7 +9,7 @@ enum E
 fun getw(e: !E) -> !E
   e
 
-struct H
+obj H
   w: (!E)?
 
 fun f(h: ?H) -> Int?

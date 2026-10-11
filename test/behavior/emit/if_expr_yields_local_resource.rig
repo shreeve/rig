@@ -1,7 +1,7 @@
 # A block that yields a resource declared inside it moves the resource
 # out: the binding receives it and nothing is dropped at the block's end.
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

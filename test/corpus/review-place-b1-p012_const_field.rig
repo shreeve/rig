@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
 
 const K = P(x: 1)

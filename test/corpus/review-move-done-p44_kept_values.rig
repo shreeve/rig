@@ -2,7 +2,7 @@ enum Color
   red
   blue
 
-struct S
+obj S
   n: Int
 
 fun one() -> Int

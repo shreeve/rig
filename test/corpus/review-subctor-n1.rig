@@ -3,7 +3,7 @@ error Bad
 
 type Cb = *sub(Int)!
 
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
   sub push(!self, x: T, limit: Int = 2)!

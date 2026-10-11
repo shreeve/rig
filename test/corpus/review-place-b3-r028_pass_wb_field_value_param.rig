@@ -1,7 +1,7 @@
 sub poke(w: !Int)
   w += 1
 
-struct H
+obj H
   w: !Int
 
 sub f(h: H)

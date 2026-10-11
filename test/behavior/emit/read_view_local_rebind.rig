@@ -2,7 +2,7 @@
 # result: a local, a parameter, and a result hold a plain read view
 # the same way.
 
-struct Wrap
+obj Wrap
   n: Int
 
 fun get(w: ?Wrap) -> ?Wrap

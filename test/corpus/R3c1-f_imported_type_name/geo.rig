@@ -1,6 +1,6 @@
-pub struct Point
+pub obj Point
   x: Int
 
-pub struct Tagged
+pub obj Tagged
   id: Int
   h: *Point

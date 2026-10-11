@@ -7,7 +7,7 @@
 # A branching value of plain data is read as a copy, which its statement
 # keeps: a view of it is used within the statement.
 
-struct S
+obj S
   t: String
   xs: [4]Int
 
@@ -20,10 +20,10 @@ struct S
   fun arr(?self) -> ?[4]Int
     ?self.xs
 
-struct W
+obj W
   s: S
 
-struct P
+obj P
   xs: [4]Int
 
   fun arr(?self) -> ?[4]Int

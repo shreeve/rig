@@ -1,4 +1,4 @@
-struct V
+obj V
   p: ?Int
 
 sub main()

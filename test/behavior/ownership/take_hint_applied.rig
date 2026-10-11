@@ -1,9 +1,9 @@
 # The forms the copy rejection offers for an optional field, applied.
 
-struct Bag
+obj Bag
   items: List[Int]
 
-struct H
+obj H
   o: Bag?
 
 sub viaread(p: ?H)

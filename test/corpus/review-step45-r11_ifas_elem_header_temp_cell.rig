@@ -1,5 +1,5 @@
 # if v[idx(?Text("a"))] as c over List[C?]: header temporary + element subject; Cell change must land
-struct C
+obj C
   c: Cell[Int]
 
 fun idx(s: ?String) -> Int

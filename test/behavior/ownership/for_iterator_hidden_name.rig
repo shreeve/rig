@@ -4,7 +4,7 @@
 # each other each have theirs.
 # release
 
-struct Count
+obj Count
   lo: Int
   hi: Int
 

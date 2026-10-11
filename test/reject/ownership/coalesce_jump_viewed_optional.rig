@@ -2,7 +2,7 @@
 # Through a view of an optional the handle inside still belongs to
 # the lender, so taking it out would free it twice.
 
-struct N
+obj N
   v: Int
 
 sub take_read(o: ?*N?)

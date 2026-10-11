@@ -1,7 +1,7 @@
 # A write view stands in a parameter, a result, a receiver, and a local
 # or header binding, also as `(!T)?` and `(!T)!`.
 
-struct P
+obj P
   n: Int
 
   fun bump(!self) -> !Int

@@ -5,7 +5,7 @@
 # test/known/ownership/match_made_part_cell_holder.rig. `as` and `match`
 # bindings that view one: header_temporary_view_bound.rig.)
 
-struct B
+obj B
   v: List[Int]
   o: String?
 
@@ -13,7 +13,7 @@ enum E
   a(t: String)
   z
 
-struct H
+obj H
   e: E
 
 fun mk() -> B

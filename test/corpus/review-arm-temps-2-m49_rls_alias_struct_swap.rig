@@ -1,6 +1,6 @@
 # A store whose value reads the place it replaces: the value is computed
 # first, then stored (Zig result-location aliasing would break this).
-struct P
+obj P
   a: Int
   b: Int
 

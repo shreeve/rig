@@ -2,7 +2,7 @@
 # through it: a struct's fields and methods, a List's and a Text's, and
 # a Text through a shared handle.
 
-struct S
+obj S
   n: Int
   t: String
 

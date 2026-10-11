@@ -1,6 +1,6 @@
 # Keyword arguments to a method bind by name.
 
-struct Rect
+obj Rect
   w: Int
   h: Int
 

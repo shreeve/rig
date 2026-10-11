@@ -1,10 +1,10 @@
-struct R
+obj R
   id: Int
 
   drop(!self)
     print("drop", self.id)
 
-struct H
+obj H
   w: !R
 
 fun mk(n: !R) -> H

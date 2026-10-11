@@ -1,5 +1,5 @@
 # Field compound target; the last arm re-points the view at its local.
-struct S
+obj S
   n: Int
 
 sub main()

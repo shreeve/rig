@@ -7,7 +7,7 @@ fun count(v: ?List[Int]) -> Int
 sub grow(v: !List[Int])
   !v.push(v.len * 10)
 
-struct Bag
+obj Bag
   items: List[Int]
 
 sub main()

@@ -1,7 +1,7 @@
 # `new rc = ...` shadows a resource binding that was already used; both
 # boxes stay valid until the scope ends, where each is dropped.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub main()

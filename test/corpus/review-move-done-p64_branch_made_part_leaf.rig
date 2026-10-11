@@ -1,6 +1,6 @@
 # `<` of a branching value one of whose leaves is an owning part of a
 # value made there
-struct S
+obj S
   v: List[Int]
 
 fun mk() -> S

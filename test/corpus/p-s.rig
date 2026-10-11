@@ -1,4 +1,4 @@
-struct String
+obj String
   n: Int
 
 sub main()

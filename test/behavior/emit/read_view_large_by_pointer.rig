@@ -2,7 +2,7 @@
 # each of these frames would otherwise hold a 3.2 MB copy, and fifty of
 # them overflow the stack. Small plain data is still passed as a copy.
 
-struct Pair
+obj Pair
   a: Int
   b: Int
 

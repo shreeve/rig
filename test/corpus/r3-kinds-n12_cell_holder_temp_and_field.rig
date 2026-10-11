@@ -1,7 +1,7 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
-struct H
+obj H
   c: Counter
 
 fun make() -> H

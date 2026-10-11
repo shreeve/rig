@@ -1,6 +1,6 @@
 # An element cannot be moved out of a List: the List still owns the slot.
 
-struct P
+obj P
   n: Int
 
 sub eat(p: P)

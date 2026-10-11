@@ -1,11 +1,11 @@
-struct S
+obj S
   c: Cell[List[Int]]
 
   sub grow(!self)
     for i in 0..50
       !self.c.push(i)
 
-struct O
+obj O
   s: S
 
 fun peek(o: ?O) -> ?S

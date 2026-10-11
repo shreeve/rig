@@ -1,10 +1,10 @@
 # A joined condition binds `h` (read by the step) and `x`, a struct with
 # a `drop` body that reads its slice of `w`; the step grows `w` while `x`
 # is still alive (its drop runs after the step, in the bindings' scope).
-struct S
+obj S
   s: []Int
 
-struct D
+obj D
   s: []Int
   drop(!self)
     print("drop", self.s[0])

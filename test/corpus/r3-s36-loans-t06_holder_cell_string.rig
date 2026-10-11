@@ -1,5 +1,5 @@
 # A generic holder that keeps its T in a Cell, used with String.
-struct Holder[T]
+obj Holder[T]
   c: Cell[T]
 
   sub put(!self, x: T)

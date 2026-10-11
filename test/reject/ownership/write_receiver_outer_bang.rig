@@ -3,7 +3,7 @@
 # what `pop` returns), and the `!` before a `for` source, which is the
 # loop's mode. The diagnostic says so, and names what works.
 
-struct S
+obj S
   n: Int
   items: List[Int]
 

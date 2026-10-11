@@ -1,5 +1,5 @@
 # Cell change through an element of a local read view of a List
-struct C
+obj C
   c: Cell[Int]
 
 sub main()

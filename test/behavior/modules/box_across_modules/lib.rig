@@ -1,4 +1,4 @@
-pub struct Tree
+pub obj Tree
   key: Int
   pub kids: List[^Tree]
 
@@ -11,7 +11,7 @@ pub struct Tree
 pub fun leaf(key: Int) -> ^Tree
   ^Tree(key: key, kids: List())
 
-pub struct Ticket
+pub obj Ticket
   n: Int
 
   pub fun redeem(<self) -> Int

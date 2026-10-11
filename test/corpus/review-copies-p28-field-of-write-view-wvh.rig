@@ -1,7 +1,7 @@
-struct W
+obj W
   w: !List[Int]
 
-struct O
+obj O
   h: W
 
 sub main()

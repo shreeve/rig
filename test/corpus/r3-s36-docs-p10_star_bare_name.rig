@@ -1,5 +1,5 @@
 # Core sentence 8 says `*x` moves x; SPEC §9 requires `*<x` for a named owner
-struct S
+obj S
   n: Int
 
   drop(!self)

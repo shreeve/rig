@@ -3,10 +3,10 @@ enum E
   full(t: String)
   empty
 
-struct S
+obj S
   name: ?String
 
-struct H
+obj H
   t: String
 
 fun id[T](x: ?T) -> ?T from x

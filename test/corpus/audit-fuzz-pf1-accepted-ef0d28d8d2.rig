@@ -3,22 +3,22 @@
 
 # it, apply to the whole expression; `?(p.m())` views a call's result.
 
-struct Point
+obj Point
   x: Int
   fun origin() -> Point
     Point(x: 0)
   fun shifted(?self, d: Int) -> Point
     Point(x: self.x + d)
 
-struct Leaf
+obj Leaf
   n: Int
 
-struct Tree
+obj Tree
   leaf: *Leaf
   fun first(?self) -> ?*Leaf
     ?self.leaf
 
-struct Pair
+obj Pair
   v: List[Int]
   name: ?String
 

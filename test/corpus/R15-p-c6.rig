@@ -1,5 +1,5 @@
 # stored in a struct escaping scope
-struct V
+obj V
   s: ![]Int
 
 fun mk() -> V

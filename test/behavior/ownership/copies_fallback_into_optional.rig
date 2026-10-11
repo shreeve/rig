@@ -6,10 +6,10 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
-struct S
+obj S
   o: P?
 
 fun px(o: P?) -> Int

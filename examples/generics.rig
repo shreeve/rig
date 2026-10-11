@@ -7,14 +7,14 @@
 
 HISTORY = 3
 
-struct Tape
+obj Tape
   label: ?String
   minutes: Int
 
   drop(!self)
     print("eject", self.label)
 
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
   sub push(!self, x: T)
@@ -29,7 +29,7 @@ struct Stack[T]
       !out.push(f(?x))
     out
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
   count: Int = 0
 

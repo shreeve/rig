@@ -1,4 +1,4 @@
-struct Person
+obj Person
   name: ?String
   tags: List[?String]
 

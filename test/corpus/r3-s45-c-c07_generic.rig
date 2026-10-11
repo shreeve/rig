@@ -1,4 +1,4 @@
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
 fun copy_of[T](x: ?T) -> T

@@ -7,7 +7,7 @@
 error E
   bad
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)

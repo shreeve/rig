@@ -4,13 +4,13 @@
 # through a handle, a consumed receiver's views, and a temporary
 # receiver, which ends with its statement.
 
-struct Holder
+obj Holder
   r: []Int
 
-struct VH
+obj VH
   s: ?Src
 
-struct Src
+obj Src
   items: List[Int]
 
   sub put(?self, out: !Holder)
@@ -22,16 +22,16 @@ struct Src
   sub me(?self, out: !VH)
     out.s = self
 
-struct Outer
+obj Outer
   b: Src
 
-struct P
+obj P
   xs: [2]Int
 
   sub put(?self, out: !Holder)
     out.r = ?self.xs[..]
 
-struct HV
+obj HV
   r: []Int
 
   sub give(<self, out: !Holder)

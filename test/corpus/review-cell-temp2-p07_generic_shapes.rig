@@ -19,7 +19,7 @@
 error E
   bad
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -36,7 +36,7 @@ struct D
     !self.c.set(self.c.get() + 1)
     self
 
-struct WW
+obj WW
   t: D
 
 fun mk(n: Int) -> D
@@ -57,7 +57,7 @@ fun look(x: !D) -> Int
   !x.c.set(x.c.get() + 10)
   x.c.get()
 
-struct H[X]
+obj H[X]
   x: X
 
   sub run(?self, f: ?sub(?X))
@@ -66,7 +66,7 @@ struct H[X]
   fun read(?self, f: ?fun(?X) -> Int) -> Int
     f(?self.x)
 
-struct P[X]
+obj P[X]
   h: H[X]
 
 fun mkh[X](x: X) -> H[X]
@@ -80,7 +80,7 @@ fun mkhf[X](x: X, n: Int) -> H[X]!
   return E.bad if n < 0
   H(x: <x)
 
-struct N
+obj N
   c: Cell[Int]
 
 fun mkn(n: Int) -> N

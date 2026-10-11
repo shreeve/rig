@@ -5,14 +5,14 @@
 # oracle: mk accept
 # oracle: wrap accept
 # oracle: main reject C5
-struct S
+obj S
   n: Int
   t: String
 
   drop(!self)
     print("dropS", self.n)
 
-struct H
+obj H
   rs: List[?String]
 
   sub keep(!self, r: ?String)

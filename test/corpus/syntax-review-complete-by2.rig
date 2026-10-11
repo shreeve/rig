@@ -1,4 +1,4 @@
-struct Page
+obj Page
   buf: List[U8]
 
   fun bytes(?self, a: Int, b: Int) -> []U8

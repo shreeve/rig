@@ -1,7 +1,7 @@
 # Valid: the step reads `h` (a view of `v`); the body grows `w`.
 #
 # oracle: mk accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

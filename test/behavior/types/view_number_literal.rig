@@ -2,7 +2,7 @@
 # (`?1` for a `?Int`) takes the viewed type, as `?"ab"` does for a
 # `?String`.
 
-struct Map[K]
+obj Map[K]
   hash: fun(?K) -> U64
 
   fun slot(?self, k: ?K) -> U64

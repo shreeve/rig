@@ -1,7 +1,7 @@
 # `<` of an optional part of a value made in the statement, reached
 # through a write lend: it empties a field nothing sees, while
 # `<mks(1).o` is rejected for exactly that.
-struct S
+obj S
   o: List[Int]?
 
 fun mkv(n: Int) -> List[Int]

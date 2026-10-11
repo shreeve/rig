@@ -1,7 +1,7 @@
-struct S
+obj S
   n: Int
 
-struct V
+obj V
   s: ?S
 
 fun get(s: ?S) -> Int

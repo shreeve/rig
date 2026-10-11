@@ -21,7 +21,7 @@ enum Shape
   dot
   box(w: Int)
 
-struct P
+obj P
   n: Int
 
   fun get(!self) -> !Int

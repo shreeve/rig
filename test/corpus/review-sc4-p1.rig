@@ -2,10 +2,10 @@ enum Shape
   circle(r: Int)
   point
 
-struct H
+obj H
   s: Shape
 
-struct R
+obj R
   h: ?H
 
 sub main()

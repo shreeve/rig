@@ -1,13 +1,13 @@
 # `==` in a generic body is checked per instance: a `T` that owns a
 # resource or holds a handle has no `==`, and the reason is named.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Tagged
+obj Tagged
   id: Int
   h: *Res
 

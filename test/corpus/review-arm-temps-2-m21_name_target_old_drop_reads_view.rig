@@ -1,6 +1,6 @@
 # The store drops the old value of `h`, whose `drop` reads what it views,
 # after the arm grows that owner.
-struct H
+obj H
   v: ?List[Int]
 
   drop(!self)

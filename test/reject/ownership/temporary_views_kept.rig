@@ -5,7 +5,7 @@
 
 use std.text
 
-struct E
+obj E
   s: ?String
 
 fun f() -> ?String

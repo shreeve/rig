@@ -2,10 +2,10 @@
 # of an optional whose header makes a temporary binds `x = &copy`
 # (`__rig_opt_N_v`, poisoned when the body ends). Plain data is accepted.
 # Can a view of x be stored past the body?
-struct Q
+obj Q
   xs: [4]Int
 
-struct H
+obj H
   q: Q?
 
 fun pick(h: ?H, k: ?String) -> ?Q? from h

@@ -1,6 +1,6 @@
 # `n` is assigned while `h`, bound by the condition, holds a live write
 # view of it, and `h` reads it afterward.
-struct W
+obj W
   w: !Int
 
 fun mk(n: !Int) -> W?

@@ -1,6 +1,6 @@
 # Taking a read view (`?user`) of a dropped value is rejected.
 
-struct User
+obj User
   name: ?String
   tags: List[?String]
 

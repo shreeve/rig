@@ -1,4 +1,4 @@
-struct H
+obj H
   o: List[Int]?
 
 fun total(h: ?H) -> Int?

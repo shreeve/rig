@@ -1,4 +1,4 @@
-struct P
+obj P
   xs: List[Int]
 
 sub main()

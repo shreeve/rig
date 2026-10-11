@@ -1,6 +1,6 @@
 # A view of a Cell-holding temporary pushed into a longer-lived List of views.
 #
-struct D
+obj D
   c: Cell[Int]
 
 fun mkd(n: Int) -> D

@@ -1,7 +1,7 @@
 fun first[T](v: ?List[T]) -> ?T
   ?v[0]
 
-struct P
+obj P
   n: Int
 
 sub main()

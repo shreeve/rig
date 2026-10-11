@@ -1,13 +1,13 @@
 # A call may store a view through a write view it is given: the
 # store lands in the value the view leads to, which then holds it.
 
-struct In
+obj In
   n: Int
 
-struct Wrap
+obj Wrap
   r: ?In
 
-struct View
+obj View
   b: ?In
 
 sub fill(w: !View, b: ?In)

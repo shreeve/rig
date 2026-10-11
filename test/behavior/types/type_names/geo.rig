@@ -1,10 +1,10 @@
 # A module whose types `main` names as `g.Point`, and whose generic
 # function names a type as `geo` writes it.
 
-pub struct Point
+pub obj Point
   pub x: Int
 
-pub struct Wrap[T]
+pub obj Wrap[T]
   pub v: T
 
 pub error Fault

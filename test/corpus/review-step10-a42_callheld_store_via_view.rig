@@ -1,7 +1,7 @@
 # B3 holders: the call stores a view of the storage it holds
 # (`__rig_recv_N`, a mutable copy of `mkh(42).q`) through `w`, a write
 # view of `h`. `w` is not used after the call, but `h` is.
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
@@ -9,10 +9,10 @@ struct Q
     h.r = self
     self.n
 
-struct Holder
+obj Holder
   r: (?Q)?
 
-struct H
+obj H
   q: Q
 
 fun mkh(k: Int) -> H

@@ -1,7 +1,7 @@
-pub struct Wrap
+pub obj Wrap
   pub v: List[Int]
 
-pub struct Holder
+pub obj Holder
   pub b: ?Wrap
 
 pub sub put(t: !Holder, x: ?Wrap)

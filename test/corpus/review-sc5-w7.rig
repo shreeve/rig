@@ -1,4 +1,4 @@
-struct C
+obj C
   n: U8
   big: I128
 

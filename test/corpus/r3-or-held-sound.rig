@@ -8,7 +8,7 @@
 # oracle: as_part accept
 # oracle: plain_part accept
 
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -16,7 +16,7 @@ enum E
   a(r: Res)
   b
 
-struct H
+obj H
   e: E
   v: List[Int]
   o: Res?

@@ -8,10 +8,10 @@ errors_of() { "$RIG" check "$1" 2>&1 | grep ': error: ' | sort -t: -k2,2n -k3,3n
 
 # An instance with a rejected argument is poison, not `Ring[Int, invalid]`.
 cat >poison.rig <<'EOF2'
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 fun f(r: ?Ring[Int, nope]) -> Int
@@ -35,7 +35,7 @@ poison.rig:17:7: error: use of unbound name \`nope\`" "a poisoned instance"
 # An argument out of range for an array length is reported once, where
 # the instance is spelled.
 cat >range.rig <<'EOF2'
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
 sub main()
@@ -100,7 +100,7 @@ touch.rig:11:34: error: \`h\` takes 1 compile-time argument in brackets: \`h[...
 # A constructor whose instance is rejected says nothing more about its
 # arguments' types.
 cat >ctor.rig <<'EOF2'
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
 fun f() -> Int

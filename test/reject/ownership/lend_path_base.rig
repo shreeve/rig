@@ -9,20 +9,20 @@ enum E
   a(n: Int)
   b
 
-struct Set
+obj Set
   items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     !self.items.push(k)
     true
 
-struct Q
+obj Q
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct P
+obj P
   x: Int
   o: Int?
   e: E

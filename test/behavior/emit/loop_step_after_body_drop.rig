@@ -1,9 +1,9 @@
 # A body local's drop and the body's `defer` run before the step, in a
 # plain and a joined loop alike.
-struct S
+obj S
   s: []Int
 
-struct D
+obj D
   n: Int
   drop(!self)
     print("drop", self.n)

@@ -1,6 +1,6 @@
 # A write-receiver method cannot be called through a shared handle.
 
-struct User
+obj User
   age: Int
 
   sub set_age(self: !User, n: Int)

@@ -1,10 +1,10 @@
 # A view reached through a slice field of what a write view sees still
 # carries the slice's loan on the array.
 
-struct Tok
+obj Tok
   kind: Int
 
-struct P
+obj P
   toks: []Tok
   pos: Int
 

@@ -1,13 +1,13 @@
 # A generic struct's stored `?T` field at an instance whose sema and
 # runtime interior-mutability disagree.
-struct C
+obj C
   c: Cell[Int]
 
-struct G[T]
+obj G[T]
   h: *T
   k: Int
 
-struct R[T]
+obj R[T]
   r: ?T
 
 fun look(g: ?G[C]) -> Int

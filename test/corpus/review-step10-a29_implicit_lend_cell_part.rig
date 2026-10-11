@@ -2,11 +2,11 @@
 # where `bump(q: ?Q)` changes the Cell. The explicit `?mkh().q` is copied
 # into a mutable local (`lendsCellTemp`, argumentHold checks `.read`);
 # is the bare form?
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
-struct H
+obj H
   q: Q
   t: Int
 

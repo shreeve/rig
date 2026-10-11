@@ -1,8 +1,8 @@
-struct P
+obj P
   x: Int
   a: [3]Int
 
-struct Q
+obj Q
   p: P
   b: ^P
 

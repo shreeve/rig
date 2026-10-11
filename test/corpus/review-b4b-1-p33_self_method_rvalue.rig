@@ -3,7 +3,7 @@ enum F
   a(n: Int)
   b(n: Int)
 
-struct P
+obj P
   xs: [2]F
 
   fun items(?self) -> ?[2]F from self

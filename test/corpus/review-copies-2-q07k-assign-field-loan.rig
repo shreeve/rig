@@ -1,10 +1,10 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
-struct Q
+obj Q
   p: P
   n: Int
 
@@ -12,7 +12,7 @@ fun get(r: ?P, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   r
 
-struct S
+obj S
   r: ?P
 
 sub main()

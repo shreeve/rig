@@ -4,7 +4,7 @@ K = util.Byte.max - 250
 M = util.Byte.max
 F = util.Real.min
 
-struct D
+obj D
   b: util.Byte = util.Byte.max
   r: util.Real = util.Real.max
 

@@ -1,6 +1,6 @@
 # Assigning to a field checks the value against the field's type.
 
-struct User
+obj User
   name: ?String
 
 sub main()

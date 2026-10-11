@@ -1,4 +1,4 @@
-struct W
+obj W
   w: !List[Int]
 
 fun mk(v: !List[Int]) -> W?

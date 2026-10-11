@@ -1,4 +1,4 @@
-struct R
+obj R
   f: ?String
 
 sub g(w: !R)

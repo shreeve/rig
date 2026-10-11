@@ -11,11 +11,11 @@ enum F
   a(s: ?String)
   b
 
-struct H
+obj H
   e: E
   t: String
 
-struct G
+obj G
   f: F
 
 fun mkh(k: Int) -> H

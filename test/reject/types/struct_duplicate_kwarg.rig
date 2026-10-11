@@ -1,6 +1,6 @@
 # A constructor may not name the same field twice.
 
-struct User
+obj User
   name: ?String
   age: Int
 

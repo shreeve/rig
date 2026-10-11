@@ -1,6 +1,6 @@
 use std.text
 
-struct Rec
+obj Rec
   name: String
 
 sub main()

@@ -1,7 +1,7 @@
 # A public generic that nests itself is reported where it is declared,
 # not at the public generics that call it.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 pub fun f0[T](x: T) -> Int

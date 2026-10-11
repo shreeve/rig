@@ -2,7 +2,7 @@
 # `from` clause: a match arm, a loop's `break` value, `if … as`, a field
 # of a local struct, a payload of a parameter, and a method's argument.
 
-struct Pair
+obj Pair
   x: ?List[Int]
   y: ?List[Int]
 
@@ -10,7 +10,7 @@ enum Pick
   one(v: ?List[Int])
   none_
 
-struct Table
+obj Table
   rows: List[Int]
 
   fun get(?self, other: ?List[Int]) -> ?List[Int] from self

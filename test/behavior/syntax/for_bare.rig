@@ -4,7 +4,7 @@
 # work as they do with a variable.
 # release
 
-struct Count
+obj Count
   lo: Int
   hi: Int
 

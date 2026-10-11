@@ -4,10 +4,10 @@
 
 use std.text
 
-struct In
+obj In
   t: String
 
-struct N
+obj N
   t: String
   inner: In
   arr: [2]Int

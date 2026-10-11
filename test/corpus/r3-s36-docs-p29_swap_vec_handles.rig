@@ -1,5 +1,5 @@
 # SPEC §2: `swap` moves the handles of a List of them; Core §5: swap and sort work for any element type
-struct B
+obj B
   n: Int
 
 sub main()

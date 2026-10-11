@@ -3,7 +3,7 @@
 # where it is discarded, so following a hint never draws the error that
 # a write call whose value is used puts its `!` in parentheses.
 
-struct Box2
+obj Box2
   v: List[Int]
 
   fun take(!self) -> Int?

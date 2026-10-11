@@ -1,4 +1,4 @@
-pub struct Rect
+pub obj Rect
   pub w: Int
   pub h: Int
 

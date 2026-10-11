@@ -1,4 +1,4 @@
-struct Coun
+obj Coun
   lo: In
   hi: In
 
@@ -13,7 +13,7 @@ fun upto(n: Int) -> Coun
 error Bad
   bad
 
-struct Tracked
+obj Tracked
   id: In
   left: In
 
@@ -28,11 +28,11 @@ struct Tracked
 fun tracked(id: Int, n: Int) -> Tracked
   Tracked(id: id, left: n)
 
-struct Item
+obj Item
   name: ?String
   n: In
 
-struct Walk
+obj Walk
   items: ?List[Item]
   at: In
 
@@ -51,7 +51,7 @@ fun mkitems() -> List[Item]
   !v.push(Item(name: "b", n: 2))
   v
 
-struct Buf
+obj Buf
   buf: List[Item]
   at: In
   fun next(!self) -> (?Item)?

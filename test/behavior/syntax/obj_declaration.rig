@@ -1,0 +1,22 @@
+# A type is declared with `obj`: plain, generic, unique, and public.
+
+obj Point
+  x: Int
+  y: Int
+
+pub obj Pair[T]
+  a: T
+  b: T
+
+obj Token unique
+  id: Int
+
+sub main()
+  p = Point(x: 1, y: 2)
+  q = Pair(a: 3, b: 4)
+  t = Token(id: 9)
+  print(p.x + p.y, q.a + q.b, t.id)
+
+# release
+# expect:
+# 3 7 9

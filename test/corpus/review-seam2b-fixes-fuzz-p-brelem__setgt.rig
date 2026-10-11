@@ -23,13 +23,13 @@ enum Sh
   circle(r: Int)
   point
 
-struct K2
+obj K2
   n: Int
 
   sub put2(!self, a: Int, b: Int)
     self.n = a * 10 + b
 
-struct S
+obj S
   n: Int
   t: String
   items: List[Int]
@@ -54,7 +54,7 @@ struct S
   drop(!self)
     print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
 
-struct Pair
+obj Pair
   a: S
   b: S
 

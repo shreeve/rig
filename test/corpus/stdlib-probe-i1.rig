@@ -1,4 +1,4 @@
-struct Iter[T]
+obj Iter[T]
   xs: []T
   i: Int = 0
 

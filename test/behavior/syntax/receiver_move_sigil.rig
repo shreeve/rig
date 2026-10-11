@@ -2,7 +2,7 @@
 # receiver, as `?self` reads it and `!self` writes it. The caller writes
 # the move (`<c.close()`), or calls it on a temporary.
 
-struct Conn
+obj Conn
   name: ?String
 
   fun close(<self) -> Int
@@ -13,7 +13,7 @@ struct Conn
     c.name = name
     <c
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun unwrap(<self) -> T

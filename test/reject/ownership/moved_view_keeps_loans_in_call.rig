@@ -2,17 +2,17 @@
 # keeps its loans in force until the call or construction ends, so a
 # later argument cannot lend or move the same root.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
   sub eat(!self, r: ?Wrap)
     self.v = List()
     print(r.v.len)
 
-struct Ed
+obj Ed
   r: ?Wrap
 
-struct P
+obj P
   r: ?Wrap
   b: Wrap
 

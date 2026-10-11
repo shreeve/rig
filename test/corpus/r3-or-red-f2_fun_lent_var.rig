@@ -1,6 +1,6 @@
 # Must stay rejected once `left` says `from a` and `right` says `from b`:
 # a `?fun` local re-pointed in a branch holds the join of both.
-struct Item
+obj Item
   n: Int
 
 fun left(a: ?Item, b: ?Item) -> ?Item

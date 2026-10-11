@@ -1,5 +1,5 @@
 # Guarded match on a field of a view a call returns (no header temporaries): the payload view escapes the arm. Expect accept and the view is h's own (prints one), or reject.
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -7,7 +7,7 @@ enum E
   a(r: Res)
   b(r: Res)
 
-struct H
+obj H
   e: E
 
 fun get(h: ?H) -> ?H from h

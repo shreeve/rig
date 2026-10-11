@@ -2,10 +2,10 @@ enum Color
   red
   blue
 
-struct P
+obj P
   x: Int
 
-struct H
+obj H
   a: !U8
   f: !Float
   b: !Bool

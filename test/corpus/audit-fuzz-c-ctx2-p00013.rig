@@ -49,10 +49,10 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-struct Bx641
+obj Bx641
   f: Float
 
-struct FA641
+obj FA641
   f: Float
 
 fun fo4148(s: Bool) -> I32?
@@ -63,7 +63,7 @@ fun fu4148(s: Bool) -> I32?
   x = fo4148(s)?
   x
 
-struct FA359
+obj FA359
   f: U32
 
 fun fo3205(s: Bool) -> I16?

@@ -1,7 +1,7 @@
 pub sub pair[A, B](a: A, b: B, sep: ?String = "-")
   print(a, sep, b)
 
-pub struct Two[A, B]
+pub obj Two[A, B]
   a: A
   b: B
 

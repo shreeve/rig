@@ -1,7 +1,7 @@
-struct S
+obj S
   n: Int
 
-struct H
+obj H
   s: ?S
 
 sub main()

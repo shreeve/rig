@@ -1,2 +1,2 @@
-pub struct Wrap
+pub obj Wrap
   value: Int

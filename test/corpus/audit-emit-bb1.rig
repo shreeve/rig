@@ -1,9 +1,9 @@
-struct N
+obj N
   id: Int
   drop(!self)
     print("drop N", self.id)
 
-struct Reg
+obj Reg
   log: Cell[List[Int]]
   cur: Cell[*N?]
   count: Cell[Int]
@@ -18,7 +18,7 @@ struct Reg
 fun peek(r: ?Reg) -> Int
   r.log[0] + r.log.len
 
-struct Box2[T]
+obj Box2[T]
   c: Cell[T]
 
   sub put(!self, v: T)

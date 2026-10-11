@@ -1,7 +1,7 @@
 # A view of `b` stored in parameter `a` and read back into a local keeps
 # `b` lent: `t` views `b`'s buffer through `a`.
 
-struct Holder
+obj Holder
   r: []Int
 
 fun f(a: !Holder, b: []Int, c: !List[Int]) -> Int

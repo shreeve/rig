@@ -2,7 +2,7 @@
 # never stored inside a value, so no loop walks elements that are write
 # views.
 
-struct H
+obj H
   n: Int
 
 sub main()

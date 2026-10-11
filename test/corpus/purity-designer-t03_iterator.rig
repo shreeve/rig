@@ -1,4 +1,4 @@
-struct Range
+obj Range
   i: Int
   n: Int
   fun next(!self) -> Int?

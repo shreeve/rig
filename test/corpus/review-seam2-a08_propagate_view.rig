@@ -10,7 +10,7 @@
 error E
   bad
 
-struct S
+obj S
   n: Int
   items: List[Int]
 

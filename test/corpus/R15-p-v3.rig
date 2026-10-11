@@ -1,4 +1,4 @@
-struct R
+obj R
   s: []Int
 
 sub main()

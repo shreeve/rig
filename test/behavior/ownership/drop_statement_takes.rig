@@ -3,13 +3,13 @@
 # makes. Where a value is used (a function's last line, a branch whose
 # value is bound, a closure's last line), `<e` moves the value there.
 
-struct F
+obj F
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct S
+obj S
   f: F?
   g: F
 

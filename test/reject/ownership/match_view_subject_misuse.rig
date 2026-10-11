@@ -2,7 +2,7 @@
 # read view is one error, not a cascade; a bare match's binding of the
 # whole viewed value only reads.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

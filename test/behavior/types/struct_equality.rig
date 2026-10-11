@@ -2,16 +2,16 @@
 # and then payload, and arrays and slices element by element. Floats
 # compare as numbers do, so a NaN field makes two structs unequal.
 
-struct Point
+obj Point
   x: Int
   y: Int
 
-struct Segment
+obj Segment
   from: Point
   to: Point
   label: ?String
 
-struct Sample
+obj Sample
   at: Point
   value: Float
 

@@ -3,7 +3,7 @@
 # statement, so `endCallHeld` drops the result's loans on what the call
 # holds, and the function returns a view of `__rig_recv_N` (a value of
 # `mk()` the call holds while it runs) with no loan left to check.
-struct S
+obj S
   n: Int
   m: Int
 

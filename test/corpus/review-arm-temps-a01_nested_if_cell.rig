@@ -1,7 +1,7 @@
 error E
   bad
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -18,7 +18,7 @@ struct D
     !self.c.set(self.c.get() + 1)
     self
 
-struct WW
+obj WW
   t: D
 
 fun mk(n: Int) -> D
@@ -46,7 +46,7 @@ enum Bx
 fun hc(v: ?D, n: Int) -> HC
   HC(v: v, c: Cell(n))
 
-struct HC
+obj HC
   v: ?D
   c: Cell[Int]
 

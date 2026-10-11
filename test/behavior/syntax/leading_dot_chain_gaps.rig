@@ -1,0 +1,34 @@
+# Blank and comment lines between chain lines do not end the chain, and
+# the chain lines may be indented by different amounts, as long as each
+# is deeper than the statement.
+
+obj B
+  n: Int
+
+  fun add(?self, k: Int) -> B
+    B(n: self.n + k)
+
+  fun get(?self) -> Int
+    self.n
+
+sub main()
+  r = B(n: 0)
+    .add(1)
+
+    # the next step
+    .add(2)
+      .add(3)
+  # a comment at the statement's level
+    .add(4)
+  print(r.get())
+  if r.get() > 5
+    s = B(n: 1)
+      .add(1)
+    print(s.get())
+  print("done")
+
+# release
+# expect:
+# 10
+# 2
+# done

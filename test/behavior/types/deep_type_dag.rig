@@ -2,107 +2,107 @@
 # of three fields each (3^20 paths) check at once. The leaf takes no
 # bytes, so every level is small enough to be a value.
 
-struct L0
+obj L0
   f1: L1
   f2: L1
   f3: L1
 
-struct L1
+obj L1
   f1: L2
   f2: L2
   f3: L2
 
-struct L2
+obj L2
   f1: L3
   f2: L3
   f3: L3
 
-struct L3
+obj L3
   f1: L4
   f2: L4
   f3: L4
 
-struct L4
+obj L4
   f1: L5
   f2: L5
   f3: L5
 
-struct L5
+obj L5
   f1: L6
   f2: L6
   f3: L6
 
-struct L6
+obj L6
   f1: L7
   f2: L7
   f3: L7
 
-struct L7
+obj L7
   f1: L8
   f2: L8
   f3: L8
 
-struct L8
+obj L8
   f1: L9
   f2: L9
   f3: L9
 
-struct L9
+obj L9
   f1: L10
   f2: L10
   f3: L10
 
-struct L10
+obj L10
   f1: L11
   f2: L11
   f3: L11
 
-struct L11
+obj L11
   f1: L12
   f2: L12
   f3: L12
 
-struct L12
+obj L12
   f1: L13
   f2: L13
   f3: L13
 
-struct L13
+obj L13
   f1: L14
   f2: L14
   f3: L14
 
-struct L14
+obj L14
   f1: L15
   f2: L15
   f3: L15
 
-struct L15
+obj L15
   f1: L16
   f2: L16
   f3: L16
 
-struct L16
+obj L16
   f1: L17
   f2: L17
   f3: L17
 
-struct L17
+obj L17
   f1: L18
   f2: L18
   f3: L18
 
-struct L18
+obj L18
   f1: L19
   f2: L19
   f3: L19
 
-struct L19
+obj L19
   f1: L20
   f2: L20
   f3: L20
 
-struct L20
+obj L20
   n: One
 
 enum One

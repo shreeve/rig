@@ -1,7 +1,7 @@
 # A String sliced from a String field through `!self` carries the field's
 # loans, not a loan on `self`.
 
-struct P
+obj P
   src: ?String
   pos: Int
 

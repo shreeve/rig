@@ -1,11 +1,11 @@
 # A consuming method on a part that is a shared handle.
-struct N
+obj N
   v: Int
 
   fun into(<self) -> Int
     self.v
 
-struct S
+obj S
   h: *N
 
 sub main()

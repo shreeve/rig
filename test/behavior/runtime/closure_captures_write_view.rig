@@ -1,7 +1,7 @@
 # A write view moved into a closure (`|<w|`) writes through to the
 # viewed value, on every call; a moved read view reads it.
 
-struct Wrap
+obj Wrap
   n: Int
 
 sub main()

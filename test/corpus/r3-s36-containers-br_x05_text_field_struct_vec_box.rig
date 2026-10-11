@@ -1,4 +1,4 @@
-struct Rec
+obj Rec
   name: String
   n: Int
 

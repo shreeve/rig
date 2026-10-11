@@ -6,7 +6,7 @@
 # values work as they do for `while … as`.
 # release
 
-struct Count
+obj Count
   lo: Int
   hi: Int
 

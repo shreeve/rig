@@ -4,7 +4,7 @@
 # it. A `?T?` parameter is read the same way; plain data read through
 # a `?T?` is copied.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

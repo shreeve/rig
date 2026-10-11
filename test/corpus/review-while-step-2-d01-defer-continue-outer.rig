@@ -1,7 +1,7 @@
 # A defer cannot jump out of its scope. Expected: rejected.
 #
 # oracle: mk accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

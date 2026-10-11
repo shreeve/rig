@@ -4,7 +4,7 @@ fun roll(r: random.Random) -> U64
   g = <r
   (!g).next()
 
-struct G
+obj G
   r: random.Random
 
 sub main()

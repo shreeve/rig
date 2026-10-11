@@ -1,7 +1,7 @@
-struct R
+obj R
   y: !Int
 
-struct Inner
+obj Inner
   x: !R
 
 sub put(inn: !Inner, k: !Int)

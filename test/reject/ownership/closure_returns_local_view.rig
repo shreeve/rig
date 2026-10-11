@@ -1,7 +1,7 @@
 # An owned closure can be returned, so it cannot capture a view (here
 # of a local that the return would outlive).
 
-struct Wrap
+obj Wrap
   payload: Int
 
 fun mk() -> *sub()

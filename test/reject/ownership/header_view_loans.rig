@@ -1,7 +1,7 @@
 # A header that reads a bare place keeps it lent while what it binds is
 # used, as `?p` does; a value it holds ends with the construct.
 
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -9,7 +9,7 @@ enum E
   a(r: Res)
   b
 
-struct H
+obj H
   e: E
 
 fun mkh() -> H

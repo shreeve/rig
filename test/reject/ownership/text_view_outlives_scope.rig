@@ -1,7 +1,7 @@
 # A struct holding a String that views a Text, or a List of such
 # Strings, cannot outlive the Text.
 
-struct Name
+obj Name
   s: ?String
 
 sub main()

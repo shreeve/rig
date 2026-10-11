@@ -49,10 +49,10 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-struct Bx2047
+obj Bx2047
   f: I128
 
-struct FA2047
+obj FA2047
   f: I128
 
 sub t2047()

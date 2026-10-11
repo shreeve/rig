@@ -1,7 +1,7 @@
 # A view stored in an outer binding may not outlive the inner-scope
 # value it views.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub main()

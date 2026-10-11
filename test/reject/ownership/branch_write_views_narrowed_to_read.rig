@@ -2,10 +2,10 @@
 # stands: a branch of names holding write views, or `o?` of one, is
 # lent through each branch, so the loan on the name taken is kept.
 
-struct W
+obj W
   v: List[Int]
 
-struct RV
+obj RV
   r: ?List[Int]
 
 fun sl(v: ?List[Int]) -> []Int

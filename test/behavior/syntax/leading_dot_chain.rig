@@ -1,0 +1,56 @@
+# A line indented deeper than its statement that starts with `.` continues
+# the expression above it: in a binding, an assignment, a return, an
+# argument, and a closure's body. A statement at the original indentation
+# ends the chain.
+
+obj B
+  n: Int
+
+  fun add(?self, k: Int) -> B
+    B(n: self.n + k)
+
+  fun get(?self) -> Int
+    self.n
+
+fun total(b: B) -> Int
+  return b
+    .add(1)
+    .add(2)
+    .get()
+
+fun last(b: B) -> Int
+  b
+    .add(10)
+    .get()
+
+sub main()
+  b = B(n: 0)
+    .add(1)
+    .add(2)
+  print(b.get())
+  print(total(b))
+  print(last(b))
+  print(B(n: 5)
+    .add(1)
+    .get())
+  f = |x: Int|
+    B(n: x)
+      .add(1)
+      .get()
+  print(f(10))
+  n = 3
+  n = B(n: n)
+    .add(n)
+    .get()
+  print(n)
+  print(b.get())
+
+# release
+# expect:
+# 3
+# 6
+# 13
+# 6
+# 11
+# 6
+# 3

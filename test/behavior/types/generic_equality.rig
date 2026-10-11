@@ -1,11 +1,11 @@
 # In a generic body `==` compares every equatable `T`: numbers, Strings,
 # structs, enums, optionals, and generic instances, each by content.
 
-struct Point
+obj Point
   x: Int
   y: Int
 
-struct Pair[A, B]
+obj Pair[A, B]
   first: A
   second: B
 

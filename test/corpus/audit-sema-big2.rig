@@ -1,4 +1,4 @@
-struct Big
+obj Big
   a: [1_000_000]Int
   b: [1_000_000]Int
   c: [1_000_000]Int

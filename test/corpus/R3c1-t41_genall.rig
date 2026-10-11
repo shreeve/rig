@@ -2,7 +2,7 @@ error E
   bad
   worse
 
-struct P
+obj P
   x: Int
   s: ?String
 

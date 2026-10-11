@@ -6,7 +6,7 @@
 # stack between the lend and the last use of the view.
 # oracle: main accept
 
-struct P
+obj P
   k: Int
 
   sub bump(!self)
@@ -19,7 +19,7 @@ struct P
   fun at(!self) -> !Int
     !self.k
 
-struct Bag
+obj Bag
   n: Int
   items: List[Int]
   p: P

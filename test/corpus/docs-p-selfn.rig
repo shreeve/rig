@@ -1,4 +1,4 @@
-struct Counter
+obj Counter
   n: Int
 
   fun twice(?self) -> Int

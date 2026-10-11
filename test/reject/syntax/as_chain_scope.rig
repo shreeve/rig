@@ -2,7 +2,7 @@
 # to the body, not to the parts before it or to `else`; a loop step
 # cannot use one that owns a resource, which the body drops first.
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)

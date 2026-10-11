@@ -1,4 +1,4 @@
-struct Config
+obj Config
   tags: List[Int] = List()
 
 fun make() -> List[Int]

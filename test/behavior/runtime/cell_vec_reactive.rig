@@ -1,7 +1,7 @@
 # A reactive counter without Signal: watchers are owned closures that
 # each capture a shared `*Cell[List[Int]]` and push to it in one call.
 
-struct Counter
+obj Counter
   value: *Cell[Int]
   watchers: List[*sub(Int)]
 

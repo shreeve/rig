@@ -6,11 +6,11 @@ error StockError
   short
   bad_qty
 
-struct Item
+obj Item
   name: ?String
   qty: Int
 
-struct Stock
+obj Stock
   items: List[Item]
   shipped: Int = 0
 

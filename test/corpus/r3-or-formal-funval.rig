@@ -1,4 +1,4 @@
-struct Item
+obj Item
   n: Int
 
 fun left(a: ?Item, b: ?Item) -> ?Item

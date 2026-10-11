@@ -1,8 +1,8 @@
-struct Pair[K, V]
+obj Pair[K, V]
   k: K
   v: V
 
-struct Map[K, V]
+obj Map[K, V]
   slots: List[Pair[K, V]]
 
   fun get(?self, k: K) -> V?

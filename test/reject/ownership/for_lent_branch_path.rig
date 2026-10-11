@@ -2,7 +2,7 @@
 # names is lent through each branch, so the loan on the name taken is
 # kept while the loop's views live.
 
-struct W
+obj W
   n: Int
   v: List[Int]
 

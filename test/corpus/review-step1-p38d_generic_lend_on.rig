@@ -1,10 +1,10 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-struct H[T]
+obj H[T]
   item: T
   n: Int
 

@@ -2,7 +2,7 @@
 # decided as the value is read (`sema.yieldedLeaves`): printed, an
 # operand, or bound beside a held view, each leaf only reads.
 
-struct P
+obj P
   x: Int
 
 fun mk() -> P

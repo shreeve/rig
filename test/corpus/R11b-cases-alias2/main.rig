@@ -1,6 +1,6 @@
 use lib
 
-struct W2[T]
+obj W2[T]
   v: T
 
 type IW = W2[Int]

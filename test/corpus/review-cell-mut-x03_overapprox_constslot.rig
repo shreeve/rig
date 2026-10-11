@@ -2,10 +2,10 @@
 # holders only on the heap, read through a read view of the List. The
 # runtime's constSlot gives `*const G(C)`, the emitter's view type is
 # `*G(C)`.
-struct C
+obj C
   c: Cell[Int]
 
-struct G[T]
+obj G[T]
   items: List[T]
   k: Int
 

@@ -1,8 +1,8 @@
-struct Entry[K, V]
+obj Entry[K, V]
   k: K
   v: V
 
-struct Map[K, V]
+obj Map[K, V]
   es: List[^Entry[K, V]]
 
   sub put(!self, k: K, v: V)
@@ -21,7 +21,7 @@ struct Map[K, V]
       return true if e.k == k
     false
 
-struct Node
+obj Node
   id: Int
   drop(!self)
     print("drop", self.id)

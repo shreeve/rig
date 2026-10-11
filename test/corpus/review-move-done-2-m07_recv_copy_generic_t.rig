@@ -1,11 +1,11 @@
 # Inside a generic body, a consuming receiver of type T itself.
-struct P
+obj P
   v: Int
 
   fun into(<self) -> Int
     self.v
 
-struct HV
+obj HV
   v: List[Int]
 
   fun into(<self) -> Int

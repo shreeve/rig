@@ -5,7 +5,7 @@
 # oracle: D.drop accept
 # oracle: nxt accept
 # oracle: some accept
-struct D
+obj D
   n: Int
   drop(!self)
     print("drop", self.n)

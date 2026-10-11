@@ -1,10 +1,10 @@
-struct Bag[T]
+obj Bag[T]
   items: List[T]
 
   fun iter(?self) -> BagIter[T]
     BagIter(bag: self, i: 0)
 
-struct BagIter[T]
+obj BagIter[T]
   bag: ?Bag[T]
   i: Int
 

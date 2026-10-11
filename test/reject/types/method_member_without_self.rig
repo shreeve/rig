@@ -1,7 +1,7 @@
 # Inside a method, a field or another method is reached through the
 # receiver: a bare name is unbound, and the message names `self.`.
 
-struct Person
+obj Person
   age: Int
 
   fun double(?self) -> Int

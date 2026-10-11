@@ -1,7 +1,7 @@
 # A read receiver that is no place is held until the call runs: a later
 # argument cannot move what it may be.
 
-struct P
+obj P
   v: List[Int]
 
   fun sum(?self, k: Int) -> Int

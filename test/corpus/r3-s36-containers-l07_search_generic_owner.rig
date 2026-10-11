@@ -1,6 +1,6 @@
 use std.slices
 
-struct P
+obj P
   x: Int
 
 sub main()

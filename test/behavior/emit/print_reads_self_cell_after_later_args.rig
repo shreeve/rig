@@ -1,7 +1,7 @@
 # Inside a `?self` method, `print(self.c, (!other).grow())` reads the
 # Cell when `print` is called, after `grow` has grown its List through
 # another handle.
-struct S
+obj S
   c: Cell[List[Int]]
 
   fun grow(!self) -> Int

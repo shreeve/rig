@@ -1,5 +1,5 @@
 # rs[0] = Rec(name: rs[0].name, ...) must be rejected (copies Text out)
-struct Rec
+obj Rec
   name: String
   n: Int
 

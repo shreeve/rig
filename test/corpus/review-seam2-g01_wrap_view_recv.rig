@@ -4,7 +4,7 @@
 # oracle: wrap accept
 # oracle: inc accept
 # oracle: main accept
-struct S
+obj S
   n: Int
 
   fun at(!self) -> !Int

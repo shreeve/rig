@@ -3,7 +3,7 @@
 # calls `!self` methods, and assigns the whole value, which writes
 # through; after the closure's last call, the value is free again.
 
-struct Wrap
+obj Wrap
   n: Int
 
   drop(!self)

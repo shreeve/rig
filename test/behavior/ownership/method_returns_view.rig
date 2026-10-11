@@ -1,9 +1,9 @@
 # A `?self` method may return a view into `self`.
 
-struct Wrap
+obj Wrap
   payload: Int
 
-struct Holder
+obj Holder
   inner: Wrap
 
   fun get(?self) -> ?Wrap

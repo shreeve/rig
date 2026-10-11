@@ -2,7 +2,7 @@
 # stands; the statement drops the temporary. A `for` over a call's
 # result, and `as` over one, take its value.
 
-struct User
+obj User
   age: Int
   name: String
 

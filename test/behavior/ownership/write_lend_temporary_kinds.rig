@@ -4,13 +4,13 @@
 # `(!e).insert(k)`; a Box, which lends what it holds; a `Bool`, where a
 # `!Bool` is expected.
 
-struct P
+obj P
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct Seen
+obj Seen
   items: List[Int]
 
   fun insert(!self, k: Int) -> Bool

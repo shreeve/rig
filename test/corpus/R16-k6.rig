@@ -1,4 +1,4 @@
-struct View
+obj View
   w: ?List[Int]
   n: Int
 

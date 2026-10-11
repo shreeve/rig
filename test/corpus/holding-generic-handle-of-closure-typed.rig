@@ -1,4 +1,4 @@
-struct H[T]
+obj H[T]
   h: *T
 
 sub main()

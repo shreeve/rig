@@ -2,7 +2,7 @@
 # index runs: the index cannot lend what the value may be to write. A
 # place is found after its index (`a[grow(!a)]` is accepted).
 
-struct P
+obj P
   v: List[Int]
 
 fun mk(k: Int) -> P

@@ -1,4 +1,4 @@
-struct N
+obj N
   v: Int
 
 sub drain(w: !List[*N])

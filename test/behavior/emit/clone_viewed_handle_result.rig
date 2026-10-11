@@ -1,13 +1,13 @@
 # `+` of a call that returns a view of a handle clones the handle it
 # views, as it does for a binding holding that view.
 
-struct Leaf
+obj Leaf
   n: Int
 
 error Lookup
   missing
 
-struct Root
+obj Root
   leaf: *Leaf
   fun first(?self) -> ?*Leaf
     ?self.leaf

@@ -1,5 +1,5 @@
 # elements as receivers, operands and args
-struct Rec
+obj Rec
   name: String
   n: Int
 

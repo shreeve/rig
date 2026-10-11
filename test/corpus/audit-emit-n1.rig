@@ -1,6 +1,6 @@
 limit = 4
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   buf: [n]T
   head: Int = 0
   count: Int = 0

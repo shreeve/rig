@@ -1,7 +1,7 @@
 error E
   bad
 
-struct Node
+obj Node
   n: Int
 
 fun f(k: Int) -> Int!

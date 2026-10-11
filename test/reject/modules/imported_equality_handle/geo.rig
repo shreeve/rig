@@ -1,11 +1,11 @@
-pub struct Point
+pub obj Point
   x: Int
 
-pub struct Tagged
+pub obj Tagged
   id: Int
   h: *Point
 
-pub struct Res
+pub obj Res
   n: Int
 
   drop(!self)

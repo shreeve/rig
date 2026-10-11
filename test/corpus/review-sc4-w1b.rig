@@ -2,7 +2,7 @@ enum Shape
   circle(r: Int)
   point
 
-struct Hold
+obj Hold
   p: !Int
 
 sub main()

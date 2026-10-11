@@ -1,4 +1,4 @@
-pub struct type[T]
+pub obj type[T]
   v: T
 
   fun get(?self) -> T

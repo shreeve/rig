@@ -1,4 +1,4 @@
-struct P
+obj P
   arr: [4]Int
   v: List[Int]
   s: String

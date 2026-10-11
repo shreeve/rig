@@ -1,4 +1,4 @@
-struct W[T]
+obj W[T]
   x: T
   y: T
 

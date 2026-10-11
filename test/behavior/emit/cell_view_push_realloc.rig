@@ -4,7 +4,7 @@
 # a stale header would free a buffer twice.
 # release
 
-struct V
+obj V
   c: Cell[List[Int]]
 
   drop(!self)
@@ -14,7 +14,7 @@ struct V
     !self.c.push(n)
     self.c.len
 
-struct P
+obj P
   c: Cell[List[Int]]
 
   fun add(!self, n: Int) -> Int

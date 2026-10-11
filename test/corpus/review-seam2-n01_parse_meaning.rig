@@ -2,7 +2,7 @@
 # oracle: S.all accept
 # oracle: wrap accept
 # oracle: main accept
-struct S
+obj S
   n: Int
 
   fun all(!self) -> !S

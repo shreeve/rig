@@ -1,14 +1,14 @@
 error E
   bad
 
-struct Node
+obj Node
   n: Int
 
 fun f(k: Int) -> Int!
   return E.bad if k > 0
   k
 
-struct Pair
+obj Pair
   a: *Node
   b: Int
 

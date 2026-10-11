@@ -7,13 +7,13 @@
 
 use std.sort
 
-struct S
+obj S
   n: Int
 
   fun twin(?self) -> S
     S(n: self.n)
 
-struct P
+obj P
   n: Int
 
   drop(!self)

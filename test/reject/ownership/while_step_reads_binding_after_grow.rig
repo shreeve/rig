@@ -22,13 +22,13 @@ use std.text
 error E
   bad
 
-struct S
+obj S
   s: []Int
 
   fun first(?self) -> Int
     self.s[0]
 
-struct T
+obj T
   s: ?String
 
 fun mk(v: ?List[Int]) -> S?

@@ -1,10 +1,10 @@
-struct W
+obj W
   t: !String
 
-struct Outer
+obj Outer
   w: W
 
-struct Outer2
+obj Outer2
   o: Outer
 
 fun grab(o: ?Outer2) -> ?String

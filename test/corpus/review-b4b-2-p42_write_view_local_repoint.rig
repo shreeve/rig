@@ -1,5 +1,5 @@
 # Write-view local re-pointed after the match, then the first owner reassigned. Expect reject at e1 reassign.
-struct Res
+obj Res
   n: Int
   t: String
 

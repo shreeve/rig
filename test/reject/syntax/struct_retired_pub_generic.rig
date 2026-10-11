@@ -1,0 +1,10 @@
+# The old spelling is named after `pub`, and with type parameters.
+
+pub struct Pair[T] unique
+  a: T
+
+sub main()
+  print(1)
+
+# error: 3:5: write `obj Name`: `struct` is spelled `obj`
+# errors: 1

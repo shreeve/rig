@@ -1,7 +1,7 @@
 # An element of a Cell's List is stored after the right-hand side runs,
 # into the Cell the field holds then.
 
-struct B
+obj B
   c: *Cell[List[Int]]
 
 fun renew(b: !B) -> Int

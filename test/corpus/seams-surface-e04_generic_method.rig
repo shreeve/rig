@@ -1,4 +1,4 @@
-struct P
+obj P
   x: Int
   fun key(?self) -> Int
     self.x

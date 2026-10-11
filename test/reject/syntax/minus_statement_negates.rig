@@ -4,7 +4,7 @@
 fun f() -> Int
   3
 
-struct P
+obj P
   n: Int
 
   fun get(?self) -> Int

@@ -1,6 +1,6 @@
 pub LIMIT = 10
 
-pub struct Point
+pub obj Point
   pub x: Int
   pub y: Int
 

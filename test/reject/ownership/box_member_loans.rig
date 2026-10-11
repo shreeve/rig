@@ -2,7 +2,7 @@
 # box's binding: the box may not be dropped or written while a view
 # through it is used.
 
-struct S
+obj S
   n: Int
   t: String
 

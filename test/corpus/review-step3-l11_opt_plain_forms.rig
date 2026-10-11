@@ -1,7 +1,7 @@
-struct P
+obj P
   n: Int
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)

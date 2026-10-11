@@ -1,5 +1,5 @@
 # Core sentence 1/4: a read lend may go unwritten
-struct Packet
+obj Packet
   size: Int
 
 fun size_of(p: ?Packet) -> Int

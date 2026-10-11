@@ -1,6 +1,6 @@
 # Arm bindings may use the names the emitted code gives match captures.
 
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)

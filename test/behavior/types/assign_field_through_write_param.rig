@@ -1,6 +1,6 @@
 # A field of a `!T` parameter is assigned in the caller's value.
 
-struct Point
+obj Point
   x: Int
 
 sub reset(p: !Point)

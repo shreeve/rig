@@ -10,7 +10,7 @@ sub show(x: Int)
     print("never")
   print(x)
 
-struct D
+obj D
   n: Int
 
   drop(!self)

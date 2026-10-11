@@ -1,4 +1,4 @@
-struct Map[K, V]
+obj Map[K, V]
   keys: List[K?]
   vals: List[V?]
   hash: fun(?K) -> U64

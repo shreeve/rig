@@ -2,7 +2,7 @@
 # one passed to `_`: an owned argument is dropped when the closure is
 # called.
 
-struct F
+obj F
   n: Int
 
   drop(!self)

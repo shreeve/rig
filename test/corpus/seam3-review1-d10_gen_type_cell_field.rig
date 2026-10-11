@@ -1,4 +1,4 @@
-struct Keep[T]
+obj Keep[T]
   c: *Cell[T]
 
 fun mk[T](x: T) -> Keep[T]

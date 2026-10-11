@@ -1,4 +1,4 @@
-struct Reg
+obj Reg
   names: List[?String]
 
   sub add(!self, n: ?String)

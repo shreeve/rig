@@ -5,7 +5,7 @@
 # way, and a closure marks the handle it captured.
 # release
 
-struct Counter
+obj Counter
   hits: Cell[Int]
   log: Cell[List[Int]]
 

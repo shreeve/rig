@@ -1,4 +1,4 @@
-pub struct P
+pub obj P
   pub x: Int
 
 pub fun make() -> P

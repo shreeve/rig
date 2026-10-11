@@ -1,10 +1,10 @@
 # A subslice of an array of a generic instance that holds its Cell holder
 # only behind a handle: `rig.slice` gives `[]const G(C)` (ReadSlice),
 # the parameter is `[]G(C)`.
-struct C
+obj C
   c: Cell[Int]
 
-struct G[T]
+obj G[T]
   h: *T
 
 fun tot(xs: []G[C]) -> Int

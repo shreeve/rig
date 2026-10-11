@@ -1,7 +1,7 @@
 sub put[T](v: !List[T], x: T)
   (!v).push(<x)
 
-struct Bag[T]
+obj Bag[T]
   items: List[T]
 
   sub add(!self, x: T)

@@ -2,7 +2,7 @@
 # where `opt(?self)` returns an optional view of self. Cell-holding version.
 #
 # oracle: C.opt accept
-struct C
+obj C
   c: Cell[Int]
 
   fun opt(!self) -> (?C)?

@@ -1,4 +1,4 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)
@@ -7,7 +7,7 @@ struct Counter
 fun two() -> [2]Counter
   [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
 
-struct H
+obj H
   arr: [2]Counter
 
 fun bump(s: []Counter) -> Int

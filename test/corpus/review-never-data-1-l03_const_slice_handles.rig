@@ -1,4 +1,4 @@
-struct D
+obj D
   c: *Cell[Int]
 
 sub bump(s: []*Cell[Int], ds: []D, v: !List[*Cell[Int]])

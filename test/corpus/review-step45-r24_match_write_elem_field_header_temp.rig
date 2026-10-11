@@ -3,7 +3,7 @@ enum E
   a(t: String)
   b(n: Int)
 
-struct S
+obj S
   e: E
 
 fun idx(s: ?String) -> Int

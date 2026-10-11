@@ -5,10 +5,10 @@
 # literal is lent only as a call's argument, without `*`, and not to a
 # call whose result could hold it.
 
-struct Holder
+obj Holder
   f: ?fun(Int) -> Int
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 fun double(n: Int) -> Int

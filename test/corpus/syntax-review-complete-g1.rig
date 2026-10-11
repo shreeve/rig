@@ -1,8 +1,8 @@
-struct Entry
+obj Entry
   k: ?String
   v: Int
 
-struct Map
+obj Map
   es: List[Entry]
 
   fun get(?self, k: ?String) -> (?Int)?

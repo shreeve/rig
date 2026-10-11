@@ -1,7 +1,7 @@
 error E
   bad
 
-struct Tok
+obj Tok
   n: Int
   v: List[Int]
 

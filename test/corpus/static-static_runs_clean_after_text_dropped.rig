@@ -1,4 +1,4 @@
-struct Tag
+obj Tag
   name: Static
 
 fun label(t: Tag) -> *sub()

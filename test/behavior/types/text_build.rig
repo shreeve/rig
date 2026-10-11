@@ -3,11 +3,11 @@
 # `print` shows them, and structs, enums, optionals, arrays, and Vecs
 # with Strings quoted inside them.
 
-struct Point
+obj Point
   x: Int
   y: Float
 
-struct User
+obj User
   name: ?String
   age: Int
 

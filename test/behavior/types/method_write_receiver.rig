@@ -1,7 +1,7 @@
 # `!self` is sugar for `self: !Self`; the call site must write the
 # view explicitly as `!u.modify(...)`. The body may read fields.
 
-struct User
+obj User
   name: ?String
 
   sub modify(!self, new_name: ?String)

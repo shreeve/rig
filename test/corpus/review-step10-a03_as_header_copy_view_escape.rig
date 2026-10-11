@@ -1,10 +1,10 @@
 # header_value + as_value copy: `if pick(?h, ?String("k")) as x` makes a
 # header temporary, so the binding views a copy (plain data accepted).
 # Store a view of x in an outer var and read it after the body.
-struct P
+obj P
   xs: [4]Int
 
-struct H
+obj H
   q: P?
 
 fun pick(h: ?H, k: ?String) -> ?P? from h

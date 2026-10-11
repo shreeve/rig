@@ -2,13 +2,13 @@
 #
 # oracle: D.drop accept
 # oracle: bump accept
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
     print("drop", self.c.get())
 
-struct H
+obj H
   d: D
   e: D
 

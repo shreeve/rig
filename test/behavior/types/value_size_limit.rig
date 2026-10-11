@@ -5,7 +5,7 @@
 BIG = [1048576 of 7]
 HALF = [524288 of 1]
 
-struct Frame
+obj Frame
   a: [524288]Int
   b: [524288]Int
 

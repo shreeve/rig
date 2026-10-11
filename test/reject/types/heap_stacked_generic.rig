@@ -3,7 +3,7 @@
 # generic function whose signature would, are rejected where they are
 # made.
 
-struct Wrap[T]
+obj Wrap[T]
   inner: *T
 
 fun boxed[T](x: T) -> ^T

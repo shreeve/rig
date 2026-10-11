@@ -1,13 +1,13 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-struct H
+obj H
   arr: [2]Counter
 
-struct V
+obj V
   s: []Int
   arr: [2]Counter
 

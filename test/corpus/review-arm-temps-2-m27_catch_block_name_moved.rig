@@ -1,7 +1,7 @@
 error E
   bad
 
-struct D
+obj D
   n: Int
 
   drop(!self)

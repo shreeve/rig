@@ -10,11 +10,11 @@ enum Opt[T]
   some(v: T)
   nothing
 
-struct Pt
+obj Pt
   x: Int
   y: Int
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 fun clobber(n: Int) -> Int

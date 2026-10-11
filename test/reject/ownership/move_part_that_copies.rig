@@ -15,13 +15,13 @@
 # oracle: for_part reject C3
 # oracle: generic_part reject C3
 
-struct P
+obj P
   x: Int
 
   fun into(<self) -> Int
     self.x
 
-struct S
+obj S
   n: Int
   p: P
   r: ?Int
@@ -101,7 +101,7 @@ sub for_part()
   for x in <s.arr
     print(x)
 
-struct G[T]
+obj G[T]
   f: T
 
 fun generic_part[T](g: G[T]) -> T

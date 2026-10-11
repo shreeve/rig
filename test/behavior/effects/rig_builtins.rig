@@ -4,7 +4,7 @@
 # Zig's names for them (`@sizeOf`, `@alignOf`, `@typeName`, `@TypeOf`);
 # Zig's `@typeName` is the emitted Zig's name for the type.
 
-struct P
+obj P
   a: I32
   b: I64
 

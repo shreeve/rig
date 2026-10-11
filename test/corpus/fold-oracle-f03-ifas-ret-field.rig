@@ -1,5 +1,5 @@
 # bad: return bytes bound by if ?h.o as p of a local holder
-struct H
+obj H
   o: String?
 
 fun f() -> ?String

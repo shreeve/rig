@@ -58,7 +58,7 @@ fun take1183(a: U16) -> U16
 fun take1844(a: U32) -> U32
   a
 
-struct Bx1338
+obj Bx1338
   f: F32
 
 fun fal1968(ok: Bool) -> U32!

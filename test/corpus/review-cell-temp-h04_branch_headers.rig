@@ -3,7 +3,7 @@
 # oracle: D.drop accept
 # oracle: D.hit accept
 # oracle: val accept
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -13,7 +13,7 @@ struct D
     !self.c.set(self.c.get() + 1)
     self.c.get()
 
-struct H
+obj H
   d: D
 
 fun mkd(n: Int) -> D

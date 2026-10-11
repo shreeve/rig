@@ -2,7 +2,7 @@
 # whatever they are called: Zig keywords, `_`, and names that look like the
 # emitter's own.
 
-struct B
+obj B
   n: Int
 
   drop(!self)
@@ -21,7 +21,7 @@ sub flags(alive_b: List[Int], b: *B)
 sub keep(b: *B)
   print("keep", b.n)
 
-struct S
+obj S
   v: List[Int]
 
   sub consume(<self)

@@ -1,7 +1,7 @@
 # `m?` hands over the handle inside `m`, and a view cannot give up
 # what it holds.
 
-struct Wrap
+obj Wrap
   n: Int
 
 fun g(m: ?*Wrap?) -> Int?

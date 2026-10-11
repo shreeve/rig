@@ -2,7 +2,7 @@
 # parameter, result, local, optional, element, slice, or type argument
 # holds one by value.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 sub take(k: Counter)

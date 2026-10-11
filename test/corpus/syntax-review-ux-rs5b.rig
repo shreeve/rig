@@ -1,8 +1,8 @@
-struct Doc
+obj Doc
   title: ?String
   words: List[?String]
 
-struct View
+obj View
   doc: ?Doc
   pos: Int
 

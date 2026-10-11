@@ -1,4 +1,4 @@
-struct Player
+obj Player
   name: ?String
   scores: List[Int]
 

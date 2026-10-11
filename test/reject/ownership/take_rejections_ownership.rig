@@ -3,11 +3,11 @@
 # is not optional still cannot be moved out; it is exchanged with
 # `replace`. A local is moved as a whole, and cannot be used after.
 
-struct N
+obj N
   v: Int
   next: ^N?
 
-struct S
+obj S
   top: ^N?
   n: N
 

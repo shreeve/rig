@@ -1,6 +1,6 @@
 # A closure's value cannot lend the closure's own locals.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
 sub main()

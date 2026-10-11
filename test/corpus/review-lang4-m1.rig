@@ -1,8 +1,8 @@
-struct Node
+obj Node
   items: List[Int]
   tag: *List[Int]
 
-struct H
+obj H
   w: !Node
 
   sub reset(!self, k: Int)

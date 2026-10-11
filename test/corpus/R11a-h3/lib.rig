@@ -5,6 +5,6 @@ pub enum Opt[T]
 pub fun wrap[T](x: T) -> Opt[T]
   .some(value: <x)
 
-pub struct Two[A, B]
+pub obj Two[A, B]
   a: A
   b: B

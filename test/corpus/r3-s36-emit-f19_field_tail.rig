@@ -2,7 +2,7 @@
 error E
   bad
 
-struct R
+obj R
   code: E
 
 fun f(r: ?R) -> Int!

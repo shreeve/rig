@@ -1,6 +1,6 @@
 # A binary search tree of Ints with owned children.
 
-struct Node
+obj Node
   key: Int
   left: ^Node?
   right: ^Node?
@@ -24,7 +24,7 @@ struct Node
     if ?self.right as r
       r.walk(visit)
 
-struct Tree
+obj Tree
   root: ^Node?
   size: Int
 

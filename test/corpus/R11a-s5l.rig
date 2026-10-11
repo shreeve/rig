@@ -1,7 +1,7 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

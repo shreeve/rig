@@ -1,11 +1,11 @@
 # H2: Cell set/replace through nested List/array/Box/field paths under read views
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
 
-struct S
+obj S
   cs: List[C]
   arr: [2]C
   b: ^C

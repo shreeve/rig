@@ -1,8 +1,8 @@
-struct Bx
+obj Bx
   c: Cell[Int]
   v: List[Int]
 
-struct View
+obj View
   b: ?Bx
 
 sub stash(h: *Cell[*sub()])

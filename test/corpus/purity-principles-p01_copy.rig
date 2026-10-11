@@ -1,4 +1,4 @@
-struct Big
+obj Big
   a: [1000]Int
 
 fun first(b: Big) -> Int

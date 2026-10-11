@@ -1,4 +1,4 @@
-struct Item
+obj Item
   n: Int
 
 fun apply(f: ?fun(it: ?Item) -> Int, x: ?Item) -> Int

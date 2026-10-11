@@ -1,7 +1,7 @@
 # Calling a closure yields a value that may lend what the closure
 # captured, so it cannot outlive the viewed value.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
 sub main()

@@ -1,6 +1,6 @@
 # The value re-points a write-view field at an outer List, then grows the
 # old referent. The store goes through the new view (u[0]).
-struct H
+obj H
   r: !Int
 
 fun grow(v: !List[Int]) -> Int

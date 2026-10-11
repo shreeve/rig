@@ -1,7 +1,7 @@
 # A value viewed by `as` is a view for the block: it cannot be
 # copied out as an owner.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

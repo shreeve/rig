@@ -2,7 +2,7 @@
 # an independent strong handle, which may be kept after the loop and
 # outlive the List.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

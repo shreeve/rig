@@ -1,5 +1,5 @@
 # A payload view carried out of a loop through break (ok use). Expect accept, prints one.
-struct Res
+obj Res
   n: Int
   t: String
 

@@ -31,7 +31,7 @@ enum B
   a(b: ^String)
   b
 
-struct P
+obj P
   t: String
   xs: List[Int]
 
@@ -46,10 +46,10 @@ enum O
   a(e: E)
   b
 
-struct HE
+obj HE
   e: E
 
-struct H
+obj H
   s: ?String
 
 fun keep(s: ?String) -> ?String

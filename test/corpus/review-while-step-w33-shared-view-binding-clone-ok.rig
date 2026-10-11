@@ -3,7 +3,7 @@
 #
 # oracle: all accept
 # oracle: main accept
-struct Node
+obj Node
   vals: List[Int]
 
 fun all(n: ?Node, i: Int) -> ([]Int)?

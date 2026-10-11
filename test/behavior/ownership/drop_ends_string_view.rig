@@ -2,7 +2,7 @@
 # struct or iterator holding Strings, ends the loan it carries: the
 # Text may then change.
 
-struct Split
+obj Split
   rest: ?String
 
   fun next(!self) -> (?String)?
@@ -14,7 +14,7 @@ struct Split
 fun split(s: ?String) -> Split
   Split(rest: s)
 
-struct Pair
+obj Pair
   a: ?String
   b: Int
 

@@ -3,7 +3,7 @@
 # lent inside what the call stores into. A result the call only reads
 # lends implicitly.
 
-struct Holder
+obj Holder
   seen: []Int
 
 fun head(xs: []Int) -> []Int

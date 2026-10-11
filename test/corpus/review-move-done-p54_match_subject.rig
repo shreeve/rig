@@ -2,17 +2,17 @@ enum E
   full(v: List[Int])
   empty
 
-struct S
+obj S
   e: E
   n: Int
 
-struct D
+obj D
   v: List[Int]
 
   fun into(<self) -> Int
     self.v.len
 
-struct H
+obj H
   d: D
 
 sub s1()

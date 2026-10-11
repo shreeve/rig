@@ -2,13 +2,13 @@
 # the boxed value cannot be moved out or copied out when it owns a
 # resource.
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct H
+obj H
   r: Res
 
 sub main()

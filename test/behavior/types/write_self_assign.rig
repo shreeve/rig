@@ -1,6 +1,6 @@
 # `!self` is assignable: a method can replace the whole receiver.
 
-struct Counter
+obj Counter
   n: Int
 
   sub reset(!self)

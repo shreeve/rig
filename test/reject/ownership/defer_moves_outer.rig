@@ -1,7 +1,7 @@
 # A deferred body cannot move an outer binding: it runs at scope exit,
 # after the binding's own cleanup has been decided.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub eat(rc: *Wrap)

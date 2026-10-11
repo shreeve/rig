@@ -1,4 +1,4 @@
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)
@@ -8,7 +8,7 @@ enum Slot
   empty
   full(t: *Tok)
 
-struct Holder
+obj Holder
   s: Slot
 
 sub eat(t: *Tok)

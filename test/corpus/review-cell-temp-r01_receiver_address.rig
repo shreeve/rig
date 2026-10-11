@@ -6,7 +6,7 @@
 # oracle: D.wr accept
 # oracle: side accept
 # oracle: main accept
-struct D
+obj D
   c: Cell[Int]
   n: Int
 

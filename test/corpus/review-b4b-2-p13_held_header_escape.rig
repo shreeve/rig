@@ -1,5 +1,5 @@
 # Subject is a part of a value the header makes (held); the view escapes the match. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -11,7 +11,7 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-struct HE
+obj HE
   e: E
 
 fun mkh() -> HE

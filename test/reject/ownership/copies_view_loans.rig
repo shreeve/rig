@@ -10,7 +10,7 @@
 # oracle: capture_through_view_loan reject C4
 # oracle: owned_capture reject C8
 
-struct S
+obj S
   r: ?Int
 
 fun keep(s: ?S) -> S

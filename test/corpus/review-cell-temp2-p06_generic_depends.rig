@@ -11,7 +11,7 @@
 error E
   bad
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
@@ -28,7 +28,7 @@ struct D
     !self.c.set(self.c.get() + 1)
     self
 
-struct WW
+obj WW
   t: D
 
 fun mk(n: Int) -> D
@@ -49,7 +49,7 @@ fun look(x: !D) -> Int
   !x.c.set(x.c.get() + 10)
   x.c.get()
 
-struct Q
+obj Q
   n: Int
 
   drop(!self)
@@ -64,7 +64,7 @@ struct Q
 fun mkq(n: Int) -> Q
   Q(n: n)
 
-struct Hold[T]
+obj Hold[T]
   v: T
 
 fun gen[T](k: Bool, a: ?T, f: fun(Int) -> T) -> Int

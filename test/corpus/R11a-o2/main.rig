@@ -3,7 +3,7 @@ use lib
 error E
   bad
 
-struct Res
+obj Res
   n: Int
 
   drop(!self)

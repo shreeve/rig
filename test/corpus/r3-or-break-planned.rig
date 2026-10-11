@@ -3,7 +3,7 @@
 # still takes `<x`, and a `defer` that reads the name runs after it
 # moved.
 
-struct Bag
+obj Bag
   v: List[Int]
 
 sub loop_local()

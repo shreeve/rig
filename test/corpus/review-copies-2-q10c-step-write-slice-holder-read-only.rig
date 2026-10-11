@@ -1,5 +1,5 @@
 # Control: the body does not touch `v`; the step writes through the slice.
-struct S
+obj S
   s: ![]Int
 
 fun mk(v: !List[Int], i: Int) -> S?

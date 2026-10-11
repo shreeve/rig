@@ -1,4 +1,4 @@
-struct Pair
+obj Pair
   a: Int
   b: Int
 

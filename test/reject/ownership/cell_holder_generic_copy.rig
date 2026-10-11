@@ -2,10 +2,10 @@
 # handle a value that holds a Cell lives behind: the copy would
 # duplicate the handle.
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 fun keep[T](x: T) -> Wrap[T]

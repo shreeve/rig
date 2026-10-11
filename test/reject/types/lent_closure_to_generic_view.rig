@@ -2,7 +2,7 @@
 # a `?T` of a generic function, field, or payload takes a read view of
 # a value, and a stack closure is not one. `!f` does not lend it.
 
-struct View[T]
+obj View[T]
   w: ?T
 
 fun use_it[T](x: ?T) -> Int

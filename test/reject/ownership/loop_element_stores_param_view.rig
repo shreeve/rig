@@ -1,7 +1,7 @@
 # A store through a `for k in !hs` element lands in local `hs`, which
 # then holds the view of parameter `b`: `b` stays lent while `hs` is used.
 
-struct Holder
+obj Holder
   r: []Int
 
 fun f(b: !List[Int]) -> Int

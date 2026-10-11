@@ -1,10 +1,10 @@
 # Assigning through a local write view stores the value in the place
 # it views, which outlives a view of a later local.
 
-struct In
+obj In
   n: Int
 
-struct View
+obj View
   b: ?In
 
 sub main()

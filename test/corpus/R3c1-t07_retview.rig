@@ -1,8 +1,8 @@
-struct P
+obj P
   x: Int
   s: ?String
 
-struct Bag
+obj Bag
   items: List[P]
 
   fun first(?self) -> ?P

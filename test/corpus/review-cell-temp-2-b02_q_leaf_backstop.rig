@@ -2,7 +2,7 @@
 #
 # oracle: N.hit accept
 # oracle: main accept
-struct N
+obj N
   c: Cell[Int]
 
   sub hit(!self)

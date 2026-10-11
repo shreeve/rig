@@ -1,4 +1,4 @@
-struct Bag[T]
+obj Bag[T]
   c: Cell[T] = Cell(0)
   a: [2]T = [2 of 0]
 

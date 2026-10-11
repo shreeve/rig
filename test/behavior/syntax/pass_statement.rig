@@ -7,7 +7,7 @@ enum Color
   green
   blue
 
-struct Countdown
+obj Countdown
   n: Int
 
   fun next(!self) -> Int?

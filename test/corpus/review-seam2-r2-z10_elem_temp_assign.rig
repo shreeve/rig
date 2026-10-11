@@ -7,14 +7,14 @@
 # oracle: wrap accept
 # oracle: wv accept
 # oracle: main reject C5
-struct S
+obj S
   n: Int
   t: String
 
   drop(!self)
     print("dropS", self.n)
 
-struct H
+obj H
   r: ?String
   rs: List[?String]
 

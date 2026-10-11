@@ -1,5 +1,5 @@
 # array of types with a drop body; break mid-way, check order and count
-struct D
+obj D
   n: Int
 
   drop(!self)

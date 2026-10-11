@@ -1,7 +1,7 @@
 # A Cell field reached through a shared handle is not assigned; its
 # value changes in place with `set`.
 
-struct S
+obj S
   n: Cell[Int]
 
 sub main()

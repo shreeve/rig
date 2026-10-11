@@ -2,7 +2,7 @@
 # same seed gives the same sequence on every platform; it is not for
 # cryptography.
 
-pub struct Random
+pub obj Random
   state: U64
 
   # A generator whose sequence is fixed by `seed`.

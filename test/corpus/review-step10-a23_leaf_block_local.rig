@@ -1,7 +1,7 @@
 # leaf (pointer): a branching receiver whose branch is a block ending in
 # a local of that block. `reachesLeaf` takes the address of the leaf, a
 # local whose block has ended when the `?self` method's view is read.
-struct Q
+obj Q
   xs: [4]Int
 
   fun me(?self) -> ?Q

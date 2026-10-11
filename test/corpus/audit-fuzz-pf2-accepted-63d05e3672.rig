@@ -1,10 +1,10 @@
-struct R
+obj R
   id: Int
 
   drop(!self)
     print("rel", self.id)
 
-struct P
+obj P
   a: R
   b: R
 
@@ -77,14 +77,14 @@ sub swap_gen[T](a: !T, b: !T)
 fun first_ref[T, U](p: ?Pair[T, U]) -> ?T
   ?p.first
 
-struct Pair[T, U]
+obj Pair[T, U]
   first: T
   second: U
 
   fun left(?self) -> ?T
     ?self.first
 
-struct Shelf[T]
+obj Shelf[T]
   items: List[T]
 
   sub add(!self, x: T)

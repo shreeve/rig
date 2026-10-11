@@ -1,6 +1,6 @@
 # A generic closure passes on a `|?x|` capture of a match binding to a function taking `?T`.
 
-struct P
+obj P
   n: Int
   t: String
 

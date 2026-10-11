@@ -1,5 +1,5 @@
 # a method stores a view into self's List field; then the source dropped
-struct Bag
+obj Bag
   items: List[?String]
 
   sub add(!self, s: ?String)

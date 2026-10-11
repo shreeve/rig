@@ -1,6 +1,6 @@
 # H1: a made `Q?` lent as `(?Q)?`, as an argument of a hoisted call (keyword
 # arguments out of order), held as the view its parameter expects.
-struct Q
+obj Q
   xs: [4]Int
   t: String
 

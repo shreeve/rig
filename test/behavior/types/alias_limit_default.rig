@@ -3,7 +3,7 @@
 
 type Byte = U8
 
-struct P
+obj P
   lo: Byte = Byte.min
   hi: U8 = U8.max
 

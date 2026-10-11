@@ -5,7 +5,7 @@
 # local while `sort` runs. `map` infers `U` from what the literal
 # returns.
 
-struct Player
+obj Player
   name: ?String
   score: Int
 

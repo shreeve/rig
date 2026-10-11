@@ -3,7 +3,7 @@ enum Opt[T]
   some(v: T)
   nothing
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 fun clobber(n: Int) -> Int

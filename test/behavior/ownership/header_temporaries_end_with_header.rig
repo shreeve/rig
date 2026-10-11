@@ -4,7 +4,7 @@
 # before the body runs, also when it fails or leaves early; the step of
 # a `while` is a statement too.
 
-struct N
+obj N
   id: Int
   v: List[Int]
 

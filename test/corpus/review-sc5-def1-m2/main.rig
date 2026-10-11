@@ -9,11 +9,11 @@ enum Color
 
 DEF = Color.blue
 
-struct Inner
+obj Inner
   xs: List[?String] = List()
   c: Cell[?String] = Cell("x")
 
-struct Outer
+obj Outer
   inner: Inner
   names: List[^Inner] = List()
   words: [N]?String = [N of WORD]

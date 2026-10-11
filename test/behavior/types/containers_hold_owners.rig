@@ -1,19 +1,19 @@
 # Vecs, arrays, and slices hold values that own resources, and drop
 # each once (Core §5).
 
-struct B
+obj B
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct A
+obj A
   items: [2]C
 
-struct C
+obj C
   h: *Int
 
-struct Bag
+obj Bag
   items: List[Int]
 
 fun total(s: []Bag) -> Int

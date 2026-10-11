@@ -5,7 +5,7 @@ sub f(n: U8 = Byte.max)
 
 K = Byte.max
 
-struct S
+obj S
   b: U8 = Byte.min
 
 sub main()

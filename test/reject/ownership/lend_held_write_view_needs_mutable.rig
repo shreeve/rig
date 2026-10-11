@@ -2,7 +2,7 @@
 # writes through what holds it: the field is rejected where it is
 # declared.
 
-struct H
+obj H
   w: !Int
 
 sub poke(w: !Int)

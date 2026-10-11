@@ -2,7 +2,7 @@
 # the defer) and goes on to the step.
 #
 # oracle: mk accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

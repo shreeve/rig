@@ -2,7 +2,7 @@
 # weak handle. A second holding sigil over it is rejected, wherever the
 # type is written.
 
-struct Holder
+obj Holder
   a: ^^Int
   b: ^*Int
   c: *^Int

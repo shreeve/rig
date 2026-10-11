@@ -1,6 +1,6 @@
 # A type name is not a value.
 
-struct P
+obj P
   x: Int
 
 sub main()

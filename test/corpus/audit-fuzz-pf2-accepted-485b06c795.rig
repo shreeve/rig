@@ -1,13 +1,13 @@
 # Fields are dropped last first at any depth, including past the depth
 # where the runtime queues releases instead of recursing.
 
-struct N
+obj N
   id: Int
 
   drop(!self)
     print("drop", self.id)
 
-struct Node
+obj Node
   next: *Node?
   a: *N?
   b: *N?

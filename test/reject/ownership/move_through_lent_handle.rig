@@ -1,7 +1,7 @@
 # A path through a shared handle reaches the handle's value, which other
 # handles may still use: nothing is moved out of it.
 
-struct S
+obj S
   items: List[Int]
 
 sub main()

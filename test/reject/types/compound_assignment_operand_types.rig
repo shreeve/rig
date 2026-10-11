@@ -2,7 +2,7 @@
 # shifts need an integer target, arithmetic a numeric one, and the value
 # must fit the operator.
 
-struct P
+obj P
   name: ?String
 
 sub main()

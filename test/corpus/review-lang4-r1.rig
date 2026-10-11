@@ -1,4 +1,4 @@
-struct H
+obj H
   w: !List[Int]
 
 fun keep(v: List[Int]) -> List[Int]

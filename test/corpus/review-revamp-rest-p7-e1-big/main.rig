@@ -1,6 +1,6 @@
 use lib
 
-struct Holder
+obj Holder
   bs: [40]lib.Big
 
 sub main()

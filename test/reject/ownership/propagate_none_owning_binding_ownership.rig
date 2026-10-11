@@ -1,7 +1,7 @@
 # `m?` hands over the handle inside `m`: an owning binding is moved,
 # `(<m)?`.
 
-struct Wrap
+obj Wrap
   n: Int
 
 fun f(m: *Wrap?) -> Int?

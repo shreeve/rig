@@ -5,13 +5,13 @@ enum Mode
   a
   b
 
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)
     print("drop tok", self.n)
 
-struct P
+obj P
   x: Int = 1
   y: Int
   name: ?String = "anon"
@@ -22,7 +22,7 @@ struct P
   h: *Tok? = none
   u: U8 = 7
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
   n: Int = 5
 

@@ -1,6 +1,6 @@
 # A struct cannot declare the same member twice.
 
-struct P
+obj P
   x: Int
   x: Int
 

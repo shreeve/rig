@@ -2,7 +2,7 @@ pub error Disk
   timeout
   full
 
-pub struct Rec
+pub obj Rec
   pub e: Disk = .full
   pub g: Disk? = .timeout
 

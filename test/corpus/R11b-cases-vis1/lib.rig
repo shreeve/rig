@@ -1,7 +1,7 @@
 fun hid[T](x: T) -> T
   x
 
-struct Hidden[T]
+obj Hidden[T]
   v: T
 
   fun get[U](?self, u: U) -> U
@@ -13,7 +13,7 @@ pub fun make(n: Int) -> Hidden[Int]
 pub fun twice[T](x: T) -> T
   hid(x)
 
-pub struct Pub[T]
+pub obj Pub[T]
   h: Hidden[T]
 
   fun inner(?self) -> ?Hidden[T]

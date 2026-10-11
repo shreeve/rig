@@ -5,7 +5,7 @@
 # oracle: lends accept
 # oracle: bindings accept
 
-struct S
+obj S
   o: List[Int]?
 
 fun mkv(n: Int) -> List[Int]

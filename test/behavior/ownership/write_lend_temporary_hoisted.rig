@@ -5,7 +5,7 @@
 # sentence 4, §3). `clobber` reuses the stack before the view is read.
 # oracle: main accept
 
-struct S
+obj S
   n: Int
   o: Int?
   arr: [3]Int

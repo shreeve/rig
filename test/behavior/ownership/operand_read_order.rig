@@ -4,7 +4,7 @@
 # to another place, and a place indexed after its index runs are all
 # accepted (the rejected shapes are the reject tests named *_read_then_*).
 
-struct P
+obj P
   v: List[Int]
   n: Int
 

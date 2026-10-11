@@ -1,7 +1,7 @@
 # A move followed by `break` leaves the loop, so the rest of the loop
 # body and later iterations still see the value.
 
-struct Wrap
+obj Wrap
   payload: Int
 
   drop(!self)

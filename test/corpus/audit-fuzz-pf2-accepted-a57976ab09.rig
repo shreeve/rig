@@ -74,7 +74,7 @@ fun fal2545(ok: Bool) -> U32!
 error Err2545
   bad
 
-struct GP4344[T]
+obj GP4344[T]
   f: T
 
 sub t3469()

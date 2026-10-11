@@ -1,7 +1,7 @@
 # Inferred or declared result origins must see that `a.r` now views `b`.
 # Today the union default rejects the caller; a recorder that reads the
 # returned value's loans sees only `a` if the store is not in `a`'s flow.
-struct Holder
+obj Holder
   r: []Int
 
 fun f(a: !Holder, b: !List[Int]) -> []Int

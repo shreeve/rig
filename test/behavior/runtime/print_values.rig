@@ -2,7 +2,7 @@
 # values), `none` for an absent optional, structs as `Name(field: value)`,
 # enums as `.variant`, and Vecs and arrays as `[a, b]`.
 
-struct User
+obj User
   name: ?String
   age: Int
 

@@ -1,13 +1,13 @@
 # A callee may store a view wherever a write view passed to it
 # leads, also one moved in from a local.
 
-struct Res
+obj Res
   v: List[Int]
 
-struct View
+obj View
   r: ?Res
 
-struct Outer
+obj Outer
   inner: View?
 
 sub fill(o: !Outer, r: ?Res)

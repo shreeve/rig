@@ -1,10 +1,10 @@
 # An element of a List the holder owns, reached through `!self`, lends
 # `self`: the holder cannot change while the view is used.
 
-struct Tok
+obj Tok
   kind: Int
 
-struct P
+obj P
   toks: List[Tok]
   pos: Int
 

@@ -5,14 +5,14 @@
 # statement (`test/behavior/ownership/cell_part_receiver_view_in_statement.rig`),
 # and nowhere after.
 
-struct S
+obj S
   n: Int
   m: Int
 
   fun me(?self) -> ?S
     self
 
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
@@ -23,10 +23,10 @@ struct Q
     h.r = self
     self.n
 
-struct Holder
+obj Holder
   r: (?Q)?
 
-struct H
+obj H
   q: Q
 
 fun mk() -> S

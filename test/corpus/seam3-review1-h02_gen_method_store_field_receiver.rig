@@ -1,10 +1,10 @@
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
   sub push(!self, x: T)
     !self.items.push(x)
 
-struct Outer
+obj Outer
   s: Stack[?List[Int]]
 
 sub main()

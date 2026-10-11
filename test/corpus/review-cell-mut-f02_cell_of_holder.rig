@@ -1,6 +1,6 @@
 # A Cell whose value holds a Cell, a Cell[List] of holders, and closures
 # capturing holders each way.
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)

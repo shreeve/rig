@@ -1,4 +1,4 @@
-struct V
+obj V
   xs: []Int
 
 sub main()

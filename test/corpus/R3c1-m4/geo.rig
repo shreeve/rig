@@ -1,27 +1,27 @@
-pub struct Point
+pub obj Point
   x: Int
 
-pub struct HasVec
+pub obj HasVec
   v: List[Int]
 
-pub struct HasCell
+pub obj HasCell
   c: Cell[Int]
 
-pub struct Res
+pub obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-pub struct HasRes
+pub obj HasRes
   r: Res
 
 pub enum HasFn
   f(g: fun(Int) -> Int)
   none_
 
-pub struct Clos
+pub obj Clos
   k: *fun(Int) -> Int
 
-pub struct Weak
+pub obj Weak
   w: ~Point

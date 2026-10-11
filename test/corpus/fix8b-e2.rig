@@ -1,7 +1,7 @@
 enum E
   only
 
-struct W
+obj W
   a: E
 
 sub main()

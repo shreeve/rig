@@ -3,7 +3,7 @@
 # where an optional of the value is expected. (A view held by value, of
 # a number, is its value, and widens to the optional.)
 
-struct P
+obj P
   x: Int
 
 sub main()

@@ -8,7 +8,7 @@
 # write (`test/reject/types/write_lend_constant.rig`). (A view of a temporary held past its statement:
 # `write_lend_temporary_outlives.rig`.)
 
-struct S
+obj S
   n: Int
   items: List[Int]
 

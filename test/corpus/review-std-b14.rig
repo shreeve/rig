@@ -1,4 +1,4 @@
-struct Counter
+obj Counter
   n: Int
 
   fun keep(!self, xs: []Int) -> []Int

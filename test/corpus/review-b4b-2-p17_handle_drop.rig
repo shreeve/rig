@@ -1,5 +1,5 @@
 # Shared handle subject; view escapes; the handle is dropped. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

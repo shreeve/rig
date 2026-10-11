@@ -1,7 +1,7 @@
 pub fun get[T](v: ?List[T], i: Int) -> T
   v[i]
 
-pub struct Holder[T]
+pub obj Holder[T]
   x: T
 
   fun peek(?self) -> T

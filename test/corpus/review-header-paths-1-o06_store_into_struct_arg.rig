@@ -1,11 +1,11 @@
-struct H
+obj H
   v: List[Int]
 
   sub put(!self, dst: !Slot)
     !self.v.push(1)
     dst.s = ?self.v[..]
 
-struct Slot
+obj Slot
   s: []Int
 
 sub main()

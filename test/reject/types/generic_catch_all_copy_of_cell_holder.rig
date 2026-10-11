@@ -3,14 +3,14 @@
 # it lives only behind a shared handle, so each is rejected where it is
 # written.
 
-struct C
+obj C
   c: Cell[Int]
 
 enum Opt[T]
   some(v: T)
   nothing
 
-struct W[T]
+obj W[T]
   o: Opt[T]
 
 fun hit(o: ?Opt[C]) -> Int

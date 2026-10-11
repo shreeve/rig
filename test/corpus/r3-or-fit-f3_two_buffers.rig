@@ -1,4 +1,4 @@
-struct Diff
+obj Diff
   old: []Int
   cur: []Int
 

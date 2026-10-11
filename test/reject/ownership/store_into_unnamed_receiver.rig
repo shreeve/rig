@@ -9,11 +9,11 @@
 # oracle: assign_view reject C5
 # oracle: assign_elem reject C5
 
-struct S
+obj S
   n: Int
   t: String
 
-struct H
+obj H
   r: ?String
   rs: List[?String]
 

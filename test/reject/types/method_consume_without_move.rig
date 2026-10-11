@@ -2,7 +2,7 @@
 # explicit move at the call site: `<u.consume()`, not `u.consume()`. (A
 # receiver whose value copies is taken as a copy, as an argument is.)
 
-struct User
+obj User
   name: String
 
   sub consume(self: User)

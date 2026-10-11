@@ -1,6 +1,6 @@
 # A struct may declare at most one `drop`.
 
-struct File
+obj File
   fd: Int
 
   drop(!self)

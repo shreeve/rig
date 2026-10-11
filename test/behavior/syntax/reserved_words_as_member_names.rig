@@ -2,7 +2,7 @@
 # `async`, `await`, `yield`, `when`, `const`) still name members: a
 # field, a method, or a payload field.
 
-struct Job
+obj Job
   when: Int
   const: Bool
   where: ?String

@@ -3,7 +3,7 @@
 # value an early `return` gives, leave the closure, as they leave a
 # function. Lent as `?g`, it returns them the same way.
 
-struct D
+obj D
   id: Int
 
   drop(!self)

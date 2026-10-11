@@ -254,7 +254,7 @@ CRASH = re.compile(r"panic:|Segmentation fault|reached unreachable|Bus error")
 # fresh one, and a constructor expression.
 # -----------------------------------------------------------------------------
 
-N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?N\n    self\n"
+N_DECL = "obj N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?N\n    self\n"
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
     "string": dict(ty="?String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
@@ -264,20 +264,20 @@ TYPES = {
                 mk="xs: List[Int] = List()\n  !xs.push(n)\n  xs", ctor="List[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="^N", decls=N_DECL, mk="^N(v: n)", ctor="^N(v: 5)"),
-    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
+    "drop": dict(ty="D", decls='obj D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A struct that holds a Cell, which lives only behind `*`: a value
     # of it is rejected wherever it stands, so it keeps only the cells
     # in `rejected` (a context and a form), each of which must be
     # rejected.
-    "cell": dict(ty="Counter", decls="struct Counter\n  hits: Cell[Int]\n",
+    "cell": dict(ty="Counter", decls="obj Counter\n  hits: Cell[Int]\n",
                  mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))",
                  rejected=(("binding", "ctor"), ("print", "call"), ("lend_arg", "place"))),
     # A struct declared `unique`.
-    "unique": dict(ty="U", decls="struct U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
+    "unique": dict(ty="U", decls="obj U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
     # Values that copy (`sema.copies`): a plain struct and an array,
     # which a view's value is copied out as a number's is.
-    "plain": dict(ty="P", decls="struct P\n  v: Int\n", mk="P(v: n)", ctor="P(v: 5)"),
+    "plain": dict(ty="P", decls="obj P\n  v: Int\n", mk="P(v: n)", ctor="P(v: 5)"),
     "array": dict(ty="A2", decls="type A2 = [2]Int\n", mk="[n, n + 1]", ctor="[5, 6]"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: List[Int])\n",
@@ -624,7 +624,7 @@ def target_program(tname, nname, aname):
         uses_k = any("k" in l.split() for l in out_nest)
         show = t["show"] + (", " + t["seen"].replace("R", "x") if a.get("at_x") else "")
         body = list(t["make"]) + x_make + (["k = 0"] if uses_k else []) + [store + out_nest[0]] + out_nest[1:] + [f"print({show})"]
-    out = ["error E\n  bad\n", "struct S\n  n: Int\n",
+    out = ["error E\n  bad\n", "obj S\n  n: Int\n",
            "fun grow(v: !List[Int]) -> Int\n  for _ in 0..200\n    !v.push(1)\n  v.len\n",
            "fun grows(v: !List[S]) -> Int\n  for _ in 0..200\n    !v.push(S(n: 1))\n  v.len\n",
            "fun sink(v: List[S]) -> Int\n  v.len\n" if t["elem"] == "S" else "fun sink(v: List[Int]) -> Int\n  v.len\n",
@@ -661,7 +661,7 @@ def step_program(oname, hname, shape, then):
     v = o["view"]
     hty = h["ty"].replace("V", v)
     out = ["use std.text\n" if oname == "text" else "", "error E\n  bad\n",
-           f"struct H\n  r: {v}\n\n  fun get(?self) -> {v}\n    self.r\n",
+           f"obj H\n  r: {v}\n\n  fun get(?self) -> {v}\n    self.r\n",
            f"sub grow(v: !{o['ty']})\n  for {'i' if 'i' in o['grow'] else '_'} in 0..100\n    {o['grow']}\n",
            f"fun mk(v: {rd(o['ty'])}, n: Int) -> {hty}?\n  if n < 3\n    return {h['make'].replace('L', o['lend'])}\n  none\n",
            f"fun mkf(v: {rd(o['ty'])}, n: Int) -> {hty}?!\n  return E.bad if n == 7\n  mk(v, n)\n"]
@@ -767,10 +767,10 @@ def iter_program(source, ctx):
         run = ['print("tail", tailv())']
     else:
         run += loop[ctx] + ['print("after")'] + rest
-    lines = ["struct It", "  id: Int", "  at: Int", "",
+    lines = ["obj It", "  id: Int", "  at: Int", "",
              "  fun next(!self) -> Int?", "    return none if self.at >= 3", "    self.at += 1", "    self.at - 1", "",
              "  drop(!self)", '    print("drop", self.id)', "",
-             "struct Hold", "  it: It", "",
+             "obj Hold", "  it: It", "",
              "error E", "  bad", "",
              "fun mk(id: Int) -> It", "  It(id: id, at: 0)", "",
              "sub chk(k: Int)!", "  return E.bad if k == 1", ""]
@@ -854,7 +854,7 @@ def loop_program(outer, inner, jump, end):
             else:
                 lines.append(l)
     lines.append('print("tail", i)')
-    head = ["struct D", "  n: Int", "", "  drop(!self)", '    print("drop", self.n)', "",
+    head = ["obj D", "  n: Int", "", "  drop(!self)", '    print("drop", self.n)', "",
             "error E", "  bad", "",
             "fun st(i: Int) -> Int", '  print("step", i)', "  i + 1", "",
             "fun lim(i: Int, n: Int) -> Int?", "  i if i < n else none", "",
@@ -975,9 +975,9 @@ def payload_program(tname, sname, ename):
     s = PAYLOAD_SUBJECTS[sname]
     x = PAYLOAD_ESCAPES[ename]
     ty = t["ty"]
-    out = ["struct N\n  v: Int\n", "struct P\n  x: Int\n  y: Int\n", "struct Res\n  n: Int\n  t: String\n",
-           f"enum E\n  a(r: {ty})\n  b(r: {ty})\n", "struct H\n  e: E\n", "enum G[T]\n  a(r: T)\n  b(r: T)\n",
-           "struct GH[T]\n  e: G[T]\n", "fun getg[T](e: ?G[T]) -> ?G[T] from e\n  e\n",
+    out = ["obj N\n  v: Int\n", "obj P\n  x: Int\n  y: Int\n", "obj Res\n  n: Int\n  t: String\n",
+           f"enum E\n  a(r: {ty})\n  b(r: {ty})\n", "obj H\n  e: E\n", "enum G[T]\n  a(r: T)\n  b(r: T)\n",
+           "obj GH[T]\n  e: G[T]\n", "fun getg[T](e: ?G[T]) -> ?G[T] from e\n  e\n",
            "fun getgh[T](h: ?GH[T]) -> ?GH[T] from h\n  h\n", "fun yes() -> Bool\n  true\n",
            f"fun mk() -> {ty}\n  {t['mk']}\n", f"fun mk2() -> {ty}\n  {t['mk2']}\n",
            f"fun ok(v: {rd(ty)}) -> Bool\n  true\n",
@@ -1080,7 +1080,7 @@ def viewpay_program(tname, sname, uname):
     ty = t["ty"]
     gen = s.get("generic")
     vt = t["gen"] if gen else ty
-    out = ["enum G[T]\n  a(r: T)\n  b(r: T)\n", "struct P\n  x: Int\n  y: Int\n",
+    out = ["enum G[T]\n  a(r: T)\n  b(r: T)\n", "obj P\n  x: Int\n  y: Int\n",
            "fun list(n: Int) -> List[Int]\n  xs: List[Int] = List()\n  !xs.push(n)\n  xs\n",
            f"fun wrap(x: {ty}) -> G[{ty}] from x\n  .a(r: x)\n",
            f"fun gwrap[T](x: {t['gen']}) -> G[{t['gen']}] from x\n  .a(r: x)\n",
@@ -1167,7 +1167,7 @@ LENDW_BINDINGS = {
 # read bindings of a write view a local optional holds, every write
 # through which is rejected.
 _LW_E = "enum E\n  a(x: TY)\n  z\n"
-_LW_HH = "\nstruct HH\n  e: E\n"
+_LW_HH = "\nobj HH\n  e: E\n"
 _LW_GET = _LW_HH + "\nfun get(h: !HH) -> !E\n  !h.e\n"
 _LW_TWO = ["e1 = E.a(mk())", "e2 = E.a(mk())", "c = true"]
 LENDW_BINDINGS.update({
@@ -1183,7 +1183,7 @@ LENDW_BINDINGS.update({
     "match_branch_lent_on": dict(decls=_LW_E, setup=["e1 = E.a(mk())", "e2 = E.z", "c = true"], head=["match (!e1 if c else !e2)", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "while_as": dict(setup=["o: TY? = mk()", "n = 0"], head=["while !o as b"], depth=2, after=["  n += 1", "  break if n > 0"]),
     "if_as_write_param": dict(param="o: !(TY?)", arg="mk()", argty="TY?", head=["if !o as b"], depth=2),
-    "if_as_field": dict(decls="struct HO\n  o: TY?\n", setup=["h = HO(o: mk())"], head=["if !h.o as b"], depth=2),
+    "if_as_field": dict(decls="obj HO\n  o: TY?\n", setup=["h = HO(o: mk())"], head=["if !h.o as b"], depth=2),
     "if_as_payload": dict(decls="enum E\n  a(o: TY?)\n  z\n", setup=["e = E.a(mk())"], head=["match !e", "  .a(o)", "    if !o as b"], depth=6, after=["  .z => pass"]),
     "for_index": dict(setup=["v: List[TY] = List()", "!v.push(mk())"], head=["for b, j in !v"], depth=2, after=["  _ = j"]),
     "for_array": dict(setup=["v = [mk()]"], head=["for b in !v"], depth=2),
@@ -1236,7 +1236,7 @@ def lendw_program(bname, tname, lname, when):
         body += write + [show_s, fill(t["show"])]
     else:
         body += [show_s] + write + [fill(t["show"])]
-    out = ["use std.text\n", "struct P\n  xs: List[Int]\n\n  fun rest(?self) -> []Int\n    ?self.xs[1..]\n",
+    out = ["use std.text\n", "obj P\n  xs: List[Int]\n\n  fun rest(?self) -> []Int\n    ?self.xs[1..]\n",
            "fun tail3() -> List[Int]\n  xs: List[Int] = List()\n  !xs.push(1)\n  !xs.push(2)\n  !xs.push(3)\n  xs\n",
            "fun tail(v: ?List[Int]) -> []Int\n  ?v[1..]\n",
            f"fun mk() -> {t['ty']}\n  {t['mk']}\n"]
@@ -1271,7 +1271,7 @@ def lendw_program(bname, tname, lname, when):
 # `hdr.<header>.<sigil>.<shape>.<leaf>`.
 # -----------------------------------------------------------------------------
 
-_HDR_PRE = """struct Res
+_HDR_PRE = """obj Res
   v: List[Int]
 
 enum E
@@ -1281,7 +1281,7 @@ enum E
 error Bad
   nope
 
-struct W
+obj W
   e: E
   o: List[Int]?
   v: List[Int]
@@ -1376,13 +1376,13 @@ def hdr_program(hname, sname, lname, gname="bare"):
 # none), and whether it prints when dropped.
 CELLMUT_TYPES = {
     # a `drop`
-    "drop": dict(ty="D", decls='struct D\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
+    "drop": dict(ty="D", decls='obj D\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
                  mk="*D(c: Cell(1), v: Cell(list2()))", c="E.c", v="E.v", drop=True),
     # the Cells in a part
-    "part": dict(ty="W", decls="struct In\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\nstruct W\n  t: In\nMETHODS",
+    "part": dict(ty="W", decls="obj In\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\nobj W\n  t: In\nMETHODS",
                  mk="*W(t: In(c: Cell(1), v: Cell(list2())))", c="E.t.c", v="E.t.v"),
     # a generic type at Int
-    "generic": dict(ty="G[Int]", decls="struct G[T]\n  c: Cell[T]\n  v: Cell[List[T]]\nMETHODS",
+    "generic": dict(ty="G[Int]", decls="obj G[T]\n  c: Cell[T]\n  v: Cell[List[T]]\nMETHODS",
                     mk="*G(c: Cell(1), v: Cell(list2()))", c="E.c", v="E.v"),
     # a bare Cell[Int], and a bare Cell[List[Int]]
     "cell": dict(ty="Cell[Int]", decls="", mk="*Cell(1)", c="E", v=None),
@@ -1576,7 +1576,7 @@ def _cm_trace(tname, oname):
 # call returns (`celltemp.value.`). Every program must be rejected.
 # -----------------------------------------------------------------------------
 
-_CV_N = "struct N\n  c: Cell[Int]\n\n"
+_CV_N = "obj N\n  c: Cell[Int]\n\n"
 CELL_VALUES = {
     "cellmut.value.cell": "sub main()\n  c = Cell(1)\n  !c.set(2)\n  print(c.get())\n",
     "cellmut.value.local": _CV_N + "sub main()\n  x = N(c: Cell(1))\n  !x.c.set(2)\n  print(x.c.get())\n",
@@ -1597,10 +1597,10 @@ _CB_PRE = """enum K
   p
   q
 
-struct S
+obj S
   c: Cell[List[Int]]
 
-struct O
+obj O
   s: S
 
 fun grow(s: ?S) -> Int
@@ -1694,8 +1694,8 @@ def sliceview_program(hname, ename, use, then):
     ty, view = e["ty"], e["view"]
     out = [f"fun mk(n: Int) -> {ty}\n  {e['mk']}\n",
            f"fun keep(x: {view}) -> {view}\n  x\n",
-           f"struct H\n  f: {ty}\n",
-           f"struct G\n  h: H\n"]
+           f"obj H\n  f: {ty}\n",
+           f"obj G\n  h: H\n"]
     body = list(h["setup"])
     sliced = f"{h['x']}[1..]"
     body.append(f"s = keep({sliced})" if use == "arg" else f"s = {sliced}")
@@ -1717,8 +1717,8 @@ def store_program(oname, fname, then):
     kind, lines = STORE_FORMS[fname]
     h = STORE_HOLDERS[kind]
     v = o["view"]
-    out = [f"struct H\n  r: {v}\n\n  sub set(!self, s: {v})\n    self.r = s\n",
-           "struct O\n  h: H\n", "enum E\n  one(h: H)\n  zero\n",
+    out = [f"obj H\n  r: {v}\n\n  sub set(!self, s: {v})\n    self.r = s\n",
+           "obj O\n  h: H\n", "enum E\n  one(h: H)\n  zero\n",
            f"sub put(h: !H, s: {v})\n  h.r = s\n"]
     body = [l.replace("S", o["lend"]) for l in lines]
     body += o["grow"] if then == "grow" else ["print(b.len)"]
@@ -1758,11 +1758,11 @@ def holder_program(oname, fname, change, then):
     f = HOLDER_FORMS[fname]
     if change == "write" and o["write"] is None:
         return None, None
-    out = ["struct Big\n  v: List[Int]\n",
+    out = ["obj Big\n  v: List[Int]\n",
            "fun same[T](x: T) -> T\n  x\n",
            "fun boxed[T](x: T) -> ^T\n  ^x\n",
-           "struct Hold[T]\n  v: T\n\n  fun get(?self) -> T\n    self.v\n",
-           "struct Pair[A, B]\n  a: A\n  b: B\n"]
+           "obj Hold[T]\n  v: T\n\n  fun get(?self) -> T\n    self.v\n",
+           "obj Pair[A, B]\n  a: A\n  b: B\n"]
     view = o["view"]
     body = list(o["mk"])
     body += [l.replace("@V", "?o").replace("?T", view) for l in f["setup"]]
@@ -1820,7 +1820,7 @@ def nest_program(wname, home, oname):
         ret, last = "*sub()", "*|<w| print(1)"
     body = list(w["build"]) + [last]
     return "\n".join([
-        "struct Hold[T]\n  v: T\n",
+        "obj Hold[T]\n  v: T\n",
         f"fun mk[T](x: T) -> {ret}\n{indent(body, 2)}\n",
         "sub main()\n" + indent([o["make"], f"f = mk({o['arg']})", "print(1)"], 2) + "\n"])
 
@@ -1862,7 +1862,7 @@ def named_program(call, kind, order):
         lines += [f"sub show(v: {ptype}, w: Int)", f"  print({observe}, w)", ""]
         callee = "show"
     elif call == "method":
-        lines += ["struct M", "  k: Int", "", f"  sub show(?self, v: {ptype}, w: Int)", f"    print({observe}, w)", ""]
+        lines += ["obj M", "  k: Int", "", f"  sub show(?self, v: {ptype}, w: Int)", f"    print({observe}, w)", ""]
         callee = "m.show"
     else:
         lines += ["sub show[T](v: T, w: Int)", "  print(v, w)", ""]
@@ -1924,7 +1924,7 @@ def program(tname, fname, cname):
         if isinstance(form, list):
             return None
         out.append(ctx["decl"].replace("@T?", opt(ty)).replace("@T", ty).replace("E", form))
-    out.append(f"struct H\n  f: {ty}\n")
+    out.append(f"obj H\n  f: {ty}\n")
     returns = ctx.get("returns", False)
     needs = ctx.get("needs")
     if needs == "vs":

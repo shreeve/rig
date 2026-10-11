@@ -1,8 +1,8 @@
-struct S
+obj S
   n: Int
   t: String
 
-struct W
+obj W
   h: *S
 
 fun keep(s: ?S) -> ?S

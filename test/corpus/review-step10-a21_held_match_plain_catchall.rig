@@ -5,7 +5,7 @@ enum E
   a(xs: [4]Int)
   b
 
-struct M
+obj M
   t: String
   e: E
 

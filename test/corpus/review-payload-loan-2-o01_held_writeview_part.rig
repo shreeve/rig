@@ -1,11 +1,11 @@
-struct P
+obj P
   t: String
 
 enum WP
   a(w: !P)
   b
 
-struct H
+obj H
   e: !WP
 
 fun mk(e: !WP) -> H from e

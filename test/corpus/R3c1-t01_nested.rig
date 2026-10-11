@@ -1,4 +1,4 @@
-struct Tag
+obj Tag
   name: ?String
   code: U8
 
@@ -6,7 +6,7 @@ enum Box
   full(items: [2]Tag)
   empty
 
-struct Holder
+obj Holder
   b: Box?
   arr: [2]Box
 

@@ -1,7 +1,7 @@
-struct P
+obj P
   x: Int
 
-struct Res
+obj Res
   v: List[Int]
 
 sub main()

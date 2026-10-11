@@ -1,4 +1,4 @@
-struct Note
+obj Note
   title: String
 
 sub main()

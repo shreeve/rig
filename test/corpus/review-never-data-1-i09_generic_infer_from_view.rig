@@ -1,10 +1,10 @@
-struct Counter
+obj Counter
   hits: Cell[Int] = Cell(0)
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-struct O
+obj O
   k: Counter
 
 fun id[T](x: ?T) -> ?T

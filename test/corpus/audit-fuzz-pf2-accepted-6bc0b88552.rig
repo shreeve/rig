@@ -2,7 +2,7 @@
 # `!s.fill(v)` sets every element, and `!s.swap(i, j)` exchanges two, on a
 # `![]T`, an array, or a List. `swap` also moves handles in a List of them.
 
-struct P
+obj P
   x: Int
 
 sub main()

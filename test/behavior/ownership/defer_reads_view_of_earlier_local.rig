@@ -1,7 +1,7 @@
 # Deferred code may read a view of a local declared before the
 # `defer`, which is dropped after it runs.
 
-struct Res
+obj Res
   v: List[Int]
 
 sub main()

@@ -1,5 +1,5 @@
 # move w into a struct, then re-point w; the struct still views a
-struct H
+obj H
   v: !String
 
 sub main()

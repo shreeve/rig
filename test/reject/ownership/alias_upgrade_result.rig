@@ -1,7 +1,7 @@
 # The `*T?` from `upgrade()` owns a strong handle; copying it would
 # drop the handle twice.
 
-struct Wrap
+obj Wrap
   n: Int
 
 sub main()

@@ -3,7 +3,7 @@ error BankError
   insufficient_funds
   invalid_amount
 
-struct Account
+obj Account
   owner: ?String
   balance: Int = 0
 

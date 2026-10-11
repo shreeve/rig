@@ -1,7 +1,7 @@
-struct C
+obj C
   hits: Cell[Int]
 
-struct P
+obj P
   x: Int
   y: Int
 

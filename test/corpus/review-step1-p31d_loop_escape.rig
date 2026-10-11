@@ -1,4 +1,4 @@
-struct Counter
+obj Counter
   hits: Cell[Int]
 
 fun pick(a: ?[2]Counter) -> ?Counter

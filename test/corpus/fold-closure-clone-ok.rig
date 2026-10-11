@@ -3,7 +3,7 @@ enum E
   full(t: String)
   empty
 
-struct H
+obj H
   t: String
 
 sub main()

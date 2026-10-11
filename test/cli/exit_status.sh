@@ -4,7 +4,7 @@
 source "$ROOT/test/cli/_lib.sh"
 
 cat >status.rig <<'EOF2'
-struct Guard
+obj Guard
   n: Int
 
   drop(!self)

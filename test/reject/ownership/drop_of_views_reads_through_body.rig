@@ -9,16 +9,16 @@
 # oracle: deferred reject C4
 # oracle: outlived reject C5
 
-struct Item
+obj Item
   n: Int
 
-struct Guard
+obj Guard
   item: ?Item
 
   drop(!self)
     print("guard", self.item.n)
 
-struct Plain
+obj Plain
   item: ?Item
 
 sub own_body()

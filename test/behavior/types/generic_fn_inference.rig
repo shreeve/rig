@@ -3,10 +3,10 @@
 # `T?`, `[]T`, `[N]T`, and generic instances (`List[T]`, `Cell[T]`, a
 # user `Wrap[T]`). A literal takes its default type.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
-struct P
+obj P
   n: Int
 
 fun same[T](x: T) -> T

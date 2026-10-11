@@ -3,7 +3,7 @@
 # keeps every leaf lent (Core sentence 7), through `if`, `??`, `catch`,
 # and an element of a branching value.
 
-struct S
+obj S
   t: String
 
   fun inner(?self) -> ?String

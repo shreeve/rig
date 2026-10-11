@@ -1,4 +1,4 @@
-struct N
+obj N
   n: Int
 
 fun bump(k: !Int) -> Int

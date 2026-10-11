@@ -11,7 +11,7 @@
 # oracle: mk2 accept
 # oracle: main accept
 # oracle: show2 accept
-struct S
+obj S
   n: Int
   items: List[Int]
 

@@ -1,5 +1,5 @@
 # A take beside a lend of the same place in one call.
-struct S
+obj S
   o: List[Int]?
 
   sub set(!self, x: List[Int]?)

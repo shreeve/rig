@@ -1,6 +1,6 @@
 # The store drops the old `h`, whose `drop` reads a slice of `v`, after the
 # arm grows `v`.
-struct H
+obj H
   v: []Int
 
   drop(!self)

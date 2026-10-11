@@ -6,7 +6,7 @@
 # may move in a `T`, dropped when the call returns, and a callable
 # taking a `?T` is passed one.
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)

@@ -1,10 +1,10 @@
 # A generic struct instantiated with a resource (`Holder[*Wrap]`) owns it;
 # copying the struct would drop the handle twice.
 
-struct Holder[T]
+obj Holder[T]
   value: T
 
-struct Wrap
+obj Wrap
   n: Int
 
 sub main()

@@ -1,6 +1,6 @@
 # `|+x|` copies a value that copies through a read or write view: the
 # closure keeps the value it saw, and the owner may then change.
-struct P
+obj P
   x: Int
 
 fun ox(o: P?) -> Int

@@ -1,6 +1,6 @@
 const LIMIT = 8
 
-struct C
+obj C
   n: Int = LIMIT
   xs: List[Int] = List()
   a: [4]Int = [4 of 0]

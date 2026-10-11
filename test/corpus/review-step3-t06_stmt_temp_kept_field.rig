@@ -1,8 +1,8 @@
-struct Res
+obj Res
   n: Int
   t: String
 
-struct V
+obj V
   r: ?Res
 
 fun mkres(n: Int) -> Res

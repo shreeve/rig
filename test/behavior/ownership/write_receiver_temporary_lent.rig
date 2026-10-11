@@ -2,7 +2,7 @@
 # as written: `!` lends the temporary to write (Core sentence 4), which
 # its statement keeps in a slot until it ends.
 
-struct S
+obj S
   n: Int
   inner: T
 
@@ -16,7 +16,7 @@ struct S
   fun at(!self) -> !Int
     !self.n
 
-struct T
+obj T
   k: Int
 
   sub bump(!self)
@@ -26,7 +26,7 @@ struct T
     self.k += 1
     self.k
 
-struct Wrap[V]
+obj Wrap[V]
   v: V
 
   sub bump(!self)

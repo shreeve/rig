@@ -1,6 +1,6 @@
 # `|+x|` deep-clones an enum with an owning payload, a Box, and a struct
 # of a Text and a List of handles; each clone is dropped with its closure.
-struct N
+obj N
   v: Int
 
   drop(!self)
@@ -11,7 +11,7 @@ enum E
   n(h: *N)
   none
 
-struct R
+obj R
   name: String
   hs: List[*N]
 

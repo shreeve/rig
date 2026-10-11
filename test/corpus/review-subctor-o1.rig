@@ -1,7 +1,7 @@
-struct Node
+obj Node
   v: Int
 
-struct Holder
+obj Holder
   h: *Node
 
 sub main()

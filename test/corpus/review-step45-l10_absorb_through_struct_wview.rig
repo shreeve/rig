@@ -1,5 +1,5 @@
 # store a view through a struct field holding a write view
-struct H
+obj H
   w: !List[?String]
 
 sub main()

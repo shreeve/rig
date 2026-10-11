@@ -8,14 +8,14 @@ enum Opt[T]
   some(v: T)
   nothing
 
-struct P[T]
+obj P[T]
   x: T
 
 enum E[T]
   has(p: P[T])
   empty
 
-struct W[T]
+obj W[T]
   o: Opt[T]
   p: T?
 

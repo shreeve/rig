@@ -14,7 +14,7 @@ enum E
   a(n: Int)
   b
 
-struct Set
+obj Set
   items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
@@ -26,13 +26,13 @@ struct Set
   sub put[k: Int](!self, x: Int)
     !self.items.push(x * k)
 
-struct Q
+obj Q
   n: Int
 
   sub bump(!self)
     self.n += 1
 
-struct P
+obj P
   x: Int
   o: Int?
   e: E

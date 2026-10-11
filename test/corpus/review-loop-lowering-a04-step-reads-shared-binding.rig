@@ -1,7 +1,7 @@
 # A step reading a `*T` or `~T` or Text binding of a single `as` condition:
 # compare main's verdict with the branch's (the plain-data rule now covers
 # single `as` conditions too).
-struct B
+obj B
   n: Int
 
 fun get(v: ?List[*B], i: Int) -> (*B)?

@@ -1,4 +1,4 @@
-struct Tok
+obj Tok
   n: Int
 
   drop(!self)
@@ -16,13 +16,13 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-struct R
+obj R
   t: *Tok
 
   sub done(<self)
     print("done", self.t.n)
 
-struct O
+obj O
   r: R
 
 sub main()

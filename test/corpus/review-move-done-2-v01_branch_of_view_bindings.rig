@@ -1,7 +1,7 @@
 # A take through a branching value whose leaves are write views held in
 # bindings, and through a view binding's field. (A read lend of `s` before
 # `<(!s if c else !t).o` is rejected, as it should be: not kept here.)
-struct S
+obj S
   o: List[Int]?
 
 fun mkv(n: Int) -> List[Int]

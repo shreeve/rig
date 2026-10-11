@@ -5,20 +5,20 @@ pub sub check(n: Int)!
   return Bad.neg if n < 0
   print("ok", n)
 
-pub struct M
+pub obj M
   v: Int
 
   sub bump(!self, k: Int)!
     return Bad.neg if k < 0
     self.v += k
 
-pub struct W[T]
+pub obj W[T]
   item: T
 
-pub struct Res
+pub obj Res
   items: List[Int]
 
-pub struct D
+pub obj D
   n: Int = 7
 
 pub fun each(xs: []Int, f: ?sub(Int)!) -> Int!

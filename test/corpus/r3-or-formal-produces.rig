@@ -1,4 +1,4 @@
-struct Item
+obj Item
   n: Int
 
 fun at(v: ?[4]Item, k: !Int) -> ?Item

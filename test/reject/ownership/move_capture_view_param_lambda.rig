@@ -1,7 +1,7 @@
 # A local closure cannot move-capture a view parameter; the caller
 # still owns it.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub f(rc: ?*Wrap)

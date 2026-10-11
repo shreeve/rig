@@ -1,5 +1,5 @@
 # Parts reached through a weak handle's upgrade, and through a Cell.
-struct S
+obj S
   v: List[Int]
   o: List[Int]?
 

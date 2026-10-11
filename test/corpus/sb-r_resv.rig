@@ -1,4 +1,4 @@
-struct List
+obj List
   x: Int
 
 sub main()

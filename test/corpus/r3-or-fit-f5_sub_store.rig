@@ -1,7 +1,7 @@
-struct In
+obj In
   n: Int
 
-struct View
+obj View
   b: ?In
 
 sub show(v: !View, b: ?In)

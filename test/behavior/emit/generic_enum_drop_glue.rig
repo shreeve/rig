@@ -5,7 +5,7 @@ enum Maybe[T]
   some(value: T)
   none
 
-struct Noisy
+obj Noisy
   id: Int
 
   drop(!self)

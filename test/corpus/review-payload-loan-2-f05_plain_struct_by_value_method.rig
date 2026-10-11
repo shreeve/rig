@@ -1,4 +1,4 @@
-struct Pt
+obj Pt
   x: Int
   y: Int
 

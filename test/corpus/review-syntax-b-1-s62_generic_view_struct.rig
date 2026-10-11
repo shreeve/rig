@@ -1,4 +1,4 @@
-struct Hold[T]
+obj Hold[T]
   x: T
 
 fun hold[T](x: T) -> Hold[T]

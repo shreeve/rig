@@ -3,16 +3,16 @@
 # for stack and owned closures, `sub` and `fun` types, and binding,
 # parameter, and field types.
 
-struct Event
+obj Event
   n: Int
 
-struct Window
+obj Window
   id: Int
 
-struct Cx
+obj Cx
   tag: Int
 
-struct Button
+obj Button
   on_click: *sub(Event, Window, Cx)
 
 fun register(f: *sub(Event, Window, Cx)) -> Button

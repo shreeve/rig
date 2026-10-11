@@ -1,0 +1,10 @@
+# A leading-dot line under a line that opens a block is the block's first
+# line, not a continuation: here a variant expression, which has no type.
+
+fun f() -> Int
+  .abs()
+
+sub main()
+  print(f())
+
+# error: 5:4: `.abs` is an enum variant, but the expected type `Int` is not an enum

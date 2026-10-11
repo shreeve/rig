@@ -16,7 +16,7 @@ fun count[T](xs: ?List[T]) -> Int
 fun last[T](xs: !List[T]) -> T?
   (!xs).pop()
 
-struct Stack[T]
+obj Stack[T]
   items: List[T]
 
   sub push(!self, x: T)

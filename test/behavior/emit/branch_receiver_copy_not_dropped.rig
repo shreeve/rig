@@ -5,13 +5,13 @@
 # once. So for `a if c else b`, a field of one, `o ?? b`, `e catch b`,
 # `o?`, and `e!`.
 
-struct S
+obj S
   t: String
 
   fun size(?self, x: Int, y: Int) -> Int
     self.t.len * 100 + x * 10 + y
 
-struct W
+obj W
   s: S
 
 error E

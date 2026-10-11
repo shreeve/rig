@@ -1,4 +1,4 @@
-struct V
+obj V
   items: List[Int]
   sub put[k: Int](!self, x: Int)
     !self.items.push(x * k)

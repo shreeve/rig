@@ -1,4 +1,4 @@
-struct S
+obj S
   b: ^?List[Int]
 
 sub main()

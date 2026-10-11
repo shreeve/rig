@@ -1,5 +1,5 @@
 # List and array of Cell holders: set through an element, then read
-struct C
+obj C
   c: Cell[Int]
 
   sub hit(!self)

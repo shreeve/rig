@@ -1,4 +1,4 @@
-struct Bx
+obj Bx
   n: Int
 
   drop(!self)

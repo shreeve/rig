@@ -4,7 +4,7 @@ enum Color
   red
   green
 
-struct P
+obj P
   a: Int
   b: Float
 

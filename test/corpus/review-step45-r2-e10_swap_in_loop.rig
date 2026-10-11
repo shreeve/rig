@@ -1,8 +1,8 @@
 # H3: generic loop over ?List[T], body: swap the List while looping
-struct S
+obj S
   t: String
 
-struct Holder[T]
+obj Holder[T]
   x: T?
 
 sub sw[T](v: !List[T])

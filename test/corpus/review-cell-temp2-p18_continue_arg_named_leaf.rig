@@ -5,7 +5,7 @@
 # oracle: D.hitn accept
 # oracle: maybe accept
 # oracle: main accept
-struct D
+obj D
   c: Cell[Int]
 
   sub hitn(!self, n: Int)

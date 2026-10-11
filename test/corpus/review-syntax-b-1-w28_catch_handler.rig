@@ -1,7 +1,7 @@
 error E
   bad
 
-struct C
+obj C
   n: Int
 
   fun next(!self) -> Int

@@ -8,7 +8,7 @@
 # oracle: run accept
 # oracle: matches accept
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)

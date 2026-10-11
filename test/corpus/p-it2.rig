@@ -1,7 +1,7 @@
 fun trim(s: ?String) -> ?String
   s
 
-struct Split
+obj Split
   rest: ?String
 
   fun next(!self) -> (?String)?
@@ -10,7 +10,7 @@ struct Split
     self.rest = self.rest[1..]
     part
 
-struct Cut
+obj Cut
   before: ?String
 
 fun cut(s: ?String) -> Cut?

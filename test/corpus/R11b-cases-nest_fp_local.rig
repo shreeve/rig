@@ -1,8 +1,8 @@
-struct Pair[A, B]
+obj Pair[A, B]
   a: A
   b: B
 
-struct Chain[T]
+obj Chain[T]
   items: List[T]
 
   fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]

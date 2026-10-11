@@ -2,14 +2,14 @@
 # each payload is a view of it there: the view does not outlive the
 # match.
 
-struct Counter unique
+obj Counter unique
   hits: Int
 
 enum E
   a(c: Counter)
   b
 
-struct H
+obj H
   e: E
 
 fun mkh(n: Int) -> H

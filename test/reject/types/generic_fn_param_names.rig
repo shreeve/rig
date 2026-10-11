@@ -4,7 +4,7 @@
 # reuses it. A compile-time value parameter cannot have a type
 # parameter's type.
 
-struct P
+obj P
   n: Int
 
 fun a[Int](x: Int) -> Int
@@ -23,7 +23,7 @@ fun f[T](x: T) -> T
   T = 3
   x
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun e[T](?self, x: T) -> Int

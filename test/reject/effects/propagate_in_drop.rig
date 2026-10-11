@@ -7,7 +7,7 @@ fun check(n: Int) -> Int!
   return E.bad if n < 0
   n
 
-struct P
+obj P
   n: Int
 
   drop(!self)

@@ -1,5 +1,5 @@
 # ROADMAP "settled": containers of owning values lend elements as ?v[i] and !v[i]
-struct B
+obj B
   n: Int
 
 fun get_n(b: ?*B) -> Int

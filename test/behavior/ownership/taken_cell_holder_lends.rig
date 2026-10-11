@@ -3,7 +3,7 @@
 # the place, and either may be lent, written or bare, and captured.
 # release
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)

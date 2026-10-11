@@ -1,9 +1,9 @@
 # Does a store through a write parameter update that parameter's flow?
 # If not, a recorder reading the returned value misses `b`.
-struct Item
+obj Item
   n: Int
 
-struct Holder
+obj Holder
   r: ?Item
 
 fun f(a: !Holder, b: !Item) -> Int

@@ -7,7 +7,7 @@ enum M
   a(t: String)
   b
 
-struct E
+obj E
   s: ?String
 
 fun mk() -> M

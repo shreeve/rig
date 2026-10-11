@@ -1,13 +1,13 @@
 # Moving a write view into a local moves the view: writes through the
 # local reach the caller's value.
 
-struct B
+obj B
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct C
+obj C
   b: *B
 
 sub rep(c: !C)

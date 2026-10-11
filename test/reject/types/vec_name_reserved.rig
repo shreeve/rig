@@ -1,6 +1,6 @@
 # `List` is a built-in nominal name and cannot be redefined.
 
-struct List
+obj List
   x: Int
 
 sub main()

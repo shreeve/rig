@@ -3,20 +3,20 @@
 # `if ?o as x`, `match b` on a box or a handle reaches the value it
 # holds, and a part of a value the header makes is read in that value,
 # which the construct holds (docs/INTERNALS.md, "Header subjects").
-struct Res
+obj Res
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-struct Tok unique
+obj Tok unique
   n: Int
 
 enum Shape
   circle(r: Int)
   square(s: Int)
 
-struct Bag
+obj Bag
   v: List[Int]
   o: Res?
 

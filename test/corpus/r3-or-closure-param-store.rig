@@ -8,7 +8,7 @@
 # oracle: capture_to_param reject C6
 # oracle: lent_capture_to_param reject C6
 
-struct H
+obj H
   r: (?List[Int])?
 
 sub run(h: !H, f: ?sub(!H))

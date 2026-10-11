@@ -1,7 +1,7 @@
 error E
   bad
 
-struct P
+obj P
   x: Int
 
 fun fail(n: Int) -> P!

@@ -19,7 +19,7 @@ sub each(xs: []Int, f: ?sub(Int)!)!
   for x in xs
     f(x)!
 
-struct Bin
+obj Bin
   items: List[Int]
 
   sub add(!self, n: Int)!

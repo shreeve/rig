@@ -3,7 +3,7 @@
 # parentheses, or flipped where the flip means the same (integers,
 # text, and any `==`), wherever `not` stands.
 
-struct Item
+obj Item
   qty: Int
   price: Float
   name: ?String

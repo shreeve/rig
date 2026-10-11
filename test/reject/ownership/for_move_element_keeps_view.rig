@@ -1,10 +1,10 @@
 # The elements of `for x in <v` carry the views the List held, so an
 # element moved elsewhere cannot outlive what it views.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
-struct View
+obj View
   b: ?Wrap
 
 sub main()

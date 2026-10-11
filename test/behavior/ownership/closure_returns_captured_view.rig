@@ -1,7 +1,7 @@
 # A stack closure may return a captured read view or a moved-in Copy
 # value; the result views what the closure holds.
 
-struct Wrap
+obj Wrap
   v: List[Int]
 
 sub main()

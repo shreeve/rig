@@ -8,7 +8,7 @@
 error Bad
   oops
 
-struct S
+obj S
   n: Int
   t: String
   items: List[Int]
@@ -18,7 +18,7 @@ enum E
   a
   b
 
-struct H
+obj H
   r: ?String
 
   drop(!self)

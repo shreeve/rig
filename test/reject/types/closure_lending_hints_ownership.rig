@@ -2,7 +2,7 @@
 # parameter is captured with `|?f|`, and a captured view stays with the
 # closure for every call.
 
-struct Res
+obj Res
   id: Int
 
 sub outer(f: ?fun(Int) -> Int)

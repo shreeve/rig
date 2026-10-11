@@ -2,7 +2,7 @@
 # throws the copy away; the name stays usable (a moved one once it is
 # assigned again).
 
-struct P
+obj P
   n: Int
 
 sub main()

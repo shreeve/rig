@@ -1,6 +1,6 @@
 # A `while ... as h: step` whose binding holds a write view, read by
 # the step: v0.2.2 accepts it and prints 0 1 2 / 3 3.
-struct W
+obj W
   w: !Int
 
 fun mk(n: !Int) -> W?

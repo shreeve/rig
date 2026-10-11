@@ -2,7 +2,7 @@
 # whose type parameter is a float is rejected where the body gives a `T`
 # one.
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun half(?self) -> T

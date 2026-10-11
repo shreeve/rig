@@ -1,7 +1,7 @@
 # A field bound by name is bound as one bound in order is: a read match
 # cannot move it out, and a guard cannot write it.
 
-struct B
+obj B
   n: Int
 
 enum Bag

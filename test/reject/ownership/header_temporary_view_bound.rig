@@ -4,7 +4,7 @@
 #
 # oracle: main reject C5
 
-struct B
+obj B
   o: String?
 
 enum E

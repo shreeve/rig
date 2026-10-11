@@ -1,8 +1,8 @@
-struct Var
+obj Var
   name: ?String
   value: ?String
 
-struct Env
+obj Env
   vars: [3]Var
 
 fun get(env: ?Env, name: ?String) -> (?String)?

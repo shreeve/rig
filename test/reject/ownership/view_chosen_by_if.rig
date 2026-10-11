@@ -1,10 +1,10 @@
 # A view chosen by an if-expression views from every candidate, so
 # `h` stays lent while `r` is live.
 
-struct Wrap
+obj Wrap
   payload: Int
 
-struct Holder
+obj Holder
   inner: *Wrap
 
 sub main()

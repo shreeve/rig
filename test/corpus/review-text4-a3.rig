@@ -1,4 +1,4 @@
-struct N
+obj N
   id: Int
   drop(!self)
     print("drop", self.id)

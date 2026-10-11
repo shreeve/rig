@@ -1,6 +1,6 @@
 //! The four kinds of value (Core §1), read from sema's types: what a
 //! bare use of a value does, whether it may carry a loan, and whether
-//! dropping it runs a user `drop` body. A unique type (`struct T
+//! dropping it runs a user `drop` body. A unique type (`obj T
 //! unique`, or one holding it) moves like an owner (Core §1, built); a
 //! type holding a `Cell` copies, unless the planned rule that makes it
 //! unique too is on (`Kinds.planned`).

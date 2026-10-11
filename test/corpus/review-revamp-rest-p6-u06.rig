@@ -1,4 +1,4 @@
-struct S
+obj S
   x: Int
   pub pub fun f(?self) -> Int
     1

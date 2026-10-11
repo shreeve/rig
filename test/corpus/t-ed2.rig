@@ -5,7 +5,7 @@ fun f(x: Int) -> Int
 sub g()
   errdefer print("e")
 
-struct D
+obj D
   n: Int
   drop(!self)
     errdefer print("d")

@@ -1,4 +1,4 @@
-pub struct R
+pub obj R
   n: Int
 
   drop(!self)

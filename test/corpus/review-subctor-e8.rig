@@ -1,4 +1,4 @@
-struct M
+obj M
   v: Float
 
 sub main()

@@ -8,7 +8,7 @@
 error E
   bad
 
-struct Counter
+obj Counter
   n: Int
 
   fun next(!self) -> Int

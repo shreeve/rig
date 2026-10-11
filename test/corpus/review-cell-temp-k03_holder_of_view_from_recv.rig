@@ -4,7 +4,7 @@
 #
 # oracle: C.opt accept
 # oracle: both accept
-struct C
+obj C
   c: Cell[Int]
   pad: [8]Int
 
@@ -16,7 +16,7 @@ struct C
     !self.c.set(self.c.get() + 1)
     self
 
-struct V
+obj V
   r: ?C
 
 fun mkc(n: Int) -> C

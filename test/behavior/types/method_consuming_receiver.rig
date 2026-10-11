@@ -1,7 +1,7 @@
 # A by-value receiver (`self: User`) consumes the value; the call site
 # must spell the move as `<u.consume()`.
 
-struct User
+obj User
   name: ?String
 
   sub consume(self: User)

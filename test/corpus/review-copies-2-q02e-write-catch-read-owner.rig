@@ -1,7 +1,7 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
 fun wget(w: !P, ok: Bool) -> (!P)!

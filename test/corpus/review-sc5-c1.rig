@@ -2,7 +2,7 @@ error Parse
   empty
   neg
 
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop R", self.n)

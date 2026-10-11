@@ -1,4 +1,4 @@
-struct Event
+obj Event
   code: Int
 
 sub main()

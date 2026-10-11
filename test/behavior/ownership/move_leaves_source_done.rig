@@ -11,7 +11,7 @@
 error Odd
   odd
 
-struct S
+obj S
   n: Int
   o: Int?
 

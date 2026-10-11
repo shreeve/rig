@@ -1,4 +1,4 @@
-struct Node
+obj Node
   value: Int
 
 fun show(a: *Node?, b: *(Node?), c: ?*Node?, d: ~Node?) -> Int

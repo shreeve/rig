@@ -1,6 +1,6 @@
 # A `break` value is consumed: an owning binding is moved with `<b`.
 
-struct Wrap
+obj Wrap
   n: Int
 
 sub main()

@@ -2,11 +2,11 @@
 # own type at the method's own parameter (`Chain[Pair[T, U]]` in
 # `zip[U]`): each call makes one instance, which does not nest further.
 
-pub struct Pair[A, B]
+pub obj Pair[A, B]
   a: A
   b: B
 
-pub struct Chain[T]
+pub obj Chain[T]
   items: List[T]
 
   fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]

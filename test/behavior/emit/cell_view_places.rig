@@ -4,7 +4,7 @@
 # a shared handle's value, each in a loop that leaves early.
 # release
 
-struct C
+obj C
   c: Cell[Int]
   log: Cell[List[Int]]
 
@@ -15,7 +15,7 @@ struct C
   fun score(?self) -> Int
     self.c.get() * 100 + self.log.len
 
-struct W
+obj W
   inner: C
 
 fun mk() -> *C

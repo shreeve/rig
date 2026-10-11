@@ -1,11 +1,11 @@
-struct P
+obj P
   c: Cell[Int]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
     print(self.c.get())
 
-struct Q
+obj Q
   p: P
   o: P?
 

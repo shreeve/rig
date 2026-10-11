@@ -8,7 +8,7 @@
 error E
   bad
 
-struct S
+obj S
   n: Int
 
   fun pop(!self) -> Int

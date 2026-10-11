@@ -3,7 +3,7 @@
 # a captured write view, `!c.inc()` and `!v.push(x)` lend it on, as on
 # a `!T` parameter.
 
-struct Counter
+obj Counter
   n: Int
 
   sub inc(!self)

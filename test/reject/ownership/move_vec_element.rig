@@ -1,7 +1,7 @@
 # An element that moves cannot be moved out of a List: the List still
 # owns the slot. (`<` on an element that copies is rejected too.)
 
-struct P
+obj P
   n: Int
 
 sub eat(p: *P)

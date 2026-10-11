@@ -1,8 +1,8 @@
-struct Node
+obj Node
   value: Int
   next: ^Node?
 
-struct Stack
+obj Stack
   top: ^Node?
 
   sub push(!self, v: Int)

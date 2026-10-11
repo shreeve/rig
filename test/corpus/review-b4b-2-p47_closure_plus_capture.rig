@@ -1,5 +1,5 @@
 # A closure made in the arm captures the payload binding view `s` with |?s|; the subject is then reassigned. Expect reject.
-struct Res
+obj Res
   n: Int
   t: String
 

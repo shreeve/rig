@@ -1,4 +1,4 @@
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
   fun conv2[U](?self) -> List[U]
@@ -7,7 +7,7 @@ pub struct Wrap[T]
   fun empty2[U]() -> List[U]
     List()
 
-pub struct Plain
+pub obj Plain
   x: Int
 
   fun empty3[U]() -> List[U]

@@ -1,7 +1,7 @@
 # a32 with two such call blocks in one statement, the first's result read
 # after the second block runs: if Zig reused the first block's rvalue
 # slot, `r` would read 6. Expected 5 6.
-struct Q
+obj Q
   xs: [4]Int
 
   fun me(?self) -> ?Q

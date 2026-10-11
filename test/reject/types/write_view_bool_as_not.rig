@@ -2,7 +2,7 @@
 # read as a `Bool` is rejected wherever it appears, and so is `!` before
 # a method that only reads its receiver (`!c.ok()`).
 
-struct C
+obj C
   n: Int
   fun ok(?self) -> Bool
     self.n > 0

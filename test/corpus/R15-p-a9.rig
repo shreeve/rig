@@ -1,5 +1,5 @@
 # same field twice
-struct P
+obj P
   x: [2]Int
 
 sub main()

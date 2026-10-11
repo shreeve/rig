@@ -1,4 +1,4 @@
-pub struct Wrap[T]
+pub obj Wrap[T]
   v: T
 
   fun nest[U](?self, u: U) -> Int

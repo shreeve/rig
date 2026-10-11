@@ -1,5 +1,5 @@
 # H2: Cell changes through header bindings over elements of read views
-struct C
+obj C
   c: Cell[Int]
 
 enum E

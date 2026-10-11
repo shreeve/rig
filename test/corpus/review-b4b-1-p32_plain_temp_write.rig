@@ -1,5 +1,5 @@
 # write `if !… as` through a !-view of a plain rvalue; index makes an owning temp.
-struct P
+obj P
   xs: [2]Int?
 
 fun pick(p: !P) -> !P from p

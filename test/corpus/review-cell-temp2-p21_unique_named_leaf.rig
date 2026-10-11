@@ -7,7 +7,7 @@
 # oracle: look accept
 # oracle: go accept
 # oracle: main accept
-struct R unique
+obj R unique
   n: Int
 
   fun get(?self) -> Int

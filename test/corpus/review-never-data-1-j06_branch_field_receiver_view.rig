@@ -1,10 +1,10 @@
-struct Counter
+obj Counter
   hits: Cell[List[Int]]
 
   fun peek(?self) -> ?Cell[List[Int]]
     ?self.hits
 
-struct O
+obj O
   k: Counter
 
 sub main()

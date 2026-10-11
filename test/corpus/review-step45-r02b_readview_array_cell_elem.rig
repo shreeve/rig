@@ -1,5 +1,5 @@
 # Cell change through an element of a ?[2]C parameter and a []C slice
-struct C
+obj C
   c: Cell[Int]
 
 sub bump(a: ![2]C, s: []C)

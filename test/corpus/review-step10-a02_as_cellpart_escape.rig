@@ -1,11 +1,11 @@
 # as_copy: `if ?mkh().q as x` over a Cell-holding part of a temporary
 # binds a mutable copy (`__rig_opt_N_v`), poisoned when the body ends.
 # Can a view of `x` escape the body?
-struct Q
+obj Q
   c: Cell[Int]
   n: Int
 
-struct H
+obj H
   q: Q?
 
 fun mkh() -> H

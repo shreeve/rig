@@ -1,6 +1,6 @@
 use std.text
 
-struct P
+obj P
   t: String
   n: Int
 

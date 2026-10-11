@@ -1,10 +1,10 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
-struct Q
+obj Q
   p: P
   n: Int
 

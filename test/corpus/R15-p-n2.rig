@@ -1,4 +1,4 @@
-struct V
+obj V
   s: ![]Int
 
 sub touch(v: !V)

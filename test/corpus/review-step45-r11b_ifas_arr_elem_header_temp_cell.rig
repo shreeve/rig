@@ -1,5 +1,5 @@
 # base-comparable r11: if arr[idx(?Text("a"))] as c over [1]C? (Cell holder)
-struct C
+obj C
   c: Cell[Int]
 
 fun idx(s: ?String) -> Int

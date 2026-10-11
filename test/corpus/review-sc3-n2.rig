@@ -1,4 +1,4 @@
-struct Set
+obj Set
   items: List[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items

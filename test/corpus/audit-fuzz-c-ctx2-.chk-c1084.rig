@@ -56,7 +56,7 @@ fun fal1084(ok: Bool) -> Int!
 error Err1084
   bad
 
-struct FA1084
+obj FA1084
   f: Int
 
 sub t1084()

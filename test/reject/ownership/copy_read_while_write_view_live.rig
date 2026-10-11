@@ -2,7 +2,7 @@
 # `n` cannot be read, copied, viewed, or called on, even when it is
 # a Copy value, and even in the statement that writes through `w`.
 
-struct P
+obj P
   x: Int
 
   fun get(?self) -> Int

@@ -4,7 +4,7 @@
 source "$ROOT/test/cli/_lib.sh"
 
 cat >main.rig <<'EOF2'
-struct S
+obj S
   n: Int
   m: Int
 
@@ -48,7 +48,7 @@ expect_has "$(cat run.txt)" '4' "the program's output"
 # fact too (`zig_temp`): a leaf made there no slot keeps, and a temporary
 # array lent to a call.
 cat >zig_temp.rig <<'EOF2'
-struct R unique
+obj R unique
   n: Int
 
   fun get(?self) -> Int

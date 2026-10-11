@@ -1,5 +1,5 @@
 # for over an element of a made value (owning elements). Expect reject.
-struct H
+obj H
   xs: [2]String
 
 fun mk(s: ?String) -> H

@@ -1,7 +1,7 @@
 # A temporary that owns a resource and is only read, as a `print`
 # argument is, is dropped when its statement ends.
 
-struct B
+obj B
   n: Int
 
   drop(!self)

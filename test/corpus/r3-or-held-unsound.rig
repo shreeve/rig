@@ -5,7 +5,7 @@
 # oracle: payload_kept reject C5
 # oracle: value_kept reject C5
 
-struct Res
+obj Res
   n: Int
   t: String
 
@@ -13,7 +13,7 @@ enum E
   a(r: Res)
   b
 
-struct H
+obj H
   e: E
   o: Res?
 

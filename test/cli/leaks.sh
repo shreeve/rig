@@ -4,7 +4,7 @@
 source "$ROOT/test/cli/_lib.sh"
 
 cat >cycle.rig <<'EOF'
-struct Node
+obj Node
   next: *Cell[*Node?]
 
 sub main()

@@ -2,7 +2,7 @@
 error BankError
   insufficient_funds
 
-struct Account
+obj Account
   owner: ?String
   balance: Int = 0
 

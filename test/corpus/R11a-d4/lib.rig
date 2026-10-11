@@ -7,7 +7,7 @@ pub fun check[T](x: T, ok: Bool) -> T!
     return Oops.bad
   x
 
-pub struct Bag[T]
+pub obj Bag[T]
   items: List[T]
   name: ?String = "bag"
 
@@ -24,7 +24,7 @@ pub struct Bag[T]
   fun size(?self) -> Int
     self.items.len
 
-pub struct Holder[T]
+pub obj Holder[T]
   v: T
 
   fun done(self: Self) -> Int

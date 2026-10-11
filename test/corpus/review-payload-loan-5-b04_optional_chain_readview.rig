@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
   v: List[Int]
 
@@ -28,10 +28,10 @@ fun optw(e: !E, ok: Bool) -> (!E)?
 fun id[T](x: T) -> T
   x
 
-struct K
+obj K
   o: G?
 
-struct G
+obj G
   w: !E
 
 fun f(k: ?K) -> Int?

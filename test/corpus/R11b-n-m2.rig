@@ -1,4 +1,4 @@
-struct Wrap2[T]
+obj Wrap2[T]
   v: T
 
 enum Opt2[T]

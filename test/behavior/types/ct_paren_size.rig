@@ -3,7 +3,7 @@
 A = 2
 B = 3
 
-struct Ring[T, n: Int]
+obj Ring[T, n: Int]
   items: [n]T
 
 fun count[n: Int](xs: [(n)]Int) -> Int

@@ -1,4 +1,4 @@
-struct Big
+obj Big
   a: [100]Int
 
 enum Shape

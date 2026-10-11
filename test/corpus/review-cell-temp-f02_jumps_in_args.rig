@@ -5,7 +5,7 @@
 # oracle: maybe accept
 # oracle: two accept
 # oracle: main accept
-struct D
+obj D
   c: Cell[Int]
   t: String
 

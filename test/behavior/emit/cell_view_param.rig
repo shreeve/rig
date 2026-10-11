@@ -16,7 +16,7 @@ fun bump(x: !Cell[Int]) -> Int
   !x.set(x.get() + 1)
   x.get()
 
-struct V
+obj V
   c: Cell[List[Int]]
 
   drop(!self)
@@ -30,7 +30,7 @@ struct V
     !self.add(n)
     (!self).add(n)
 
-struct WV
+obj WV
   t: *V
 
 fun mkv(n: Int) -> *V

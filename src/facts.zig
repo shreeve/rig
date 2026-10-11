@@ -668,7 +668,7 @@ test "emit reads the checkers' decisions only through Facts" {
 
 test "Facts answers as the context it was made from" {
     const source =
-        \\struct S
+        \\obj S
         \\  n: Int
         \\  t: String
         \\
@@ -710,7 +710,7 @@ test "Facts answers as the context it was made from" {
 
 test "Facts reads the leaf walk the storage plan decided" {
     const source =
-        \\struct R unique
+        \\obj R unique
         \\  n: Int
         \\
         \\  fun get(?self) -> Int

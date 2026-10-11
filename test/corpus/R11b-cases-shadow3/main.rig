@@ -1,6 +1,6 @@
 use lib
 
-struct S
+obj S
   Wrap: List[Int]
 
 sub main()

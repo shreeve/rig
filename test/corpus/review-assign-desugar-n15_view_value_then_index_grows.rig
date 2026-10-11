@@ -1,6 +1,6 @@
 # The value is a view (made in __v); the target's index then grows what
 # it views. The loan of __v must be live across the index.
-struct H
+obj H
   r: ?Int
 
 fun grow(v: !List[Int]) -> Int

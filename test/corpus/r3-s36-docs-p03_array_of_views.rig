@@ -1,5 +1,5 @@
 # SPEC §2 Arrays: "Arrays hold plain data only"
-struct P
+obj P
   x: Int
 
 sub main()

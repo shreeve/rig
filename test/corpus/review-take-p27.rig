@@ -1,9 +1,9 @@
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop", self.n)
 
-struct G[T]
+obj G[T]
   x: T
 
 sub main()

@@ -32,7 +32,7 @@ fun echo[T](x: T) -> T
 fun keep(xs: []Int) -> []Int
   xs
 
-struct Bag
+obj Bag
   items: List[Int]
   name: String
 

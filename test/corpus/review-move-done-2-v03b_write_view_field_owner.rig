@@ -1,12 +1,12 @@
 # Rejected: an owning part through a write view held in a field.
-struct S
+obj S
   o: List[Int]?
   v: List[Int]
 
-struct K
+obj K
   w: !S
 
-struct KR
+obj KR
   r: ?S
 
 fun mkv(n: Int) -> List[Int]

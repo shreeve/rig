@@ -6,7 +6,7 @@
 # oracle: V.add accept
 # oracle: build accept
 # oracle: maybe accept
-struct V
+obj V
   c: Cell[List[Int]]
 
   drop(!self)

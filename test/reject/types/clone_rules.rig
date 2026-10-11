@@ -1,16 +1,16 @@
 # A value with a `drop` body has no clone, nor one holding one, nor a
 # unique value (Core sentence 2).
 
-struct File
+obj File
   name: String
 
   drop(!self)
     print("closing", self.name)
 
-struct Holder
+obj Holder
   f: File
 
-struct C unique
+obj C unique
   n: Int
   t: String
 

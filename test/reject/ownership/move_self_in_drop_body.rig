@@ -1,6 +1,6 @@
 # A drop body cannot move `self` out.
 
-struct Owner
+obj Owner
   cell: *Cell[Int]
 
   drop(!self)

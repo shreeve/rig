@@ -2,10 +2,10 @@
 # unique value: nested branches, `??`, `catch`, a named part.
 #
 # oracle: bump accept
-struct C
+obj C
   c: Cell[Int]
 
-struct H
+obj H
   d: C
 
 error E

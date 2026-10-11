@@ -3,7 +3,7 @@
 # grows the Cell's List, which moves its buffer, or replaces the List,
 # which frees it.
 # release
-struct S
+obj S
   c: Cell[List[Int]]
 
 fun grow(c: !Cell[List[Int]]) -> Int

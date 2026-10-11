@@ -1,4 +1,4 @@
-struct P
+obj P
   count: Int
 
 sub main()

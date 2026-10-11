@@ -2,7 +2,7 @@
 # Expected: accepted, prints `end 3 6` (k counts steps, j inner passes).
 #
 # oracle: mk accept
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

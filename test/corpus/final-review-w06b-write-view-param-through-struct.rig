@@ -1,8 +1,8 @@
 # a function taking !Cur returns a write view of an Item reached through its held write view; called twice (expect reject at b)
-struct Item
+obj Item
   n: Int
 
-struct Cur
+obj Cur
   items: !List[Item]
 
 fun at(c: !Cur) -> !Item

@@ -1,10 +1,10 @@
 error Bad
   neg
 
-struct Node
+obj Node
   v: Int
 
-struct Bag
+obj Bag
   items: List[*Node]
 
   sub eat(<self, k: Int)!

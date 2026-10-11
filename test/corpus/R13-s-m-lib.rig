@@ -1,4 +1,4 @@
-pub struct Bag
+pub obj Bag
   items: List[Int]
 
   fun new() -> Bag

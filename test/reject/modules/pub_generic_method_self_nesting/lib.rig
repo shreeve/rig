@@ -1,7 +1,7 @@
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
-pub struct Walker
+pub obj Walker
   n: Int
 
   fun walk[U](?self, x: U) -> Int

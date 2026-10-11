@@ -2,7 +2,7 @@
 # never holds a Cell: a value that holds one is never a type argument
 # (`List[C]`), since it lives only behind a shared handle.
 
-struct C
+obj C
   c: Cell[Int]
 
 sub main()

@@ -1,6 +1,6 @@
 # A `continue :a` in the `else` of an inner loop also labeled `:a` names
 # the outer `:a`, since the inner loop has ended.
-struct S
+obj S
   s: []Int
 
 fun mk(v: ?List[Int], i: Int) -> S?

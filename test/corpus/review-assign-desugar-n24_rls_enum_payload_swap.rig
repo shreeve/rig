@@ -1,6 +1,6 @@
 # Valid: a match on the place being assigned, whose arm builds the new
 # value from the payload; the payload must be read before the store.
-struct P
+obj P
   a: Int
   b: Int
   c: Int

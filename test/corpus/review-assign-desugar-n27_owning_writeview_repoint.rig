@@ -1,6 +1,6 @@
 # A write view of an owning struct, re-pointed in the value, which then
 # grows the old List: the old value at y[0] is dropped and replaced.
-struct S
+obj S
   items: List[Int]
 
 fun grow(v: !List[S]) -> Int

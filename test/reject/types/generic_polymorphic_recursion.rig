@@ -2,10 +2,10 @@
 # using `Wrap[Wrap[T]]`) would need ever deeper instances; it is rejected
 # rather than expanded forever.
 
-struct B
+obj B
   n: Int
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
   fun wrap(self: Wrap[T]) -> Wrap[Wrap[T]]

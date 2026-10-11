@@ -1,4 +1,4 @@
-struct Keep[T]
+obj Keep[T]
   item: T?
 
 sub keep[T](v: ?List[T], k: !Keep[T])

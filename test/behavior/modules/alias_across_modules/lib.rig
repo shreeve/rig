@@ -1,6 +1,6 @@
 use util
 
-pub struct Pair[T]
+pub obj Pair[T]
   pub a: T
   pub b: T
 
@@ -15,7 +15,7 @@ pub type Real = F32
 
 type R = F32
 
-pub struct Limits
+pub obj Limits
   pub hi: R = R.max
   pub lo: Real = Real.min
   pub small: util.Small = util.Small.min

@@ -1,4 +1,4 @@
-struct R
+obj R
   items: List[Int]
 
 sub main()

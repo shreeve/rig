@@ -1,4 +1,4 @@
-struct P
+obj P
   v: List[Int]
 
 enum E

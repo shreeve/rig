@@ -1,6 +1,6 @@
 # An owned closure takes a plain struct holding a String and stores it
 # into a captured Cell; the Text the String views is then dropped.
-struct P
+obj P
   s: ?String
 
 sub main()

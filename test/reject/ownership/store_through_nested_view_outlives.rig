@@ -4,16 +4,16 @@
 # part, however the path gets there: through nested local write views,
 # an element, or a `match !e` binding.
 
-struct R
+obj R
   y: ?Int
 
-struct Inner
+obj Inner
   x: R
 
-struct Outer
+obj Outer
   i: Inner
 
-struct Pair
+obj Pair
   xs: [1]R
 
 enum E

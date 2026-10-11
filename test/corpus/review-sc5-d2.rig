@@ -1,4 +1,4 @@
-struct Bag[T]
+obj Bag[T]
   items: List[T] = List()
   n: Int = 0
 
@@ -6,7 +6,7 @@ struct Bag[T]
     !self.items.push(<x)
     self.n += 1
 
-struct Holder
+obj Holder
   bag: Bag[?String]
 
 sub main()

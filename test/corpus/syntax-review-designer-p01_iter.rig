@@ -1,4 +1,4 @@
-struct Range3
+obj Range3
   n: Int
 
 sub main()

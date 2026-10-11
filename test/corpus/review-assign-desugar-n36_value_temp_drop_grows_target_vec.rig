@@ -1,7 +1,7 @@
 # The value makes a temporary holding a write view of the target's List,
 # whose drop grows it. The temporary drops at the end of the statement:
 # after the store (emit), or before the target (the desugaring's text).
-struct G
+obj G
   r: !List[Int]
   n: Int
 

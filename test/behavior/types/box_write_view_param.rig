@@ -1,7 +1,7 @@
 # A `!^T` parameter writes the value in place: a `!self` method, a
 # field, or the whole box (the old one is dropped).
 
-struct R
+obj R
   n: Int
 
   drop(!self)

@@ -1,9 +1,9 @@
-pub struct B
+pub obj B
   pub n: Int
   drop(!self)
     print("drop", self.n)
 
-pub struct H
+pub obj H
   pub items: List[*B]
 
   pub sub add(!self, b: *B)

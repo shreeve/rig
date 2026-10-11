@@ -13,7 +13,7 @@ error is thrown past you, a destructor runs. Rig's central rule is that
 enough that writing it is no burden:
 
 ```rig
-struct Packet
+obj Packet
   size: Int
 
   drop(!self)
@@ -215,13 +215,13 @@ of its own, so `-` means only negation.
 Here the algebra is at work in one small program:
 
 ```rig
-struct Node
+obj Node
   id: Int
 
   drop(!self)
     print("drop", self.id)
 
-struct Owner
+obj Owner
   node: *Node
 
 fun id_of(n: ?*Node) -> Int
@@ -379,7 +379,7 @@ a condition or an operand of `and`, `or`, or `not`.
 ### Brackets for compile time
 
 Square brackets hold everything known at compile time, and parentheses
-what is known when the program runs: `struct Wrap[T]`, `List[Int]()`,
+what is known when the program runs: `obj Wrap[T]`, `List[Int]()`,
 `fun max[T](a: T, b: T)`, `fun check[mode: Mode](n: Int)`,
 `check[.strict](5)`. One spelling covers type arguments and
 compile-time values, as Zig's `comptime` does for both, so a call shows

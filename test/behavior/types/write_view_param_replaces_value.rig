@@ -1,7 +1,7 @@
 # Assigning a `!T` parameter replaces the caller's value; the old value is
 # dropped first.
 
-struct Wrap
+obj Wrap
   v: Int
 
   drop(!self)

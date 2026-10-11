@@ -1,7 +1,7 @@
-struct P
+obj P
   c: Cell[Int]
 
-struct Q
+obj Q
   p: P
 
 sub bump(p: !P)

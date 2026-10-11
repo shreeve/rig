@@ -1,6 +1,6 @@
 # Generic bodies that copy a T (Requirement.copies), instantiated with
 # plain structs, arrays, optionals, and String holders.
-struct P
+obj P
   s: ?String
   n: Int
 

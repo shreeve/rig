@@ -11,11 +11,11 @@
 # oracle: deferred accept
 # oracle: in_closure accept
 
-struct Item
+obj Item
   n: Int
   name: ?String
 
-struct Bag
+obj Bag
   items: List[Item]
   count: Int
 
@@ -23,7 +23,7 @@ struct Bag
     self.count += 1
     ?self.items[0]
 
-struct Counter
+obj Counter
   n: Int
   items: List[Int]
 

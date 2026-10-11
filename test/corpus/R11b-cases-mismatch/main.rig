@@ -1,7 +1,7 @@
 use a
 use b
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 sub take(x: a.Wrap[Int])

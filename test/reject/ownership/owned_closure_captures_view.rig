@@ -2,10 +2,10 @@
 # including in a Cell or Signal that other handles reach, so it holds no
 # view: it cannot capture a view, a view parameter, or a view.
 
-struct Wrap
+obj Wrap
   n: Int
 
-struct View
+obj View
   b: ?Wrap
 
 fun keep(v: View) -> *sub()

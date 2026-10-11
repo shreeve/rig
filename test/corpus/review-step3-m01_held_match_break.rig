@@ -1,4 +1,4 @@
-struct Res
+obj Res
   n: Int
 
   drop(!self)
@@ -8,7 +8,7 @@ enum E
   a(r: Res)
   b
 
-struct H
+obj H
   e: E
   tag: Int
 

@@ -3,7 +3,7 @@ enum Opt[T]
   some(v: T)
   nothing
 
-struct Pt
+obj Pt
   x: Int
   y: Int
 

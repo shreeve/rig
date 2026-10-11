@@ -1,5 +1,5 @@
 # h.w = w2 (bare held write view on the right) writes through for Int
-struct H
+obj H
   w: !Int
 
 sub main()

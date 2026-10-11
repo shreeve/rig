@@ -1,4 +1,4 @@
-struct S
+obj S
   n: U8
 
 fun sh(x: U128, n: Int) -> U128

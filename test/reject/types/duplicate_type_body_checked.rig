@@ -1,10 +1,10 @@
 # A declaration that repeats a name is still checked, so the errors
 # inside it are reported too.
 
-struct S
+obj S
   x: Int
 
-struct S
+obj S
   y: Int
 
   fun get(?self) -> Int

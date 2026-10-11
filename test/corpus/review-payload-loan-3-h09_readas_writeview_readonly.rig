@@ -1,4 +1,4 @@
-struct P
+obj P
   t: String
 
 sub put(q: !P)

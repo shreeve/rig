@@ -1,4 +1,4 @@
-struct Count
+obj Count
   word: ?String
   n: Int
 

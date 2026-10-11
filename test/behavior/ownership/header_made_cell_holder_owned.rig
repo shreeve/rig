@@ -6,13 +6,13 @@
 # oracle: loops accept
 # oracle: ifs accept
 
-struct Counter
+obj Counter
   hits: Cell[Int]
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-struct H
+obj H
   o: (*Counter)?
   arr: [2]*Counter
 

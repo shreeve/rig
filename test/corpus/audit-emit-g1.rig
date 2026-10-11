@@ -1,9 +1,9 @@
-struct R
+obj R
   n: Int
   drop(!self)
     print("drop R", self.n)
 
-struct Node
+obj Node
   v: Int
   r: R
   next: ^Node?
@@ -23,7 +23,7 @@ fun read(n: ?Node) -> Int
 sub write(n: !Node)
   n.v *= 10
 
-struct W[T]
+obj W[T]
   item: T
 
   fun get(?self) -> ?T

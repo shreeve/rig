@@ -1,6 +1,6 @@
 # A drop body can call a `!self` method on the value being destroyed.
 
-struct N
+obj N
   id: Int
 
   sub bump(!self)

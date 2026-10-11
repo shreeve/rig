@@ -1,10 +1,10 @@
 # A `[]U8` is the same bytes as a String at run time, so printing one,
 # or a value holding one, is rejected rather than printed as text.
 
-struct H
+obj H
   b: []U8
 
-struct Wrap[T]
+obj Wrap[T]
   v: T
 
 sub main()

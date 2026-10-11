@@ -1,7 +1,7 @@
 # Cloning through a view clones the value viewed: `+b` of a `?Bag`
 # is a new `Bag`, whose List is a copy of the List `b` views.
 
-struct Bag
+obj Bag
   v: List[Int]
 
   fun n(<self) -> Int

@@ -1,5 +1,5 @@
 # h holds !w (a view of w's target); w = <h.v... ; old target written while h's view lives
-struct H
+obj H
   v: !String
 
 sub main()

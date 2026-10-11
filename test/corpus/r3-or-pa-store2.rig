@@ -1,4 +1,4 @@
-struct Holder
+obj Holder
   v: ?List[Int]
 
 sub put(h: !Holder, x: ?List[Int])

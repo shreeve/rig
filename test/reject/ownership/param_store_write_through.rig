@@ -1,10 +1,10 @@
 # Assigning a `Holder` field of parameter `c` writes into what the
 # caller lent, which keeps `b` lent for the rest of the body.
 
-struct Holder
+obj Holder
   r: []Int
 
-struct Ctx
+obj Ctx
   w: Holder
 
 fun f(c: !Ctx, b: !List[Int]) -> Int

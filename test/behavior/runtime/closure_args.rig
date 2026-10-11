@@ -5,7 +5,7 @@
 # lives for the call: one that moved a resource in drops it when the
 # call returns.
 
-struct Res
+obj Res
   id: Int
 
   drop(!self)

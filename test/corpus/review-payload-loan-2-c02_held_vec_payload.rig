@@ -2,7 +2,7 @@ enum WV
   a(w: !List[String])
   b
 
-struct H
+obj H
   e: WV
 
 fun mk(v: !List[String]) -> H from v

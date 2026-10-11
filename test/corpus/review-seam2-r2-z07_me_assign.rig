@@ -6,14 +6,14 @@
 # oracle: mkh accept
 # oracle: wrap accept
 # oracle: main accept
-struct S
+obj S
   n: Int
   t: String
 
   drop(!self)
     print("dropS", self.n)
 
-struct H
+obj H
   r: ?String
   rs: List[?String]
 

@@ -4,7 +4,7 @@
 # (Read-view elements copy: see
 # test/behavior/ownership/copies_fill_read_views.rig.)
 
-struct V
+obj V
   s: ![]Int
 
 sub main()

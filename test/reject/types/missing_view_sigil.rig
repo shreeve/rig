@@ -2,7 +2,7 @@
 # binding keeps it; a write lend is always written): the message names
 # the sigil that lends it.
 
-struct S
+obj S
   n: Int
 
 fun f(s: ?S) -> Int

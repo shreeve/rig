@@ -2,7 +2,7 @@
 error Bad
   oops
 
-struct P
+obj P
   x: Int
 
 fun outer(a: ?P, b: ?P, k: Int) -> Int

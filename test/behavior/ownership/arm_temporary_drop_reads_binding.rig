@@ -5,30 +5,30 @@
 error E
   bad
 
-struct P
+obj P
   n: Int
 
-struct HI
+obj HI
   v: ?Int
   t: String
 
   drop(!self)
     print("drop hi", self.v)
 
-struct HP
+obj HP
   v: ?P
   t: String
 
   drop(!self)
     print("drop hp", self.v.n)
 
-struct D
+obj D
   c: Cell[Int]
 
   drop(!self)
     print("drop d", self.c.get())
 
-struct HC
+obj HC
   v: ?D
   c: Cell[Int]
 

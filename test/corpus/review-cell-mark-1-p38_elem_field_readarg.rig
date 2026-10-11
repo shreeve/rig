@@ -1,4 +1,4 @@
-struct S
+obj S
   v: List[Int]
 
 sub f(a: ?List[Int], d: !Cell[List[S]])

@@ -1,6 +1,6 @@
 # A `|<rc|` move-capture inside a loop is seen by the next iteration.
 
-struct Wrap
+obj Wrap
   payload: Int
 
 sub main()

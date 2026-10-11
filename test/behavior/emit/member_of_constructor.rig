@@ -1,6 +1,6 @@
 # A field can be read straight off a constructed value.
 
-struct B
+obj B
   n: Int
 
 sub main()

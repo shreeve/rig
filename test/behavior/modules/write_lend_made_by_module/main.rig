@@ -2,7 +2,7 @@
 # to write with its call in parentheses (Core sentence 4).
 use lib
 
-struct U
+obj U
   n: Int
 
   fun bump(!self) -> Int

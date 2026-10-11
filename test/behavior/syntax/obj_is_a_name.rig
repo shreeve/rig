@@ -1,0 +1,29 @@
+# `obj` is a keyword only where a declaration starts (before a name, at
+# the start of a statement). Anywhere else it is an ordinary name, and
+# so is the old `struct`.
+
+obj Bag
+  obj: Int
+  struct: Int
+
+fun twice(obj: Int) -> Int
+  obj * 2
+
+sub main()
+  obj = 5
+  print(obj)
+  print(twice(obj))
+  new struct = obj + 1
+  print(struct)
+  b = Bag(obj: 7, struct: 8)
+  print(b.obj, b.struct)
+  obj = obj + 1
+  print(obj)
+
+# release
+# expect:
+# 5
+# 10
+# 6
+# 7 8
+# 6
