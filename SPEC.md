@@ -852,8 +852,12 @@ program before it uses a wrong value. Precedence is unchanged, so masks are comb
 parentheses: `(v == 0x22) | (v == 0x5C)`.
 
 **Masks.** `m.bits()` is a `U64` whose bit `i` is lane `i`, the higher
-bits 0, for every lane count, so `m.bits().trailing_zeros()` is the
-first true lane and `m.bits().count_ones()` counts them. `m.any()` and
+bits 0, for every lane count, so `m.bits().count_ones()` counts the true
+lanes. `m.first()` is the index of the first true lane, an `Int?`: `none`
+when no lane is true. It is the way to find a lane after a test, and the
+one to write: `if hits.first() as k` tests and locates in one step, where
+`hits.any()` then `hits.bits()` reduces the mask twice. On a 16-lane mask
+it is a single crossing from the vector to a register on ARM. `m.any()` and
 `m.all()` reduce a mask to a `Bool`, `m.not()` flips every lane (as
 `v.not()` flips every bit of an integer vector), and `m.select(a, b)`
 is the vector whose lane `i` is `a`'s where `m`'s is true and `b`'s
@@ -882,7 +886,8 @@ fun find_quote(s: ?String, at: Int) -> Int
   while i + 16 <= s.len : i += 16
     v = s.read[Block](i)
     hits = (v == QUOTE) | (v == BACKSLASH)
-    return i + hits.bits().trailing_zeros() if hits.any()
+    if hits.first() as k
+      return i + k
   while i < s.len : i += 1
     return i if s[i] == QUOTE or s[i] == BACKSLASH
   s.len

@@ -1005,7 +1005,7 @@ pub const Use = enum {
 /// `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()` (`num`
 /// is the integer's type, `elem` the `Int` they give); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
-/// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.any()`, `m.all()`,
+/// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
 /// `v.array()`, `v.with(i, x)`, and `m.select(a, b)`, whose `num` is the
 /// mask and `elem` the lane type of the vector it gives.
 pub const ElemCall = struct {
@@ -1029,6 +1029,7 @@ pub const ElemOp = enum {
     swap_bytes,
     splat,
     bits,
+    first,
     any,
     all,
     array,
@@ -1040,7 +1041,7 @@ pub const ElemOp = enum {
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => true,
-            .copy, .fill, .swap, .read, .write, .splat, .bits, .any, .all, .array, .with, .select => false,
+            .copy, .fill, .swap, .read, .write, .splat, .bits, .first, .any, .all, .array, .with, .select => false,
         };
     }
 
@@ -1048,7 +1049,7 @@ pub const ElemOp = enum {
     /// it reads its receiver and arguments, and makes a new value.
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
-            .splat, .bits, .any, .all, .array, .with, .select => true,
+            .splat, .bits, .first, .any, .all, .array, .with, .select => true,
             .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => false,
         };
     }
