@@ -2,5 +2,5 @@ struct P
   take: Int
 
 sub main()
-  b = Box(value: P(take: 4))
+  b = ^P(take: 4)
   print(b.take)

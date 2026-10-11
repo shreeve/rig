@@ -1,9 +1,9 @@
-sub f(o: !(Text?))
+sub f(o: !(String?))
   if !o as b
     s = ?b[1..]
     !b.add(" and more and more and more text to realloc the buffer")
     print(s)
 
 sub main()
-  y: Text? = Text("hello")
+  y: String? = String("hello")
   f(!y)

@@ -7,7 +7,7 @@
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 3
     return S(s: ?v[..])
   none
@@ -16,7 +16,7 @@ sub keep(o: !S, h: S)
   o.s = h.s
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   e = [0]
   last = S(s: ?e[..])

@@ -5,7 +5,7 @@ sub eat(p: P)
   print(p.n)
 
 sub main()
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   !v.push(P(n: 7))
   eat(<v[0])
 

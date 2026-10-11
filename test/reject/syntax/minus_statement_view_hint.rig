@@ -1,17 +1,17 @@
 # A statement `-x` negates `x` and discards it. Where `x` owns or views
 # something, the hint offers `<x` only where `<x` drops it: not for a
 # view parameter, a closure's capture, or a `for` element that views a
-# slot of the Vec it walks, which are each told why.
+# slot of the List it walks, which are each told why.
 
 sub each(f: ?sub(Int))
   f(1)
 
-sub look(o: ?Vec[Int])
+sub look(o: ?List[Int])
   -o
 
 sub main()
-  v: Vec[Vec[Int]] = Vec()
-  !v.push(Vec[Int]())
+  v: List[List[Int]] = List()
+  !v.push(List[Int]())
   r = ?v
   -r
   each(|?v, i|

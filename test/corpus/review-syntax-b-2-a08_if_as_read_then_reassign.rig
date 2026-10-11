@@ -1,5 +1,5 @@
 sub main()
-  o: Text? = Text("hello")
+  o: String? = String("hello")
   if o as r
     s = r[1..]
     o = none

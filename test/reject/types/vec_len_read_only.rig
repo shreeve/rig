@@ -1,8 +1,8 @@
-# A Vec's `.len` is read-only; elements are added with `push` and
+# A List's `.len` is read-only; elements are added with `push` and
 # removed with `pop` or `clear`.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   v.len = 0
   print(v.len)
 

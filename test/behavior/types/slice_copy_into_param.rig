@@ -1,5 +1,5 @@
 # `copy` stores elements, never its argument's view: a local copied
-# into a caller's buffer (a `![]T`, `![N]T`, or `!Vec[T]` parameter, or a
+# into a caller's buffer (a `![]T`, `![N]T`, or `!List[T]` parameter, or a
 # reslice of one) is fine, and the source is free again once the call
 # returns.
 
@@ -11,7 +11,7 @@ sub load_array(a: ![3]Int)
   c = [4, 5]
   !a[1..].copy(?c[..])
 
-sub load_vec(v: !Vec[Int])
+sub load_vec(v: !List[Int])
   c = [6]
   !v[..1].copy(?c[..])
 
@@ -22,7 +22,7 @@ sub main()
   b = [0, 0, 0]
   load_array(!b)
   print(b)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(0)
   !v.push(9)
   load_vec(!v)

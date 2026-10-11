@@ -1,6 +1,6 @@
-fun tail(s: String) -> Static
+fun tail(s: ?String) -> Static
   s[1..]
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   print(tail(?t[..]))

@@ -2,7 +2,7 @@ error Bad
   neg
 
 sub main()
-  cbs: Vec[*sub(Int)!] = Vec()
+  cbs: List[*sub(Int)!] = List()
   !cbs.push(*|x: Int|
     return Bad.neg if x < 0
     print("cb", x)

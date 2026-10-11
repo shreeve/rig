@@ -1,10 +1,10 @@
 struct Inner
-  x: !Vec[Int]
+  x: !List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   if true
-    v2: Vec[Int] = Vec()
+    v2: List[Int] = List()
     inn = Inner(x: !v)
     o = !inn
     o.x = !v2

@@ -1,16 +1,16 @@
 struct Row
-  name: String
+  name: ?String
   n: Int
 
-fun parse(t: ?Text) -> Vec[Row]
-  rows: Vec[Row] = Vec()
+fun parse(t: ?String) -> List[Row]
+  rows: List[Row] = List()
   !rows.push(Row(name: t[0..1], n: 1))
   rows
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   rows = parse(?t)
   print(rows)
-  label = Text("x")
-  name: String = ?label
+  label = String("x")
+  name: ?String = ?label
   print(name)

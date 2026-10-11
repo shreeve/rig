@@ -21,13 +21,13 @@ sub u(k: Int)
   print("u", p.b)
 
 sub v(k: Int)
-  xs: Vec[Box[Res]] = Vec()
-  !xs.push(Box(Res(id: get(k) ?? return)))
+  xs: List[^Res] = List()
+  !xs.push(^Res(id: get(k) ?? return))
   print("v", xs.len)
 
 sub w(k: Int)
-  b = Box(Res(id: 3))
-  c = Box(Res(id: get(k) ?? return))
+  b = ^Res(id: 3)
+  c = ^Res(id: get(k) ?? return)
   print("w", b.id, c.id)
 
 sub main()

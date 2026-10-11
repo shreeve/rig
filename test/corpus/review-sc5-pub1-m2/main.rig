@@ -11,7 +11,7 @@ sub main()
   swap(!c.count, !n)
   h = *lib.Counter.make("h")
   print(h.count)
-  b = Box(lib.Counter.make("b"))
+  b = ^lib.Counter.make("b")
   print(b.count, b.peek())
   f = |x: ?lib.Counter| x.count
   print(f(?c))

@@ -1,7 +1,7 @@
 # w = w2 for !Text locals: writes through (copy of a Text?) or re-point?
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   w2 = !b
   w = w2

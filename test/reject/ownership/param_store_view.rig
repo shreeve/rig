@@ -2,9 +2,9 @@
 # lent for the rest of the body.
 
 struct Holder
-  s: String
+  s: ?String
 
-fun f(a: !Holder, b: !Text) -> Int
+fun f(a: !Holder, b: !String) -> Int
   a.s = ?b[0..1]
   for _ in 0..100
     !b.add("abcdefgh")
@@ -12,8 +12,8 @@ fun f(a: !Holder, b: !Text) -> Int
   0
 
 sub main()
-  t = Text("zz")
-  w = Text("abc")
+  t = String("zz")
+  w = String("abc")
   h = Holder(s: ?t[..])
   print(f(!h, !w))
 

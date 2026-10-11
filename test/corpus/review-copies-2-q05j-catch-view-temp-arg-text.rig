@@ -2,15 +2,15 @@ error Bad
   oops
 
 struct N
-  s: String
+  s: ?String
   k: Int
 
 fun get(r: ?N, ok: Bool) -> (?N)!
   return Bad.oops if not ok
   r
 
-fun mk(n: Int) -> Text
-  Text("q", n)
+fun mk(n: Int) -> String
+  String("q", n)
 
 sub main()
   b = N(s: "zz", k: 2)

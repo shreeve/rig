@@ -1,9 +1,9 @@
 # defer writes through w; w re-pointed after; old target dropped before scope end
 sub main()
-  b = Text("b")
+  b = String("b")
   w = !b
   if true
-    a = Text("a")
+    a = String("a")
     w = !a
     defer !w.add("d")
     w = !b

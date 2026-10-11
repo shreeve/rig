@@ -1,8 +1,8 @@
-fun first(s: String) -> String
+fun first(s: ?String) -> ?String
   s
 
 sub main()
-  h = *Text("abc")
+  h = *String("abc")
   g = +h
   r = first(?g)
   <h

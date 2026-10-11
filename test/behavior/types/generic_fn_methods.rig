@@ -15,7 +15,7 @@ struct Pair[A, B]
   second: B
 
 struct Tagger
-  label: String
+  label: ?String
 
   sub show[T](?self, x: T)
     print(self.label, x)
@@ -40,7 +40,7 @@ struct Cup[T]
 sub main()
   t = Tagger(label: "tag")
   t.show(3)
-  t.show[String]("x")
+  t.show[?String]("x")
   Tagger.show(?t, 2.5)
   print(Tagger.either(1, 2, false), Tagger.either[Float](1, 2, true))
   r = Tagger.either(Res(n: 1), Res(n: 2), true)

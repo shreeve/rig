@@ -7,13 +7,13 @@ struct R
   sub bump(!self)
     self.n += 1
 
-sub f(b: ?Box[R])
+sub f(b: ?^R)
   !b.bump()
 
-sub g(b: ?Box[R])
+sub g(b: ?^R)
   b.bump()
 
 sub main()
-  b = Box(value: R(n: 1))
+  b = ^R(n: 1)
   f(?b)
   g(?b)

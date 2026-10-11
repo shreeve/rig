@@ -3,25 +3,25 @@
 # any with whitespace.
 use std.text
 
-sub int(s: String)
+sub int(s: ?String)
   n = text.parse_int(s) catch |e|
     print("[", s, "]", e)
     return
   print("[", s, "]", n)
 
-sub float(s: String)
+sub float(s: ?String)
   x = text.parse_float(s) catch |e|
     print("[", s, "]", e)
     return
   print("[", s, "]", x)
 
-sub boolean(s: String)
+sub boolean(s: ?String)
   b = text.parse_bool(s) catch |e|
     print("[", s, "]", e)
     return
   print("[", s, "]", b)
 
-fun sum(xs: []String) -> Int!
+fun sum(xs: []?String) -> Int!
   total = 0
   for x in xs
     total += text.parse_int(x)!

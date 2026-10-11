@@ -1,0 +1,14 @@
+# A function has no box: `^fun` is reserved for a future uniquely owned
+# closure. An owned closure today is `*|...| body`, and `^` is not
+# a closure's prefix.
+
+type Op = ^fun(Int) -> Int
+
+sub apply(f: ^sub(Int), n: Int)
+  pass
+
+sub main()
+  pass
+
+# error: 5:11: `^` boxes a value; a function has no box
+# error: 7:14: `^` boxes a value; a function has no box

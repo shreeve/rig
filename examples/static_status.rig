@@ -1,15 +1,15 @@
 # Text that lives for the whole program is a `Static`: a literal, or
 # text derived only from literals. It carries no loan, so it can be kept
 # where loans are not tracked: in a shared `Cell`, in a `Signal` that
-# tells its subscribers, and in an owned closure. A `String` that may
-# view a `Text` cannot go there. A `Static` is read as a `String` where
+# tells its subscribers, and in an owned closure. A `?String` that may
+# view a `String` cannot go there. A `Static` is read as a `?String` where
 # text is only read, as `show` does.
 
 struct Phase
   name: Static
   step: Int
 
-fun show(label: String, n: Int) -> Int
+fun show(label: ?String, n: Int) -> Int
   print(label, n)
   n + 1
 

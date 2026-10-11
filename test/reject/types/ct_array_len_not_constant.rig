@@ -36,6 +36,6 @@ sub main()
 # error: 22:7: use of unbound name `nope`
 # error: 23:8: an array length is an integer; `2.5` is a `Float`
 # error: 24:8: an array length is an integer; `true` is a `Bool`
-# error: 25:8: an array length is an integer; `"x"` is a `String`
+# error: 25:8: an array length is an integer; `"x"` is a `?String`
 # error: 26:8: an array length is an integer; `none` is the absent optional
 # error: 27:8: an array length cannot call a function: `three()` runs only when the program does

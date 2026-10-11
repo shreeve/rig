@@ -1,8 +1,8 @@
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
 struct B
-  name: Text
+  name: String
 
 sub f(b: !B)
   s = word(?b.name[1..])
@@ -11,5 +11,5 @@ sub f(b: !B)
   print(s)
 
 sub main()
-  b = B(name: Text("hello"))
+  b = B(name: String("hello"))
   f(!b)

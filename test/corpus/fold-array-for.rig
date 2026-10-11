@@ -1,15 +1,15 @@
 # The fold: a String that views a Text slot (array-for): rejected, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct H
-  t: Text
+  t: String
 
 sub main()
-  a = [Text("a"), Text("b")]
-  keep: String = ""
+  a = [String("a"), String("b")]
+  keep: ?String = ""
   for x in ?a
     keep = ?x
-  a[0] = Text("z")
+  a[0] = String("z")
   print(keep)

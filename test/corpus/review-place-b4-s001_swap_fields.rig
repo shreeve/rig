@@ -1,6 +1,6 @@
 struct P
-  a: String
-  b: String
+  a: ?String
+  b: ?String
 
 sub main()
   p = P(a: "x", b: "y")

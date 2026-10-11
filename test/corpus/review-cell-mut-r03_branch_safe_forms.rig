@@ -3,7 +3,7 @@
 # names, and a read-only method on a branch of plain parts.
 struct T
   c: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
@@ -14,10 +14,10 @@ struct T
 
 struct D
   t: T
-  v: Vec[Int]
+  v: List[Int]
 
 fun mkd(n: Int) -> D
-  D(t: T(c: Cell(n), log: Cell(Vec())), v: Vec())
+  D(t: T(c: Cell(n), log: Cell(List())), v: List())
 
 fun pick(a: ?D, b: ?D, k: Bool) -> ?D
   a if k else b

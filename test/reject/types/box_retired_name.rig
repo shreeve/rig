@@ -1,0 +1,15 @@
+# `Box[T]` and `Box(v)` are written `^T` and `^v`. The old name is
+# unbound, with a hint, and a type alias of a box is not a constructor.
+
+type Cell3 = ^Int
+
+fun take(b: Box[Int]) -> Int
+  1
+
+sub main()
+  a = Box(5)
+  b = Cell3(6)
+
+# error: 6:13: use of unbound type `Box`; a box is written `^T` as a type and `^value` as an expression
+# error: 10:7: use of unbound name `Box`; a box is written `^T` as a type and `^value` as an expression
+# error: 11:7: `Cell3` is a type alias for `^Int`; a box is made with `^`: write `^value`

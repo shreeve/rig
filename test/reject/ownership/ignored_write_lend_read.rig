@@ -18,7 +18,7 @@ sub main()
   i = 0
   o = opt()
   arr = [1, 2, 3]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   w = !n
   print(w + 1)
@@ -30,7 +30,7 @@ sub main()
   f = ?arr[0..!i]
   g = Float(!n)
   print(!n)
-  h = Text(!n)
+  h = String(!n)
   k = +!n
   l = ?!n
   m = !o ?? 0
@@ -49,7 +49,7 @@ sub main()
 # error: 30:15: `!i` here is read, not held
 # error: 31:13: `!n` here is read, not held
 # error: 32:9: `!n` here is read, not held
-# error: 33:12: `!n` here is read, not held
+# error: 33:14: `!n` here is read, not held
 # error: 34:8: `!n` here is read, not held
 # error: 35:8: `!n` here is read, not held: `?` lends it on to read. Write `?n`
 # error: 36:7: `!o` here is read, not held

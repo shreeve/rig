@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 enum G[T]
   a(v: T)
@@ -11,6 +11,6 @@ sub f[T](e: ?G[T])
     .b => pass
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   e: G[!P] = G.a(!p)
   f(?e)

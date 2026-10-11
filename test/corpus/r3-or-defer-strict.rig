@@ -6,7 +6,7 @@
 # oracle: main accept
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   defer !v.push(3)
   w = !v
   !w.push(1)

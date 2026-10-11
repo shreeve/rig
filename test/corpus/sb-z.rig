@@ -14,7 +14,7 @@ sub main()
   e: [0]Int = []
   !e.fill(1)
   print(e)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   w = !v[..]
   !w.fill(4)
   print(w.len)

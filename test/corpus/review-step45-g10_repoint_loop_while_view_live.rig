@@ -1,7 +1,7 @@
 # within a loop, re-point; the loan from the previous iteration must end
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   for i in 0..4
     if i % 2 == 0

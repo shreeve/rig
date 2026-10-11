@@ -3,12 +3,12 @@
 sub main()
   c = true
   x = if c
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     defer print(v.len)
     v
   else
-    Vec[Int]()
+    List[Int]()
   print(x.len)
 
 # error: 8:17: use of `v` after move

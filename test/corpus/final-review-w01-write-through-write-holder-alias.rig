@@ -3,13 +3,13 @@ struct Item
   n: Int
 
 struct Cur
-  items: !Vec[Item]
+  items: !List[Item]
 
   fun at(!self) -> !Item
     !self.items[0]
 
 sub main()
-  v: Vec[Item] = Vec()
+  v: List[Item] = List()
   !v.push(Item(n: 1))
   c = Cur(items: !v)
   a = (!c).at()

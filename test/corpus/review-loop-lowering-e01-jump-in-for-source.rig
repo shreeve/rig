@@ -1,5 +1,5 @@
 # A jump in a `for` source targets the loop around the `for`, for a range,
-# a Vec in place, a consumed Vec a call makes, and an array a call makes;
+# a List in place, a consumed List a call makes, and an array a call makes;
 # the inner `for` has an `else` and an owned local in its body.
 #
 # oracle: D.drop accept
@@ -15,10 +15,10 @@ struct D
 fun opt(i: Int) -> Int?
   none if i == 1 else i
 
-fun vec(i: Int) -> Vec[Int]?
+fun vec(i: Int) -> List[Int]?
   if i == 1
     return none
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(i)
   !v.push(i + 1)
   v

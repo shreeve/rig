@@ -1,5 +1,5 @@
 sub main()
-  t = Text("hello")
+  t = String("hello")
   w = !t
   r = ?w
   s = r[1..]

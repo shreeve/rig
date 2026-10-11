@@ -2,13 +2,13 @@
 error Bad
   oops
 
-fun f(c: Bool) -> Text!
-  t = Text("x")
+fun f(c: Bool) -> String!
+  t = String("x")
   if c
-    u = Text("y")
+    u = String("y")
     Bad.oops
   else
     <t
 
 sub main()
-  print(f(true) catch Text("caught"))
+  print(f(true) catch String("caught"))

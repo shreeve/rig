@@ -1,5 +1,5 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 sub go(w: !S)
   for x in w.v
@@ -8,6 +8,6 @@ sub go(w: !S)
     print(x)
 
 sub main()
-  s = S(v: Vec())
+  s = S(v: List())
   !s.v.push(1)
   go(!s)

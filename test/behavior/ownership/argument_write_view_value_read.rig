@@ -7,7 +7,7 @@ struct Item
   n: Int
 
 struct Bag
-  items: Vec[Item]
+  items: List[Item]
 
   fun firstw(!self) -> !Item
     !self.items[0]
@@ -16,7 +16,7 @@ fun sum(a: Int, b: ?Bag) -> Int
   a + b.items.len
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(Item(n: 7))
   print((!b).firstw().n, b.items.len)
   print(sum((!b).firstw().n, ?b))

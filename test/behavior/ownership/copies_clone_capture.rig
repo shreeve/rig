@@ -13,7 +13,7 @@ struct N
     print("drop", self.v)
 
 struct S
-  r: ?Vec[Int]
+  r: ?List[Int]
 
 struct R
   r: ?Int
@@ -30,12 +30,12 @@ sub through_view()
   print(f(), s.r)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   f = |+v| v.len
   !v.push(2)
   print(f(), v.len)
-  t = Text("hi")
+  t = String("hi")
   g = |+t| t.len
   !t.add("!")
   print(g(), t)

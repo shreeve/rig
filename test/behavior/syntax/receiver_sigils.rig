@@ -11,7 +11,7 @@ struct Cell2
     self.n += 1
 
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
   sub add(!self, k: Int)
     !self.items.push(k)
   fun take(!self) -> Int!
@@ -22,12 +22,12 @@ struct Bag
     self
 
 struct Conn
-  name: String
+  name: ?String
   fun close(<self) -> Int
     self.name.len
 
 struct Builder
-  parts: Vec[Int]
+  parts: List[Int]
   # `self: Self` is the long form of `<self`.
   fun with(self: Self, k: Int) -> Builder
     b = <self
@@ -40,7 +40,7 @@ struct Builder
     total
 
 struct Holder
-  v: Vec[Int]
+  v: List[Int]
 
 struct Row
   cell: Cell2
@@ -52,7 +52,7 @@ sub send(n: Int)
   print("sent", n)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   (!v).push(3)
@@ -60,28 +60,28 @@ sub main()
   !v.push(5) if false
   print(v.len, v[3])
 
-  grid: Vec[Cell2] = Vec()
+  grid: List[Cell2] = List()
   !grid.push(Cell2(n: 0))
   !grid[0].bump()
   (!grid[0]).bump()
   print(grid[0].n)
-  rows: Vec[Row] = Vec()
+  rows: List[Row] = List()
   !rows.push(Row(cell: Cell2(n: 5)))
   !rows[0].cell.bump()
   print(rows[0].cell.n)
 
-  x = Holder(v: Vec())
+  x = Holder(v: List())
   !x.v.push(7)
   print(x.v.len)
 
-  bag = Bag(items: Vec())
+  bag = Bag(items: List())
   !bag.add(10)
   (!bag).with(20).with(30)
   print(drain(!bag) catch -1)
   print((!bag.items).pop() ?? 0)
   print(drain(!bag) catch -1)
 
-  q: Vec[Int] = Vec()
+  q: List[Int] = List()
   i = 0
   while i < 3 : !q.push(i)
     i += 1
@@ -90,7 +90,7 @@ sub main()
 
   conn = Conn(name: "db")
   print(<conn.close())
-  b = Builder(parts: Vec())
+  b = Builder(parts: List())
   send(<b.with(1).with(2).finish())
 
 # expect:

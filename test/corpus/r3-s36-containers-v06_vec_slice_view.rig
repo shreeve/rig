@@ -1,5 +1,5 @@
 sub main()
   a = [1, 2, 3]
-  v: Vec[[]Int] = Vec()
+  v: List[[]Int] = List()
   !v.push(?a)
   print(v[0], v.len)

@@ -17,7 +17,7 @@ sub main()
       <b
     _ => C(hits: Cell(0))
   print(a.hits.get())
-  v: Vec[C] = Vec()
+  v: List[C] = List()
   !v.push(C(hits: Cell(20)))
   w = !v[0]
   d = C(hits: Cell(30))
@@ -34,7 +34,7 @@ sub main()
       C(hits: Cell(40))
     _ => C(hits: Cell(0))
   print(v[0].hits.get())
-  cv = Cell[Vec[Int]](value: Vec())
+  cv = Cell[List[Int]](value: List())
   cv.push(1)
   cv[0] = match k
     0

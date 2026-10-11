@@ -1,6 +1,6 @@
 # bad: while ?o as p, grow o inside body while p used after
 sub main()
-  o: Text? = Text("a")
+  o: String? = String("a")
   n = 0
   while ?o as p
     !o.add("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")

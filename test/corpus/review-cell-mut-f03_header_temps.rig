@@ -19,8 +19,8 @@ fun mke(n: Int) -> E
 fun mka(n: Int) -> [2]C
   [mk(n), mk(n + 1)]
 
-fun mkv(n: Int) -> Vec[C]
-  v: Vec[C] = Vec()
+fun mkv(n: Int) -> List[C]
+  v: List[C] = List()
   !v.push(mk(n))
   v
 

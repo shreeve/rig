@@ -4,12 +4,12 @@ enum E
   a(n: Int)
   b(n: Int)
 
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   arr = [E.a(n: 1)]
-  match !arr[idx(?Text("a"))]
+  match !arr[idx(?String("a"))]
     .a(n) if n > 0
       n = 50
     .a(n)

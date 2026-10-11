@@ -2,7 +2,7 @@
 # struct members.
 
 struct S
-  name: String
+  name: ?String
   ?x
 
 sub main()

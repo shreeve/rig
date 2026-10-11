@@ -2,9 +2,9 @@ fun same[T](x: T) -> T
   x
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  b = same(Box(same(?v)))
+  b = same(^same(?v))
   c = same(<b)
   !v.push(2)
   print(c.len)

@@ -21,8 +21,8 @@ fun nest[T](o: ?Opt[Opt[T]], d: T) -> T
     .nothing => <d
 
 sub main()
-  o: Opt[Opt[Text]] = .some(v: .some(v: Text("x")))
-  print(nest(?o, Text("d")))
+  o: Opt[Opt[String]] = .some(v: .some(v: String("x")))
+  print(nest(?o, String("d")))
   match o
     .some(i)
       match i

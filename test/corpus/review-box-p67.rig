@@ -5,6 +5,6 @@ struct R
     print("drop", self.n)
 
 sub main()
-  b = Box(value: R(n: 5))
+  b = ^R(n: 5)
   f = *|<b| b.n
   print(f())

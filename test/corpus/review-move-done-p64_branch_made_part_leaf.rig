@@ -1,20 +1,20 @@
 # `<` of a branching value one of whose leaves is an owning part of a
 # value made there
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk() -> S
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   S(v: <v)
 
-fun pick(c: Bool) -> Vec[Int]
-  w: Vec[Int] = Vec()
+fun pick(c: Bool) -> List[Int]
+  w: List[Int] = List()
   <(mk().v if c else <w)
 
 sub main()
   c = true
-  x = <(mk().v if c else Vec[Int]())
+  x = <(mk().v if c else List[Int]())
   print(x.len)
   print(pick(true).len)
 

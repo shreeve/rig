@@ -6,8 +6,8 @@ enum Result[T, E]
   err(reason: E)
 
 sub main()
-  good: Result[Int, String] = .ok(value: 42)
-  bad: Result[Int, String] = .err(reason: "oops")
+  good: Result[Int, ?String] = .ok(value: 42)
+  bad: Result[Int, ?String] = .err(reason: "oops")
 
   match good
     .ok(v) => print(v)

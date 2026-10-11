@@ -1,4 +1,4 @@
-fun max[Vec](a: T, b: T) -> T
+fun max[List](a: T, b: T) -> T
   a if a > b else b
 
 pub fun biggest(a: Int, b: Int, c: Int) -> Int

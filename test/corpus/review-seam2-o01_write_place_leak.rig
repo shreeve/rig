@@ -8,7 +8,7 @@
 # oracle: main accept
 struct P
   k: Int
-  s: String
+  s: ?String
 
 struct S
   n: Int
@@ -29,7 +29,7 @@ fun mkp(k: Int) -> P
 fun f(n: Int) -> Int
   n
 
-fun g(s: String) -> Int
+fun g(s: ?String) -> Int
   s.len
 
 sub main()

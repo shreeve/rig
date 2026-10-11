@@ -2,7 +2,7 @@ pub fun dup[T](x: T) -> T
   a = x
   a
 
-pub fun last[T](v: ?Vec[T], d: T) -> T
+pub fun last[T](v: ?List[T], d: T) -> T
   r = <d
   for x in v
     r = <x

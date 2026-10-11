@@ -1,11 +1,11 @@
 struct Person
-  name: String
-  tags: Vec[String]
+  name: ?String
+  tags: List[?String]
 
 sub main()
-  people: Vec[Box[Person]] = Vec()
+  people: List[^Person] = List()
   for n in ["ada", "bob"]
-    !people.push(Box(value: Person(name: n, tags: Vec())))
+    !people.push(^Person(name: n, tags: List()))
   for p, i in !people
     !p.tags.push("member")
     !p.tags.push("admin") if i == 0

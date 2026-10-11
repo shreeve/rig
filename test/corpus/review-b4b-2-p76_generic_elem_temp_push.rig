@@ -1,4 +1,4 @@
-# As p75 then the Vec grows. Expect reject.
+# As p75 then the List grows. Expect reject.
 enum Opt[T]
   some(v: T)
   nothing
@@ -6,7 +6,7 @@ enum Opt[T]
 struct Hd[T]
   o: Opt[T]
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -14,11 +14,11 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub g[T](a: T, b: T, c: T, k: T)
-  v: Vec[Opt[T]] = Vec()
+  v: List[Opt[T]] = List()
   !v.push(Opt.some(v: <a))
   !v.push(Opt.some(v: <b))
   saved = ?k
-  match v[idx(?Text("ab"))]
+  match v[idx(?String("ab"))]
     .some(x) if clobber(2) > 100 => print(x)
     .some(x) => saved = ?x
     .nothing => pass
@@ -26,4 +26,4 @@ sub g[T](a: T, b: T, c: T, k: T)
   print(saved)
 
 sub main()
-  g(Text("one"), Text("two"), Text("three"), Text("k"))
+  g(String("one"), String("two"), String("three"), String("k"))

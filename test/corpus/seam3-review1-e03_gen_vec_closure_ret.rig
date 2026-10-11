@@ -1,12 +1,12 @@
 fun mk[T](x: T) -> *fun() -> Int
-  xs: Vec[T] = Vec()
+  xs: List[T] = List()
   !xs.push(x)
   *|<xs|
     ys = +xs
     ys.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   f = mk(?v)
   <v

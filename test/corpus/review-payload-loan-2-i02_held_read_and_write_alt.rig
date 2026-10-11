@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
   n: Int
 
 enum WP
@@ -23,7 +23,7 @@ fun mki(x: !Int) -> HI from x
   HI(e: WI.a(!x))
 
 sub main()
-  p = P(t: Text("hello"), n: 2)
+  p = P(t: String("hello"), n: 2)
   match mk(!p).e
     .a(w)
       r = ?w.t[1..]

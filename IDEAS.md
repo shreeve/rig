@@ -23,18 +23,18 @@ function by function wherever Rust uses iterators. That has to flip.
 ### 0.1 The target: `pak.rs`'s core, as Rig should read *(new)*
 ```rig fragment
 struct Pak
-  name: String
-  entries: Vec[PakEntry]
+  name: ?String
+  entries: List[PakEntry]
   next: (*Pak)?
 
-  fun find(?self, name: String) -> (?PakEntry)?
+  fun find(?self, name: ?String) -> (?PakEntry)?
     self.entries.find(|e| e.name == name)
 
   fun over(<self, rest: Pak) -> Pak
     self.next = *<rest
     <self
 
-  fun read_file(?self, name: String) -> Vec[U8]?!
+  fun read_file(?self, name: ?String) -> List[U8]?!
     for p in self.path()
       if p.read_own(name)! as bytes
         return bytes
@@ -51,12 +51,12 @@ Getting there takes three changes: §0.2, §0.3 and §1.3.
 
 ### 0.2 Iterator helpers in std *(new, high priority)*
 `find`, `any`, `all`, `position`, `count`, `map`, `filter`, `sum`, `min`
-and `max` on slices and Vecs, each taking a closure that is not stored
+and `max` on slices and Lists, each taking a closure that is not stored
 (`|e| …`, no `*`).
 - `find` returns `(?T)?`, a view of the element with no lifetime written.
   That is Rust's `Option<&T>` without the `&` or the `'a`, and it is
   where Rig's inferred views look best.
-- `map` and `filter` build a new `Vec`, so the allocation is visible in
+- `map` and `filter` build a new `List`, so the allocation is visible in
   the type that comes back.
 
 ### 0.3 `for` over an iterator *(decided)*
@@ -86,9 +86,9 @@ small round.
 
 ### 1.1 `for e in ?v` should give views of the elements *(new)*
 In `for e in ?self.entries`, `e` is a **copy** when the element type
-copies, such as a struct of Strings and integers. So this is rejected:
+copies, such as a struct of `?String` values and integers. So this is rejected:
 ```rig fragment
-fun find(?self, name: String) -> (?PakEntry)?
+fun find(?self, name: ?String) -> (?PakEntry)?
   for e in ?self.entries
     return ?e if e.name == name     # error: `e` is local to this function
   none
@@ -169,7 +169,7 @@ required?"
 - **Assertions in `test` blocks** *(roadmap)*: `expect(a == b)` with
   both values printed when it fails. Without them, ported test suites
   roughly double in length.
-- **Text building** *(roadmap)*: join, replace, upper-case copy.
+- **String building** *(roadmap)*: join, replace, upper-case copy.
 - **A JSON reader and writer** *(new)*: the most common thing real
   programs and agents need, and a good test of owned and viewed strings.
 

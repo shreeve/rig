@@ -1,7 +1,7 @@
 # A `?self` method whose result can only view self still views
 # every viewed argument.
 struct Entry
-  name: String
+  name: ?String
 
 struct Pick
   which: Int

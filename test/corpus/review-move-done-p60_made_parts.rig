@@ -1,12 +1,12 @@
 struct S
-  v: Vec[Int]
-  w: Vec[Int]
+  v: List[Int]
+  w: List[Int]
 
 struct T
   o: S?
 
 fun mk() -> S
-  S(v: Vec(), w: Vec())
+  S(v: List(), w: List())
 
 sub m1()
   a = mk()
@@ -26,8 +26,8 @@ sub m3()
   print(x.len)
 
 sub m4()
-  a: Vec[Int] = Vec()
-  b: Vec[Int] = Vec()
+  a: List[Int] = List()
+  b: List[Int] = List()
   x = <[<a, <b][0]
   print(x.len)
 

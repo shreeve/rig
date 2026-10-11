@@ -5,6 +5,6 @@ fun sum(xs: []Int) -> Int
   s
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(4)
   print(sum(?v))

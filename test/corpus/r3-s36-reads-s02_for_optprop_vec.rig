@@ -1,9 +1,9 @@
-fun first(o: Vec[Int]?) -> Int?
+fun first(o: List[Int]?) -> Int?
   n = 0
   for x in o?
     n += x
   n
 
 sub main()
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   print(first(<o))

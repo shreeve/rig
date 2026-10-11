@@ -1,8 +1,8 @@
-fun mk(x: ?Vec[Int]) -> ?fun() -> Int
+fun mk(x: ?List[Int]) -> ?fun() -> Int
   l = |?x| x.len
   ?l
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f = mk(?v)
   print(f())

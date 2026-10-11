@@ -1,7 +1,7 @@
 # `u.name = "y"` assigns a field.
 
 struct User
-  name: String
+  name: ?String
 
 sub main()
   u = User(name: "x")

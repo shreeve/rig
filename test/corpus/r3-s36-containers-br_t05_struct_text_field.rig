@@ -1,8 +1,8 @@
 struct Rec
-  name: Text
+  name: String
   n: Int
 
 sub main()
-  v: Vec[Rec] = Vec()
-  !v.push(Rec(name: Text("x"), n: 1))
+  v: List[Rec] = List()
+  !v.push(Rec(name: String("x"), n: 1))
   print(v.len)

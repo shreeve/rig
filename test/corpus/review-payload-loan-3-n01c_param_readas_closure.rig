@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
   n: Int
 
 sub f(o: ?((!P)?))
@@ -8,6 +8,6 @@ sub f(o: ?((!P)?))
     print(g())
 
 sub main()
-  p = P(t: Text("hello"), n: 3)
+  p = P(t: String("hello"), n: 3)
   o: (!P)? = !p
   f(?o)

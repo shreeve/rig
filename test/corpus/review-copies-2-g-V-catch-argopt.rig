@@ -2,7 +2,7 @@ error Bad
   oops
 
 struct T
-  r: ?Vec[Int]
+  r: ?List[Int]
   x: Int
 
 struct H
@@ -32,7 +32,7 @@ fun retv(o: (?T)?, a: ?T, b: ?T) -> T
   o ?? b
 
 sub main()
-  gv: Vec[Int] = Vec()
+  gv: List[Int] = List()
   a = T(r: ?gv, x: 1)
   b = T(r: ?gv, x: 2)
   c = unopt(get(?a, true) catch ?b, b)

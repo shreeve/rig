@@ -3,7 +3,7 @@ struct Pair[T]
   b: T
 
 type IP = Pair[Int]
-type VP = Pair[Vec[Int]]
+type VP = Pair[List[Int]]
 
 fun get(v: ?IP) -> IP
   v

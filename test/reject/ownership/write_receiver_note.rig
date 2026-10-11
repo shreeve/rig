@@ -6,7 +6,7 @@ struct Item
   n: Int
 
 struct Bag
-  items: Vec[Item]
+  items: List[Item]
 
   fun first(!self) -> ?Item
     ?self.items[0]
@@ -16,7 +16,7 @@ struct Bag
     it.n
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(Item(n: 7))
   print((!b).consume((!b).first()))
 

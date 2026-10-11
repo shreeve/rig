@@ -1,14 +1,14 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
-fun first(s: String) -> String
+fun first(s: ?String) -> ?String
   s
 
 sub main()
-  b = Box(Box(S(n: 1, t: Text("x"))))
-  b.t = Text("new")
+  b = ^^S(n: 1, t: String("x"))
+  b.t = String("new")
   print(first(b.t))
   r = first(?b.t)
-  b.t = Text("again and again and again")
+  b.t = String("again and again and again")
   print(b.t)

@@ -1,8 +1,8 @@
-# +a of [2]Text? and of [2]Box[Int]
+# +a of [2]Text? and of [2]^Int
 sub main()
-  a: [2]Text? = [Text("a"), none]
+  a: [2]String? = [String("a"), none]
   b = +a
-  c = [Box(1), Box(2)]
+  c = [^1, ^2]
   d = +c
   <a
   <c

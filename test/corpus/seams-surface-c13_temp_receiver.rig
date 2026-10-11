@@ -1,11 +1,11 @@
 struct Log
-  lines: Vec[Int]
+  lines: List[Int]
 
   fun count(?self) -> Int
     self.lines.len
 
 fun make() -> Log
-  Log(lines: Vec())
+  Log(lines: List())
 
 fun count_of(l: ?Log) -> Int
   l.lines.len

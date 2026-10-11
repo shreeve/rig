@@ -7,11 +7,11 @@ are coming from another language, start with [WELCOME.md](WELCOME.md).
 ## Is everything reference-counted?
 
 No. Numbers, strings, and structs, enums, and arrays made of them are
-plain values (a struct holding a `Vec` owns it), and views (`?T`,
+plain values (a struct holding a `List` owns it), and views (`?T`,
 `!T`) are checked at compile time and cost nothing at run time. Counting happens only behind a shared handle `*T`, where
 every new count is written (`*x`, `+x`) and a count ends where its
 handle's scope does, or at a statement `<x`; a heap value with one
-owner is a `Box[T]`, which counts nothing
+owner is a `^T`, which counts nothing
 ([cost model](docs/DESIGN.md#cost-model)).
 
 ## Is Rig safe like Rust?
@@ -105,7 +105,7 @@ for good. What Rig forbids is silently reusing a visible name; write
 ## Why isn't reactivity built into the language?
 
 It doesn't need to be: shared and weak handles, `Cell`, owned closures,
-`Vec`, and drop are what reactive libraries are made of, and a reactive
+`List`, and drop are what reactive libraries are made of, and a reactive
 source with derived values is a page of Rig
 ([examples/memo_canary.rig](examples/memo_canary.rig)). `Signal` is the
 one small reactive type in the runtime

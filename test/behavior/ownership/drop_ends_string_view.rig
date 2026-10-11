@@ -3,23 +3,23 @@
 # Text may then change.
 
 struct Split
-  rest: String
+  rest: ?String
 
-  fun next(!self) -> String?
+  fun next(!self) -> (?String)?
     return none if self.rest.len == 0
     part = self.rest[..1]
     self.rest = self.rest[1..]
     part
 
-fun split(s: String) -> Split
+fun split(s: ?String) -> Split
   Split(rest: s)
 
 struct Pair
-  a: String
+  a: ?String
   b: Int
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   s = ?t[..2]
   print(s)
   <s
@@ -33,7 +33,7 @@ sub main()
   print(p.a, p.b)
   <p
   !t.clear()
-  lit: String = "hi"
+  lit: ?String = "hi"
   <lit
   print(t.len)
 

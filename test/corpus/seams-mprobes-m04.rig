@@ -1,5 +1,5 @@
 struct P
-  a: Vec[Int]
+  a: List[Int]
   n: Int
 
 fun grow(p: !P) -> Int
@@ -8,7 +8,7 @@ fun grow(p: !P) -> Int
   1
 
 sub main()
-  p = P(a: Vec(), n: 0)
+  p = P(a: List(), n: 0)
   !p.a.push(7)
   p.a[0] += grow(!p)
   print(p.a[0], p.a.len)

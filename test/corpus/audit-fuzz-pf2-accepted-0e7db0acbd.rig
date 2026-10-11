@@ -19,7 +19,7 @@ fun both[mode: Mode](a: Int, b: Int) -> Bool
 sub show[n: Int]()
   print(n)
 
-sub report[mode: Mode, n: Int](label: String)
+sub report[mode: Mode, n: Int](label: ?String)
   print(label, check[mode](n))
 
 struct Scale

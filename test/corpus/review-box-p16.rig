@@ -1,4 +1,4 @@
 sub main()
-  a = Box(value: 5)
+  a = ^5
   b = +a
   print(b)

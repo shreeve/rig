@@ -8,23 +8,23 @@
 
 struct S
   n: Int
-  t: Text
-  items: Vec[Int]
+  t: String
+  items: List[Int]
 
 struct H
-  rs: Vec[String]
+  rs: List[?String]
 
-  sub keep(!self, r: String)
+  sub keep(!self, r: ?String)
     !self.rs.push(r)
 
   drop(!self)
     print(self.rs)
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("t"), items: Vec())
+  S(n: n, t: String("t"), items: List())
 
 fun mkh() -> H
-  H(rs: Vec())
+  H(rs: List())
 
 fun wrap(h: !H) -> !H
   h

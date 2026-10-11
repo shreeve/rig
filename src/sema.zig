@@ -3,7 +3,7 @@
 //! `check` runs these steps over the normalized IR and returns
 //! a `SemContext`, which every later pass (ownership, emit) reads:
 //!
-//!   1. builtins     `resolve.zig`    Cell, Vec, Box, Signal, Endian
+//!   1. builtins     `resolve.zig`    Cell, List, ^T, Signal, Endian
 //!   2. symbols      `resolve.zig`    every declaration gets a Symbol in a
 //!                                    Scope; scopes are keyed by the IR node
 //!                                    that opens them
@@ -137,7 +137,7 @@ pub const max_array_len: Wide = std.math.maxInt(u32);
 /// there with room to spare; a frame that overflows it by up to 64 MiB
 /// stops the program (`rig.guardStack`). The cap also keeps compiles
 /// fast, since Zig builds a constant array element by element. Larger
-/// data belongs in a `Vec`.
+/// data belongs in a `List`.
 pub const max_value_bytes: u64 = 8 << 20;
 
 /// The most bytes of values one function keeps on its stack: 16 MiB, the
@@ -160,12 +160,12 @@ pub const Type = union(enum) {
 
     void,
     bool,
+    string_view,
+    /// `String`: owned, growable UTF-8 bytes; `?String` is its view.
     string,
-    /// `Text`: owned, growable UTF-8 bytes; `String` is its view.
-    text,
-    /// `Static`: a `String` known to view only bytes that live for the
+    /// `Static`: a `?String` known to view only bytes that live for the
     /// whole program (a literal, or text derived only from literals). It
-    /// is plain data that carries no loan, and it is read as a `String`
+    /// is plain data that carries no loan, and it is read as a `?String`
     /// where the text is only read (`typecheck.meets`).
     static,
     int: IntInfo,
@@ -253,8 +253,8 @@ pub const TypeStore = struct {
     unknown_id: TypeId = type_invalid,
     void_id: TypeId = type_invalid,
     bool_id: TypeId = type_invalid,
+    string_view_id: TypeId = type_invalid,
     string_id: TypeId = type_invalid,
-    text_id: TypeId = type_invalid,
     static_id: TypeId = type_invalid,
     int_id: TypeId = type_invalid,
     float_id: TypeId = type_invalid,
@@ -291,8 +291,8 @@ pub const TypeStore = struct {
         s.unknown_id = try s.intern(allocator, .unknown);
         s.void_id = try s.intern(allocator, .void);
         s.bool_id = try s.intern(allocator, .bool);
+        s.string_view_id = try s.intern(allocator, .string_view);
         s.string_id = try s.intern(allocator, .string);
-        s.text_id = try s.intern(allocator, .text);
         s.int_id = try s.intern(allocator, .{ .int = .{} });
         s.float_id = try s.intern(allocator, .{ .float = .{} });
         s.int_literal_id = try s.intern(allocator, .int_literal);
@@ -340,18 +340,18 @@ pub const TypeStore = struct {
         return id;
     }
 
-    /// The type a read view of a read view, or of a `Text` or a `String`,
+    /// The type a read view of a read view, or of a `String` or a `?String`,
     /// is: a read view of a read view is that read view (`?(?T)` is `?T`),
-    /// and the read view of a `Text` is its bytes, the one text view,
-    /// `String`, which is already a read view.
+    /// and the read view of a `String` is its bytes, the one text view,
+    /// `?String`, which is already a read view.
     /// Null for any other type. Every way to name such a view interns
-    /// through here, so no type holds a pointer view of a `Text`.
+    /// through here, so no type holds a pointer view of a `String`.
     fn absorbed(self: *const TypeStore, ty: Type) ?TypeId {
         const inner = switch (ty) {
             .read_view => |inner| inner,
             else => return null,
         };
-        if (inner == self.string_id or (inner == self.text_id and self.text_id != type_invalid)) return self.string_id;
+        if (inner == self.string_view_id or (inner == self.string_id and self.string_id != type_invalid)) return self.string_view_id;
         return if (self.items.items[inner] == .read_view) inner else null;
     }
 
@@ -365,7 +365,7 @@ pub const TypeStore = struct {
     fn typeEqual(a: Type, b: Type) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
-            .invalid, .unknown, .void, .bool, .string, .text, .static, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
+            .invalid, .unknown, .void, .bool, .string_view, .string, .static, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
@@ -443,7 +443,7 @@ pub const SymbolFlags = packed struct(u16) {
     /// A `!T` or `![]T` local assigned a view somewhere
     /// (`SemContext.repoints`): it lowers to a Zig `var` pointer.
     repointed: bool = false,
-    /// A `for` element that views a slot of the Vec the loop walks in
+    /// A `for` element that views a slot of the List the loop walks in
     /// place (`forViewsSlot`).
     slot_view: bool = false,
     /// Typecheck decided the binding's access (`Symbol.access`, null
@@ -595,7 +595,7 @@ test "suggest: a typo finds its name" {
     for ([_][]const u8{ "total", "tot", "table", "x" }) |c| s.offer(c);
     try std.testing.expectEqualStrings("total", s.best.?);
     var t: Suggest = .{ .name = "Foo" };
-    for ([_][]const u8{ "Box", "Vec" }) |c| t.offer(c);
+    for ([_][]const u8{ "Cell", "List" }) |c| t.offer(c);
     try std.testing.expect(t.best == null);
     var u: Suggest = .{ .name = "xs" };
     for ([_][]const u8{ "x", "ys", "sx" }) |c| u.offer(c);
@@ -708,9 +708,9 @@ pub const Facts = struct {
     /// Header nodes (`for`, `match`, `as`) whose subject is bare and
     /// not plain data -> how the header has it (`Header`).
     headers: std.AutoHashMapUnmanaged(NodeKey, HeaderFact) = .empty,
-    /// `Text(...)` call node, or `t.add` / `t.clear` callee node -> the
-    /// built-in Text operation it is (`TextCall`).
-    text_calls: std.AutoHashMapUnmanaged(NodeKey, TextCall) = .empty,
+    /// `String(...)` call node, or `t.add` / `t.clear` callee node -> the
+    /// built-in String operation it is (`StringCall`).
+    string_calls: std.AutoHashMapUnmanaged(NodeKey, StringCall) = .empty,
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -919,7 +919,7 @@ pub const Question = enum(u8) {
     /// Of a `for`: whether it consumes its source, handing its elements
     /// over one at a time (`storage.forConsumes`).
     for_consumes,
-    /// Of a `print`, `Text(...)`, or `add` argument: whether it is read
+    /// Of a `print`, `String(...)`, or `add` argument: whether it is read
     /// by address (`storage.printsByAddress`).
     print_by_address,
     /// Of an operand of `==` or `!=` beside `none` or a bare `.variant`:
@@ -983,8 +983,8 @@ pub const Use = enum {
     lend,
 };
 
-/// A built-in method on the elements of a slice, an array, a Vec, or a
-/// String: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
+/// A built-in method on the elements of a slice, an array, a List, or a
+/// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
 /// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`.
 pub const ElemCall = struct {
     op: ElemOp,
@@ -996,11 +996,11 @@ pub const ElemCall = struct {
 
 pub const ElemOp = enum { copy, fill, swap, read, write };
 
-/// A call of a built-in Text operation: `Text(a, b, ...)`, which builds
+/// A call of a built-in String operation: `String(a, b, ...)`, which builds
 /// one, and the methods `!t.add(a, b, ...)`, `!t.push(b)`, and
 /// `!t.clear()`. `new` and `add` format their arguments as `print` does,
 /// reading them; `push` appends one byte.
-pub const TextCall = enum { new, add, push, clear };
+pub const StringCall = enum { new, add, push, clear };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -1008,7 +1008,7 @@ pub const TextCall = enum { new, add, push, clear };
 /// function with compile-time parameters instantiates, anything else
 /// is indexed) and records the instances here.
 pub const Instance = union(enum) {
-    /// `Vec[Int]`, `Pair[Int, String]`: the generic type's instance.
+    /// `List[Int]`, `Pair[Int, ?String]`: the generic type's instance.
     type: TypeId,
     /// `check[.strict]`, `p.scale[2]`: a function's compile-time
     /// arguments.
@@ -1295,7 +1295,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        TextCall, Use => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use => try w.print(" {s}", .{@tagName(v)}),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
         Lend => {
             if (v.implicit) try w.writeAll(" implicit");
@@ -1443,7 +1443,7 @@ pub const PlainRequirement = struct {
     element: bool = false,
     /// Not a copy: the value is stored where no loan is tracked (a Cell,
     /// a Signal, an owned closure), so each instance's argument must
-    /// hold no String, which may view a Text.
+    /// hold no `?String`, which may view a String.
     view: bool = false,
     /// The module whose source `pos` is in; 0 for this one.
     module_id: u32 = 0,
@@ -1496,7 +1496,7 @@ pub const SemContext = struct {
     facts: Facts = .{},
 
     cell_sym_id: SymbolId = symbol_invalid,
-    vec_sym_id: SymbolId = symbol_invalid,
+    list_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
@@ -1946,7 +1946,7 @@ pub const SemContext = struct {
 
     /// `node` yields a view where its context reads the value it
     /// reaches: a Copy value where the value is expected, an operand, the
-    /// optional of `??`, `?`, or `as`, a String or slice indexed, or a
+    /// optional of `??`, `?`, or `as`, a `?String` or slice indexed, or a
     /// clone.
     pub fn recordRead(self: *SemContext, node: Sexp) !void {
         try self.facts.reads.put(self.allocator, recordExprKey(node) orelse return, {});
@@ -2272,14 +2272,14 @@ pub const SemContext = struct {
         return self.headerOf(match) == .taken;
     }
 
-    pub fn recordTextCall(self: *SemContext, call: Sexp, op: TextCall) !void {
-        try self.facts.text_calls.put(self.allocator, recordKey(call), op);
+    pub fn recordStringCall(self: *SemContext, call: Sexp, op: StringCall) !void {
+        try self.facts.string_calls.put(self.allocator, recordKey(call), op);
     }
 
-    /// The built-in Text operation a `Text(...)` call or a method's
+    /// The built-in String operation a `String(...)` call or a method's
     /// callee (`member`) is.
-    pub fn textCallOf(self: *const SemContext, node: Sexp) ?TextCall {
-        return self.facts.text_calls.get(nodeKey(node) orelse return null);
+    pub fn stringCallOf(self: *const SemContext, node: Sexp) ?StringCall {
+        return self.facts.string_calls.get(nodeKey(node) orelse return null);
     }
 
     pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {
@@ -2498,7 +2498,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
 
 /// Every binding whose access typecheck decided has the type that access
 /// gives it (`Checker.viewOfAccess`): `.write` a write view, `.read` a
-/// read view, a slice, a String, or a type parameter's value read where
+/// read view, a slice, a `?String`, or a type parameter's value read where
 /// it is, and none a value, owned or copied. A binding typed some other
 /// way than from its access is a compiler bug, reported where the
 /// binding is declared (docs/INTERNALS.md, "Binding access"). Debug and
@@ -2512,7 +2512,7 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
         const agrees = if (sym.access) |a| switch (a) {
             .write => ty == .write_view,
             .read => switch (ty) {
-                .read_view, .slice, .string => true,
+                .read_view, .slice, .string_view => true,
                 else => copies(ctx, sym.ty) == .depends,
             },
         } else switch (ty) {
@@ -2566,7 +2566,7 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// instantiated too, at the same site, and so is `max[*B]` when they
 /// call `max[T]`; each instance of a generic function does the same for
 /// its body. The requirement checks then see every instantiation, and a
-/// built-in generic reached this way (`Vec[T]` in `Stack[T]`) has its
+/// built-in generic reached this way (`List[T]` in `Stack[T]`) has its
 /// element rules checked for the argument. Then the public generics are
 /// checked for nesting themselves (`checkSelfNesting`).
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
@@ -2676,6 +2676,9 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
                         try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
                     }
                     continue;
+                }
+                if (try instanceHeapStacked(ctx, concrete)) |found| {
+                    try ctx.err(item.site, "`{s}` holds `{s}`, which stacks one heap holding on another; " ++ heap_stacked_rule, .{ try formatType(ctx, concrete), try formatType(ctx, found) });
                 }
             }
             try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root });
@@ -2876,19 +2879,19 @@ pub const Contents = struct {
 };
 
 /// Whether values hold a marked view (`?T`, `!T`, a slice), whether they
-/// hold a write view (`!T`), and whether they hold a String, which may
-/// view a Text, directly or through an optional, array, field, variant
+/// hold a write view (`!T`), and whether they hold a `?String`, which may
+/// view a String, directly or through an optional, array, field, variant
 /// payload, shared or weak handle, or any argument of a generic
-/// instance. What a Cell or Signal holds holds no view. A String is no
+/// instance. What a Cell or Signal holds holds no view. A `?String` is no
 /// marked view to the type rules (`holdsMarkedView`); the ownership checker
 /// follows the loans its values carry (`mayHoldView`).
 pub const Views = packed struct(u4) {
     marked: bool = false,
     write: bool = false,
+    string_view: bool = false,
+    /// Reaches a String, which a `?String` may view: by value, through a
+    /// handle, a List's, box's, Cell's, or Signal's value, or a view.
     string: bool = false,
-    /// Reaches a Text, which a String may view: by value, through a
-    /// handle, a Vec's, Box's, Cell's, or Signal's value, or a view.
-    text: bool = false,
 };
 
 /// Facts about an interned type, recorded when it is interned
@@ -2959,13 +2962,13 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
             c.plain = c.plain and h.plain;
         }
     }
-    // The built-in generics are runtime types: a Vec owns its buffer and
-    // a Box its value's memory, and none of them is copied like plain data.
+    // The built-in generics are runtime types: a List owns its buffer and
+    // a box its value's memory, and none of them is copied like plain data.
     // A Signal owns its subscribers too, but has no glue of its own: it
     // lives only behind a `*` handle (typecheck rejects one held by
     // value), whose release drops it.
-    if (id == ctx.vec_sym_id or id == ctx.box_sym_id) c.glue = true;
-    if (id == ctx.vec_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id) c.glue = true;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -2990,8 +2993,8 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string, .static, .any_error, .ct_value, .ct_param => .{ .plain = true },
-        .text => .{ .glue = true },
+        .bool, .int, .float, .string_view, .static, .any_error, .ct_value, .ct_param => .{ .plain = true },
+        .string => .{ .glue = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
         .fallible => |inner| .{ .type_var = (try holdsIn(ctx, inner, params, held)).type_var },
@@ -3030,16 +3033,16 @@ const Reach = packed struct(u6) {
     unique: bool = false,
     views: Views = .{},
 
-    const all: Reach = .{ .cell = true, .unique = true, .views = .{ .marked = true, .write = true, .string = true, .text = true } };
+    const all: Reach = .{ .cell = true, .unique = true, .views = .{ .marked = true, .write = true, .string_view = true, .string = true } };
     /// What reaches through a handle or heap memory: no Cell or unique
     /// value is inline.
-    const views_only: Reach = .{ .views = .{ .marked = true, .write = true, .string = true, .text = true } };
+    const views_only: Reach = .{ .views = .{ .marked = true, .write = true, .string_view = true, .string = true } };
     /// What reaches through a view, or into a Cell's or Signal's value:
-    /// only a Text matters.
-    const text_only: Reach = .{ .views = .{ .text = true } };
+    /// only a String matters.
+    const string_only: Reach = .{ .views = .{ .string = true } };
     /// What reaches through a type argument a generic holds only behind
     /// a handle, a view, or heap memory: everything but an inline Cell.
-    const no_cell: Reach = .{ .unique = true, .views = .{ .marked = true, .write = true, .string = true, .text = true } };
+    const no_cell: Reach = .{ .unique = true, .views = .{ .marked = true, .write = true, .string_view = true, .string = true } };
 
     fn with(a: Reach, b: Reach) Reach {
         return @bitCast(@as(u6, @bitCast(a)) | @as(u6, @bitCast(b)));
@@ -3110,7 +3113,7 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
 }
 
 /// What a value of `ty` holds (`Reach`), as far as `mask` lets it
-/// reach: through a handle, or a Vec's or a Box's heap memory, only a
+/// reach: through a handle, or a List's or a box's heap memory, only a
 /// view does, and a Cell's or Signal's value holds nothing that
 /// matters here. What a declared type `ty` names holds is read from its
 /// contents; while they are computed (`computeReach`), an edge from it
@@ -3118,10 +3121,10 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
 fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayList(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
     const r: Reach = switch (ctx.types.get(ty)) {
         .slice => .{ .views = .{ .marked = true } },
-        .read_view => |inner| (Reach{ .views = .{ .marked = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
-        .write_view => |inner| (Reach{ .views = .{ .marked = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
+        .read_view => |inner| (Reach{ .views = .{ .marked = true } }).with(try reachOf(ctx, inner, mask.within(Reach.string_only), into)),
+        .write_view => |inner| (Reach{ .views = .{ .marked = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.string_only), into)),
+        .string_view => .{ .views = .{ .string_view = true } },
         .string => .{ .views = .{ .string = true } },
-        .text => .{ .views = .{ .text = true } },
         .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
         .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.views_only), into),
@@ -3134,7 +3137,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
                 var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id };
-                for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.text_only), into));
+                for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.string_only), into));
                 break :blk r;
             }
             const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.views_only) else mask;
@@ -3217,7 +3220,7 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// algorithm, with an explicit stack, so a long chain of types does not
 /// nest the search). Before what each type holds is known
 /// (`every_arg`), a generic instance counts as holding all its
-/// arguments, and a Vec or a Box its element.
+/// arguments, and a List or a box its element.
 const Components = struct {
     ctx: *const SemContext,
     every_arg: bool,
@@ -3335,15 +3338,15 @@ pub fn isBuiltinCallName(name: []const u8) bool {
     return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
 }
 
-/// A built-in generic that keeps its values on the heap: a `Vec[T]` and
-/// a `Box[T]` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
+/// A built-in generic that keeps its values on the heap: a `List[T]` and
+/// a `^T` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
 /// `T` inline, and a `Signal[T]` its value and a pending one.)
 fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.vec_sym_id or sym == ctx.box_sym_id;
+    return sym == ctx.list_sym_id or sym == ctx.box_sym_id;
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
-/// a view, or a Vec's or a Box's heap memory), appended to `out`; with
+/// a view, or a List's or a box's heap memory), appended to `out`; with
 /// `every_arg`, those of every argument of a generic instance as well.
 fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), every_arg: bool) std.mem.Allocator.Error!void {
     switch (ctx.types.get(ty)) {
@@ -3433,8 +3436,8 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .bool => 1,
         .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
-        .string, .static, .slice => 16,
-        .text => 24,
+        .string_view, .static, .slice => 16,
+        .string => 24,
         .any_error => 2,
         // A null handle or view is its null address; anything else
         // needs a flag.
@@ -3451,10 +3454,10 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const declared = foreign.types.find(.{ .nominal = in.sym_id }) orelse break :blk null;
             break :blk foreign.byte_sizes.get(declared) orelse null;
         },
-        // A Vec is its buffer's slice and length, a Box its pointer. A
+        // A List is its buffer's slice and length, a box its pointer. A
         // Cell is its value (its one field), a Signal its value, a pending
-        // one, a flag, and a Vec of subscribers.
-        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id)
+        // one, a flag, and a List of subscribers.
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id)
             24
         else if (pn.sym == ctx.box_sym_id)
             8
@@ -3494,7 +3497,7 @@ fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocat
 /// 0: an optional of it is null there.
 fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .read_view, .write_view, .string, .static, .slice => true,
+        .shared, .weak, .read_view, .write_view, .string_view, .static, .slice => true,
         else => false,
     };
 }
@@ -3547,7 +3550,7 @@ pub fn arrayOversized(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?u12
 /// Report that `ty` takes `bytes`, more than `max_value_bytes`.
 pub fn reportOversized(ctx: *SemContext, pos: u32, ty: TypeId, bytes: u128) std.mem.Allocator.Error!void {
     try ctx.oversized.put(ctx.allocator, ty, {});
-    try ctx.err(pos, "`{s}` takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `Vec`", .{ try formatType(ctx, ty), bytes, max_value_bytes });
+    try ctx.err(pos, "`{s}` takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `List`", .{ try formatType(ctx, ty), bytes, max_value_bytes });
 }
 
 /// Whether `ty` (a struct, an enum, or a generic type's instance under
@@ -3584,7 +3587,7 @@ pub fn ctInt(ctx: *SemContext, v: Wide) std.mem.Allocator.Error!TypeId {
 }
 
 /// Does a value of this type need its destructor run: a `*T` / `~T`
-/// handle, a Vec, a Box, an owned closure, or a nominal or generic instance
+/// handle, a List, a box, an owned closure, or a nominal or generic instance
 /// that declares `drop` or holds such a value. Types with drop glue are
 /// non-Copy.
 pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
@@ -3656,11 +3659,86 @@ pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     return false;
 }
 
+/// The hint for a name that earlier releases gave a built-in type: what
+/// it is written now. Null for any other name.
+pub fn retiredNameHint(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "Text")) return "; owned text is `String`, and its read view is `?String` (0.3.0 renamed `Text` to `String`, and the view `String` to `?String`)";
+    if (std.mem.eql(u8, name, "Vec")) return "; a growable array is `List[T]` (`Vec[T]` before 0.3.0)";
+    if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression (`Box[T]` and `Box(value)` before 0.3.0)";
+    return null;
+}
+
+/// A holding sigil that puts a value on the heap: `^` or `*`.
+pub const HeapHolder = enum { box, shared };
+
+/// Whether `holder` over `inner` holds a value that is already held on
+/// the heap: `^^T`, `^*T`, `^~T`, `*^T`, and `**T`. A value is held one
+/// way on the heap, so a second sigil is a typo.
+pub fn heapStacked(ctx: *const SemContext, holder: HeapHolder, inner: TypeId) bool {
+    if (boxedType(ctx, inner) != null) return true;
+    return switch (ctx.types.get(inner)) {
+        .shared => true,
+        .weak => holder == .box,
+        else => false,
+    };
+}
+
+/// Why a holding sigil over a held value is rejected.
+pub const heap_stacked_rule = "a value is held one way on the heap, as `^T` (one owner), `*T` (counted), or `~T` (weak)";
+
+/// The diagnostic for a holding sigil over a held value, given the type
+/// it would make.
+pub const heap_stacked = "`{s}` stacks one heap holding on another; " ++ heap_stacked_rule;
+
+/// The diagnostic for a box of a function value.
+pub const boxed_function = "`^` boxes a value; a function has no box (`^fun` is reserved), so pass the function, or own a closure with `*|...| body`";
+
+/// The first type among `ty` and the types it is made of that stacks
+/// two holdings (`heapStacked`), or null.
+pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    switch (ctx.types.get(ty)) {
+        .shared => |inner| return if (heapStacked(ctx, .shared, inner)) ty else findHeapStacked(ctx, inner),
+        .weak, .read_view, .write_view, .optional, .fallible, .range, .callable => |inner| return findHeapStacked(ctx, inner),
+        .slice => |s| return findHeapStacked(ctx, s.elem),
+        .array => |a| return findHeapStacked(ctx, a.elem),
+        .function => |f| {
+            for (f.params) |p| if (findHeapStacked(ctx, p)) |found| return found;
+            return findHeapStacked(ctx, f.returns);
+        },
+        .parameterized_nominal => |pn| {
+            if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, .box, pn.args[0])) return ty;
+            for (pn.args) |a| if (findHeapStacked(ctx, a)) |found| return found;
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// The first stacked holding (`findHeapStacked`) among the fields and
+/// methods of generic type `inst`, an instance of a type the program
+/// declares, with its type arguments substituted; null for none.
+pub fn instanceHeapStacked(ctx: *SemContext, inst: TypeId) std.mem.Allocator.Error!?TypeId {
+    const pn = switch (ctx.types.get(inst)) {
+        .parameterized_nominal => |pn| pn,
+        else => return null,
+    };
+    const sym = ctx.symbols.items[pn.sym];
+    if (sym.decl_pos == builtin_decl_pos) return null;
+    const subst: TypeSubst = .{ .params = sym.type_params orelse return null, .args = pn.args };
+    for (sym.fields orelse &.{}) |f| {
+        if (f.ty != type_invalid) if (findHeapStacked(ctx, try substituteType(ctx, f.ty, subst))) |found| return found;
+        for (f.payload orelse &.{}) |pf| {
+            if (pf.ty != type_invalid) if (findHeapStacked(ctx, try substituteType(ctx, pf.ty, subst))) |found| return found;
+        }
+    }
+    return null;
+}
+
 /// The diagnostic for a callable view held inside another value.
 pub const held_callable = "a callable view `{s}` is only a parameter's, a local's, or a result's type; no value can hold one";
 
 /// A value an owned closure can take or return: plain data
-/// (`isPlainData`), which carries no loan but a String's (Core sentence
+/// (`isPlainData`), which carries no loan but a `?String`'s (Core sentence
 /// 9).
 pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
@@ -3751,7 +3829,7 @@ pub const NotEquatable = struct {
         /// An owned closure `*fun(...)`.
         closure,
         function,
-        /// Vec, Cell, Signal, or `Void`.
+        /// List, Cell, Signal, or `Void`.
         no_eq,
         /// A view held in a field or payload: the value is a view.
         view,
@@ -3763,9 +3841,9 @@ pub const NotEquatable = struct {
 };
 
 /// Why `==` does not compare values of `ty`, or null when it does:
-/// numbers, Bool, String, error values, plain enums, and, when all they
+/// numbers, Bool, `?String`, error values, plain enums, and, when all they
 /// hold is equatable, optionals, arrays, slices, structs without `drop`,
-/// and payload enums. Handles, functions, `Void`, Vec, Cell, Signal, and
+/// and payload enums. Handles, functions, `Void`, List, Cell, Signal, and
 /// views held in a field are not equatable. Each generic parameter
 /// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
 /// the instances where it holds for them.
@@ -3889,7 +3967,7 @@ const EquatableWalk = struct {
 /// Primitive values that are copied freely.
 pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
     return switch (ctx.types.get(ty_id)) {
-        .bool, .int, .float, .string, .static, .int_literal, .float_literal => true,
+        .bool, .int, .float, .string_view, .static, .int_literal, .float_literal => true,
         else => false,
     };
 }
@@ -4064,7 +4142,7 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     }
 }
 
-/// The struct or enum a `Box[T]` (or a view or handle of one) holds,
+/// The struct or enum a `^T` (or a view or handle of one) holds,
 /// through any number of boxes, whose fields and methods are reached
 /// through them; null for anything else.
 pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
@@ -4078,7 +4156,7 @@ pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
-/// `T` of a `Box[T]`; null for any other type.
+/// `T` of a `^T`; null for any other type.
 pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     return switch (ctx.types.get(ty_id)) {
         .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1) pn.args[0] else null,
@@ -4086,7 +4164,7 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
-/// One of the built-in generic types: `Cell`, `Vec`, `Box`, `Signal`.
+/// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
     return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id;
 }
@@ -4101,8 +4179,9 @@ pub fn unwrapAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
 }
 
 /// Whether member access on a `ty_id` reaches its value through a shared
-/// handle (`unwrapAccess`): `*S`, `*Box[S]`, `Box[*S]`, or a view of
-/// one. Nothing is written there, since other handles may exist.
+/// handle (`unwrapAccess`): `*S`, or a view of one, through any boxes a
+/// generic instance puts around it. Nothing is written there, since
+/// other handles may exist.
 pub fn accessThroughShared(ctx: *const SemContext, ty_id: TypeId) bool {
     var id = ty_id;
     while (true) switch (ctx.types.get(id)) {
@@ -4245,12 +4324,12 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
     return copiedByReadView(ctx, inner);
 }
 
-/// A type a read view copies: a number, `Bool`, `String`, a slice, a
+/// A type a read view copies: a number, `Bool`, `?String`, a slice, a
 /// function or callable view (a `rig.FnRef`), a plain enum, an
 /// error, or an optional of one of those.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string, .static, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
+        .bool, .string_view, .static, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
@@ -4259,7 +4338,7 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether a value of `ty` holds a `Cell` inline (not behind a handle,
-/// a view, or a Vec's buffer). A read view of such a value is held as
+/// a view, or a List's buffer). A read view of such a value is held as
 /// a pointer, since the cell can change while it is lent.
 pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
@@ -4401,24 +4480,24 @@ pub fn mayHoldMarkedView(ctx: *const SemContext, ty: TypeId) bool {
     return info.views.marked or info.holds_type_var;
 }
 
-/// Whether a value of `ty` holds a marked view or a String, which may view a
-/// Text: the ownership checker tracks the loans such a value carries.
+/// Whether a value of `ty` holds a marked view or a `?String`, which may view a
+/// String: the ownership checker tracks the loans such a value carries.
 pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
     const b = ctx.holds(ty).views;
-    return b.marked or b.string;
+    return b.marked or b.string_view;
 }
 
-/// Whether a view of type `view` of a slot of type `slot` (a Text, or a
-/// write view of one) is the bytes of a Text: the read view of a `Text`
-/// is a `String` (`TypeStore.absorbed`), held by value, so a binding that
-/// views a Text slot takes its `.bytes()`.
-pub fn viewsTextBytes(ctx: *const SemContext, slot: TypeId, view: TypeId) bool {
-    return unwrapViews(ctx, slot) == ctx.types.text_id and view == ctx.types.string_id;
+/// Whether a view of type `view` of a slot of type `slot` (a String, or a
+/// write view of one) is the bytes of a String: the read view of a `String`
+/// is a `?String` (`TypeStore.absorbed`), held by value, so a binding that
+/// views a String slot takes its `.bytes()`.
+pub fn viewsStringBytes(ctx: *const SemContext, slot: TypeId, view: TypeId) bool {
+    return unwrapViews(ctx, slot) == ctx.types.string_id and view == ctx.types.string_view_id;
 }
 
-/// Whether a value of `ty` reaches a Text (`Views.text`), which a
-/// String may view.
-pub fn reachesText(ctx: *const SemContext, ty: TypeId) bool {
+/// Whether a value of `ty` reaches a String (`Views.string`), which a
+/// `?String` may view.
+pub fn reachesString(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).views.text;
 }
 
@@ -4532,11 +4611,11 @@ pub fn findUse(ctx: *const SemContext, node: Sexp, sym: SymbolId) ?Sexp {
     return null;
 }
 
-/// Whether a value of `ty` holds a String but no marked view or type
-/// parameter: it may view a Text, and nothing else.
+/// Whether a value of `ty` holds a `?String` but no marked view or type
+/// parameter: it may view a String, and nothing else.
 pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
-    return info.views.string and !info.views.marked and !info.holds_type_var and !info.poison;
+    return info.views.string_view and !info.views.marked and !info.holds_type_var and !info.poison;
 }
 
 // -----------------------------------------------------------------------------
@@ -4551,7 +4630,7 @@ pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
 pub const ViewReach = enum(u2) {
     /// It never does.
     none,
-    /// Only by crossing a read view it holds (`?T`, `[]T`, a String):
+    /// Only by crossing a read view it holds (`?T`, `[]T`, a `?String`):
     /// the memory is that view's, never the holder's own.
     through_view,
     /// Through what it owns, or a write view it holds: the memory may be
@@ -4559,7 +4638,7 @@ pub const ViewReach = enum(u2) {
     owned,
 };
 
-/// The memory a view may point into: a set of `ViewAtom`s, a Text's or
+/// The memory a view may point into: a set of `ViewAtom`s, a String's or
 /// a literal's bytes, or anything at all.
 pub const ViewTargets = struct {
     any: bool = false,
@@ -4616,11 +4695,11 @@ const ViewNode = struct {
 };
 
 /// The bit `viewAtom` sets on the target of a slice: memory a slice
-/// views is an element of an array, a slice, or a Vec, never a field.
+/// views is an element of an array, a slice, or a List, never a field.
 const elem_view: u64 = 1 << 62;
 
 /// The types a value of `node` holds by value (fields, payloads, an
-/// optional's, array's, Vec's, Box's, Cell's or Signal's contents, a
+/// optional's, array's, List's, box's, Cell's or Signal's contents, a
 /// handle's), each passed to `f.visit`. A generic instance holds its
 /// arguments, and its declared fields in the generic context.
 fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
@@ -4685,7 +4764,7 @@ const TargetWalk = struct {
         const ctx = node.ctx;
         const t = ctx.types.get(node.ty);
         const is_view = switch (t) {
-            .read_view, .write_view, .slice, .string, .function, .callable => true,
+            .read_view, .write_view, .slice, .string_view, .function, .callable => true,
             else => false,
         };
         if (is_view and (!self.written_only or self.written)) switch (t) {
@@ -4696,7 +4775,7 @@ const TargetWalk = struct {
             }),
             .read_view => |inner| try self.target(.{ .ctx = ctx, .ty = inner, .args = node.args }),
             .slice => |sl| try self.target(.{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true }),
-            .string => self.out.bytes = true,
+            .string_view => self.out.bytes = true,
             else => self.out.any = true,
         };
         switch (t) {
@@ -4743,7 +4822,7 @@ pub fn storeTargets(ctx: *const SemContext, a: std.mem.Allocator, params: []cons
 }
 
 /// Which of a holder's memory counts: all of it, or only what it leads
-/// to through a view (`?T`, `!T`, `[]T`, a String), as for a parameter
+/// to through a view (`?T`, `!T`, `[]T`, a `?String`), as for a parameter
 /// taken by value, whose own memory is the callee's copy.
 pub const ReachFrom = enum { all, views };
 
@@ -4831,9 +4910,9 @@ const ReachWalk = struct {
                 };
                 try self.push(next, .{ .read = path.read, .viewed = true });
             },
-            // A String views bytes; a Text owns them.
-            .string => if (self.targets.bytes) self.reached(read, true),
-            .text => if (self.targets.bytes) self.reached(path, path.viewed),
+            // A `?String` views bytes; a String owns them.
+            .string_view => if (self.targets.bytes) self.reached(read, true),
+            .string => if (self.targets.bytes) self.reached(path, path.viewed),
             else => {
                 self.cur = path;
                 try ownedParts(node, self);
@@ -4937,8 +5016,8 @@ pub fn holdsWriteView(ctx: *const SemContext, ty: TypeId) bool {
 
 /// Plain data, Core §1's plain kind: a value that owns nothing and
 /// holds no `?T`, `!T`, slice, function value, or type parameter, but
-/// may hold a String. It copies (`copies`), and carries no loan but a
-/// String's: what a `Cell` or `Signal` holds, and what an owned closure
+/// may hold a `?String`. It copies (`copies`), and carries no loan but a
+/// `?String`'s: what a `Cell` or `Signal` holds, and what an owned closure
 /// takes and returns (Core sentence 9).
 pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
@@ -4960,7 +5039,7 @@ pub const Answer = enum { no, yes, depends };
 
 /// Whether dropping a value of `ty` may run a user `drop` body: one of
 /// its own, or of a value it holds and drops (a field, payload, element,
-/// optional, array, Box's or counted handle's contents), never one a weak
+/// optional, array, box's or counted handle's contents), never one a weak
 /// handle or a view reaches. A `drop` body may read what the value views;
 /// any other drop only releases memory, which uses no view (Core sentence
 /// 6). `depends` for a value holding a type parameter, whose instances
@@ -5007,7 +5086,7 @@ fn fieldsRunDropBody(ctx: *const SemContext, sid: SymbolId, path: []const Symbol
 }
 
 /// Whether `ty` is unique: declared `unique`, or a `Cell`, or holds one
-/// of those inline (not behind a handle, a view, or a Vec's or Box's
+/// of those inline (not behind a handle, a view, or a List's or box's
 /// heap memory). A copy of a Cell would fork the state it shares.
 pub fn isUnique(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
@@ -5038,7 +5117,7 @@ pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
 /// Whether a value of `ty` copies: it is duplicated by a bit copy, with
 /// no owner involved. It does not move (`moves`: it owns nothing and is
 /// not unique) and holds no write view (`!T`), of which there is only
-/// one. So numbers, `Bool`, `String`, function values, plain enums,
+/// one. So numbers, `Bool`, `?String`, function values, plain enums,
 /// structs, enums, arrays, and optionals of values that copy, and read
 /// views, copy (Core §1: the plain kind and read views). `depends` when
 /// each instance decides. Every place that duplicates a value asks this
@@ -5076,13 +5155,13 @@ pub const Clone = enum {
     copy,
     /// Bumps a handle's count: `*T`, `~T`, or an optional of one.
     bump,
-    /// Copies a Text's bytes into a new Text.
+    /// Copies a String's bytes into a new String.
     text,
     /// Copies the value, where each instance of the type parameters it
     /// holds is copied.
     depends,
-    /// Makes a new owner part by part (`deepCloneable`): a Text's bytes
-    /// and a Vec's elements copied, a box's value boxed again, a handle
+    /// Makes a new owner part by part (`deepCloneable`): a String's bytes
+    /// and a List's elements copied, a box's value boxed again, a handle
     /// counted again, plain data and read views copied.
     deep,
     /// Cannot clone it.
@@ -5098,8 +5177,8 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
     const value = unwrapViews(ctx, ty);
     switch (ctx.types.get(value)) {
         .shared, .weak => return .bump,
-        // `+s` of a `String` view makes a new owner of its bytes.
-        .text, .string => return .text,
+        // `+s` of a `?String` view makes a new owner of its bytes.
+        .string, .string_view => return .text,
         .optional => |o| switch (ctx.types.get(o)) {
             .shared, .weak => return .bump,
             else => {},
@@ -5120,7 +5199,7 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
 const CloneFrame = struct { params: []const SymbolId, args: []const TypeId, parent: ?*const CloneFrame };
 
 /// Whether `+x` can make a new owner of a `ty` part by part (Core
-/// sentence 2): a Text, a Vec, a box, an optional, an array, or a
+/// sentence 2): a String, a List, a box, an optional, an array, or a
 /// struct or enum declared in this module, of parts that clone; a
 /// handle, counted again; plain data and read views, copied. A type with
 /// a `drop` body has no clone, and neither has a unique type, a Cell, a
@@ -5141,11 +5220,11 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
     if (info.unique or info.cell or info.views.write or info.poison) return false;
     if (!info.glue and !info.holds_type_var) return true;
     return switch (ctx.types.get(ty)) {
-        .text, .shared, .weak => true,
+        .string, .shared, .weak => true,
         .optional => |inner| deepCloneable(ctx, inner, frame, seen),
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
+            if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
             const sym = ctx.symbols.items[pn.sym];
             if (sym.kind != .generic_type or isProxy(sym)) break :blk false;
@@ -5202,8 +5281,8 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
 /// to `out`: through every type constructor that holds its arguments
 /// (an optional, a fallible, an array or slice element, a view, a
 /// shared or weak handle, and each argument of a generic instance:
-/// `Vec`, `Box`, `Cell`, a user generic). A parameter in a value's
-/// `Vec[T]` or `*Hold[T]` is reached though not held by value
+/// `List`, `^T`, `Cell`, a user generic). A parameter in a value's
+/// `List[T]` or `*Hold[T]` is reached though not held by value
 /// (`heldTypeVars`): where the loans a value carries matter, this is the
 /// walk.
 pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
@@ -5228,7 +5307,7 @@ pub fn importType(
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
-        .invalid, .unknown, .void, .bool, .string, .text, .static, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
+        .invalid, .unknown, .void, .bool, .string_view, .string, .static, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
         inline .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
@@ -5607,7 +5686,7 @@ pub const type_param_mark = 0;
 
 /// `formatTypeIn` with each type parameter, or compile-time value
 /// parameter, written as its symbol id between two `type_param_mark`
-/// bytes (`Vec[\x003\x00]`), for a spelling completed per instance: the
+/// bytes (`List[\x003\x00]`), for a spelling completed per instance: the
 /// emitter fills each in (`@name(T)`). A spelling with no mark names
 /// one type.
 pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
@@ -5644,8 +5723,8 @@ const TypePrinter = struct {
             .unknown => "unknown",
             .void => "Void",
             .bool => "Bool",
+            .string_view => "?String",
             .string => "String",
-            .text => "Text",
             .static => "Static",
             .int => |info| if (info.bits == 0) "Int" else try a.print("{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
             .float => |info| if (info.bits == 0) "Float" else try a.print("F{d}", .{info.bits}),
@@ -5672,7 +5751,10 @@ const TypePrinter = struct {
             .imported_nominal => |in| try p.foreign(in.module_id, in.sym_id),
             // Another module's generic type is its proxy, named as this
             // module spells it (`importSymbol`).
-            .parameterized_nominal => |pn| try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
+            .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
+                try p.handle(pn.args[0], '^')
+            else
+                try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),
             .ct_value => |v| try a.print("{d}", .{v.int}),
         };
@@ -5697,7 +5779,7 @@ const TypePrinter = struct {
         return p.ctx.symbols.items[sym].name;
     }
 
-    /// Generic type `name` at arguments `args`: `Pair[Int, String]`.
+    /// Generic type `name` at arguments `args`: `Pair[Int, ?String]`.
     fn instance(p: TypePrinter, name: []const u8, args: []const u8) std.mem.Allocator.Error![]const u8 {
         return p.a.print("{s}[{s}]", .{ name, args });
     }
@@ -5732,7 +5814,9 @@ const TypePrinter = struct {
         const s = try p.id(inner);
         return switch (p.ctx.types.get(inner)) {
             // A handle binds tighter than a suffix, and takes no view prefix.
-            .optional, .fallible, .read_view, .write_view => p.a.print("{c}({s})", .{ sigil, s }),
+            // A box of a read view is written `^?T`, which the grammar takes.
+            .read_view, .string_view => if (sigil == '^') p.a.print("^{s}", .{s}) else p.a.print("{c}({s})", .{ sigil, s }),
+            .optional, .fallible, .write_view => p.a.print("{c}({s})", .{ sigil, s }),
             else => p.a.print("{c}{s}", .{ sigil, s }),
         };
     }
@@ -5748,8 +5832,9 @@ fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const Typ
 /// type (`fun(Int) -> Int?` returns an optional), or a handle to one.
 fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .read_view, .write_view, .function, .slice, .array => true,
+        .read_view, .write_view, .string_view, .function, .slice, .array => true,
         .shared, .weak => |inner| takesNoSuffix(ctx, inner),
+        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and takesNoSuffix(ctx, pn.args[0]),
         else => false,
     };
 }
@@ -5837,14 +5922,14 @@ pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@T
 /// One row of the lend table (Core §4): a step from a value to a view of
 /// it, or of what it holds.
 pub const LendStep = enum(u8) {
-    /// A `Box[T]` lends the views of its `T`.
+    /// A `^T` lends the views of its `T`.
     unbox,
     /// A `*T` lends the read views of its `T`.
     handle,
-    /// An array or a Vec lends its elements, `[]T` to read and `![]T` to
+    /// An array or a List lends its elements, `[]T` to read and `![]T` to
     /// write.
     elems,
-    /// A `Text` lends its bytes, a `String`.
+    /// A `String` lends its bytes, a `?String`.
     text,
     /// A `![]T` is lent on to read, as a `[]T`.
     read_only,
@@ -5907,9 +5992,9 @@ pub const LendKind = enum { read, write };
 /// or to write (`kind`) makes a view of type `view`; null when no row
 /// does. The one place that knows which views a value lends.
 /// What a slice `xs[a..b]` of a value of type `from` lends, as rows of
-/// the lend table (`Lend`): the elements of an array or a Vec, or a
-/// Text's bytes reached through handles (`*Text`) and boxes, each a row
-/// on the way; nothing of a value that is itself a view (a String, a
+/// the lend table (`Lend`): the elements of an array or a List, or a
+/// String's bytes reached through handles (`*String`) and boxes, each a row
+/// on the way; nothing of a value that is itself a view (a `?String`, a
 /// `[]T`), whose elements it views as that view does; a `![]T` lent on
 /// to read. Null for a value that cannot be sliced. The type checker
 /// slices by it and records it (`SemContext.sliceLendOf`), and the
@@ -5921,7 +6006,7 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
         return lend;
     }
     var t = unwrapViews(ctx, from);
-    if (unwrapAccess(ctx, t) == ctx.types.text_id) {
+    if (unwrapAccess(ctx, t) == ctx.types.string_id) {
         while (true) {
             switch (ctx.types.get(t)) {
                 .read_view, .write_view => |inner| t = inner,
@@ -5929,7 +6014,7 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
                     if (!lend.push(.handle)) return null;
                     t = inner;
                 },
-                .text => {
+                .string => {
                     _ = lend.push(.text);
                     return lend;
                 },
@@ -5941,12 +6026,12 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
         }
     }
     switch (ctx.types.get(t)) {
-        .string, .static, .slice => return lend,
+        .string_view, .static, .slice => return lend,
         .array => {
             _ = lend.push(.elems);
             return lend;
         },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) {
             _ = lend.push(.elems);
             return lend;
         },
@@ -6004,13 +6089,13 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
             .slice => |v| return v.elem == sl.elem and lend.push(.read_only),
             else => {},
         },
-        // A Text lends its bytes; never to write.
-        .text => return kind == .read and view == types.string_id and lend.push(.text),
+        // A String lends its bytes; never to write.
+        .string => return kind == .read and view == types.string_view_id and lend.push(.text),
         // A `*T` lends the read views of its `T`; `!h` lends the handle.
         .shared => |inner| return (kind == .read or changesByMark(ctx, inner)) and lend.push(.handle) and lendRows(ctx, inner, kind, view, lend),
         else => {
-            // A Vec lends its elements, as an array does.
-            if (vecElem(ctx, from)) |elem| return lendElems(ctx, elem, kind, view, lend);
+            // A List lends its elements, as an array does.
+            if (listElem(ctx, from)) |elem| return lendElems(ctx, elem, kind, view, lend);
             // A box lends the views of its value.
             if (boxedType(ctx, from)) |inner| return lend.push(.unbox) and lendRows(ctx, inner, kind, view, lend);
         },
@@ -6018,7 +6103,7 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
     return false;
 }
 
-/// The elements of an array or a Vec of `elem`: `[]T` to read, `![]T`
+/// The elements of an array or a List of `elem`: `[]T` to read, `![]T`
 /// to write.
 fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId, lend: *Lend) bool {
     const want = switch (kind) {
@@ -6032,7 +6117,7 @@ fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId,
 }
 
 /// The element type of the `[]T` a value of type `ty` lends (`lendsAs`):
-/// an array's or a Vec's, reached through views, boxes, and handles;
+/// an array's or a List's, reached through views, boxes, and handles;
 /// null for any other type. Generic inference matches a `[]T` with it.
 pub fn lentElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     var t = unwrapViews(ctx, ty);
@@ -6040,16 +6125,16 @@ pub fn lentElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .array => |a| return a.elem,
         .shared => |inner| t = inner,
         else => {
-            if (vecElem(ctx, t)) |elem| return elem;
+            if (listElem(ctx, t)) |elem| return elem;
             t = boxedType(ctx, t) orelse return null;
         },
     };
 }
 
-/// `T` of a `Vec[T]`; null for any other type.
-pub fn vecElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+/// `T` of a `List[T]`; null for any other type.
+pub fn listElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -6262,9 +6347,9 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
     }
 }
 
-/// Whether the element a `for` binds views a slot of the Vec it walks
-/// in place, a Vec of values that move: `for x in ?v`, or a bare
-/// `for x in v`, over a `Vec[Text]`. The Vec owns what the slot holds,
+/// Whether the element a `for` binds views a slot of the List it walks
+/// in place, a List of values that move: `for x in ?v`, or a bare
+/// `for x in v`, over a `List[String]`. The List owns what the slot holds,
 /// so the element is never moved, dropped, cloned, or stored. Decided
 /// here, once: the type checker marks the element (`slot_view`), and the
 /// ownership checker walks it as a loop view.
@@ -6273,7 +6358,7 @@ pub fn forViewsSlot(ctx: *const SemContext, node: Sexp) bool {
     const source = ir.For.source(node);
     if (handsOver(ctx, source).kind != .place) return false;
     const ty = ctx.typeOf(source) orelse return false;
-    const elem = vecElem(ctx, unwrapViews(ctx, ty)) orelse return false;
+    const elem = listElem(ctx, unwrapViews(ctx, ty)) orelse return false;
     return moves(ctx, elem) == .yes;
 }
 
@@ -6284,7 +6369,7 @@ pub const Undroppable = enum {
     /// A closure's capture: the closure keeps it for every call
     /// (`moveSource`).
     capture,
-    /// A `for` element that views a slot of the Vec it walks
+    /// A `for` element that views a slot of the List it walks
     /// (`forViewsSlot`).
     loop_slot,
 };
@@ -6378,7 +6463,7 @@ pub fn moveLeaves(a: std.mem.Allocator, ctx: *const SemContext, operand: Sexp, o
 }
 
 /// A name of a type or module, or a generic type's instance
-/// (`Vec[Int]`): it has no value of its own.
+/// (`List[Int]`): it has no value of its own.
 fn namesTypeOrModule(ctx: *const SemContext, e: Sexp) bool {
     if (ctx.instanceOf(e)) |inst| return inst == .type;
     const sym = ctx.symbolOf(e) orelse return false;
@@ -6411,7 +6496,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
         .@"return", .@"break", .@"continue" => .jump,
         .read, .write => .lend,
         .member, .index => .path,
@@ -6419,7 +6504,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // A loop, labeled or not, is a value when a `break` leaves it
         // with one.
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
-        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .weak => .made,
+        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .box, .weak => .made,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
@@ -7097,7 +7182,7 @@ test "TypeStore: primitives are pre-interned and distinct" {
     var store = try TypeStore.init(std.testing.allocator);
     defer store.deinit(std.testing.allocator);
     try std.testing.expectEqual(type_invalid, store.invalid_id);
-    const ids = [_]TypeId{ store.unknown_id, store.void_id, store.bool_id, store.string_id, store.static_id, store.int_id, store.float_id, store.none_id, store.noreturn_id };
+    const ids = [_]TypeId{ store.unknown_id, store.void_id, store.bool_id, store.string_view_id, store.static_id, store.int_id, store.float_id, store.none_id, store.noreturn_id };
     for (ids, 0..) |a, i| {
         try std.testing.expect(a != type_invalid);
         for (ids[i + 1 ..]) |b| try std.testing.expect(a != b);
@@ -7127,21 +7212,21 @@ test "TypeStore: composites intern by structure" {
     try std.testing.expect(f1 != f4);
 }
 
-test "TypeStore: a read view of text is the String, and a read view of a view is that view" {
+test "TypeStore: a read view of a String is the ?String, and a read view of a view is that view" {
     const a = std.testing.allocator;
     var store = try TypeStore.init(a);
     defer store.deinit(a);
-    // The one text view: `?Text` and `?String` are `String`.
-    try std.testing.expectEqual(store.string_id, try store.intern(a, .{ .read_view = store.text_id }));
-    try std.testing.expectEqual(store.string_id, try store.intern(a, .{ .read_view = store.string_id }));
+    // The one text view: the read view of a `String`, and of a `?String`, is the `?String`.
+    try std.testing.expectEqual(store.string_view_id, try store.intern(a, .{ .read_view = store.string_id }));
+    try std.testing.expectEqual(store.string_view_id, try store.intern(a, .{ .read_view = store.string_view_id }));
     // `?(?T)` is `?T`.
     const read_int = try store.intern(a, .{ .read_view = store.int_id });
     try std.testing.expectEqual(read_int, try store.intern(a, .{ .read_view = read_int }));
-    // A view of an optional Text stays a view of the optional.
-    const opt_text = try store.intern(a, .{ .optional = store.text_id });
-    const read_opt_text = try store.intern(a, .{ .read_view = opt_text });
-    try std.testing.expect(read_opt_text != store.string_id);
-    try std.testing.expect(read_opt_text != opt_text);
+    // A view of an optional String stays a view of the optional.
+    const opt_string = try store.intern(a, .{ .optional = store.string_id });
+    const read_opt_string = try store.intern(a, .{ .read_view = opt_string });
+    try std.testing.expect(read_opt_string != store.string_view_id);
+    try std.testing.expect(read_opt_string != opt_string);
     // Static is its own plain type.
     try std.testing.expect(try store.intern(a, .{ .read_view = store.static_id }) != store.static_id);
 }
@@ -7255,33 +7340,33 @@ test "storage: a header points at a place its temporaries reach, never into one"
         \\  e: E
         \\  xs: [3]Int
         \\  o: Int?
-        \\  t: Text
+        \\  t: String
         \\
         \\fun mk() -> S
-        \\  S(e: E.a(n: 1), xs: [1, 2, 3], o: 7, t: Text("p"))
+        \\  S(e: E.a(n: 1), xs: [1, 2, 3], o: 7, t: String("p"))
         \\
         \\fun id(s: ?S) -> ?S from s
         \\  s
         \\
-        \\fun idx(s: String) -> Int
+        \\fun idx(s: ?String) -> Int
         \\  s.len - 1
         \\
-        \\fun get(v: !Vec[S]) -> !Vec[S] from v
+        \\fun get(v: !List[S]) -> !List[S] from v
         \\  v
         \\
         \\fun mkh(n: Int) -> *S
-        \\  *S(e: E.a(n: n), xs: [n, n, n], o: n, t: Text("p"))
+        \\  *S(e: E.a(n: n), xs: [n, n, n], o: n, t: String("p"))
         \\
         \\fun idh(s: ?*S) -> ?S from s
         \\  s
         \\
         \\sub main()
-        \\  v: Vec[S] = Vec()
+        \\  v: List[S] = List()
         \\  !v.push(mk())
-        \\  match v[idx(?Text("a"))].e
+        \\  match v[idx(?String("a"))].e
         \\    .a(n) => print(n)
         \\    .b => print(0)
-        \\  match !get(!v)[idx(?Text("a"))].e
+        \\  match !get(!v)[idx(?String("a"))].e
         \\    .a(n) => n = 2
         \\    .b => print(0)
         \\  match id(?mk()).e
@@ -7289,11 +7374,11 @@ test "storage: a header points at a place its temporaries reach, never into one"
         \\    .b => print(0)
         \\  for x in id(?mk()).xs
         \\    print(x)
-        \\  for x in !v[idx(?Text("a"))].xs
+        \\  for x in !v[idx(?String("a"))].xs
         \\    x = 0
         \\  if id(?mk()).o as n
         \\    print(n)
-        \\  if !v[idx(?Text("a"))].o as n
+        \\  if !v[idx(?String("a"))].o as n
         \\    n = 1
         \\  while id(?mk()).o as n
         \\    print(n)
@@ -7501,7 +7586,7 @@ test "facts: loop and pattern bindings" {
         \\  dot
         \\
         \\sub main()
-        \\  v: Vec[Int] = Vec()
+        \\  v: List[Int] = List()
         \\  !v.push(3)
         \\  for x in ?v
         \\    print(x)
@@ -7614,13 +7699,13 @@ test "origins: a result carries what could hold what it views" {
         \\  k += 1
         \\  ?v[0]
         \\
-        \\fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+        \\fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
         \\  a
         \\
-        \\fun pick(s: String, t: ?Text, n: Int, u: ?Item) -> String
+        \\fun pick(s: ?String, t: ?String, n: Int, u: ?Item) -> ?String
         \\  s
         \\
-        \\sub fill(h: !Holder, x: []Int, k: Int, s: String)
+        \\sub fill(h: !Holder, x: []Int, k: Int, s: ?String)
         \\  h.r = x
         \\
         \\fun same[T](a: ?T, k: Int) -> ?T
@@ -7637,7 +7722,7 @@ test "origins: a result carries what could hold what it views" {
     try std.testing.expectEqual(@as(ParamMask, 0), o(&r, "at").stores);
     try std.testing.expectEqual(@as(ParamMask, 0b11), o(&r, "first").result);
     try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "pick").result);
-    // `fill` may store `x` in `h.r`; a number or a String it cannot.
+    // `fill` may store `x` in `h.r`; a number or a `?String` it cannot.
     try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "fill").stores);
     // A type parameter could be anything, but a value taken by value is
     // the callee's own.
@@ -7650,24 +7735,24 @@ test "origins: a view reached through a read view is that view's" {
         \\  n: Int
         \\
         \\struct Cursor
-        \\  items: ?Vec[Item]
+        \\  items: ?List[Item]
         \\  i: Int
         \\
         \\struct Owner
-        \\  items: ?Vec[Item]
-        \\  scratch: Vec[Item]
+        \\  items: ?List[Item]
+        \\  scratch: List[Item]
         \\
         \\struct Cut
-        \\  before: String
+        \\  before: ?String
         \\
         \\struct Keeps
-        \\  t: ?Text
+        \\  t: ?String
         \\
         \\struct Shared
         \\  item: *Item
         \\
         \\struct Boxed
-        \\  b: Box[Item]
+        \\  b: ^Item
         \\
         \\enum Maybe
         \\  one(item: ?Item)
@@ -7685,7 +7770,7 @@ test "origins: a view reached through a read view is that view's" {
     }.of;
     const item = ty(&r, "Item");
     const view = try r.ctx.intern(.{ .read_view = item });
-    const string = r.ctx.types.string_id;
+    const string = r.ctx.types.string_view_id;
     const reach = struct {
         fn of(run: *FactsRun, al: std.mem.Allocator, h: TypeId, v: TypeId) !ViewReach {
             return viewReach(&run.ctx, al, h, v);
@@ -7698,7 +7783,7 @@ test "origins: a view reached through a read view is that view's" {
     try std.testing.expectEqual(ViewReach.none, try reach(&r, al, r.ctx.types.int_id, view));
     try std.testing.expectEqual(ViewReach.none, try reach(&r, al, string, view));
     try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Cut"), string));
-    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, r.ctx.types.text_id, string));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, r.ctx.types.string_id, string));
     try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Keeps"), string));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Shared"), view));
     try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Boxed"), view));
@@ -7820,10 +7905,10 @@ test "declarations: wrapper, sized, and alias types" {
 test "declarations: struct fields, methods, and enum variants" {
     var r = try factsRun(
         \\struct User
-        \\  name: String
+        \\  name: ?String
         \\  age: Int
         \\
-        \\  fun greet(?self) -> String
+        \\  fun greet(?self) -> ?String
         \\    self.name
         \\
         \\enum Shape
@@ -7882,7 +7967,7 @@ test "type facts: moves, copies, cloneable" {
     const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
     const v = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "V").? });
     const t = try ctx.intern(.{ .type_var = r.sym("T", 0).? });
-    const vec_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{ty.int_id} } });
+    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{ty.int_id} } });
     const wrap_t = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{t} } });
     const wrap_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{ty.int_id} } });
     const read_p = try ctx.intern(.{ .read_view = p });
@@ -7899,15 +7984,15 @@ test "type facts: moves, copies, cloneable" {
     const Case = struct { ty: TypeId, moves: Answer, copies: Answer, clone: Clone };
     const cases = [_]Case{
         .{ .ty = ty.int_id, .moves = .no, .copies = .yes, .clone = .copy },
-        .{ .ty = ty.string_id, .moves = .no, .copies = .yes, .clone = .text },
+        .{ .ty = ty.string_view_id, .moves = .no, .copies = .yes, .clone = .text },
         .{ .ty = ty.static_id, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = p, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = read_p, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = write_p, .moves = .no, .copies = .no, .clone = .copy },
         .{ .ty = v, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = w, .moves = .no, .copies = .no, .clone = .no },
-        .{ .ty = vec_int, .moves = .yes, .copies = .no, .clone = .deep },
-        .{ .ty = ty.text_id, .moves = .yes, .copies = .no, .clone = .text },
+        .{ .ty = list_int, .moves = .yes, .copies = .no, .clone = .deep },
+        .{ .ty = ty.string_id, .moves = .yes, .copies = .no, .clone = .text },
         .{ .ty = shared_p, .moves = .yes, .copies = .no, .clone = .bump },
         .{ .ty = weak_p, .moves = .yes, .copies = .no, .clone = .bump },
         .{ .ty = opt_shared, .moves = .yes, .copies = .no, .clone = .bump },
@@ -7926,14 +8011,14 @@ test "type facts: moves, copies, cloneable" {
     }
     // A clone reads what a view reaches.
     try std.testing.expectEqual(Clone.bump, cloneable(ctx, try ctx.intern(.{ .read_view = shared_p })));
-    try std.testing.expectEqual(Clone.deep, cloneable(ctx, try ctx.intern(.{ .read_view = vec_int })));
+    try std.testing.expectEqual(Clone.deep, cloneable(ctx, try ctx.intern(.{ .read_view = list_int })));
     // A view of a value that copies hands over the value; a view of an
     // owner, of one holding a write view, or a `![]T` does not.
     try std.testing.expectEqual(@as(?TypeId, p), copiedThrough(ctx, read_p));
     try std.testing.expectEqual(@as(?TypeId, p), copiedThrough(ctx, write_p));
     try std.testing.expectEqual(@as(?TypeId, v), copiedThrough(ctx, try ctx.intern(.{ .read_view = v })));
     try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, try ctx.intern(.{ .read_view = w })));
-    try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, try ctx.intern(.{ .read_view = vec_int })));
+    try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, try ctx.intern(.{ .read_view = list_int })));
     try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, write_slice));
     try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, p));
     // A view of a scalar or a plain enum reads as the value to an
@@ -7941,7 +8026,56 @@ test "type facts: moves, copies, cloneable" {
     try std.testing.expect(readsAsValue(ctx, ty.int_id));
     try std.testing.expect(!readsAsValue(ctx, p));
     try std.testing.expect(lendByValue(ctx, ty.int_id));
-    try std.testing.expect(!lendByValue(ctx, vec_int));
+    try std.testing.expect(!lendByValue(ctx, list_int));
+}
+
+test "heap holdings: a box prints as ^T, and a holding over a held value is stacked" {
+    var r = try factsRun(
+        \\struct P
+        \\  x: Int
+        \\
+    );
+    defer r.deinit();
+    const ctx = &r.ctx;
+    const ty = &ctx.types;
+    const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
+    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
+    const opt_p = try ctx.intern(.{ .optional = p });
+    const box_opt = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{opt_p} } });
+    const opt_box = try ctx.intern(.{ .optional = box_p });
+    const read_box = try ctx.intern(.{ .read_view = box_p });
+    const shared_p = try ctx.intern(.{ .shared = p });
+    const weak_p = try ctx.intern(.{ .weak = p });
+    const box_box = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
+    const spelled = struct {
+        fn f(c: *SemContext, t: TypeId) ![]const u8 {
+            return formatType(c, t);
+        }
+    }.f;
+    try std.testing.expectEqualStrings("^P", try spelled(ctx, box_p));
+    try std.testing.expectEqualStrings("^(P?)", try spelled(ctx, box_opt));
+    try std.testing.expectEqualStrings("^P?", try spelled(ctx, opt_box));
+    try std.testing.expectEqualStrings("?^P", try spelled(ctx, read_box));
+    try std.testing.expectEqualStrings("^^P", try spelled(ctx, box_box));
+    // A box of a read view is written `^?P`, and an optional one `(^?P)?`.
+    const box_read = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{try ctx.intern(.{ .read_view = p })} } });
+    try std.testing.expectEqualStrings("^?P", try spelled(ctx, box_read));
+    try std.testing.expectEqualStrings("(^?P)?", try spelled(ctx, try ctx.intern(.{ .optional = box_read })));
+    // A box holds a value held no other way on the heap.
+    try std.testing.expect(!heapStacked(ctx, .box, p));
+    try std.testing.expect(!heapStacked(ctx, .box, opt_p));
+    try std.testing.expect(!heapStacked(ctx, .box, ty.int_id));
+    try std.testing.expect(heapStacked(ctx, .box, box_p));
+    try std.testing.expect(heapStacked(ctx, .box, shared_p));
+    try std.testing.expect(heapStacked(ctx, .box, weak_p));
+    try std.testing.expect(heapStacked(ctx, .shared, box_p));
+    try std.testing.expect(heapStacked(ctx, .shared, shared_p));
+    try std.testing.expect(!heapStacked(ctx, .shared, weak_p));
+    // A stacked type is found inside the types made of it.
+    try std.testing.expectEqual(@as(?TypeId, null), findHeapStacked(ctx, opt_box));
+    try std.testing.expectEqual(@as(?TypeId, box_box), findHeapStacked(ctx, box_box));
+    const slice = try ctx.intern(.{ .slice = .{ .elem = box_box } });
+    try std.testing.expectEqual(@as(?TypeId, box_box), findHeapStacked(ctx, slice));
 }
 
 test "lend table: each row makes its view" {
@@ -7967,20 +8101,20 @@ test "lend table: each row makes its view" {
     const arr = try ctx.intern(.{ .array = .{ .elem = ty.int_id, .len = try ctInt(ctx, 3) } });
     const slice = try ctx.intern(.{ .slice = .{ .elem = ty.int_id } });
     const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
-    const box_text = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{ty.text_id} } });
+    const box_string = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{ty.string_id} } });
     const fn_ty = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ty.int_id, .is_sub = false } });
     const owned = try ctx.intern(.{ .shared = fn_ty });
     const callable = try callableOfFn(ctx, fn_ty);
+    const opt_string_view = try ctx.intern(.{ .optional = ty.string_view_id });
     const opt_string = try ctx.intern(.{ .optional = ty.string_id });
-    const opt_text = try ctx.intern(.{ .optional = ty.text_id });
     const box_box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
     const box_arr = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{arr} } });
-    const vec_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{ty.int_id} } });
+    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{ty.int_id} } });
     const shared_p = try ctx.intern(.{ .shared = p });
-    const shared_text = try ctx.intern(.{ .shared = ty.text_id });
+    const shared_string = try ctx.intern(.{ .shared = ty.string_id });
     const opt_p = try ctx.intern(.{ .optional = p });
     const opt_read_p = try ctx.intern(.{ .optional = try read(ctx, p) });
-    const opt_vec = try ctx.intern(.{ .optional = vec_int });
+    const opt_list = try ctx.intern(.{ .optional = list_int });
     const opt_slice = try ctx.intern(.{ .optional = slice });
 
     const Case = struct { from: TypeId, kind: LendKind, view: TypeId, rows: ?[]const LendStep };
@@ -7996,31 +8130,31 @@ test "lend table: each row makes its view" {
         .{ .from = arr, .kind = .read, .view = try write(ctx, slice), .rows = null },
         // A `![]T` lent on to read.
         .{ .from = slice, .kind = .write, .view = slice, .rows = &.{.read_only} },
-        // A Text: a String, also where a `String?` is expected; never to
+        // A String: a `?String`, also where a `(?String)?` is expected; never to
         // write.
-        .{ .from = ty.text_id, .kind = .read, .view = ty.string_id, .rows = &.{.text} },
-        .{ .from = ty.text_id, .kind = .read, .view = opt_string, .rows = &.{ .lift, .text } },
-        .{ .from = opt_text, .kind = .read, .view = opt_string, .rows = &.{ .optional, .text } },
-        .{ .from = ty.text_id, .kind = .write, .view = ty.string_id, .rows = null },
+        .{ .from = ty.string_id, .kind = .read, .view = ty.string_view_id, .rows = &.{.text} },
+        .{ .from = ty.string_id, .kind = .read, .view = opt_string_view, .rows = &.{ .lift, .text } },
+        .{ .from = opt_string, .kind = .read, .view = opt_string_view, .rows = &.{ .optional, .text } },
+        .{ .from = ty.string_id, .kind = .write, .view = ty.string_view_id, .rows = null },
         // A box: the views of its value.
         .{ .from = box_p, .kind = .read, .view = try read(ctx, p), .rows = &.{.unbox} },
         .{ .from = box_p, .kind = .write, .view = try write(ctx, p), .rows = &.{.unbox} },
         .{ .from = box_p, .kind = .read, .view = try write(ctx, p), .rows = null },
-        .{ .from = box_text, .kind = .read, .view = ty.string_id, .rows = &.{ .unbox, .text } },
+        .{ .from = box_string, .kind = .read, .view = ty.string_view_id, .rows = &.{ .unbox, .text } },
         // Boxes compose.
         .{ .from = box_box_p, .kind = .read, .view = try read(ctx, p), .rows = &.{ .unbox, .unbox } },
         .{ .from = box_arr, .kind = .read, .view = slice, .rows = &.{ .unbox, .elems } },
-        // A Vec lends its elements, as an array does.
-        .{ .from = vec_int, .kind = .read, .view = slice, .rows = &.{.elems} },
-        .{ .from = vec_int, .kind = .write, .view = try write(ctx, slice), .rows = &.{.elems} },
+        // A List lends its elements, as an array does.
+        .{ .from = list_int, .kind = .read, .view = slice, .rows = &.{.elems} },
+        .{ .from = list_int, .kind = .write, .view = try write(ctx, slice), .rows = &.{.elems} },
         // A `*T` lends the read views of its `T`, never a write view.
         .{ .from = shared_p, .kind = .read, .view = try read(ctx, p), .rows = &.{.handle} },
-        .{ .from = shared_text, .kind = .read, .view = ty.string_id, .rows = &.{ .handle, .text } },
+        .{ .from = shared_string, .kind = .read, .view = ty.string_view_id, .rows = &.{ .handle, .text } },
         .{ .from = shared_p, .kind = .write, .view = try write(ctx, p), .rows = null },
         // An `X?` lends a `View?`; `?o` of an `S?` is a `?(S?)`.
         .{ .from = opt_p, .kind = .read, .view = opt_read_p, .rows = &.{.optional} },
         .{ .from = opt_p, .kind = .read, .view = try read(ctx, opt_p), .rows = &.{} },
-        .{ .from = opt_vec, .kind = .read, .view = opt_slice, .rows = &.{ .optional, .elems } },
+        .{ .from = opt_list, .kind = .read, .view = opt_slice, .rows = &.{ .optional, .elems } },
         .{ .from = arr, .kind = .read, .view = opt_slice, .rows = &.{ .lift, .elems } },
         // A function, or an owned closure: a `?fun(...)`.
         .{ .from = fn_ty, .kind = .read, .view = callable, .rows = &.{.callable} },
@@ -8102,7 +8236,7 @@ test "type facts: unique reaches what holds it inline" {
         try ctx.intern(.{ .read_view = u }),
         try ctx.intern(.{ .write_view = u }),
         try ctx.intern(.{ .slice = .{ .elem = u } }),
-        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{u} } }),
         try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{u} } }),
         try ctx.intern(.{ .parameterized_nominal = .{ .sym = wrap, .args = &.{ctx.types.int_id} } }),
         try nominal(ctx, "Ptr"),
@@ -8243,7 +8377,7 @@ const Coverage = struct {
 test "facts: every name and expression in a program has a fact" {
     var r = try factsRun(
         \\struct Account
-        \\  owner: String
+        \\  owner: ?String
         \\  balance: Int
         \\
         \\  fun doubled(?self) -> Int
@@ -8287,7 +8421,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  <shared
         \\  print(other.balance)
         \\  total = 0
-        \\  v: Vec[Int] = Vec()
+        \\  v: List[Int] = List()
         \\  !v.push(3)
         \\  for x in ?v
         \\    total += x
@@ -8321,7 +8455,7 @@ test "facts: optional bindings, index bindings, defaults, and shadows have facts
         \\  xs = [1, 2]
         \\  for x, i in xs
         \\    print(x + i)
-        \\  w: Vec[Int] = Vec()
+        \\  w: List[Int] = List()
         \\  while !w.pop() as y
         \\    print(y)
         \\  k = 1
@@ -8379,14 +8513,14 @@ test "hands over: one kind per expression, by a positive list" {
     var h: HandsRun = .{ .r = try factsRun(
         \\struct P
         \\  x: Int
-        \\  t: Text
+        \\  t: String
         \\
         \\enum E
         \\  a(n: Int)
         \\  b
         \\
         \\fun mk() -> P
-        \\  P(x: 1, t: Text("a"))
+        \\  P(x: 1, t: String("a"))
         \\
         \\fun keep(p: ?P) -> ?P
         \\  p
@@ -8402,8 +8536,8 @@ test "hands over: one kind per expression, by a positive list" {
         \\  xs = [10, 20]
         \\  print(p.x, xs[0], mk().x, keep(?p).x, [1, 2][1])
         \\  print(p.t if c else q.t)
-        \\  print(Text("y") if c else Text("z"))
-        \\  print(mk().t if c else Text("w"))
+        \\  print(String("y") if c else String("z"))
+        \\  print(mk().t if c else String("w"))
         \\  print(o ?? 0, maybe() ?? 0)
         \\  e: E = .b
         \\  print(e == E.b, -p.x, +p.x, mk)

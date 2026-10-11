@@ -1,12 +1,12 @@
-# struct holding a Vec of views moved into a Vec of structs, then source dropped
+# struct holding a List of views moved into a List of structs, then source dropped
 struct Bag
-  items: Vec[String]
+  items: List[?String]
 
 sub main()
-  t = Text("x")
-  b = Bag(items: Vec())
+  t = String("x")
+  b = Bag(items: List())
   !b.items.push(?t)
-  bags: Vec[Bag] = Vec()
+  bags: List[Bag] = List()
   !bags.push(<b)
   <t
   print(bags[0].items)

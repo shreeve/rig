@@ -1,11 +1,11 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 struct Wrap[T]
   item: T
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(5)
   g = Wrap[H](item: H(w: !xs))
   f = |+g| g.item.w[0]

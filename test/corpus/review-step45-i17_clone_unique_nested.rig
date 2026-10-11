@@ -4,9 +4,9 @@ struct R unique
 
 struct S
   rs: [1]R
-  t: Text
+  t: String
 
 sub main()
-  s = S(rs: [R(seed: 1)], t: Text("x"))
+  s = S(rs: [R(seed: 1)], t: String("x"))
   c = +s
   print(c.t)

@@ -1,5 +1,5 @@
 struct P
-  s: String
+  s: ?String
   n: Int
   a: [3]Int
 

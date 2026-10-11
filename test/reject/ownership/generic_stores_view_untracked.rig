@@ -6,8 +6,8 @@ fun later[T](x: T) -> *sub()
   *|+x| print(x)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f = later(?v)
   f()
 
-# error: 10:7: `later[?Vec[Int]]` cannot use `T = ?Vec[Int]`
+# error: 10:7: `later[?List[Int]]` cannot use `T = ?List[Int]`

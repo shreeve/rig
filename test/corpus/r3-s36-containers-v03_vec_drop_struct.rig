@@ -4,6 +4,6 @@ struct D
     print("drop", self.n)
 
 sub main()
-  v: Vec[D] = Vec()
+  v: List[D] = List()
   !v.push(D(n: 1))
   print(v.len)

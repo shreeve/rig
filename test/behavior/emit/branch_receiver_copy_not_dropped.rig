@@ -6,7 +6,7 @@
 # `o?`, and `e!`.
 
 struct S
-  t: Text
+  t: String
 
   fun size(?self, x: Int, y: Int) -> Int
     self.t.len * 100 + x * 10 + y
@@ -26,13 +26,13 @@ fun clobber(n: Int) -> Int
 
 fun maybe(c: Bool) -> S?
   if c
-    return S(t: Text("oo"))
+    return S(t: String("oo"))
   none
 
 fun fails(c: Bool) -> S!
   if c
     return E.bad
-  S(t: Text("ff"))
+  S(t: String("ff"))
 
 fun first(c: Bool) -> Int?
   o = maybe(c)
@@ -44,12 +44,12 @@ fun second(c: Bool) -> Int!
   fails(c)!.size(y: f(1), x: f(2))
 
 sub main()
-  a = S(t: Text("aa"))
-  b = S(t: Text("bbb"))
+  a = S(t: String("aa"))
+  b = S(t: String("bbb"))
   c = f(1) == 1
   print((a if f(0) == 0 and c else b).size(y: f(1), x: f(2)))
-  w = W(s: S(t: Text("ww")))
-  v = W(s: S(t: Text("v")))
+  w = W(s: S(t: String("ww")))
+  v = W(s: S(t: String("v")))
   print((w if f(0) == 0 else v).s.size(y: f(3), x: f(4)))
   o = maybe(true)
   print((o ?? a).size(y: f(5), x: f(6)), (maybe(false) ?? b).size(y: f(7), x: f(8)))

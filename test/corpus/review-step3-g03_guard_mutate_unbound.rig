@@ -1,5 +1,5 @@
 struct Res
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -10,7 +10,7 @@ fun clear(e: !E) -> Bool
   false
 
 sub main()
-  e = E.a(r: Res(t: Text("abc")))
+  e = E.a(r: Res(t: String("abc")))
   match e
     .a(_) if clear(!e) => print("one")
     .a(r) => print("second", r.t)

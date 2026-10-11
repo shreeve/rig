@@ -1,4 +1,4 @@
-sub f(w: !Vec[Int])
+sub f(w: !List[Int])
   for x in w
     if x == 1
       for i in 0..100
@@ -6,7 +6,7 @@ sub f(w: !Vec[Int])
     print(x)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   f(!v)

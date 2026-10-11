@@ -1,12 +1,12 @@
-fun first(v: !Vec[Text], d: !Text) -> !Text
+fun first(v: !List[String], d: !String) -> !String
   for t in !v
     return !t
   !d
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  d = Text("d")
+  v: List[String] = List()
+  !v.push(String("a"))
+  d = String("d")
   w = first(!v, !d)
   !w.add("!")
   print(w)

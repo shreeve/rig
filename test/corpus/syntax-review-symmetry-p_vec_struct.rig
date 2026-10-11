@@ -2,6 +2,6 @@ struct P
   x: Int
 
 sub main()
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   !v.push(P(x: 1))
   print(v[0])

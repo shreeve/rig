@@ -50,8 +50,8 @@ fun dive(depth: Int) -> Int
 
 sub main()
   bottom = stack_bottom()
-  addrs = Vec[U64]()
-  lens = Vec[U64]()
+  addrs = List[U64]()
+  lens = List[U64]()
   for len in [U64(16777216), 1048576, 65536]
     while true
       p = map(len)

@@ -1,13 +1,13 @@
-# A view pushed into a Vec may not outlive what it views.
+# A view pushed into a List may not outlive what it views.
 
-fun mk() -> Vec[?Int]
+fun mk() -> List[?Int]
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   v
 
 sub main()
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   for i in 0..3
     x = i
     !v.push(?x)

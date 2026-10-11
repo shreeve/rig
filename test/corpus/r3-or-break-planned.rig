@@ -4,50 +4,50 @@
 # moved.
 
 struct Bag
-  v: Vec[Int]
+  v: List[Int]
 
 sub loop_local()
   x = while true
-    b = Bag(v: Vec())
+    b = Bag(v: List())
     break b
   print(x.v.len)
 
 sub for_element()
-  v: Vec[Bag] = Vec()
-  !v.push(Bag(v: Vec()))
+  v: List[Bag] = List()
+  !v.push(Bag(v: List()))
   y = for e in <v
     break e if e.v.len == 0
   else
-    Bag(v: Vec())
+    Bag(v: List())
   print(y.v.len)
 
 sub outer_name()
-  r = Bag(v: Vec())
+  r = Bag(v: List())
   x = while true
     break r
   print(x.v.len)
 
 sub outer_loop()
   x = for _ in 0..2
-    r = Bag(v: Vec())
+    r = Bag(v: List())
     y = for _ in 0..2
       break r
     else
-      Bag(v: Vec())
+      Bag(v: List())
     break y
   else
-    Bag(v: Vec())
+    Bag(v: List())
   print(x.v.len)
 
 sub deferred_read()
   i = 0
   z = while i < 3
-    q = Bag(v: Vec())
+    q = Bag(v: List())
     defer print(q.v.len)
     i += 1
     break q if i == 2
   else
-    Bag(v: Vec())
+    Bag(v: List())
   print(z.v.len)
 
 sub main()

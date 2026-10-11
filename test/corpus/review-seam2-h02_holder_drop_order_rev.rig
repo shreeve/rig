@@ -1,7 +1,7 @@
 # Review probe h02_holder_drop_order_rev.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
   fun at(!self) -> !Int
     !self.n
@@ -11,17 +11,17 @@ struct S
     self.n = 777
 
 struct H
-  ws: Vec[!Int]
+  ws: List[!Int]
 
   drop(!self)
     for w in self.ws
       print("dropH sees", w)
 
 fun mk(n: Int) -> S
-  S(n: n, items: Vec())
+  S(n: n, items: List())
 
 fun mkh() -> H
-  H(ws: Vec())
+  H(ws: List())
 
 sub put(h: !H, w: !Int)
   !h.ws.push(w)

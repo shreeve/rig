@@ -1,7 +1,7 @@
 # Every form of lend of a `match !e` binding puts a loan on the binding,
 # which a write through it while the view is live conflicts with: a
 # `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
-# a struct, pushed to a Vec, or kept as an optional, and a view a `?self`
+# a struct, pushed to a List, or kept as an optional, and a view a `?self`
 # method returns.
 # oracle: capture reject C4
 # oracle: loop_over reject C4
@@ -14,16 +14,16 @@
 use std.text
 
 struct H
-  s: String
+  s: ?String
 
 struct R
-  t: Text
+  t: String
 
-  fun head(?self) -> String
+  fun head(?self) -> ?String
     ?self.t[..1]
 
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 enum ER
@@ -31,7 +31,7 @@ enum ER
   b
 
 sub capture()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .a(t)
       f = |?t| t.len
@@ -40,7 +40,7 @@ sub capture()
     .b => pass
 
 sub loop_over()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .a(t)
       for c in ?t[..]
@@ -49,7 +49,7 @@ sub loop_over()
     .b => pass
 
 sub if_as()
-  e = E.a(Text("k=v"))
+  e = E.a(String("k=v"))
   match !e
     .a(t)
       if text.cut(?t, "=") as kv
@@ -58,7 +58,7 @@ sub if_as()
     .b => pass
 
 sub stored()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .a(t)
       h = H(s: ?t[1..])
@@ -67,17 +67,17 @@ sub stored()
     .b => pass
 
 sub pushed()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .a(t)
-      v: Vec[String] = Vec()
+      v: List[?String] = List()
       !v.push(?t[1..])
       !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
       print(v)
     .b => pass
 
 sub method()
-  e = ER.a(R(t: Text("hello")))
+  e = ER.a(R(t: String("hello")))
   match !e
     .a(r)
       s = r.head()
@@ -86,10 +86,10 @@ sub method()
     .b => pass
 
 sub optional()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .a(t)
-      o: String? = ?t
+      o: (?String)? = ?t
       !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
       print(o)
     .b => pass

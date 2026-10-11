@@ -1,10 +1,10 @@
-# A5: CORE §3: a value made in a header that `for` binds is taken: for over a made struct's Vec of owners
+# A5: CORE §3: a value made in a header that `for` binds is taken: for over a made struct's List of owners
 struct H
-  items: Vec[Text]
+  items: List[String]
 
 fun mk() -> H
-  h = H(items: Vec())
-  !h.items.push(Text("a"))
+  h = H(items: List())
+  !h.items.push(String("a"))
   h
 
 sub main()

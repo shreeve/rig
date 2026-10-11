@@ -11,11 +11,11 @@ struct P
   x: Int
   o: Int?
   a: [2]Int
-  v: Vec[Int]
+  v: List[Int]
   q: Q
 
 fun mk() -> P
-  P(x: 1, o: 3, a: [1, 2], v: Vec(), q: Q(n: 1))
+  P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1))
 
 fun pick(p: !P, b: Bool) -> (!P)?
   return none if b

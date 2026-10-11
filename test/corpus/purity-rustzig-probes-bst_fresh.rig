@@ -2,20 +2,20 @@
 
 struct Node
   key: Int
-  left: Box[Node]?
-  right: Box[Node]?
+  left: ^Node?
+  right: ^Node?
 
   sub insert(!self, key: Int)
     if key < self.key
       if !self.left as l
         !l.insert(key)
       else
-        self.left = Box(Node(key: key, left: none, right: none))
+        self.left = ^Node(key: key, left: none, right: none)
     else
       if !self.right as r
         !r.insert(key)
       else
-        self.right = Box(Node(key: key, left: none, right: none))
+        self.right = ^Node(key: key, left: none, right: none)
 
   sub walk(?self, visit: ?sub(Int))
     if ?self.left as l
@@ -25,22 +25,22 @@ struct Node
       r.walk(visit)
 
 struct Tree
-  root: Box[Node]?
+  root: ^Node?
   size: Int
 
   sub insert(!self, key: Int)
     if !self.root as n
       !n.insert(key)
     else
-      self.root = Box(Node(key: key, left: none, right: none))
+      self.root = ^Node(key: key, left: none, right: none)
     self.size += 1
 
   sub each(?self, visit: ?sub(Int))
     if ?self.root as n
       n.walk(visit)
 
-  fun sorted(?self) -> Vec[Int]
-    out: Vec[Int] = Vec()
+  fun sorted(?self) -> List[Int]
+    out: List[Int] = List()
     self.each(|!out, k| !out.push(k))
     out
 

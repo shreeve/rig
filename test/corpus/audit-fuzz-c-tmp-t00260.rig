@@ -79,7 +79,7 @@ fun hand(h: *R, n: Int) -> Int
   print("use", h.id)
   n
 
-fun bx(b: Box[R], n: Int) -> Int
+fun bx(b: ^R, n: Int) -> Int
   print("use", b.id)
   n
 
@@ -108,10 +108,10 @@ fun rt_int(n: Int) -> Int
 
 sub h0()!
   p0 = P(a: mayr(rt_int(4001))!, b: mk(2))
-  v1: Vec[*R] = Vec()
+  v1: List[*R] = List()
   !v1.push(*mk(3))
   !v1.push(*mayr(rt_int(0))!)
-  v4: Vec[*R] = Vec()
+  v4: List[*R] = List()
   !v4.push(*mk(5))
   !v4.push(*mk(6))
   !v4.push(*mk(7))

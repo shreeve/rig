@@ -2,7 +2,7 @@ struct H
   hash: fun(?String) -> U64
   n: Int
 
-  sub put(!self, k: String)
+  sub put(!self, k: ?String)
     f = self.hash
     x = f(?k)
     self.n = Int(x)

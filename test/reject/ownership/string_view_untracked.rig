@@ -10,19 +10,19 @@ fun later[T](x: T) -> *sub()
   *|+x| print(x)
 
 sub main()
-  t = Text("abc")
-  cell: *Cell[String] = *Cell("lit")
+  t = String("abc")
+  cell: *Cell[?String] = *Cell("lit")
   put(!cell, ?t[..])
   f = later(?t[1..])
   f()
-  out: Vec[String] = Vec()
-  keep = |!out, s: String| !out.push(s)
+  out: List[?String] = List()
+  keep = |!out, s: ?String| !out.push(s)
   keep("x")
-  sig: *Signal[String] = *Signal("s")
+  sig: *Signal[?String] = *Signal("s")
   !sig.set(?t[..1])
   print(cell.get(), out)
 
-# error: 15:3: `put[String]` cannot use `T = String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a String may view a Text
-# error: 16:7: `later[String]` cannot use `T = String`
+# error: 15:3: `put[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a `?String` may view a String
+# error: 16:7: `later[?String]` cannot use `T = ?String`
 # error: 19:17: `s` does not live long enough
 # error: 22:12: cannot store a view of `t` in a `Signal`

@@ -1,7 +1,7 @@
 sub main()
-  a: Vec[Vec[Int]] = Vec()
-  b: Vec[Vec[Int]] = Vec()
-  r: Vec[Int] = Vec()
+  a: List[List[Int]] = List()
+  b: List[List[Int]] = List()
+  r: List[Int] = List()
   !r.push(1)
   !a.push(<r)
   c = a.len == 1

@@ -3,12 +3,12 @@
 # the move (`<c.close()`), or calls it on a temporary.
 
 struct Conn
-  name: String
+  name: ?String
 
   fun close(<self) -> Int
     self.name.len
 
-  fun renamed(<self, name: String) -> Conn
+  fun renamed(<self, name: ?String) -> Conn
     c = <self
     c.name = name
     <c

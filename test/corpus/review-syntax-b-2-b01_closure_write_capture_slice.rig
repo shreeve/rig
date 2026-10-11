@@ -1,5 +1,5 @@
 sub main()
-  t = Text("hello")
+  t = String("hello")
   f = |!t|
     s = t[1..]
     for _ in 0..50

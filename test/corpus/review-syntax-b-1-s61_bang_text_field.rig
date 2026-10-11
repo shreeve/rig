@@ -1,11 +1,11 @@
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
 struct H
-  t: !Text
+  t: !String
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   h = H(t: !t)
   s = word(h.t[1..])
   for _ in 0..50

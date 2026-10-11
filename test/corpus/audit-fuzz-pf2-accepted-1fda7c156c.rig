@@ -12,7 +12,7 @@ sub main()
   for x in !xs
     x *= 10
   print(xs)
-  v: Vec[*B] = Vec()
+  v: List[*B] = List()
 
   print("after")
   for i in 0..3

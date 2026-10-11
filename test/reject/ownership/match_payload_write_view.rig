@@ -3,7 +3,7 @@
 # `Ed`'s `!Wrap` field is rejected.
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 struct Ed
   t: !Wrap
@@ -13,7 +13,7 @@ enum Hold
   has(e: Ed)
 
 sub main()
-  x = Wrap(v: Vec())
+  x = Wrap(v: List())
   h: Hold = .has(e: Ed(t: !x))
   match !h
     .has(a) => !a.t.v.push(1)

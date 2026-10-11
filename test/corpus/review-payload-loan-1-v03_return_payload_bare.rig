@@ -1,12 +1,12 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
-fun head(e: !E) -> String
+fun head(e: !E) -> ?String
   match !e
     .a(t) => t[..3]
     .b => ""
 
 sub main()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   print(head(!e))

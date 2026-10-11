@@ -1,7 +1,7 @@
 # A consuming receiver that branches takes each name with `<`; a read
 # receiver reads a name's value in place and drops a made one.
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun total(<self) -> Int
     self.items.len
@@ -10,17 +10,17 @@ struct Bag
     self.items.len
 
 fun mk() -> Bag
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(7)
   b
 
 sub main()
-  a = Bag(items: Vec())
-  b = Bag(items: Vec())
+  a = Bag(items: List())
+  b = Bag(items: List())
   !a.items.push(1)
   c = true
   print((<a if c else <b).total())
-  d = Bag(items: Vec())
+  d = Bag(items: List())
   !d.items.push(1)
   !d.items.push(2)
   for i in 0..2

@@ -11,7 +11,7 @@ sub main()
   n = 0
   while n < 400 : n += 1
     for mk in [1, 3, 50, 1000000]
-      v = Vec[P]()
+      v = List[P]()
       i = 0
       while i < n : i += 1
         !v.push(P(k: (!r).int(0, mk), id: i))

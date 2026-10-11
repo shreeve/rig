@@ -1,9 +1,9 @@
 struct Res
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 fun mkr(n: Int) -> Res?
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   Res(n: n, v: <v)
 

@@ -5,10 +5,10 @@ struct Res
     print("drop", self.n)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   r = Res(n: 3)
   h = *Res(n: 4)
-  b = Box(Res(n: 5))
+  b = ^Res(n: 5)
   print(v, r, h, b)
   print(r.n, h.n, b.n)

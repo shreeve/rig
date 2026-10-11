@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 struct H
   o: Res?
@@ -25,8 +25,8 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  h = H(o: Res(n: 4, t: Text("four")))
-  d = Res(n: 0, t: Text("d"))
+  h = H(o: Res(n: 4, t: String("four")))
+  d = Res(n: 0, t: String("d"))
   x = pick(?h, ?d)
   y = pick2(?h, ?d)
   print(clobber(1000))

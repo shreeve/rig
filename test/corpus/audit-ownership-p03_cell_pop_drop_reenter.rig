@@ -1,6 +1,6 @@
 struct Obj
   n: Int
-  home: ~Cell[Vec[*Obj]]
+  home: ~Cell[List[*Obj]]
 
   drop(!self)
     print("drop", self.n)
@@ -9,7 +9,7 @@ struct Obj
         _ = !h.pop()
 
 sub main()
-  c: *Cell[Vec[*Obj]] = *Cell(Vec())
+  c: *Cell[List[*Obj]] = *Cell(List())
   for i in 0..4
     !c.push(*Obj(n: i, home: ~c))
   _ = !c.pop()

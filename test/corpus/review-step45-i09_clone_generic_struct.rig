@@ -4,7 +4,7 @@ struct Pair[T]
   b: T
 
 sub main()
-  p = Pair(a: Text("x"), b: Text("y"))
+  p = Pair(a: String("x"), b: String("y"))
   q = +p
   !q.a.add("!")
   print(p.a, q.a, q.b)

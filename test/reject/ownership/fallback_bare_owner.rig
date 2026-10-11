@@ -1,13 +1,13 @@
 # A named owner as the fallback of `??` over a fresh optional would be
 # copied into the result: it is moved, written `<d`.
 
-fun mko(k: Int) -> Text?
-  Text("o") if k > 0 else none
+fun mko(k: Int) -> String?
+  String("o") if k > 0 else none
 
 sub main()
-  d = Text("d")
+  d = String("d")
   x = mko(0) ?? d
   print(x)
 
-# error: 9:17: `d` owns a `Text`, which can't be copied by `=`: write `<d` to move it, `+d` to clone it, or `?d` to view it
+# error: 9:17: `d` owns a `String`, which can't be copied by `=`: write `<d` to move it, `+d` to clone it, or `?d` to view it
 # errors: 1

@@ -1,10 +1,10 @@
 # consuming a struct's array field
 struct S
-  arr: [2]Text
+  arr: [2]String
   n: Int
 
 sub main()
-  s = S(arr: [Text("a"), Text("b")], n: 1)
+  s = S(arr: [String("a"), String("b")], n: 1)
   for x in <s.arr
     print(x)
   print(s.n)

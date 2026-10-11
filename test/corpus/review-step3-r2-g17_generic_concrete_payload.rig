@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum Pair[T]
   a(r: Res, v: T)
@@ -17,7 +17,7 @@ fun clobber(n: Int) -> Int
   a[1] + b[1]
 
 sub main()
-  o: Pair[Int] = .a(r: Res(n: 7, t: Text("seven")), v: 1)
+  o: Pair[Int] = .a(r: Res(n: 7, t: String("seven")), v: 1)
   x = peek(?o)
   print(clobber(1000))
   print(x.n, x.t)

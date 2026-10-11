@@ -4,7 +4,7 @@ struct R
     print("drop R", self.n)
 
 struct Stack[T]
-  items: Vec[T]
+  items: List[T]
 
   sub push(!self, x: T)
     !self.items.push(<x)
@@ -24,7 +24,7 @@ fun choose[T](a: T, b: T, first: Bool) -> T
   else
     <b
 
-fun largest[T](xs: ?Vec[T]) -> T?
+fun largest[T](xs: ?List[T]) -> T?
   best: T? = none
   for x in xs
     if best as b
@@ -34,9 +34,9 @@ fun largest[T](xs: ?Vec[T]) -> T?
   best
 
 sub main()
-  s = Stack[Box[R]](items: Vec())
-  !s.push(Box(R(n: 1)))
-  !s.push(Box(R(n: 2)))
+  s = Stack[^R](items: List())
+  !s.push(^R(n: 1))
+  !s.push(^R(n: 2))
   if (!s).pop() as top
     print("popped", top.n)
   print(s.size())
@@ -44,12 +44,12 @@ sub main()
   print(k.n)
   c = choose(R(n: 4), R(n: 5), false)
   print(c.n)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(3)
   !v.push(9)
   !v.push(4)
   print(largest(?v))
-  w: Vec[String] = Vec()
+  w: List[?String] = List()
   !w.push("b")
   !w.push("a")
   print(largest(?w))

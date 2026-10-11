@@ -2,5 +2,5 @@ fun f(a: *Node?, b: (*Node)?) -> Int
   1
 
 sub main()
-  v = Vec[*Node?]()
-  w = Vec[*(Node?)]()
+  v = List[*Node?]()
+  w = List[*(Node?)]()

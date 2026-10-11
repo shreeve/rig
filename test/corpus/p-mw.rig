@@ -1,13 +1,13 @@
 struct W
-  v: Vec[Int]
-  t: Text
+  v: List[Int]
+  t: String
 
 fun mkw() -> W
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  W(v: <v, t: Text("wt"))
+  W(v: <v, t: String("wt"))
 
-sub keep(v: Vec[Int])
+sub keep(v: List[Int])
   print(v)
 
 sub main()

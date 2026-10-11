@@ -3,15 +3,15 @@
 # outlive them.
 
 sub main()
-  s: String = "x"
+  s: ?String = "x"
   if true
-    t = Text("abcdefghijklmnop")
+    t = String("abcdefghijklmnop")
     defer s = ?t[..]
   print(s)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   sl = ?e[..]
   if true
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(7)
     defer sl = ?v[..]
   print(sl)

@@ -1,22 +1,22 @@
 struct Rec
-  name: Text
+  name: String
   n: Int
 
 sub main()
-  v: Vec[Text] = Vec()
-  t = Text("a")
+  v: List[String] = List()
+  t = String("a")
   !v.push(<t)
-  !v.push(Text("b"))
+  !v.push(String("b"))
   print(v.len, v)
-  rows: Vec[Vec[Int]] = Vec()
-  r: Vec[Int] = Vec()
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
   !r.push(5)
   !rows.push(<r)
   print(rows.len)
-  rs: Vec[Rec] = Vec()
-  !rs.push(Rec(name: Text("x"), n: 1))
+  rs: List[Rec] = List()
+  !rs.push(Rec(name: String("x"), n: 1))
   print(rs.len)
-  bs = [Box(1), Box(2)]
+  bs = [^1, ^2]
   print(bs)
   for x in v
     print(x)

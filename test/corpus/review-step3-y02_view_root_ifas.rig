@@ -1,8 +1,8 @@
 struct S
-  o: Text?
+  o: String?
 
 sub main()
-  s = S(o: Text("abc"))
+  s = S(o: String("abc"))
   r = ?s
   if r.o as t
     s.o = none

@@ -1,4 +1,4 @@
 sub main()
-  a = [Text("a"), Text("b")]
-  !a[..].fill(Text("z"))
+  a = [String("a"), String("b")]
+  !a[..].fill(String("z"))
   print(a)

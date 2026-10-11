@@ -1,6 +1,6 @@
 sub main()
-  mk: fun() -> Vec[Int] = ||
-    v: Vec[Int] = Vec()
+  mk: fun() -> List[Int] = ||
+    v: List[Int] = List()
     !v.push(1)
     defer
       for i in 0..100

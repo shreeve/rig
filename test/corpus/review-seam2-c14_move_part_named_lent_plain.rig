@@ -2,10 +2,10 @@
 # oracle: main reject C3
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
 sub main()
-  s = S(n: 1, items: Vec())
+  s = S(n: 1, items: List())
   !s.items.push(1)
   x = <(!s).items
   print(x)

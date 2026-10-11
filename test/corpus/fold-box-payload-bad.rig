@@ -1,16 +1,16 @@
 # The fold: a String that views a Text slot (box-payload-bad): rejected, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct H
-  t: Text
+  t: String
 
 sub main()
-  e = E.full(t: Text("a"))
-  b: Box[String] = Box("x")
+  e = E.full(t: String("a"))
+  b: ^?String = ^"x"
   match ?e
-    .full(p) => b = Box(p)
+    .full(p) => b = ^p
     .empty => pass
   e = E.empty
   print(b)

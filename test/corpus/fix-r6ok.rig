@@ -1,5 +1,5 @@
 struct R
-  v: Vec[Int]
+  v: List[Int]
 
 fun get(o: ?R?) -> Int
   if o as value
@@ -13,5 +13,5 @@ fun put(o: !R?) -> Int
   0
 
 sub main()
-  o: R? = R(v: Vec())
+  o: R? = R(v: List())
   print(get(?o), put(!o))

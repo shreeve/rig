@@ -3,7 +3,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -13,22 +13,22 @@ struct H
   e: E
 
 fun mkh() -> H
-  H(e: E.a(r: Res(n: 1, t: Text("a"))))
+  H(e: E.a(r: Res(n: 1, t: String("a"))))
 
 sub loops()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   for x in v
     !v.push(x)
 
 sub ifs()
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   if o as x
     o = none
     print(x.len)
 
 sub boxes()
-  b = Box(E.a(r: Res(n: 2, t: Text("b"))))
+  b = ^E.a(r: Res(n: 2, t: String("b")))
   match b
     .a(r)
       <b
@@ -36,7 +36,7 @@ sub boxes()
     .b => pass
 
 sub held()
-  keep = Res(n: 0, t: Text("c"))
+  keep = Res(n: 0, t: String("c"))
   saved = ?keep
   match mkh().e
     .a(r) => saved = ?r

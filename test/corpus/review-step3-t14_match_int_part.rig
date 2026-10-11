@@ -1,9 +1,9 @@
 struct H
   arr: [2]Int
-  t: Text
+  t: String
 
 fun mkh(n: Int) -> H
-  H(arr: [n, 2], t: Text("x"))
+  H(arr: [n, 2], t: String("x"))
 
 sub main()
   match mkh(4).arr[0]

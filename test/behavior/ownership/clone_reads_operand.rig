@@ -3,11 +3,11 @@
 
 sub main()
   c = true
-  t = Text("aa")
-  u = Text("bbb")
+  t = String("aa")
+  u = String("bbb")
   w = +(t if c else u)
   print(w, (+(u if c else t)).len)
-  p = +Text("made")
+  p = +String("made")
   !p.add("!")
   print(p, t, u)
 

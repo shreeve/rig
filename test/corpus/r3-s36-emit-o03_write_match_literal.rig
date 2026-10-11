@@ -1,11 +1,11 @@
 # A literal pattern under `match !place` of an Int is rejected.
 # Each subject, condition operand, and place is evaluated once.
-fun s(tag: String, v: Int) -> Int
+fun s(tag: ?String, v: Int) -> Int
   print(tag)
   v
 
 sub main()
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(5)
   !v.push(6)
   print("-- guarded match on a call")

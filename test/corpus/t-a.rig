@@ -1,8 +1,8 @@
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   !v.push(7)
   2
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(0)
   print(v, grow(!v), v)

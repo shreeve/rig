@@ -3,17 +3,17 @@ enum Shape
   sq(s: Int)
 
 struct W
-  b: Box[?Shape]
+  b: ^?Shape
 
 sub main()
   s = Shape.sq(s: 2)
-  w = W(b: Box(?s))
+  w = W(b: ^?s)
   match w.b
     .circle(r)
       print("c", r)
     .sq(x)
       print("s", x)
-  t = Text("q")
-  ws: Vec[Box[?Text]] = Vec()
-  !ws.push(Box(?t))
+  t = String("q")
+  ws: List[^?String] = List()
+  !ws.push(^?t)
   print(ws[0].len, ws[0])

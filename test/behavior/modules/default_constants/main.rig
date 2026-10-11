@@ -6,8 +6,8 @@ use lib
 MAX = 3
 
 struct Stack
-  items: Vec[Int] = Vec()
-  names: Vec[String] = Vec[String]()
+  items: List[Int] = List()
+  names: List[?String] = List[?String]()
   hits: Int = 0
   slots: [MAX]Int = [MAX of -1]
   cap: Int = MAX
@@ -18,7 +18,7 @@ struct Stack
     !self.items.push(x)
     self.hits += 1
 
-fun pad(s: String, width: Int = MAX, fill: Int = lib.LIMIT) -> Int
+fun pad(s: ?String, width: Int = MAX, fill: Int = lib.LIMIT) -> Int
   s.len + width + fill
 
 sub main()

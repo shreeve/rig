@@ -1,21 +1,21 @@
 struct Node
   key: Int
-  left: Box[Node]?
-  right: Box[Node]?
+  left: ^Node?
+  right: ^Node?
 
   drop(!self)
     print("drop", self.key)
 
-sub insert(slot: !Box[Node]?, key: Int)
+sub insert(slot: !^Node?, key: Int)
   if !slot as n
     if key < n.key
       insert(!n.left, key)
     else
       insert(!n.right, key)
   else
-    slot = Box(Node(key: key, left: none, right: none))
+    slot = ^Node(key: key, left: none, right: none)
 
-sub walk(slot: ?Box[Node]?)
+sub walk(slot: ?^Node?)
   if slot as n
     walk(?n.left)
     print(n.key)
@@ -24,11 +24,11 @@ sub walk(slot: ?Box[Node]?)
 fun key(n: ?Node) -> Int
   n.key
 
-sub eat(b: Box[Node])
+sub eat(b: ^Node)
   print("eat", b.key)
 
 sub main()
-  b = Box(Node(key: 1, left: none, right: none))
+  b = ^Node(key: 1, left: none, right: none)
   r: ?Node = ?b
   eat(<b)
   print(r.key)

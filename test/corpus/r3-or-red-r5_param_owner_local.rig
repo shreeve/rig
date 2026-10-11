@@ -2,7 +2,7 @@ struct Holder
   r: []Int
 
 fun f(a: !Holder) -> Int
-  b: Vec[Int] = Vec()
+  b: List[Int] = List()
   !b.push(1)
   a.r = ?b[..]
   0

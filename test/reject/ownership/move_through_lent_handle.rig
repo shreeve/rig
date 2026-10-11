@@ -2,10 +2,10 @@
 # handles may still use: nothing is moved out of it.
 
 struct S
-  items: Vec[Int]
+  items: List[Int]
 
 sub main()
-  h = *S(items: Vec())
+  h = *S(items: List())
   x = <h.items
   print(x)
 

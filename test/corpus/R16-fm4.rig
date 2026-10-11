@@ -13,7 +13,7 @@ sub main()
   g = |!c|
     !c.inc()
   g()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = |!v|
     !v.push(1)
   h()

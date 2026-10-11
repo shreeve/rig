@@ -5,37 +5,37 @@
 use std.text
 
 struct H
-  s: String
+  s: ?String
 
 fun g() -> Int
-  p = if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
+  p = if text.strip_prefix(?String("pre-fix"), "pre-") as rest
     rest
   else
     "q"
   p.len
 
 sub main()
-  o: String = "init"
-  o = if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
+  o: ?String = "init"
+  o = if text.strip_prefix(?String("pre-fix"), "pre-") as rest
     rest
   else
     "q"
   h = H(s: "x")
-  h.s = if text.cut(?Text("k=v"), "=") as kv
+  h.s = if text.cut(?String("k=v"), "=") as kv
     kv.after
   else
     "none"
-  q: String = "a"
+  q: ?String = "a"
   q = if false
     "b"
-  else if text.cut(?Text("k=v"), "=") as kv
+  else if text.cut(?String("k=v"), "=") as kv
     kv.before
   else
     "c"
   print(o, h.s, q, g())
 
-# error: 11:29: a view of the temporary `Text("pre-fix")` outlives its statement
-# error: 19:29: a view of the temporary `Text("pre-fix")` outlives its statement
-# error: 24:22: a view of the temporary `Text("k=v")` outlives its statement
-# error: 31:21: a view of the temporary `Text("k=v")` outlives its statement
+# error: 11:29: a view of the temporary `String("pre-fix")` outlives its statement
+# error: 19:29: a view of the temporary `String("pre-fix")` outlives its statement
+# error: 24:22: a view of the temporary `String("k=v")` outlives its statement
+# error: 31:21: a view of the temporary `String("k=v")` outlives its statement
 # errors: 4

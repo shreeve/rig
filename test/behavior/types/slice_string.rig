@@ -1,6 +1,6 @@
 # `s[a..b]` of a String is a String: the bytes from `a` up to `b`.
 
-fun middle(s: String) -> String
+fun middle(s: ?String) -> ?String
   s[1..s.len - 1]
 
 sub main()

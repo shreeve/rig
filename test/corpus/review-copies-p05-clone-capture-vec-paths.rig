@@ -4,23 +4,23 @@ struct N
     print("drop", self.v)
 
 fun build() -> *fun() -> Int
-  v: Vec[Text] = Vec()
-  !v.push(Text("aa"))
-  !v.push(Text("bbb"))
+  v: List[String] = List()
+  !v.push(String("aa"))
+  !v.push(String("bbb"))
   f = *|+v| v.len + v[1].len
-  !v.push(Text("c"))
+  !v.push(String("c"))
   f
 
 sub unused()
-  v: Vec[Text] = Vec()
-  !v.push(Text("zz"))
+  v: List[String] = List()
+  !v.push(String("zz"))
   f = |+v| v.len
   if v.len > 5
     print(f())
   print("unused", v.len)
 
 sub many()
-  hs: Vec[*N] = Vec()
+  hs: List[*N] = List()
   !hs.push(*N(v: 7))
   f = |+hs| hs[0].v
   <hs

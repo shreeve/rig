@@ -11,13 +11,13 @@
 
 struct H
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
-  sub put(!self, dst: !Vec[?Vec[Int]])
+  sub put(!self, dst: !List[?List[Int]])
     !self.v.push(1)
     !dst.push(?self.v)
 
-  sub puts(!self, dst: !Vec[[]Int])
+  sub puts(!self, dst: !List[[]Int])
     !self.v.push(1)
     !dst.push(?self.v[..])
 
@@ -29,34 +29,34 @@ struct Slot
   s: []Int
 
 sub store_read_view()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = H(n: 1, v: <v)
-  d: Vec[?Vec[Int]] = Vec()
+  d: List[?List[Int]] = List()
   !h.put(!d)
-  h = H(n: 2, v: Vec())
+  h = H(n: 2, v: List())
   print(d.len)
 
 sub bang_receiver()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = H(n: 1, v: <v)
-  d: Vec[?Vec[Int]] = Vec()
+  d: List[?List[Int]] = List()
   !h.put(!d)
   !h.v.push(5)
   print(d.len)
 
 sub store_slice()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = H(n: 1, v: <v)
-  d: Vec[[]Int] = Vec()
+  d: List[[]Int] = List()
   !h.puts(!d)
   for i in 0..100
     !h.v.push(i)
   print(d[0])
 
 sub store_into_struct()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = H(n: 1, v: <v)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   sl = Slot(s: ?e[..])
   !h.putf(!sl)
   for i in 0..100

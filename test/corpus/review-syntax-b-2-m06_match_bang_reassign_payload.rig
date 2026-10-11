@@ -1,18 +1,18 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 fun keepv(s: []Int) -> []Int
   s
 
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub main()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .a(t)
       s = keep(?t[1..])
-      t = Text("other")
+      t = String("other")
       print(s)
     .b => print("b")

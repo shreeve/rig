@@ -1,5 +1,5 @@
 struct Bag[T]
-  items: Vec[T] = Vec()
+  items: List[T] = List()
   n: Int = 0
 
   sub add(!self, x: T)
@@ -7,12 +7,12 @@ struct Bag[T]
     self.n += 1
 
 struct Holder
-  bag: Bag[String]
+  bag: Bag[?String]
 
 sub main()
-  b = Bag[String]()
+  b = Bag[?String]()
   !b.add("a")
   c = Bag[Int]()
   !c.add(3)
-  h = Holder(bag: Bag[String]())
+  h = Holder(bag: Bag[?String]())
   print(b.items.len, c.items.len, h.bag.items.len, b.n)

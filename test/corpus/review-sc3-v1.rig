@@ -3,7 +3,7 @@ struct P
   y: Int
 
 sub main()
-  vs: Vec[[2]Int] = Vec()
+  vs: List[[2]Int] = List()
   !vs.push([1, 2])
   !vs.push([3, 4])
   vs[0][1] = 9

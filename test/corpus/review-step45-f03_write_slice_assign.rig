@@ -1,11 +1,11 @@
 # assign through a write slice of owners drops the old element
-sub set(s: ![]Text)
-  s[0] = Text("z")
+sub set(s: ![]String)
+  s[0] = String("z")
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   set(!v)
-  a = [Text("p"), Text("q")]
+  a = [String("p"), String("q")]
   set(!a)
   print(v, a)

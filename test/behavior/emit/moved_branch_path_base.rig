@@ -17,9 +17,9 @@ sub main()
   arr = [1, 2]
   b = [3, 4]
   z = (<(?arr if c else ?b))[1]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(8)
   u = (<(?v if not c else ?w))[0]
   print(p.x, q.a, y, z, u)

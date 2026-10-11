@@ -2,7 +2,7 @@ error Bad
   oops
 
 struct N
-  s: String
+  s: ?String
   k: Int
 
 fun get(r: ?N, ok: Bool) -> (?N)!

@@ -6,10 +6,10 @@ struct Holder
 
 sub main()
   x = [9, 9]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = Holder(r: ?x[..])
-  g = |a: !Holder, b: !Vec[Int]|
+  g = |a: !Holder, b: !List[Int]|
     a.r = ?b[..]
     for i in 0..100
       !b.push(i)

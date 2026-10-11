@@ -1,20 +1,20 @@
 # a read view of an element obtained via ?self through a held write view, then push through the holder (expect reject)
 struct Cur
-  items: !Vec[Text]
+  items: !List[String]
 
-  fun peek(?self) -> ?Text
+  fun peek(?self) -> ?String
     ?self.items[0]
 
-  sub add(!self, t: Text)
+  sub add(!self, t: String)
     !self.items.push(<t)
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("hello world, long enough for the heap"))
+  v: List[String] = List()
+  !v.push(String("hello world, long enough for the heap"))
   c = Cur(items: !v)
   a = ?c.peek()
-  !c.add(Text("b"))
-  !c.add(Text("c"))
-  !c.add(Text("d"))
-  !c.add(Text("e"))
+  !c.add(String("b"))
+  !c.add(String("c"))
+  !c.add(String("d"))
+  !c.add(String("e"))
   print(a)

@@ -1,5 +1,5 @@
 # Pre-existing (main too): the release miscompile of a Cell change through
-# a `?self` receiver, where the push reallocates the Vec. If the drop sees
+# a `?self` receiver, where the push reallocates the List. If the drop sees
 # the header from before the push, it frees a buffer realloc already freed.
 #
 # oracle: V.drop accept
@@ -7,7 +7,7 @@
 # oracle: build accept
 # oracle: maybe accept
 struct V
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   drop(!self)
     print("drop", self.c.len)
@@ -16,8 +16,8 @@ struct V
     !self.c.push(n)
     self.c.len
 
-fun build(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun build(n: Int) -> List[Int]
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i)
   v

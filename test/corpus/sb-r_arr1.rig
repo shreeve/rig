@@ -1,4 +1,4 @@
-sub f(s: [2]Vec[Int])
+sub f(s: [2]List[Int])
   print(1)
 
 sub main()

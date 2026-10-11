@@ -1,11 +1,11 @@
 struct W
-  t: !Text
+  t: !String
 
-fun grab(w: ?W) -> String
+fun grab(w: ?W) -> ?String
   ?w.t[..3]
 
 sub main()
-  t = Text("abcdefghijklmnop")
+  t = String("abcdefghijklmnop")
   w = W(t: !t)
   s = grab(?w)
   w2 = W(t: !t)

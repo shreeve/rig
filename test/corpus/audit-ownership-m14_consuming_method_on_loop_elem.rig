@@ -23,8 +23,8 @@ struct R
     print("done", self.t.n)
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(R(t: *Tok(n: 1))))
+  v: List[^R] = List()
+  !v.push(^R(t: *Tok(n: 1)))
   for b in ?v
     <b.done()
   print("end")

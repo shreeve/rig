@@ -1,6 +1,6 @@
 sub main()
-  o1: Text? = Text("hello")
-  o2: Text? = Text("bye")
+  o1: String? = String("hello")
+  o2: String? = String("bye")
   c = true
   if (o1 if c else o2) as x
     r = ?x[1..]

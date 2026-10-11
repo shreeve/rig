@@ -7,13 +7,13 @@ struct D
   drop(!self)
     print("drop", self.s[0])
 
-fun mkd(w: ?Vec[Int], i: Int) -> D?
+fun mkd(w: ?List[Int], i: Int) -> D?
   if i < 3
     return D(s: ?w[..])
   none
 
 sub main()
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(2)
   i = 0
   while i >= 0 and mkd(?w, i) as x: !w.push(9)

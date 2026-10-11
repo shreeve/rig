@@ -1,4 +1,4 @@
-# A read view of a Vec element through a lent to read receiver reads
+# A read view of a List element through a lent to read receiver reads
 # the element in place.
 
 struct P
@@ -6,7 +6,7 @@ struct P
   y: Int
 
 struct Bag[T]
-  items: Vec[T]
+  items: List[T]
 
   fun first(?self) -> ?T
     ?self.items[0]
@@ -15,15 +15,15 @@ struct Bag[T]
     ?self.items[i]
 
 sub main()
-  a: Bag[Int] = Bag(items: Vec())
+  a: Bag[Int] = Bag(items: List())
   !a.items.push(4)
   !a.items.push(5)
   print(a.first(), a.at(1))
-  b: Bag[P] = Bag(items: Vec())
+  b: Bag[P] = Bag(items: List())
   !b.items.push(P(x: 1, y: 2))
   r = ?b.first()
   print(r.y)
-  s: Bag[String] = Bag(items: Vec())
+  s: Bag[?String] = Bag(items: List())
   !s.items.push("hi")
   print(s.first())
 

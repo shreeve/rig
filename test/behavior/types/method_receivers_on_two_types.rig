@@ -2,9 +2,9 @@
 # type; each call's result is formatted by its own type.
 
 struct User
-  name: String
+  name: ?String
 
-  fun greet(?self) -> String
+  fun greet(?self) -> ?String
     self.name
 
 enum Color

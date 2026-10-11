@@ -1,8 +1,8 @@
-sub f(v: !Vec[Int])
+sub f(v: !List[Int])
   v.push(1)
   !v.push(2)
   print(v.len)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f(!v)

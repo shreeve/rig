@@ -13,4 +13,4 @@ fun f[T](a: Opt[T], d: Opt[T]) -> Int
   0
 
 sub main()
-  print(f(Opt.some(Text("hello")), Opt[Text].none))
+  print(f(Opt.some(String("hello")), Opt[String].none))

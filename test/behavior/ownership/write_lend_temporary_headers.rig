@@ -4,7 +4,7 @@
 
 struct B
   n: Int
-  items: Vec[Int]
+  items: List[Int]
   o: Int?
 
   fun pop(!self) -> Int
@@ -18,7 +18,7 @@ struct B
     self.o
 
 fun mk() -> B
-  b = B(n: 1, items: Vec(), o: 5)
+  b = B(n: 1, items: List(), o: 5)
   !b.items.push(7)
   b
 

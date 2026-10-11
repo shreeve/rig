@@ -1,5 +1,5 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 sub take(s: S)
   print(s.v.len)
@@ -8,5 +8,5 @@ sub g(s: ?S)
   take(<s)
 
 sub main()
-  s = S(v: Vec())
+  s = S(v: List())
   g(?s)

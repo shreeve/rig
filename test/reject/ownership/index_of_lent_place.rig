@@ -7,12 +7,12 @@
 struct P
   a: [4]Int
 
-fun grow(v: !Vec[P]) -> Int
+fun grow(v: !List[P]) -> Int
   for _ in 0..100
     !v.push(P(a: [0, 0, 0, 0]))
   1
 
-fun eat(v: Vec[P]) -> Int
+fun eat(v: List[P]) -> Int
   v.len
 
 fun get(n: ?Int) -> Int
@@ -22,7 +22,7 @@ sub set9(n: !Int)
   n = 9
 
 sub main()
-  ps: Vec[P] = Vec()
+  ps: List[P] = List()
   !ps.push(P(a: [1, 2, 3, 4]))
   x = 9
   swap(!ps[0].a[grow(!ps)], !x)

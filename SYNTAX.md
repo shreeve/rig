@@ -229,7 +229,7 @@ is a reserved name, the absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
-The built-in types `Cell`, `Vec`, `Box`, `Text`, `Signal`, and
+The built-in types `Cell`, `List`, `String`, `Signal`, and
 `Endian` are reserved names. The built-in functions `print`, `replace`, and `swap`
 are names a declaration may hide.
 
@@ -297,8 +297,8 @@ So a sigil touches what it marks, and spacing shows how a line reads:
   `a<b`, never `a <b` or `a< b`. This holds for every operator between
   two values: arithmetic, comparisons, `??`, `..`, the bitwise
   operators, and `=` and the compound assignments.
-- A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in
-  an expression and in a type: `-b`, `<x`, `*T`, `[]?T`.
+- A prefix sigil (`<` `+` `-` `*` `^` `?` `!` `~`) touches its operand, in
+  an expression and in a type: `-b`, `<x`, `*T`, `^T`, `[]?T`.
 - A postfix `?` or `!` touches what it follows: `f()!`, `x?`, `T?`.
 - A call's parenthesis and an index's bracket touch what they follow:
   `f(x)`, `xs[0]`, never `f (x)` or `xs [0]`.
@@ -406,7 +406,7 @@ where the value is discarded: a statement, alone or under `!`, `?`, or
 
 ```rig
 struct Stack
-  items: Vec[Int]
+  items: List[Int]
 
   sub push(!self, k: Int)
     !self.items.push(k)
@@ -421,7 +421,7 @@ struct Stack
     sum
 
 sub main()
-  s = Stack(items: Vec())
+  s = Stack(items: List())
   !s.push(1)
   !s.push(2)
   !s.items.push(3)
@@ -470,35 +470,39 @@ operator does, and which types it takes, is in
 | Form | Written | Meaning |
 |---|---|---|
 | a named type | `Int`, `Point`, `geo.Point` | a built-in, local, or imported type |
-| a generic instance | `Vec[Int]`, `Pair[Int, String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
+| a generic instance | `List[Int]`, `Pair[Int, ?String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
 | read view | `?T` | [SPEC §7](SPEC.md#lending) |
 | write view | `!T` | a parameter's, a receiver's, a result's, or a binding's type ([SPEC §2](SPEC.md#composite-and-handle-types)) |
+| box | `^T` | [SPEC §10](SPEC.md#box) |
 | shared handle | `*T` | [SPEC §9](SPEC.md#9-shared-and-weak-handles) |
 | weak handle | `~T` | |
 | array | `[4]Int`, `[LIMIT * 2]U8`, `[n]T` | a length known at compile time |
 | slice | `[]T` | a read-only view |
 | writable slice | `![]T` | a write view: where `!T` stands |
-| function | `fun(Int, Int) -> Int`, `sub(String)`, `sub(Int)!` | [SPEC §11](SPEC.md#function-types) |
+| function | `fun(Int, Int) -> Int`, `sub(?String)`, `sub(Int)!` | [SPEC §11](SPEC.md#function-types) |
 | owned closure | `*fun(Int) -> Int`, `*sub()` | |
 | weak closure | `~fun(Int) -> Int` | |
 | callable view | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),
-`F32`, `Bool`, `String`, `Static`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
-what each holds. `Text`, owned text, is a built-in type
-([SPEC §10](SPEC.md#text)).
+`F32`, `Bool`, `?String`, `Static`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
+what each holds. `String`, owned text, is a built-in type
+([SPEC §10](SPEC.md#string)).
 
-**How the sigils combine.** The handle sigils `*` and `~` bind to the
-type after them, tighter than the suffixes: `*User?` is an optional
-shared handle and `~User?` an optional weak handle, while a handle to
-an optional is written `*(User?)`. A view sigil applies to the whole
+**How the sigils combine.** The holding sigils `^`, `*` and `~` bind to
+the type after them, tighter than the suffixes: `^Node?` is an optional
+box, `*User?` an optional shared handle and `~User?` an optional weak
+handle, while a box or handle of an optional is written `^(Node?)`,
+`*(User?)`. A value is held one way on the heap, so `^^T`, `^*T`, `*^T`,
+`^~T`, and `**T` are rejected. A box may hold a read view, written
+`^?T`. A view sigil applies to the whole
 type after it, suffixes included: `?User?` and `!User?` view an
 optional, and `?*User?` views an optional handle. Prefixes compose right
 to left: `?*Node` is a read view of a shared handle, and
-`*Cell[Vec[*sub()]]` a shared cell holding a list of owned closures.
+`*Cell[List[*sub()]]` a shared cell holding a list of owned closures.
 The element of a slice or array takes the suffixes (`[]Int?` is a slice
 of optionals), and a function type takes none, so an optional slice,
 array, or function type is written in parentheses: `([]Int)?`,
@@ -508,7 +512,7 @@ fail, and `(?S)?` an optional read view of an `S`.
 
 ```rig
 struct User
-  name: String
+  name: ?String
 
 fun named(u: ?*User?) -> Bool
   u != none
@@ -525,7 +529,7 @@ false true
 
 ```rig reject
 struct User
-  name: String
+  name: ?String
 
 sub main()
   c: *(User?) = none
@@ -564,7 +568,7 @@ fun area(w: Int, h: Int) -> Int
 fun sign(n: Int) -> Int
   return 1 if n > 0 else -1 if n < 0 else 0
 
-sub report(label: String, n: Int)
+sub report(label: ?String, n: Int)
   print(label, n)
 
 sub main()
@@ -588,8 +592,8 @@ sign -1
   `fun answer() -> Int`.
 - The body's last expression is its value; `return e` leaves early.
 - A result that holds a view may say which parameters it views, after
-  its type: `-> ?Item from a`, `-> String from a, b`, `-> ?T from
-  self`, or `-> String from static` for only what lives for the whole
+  its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
+  self`, or `-> ?String from static` for only what lives for the whole
   program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
@@ -766,11 +770,11 @@ value. There is no `<T>` and no `comptime` keyword.
 
 | | Declared | Used |
 |---|---|---|
-| generic type | `struct Pair[T, U]`, `enum Option[T]` | `Pair[Int, String]`, `Pair(first: 1, second: "x")`, `Option[Int].some(7)` |
+| generic type | `struct Pair[T, U]`, `enum Option[T]` | `Pair[Int, ?String]`, `Pair(first: 1, second: "x")`, `Option[Int].some(7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
 | generic method | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
-| both | `sub rep[T, n: Int](x: T)` | `rep[String, 3]("hi")` |
+| both | `sub rep[T, n: Int](x: T)` | `rep[?String, 3]("hi")` |
 | a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
 | a type with a value | `struct Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [4 of 0])` |
 
@@ -795,13 +799,13 @@ sub rep[T, n: Int](x: T)
   for i in 0..n
     print(i, x)
 
-fun label(n: Int) -> String
+fun label(n: Int) -> ?String
   "big" if n > 9 else "small"
 
 sub main()
   b = Wrap(v: 12)
   print(b.map(label).v, max(3, 7), max[Float](1, 2))
-  rep[String, 2]("hi")
+  rep[?String, 2]("hi")
 ```
 
 ```output
@@ -946,7 +950,7 @@ write the ternary.
 error E
   bad
 
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   return E.bad if s == "x"
   s.len
 
@@ -995,8 +999,8 @@ iteration. An `else` block runs when the loop ends without `break`.
 
 ### for
 
-`for x in source` walks a range `a..b`, an array, a slice, a `String`
-(its bytes), a `Vec`, or an iterator, a value whose type has
+`for x in source` walks a range `a..b`, an array, a slice, a `?String`
+(its bytes), a `List`, or an iterator, a value whose type has
 `next(!self) -> T?` (`for x in it` is `while (!it).next() as x`).
 `for x, i in xs` also binds the index, after the element (not for an
 iterator). A sigil on the source says how the loop holds it.
@@ -1026,7 +1030,7 @@ sub main()
 |---|---|
 | `for x in xs`, `for x in ?xs` | each element read in place: a copy of plain data, a view of anything else |
 | `for x in !xs` | a write view of each element |
-| `for x in <v` | each element of a Vec, owned; `v` is consumed |
+| `for x in <v` | each element of a List, owned; `v` is consumed |
 | `for x in it`, `for x in !it` | each value an iterator gives, advancing `it` where it stands |
 
 A source made there (`for x in mk()`) is taken; [SPEC §6](SPEC.md#for)
@@ -1095,7 +1099,7 @@ pattern may list alternatives (`0, 1 =>`) and end with a guard
 arm that matches runs, and there is no fallthrough.
 
 ```rig
-fun kind(n: Int) -> String
+fun kind(n: Int) -> ?String
   match n
     0, 1 => "unit"
     k if k < 0 => "negative"
@@ -1288,13 +1292,13 @@ sub main()
 A struct is built by calling its name with its fields named,
 `Point(x: 1, y: 2)`, leaving out fields that have defaults. A struct
 with exactly one field also takes it by position: `Meters(3.5)`, and
-the built-ins `Box(x)`, `*Cell(0)`, and `*Signal(0)`. A payload variant
+the built-ins `^x`, `*Cell(0)`, and `*Signal(0)`. A payload variant
 is built the same way, `.rect(w: 2, h: 5)` or `Shape.circle(2)`, and a
 generic type's arguments may be given in brackets:
-`Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,
-`Option[Int].some(7)`. A `Vec` is built empty, `Vec()` or
-`Vec(capacity: 16)`. A `Text` is built from any values, each written
-as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
+`Pair[Int, Float](first: 1, second: 2.5)`, `List[Int]()`,
+`Option[Int].some(7)`. A `List` is built empty, `List()` or
+`List(capacity: 16)`. A `String` is built from any values, each written
+as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 
 ### Members, indexes, and slices
 
@@ -1302,13 +1306,13 @@ as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
 |---|---|
 | `p.x`, `p.m()` | a field (a field read never runs code), a method call |
 | `xs[i]` | an element, bounds-checked |
-| `s[a..b]` | a slice of a String, itself a String |
-| `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or Vec |
-| `?t[a..b]` | a lend of part of a Text: a String viewing it |
-| `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a String: a slice argument is lent as its name is |
+| `s[a..b]` | a slice of a `?String`, itself a `?String` |
+| `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or List |
+| `?t[a..b]` | a lend of part of a String: a `?String` viewing it |
+| `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a `?String`: a slice argument is lent as its name is |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
-| `?t` where a String is expected | `?t[..]` of a Text |
+| `?t` where a `?String` is expected | `?t[..]` of a String |
 | `xs.len`, `s.len`, `v.len` | a length, a field |
 | `mod.name`, `mod.Type.name` | a module's declaration or a type's member |
 
@@ -1351,7 +1355,7 @@ sub show[n: Int]()
 sub main()
   xs = [10, 20, 30]
   ops = [double, double]
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(xs[2])
   show[2]()
   a = Wrap[Row](v: [1, 2, 3])
@@ -1387,7 +1391,7 @@ generic type `Pair` expects 2 type arguments, got 1
 
 ```rig reject
 sub main()
-  v = Vec[[]Int]()
+  v = List[[]Int]()
 ```
 
 ```error
@@ -1442,7 +1446,9 @@ the same sigil means the same thing in every position:
 | statement (drop now) | | | `<x` | | |
 
 `*x` moves a value into a new shared handle (`*<x` for a named owning
-value, `*Point(x: 1)` for a new one). `<x` alone on a line drops `x`
+value, `*Point(x: 1)` for a new one), and `^x` into a new box (`^<x`,
+`^Point(x: 1)`). Between two values `^` is the bit-wise exclusive or,
+and a prefix `^` touches its operand. `<x` alone on a line drops `x`
 now; where a value is expected, it moves it there. A sigil may reach
 into a place: `+p.a` clones the handle in a field, `<p.f` takes an optional
 field, and `?xs[0]` lends an element. [SPEC §7](SPEC.md#7-ownership)
@@ -1595,9 +1601,9 @@ zdecl     = "fun" name [tparams] params ["->" type [from]]
           | "sub" name [tparams] params ["!"]
 
 type      = ("?" | "!") type | ptype | tsuffix
-ptype     = ("*" | "~")* ("[" [dim] "]" type
+ptype     = ("^" | "*" | "~")* ("[" [dim] "]" type
           | "fun" "(" [type, ...] ")" "->" type | "sub" "(" [type, ...] ")" ["!"])
-tsuffix   = tsuffix ("?" | "!") | ("*" | "~")* tatom
+tsuffix   = tsuffix ("?" | "!") | ("^" | "*" | "~")* tatom
 tatom     = tname | tname "[" targ, ... "]" | "(" type ")"
 tname     = name | name "." name
 targ      = type | ["-"] integer | "(" integer ")" | cexp
@@ -1639,7 +1645,7 @@ logic     = logic "or" conj | conj
 conj      = conj "and" neg | neg
 neg       = "not" neg | infix "as" name | infix
 infix     = unary (op unary)*                       # the table in section 6
-unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
+unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~" | "^") unary | postfix
 postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]"
           | "[" expr, expr, ... "]" | "(" args ")" | "!" | "?") | atom
 args      = [(name ":" expr | expr), ...] | (name ":" expr | expr), ..., tail-closure

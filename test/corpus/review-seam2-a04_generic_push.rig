@@ -1,7 +1,7 @@
 # Review probe a04_generic_push.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
   sub bump(!self)
     self.n += 1
@@ -23,7 +23,7 @@ struct S
     print("drop", self.n)
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 
@@ -31,10 +31,10 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-sub stash[T](out: !Vec[T], x: T)
+sub stash[T](out: !List[T], x: T)
   !out.push(x)
 
 sub main()
-  v: Vec[!Int] = Vec()
+  v: List[!Int] = List()
   stash(!v, (!mk(1)).at())
   print(v.len)

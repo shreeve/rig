@@ -1,17 +1,17 @@
 struct Player
-  name: String
-  scores: Vec[Int]
+  name: ?String
+  scores: List[Int]
 
-fun name_of(p: ?Player) -> String
+fun name_of(p: ?Player) -> ?String
   p.name
 
 sub main()
-  ps: Vec[Box[Player]] = Vec()
-  !ps.push(Box(value: Player(name: "a", scores: Vec())))
+  ps: List[^Player] = List()
+  !ps.push(^Player(name: "a", scores: List()))
   print(name_of(?ps[0]))
   q = !ps[0]
   !q.scores.push(1)
-  hs: Vec[*Player] = Vec()
-  !hs.push(*Player(name: "b", scores: Vec()))
+  hs: List[*Player] = List()
+  !hs.push(*Player(name: "b", scores: List()))
   h = +hs[0]
   print(h.name)

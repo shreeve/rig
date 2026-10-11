@@ -1,21 +1,21 @@
 struct View
-  w: ?Vec[Int]
+  w: ?List[Int]
 
-  sub set(!self, w: ?Vec[Int])
+  sub set(!self, w: ?List[Int])
     self.w = w
 
 sub fill(out: !View, f: ?sub(!View))
   f(out)
 
-sub put(o: !View, w: ?Vec[Int])
+sub put(o: !View, w: ?List[Int])
   o.w = w
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   v = View(w: ?a)
   v = View(w: ?a)
   if true
-    b: Vec[Int] = Vec()
+    b: List[Int] = List()
     !b.push(1)
     !b.push(2)
     fill(!v, |?b, o| !o.set(b))

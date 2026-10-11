@@ -2,24 +2,24 @@
 # with a Text or a String, clears, and prints bare at the top level and
 # quoted inside other values. Every Text is released exactly once.
 
-type Str = Text
+type Str = String
 
 struct Note
-  title: Text
+  title: String
   n: Int
 
-fun shout(t: ?Text) -> Text
-  Text(t[..], "!")
+fun shout(t: ?String) -> String
+  String(t[..], "!")
 
-sub grow(t: !Text, n: Int)
+sub grow(t: !String, n: Int)
   for i in 0..n
     !t.add(i)
 
-fun take(t: Text) -> Int
+fun take(t: String) -> Int
   t.len
 
 sub main()
-  a = Text("abc")
+  a = String("abc")
   b = +a
   !b.add("d")
   print(a, b, a == b, a != b, a == "abc", "abcd" == b, b == ?a[..])
@@ -28,24 +28,24 @@ sub main()
   grow(!c, 3)
   print(c)
   !c.clear()
-  shown = Text("[", c, "]")
+  shown = String("[", c, "]")
   print(c.len, c == "", shown)
   !c.add("again")
   print(c)
-  note = Note(title: Text("hi"), n: 2)
+  note = Note(title: String("hi"), n: 2)
   print(note, note.title)
-  maybe: Text? = Text("m")
+  maybe: String? = String("m")
   print(maybe)
-  boxed = Box(Text("boxed"))
-  shared = *Text("shared")
+  boxed = ^String("boxed")
+  shared = *String("shared")
   other = +shared
-  cell = *Cell(Text("one"))
-  old = (!cell).replace(Text("two"))
+  cell = *Cell(String("one"))
+  old = (!cell).replace(String("two"))
   print(boxed, shared, other, old, shared.len)
   named: Str = Str("alias ", 1)
   print(named)
   print(take(<a))
-  a = Text("reborn")
+  a = String("reborn")
   print(a)
   <b
   print("done")

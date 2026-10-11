@@ -1,8 +1,8 @@
 struct Tag
-  s: String
+  s: ?String
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   a = Tag(s: ?t[..])
   b = a
   !t.add("!")

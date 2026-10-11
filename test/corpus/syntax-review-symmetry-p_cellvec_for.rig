@@ -1,5 +1,5 @@
 sub main()
-  c = *Cell(value: Vec[Int]())
+  c = *Cell(value: List[Int]())
   !c.push(1)
   for x in c
     print(x)

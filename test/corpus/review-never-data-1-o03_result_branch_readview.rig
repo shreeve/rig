@@ -1,13 +1,13 @@
 struct H
-  a: Text
-  b: Text
+  a: String
+  b: String
 
-fun pick(h: ?H, c: Bool) -> String
+fun pick(h: ?H, c: Bool) -> ?String
   h.a if c else h.b
 
-fun pickr(h: ?H, c: Bool) -> ?Text
+fun pickr(h: ?H, c: Bool) -> ?String
   h.a if c else h.b
 
 sub main()
-  h = H(a: Text("aa"), b: Text("bb"))
+  h = H(a: String("aa"), b: String("bb"))
   print(pick(h, true), pickr(h, false))

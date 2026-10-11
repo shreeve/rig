@@ -5,7 +5,7 @@ fun outer[T](x: T) -> *fun() -> Int
   inner(x)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f = outer(?v)
   <v
   print(f())

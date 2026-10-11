@@ -3,20 +3,20 @@ enum Sh
   s(k: Int)
 
 struct H
-  b: Box[Sh]
+  b: ^Sh
 
-fun area(b: ?Box[Sh]) -> Int
+fun area(b: ?^Sh) -> Int
   match b
     .c(r) => r * 3
     .s(k) => k * k
 
 sub main()
-  h = H(b: Box(value: Sh.c(r: 2)))
+  h = H(b: ^Sh.c(r: 2))
   match ?h.b
     .c(r) => print("c", r)
     .s(k) => print("s", k)
-  v: Vec[Box[Sh]] = Vec()
-  !v.push(Box(value: Sh.s(k: 3)))
+  v: List[^Sh] = List()
+  !v.push(^Sh.s(k: 3))
   for x in ?v
     match ?x
       .c(r) => print("c", r)

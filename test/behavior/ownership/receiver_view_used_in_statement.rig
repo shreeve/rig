@@ -11,9 +11,9 @@ struct P
     ?self.xs
 
 struct S
-  t: Text
+  t: String
 
-  fun inner(?self) -> ?Text
+  fun inner(?self) -> ?String
     ?self.t
 
   fun size(?self) -> Int
@@ -35,8 +35,8 @@ sub main()
   c = clobber(0) == 1
   print(mk(5).arr(), first(mk(6).arr(), clobber(9)))
   print((ps if c else qs)[1].arr(), first((?qs if c else ?ps)[0].arr(), clobber(7)))
-  a = S(t: Text("aa"))
-  b = S(t: Text("bbb"))
+  a = S(t: String("aa"))
+  b = S(t: String("bbb"))
   print((a if c else b).size(), (b if c else a).size())
   r = (?a if c else ?b).inner()
   print(clobber(1000))

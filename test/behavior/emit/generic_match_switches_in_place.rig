@@ -20,8 +20,8 @@ fun size[T](v: ?T) -> Int
 
 sub main()
   a = Opt.some(v: 3)
-  b: Opt[Text] = Opt.some(v: Text("x"))
-  n: Opt[Text] = .none
+  b: Opt[String] = Opt.some(v: String("x"))
+  n: Opt[String] = .none
   print(a.get(), b.get(), n.get(), a.all(), b.all(), n.all())
 
 # expect:

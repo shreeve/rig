@@ -1,6 +1,6 @@
 struct In
   n: Int = 1
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
 
 struct Out
   i: In

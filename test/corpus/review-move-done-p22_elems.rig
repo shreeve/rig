@@ -1,28 +1,28 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 sub e1()
-  vv: Vec[Vec[Int]] = Vec()
+  vv: List[List[Int]] = List()
   w = <vv[0]
   print(w.len)
 
 sub e2()
-  vs: Vec[S] = Vec()
+  vs: List[S] = List()
   w = <vs[0]
   print(w.v.len)
 
 sub e3()
-  vs: Vec[S] = Vec()
+  vs: List[S] = List()
   w = <vs[0].v
   print(w.len)
 
 sub e4()
-  a = [S(v: Vec()), S(v: Vec())]
+  a = [S(v: List()), S(v: List())]
   w = <a[0]
   print(w.v.len)
 
 sub e5()
-  a = [S(v: Vec()), S(v: Vec())]
+  a = [S(v: List()), S(v: List())]
   sl = !a[..]
   w = <sl[0]
   print(w.v.len)

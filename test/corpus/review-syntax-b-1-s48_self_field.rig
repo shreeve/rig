@@ -2,7 +2,7 @@ fun keep(xs: []Int) -> []Int
   xs
 
 struct B
-  items: Vec[Int]
+  items: List[Int]
 
   sub go(!self)
     r = keep(?self.items[..])
@@ -10,6 +10,6 @@ struct B
     print(r)
 
 sub main()
-  b = B(items: Vec())
+  b = B(items: List())
   !b.items.push(1)
   !b.go()

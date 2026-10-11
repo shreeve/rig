@@ -2,9 +2,9 @@
 # site: `!u.rename(...)`.
 
 struct User
-  name: String
+  name: ?String
 
-  sub rename(!self, new_name: String)
+  sub rename(!self, new_name: ?String)
     print(new_name)
 
 sub main()

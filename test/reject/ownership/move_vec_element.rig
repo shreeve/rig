@@ -1,4 +1,4 @@
-# An element that moves cannot be moved out of a Vec: the Vec still
+# An element that moves cannot be moved out of a List: the List still
 # owns the slot. (`<` on an element that copies is rejected too.)
 
 struct P
@@ -8,7 +8,7 @@ sub eat(p: *P)
   print(p.n)
 
 sub main()
-  v: Vec[*P] = Vec()
+  v: List[*P] = List()
   !v.push(*P(n: 7))
   eat(<v[0])
 

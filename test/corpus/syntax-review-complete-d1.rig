@@ -2,7 +2,7 @@ const LIMIT = 8
 
 struct C
   n: Int = LIMIT
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   a: [4]Int = [4 of 0]
   m: Int = -1
 

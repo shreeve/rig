@@ -21,29 +21,29 @@ struct N
     print("drop", self.v)
 
 enum E
-  one(b: Box[N])
+  one(b: ^N)
   none
 
 sub assign_place()
-  o: Box[N]? = Box(N(v: 1))
+  o: ^N? = ^N(v: 1)
   if o as x
     o = none
     print(x.v)
 
 sub move_place()
-  o: Box[N]? = Box(N(v: 1))
+  o: ^N? = ^N(v: 1)
   if o as x
     p = <o
     print(x.v, p == none)
 
 sub drop_place()
-  o: Box[N]? = Box(N(v: 1))
+  o: ^N? = ^N(v: 1)
   if o as x
     <o
     print(x.v)
 
 sub move_view_then_assign()
-  o: Box[N]? = Box(N(v: 1))
+  o: ^N? = ^N(v: 1)
   if o as x
     y = <x
     o = none
@@ -51,28 +51,28 @@ sub move_view_then_assign()
 
 struct L
   v: Int
-  next: Box[L]?
+  next: ^L?
 
 sub take_payload()
-  o: Box[L]? = Box(L(v: 1, next: Box(L(v: 2, next: none))))
+  o: ^L? = ^L(v: 1, next: ^L(v: 2, next: none))
   if o as x
     y = <x.next
     print(y == none)
 
 sub while_assign()
-  o: Box[N]? = Box(N(v: 1))
+  o: ^N? = ^N(v: 1)
   while o as x
     o = none
     print(x.v)
 
 fun escape(d: ?N) -> ?N
-  o: Box[N]? = Box(N(v: 1))
+  o: ^N? = ^N(v: 1)
   if o as x
     return ?x
   d
 
 sub match_assign()
-  e = E.one(b: Box(N(v: 3)))
+  e = E.one(b: ^N(v: 3))
   match e
     .one(n)
       e = E.none

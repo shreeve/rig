@@ -1,6 +1,6 @@
 struct C
   n: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.n.set(self.n.get() + 1)
@@ -10,7 +10,7 @@ struct S
   h: *C
 
 sub main()
-  k = *C(n: Cell(0), log: Cell(Vec()))
+  k = *C(n: Cell(0), log: Cell(List()))
   s = *S(h: +k)
   const t = +s
   !t.h.hit()

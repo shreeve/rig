@@ -18,6 +18,6 @@ sub main()
   match !rr.h.s
     .circle(r) => r = 5
     _ => print("x")
-  b = Box(Box(Shape.circle(r: 2)))
+  b = ^^Shape.circle(r: 2)
   match !b
     _ => print("y")

@@ -7,33 +7,33 @@ use std.text
 use std.os
 
 sub main()
-  line = Text("name=ada")
+  line = String("name=ada")
   names = ["id", "name", "age"]
-  found: Vec[String] = Vec()
+  found: List[?String] = List()
   for name in names
-    key = Text(name, "=")
+    key = String(name, "=")
     if text.strip_prefix(?line, ?key) as v
       !found.push(v)
   print(found)
-  key = Text("name", "=")
+  key = String("name", "=")
   w = text.strip_prefix(?line, ?key) ?? ""
   <key
   print(w)
-  t = Text("abc")
-  p = Text("a")
+  t = String("abc")
+  p = String("a")
   r = text.strip_prefix(?t, ?p)
   !p.add("x")
   print(r ?? "", p)
-  q = Text("c")
+  q = String("c")
   s = text.strip_suffix(?t, ?q)
   <q
   print(s ?? "")
-  kv = Text("k=v")
-  sep = Text("=")
+  kv = String("k=v")
+  sep = String("=")
   if text.cut(?kv, ?sep) as parts
     !sep.add("x")
     print(parts.before, parts.after, sep)
-  n = Text("NO_SUCH_RIG_VARIABLE_", "X")
+  n = String("NO_SUCH_RIG_VARIABLE_", "X")
   e = os.env(?n) ?? "unset"
   <n
   print(e)

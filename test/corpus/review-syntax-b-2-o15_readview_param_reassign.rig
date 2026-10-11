@@ -1,9 +1,9 @@
-sub g(r: ?Text, u: ?Text)
+sub g(r: ?String, u: ?String)
   s = r[1..]
   r = u
   print(s)
 
 sub main()
-  t = Text("hello")
-  u = Text("other")
+  t = String("hello")
+  u = String("other")
   g(?t, ?u)

@@ -1,5 +1,5 @@
-fun mk() -> Text
-  Text("hello")
+fun mk() -> String
+  String("hello")
 
 sub main()
   s = mk()[1..]

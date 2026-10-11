@@ -1,4 +1,4 @@
-# An array inside a Vec element is assignable, a nested array is too, and
+# An array inside a List element is assignable, a nested array is too, and
 # indexing a string a call returns evaluates the call once.
 
 struct P
@@ -8,12 +8,12 @@ struct P
 struct Q
   z: Int
 
-fun name() -> String
+fun name() -> ?String
   print("called")
   "abc"
 
 sub main()
-  ps: Vec[P] = Vec()
+  ps: List[P] = List()
   !ps.push(P(a: [1, 2], q: Q(z: 0)))
   ps[0].a[1] = 30
   ps[0].q.z = 5

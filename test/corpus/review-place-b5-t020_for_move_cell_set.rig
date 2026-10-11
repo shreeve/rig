@@ -1,5 +1,5 @@
 sub main()
-  xs: Vec[Cell[Int]] = Vec()
+  xs: List[Cell[Int]] = List()
   !xs.push(Cell(1))
   for c in <xs
     !c.set(3)

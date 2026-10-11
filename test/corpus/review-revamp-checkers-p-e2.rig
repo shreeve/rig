@@ -3,13 +3,13 @@ error E
 
 struct Tok
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 sub eat(t: Tok)
   print("eat", t.n)
 
 fun id[T](x: T) -> T!
-  t = Tok(n: 4, v: Vec())
+  t = Tok(n: 4, v: List())
   errdefer print(t.v.len)
   eat(<t)
   x

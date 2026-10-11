@@ -1,15 +1,15 @@
 struct Stack[T]
-  items: Vec[T]
+  items: List[T]
 
   sub push(!self, x: T)
     !self.items.push(x)
 
-sub fill(s: !Stack[?Vec[Int]], v: ?Vec[Int])
+sub fill(s: !Stack[?List[Int]], v: ?List[Int])
   !s.push(v)
 
 sub main()
-  s: Stack[?Vec[Int]] = Stack(items: Vec())
-  v: Vec[Int] = Vec()
+  s: Stack[?List[Int]] = Stack(items: List())
+  v: List[Int] = List()
   !v.push(1)
   fill(!s, ?v)
   <v

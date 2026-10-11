@@ -5,14 +5,14 @@ struct R
     print("drop", self.n)
 
 struct S
-  v: Vec[*R]
+  v: List[*R]
 
   sub drain(!self)
     for x in <self.v
       print(x.n)
 
 sub main()
-  s = S(v: Vec())
+  s = S(v: List())
   !s.v.push(*R(n: 1))
   !s.drain()
   print(s.v.len)

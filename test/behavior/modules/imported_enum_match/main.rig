@@ -4,7 +4,7 @@
 
 use colors
 
-fun name(c: colors.Color) -> String
+fun name(c: colors.Color) -> ?String
   match c
     .red => "red"
     .green => "green"

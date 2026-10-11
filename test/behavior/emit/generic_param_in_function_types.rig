@@ -14,7 +14,7 @@ fun skip[_: Int, _](x: Int) -> Int
   x
 
 sub main()
-  print(zero[Int](1), seven[String](2), skip[3, Bool](4))
+  print(zero[Int](1), seven[?String](2), skip[3, Bool](4))
 
 # expect:
 # 1 7 4

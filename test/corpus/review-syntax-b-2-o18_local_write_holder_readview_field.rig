@@ -1,9 +1,9 @@
 struct R
-  f: ?Text
+  f: ?String
 
 sub main()
-  t = Text("hello")
-  u = Text("other")
+  t = String("hello")
+  u = String("other")
   r = R(f: ?t)
   w = !r
   s = w.f[1..]

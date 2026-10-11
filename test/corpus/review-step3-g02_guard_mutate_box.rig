@@ -1,16 +1,16 @@
 struct Res
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
   b
 
-fun clear(b: !Box[E]) -> Bool
-  b = Box(E.b)
+fun clear(b: !^E) -> Bool
+  b = ^E.b
   false
 
 sub main()
-  b = Box(E.a(r: Res(t: Text("abc"))))
+  b = ^E.a(r: Res(t: String("abc")))
   match b
     .a(_) if clear(!b) => print("one")
     .a(r) => print("second", r.t)

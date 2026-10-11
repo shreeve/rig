@@ -1,2 +1,2 @@
-sub main(args: []String)
+sub main(args: []?String)
   print(1)

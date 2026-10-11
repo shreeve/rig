@@ -1,5 +1,5 @@
 sub main()
-  t = Text("abc")
-  b = Box(?t)
+  t = String("abc")
+  b = ^?t
   !t.add("d")
   print(b)

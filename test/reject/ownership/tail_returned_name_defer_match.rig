@@ -1,12 +1,12 @@
 # A name a function returns through a `match` arm block leaves it before
 # the arm's defer runs.
-fun mk(k: Int) -> Vec[Int]
-  a: Vec[Int] = Vec()
+fun mk(k: Int) -> List[Int]
+  a: List[Int] = List()
   match k
     0
       defer !a.push(9)
       a
-    _ => Vec()
+    _ => List()
 
 sub main()
   x = mk(0)

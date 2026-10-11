@@ -26,8 +26,8 @@ sub sete(e: !E)
 sub setb(b: !Bool)
   b = true
 
-sub sets(s: !Text)
-  s = Text("x")
+sub sets(s: !String)
+  s = String("x")
 
 sub seto(o: !Int?)
   o = 1

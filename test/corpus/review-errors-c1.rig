@@ -2,7 +2,7 @@ error Disk
   full
   empty
 
-fun k3(d: ?Disk) -> String
+fun k3(d: ?Disk) -> ?String
   match d
     Disk.full => "f"
     .empty => "e"

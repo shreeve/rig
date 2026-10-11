@@ -1,5 +1,5 @@
 # C/Zig dev: FNV-1a hash, CRC-ish bit twiddling, a fixed ring buffer
-fun fnv1a(s: String) -> U64
+fun fnv1a(s: ?String) -> U64
   h: U64 = 0xcbf29ce484222325
   for b in s
     h ^= U64(b)

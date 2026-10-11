@@ -1,5 +1,5 @@
 enum S
-  a(s: String)
+  a(s: ?String)
   b
 
 sub main()

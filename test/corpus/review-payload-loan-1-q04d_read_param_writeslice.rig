@@ -1,13 +1,13 @@
 struct H
-  s: ![]Text
+  s: ![]String
 
 sub f(h: ?H)
   r = ?h.s[0][1..]
-  h.s[0] = Text("other")
+  h.s[0] = String("other")
   print(r)
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("hello"))
+  v: List[String] = List()
+  !v.push(String("hello"))
   h = H(s: !v[..])
   f(?h)

@@ -6,7 +6,7 @@ error E
 
 enum Shape
   dot
-  line(v: Vec[Int])
+  line(v: List[Int])
 
 fun mk(ok: Bool) -> Shape!
   if not ok
@@ -14,7 +14,7 @@ fun mk(ok: Bool) -> Shape!
   .dot
 
 sub main()
-  p: Vec[Int] = Vec()
+  p: List[Int] = List()
   !p.push(1)
   d = Shape.line(<p)
   if (mk(false) catch d) != .dot

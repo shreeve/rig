@@ -15,5 +15,5 @@ sub main()
   w = Wrap(check)
   f = w.item
   f(1)!
-  b = Box(sq)
+  b = ^sq
   print(b)

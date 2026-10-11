@@ -6,7 +6,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -16,7 +16,7 @@ struct H
   e: E
 
 fun mk() -> E
-  E.a(r: Res(n: 1, t: Text("m")))
+  E.a(r: Res(n: 1, t: String("m")))
 
 fun mkh() -> H
   H(e: mk())
@@ -29,7 +29,7 @@ fun local(d: ?Res) -> ?Res from d
 
 sub changed()
   e = mk()
-  k = Res(n: 0, t: Text("k"))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match e
     .a(r) => saved = ?r
@@ -39,7 +39,7 @@ sub changed()
 
 sub moved()
   e = mk()
-  k = Res(n: 0, t: Text("k"))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match e
     .a(r) => saved = ?r
@@ -48,7 +48,7 @@ sub moved()
   print(saved.n)
 
 sub dropped()
-  k = Res(n: 0, t: Text("k"))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match mkh().e
     .a(r) => saved = ?r
@@ -56,7 +56,7 @@ sub dropped()
   print(saved.n)
 
 sub inner()
-  k = Res(n: 0, t: Text("k"))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   if true
     e = mk()

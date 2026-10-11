@@ -1,11 +1,11 @@
 fun get(i: Int) -> Int?
   none if i == 2 else i
 
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print(v.len)
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   :outer for i in 0..3
     for j in 0..3
       n = get(j) ?? break :outer

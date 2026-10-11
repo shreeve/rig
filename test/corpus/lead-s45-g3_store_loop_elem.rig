@@ -1,13 +1,13 @@
 struct Keep[T]
   item: T?
 
-sub keep[T](v: ?Vec[T], k: !Keep[T])
+sub keep[T](v: ?List[T], k: !Keep[T])
   for x in v
     k.item = x
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  k = Keep[Text](item: none)
+  v: List[String] = List()
+  !v.push(String("a"))
+  k = Keep[String](item: none)
   keep(?v, !k)
   print(v.len)

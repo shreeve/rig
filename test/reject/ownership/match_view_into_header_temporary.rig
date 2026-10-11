@@ -8,20 +8,20 @@ enum E
   b
 
 enum F
-  a(s: String)
+  a(s: ?String)
   b
 
 struct H
   e: E
-  t: Text
+  t: String
 
 struct G
   f: F
 
 fun mkh(k: Int) -> H
-  H(e: E.a(n: k), t: Text("a text long enough to live on the heap"))
+  H(e: E.a(n: k), t: String("a text long enough to live on the heap"))
 
-fun mkg(s: String) -> G from s
+fun mkg(s: ?String) -> G from s
   G(f: F.a(s: s))
 
 fun pick(h: ?H) -> ?E
@@ -38,7 +38,7 @@ sub main()
   match pick(?mkh(8))
     .a(n) if k > 0 => print("a", n)
     _ => print("other")
-  match pickf(?mkg(?Text("a text long enough to live on the heap")))
+  match pickf(?mkg(?String("a text long enough to live on the heap")))
     .a(s) => print(s)
     .b => print("b")
   h = mkh(9)
@@ -52,4 +52,4 @@ sub main()
 # errors: 3
 # error: 35:15: this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into; bind `mkh(7)` to a name first
 # error: 38:15: the temporary `mkh(8)`
-# error: 41:16: the temporary `mkg(?Text("a text long enough to live on the heap"))`
+# error: 41:16: the temporary `mkg(?String("a text long enough to live on the heap"))`

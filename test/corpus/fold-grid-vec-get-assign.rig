@@ -1,24 +1,24 @@
 # The fold: a String that views a Text slot (vec-get-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct S
-  name: String
+  name: ?String
 
 struct H
-  t: Text
+  t: String
 
 fun id[T](x: ?T) -> ?T from x
   x
 
-fun first(v: ?Vec[Text]) -> ?Text from v
+fun first(v: ?List[String]) -> ?String from v
   ?v[0]
 
 sub main()
-  o: Vec[Text] = Vec()
-  !o.push(Text("hello"))
-  keep: String = ""
+  o: List[String] = List()
+  !o.push(String("hello"))
+  keep: ?String = ""
   keep = first(?o)
-  o[0] = Text("zzz")
+  o[0] = String("zzz")
   print(keep)

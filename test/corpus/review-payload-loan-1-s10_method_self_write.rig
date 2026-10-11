@@ -1,7 +1,7 @@
 struct R
-  t: Text
+  t: String
 
-  fun head(?self) -> String
+  fun head(?self) -> ?String
     ?self.t[..1]
 
   sub grow(!self)
@@ -13,7 +13,7 @@ enum E
   b
 
 sub main()
-  e = E.a(R(t: Text("hello")))
+  e = E.a(R(t: String("hello")))
   match !e
     .a(r)
       s = r.head()

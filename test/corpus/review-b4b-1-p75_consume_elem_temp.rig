@@ -1,15 +1,15 @@
 # match < on an element through a temp index. Expect reject or correct (no double free).
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[E] = Vec()
-  !v.push(E.a(t: Text("q")))
-  match <v[idx(?Text("a"))]
+  v: List[E] = List()
+  !v.push(E.a(t: String("q")))
+  match <v[idx(?String("a"))]
     .a(t) => print(t)
     .b => pass
   print(v.len)

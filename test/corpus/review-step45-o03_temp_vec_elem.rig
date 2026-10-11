@@ -1,13 +1,13 @@
-# index the Vec a call returns: print, bind, lend, take
-fun mk() -> Vec[Text]
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+# index the List a call returns: print, bind, lend, take
+fun mk() -> List[String]
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   <v
 
-fun mko() -> Vec[Text?]
-  v: Vec[Text?] = Vec()
-  !v.push(Text("a"))
+fun mko() -> List[String?]
+  v: List[String?] = List()
+  !v.push(String("a"))
   <v
 
 sub main()

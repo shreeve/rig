@@ -5,7 +5,7 @@ struct Hold[T]
     *|<self| 1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = Hold(v: ?v)
   f = h.later()
   <v

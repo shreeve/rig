@@ -2,8 +2,8 @@ struct Item
   n: Int
 
 struct Cursor
-  items: ?Vec[Item]
-  scratch: Vec[Item]
+  items: ?List[Item]
+  scratch: List[Item]
   i: Int
 
   fun next(!self) -> ?Item
@@ -12,9 +12,9 @@ struct Cursor
     ?self.items[k]
 
 sub main()
-  v: Vec[Item] = Vec()
+  v: List[Item] = List()
   !v.push(Item(n: 1))
   !v.push(Item(n: 2))
-  c = Cursor(items: ?v, scratch: Vec(), i: 0)
+  c = Cursor(items: ?v, scratch: List(), i: 0)
   a = (!c).next()
   print(a.n)

@@ -1,7 +1,7 @@
 # A name a function returns through a branch block leaves it before the
 # branch's defer runs; the defer cannot write it.
-fun mk(c: Bool) -> Vec[Int]
-  a: Vec[Int] = Vec()
+fun mk(c: Bool) -> List[Int]
+  a: List[Int] = List()
   !a.push(1)
   if c
     defer
@@ -9,7 +9,7 @@ fun mk(c: Bool) -> Vec[Int]
         !a.push(i)
     a
   else
-    Vec()
+    List()
 
 sub main()
   x = mk(true)

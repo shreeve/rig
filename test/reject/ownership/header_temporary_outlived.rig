@@ -6,26 +6,26 @@
 # bindings that view one: header_temporary_view_bound.rig.)
 
 struct B
-  v: Vec[Int]
-  o: Text?
+  v: List[Int]
+  o: String?
 
 enum E
-  a(t: Text)
+  a(t: String)
   z
 
 struct H
   e: E
 
 fun mk() -> B
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  B(v: <v, o: Text("o"))
+  B(v: <v, o: String("o"))
 
 fun mke() -> E
-  E.a(t: Text("e"))
+  E.a(t: String("e"))
 
-fun mv() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mv() -> List[Int]
+  v: List[Int] = List()
   !v.push(2)
   v
 

@@ -1,11 +1,11 @@
 fun get(i: Int) -> Int?
   none if i == 2 else i
 
-fun eat(v: Vec[Int]) -> Int
+fun eat(v: List[Int]) -> Int
   v.len
 
 fun f(k: Int) -> Int
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   x = get(k) ?? eat(<a)
   print(a.len)
   x

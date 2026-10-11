@@ -13,10 +13,10 @@ struct Pair[A, B]
   b: B
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
-  t = Text("hey")
+  t = String("hey")
   h = Hold(v: ?v)
   r = ?h.get()
   print(r.len, h.v.len)

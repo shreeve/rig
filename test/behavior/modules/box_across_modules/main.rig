@@ -1,5 +1,5 @@
 # A type from another module is boxed, and holds boxes of itself in a
-# Vec; its methods are called through the boxes, and a consuming method
+# List; its methods are called through the boxes, and a consuming method
 # takes the value out of its box.
 
 use lib

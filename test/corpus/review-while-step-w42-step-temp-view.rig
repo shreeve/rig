@@ -4,12 +4,12 @@
 # oracle: mkv accept
 # oracle: all accept
 # oracle: main reject C5
-fun mkv(i: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv(i: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(i)
   v
 
-fun all(v: ?Vec[Int]) -> []Int
+fun all(v: ?List[Int]) -> []Int
   ?v[..]
 
 sub main()

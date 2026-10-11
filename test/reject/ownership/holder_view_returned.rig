@@ -4,22 +4,22 @@
 fun same[T](x: T) -> T
   x
 
-fun boxed() -> Box[?Vec[Int]]
-  v: Vec[Int] = Vec()
-  Box(?v)
+fun boxed() -> ^?List[Int]
+  v: List[Int] = List()
+  ^?v
 
-fun through() -> ?Vec[Int]
-  v: Vec[Int] = Vec()
+fun through() -> ?List[Int]
+  v: List[Int] = List()
   same(?v)
 
-fun optional() -> (?Vec[Int])?
-  v: Vec[Int] = Vec()
+fun optional() -> (?List[Int])?
+  v: List[Int] = List()
   ?v
 
 sub main()
   print(boxed().len, through().len, optional() == none)
 
-# error: 9:8: cannot return a view of `v`, which this function was not lent
+# error: 9:5: cannot return a view of `v`, which this function was not lent
 # error: 13:9: cannot return a view of `v`, which this function was not lent
 # error: 17:4: cannot return a view of `v`, which this function was not lent
 # errors: 3

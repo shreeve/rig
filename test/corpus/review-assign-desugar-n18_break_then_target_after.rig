@@ -1,13 +1,13 @@
 # A jump in an inner loop of the value does not leave the assignment.
 sub run(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   w[0] = match k
     1 => 4
     _
       for _ in 0..3
-        u: Vec[Int] = Vec()
+        u: List[Int] = List()
         !u.push(1)
         w = !u[0..1]
         break

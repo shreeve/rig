@@ -5,7 +5,7 @@ fun find(xs: []Int) -> ([]Int)?
     none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   if find(v[..]) as x
     !v.push(2)

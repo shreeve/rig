@@ -1,5 +1,5 @@
 sub main()
-  t = Text("abcdefgh")
+  t = String("abcdefgh")
   s = ?t[..]
   !t.add(s)
   print(t)

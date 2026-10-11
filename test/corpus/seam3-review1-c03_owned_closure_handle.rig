@@ -1,7 +1,7 @@
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  h = *Box(?v)
+  h = *^?v
   f: *fun() -> Int = *|+h| h.len
   <h
   <v

@@ -1,13 +1,13 @@
 # A `defer` that stores a loan on a local of its scope runs as the
 # scope ends, after which the local is gone.
 struct H
-  r: ?Vec[Int]
+  r: ?List[Int]
 
 sub main()
-  z: Vec[Int] = Vec()
+  z: List[Int] = List()
   h = H(r: ?z)
   if true
-    inner: Vec[Int] = Vec()
+    inner: List[Int] = List()
     !inner.push(9)
     defer h.r = ?inner
     print("in")

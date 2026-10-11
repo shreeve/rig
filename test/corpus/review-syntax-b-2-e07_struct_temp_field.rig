@@ -1,18 +1,18 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
-fun mk() -> Text
-  Text("hello")
+fun mk() -> String
+  String("hello")
 
-fun id(r: ?Text) -> ?Text
+fun id(r: ?String) -> ?String
   r
 
 struct H
-  t: Text
+  t: String
 
-fun name(h: ?H) -> ?Text
+fun name(h: ?H) -> ?String
   ?h.t
 
 sub main()
-  s = keep(name(?H(t: Text("hello")))[1..])
+  s = keep(name(?H(t: String("hello")))[1..])
   print(s)

@@ -4,7 +4,7 @@
 
 use mid
 
-fun name(s: String) -> String
+fun name(s: ?String) -> ?String
   _ = mid.twice(s) catch |err|
     match err
       .empty => return "empty"

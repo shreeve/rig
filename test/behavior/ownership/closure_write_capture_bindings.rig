@@ -4,7 +4,7 @@
 # written value then views it.
 
 struct View
-  w: ?Vec[Int]
+  w: ?List[Int]
   n: Int
 
 struct Wrap
@@ -18,7 +18,7 @@ sub main()
   f = |!x| x += 1
   f()
   print(x)
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   v = View(w: ?a, n: 0)
   g = |!v| v.n = 3
   g()
@@ -27,7 +27,7 @@ sub main()
   swap = |!h| h = *Wrap(n: 5)
   swap()
   print(h.n)
-  b: Vec[Int] = Vec()
+  b: List[Int] = List()
   !b.push(9)
   keep = |!v, ?b| v.w = b
   keep()

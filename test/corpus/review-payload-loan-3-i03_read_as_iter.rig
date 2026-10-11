@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
   n: Int
 
 fun show(q: ?P) -> Int
@@ -23,7 +23,7 @@ sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?))
     print(m)
 
 sub main()
-  p = P(t: Text("hello"), n: 3)
+  p = P(t: String("hello"), n: 3)
   o: (!P)? = !p
   a = [1, 2, 3]
   so: (![]Int)? = !a[..]

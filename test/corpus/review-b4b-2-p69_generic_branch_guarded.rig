@@ -24,4 +24,4 @@ sub g[T](a: T, b: T, k: T)
 
 sub main()
   g(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0))
-  g(Text("one"), Text("two two two two two two two two"), Text("k"))
+  g(String("one"), String("two two two two two two two two"), String("k"))

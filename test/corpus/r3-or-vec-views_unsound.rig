@@ -1,25 +1,25 @@
-# A Vec of views holds the loans pushed into it (Core §5, s6): each is
+# A List of views holds the loans pushed into it (Core §5, s6): each is
 # rejected where a view it holds would outlive or alias its owner.
 
 fun mk() -> Int
   3
 
-fun escapes() -> Vec[?Int]
+fun escapes() -> List[?Int]
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   v
 
 sub push_then_assign()
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   a = 2
   print(v[0])
 
 sub insert_then_assign()
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.insert(0, ?a)
   a = 3
   print(v)
@@ -27,7 +27,7 @@ sub insert_then_assign()
 sub store_then_assign()
   a = 1
   b = 2
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   v[0] = ?b
   b = 3
@@ -42,42 +42,42 @@ sub literal_then_assign()
 
 sub moved_then_assign()
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   w = <v
   a = 2
   print(w)
 
 sub loop_local()
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   for i in 0..3
     x = i
     !v.push(?x)
   print(v)
 
 sub temporary()
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?mk())
   print(v)
 
 sub element_then_push()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   !a.push(1)
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a[0])
   !a.push(2)
   print(v)
 
 sub write_twice()
   a = 1
-  v: Vec[!Int] = Vec()
+  v: List[!Int] = List()
   !v.push(!a)
   !v.push(!a)
   print(v.len)
 
 sub write_then_read()
   a = 1
-  v: Vec[!Int] = Vec()
+  v: List[!Int] = List()
   !v.push(!a)
   print(a)
   v[0] = 2
@@ -89,43 +89,43 @@ sub write_array_twice()
 
 sub popped_view()
   a = 1
-  v: Vec[?Int] = Vec()
+  v: List[?Int] = List()
   !v.push(?a)
   r = (!v).pop()
   a = 2
   print(r)
 
 sub element_of_owner()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   t = <v[0]
   print(t)
 
 struct Bag
-  items: Vec[?Int]
+  items: List[?Int]
 
 sub field_inner_scope()
-  bag = Bag(items: Vec())
+  bag = Bag(items: List())
   if true
     e = 8
     !bag.items.push(?e)
   print(bag.items)
 
 sub through_write_views()
-  inner: Vec[String] = Vec()
-  w: Vec[!Vec[String]] = Vec()
+  inner: List[?String] = List()
+  w: List[!List[?String]] = List()
   !w.push(!inner)
-  t = Text("x")
+  t = String("x")
   !w[0].push(?t)
   <w
   <t
   print(inner)
 
 struct Holder
-  s: String
+  s: ?String
 
 sub swapped_view()
-  t = Text("a")
+  t = String("a")
   h = Holder(s: ?t)
   k = Holder(s: "b")
   swap(!h, !k)
@@ -133,7 +133,7 @@ sub swapped_view()
   print(k.s)
 
 sub replaced_view()
-  t = Text("a")
+  t = String("a")
   h = Holder(s: "b")
   old = h.s
   h.s = ?t

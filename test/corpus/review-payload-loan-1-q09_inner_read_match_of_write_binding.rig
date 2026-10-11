@@ -3,11 +3,11 @@ enum O
   b
 
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub main()
-  o = O.a(E.a(Text("hello")))
+  o = O.a(E.a(String("hello")))
   match !o
     .a(i)
       match i

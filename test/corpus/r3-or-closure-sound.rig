@@ -16,7 +16,7 @@
 struct Res
   id: Int
 
-sub each(xs: ?Vec[Int], f: ?sub(Int))
+sub each(xs: ?List[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
@@ -31,7 +31,7 @@ sub write_capture()
   print(total)
 
 sub read_capture_then_write()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   size = |?v| v.len
   print(size())
@@ -39,7 +39,7 @@ sub read_capture_then_write()
   print(v.len)
 
 sub literal_argument()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   total = 0
@@ -77,7 +77,7 @@ sub lent_closure()
   print(apply(?add_k, 4))
 
 sub returns_captured_view()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   get = |?v| v
   print(get().len)

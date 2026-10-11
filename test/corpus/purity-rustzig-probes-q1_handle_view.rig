@@ -1,5 +1,5 @@
 struct U
-  name: String
+  name: ?String
   n: Int
 
 fun peek(u: ?U) -> ?U

@@ -1,5 +1,5 @@
 struct S
-  b: Box[Int]
+  b: ^Int
 
 enum E
   a(n: Int)
@@ -17,6 +17,6 @@ enum E
     3
 
 sub main()
-  x = S(b: Box(value: 1))
-  y = S(b: Box(value: 1))
+  x = S(b: ^1)
+  y = S(b: ^1)
   print(x == y)

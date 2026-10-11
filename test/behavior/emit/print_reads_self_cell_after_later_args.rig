@@ -1,8 +1,8 @@
 # Inside a `?self` method, `print(self.c, (!other).grow())` reads the
-# Cell when `print` is called, after `grow` has grown its Vec through
+# Cell when `print` is called, after `grow` has grown its List through
 # another handle.
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   fun grow(!self) -> Int
     for i in 0..20
@@ -13,7 +13,7 @@ struct S
     print(self.c, (!other).grow())
 
 sub main()
-  s = *S(c: Cell(Vec()))
+  s = *S(c: Cell(List()))
   !s.c.push(42)
   t = +s
   s.show(!t)

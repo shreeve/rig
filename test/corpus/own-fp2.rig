@@ -1,5 +1,5 @@
 struct Big
-  v: Vec[Int]
+  v: List[Int]
 
 struct View
   b: ?Big
@@ -9,9 +9,9 @@ fun put(v: !View, t: ?Big) -> Bool
   true
 
 sub main()
-  x0 = Big(v: Vec())
+  x0 = Big(v: List())
   vw = View(b: ?x0)
-  o: Big? = Big(v: Vec())
+  o: Big? = Big(v: List())
   while <o as x and put(!vw, ?x)
     print(vw.b.v.len)
     return

@@ -1,15 +1,15 @@
 # Moving a captured owner out of a closure's environment, called twice.
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 
-fun eat(x: Vec[Int]) -> Int
+fun eat(x: List[Int]) -> Int
   x.len
 
 struct S
-  v: Vec[Int]
-  o: Vec[Int]?
+  v: List[Int]
+  o: List[Int]?
 
 sub main()
   v = mkv(1)

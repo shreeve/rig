@@ -3,7 +3,7 @@
 # holder.
 
 struct O
-  v: Vec[Int]
+  v: List[Int]
 
 fun owner_out(p: ?O) -> O
   p

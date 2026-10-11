@@ -1,7 +1,7 @@
-# Payload views pushed into a Vec of views; ok. Expect accept, prints one two.
+# Payload views pushed into a List of views; ok. Expect accept, prints one two.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,8 +12,8 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  es = [E.a(r: Res(n: 1, t: Text("one"))), E.b(r: Res(n: 2, t: Text("two")))]
-  views: Vec[?Res] = Vec()
+  es = [E.a(r: Res(n: 1, t: String("one"))), E.b(r: Res(n: 2, t: String("two")))]
+  views: List[?Res] = List()
   for e in es
     match e
       .a(r) => !views.push(?r)

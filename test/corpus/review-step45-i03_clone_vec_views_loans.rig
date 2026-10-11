@@ -1,7 +1,7 @@
-# +v of a Vec of views must carry the views' loans
+# +v of a List of views must carry the views' loans
 sub main()
-  t = Text("viewed")
-  v: Vec[String] = Vec()
+  t = String("viewed")
+  v: List[?String] = List()
   !v.push(?t)
   w = +v
   <v

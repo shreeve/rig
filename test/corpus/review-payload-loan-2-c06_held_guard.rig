@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 enum WP
   a(w: !P)
@@ -11,12 +11,12 @@ struct H
 fun mk(p: !P) -> H from p
   H(e: WP.a(!p))
 
-fun bump(t: !Text) -> Bool
+fun bump(t: !String) -> Bool
   !t.add("!")
   true
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   match mk(!p).e
     .a(w) if bump(!w.t) => print(w.t)
     .a(w) => print(w.t)

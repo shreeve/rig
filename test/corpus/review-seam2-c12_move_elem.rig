@@ -9,10 +9,10 @@
 # oracle: main reject C3
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
-  fun steal(!self) -> Vec[Int]
-    replace(!self.items, Vec())
+  fun steal(!self) -> List[Int]
+    replace(!self.items, List())
 
   fun into(<self) -> Int
     self.n
@@ -27,13 +27,13 @@ struct S
     print("drop", self.n, self.items)
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 
-fun mkv() -> Vec[Vec[Int]]
-  v: Vec[Vec[Int]] = Vec()
-  w: Vec[Int] = Vec()
+fun mkv() -> List[List[Int]]
+  v: List[List[Int]] = List()
+  w: List[Int] = List()
   !w.push(1)
   !v.push(<w)
   v

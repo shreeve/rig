@@ -6,6 +6,6 @@ sub main()
   a = V(p: ?n)
   b = V(p: ?n)
   swap(!a, !b)
-  msg: String? = "hi"
+  msg: (?String)? = "hi"
   m = <msg
   print(msg)

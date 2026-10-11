@@ -3,7 +3,7 @@ sub eat(c: *Cell[Int])
 
 sub main()
   c1: *Cell[Int] = *Cell(7)
-  v: Vec[*Cell[Int]] = Vec()
+  v: List[*Cell[Int]] = List()
   !v.push(<c1)
   x = <v[0]
   eat(<x)

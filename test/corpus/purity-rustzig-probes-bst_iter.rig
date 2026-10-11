@@ -1,9 +1,9 @@
 struct Node
   key: Int
-  left: Box[Node]?
-  right: Box[Node]?
+  left: ^Node?
+  right: ^Node?
 
-fun contains(root: ?Box[Node]?, key: Int) -> Bool
+fun contains(root: ?^Node?, key: Int) -> Bool
   cur = root
   while cur as n
     if key == n.key
@@ -11,14 +11,14 @@ fun contains(root: ?Box[Node]?, key: Int) -> Bool
     cur = ?n.left if key < n.key else ?n.right
   false
 
-sub insert(slot: !Box[Node]?, key: Int)
+sub insert(slot: !^Node?, key: Int)
   if !slot as n
     insert(!n.left, key) if key < n.key else insert(!n.right, key)
   else
-    slot = Box(Node(key: key, left: none, right: none))
+    slot = ^Node(key: key, left: none, right: none)
 
 sub main()
-  root: Box[Node]? = none
+  root: ^Node? = none
   for k in [5, 2, 8, 1]
     insert(!root, k)
   print(contains(?root, 8), contains(?root, 3))

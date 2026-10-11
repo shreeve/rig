@@ -1,11 +1,11 @@
 struct P
   x: Int
-  name: Text
+  name: String
   arr: [3]Int
-  items: Vec[Int]
+  items: List[Int]
 
 struct H
-  r: ?Vec[Int]
+  r: ?List[Int]
 
 fun sum(xs: []Int) -> Int
   t = 0
@@ -17,14 +17,14 @@ fun wsum(xs: ![]Int) -> Int
   xs[0] = 100
   xs[0]
 
-fun show(s: String) -> Int
+fun show(s: ?String) -> Int
   print(s)
   1
 
-fun cnt(v: ?Vec[Int]) -> Int
+fun cnt(v: ?List[Int]) -> Int
   v.len
 
 sub main()
-  p = P(x: 1, name: Text("nm"), arr: [1, 2, 3], items: Vec[Int]())
+  p = P(x: 1, name: String("nm"), arr: [1, 2, 3], items: List[Int]())
   print(cnt((?p).items))
   print(p.x, p.arr[0], p.items.len)

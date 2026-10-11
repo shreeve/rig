@@ -3,14 +3,14 @@
 # is `(not a) and b`, and it needs no parentheses there.
 
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun is_empty(?self) -> Bool
     self.items.len == 0
 
 sub main()
   done = false
-  bag = Bag(items: Vec())
+  bag = Bag(items: List())
   a = 2
   b = 3
   while not done

@@ -8,7 +8,7 @@ struct Res
     print("drop", self.id)
 
 struct Tree
-  vals: Vec[Int]
+  vals: List[Int]
 
   sub each(?self, f: ?sub(Int))
     for v in ?self.vals
@@ -36,7 +36,7 @@ fun run(ok: Bool) -> Int!
   v
 
 sub main()
-  t = Tree(vals: Vec())
+  t = Tree(vals: List())
   !t.vals.push(4)
   !t.vals.push(5)
   sum = 0

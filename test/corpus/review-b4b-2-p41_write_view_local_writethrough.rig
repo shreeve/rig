@@ -1,7 +1,7 @@
 # Subject is a write-view local; view escapes; then a value is assigned through it. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,13 +12,13 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("one")))
+  e = E.a(r: Res(n: 1, t: String("one")))
   w = !e
-  k = Res(n: 0, t: Text("k"))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match w
     .a(r) => saved = ?r
     .b(r) => saved = ?r
-  w = E.b(r: Res(n: 9, t: Text("over")))
+  w = E.b(r: Res(n: 9, t: String("over")))
   print(clobber(1))
   print(saved.t)

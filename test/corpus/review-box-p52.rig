@@ -4,17 +4,17 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun pick(b: !Box[R]) -> !R
+fun pick(b: !^R) -> !R
   !b
 
-fun rpick(b: ?Box[R]) -> ?R
+fun rpick(b: ?^R) -> ?R
   b
 
-fun rpick2(b: ?Box[R]) -> ?R
+fun rpick2(b: ?^R) -> ?R
   ?b
 
 sub main()
-  b = Box(value: R(n: 1))
+  b = ^R(n: 1)
   r = pick(!b)
   r.n = 3
   print(rpick(?b).n, rpick2(?b).n)

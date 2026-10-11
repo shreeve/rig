@@ -9,7 +9,7 @@
 # oracle: clobber accept
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
   sub bump(!self)
     self.n += 1
@@ -31,7 +31,7 @@ struct S
     print("drop", self.n)
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 
@@ -40,9 +40,9 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  x = replace(!mk(1).items, Vec[Int]())
+  x = replace(!mk(1).items, List[Int]())
   print(x)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(42)
   swap(!mk(2).items, !v)
   print(v)

@@ -1,9 +1,9 @@
 struct S
-  v: Vec[Int]
-  w: Vec[Int]
+  v: List[Int]
+  w: List[Int]
 
 sub main()
-  s = S(v: Vec(), w: Vec())
+  s = S(v: List(), w: List())
   !s.v.push(1)
   !s.v.push(2)
   for x in s.v

@@ -16,13 +16,13 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-fun first[T](v: ?Vec[T]) -> T?
+fun first[T](v: ?List[T]) -> T?
   for x in v
     return x
   none
 
 sub main()
-  v: Vec[*Tok] = Vec()
+  v: List[*Tok] = List()
   !v.push(*Tok(n: 1))
   if first(?v) as t
     print(t.n)

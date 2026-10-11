@@ -1,14 +1,14 @@
-# guarded match on an element of a Vec in a shared handle
+# guarded match on an element of a List in a shared handle
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 struct S
-  v: Vec[E]
+  v: List[E]
 
 sub main()
-  e: Vec[E] = Vec()
-  !e.push(E.a(t: Text("hi")))
+  e: List[E] = List()
+  !e.push(E.a(t: String("hi")))
   h = *S(v: <e)
   match h.v[0]
     .a(t) if t.len > 1 => print(t)

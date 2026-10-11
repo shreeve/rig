@@ -1,6 +1,6 @@
 sub main()
-  t = Text("hi")
-  o: (!Text)? = !t
+  t = String("hi")
+  o: (!String)? = !t
   if o as k
     print(k)
     if !o as w

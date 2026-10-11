@@ -5,9 +5,9 @@ struct G[T]
     self.w = x
 
 sub main()
-  v: Vec[Int] = Vec()
-  g = G[Vec[Int]](w: !v)
-  u: Vec[Int] = Vec()
+  v: List[Int] = List()
+  g = G[List[Int]](w: !v)
+  u: List[Int] = List()
   !u.push(4)
   !g.set(<u)
   print(v.len)

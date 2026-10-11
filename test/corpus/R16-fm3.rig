@@ -1,11 +1,11 @@
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
 sub grow(b: !Bag, n: Int)
   !b.items.push(n)
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   add = |!b, n: Int|
     grow(b, n)
   add(1)

@@ -5,8 +5,8 @@ struct Slot[T]
     self.x = x
 
 sub main()
-  s: Slot[?Vec[Int]] = Slot(x: none)
-  v: Vec[Int] = Vec()
+  s: Slot[?List[Int]] = Slot(x: none)
+  v: List[Int] = List()
   !v.push(1)
   !s.set(?v)
   <v

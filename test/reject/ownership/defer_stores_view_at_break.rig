@@ -3,10 +3,10 @@
 # long enough.
 
 sub main()
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   s = ?e[..]
   for _ in 0..2
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(7)
     defer s = ?v[..]
     break

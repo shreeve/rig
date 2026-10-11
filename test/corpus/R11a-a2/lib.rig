@@ -5,7 +5,7 @@ pub struct Wrap[T]
     self.v
 
 pub struct Keep[T]
-  items: Vec[T]
+  items: List[T]
 
   fun peek(?self) -> T
     for x in ?self.items

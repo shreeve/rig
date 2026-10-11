@@ -10,6 +10,6 @@ fun get(p: ?P) -> Int
 sub main()
   print(?mk(1))
   print(get(?mk(2)), get(p: ?mk(3)))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(get(?mk(4)))
   print(v[0])

@@ -1,12 +1,12 @@
 enum E
-  a(t: Text)
+  a(t: String)
   z
 
 sub main()
   pass
 
 test "lend"
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .a(t)
       s = ?t[1..]

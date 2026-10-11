@@ -1,7 +1,7 @@
-# Vec of String views of a Text; drop the Text, then read the Vec
+# List of String views of a Text; drop the Text, then read the List
 sub main()
-  t = Text("hello")
-  v: Vec[String] = Vec()
+  t = String("hello")
+  v: List[?String] = List()
   !v.push(?t)
   <t
   print(v)

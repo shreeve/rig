@@ -1,23 +1,23 @@
-# A `Static` is read as a `String`, never where the text can be written:
-# a `String` view cannot be written into a `Static` place, and a `String`
+# A `Static` is read as a `?String`, never where the text can be written:
+# a `?String` view cannot be written into a `Static` place, and a `?String`
 # place, which nothing lends to write, is no `!Static`.
 
 sub reset(w: !Static)
   w = "reset"
 
 sub main()
-  t = Text("abcdefghijklmnop")
-  view: String = ?t[..]
+  t = String("abcdefghijklmnop")
+  view: ?String = ?t[..]
   fixed = "fixed"
-  loose: String = "loose"
+  loose: ?String = "loose"
   reset(!loose)
   swap(!fixed, !loose)
   old = replace(!fixed, view)
   fixed = view
   print(fixed, loose, old)
 
-# error: 13:10: cannot lend `loose` to write: it holds a read view of text, `String`
+# error: 13:10: cannot lend `loose` to write: it holds a read view of text, `?String`
 # error: 14:17: cannot lend `loose` to write
-# error: 15:25: type mismatch: expected `Static`, got `String`
-# error: 16:11: type mismatch: expected `Static`, got `String`; `fixed` is a `Static`, bound to a literal's text, and a `String` may view a `Text`: declare it `fixed: String = ...` to hold other text
+# error: 15:25: type mismatch: expected `Static`, got `?String`
+# error: 16:11: type mismatch: expected `Static`, got `?String`; `fixed` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `fixed: ?String = ...` to hold other text
 # errors: 4

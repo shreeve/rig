@@ -66,7 +66,7 @@ expect_has "$out" "var @\"rig'\": i64 = 4;" "emitter name"
 cat >payload.rig <<'EOF2'
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res, k: Int)
@@ -87,7 +87,7 @@ fun guarded(e: ?E) -> Int
     x => count(x)
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("x")), k: 2)
+  e = E.a(r: Res(n: 1, t: String("x")), k: 2)
   print(whole(?e), guarded(?e))
 EOF2
 out=$("$RIG" emit payload.rig 2>/dev/null) || fail "rig emit payload.rig"
@@ -103,23 +103,23 @@ expect_has "$out" 'const x = &e.*;' "guarded catch-all of a lent subject"
 # through a copy in the call's block.
 cat >leaves.rig <<'EOF2'
 struct S
-  t: Text
+  t: String
 
-  fun inner(?self) -> ?Text
+  fun inner(?self) -> ?String
     ?self.t
 
-  fun pick(?self, x: Int, y: Int) -> ?Text
+  fun pick(?self, x: Int, y: Int) -> ?String
     ?self.t
 
 fun mks() -> S
-  S(t: Text("m"))
+  S(t: String("m"))
 
 fun f(n: Int) -> Int
   n
 
 sub main()
-  a = S(t: Text("aa"))
-  b = S(t: Text("bb"))
+  a = S(t: String("aa"))
+  b = S(t: String("bb"))
   c = a.t.len == 2
   r = (a if c else b).inner()
   print(r)
@@ -189,7 +189,7 @@ fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
   n + m
 
 sub main()
-  o = Opt.some(v: Text("t"))
+  o = Opt.some(v: String("t"))
   w = V(r: ?o)
   print(f(?w), g(?w), h(?o, ?o))
 EOF2
@@ -203,19 +203,19 @@ grep -qE 'switch \(rig\.viewed\(' <<<"$out" && fail "a switch on a rig.viewed co
 # `0xAA` when its scope ends (`rig.poison`), after its drop; without it,
 # nothing is written.
 cat >poison.rig <<'EOF2'
-fun mk(n: Int) -> Vec[Int]!
-  v: Vec[Int] = Vec()
+fun mk(n: Int) -> List[Int]!
+  v: List[Int] = List()
   !v.push(n)
   v
 
-fun pair(a: Vec[Int], b: Vec[Int]) -> Int
+fun pair(a: List[Int], b: List[Int]) -> Int
   a[0] + b[0]
 
 fun run() -> Int!
   pair(mk(1)!, mk(2)!)
 
 sub main()
-  print(run() catch 0, Text("abc").len)
+  print(run() catch 0, String("abc").len)
 EOF2
 out=$(RIG_SANITIZE=1 "$RIG" emit poison.rig 2>/dev/null) || fail "rig emit poison.rig"
 expect_has "$out" 'defer rig.poison(&__rig_arg_' "hoisted argument poisoned"
@@ -226,32 +226,32 @@ grep -q 'rig.poison' <<<"$out" && fail "poisoned without the sanitizer: $out"
 out=$(RIG_SANITIZE=1 "$RIG" run poison.rig 2>&1) || fail "rig run poison.rig: $out"
 expect_eq "$out" "3 3" "poisoned program runs"
 
-# The read view of a Text is its bytes wherever it is bound: `?t`, a loop
-# over Text elements, a payload, an `as` binding, a capture, and a
-# generic `?T` at `T = Text`. No Zig names a pointer to a Text as a
-# view, and `+s` of a String makes a Text.
+# The read view of a String is its bytes wherever it is bound: `?t`, a loop
+# over String elements, a payload, an `as` binding, a capture, and a
+# generic `?T` at `T = String`. No Zig names a pointer to a String as a
+# view, and `+s` of a `?String` makes a String.
 cat >textview.rig <<'EOF2'
 enum Slot
-  full(item: Text)
+  full(item: String)
   empty
 
 fun same[T](a: ?T, b: ?T) -> Bool
   a == b
 
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   s.len
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   v = ?t
-  names: Vec[Text] = Vec()
-  !names.push(Text("x"))
+  names: List[String] = List()
+  !names.push(String("x"))
   for x in ?names
     print(size(?x))
-  o: Text? = Text("o")
+  o: String? = String("o")
   if ?o as p
     print(size(?p))
-  slot = Slot.full(item: Text("s"))
+  slot = Slot.full(item: String("s"))
   match ?slot
     .full(item) => print(size(?item))
     .empty => pass
@@ -266,7 +266,7 @@ expect_has "$out" 'const x = __rig_elem_' "a loop binds each element's bytes"
 expect_has "$out" 'const p = __rig_opt_' "an as binding is the bytes"
 expect_has "$out" 'const item = __rig_payload_' "a payload binding is the bytes"
 expect_has "$out" '.cap_t = t.bytes()' "a capture is the bytes"
-expect_has "$out" 'same(rig.Text, t.bytes(), t.bytes())' "a generic ?T at a Text is the bytes"
-expect_has "$out" 'var u = rig.Text.of(.{ v });' "+s of a String makes a Text"
-grep -q '\*const rig.Text' <<<"$out" && fail "a pointer view of a Text: $out"
+expect_has "$out" 'same(rig.String, t.bytes(), t.bytes())' "a generic ?T at a Text is the bytes"
+expect_has "$out" 'var u = rig.String.of(.{ v });' "+s of a String makes a Text"
+grep -q '\*const rig.String' <<<"$out" && fail "a pointer view of a Text: $out"
 true

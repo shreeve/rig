@@ -1,6 +1,6 @@
 struct Wrap
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 fun better(a: ?Wrap, b: ?Wrap, score: ?fun(?Wrap) -> Int) -> ?Wrap
   if score(a) >= score(b)
@@ -9,9 +9,9 @@ fun better(a: ?Wrap, b: ?Wrap, score: ?fun(?Wrap) -> Int) -> ?Wrap
     b
 
 sub main()
-  x = Wrap(n: 1, v: Vec())
-  y = Wrap(n: 2, v: Vec())
-  bias = Wrap(n: 0, v: Vec())
+  x = Wrap(n: 1, v: List())
+  y = Wrap(n: 2, v: List())
+  bias = Wrap(n: 0, v: List())
   r = better(?x, ?y, |?bias, w: ?Wrap| w.n + bias.n)
   bias.n = 10
   print(r.n, bias.n)

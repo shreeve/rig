@@ -1,7 +1,7 @@
 # Write-view local re-pointed after the match; e1 untouched. Expect accept, prints one.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,15 +12,15 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  e1 = E.a(r: Res(n: 1, t: Text("one")))
-  e2 = E.a(r: Res(n: 2, t: Text("two")))
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.a(r: Res(n: 2, t: String("two")))
   w = !e1
-  k = Res(n: 0, t: Text("k"))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match w
     .a(r) => saved = ?r
     .b(r) => saved = ?r
   w = !e2
-  w = E.b(r: Res(n: 9, t: Text("over")))
+  w = E.b(r: Res(n: 9, t: String("over")))
   print(clobber(1))
   print(saved.t, e2)

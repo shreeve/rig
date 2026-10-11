@@ -2,7 +2,7 @@
 # ends it, so the write view `w` is allowed.
 
 struct User
-  name: String
+  name: ?String
 
 sub main()
   user = User(name: "Steve")

@@ -1,16 +1,16 @@
 struct R
-  xs: Vec[Int]
+  xs: List[Int]
 
 struct H
-  w: !Vec[R]
+  w: !List[R]
 
-fun first(v: ?Vec[R]) -> ?R
+fun first(v: ?List[R]) -> ?R
   ?v[0]
 
 sub main()
-  v: Vec[R] = Vec()
-  !v.push(R(xs: Vec()))
+  v: List[R] = List()
+  !v.push(R(xs: List()))
   h = H(w: !v)
   r = first(?h.w)
-  h.w = Vec[R]()
+  h.w = List[R]()
   print(r.xs)

@@ -18,10 +18,10 @@ struct Tree
     ?self.leaf
 
 struct Pair
-  v: Vec[Int]
-  name: String?
+  v: List[Int]
+  name: (?String)?
 
-sub fill(v: !Vec[Int])
+sub fill(v: !List[Int])
   !v.push(1)
 
 sub show(p: ?Point)
@@ -37,7 +37,7 @@ sub main()
   p = Point(x: 4)
   print(-p.x, -p.shifted(1).x)
   show(?(p.shifted(2)))
-  pair = Pair(v: Vec(), name: "pair")
+  pair = Pair(v: List(), name: "pair")
   fill(!pair.v)
   print(pair.v.len)
   name = <pair.name

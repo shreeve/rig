@@ -1,5 +1,5 @@
 struct B
-  v: Vec[Int]
+  v: List[Int]
 
 fun items(b: !B) -> ![]Int
   x = !b.v[..]
@@ -7,6 +7,6 @@ fun items(b: !B) -> ![]Int
   x
 
 sub main()
-  b = B(v: Vec())
+  b = B(v: List())
   it = items(!b)
   print(it.len)

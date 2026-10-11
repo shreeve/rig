@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 struct H
   o: (?Res)?
@@ -9,7 +9,7 @@ fun mkh(r: ?Res) -> H
   H(o: r)
 
 sub main()
-  x = Res(n: 1, t: Text("a"))
+  x = Res(n: 1, t: String("a"))
   if mkh(?x).o as r
     <x
     print(r.n)

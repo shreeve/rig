@@ -23,12 +23,12 @@ fun fail(k: Int) -> Int!
   return E.bad if k > 0
   k
 
-fun run(k: Int, out: !Vec[*Tok]) -> Int!
+fun run(k: Int, out: !List[*Tok]) -> Int!
   t = *Tok(n: 1)
   errdefer !out.push(+t)
   fail(k)!
 
 sub main()
-  v: Vec[*Tok] = Vec()
+  v: List[*Tok] = List()
   print(run(1, !v) catch -1)
   print(v.len)

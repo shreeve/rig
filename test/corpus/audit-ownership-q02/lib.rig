@@ -1,4 +1,4 @@
-pub fun get[T](v: ?Vec[T], i: Int) -> T
+pub fun get[T](v: ?List[T], i: Int) -> T
   v[i]
 
 pub struct Holder[T]
@@ -10,7 +10,7 @@ pub struct Holder[T]
 pub fun pick[T](a: ?T, b: ?T) -> ?T
   a
 
-pub fun each_first[T](v: ?Vec[T]) -> T?
+pub fun each_first[T](v: ?List[T]) -> T?
   for x in v
     return x
   none

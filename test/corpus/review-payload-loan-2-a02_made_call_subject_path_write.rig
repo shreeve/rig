@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 enum WP
   a(w: !P)
@@ -9,7 +9,7 @@ fun wrap(p: !P) -> WP
   WP.a(!p)
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   match wrap(!p)
     .a(w)
       r = ?w.t[1..]

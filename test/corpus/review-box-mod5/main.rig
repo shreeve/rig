@@ -1,6 +1,6 @@
 use lib
 
-fun g(b: ?Box[lib.R]) -> Int
+fun g(b: ?^lib.R) -> Int
   <b.eat()
 
 sub main()

@@ -10,28 +10,28 @@ struct R
     print("drop", self.n)
 
 struct S
-  b: Box[Int]
+  b: ^Int
 
 fun add(x: ?Int, y: Int) -> Int
   x + y
 
-fun peek[T](b: ?Box[T]) -> ?T
+fun peek[T](b: ?^T) -> ?T
   ?b
 
 fun rd(r: ?R) -> Int
   r.n
 
-sub g(w: !Box[R])
+sub g(w: !^R)
   print(rd(w), rd(?w))
 
 sub main()
-  b = Box(R(n: 1))
-  c = Box(R(n: 2))
+  b = ^R(n: 1)
+  c = ^R(n: 2)
   r: ?R = ?c
   print(r.n)
   r = ?b
   print(r.n)
-  s = S(b: Box(5))
+  s = S(b: ^5)
   k: ?Int = ?s.b
   print(k + 1)
   n = 1

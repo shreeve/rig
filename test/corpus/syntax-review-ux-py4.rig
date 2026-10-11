@@ -1,10 +1,10 @@
 struct Count
-  word: String
+  word: ?String
   n: Int
 
 sub main()
   words = ["apple", "banana", "cherry", "apple", "date", "banana", "apple"]
-  counts = Vec()
+  counts = List()
   for w in words
     found = false
     for c in counts

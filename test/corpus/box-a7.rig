@@ -2,7 +2,7 @@ sub show(n: ?Int)
   print("n", n)
 
 sub main()
-  b = Box(value: 5)
+  b = ^5
   print(b)
   show(?b)
   x = <b.take()

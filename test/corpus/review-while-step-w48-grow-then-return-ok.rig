@@ -7,13 +7,13 @@
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 5
     return S(s: ?v[..])
   none
 
 fun run() -> Int
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   i = 0

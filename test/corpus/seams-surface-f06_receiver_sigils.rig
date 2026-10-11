@@ -1,11 +1,11 @@
 struct P
-  v: Vec[Int]
+  v: List[Int]
   f: Int?
   fun first(?self) -> Int
     self.v[0]
 
 sub main()
-  p = P(v: Vec(), f: 3)
+  p = P(v: List(), f: 3)
   !p.v.push(4)
   x = -p.first()
   y = +p.first()

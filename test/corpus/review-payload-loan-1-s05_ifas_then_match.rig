@@ -1,9 +1,9 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub main()
-  o: E? = E.a(Text("hello"))
+  o: E? = E.a(String("hello"))
   if !o as e
     match !e
       .a(t)

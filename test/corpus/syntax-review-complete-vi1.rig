@@ -3,26 +3,26 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub insert[T](v: !Vec[T], at: Int, x: T)
+sub insert[T](v: !List[T], at: Int, x: T)
   v.push(<x)
   i = v.len - 1
   while i > at : i -= 1
     v.swap(i, i - 1)
 
-fun remove[T](v: !Vec[T], at: Int) -> T?
+fun remove[T](v: !List[T], at: Int) -> T?
   i = at
   while i < v.len - 1 : i += 1
     v.swap(i, i + 1)
   v.pop()
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   for k in [1, 3, 4]
     !a.push(k)
   insert(!a, 1, 2)
   print(a)
   print(remove(!a, 0), a)
-  b: Vec[*R] = Vec()
+  b: List[*R] = List()
   insert(!b, 0, *R(n: 1))
   insert(!b, 0, *R(n: 2))
   if remove(!b, 1) as r

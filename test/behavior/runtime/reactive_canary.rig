@@ -1,5 +1,5 @@
 # The reactive substrate end to end: a Cell shared by closures, stack and
-# owned closures, a Vec of closures, and Signals with subscribers. A
+# owned closures, a List of closures, and Signals with subscribers. A
 # subscriber that reads its own Signal holds it weakly (`|~sig|`), so the
 # Signal and its subscriber do not keep each other alive.
 
@@ -32,9 +32,9 @@ sub main()
   !sig.set(7)                        # sig 7
   !sig.set(99)                       # sig 99
 
-  # A Vec of closures, walked by viewed slot.
+  # A List of closures, walked by viewed slot.
   notes: *Cell[Int] = *Cell(0)
-  steps: Vec[*sub()] = Vec()
+  steps: List[*sub()] = List()
   !steps.push(*|+notes| !notes.set(notes.get() + 1))
   !steps.push(*|+notes| !notes.set(notes.get() + 10))
   !steps.push(*|+notes| !notes.set(notes.get() + 100))

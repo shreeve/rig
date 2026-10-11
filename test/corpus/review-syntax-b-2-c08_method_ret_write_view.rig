@@ -1,14 +1,14 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 struct H
-  t: Text
+  t: String
 
-  fun get(!self) -> !Text
+  fun get(!self) -> !String
     !self.t
 
 sub main()
-  h = H(t: Text("hello"))
+  h = H(t: String("hello"))
   s = keep(?(!h).get()[1..])
   for _ in 0..50
     !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")

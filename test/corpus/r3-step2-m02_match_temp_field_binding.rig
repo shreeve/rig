@@ -1,12 +1,12 @@
 enum Shape
   dot
-  line(v: Vec[Int])
+  line(v: List[Int])
 
 struct H
   s: Shape
 
 fun mk() -> H
-  p: Vec[Int] = Vec()
+  p: List[Int] = List()
   !p.push(1)
   H(s: .line(v: <p))
 

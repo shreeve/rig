@@ -3,18 +3,18 @@
 
 struct Node
   key: Int
-  left: Box[Node]?
+  left: ^Node?
 
-sub grow(s: !Box[Node]?)
+sub grow(s: !^Node?)
   s = none
 
-sub bad(slot: ?Box[Node]?)
+sub bad(slot: ?^Node?)
   if slot as n
     n.key = 3
     grow(!n.left)
 
 sub main()
-  root: Box[Node]? = Box(Node(key: 1, left: none))
+  root: ^Node? = ^Node(key: 1, left: none)
   bad(?root)
 
 # error: 13:5: cannot assign through a read view (`?T`)

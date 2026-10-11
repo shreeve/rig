@@ -1,13 +1,13 @@
 # The fold: a String that views a Text slot (ret-field-local-bad): rejected, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct H
-  t: Text
+  t: String
 
-fun f() -> String
-  h = H(t: Text("a"))
+fun f() -> ?String
+  h = H(t: String("a"))
   ?h.t
 
 sub main()

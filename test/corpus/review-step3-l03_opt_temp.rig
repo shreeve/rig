@@ -1,6 +1,6 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.n)
@@ -13,10 +13,10 @@ fun maybe(s: (?S)?) -> Int
 fun mko(n: Int) -> S?
   if n > 5
     return none
-  S(n: n, t: Text("a"))
+  S(n: n, t: String("a"))
 
 sub main()
   print(maybe(mko(1)), maybe(mko(9)))
   print(maybe(?mko(2)))
-  o: S? = S(n: 3, t: Text("o"))
+  o: S? = S(n: 3, t: String("o"))
   print(maybe(o))

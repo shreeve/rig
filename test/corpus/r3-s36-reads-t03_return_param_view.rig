@@ -1,9 +1,9 @@
 struct Bag
-  v: Vec[Int]
+  v: List[Int]
 
 fun pick(a: ?Bag) -> ?Bag
   a
 
 sub main()
-  b = Bag(v: Vec())
+  b = Bag(v: List())
   print(pick(?b).v.len)

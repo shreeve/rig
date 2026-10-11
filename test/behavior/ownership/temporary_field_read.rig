@@ -4,23 +4,23 @@
 
 struct User
   age: Int
-  name: Text
+  name: String
 
   drop(!self)
     print("drop user")
 
-fun mv() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mv() -> List[Int]
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   v
 
-fun mo() -> Text?
-  Text("opt")
+fun mo() -> String?
+  String("opt")
 
 sub main()
-  print(Text("bye").len, (*User(age: 5, name: Text("u"))).age)
-  x = User(age: 1, name: Text("n")).age
+  print(String("bye").len, (*User(age: 5, name: String("u"))).age)
+  x = User(age: 1, name: String("n")).age
   print(x)
   for n in mv()
     print(n)

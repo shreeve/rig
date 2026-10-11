@@ -81,15 +81,15 @@ structural weak spots, which these steps removed (the evidence is in
    every path, running defers and reporting the loans it drops; the
    `classify` test keeps `handsOver` the only classifier.
 3. **Reads and lends.** A bare name reads in place where a view is
-   expected, one lend table serves every owner (Vec, Text, Box, `*T`,
+   expected, one lend table serves every owner (List, String, `^T`, `*T`,
    optionals), and a header's subject is viewed or taken by its
    classification.
-4. **Containers hold anything.** `Vec[Text]`, nested Vecs, and records
+4. **Containers hold anything.** `List[String]`, nested Lists, and records
    that own text work; `?v[i]`, `!v[i]`, and `<v[i]` lend or take an
    element; assigning a view place re-points it or writes through.
 5. **The remaining planned rules.** An error value meets `T!` only as
    `return`'s operand, `(!s).insert(k)`, `const x = e`, an owner moves
-   as a function's or block's last value, and `+x` deep-copies Vec, Box,
+   as a function's or block's last value, and `+x` deep-copies List, `^T`,
    and owning structs.
 6. **Result origins.** A call's result carries the loans of the
    arguments whose types could hold what it views, `from a` narrows
@@ -120,7 +120,7 @@ diagnostics name only forms that compile.
 **Held, each waiting on the change named:**
 
 - **Whole-program parameter summaries** (CORE §9, *planned*): a generic
-  `Holder[String]` built from literals is still rejected.
+  `Holder[?String]` built from literals is still rejected.
 - **Field-precise re-pointing:** with field-precise loans.
 - **Std search taking `x: ?T`:** it would reject
   `slices.contains(?v[..], ?t[4..5])`; decide whether implicit lends
@@ -147,7 +147,7 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
   returns; dropping a container of views uses them only through a `drop`
   body; a bare name or place only reads, so `x = h.w`, like `x = w`, of
   a `!Int` copies the Int.
-- **The kind of a struct of Strings:** CORE calls it a view, SPEC plain
+- **The kind of a struct of `?String` values:** CORE calls it a view, SPEC plain
   data; the compiler treats it as CORE's read-view kind.
 - **A branching receiver:** a pointer per leaf (built) or a rejection?
 - **Clone limits:** are the missing clones of a type from another
@@ -204,11 +204,19 @@ and run the corpus after.
 - **Decisions emit still makes itself** are `Pending` in
   `src/facts.zig`, which a unit test keeps from growing; each should
   become a recorded node fact (`sema.Question`), as the leaf walk did.
-- **What a view could hold:** `carry` and `sema.viewReach`, and String
+- **What a view could hold:** `carry` and `sema.viewReach`, and `?String`
   values in Cells, generics, and closures.
+- **What a `^T` does not yet forward:** a box reaches its value's fields
+  and methods, and lends its views, but `xs[i]`, `?xs[a..b]`, `for x in
+  xs`, `==`, and arithmetic on a boxed array, List, or number name the
+  box and are rejected; a box has an `unbox` of its own that hides a
+  value's method of that name. A generic body cannot reach through a
+  `^T` of a handle either (it cannot call a method of `T`), so the box
+  and handle stacking rule is checked at generic instances only in
+  fields and signatures.
 - **Evaluation order versus what is emitted:** call arguments, `print`
-  and `Text(...)` arguments, and assignment targets.
-- **`defer`/`errdefer` at exits,** owners behind `Cell`, `Box`, and
+  and `String(...)` arguments, and assignment targets.
+- **`defer`/`errdefer` at exits,** owners behind `Cell`, `^T`, and
   `*T`, and generic instances.
 - **Statement-long loans the Core does not need** (compiler-stricter,
   listed in `test/oracle/differences`): a call's result's read loans,
@@ -226,7 +234,7 @@ and run the corpus after.
 - **Review findings not fixed:**
   - Over-rejections main has too (review of B4b part 2, probes
     `test/corpus/review-b4b-2-p22`, `p24`, `p25`, `p43`): a payload
-    view pushed into a Vec inside a `for` stays rooted on the loop
+    view pushed into a List inside a `for` stays rooted on the loop
     binding; a view returned from a `match` nested on an outer payload
     binding (`match r.i` in `.a(r)`) is rooted on that binding; and a
     write-view local a payload view came through cannot be re-pointed
@@ -242,8 +250,8 @@ and run the corpus after.
     held view (`x77`), and re-pointing a write view a closure has lent
     (`x68`). Add them as `# oracle:` tests when the oracle learns them.
   - Whether an expression is a view is not one fact yet (CORE §9,
-    *planned*): a loop over a call's returned view of a Vec of owners is
-    rejected as if the Vec were made there.
+    *planned*): a loop over a call's returned view of a List of owners is
+    rejected as if the List were made there.
   - `bin/rig-oracle` in a worktree goes stale; `./test/run` rebuilds it,
     so rebuild before using it by hand.
 

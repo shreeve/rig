@@ -5,7 +5,7 @@ error NetErr
   refused(code: Int)
   reset = 3
 
-  fun describe(?self) -> String
+  fun describe(?self) -> ?String
     "err"
 
 sub main()

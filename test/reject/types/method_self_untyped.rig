@@ -2,9 +2,9 @@
 # `!self`, or `<self`.
 
 struct User
-  name: String
+  name: ?String
 
-  fun greet(self) -> String
+  fun greet(self) -> ?String
     "hi"
 
 sub main()

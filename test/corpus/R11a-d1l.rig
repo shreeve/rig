@@ -1,11 +1,11 @@
-fun first[T](v: ?Vec[T]) -> ?T
+fun first[T](v: ?List[T]) -> ?T
   ?v[0]
 
 struct P
   n: Int
 
 sub main()
-  v = Vec[P]()
+  v = List[P]()
   !v.push(P(n: 1))
   f = first(?v)
   for i in 0..100

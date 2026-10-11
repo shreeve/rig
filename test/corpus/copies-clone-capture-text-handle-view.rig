@@ -9,7 +9,7 @@ fun size(o: ?(*Node)?) -> Int
   0
 
 sub main()
-  t = Text("hi")
+  t = String("hi")
   f = |+t| t.len
   !t.add("!")
   print(f(), t)

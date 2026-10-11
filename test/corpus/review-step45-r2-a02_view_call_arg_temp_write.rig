@@ -1,15 +1,15 @@
 # match !getw(!v, ?Text("a"))[0]: temp in a call argument on the path (call returns a view)
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
-fun getw(v: !Vec[E], s: String) -> !Vec[E]
+fun getw(v: !List[E], s: ?String) -> !List[E]
   v
 
 sub main()
-  v: Vec[E] = Vec()
-  !v.push(E.a(t: Text("hi")))
-  match !getw(!v, ?Text("a"))[0]
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  match !getw(!v, ?String("a"))[0]
     .a(t) if t.len > 0
       for _ in 0..40
         !t.add("xxxxxxxx")

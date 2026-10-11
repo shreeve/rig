@@ -1,38 +1,38 @@
-# A String copied out of a view, a struct, or a Vec views what the
+# A String copied out of a view, a struct, or a List views what the
 # String views, not the place it was read from: the place is free again,
 # and a String a function copies out of its parameter can be returned.
 # A value views a Text only where it can reach one.
 
 struct Person
-  name: String
-  tags: Vec[Int]
+  name: ?String
+  tags: List[Int]
 
-  fun label(?self) -> String
+  fun label(?self) -> ?String
     self.name
 
 struct Reg
-  names: Vec[String]
+  names: List[?String]
 
-  sub add(!self, n: String)
+  sub add(!self, n: ?String)
     !self.names.push(n)
 
-  fun first(?self) -> String
+  fun first(?self) -> ?String
     self.names[0]
 
 enum E
-  a(c: String)
+  a(c: ?String)
   b
 
-fun copy(s: String) -> String
+fun copy(s: ?String) -> ?String
   r = ?s
-  x: String = r
+  x: ?String = r
   x
 
-fun pick(e: E) -> String
+fun pick(e: E) -> ?String
   match e
     .a(c)
       r = ?c
-      x: String = r
+      x: ?String = r
       return x
     .b
       return "b"
@@ -43,26 +43,26 @@ sub main()
   o = r
   s = "other"
   print(o, s)
-  t = Text("abcdefghijklmnop")
+  t = String("abcdefghijklmnop")
   v = ?t[..]
-  x: String = v
+  x: ?String = v
   v = "free"
   print(x, v, copy(?t), pick(E.a(?t[..3])))
-  p = Person(name: "Ann", tags: Vec())
+  p = Person(name: "Ann", tags: List())
   l = ?p.label()
   !p.tags.push(1)
   print(l, p.tags)
-  reg = Reg(names: Vec())
+  reg = Reg(names: List())
   !reg.add("x")
   f = ?reg.first()
   !reg.add("y")
   print(f, reg.names)
-  lits: Vec[String] = Vec()
+  lits: List[?String] = List()
   !lits.push("a")
-  last: String = "z"
+  last: ?String = "z"
   for n in ?lits
     last = n
-  c: *Cell[String] = *Cell("b")
+  c: *Cell[?String] = *Cell("b")
   for n in ?lits
     !c.set(n)
   <lits

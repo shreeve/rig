@@ -1,4 +1,4 @@
-sub remember(c: !Cell[String], s: String)
+sub remember(c: !Cell[?String], s: ?String)
   !c.set(s)
 
 sub main()

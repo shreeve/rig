@@ -1,9 +1,9 @@
 enum E
-  a(v: Vec[Int])
+  a(v: List[Int])
   b
 
 sub main()
-  v0: Vec[Int] = Vec()
+  v0: List[Int] = List()
   !v0.push(1)
   e: E = .a(v: <v0)
   match ?e
@@ -14,7 +14,7 @@ sub main()
   match !e
     .a(_) => print("a")
     _
-      e = .a(v: Vec())
+      e = .a(v: List())
       print("set")
   match ?e
     .a(x) => print(x.len)

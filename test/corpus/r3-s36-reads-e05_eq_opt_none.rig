@@ -1,8 +1,8 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  o: S? = S(v: Vec())
+  o: S? = S(v: List())
   print(o == none)
   if ?o as x
     print(x.v.len)

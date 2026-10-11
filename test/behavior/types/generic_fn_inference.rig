@@ -1,6 +1,6 @@
 # A generic function's type parameters are inferred by matching each
 # parameter's type against its argument's: `T`, `?T`, `!T`, `*T`, `~T`,
-# `T?`, `[]T`, `[N]T`, and generic instances (`Vec[T]`, `Cell[T]`, a
+# `T?`, `[]T`, `[N]T`, and generic instances (`List[T]`, `Cell[T]`, a
 # user `Wrap[T]`). A literal takes its default type.
 
 struct Wrap[T]
@@ -34,7 +34,7 @@ fun first_of[T](xs: []T) -> T
 fun head[T](xs: [3]T) -> T
   xs[0]
 
-fun count[T](v: ?Vec[T]) -> Int
+fun count[T](v: ?List[T]) -> Int
   v.len
 
 fun read[T](c: ?*Cell[T]) -> T
@@ -58,7 +58,7 @@ sub main()
   print(or_else(o, 4), or_else(6, 0))
   xs = [1, 2, 3]
   print(first_of(?xs[1..3]), head(xs))
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(4)
   print(count(?v))
   c = *Cell(9)

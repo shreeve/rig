@@ -1,13 +1,13 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 struct W
-  f: !Text
+  f: !String
 
 sub main()
-  t = Text("hello")
-  u = Text("other")
+  t = String("hello")
+  u = String("other")
   w = W(f: !t)
   s = keep(w.f[1..])
-  w.f = Text("replaced")
+  w.f = String("replaced")
   print(s)

@@ -1,4 +1,4 @@
-# A `catch` or `??` handler that takes its type from context (`Vec()`,
+# A `catch` or `??` handler that takes its type from context (`List()`,
 # a variant) takes the type of the value it stands in for, even where
 # the binding is not annotated.
 
@@ -9,20 +9,20 @@ enum Shape
   dot
   box(w: Int)
 
-fun h(ok: Bool) -> Vec[U8]!
+fun h(ok: Bool) -> List[U8]!
   return E.e if not ok
-  v: Vec[U8] = Vec()
+  v: List[U8] = List()
   !v.push(1)
   <v
 
-fun g[T](ok: Bool, x: T) -> Vec[T]!
+fun g[T](ok: Bool, x: T) -> List[T]!
   return E.e if not ok
-  v = Vec[T]()
+  v = List[T]()
   !v.push(x)
   <v
 
-fun fresh[T](x: T) -> Vec[T]
-  v = g(false, x) catch Vec(capacity: 1)
+fun fresh[T](x: T) -> List[T]
+  v = g(false, x) catch List(capacity: 1)
   !v.push(x)
   <v
 
@@ -34,15 +34,15 @@ fun o(ok: Bool) -> Shape?
   return none if not ok
   Shape.dot
 
-fun empty[T]() -> Vec[T]
-  Vec()
+fun empty[T]() -> List[T]
+  List()
 
 sub main()
-  v = h(false) catch Vec()
-  w = g(false, 3) catch Vec()
-  t = h(false) catch Vec(capacity: 2)
+  v = h(false) catch List()
+  w = g(false, 3) catch List()
+  t = h(false) catch List(capacity: 2)
   r = h(false) catch empty()
-  k = h(true) catch Vec()
+  k = h(true) catch List()
   f = fresh(2.5)
   print(v.len, w.len, t.len, r.len, k.len, f.len, f[0])
   x = s(false) catch .box(w: 2)

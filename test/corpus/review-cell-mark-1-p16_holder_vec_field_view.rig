@@ -1,9 +1,9 @@
 struct H
-  log: Cell[Vec[Int]]
-  items: Vec[Int]
+  log: Cell[List[Int]]
+  items: List[Int]
 
 sub main()
-  h = *H(log: Cell(Vec()), items: Vec())
+  h = *H(log: Cell(List()), items: List())
   g = +h
   r = ?h.items
   !g.log.push(1)

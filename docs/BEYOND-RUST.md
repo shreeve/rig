@@ -17,7 +17,7 @@ changing. Rig names each from where it sits
 | Rust | Rig | What it is | Where it lives |
 |---|---|---|---|
 | borrow `v` (`&v`, `&mut v`) | `v` **lends** (`?v`, `!v`) | the act | the owner's side, where the sigil is written |
-| a reference, a slice, a `&str` | a **view** (`?T`, `!T`, `[]T`, `![]T`, `String`) | the value handed over | travels with the receiver |
+| a reference, a slice, a `&str` | a **view** (`?T`, `!T`, `[]T`, `![]T`, `?String`) | the value handed over | travels with the receiver |
 | "`v` is borrowed" | a **loan** of `v` | the record | stays with the owner, and limits it until every view is done |
 
 The sigil is written on the owner in both languages, at the place where
@@ -34,7 +34,7 @@ translation, and nothing to unlearn.
 
 **One word for every view.** Rust's `&T`, `&mut T`, `&[T]`, and `&str`
 are four ideas to learn. In Rig they are one: a view, read or write,
-of a value, of part of an array or `Vec`, or of a `Text`'s bytes. The
+of a value, of part of an array or `List`, or of a `String`'s bytes. The
 same rules cover all of them ([CORE §4](CORE.md#4-one-lend-table)).
 
 **A drop is a move.** Rust's `drop(x)` moves `x` into a function that

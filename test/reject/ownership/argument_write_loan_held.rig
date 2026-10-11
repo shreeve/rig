@@ -9,7 +9,7 @@ struct Item
   n: Int
 
 struct Bag
-  items: Vec[Item]
+  items: List[Item]
 
   fun firstw(!self) -> !Item
     !self.items[0]
@@ -27,7 +27,7 @@ fun calls(f: ?sub(), b: ?Item) -> Int
   b.n
 
 sub receiver_result()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(Item(n: 7))
   print(both((!b).firstw(), ?b))
 

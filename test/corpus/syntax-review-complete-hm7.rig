@@ -1,12 +1,12 @@
 struct Map[K, V]
-  keys: Vec[K?]
-  vals: Vec[V?]
+  keys: List[K?]
+  vals: List[V?]
   hash: fun(?K) -> U64
   len: Int
   nothing: V?
 
   fun new(h: fun(?K) -> U64) -> Self
-    m: Self = Map(keys: Vec(), vals: Vec(), hash: h, len: 0, nothing: none)
+    m: Self = Map(keys: List(), vals: List(), hash: h, len: 0, nothing: none)
     for _ in 0..8
       !m.keys.push(none)
       !m.vals.push(none)
@@ -45,7 +45,7 @@ fun hash_str(s: ?String) -> U64
   h
 
 sub main()
-  m = Map[String, Int].new(hash_str)
+  m = Map[?String, Int].new(hash_str)
   !m.put("one", 1)
   !m.put("two", 2)
   !m.put("one", 11)

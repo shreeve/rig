@@ -4,7 +4,7 @@ struct Order
   id: Int
 
 struct User
-  name: String
+  name: ?String
 
   fun bad(self: ?Order) -> Int
     42

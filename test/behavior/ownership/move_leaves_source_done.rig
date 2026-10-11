@@ -42,7 +42,7 @@ sub main()
   w = !s
   t = <w.o
   print(t, s.o)
-  v: Vec[Int?] = Vec()
+  v: List[Int?] = List()
   !v.push(5)
   e = <v[0]
   f = v[0]

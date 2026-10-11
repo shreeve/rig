@@ -7,5 +7,5 @@ struct S
 sub main()
   o: S? = S(p: *N(n: 1))
   print(o == none, o != none)
-  v: Vec[Int]? = none
+  v: List[Int]? = none
   print(v == none)

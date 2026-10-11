@@ -1,23 +1,23 @@
 # An optional holds a read view of an owner, and keeps the owner lent
 # while it is used.
 
-fun find(v: ?Vec[Vec[Int]], want: Int) -> (?Vec[Int])?
+fun find(v: ?List[List[Int]], want: Int) -> (?List[Int])?
   for i in 0..v.len
     if v[i].len == want
       return ?v[i]
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  o: (?Vec[Int])? = ?v
+  o: (?List[Int])? = ?v
   if o as w
     print(w.len, w[0])
-  n: (?Vec[Int])? = none
+  n: (?List[Int])? = none
   print(n == none)
-  rows: Vec[Vec[Int]] = Vec()
-  !rows.push(Vec())
-  inner: Vec[Int] = Vec()
+  rows: List[List[Int]] = List()
+  !rows.push(List())
+  inner: List[Int] = List()
   !inner.push(1)
   !inner.push(2)
   !rows.push(<inner)

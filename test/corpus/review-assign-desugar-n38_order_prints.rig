@@ -1,12 +1,12 @@
 # Order: the value (with its arm) runs first, then the target's indexes,
 # outermost first; identical on main and the branch.
-fun at(i: Int, what: String) -> Int
+fun at(i: Int, what: ?String) -> Int
   print(what)
   i
 
 sub main()
-  a: Vec[Vec[Int]] = Vec()
-  !a.push(Vec())
+  a: List[List[Int]] = List()
+  !a.push(List())
   !a[0].push(0)
   k = 0
   a[at(0, "i")][at(0, "j")] = match k

@@ -1,13 +1,13 @@
 struct H
-  v: Vec[Text]
+  v: List[String]
 
-  fun first(?self) -> ?Text
+  fun first(?self) -> ?String
     ?self.v[0]
 
 sub main()
-  a: H? = H(v: Vec())
-  b = H(v: Vec())
-  !b.v.push(Text("b"))
+  a: H? = H(v: List())
+  b = H(v: List())
+  !b.v.push(String("b"))
   r = (a ?? b).first()
   <b
   print(r)

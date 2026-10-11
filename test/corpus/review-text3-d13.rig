@@ -1,10 +1,10 @@
 error Bad
   no
 
-fun f() -> Text!
-  Text("hello")
+fun f() -> String!
+  String("hello")
 
-fun g(r: Text!) -> Int!
+fun g(r: String!) -> Int!
   print(r!)
   print(r!)
   1

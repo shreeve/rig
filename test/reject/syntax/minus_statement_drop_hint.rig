@@ -5,17 +5,17 @@
 # view parameter is not dropped: the caller owns what it views.
 
 struct S
-  r: Vec[Int]
-  o: Vec[Int]?
+  r: List[Int]
+  o: List[Int]?
   n: Int
 
-sub look(x: ?Vec[Int])
+sub look(x: ?List[Int])
   -x
 
 sub main()
-  look(Vec[Int]())
-  s = S(r: Vec(), o: none, n: 1)
-  v: Vec[Int] = Vec()
+  look(List[Int]())
+  s = S(r: List(), o: none, n: 1)
+  v: List[Int] = List()
   a = [1, 2]
   -v
   -s.o

@@ -1,9 +1,9 @@
-# A generic loop over a `?Vec[T]` binds a copy of each element, which
+# A generic loop over a `?List[T]` binds a copy of each element, which
 # the iteration holds (SPEC "Generic bodies"): `?x` lends that copy, so
 # a view of it may not outlive the iteration (Core s6); one used within
 # the iteration is fine.
 
-fun lastref[T](v: ?Vec[T]) -> ?T
+fun lastref[T](v: ?List[T]) -> ?T
   r = ?v[0]
   for x in v
     r = ?x
@@ -12,7 +12,7 @@ fun lastref[T](v: ?Vec[T]) -> ?T
 sub look[T](r: ?T)
   pass
 
-fun count[T](v: ?Vec[T]) -> Int
+fun count[T](v: ?List[T]) -> Int
   n = 0
   for x in v
     r = ?x
@@ -21,8 +21,8 @@ fun count[T](v: ?Vec[T]) -> Int
   n
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   print(count(?v))
 
 # oracle: lastref reject C5

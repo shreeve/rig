@@ -1,13 +1,13 @@
 struct R
-  xs: Vec[Int]
+  xs: List[Int]
 
 struct H
   w: !R
 
 sub main()
-  v = R(xs: Vec())
+  v = R(xs: List())
   !v.xs.push(1)
   h = H(w: !v)
   r = ?h.w.xs
-  h.w = R(xs: Vec())
+  h.w = R(xs: List())
   print(r)

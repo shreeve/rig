@@ -24,19 +24,19 @@ fun ss(s: ?String) -> Int
   s.len
 
 sub main()
-  b = Box(value: C(hits: Cell(value: 0)))
+  b = ^C(hits: Cell(value: 0))
   hit(!b)
   hit(!b)
   print(b.hits.get())
-  p = Box(value: P(x: 1, y: 2))
+  p = ^P(x: 1, y: 2)
   print(sum(?p))
-  k = Box(value: K.b)
+  k = ^K.b
   print(kk(?k))
-  s = Box(value: "abc")
+  s = ^"abc"
   print(ss(?s))
-  o: Box[Int?] = Box(value: 3)
+  o: ^(Int?) = ^3
   print(oo(?o))
-  a = Box(value: [1, 2])
+  a = ^[1, 2]
   print(aa(?a))
 
 fun oo(o: ?Int?) -> Int

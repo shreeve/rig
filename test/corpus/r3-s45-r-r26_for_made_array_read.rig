@@ -1,8 +1,8 @@
-fun mk() -> [2]Text
-  [Text("a"), Text("b")]
+fun mk() -> [2]String
+  [String("a"), String("b")]
 
 sub main()
   for t in mk()
     print(t)
-  for t in [Text("c")]
+  for t in [String("c")]
     print(t)

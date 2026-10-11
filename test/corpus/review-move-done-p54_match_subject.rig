@@ -1,5 +1,5 @@
 enum E
-  full(v: Vec[Int])
+  full(v: List[Int])
   empty
 
 struct S
@@ -7,7 +7,7 @@ struct S
   n: Int
 
 struct D
-  v: Vec[Int]
+  v: List[Int]
 
   fun into(<self) -> Int
     self.v.len
@@ -29,7 +29,7 @@ sub s2(c: Bool)
     .empty => print("e")
 
 sub s4()
-  h = H(d: D(v: Vec()))
+  h = H(d: D(v: List()))
   print(<h.d.into())
 
 sub main()

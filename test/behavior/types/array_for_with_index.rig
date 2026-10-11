@@ -1,4 +1,4 @@
-# `for x, i in xs` walks an array (or a Vec) with each element's index.
+# `for x, i in xs` walks an array (or a List) with each element's index.
 
 sub main()
   xs = [10, 20, 30]
@@ -6,7 +6,7 @@ sub main()
   for x, i in xs
     total += x * i
   print(total)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   !v.push(8)
   for n, k in ?v

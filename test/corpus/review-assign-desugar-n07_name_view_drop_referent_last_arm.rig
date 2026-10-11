@@ -1,6 +1,6 @@
 # `w = match` through a write view whose last arm drops the referent.
 sub run(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0]
   w = match k

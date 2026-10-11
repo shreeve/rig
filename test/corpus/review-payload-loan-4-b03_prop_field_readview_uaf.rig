@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -21,6 +21,6 @@ fun f(h: ?H) -> Int?
   1
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("x")))
+  e = E.a(r: Res(n: 1, t: String("x")))
   h = H(w: !e)
   _ = f(?h)

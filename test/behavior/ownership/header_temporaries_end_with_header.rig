@@ -6,7 +6,7 @@
 
 struct N
   id: Int
-  v: Vec[Int]
+  v: List[Int]
 
   drop(!self)
     print("drop", self.id)
@@ -15,7 +15,7 @@ error Bad
   no
 
 fun mk(i: Int) -> N
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(i)
   N(id: i, v: <v)
 

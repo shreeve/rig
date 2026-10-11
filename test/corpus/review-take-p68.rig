@@ -4,7 +4,7 @@ struct R
     print("drop", self.n)
 
 sub main()
-  bx = Box(value: R(n: 1))
+  bx = ^R(n: 1)
   r = R(n: 2)
   swap(!bx, !r)
   print(bx, r)

@@ -1,13 +1,13 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 struct W[T]
   arr: [2]T
-  tag: Text
+  tag: String
 
 fun mk[T](a: T, b: T) -> W[T]
-  W(arr: [a, b], tag: Text("tag"))
+  W(arr: [a, b], tag: String("tag"))
 
 fun count[T](a: T, b: T) -> Int
   n = 0

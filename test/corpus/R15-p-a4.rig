@@ -1,6 +1,6 @@
 # clear / pop
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   w = !v[..]
   !v.clear()

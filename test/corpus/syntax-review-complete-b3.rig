@@ -1,10 +1,10 @@
 struct Node
   v: Int
-  kids: Vec[Int]
+  kids: List[Int]
 
 sub main()
-  v: Vec[Box[Node]] = Vec()
-  !v.push(Box(value: Node(v: 1, kids: Vec())))
+  v: List[^Node] = List()
+  !v.push(^Node(v: 1, kids: List()))
   for n in ?v
     print(n.v)
   for n in !v

@@ -1,12 +1,12 @@
 struct S
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 fun mkh() -> *S
-  *S(n: 1, v: Vec())
+  *S(n: 1, v: List())
 
 fun mk() -> S
-  S(n: 1, v: Vec())
+  S(n: 1, v: List())
 
 sub main()
   a = <mkh().n

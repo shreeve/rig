@@ -1,5 +1,5 @@
-# Another module's generic body makes a Vec of this module's owning
-# type: the Vec holds it, and drops it with itself.
+# Another module's generic body makes a List of this module's owning
+# type: the List holds it, and drops it with itself.
 
 use lib
 

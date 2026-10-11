@@ -12,7 +12,7 @@ struct H
   q: Q
 
 struct S
-  cb: fun(Text, ?Q, Int) -> Int
+  cb: fun(String, ?Q, Int) -> Int
 
 fun gf(k: Int) -> Int!
   if k > 1
@@ -22,11 +22,11 @@ fun gf(k: Int) -> Int!
 fun mkh(k: Int) -> H
   H(q: Q(c: Cell(k), n: k))
 
-fun usq(t: Text, q: ?Q, n: Int) -> Int
+fun usq(t: String, q: ?Q, n: Int) -> Int
   t.len + q.c.get() + n
 
 fun run(s: ?S) -> Int!
-  s.cb(Text("a text long enough to live on the heap"), ?mkh(5).q, gf(2)!)
+  s.cb(String("a text long enough to live on the heap"), ?mkh(5).q, gf(2)!)
 
 sub main()
   s = S(cb: usq)

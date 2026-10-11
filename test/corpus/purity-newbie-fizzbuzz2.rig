@@ -1,6 +1,6 @@
 # FizzBuzz, variant: a function that returns the label.
 # No string building and no int->string, so the label is optional.
-fun label(n: Int) -> String?
+fun label(n: Int) -> (?String)?
   if n % 15 == 0
     "FizzBuzz"
   else if n % 3 == 0

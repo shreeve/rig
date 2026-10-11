@@ -41,16 +41,24 @@ happens, as a one-character **sigil**:
 | `!x` | lend `x` to write | `&mut x` | `&x` |
 | `+x` | clone: a new owner | `x.clone()`, `Rc::clone(&x)` | copy, or a manual refcount bump |
 | `<x` alone on a line | drop now | `drop(x)` | `x.deinit()` |
-| `*x` | move into a shared, counted box | `Rc::new(x)` | a hand-written refcounted box |
+| `^x` | move into a box with one owner | `Box::new(x)` | `allocator.create(T)` |
+| `*x` | move into a shared, counted handle | `Rc::new(x)` | a hand-written refcounted box |
 | `~x` | weak handle | `Rc::downgrade(&x)` | a hand-written weak count |
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
+**Names say what a value is; sigils say how you hold it.** Every named
+type is an owner (`List[T]`, `String`, `Cell[T]`, a struct of yours), and
+a view is never a name: it is written `?T` or `!T`, or is a slice `[]T`,
+so the read view of text is `?String`. `^T` is a box, a `T` alone on the
+heap, like Rust's `Box<T>`; `*T` is a counted pointer, like Rust's
+`Rc<T>`.
+
 **Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
-and `!x` lend it, `<x` moves it, `+x` clones it, `*x` and `~x` make
-handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
+and `!x` lend it, `<x` moves it, `+x` clones it, `^x` boxes it, `*x` and
+`~x` make handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
 up, `e!` passes a failure up). Types follow suit: `?T`
-and `!T` are views, `*T` a shared handle and `~T` a weak one, while
+and `!T` are views, `^T` a box, `*T` a shared handle and `~T` a weak one, while
 `T?` is an optional and `T!` a `T` that may fail. Rig has no `!` for
 "not": logical negation is `not`, so `!v.pop()` lends `v` to write,
 and never negates (`if !done` is an error that says to use `not`; see
@@ -60,7 +68,7 @@ arithmetic negation (`y = -n`):
 
 ```rig
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   done = false
@@ -98,22 +106,22 @@ its `!` never reads as "not"; one whose result is dropped is written
 error Stack
   empty
 
-fun peek(v: ?Vec[Int]) -> Int?
+fun peek(v: ?List[Int]) -> Int?
   return none if v.len == 0
   v[v.len - 1]
 
-fun pop(v: !Vec[Int]) -> Int!
+fun pop(v: !List[Int]) -> Int!
   return Stack.empty if v.len == 0
   (!v).pop() ?? 0
 
-fun next(v: ?Vec[Int]) -> Int?
+fun next(v: ?List[Int]) -> Int?
   peek(?v)? + 1
 
-fun drain(v: !Vec[Int]) -> Int!
+fun drain(v: !List[Int]) -> Int!
   pop(!v)! + pop(!v)!
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   print(next(?v))
@@ -154,7 +162,7 @@ handle breaks it.
 ### A first program
 
 ```rig
-fun label(n: Int) -> String
+fun label(n: Int) -> ?String
   match n % 15
     0 => "fizzbuzz"
     3, 6, 9, 12 => "fizz"
@@ -184,7 +192,7 @@ values and separates them with spaces.
 
 ```rig
 struct Account
-  owner: String
+  owner: ?String
   balance: Int
 
   fun can_pay(?self, amount: Int) -> Bool
@@ -217,7 +225,7 @@ A read is written when its view is kept: `xs = ?b.all()` and
 
 ```rig
 struct File
-  name: String
+  name: ?String
 
   drop(!self)
     print("closing", self.name)
@@ -253,7 +261,7 @@ when `cfg2`, its last owner, goes out of scope.
 error ParseError
   empty
 
-fun parse_len(s: String) -> Int!
+fun parse_len(s: ?String) -> Int!
   return ParseError.empty if s == ""
   s.len
 
@@ -353,8 +361,8 @@ support file.
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
 | interior mutability | `Rc<RefCell<T>>` | by hand | `*Cell[T]` |
-| heap box | `Box<T>` | `allocator.create(T)` | `Box[T]` |
-| growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec[T]` |
+| heap box | `Box<T>` | `allocator.create(T)` | `^T` |
+| growable array | `Vec<T>` | `std.ArrayList(T)` | `List[T]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
 | closure argument | `f: &dyn Fn(i64) -> i64` | a context pointer and a function | `f: ?fun(Int) -> Int` |
 | drop early | `drop(x)` | `x.deinit()` | `<x` alone on a line |
@@ -390,7 +398,7 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | what `T` may do | what its bounds say | what each instance compiles | what each instance supports, checked per call |
 | generic type | `struct Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `struct Wrap[T]` |
-| type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
+| type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `List[Int]()` |
 | generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` |
 | compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
 | its call | `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
@@ -421,8 +429,8 @@ correspondences:
 
 | Rig | Zig |
 |---|---|
-| `Int`, `U8`, `Float`, `String`, `Static` | `i64`, `u8`, `f64`, `[]const u8` |
-| `Text` | `rig.Text`, a growable byte buffer the runtime frees |
+| `Int`, `U8`, `Float`, `?String`, `Static` | `i64`, `u8`, `f64`, `[]const u8` |
+| `String` | `rig.String`, a growable byte buffer the runtime frees |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@backingInt(e)))` |
 | `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
@@ -433,11 +441,11 @@ correspondences:
 | `[n of x]` | `@as([n]T, @splat(x))` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
-| a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `String`, a slice, a plain enum); `*const T` for a struct, an array, or a generic instance |
+| a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `?String`, a slice, a plain enum); `*const T` for a struct, an array, or a generic instance |
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
 | `*T`, `~T` | a runtime `RcBox(T)` pointer, a weak handle |
-| `Vec[T]`, `Cell[T]`, `Box[T]`, `Signal[T]` | runtime generic types |
+| `List[T]`, `Cell[T]`, `^T`, `Signal[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
 | a stack closure | a local struct holding its captures, with an `__rig_invoke` method |
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
@@ -469,7 +477,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | switch | `switch` | `match` / `case` | `switch` | `match` |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
 | exceptions | error codes | `raise` / `try` | `throw` / `error` returns | `T!`, `f()!`, `catch` |
-| string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`, `Text(a, b)`: no interpolation |
+| string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`, `String(a, b)`: no interpolation |
 | memory | `malloc`, `free` | a garbage collector | a garbage collector | owners, released where their scope ends |
 
 A Rig program frees what it allocates at a point you can see: when its
@@ -669,10 +677,10 @@ sub main()
 with `!`:
 
 ```rig reject
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   s.len
 
-fun twice(s: String) -> Int!
+fun twice(s: ?String) -> Int!
   parse(s)? * 2
 ```
 
@@ -680,14 +688,14 @@ fun twice(s: String) -> Int!
 `?` propagates `none`, and `parse(s)` fails with an error instead: propagate the failure with `parse(s)!`, or handle it with `catch`
 ```
 
-**`+` on strings.** A `String` is a view of text it does not own, so
-there is nothing for `+` to write into. Rig's `String` is Go's or
-Odin's `string`; Rust's `String` is Rig's `Text`. A literal is a
-`Static`: a `String` known to view only text that lives for the whole
+**`+` on strings.** A `?String` is a view of text it does not own, so
+there is nothing for `+` to write into. Rig's `?String` is Go's or
+Odin's `string`; Rust's `String` is Rig's `String`. A literal is a
+`Static`: a `?String` known to view only text that lives for the whole
 program, so it can also be kept in a `Cell` ([SPEC](SPEC.md#static)).
 Text is built in a
-`Text`, which owns its bytes: `Text(a, b)` writes each value as
-`print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
+`String`, which owns its bytes: `String(a, b)` writes each value as
+`print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#string)):
 
 ```rig reject
 sub main()
@@ -696,16 +704,16 @@ sub main()
 ```
 
 ```error
-Rig has no `+` on text: build it with `Text(a, b)` or `!t.add(...)`
+Rig has no `+` on text: build it with `String(a, b)` or `!t.add(...)`
 ```
 
 ```rig
 sub main()
   name = "ada"
-  t = Text("hi ", name)
+  t = String("hi ", name)
   !t.add(", you are ", 36)
   print(t)
-  print(Text("bye ", name).len)
+  print(String("bye ", name).len)
 ```
 
 ```output
@@ -713,7 +721,7 @@ hi ada, you are 36
 7
 ```
 
-A Text built only to be read, as that last one is, is dropped when its
+A String built only to be read, as that last one is, is dropped when its
 statement ends.
 
 **Inclusive ranges.** A range excludes its end, and there is no `..=`:
@@ -769,7 +777,7 @@ Some habits need no error, only a different spelling: `xs.len` is a
 field, not `xs.len()`, since reading it runs no code; a constructor
 names its fields, `P(x: 1)`, not `.{ .x = 1 }`; `switch`'s `else =>` is
 `match`'s `_ =>`; and an allocator is never passed, because `*x`,
-`Box(v)`, `Vec`, and owned closures are the only things that allocate
+`^v`, `List`, and owned closures are the only things that allocate
 (besides the runtime's list of the program's arguments), and the
 compiler frees them.
 
@@ -779,11 +787,11 @@ You will reach for these and not find them:
 
 - **traits and bounds**: a generic body may do with `T` only what each
   instance supports;
-- **string interpolation**: text is built with `Text(...)` and
+- **string interpolation**: text is built with `String(...)` and
   `!t.add(...)`, which write values as `print` does;
 - **concurrency and async**;
-- **a large standard library**: beyond `print`, `Cell`, `Vec`, `Box`,
-  `Text`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
+- **a large standard library**: beyond `print`, `Cell`, `List`,
+  `String`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,
   `std.os`, `std.time`, `std.random`, `std.sort`, `std.slices`, and
   `std.text` so far;

@@ -1,9 +1,9 @@
 # bad: return bytes bound by if ?h.o as p of a local holder
 struct H
-  o: Text?
+  o: String?
 
-fun f() -> String
-  h = H(o: Text("abc"))
+fun f() -> ?String
+  h = H(o: String("abc"))
   if ?h.o as p
     return p
   "none"

@@ -2,5 +2,5 @@ struct P
   x: Int
 
 sub main()
-  hs: Vec[*P] = Vec()
+  hs: List[*P] = List()
   !hs.fill(*P(x: 1))

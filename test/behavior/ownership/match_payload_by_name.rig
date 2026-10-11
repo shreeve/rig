@@ -11,12 +11,12 @@ struct B
     print("drop", self.n)
 
 enum Bag
-  three(a: *B, label: Text, xs: Vec[Int])
+  three(a: *B, label: String, xs: List[Int])
   one(b: *B)
   empty
 
 struct Res
-  t: Text
+  t: String
 
 enum E
   pair(r: Res, k: Int)
@@ -25,7 +25,7 @@ enum E
 sub keep(b: *B)
   print("kept", b.n)
 
-fun label(e: ?Bag, d: ?Text) -> ?Text from e, d
+fun label(e: ?Bag, d: ?String) -> ?String from e, d
   match e
     .three(label: t) => ?t
     _ => d
@@ -38,53 +38,53 @@ fun res(e: ?E, d: ?Res) -> ?Res from e, d
 
 fun take(e: E) -> Res
   match <e
-    .pair(k: k) if k > 10 => Res(t: Text("big"))
+    .pair(k: k) if k > 10 => Res(t: String("big"))
     .pair(r: r) => <r
-    .none => Res(t: Text("none"))
+    .none => Res(t: String("none"))
 
 sub main()
-  x: Bag = .three(a: *B(n: 1), label: Text("one"), xs: Vec())
+  x: Bag = .three(a: *B(n: 1), label: String("one"), xs: List())
   match <x
     .three(a: a)
       keep(<a)
       print("arm end")
     _ => pass
   print("after 1")
-  y: Bag = .three(a: *B(n: 2), label: Text("two"), xs: Vec())
+  y: Bag = .three(a: *B(n: 2), label: String("two"), xs: List())
   match <y
     .three(xs: v, label: t)
       print(t, v.len)
       print("arm end")
     _ => pass
   print("after 2")
-  z: Bag = .three(a: *B(n: 3), label: Text("three"), xs: Vec())
+  z: Bag = .three(a: *B(n: 3), label: String("three"), xs: List())
   match <z
     .three(label: t) => print(t)
     _ => pass
   print("after 3")
-  w: Bag = .three(a: *B(n: 4), label: Text("four"), xs: Vec())
+  w: Bag = .three(a: *B(n: 4), label: String("four"), xs: List())
   match <w
     .three(label: t) if t.len > 9 => print("long")
     .three(xs: v) => print("xs", v.len)
     _ => pass
   print("after 4")
   # A read match's view of a field bound by name, past the arm.
-  blank = Text("")
-  dr = Res(t: Text(""))
-  g: Bag = .three(a: *B(n: 5), label: Text("five"), xs: Vec())
+  blank = String("")
+  dr = Res(t: String(""))
+  g: Bag = .three(a: *B(n: 5), label: String("five"), xs: List())
   print(label(?g, ?blank))
-  e: E = .pair(r: Res(t: Text("viewed")), k: 1)
+  e: E = .pair(r: Res(t: String("viewed")), k: 1)
   print(res(?e, ?dr).t)
-  f: E = .pair(r: Res(t: Text("abc")), k: 2)
+  f: E = .pair(r: Res(t: String("abc")), k: 2)
   print(res(?f, ?dr).t)
   # A write match on owning fields, by name.
   match !g
     .three(label: t, a: a)
-      t = Text("changed")
+      t = String("changed")
       a = *B(n: 6)
     _ => pass
   print(label(?g, ?blank))
-  print(take(.pair(r: Res(t: Text("taken")), k: 1)).t, take(.pair(r: Res(t: Text("x")), k: 20)).t, take(.none).t)
+  print(take(.pair(r: Res(t: String("taken")), k: 1)).t, take(.pair(r: Res(t: String("x")), k: 20)).t, take(.none).t)
   print("end")
 
 # expect:

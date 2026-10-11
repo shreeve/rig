@@ -1,21 +1,21 @@
-# cf4e2c4b: a generic read result read in the same statement as the Vec.
+# cf4e2c4b: a generic read result read in the same statement as the List.
 struct Item
   n: Int
 
-fun gfirst[T](v: !Vec[T]) -> ?T
+fun gfirst[T](v: !List[T]) -> ?T
   ?v[0]
 
-fun count[T](v: ?Vec[T]) -> Int
+fun count[T](v: ?List[T]) -> Int
   v.len
 
-sub inner[T](v: !Vec[T])
+sub inner[T](v: !List[T])
   r = gfirst(!v)
   print(count(?v))
   print(count(?v), count(?v))
   _ = r
 
 sub main()
-  v: Vec[Item] = Vec()
+  v: List[Item] = List()
   !v.push(Item(n: 7))
   print(gfirst(!v).n, v.len, count(?v))
   inner(!v)

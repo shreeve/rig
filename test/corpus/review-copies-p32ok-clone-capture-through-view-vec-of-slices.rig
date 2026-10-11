@@ -1,6 +1,6 @@
 sub main()
   a = [1, 2, 3]
-  x: Vec[[]Int] = Vec()
+  x: List[[]Int] = List()
   !x.push(?a[..2])
   r = ?x
   f = |+r| r[0][1]

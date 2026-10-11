@@ -1,8 +1,8 @@
-# `for n in nums` over a Copy-element Vec binds each element by value,
+# `for n in nums` over a Copy-element List binds each element by value,
 # in insertion order.
 
 sub main()
-  nums: Vec[Int] = Vec()
+  nums: List[Int] = List()
   break!nums.push(10)
   !nums.push(20)
   !nums.push(30)

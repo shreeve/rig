@@ -7,22 +7,22 @@
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int]) -> S?
+fun mk(v: ?List[Int]) -> S?
   if v.len < 40
     return S(s: ?v[..])
   none
 
-fun take(a: Vec[Int]) -> Int
+fun take(a: List[Int]) -> Int
   a.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   k = 0
   i = 0
   while mk(?v) as h: k += h.s[0] + a.len
-    a = Vec()
+    a = List()
     i += 1
     if i == 2
       k += take(<a)

@@ -1,10 +1,10 @@
 struct H
   n: Int
-  s: String
-  t: Text
+  s: ?String
+  t: String
 
 fun mkh(n: Int) -> H
-  H(n: n, s: "hi", t: Text("x"))
+  H(n: n, s: "hi", t: String("x"))
 
 struct P
   n: Int

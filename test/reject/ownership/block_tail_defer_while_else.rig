@@ -3,9 +3,9 @@
 sub main()
   i = 0
   x = while i < 0 : i += 1
-    break Vec[Int]() if i > 5
+    break List[Int]() if i > 5
   else
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     defer
       for k in 0..100

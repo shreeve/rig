@@ -10,14 +10,14 @@ struct P
 
 struct HI
   v: ?Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop hi", self.v)
 
 struct HP
   v: ?P
-  t: Text
+  t: String
 
   drop(!self)
     print("drop hp", self.v.n)
@@ -63,14 +63,14 @@ fun mkhc(v: ?D, n: Int) -> (*HC)!
 
 fun valued(b: ?Bx) -> Int
   r = match b
-    .has(x) => showp(?HP(v: ?x, t: Text("a")))
+    .has(x) => showp(?HP(v: ?x, t: String("a")))
     .nothing => 0
   print("valued", r)
   r
 
 fun returned(b: ?Bx) -> Int
   match b
-    .has(x) => return showp(?HP(v: ?x, t: Text("ab")))
+    .has(x) => return showp(?HP(v: ?x, t: String("ab")))
     .nothing => pass
   -1
 
@@ -94,10 +94,10 @@ sub main()
   for i in 0..3
     match i * 10
       0 => print("zero")
-      m => print("m", showi(?HI(v: ?m, t: Text("ab"))))
+      m => print("m", showi(?HI(v: ?m, t: String("ab"))))
     print("after", i)
   match mkbx(7)
-    .has(x) => print("x", showp(?HP(v: ?x, t: Text("abc"))))
+    .has(x) => print("x", showp(?HP(v: ?x, t: String("abc"))))
     .nothing => print("none")
   print(valued(?mkbx(4)), returned(?mkbx(5)))
   d = Bd.has(*D(c: Cell(2)))

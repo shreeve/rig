@@ -2,7 +2,7 @@ struct D
   n: Int = 7
 
 struct R
-  items: Vec[Int]
+  items: List[Int]
 
   fun total(?self) -> Int
     t = 0
@@ -14,7 +14,7 @@ sub main()
   d = D(9)
   d2 = D()
   print(d, d2)
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
   !v.push(2)
   r = R(<v)

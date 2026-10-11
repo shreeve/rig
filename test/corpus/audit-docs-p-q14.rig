@@ -1,4 +1,4 @@
-extern fun puts(s: String) -> I32
+extern fun puts(s: ?String) -> I32
 
 sub main()
   print(1)

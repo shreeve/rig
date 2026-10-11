@@ -1,18 +1,18 @@
-# `Text(...)` reads every place that owns storage when it is called,
+# `String(...)` reads every place that owns storage when it is called,
 # after its later arguments ran, as `print` does: here a later argument
-# grows the Cell's Vec, which moves its buffer, or replaces the Vec,
+# grows the Cell's List, which moves its buffer, or replaces the List,
 # which frees it.
 # release
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
-fun grow(c: !Cell[Vec[Int]]) -> Int
+fun grow(c: !Cell[List[Int]]) -> Int
   for i in 0..1000
     !c.push(i)
   5
 
-fun reset(c: !Cell[Vec[Int]]) -> Int
-  !c.set(Vec())
+fun reset(c: !Cell[List[Int]]) -> Int
+  !c.set(List())
   0
 
 fun grow_s(s: !S) -> Int
@@ -20,19 +20,19 @@ fun grow_s(s: !S) -> Int
   1
 
 sub main()
-  c: *Cell[Vec[Int]] = *Cell(Vec())
+  c: *Cell[List[Int]] = *Cell(List())
   !c.push(42)
   e = +c
-  t = Text(c, grow(!e))
+  t = String(c, grow(!e))
   print(t.len)
-  d: *Cell[Vec[Int]] = *Cell(Vec())
+  d: *Cell[List[Int]] = *Cell(List())
   !d.push(7)
   f = +d
-  u = Text(d, reset(!f))
+  u = String(d, reset(!f))
   print(u)
-  s = *S(c: Cell(Vec()))
+  s = *S(c: Cell(List()))
   s2 = +s
-  w = Text(s, " ", grow_s(!s2))
+  w = String(s, " ", grow_s(!s2))
   print(w)
 
 # expect:

@@ -1,7 +1,7 @@
 # a view of an element of a temporary escapes its statement
-fun mk() -> Vec[Text]
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
+fun mk() -> List[String]
+  v: List[String] = List()
+  !v.push(String("a"))
   <v
 
 sub main()

@@ -1,9 +1,9 @@
 struct Node
-  val: Vec[Int]
+  val: List[Int]
 
 fun mk(i: Int) -> (*Node)?
   if i < 4
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(i)
     return *Node(val: v)
   none

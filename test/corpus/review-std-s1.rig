@@ -14,7 +14,7 @@ sub main()
   sort.sort(!f)
   print(f)
   # stability with many elements
-  v = Vec[P]()
+  v = List[P]()
   i = 0
   while i < 200 : i += 1
     !v.push(P(k: (i * 7) % 5, id: i))

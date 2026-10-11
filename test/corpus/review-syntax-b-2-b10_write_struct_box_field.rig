@@ -1,11 +1,11 @@
 struct S
-  b: Box[Text]
+  b: ^String
 
 sub f(w: !S)
   s = w.b[1..]
-  w.b = Box(Text("other"))
+  w.b = ^String("other")
   print(s)
 
 sub main()
-  x = S(b: Box(Text("hello")))
+  x = S(b: ^String("hello"))
   f(!x)

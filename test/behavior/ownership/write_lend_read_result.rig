@@ -13,10 +13,10 @@
 
 struct Item
   n: Int
-  name: String
+  name: ?String
 
 struct Bag
-  items: Vec[Item]
+  items: List[Item]
   count: Int
 
   fun first(!self) -> ?Item
@@ -25,22 +25,22 @@ struct Bag
 
 struct Counter
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
-fun bump(c: !Counter) -> ?Vec[Int]
+fun bump(c: !Counter) -> ?List[Int]
   c.n += 1
   ?c.items
 
-fun first(v: !Vec[Item]) -> ?Item
+fun first(v: !List[Item]) -> ?Item
   ?v[0]
 
-fun firsts(v: !Vec[Item]) -> []Item
+fun firsts(v: !List[Item]) -> []Item
   ?v[..1]
 
-fun gfirst[T](v: !Vec[T]) -> ?T
+fun gfirst[T](v: !List[T]) -> ?T
   ?v[0]
 
-fun size(v: ?Vec[Item]) -> Int
+fun size(v: ?List[Item]) -> Int
   v.len
 
 fun clobber(n: Int) -> Int
@@ -48,14 +48,14 @@ fun clobber(n: Int) -> Int
   b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1] + b[2]
 
-fun items() -> Vec[Item]
-  v: Vec[Item] = Vec()
+fun items() -> List[Item]
+  v: List[Item] = List()
   !v.push(Item(n: 1, name: "one"))
   !v.push(Item(n: 2, name: "two"))
   v
 
 sub fields()
-  c = Counter(n: 0, items: Vec())
+  c = Counter(n: 0, items: List())
   !c.items.push(7)
   r = bump(!c)
   print(c.n, c.items.len)
@@ -68,7 +68,7 @@ sub fields()
   print(s.n, s.name)
 
 sub elements()
-  rows: Vec[Vec[Item]] = Vec()
+  rows: List[List[Item]] = List()
   !rows.push(items())
   r = first(!rows[0])
   print(rows.len, rows[0].len)

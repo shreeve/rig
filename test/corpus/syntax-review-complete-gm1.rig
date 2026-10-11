@@ -3,14 +3,14 @@ struct Entry[K, V]
   v: V
 
 struct Map[K, V]
-  es: Vec[Box[Entry[K, V]]]
+  es: List[^Entry[K, V]]
 
   sub put(!self, k: K, v: V)
     for e in !self.es
       if e.k == k
         e.v = <v
         return
-    !self.es.push(Box(value: Entry(k: k, v: <v)))
+    !self.es.push(^Entry(k: k, v: <v))
 
   sub each(?self, f: ?sub(?K, ?V))
     for e in ?self.es
@@ -27,7 +27,7 @@ struct Node
     print("drop", self.id)
 
 sub main()
-  m = Map[String, *Node](es: Vec())
+  m = Map[?String, *Node](es: List())
   !m.put("a", *Node(id: 1))
   !m.put("b", *Node(id: 2))
   !m.put("a", *Node(id: 3))

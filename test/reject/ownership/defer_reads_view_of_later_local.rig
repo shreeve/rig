@@ -2,26 +2,26 @@
 # dropped, so it cannot read one through a view taken later.
 
 struct Res
-  v: Vec[Int]
+  v: List[Int]
 
 error Bad
   oops
 
 fun work() -> Int!
-  y = Res(v: Vec())
+  y = Res(v: List())
   !y.v.push(1)
   r = ?y
   errdefer print("errdefer reads", r.v[0])
-  x = Res(v: Vec())
+  x = Res(v: List())
   !x.v.push(2)
   r = ?x
   return Bad.oops
 
 sub main()
-  y = Res(v: Vec())
+  y = Res(v: List())
   r = ?y
   defer print("defer reads", r.v[0])
-  x = Res(v: Vec())
+  x = Res(v: List())
   !x.v.push(12345)
   r = ?x
   print(work() catch 0)

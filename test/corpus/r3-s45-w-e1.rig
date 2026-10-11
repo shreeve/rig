@@ -1,34 +1,34 @@
 struct Rec
-  name: Text
+  name: String
   n: Int
 
-fun size(v: ?Vec[Int]) -> Int
+fun size(v: ?List[Int]) -> Int
   v.len
 
 sub main()
-  rows: Vec[Vec[Int]] = Vec()
-  r: Vec[Int] = Vec()
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
   !r.push(5)
   !rows.push(<r)
   print(rows.len, rows[0].len)
   !rows[0].push(6)
   print(rows[0], size(?rows[0]), size(rows[0]))
-  q: Vec[Int] = Vec()
+  q: List[Int] = List()
   rows[0] = <q
   print(rows)
-  ts: Vec[Text] = Vec()
-  !ts.push(Text("a"))
+  ts: List[String] = List()
+  !ts.push(String("a"))
   !ts[0].add("b")
   print(ts[0], ts[0].len)
-  ts[0] = Text("zz")
+  ts[0] = String("zz")
   print(ts)
-  rs: Vec[Rec] = Vec()
-  !rs.push(Rec(name: Text("x"), n: 1))
+  rs: List[Rec] = List()
+  !rs.push(Rec(name: String("x"), n: 1))
   rs[0].n = 4
-  rs[0].name = Text("y")
+  rs[0].name = String("y")
   print(rs[0].name, rs[0].n)
-  os: Vec[Text?] = Vec()
-  !os.push(Text("o"))
+  os: List[String?] = List()
+  !os.push(String("o"))
   if <os[0] as t
     print(t)
   print(os)

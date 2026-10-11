@@ -221,15 +221,15 @@ delete it afterwards, so they never write to the user cache.
 `test/matrix.py` generates the programs where one expression form (a
 place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
 constructor, `<x`, `+x`) stands in one context (a `print` argument, a
-`?T` argument, `==`, a binding, a field store, a Vec push, `return`, an
+`?T` argument, `==`, a binding, a field store, a List push, `return`, an
 element assignment, a `match` subject, a `for` source, a consuming
 receiver, a test against `none` or a bare `.variant`) for each of
-several types (Int, String, Text, Vec, `*T`, Box, a struct with a `drop`,
+several types (Int, `?String`, `String`, `List`, `*T`, `^T`, a struct with a `drop`,
 a payload enum, and in a few cells a struct holding a Cell, which must
 be rejected), and holds each to the corpus's rule; a slice of the
 value, written with no lend, stands as an argument where a `[]T` or a
-String goes, also while a later argument writes what it slices; and a
-slice of an array, a Vec, a Text, or a String held owned, through a
+`?String` goes, also while a later argument writes what it slices; and a
+slice of an array, a List, a String, or a `?String` held owned, through a
 read or write view, a `*T`, a box (or a write view of either), a field,
 or a nested field, as an argument or
 bound bare, stands while the owner is changed or replaced, or after its
@@ -246,8 +246,8 @@ that is a write view (a `match !e` payload of every subject, named,
 guarded, nested, and of a branch of write lends; `if !o as b` and
 `while !o as b`; `for b in !v`, with an index and over an array; a `!T`
 parameter; a `|!b|` capture; a held `b = !x`; a `defer` in the arm) of
-a Text, a
-Vec, a `Box[Text]`, or a struct holding a Vec, whole, sliced, or to a
+a String, a
+List, a `^String`, or a struct holding a List, whole, sliced, or to a
 call or `?self` method, then writes through the binding while the view
 is live, or after its last use; a program that runs must print what the
 view showed before the write. A read binding of a write view (`if o as
@@ -272,7 +272,7 @@ many steps ran. And it puts a `while`, `for`, `while … as`, `match`, or
 or `continue` in the inner construct's `else`) past a `defer` or an
 owned local, and a program that runs must print the trace of passes,
 steps, defers, and drops the jumps' meaning gives. Last, it changes or
-reads a Cell (`set`, `replace`, `get`, a `Cell[Vec]`'s `push`, `pop`,
+reads a Cell (`set`, `replace`, `get`, a `Cell[List]`'s `push`, `pop`,
 `clear`, and `c[i] = e`, and a `?self` method) of each kind of value
 holding one (a struct with a `drop`, the Cells in a part, a generic
 type, a bare Cell) through the `*` handle it lives behind: directly,
@@ -282,7 +282,7 @@ method, in a statement, a loop that continues or breaks early, a
 and print the state the operations give both in a debug build and
 built with `--release`, where Zig's optimizer would expose a write
 through a read-only pointer (`cellmut.`). A value holding a Cell made
-or held anywhere but behind `*` (a local, a by-value parameter, a Vec
+or held anywhere but behind `*` (a local, a by-value parameter, a List
 element, a temporary changed where it stands) must be rejected
 (`cellmut.value.`, `celltemp.value.`). Every loop a cell
 writes counts its passes and stops at a cap, and each program is

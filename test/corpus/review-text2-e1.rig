@@ -1,5 +1,5 @@
 struct W
-  t: !Text
+  t: !String
 
 struct Outer
   w: W
@@ -7,14 +7,14 @@ struct Outer
 struct Outer2
   o: Outer
 
-fun grab(o: ?Outer2) -> String
+fun grab(o: ?Outer2) -> ?String
   ?o.o.w.t[..3]
 
 sub grow(o: !Outer2)
   !o.o.w.t.add("more more more more more more more more more")
 
 sub main()
-  t = Text("abcdefghijklmnop")
+  t = String("abcdefghijklmnop")
   o = Outer2(o: Outer(w: W(t: !t)))
   s = grab(?o)
   grow(!o)

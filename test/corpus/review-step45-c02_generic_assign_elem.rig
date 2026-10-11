@@ -1,9 +1,9 @@
 # generic fn assigning an element; instantiated with Text
-sub put[T](v: !Vec[T], x: T)
+sub put[T](v: !List[T], x: T)
   v[0] = <x
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  put(!v, Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  put(!v, String("b"))
   print(v)

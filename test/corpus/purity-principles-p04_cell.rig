@@ -1,6 +1,6 @@
 struct Counter
   hits: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   fun peek(!self) -> Int
     !self.hits.set(self.hits.get() + 100)
@@ -11,7 +11,7 @@ fun look(c: !Counter) -> Int
   (!c).peek()
 
 sub main()
-  c = Counter(hits: Cell(0), log: Cell(Vec()))
+  c = Counter(hits: Cell(0), log: Cell(List()))
   a = c.peek()
   b = look(?c)
   print(a, b, c.hits.get(), c.log.len)

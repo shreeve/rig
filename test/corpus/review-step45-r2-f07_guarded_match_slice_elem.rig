@@ -16,7 +16,7 @@ fun g(v: ?[1]E) -> Int
     .b(n) => n
 
 sub main()
-  e: Vec[E] = Vec()
+  e: List[E] = List()
   !e.push(E.a(n: 5))
   a = [E.a(n: 7)]
   print(f(?e), g(?a))

@@ -11,8 +11,8 @@ struct Shadow[Item]
 struct Prim[Int]
   v: Int
 
-struct Builtin[Vec]
-  v: Vec
+struct Builtin[List]
+  v: List
 
 struct Own[T]
   v: T
@@ -32,6 +32,6 @@ sub main()
 
 # error: generic parameter `Item` has the same name as the module-level declaration `Item`
 # error: generic parameter `Int` has the name of a built-in type
-# error: generic parameter `Vec` has the same name as the module-level declaration `Vec`
+# error: generic parameter `List` has the same name as the module-level declaration `List`
 # error: generic parameter `T` has the same name as a method of the type
 # error: parameter `U` has the name of the generic parameter `U`

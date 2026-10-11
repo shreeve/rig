@@ -5,7 +5,7 @@ struct Wrap
     print("drop", self.n)
 
 sub main()
-  v: Vec[Wrap] = Vec()
+  v: List[Wrap] = List()
   !v.push(Wrap(n: 1))
   f = |!v, n: Int|
     v.push(Wrap(n: n))

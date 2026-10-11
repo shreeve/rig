@@ -2,7 +2,7 @@
 # drop body views its receiver, so it cannot take `<self`.
 
 struct Conn
-  name: String
+  name: ?String
   <other
 
   fun close(<self) -> Int

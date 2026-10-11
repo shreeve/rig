@@ -1,6 +1,6 @@
-fun pick(c: Bool) -> ?Text
-  a = Text("aa")
-  b = Text("bb")
+fun pick(c: Bool) -> ?String
+  a = String("aa")
+  b = String("bb")
   a if c else b
 
 sub main()

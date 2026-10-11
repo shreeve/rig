@@ -1,9 +1,9 @@
-sub f(t: !Text)
+sub f(t: !String)
   defer !t.add("x")
   s = ?t[1..]
   print(s)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   f(!t)
   print(t)

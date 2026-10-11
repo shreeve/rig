@@ -1,5 +1,5 @@
 struct H
-  t: Text
+  t: String
 
   fun go(!self) -> Int
     s = self.t[1..]
@@ -9,5 +9,5 @@ struct H
     0
 
 sub main()
-  h = H(t: Text("hello"))
+  h = H(t: String("hello"))
   print((!h).go())

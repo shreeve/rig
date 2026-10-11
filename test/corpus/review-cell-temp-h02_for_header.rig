@@ -16,9 +16,9 @@ fun count(p: !D) -> Int
   !p.c.set(p.c.get() + 10)
   p.c.get()
 
-fun list(p: !D) -> Vec[Int]
+fun list(p: !D) -> List[Int]
   !p.c.set(p.c.get() + 20)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(p.c.get())
   !v.push(p.c.get() + 1)
   v

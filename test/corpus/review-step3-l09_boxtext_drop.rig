@@ -1,8 +1,8 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 sub main()
-  b = Box(Box(Text("abc")))
+  b = ^^String("abc")
   s = keep(?b)
   <b
   print(s)

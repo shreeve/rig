@@ -1,7 +1,7 @@
 # A closure made in the arm captures the payload binding view `s` with |?s|; the subject is then reassigned. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,12 +12,12 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("one")))
-  s: String = "s"
+  e = E.a(r: Res(n: 1, t: String("one")))
+  s: ?String = "s"
   match e
     .a(r) => s = ?r.t
     .b(r) => s = ?r.t
   f = |?s| print(s)
-  e = E.b(r: Res(n: 9, t: Text("over")))
+  e = E.b(r: Res(n: 9, t: String("over")))
   print(clobber(1))
   f()

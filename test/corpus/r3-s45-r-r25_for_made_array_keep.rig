@@ -1,8 +1,8 @@
-fun mk() -> [2]Text
-  [Text("a"), Text("b")]
+fun mk() -> [2]String
+  [String("a"), String("b")]
 
 sub main()
-  keep: Vec[Text] = Vec()
+  keep: List[String] = List()
   for t in mk()
     !keep.push(<t)
   print(keep)

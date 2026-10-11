@@ -1,21 +1,21 @@
 struct Node
   key: Int
-  left: Box[Node]?
-  right: Box[Node]?
+  left: ^Node?
+  right: ^Node?
 
-sub insert(slot: !Box[Node]?, key: Int)
+sub insert(slot: !^Node?, key: Int)
   if !slot as n
     insert(!n.left, key) if key < n.key else insert(!n.right, key)
   else
-    slot = Box(Node(key: key, left: none, right: none))
+    slot = ^Node(key: key, left: none, right: none)
 
-fun total(slot: ?Box[Node]?) -> Int
+fun total(slot: ?^Node?) -> Int
   if slot as n
     return total(?n.left) + n.key + total(?n.right)
   0
 
 sub main()
-  root: Box[Node]? = none
+  root: ^Node? = none
   x = 12345
   i = 0
   while i < 20000 : i += 1

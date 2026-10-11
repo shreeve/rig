@@ -1,8 +1,8 @@
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print(v.len)
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   new t = 0
   for i0 in 0..2
     for i1 in 0..2
@@ -27,5 +27,5 @@ sub main()
                                           t += i0 + i1 + i2 + i3 + i4 + i5 + i6 + i7 + i8 + i9 + i10 + i11 + i12 + i13 + i14 + i15 + i16 + i17 + i18 + i19
                                           if t == 99999
                                             eat(<a)
-                                            a = Vec()
+                                            a = List()
   print(t, a.len)

@@ -7,7 +7,7 @@ struct Slot
   v: Val?
 
 struct Map
-  slots: Vec[Box[Slot]]
+  slots: List[^Slot]
   one: Val?
 
   fun first(?self) -> ?Val?
@@ -19,7 +19,7 @@ struct Map
     none
 
 sub main()
-  m = Map(slots: Vec(), one: Val(n: 3))
+  m = Map(slots: List(), one: Val(n: 3))
   if m.first() as v
     print(v.n)
   if m.val() as v

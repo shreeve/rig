@@ -1,8 +1,8 @@
 struct Config
-  tags: Vec[Int] = Vec()
+  tags: List[Int] = List()
 
-fun make() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun make() -> List[Int]
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   v

@@ -2,14 +2,14 @@
 error Bad
   oops
 
-fun g(t: !Text, fail: Bool) -> !Text!
+fun g(t: !String, fail: Bool) -> !String!
   if fail
     return Bad.oops
   t
 
 fun h(fail: Bool) -> Int
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   w = g(!b, fail) catch return 0
   !w.add("!")

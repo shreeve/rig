@@ -2,13 +2,13 @@
 # after the right one runs: the right operand cannot lend it to write.
 # `grow(!a) == a` is accepted (behavior/ownership/operand_read_order.rig).
 
-fun grow(t: !Text) -> Text
+fun grow(t: !String) -> String
   for _ in 0..100
     !t.add("abcdefgh")
-  Text("x")
+  String("x")
 
 sub main()
-  a = Text("a")
+  a = String("a")
   print(a == grow(!a))
 
 # error: 12:20: cannot lend `a` to write while the left operand's read of it is in use

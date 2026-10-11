@@ -1,14 +1,14 @@
 # A write-view local whose new value is a view in one arm and an Int in
 # the other: a re-point, or a store through the old view?
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   for _ in 0..200
     !v.push(1)
   v.len
 
 sub run(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(8)
   w = !v[0]
   w = match k

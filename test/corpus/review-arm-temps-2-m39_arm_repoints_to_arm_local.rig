@@ -1,13 +1,13 @@
-# The arm re-points the target's write view at a Vec local to the arm; the
-# store then writes through it after the arm drops that Vec.
+# The arm re-points the target's write view at a List local to the arm; the
+# store then writes through it after the arm drops that List.
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   k = 0
   w[0] = match k
     0
-      u: Vec[Int] = Vec()
+      u: List[Int] = List()
       !u.push(1)
       w = !u[0..1]
       3

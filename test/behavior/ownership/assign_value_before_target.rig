@@ -7,15 +7,15 @@ struct P
   a: Int
   b: Int
 
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   for _ in 0..200
     !v.push(1)
   v.len
 
 sub name_repointed(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(8)
   w = !v[0]
   w = match k
@@ -26,9 +26,9 @@ sub name_repointed(k: Int)
   print(v[0], u[0])
 
 sub name_repointed_grows_old(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(8)
   w = !v[0]
   w = match k
@@ -39,9 +39,9 @@ sub name_repointed_grows_old(k: Int)
   print(v[0], u[0], v.len)
 
 sub name_compound(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(8)
   w = !v[0]
   w += match k
@@ -52,9 +52,9 @@ sub name_compound(k: Int)
   print(v[0], u[0], v.len)
 
 sub elem_repointed_grows_old(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(8)
   w = !v[0..1]
   w[0] = match k
@@ -65,9 +65,9 @@ sub elem_repointed_grows_old(k: Int)
   print(v[0], u[0], v.len)
 
 sub field_repointed(k: Int)
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   !v.push(P(a: 1, b: 2))
-  u: Vec[P] = Vec()
+  u: List[P] = List()
   !u.push(P(a: 3, b: 4))
   w = !v[0]
   w.a = if k == 0
@@ -84,7 +84,7 @@ sub swap(k: Int)
       P(a: p.b, b: p.a)
     _ => P(a: 0, b: 0)
   print(p.a, p.b)
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   !v.push(P(a: 3, b: 4))
   w = !v[0]
   w = match k
@@ -94,12 +94,12 @@ sub swap(k: Int)
   print(v[0].a, v[0].b)
 
 sub last_line(k: Bool)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   w[0] = 5
   if k
-    u: Vec[Int] = Vec()
+    u: List[Int] = List()
     !u.push(1)
     w = !u[0..1]
     w[0] = 3

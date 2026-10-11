@@ -1,13 +1,13 @@
-# A bare Cell[Vec[Int]] reached through a branch with a named leaf: push.
+# A bare Cell[List[Int]] reached through a branch with a named leaf: push.
 #
 # oracle: vec1 accept
 # oracle: main accept
-fun vec1(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun vec1(n: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(n)
   v
 
-fun mk(n: Int) -> Cell[Vec[Int]]
+fun mk(n: Int) -> Cell[List[Int]]
   Cell(vec1(n))
 
 sub go(k: Bool)

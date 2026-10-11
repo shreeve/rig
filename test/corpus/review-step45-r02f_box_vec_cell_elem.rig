@@ -1,21 +1,21 @@
-# Cell change through an element of a Vec in a shared handle and in a ?Box
+# Cell change through an element of a List in a shared handle and in a ?Box
 struct C
   c: Cell[Int]
 
 struct S
-  v: Vec[C]
+  v: List[C]
 
-sub bump(b: !Box[S])
+sub bump(b: !^S)
   !b.v[0].c.set(40)
 
 sub main()
-  v: Vec[C] = Vec()
+  v: List[C] = List()
   !v.push(C(c: Cell(3)))
   h = *S(v: <v)
   !h.v[0].c.set(9)
   print(h.v[0].c.get())
-  w: Vec[C] = Vec()
+  w: List[C] = List()
   !w.push(C(c: Cell(3)))
-  b = Box(S(v: <w))
+  b = ^S(v: <w)
   bump(!b)
   print(b.v[0].c.get())

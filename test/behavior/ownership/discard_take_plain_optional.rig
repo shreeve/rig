@@ -9,7 +9,7 @@ struct P
 struct S
   n: Int?
   p: P?
-  s: String?
+  s: (?String)?
 
   sub clear(!self)
     <self.n
@@ -42,7 +42,7 @@ sub main()
     defer <e.n
     print("in", e.n == none)
   print("after", e.n == none)
-  v: Vec[Int?] = Vec()
+  v: List[Int?] = List()
   !v.push(3)
   <v[0]
   print(v[0] == none)

@@ -1,8 +1,8 @@
 struct Bag
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
   x = while true
-    b = Bag(v: Vec())
+    b = Bag(v: List())
     break b
   print(x.v.len)

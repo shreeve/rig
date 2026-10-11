@@ -50,7 +50,7 @@ fun id_f32(x: F32) -> F32
   x
 
 sub t4521()
-  vec4521: Vec[Int] = Vec()
+  vec4521: List[Int] = List()
   !vec4521.push((gsome((-5)) ?? 14))
   print(vec4521)
 

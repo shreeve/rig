@@ -51,7 +51,7 @@ pub const FunctionType = sema.FunctionType;
 pub const ParamNominal = sema.ParamNominal;
 pub const Lend = sema.Lend;
 pub const LendStep = sema.LendStep;
-pub const TextCall = sema.TextCall;
+pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
 pub const GenericCall = sema.GenericCall;
 pub const Use = sema.Use;
@@ -89,7 +89,7 @@ pub const Facts = struct {
     /// The program's root module.
     is_root: bool,
     cell_sym_id: SymbolId,
-    vec_sym_id: SymbolId,
+    list_sym_id: SymbolId,
     signal_sym_id: SymbolId,
     box_sym_id: SymbolId,
     endian_sym_id: SymbolId,
@@ -106,7 +106,7 @@ pub const Facts = struct {
             .zig_file = ctx.zig_file,
             .is_root = ctx.is_root,
             .cell_sym_id = ctx.cell_sym_id,
-            .vec_sym_id = ctx.vec_sym_id,
+            .list_sym_id = ctx.list_sym_id,
             .signal_sym_id = ctx.signal_sym_id,
             .box_sym_id = ctx.box_sym_id,
             .endian_sym_id = ctx.endian_sym_id,
@@ -277,14 +277,14 @@ pub const Facts = struct {
     pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
         return storage.decided(f.c(), pattern, .catch_all_by_address);
     }
-    /// Whether `if … as` binds the bytes of the Text a write view in the
+    /// Whether `if … as` binds the bytes of the String a write view in the
     /// optional points at.
-    pub fn optionalBindsTextBytes(f: Facts, cond: Sexp) bool {
-        return storage.optionalBindsTextBytes(f.c(), cond);
+    pub fn optionalBindsStringBytes(f: Facts, cond: Sexp) bool {
+        return storage.optionalBindsStringBytes(f.c(), cond);
     }
-    /// Whether a read `for` binds the bytes of each Text element.
-    pub fn loopBindsTextBytes(f: Facts, loop: Sexp) bool {
-        return storage.loopBindsTextBytes(f.c(), loop);
+    /// Whether a read `for` binds the bytes of each String element.
+    pub fn loopBindsStringBytes(f: Facts, loop: Sexp) bool {
+        return storage.loopBindsStringBytes(f.c(), loop);
     }
     /// Whether a payload binding points at the field it binds.
     pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
@@ -310,7 +310,7 @@ pub const Facts = struct {
             else => null,
         };
     }
-    /// Whether a `print`, `Text(...)`, or `add` argument is read by address
+    /// Whether a `print`, `String(...)`, or `add` argument is read by address
     /// (`storage.printsByAddress`).
     pub fn printsByAddress(f: Facts, a: Sexp) ?bool {
         return storage.decided(f.c(), a, .print_by_address);
@@ -388,9 +388,9 @@ pub const Facts = struct {
     pub fn intLimit(f: Facts, e: Sexp) ?TypedInt {
         return sema.intLimit(f.c(), e);
     }
-    /// The built-in Text operation `call` is.
-    pub fn textCall(f: Facts, call: Sexp) ?TextCall {
-        return storage.textCall(f.c(), call);
+    /// The built-in String operation `call` is.
+    pub fn stringCall(f: Facts, call: Sexp) ?StringCall {
+        return storage.stringCall(f.c(), call);
     }
     pub fn isPrintCall(f: Facts, call: Sexp) bool {
         return storage.isPrintCall(f.c(), call);
@@ -544,9 +544,9 @@ pub const Facts = struct {
         return sema.lendByValue(f.c(), inner);
     }
     /// Whether a view of type `view` of a slot of type `slot` is the bytes
-    /// of a Text (`sema.viewsTextBytes`).
-    pub fn viewsTextBytes(f: Facts, slot: TypeId, view: TypeId) bool {
-        return sema.viewsTextBytes(f.c(), slot, view);
+    /// of a String (`sema.viewsStringBytes`).
+    pub fn viewsStringBytes(f: Facts, slot: TypeId, view: TypeId) bool {
+        return sema.viewsStringBytes(f.c(), slot, view);
     }
     /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {
@@ -670,10 +670,10 @@ test "Facts answers as the context it was made from" {
     const source =
         \\struct S
         \\  n: Int
-        \\  t: Text
+        \\  t: String
         \\
         \\fun mk(n: Int) -> S
-        \\  S(n: n, t: Text("s"))
+        \\  S(n: n, t: String("s"))
         \\
         \\sub main()
         \\  s = mk(1)
@@ -757,11 +757,11 @@ test "Facts reads the leaf walk the storage plan decided" {
 test "Facts reads every match decision the plan made" {
     const source =
         \\enum E
-        \\  a(n: Int, t: Text)
+        \\  a(n: Int, t: String)
         \\  b
         \\
         \\sub main()
-        \\  e = E.a(n: 1, t: Text("x"))
+        \\  e = E.a(n: 1, t: String("x"))
         \\  match e
         \\    .a(n, t) if n > 0 => print(n, t)
         \\    other => print(other)
@@ -791,7 +791,7 @@ test "Facts reads every match decision the plan made" {
             const pattern = ir.Arm.pattern(arm);
             if (pattern == .src) try std.testing.expect(f.catchAllCaptured(pattern) != null);
             if (pattern.isKind(.variant_pattern)) for (f.payloadBindings(pattern).?) |b| {
-                // `t` is a view of the Text where it is; `n` a copy.
+                // `t` is a view of the String where it is; `n` a copy.
                 const by_addr = f.bindsByAddress(b).?;
                 try std.testing.expectEqual(std.mem.eql(u8, source[b.src.pos..][0..b.src.len], "t"), by_addr);
             };

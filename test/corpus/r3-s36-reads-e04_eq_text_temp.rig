@@ -1,6 +1,6 @@
-fun mk() -> Text
-  Text("a")
+fun mk() -> String
+  String("a")
 
 sub main()
-  t = Text("a")
+  t = String("a")
   print(t == mk(), mk() == t, t == t)

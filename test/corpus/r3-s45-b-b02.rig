@@ -5,7 +5,7 @@ struct R
     print("drop", self.n)
 
 sub main()
-  v: Vec[R] = Vec()
+  v: List[R] = List()
   !v.push(R(n: 1))
   !v.push(R(n: 2))
   x = for r in <v

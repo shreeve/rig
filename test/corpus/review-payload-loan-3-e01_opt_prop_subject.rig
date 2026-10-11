@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 enum E
   a(w: !P)
@@ -12,13 +12,13 @@ fun f(p: !P) -> Int?
       r = ?w.t[1..]
       if o as e2
         match !e2
-          .a(k) => k.t = Text("other")
+          .a(k) => k.t = String("other")
           .b => pass
-      w.t = Text("x")
+      w.t = String("x")
       print(r)
     .b => pass
   1
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   print(f(!p) ?? 0)

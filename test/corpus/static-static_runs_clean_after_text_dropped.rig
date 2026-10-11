@@ -5,7 +5,7 @@ fun label(t: Tag) -> *sub()
   *|+t| print(t.name)
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   c = *Cell("one")
   pieces = ["a", "b", "c"]
   !c.set(pieces[1])

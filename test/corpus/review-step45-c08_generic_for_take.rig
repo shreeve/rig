@@ -1,5 +1,5 @@
 # generic loop that takes elements: for x in <v, T = Text
-fun eat[T](v: Vec[T]) -> Int
+fun eat[T](v: List[T]) -> Int
   n = 0
   for x in <v
     keep = <x
@@ -7,7 +7,7 @@ fun eat[T](v: Vec[T]) -> Int
   n
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   print(eat(<v))

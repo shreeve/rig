@@ -29,7 +29,7 @@ sub main()
   r = rest(!a[..])
   r[0] = 99
   print(a)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   !v.push(3)

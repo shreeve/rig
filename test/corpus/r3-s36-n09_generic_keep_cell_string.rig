@@ -3,7 +3,7 @@ sub keep[T](c: !Cell[T], x: T)
 
 sub main()
   c = Cell("a")
-  t = Text("xyz")
+  t = String("xyz")
   keep(?c, ?t[..])
   <t
   print(c.get())

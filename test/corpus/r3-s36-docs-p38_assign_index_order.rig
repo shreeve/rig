@@ -1,5 +1,5 @@
 # SPEC §4 / Core §6: "indexes are evaluated outside in" -- which order is that?
-fun at(i: Int, what: String) -> Int
+fun at(i: Int, what: ?String) -> Int
   print(what)
   i
 

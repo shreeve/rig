@@ -1,10 +1,10 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub main()
-  v: Vec[E] = Vec()
-  !v.push(E.a(Text("hello")))
+  v: List[E] = List()
+  !v.push(E.a(String("hello")))
   for x in !v
     match !x
       .a(t)

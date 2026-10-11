@@ -6,7 +6,7 @@ struct Node
 
 sub main()
   n = *Node(1)
-  v = Vec[Int]()
+  v = List[Int]()
   f: *sub(Int)! = *|+n, <v, x: Int|
     tmp = *Node(x)
     return Bad.neg if x < 0

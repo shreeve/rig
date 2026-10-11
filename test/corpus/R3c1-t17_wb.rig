@@ -1,5 +1,5 @@
 struct P
-  s: String
+  s: ?String
   n: Int
 
 fun f(a: !String, b: ?String) -> Bool

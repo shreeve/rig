@@ -1,6 +1,6 @@
 # A value that holds a read view keeps the viewed owner lent while the
 # value is used: a box, a generic function's result, an optional, and a
-# generic struct, each of a Vec. The owner can be neither written nor
+# generic struct, each of a List. The owner can be neither written nor
 # moved nor dropped until the last use of the holder.
 
 struct Hold[T]
@@ -10,20 +10,20 @@ fun same[T](x: T) -> T
   x
 
 sub main()
-  a: Vec[Int] = Vec()
-  b = Box(?a)
+  a: List[Int] = List()
+  b = ^?a
   !a.push(1)
   print(b.len)
-  c: Vec[Int] = Vec()
+  c: List[Int] = List()
   r = same(?c)
   d = <c
   print(r.len, d.len)
-  e: Vec[Int] = Vec()
-  o: (?Vec[Int])? = ?e
+  e: List[Int] = List()
+  o: (?List[Int])? = ?e
   !e.push(1)
   if o as w
     print(w.len)
-  f: Vec[Int] = Vec()
+  f: List[Int] = List()
   h = Hold(v: ?f)
   <f
   print(h.v.len)

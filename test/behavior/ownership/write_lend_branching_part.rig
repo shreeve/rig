@@ -13,7 +13,7 @@ struct K2
 
 struct S
   n: Int
-  t: Text
+  t: String
   arr: [3]Int
   kk: K2
 
@@ -27,7 +27,7 @@ fun f(n: Int) -> Int
   n
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("t", n), arr: [3, 2, 1], kk: K2(n: 0))
+  S(n: n, t: String("t", n), arr: [3, 2, 1], kk: K2(n: 0))
 
 fun mko(n: Int) -> S?
   return none if n == 0
@@ -45,7 +45,7 @@ sub main()
   print(replace(!(mk(3) if c else mk(4)).n, 7))
   swap(!(mko(5) ?? mk(6)).n, !k)
   swap(!(mkf(0) catch mk(7)).n, !k)
-  t = Text("mine")
+  t = String("mine")
   swap(!(mk(8) if c else mk(9)).t, !t)
   print(t)
   sort.sort(!(mk(10) if c else mk(11)).arr[..])

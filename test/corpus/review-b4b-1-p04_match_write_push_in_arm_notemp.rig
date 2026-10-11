@@ -1,11 +1,11 @@
-# 2d47a2db: write match on Vec element (no temp); arm pushes then writes payload. Expect reject.
+# 2d47a2db: write match on List element (no temp); arm pushes then writes payload. Expect reject.
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 sub main()
-  v: Vec[E] = Vec()
-  !v.push(E.a(t: Text("q")))
+  v: List[E] = List()
+  !v.push(E.a(t: String("q")))
   i = 0
   match !v[i]
     .a(t)

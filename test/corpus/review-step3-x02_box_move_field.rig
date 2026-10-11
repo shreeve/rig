@@ -1,8 +1,8 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
 sub main()
-  b = Box(Box(S(n: 1, t: Text("x"))))
+  b = ^^S(n: 1, t: String("x"))
   t = <b.t
   print(t)

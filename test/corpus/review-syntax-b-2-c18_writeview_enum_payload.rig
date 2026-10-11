@@ -1,12 +1,12 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 enum E
-  a(w: !Text)
+  a(w: !String)
   b
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   e = E.a(!t)
   match e
     .a(w)

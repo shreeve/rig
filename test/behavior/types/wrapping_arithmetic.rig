@@ -1,7 +1,7 @@
 # `+%`, `-%`, and `*%` wrap around on overflow, in two's complement, for
 # any integer type; `+%=`, `-%=`, and `*%=` assign the wrapped result.
 
-fun fnv1a(s: String) -> U64
+fun fnv1a(s: ?String) -> U64
   h: U64 = 14695981039346656037
   for b in s
     h ^= U64(b)

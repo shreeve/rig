@@ -2,17 +2,17 @@
 # call's result tested that way is dropped after the test.
 enum Shape
   dot
-  line(v: Vec[Int])
+  line(v: List[Int])
 
 fun mk() -> Shape
-  p: Vec[Int] = Vec()
+  p: List[Int] = List()
   !p.push(1)
   .line(v: <p)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  a: Vec[Int]? = <v
+  a: List[Int]? = <v
   if a != none
     print("some")
   if ?a as x

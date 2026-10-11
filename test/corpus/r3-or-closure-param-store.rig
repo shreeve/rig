@@ -9,22 +9,22 @@
 # oracle: lent_capture_to_param reject C6
 
 struct H
-  r: (?Vec[Int])?
+  r: (?List[Int])?
 
 sub run(h: !H, f: ?sub(!H))
   f(!h)
 
 sub param_to_param()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = H(r: none)
-  put = |out: !H, x: ?Vec[Int]| out.r = x
+  put = |out: !H, x: ?List[Int]| out.r = x
   put(!h, ?v)
   if h.r as r
     print(r.len)
 
 sub capture_to_param()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = H(r: none)
   f = |?v, out: !H| out.r = v
@@ -34,7 +34,7 @@ sub capture_to_param()
     print(r.len)
 
 sub lent_capture_to_param()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = H(r: none)
   run(!h, |?v, out: !H| out.r = v)

@@ -1,6 +1,6 @@
 # The step of `while c as h: step` runs after the body, so a view the
 # step reads through `h` keeps its loan through the body: growing the
-# Vec or Text it views there is rejected, whatever the way to the step
+# List or Text it views there is rejected, whatever the way to the step
 # (the end of the body, `continue`, `continue :outer` from a nested
 # loop, an inner loop, a `defer`) and however the step reads `h` (a
 # field, a method, a closure), for a joined or a failing condition too.
@@ -29,29 +29,29 @@ struct S
     self.s[0]
 
 struct T
-  s: String
+  s: ?String
 
-fun mk(v: ?Vec[Int]) -> S?
+fun mk(v: ?List[Int]) -> S?
   if v.len < 40
     return S(s: ?v[..])
   none
 
-fun all(v: ?Vec[Int]) -> ([]Int)?
+fun all(v: ?List[Int]) -> ([]Int)?
   if v.len < 40
     return ?v[..]
   none
 
-fun mkt(t: ?Text) -> T?
+fun mkt(t: ?String) -> T?
   if t.len < 200
     return T(s: ?t)
   none
 
-fun mkf(v: ?Vec[Int]) -> S?!
+fun mkf(v: ?List[Int]) -> S?!
   return E.bad if v.len > 100
   mk(v)
 
 sub field()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += h.s[0]
@@ -59,7 +59,7 @@ sub field()
   print(k)
 
 sub slice()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while all(?v) as h: k += h[0]
@@ -67,7 +67,7 @@ sub slice()
   print(k)
 
 sub method()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += h.first()
@@ -75,7 +75,7 @@ sub method()
   print(k)
 
 sub closure()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += (|?h| h.s[0])()
@@ -83,14 +83,14 @@ sub closure()
   print(k)
 
 sub string()
-  t = Text("abc")
+  t = String("abc")
   k = 0
   while mkt(?t) as h: k += (1 if text.ends_with(h.s, "9") else 0)
     !t.add("0123456789")
   print(k)
 
 sub joined()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h and h.s.len > 0: k += h.s[0]
@@ -98,7 +98,7 @@ sub joined()
   print(k)
 
 sub failing()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while (mkf(?v) catch none) as h: k += h.s[0]
@@ -106,7 +106,7 @@ sub failing()
   print(k)
 
 sub continued()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += h.s[0]
@@ -115,7 +115,7 @@ sub continued()
   print(k)
 
 sub labeled()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   :outer while mk(?v) as h: k += h.s[0]
@@ -125,7 +125,7 @@ sub labeled()
   print(k)
 
 sub inner()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += h.s[0]
@@ -135,7 +135,7 @@ sub inner()
   print(k)
 
 sub deferred()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += h.s[0]
@@ -144,7 +144,7 @@ sub deferred()
   print(k)
 
 sub nested()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   i = 0

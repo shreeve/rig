@@ -141,9 +141,9 @@ const SymbolResolver = struct {
             .flags = flags,
         };
         const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
-        // `Text` and `Static` are built-in types, like `Vec`, though no
+        // `String` and `Static` are built-in types, like `List`, though no
         // symbol holds them.
-        const reserved = self.scope == self.module_scope and (std.mem.eql(u8, name, "Text") or std.mem.eql(u8, name, "Static"));
+        const reserved = self.scope == self.module_scope and (std.mem.eql(u8, name, "String") or std.mem.eql(u8, name, "Static"));
         if (reserved) try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
         if (dup) |prev| {
             const p = self.ctx.symbols.items[prev];
@@ -634,8 +634,11 @@ pub const DeferredCheck = union(enum) {
     /// `[N]T` spelled at `at`, with `T` spelled at `node`; `ty` is the
     /// array type, when its size is still to be checked.
     array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
-    /// `Vec[T]`, `Box[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
+    /// `List[T]`, `^T`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
+    /// An instance of a generic type the program declares, spelled at
+    /// `pos`: none of its fields or methods may stack two holdings.
+    instance_stacking: struct { pos: u32, ty: TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
     owned_closure: struct { node: Sexp, ty: TypeId },
     /// A type spelled at `node` that stands at `home`, where a value
@@ -657,6 +660,9 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             }
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
+        .instance_stacking => |c| if (try sema.instanceHeapStacked(ctx, c.ty)) |found| {
+            try ctx.err(c.pos, "`{s}` holds `{s}`, which stacks one heap holding on another; " ++ sema.heap_stacked_rule, .{ try sema.formatType(ctx, c.ty), try sema.formatType(ctx, found) });
+        },
         .owned_closure => |c| try checkOwnedClosureType(ctx, c.node, c.ty),
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
             const shown = try sema.formatType(ctx, c.ty);
@@ -739,11 +745,11 @@ fn isValueSpelling(source: []const u8, node: Sexp) bool {
 }
 
 /// The type of a literal other than an integer: `Float`, `Bool`, or
-/// `String`.
+/// `?String`.
 fn literalTypeName(text: []const u8) ?[]const u8 {
     if (sema.isFloatLiteralText(text)) return "Float";
     if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return "Bool";
-    if (text.len > 0 and (text[0] == '"' or text[0] == '\'')) return "String";
+    if (text.len > 0 and (text[0] == '"' or text[0] == '\'')) return "?String";
     return null;
 }
 
@@ -767,11 +773,12 @@ pub const TypeResolver = struct {
     /// it is a typo of.
     fn typeHint(self: *TypeResolver, name: []const u8, pos: u32) Error![]const u8 {
         const a = self.ctx.arena.allocator();
+        if (sema.retiredNameHint(name)) |hint| return hint;
         if (name.len > 0 and std.ascii.isLower(name[0])) {
             const upper = try a.dupe(u8, name);
             upper[0] = std.ascii.toUpper(upper[0]);
+            if (std.mem.eql(u8, name, "str") or std.mem.eql(u8, name, "string")) return "; Rig's text is a `String` (owned), and `?String` is its read view";
             if (isBuiltinTypeName(self.ctx, upper)) return a.print("; Rig's types are capitalized: `{s}`", .{upper});
-            if (std.mem.eql(u8, name, "str")) return "; Rig's string type is `String`";
         }
         var s: sema.Suggest = .{ .name = name };
         self.ctx.offerVisible(&s, self.scope, pos, struct {
@@ -783,7 +790,7 @@ pub const TypeResolver = struct {
             }
         }.keep);
         for (self.nominal.type_params) |tp| s.offer(self.ctx.symbols.items[tp].name);
-        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Static", "Void" }) |p| s.offer(p);
+        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Void" }) |p| s.offer(p);
         return s.hint(a);
     }
 
@@ -894,7 +901,7 @@ pub const TypeResolver = struct {
                 return self.ctx.types.invalid_id;
             }
             if (!isCtValueType(self.ctx, ty)) {
-                try self.ctx.errAt(type_node, "compile-time parameter `{s}` cannot have the type `{s}`; a compile-time value is a number, `Bool`, `String`, an enum whose variants carry nothing, or an optional of one", .{ name, try sema.formatType(self.ctx, ty) });
+                try self.ctx.errAt(type_node, "compile-time parameter `{s}` cannot have the type `{s}`; a compile-time value is a number, `Bool`, `?String`, an enum whose variants carry nothing, or an optional of one", .{ name, try sema.formatType(self.ctx, ty) });
                 return self.ctx.types.invalid_id;
             }
             return ty;
@@ -1646,10 +1653,10 @@ pub const TypeResolver = struct {
                             else => .element,
                         };
                         if (try self.misplacedAt(inner_node, inner, home)) return t.invalid_id;
-                        // Nothing lends a `String` place to write: it holds a read
+                        // Nothing lends a `?String` place to write: it holds a read
                         // view of text, pointed elsewhere by assigning to it.
-                        if (head == .write_view and inner == t.string_id) {
-                            try self.ctx.errAt(sexp, "`!String` cannot be written: a `String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `Text` to change text in place", .{});
+                        if (head == .write_view and inner == t.string_view_id) {
+                            try self.ctx.errAt(sexp, "`!?String` cannot be written: a `?String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `String` to change text in place", .{});
                             return t.invalid_id;
                         }
                         // `?fun(...)` written as such is a callable
@@ -1671,8 +1678,8 @@ pub const TypeResolver = struct {
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner) or try self.misplacedAt(inner_node, inner, .handle)) return t.invalid_id;
-                        if (self.ctx.types.get(inner) == .shared) {
-                            try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                        if (sema.heapStacked(self.ctx, .shared, inner)) {
+                            try self.ctx.errAt(sexp, sema.heap_stacked, .{try self.stackedSpelling('*', inner)});
                             return t.invalid_id;
                         }
                         if (sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
@@ -1710,6 +1717,20 @@ pub const TypeResolver = struct {
                             .returns = ret,
                             .is_sub = sema.returnsNothing(self.ctx, ret),
                         } });
+                    },
+                    .boxed => {
+                        const inner_node = ir.Boxed.type(sexp);
+                        const inner = try self.resolveType(inner_node);
+                        if (sema.containsPoison(self.ctx, inner) or try self.heldCallable(inner_node, inner)) return t.invalid_id;
+                        if (self.ctx.types.get(inner) == .function) {
+                            try self.ctx.errAt(sexp, sema.boxed_function, .{});
+                            return t.invalid_id;
+                        }
+                        if (sema.heapStacked(self.ctx, .box, inner)) {
+                            try self.ctx.errAt(sexp, sema.heap_stacked, .{try self.stackedSpelling('^', inner)});
+                            return t.invalid_id;
+                        }
+                        return self.boxOf(inner, self.ctx.startOf(sexp));
                     },
                     .generic_inst => return self.resolveGenericInst(sexp),
                     .member => return self.resolveQualified(ir.Member.object(sexp), ir.Member.name(sexp)),
@@ -2131,12 +2152,29 @@ pub const TypeResolver = struct {
         // An instance with a rejected argument is poison: what follows
         // from it was already reported.
         if (any_bad) return t.invalid_id;
-        const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args.items } });
+        return self.instanceOf(sym_id, args.items, pos);
+    }
+
+    /// The type `sigil` over `inner` would be, as a diagnostic spells it.
+    fn stackedSpelling(self: *TypeResolver, sigil: u8, inner: TypeId) Error![]const u8 {
+        return self.ctx.arena.allocator().print("{c}{s}", .{ sigil, try sema.formatType(self.ctx, inner) });
+    }
+
+    /// `^T`: the built-in box of `T`, spelled at `pos`.
+    pub fn boxOf(self: *TypeResolver, inner: TypeId, pos: u32) Error!TypeId {
+        return self.instanceOf(self.ctx.box_sym_id, &.{inner}, pos);
+    }
+
+    /// The instance of generic `sym_id` at `args`, spelled at `pos`.
+    fn instanceOf(self: *TypeResolver, sym_id: SymbolId, args_in: []const TypeId, pos: u32) Error!TypeId {
+        const sym = self.ctx.symbols.items[sym_id];
+        const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args_in } });
         const inst = self.ctx.types.get(ty).parameterized_nominal;
         if (sym.decl_pos == sema.builtin_decl_pos) {
             try self.checkWhenResolved(.{ .builtin = .{ .pos = pos, .sym = sym_id, .args = inst.args } });
         }
         if (!sema.containsTypeVar(self.ctx, ty)) {
+            if (sym.decl_pos != sema.builtin_decl_pos) try self.checkWhenResolved(.{ .instance_stacking = .{ .pos = pos, .ty = ty } });
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
             if (!gop.found_existing) gop.value_ptr.* = pos;
         } else {
@@ -2149,7 +2187,7 @@ pub const TypeResolver = struct {
 };
 
 /// Element-type rules of the built-in generics. An instance over generic
-/// parameters (`Vec[T]` in `Stack[T]`) is checked for each instantiation
+/// parameters (`List[T]` in `Stack[T]`) is checked for each instantiation
 /// instead (`sema.expandInstantiations`).
 pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
     if (args.len != 1 or sema.containsTypeVar(ctx, args[0])) return null;
@@ -2157,10 +2195,10 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
         if (sema.isPlainData(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
-        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
+        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`), plain data (a struct, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `List[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
     }
-    if (sym_id == ctx.vec_sym_id) {
-        // A Vec holds any value, views included: its elements move in
+    if (sym_id == ctx.list_sym_id) {
+        // A List holds any value, views included: its elements move in
         // and out whole, and each is a place (Core §5). A viewed
         // callable is only a parameter's, a local's, or a result's.
         if (!sema.holdsCallable(ctx, args[0])) return null;
@@ -2168,7 +2206,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isPlainData(ctx, args[0])) return null;
-        return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
+        return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
 }
@@ -2182,11 +2220,11 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
     for (f.params, 0..) |p, i| {
         if (sema.isClosureValue(ctx, p)) continue;
         const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure takes plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data); `{s}` is not one", .{try sema.formatType(ctx, p)});
+        try ctx.err(pos, "an owned closure takes plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data); `{s}` is not one", .{try sema.formatType(ctx, p)});
     }
     if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
         const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain data, which copies and holds no view but a String (numbers, Bool, String, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
+        try ctx.err(pos, "an owned closure returns plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
     }
 }
 
@@ -2198,11 +2236,11 @@ pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 
-const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Static", "Void" };
+const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Void" };
 
 fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
-    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.text_id, t.static_id, t.void_id };
+    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.static_id, t.void_id };
     for (primitive_type_names, ids) |n, id| {
         if (std.mem.eql(u8, name, n)) return id;
     }
@@ -2241,14 +2279,16 @@ fn sizedType(name: []const u8) ?Type {
 
 /// Every built-in type a name spells, once each (`I64` is `Int`): the
 /// types `@name` of a type parameter names from a table (`emit`), which
-/// is keyed by the Zig type. A `Static` is the Zig type of a `String`, so
-/// a type parameter bound to either is named `String`.
+/// is keyed by the Zig type. A `Static` is the Zig type of a `?String`, so
+/// a type parameter bound to either is named `?String`.
 pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const Type {
     var out: std.ArrayList(Type) = .empty;
     for (primitive_type_names) |name| {
         const ty = ctx.types.get(primitiveTypeId(ctx, name).?);
         if (ty != .static) try out.append(a, ty);
     }
+    // The read view of a `String` has no name of its own, but `@name` names it.
+    try out.append(a, ctx.types.get(ctx.types.string_view_id));
     var buf: [4]u8 = undefined;
     for ("IUF") |prefix| for ([_]u8{ 8, 16, 32, 64, 128 }) |bits| {
         const ty = sizedType(std.fmt.bufPrint(&buf, "{c}{d}", .{ prefix, bits }) catch unreachable) orelse continue;
@@ -2274,7 +2314,7 @@ pub fn isNumericTypeName(name: []const u8) bool {
 // =============================================================================
 // Built-in generic types
 //
-// `Cell[T]`, `Vec[T]`, `Box[T]`, and `Signal[T]`, and the enum `Endian`, registered
+// `Cell[T]`, `List[T]`, `^T`, and `Signal[T]`, and the enum `Endian`, registered
 // in every module scope before user declarations. The generics' methods
 // are ordinary method Fields on generic symbols, so calls go through the
 // same lookup and substitution as user generics; the runtime
@@ -2287,7 +2327,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // Cell[T]: the slot a shared handle shares. What changes it takes
     // `!self`, so a call marks the change: `!c.set(5)`.
     {
-        const g = try addGeneric(ctx, module_scope, "Cell", &.{"T"});
+        const g = try addGeneric(ctx, module_scope, module_scope, "Cell", &.{"T"});
         ctx.cell_sym_id = g.sym;
         const t = g.params[0];
         const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
@@ -2301,10 +2341,10 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
-    // Vec[T]: growable buffer that owns its elements.
+    // List[T]: growable buffer that owns its elements.
     {
-        const g = try addGeneric(ctx, module_scope, "Vec", &.{"T"});
-        ctx.vec_sym_id = g.sym;
+        const g = try addGeneric(ctx, module_scope, module_scope, "List", &.{"T"});
+        ctx.list_sym_id = g.sym;
         const t = g.params[0];
         const read_self = try ctx.intern(.{ .read_view = g.self_ty });
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
@@ -2319,10 +2359,12 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
-    // Box[T]: one T on the heap, owned by the box. Its fields and
-    // methods are reached through it; `unbox` moves the value out.
+    // `^T`: one T on the heap, owned by the box. Its fields and methods
+    // are reached through it; `unbox` moves the value out. No name
+    // reaches it: `^` writes the type, and the symbol is named for how
+    // a diagnostic would spell it.
     {
-        const g = try addGeneric(ctx, module_scope, "Box", &.{"T"});
+        const g = try addGeneric(ctx, null, module_scope, "^", &.{"T"});
         ctx.box_sym_id = g.sym;
         const t = g.params[0];
         try setFields(ctx, g.sym, &.{
@@ -2350,7 +2392,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
 
     // Signal[T]: a value that copies, plus subscriber closures notified on `set`.
     {
-        const g = try addGeneric(ctx, module_scope, "Signal", &.{"T"});
+        const g = try addGeneric(ctx, module_scope, module_scope, "Signal", &.{"T"});
         ctx.signal_sym_id = g.sym;
         const t = g.params[0];
         const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
@@ -2371,11 +2413,12 @@ const Generic = struct {
     sym: SymbolId,
     /// `type_var` TypeIds of the parameters, in order.
     params: []const TypeId,
-    /// The type applied to its own parameters: `Vec[T]`.
+    /// The type applied to its own parameters: `List[T]`.
     self_ty: TypeId,
 };
 
-fn addGeneric(ctx: *SemContext, module_scope: ScopeId, name: []const u8, param_names: []const []const u8) Error!Generic {
+/// A built-in generic type, named in `named_in` when a name reaches it.
+fn addGeneric(ctx: *SemContext, named_in: ?ScopeId, module_scope: ScopeId, name: []const u8, param_names: []const []const u8) Error!Generic {
     const sym = try ctx.addSymbol(.{
         .name = name,
         .kind = .generic_type,
@@ -2383,7 +2426,7 @@ fn addGeneric(ctx: *SemContext, module_scope: ScopeId, name: []const u8, param_n
         .decl_pos = builtin_pos,
         .scope = module_scope,
     });
-    try ctx.addToScope(module_scope, sym);
+    if (named_in) |scope| try ctx.addToScope(scope, sym);
 
     const arena = ctx.arena.allocator();
     const param_syms = try arena.alloc(SymbolId, param_names.len);
@@ -2422,9 +2465,9 @@ test "builtins: registered with methods" {
     defer ctx.deinit();
     const scope = try ctx.pushScopeKind(sema.scope_invalid, .module);
     try registerBuiltins(&ctx, scope);
-    const vec = ctx.lookup(scope, "Vec").?;
-    try std.testing.expectEqual(ctx.vec_sym_id, vec);
-    try std.testing.expectEqual(@as(usize, 6), ctx.symbols.items[vec].fields.?.len);
+    const list = ctx.lookup(scope, "List").?;
+    try std.testing.expectEqual(ctx.list_sym_id, list);
+    try std.testing.expectEqual(@as(usize, 6), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 

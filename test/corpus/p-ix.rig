@@ -1,5 +1,5 @@
 sub main()
-  t = Text("abc")
+  t = String("abc")
   print((?t[..])[0])
   for b in ?t[..]
     print(b)

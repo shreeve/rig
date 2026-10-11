@@ -1,5 +1,5 @@
 sub main()
-  t = Text("hello")
+  t = String("hello")
   xs = ?t[..]
   r = ?xs
   s = r[1..]

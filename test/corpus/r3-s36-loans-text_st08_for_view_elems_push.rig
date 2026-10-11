@@ -1,6 +1,6 @@
 sub main()
-  t = Text("a b")
-  names: Vec[String] = Vec()
+  t = String("a b")
+  names: List[?String] = List()
   !names.push(?t[0..1])
   for s in ?names
     !t.add("!")

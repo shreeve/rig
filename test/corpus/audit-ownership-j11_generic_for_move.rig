@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-fun total[T](v: Vec[T], f: ?fun(?T) -> Int) -> Int
+fun total[T](v: List[T], f: ?fun(?T) -> Int) -> Int
   s = 0
   for x in <v
     s += f(?x)
@@ -26,7 +26,7 @@ fun score(t: ?*Tok) -> Int
   t.n
 
 sub main()
-  v: Vec[*Tok] = Vec()
+  v: List[*Tok] = List()
   !v.push(*Tok(n: 1))
   !v.push(*Tok(n: 2))
   print(total(<v, score))

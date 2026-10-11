@@ -1,4 +1,4 @@
-fun total(xs: List[Int]) -> Int
+fun total(xs: Chain[Int]) -> Int
   0
 
 sub main()

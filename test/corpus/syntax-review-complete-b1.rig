@@ -2,7 +2,7 @@ struct P
   x: Int
 
 struct Bag
-  items: Vec[P]
+  items: List[P]
 
   fun at(?self, i: Int) -> ?P
     ?self.items[i]
@@ -11,7 +11,7 @@ struct Bag
     !self.items[i]
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(P(x: 1))
   r = ?b.at(0)
   print(r.x)

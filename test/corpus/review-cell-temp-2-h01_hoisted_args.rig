@@ -12,7 +12,7 @@ error E
   bad
 
 struct V
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   drop(!self)
     print("drop", self.c.len)
@@ -25,7 +25,7 @@ struct WV
   t: V
 
 fun mkv(n: Int) -> V
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i)
   V(c: Cell(<v))

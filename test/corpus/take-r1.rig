@@ -1,10 +1,10 @@
 struct N
   v: Int
-  next: Box[N]?
+  next: ^N?
 
 struct S
-  top: Box[N]?
-  name: String
+  top: ^N?
+  name: ?String
   n: N
 
 sub rd(s: ?S)

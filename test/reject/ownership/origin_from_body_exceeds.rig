@@ -1,26 +1,26 @@
 # A body is checked against its `from` clause, whatever form returns the
 # view: a tail value, a `return`, a branch, a fallback, or a call.
 
-fun tail(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+fun tail(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
   b
 
-fun early(a: ?Vec[Int], b: ?Vec[Int], c: Bool) -> ?Vec[Int] from a
+fun early(a: ?List[Int], b: ?List[Int], c: Bool) -> ?List[Int] from a
   return b if c
   a
 
-fun branch(a: ?Vec[Int], b: ?Vec[Int], c: Bool) -> ?Vec[Int] from a
+fun branch(a: ?List[Int], b: ?List[Int], c: Bool) -> ?List[Int] from a
   a if c else b
 
-fun fallback(a: (?Vec[Int])?, b: ?Vec[Int]) -> ?Vec[Int] from a
+fun fallback(a: (?List[Int])?, b: ?List[Int]) -> ?List[Int] from a
   a ?? b
 
-fun both(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+fun both(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
   a
 
-fun through(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+fun through(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
   both(a, b)
 
-fun only(s: String) -> String from static
+fun only(s: ?String) -> ?String from static
   s
 
 sub main()

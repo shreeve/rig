@@ -1,16 +1,16 @@
 # A shared Cell changes by a marked call through any path to it, a handle
-# in an element of a write-viewed Vec, array, or slice included: through a field of the
+# in an element of a write-viewed List, array, or slice included: through a field of the
 # element, the element itself, an element of an element, and a field's
-# Vec.
+# List.
 # release
 
 struct C
   c: Cell[Int]
 
 struct H
-  cs: Vec[*C]
+  cs: List[*C]
 
-sub bump(a: ![2]*C, s: ![]*C, v: !Vec[*C], w: !Vec[*Cell[Int]], m: !Vec[Vec[*C]], h: !H)
+sub bump(a: ![2]*C, s: ![]*C, v: !List[*C], w: !List[*Cell[Int]], m: !List[List[*C]], h: !H)
   !a[0].c.set(10)
   !s[0].c.set(20)
   !v[0].c.set(30)
@@ -20,17 +20,17 @@ sub bump(a: ![2]*C, s: ![]*C, v: !Vec[*C], w: !Vec[*Cell[Int]], m: !Vec[Vec[*C]]
 
 sub main()
   a = [*C(c: Cell(1)), *C(c: Cell(2))]
-  v: Vec[*C] = Vec()
+  v: List[*C] = List()
   !v.push(*C(c: Cell(3)))
-  sl: Vec[*C] = Vec()
+  sl: List[*C] = List()
   !sl.push(*C(c: Cell(4)))
-  w: Vec[*Cell[Int]] = Vec()
+  w: List[*Cell[Int]] = List()
   !w.push(*Cell(5))
-  m: Vec[Vec[*C]] = Vec()
-  row: Vec[*C] = Vec()
+  m: List[List[*C]] = List()
+  row: List[*C] = List()
   !row.push(*C(c: Cell(6)))
   !m.push(<row)
-  hs: Vec[*C] = Vec()
+  hs: List[*C] = List()
   !hs.push(*C(c: Cell(7)))
   h = H(cs: <hs)
   bump(!a, !sl[..], !v, !w, !m, !h)

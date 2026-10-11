@@ -1,7 +1,7 @@
 # A constructor must supply every declared field.
 
 struct User
-  name: String
+  name: ?String
   age: Int
 
 sub main()

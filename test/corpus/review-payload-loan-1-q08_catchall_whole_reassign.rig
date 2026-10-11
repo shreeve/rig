@@ -1,15 +1,15 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub main()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .b => pass
     x
       match x
         .a(t)
           s = ?t[1..]
-          x = E.a(Text("other"))
+          x = E.a(String("other"))
           print(s)
         .b => pass

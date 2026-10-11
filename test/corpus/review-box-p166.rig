@@ -5,10 +5,10 @@ struct R
     print("drop", self.n)
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
-  !v.push(Box(value: R(n: 2)))
-  !v.push(Box(value: R(n: 3)))
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  !v.push(^R(n: 2))
+  !v.push(^R(n: 3))
   for x in <v
     print(x.n)
     if x.n == 2

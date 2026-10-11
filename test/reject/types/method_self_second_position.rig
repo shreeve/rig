@@ -1,7 +1,7 @@
 # `self` must be the first parameter of a method.
 
 struct User
-  name: String
+  name: ?String
 
   fun bad(other: Int, ?self) -> Int
     other

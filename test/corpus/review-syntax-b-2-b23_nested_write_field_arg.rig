@@ -1,8 +1,8 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 struct W
-  f: !Text
+  f: !String
 
 struct V
   w: W
@@ -14,6 +14,6 @@ sub g(v: !V)
   print(s)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   v = V(w: W(f: !t))
   g(!v)

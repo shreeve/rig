@@ -1,5 +1,5 @@
 struct W[T]
-  c: Cell[Vec[T]]
+  c: Cell[List[T]]
 
   sub add(!self, x: T)
     !self.c.push(x)
@@ -10,7 +10,7 @@ sub fill[T](w: !W[T], x: T, n: Int)
     !w.c.push(x)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   w = *W(c: Cell(<v))
   fill(!w, 3, 40)
   print(w.c.len)

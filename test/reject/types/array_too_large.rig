@@ -1,5 +1,5 @@
 # A value takes at most 8 MiB, since it may live on the stack: larger
-# data belongs in a `Vec`. Each instance of a generic declaration is
+# data belongs in a `List`. Each instance of a generic declaration is
 # checked for the arrays it makes and for its own size. A type that
 # holds a type too large is not reported again.
 

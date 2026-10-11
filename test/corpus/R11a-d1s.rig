@@ -1,8 +1,8 @@
-fun first[T](v: ?Vec[T]) -> ?T
+fun first[T](v: ?List[T]) -> ?T
   ?v[0]
 
 sub main()
-  v = Vec[String]()
+  v = List[?String]()
   !v.push("a")
   f = first(?v)
   for _ in 0..100

@@ -1,4 +1,4 @@
-fun name(k: Int) -> String
+fun name(k: Int) -> ?String
   if k == 0
     return "zero"
   "many"

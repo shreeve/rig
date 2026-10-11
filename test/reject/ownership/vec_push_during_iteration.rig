@@ -1,8 +1,8 @@
-# Iterating a Vec (with or without `?`) views it for the whole loop; a
+# Iterating a List (with or without `?`) views it for the whole loop; a
 # push could reallocate the buffer being iterated.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   for x in ?v
     !v.push(x)

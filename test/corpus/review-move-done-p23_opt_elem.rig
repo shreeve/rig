@@ -1,6 +1,6 @@
 # optional elements holding owners: taken and emptied
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 fun len_of(o: S?) -> Int
   if o as s
@@ -8,18 +8,18 @@ fun len_of(o: S?) -> Int
   -1
 
 sub main()
-  vv: Vec[Vec[Int]?] = Vec()
-  r: Vec[Int] = Vec()
+  vv: List[List[Int]?] = List()
+  r: List[Int] = List()
   !r.push(1)
   !vv.push(<r)
   !vv.push(none)
   w = <vv[0]
   print(w, vv[0], vv.len)
-  a: [2]S? = [S(v: Vec()), none]
+  a: [2]S? = [S(v: List()), none]
   x = <a[0]
   print(len_of(<x), a[0] == none)
-  vs: Vec[S?] = Vec()
-  !vs.push(S(v: Vec()))
+  vs: List[S?] = List()
+  !vs.push(S(v: List()))
   sl = !vs[..]
   y = <sl[0]
   print(len_of(<y), vs[0] == none)

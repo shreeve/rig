@@ -1,7 +1,7 @@
 # `push` appends one `U8`.
 
 sub main()
-  t = Text()
+  t = String()
   !t.push("ab")
   !t.push(1, 2)
   !t.push(b: U8(68))

@@ -1,6 +1,6 @@
 # A bare field or element of a value never copies a write view out of
 # it, because a write view is never stored inside a value: not as a
-# field of any type, nor as a Vec's element. Each is rejected where it
+# field of any type, nor as a List's element. Each is rejected where it
 # is written.
 
 struct P
@@ -8,20 +8,20 @@ struct P
 
 struct H
   w: !Int
-  v: !Vec[Int]
+  v: !List[Int]
   p: !P
 
 struct HS
-  s: !Text
+  s: !String
 
 sub main()
-  ws: Vec[!Int] = Vec[!Int]()
+  ws: List[!Int] = List[!Int]()
   print(ws.len)
 
 # error: 10:6: a write view is never stored inside a value, and `!Int` cannot stand here
-# error: 11:6: a write view is never stored inside a value, and `!Vec[Int]` cannot stand here
+# error: 11:6: a write view is never stored inside a value, and `!List[Int]` cannot stand here
 # error: 12:6: a write view is never stored inside a value, and `!P` cannot stand here
-# error: 15:6: a write view is never stored inside a value, and `!Text` cannot stand here
-# error: 18:11: a write view is never stored inside a value, and `!Int` cannot stand here
-# error: 18:19: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 15:6: a write view is never stored inside a value, and `!String` cannot stand here
+# error: 18:12: a write view is never stored inside a value, and `!Int` cannot stand here
+# error: 18:20: a write view is never stored inside a value, and `!Int` cannot stand here
 # errors: 6

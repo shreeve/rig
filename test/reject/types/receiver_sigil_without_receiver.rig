@@ -1,7 +1,7 @@
 # `!` and `<` before a call apply to the method's receiver, so a call
 # with none rejects them: an associated function called through its
 # type (where `!` reaches the type, not the value the call makes), a
-# Cell's Vec members, a weak handle's `upgrade`, and a field holding a
+# Cell's List members, a weak handle's `upgrade`, and a field holding a
 # function.
 
 struct Point
@@ -18,7 +18,7 @@ struct Hooks
 sub main()
   a = !Point.origin()
   b = <Point.origin()
-  log: Cell[Vec[Int]] = Cell(Vec())
+  log: Cell[List[Int]] = Cell(List())
   !log.get(0)
   h = *Node(n: 1)
   w = ~h

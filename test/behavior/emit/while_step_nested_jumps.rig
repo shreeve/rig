@@ -12,28 +12,28 @@ error E
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 5
     return S(s: ?v[..])
   none
 
-fun mkf(v: ?Vec[Int], i: Int) -> S?!
+fun mkf(v: ?List[Int], i: Int) -> S?!
   return E.bad if i > 70
   mk(v, i)
 
-fun fresh(n: Int) -> Vec[Int]
-  a: Vec[Int] = Vec()
+fun fresh(n: Int) -> List[Int]
+  a: List[Int] = List()
   !a.push(n)
   a
 
-fun take(a: Vec[Int]) -> Int
+fun take(a: List[Int]) -> Int
   a[0]
 
 fun odd(j: Int) -> Int?
   j if j % 2 == 1 else none
 
 sub joined()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   k = 0
   i = 0
@@ -46,7 +46,7 @@ sub joined()
   print(k, i)
 
 sub joined_moves()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   a = fresh(1)
   k = 0
@@ -62,7 +62,7 @@ sub joined_moves()
   print(k, i)
 
 sub catch_break()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   a = fresh(1)
   k = 0
@@ -77,7 +77,7 @@ sub catch_break()
   print(k, i)
 
 sub deep()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   a = fresh(1)
   k = 0
@@ -102,7 +102,7 @@ sub deep()
   print(k, i)
 
 sub leaves()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   a = fresh(1)
   k = 0

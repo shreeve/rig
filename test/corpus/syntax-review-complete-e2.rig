@@ -1,8 +1,8 @@
 enum ParseResult[T]
   ok(value: T)
-  err(line: Int, msg: String)
+  err(line: Int, msg: ?String)
 
-fun parse(s: String) -> ParseResult[Int]
+fun parse(s: ?String) -> ParseResult[Int]
   return .err(line: 3, msg: "empty") if s.len == 0
   .ok(s.len)
 

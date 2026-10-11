@@ -7,23 +7,23 @@ error StockError
   bad_qty
 
 struct Item
-  name: String
+  name: ?String
   qty: Int
 
 struct Stock
-  items: Vec[Item]
+  items: List[Item]
   shipped: Int = 0
 
-  sub add(!self, name: String, qty: Int)
+  sub add(!self, name: ?String, qty: Int)
     !self.items.push(Item(name: name, qty: qty))
 
-  fun find(?self, name: String) -> Int?
+  fun find(?self, name: ?String) -> Int?
     for it, i in ?self.items
       return i if it.name == name
     none
 
   # Take `qty` of `name`: fails when the item is unknown or short.
-  fun take(!self, name: String, qty: Int) -> Int!
+  fun take(!self, name: ?String, qty: Int) -> Int!
     i = self.find(name) ?? return StockError.unknown
     return StockError.short if self.items[i].qty < qty
     self.items[i].qty -= qty
@@ -31,7 +31,7 @@ struct Stock
     self.items[i].qty
 
 # Parse a quantity like "12": fails on anything but digits.
-fun parse_qty(s: String) -> Int!
+fun parse_qty(s: ?String) -> Int!
   return StockError.bad_qty if s.len == 0
   n = 0
   for b in s
@@ -40,12 +40,12 @@ fun parse_qty(s: String) -> Int!
   n
 
 # One order: parse, then take. Either failure propagates.
-fun ship(stock: !Stock, name: String, qty: String) -> Int!
+fun ship(stock: !Stock, name: ?String, qty: ?String) -> Int!
   n = parse_qty(qty)!
   (!stock).take(name, n)!
 
 sub main()
-  s = Stock(items: Vec())
+  s = Stock(items: List())
   !s.add("bolt", 10)
   !s.add("nut", 3)
   orders = [["bolt", "4"], ["nut", "5"], ["gear", "1"], ["bolt", "x2"], ["bolt", "6"]]

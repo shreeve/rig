@@ -1,5 +1,5 @@
 struct Page
-  buf: Vec[U8]
+  buf: List[U8]
 
   fun bytes(?self, a: Int, b: Int) -> []U8
     ?self.buf[a..b]
@@ -8,7 +8,7 @@ struct Page
     !self.buf[a..b]
 
 sub main()
-  p = Page(buf: Vec())
+  p = Page(buf: List())
   for _ in 0..16
     !p.buf.push(1)
   w = (!p).wbytes(0, 4)

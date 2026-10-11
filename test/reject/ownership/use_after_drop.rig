@@ -1,11 +1,11 @@
 # A bare use of a dropped value is rejected.
 
 struct User
-  name: String
-  tags: Vec[String]
+  name: ?String
+  tags: List[?String]
 
 sub main()
-  user = User(name: "Steve", tags: Vec())
+  user = User(name: "Steve", tags: List())
   <user
   print(user)
 

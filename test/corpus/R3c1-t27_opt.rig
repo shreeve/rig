@@ -10,7 +10,7 @@ sub main()
   b: ([2]Int)? = none
   two = [1, 2]
   print(a == two, two == a, a == b, b == none, none == b, a != [2, 1])
-  s: String? = "hi"
+  s: (?String)? = "hi"
   print(s == "hi", "hi" == s, s != "ho", s == none, none != s)
   p: P? = none
   q: P? = none

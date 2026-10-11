@@ -1,20 +1,20 @@
-# A Vec of boxes is walked by viewed slot, written or not: each
-# element of `for x in v` is a view of a box the Vec still owns, which
+# A List of boxes is walked by viewed slot, written or not: each
+# element of `for x in v` is a view of a box the List still owns, which
 # cannot be moved out.
 
 struct R
   n: Int
 
-sub eat(b: Box[R])
+sub eat(b: ^R)
   print(b.n)
 
-sub f(v: ?Vec[Box[R]])
+sub f(v: ?List[^R])
   for x in v
     eat(<x)
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(R(n: 1)))
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
   f(?v)
 
-# error: 13:9: type mismatch: expected `Box[R]`, got `?Box[R]`
+# error: 13:9: type mismatch: expected `^R`, got `?^R`

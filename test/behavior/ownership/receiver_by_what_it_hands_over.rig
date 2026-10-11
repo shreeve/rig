@@ -6,7 +6,7 @@
 
 struct D
   id: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.id)
@@ -21,7 +21,7 @@ struct D
     self.id
 
 fun mk(id: Int) -> D
-  D(id: id, t: Text("d"))
+  D(id: id, t: String("d"))
 
 sub main()
   c = true

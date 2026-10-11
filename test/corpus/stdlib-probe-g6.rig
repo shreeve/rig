@@ -1,12 +1,12 @@
-struct Text
-  bytes: Vec[U8]
+struct String
+  bytes: List[U8]
 
-  sub add(!self, s: String)
+  sub add(!self, s: ?String)
     for b in s
       !self.bytes.push(b)
 
 sub main()
-  t = Text(bytes: Vec())
+  t = String(bytes: List())
   !t.add("hi ")
   !t.add("there")
   v = ?t.bytes[..]

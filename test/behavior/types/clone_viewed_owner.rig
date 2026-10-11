@@ -1,8 +1,8 @@
 # Cloning through a view clones the value viewed: `+b` of a `?Bag`
-# is a new `Bag`, whose Vec is a copy of the Vec `b` views.
+# is a new `Bag`, whose List is a copy of the List `b` views.
 
 struct Bag
-  v: Vec[Int]
+  v: List[Int]
 
   fun n(<self) -> Int
     self.v.len
@@ -11,7 +11,7 @@ fun f(b: ?Bag) -> Int
   (+b).n()
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(4)
   b = Bag(v: <v)
   print(f(?b), b.v)

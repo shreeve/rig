@@ -44,22 +44,22 @@ write call whose result is used goes in parentheses, `if
 error Stack
   empty
 
-fun peek(v: ?Vec[Int]) -> Int?
+fun peek(v: ?List[Int]) -> Int?
   return none if v.len == 0
   v[v.len - 1]
 
-fun pop(v: !Vec[Int]) -> Int!
+fun pop(v: !List[Int]) -> Int!
   return Stack.empty if v.len == 0
   (!v).pop() ?? 0
 
-fun next(v: ?Vec[Int]) -> Int?
+fun next(v: ?List[Int]) -> Int?
   peek(?v)? + 1
 
-fun drain(v: !Vec[Int]) -> Int!
+fun drain(v: !List[Int]) -> Int!
   pop(!v)! + pop(!v)!
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   print(next(?v))
@@ -95,10 +95,10 @@ returns a value. Every call has its parentheses.
 
 ```rig
 struct User
-  name: String
+  name: ?String
   visits: Int
 
-fun greeting(u: ?User) -> String
+fun greeting(u: ?User) -> ?String
   if u.visits > 1
     "welcome back"
   else
@@ -127,7 +127,7 @@ many readers or one writer at a time, never both.
 
 ```rig
 struct File
-  name: String
+  name: ?String
 
   drop(!self)
     print("closing", self.name)
@@ -203,7 +203,7 @@ sub main()
 Square brackets hold what is known at compile time, and parentheses
 what is known when the program runs. Type arguments are usually
 inferred, and given in brackets when they are not: `max[Float](1, 2)`,
-`Vec[Int]()`. There are no trait bounds: each instance a program makes
+`List[Int]()`. There are no trait bounds: each instance a program makes
 is checked against what the generic body does with `T`, and an error
 names the call, with a note at the line of the body.
 
@@ -243,7 +243,8 @@ libraries are written in Rig itself (see
 | `?` | `?x` lend to read; `x?` propagate `none` | `?T` read view; `T?` optional |
 | `!` | `!x` lend to write; `f()!` propagate failure | `!T` write view; `T!` fallible |
 | `+` | `+x` clone (a new owner) | |
-| `*` | `*x` share: move into a counted box | `*T` shared handle |
+| `^` | `^x` box: move into a box with one owner | `^T` box |
+| `*` | `*x` share: move into a counted handle | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
 
 A sigil is a prefix where an operand starts, and an operator after a
@@ -328,9 +329,9 @@ and environment variable. The suite runs on Linux and macOS in
 - moves, read and write views (including views returned from
   functions and held in structs) whose loans end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
-- shared `*T` and weak `~T` handles, `Cell`, `Vec`, `Box`, and `Signal`
-- `Text`, owned text built with `Text(a, b)` and `!t.add(...)`, whose
-  Strings (`?t[a..b]`) view it
+- shared `*T` and weak `~T` handles, `Cell`, `List`, `^T`, and `Signal`
+- `String`, owned text built with `String(a, b)` and `!t.add(...)`, whose
+  `?String` values (`?t[a..b]`) view it
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
 - optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions
@@ -341,7 +342,7 @@ and environment variable. The suite runs on Linux and macOS in
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
   environment), `std.time`, `std.random`, `std.sort`, `std.slices`, and
-  `std.text` (searching, splitting, and parsing Strings)
+  `std.text` (searching, splitting, and parsing `?String` values)
 
 **Not yet:** most of a standard library (files, maps, number formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)

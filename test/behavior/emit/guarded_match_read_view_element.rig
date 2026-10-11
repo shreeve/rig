@@ -1,4 +1,4 @@
-# A guarded match on an element of a Vec reached through a read view
+# A guarded match on an element of a List reached through a read view
 # matches the element where it is: plain, Text, and Cell-holder
 # payloads (the last behind a shared handle), through a parameter and
 # through a field.
@@ -11,7 +11,7 @@ enum E
   b(n: Int)
 
 enum T
-  a(t: Text)
+  a(t: String)
   b
 
 enum K
@@ -19,21 +19,21 @@ enum K
   b
 
 struct H
-  es: Vec[E]
+  es: List[E]
 
-fun plain(v: ?Vec[E]) -> Int
+fun plain(v: ?List[E]) -> Int
   match v[0]
     .a(n) if n > 1 => n
     .a(_) => 1
     .b(n) => n
 
-fun text(v: ?Vec[T]) -> Int
+fun text(v: ?List[T]) -> Int
   match v[0]
     .a(t) if t.len > 1 => t.len
     .a(_) => 1
     .b => 0
 
-sub cell(v: ?Vec[*K])
+sub cell(v: ?List[*K])
   match v[0]
     .a(x) if x.c.get() == 0 => print("zero")
     .a(_) => print("set")
@@ -45,14 +45,14 @@ fun field(h: ?H) -> Int
     _ => 0
 
 sub main()
-  e: Vec[E] = Vec()
+  e: List[E] = List()
   !e.push(E.a(n: 5))
-  t: Vec[T] = Vec()
-  !t.push(T.a(t: Text("hello")))
-  k: Vec[*K] = Vec()
+  t: List[T] = List()
+  !t.push(T.a(t: String("hello")))
+  k: List[*K] = List()
   !k.push(*K.a(x: C(c: Cell(0))))
   cell(?k)
-  es: Vec[E] = Vec()
+  es: List[E] = List()
   !es.push(E.a(n: 9))
   h = H(es: <es)
   print(plain(?e), text(?t), field(?h))

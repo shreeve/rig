@@ -1,7 +1,7 @@
 use std.os
 
 struct Keep
-  a: []String
+  a: []?String
 
   drop(!self)
     print("drop sees", self.a.len, self.a[self.a.len - 1])

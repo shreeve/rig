@@ -1,10 +1,10 @@
-fun first(s: String) -> String
+fun first(s: ?String) -> ?String
   s[..1]
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   print(t)
-  u = Text("<", t, ">")
+  u = String("<", t, ">")
   print(u, t == "hello", t.len)
   print(first(?t))
   print(t)

@@ -1,5 +1,5 @@
-sub f(c: Cell[Vec[Int]])
+sub f(c: Cell[List[Int]])
   (<c).push(1)
 
 sub main()
-  f(Cell(Vec()))
+  f(Cell(List()))

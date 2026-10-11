@@ -13,7 +13,7 @@ struct S
     self.n = 777
 
 struct H
-  ws: Vec[!Int]
+  ws: List[!Int]
 
   sub keep(!self, w: !Int)
     !self.ws.push(<w)
@@ -28,7 +28,7 @@ fun mk(n: Int) -> S
   S(n: n)
 
 fun mkh() -> H
-  H(ws: Vec())
+  H(ws: List())
 
 sub main()
   s = mk(5)

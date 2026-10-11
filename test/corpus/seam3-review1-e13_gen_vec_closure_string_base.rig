@@ -1,10 +1,10 @@
 fun mk[T](x: T) -> *sub()
-  xs: Vec[T] = Vec()
+  xs: List[T] = List()
   !xs.push(x)
   *|<xs| print(xs[0])
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   !t.add(" world, a long text that lives on the heap")
   f = mk(?t[..])
   <t

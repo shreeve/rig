@@ -1,6 +1,6 @@
 sub main()
-  sig: *Signal[String] = *Signal("lit")
-  t = Text("hello")
+  sig: *Signal[?String] = *Signal("lit")
+  t = String("hello")
   !sig.set(?t[..])
   <t
   print(sig.get())

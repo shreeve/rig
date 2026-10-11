@@ -3,5 +3,5 @@ struct Bag[T]
   a: [2]T = [2 of 0]
 
 sub main()
-  b = Bag[String]()
+  b = Bag[?String]()
   print(b.a)

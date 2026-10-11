@@ -1,5 +1,5 @@
 struct S
-  a: Vec[Int]
+  a: List[Int]
   b: Int
 
   sub go(!self)
@@ -7,7 +7,7 @@ struct S
       self.b += x
 
 sub main()
-  s = S(a: Vec(), b: 0)
+  s = S(a: List(), b: 0)
   !s.a.push(3)
   !s.go()
   print(s.b)

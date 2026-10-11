@@ -8,8 +8,8 @@ struct R
     self.n
 
 struct S
-  b: Box[R]
+  b: ^R
 
 sub main()
-  s = S(b: Box(value: R(n: 1)))
+  s = S(b: ^R(n: 1))
   print(<s.b.eat())

@@ -1,9 +1,9 @@
-fun pick(a: ?Vec[Int], b: ?Vec[Int]) -> Box[?Vec[Int]]
-  Box(b)
+fun pick(a: ?List[Int], b: ?List[Int]) -> ^?List[Int]
+  ^b
 
 sub main()
-  a: Vec[Int] = Vec()
-  c: Vec[Int] = Vec()
+  a: List[Int] = List()
+  c: List[Int] = List()
   !c.push(1)
   b = pick(?a, ?c)
   !c.push(2)

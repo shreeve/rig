@@ -9,14 +9,14 @@ struct Counter
     self.n += 1
 
 struct Holder
-  v: Vec[Int]
+  v: List[Int]
   c: Counter
 
 sub inc(c: !Counter)
   c.n += 1
 
 sub main()
-  h = *Holder(v: Vec(), c: Counter(n: 0))
+  h = *Holder(v: List(), c: Counter(n: 0))
   !h.v.push(1)
   !h.c.bump()
   inc(!h.c)

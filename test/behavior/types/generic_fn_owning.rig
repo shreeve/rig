@@ -1,5 +1,5 @@
 # A type parameter bound to an owning type (a struct with a `drop` body,
-# a Vec, a shared handle) moves where the generic body moves it: the
+# a List, a shared handle) moves where the generic body moves it: the
 # argument the body returns is handed back to the caller, and one it
 # does not return is dropped when the call ends. A Copy type is copied.
 
@@ -33,9 +33,9 @@ fun swap_in[T](dst: !T, v: T) -> Int
 sub main()
   r = pick(Res(n: 1), Res(n: 2), true)
   print("picked", r.n)
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
-  w = Vec[Int]()
+  w = List[Int]()
   !w.push(2)
   !w.push(3)
   k = pick(<v, <w, false)

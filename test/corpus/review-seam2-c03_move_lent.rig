@@ -8,10 +8,10 @@
 # oracle: main reject C5
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
-  fun steal(!self) -> Vec[Int]
-    replace(!self.items, Vec())
+  fun steal(!self) -> List[Int]
+    replace(!self.items, List())
 
   fun into(<self) -> Int
     self.n
@@ -26,7 +26,7 @@ struct S
     print("drop", self.n, self.items)
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 

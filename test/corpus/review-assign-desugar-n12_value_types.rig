@@ -55,7 +55,7 @@ sub main()
       tick(7)
       P(a: 2, b: 2.0)
     _ => P(a: 0, b: 0.0)
-  vc: Vec[Color] = Vec()
+  vc: List[Color] = List()
   !vc.push(Color.red)
   wc = !vc[0]
   wc = match k
@@ -63,7 +63,7 @@ sub main()
       tick(8)
       .green
     _ => .red
-  vo: Vec[Int?] = Vec()
+  vo: List[Int?] = List()
   !vo.push(1)
   wo = !vo[0]
   wo = match k

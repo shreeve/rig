@@ -1,7 +1,7 @@
 # A store into an element of write slice `a` keeps `b` lent for the
 # rest of the body.
 
-fun f(a: ![2][]Int, b: !Vec[Int]) -> Int
+fun f(a: ![2][]Int, b: !List[Int]) -> Int
   a[0] = ?b[..]
   for i in 0..100
     !b.push(i)
@@ -9,7 +9,7 @@ fun f(a: ![2][]Int, b: !Vec[Int]) -> Int
 
 sub main()
   x = [9, 9]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   hs = [?x[..], ?x[..]]
   print(f(!hs, !v))

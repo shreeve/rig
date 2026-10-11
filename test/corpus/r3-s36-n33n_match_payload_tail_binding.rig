@@ -1,12 +1,12 @@
 enum Sh
-  a(v: Vec[Int])
+  a(v: List[Int])
   b
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   o = Sh.a(<v)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   x = match o
     .a(p) => p
     .b => <e

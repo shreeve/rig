@@ -1,5 +1,5 @@
 # std.sort: sorting and searching slices, written in Rig. Every function
-# takes a slice, `[]T` or `![]T`: pass a Vec as `!v[..]` and an array as
+# takes a slice, `[]T` or `![]T`: pass a List as `!v[..]` and an array as
 # `!a` or `!a[..]`. The elements are plain data, which slices hold.
 
 # Sort `xs` in place, in the order of `<`, keeping equal elements in the

@@ -1,15 +1,15 @@
 struct P
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(p: ?P)
   b
 
 sub main()
-  p = P(n: 3, t: Text("pp"))
-  q = P(n: 4, t: Text("qq"))
-  rv: Vec[?P] = Vec()
+  p = P(n: 3, t: String("pp"))
+  q = P(n: 4, t: String("qq"))
+  rv: List[?P] = List()
   !rv.push(?p)
   !rv.push(?q)
   for x in ?rv
@@ -30,8 +30,8 @@ sub main()
   arr = [?p, ?q]
   for x in arr
     print(x.t)
-  vv: Vec[?Vec[Int]] = Vec()
-  ints: Vec[Int] = Vec()
+  vv: List[?List[Int]] = List()
+  ints: List[Int] = List()
   !ints.push(5)
   !vv.push(?ints)
   for x in vv

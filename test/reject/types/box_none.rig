@@ -1,0 +1,11 @@
+# `^none` would box nothing: an optional box with no value is `none`
+# itself. A box of an optional is written where the type says so.
+
+sub main()
+  a: ^Int? = ^none
+  b: ^(Int?) = ^none
+  c = ^none
+  print(b)
+
+# error: 5:14: `^none` makes a box of nothing
+# error: 7:7: `^none` makes a box of nothing

@@ -1,5 +1,5 @@
 struct H
-  o: Vec[Int]?
+  o: List[Int]?
 
 fun total(h: ?H) -> Int?
   n = 0
@@ -8,7 +8,7 @@ fun total(h: ?H) -> Int?
   n
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   h = H(o: <v)
   print(total(?h))

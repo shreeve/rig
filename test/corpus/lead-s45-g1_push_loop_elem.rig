@@ -1,10 +1,10 @@
-sub copy_all[T](v: ?Vec[T], out: !Vec[T])
+sub copy_all[T](v: ?List[T], out: !List[T])
   for x in v
     !out.push(x)
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  out: Vec[Text] = Vec()
+  v: List[String] = List()
+  !v.push(String("a"))
+  out: List[String] = List()
   copy_all(?v, !out)
   print(out.len)

@@ -20,14 +20,14 @@ error E
 fun mkd(n: Int) -> D
   D(c: Cell(n))
 
-fun mkv(n: Int) -> Vec[D]
-  v: Vec[D] = Vec()
+fun mkv(n: Int) -> List[D]
+  v: List[D] = List()
   !v.push(mkd(n))
   !v.push(mkd(n + 1))
   v
 
-fun mkb(n: Int) -> Box[D]
-  Box(mkd(n))
+fun mkb(n: Int) -> ^D
+  ^mkd(n)
 
 fun mko(n: Int) -> D?
   return none if n < 0

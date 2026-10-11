@@ -1,5 +1,5 @@
 # Empty and nested write slices: at the end of an array, of an empty array
-# or Vec or String, reslices down to nothing, and a generic `![]T`.
+# or List or String, reslices down to nothing, and a generic `![]T`.
 
 fun first[T](s: ![]T) -> T
   t = s[0]
@@ -17,7 +17,7 @@ sub main()
   e: [0]Int = []
   !e.fill(1)
   print(e)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   w = !v[..]
   !w.fill(4)
   print(w.len)

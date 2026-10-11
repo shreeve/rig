@@ -1,5 +1,5 @@
 sub main()
-  a = [Text("x"), Text("y")]
+  a = [String("x"), String("y")]
   r = ?a[0]
-  a[1] = Text("z")
+  a[1] = String("z")
   print(r, a)

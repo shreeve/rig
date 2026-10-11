@@ -1,8 +1,8 @@
-sub put[T](v: !Vec[T], x: T)
+sub put[T](v: !List[T], x: T)
   (!v).push(<x)
 
 struct Bag[T]
-  items: Vec[T]
+  items: List[T]
 
   sub add(!self, x: T)
     (!self).addraw(<x)
@@ -17,9 +17,9 @@ struct Bag[T]
     self.items.len
 
 sub main()
-  v = Vec[Text]()
-  put(!v, Text("a"))
-  b = Bag[Text](items: Vec())
-  (!b).add(Text("x"))
-  !b.add(Text("y"))
+  v = List[String]()
+  put(!v, String("a"))
+  b = Bag[String](items: List())
+  (!b).add(String("x"))
+  !b.add(String("y"))
   print(v.len, b.size())

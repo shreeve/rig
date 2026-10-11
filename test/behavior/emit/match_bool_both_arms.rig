@@ -1,6 +1,6 @@
 # A match on a Bool with both `true` and `false` arms covers every value.
 
-fun name(b: Bool) -> String
+fun name(b: Bool) -> ?String
   match b
     true => "yes"
     false => "no"

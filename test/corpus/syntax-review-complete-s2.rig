@@ -1,7 +1,7 @@
 sub main()
-  v: Vec[U8] = Vec()
+  v: List[U8] = List()
   for b in "hey"
     !v.push(b)
   s = ?v[..]
-  t: String = String(s)
+  t: ?String = ?String(s)
   print(t)

@@ -1,10 +1,10 @@
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 struct T
   s: S
 
 sub main()
-  t = T(s: S(v: Vec()))
+  t = T(s: S(v: List()))
   u = <t.s
   print(u.v.len)

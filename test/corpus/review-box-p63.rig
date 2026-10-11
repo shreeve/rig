@@ -7,7 +7,7 @@ struct R
 fun rd(r: ?R) -> Int
   r.n
 
-fun rdb(r: ?Box[R]) -> Int
+fun rdb(r: ?^R) -> Int
   r.n
 
 sub wr(r: !R)
@@ -16,13 +16,13 @@ sub wr(r: !R)
 sub f(w: !R)
   print(rd(w))
 
-sub g(w: !Box[R])
+sub g(w: !^R)
   print(rdb(w))
   print(rd(?w))
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
   for x in !v
     wr(x)
     wr(!x)
@@ -30,5 +30,5 @@ sub main()
   for x in ?v
     print(rd(?x))
     print(rdb(?x))
-  b = Box(value: R(n: 3))
+  b = ^R(n: 3)
   f(!b)

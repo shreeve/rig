@@ -1,5 +1,5 @@
 struct File
-  name: Text
+  name: String
 
   drop(!self)
     print("closing", self.name)
@@ -8,7 +8,7 @@ struct Holder
   f: File
 
 sub main()
-  a = File(name: Text("a"))
+  a = File(name: String("a"))
   b = +a
-  hs: Vec[Holder] = Vec()
+  hs: List[Holder] = List()
   c = +hs

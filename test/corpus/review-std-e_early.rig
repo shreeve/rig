@@ -1,5 +1,5 @@
 fun main() -> Int
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
   if v.len > 0
     return 9

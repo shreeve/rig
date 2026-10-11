@@ -19,7 +19,7 @@ enum Slot
   full(b: *B)
   empty
 
-fun describe(s: ?Shape) -> String
+fun describe(s: ?Shape) -> ?String
   match s
     .circle(r) if r > 10 => "big circle"
     .circle(_), .square(_) => "round or square"
@@ -27,7 +27,7 @@ fun describe(s: ?Shape) -> String
     .rect(_, _) => "rect"
     .point => "point"
 
-fun bucket(n: Int) -> String
+fun bucket(n: Int) -> ?String
   match n
     0, 1 => "tiny"
     2..10 if n % 2 == 0 => "small even"

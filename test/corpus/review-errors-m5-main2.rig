@@ -1,6 +1,6 @@
 LO2 = 1
 
-fun c(n: Int) -> String
+fun c(n: Int) -> ?String
   match n
     LO2 => "one"
     _ => "other"

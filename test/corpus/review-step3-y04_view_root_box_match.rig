@@ -1,15 +1,15 @@
 struct Res
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
   b
 
 sub main()
-  b = Box(E.a(r: Res(t: Text("abc"))))
+  b = ^E.a(r: Res(t: String("abc")))
   p = ?b
   match p
     .a(r)
-      b = Box(E.b)
+      b = ^E.b
       print(r.t)
     .b => pass

@@ -1,7 +1,7 @@
 # w = <w2 moves a write view
 sub main()
-  m = Text("m")
-  n = Text("n")
+  m = String("m")
+  n = String("n")
   w = !m
   w2 = !n
   w = <w2

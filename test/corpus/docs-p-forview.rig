@@ -1,7 +1,7 @@
-sub f(w: ?Vec[Int])
+sub f(w: ?List[Int])
   for x in <w
     print(x)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f(?v)

@@ -9,22 +9,22 @@ struct D
   drop(!self)
     print("drop", self.s[0])
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 3
     return S(s: ?v[..])
   none
 
-fun mkd(w: ?Vec[Int]) -> D?
+fun mkd(w: ?List[Int]) -> D?
   D(s: ?w[..])
 
-fun grow(w: !Vec[Int]) -> Int
+fun grow(w: !List[Int]) -> Int
   !w.push(9)
   0
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(2)
   k = 0
   i = 0

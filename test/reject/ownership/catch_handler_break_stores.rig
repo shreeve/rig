@@ -10,14 +10,14 @@ fun mk(ok: Bool) -> Int!
   1
 
 struct H
-  r: ?Vec[Int]
+  r: ?List[Int]
 
 sub main()
-  z: Vec[Int] = Vec()
+  z: List[Int] = List()
   h = H(r: ?z)
   for _ in 0..2
     n = mk(false) catch |_|
-      inner: Vec[Int] = Vec()
+      inner: List[Int] = List()
       !inner.push(9)
       h.r = ?inner
       break

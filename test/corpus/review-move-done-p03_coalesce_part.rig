@@ -1,10 +1,10 @@
 struct S
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  o: S? = S(n: 1, v: Vec())
-  b = S(n: 2, v: Vec())
+  o: S? = S(n: 1, v: List())
+  b = S(n: 2, v: List())
   !b.v.push(1)
   w = <(o ?? b).v
   print(w.len, b.v.len)

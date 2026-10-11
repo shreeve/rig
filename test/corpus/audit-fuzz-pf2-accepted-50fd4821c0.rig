@@ -7,7 +7,7 @@ struct Res
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-sub each(xs: ?Vec[Int], f: ?sub(Int))
+sub each(xs: ?List[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
@@ -15,7 +15,7 @@ fun double(n: Int) -> Int
   n * 2
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   total = 0

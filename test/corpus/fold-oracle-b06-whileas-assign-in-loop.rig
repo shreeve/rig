@@ -1,9 +1,9 @@
 # bad: while ?o as p, reassign o inside body while p used after
 sub main()
-  o: Text? = Text("a")
+  o: String? = String("a")
   n = 0
   while ?o as p
-    o = Text("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    o = String("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
     print(p)
     n += 1
     if n > 2

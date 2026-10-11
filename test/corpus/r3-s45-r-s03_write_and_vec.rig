@@ -1,8 +1,8 @@
-sub f(a: !Text, v: !Vec[Text])
-  !v.push(Text("x"))
+sub f(a: !String, v: !List[String])
+  !v.push(String("x"))
   !a.add("y")
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   f(!v[0], !v)

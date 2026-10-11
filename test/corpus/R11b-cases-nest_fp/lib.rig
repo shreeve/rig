@@ -2,14 +2,14 @@ pub struct Pair[A, B]
   a: A
   b: B
 
-pub struct List[T]
-  items: Vec[T]
+pub struct Chain[T]
+  items: List[T]
 
-  fun map[U](?self, f: fun(T) -> U) -> List[U]
-    out: Vec[U] = Vec()
+  fun map[U](?self, f: fun(T) -> U) -> Chain[U]
+    out: List[U] = List()
     for x in self.items
       !out.push(f(x))
-    List(items: <out)
+    Chain(items: <out)
 
   fun count(?self) -> Int
     self.items.len

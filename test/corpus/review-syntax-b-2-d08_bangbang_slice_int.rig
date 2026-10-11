@@ -4,7 +4,7 @@ sub f(x: !![]Int)
   print(s)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   w = !v[..]
   f(!w)

@@ -1,21 +1,21 @@
-# `.len` of a Vec reads through a read or write view and a shared
+# `.len` of a List reads through a read or write view and a shared
 # handle, like `.len` of an array.
 
-fun count(v: ?Vec[Int]) -> Int
+fun count(v: ?List[Int]) -> Int
   v.len
 
-sub grow(v: !Vec[Int])
+sub grow(v: !List[Int])
   !v.push(v.len * 10)
 
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   grow(!v)
   grow(!v)
   print(count(?v), v.len, v[1])
-  b = *Bag(items: Vec())
+  b = *Bag(items: List())
   print(b.items.len)
   for i in 0..v.len
     print(v[i])

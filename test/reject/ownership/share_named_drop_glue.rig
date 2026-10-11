@@ -1,4 +1,4 @@
-# `*o` moves `o` into a new shared box; with a bare name that would leave
+# `*o` moves `o` into a new counted handle; with a bare name that would leave
 # `o` owning the same resources. Write `*<o`.
 
 struct Wrap
@@ -12,4 +12,4 @@ sub main()
   s = *o
   print(1)
 
-# error: `o` owns an `Owner`, which can't be copied into a shared box: write `<o` to move it or `+o` to clone it
+# error: `o` owns an `Owner`, which can't be copied into a counted handle: write `<o` to move it or `+o` to clone it

@@ -1,17 +1,17 @@
-# The owner Vec is replaced while `h` holds a live write view of it:
+# The owner List is replaced while `h` holds a live write view of it:
 # the view is then used.
 struct W
-  w: !Vec[Int]
+  w: !List[Int]
 
-fun mk(v: !Vec[Int]) -> W?
+fun mk(v: !List[Int]) -> W?
   if v.len < 3
     return W(w: !v)
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   while mk(!v) as h
-    v = Vec()
+    v = List()
     !v.push(1)
     !v.push(2)
     !h.w.push(7)

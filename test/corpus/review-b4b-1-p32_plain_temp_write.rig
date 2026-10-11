@@ -5,11 +5,11 @@ struct P
 fun pick(p: !P) -> !P from p
   p
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   k = 41
-  if !pick(!P(xs: [k, 2])).xs[idx(?Text("a"))] as n
+  if !pick(!P(xs: [k, 2])).xs[idx(?String("a"))] as n
     n = 5
     print(n)

@@ -1,7 +1,7 @@
 # `*none` would make a shared handle of nothing: an optional handle
 # with no value is `none` itself, where a `(*T)?` is expected. Every
 # position is rejected: a binding, a typed binding, an argument, a
-# field, a return, an array element, a Vec element, and `~*none`. (`none`
+# field, a return, an array element, a List element, and `~*none`. (`none`
 # itself, and a box of an optional, compile: test/behavior/types/
 # optional_handle_none.rig. Where a handle of an optional, `*(T?)`, is
 # expected, `*none` is that handle holding `none`:
@@ -22,7 +22,7 @@ sub main()
   f(*none)
   s = S(h: *none)
   print([*none, *none].len)
-  w: Vec[(*Int)?] = Vec()
+  w: List[(*Int)?] = List()
   !w.push(*none)
   k = ~*none
   print(g() == none)

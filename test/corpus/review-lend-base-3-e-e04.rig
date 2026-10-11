@@ -6,28 +6,28 @@ fun tpl(n: Int) -> Int
 
 struct P
   x: Int
-  items: Vec[Int]
-  s: Text
+  items: List[Int]
+  s: String
   f: fun(Int) -> Int
 
 fun mk(n: Int) -> P
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(n)
-  P(x: n, items: <v, s: Text("hello"), f: dbl)
+  P(x: n, items: <v, s: String("hello"), f: dbl)
 
 sub main()
   a = [1, 2, 3]
   b = [4, 5, 6]
   p = mk(1)
   q = mk(2)
-  v1 = Vec[Int]()
+  v1 = List[Int]()
   !v1.push(7)
   !v1.push(8)
-  v2 = Vec[Int]()
+  v2 = List[Int]()
   !v2.push(9)
   !v2.push(10)
-  t1 = Text("abcdef")
-  t2 = Text("uvwxyz")
+  t1 = String("abcdef")
+  t2 = String("uvwxyz")
   c = true
   _ = c
   y = (<(?t1 if c else ?t2))[0..2]

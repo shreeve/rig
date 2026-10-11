@@ -1,12 +1,12 @@
 fun keep(xs: []Int) -> []Int
   xs
 
-sub z(v: !Vec[Int])
+sub z(v: !List[Int])
   r = keep(?v[..])
   !v.push(3)
   print(r)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   z(!v)

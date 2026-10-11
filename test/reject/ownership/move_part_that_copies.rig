@@ -25,7 +25,7 @@ struct S
   n: Int
   p: P
   r: ?Int
-  name: String
+  name: ?String
   arr: [2]Int
 
 sub show(n: Int)
@@ -45,9 +45,9 @@ sub fields()
   print(a, b, c, d, e, s.n)
 
 sub elements()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  ps: Vec[P] = Vec()
+  ps: List[P] = List()
   !ps.push(P(x: 1))
   arr = [1, 2]
   sl = ?arr[..]

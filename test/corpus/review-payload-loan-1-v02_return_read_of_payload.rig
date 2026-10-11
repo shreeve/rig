@@ -1,8 +1,8 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
-fun head(e: !E) -> String
+fun head(e: !E) -> ?String
   match !e
     .a(t)
       !t.add("!")
@@ -10,5 +10,5 @@ fun head(e: !E) -> String
     .b => ""
 
 sub main()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   print(head(!e))

@@ -10,7 +10,7 @@ pub struct Pair[T]
 pub type UP = util.Point
 pub type US = util.Shade
 pub type IP = Pair[Int]
-pub type IV = Vec[Int]
+pub type IV = List[Int]
 pub type Real = F32
 
 type R = F32

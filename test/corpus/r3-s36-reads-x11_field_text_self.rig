@@ -1,12 +1,12 @@
 struct Doc
-  title: Text
+  title: String
 
-  fun head(?self) -> String
+  fun head(?self) -> ?String
     ?self.title[..2]
 
-  fun head2(?self) -> String
+  fun head2(?self) -> ?String
     self.title[..2]
 
 sub main()
-  d = Doc(title: Text("hello"))
+  d = Doc(title: String("hello"))
   print(d.head(), d.head2())

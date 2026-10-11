@@ -1,5 +1,5 @@
 struct W
-  s: String
+  s: ?String
 
 sub main()
   a = "abc"

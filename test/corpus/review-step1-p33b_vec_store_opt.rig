@@ -2,7 +2,7 @@ struct P
   n: Int
 
 sub main()
-  v: Vec[*P] = Vec()
+  v: List[*P] = List()
   !v.push(*P(n: 4))
   saved: (?*P)? = none
   for k in ?v

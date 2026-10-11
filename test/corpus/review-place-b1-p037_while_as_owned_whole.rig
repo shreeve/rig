@@ -1,9 +1,9 @@
 struct R
-  v: Vec[Int]
+  v: List[Int]
   n: Int
 
 sub main()
-  o: R? = R(v: Vec(), n: 1)
+  o: R? = R(v: List(), n: 1)
   while <o as r
-    r = R(v: Vec(), n: 8)
+    r = R(v: List(), n: 8)
     print(r.n)

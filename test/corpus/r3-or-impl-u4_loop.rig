@@ -1,4 +1,4 @@
-fun last(a: ?Vec[Int], b: ?Vec[Int], n: Int) -> ?Vec[Int]
+fun last(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int]
   r = a
   i = 0
   while i < n
@@ -7,8 +7,8 @@ fun last(a: ?Vec[Int], b: ?Vec[Int], n: Int) -> ?Vec[Int]
   r
 
 sub main()
-  x: Vec[Int] = Vec()
-  y: Vec[Int] = Vec()
+  x: List[Int] = List()
+  y: List[Int] = List()
   r = last(?x, ?y, 2)
   !y.push(1)
   print(r.len)

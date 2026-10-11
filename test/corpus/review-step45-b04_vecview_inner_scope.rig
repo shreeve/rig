@@ -1,7 +1,7 @@
-# a view of an inner-scope Text pushed to an outer Vec
+# a view of an inner-scope Text pushed to an outer List
 sub main()
-  v: Vec[String] = Vec()
+  v: List[?String] = List()
   if true
-    t = Text("inner")
+    t = String("inner")
     !v.push(?t)
   print(v)

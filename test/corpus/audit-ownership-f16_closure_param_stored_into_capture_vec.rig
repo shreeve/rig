@@ -17,7 +17,7 @@ fun cond(t: *Tok) -> Bool
   false
 
 sub main()
-  keep: Vec[*Tok] = Vec()
+  keep: List[*Tok] = List()
   f = |!keep, t: *Tok| !keep.push(<t)
   f(*Tok(n: 1))
   f(*Tok(n: 2))

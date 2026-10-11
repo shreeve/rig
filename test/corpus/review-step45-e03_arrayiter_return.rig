@@ -1,9 +1,9 @@
 # early return from inside the consuming loop
-fun find(a: [3]Text) -> Text
+fun find(a: [3]String) -> String
   for x in <a
     if x == "b"
       return <x
-  Text("none")
+  String("none")
 
 sub main()
-  print(find([Text("a"), Text("b"), Text("c")]))
+  print(find([String("a"), String("b"), String("c")]))

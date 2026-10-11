@@ -1,8 +1,8 @@
 sub main()
-  texts: Vec[Text] = Vec()
-  !texts.push(Text("hello"))
-  !texts.push(Text("world"))
-  out: Vec[String] = Vec()
+  texts: List[String] = List()
+  !texts.push(String("hello"))
+  !texts.push(String("world"))
+  out: List[?String] = List()
   for t in ?texts
     !out.push(t[1..])
   !texts.clear()

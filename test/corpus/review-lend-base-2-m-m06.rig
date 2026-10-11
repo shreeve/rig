@@ -26,6 +26,6 @@ struct Bx[T]
 
 sub main()
   p = mk()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push((?p).x)
   print(v)

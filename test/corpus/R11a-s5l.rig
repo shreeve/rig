@@ -8,7 +8,7 @@ struct Res
     print("drop", self.n)
 
 fun f[T](x: T) -> Int
-  v = Vec[Wrap[T]]()
+  v = List[Wrap[T]]()
   !v.push(Wrap(v: <x))
   v.len
 

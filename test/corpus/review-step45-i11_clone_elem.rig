@@ -1,9 +1,9 @@
-# +v[0] where v: Vec[Vec[Text]]
+# +v[0] where v: List[List[Text]]
 sub main()
-  v: Vec[Vec[Text]] = Vec()
-  r: Vec[Text] = Vec()
-  !r.push(Text("a"))
+  v: List[List[String]] = List()
+  r: List[String] = List()
+  !r.push(String("a"))
   !v.push(<r)
   c = +v[0]
-  !v[0].push(Text("b"))
+  !v[0].push(String("b"))
   print(c, v)

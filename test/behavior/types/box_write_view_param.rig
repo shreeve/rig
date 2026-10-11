@@ -1,4 +1,4 @@
-# A `!Box[T]` parameter writes the value in place: a `!self` method, a
+# A `!^T` parameter writes the value in place: a `!self` method, a
 # field, or the whole box (the old one is dropped).
 
 struct R
@@ -10,14 +10,14 @@ struct R
   sub bump(!self)
     self.n += 1
 
-sub f(b: !Box[R])
+sub f(b: !^R)
   !b.bump()
   b.n += 5
   print(b)
-  b = Box(R(n: 9))
+  b = ^R(n: 9)
 
 sub main()
-  x = Box(R(n: 1))
+  x = ^R(n: 1)
   f(!x)
   print(x.n)
 

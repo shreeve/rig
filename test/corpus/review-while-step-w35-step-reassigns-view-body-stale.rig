@@ -1,13 +1,13 @@
-# The step re-points an outer slice; the body grows the Vec and then
+# The step re-points an outer slice; the body grows the List and then
 # reads the slice the step made before the growth.
 #
 # oracle: all accept
 # oracle: main reject C4
-fun all(v: ?Vec[Int]) -> []Int
+fun all(v: ?List[Int]) -> []Int
   ?v[..]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   e = [0]
   s: []Int = ?e[..]

@@ -1,9 +1,9 @@
-fun f(o: Text?) -> Int?
+fun f(o: String?) -> Int?
   print(o?)
   print(o?.len)
   1
 
 sub main()
-  x: Text? = Text("hello world")
+  x: String? = String("hello world")
   print(f(<x) ?? 0)
   print("end")

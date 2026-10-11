@@ -1,4 +1,4 @@
-# Imported resource types work in match payloads, Vec, and Cell, and
+# Imported resource types work in match payloads, List, and Cell, and
 # each value is dropped once.
 
 use lib
@@ -8,7 +8,7 @@ sub main()
   match e
     .one(b) => print("one", b.n)
     .two(k) => print(k)
-  v: Vec[*lib.B] = Vec()
+  v: List[*lib.B] = List()
   !v.push(*lib.B(n: 2))
   c: *Cell[*lib.B] = *Cell(*lib.B(n: 3))
 

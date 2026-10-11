@@ -3,7 +3,7 @@ enum WI
   b
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   e = WI.a(!v[..])
   match e

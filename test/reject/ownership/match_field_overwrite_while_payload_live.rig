@@ -2,7 +2,7 @@
 # overwriting it would drop the value the payload views.
 
 struct Tok
-  v: Vec[Int]
+  v: List[Int]
 
 enum Slot
   empty
@@ -19,7 +19,7 @@ sub clear(h: !Slot)
     .empty => print("empty")
 
 sub main()
-  t0 = Tok(v: Vec())
+  t0 = Tok(v: List())
   !t0.v.push(1)
   h = Holder(s: .full(*<t0))
   match h.s

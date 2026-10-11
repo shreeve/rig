@@ -20,12 +20,12 @@ sub main()
   f(none)
   s = S(h: none)
   print(s.h == none)
-  w: Vec[(*Int)?] = Vec()
+  w: List[(*Int)?] = List()
   !w.push(none)
   !w.push(*5)
   print(w.len, w[0] == none)
   print(g() == none)
-  x: Box[Int?] = Box(none)
+  x: ^(Int?) = ^none
   print(empty(?x))
 
 # expect:

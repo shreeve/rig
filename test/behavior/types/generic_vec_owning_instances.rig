@@ -1,14 +1,14 @@
-# `Vec[T]` in a generic type holds whatever each instance gives it.
+# `List[T]` in a generic type holds whatever each instance gives it.
 
 struct Stack[T]
-  items: Vec[T]
+  items: List[T]
 
 struct Owner
   h: *Int
 
 sub main()
-  s: Stack[Vec[Int]] = Stack(items: Vec())
-  o: Stack[Owner] = Stack(items: Vec())
+  s: Stack[List[Int]] = Stack(items: List())
+  o: Stack[Owner] = Stack(items: List())
   !o.items.push(Owner(h: *3))
   print(s.items.len, o.items.len)
 

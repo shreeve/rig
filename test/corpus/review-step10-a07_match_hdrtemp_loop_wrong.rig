@@ -6,7 +6,7 @@ enum E
   a(xs: [4]Int)
   b
 
-fun idx(s: ?Text, i: Int) -> Int
+fun idx(s: ?String, i: Int) -> Int
   s.len - 1 + i
 
 sub main()
@@ -14,7 +14,7 @@ sub main()
   z = E.b
   r = ?z
   for i in 0..2
-    match ?v[idx(?Text("a"), i)]
+    match ?v[idx(?String("a"), i)]
       x => if i == 0
         r = x
   match r

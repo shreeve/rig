@@ -1,10 +1,10 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
-  b = Box(H(w: !v))
-  u: Vec[Int] = Vec()
+  v: List[Int] = List()
+  b = ^H(w: !v)
+  u: List[Int] = List()
   !u.push(3)
   b.w = <u
   print(b.w.len)

@@ -2,12 +2,12 @@ error E
   bad
 
 struct R
-  v: Vec[Int]
+  v: List[Int]
 
 sub eat(r: R)
   print(r.v.len)
 
 fun f() -> Int!
-  r = R(v: Vec())
+  r = R(v: List())
   errdefer eat(<r)
   return E.bad

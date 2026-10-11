@@ -3,7 +3,7 @@
 
 struct Counter
   hits: Int
-  label: String
+  label: ?String
 
 sub bump(c: !Counter)
   c.hits += 1

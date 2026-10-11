@@ -2,9 +2,9 @@
 # type name.
 
 struct User
-  name: String
+  name: ?String
 
-  fun greet() -> String
+  fun greet() -> ?String
     "hi"
 
 sub main()

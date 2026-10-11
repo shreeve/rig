@@ -3,8 +3,8 @@
 # also in a loop and when the new view is of the place it viewed.
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   for i in 0..4
     if i % 2 == 0
@@ -13,18 +13,18 @@ sub main()
       w = !a
     !w.add("x")
   print(a, b)
-  v: Vec[Text] = Vec()
-  !v.push(Text("p"))
-  !v.push(Text("q"))
-  m = Text("m")
+  v: List[String] = List()
+  !v.push(String("p"))
+  !v.push(String("q"))
+  m = String("m")
   u = !m
   for i in 0..v.len
     u = !v[i]
     !u.add("!")
   print(v, m)
-  c = Text("c")
-  d = Text("d")
-  z: !Text = !c
+  c = String("c")
+  d = String("d")
+  z: !String = !c
   k = 2
   z = match k
     1 => !c

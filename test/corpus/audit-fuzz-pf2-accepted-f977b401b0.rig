@@ -3,7 +3,7 @@
 # long list one node at a time.
 
 sub elements()
-  v: Vec[Int?] = Vec()
+  v: List[Int?] = List()
   !v.push(5)
   a = <v[0]
   print(a, v)
@@ -13,7 +13,7 @@ sub elements()
 
 struct Node
   v: Int
-  next: Box[Node]?
+  next: ^Node?
 
   drop(!self)
     cur = <self.next
@@ -28,15 +28,15 @@ struct W[T]
 
 sub main()
   elements()
-  head: Box[Node]? = none
+  head: ^Node? = none
   i = 0
   while i < 100000 : i += 1
-    head = Box(Node(v: i, next: <head))
-  b = Box(Node(v: 1, next: Box(Node(v: 2, next: none))))
+    head = ^Node(v: i, next: <head)
+  b = ^Node(v: 1, next: ^Node(v: 2, next: none))
   rest = <b.next
   print(b, rest)
   w = W[Int](x: 4)
-  head: Box[Node]? = none
+  head: ^Node? = none
   print((!w).grab(), w)
 
 # expect:

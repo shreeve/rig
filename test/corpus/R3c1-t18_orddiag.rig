@@ -11,7 +11,7 @@ sub main()
   xs = [1, 2]
   s = "a"
   b: [2]U8 = [1, 2]
-  o: String? = "a"
+  o: (?String)? = "a"
   print(p < p)
   print(c < c)
   print(true < false)

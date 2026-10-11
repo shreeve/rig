@@ -1,12 +1,12 @@
 struct Bag[T]
-  items: Vec[T]
+  items: List[T]
 
   sub each(?self, f: ?sub(T))
     for x in ?self.items
       f(x)
 
-  fun map[U](?self, f: ?fun(T) -> U) -> Vec[U]
-    out: Vec[U] = Vec()
+  fun map[U](?self, f: ?fun(T) -> U) -> List[U]
+    out: List[U] = List()
     for x in ?self.items
       !out.push(f(x))
     out
@@ -24,7 +24,7 @@ struct Counter
     self.n = f(self.n)
 
 sub main()
-  b = Bag[Int](items: Vec())
+  b = Bag[Int](items: List())
   !b.items.push(1)
   !b.items.push(2)
   total = 0

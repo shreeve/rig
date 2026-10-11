@@ -1,11 +1,11 @@
-# Pre-existing (main too): a ?self Cell[Vec] push on a part of a temporary, an
+# Pre-existing (main too): a ?self Cell[List] push on a part of a temporary, an
 # argument with `?? continue`. Debug right; --release loses the push (C1).
 #
 # oracle: V.drop accept
 # oracle: V.add accept
 # oracle: maybe accept
 struct V
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   drop(!self)
     print("drop", self.c.len)
@@ -18,7 +18,7 @@ struct WV
   t: V
 
 fun mkv(n: Int) -> V
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i)
   V(c: Cell(<v))

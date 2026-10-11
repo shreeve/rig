@@ -2,6 +2,6 @@ sub main()
   n = 1
   w = !n
   g = |!w| w += 5
-  v: Vec[sub()] = Vec()
+  v: List[sub()] = List()
   !v.push(g)
   print(n)

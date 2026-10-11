@@ -1,8 +1,8 @@
-fun boxit[T](x: T) -> Box[T]
-  Box(x)
+fun boxit[T](x: T) -> ^T
+  ^x
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   b = boxit(?v)
   print(b.len)

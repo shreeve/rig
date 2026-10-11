@@ -13,7 +13,7 @@ error E
 
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
   fun tryat(!self, ok: Bool) -> (!Int)!
     return E.bad if not ok
@@ -35,7 +35,7 @@ struct S
     print("drop", self.n)
 
 fun mk(n: Int) -> S
-  s = S(n: n, items: Vec())
+  s = S(n: n, items: List())
   !s.items.push(n)
   s
 

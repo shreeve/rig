@@ -1,7 +1,7 @@
-sub f(v: Vec[Int])
+sub f(v: List[Int])
   for x in !v
     x += 1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f(<v)

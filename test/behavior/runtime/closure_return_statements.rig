@@ -16,7 +16,7 @@ sub main()
         return 0
       y + 1
     return inner(x) * 2
-  label: *fun(Int) -> String = *|n|
+  label: *fun(Int) -> ?String = *|n|
     if n == 0
       return "zero"
     "other"

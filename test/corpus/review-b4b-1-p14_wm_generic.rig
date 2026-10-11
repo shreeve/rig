@@ -1,18 +1,18 @@
-# generic write match on a Vec element. Expect accept, clean.
+# generic write match on a List element. Expect accept, clean.
 enum O[T]
   some(x: T)
   nothing
 
-sub setall[T](v: !Vec[O[T]], i: Int, x: T)
+sub setall[T](v: !List[O[T]], i: Int, x: T)
   match !v[i]
     .some(y) => y = <x
     .nothing => pass
 
 sub main()
-  v: Vec[O[Int]] = Vec()
+  v: List[O[Int]] = List()
   !v.push(O.some(x: 1))
   setall(!v, 0, 9)
-  w: Vec[O[Text]] = Vec()
-  !w.push(O.some(x: Text("a")))
-  setall(!w, 0, Text("b"))
+  w: List[O[String]] = List()
+  !w.push(O.some(x: String("a")))
+  setall(!w, 0, String("b"))
   print(v[0], w[0])

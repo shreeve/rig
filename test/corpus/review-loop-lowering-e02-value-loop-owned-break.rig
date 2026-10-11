@@ -1,4 +1,4 @@
-# Loops used as values that hand out an owned value: a consumed Vec's
+# Loops used as values that hand out an owned value: a consumed List's
 # element, an element of an array the source makes, and a while binding;
 # the remaining elements drop when the loop is left.
 #
@@ -12,8 +12,8 @@ struct D
   drop(!self)
     print("drop", self.n)
 
-fun mkvec(n: Int) -> Vec[D]
-  v: Vec[D] = Vec()
+fun mkvec(n: Int) -> List[D]
+  v: List[D] = List()
   for i in 0..n
     !v.push(D(n: i))
   v

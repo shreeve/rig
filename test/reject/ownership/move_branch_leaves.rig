@@ -18,19 +18,19 @@ struct P
 struct S
   n: Int
   o: Int?
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk() -> S
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   S(n: 1, o: 2, v: <v)
 
 fun f(k: Int) -> Int!
   k
 
-fun get(bad: Bool) -> Vec[Int]!
+fun get(bad: Bool) -> List[Int]!
   return E.bad if bad
-  Vec[Int]()
+  List[Int]()
 
 sub copying(c: Bool)
   n = 1

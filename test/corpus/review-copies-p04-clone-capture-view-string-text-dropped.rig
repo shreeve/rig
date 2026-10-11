@@ -1,8 +1,8 @@
 struct S
-  s: String
+  s: ?String
 
 fun mk() -> Int
-  t = Text("a heap string of some length")
+  t = String("a heap string of some length")
   s = S(s: ?t)
   r = ?s
   f = |+r| r.s.len

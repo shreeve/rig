@@ -1,7 +1,7 @@
 # Taking a read view (`?user`) of a dropped value is rejected.
 
 struct User
-  name: String
+  name: ?String
 
 sub main()
   user = User(name: "Steve")

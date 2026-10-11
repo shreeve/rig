@@ -1,24 +1,24 @@
 # An element that owns a resource is read where it is, and stays there:
 # it is not copied out, moved out, or changed while it is lent.
 
-sub take(t: Text)
+sub take(t: String)
   print(t)
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   x = v[0]
   take(v[0])
   r = ?v[0]
-  !v.push(Text("b"))
+  !v.push(String("b"))
   print(r)
   t = <v[0]
   s = ?v[0]
-  v[0] = Text("c")
+  v[0] = String("c")
   print(s)
 
-# error: 10:7: `v[0]` owns a `Text`, which can't be copied by `=`: write `+v[0]` to clone it or `?v[0]` to view it
-# error: 11:8: `take` takes ownership of a `Text`, and `v[0]` can't be copied: write `+v[0]` to pass a clone; if `take` only reads it, make its parameter a `?Text`
+# error: 10:7: `v[0]` owns a `String`, which can't be copied by `=`: write `+v[0]` to clone it or `?v[0]` to view it
+# error: 11:8: `take` takes ownership of a `String`, and `v[0]` can't be copied: write `+v[0]` to pass a clone; if `take` only reads it, make its parameter a `?String`
 # error: 13:3: cannot lend `v` to write while a read loan is live
 # error: 15:8: cannot move out of `v[0]`: elements cannot be moved out of their container
 # error: 17:3: cannot assign to `v[0]` while `v` is lent

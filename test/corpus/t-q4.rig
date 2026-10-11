@@ -3,14 +3,14 @@ struct P
   y: Int
 
 struct S
-  a: Vec[Int]
+  a: List[Int]
   b: Int
 
 struct Q
   a: P
   b: Int
 
-fun grow(v: !Vec[Int]) -> Int
+fun grow(v: !List[Int]) -> Int
   !v.push(7)
   2
 
@@ -18,7 +18,7 @@ fun bump(p: !P) -> Int
   p.x += 1
   0
 
-fun rd(v: ?Vec[Int], n: Int) -> Int
+fun rd(v: ?List[Int], n: Int) -> Int
   v.len + n
 
 fun rp(p: P, n: Int) -> Int
@@ -28,7 +28,7 @@ fun rs(s: []Int, n: Int) -> Int
   s.len + n
 
 sub main()
-  v: Vec[Int] = Vec()
-  w: Vec[Int] = Vec()
+  v: List[Int] = List()
+  w: List[Int] = List()
   !v.push(0)
   print(v == w)

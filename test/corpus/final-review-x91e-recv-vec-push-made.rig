@@ -1,6 +1,6 @@
-# Vec push on a made Vec without ! (expect reject)
-fun mk() -> Vec[Int]
-  v: Vec[Int] = Vec()
+# List push on a made List without ! (expect reject)
+fun mk() -> List[Int]
+  v: List[Int] = List()
   v
 
 sub main()

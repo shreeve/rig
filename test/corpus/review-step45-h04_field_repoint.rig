@@ -1,12 +1,12 @@
 # field re-point: h.w = !n replaces the field's loans (n39)
 struct H
-  w: !Text
+  w: !String
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   h = H(w: !a)
   h.w = !b
-  a = Text("A")
+  a = String("A")
   !h.w.add("!")
   print(a, b)

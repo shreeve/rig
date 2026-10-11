@@ -15,8 +15,8 @@ struct Many
   h: [8]Int
   i: Int?
   j: Bool?
-  k: String?
-  l: [2]String
+  k: (?String)?
+  l: [2]?String
   m: [3]Bool
   n: [4]Bool
   o: [5]Bool

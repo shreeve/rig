@@ -5,13 +5,13 @@ struct Key
   k: Int
 
 struct Bag
-  items: Vec[P]
+  items: List[P]
 
   fun find(?self, key: ?Key) -> ?P
     ?self.items[key.k]
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(P(x: 7))
   key = Key(k: 0)
   r = ?b.find(?key)

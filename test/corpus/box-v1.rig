@@ -8,9 +8,9 @@ struct R
     self.n += 10
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
-  b = Box(value: R(n: 2))
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  b = ^R(n: 2)
   !v.push(<b)
   for x in ?v
     print("see", x.n)

@@ -1,10 +1,10 @@
-fun find(xs: ?Vec[String], t: String) -> Int?
+fun find(xs: ?List[?String], t: ?String) -> Int?
   for x, i in xs
     return i if x == t
   none
 
 sub main()
-  v: Vec[String] = Vec()
+  v: List[?String] = List()
   !v.push("a")
   i = find(?v, "a")
   if i

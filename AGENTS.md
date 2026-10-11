@@ -17,6 +17,7 @@ where it happens, so memory safety reads more cleanly than in Rust:
 | `?x` / `?T` | lend to read / read view |
 | `!x` / `!T` | lend to write / write view |
 | `+x` | clone |
+| `^x` / `^T` | box (one owner on the heap) |
 | `*x` / `*T` | shared (refcounted) |
 | `~x` / `~T` | weak |
 | `expr!` / `T!` | propagate failure / fallible type |

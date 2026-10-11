@@ -3,13 +3,13 @@
 # handle can give two handles that both write through it.
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 struct Ed
   t: !Wrap
 
 sub main()
-  b = Wrap(v: Vec())
+  b = Wrap(v: List())
   !b.v.push(1)
   s = *Ed(t: !b)
   h = +s

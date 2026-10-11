@@ -1,6 +1,6 @@
 struct Node
   v: Int
-  next: Box[Node]?
+  next: ^Node?
 
   fun sum(?self) -> Int
     if ?self.next as n
@@ -17,7 +17,7 @@ struct Node
     if !self.next as n
       !n.append(v)
     else
-      self.next = Box(value: Node(v: v, next: none))
+      self.next = ^Node(v: v, next: none)
 
   fun len(?self) -> Int
     if ?self.next as n
@@ -31,7 +31,7 @@ sub main()
   !n.append(3)
   !n.add(10)
   print(n.sum(), n)
-  b = Box(value: <n)
+  b = ^<n
   !b.append(4)
   print(b.sum())
   r = ?b

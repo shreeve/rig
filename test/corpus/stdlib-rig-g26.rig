@@ -3,7 +3,7 @@ struct P
 
 sub main()
   c = Cell(3)
-  b = Box(P(x: 1))
+  b = ^P(x: 1)
   print(c.value, b.value, b.x)
-  v = Vec[Int](capacity: 4)
+  v = List[Int](capacity: 4)
   print(v.len)

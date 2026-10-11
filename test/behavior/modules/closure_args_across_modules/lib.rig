@@ -5,14 +5,14 @@ pub sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
     while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
       !xs.swap(j, j - 1)
 
-pub fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
-  out: Vec[U] = Vec()
+pub fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
+  out: List[U] = List()
   for x in xs
     !out.push(f(?x))
   out
 
 pub struct Bag
-  pub items: Vec[Int]
+  pub items: List[Int]
 
   pub sub each(?self, f: ?sub(Int))
     for x in ?self.items

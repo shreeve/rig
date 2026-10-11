@@ -1,4 +1,4 @@
-fun lines_n(s: String) -> Int?!
+fun lines_n(s: ?String) -> Int?!
   return none if s.len == 0
   s.len
 

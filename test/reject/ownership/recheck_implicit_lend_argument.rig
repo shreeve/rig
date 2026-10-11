@@ -3,12 +3,12 @@
 # right side of, keeps its one use: the check goes on to the ownership
 # rules.
 
-fun pick(f: ?fun() -> Int, x: !Text, y: !Text) -> !Text
+fun pick(f: ?fun() -> Int, x: !String, y: !String) -> !String
   y
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   f = |?w| w.len
   w = pick(?f, !b, !b)

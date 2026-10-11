@@ -1,6 +1,6 @@
 sub main()
   names = ["a", "b"]
-  v: Vec[String] = Vec()
+  v: List[?String] = List()
   for n in names
     !v.push(n)
   first = v[0]

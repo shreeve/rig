@@ -1,9 +1,9 @@
-fun pick[n: Int](a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+fun pick[n: Int](a: ?List[Int], b: ?List[Int]) -> ?List[Int]
   a
 
 sub main()
-  x: Vec[Int] = Vec()
-  y: Vec[Int] = Vec()
+  x: List[Int] = List()
+  y: List[Int] = List()
   r = pick[3](?x, ?y)
   !y.push(1)
   print(r.len)

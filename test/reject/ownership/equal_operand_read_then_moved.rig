@@ -1,13 +1,13 @@
 # The right operand of `==` cannot move the left operand's place: the
 # comparison reads the left value after the move freed it.
 
-fun renew(t: Text) -> Text
-  r = Text(t)
+fun renew(t: String) -> String
+  r = String(t)
   <t
   r
 
 sub main()
-  a = Text("a")
+  a = String("a")
   for _ in 0..10
     !a.add("abcdefgh")
   print(a == renew(<a))

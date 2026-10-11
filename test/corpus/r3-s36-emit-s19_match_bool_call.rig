@@ -1,5 +1,5 @@
 struct Set
-  items: Vec[Int]
+  items: List[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
       return false if x == k
@@ -10,7 +10,7 @@ sub show(b: Bool)
   print("show", b)
 
 sub main()
-  s = Set(items: Vec())
+  s = Set(items: List())
   match !s.insert(1)
     true => print("C reader: not inserted?")
     false => print("dup")

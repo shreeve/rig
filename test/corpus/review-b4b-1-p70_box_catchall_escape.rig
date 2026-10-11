@@ -3,7 +3,7 @@ enum E
   a(xs: [4]Int)
   b
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -11,12 +11,12 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
   z = E.b
   r = ?z
-  match ?bs[idx(?Text("a"))]
+  match ?bs[idx(?String("a"))]
     x => r = x
-  bs[0] = Box(E.a(xs: [9, 9, 9, 9]))
+  bs[0] = ^E.a(xs: [9, 9, 9, 9])
   print(clobber(1))
   match r
     .a(xs) => print(xs[0], xs[3])

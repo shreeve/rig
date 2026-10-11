@@ -4,7 +4,7 @@ struct S
   s: []Int
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = S(s: ?v[..])
   defer print(h.s[0])

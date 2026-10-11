@@ -1,14 +1,14 @@
 struct P
-  t: Text
+  t: String
 
 struct H
   w: !P
 
 sub main()
-  p = P(t: Text("hello"))
-  hs: Vec[H] = Vec()
+  p = P(t: String("hello"))
+  hs: List[H] = List()
   !hs.push(H(w: !p))
   for h in hs
     r = ?h.w.t[1..]
-    h.w.t = Text("other")
+    h.w.t = String("other")
     print(r)

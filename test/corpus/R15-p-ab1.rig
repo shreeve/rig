@@ -1,10 +1,10 @@
 struct B
-  v: Vec[Int]
+  v: List[Int]
   fun items(!self) -> ![]Int
     !self.v[..]
 
 sub main()
-  b = B(v: Vec())
+  b = B(v: List())
   !b.v.push(1)
   it = (!b).items()
   !b.v.push(2)

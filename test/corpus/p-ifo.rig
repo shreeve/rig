@@ -1,4 +1,4 @@
-fun f(o: Text?) -> Int
+fun f(o: String?) -> Int
   if ?o as x
     print(x)
   if <o as y
@@ -6,4 +6,4 @@ fun f(o: Text?) -> Int
   1
 
 sub main()
-  print(f(Text("a")))
+  print(f(String("a")))

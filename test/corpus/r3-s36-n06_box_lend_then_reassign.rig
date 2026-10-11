@@ -5,7 +5,7 @@ fun get(s: ?S) -> ?S
   s
 
 sub main()
-  b = Box(S(n: 1))
+  b = ^S(n: 1)
   r = get(?b)
-  b = Box(S(n: 2))
+  b = ^S(n: 2)
   print(r.n)

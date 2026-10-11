@@ -13,7 +13,7 @@ enum Res[T]
       .err(c) => -c
       .ok(_) => 0
 
-fun total[T](rs: ?Vec[Res[T]], zero: T) -> T
+fun total[T](rs: ?List[Res[T]], zero: T) -> T
   t = zero
   for r in rs
     match r
@@ -24,7 +24,7 @@ fun total[T](rs: ?Vec[Res[T]], zero: T) -> T
   t
 
 sub main()
-  v: Vec[Res[Int]] = Vec()
+  v: List[Res[Int]] = List()
   !v.push(.ok(v: 3))
   !v.push(.err(code: 2))
   !v.push(.ok(v: -1))
@@ -33,7 +33,7 @@ sub main()
   print(total(?v, 0))
   r = Res[Float].ok(v: 2.5)
   print(r.get_or(2.5), r.get_or(1.0))
-  e = Res[String].err(code: 1)
+  e = Res[?String].err(code: 1)
   print(e.get_or("dflt"), e)
   p = Res[P].ok(v: P(x: 1))
   print(p.get_or(P(x: 9)), p.get_or(P(x: 1)))

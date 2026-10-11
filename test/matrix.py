@@ -3,7 +3,7 @@
 
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
-for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
+for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
 stores into a view parameter (`store.`, below), the views of a
@@ -35,7 +35,7 @@ whose type is not `value` must be accepted, and print its trace in debug
 and again built with `--release`.
 
     test/matrix.py                 # generate, check, and run everything
-    test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
+    test/matrix.py -j 8 -k list     # 8 at a time; only ids containing "list"
     test/matrix.py --keep DIR      # write the programs to DIR and keep them
                                    # (one run at a time in DIR)
     test/matrix.py --oracle        # only run the reference ownership checker
@@ -89,6 +89,22 @@ import zlib
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RIG = os.path.join(ROOT, "bin", "rig")
 ORACLE = os.path.join(ROOT, "bin", "rig-oracle")
+
+
+
+def rd(ty):
+    """The read view of a type: a read view is its own."""
+    return ty if ty.startswith("?") else f"?{ty}"
+
+
+def fal(ty):
+    """The fallible result of a type: a read view takes parentheses first."""
+    return f"({ty})!" if ty.startswith("?") else f"{ty}!"
+
+
+def opt(ty):
+    """The optional of a type: a read view takes parentheses first."""
+    return f"({ty})?" if ty.startswith("?") else f"{ty}?"
 
 
 def build_store():
@@ -241,13 +257,13 @@ CRASH = re.compile(r"panic:|Segmentation fault|reached unreachable|Bus error")
 N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?N\n    self\n"
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
-    "string": dict(ty="String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
+    "string": dict(ty="?String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
     "static": dict(ty="Static", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
-    "text": dict(ty="Text", decls="", mk='Text("t", n)', ctor='Text("lit")'),
-    "vec": dict(ty="Vec[Int]", decls="",
-                mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
+    "text": dict(ty="String", decls="", mk='String("t", n)', ctor='String("lit")'),
+    "list": dict(ty="List[Int]", decls="",
+                mk="xs: List[Int] = List()\n  !xs.push(n)\n  xs", ctor="List[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
-    "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
+    "box": dict(ty="^N", decls=N_DECL, mk="^N(v: n)", ctor="^N(v: 5)"),
     "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A struct that holds a Cell, which lives only behind `*`: a value
@@ -264,8 +280,8 @@ TYPES = {
     "plain": dict(ty="P", decls="struct P\n  v: Int\n", mk="P(v: n)", ctor="P(v: 5)"),
     "array": dict(ty="A2", decls="type A2 = [2]Int\n", mk="[n, n + 1]", ctor="[5, 6]"),
     # A payload enum: `== .variant` tests the variant.
-    "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: Vec[Int])\n",
-                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
+    "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: List[Int])\n",
+                 mk="xs: List[Int] = List()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
                  only=("eq_variant", "eq_none", "binding", "tail_if", "tail_match")),
 }
 
@@ -307,7 +323,7 @@ CONTEXTS = {
     "eq": dict(inline="print(E == a)"),
     "binding": dict(block="x = E", after="print(look(?x))"),
     "field_store": dict(block="h.f = E", needs="h", after="print(look(?h.f))"),
-    "vec_push": dict(inline="!vs.push(E)", needs="vs", after="print(vs.len)"),
+    "list_push": dict(inline="!vs.push(E)", needs="vs", after="print(vs.len)"),
     "return": dict(block="return E", returns=True),
     "elem_assign": dict(block="vs[0] = E", needs="vs", after="print(vs.len)"),
     "elem_assign_call": dict(inline="vs[0] = through(!vs, E)", needs="vs", after="print(vs.len)"),
@@ -320,19 +336,19 @@ CONTEXTS = {
     "for_branch": dict(inline="for e in ([E, mk(6)] if c else [mk(7), mk(8)])\n    print(look(?e))"),
     # A match on a part of a made value.
     "match_part": dict(inline="match H(f: E).f\n    y\n      print(look(?y))"),
-    # A header whose subject makes a temporary (`?Text(...)`): it takes
+    # A header whose subject makes a temporary (`?String(...)`): it takes
     # the value a call makes there, so it binds that value.
-    "match_subject_temp": dict(inline='match pass_t(E, ?Text("t"))\n    y => print(look(?y))', temp=True),
-    "as_temp": dict(inline='if some_t(E, ?Text("t")) as y\n    print(look(?y))', temp=True),
-    # A method that consumes its receiver (`<self`, `Box.unbox`).
+    "match_subject_temp": dict(inline='match pass_t(E, ?String("t"))\n    y => print(look(?y))', temp=True),
+    "as_temp": dict(inline='if some_t(E, ?String("t")) as y\n    print(look(?y))', temp=True),
+    # A method that consumes its receiver (`<self`, `^T.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
     # A method that writes its receiver: a value made there, or one
     # lent with `!` (a place without one is rejected).
-    "recv_write": dict(inline="(E).M", recv={"vec": "push(1)", "text": 'add("x")', "drop": "bump()"}),
+    "recv_write": dict(inline="(E).M", recv={"list": "push(1)", "text": 'add("x")', "drop": "bump()"}),
     # `!` lends any value to write (Core sentence 4): the receiver of a
     # write method, an argument where a `!T` goes, and a write view held
     # past the statement, which a temporary's must not be.
-    "recv_write_lent": dict(inline="!(E).M", recv={"vec": "push(1)", "text": 'add("x")', "drop": "bump()"}),
+    "recv_write_lent": dict(inline="!(E).M", recv={"list": "push(1)", "text": 'add("x")', "drop": "bump()"}),
     "write_arg": dict(inline="print(poke(!(E)))", write=True),
     "write_held": dict(inline="x = !(E)", after="print(look(?x))"),
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
@@ -354,15 +370,15 @@ CONTEXTS = {
     # fallback, else `a`.
     "arg_then_write": dict(inline="print(E, poke(!W))", write=True),
     "recv_read_then_write": dict(inline="print((E).M)", write=True,
-                                 recv={t: "get(poke(!W))" if t == "vec" else "peek(poke(!W))"
-                                       for t in ("vec", "shared", "box", "drop")}),
+                                 recv={t: "get(poke(!W))" if t == "list" else "peek(poke(!W))"
+                                       for t in ("list", "shared", "box", "drop")}),
     # A view a method returns of its receiver, kept while the receiver's
     # place is lent to write: the view keeps every place the receiver may
     # be lent, and one of a value made there ends with its statement.
     "recv_view_then_write": dict(inline="r = (E).M\n  _ = poke(!W)\n  print(r.v)", write=True,
                                  recv={t: "me()" for t in ("shared", "box", "drop")}),
     "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "static", "text")),
-    "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("vec",)),
+    "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("list",)),
     # A `?self` method returning a view of its receiver (`me`): the view
     # held past the statement, used after a later operand writes what the
     # form reads, or held while a later statement writes it.
@@ -372,19 +388,19 @@ CONTEXTS = {
     "recv_view_held_then_write": dict(inline="x = (E).M", after="print(poke(!W), x.v)", write=True,
                                       recv={"drop": "me()", "shared": "me()"}),
     # A slice of the value, written with no lend, as an argument where a
-    # `[]T` or a String goes: it is lent the way its name is, as
+    # `[]T` or a ?String goes: it is lent the way its name is, as
     # `?(E)[..1]`, also while a later argument writes what it slices.
-    "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("vec", "array", "text", "string", "static")),
+    "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("list", "array", "text", "string", "static")),
     "slice_arg_then_write": dict(inline="print(both(E[..1], poke(!W)))", slice=True, write=True,
-                                 types=("vec", "array", "text", "string", "static")),
+                                 types=("list", "array", "text", "string", "static")),
 }
 
 # How `poke` changes a value of each type: it grows the buffer, or
 # replaces the value, freeing what the old one owned.
 POKES = {
     "int": "x += 1", "string": 'x = "u"', "static": 'x = "u"',
-    "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "vec": "for i in 0..100\n    !x.push(i)",
-    "shared": "x = *N(v: 9)", "box": "x = Box(N(v: 9))", "drop": "x = D(v: 9)",
+    "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "list": "for i in 0..100\n    !x.push(i)",
+    "shared": "x = *N(v: 9)", "box": "x = ^N(v: 9)", "drop": "x = D(v: 9)",
     "unique": "x = U(v: 9)", "enum": "x = S.dot",
     "plain": "x = P(v: 9)", "array": "x[0] += 1",
 }
@@ -392,7 +408,7 @@ WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
 # A block-local binding at the tail of a value block leaves it before the
 # block's defers run. Each shape of value block goes to each sink, with a
-# `defer` that uses the binding (writes a Vec or Text, reads the rest) or
+# `defer` that uses the binding (writes a List or String, reads the rest) or
 # none. Each cell's form is `mk(5)`.
 TAIL_SHAPES = {
     "if": ["if c", "  BODY", "else", "  mk(8)"],
@@ -407,7 +423,7 @@ TAIL_SINKS = {
     "field": dict(block="h.f = E", needs="h", after="print(look(?h.f))"),
     "result": dict(block="return E", returns=True),
 }
-TAIL_WRITES = {"vec": "!t.push(1)", "text": '!t.add("x")'}
+TAIL_WRITES = {"list": "!t.push(1)", "text": '!t.add("x")'}
 for shape in TAIL_SHAPES:
     for sink, ctx in TAIL_SINKS.items():
         for defer in ("defer", "plain"):
@@ -423,10 +439,10 @@ for shape in TAIL_SHAPES:
 # -----------------------------------------------------------------------------
 
 STORE_OWNERS = {
-    "vec": dict(ty="Vec[Int]", view="[]Int", lend="?b[..]", init="x = [9, 9]",
-                make="v: Vec[Int] = Vec()\n  !v.push(1)", grow=["for i in 0..100", "  !b.push(i)"]),
-    "text": dict(ty="Text", view="String", lend="?b[0..1]", init='x = Text("zz")',
-                 make='v = Text("abc")', grow=["for _ in 0..100", '  !b.add("abcdefgh")']),
+    "list": dict(ty="List[Int]", view="[]Int", lend="?b[..]", init="x = [9, 9]",
+                make="v: List[Int] = List()\n  !v.push(1)", grow=["for i in 0..100", "  !b.push(i)"]),
+    "text": dict(ty="String", view="?String", lend="?b[0..1]", init='x = String("zz")',
+                 make='v = String("abc")', grow=["for _ in 0..100", '  !b.add("abcdefgh")']),
 }
 # What `a` is: its type, how `main` makes it from the view `I`, and the
 # statements that read the stored view back.
@@ -461,7 +477,7 @@ STORE_FORMS = {
 
 # -----------------------------------------------------------------------------
 # A `while` step that reads what its condition binds: a view of `v` (a
-# Vec's `[]Int`, a Text's `String`), a struct holding one read through a
+# List's `[]Int`, a String's `?String`), a struct holding one read through a
 # field or a method, while the body grows `v` (or only reads it) on its
 # way to the step: falling off its end, `continue`, `continue :outer`
 # from a nested `for`, `while`, or `while … as` (also where the loop is
@@ -473,9 +489,9 @@ STORE_FORMS = {
 # -----------------------------------------------------------------------------
 
 STEP_OWNERS = {
-    "vec": dict(ty="Vec[Int]", view="[]Int", lend="?v[..]", make="v: Vec[Int] = Vec()\n  !v.push(1)",
+    "list": dict(ty="List[Int]", view="[]Int", lend="?v[..]", make="v: List[Int] = List()\n  !v.push(1)",
                 grow="!v.push(i)", read="X[0]"),
-    "text": dict(ty="Text", view="String", lend="?v[0..1]", make='v = Text("abc")',
+    "text": dict(ty="String", view="?String", lend="?v[0..1]", make='v = String("abc")',
                  grow='!v.add("abcdefgh")', read='(1 if text.ends_with(X, "a") else 0)'),
 }
 # What the condition binds: its type, how `mk` makes it from the view
@@ -524,17 +540,17 @@ STEP_SHAPES = {
 # -----------------------------------------------------------------------------
 
 TARGET_PLACES = {
-    "elem": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0..1]"], store="w[0] = X", show="v[0]",
+    "elem": dict(make=["v: List[Int] = List()", "!v.push(7)", "w = !v[0..1]"], store="w[0] = X", show="v[0]",
                  repoint="w = !R[0..1]", elem="Int", seen="R[0]", base=7, add=False),
-    "compound": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0..1]"], store="w[0] += X", show="v[0]",
+    "compound": dict(make=["v: List[Int] = List()", "!v.push(7)", "w = !v[0..1]"], store="w[0] += X", show="v[0]",
                      repoint="w = !R[0..1]", elem="Int", seen="R[0]", base=7, add=True),
-    "field": dict(make=["v: Vec[S] = Vec()", "!v.push(S(n: 7))", "w = !v[0]"], store="w.n = X", show="v[0].n",
+    "field": dict(make=["v: List[S] = List()", "!v.push(S(n: 7))", "w = !v[0]"], store="w.n = X", show="v[0].n",
                   repoint="w = !R[0]", elem="S", seen="R[0].n", base=7, add=False),
-    "index": dict(make=["v: Vec[Int] = Vec()", "!v.push(0)", "u: Vec[Int] = Vec()", "!u.push(5)", "!u.push(6)", "w = ?v[0..1]"],
+    "index": dict(make=["v: List[Int] = List()", "!v.push(0)", "u: List[Int] = List()", "!u.push(5)", "!u.push(6)", "w = ?v[0..1]"],
                   store="u[w[0]] = X", show="u[0]", repoint="w = ?R[0..1]", elem="Int", seen="u[1]", base=5, add=False),
-    "name": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0]"], store="w = X", show="v[0]",
+    "name": dict(make=["v: List[Int] = List()", "!v.push(7)", "w = !v[0]"], store="w = X", show="v[0]",
                  repoint="w = !R[0]", elem="Int", seen="R[0]", base=7, add=False),
-    "name_compound": dict(make=["v: Vec[Int] = Vec()", "!v.push(7)", "w = !v[0]"], store="w += X", show="v[0]",
+    "name_compound": dict(make=["v: List[Int] = List()", "!v.push(7)", "w = !v[0]"], store="w += X", show="v[0]",
                           repoint="w = !R[0]", elem="Int", seen="R[0]", base=7, add=True),
 }
 TARGET_NESTS = {
@@ -550,7 +566,7 @@ TARGET_NESTS = {
     "in_block": None,
 }
 # Each act is the lines of the value, its last line the value itself;
-# `R` is the Vec a re-pointing act points the view at. Valid acts give
+# `R` is the List a re-pointing act points the view at. Valid acts give
 # the stored value (`stores`) and whether the view ends at x (`at_x`).
 TARGET_ACTS = {
     "grow": dict(lines=["grow(!v)"]),
@@ -558,7 +574,7 @@ TARGET_ACTS = {
     "move": dict(lines=["sink(<v)"]),
     "drop": dict(lines=["<v", "3"]),
     "other": dict(lines=["grow(!x)"], stores=201),
-    "local": dict(lines=["y: Vec[Int] = Vec()", "!y.push(1)", "grow(!y)"], stores=201),
+    "local": dict(lines=["y: List[Int] = List()", "!y.push(1)", "grow(!y)"], stores=201),
     "repoint_local": dict(lines=["MAKE_y", "REPOINT_y", "3"]),
     "repoint_outer": dict(lines=["REPOINT_x", "3"], stores=3, at_x=True),
     "repoint_grow": dict(lines=["REPOINT_x", "grow(!v)"], stores=201, at_x=True),
@@ -576,7 +592,7 @@ def target_program(tname, nname, aname):
     def act_line(line):
         if line.startswith("MAKE_"):
             r = line[5:]
-            return [f"{r}: Vec[{t['elem']}] = Vec()", f"!{r}.push({pushed})"]
+            return [f"{r}: List[{t['elem']}] = List()", f"!{r}.push({pushed})"]
         if line.startswith("REPOINT_"):
             return [t["repoint"].replace("R", line[8:])]
         if tname == "field" and line in ("grow(!v)", "grow(!x)"):
@@ -585,11 +601,11 @@ def target_program(tname, nname, aname):
 
     lines = [l for line in a["lines"] for l in act_line(line)]
     store = t["store"].split("X")[0]
-    x_make = [f"x: Vec[{t['elem']}] = Vec()", f"!x.push({'S(n: 1)' if t['elem'] == 'S' else '1'})"]
+    x_make = [f"x: List[{t['elem']}] = List()", f"!x.push({'S(n: 1)' if t['elem'] == 'S' else '1'})"]
     if nname == "in_block":
         if aname != "repoint_local":
             return None
-        inner = [f"y: Vec[{t['elem']}] = Vec()", f"!y.push({pushed})", t["repoint"].replace("R", "y"), store + "3"]
+        inner = [f"y: List[{t['elem']}] = List()", f"!y.push({pushed})", t["repoint"].replace("R", "y"), store + "3"]
         body = list(t["make"]) + ["k = 0", "if k == 0"] + ["  " + l for l in inner] + [f"print({t['show']})"]
     else:
         nest = TARGET_NESTS[nname]
@@ -609,9 +625,9 @@ def target_program(tname, nname, aname):
         show = t["show"] + (", " + t["seen"].replace("R", "x") if a.get("at_x") else "")
         body = list(t["make"]) + x_make + (["k = 0"] if uses_k else []) + [store + out_nest[0]] + out_nest[1:] + [f"print({show})"]
     out = ["error E\n  bad\n", "struct S\n  n: Int\n",
-           "fun grow(v: !Vec[Int]) -> Int\n  for _ in 0..200\n    !v.push(1)\n  v.len\n",
-           "fun grows(v: !Vec[S]) -> Int\n  for _ in 0..200\n    !v.push(S(n: 1))\n  v.len\n",
-           "fun sink(v: Vec[S]) -> Int\n  v.len\n" if t["elem"] == "S" else "fun sink(v: Vec[Int]) -> Int\n  v.len\n",
+           "fun grow(v: !List[Int]) -> Int\n  for _ in 0..200\n    !v.push(1)\n  v.len\n",
+           "fun grows(v: !List[S]) -> Int\n  for _ in 0..200\n    !v.push(S(n: 1))\n  v.len\n",
+           "fun sink(v: List[S]) -> Int\n  v.len\n" if t["elem"] == "S" else "fun sink(v: List[Int]) -> Int\n  v.len\n",
            "fun fail(n: Int) -> Int!\n  return E.bad if n < 0\n  n\n",
            "sub main()\n" + indent(body, 2) + "\n"]
     return "\n".join(out)
@@ -647,8 +663,8 @@ def step_program(oname, hname, shape, then):
     out = ["use std.text\n" if oname == "text" else "", "error E\n  bad\n",
            f"struct H\n  r: {v}\n\n  fun get(?self) -> {v}\n    self.r\n",
            f"sub grow(v: !{o['ty']})\n  for {'i' if 'i' in o['grow'] else '_'} in 0..100\n    {o['grow']}\n",
-           f"fun mk(v: ?{o['ty']}, n: Int) -> {hty}?\n  if n < 3\n    return {h['make'].replace('L', o['lend'])}\n  none\n",
-           f"fun mkf(v: ?{o['ty']}, n: Int) -> {hty}?!\n  return E.bad if n == 7\n  mk(v, n)\n"]
+           f"fun mk(v: {rd(o['ty'])}, n: Int) -> {hty}?\n  if n < 3\n    return {h['make'].replace('L', o['lend'])}\n  none\n",
+           f"fun mkf(v: {rd(o['ty'])}, n: Int) -> {hty}?!\n  return E.bad if n == 7\n  mk(v, n)\n"]
     step = "k += " + o["read"].replace("X", h["x"])
     grow = "grow(!v)" if then == "grow" else "k += 1"
     loop = [l.replace("C", "mk(?v, n) as h").replace("J", "mk(?v, n) as h and n >= 0")
@@ -908,24 +924,24 @@ def loop_trace(outer, inner, jump, end):
 PAYLOAD_TYPES = {
     "int": dict(ty="Int", mk="4", mk2="40", show="print(v)", out="4"),
     "plain": dict(ty="P", mk="P(x: 4, y: 5)", mk2="P(x: 40, y: 50)", show="print(v.x, v.y)", out="4 5"),
-    "owner": dict(ty="Res", mk='Res(n: 1, t: Text("hello"))', mk2='Res(n: 10, t: Text("k"))',
+    "owner": dict(ty="Res", mk='Res(n: 1, t: String("hello"))', mk2='Res(n: 10, t: String("k"))',
                   show="print(v.n, v.t)", out="1 hello"),
-    "text": dict(ty="Text", mk='Text("tx")', mk2='Text("other")', show="print(v)", out="tx"),
-    "vec": dict(ty="Vec[Int]", mk="xs: Vec[Int] = Vec()\n  !xs.push(8)\n  xs",
-                mk2="xs: Vec[Int] = Vec()\n  !xs.push(80)\n  !xs.push(81)\n  xs",
+    "text": dict(ty="String", mk='String("tx")', mk2='String("other")', show="print(v)", out="tx"),
+    "list": dict(ty="List[Int]", mk="xs: List[Int] = List()\n  !xs.push(8)\n  xs",
+                mk2="xs: List[Int] = List()\n  !xs.push(80)\n  !xs.push(81)\n  xs",
                 show="print(v[0], v.len)", out="8 1"),
-    "box": dict(ty="Box[N]", mk="Box(N(v: 6))", mk2="Box(N(v: 60))", show="print(v.v)", out="6"),
+    "box": dict(ty="^N", mk="^N(v: 6)", mk2="^N(v: 60)", show="print(v.v)", out="6"),
     "shared": dict(ty="*N", mk="*N(v: 7)", mk2="*N(v: 70)", show="print(v.v)", out="7"),
 }
 # How the match reaches the enum: a `?E` parameter matched bare or lent
-# again, a `?Box[E]` parameter, a field of a `?H` parameter, or, in a
+# again, a `?^E` parameter, a field of a `?H` parameter, or, in a
 # generic function, a `?G[T]` parameter, the view a call returns of one,
 # a lend of that view, a branching value, or a field of a view a call
 # returns. `main` makes `e` from `mk()` and passes `?e`.
 PAYLOAD_SUBJECTS = {
     "param": dict(param="e: ?E", subj="e"),
     "lend": dict(param="e: ?E", subj="?e"),
-    "box": dict(param="e: ?Box[E]", subj="e", make="e = Box(E.a(r: mk()))"),
+    "box": dict(param="e: ?^E", subj="e", make="e = ^E.a(r: mk())"),
     "field": dict(param="e: ?H", subj="e.e", make="e = H(e: E.a(r: mk()))"),
     "generic": dict(param="e: ?G[T]", subj="e", make="e: G[TY] = .a(r: mk())", generic=True),
     "generic_call": dict(param="e: ?G[T]", subj="getg(e)", make="e: G[TY] = .a(r: mk())", generic=True),
@@ -960,24 +976,24 @@ def payload_program(tname, sname, ename):
     s = PAYLOAD_SUBJECTS[sname]
     x = PAYLOAD_ESCAPES[ename]
     ty = t["ty"]
-    out = ["struct N\n  v: Int\n", "struct P\n  x: Int\n  y: Int\n", "struct Res\n  n: Int\n  t: Text\n",
+    out = ["struct N\n  v: Int\n", "struct P\n  x: Int\n  y: Int\n", "struct Res\n  n: Int\n  t: String\n",
            f"enum E\n  a(r: {ty})\n  b(r: {ty})\n", "struct H\n  e: E\n", "enum G[T]\n  a(r: T)\n  b(r: T)\n",
            "struct GH[T]\n  e: G[T]\n", "fun getg[T](e: ?G[T]) -> ?G[T] from e\n  e\n",
            "fun getgh[T](h: ?GH[T]) -> ?GH[T] from h\n  h\n", "fun yes() -> Bool\n  true\n",
            f"fun mk() -> {ty}\n  {t['mk']}\n", f"fun mk2() -> {ty}\n  {t['mk2']}\n",
-           f"fun ok(v: ?{ty}) -> Bool\n  true\n",
+           f"fun ok(v: {rd(ty)}) -> Bool\n  true\n",
            "fun clobber(n: Int) -> Int\n  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n"
            "  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n  a[1] + b[2]\n"]
     show = [t["show"]]
     if x.get("whole"):
         # A view of the whole value is shown through its payload.
         show = ["match v", "  .a(p) => show(?p)", "  .b(p) => show(?p)"]
-        out.append(f"sub show(v: ?{ty})\n  {t['show']}\n")
+        out.append(f"sub show(v: {rd(ty)})\n  {t['show']}\n")
     main = [s.get("make", "e = E.a(r: mk())").replace("TY", ty)]
     if "arm" in x:
         if s.get("generic"):
             return None, None
-        out.append(f"sub see(v: ?{ty})\n  print(clobber(1000))\n  {t['show']}\n")
+        out.append(f"sub see(v: {rd(ty)})\n  print(clobber(1000))\n  {t['show']}\n")
         out.append(f"sub seee(v: ?E)\n  match v\n    .a(p) => see(?p)\n    .b(p) => see(?p)\n")
         out.append(f"sub inner({s['param']})\n  match {s['subj']}\n" + indent(x["arm"], 4) + "\n")
         main.append("inner(?e)")
@@ -997,7 +1013,7 @@ def payload_program(tname, sname, ename):
         main.append("v = inner(?e)")
     else:
         body = ["saved = k", f"match {s['subj']}"] + ["  " + a for a in arms] + ["saved"]
-        out.append(f"fun {fun}({s['param']}, k: ?{res}) -> ?{res}\n" + indent(body, 2) + "\n")
+        out.append(f"fun {fun}({s['param']}, k: {rd(res)}) -> {rd(res)}\n" + indent(body, 2) + "\n")
         whole_k = f"k: G[{ty}] = .b(r: mk2())" if s.get("generic") else "k = E.b(r: mk2())"
         main += [whole_k if x.get("whole") else "k = mk2()", "v = inner(?e, ?k)"]
     main.append("print(clobber(1000))")
@@ -1008,7 +1024,7 @@ def payload_program(tname, sname, ename):
 
 # -----------------------------------------------------------------------------
 # A `match` payload field that is itself a view: an enum instantiated at a
-# view type (`G[?Text]`, `G[[]Int]`), whose binding is the view
+# view type (`G[?String]`, `G[[]Int]`), whose binding is the view
 # the field holds, used in the arm or escaping. Like a `payload.` cell, a
 # program that runs runs other code on the stack before it reads the view,
 # and must print what it views. Cells are `viewpay.<type>.<subject>.<use>`.
@@ -1019,12 +1035,12 @@ def payload_program(tname, sname, ename):
 # `k` and `d` making two values, the statement that shows a view `v` of
 # one, and what it prints for `k`, then for `d`.
 VIEWPAY_TYPES = {
-    "text": dict(ty="?Text", gen="?T", arg="Text", lend="?", k='Text("tx")', d='Text("dd")',
+    "text": dict(ty="?String", gen="?T", arg="String", lend="?", k='String("tx")', d='String("dd")',
                  show="print(v)", out="tx", outd="dd"),
     "int": dict(ty="?Int", gen="?T", arg="Int", lend="?", k="4", d="40", show="print(v)", out="4", outd="40"),
     "plain": dict(ty="?P", gen="?T", arg="P", lend="?", k="P(x: 4, y: 5)", d="P(x: 40, y: 50)",
                   show="print(v.x, v.y)", out="4 5", outd="40 50"),
-    "vec": dict(ty="?Vec[Int]", gen="?T", arg="Vec[Int]", lend="?", k="vec(8)", d="vec(80)",
+    "list": dict(ty="?List[Int]", gen="?T", arg="List[Int]", lend="?", k="list(8)", d="list(80)",
                 show="print(v[0], v.len)", out="8 1", outd="80 1"),
     "slice": dict(ty="[]Int", gen="[]T", arg="Int", lend="?", k="[8, 9]", d="[80]", slice=True,
                   show="print(v[0], v.len)", out="8 2", outd="80 1"),
@@ -1066,7 +1082,7 @@ def viewpay_program(tname, sname, uname):
     gen = s.get("generic")
     vt = t["gen"] if gen else ty
     out = ["enum G[T]\n  a(r: T)\n  b(r: T)\n", "struct P\n  x: Int\n  y: Int\n",
-           "fun vec(n: Int) -> Vec[Int]\n  xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs\n",
+           "fun list(n: Int) -> List[Int]\n  xs: List[Int] = List()\n  !xs.push(n)\n  xs\n",
            f"fun wrap(x: {ty}) -> G[{ty}] from x\n  .a(r: x)\n",
            f"fun gwrap[T](x: {t['gen']}) -> G[{t['gen']}] from x\n  .a(r: x)\n",
            f"fun ok(v: {ty}) -> Bool\n  true\n", f"fun gok[T](v: {t['gen']}) -> Bool\n  true\n",
@@ -1115,18 +1131,18 @@ def viewpay_program(tname, sname, uname):
 # what it prints.
 _LW_GROW = "for i in 0..64\n  !@B.push(i)"
 LENDW_TYPES = {
-    "text": dict(ty="Text", mk='Text("hello")',
+    "text": dict(ty="String", mk='String("hello")',
                  lends=dict(whole=("?@B", "print(s)", "hello"), slice=("?@B[1..]", "print(s)", "ello"),
                             call=("text.trim(?@B)", "print(s)", "hello")),
                  write='for _ in 0..64\n  !@B.add("' + "z" * 64 + '")', show="print(@B.len)", out="4101"),
-    "vec": dict(ty="Vec[Int]", mk="xs: Vec[Int] = Vec()\n  !xs.push(1)\n  !xs.push(2)\n  !xs.push(3)\n  xs",
+    "list": dict(ty="List[Int]", mk="xs: List[Int] = List()\n  !xs.push(1)\n  !xs.push(2)\n  !xs.push(3)\n  xs",
                 lends=dict(whole=("?@B", "print(s)", "[1, 2, 3]"), slice=("?@B[1..]", "print(s)", "[2, 3]"),
                            call=("tail(?@B)", "print(s)", "[2, 3]")),
                 write=_LW_GROW, show="print(@B.len)", out="67"),
-    "box": dict(ty="Box[Text]", mk='Box(Text("hello"))',
+    "box": dict(ty="^String", mk='^String("hello")',
                 lends=dict(whole=("?@B", "print(s)", "hello"), slice=("?@B[1..]", "print(s)", "ello"),
                            call=("text.trim(?@B)", "print(s)", "hello")),
-                write='@B = Box(Text("other"))', show="print(@B)", out="other"),
+                write='@B = ^String("other")', show="print(@B)", out="other"),
     "struct": dict(ty="P", mk="P(xs: tail3())",
                    lends=dict(whole=("?@B", "print(s.xs)", "[1, 2, 3]"), slice=("?@B.xs[1..]", "print(s)", "[2, 3]"),
                               call=("@B.rest()", "print(s)", "[2, 3]")),
@@ -1143,7 +1159,7 @@ LENDW_BINDINGS = {
     "match_param": dict(decls="enum E\n  a(x: TY)\n  z\n", param="e: !E", arg="E.a(mk())",
                         head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "if_as": dict(setup=["o: TY? = mk()"], head=["if !o as b"], depth=2),
-    "for": dict(setup=["v: Vec[TY] = Vec()", "!v.push(mk())"], head=["for b in !v"], depth=2),
+    "for": dict(setup=["v: List[TY] = List()", "!v.push(mk())"], head=["for b in !v"], depth=2),
     "param": dict(param="b: !TY", arg="mk()", head=[], depth=0),
     "closure": dict(setup=["b = mk()"], head=["g = |!b|"], depth=2, after=["g()"]),
     "held": dict(setup=["x = mk()", "b = !x"], head=[], depth=0),
@@ -1157,9 +1173,9 @@ _LW_GET = _LW_HH + "\nfun get(h: !HH) -> !E\n  !h.e\n"
 _LW_TWO = ["e1 = E.a(mk())", "e2 = E.a(mk())", "c = true"]
 LENDW_BINDINGS.update({
     "match_named": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(x: b)"], depth=4, after=["  .z => pass"]),
-    "match_box": dict(decls=_LW_E, setup=["e = Box(E.a(mk()))"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_box": dict(decls=_LW_E, setup=["e = ^E.a(mk())"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_field": dict(decls=_LW_E + _LW_HH, setup=["h = HH(e: E.a(mk()))"], head=["match !h.e", "  .a(b)"], depth=4, after=["  .z => pass"]),
-    "match_index": dict(decls=_LW_E, setup=["es: Vec[E] = Vec()", "!es.push(E.a(mk()))"], head=["match !es[0]", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_index": dict(decls=_LW_E, setup=["es: List[E] = List()", "!es.push(E.a(mk()))"], head=["match !es[0]", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_generic": dict(decls="enum G[T]\n  a(x: T)\n  z\n", setup=["e: G[TY] = G.a(mk())"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_guard": dict(decls=_LW_E, setup=["e = E.a(mk())", "c = true"], head=["match !e", "  .a(b) if c"], depth=4, after=["  _ => pass"]),
     "match_nested": dict(decls=_LW_E + "\nenum O\n  a(i: E)\n  z\n", setup=["o = O.a(E.a(mk()))"], head=["match !o", "  .a(io)", "    match !io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"]),
@@ -1170,7 +1186,7 @@ LENDW_BINDINGS.update({
     "if_as_write_param": dict(param="o: !(TY?)", arg="mk()", argty="TY?", head=["if !o as b"], depth=2),
     "if_as_field": dict(decls="struct HO\n  o: TY?\n", setup=["h = HO(o: mk())"], head=["if !h.o as b"], depth=2),
     "if_as_payload": dict(decls="enum E\n  a(o: TY?)\n  z\n", setup=["e = E.a(mk())"], head=["match !e", "  .a(o)", "    if !o as b"], depth=6, after=["  .z => pass"]),
-    "for_index": dict(setup=["v: Vec[TY] = Vec()", "!v.push(mk())"], head=["for b, j in !v"], depth=2, after=["  _ = j"]),
+    "for_index": dict(setup=["v: List[TY] = List()", "!v.push(mk())"], head=["for b, j in !v"], depth=2, after=["  _ = j"]),
     "for_array": dict(setup=["v = [mk()]"], head=["for b in !v"], depth=2),
     "closure_of_payload": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b0)", "    g = |!b0|"], depth=6, after=["    g()", "  .z => pass"], name="b0"),
     "held_of_payload": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(b0)", "    b = !b0"], depth=4, after=["  .z => pass"]),
@@ -1221,9 +1237,9 @@ def lendw_program(bname, tname, lname, when):
         body += write + [show_s, fill(t["show"])]
     else:
         body += [show_s] + write + [fill(t["show"])]
-    out = ["use std.text\n", "struct P\n  xs: Vec[Int]\n\n  fun rest(?self) -> []Int\n    ?self.xs[1..]\n",
-           "fun tail3() -> Vec[Int]\n  xs: Vec[Int] = Vec()\n  !xs.push(1)\n  !xs.push(2)\n  !xs.push(3)\n  xs\n",
-           "fun tail(v: ?Vec[Int]) -> []Int\n  ?v[1..]\n",
+    out = ["use std.text\n", "struct P\n  xs: List[Int]\n\n  fun rest(?self) -> []Int\n    ?self.xs[1..]\n",
+           "fun tail3() -> List[Int]\n  xs: List[Int] = List()\n  !xs.push(1)\n  !xs.push(2)\n  !xs.push(3)\n  xs\n",
+           "fun tail(v: ?List[Int]) -> []Int\n  ?v[1..]\n",
            f"fun mk() -> {t['ty']}\n  {t['mk']}\n"]
     if "decls" in b:
         out.append(b["decls"].replace("TY", t["ty"]))
@@ -1257,7 +1273,7 @@ def lendw_program(bname, tname, lname, when):
 # -----------------------------------------------------------------------------
 
 _HDR_PRE = """struct Res
-  v: Vec[Int]
+  v: List[Int]
 
 enum E
   a(r: Res)
@@ -1268,17 +1284,17 @@ error Bad
 
 struct W
   e: E
-  o: Vec[Int]?
-  v: Vec[Int]
+  o: List[Int]?
+  v: List[Int]
 
-fun vec(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun list(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   !xs.push(n + 1)
   xs
 
 fun mkw(n: Int) -> W
-  W(e: E.a(r: Res(v: vec(n))), o: vec(n), v: vec(n))
+  W(e: E.a(r: Res(v: list(n))), o: list(n), v: list(n))
 
 fun tg(w: !W, ok: Bool) -> (!W)!
   return Bad.nope if not ok
@@ -1295,7 +1311,7 @@ HDR_HEADERS = {
     "for": dict(field="v", lines=["for x in SUBJ", "  WRITE", "  print(x)"]),
 }
 # The value written for each field: a new one, which drops the old.
-HDR_NEW = {"e": "E.a(r: Res(v: vec(9)))", "o": "vec(9)", "v": "vec(9)"}
+HDR_NEW = {"e": "E.a(r: Res(v: list(9)))", "o": "list(9)", "v": "list(9)"}
 # Each leaf kind: the parameters of `f`, how `main` calls it, the lines
 # before the header, and the two leaves.
 HDR_LEAVES = {
@@ -1357,26 +1373,26 @@ def hdr_program(hname, sname, lname, gname="bare"):
 
 # Each type: its spelling, declarations (`METHODS` marks where a struct's
 # methods go), how `mk()` makes one behind a handle, the paths to its
-# `Cell[Int]` and its `Cell[Vec[Int]]` from a value `E` (None: it has
+# `Cell[Int]` and its `Cell[List[Int]]` from a value `E` (None: it has
 # none), and whether it prints when dropped.
 CELLMUT_TYPES = {
     # a `drop`
-    "drop": dict(ty="D", decls='struct D\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
-                 mk="*D(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v", drop=True),
+    "drop": dict(ty="D", decls='struct D\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
+                 mk="*D(c: Cell(1), v: Cell(list2()))", c="E.c", v="E.v", drop=True),
     # the Cells in a part
-    "part": dict(ty="W", decls="struct In\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n\nstruct W\n  t: In\nMETHODS",
-                 mk="*W(t: In(c: Cell(1), v: Cell(vec2())))", c="E.t.c", v="E.t.v"),
+    "part": dict(ty="W", decls="struct In\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\nstruct W\n  t: In\nMETHODS",
+                 mk="*W(t: In(c: Cell(1), v: Cell(list2())))", c="E.t.c", v="E.t.v"),
     # a generic type at Int
-    "generic": dict(ty="G[Int]", decls="struct G[T]\n  c: Cell[T]\n  v: Cell[Vec[T]]\nMETHODS",
-                    mk="*G(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v"),
-    # a bare Cell[Int], and a bare Cell[Vec[Int]]
+    "generic": dict(ty="G[Int]", decls="struct G[T]\n  c: Cell[T]\n  v: Cell[List[T]]\nMETHODS",
+                    mk="*G(c: Cell(1), v: Cell(list2()))", c="E.c", v="E.v"),
+    # a bare Cell[Int], and a bare Cell[List[Int]]
     "cell": dict(ty="Cell[Int]", decls="", mk="*Cell(1)", c="E", v=None),
-    "cellvec": dict(ty="Cell[Vec[Int]]", decls="", mk="*Cell(vec2())", c=None, v="E"),
+    "cellvec": dict(ty="Cell[List[Int]]", decls="", mk="*Cell(list2())", c=None, v="E"),
 }
 
 # Each operation, applied once through `E` with argument `KARG`, adding
 # what it reads to `s`; `C` is the path to the `Cell[Int]`, `V` to the
-# `Cell[Vec[Int]]`.
+# `Cell[List[Int]]`.
 CELLMUT_OPS = {
     "set": ("c", ["!C.set(C.get() + KARG)"]),
     "replace": ("c", ["s += (!C).replace(KARG)"]),
@@ -1457,7 +1473,7 @@ def cellmut_program(tname, aname):
                     op = [l.replace("?? -1", "?? k - k - 1") for l in op]
                 methods += [""] + ["  " + l for l in _cm_wrap(wrap, ty, op)]
         out += t["decls"].replace("\nMETHODS", "").split("\n") + methods + [""]
-    out += ["fun vec2() -> Vec[Int]", "  v: Vec[Int] = Vec()", "  !v.push(1)", "  !v.push(2)", "  v", ""]
+    out += ["fun list2() -> List[Int]", "  v: List[Int] = List()", "  !v.push(1)", "  !v.push(2)", "  v", ""]
     out += [f"fun mk() -> *{ty}", f"  {t['mk']}", ""]
     out += ["fun maybe(n: Int) -> Int?", "  return none if n % 2 == 1", "  n", ""]
     if "decls" in a:
@@ -1556,7 +1572,7 @@ def _cm_trace(tname, oname):
 # -----------------------------------------------------------------------------
 # A value holding a Cell made, held, or changed anywhere but behind `*`:
 # a Cell local, a struct holding one as a local, a by-value parameter, or
-# a Vec element (`cellmut.value.`), and a Cell temporary changed or read
+# a List element (`cellmut.value.`), and a Cell temporary changed or read
 # where it stands: a bare Cell, a struct made in the statement, and one a
 # call returns (`celltemp.value.`). Every program must be rejected.
 # -----------------------------------------------------------------------------
@@ -1566,7 +1582,7 @@ CELL_VALUES = {
     "cellmut.value.cell": "sub main()\n  c = Cell(1)\n  !c.set(2)\n  print(c.get())\n",
     "cellmut.value.local": _CV_N + "sub main()\n  x = N(c: Cell(1))\n  !x.c.set(2)\n  print(x.c.get())\n",
     "cellmut.value.param": _CV_N + "sub bump(y: N)\n  !y.c.set(y.c.get() + 1)\n\nsub main()\n  x = *N(c: Cell(1))\n  print(x.c.get())\n",
-    "cellmut.value.element": _CV_N + "sub main()\n  vs: Vec[N] = Vec()\n  print(vs.len)\n",
+    "cellmut.value.element": _CV_N + "sub main()\n  vs: List[N] = List()\n  print(vs.len)\n",
     "celltemp.value.cell": "sub main()\n  !Cell(5).set(77)\n  print(1)\n",
     "celltemp.value.struct": _CV_N + "sub main()\n  print(N(c: Cell(5)).c.get())\n",
     "celltemp.value.call": _CV_N + "fun mk(n: Int) -> N\n  N(c: Cell(n))\n\nsub main()\n  print(mk(5).c.get())\n",
@@ -1583,7 +1599,7 @@ _CB_PRE = """enum K
   q
 
 struct S
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
 struct O
   s: S
@@ -1599,8 +1615,8 @@ fun take(x: S) -> Int
   1
 
 sub main()
-  a = *O(s: S(c: Cell(Vec())))
-  b = *O(s: S(c: Cell(Vec())))
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
   a2 = +a
   k = a.s.c.len == 0
   e = K.p
@@ -1615,7 +1631,7 @@ _CB_FORMS = {
 _CB_CTX = {
     "print": (["print(V, grow(?a2.s))"], False),
     "bind": (["x = V", "print(see(?x), grow(?a2.s))"], True),
-    "text": (["t = Text(V, grow(?a2.s))", "print(t)"], False),
+    "text": (["t = String(V, grow(?a2.s))", "print(t)"], False),
     "take": (["print(take(V))"], True),
 }
 
@@ -1639,8 +1655,8 @@ for _f in _CB_FORMS:
 
 
 # -----------------------------------------------------------------------------
-# Slices of a value however it is held: a slice of an array, a Vec, a Text,
-# or a String, held owned, through a read or write view, a `*T`, a box, a
+# Slices of a value however it is held: a slice of an array, a List, a String,
+# or a ?String, held owned, through a read or write view, a `*T`, a box, a
 # field, or a nested field (and a write view of a `*T` or a box),
 # passed as an argument whose result keeps the view, or bound bare, and
 # then the owner changed or replaced while the slice is still used
@@ -1650,11 +1666,11 @@ for _f in _CB_FORMS:
 
 SLICEVIEW_ELEMS = {
     "array": dict(ty="[4]Int", view="[]Int", mk="[n, n + 1, n + 2, n + 3]", grow=["P[0] = 9"]),
-    "vec": dict(ty="Vec[Int]", view="[]Int", mk="v: Vec[Int] = Vec()\n  for i in 0..4\n    !v.push(n + i)\n  v",
+    "list": dict(ty="List[Int]", view="[]Int", mk="v: List[Int] = List()\n  for i in 0..4\n    !v.push(n + i)\n  v",
                 grow=["for i in 0..100", "  !P.push(i)"]),
-    "text": dict(ty="Text", view="String", mk='Text("hello", n)', grow=["for _ in 0..100", '  !P.add("abcdefgh")']),
-    "string": dict(ty="String", view="String", mk='"hello" if n > 0 else "world"', grow=['P = "other"']),
-    "static": dict(ty="Static", view="String", mk='"hello" if n > 0 else "world"', grow=['P = "other"']),
+    "text": dict(ty="String", view="?String", mk='String("hello", n)', grow=["for _ in 0..100", '  !P.add("abcdefgh")']),
+    "string": dict(ty="?String", view="?String", mk='"hello" if n > 0 else "world"', grow=['P = "other"']),
+    "static": dict(ty="Static", view="?String", mk='"hello" if n > 0 else "world"', grow=['P = "other"']),
 }
 
 # How the slice's object is held (`X` is what is sliced), and what
@@ -1666,8 +1682,8 @@ SLICEVIEW_HOLDERS = {
     "write": dict(setup=["o = mk(1)", "x = !o"], x="x", place="x"),
     "shared": dict(setup=["x = *mk(1)"], x="x", replace="x = *mk(2)"),
     "wshared": dict(setup=["h = *mk(1)", "x = !h"], x="x", replace="x = *mk(2)"),
-    "box": dict(setup=["x = Box(mk(1))"], x="x", replace="x = Box(mk(2))"),
-    "wbox": dict(setup=["b = Box(mk(1))", "x = !b"], x="x", replace="x = Box(mk(2))"),
+    "box": dict(setup=["x = ^mk(1)"], x="x", replace="x = ^mk(2)"),
+    "wbox": dict(setup=["b = ^mk(1)", "x = !b"], x="x", replace="x = ^mk(2)"),
     "field": dict(setup=["h = H(f: mk(1))"], x="h.f", place="h.f"),
     "nested": dict(setup=["g = G(h: H(f: mk(1)))"], x="g.h.f", place="g.h.f"),
 }
@@ -1719,22 +1735,21 @@ def store_program(oname, fname, then):
 # written, moved, or dropped while the holder is still used (rejected),
 # or after its last use (runs, and prints what each saw).
 HOLDER_OWNERS = {
-    "vec": dict(view="?Vec[Int]", mk=["o: Vec[Int] = Vec()", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
-    "big": dict(view="?Big", mk=["o = Big(v: Vec())", "!o.v.push(7)"], read=".v.len", write="!o.v.push(8)", after="o.v.len"),
-    "boxed": dict(view="?Vec[Int]", mk=["o = Box(Vec[Int]())", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
-    "shared": dict(view="?Vec[Int]", mk=["o: *Vec[Int] = *Vec()"], read=".len", write=None, after="o.len", n=0),
+    "list": dict(view="?List[Int]", mk=["o: List[Int] = List()", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
+    "big": dict(view="?Big", mk=["o = Big(v: List())", "!o.v.push(7)"], read=".v.len", write="!o.v.push(8)", after="o.v.len"),
+    "boxed": dict(view="?List[Int]", mk=["o = ^List[Int]()", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
+    "shared": dict(view="?List[Int]", mk=["o: *List[Int] = *List()"], read=".len", write=None, after="o.len", n=0),
 }
 
 HOLDER_FORMS = {
-    "box": dict(setup=["h = Box(@V)"], read="h{R}"),
-    "boxbox": dict(setup=["h = Box(Box(@V))"], read="h{R}"),
+    "box": dict(setup=["h = ^@V"], read="h{R}"),
     "generic_fn": dict(setup=["h = same(@V)"], read="h{R}"),
     "generic_box": dict(setup=["h = boxed(@V)"], read="h{R}"),
     "optional": dict(setup=["h: (?T)? = @V"], read=None, opt=True),
     "struct": dict(setup=["h = Hold(v: @V)"], read="h.v{R}"),
     "method": dict(setup=["h = Hold(v: @V)"], read="h.get(){R}"),
     "pair": dict(setup=["h = Pair(a: @V, b: @V)"], read="h.b{R}"),
-    "vec": dict(setup=["h: Vec[?T] = Vec()", "!h.push(@V)"], read="h[0]{R}"),
+    "list": dict(setup=["h: List[?T] = List()", "!h.push(@V)"], read="h[0]{R}"),
     "array": dict(setup=["h = [@V, @V]"], read="h[1]{R}"),
 }
 
@@ -1744,9 +1759,9 @@ def holder_program(oname, fname, change, then):
     f = HOLDER_FORMS[fname]
     if change == "write" and o["write"] is None:
         return None, None
-    out = ["struct Big\n  v: Vec[Int]\n",
+    out = ["struct Big\n  v: List[Int]\n",
            "fun same[T](x: T) -> T\n  x\n",
-           "fun boxed[T](x: T) -> Box[T]\n  Box(x)\n",
+           "fun boxed[T](x: T) -> ^T\n  ^x\n",
            "struct Hold[T]\n  v: T\n\n  fun get(?self) -> T\n    self.v\n",
            "struct Pair[A, B]\n  a: A\n  b: B\n"]
     view = o["view"]
@@ -1775,24 +1790,24 @@ def holder_program(oname, fname, change, then):
 
 # A generic body that puts its `T` inside another value, at any depth,
 # and stores that where no loan is tracked (`nest.`): an instance at a
-# view of an owner, or a String, is rejected, so nothing reads the owner
+# view of an owner, or a ?String, is rejected, so nothing reads the owner
 # after it ends.
 NEST_WRAPPERS = {
-    "vec": dict(ty="Vec[T]", build=["w: Vec[T] = Vec()", "!w.push(x)"]),
+    "list": dict(ty="List[T]", build=["w: List[T] = List()", "!w.push(x)"]),
     "hold": dict(ty="Hold[T]", build=["w = Hold(v: x)"]),
     "shared": dict(ty="*Hold[T]", build=["w = *Hold(v: x)"]),
     "weak": dict(ty="~Hold[T]", build=["h = *Hold(v: x)", "w = ~h"]),
     "optional": dict(ty="T?", build=["w: T? = x"]),
-    "box": dict(ty="Box[T]", build=["w = Box(x)"]),
-    "vecbox": dict(ty="Vec[Box[T]]", build=["w: Vec[Box[T]] = Vec()", "!w.push(Box(x))"]),
+    "box": dict(ty="^T", build=["w = ^x"]),
+    "vecbox": dict(ty="List[^T]", build=["w: List[^T] = List()", "!w.push(^x)"]),
     "bare": dict(ty="T", build=["w = x"]),
 }
 NEST_HOMES = ("cell", "closure")
 NEST_OWNERS = {
-    "box": dict(make="b = Box(Text(\"hello\"))", arg="?b"),
-    "text": dict(make="b = Text(\"hello\")", arg="?b[..]"),
-    "vec": dict(make="b: Vec[Int] = Vec()", arg="?b"),
-    "string": dict(make="b: String = \"lit\"", arg="b"),
+    "box": dict(make="b = ^String(\"hello\")", arg="?b"),
+    "text": dict(make="b = String(\"hello\")", arg="?b[..]"),
+    "list": dict(make="b: List[Int] = List()", arg="?b"),
+    "string": dict(make="b: ?String = \"lit\"", arg="b"),
     "static": dict(make="b = \"lit\"", arg="b"),
 }
 
@@ -1816,7 +1831,7 @@ def nest_program(wname, home, oname):
 # are written and passed in the order the parameters are declared
 # (docs/INTERNALS.md, "Evaluation order of arguments"): one argument writes
 # what another views, written first or second, in a function, a method, and
-# a generic function. A view that is a loan (a String, a `?Text`, a slice) is
+# a generic function. A view that is a loan (a ?String, a `?String`, a slice) is
 # rejected when written before the write; a copy of a number is not, and
 # shows the value before the write. Written after the write, every view
 # shows what the write left. Cells are `named.<call>.<kind>.<order>`.
@@ -1825,9 +1840,9 @@ def nest_program(wname, home, oname):
 NAMED_KINDS = {
     # kind: (setup, view argument, parameter type, what the sub prints of it, view after the write,
     #        view before the write, writer argument, writer result, loan)
-    "string": ("t = Text(\"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\")", "?t", "String", "v.len > 8000", "true", "false", "grow(!t)", "1", True),
-    "qtext": ("t = Text(\"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\")", "?t", "?Text", "v.len > 8000", "true", "false", "grow(!t)", "1", True),
-    "slice": ("t: Vec[Int] = Vec()\n!t.push(1)", "?t", "[]Int", "v.len", "301", "1", "fill(!t)", "1", True),
+    "string": ("t = String(\"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\")", "?t", "?String", "v.len > 8000", "true", "false", "grow(!t)", "1", True),
+    "qtext": ("t = String(\"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\")", "?t", "?String", "v.len > 8000", "true", "false", "grow(!t)", "1", True),
+    "slice": ("t: List[Int] = List()\n!t.push(1)", "?t", "[]Int", "v.len", "301", "1", "fill(!t)", "1", True),
     "int": ("t = 1", "?t", "Int", "v", "11", "1", "bump(!t)", "11", False),
 }
 NAMED_CALLS = ("fun", "method", "generic")
@@ -1840,8 +1855,8 @@ def named_program(call, kind, order):
     if call == "generic" and kind != "int":
         return None, None
     lines = [
-        "fun grow(t: !Text) -> Int", "  for _ in 0..200", '    !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")', "  1", "",
-        "fun fill(v: !Vec[Int]) -> Int", "  for i in 0..300", "    !v.push(i)", "  1", "",
+        "fun grow(t: !String) -> Int", "  for _ in 0..200", '    !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")', "  1", "",
+        "fun fill(v: !List[Int]) -> Int", "  for i in 0..300", "    !v.push(i)", "  1", "",
         "fun bump(n: !Int) -> Int", "  n += 10", "  n", "",
     ]
     if call == "fun":
@@ -1902,40 +1917,40 @@ def program(tname, fname, cname):
     out.append(t["decls"])
     out.append("error E\n  bad\n")
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
-    out.append(f"fun fail(c: Bool) -> {ty}!\n  return E.bad if c\n  mk(7)\n")
-    out.append(f"fun look(x: ?{ty}) -> Int\n  1\n")
+    out.append(f"fun fail(c: Bool) -> {fal(ty)}\n  return E.bad if c\n  mk(7)\n")
+    out.append(f"fun look(x: {rd(ty)}) -> Int\n  1\n")
     if fname in VIEW_FORMS and ("decl" in ctx or "tail" in ctx):
         return None
     if "decl" in ctx:
         if isinstance(form, list):
             return None
-        out.append(ctx["decl"].replace("@T", ty).replace("E", form))
+        out.append(ctx["decl"].replace("@T?", opt(ty)).replace("@T", ty).replace("E", form))
     out.append(f"struct H\n  f: {ty}\n")
     returns = ctx.get("returns", False)
     needs = ctx.get("needs")
     if needs == "vs":
-        # Calls that grow the Vec an element assignment stores into.
-        out.append(f"fun through(v: !Vec[{ty}], x: {ty}) -> {ty}\n  for i in 0..100\n    !v.push(mk(i))\n  x\n")
-        out.append(f"fun grow(v: !Vec[{ty}]) -> Int\n  for i in 0..100\n    !v.push(mk(i))\n  0\n")
+        # Calls that grow the List an element assignment stores into.
+        out.append(f"fun through(v: !List[{ty}], x: {ty}) -> {ty}\n  for i in 0..100\n    !v.push(mk(i))\n  x\n")
+        out.append(f"fun grow(v: !List[{ty}]) -> Int\n  for i in 0..100\n    !v.push(mk(i))\n  0\n")
     if ctx.get("temp"):
-        out.append(f"fun pass_t(x: {ty}, t: ?Text) -> {ty}\n  x\n")
-        out.append(f"fun some_t(x: {ty}, t: ?Text) -> {ty}?\n  x\n")
+        out.append(f"fun pass_t(x: {ty}, t: ?String) -> {ty}\n  x\n")
+        out.append(f"fun some_t(x: {ty}, t: ?String) -> {opt(ty)}\n  x\n")
     if ctx.get("slice"):
-        view = "String" if tname in ("text", "string", "static") else "[]Int"
+        view = "?String" if tname in ("text", "string", "static") else "[]Int"
         out.append(f"fun sliced(x: {view}) -> Int\n  x.len\n")
         out.append(f"fun both(x: {view}, k: Int) -> Int\n  x.len + k\n")
     if ctx.get("write"):
         out.append(f"fun poke(x: !{ty}) -> Int\n  {POKES[tname]}\n  0\n")
         out.append(f"fun pokev(x: !{ty}) -> {ty}\n  n = poke(!x)\n  mk(n + 9)\n")
-    ret_ty = f"{ty}?" if returns else "Int?"
+    ret_ty = opt(ty) if returns else "Int?"
     if ctx.get("optional"):
-        body = [f"a: {ty}? = mk(1)", f"b: {ty}? = mk(2)", "print(a == none, b == none)"]
+        body = [f"a: {opt(ty)} = mk(1)", f"b: {opt(ty)} = mk(2)", "print(a == none, b == none)"]
     else:
         body = [f"a: {ty} = mk(1)", f"b: {ty} = mk(2)", "print(look(?a), look(?b))"]
     if needs == "h" or fname == "field":
         body += [f"h = H(f: mk(3))", "print(look(?h.f))"]
     if needs == "vs":
-        body += [f"vs: Vec[{ty}] = Vec()", "!vs.push(mk(4))"]
+        body += [f"vs: List[{ty}] = List()", "!vs.push(mk(4))"]
     if fname in VIEW_FORMS:
         body.append(VIEW_FORMS[fname])
     if isinstance(form, list):
@@ -1962,7 +1977,7 @@ def program(tname, fname, cname):
         body.append(after)
     if not returns:
         body.append("0")
-    out.append(f"fun run(c: Bool, o: {ty}?) -> {ret_ty}\n{indent(body, 2)}\n")
+    out.append(f"fun run(c: Bool, o: {opt(ty)}) -> {ret_ty}\n{indent(body, 2)}\n")
     main = ["for c in [true, false]", "  r = run(c, mk(9))", "  print(r == none)"]
     out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)

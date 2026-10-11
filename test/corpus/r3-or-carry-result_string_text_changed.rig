@@ -2,14 +2,14 @@
 # String's loan on the Text.
 
 struct P
-  src: String
+  src: ?String
   toks: []Int
 
-  fun head(?self) -> String
+  fun head(?self) -> ?String
     self.src[0..1]
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   a = [1, 2]
   p = P(src: ?t, toks: ?a[..])
   s = ?p.head()

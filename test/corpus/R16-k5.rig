@@ -1,9 +1,9 @@
 struct View
-  w: ?Vec[Int]
+  w: ?List[Int]
 
 sub main()
-  a: Vec[Int] = Vec()
-  b: Vec[Int] = Vec()
+  a: List[Int] = List()
+  b: List[Int] = List()
   !b.push(1)
   v = View(w: ?a)
   f = |!v, ?b|

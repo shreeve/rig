@@ -10,7 +10,7 @@ enum E
   b
 
 struct Set
-  items: Vec[Int]
+  items: List[Int]
 
   fun insert(!self, k: Int) -> Bool
     !self.items.push(k)
@@ -26,7 +26,7 @@ struct P
   x: Int
   o: Int?
   e: E
-  items: Vec[Int]
+  items: List[Int]
   a: [2]Int
   s: Set
 
@@ -36,16 +36,16 @@ sub bump(n: !Int)
 fun total(xs: ![]Int) -> Int
   xs[0] + xs[1]
 
-sub set(v: !Vec[Int], q: !P)
+sub set(v: !List[Int], q: !P)
   (!v)[0] = 4
   (!q).x += 1
 
 sub main()
-  p = P(x: 1, o: 2, e: E.a(n: 1), items: Vec(), a: [1, 2], s: Set(items: Vec()))
+  p = P(x: 1, o: 2, e: E.a(n: 1), items: List(), a: [1, 2], s: Set(items: List()))
   arr = [1, 2]
   o: [2]Int? = [5, none]
   qs = [Q(n: 1), Q(n: 2)]
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   t = "hi"
   i = 1
   (!p).x = 5
@@ -87,7 +87,7 @@ sub main()
 # error: 71:13: `for x in !xs` writes each element in place; `xs` must be a binding, or a field or element of one
 # error: 75:14: method `push` needs its receiver lent to write; write `!p.items.push(3)`
 # error: 76:16: method `insert` needs its receiver lent to write; write `(!p.s).insert(1)`
-# error: 83:15: only a named array, Vec, or Text, or a field or element of one, can be sliced; bind this value to a name first
+# error: 83:15: only a named array, List, or String, or a field or element of one, can be sliced; bind this value to a name first
 # error: 40:4: `(!v)[0]`: write a lend on the whole path, not its base: `v[0] = 4`
 # error: 41:4: `(!q).x`: write a lend on the whole path, not its base: `q.x += 1`
 # error: 51:4: `(!p).x`: write a lend on the whole path, not its base: `p.x = 5`

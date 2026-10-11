@@ -4,11 +4,11 @@
 # `h = …; while (!h).next() as it` it is written as does.
 
 struct Item
-  name: String
+  name: ?String
   n: Int
 
 struct Buf
-  buf: Vec[Item]
+  buf: List[Item]
   at: Int
 
   fun next(!self) -> (?Item)?
@@ -17,7 +17,7 @@ struct Buf
     ?self.buf[self.at - 1]
 
 fun mkbuf() -> Buf
-  v: Vec[Item] = Vec()
+  v: List[Item] = List()
   !v.push(Item(name: "a", n: 1))
   Buf(buf: <v, at: 0)
 

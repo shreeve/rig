@@ -98,7 +98,7 @@ sub t425()
 
 sub t176()
   arr176: [2]I32 = [2147483647, (-1890134535)]
-  vec176: Vec[I32] = Vec()
+  vec176: List[I32] = List()
   !vec176.push(arr176[1])
   print(vec176)
 
@@ -130,7 +130,7 @@ sub t277()
   print(y277)
 
 sub t669()
-  vv669: Vec[I16] = Vec()
+  vv669: List[I16] = List()
   !vv669.push((-7))
   op669: I16? = vv669[0]
   print(op669, op669 ?? 0)

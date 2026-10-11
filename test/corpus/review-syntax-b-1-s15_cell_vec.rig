@@ -2,9 +2,9 @@ fun keep(xs: []Int) -> []Int
   xs
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  c: Cell[Vec[Int]] = Cell(<v)
+  c: Cell[List[Int]] = Cell(<v)
   r = keep(c[..])
-  !c.set(Vec())
+  !c.set(List())
   print(r)

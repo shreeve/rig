@@ -1,8 +1,8 @@
 struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(1)
   for x in b
     print(x)

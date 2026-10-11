@@ -1,13 +1,13 @@
 enum WB
-  a(w: !Box[Text])
+  a(w: !^String)
   b
 
 sub main()
-  b = Box(Text("hello"))
+  b = ^String("hello")
   e = WB.a(!b)
   match e
     .a(w)
       r = ?w[1..]
-      w = Box(Text("other"))
+      w = ^String("other")
       print(r)
     .b => pass

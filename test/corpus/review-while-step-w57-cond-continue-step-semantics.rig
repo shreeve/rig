@@ -3,7 +3,7 @@
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 6
     return S(s: ?v[..])
   none
@@ -12,7 +12,7 @@ fun odd(i: Int) -> Int?
   none if i % 2 == 1 else i
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   steps = 0
   i = 0

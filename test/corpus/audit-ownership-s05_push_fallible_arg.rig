@@ -24,7 +24,7 @@ fun fail(k: Int) -> Int!
   k
 
 fun run(k: Int) -> Int!
-  v: Vec[*Tok] = Vec()
+  v: List[*Tok] = List()
   !v.push(*Tok(n: fail(k)!))
   v.len
 

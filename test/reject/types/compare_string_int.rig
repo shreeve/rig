@@ -1,4 +1,4 @@
-# `==` needs both operands of one type; `String == Int` is rejected.
+# `==` needs both operands of one type; `?String == Int` is rejected.
 
 sub main()
   s = "a"

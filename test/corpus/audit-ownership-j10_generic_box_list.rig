@@ -18,13 +18,13 @@ fun cond(t: *Tok) -> Bool
 
 struct Node[T]
   v: T
-  next: Box[Node[T]]?
+  next: ^Node[T]?
 
-struct List[T]
-  head: Box[Node[T]]?
+struct Chain[T]
+  head: ^Node[T]?
 
   sub push(!self, v: T)
-    self.head = Box(Node[T](v: <v, next: <self.head))
+    self.head = ^Node[T](v: <v, next: <self.head)
 
   fun pop(!self) -> T?
     if <self.head as n
@@ -33,7 +33,7 @@ struct List[T]
     none
 
 sub main()
-  l = List[*Tok](head: none)
+  l = Chain[*Tok](head: none)
   !l.push(*Tok(n: 1))
   !l.push(*Tok(n: 2))
   if (!l).pop() as t

@@ -1,15 +1,15 @@
 # Valid: the value's last arm re-points the target at the payload of an
 # outer value (`match !o`); the store lands there.
 enum Bx
-  has(v: Vec[Int])
+  has(v: List[Int])
   nothing
 
 sub main()
-  o = Bx.has(Vec())
+  o = Bx.has(List())
   match !o
     .has(q) => !q.push(1)
     .nothing => pass
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   k = 0

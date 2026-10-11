@@ -23,7 +23,7 @@ fun through_write(p: !P) -> Int
 
 sub main()
   s = S(p: P(x: 2))
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   !v.push(P(x: 3))
   p = P(x: 4)
   print(s.p.into(), v[0].into(), p.into(), (+s.p).into())

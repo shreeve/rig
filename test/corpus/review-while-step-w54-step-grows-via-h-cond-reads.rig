@@ -7,18 +7,18 @@
 struct S
   s: []Int
 
-fun mk(w: ?Vec[Int], i: Int) -> S?
+fun mk(w: ?List[Int], i: Int) -> S?
   if i < 3
     return S(s: ?w[..])
   none
 
-fun grow(w: !Vec[Int]) -> Int
+fun grow(w: !List[Int]) -> Int
   for j in 0..40
     !w.push(j)
   0
 
 sub main()
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(1)
   k = 0
   i = 0

@@ -1,7 +1,7 @@
 sub main()
-  v: Vec[Box[Text]] = Vec()
-  !v.push(Box(Text("b")))
-  !v.push(Box(Text("a")))
+  v: List[^String] = List()
+  !v.push(^String("b"))
+  !v.push(^String("a"))
   !v.swap(0, 1)
   for t in !v
     !t.add("!")

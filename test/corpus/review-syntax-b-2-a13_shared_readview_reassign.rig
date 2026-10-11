@@ -1,6 +1,6 @@
 sub main()
-  h = *Text("hello")
+  h = *String("hello")
   r = ?h
   s = r[1..]
-  h = *Text("other")
+  h = *String("other")
   print(s)

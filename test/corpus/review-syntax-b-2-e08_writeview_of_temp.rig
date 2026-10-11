@@ -1,10 +1,10 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
-fun mk() -> Text
-  Text("hello")
+fun mk() -> String
+  String("hello")
 
-fun wid(w: !Text) -> !Text
+fun wid(w: !String) -> !String
   w
 
 sub main()

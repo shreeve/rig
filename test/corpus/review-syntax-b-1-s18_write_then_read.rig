@@ -1,8 +1,8 @@
-fun g(v: !Vec[Int], xs: []Int) -> Int
+fun g(v: !List[Int], xs: []Int) -> Int
   !v.push(1)
   xs.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   print(g(!v, v[..]))

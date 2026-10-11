@@ -1,9 +1,9 @@
 struct P
-  t: Text
+  t: String
   n: Int
-  xs: Vec[Int]
+  xs: List[Int]
 
-sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?), to: ?((!Text)?))
+sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?), to: ?((!String)?))
   if o as x
     print(x.t.len, x.n, x.xs.len, x.xs[0], x.t == "hello", x.n > 2)
     for e in x.xs
@@ -18,14 +18,14 @@ sub f(o: ?((!P)?), so: ?((![]Int)?), no: ?((!Int)?), to: ?((!Text)?))
     print(t, t.len, t == "abc", t[1..])
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(7)
-  p = P(t: Text("hello"), n: 3, xs: <xs)
+  p = P(t: String("hello"), n: 3, xs: <xs)
   o: (!P)? = !p
   a = [1, 2, 3]
   so: (![]Int)? = !a[..]
   n = 5
   no: (!Int)? = !n
-  tt = Text("abc")
-  to: (!Text)? = !tt
+  tt = String("abc")
+  to: (!String)? = !tt
   f(?o, ?so, ?no, ?to)

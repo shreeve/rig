@@ -4,22 +4,22 @@ struct R
     print("drop R", self.n)
 
 struct S
-  a: Box[R]
+  a: ^R
   b: R?
-  xs: Vec[Box[R]]
+  xs: List[^R]
 
 sub main()
-  s = S(a: Box(R(n: 1)), b: R(n: 2), xs: Vec())
-  !s.xs.push(Box(R(n: 3)))
-  !s.xs.push(Box(R(n: 4)))
-  old = replace(!s.a, Box(R(n: 10)))
+  s = S(a: ^R(n: 1), b: R(n: 2), xs: List())
+  !s.xs.push(^R(n: 3))
+  !s.xs.push(^R(n: 4))
+  old = replace(!s.a, ^R(n: 10))
   print(old.n, s.a.n)
   !s.xs.swap(0, 1)
   for e in ?s.xs
     print(e.n)
   t = <s.b
   print(t == none, s.b == none)
-  u = Box(R(n: 20))
+  u = ^R(n: 20)
   swap(!s.a, !u)
   print(s.a.n, u.n)
   x = 1

@@ -1,11 +1,11 @@
-# Pushing to a Cell's Vec takes an owning element as Vec push does: moved
+# Pushing to a Cell's List takes an owning element as List push does: moved
 # (`<a`) or cloned (`+a`).
 
 struct N
   id: Int
 
 sub main()
-  hs: *Cell[Vec[*N]] = *Cell(Vec())
+  hs: *Cell[List[*N]] = *Cell(List())
   a = *N(id: 1)
   !hs.push(a)
   print(hs.len, a.id)

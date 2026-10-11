@@ -1,11 +1,11 @@
-sub show(v: ?Vec[!Int])
+sub show(v: ?List[!Int])
   for x in v
     print(x + 1)
 
 sub main()
   a = 1
   b = 2
-  v: Vec[!Int] = Vec()
+  v: List[!Int] = List()
   !v.push(!a)
   !v.push(!b)
   for x in v

@@ -6,15 +6,15 @@ struct R unique
 
 struct S
   rs: [1]R
-  t: Text
+  t: String
 
-fun dup[T](v: ?Vec[T]) -> Vec[T]
+fun dup[T](v: ?List[T]) -> List[T]
   +v
 
 sub main()
-  s = S(rs: [R(seed: 1)], t: Text("x"))
+  s = S(rs: [R(seed: 1)], t: String("x"))
   c = +s
   print(c.t)
 
-# error: 12:4: `+x` cannot clone a `Vec[T]`: a type parameter has no deep clone in a generic body
+# error: 12:4: `+x` cannot clone a `List[T]`: a type parameter has no deep clone in a generic body
 # error: 16:8: `+x` cannot clone a `S`: it holds a unique value, which a copy would duplicate

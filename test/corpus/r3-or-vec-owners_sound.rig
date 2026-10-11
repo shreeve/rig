@@ -1,23 +1,23 @@
 # Containers of owners handed to generic code: a generic body that never
 # copies a `T` serves a `T` that owns (SPEC "Generic bodies"), so
-# `sort.sort_by` sorts a Vec of Texts, and `swap` exchanges owners
+# `sort.sort_by` sorts a List of Texts, and `swap` exchanges owners
 # (Core §5).
 use std.sort
 
-fun longer(a: ?Text, b: ?Text) -> Bool
+fun longer(a: ?String, b: ?String) -> Bool
   a.len > b.len
 
-fun count[T](xs: ?Vec[T]) -> Int
+fun count[T](xs: ?List[T]) -> Int
   n = 0
   for x in xs
     n += 1
   n
 
-fun last[T](xs: !Vec[T]) -> T?
+fun last[T](xs: !List[T]) -> T?
   (!xs).pop()
 
 struct Stack[T]
-  items: Vec[T]
+  items: List[T]
 
   sub push(!self, x: T)
     !self.items.push(<x)
@@ -26,10 +26,10 @@ struct Stack[T]
     self.items.len
 
 sub sorted()
-  v: Vec[Text] = Vec()
-  !v.push(Text("ccc"))
-  !v.push(Text("a"))
-  !v.push(Text("bb"))
+  v: List[String] = List()
+  !v.push(String("ccc"))
+  !v.push(String("a"))
+  !v.push(String("bb"))
   sort.sort_by(!v, longer)
   print(v)
   !v.swap(0, 2)
@@ -38,9 +38,9 @@ sub sorted()
     print(t)
 
 sub stacked()
-  s: Stack[Text] = Stack(items: Vec())
-  !s.push(Text("x"))
-  !s.push(Text("y"))
+  s: Stack[String] = Stack(items: List())
+  !s.push(String("x"))
+  !s.push(String("y"))
   print(s.size())
 
 sub main()

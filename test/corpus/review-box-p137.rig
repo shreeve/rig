@@ -1,5 +1,5 @@
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 struct Ed
   t: !Wrap
@@ -12,7 +12,7 @@ enum Hold
   has(e: ?Wrap)
 
 sub main()
-  b = Box(value: Wrap(v: Vec()))
+  b = ^Wrap(v: List())
   e = Ed(t: !b)
   !e.t.v.push(1)
   r = Rd(t: ?b)

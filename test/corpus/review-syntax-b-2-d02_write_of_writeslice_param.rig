@@ -1,11 +1,11 @@
-sub f(x: !![]Text)
+sub f(x: !![]String)
   s = x[0..1]
   u = ?s[0][1..]
-  x[0] = Text("other")
+  x[0] = String("other")
   print(u)
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("hello"))
+  v: List[String] = List()
+  !v.push(String("hello"))
   w = !v[..]
   f(!w)

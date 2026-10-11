@@ -2,7 +2,7 @@ struct P
   x: Int
 
 struct Bag
-  items: Vec[P]
+  items: List[P]
 
   fun first(?self) -> ?P
     ?self.items[0]
@@ -11,7 +11,7 @@ struct Bag
     !self.items[0]
 
 sub main()
-  b = Bag(items: Vec())
+  b = Bag(items: List())
   !b.items.push(P(x: 1))
   f = (!b).first_mut()
   f.x = 9

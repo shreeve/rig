@@ -1,4 +1,4 @@
 sub main()
-  cs = [Cell[Vec[Int]](Vec())]
+  cs = [Cell[List[Int]](List())]
   for c in cs
     c.push(1)

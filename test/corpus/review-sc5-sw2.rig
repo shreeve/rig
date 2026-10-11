@@ -1,5 +1,5 @@
 struct H
-  xs: [3]String
+  xs: [3]?String
 
 sub main()
   arr = [1, 2]

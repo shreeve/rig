@@ -1,11 +1,11 @@
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
-fun f(t: !Text) -> String
+fun f(t: !String) -> ?String
   word(?t[1..])
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   s = f(!t)
   for _ in 0..50
     !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")

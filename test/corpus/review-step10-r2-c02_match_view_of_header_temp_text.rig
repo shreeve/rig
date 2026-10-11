@@ -2,14 +2,14 @@
 # when the header ends; the arm reads the payload through the view the
 # call returned. (Plain `n` copied in the arm; `t` viewed.)
 enum E
-  a(n: Int, t: Text)
+  a(n: Int, t: String)
   b
 
 struct H
   e: E
 
 fun mkh(k: Int) -> H
-  H(e: E.a(n: k, t: Text("a payload text long enough for the heap")))
+  H(e: E.a(n: k, t: String("a payload text long enough for the heap")))
 
 fun pick(h: ?H) -> ?E
   ?h.e

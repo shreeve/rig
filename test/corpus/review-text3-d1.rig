@@ -1,12 +1,12 @@
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   s.len
 
-fun mk() -> Text
-  Text("made")
+fun mk() -> String
+  String("made")
 
 sub main()
-  a = Text("aaaa")
-  b = Text("bb")
+  a = String("aaaa")
+  b = String("bb")
   c = true
   d = false
   print(mk() if c else (a if d else mk()))

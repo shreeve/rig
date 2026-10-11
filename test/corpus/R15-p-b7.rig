@@ -1,6 +1,6 @@
-# Vec element array reached two ways
+# List element array reached two ways
 sub main()
-  vs: Vec[[3]Int] = Vec()
+  vs: List[[3]Int] = List()
   !vs.push([1, 2, 3])
   w = !vs[0][..]
   u = !vs[0][..]

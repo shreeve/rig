@@ -1,12 +1,12 @@
 struct Bx
   c: Cell[Int]
-  v: Vec[Int]
+  v: List[Int]
 
 struct View
   b: ?Bx
 
 sub stash(h: *Cell[*sub()])
-  x = Bx(c: Cell(0), v: Vec())
+  x = Bx(c: Cell(0), v: List())
   !x.v.push(42)
   vw = View(b: ?x)
   !h.set(*|<vw| print("read after free:", vw.b.v[0]))

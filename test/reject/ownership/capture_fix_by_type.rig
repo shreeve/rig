@@ -12,7 +12,7 @@ struct Res
   drop(!self)
     print(self.n)
 
-fun eat(v: Vec[Int]) -> Int
+fun eat(v: List[Int]) -> Int
   v.len
 
 fun keep(h: *N) -> Int
@@ -22,9 +22,9 @@ fun close(r: Res) -> Int
   r.n
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f = *|<v| eat(<v)
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   g = *|<w| eat(w)
   h = *N(k: 1)
   k = *|<h| keep(h)

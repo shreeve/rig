@@ -1,8 +1,8 @@
 use std.text
 
-fun mk(i: Int) -> Text?
+fun mk(i: Int) -> String?
   if i < 4
-    return Text("abcdefghijklmnopqrstuvwxyz0123456789")
+    return String("abcdefghijklmnopqrstuvwxyz0123456789")
   none
 
 sub main()

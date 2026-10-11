@@ -9,17 +9,17 @@ fun yes() -> Bool
   true
 
 struct P
-  v: Vec[Int]
+  v: List[Int]
   handlers: [1]fun() -> Int
   checks: [1]fun() -> Bool
 
 sub main()
-  p = P(v: Vec(), handlers: [one], checks: [yes])
+  p = P(v: List(), handlers: [one], checks: [yes])
   x = <p.handlers[0]()
   if !p.checks[0]()
     print("negated")
   y = !p.handlers[0]()
-  z = P(v: Vec(), handlers: [one], checks: [yes]).handlers[0]()
+  z = P(v: List(), handlers: [one], checks: [yes]).handlers[0]()
   print(x, y, z)
 
 # error: 18:7: `handlers` is a field holding functions, not a method with a receiver; remove the `<`

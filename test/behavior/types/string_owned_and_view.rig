@@ -1,0 +1,26 @@
+# A `String` owns its text and a `?String` views it. Names say what a
+# value is and sigils say how it is held: `?s` lends a `String` as a
+# `?String`, `!s` lends it to write, and `+s` of a `?String` copies it
+# into a new `String`.
+
+fun length(s: ?String) -> Int
+  s.len
+
+sub shout(s: !String)
+  !s.add("!")
+
+fun copy_of(s: ?String) -> String
+  +s
+
+sub main()
+  s = String("hi")
+  shout(!s)
+  print(s, length(?s), length("lit"))
+  t = copy_of(?s)
+  !t.add(" there")
+  v: ?String = ?t[..2]
+  print(t, s, v)
+
+# expect:
+# hi! 3 3
+# hi! there hi! hi

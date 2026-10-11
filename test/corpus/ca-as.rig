@@ -1,9 +1,9 @@
-sub each(xs: ?Vec[Int], f: ?sub(Int))
+sub each(xs: ?List[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(2)
   !v.push(3)
   total = 0

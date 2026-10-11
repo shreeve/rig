@@ -2,7 +2,7 @@ fun first[T](xs: []T) -> T
   xs[0]
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   t = first(v[..])
   print(t)

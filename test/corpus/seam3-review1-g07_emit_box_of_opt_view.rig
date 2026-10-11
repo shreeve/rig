@@ -3,6 +3,6 @@ struct P
 
 sub main()
   p = P(x: 4)
-  b: Box[(?P)?] = Box(?p)
+  b: ^((?P)?) = ^?p
   if b.value as q
     print(q.x)

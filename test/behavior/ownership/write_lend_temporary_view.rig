@@ -28,8 +28,8 @@ fun mkp(n: Int) -> *P
 fun mka() -> [3]Int
   [3, 1, 2]
 
-fun mkv() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv() -> List[Int]
+  v: List[Int] = List()
   !v.push(2)
   !v.push(1)
   v

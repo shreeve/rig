@@ -1,11 +1,11 @@
 # re-point in one branch only, then write m while w may still view it
 sub main()
-  m = Text("m")
-  n = Text("n")
+  m = String("m")
+  n = String("n")
   c = n.len == 1
   w = !m
   if c
     w = !n
-  m = Text("zz")
+  m = String("zz")
   !w.add("!")
   print(m, n)

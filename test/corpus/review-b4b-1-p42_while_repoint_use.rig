@@ -1,17 +1,17 @@
 # while-as: body re-points the view, then uses t, then moves old owner. Expect reject at the move or clean.
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-sub eat(v: Vec[Text?])
+sub eat(v: List[String?])
   print(v.len)
 
 sub main()
-  a: Vec[Text?] = Vec()
-  !a.push(Text("a"))
-  b: Vec[Text?] = Vec()
-  !b.push(Text("b"))
+  a: List[String?] = List()
+  !a.push(String("a"))
+  b: List[String?] = List()
+  !b.push(String("b"))
   r = ?a
-  while r[idx(?Text("a"))] as t
+  while r[idx(?String("a"))] as t
     r = ?b
     eat(<a)
     print(t)

@@ -1,9 +1,9 @@
 struct Node
   n: Int
-  next: Box[Node]?
+  next: ^Node?
 
 sub main()
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   k = 0
   while o as x
     k += 1
@@ -11,5 +11,5 @@ sub main()
     if k == 2
       o = none
     else
-      o = Vec()
+      o = List()
   print("end")

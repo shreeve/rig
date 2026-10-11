@@ -1,7 +1,7 @@
 # `bytes.read[T, e](at)` reads the integer or float `T` from the
 # `@size(T)` bytes at `at`, in byte order `e`, and
 # `!bytes.write[T, e](at, v)` stores one. Bytes are a `[N]U8`, a
-# `[]U8` or `![]U8`, a `Vec[U8]`, or (to read) a String.
+# `[]U8` or `![]U8`, a `List[U8]`, or (to read) a String.
 
 fun first(b: []U8, e: Int) -> U16
   if e == 0
@@ -40,7 +40,7 @@ sub main()
   print(w == nan)
   s = "\x01\x02\x03\x04"
   print(s.read[U32, .big](0), s[1..].read[U16, .little](1))
-  v: Vec[U8] = Vec()
+  v: List[U8] = List()
   for byte in b
     !v.push(byte)
   !v.write[U32, .big](4, 7)

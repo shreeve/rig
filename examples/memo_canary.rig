@@ -4,14 +4,14 @@
 # source that follows this one through a function; its listener holds
 # the derived source weakly, so the chain does not keep itself alive.
 
-type Listeners = Vec[*sub(Int)]
+type Listeners = List[*sub(Int)]
 
 struct IntSource
   value: Cell[Int]
   listeners: Cell[Listeners]
 
   fun new(initial: Int) -> *IntSource
-    *IntSource(value: Cell(initial), listeners: Cell(Vec()))
+    *IntSource(value: Cell(initial), listeners: Cell(List()))
 
   fun get(self: ?IntSource) -> Int
     self.value.get()
@@ -19,11 +19,11 @@ struct IntSource
   sub subscribe(self: !IntSource, listener: *sub(Int))
     !self.listeners.push(<listener)
 
-  # A Cell lends no view of the Vec inside it, so the list is swapped
+  # A Cell lends no view of the List inside it, so the list is swapped
   # out to be walked, and swapped back.
   sub set(self: !IntSource, v: Int)
     !self.value.set(v)
-    listeners = (!self.listeners).replace(Vec())
+    listeners = (!self.listeners).replace(List())
     for listener in ?listeners
       listener(v)
     _ = !self.listeners.replace(<listeners)

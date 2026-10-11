@@ -1,12 +1,12 @@
 struct H
-  items: Vec[*Cell[Int]]
+  items: List[*Cell[Int]]
   tag: Cell[Int]
 
 sub g(x: !*Cell[Int])
   x = *Cell(9)
 
 sub main()
-  v = Vec[*Cell[Int]]()
+  v = List[*Cell[Int]]()
   !v.push(*Cell(1))
   h = *H(items: <v, tag: Cell(0))
   for c in h.items

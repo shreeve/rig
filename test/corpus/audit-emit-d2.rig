@@ -1,5 +1,5 @@
 struct R
-  name: String
+  name: ?String
 
   drop(!self)
     print("drop", self.name)

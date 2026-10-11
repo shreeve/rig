@@ -1,8 +1,8 @@
 struct Big
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk(k: Int) -> Big
-  b = Big(v: Vec())
+  b = Big(v: List())
   !b.v.push(k)
   <b
 
@@ -13,7 +13,7 @@ struct Holder
     print("holder reads", self.b.v[0])
 
 sub main()
-  v: Vec[*Holder] = Vec()
+  v: List[*Holder] = List()
   x = mk(1)
   h = *Holder(b: ?x)
   !v.push(<h)

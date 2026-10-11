@@ -1,13 +1,13 @@
 struct R
-  f: ?Box[Text]
+  f: ?^String
 
-sub g(w: !R, u: ?Box[Text])
+sub g(w: !R, u: ?^String)
   s = w.f[1..]
   w.f = u
   print(s)
 
 sub main()
-  t = Box(Text("hello"))
-  u = Box(Text("other"))
+  t = ^String("hello")
+  u = ^String("other")
   r = R(f: ?t)
   g(!r, ?u)

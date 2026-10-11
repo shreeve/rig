@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -18,8 +18,8 @@ sub f(h1: ?H, h2: ?H, c: Bool)
     .b => pass
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("x")))
-  d = E.a(r: Res(n: 2, t: Text("y")))
+  e = E.a(r: Res(n: 1, t: String("x")))
+  d = E.a(r: Res(n: 2, t: String("y")))
   h1 = H(w: !e)
   h2 = H(w: !d)
   f(?h1, ?h2, true)

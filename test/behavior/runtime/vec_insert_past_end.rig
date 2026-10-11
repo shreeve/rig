@@ -1,7 +1,7 @@
 # `insert` takes an index from 0 to `len`; past that it panics.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.insert(0, 1)
   !v.insert(2, 3)
 

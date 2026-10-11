@@ -1,5 +1,5 @@
 sub main()
-  o: Text? = Text("hello")
+  o: String? = String("hello")
   s = ""
   n = 0
   while !o as w

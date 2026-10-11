@@ -1,4 +1,4 @@
-sub f(w: !Text?)
+sub f(w: !String?)
   s = ""
   if w as r
     s = r[1..]
@@ -6,5 +6,5 @@ sub f(w: !Text?)
   print(s)
 
 sub main()
-  o: Text? = Text("hello")
+  o: String? = String("hello")
   f(!o)

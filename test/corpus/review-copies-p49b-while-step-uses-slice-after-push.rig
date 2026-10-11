@@ -3,13 +3,13 @@
 #
 # oracle: mk accept
 # oracle: main reject C4
-fun mk(v: ?Vec[Int]) -> ([]Int)?
+fun mk(v: ?List[Int]) -> ([]Int)?
   if v.len < 40
     return ?v[..]
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v) as h: k += h[0]

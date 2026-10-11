@@ -1,12 +1,12 @@
 # A shared Cell prints its contents as they are when `print` is called,
 # after a later argument has grown them through another handle.
-fun grow(h: *Cell[Vec[Int]]) -> Int
+fun grow(h: *Cell[List[Int]]) -> Int
   for i in 0..20
     !h.push(i)
   5
 
 sub main()
-  h: *Cell[Vec[Int]] = *Cell(Vec())
+  h: *Cell[List[Int]] = *Cell(List())
   !h.push(42)
   print(h, grow(+h))
 

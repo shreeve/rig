@@ -3,12 +3,12 @@ use lib
 LO2 = 1
 HI2 = 5
 
-fun r(n: Int) -> String
+fun r(n: Int) -> ?String
   match n
     LO2..HI2 => "local"
     _ => "no"
 
-fun q(n: Int) -> String
+fun q(n: Int) -> ?String
   match n
     lib.LO..lib.HI => "in"
     _ => "out"

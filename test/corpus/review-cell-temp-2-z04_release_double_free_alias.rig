@@ -6,14 +6,14 @@
 # oracle: build accept
 # oracle: maybe accept
 struct V
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   fun add(!self, n: Int) -> Int
     !self.c.push(n)
     self.c.len
 
-fun build(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun build(n: Int) -> List[Int]
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i)
   v

@@ -2,11 +2,11 @@
 # cannot change while the payload is used.
 
 enum H
-  has(t: Text)
+  has(t: String)
   no
 
 sub main()
-  h: H = .has(t: Text("a"))
+  h: H = .has(t: String("a"))
   match ?h
     .has(t)
       h = .no

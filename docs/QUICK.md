@@ -10,14 +10,14 @@ states the ownership model in full; [SYNTAX](../SYNTAX.md) and
 | `!` | `!x` lends `x` to write | `!T`, a write view |
 | `<` | `<x` moves `x`; alone on a line, drops it now | |
 | `+` | `+x` clones: a new owner, or another handle | |
-| `*` `~` | `*<x` moves `x` into a counted box; `~h` is a weak handle | `*T`, `~T` |
+| `^` `*` `~` | `^<x` moves `x` into a box; `*<x` moves `x` into a counted handle; `~h` is a weak handle | `^T`, `*T`, `~T` |
 
 After a type, `T?` may be `none` and `T!` may fail; after an
 expression, `e?` passes `none` up and `e!` passes a failure up.
 
 **Reading is unmarked; writing is marked.** A bare argument is lent to
 read where its parameter is a read view: `size(v)` is `size(?v)` for
-`size(xs: ?Vec[Int])`. Where the parameter owns its value, a bare owner
+`size(xs: ?List[Int])`. Where the parameter owns its value, a bare owner
 is rejected: write `<v` to move it or `+v` to pass a clone (plain data
 such as an `Int` just copies). A write is always written: `grow(!v)`, or
 `!v.push(3)` for a method that changes `v`. A write call whose result
@@ -69,7 +69,7 @@ b`. `!` never negates.
 
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a
 read parameter (`print(w[1..3])`);
-`Text(a, b)` builds text the same way; `@size(T)`, `@align(T)`, and
+`String(a, b)` builds text the same way; `@size(T)`, `@align(T)`, and
 `@name(T)` describe a type.
 
 ```rig
@@ -88,13 +88,13 @@ struct Account
   drop(!self)
     print("closed")
 
-fun size(xs: ?Vec[Int]) -> Int
+fun size(xs: ?List[Int]) -> Int
   xs.len
 
 sub main()
   a = Account(cents: 100)
   !a.pay(30)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(a.balance())
   w = +v
   print(size(v), (!w).pop() ?? 0, w.len, not (a.balance() > 50))

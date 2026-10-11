@@ -5,9 +5,9 @@ sub wr(x: !Int)
   x = 7
 
 sub main()
-  b = Box(value: 5)
+  b = ^5
   print(rd(?b))
   wr(!b)
   print(b)
-  bb = Box(value: Box(value: 3))
+  bb = ^^3
   print(bb)

@@ -1,12 +1,12 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
   b(r: Res)
 
-fun inner(b: ?Box[E]) -> ?Res
+fun inner(b: ?^E) -> ?Res
   match b
     .a(r) => ?r
     .b(r) => ?r
@@ -16,7 +16,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  b = Box(E.a(r: Res(n: 1, t: Text("hello"))))
+  b = ^E.a(r: Res(n: 1, t: String("hello")))
   x = inner(?b)
   print(clobber(1000))
   print(x.n, x.t)

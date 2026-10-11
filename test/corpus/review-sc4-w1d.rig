@@ -10,7 +10,7 @@ enum Slot
 
 sub main()
   s: Slot = .full(b: *B(n: 1))
-  v: Vec[!*B] = Vec()
+  v: List[!*B] = List()
   match !s
     .full(b) => !v.push(b)
     .empty => print("e")

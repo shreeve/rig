@@ -1,13 +1,13 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
-sub f(a: !Text, b: !Text, c: Bool)
+sub f(a: !String, b: !String, c: Bool)
   s = keep((a if c else b)[1..])
   for _ in 0..50
     !a.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
 sub main()
-  x = Text("hello")
-  y = Text("world")
+  x = String("hello")
+  y = String("world")
   f(!x, !y, true)

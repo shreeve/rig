@@ -5,7 +5,7 @@ struct R
     print("drop", self.n)
 
 enum A
-  v(items: Vec[Int])
+  v(items: List[Int])
   e
 
 enum D

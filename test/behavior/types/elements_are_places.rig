@@ -1,4 +1,4 @@
-# Every element of a Vec, an array, or a slice is a place, as a field
+# Every element of a List, an array, or a slice is a place, as a field
 # is (Core §5): it is read in place, lent with `?v[i]` and `!v[i]`, and
 # assigning it drops the value it held, once.
 
@@ -9,53 +9,53 @@ struct D
     print("drop", self.n)
 
 struct Rec
-  name: Text
+  name: String
   n: Int
 
-fun size(v: ?Vec[Int]) -> Int
+fun size(v: ?List[Int]) -> Int
   v.len
 
-fun first(v: ?Vec[Text]) -> String
+fun first(v: ?List[String]) -> ?String
   ?v[0]
 
 sub main()
-  rows: Vec[Vec[Int]] = Vec()
-  r: Vec[Int] = Vec()
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
   !r.push(5)
   !rows.push(<r)
   !rows[0].push(6)
   print(rows[0], rows[0].len, size(?rows[0]), size(rows[0]))
-  ts: Vec[Text] = Vec()
-  !ts.push(Text("a"))
+  ts: List[String] = List()
+  !ts.push(String("a"))
   !ts[0].add("b")
-  ts[0] = Text("zz")
+  ts[0] = String("zz")
   print(ts, first(?ts), ts[0] == ts[0], +ts[0])
-  rs: Vec[Rec] = Vec()
-  !rs.push(Rec(name: Text("x"), n: 1))
+  rs: List[Rec] = List()
+  !rs.push(Rec(name: String("x"), n: 1))
   rs[0].n = 4
-  rs[0].name = Text("y")
+  rs[0].name = String("y")
   print(rs[0].name, rs[0].n)
-  os: Vec[Text?] = Vec()
-  !os.push(Text("o"))
+  os: List[String?] = List()
+  !os.push(String("o"))
   if <os[0] as t
     print(t)
   print(os)
-  ds: Vec[D] = Vec()
+  ds: List[D] = List()
   !ds.push(D(n: 1))
   !ds.push(D(n: 2))
   ds[0] = D(n: 3)
   print("after")
   a = [D(n: 4), D(n: 5)]
   a[1] = D(n: 6)
-  m: Vec[Vec[Text]] = Vec()
-  row: Vec[Text] = Vec()
-  !row.push(Text("q"))
+  m: List[List[String]] = List()
+  row: List[String] = List()
+  !row.push(String("q"))
   !m.push(<row)
   for t in m[0]
     print(t)
   for t in !m[0]
     !t.add("!")
-  m[0][0] = Text("r")
+  m[0][0] = String("r")
   print(m)
   print("end")
 

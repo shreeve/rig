@@ -16,7 +16,7 @@ struct H[X]
 fun mkh[X](x: X) -> H[X]
   H(x: <x)
 
-sub showt(t: ?Text)
+sub showt(t: ?String)
   print("t", t)
 
 sub temp[X](x: X, f: ?sub(?X))
@@ -26,9 +26,9 @@ sub branch[X](h: H[X], x: X, f: ?sub(?X), k: Bool)
   (h if k else mkh(<x)).run(f)
 
 sub main()
-  temp(Text("a"), showt)
-  branch(mkh(Text("b")), Text("c"), showt, true)
-  branch(mkh(Text("b")), Text("c"), showt, false)
+  temp(String("a"), showt)
+  branch(mkh(String("b")), String("c"), showt, true)
+  branch(mkh(String("b")), String("c"), showt, false)
 
 # expect:
 # t a

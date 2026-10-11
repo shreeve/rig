@@ -1,13 +1,13 @@
 # Inner match on the outer payload binding itself (match i, i: In), view returned. Known stricter: reject expected per handoff.
 enum In
-  x(t: Text)
+  x(t: String)
   y
 
 enum E
   a(i: In)
   b
 
-fun deep(e: ?E, d: ?Text) -> ?Text from e, d
+fun deep(e: ?E, d: ?String) -> ?String from e, d
   match e
     .a(i)
       match i
@@ -16,6 +16,6 @@ fun deep(e: ?E, d: ?Text) -> ?Text from e, d
     .b => d
 
 sub main()
-  e = E.a(i: In.x(t: Text("inner")))
-  k = Text("k")
+  e = E.a(i: In.x(t: String("inner")))
+  k = String("k")
   print(deep(?e, ?k))

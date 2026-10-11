@@ -9,7 +9,7 @@ sub main()
   i: I128 = 1
   j: U128 = 2
   print(xs[i], xs[j])
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   k: U128 = 0
   print(v[k])

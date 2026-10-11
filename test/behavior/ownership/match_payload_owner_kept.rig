@@ -4,17 +4,17 @@
 # (`match <e`) (`test/reject/ownership/match_payload_view_hint.rig`).
 
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub main()
-  e = E.a(t: Text("abc"))
-  r = Text("x")
+  e = E.a(t: String("abc"))
+  r = String("x")
   match e
     .a(t) => r = +t
     .b => pass
   print(r)
-  s = Text("y")
+  s = String("y")
   match <e
     .a(t) => s = <t
     .b => pass

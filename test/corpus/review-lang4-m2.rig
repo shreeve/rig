@@ -1,11 +1,11 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = H(w: !v)
   for i in 0..4
-    u: Vec[Int] = Vec()
+    u: List[Int] = List()
     !u.push(i)
     h.w = <u
     if i == 2

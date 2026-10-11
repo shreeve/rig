@@ -3,6 +3,6 @@ struct S
 
 sub main()
   h = *S(n: 1)
-  a: Box[~S] = Box(~h)
+  a: ^~S = ^~h
   if a.upgrade() as x
     print(x.n)

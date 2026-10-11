@@ -67,7 +67,7 @@ sub main()
   g5 = f(<!n)
   g6 = math.max(!n, 3)
   !s4.set(!m)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(!m)
   a1 = [!n, 3]
   a2: [1]Int = [!n]

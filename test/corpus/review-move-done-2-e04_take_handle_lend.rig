@@ -1,10 +1,10 @@
 # A take through a write lend of a shared handle, while another handle
 # to the same box holds a view of the field.
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

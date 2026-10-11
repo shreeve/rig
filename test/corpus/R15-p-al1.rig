@@ -4,7 +4,7 @@ struct Fmt
 
 sub main()
   f = Fmt(e: .big, n: 2)
-  v: Vec[Endian] = Vec()
+  v: List[Endian] = List()
   !v.push(f.e)
   !v.push(Endian.little)
   for e in v

@@ -1,5 +1,5 @@
 struct H
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
 sub f(x: !H, y: !H)
   x.log = y.log

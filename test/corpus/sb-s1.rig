@@ -1,11 +1,11 @@
 struct Frame
-  buf: Vec[U8]
+  buf: List[U8]
 
 sub put(f: !Frame, v: U32)
   !f.buf.write[U32, .big](0, v)
 
 sub main()
-  f = Frame(buf: Vec())
+  f = Frame(buf: List())
   for i in 0..4
     !f.buf.push(U8(i))
   put(!f, 0x01020304)

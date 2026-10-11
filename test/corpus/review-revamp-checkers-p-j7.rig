@@ -1,6 +1,6 @@
 struct Res
   id: Int
-  v: Vec[Int]
+  v: List[Int]
 
 struct H
   r: ?Res
@@ -10,11 +10,11 @@ fun store(h: !H, r: ?Res) -> Bool
   false
 
 sub main()
-  z = Res(id: 0, v: Vec())
+  z = Res(id: 0, v: List())
   h = H(r: ?z)
   for i in 1..3
     print(h.r.id)
-    y = Res(id: i, v: Vec())
+    y = Res(id: i, v: List())
     match i
       k if store(!h, ?y) => return
       _ => print("no")

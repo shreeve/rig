@@ -1,15 +1,15 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = H(w: !v)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(9)
   !u.push(10)
   h.w = <u
-  t: Vec[Int] = Vec()
+  t: List[Int] = List()
   !t.push(7)
   h.w = <t
   !h.w.push(3)

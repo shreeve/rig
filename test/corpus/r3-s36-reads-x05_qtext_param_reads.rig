@@ -1,9 +1,9 @@
-fun head(t: ?Text) -> String
+fun head(t: ?String) -> ?String
   t[0..2]
 
-fun whole(t: ?Text) -> String
+fun whole(t: ?String) -> ?String
   t
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   print(head(?t), whole(?t))

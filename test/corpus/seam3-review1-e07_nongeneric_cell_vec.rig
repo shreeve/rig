@@ -1,9 +1,9 @@
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  vs: Vec[?Vec[Int]] = Vec()
+  vs: List[?List[Int]] = List()
   !vs.push(?v)
   c = *Cell(<vs)
   <v
-  old = (!c).replace(Vec())
+  old = (!c).replace(List())
   print(old[0].len)

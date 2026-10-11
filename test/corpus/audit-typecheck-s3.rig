@@ -1,5 +1,5 @@
 sub main()
-  o: Vec[Int]? = Vec[Int]()
+  o: List[Int]? = List[Int]()
   if !o as v
     (!v).push(3)
   n = 0

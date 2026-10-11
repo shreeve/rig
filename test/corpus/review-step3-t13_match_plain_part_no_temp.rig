@@ -4,10 +4,10 @@ enum E
 
 struct H
   e: E
-  t: Text
+  t: String
 
 fun mkh(n: Int) -> H
-  H(e: E.a(n: n), t: Text("x"))
+  H(e: E.a(n: n), t: String("x"))
 
 sub main()
   match mkh(3).e

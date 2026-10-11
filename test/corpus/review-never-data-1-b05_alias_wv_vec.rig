@@ -1,5 +1,5 @@
 type W = !Int
-type VW = Vec[W]
+type VW = List[W]
 
 sub f(v: VW)
   print(v.len)

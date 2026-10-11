@@ -1,5 +1,5 @@
 sub main()
-  f = |t: Text|
+  f = |t: String|
     <t
     print(1)
-  f(Text("a"))
+  f(String("a"))

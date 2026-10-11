@@ -1,11 +1,11 @@
 # h.w = w2: a bare held write view on the right writes the value it reaches.
 # For Text this would copy the buffer pointer (double free) unless rejected.
 struct H
-  w: !Text
+  w: !String
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   h = H(w: !a)
   w2 = !b
   h.w = w2

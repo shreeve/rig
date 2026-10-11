@@ -1,10 +1,10 @@
 struct BankAccount
-  owner: String
+  owner: ?String
   balance: Float = 0.0
-  history: Vec[Float]
+  history: List[Float]
 
-  fun new(owner: String) -> Self
-    BankAccount(owner: owner, history: Vec())
+  fun new(owner: ?String) -> Self
+    BankAccount(owner: owner, history: List())
 
   sub deposit(!self, amt: Float)
     self.balance += amt

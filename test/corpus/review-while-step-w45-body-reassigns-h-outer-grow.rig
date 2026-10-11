@@ -1,17 +1,17 @@
-# The body re-points `h` at a Vec declared before the loop, then grows
-# that Vec; the step reads `h`.
+# The body re-points `h` at a List declared before the loop, then grows
+# that List; the step reads `h`.
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 3
     return S(s: ?v[..])
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(2)
   k = 0
   i = 0

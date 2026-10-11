@@ -1,12 +1,12 @@
 struct H
-  hash: fun(String) -> U64
+  hash: fun(?String) -> U64
   n: Int
 
-  sub put(!self, k: String)
+  sub put(!self, k: ?String)
     x = self.hash(k)
     self.n = Int(x)
 
-fun hs(s: String) -> U64
+fun hs(s: ?String) -> U64
   U64(s.len)
 
 sub main()

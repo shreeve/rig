@@ -1,11 +1,11 @@
-fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
   a
 
-fun apply(f: ?fun(?Vec[Int], ?Vec[Int]) -> ?Vec[Int], x: ?Vec[Int], y: ?Vec[Int]) -> ?Vec[Int]
+fun apply(f: ?fun(?List[Int], ?List[Int]) -> ?List[Int], x: ?List[Int], y: ?List[Int]) -> ?List[Int]
   f(x, y)
 
 sub main()
-  x: Vec[Int] = Vec()
-  y: Vec[Int] = Vec()
+  x: List[Int] = List()
+  y: List[Int] = List()
   r = apply(?first, ?x, ?y)
   print(r.len)

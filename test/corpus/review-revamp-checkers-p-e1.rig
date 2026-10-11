@@ -3,7 +3,7 @@ error E
 
 struct Tok
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 sub eat(t: Tok)
   print("eat", t.n)
@@ -12,7 +12,7 @@ fun id[T](x: T) -> T!
   x
 
 fun tailmatch(k: Int) -> Int!
-  t = Tok(n: 1, v: Vec())
+  t = Tok(n: 1, v: List())
   errdefer print(t.n)
   eat(<t)
   match k
@@ -20,7 +20,7 @@ fun tailmatch(k: Int) -> Int!
     _ => return E.bad
 
 fun tailif(k: Int) -> Int!
-  t = Tok(n: 2, v: Vec())
+  t = Tok(n: 2, v: List())
   errdefer print(t.n)
   eat(<t)
   if k == 0
@@ -29,7 +29,7 @@ fun tailif(k: Int) -> Int!
     return E.bad
 
 sub s(k: Int)!
-  t = Tok(n: 3, v: Vec())
+  t = Tok(n: 3, v: List())
   errdefer print(t.v.len)
   eat(<t)
   return E.bad if k > 0

@@ -1,4 +1,4 @@
-# A Cell whose value holds a Cell, a Cell[Vec] of holders, and closures
+# A Cell whose value holds a Cell, a Cell[List] of holders, and closures
 # capturing holders each way.
 struct C
   c: Cell[Int]
@@ -10,7 +10,7 @@ fun mk(n: Int) -> C
   C(c: Cell(n))
 
 sub main()
-  cv: Cell[Vec[C]] = Cell(Vec())
+  cv: Cell[List[C]] = Cell(List())
   !cv.push(mk(1))
   if (!cv).pop() as y
     y.hit()

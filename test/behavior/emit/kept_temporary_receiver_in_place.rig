@@ -6,7 +6,7 @@
 struct P
   c: *Cell[Int]
   n: Int
-  t: Text
+  t: String
 
   fun me(?self) -> ?P
     self
@@ -17,12 +17,12 @@ struct P
 
 struct H
   p: P
-  u: Text
+  u: String
 
 struct S
-  t: Text
+  t: String
 
-  fun pick(?self, x: Int, y: Int) -> ?Text
+  fun pick(?self, x: Int, y: Int) -> ?String
     ?self.t
 
   fun size(?self, x: Int, y: Int) -> Int
@@ -35,11 +35,11 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-fun mk(s: String) -> S
-  S(t: Text(s))
+fun mk(s: ?String) -> S
+  S(t: String(s))
 
 fun mkh() -> H
-  H(p: P(c: *Cell(1), n: 42, t: Text("pt")), u: Text("u"))
+  H(p: P(c: *Cell(1), n: 42, t: String("pt")), u: String("u"))
 
 sub main()
   print(mk("a").pick(y: f(1), x: f(2)))

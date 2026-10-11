@@ -1,5 +1,5 @@
 struct Tag
-  name: String
+  name: ?String
   code: U8
 
 enum Box

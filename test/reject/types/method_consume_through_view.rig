@@ -3,7 +3,7 @@
 # is copied out instead.)
 
 struct User
-  name: Text
+  name: String
 
   sub consume(self: User)
     print(self.name)
@@ -12,7 +12,7 @@ fun get_ref(u: ?User) -> ?User
   u
 
 sub main()
-  u = User(name: Text("Steve"))
+  u = User(name: String("Steve"))
   get_ref(?u).consume()
 
 # error: cannot consume through a view

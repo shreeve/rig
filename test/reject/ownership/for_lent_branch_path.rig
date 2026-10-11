@@ -4,10 +4,10 @@
 
 struct W
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 fun mkw(n: Int) -> W
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i + 1)
   W(n: n, v: <v)
@@ -19,9 +19,9 @@ sub main()
   for x in ?(a if c else b).v
     !a.v.push(1) if a.v.len < 50
     print(x)
-  ys: Vec[W] = Vec()
+  ys: List[W] = List()
   !ys.push(mkw(2))
-  zs: Vec[W] = Vec()
+  zs: List[W] = List()
   for y in ?(ys if c else zs)[0].v
     print(y)
 

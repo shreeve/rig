@@ -12,7 +12,7 @@ DEF = Color.blue
 struct S
   a: U8 = LIMIT
   b: Cell[U8] = Cell(300)
-  c: Int = Vec()
+  c: Int = List()
   d: [4]Int = [3 of 0]
   e: Cell[Int] = Cell("s")
   f: Color = DEF

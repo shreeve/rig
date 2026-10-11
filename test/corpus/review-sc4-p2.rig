@@ -3,14 +3,14 @@ enum Shape
   point
 
 sub main()
-  b = Box(Shape.circle(r: 2))
+  b = ^Shape.circle(r: 2)
   w = !b
   match !w
     .circle(r) => r = 9
     _ => print("y")
   match !b
     .circle(r)
-      b = Box(Shape.point)
+      b = ^Shape.point
       r = 3
     _ => print("y")
   print(b)

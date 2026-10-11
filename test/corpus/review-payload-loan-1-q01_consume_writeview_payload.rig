@@ -1,9 +1,9 @@
 enum WV
-  a(w: !Text)
+  a(w: !String)
   b
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   g = WV.a(!t)
   match <g
     .a(w)

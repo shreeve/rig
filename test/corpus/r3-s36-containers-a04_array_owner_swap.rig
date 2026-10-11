@@ -2,7 +2,7 @@ struct P
   x: Int
 
 sub main()
-  a = [Box(P(x: 1)), Box(P(x: 2))]
+  a = [^P(x: 1), ^P(x: 2)]
   !a.swap(0, 1)
   for p in ?a
     print(p.x)

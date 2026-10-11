@@ -4,9 +4,9 @@ struct Counter
 struct H
   arr: [2]Counter
 
-fun mkh(s: String) -> H
+fun mkh(s: ?String) -> H
   H(arr: [Counter(hits: Cell(s.len)), Counter(hits: Cell(2))])
 
 sub main()
-  for k in mkh(Text("abc")).arr
+  for k in mkh(String("abc")).arr
     print("k", k.hits.get())

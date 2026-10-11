@@ -1,17 +1,17 @@
 # held / taken: a view of a loop element over a made value's field
 # (`held`) or a made array (`taken`) stored past the loop.
 struct H
-  items: [2]Text
+  items: [2]String
   n: Int
 
 fun mkh() -> H
-  H(items: [Text("held"), Text("h2")], n: 1)
+  H(items: [String("held"), String("h2")], n: 1)
 
-fun mka() -> [2]Text
-  [Text("taken"), Text("t2")]
+fun mka() -> [2]String
+  [String("taken"), String("t2")]
 
 sub main()
-  z = Text("z")
+  z = String("z")
   r = ?z
   for x in ?mkh().items
     r = x

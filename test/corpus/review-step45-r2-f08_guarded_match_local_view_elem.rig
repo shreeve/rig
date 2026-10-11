@@ -1,10 +1,10 @@
-# guarded match on an element of a local read view of a Vec
+# guarded match on an element of a local read view of a List
 enum E
   a(n: Int)
   b(n: Int)
 
 sub main()
-  e: Vec[E] = Vec()
+  e: List[E] = List()
   !e.push(E.a(n: 5))
   r = ?e
   match r[0]

@@ -2,9 +2,9 @@
 # types as `User`.
 
 struct User
-  name: String
+  name: ?String
 
-  fun make(default: String) -> Self
+  fun make(default: ?String) -> Self
     User(name: default)
 
 sub main()

@@ -79,7 +79,7 @@ fun hand(h: *R, n: Int) -> Int
   print("use", h.id)
   n
 
-fun bx(b: Box[R], n: Int) -> Int
+fun bx(b: ^R, n: Int) -> Int
   print("use", b.id)
   n
 
@@ -111,13 +111,13 @@ sub h0()!
   print("val", b0[0])
   b2 = [hr(HR.two(a: mk(1), b: *mk(2))), pp(P(a: mayr(rt_int(3003))!, b: mk(4)))]
   print("val", b2[0])
-  v4: Vec[*R] = Vec()
+  v4: List[*R] = List()
   !v4.push(*mk(5))
   print("val", may(rt_int(5))!)
   print("val", 4)
 
 sub h1()!
-  v0: Vec[*R] = Vec()
+  v0: List[*R] = List()
   !v0.push(*mk(16))
   !v0.push(*mayr(rt_int(0))!)
   !v0.push(*mk(18))

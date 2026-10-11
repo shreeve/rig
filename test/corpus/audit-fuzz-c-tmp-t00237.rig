@@ -79,7 +79,7 @@ fun hand(h: *R, n: Int) -> Int
   print("use", h.id)
   n
 
-fun bx(b: Box[R], n: Int) -> Int
+fun bx(b: ^R, n: Int) -> Int
   print("use", b.id)
   n
 
@@ -110,13 +110,13 @@ fun h0() -> Int?
   b0 = [two(mk(1), optr(rt_int(4002))?), pp(P(a: mk(3), b: mk(4)))]
   print("val", b0[0])
   x2 = mk(5)
-  v3: Vec[*R] = Vec()
+  v3: List[*R] = List()
   !v3.push(*mk(6))
   !v3.push(*mk(7))
   0
 
 fun h1() -> Int?
-  b0 = [8, bx(Box(optr(rt_int(3018))?), opt(rt_int(2))?)]
+  b0 = [8, bx(^optr(rt_int(3018))?, opt(rt_int(2))?)]
   print("val", b0[0])
   x2 = mk(19)
   q3 = Q(h: *mk(20), o: none)

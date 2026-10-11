@@ -28,7 +28,7 @@ fun side(n: Int) -> Int
 
 sub run(c: Bool)
   a = mkd(1)
-  v: Vec[D] = Vec()
+  v: List[D] = List()
   !v.push(mkd(2))
   !mkd(3).wr(side(1))
   mkd(4).hit(side(2))

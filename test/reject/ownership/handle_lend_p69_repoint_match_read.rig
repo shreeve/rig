@@ -3,25 +3,25 @@
 # review probe of that name.)
 
 enum E
-  a(c: *Cell[Vec[Int]])
+  a(c: *Cell[List[Int]])
   b
 
-sub g(x: !*Cell[Vec[Int]])
-  x = *Cell(Vec[Int]())
+sub g(x: !*Cell[List[Int]])
+  x = *Cell(List[Int]())
 
-sub k(r: ?Cell[Vec[Int]], e: ?E)
+sub k(r: ?Cell[List[Int]], e: ?E)
   match e
     .a(c) => g(!c)
     .b => print("b")
   print(r.len)
 
 sub main()
-  w: *Cell[Vec[Int]] = *Cell(Vec())
+  w: *Cell[List[Int]] = *Cell(List())
   !w.push(1)
   e = E.a(c: <w)
   match ?e
     .a(c) => k(c, ?e)
     .b => print("b")
 
-# error: 14:17: cannot lend to write through a read view `?*Cell[Vec[Int]]`; `c` is a read view of a field of `e`, which is reached through a read view, so nothing writes through it; take a write view, or share a handle of your own with `+h`
+# error: 14:17: cannot lend to write through a read view `?*Cell[List[Int]]`; `c` is a read view of a field of `e`, which is reached through a read view, so nothing writes through it; take a write view, or share a handle of your own with `+h`
 # errors: 1

@@ -4,10 +4,10 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun isnil(o: ?Box[R]?) -> Bool
+fun isnil(o: ?^R?) -> Bool
   o == none
 
 sub main()
-  o: Box[R]? = Box(value: R(n: 1))
+  o: ^R? = ^R(n: 1)
   print(o == none, o != none, isnil(?o))
-  x = o ?? Box(value: R(n: 2))
+  x = o ?? ^R(n: 2)

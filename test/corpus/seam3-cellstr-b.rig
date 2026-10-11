@@ -1,7 +1,7 @@
 sub main()
-  t = Text("local")
-  b = Box(?t[..])
+  t = String("local")
+  b = ^?t[..]
   print(b)
   x = 5
-  bi = Box(?x)
+  bi = ^?x
   print(bi)

@@ -3,15 +3,15 @@ error E
 
 struct S
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk(f: Bool) -> S!
   if f
     return E.bad
-  S(n: 1, v: Vec())
+  S(n: 1, v: List())
 
 sub main()
-  b = S(n: 2, v: Vec())
+  b = S(n: 2, v: List())
   !b.v.push(1)
   w = <(mk(true) catch b).v
   print(w.len, b.v.len)

@@ -16,10 +16,10 @@ sub main()
   match <e
     .a(r) => print((!r).next() != 0)
     .b => pass
-  rs: Vec[*random.Random] = Vec()
+  rs: List[*random.Random] = List()
   for x in <rs
     print(x)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   w = Cell(random.Random.seeded(5))
   old = w.replace(random.Random.seeded(6))

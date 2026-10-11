@@ -50,7 +50,7 @@ fun id_f32(x: F32) -> F32
   x
 
 sub t4860()
-  av4860: Vec[I8] = Vec()
+  av4860: List[I8] = List()
   !av4860.push(0)
   av4860[0] = (-12)
   aa4860: [3]I8 = [3 of 0]

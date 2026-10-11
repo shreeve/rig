@@ -1,10 +1,10 @@
-fun mk() -> *Cell[Vec[String]]
-  cv: *Cell[Vec[String]] = *Cell(Vec())
+fun mk() -> *Cell[List[?String]]
+  cv: *Cell[List[?String]] = *Cell(List())
   !cv.push("lit")
   cv
 
 sub main()
-  t = Text("abcdefghijklmnop")
+  t = String("abcdefghijklmnop")
   cv = mk()
   keep = +cv
   (!cv)[0] = ?t[..3]

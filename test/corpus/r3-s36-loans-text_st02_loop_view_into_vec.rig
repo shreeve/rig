@@ -1,6 +1,6 @@
 sub main()
-  names: Vec[String] = Vec()
+  names: List[?String] = List()
   for i in 0..3
-    t = Text("n", i)
+    t = String("n", i)
     !names.push(?t[..])
   print(names)

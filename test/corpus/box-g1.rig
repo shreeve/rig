@@ -6,10 +6,10 @@ struct P
 
 sub main()
   n = 3
-  b = Box(value: View(p: ?n))
-  c = Box(value: 5)
+  b = ^View(p: ?n)
+  c = ^5
   print(c.x)
-  d = Box(value: P(x: 1))
+  d = ^P(x: 1)
   print(d.value)
-  e = Box[P](value: P(x: 2))
+  e = ^P(x: 2)
   print(e.x)

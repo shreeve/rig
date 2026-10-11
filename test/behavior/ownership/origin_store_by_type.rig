@@ -8,23 +8,23 @@ struct Counter
 struct Holder
   r: []Int
 
-sub bump(c: !Counter, name: String)
+sub bump(c: !Counter, name: ?String)
   c.n += name.len
 
-sub keep(h: !Holder, x: []Int, label: String)
+sub keep(h: !Holder, x: []Int, label: ?String)
   h.r = x
   print(label)
 
 sub main()
   c = Counter(n: 0)
-  t = Text("abc")
+  t = String("abc")
   bump(!c, ?t)
   !t.add("d")
   print(c.n, t)
   a = [1, 2]
   b = [3, 4]
   h = Holder(r: ?a[..])
-  l = Text("kept")
+  l = String("kept")
   keep(!h, ?b[..], ?l)
   <l
   print(h.r[0])

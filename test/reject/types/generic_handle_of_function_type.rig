@@ -2,7 +2,7 @@
 # parameter (`*T`, `~T`) cannot be instantiated with a function type:
 # `*fun(Int) -> Int` is an owned closure, not a handle of a function,
 # so the handle would not be what the instance spells. Fields, enum
-# payloads, parameters, a handle in a Vec or an optional, a nested
+# payloads, parameters, a handle in a List or an optional, a nested
 # instance, and a handle made in a body are all checked. The owned
 # closure is held as a `T` instead (test/behavior/types/
 # generic_holds_owned_closure.rig).
@@ -21,7 +21,7 @@ enum E[T]
   b
 
 struct V[T]
-  hs: Vec[*T]
+  hs: List[*T]
 
 struct O[T]
   h: (*T)?
@@ -41,7 +41,7 @@ sub main()
   x = H(h: *|a: Int| a + 1)
   w: Wk[fun(Int) -> Int] = Wk(w: ~f)
   e: E[sub()] = .a(h: *|| print(1))
-  v: V[fun(Int) -> Int] = V(hs: Vec())
+  v: V[fun(Int) -> Int] = V(hs: List())
   o: O[fun(Int) -> Int] = O(h: none)
   g: G[sub(Int)] = G(g: H(h: *|a: Int| print(a)))
   print(lend(?f))

@@ -1,5 +1,5 @@
 # `get` on a String or an array only reads its receiver, so a `!` or a
-# `<` before the receiver is rejected, as for a Vec.
+# `<` before the receiver is rejected, as for a List.
 
 sub main()
   s = "hello"

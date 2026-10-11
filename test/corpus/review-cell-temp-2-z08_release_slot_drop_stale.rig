@@ -15,7 +15,7 @@ error E
   bad
 
 struct V
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   drop(!self)
     print("drop", self.c.len * 1000 + (self.c.get(0) ?? -1))
@@ -35,14 +35,14 @@ struct V
     !self.c.push(1000)
     self.c.len
 
-fun vec1(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun vec1(n: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(n)
   v
 
-fun vtext(n: Int) -> Vec[Text]
-  v: Vec[Text] = Vec()
-  t = Text("")
+fun vtext(n: Int) -> List[String]
+  v: List[String] = List()
+  t = String("")
   for _ in 0..n
     !t.add("x")
   !v.push(<t)

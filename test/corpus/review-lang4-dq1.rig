@@ -1,8 +1,8 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = H(w: !v)
   h.w += 1
   h.w = 5

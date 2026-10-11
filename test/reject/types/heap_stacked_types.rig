@@ -1,0 +1,19 @@
+# A value is held one way on the heap: a box, a counted handle, or a
+# weak handle. A second holding sigil over it is rejected, wherever the
+# type is written.
+
+struct Holder
+  a: ^^Int
+  b: ^*Int
+  c: *^Int
+  d: ^~Int
+  e: *(*Int)
+
+sub main()
+  pass
+
+# error: 6:6: `^^Int` stacks one heap holding on another
+# error: 7:6: `^*Int` stacks one heap holding on another
+# error: 8:6: `*^Int` stacks one heap holding on another
+# error: 9:6: `^~Int` stacks one heap holding on another
+# error: 10:6: `**Int` stacks one heap holding on another

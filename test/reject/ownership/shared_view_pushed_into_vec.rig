@@ -1,4 +1,4 @@
-# Pushing a shared view into a Vec makes the Vec hold that view's
+# Pushing a shared view into a List makes the List hold that view's
 # view.
 
 struct Wrap
@@ -11,7 +11,7 @@ struct View
   b: ?Wrap
 
 sub main()
-  vs: Vec[*View] = Vec()
+  vs: List[*View] = List()
   a = Wrap(payload: 1)
   !vs.push(*View(b: ?a))
   <a

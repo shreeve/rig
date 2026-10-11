@@ -8,13 +8,13 @@
 # `test/behavior/ownership/receiver_view_of_branch_lends_leaves.rig`.)
 
 struct S
-  t: Text
+  t: String
   xs: [4]Int
 
-  fun inner(?self) -> ?Text
+  fun inner(?self) -> ?String
     ?self.t
 
-  fun name(?self) -> String
+  fun name(?self) -> ?String
     ?self.t
 
   fun arr(?self) -> ?[4]Int
@@ -34,38 +34,38 @@ error E
 
 fun maybe(c: Bool) -> S?
   if c
-    return S(t: Text("oo"), xs: [9, 9, 9, 9])
+    return S(t: String("oo"), xs: [9, 9, 9, 9])
   none
 
 fun fails(c: Bool) -> S!
   if c
     return E.bad
-  S(t: Text("ff"), xs: [8, 8, 8, 8])
+  S(t: String("ff"), xs: [8, 8, 8, 8])
 
 fun first(o: S?) -> Int?
   r = o?.inner()
   r.len
 
 sub main()
-  a = S(t: Text("aa"), xs: [1, 2, 3, 4])
-  b = S(t: Text("bb"), xs: [5, 6, 7, 8])
+  a = S(t: String("aa"), xs: [1, 2, 3, 4])
+  b = S(t: String("bb"), xs: [5, 6, 7, 8])
   c = a.t.len == 2
   r = (a if c else b).inner()
   n = (a if c else b).name()
   x = (a if c else b).arr()
-  wa = W(s: S(t: Text("wa"), xs: [0, 0, 0, 0]))
-  wb = W(s: S(t: Text("wb"), xs: [0, 0, 0, 0]))
+  wa = W(s: S(t: String("wa"), xs: [0, 0, 0, 0]))
+  wb = W(s: S(t: String("wb"), xs: [0, 0, 0, 0]))
   w = (wa if c else wb).s.inner()
   o = maybe(true)
   u = (o ?? a).inner()
   e = (fails(false) catch b).inner()
-  vs: Vec[P] = Vec()
+  vs: List[P] = List()
   !vs.push(P(xs: [1, 1, 1, 1]))
-  ws: Vec[P] = Vec()
+  ws: List[P] = List()
   !ws.push(P(xs: [2, 2, 2, 2]))
   y = (vs if c else ws)[0].arr()
   print((a if c else b).inner())
-  a.t = Text("zz")
+  a.t = String("zz")
   !vs.clear()
   print(r, n, x, w, u, e, y, first(maybe(true)) ?? 0)
 

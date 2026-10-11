@@ -7,7 +7,7 @@
 
 struct Counter
   hits: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
@@ -37,7 +37,7 @@ sub main()
   !b.set(9)
   print(seen.get())
 
-  v: *Cell[Vec[Int]] = *Cell(Vec())
+  v: *Cell[List[Int]] = *Cell(List())
   !v.push(4)
   !v.push(5)
   (!v)[0] = v[0] + 1
@@ -47,7 +47,7 @@ sub main()
   !v.clear()
   print(v.len)
 
-  k = *Counter(hits: Cell(0), log: Cell(Vec()))
+  k = *Counter(hits: Cell(0), log: Cell(List()))
   !k.hit()
   poke(!k)
   print(k.total())

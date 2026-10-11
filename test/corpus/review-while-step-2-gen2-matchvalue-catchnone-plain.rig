@@ -19,29 +19,29 @@ struct D
   drop(!self)
     print("drop", self.n)
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 4
     return S(s: ?v[..])
   none
 
-fun mkf(v: ?Vec[Int], i: Int, bad: Int) -> S?!
+fun mkf(v: ?List[Int], i: Int, bad: Int) -> S?!
   return E.bad if i == bad
   mk(v, i)
 
-fun fresh(t: Int, n: Int) -> Vec[Int]
+fun fresh(t: Int, n: Int) -> List[Int]
   print("step", t, n)
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   !a.push(n)
   a
 
-fun take(a: Vec[Int]) -> Int
+fun take(a: List[Int]) -> Int
   a[0]
 
 fun odd(j: Int) -> Int?
   j if j % 2 == 1 else none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   a = fresh(0, 0)
   k = 0

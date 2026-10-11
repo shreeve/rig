@@ -1,13 +1,13 @@
 # Takes through match payload views and loop bindings; `while <e as x`.
 struct S
-  o: Vec[Int]?
+  o: List[Int]?
 
 enum E
   none_
   one(s: S)
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 
@@ -21,7 +21,7 @@ sub a()
     .none_ => print(0)
 
 sub b()
-  v: Vec[S] = Vec()
+  v: List[S] = List()
   !v.push(S(o: mkv(1)))
   !v.push(S(o: mkv(2)))
   for s in <v

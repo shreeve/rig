@@ -14,7 +14,7 @@ struct Res
     print("drop", self.n)
 
 sub main()
-  a = Wrap.make(Vec[Int]())
-  b = Wrap[Vec[Int]].make(Vec())
+  a = Wrap.make(List[Int]())
+  b = Wrap[List[Int]].make(List())
   c = Wrap.make(Res(n: 1))
   print(a.v.len, b.v.len, c.v.n, Wrap[Res].count(3))

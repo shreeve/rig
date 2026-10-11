@@ -1,8 +1,8 @@
-struct Text
-  bytes: Vec[U8]
+struct String
+  bytes: List[U8]
 
 sub main()
-  v: Vec[Box[Text]] = Vec()
-  !v.push(Box(Text(bytes: Vec())))
+  v: List[^String] = List()
+  !v.push(^String(bytes: List()))
   for t in ?v
     print(t.bytes.len)

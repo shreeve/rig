@@ -1,10 +1,10 @@
 struct W
-  v: Vec[Int]
+  v: List[Int]
 
 fun mkw() -> W
-  W(v: Vec())
+  W(v: List())
 
-sub keep(v: Vec[Int])
+sub keep(v: List[Int])
   print(v)
 
 sub main()

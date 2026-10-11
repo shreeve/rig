@@ -4,7 +4,7 @@ struct B
     print("drop", self.n)
 
 sub main()
-  v: Vec[*B] = Vec()
+  v: List[*B] = List()
   !v.push(*B(n: 1))
   for h in v
     print(h.n)

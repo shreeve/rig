@@ -25,7 +25,7 @@ sub main()
   else
     R(n: 99)
   print(x.n)
-  v: Vec[R] = Vec()
+  v: List[R] = List()
   !v.push(R(n: 10))
   !v.push(R(n: 11))
   y = for e in <v
@@ -34,18 +34,18 @@ sub main()
     R(n: 0)
   print(y.n)
   z = for k in 0..3
-    t: Vec[Int] = Vec()
+    t: List[Int] = List()
     !t.push(k)
     defer print("defer", k)
     break t if k == 1
   else
-    Vec[Int]()
+    List[Int]()
   print(z)
   w = while true
     q = R(n: 20)
     break <q
   print(w.n)
-  es: Vec[E] = Vec()
+  es: List[E] = List()
   !es.push(E.a(r: R(n: 30)))
   u = for e in <es
     match <e

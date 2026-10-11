@@ -1,6 +1,6 @@
 # subject through a call returning a view of a named owner, index makes a temp. Expect accept, clean.
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 struct H
@@ -12,15 +12,15 @@ fun get(h: !H) -> !H from h
 fun look(h: ?H) -> ?H from h
   h
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  h = H(es: [E.a(t: Text("x")), E.b])
-  match !get(!h).es[idx(?Text("a"))]
+  h = H(es: [E.a(t: String("x")), E.b])
+  match !get(!h).es[idx(?String("a"))]
     .a(t) => !t.add("y")
     .b => pass
-  match look(?h).es[idx(?Text("a"))]
+  match look(?h).es[idx(?String("a"))]
     .a(t) => print(t)
     .b => pass
   print(h.es[0])

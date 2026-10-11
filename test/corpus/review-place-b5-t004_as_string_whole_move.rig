@@ -1,5 +1,5 @@
 sub main()
-  o: String? = "a"
+  o: (?String)? = "a"
   if <o as s
     s = "b"
     print(s)

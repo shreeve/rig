@@ -1,14 +1,14 @@
 struct P
-  t: Text
+  t: String
 
 enum E
   a(w: !P)
   b
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   r = match E.a(!p)
     .a(w) => ?w.t
     .b => "none"
-  p.t = Text("x")
+  p.t = String("x")
   print(r)

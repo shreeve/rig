@@ -1,5 +1,5 @@
 sub main()
-  c = Cell[Vec[Int]](Vec())
+  c = Cell[List[Int]](List())
   c.push(1)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   v.push(1)

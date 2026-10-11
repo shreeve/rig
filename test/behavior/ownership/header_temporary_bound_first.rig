@@ -17,19 +17,19 @@ struct C
 struct P
   x: Int
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-fun opt(n: ?Text) -> P?
+fun opt(n: ?String) -> P?
   if n.len > 0
     return P(x: n.len)
   none
 
-fun mke(s: ?Text) -> E
+fun mke(s: ?String) -> E
   .a(xs: [s.len, 0, 0, 0])
 
 sub main()
-  i = idx(?Text("a"))
+  i = idx(?String("a"))
   arr = [F.a(n: 1)]
   match !arr[i]
     .a(n) if n > 5 => n = 50
@@ -47,10 +47,10 @@ sub main()
   if ?cs[0] as c
     print(c.c.get())
   print(arr, ints)
-  match mke(?Text("abc"))
+  match mke(?String("abc"))
     .a(xs) => print(xs[0])
     .b => pass
-  if opt(?Text("abcd")) as p
+  if opt(?String("abcd")) as p
     print(p.x)
   for x in [[1, 2], [3, 4]][i]
     print(x)

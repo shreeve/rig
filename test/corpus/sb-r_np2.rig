@@ -2,5 +2,5 @@ fun f[T](s: []T) -> Int
   s.len
 
 sub main()
-  v: Vec[Vec[Int]] = Vec()
+  v: List[List[Int]] = List()
   print(f(?v[..]))

@@ -14,7 +14,7 @@ struct Tok
 struct P
   x: Int = 1
   y: Int
-  name: String = "anon"
+  name: ?String = "anon"
   m: Mode = .b
   f: Float = 2.5
   neg: Int = -4

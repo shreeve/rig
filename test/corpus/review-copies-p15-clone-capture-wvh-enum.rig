@@ -1,5 +1,5 @@
 enum E
-  a(w: !Vec[Int])
+  a(w: !List[Int])
   b
 
 fun first(e: ?E) -> Int
@@ -8,7 +8,7 @@ fun first(e: ?E) -> Int
     .b => 0
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(5)
   e = E.a(w: !xs)
   f = |+e| first(?e)

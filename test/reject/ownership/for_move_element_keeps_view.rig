@@ -1,18 +1,18 @@
-# The elements of `for x in <v` carry the views the Vec held, so an
+# The elements of `for x in <v` carry the views the List held, so an
 # element moved elsewhere cannot outlive what it views.
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 struct View
   b: ?Wrap
 
 sub main()
-  outer: Vec[*View] = Vec()
+  outer: List[*View] = List()
   if true
-    y = Wrap(v: Vec())
+    y = Wrap(v: List())
     !y.v.push(42)
-    v: Vec[*View] = Vec()
+    v: List[*View] = List()
     !v.push(*View(b: ?y))
     for f in <v
       !outer.push(<f)

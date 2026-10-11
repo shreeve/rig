@@ -1,11 +1,11 @@
-# re-point at an element in a loop, then push to the Vec, then write through w
+# re-point at an element in a loop, then push to the List, then write through w
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  m = Text("m")
+  v: List[String] = List()
+  !v.push(String("a"))
+  m = String("m")
   w = !m
   for i in 0..v.len
     w = !v[i]
-  !v.push(Text("b"))
+  !v.push(String("b"))
   !w.add("!")
   print(v)

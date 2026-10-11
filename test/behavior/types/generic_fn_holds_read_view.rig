@@ -8,21 +8,21 @@ fun same[T](x: T) -> T
 fun pick[T](a: T, b: T, first: Bool) -> T
   a if first else b
 
-fun boxed[T](x: T) -> Box[T]
-  Box(x)
+fun boxed[T](x: T) -> ^T
+  ^x
 
 fun maybe[T](x: T, keep: Bool) -> T?
   x if keep else none
 
-fun twice[T](x: T) -> Vec[T]
-  out: Vec[T] = Vec()
+fun twice[T](x: T) -> List[T]
+  out: List[T] = List()
   !out.push(x)
   !out.push(x)
   out
 
 sub main()
-  v: Vec[Int] = Vec()
-  w: Vec[Int] = Vec()
+  v: List[Int] = List()
+  w: List[Int] = List()
   !v.push(1)
   !w.push(1)
   !w.push(2)
@@ -38,7 +38,7 @@ sub main()
     print(x.len)
   ts = twice(?w)
   print(ts[0].len + ts[1].len)
-  t = Text("abc")
+  t = String("abc")
   print(same(?t).len, pick(?t, ?t, true))
 
 # expect:

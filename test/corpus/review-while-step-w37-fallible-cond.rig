@@ -8,14 +8,14 @@ error E
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int]) -> S?!
+fun mk(v: ?List[Int]) -> S?!
   return E.bad if v.len > 100
   if v.len < 40
     return S(s: ?v[..])
   none
 
 fun run() -> Int!
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   while mk(?v)! as h: k += h.s[0]

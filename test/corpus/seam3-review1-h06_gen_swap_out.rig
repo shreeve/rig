@@ -5,7 +5,7 @@ struct Slot[T]
     <self.x
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   s = Slot(x: ?v)
   r = (!s).take()

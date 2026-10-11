@@ -1,14 +1,14 @@
 # A jump fallback leaves the scope: what it moves (`?? return <v`) is
 # moved only on that path, and `?? break value` gives a loop its value.
 
-fun pick(o: Int?) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun pick(o: Int?) -> List[Int]
+  v: List[Int] = List()
   !v.push(1)
   n = o ?? return <v
   !v.push(n)
   <v
 
-fun total(xs: ?Vec[Int?]) -> Int
+fun total(xs: ?List[Int?]) -> Int
   sum = for x in xs
     n = x ?? break -1
     print(n)
@@ -20,11 +20,11 @@ sub main()
   p1 = pick(none)
   p2 = pick(5)
   print(p1.len, p2.len)
-  a: Vec[Int?] = Vec()
+  a: List[Int?] = List()
   !a.push(3)
   !a.push(none)
   print(total(?a))
-  b = Vec[Int?]()
+  b = List[Int?]()
   print(total(?b))
 
 # expect:

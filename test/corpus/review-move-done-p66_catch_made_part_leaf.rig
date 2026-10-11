@@ -2,17 +2,17 @@ error E
   bad
 
 struct S
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk() -> S
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   S(v: <v)
 
-fun get(f: Bool) -> Vec[Int]!
+fun get(f: Bool) -> List[Int]!
   if f
     return E.bad
-  Vec[Int]()
+  List[Int]()
 
 sub main()
   x = <(get(true) catch mk().v)

@@ -36,7 +36,7 @@ never read as the library's.
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
-| [`std.text`](#stdtext) | searching, slicing, splitting, and parsing Strings |
+| [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 
 ## std.math
 
@@ -109,7 +109,7 @@ true -3.0 -2.0
 ## std.os
 
 The arguments and environment the program started with. Their text
-lives as long as the program, as a literal's does, and views no `Text`,
+lives as long as the program, as a literal's does, and views no `String`,
 so both are a `Static` ([SPEC §2](../SPEC.md#static)). They hold the
 bytes the operating system gave, which are not checked to be UTF-8.
 A `Static` carries no loan, so a result can be kept, returned, and
@@ -118,7 +118,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 | Function | Result |
 |---|---|
 | `args() -> []Static` | every argument, the program's name first |
-| `env(name: String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
+| `env(name: ?String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -234,9 +234,9 @@ true true
 ## std.sort
 
 Sorting, and searching sorted slices, written in Rig over slices, so
-they work on arrays and on Vecs alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
+they work on arrays and on Lists alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
 `lower_bound`, and `search` order elements with `<` (numbers and
-Strings), and `search` compares them with `==`; each call is checked
+`?String` values), and `search` compares them with `==`; each call is checked
 for its element type, as any generic call is.
 
 | Function | Result |
@@ -254,7 +254,7 @@ O(log n) stack, with no other memory.
 use std.sort
 
 struct Player
-  name: String
+  name: ?String
   score: Int
 
 sub main()
@@ -263,7 +263,7 @@ sub main()
   print(scores, sort.search(?scores, 20), sort.search(?scores, 5))
   print(sort.lower_bound(?scores, 15), sort.lower_bound(?scores, 99))
 
-  v: Vec[Player] = Vec()
+  v: List[Player] = List()
   !v.push(Player(name: "ann", score: 7))
   !v.push(Player(name: "bob", score: 9))
   !v.push(Player(name: "cy", score: 7))
@@ -305,7 +305,7 @@ sub main()
 use std.sort
 
 struct Player
-  name: String
+  name: ?String
   score: Int
 
 sub main()
@@ -319,7 +319,7 @@ sub main()
 
 ## std.slices
 
-Linear operations on slices, written in Rig, on arrays and on Vecs
+Linear operations on slices, written in Rig, on arrays and on Lists
 through a slice. `contains` and `index_of` compare elements with `==`.
 
 | Function | Result |
@@ -343,37 +343,38 @@ sub main()
 
 ## std.text
 
-Searching, slicing, splitting, and parsing Strings. A String is UTF-8
-bytes by convention, and nothing here checks that it is: every index
-and length is in bytes, and whitespace and case are ASCII's. A function
-that returns a String returns a part of the String it was given, a
-view of the same bytes, so nothing here allocates. A String taken from
-a `Text` ([SPEC §10](../SPEC.md#text)) keeps it lent through every
-part these functions return.
+Searching, slicing, splitting, and parsing text, which every function
+reads as a `?String`: UTF-8 bytes by convention, and nothing here checks
+that it is. Every index and length is in bytes, and whitespace and case
+are ASCII's. A function that returns a `?String` returns a part of the
+`?String` it was given, a view of the same bytes, so nothing here
+allocates. A `?String` taken from a `String`
+([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
+functions return.
 
 | Function | Result |
 |---|---|
-| `find(s: String, pat: String) -> Int?` | the index of the first occurrence of `pat` in `s`, or `none`; 0 for `""` |
-| `find_last(s: String, pat: String) -> Int?` | the index of the last occurrence, or `none`; `s.len` for `""` |
-| `contains(s: String, pat: String) -> Bool` | whether `pat` occurs in `s`; every String contains `""` |
-| `starts_with(s: String, prefix: String) -> Bool`, `ends_with(s: String, suffix: String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
-| `count(s: String, pat: String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
-| `trim(s: String) -> String` | `s` without its leading and trailing ASCII whitespace |
-| `trim_start(s: String) -> String`, `trim_end(s: String) -> String` | `s` without its leading, or its trailing, ASCII whitespace |
-| `strip_prefix(s: String, prefix: String) -> String? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
-| `strip_suffix(s: String, suffix: String) -> String? from s` | `s` before `suffix`, or `none` when `s` does not end with it |
-| `cut(s: String, sep: String) -> Cut? from s` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
-| `split(s: String, sep: String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
-| `lines(s: String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
-| `words(s: String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
-| `parse_int(s: String) -> Int!` | `s` as a base-10 `Int`: an optional sign, `+` or `-`, then digits, and nothing else |
-| `parse_float(s: String) -> Float!` | `s` as a `Float`: an optional sign, then digits with an optional `.` and fraction and an optional exponent (`2.5`, `.5`, `1e-3`), or `inf`, `infinity`, or `nan` in any case; the nearest `Float` to the number |
-| `parse_bool(s: String) -> Bool!` | `true` for `"true"` and `false` for `"false"` |
+| `find(s: ?String, pat: ?String) -> Int?` | the index of the first occurrence of `pat` in `s`, or `none`; 0 for `""` |
+| `find_last(s: ?String, pat: ?String) -> Int?` | the index of the last occurrence, or `none`; `s.len` for `""` |
+| `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every `?String` contains `""` |
+| `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
+| `count(s: ?String, pat: ?String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
+| `trim(s: ?String) -> ?String` | `s` without its leading and trailing ASCII whitespace |
+| `trim_start(s: ?String) -> ?String`, `trim_end(s: ?String) -> ?String` | `s` without its leading, or its trailing, ASCII whitespace |
+| `strip_prefix(s: ?String, prefix: ?String) -> (?String)? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
+| `strip_suffix(s: ?String, suffix: ?String) -> (?String)? from s` | `s` before `suffix`, or `none` when `s` does not end with it |
+| `cut(s: ?String, sep: ?String) -> Cut? from s` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
+| `split(s: ?String, sep: ?String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
+| `lines(s: ?String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
+| `words(s: ?String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
+| `parse_int(s: ?String) -> Int!` | `s` as a base-10 `Int`: an optional sign, `+` or `-`, then digits, and nothing else |
+| `parse_float(s: ?String) -> Float!` | `s` as a `Float`: an optional sign, then digits with an optional `.` and fraction and an optional exponent (`2.5`, `.5`, `1e-3`), or `inf`, `infinity`, or `nan` in any case; the nearest `Float` to the number |
+| `parse_bool(s: ?String) -> Bool!` | `true` for `"true"` and `false` for `"false"` |
 | `is_digit(b: U8) -> Bool`, `is_alpha(b: U8) -> Bool` | whether `b` is an ASCII digit, or an ASCII letter |
 | `is_space(b: U8) -> Bool` | whether `b` is ASCII whitespace: a space, tab, line feed, vertical tab, form feed, or carriage return |
 | `to_upper(b: U8) -> U8`, `to_lower(b: U8) -> U8` | `b` in upper, or lower, case when it is an ASCII letter, else `b` |
 | `valid_utf8(bytes: []U8) -> Bool` | whether `bytes` is well-formed UTF-8 |
-| `compare(a: String, b: String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
+| `compare(a: ?String, b: ?String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
 
 ```rig
 use std.text
@@ -395,7 +396,7 @@ false no prefix
 ```
 
 `split`, `lines`, and `words` give an iterator, a struct holding the
-rest of the String, whose `next` gives each part in turn, and `none`
+rest of the `?String`, whose `next` gives each part in turn, and `none`
 after the last. A `for` walks one ([SPEC §6](../SPEC.md#for)): a call's
 result is held for the loop, and a name is advanced in place, so a loop
 that `break`s leaves the rest to resume. The same loop is
@@ -424,7 +425,7 @@ y false
 ```
 
 A parser fails with the module's error set, `ParseError`: `invalid`
-when the String is not written as the table says (including when it
+when the `?String` is not written as the table says (including when it
 has whitespace around it, which `trim` removes), and `overflow` when
 the number is too large for its type: an `Int` outside `Int.min` to
 `Int.max`, or a `Float` whose magnitude is beyond `Float.max`. A
@@ -433,7 +434,7 @@ the number is too large for its type: an `Int` outside `Int.min` to
 ```rig
 use std.text
 
-fun total(xs: []String) -> Int!
+fun total(xs: []?String) -> Int!
   sum = 0
   for x in xs
     sum += text.parse_int(text.trim(x))!
@@ -455,15 +456,15 @@ ParseError.overflow true
 0
 ```
 
-`compare` orders Strings in one pass over their bytes, for a sort by a
-key that is a String:
+`compare` orders `?String` values in one pass over their bytes, for a sort by a
+key that is a `?String`:
 
 ```rig
 use std.sort
 use std.text
 
 struct City
-  name: String
+  name: ?String
   pop: Int
 
 sub main()

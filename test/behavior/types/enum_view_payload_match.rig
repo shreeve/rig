@@ -32,20 +32,20 @@ fun left[T](x: ?T, d: ?T) -> ?T from x, d
     .both(a, _) => a
     .neither => d
 
-fun wrapText(x: ?Text) -> Opt[?Text] from x
+fun wrapText(x: ?String) -> Opt[?String] from x
   Opt.some(v: x)
 
-fun firstText(x: ?Text, d: ?Text) -> ?Text from x, d
+fun firstText(x: ?String, d: ?String) -> ?String from x, d
   match wrapText(x)
     .some(v) => v
     .nothing => d
 
-fun longer(x: ?Text, d: ?Text) -> ?Text from x, d
+fun longer(x: ?String, d: ?String) -> ?String from x, d
   match wrapText(x)
     .some(v) if v.len > 1 => v
     _ => d
 
-fun held(o: !Opt[?Text], d: ?Text) -> ?Text from o, d
+fun held(o: !Opt[?String], d: ?String) -> ?String from o, d
   match o
     .some(v) => v
     .nothing => d
@@ -54,9 +54,9 @@ fun wrapSlice(xs: []Int) -> Opt[[]Int] from xs
   Opt.some(v: xs)
 
 sub main()
-  t = Text("tt")
-  u = Text("u")
-  d = Text("d")
+  t = String("tt")
+  u = String("u")
+  d = String("d")
   print(first(?t, ?d), pick(?t, ?d, true), pick(?t, ?d, false))
   print(left(?t, ?d), firstText(?t, ?d), longer(?t, ?d), longer(?u, ?d))
   o = wrapText(?t)

@@ -79,11 +79,11 @@ pub fn isPrintCall(ctx: *const SemContext, call: Sexp) bool {
     return callee == .src and ctx.symbolOf(callee) == null and std.mem.eql(u8, srcText(ctx, callee), "print");
 }
 
-/// The built-in Text operation `call` is: `Text(...)`, `!t.add(...)`,
+/// The built-in String operation `call` is: `String(...)`, `!t.add(...)`,
 /// or `!t.clear()`.
-pub fn textCall(ctx: *const SemContext, call: Sexp) ?sema.TextCall {
+pub fn stringCall(ctx: *const SemContext, call: Sexp) ?sema.StringCall {
     if (!call.isKind(.call)) return null;
-    return ctx.textCallOf(call) orelse ctx.textCallOf(ctx.calleeOf(call));
+    return ctx.stringCallOf(call) orelse ctx.stringCallOf(ctx.calleeOf(call));
 }
 
 /// The object of `Type.f(...)`, `module.f(...)`, or
@@ -152,7 +152,7 @@ fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
         .list => return switch (e.kind().?) {
             .enum_lit => true,
             // A view held as a pointer is the name's address; a view
-            // held by value (a String's bytes, a slice, a copy of a
+            // held by value (a `?String`'s bytes, a slice, a copy of a
             // number) reads the name where the call runs, after the
             // arguments written before it.
             .read, .write => ir.get(e, .operand) == .src and ((isPtrViewExpr(ctx, e) and ctx.lendOf(e) == null) or isPureArg(ctx, ir.get(e, .operand))),
@@ -226,7 +226,7 @@ pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
 }
 
 fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
-    if (!call.isKind(.call) or isPrintCall(ctx, call) or textCall(ctx, call) != null) return false;
+    if (!call.isKind(.call) or isPrintCall(ctx, call) or stringCall(ctx, call) != null) return false;
     const args = ir.Call.args(call);
     // A closure literal lent to the call gets an environment first.
     for (args) |a| if (lentLiteral(ctx, argValue(a))) return true;
@@ -366,7 +366,7 @@ pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
 /// address (`sema.readByAddress`), as the ownership checker reads
 /// each leaf in place (`holdBranchReads`). Zig would copy it into a
 /// temporary, and a `?self` method would view the copy; a struct, an
-/// array, or a Text is instead reached through the address of its
+/// array, or a String is instead reached through the address of its
 /// leaf, which Zig follows for a field, an element, or a method.
 pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     return decide(ctx, e, .reaches_leaf);
@@ -378,7 +378,7 @@ fn decideReachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     const ty = typeOf(ctx, e) orelse return false;
     if (!sema.readByAddress(ctx, ty)) return false;
     return switch (ctx.types.get(ty)) {
-        .text, .array, .nominal, .parameterized_nominal, .imported_nominal => true,
+        .string, .array, .nominal, .parameterized_nominal, .imported_nominal => true,
         else => false,
     };
 }
@@ -502,7 +502,7 @@ fn reachesPlace(ctx: *const SemContext, e: Sexp) bool {
 
 /// Whether the field or element path `e` starts outside the statement
 /// temporaries its header makes: at a name, or at a view whose
-/// evaluation makes none (`get(!v)[idx(?Text("a"))]`), which therefore
+/// evaluation makes none (`get(!v)[idx(?String("a"))]`), which therefore
 /// cannot point into one. A path from a view of a value the header makes
 /// (`id(?mk()).e`, `(?mk()).e`, `id(?mkh()).xs`) lives inside a
 /// temporary the header's block drops.
@@ -680,7 +680,7 @@ fn payloadByAddress(ctx: *const SemContext, b: Sexp, in_place: bool) bool {
     if (!fieldIsPointee(ctx, field)) return false;
     if (writes) return true;
     const binding = known(ctx, ctx.bindingTypeOf(b) orelse return false) orelse return false;
-    if (ctx.types.get(binding) == .read_view or sema.viewsTextBytes(ctx, field, binding)) return true;
+    if (ctx.types.get(binding) == .read_view or sema.viewsStringBytes(ctx, field, binding)) return true;
     return in_place and !sema.isReadOrWriteView(ctx, binding) and sema.copies(ctx, binding) == .depends;
 }
 
@@ -694,7 +694,7 @@ fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
     return in_place and !sema.isReadOrWriteView(ctx, ty) and sema.copies(ctx, ty) == .depends;
 }
 
-/// Whether a `print`, `Text(...)`, or `add` argument `a` is read where it
+/// Whether a `print`, `String(...)`, or `add` argument `a` is read where it
 /// is, by address: a place that owns storage, or a view of one (a
 /// function's binding, or a field or element of a value, not a slice,
 /// which is a new value). Plain data is copied whole where it is read.
@@ -746,7 +746,7 @@ fn decideDropsWhenTested(ctx: *const SemContext, e: Sexp) bool {
 }
 
 /// Whether `for` loop `loop` consumes its source, handing its elements
-/// over one at a time: a Vec it takes (`for x in <v`) or that its source
+/// over one at a time: a List it takes (`for x in <v`) or that its source
 /// makes and that owns resources, or an array of values that move, which
 /// it takes or its source makes. Decided once: emit lowers the loop so,
 /// the plan makes its iterator and elements, and the ownership checker
@@ -760,15 +760,15 @@ fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
     const source = ir.For.source(loop);
     if (source.isKind(.@"..")) return false;
     const t = typeOf(ctx, source) orelse return false;
-    if (isVecTy(ctx, t)) return mode == .move or (!hasStorage(ctx, source) and owns(ctx, t));
+    if (isListTy(ctx, t)) return mode == .move or (!hasStorage(ctx, source) and owns(ctx, t));
     return ctx.types.get(t) == .array and owns(ctx, ctx.types.get(t).array.elem) and (mode == .move or !hasStorage(ctx, source));
 }
 
-/// Whether a read `for` over an array, a slice, or a Vec binds the bytes
-/// of each Text element: its binding is a `String`, the read view of a
-/// `Text`, so the loop walks the elements by address and the binding is
+/// Whether a read `for` over an array, a slice, or a List binds the bytes
+/// of each String element: its binding is a `?String`, the read view of a
+/// `String`, so the loop walks the elements by address and the binding is
 /// each one's `.bytes()`.
-pub fn loopBindsTextBytes(ctx: *const SemContext, loop: Sexp) bool {
+pub fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
     if (ir.For.mode(loop).tag == .write) return false;
     const source = ir.For.source(loop);
     if (source.isKind(.@"..") or forConsumes(ctx, loop)) return false;
@@ -778,21 +778,21 @@ pub fn loopBindsTextBytes(ctx: *const SemContext, loop: Sexp) bool {
     const elem = switch (ctx.types.get(t)) {
         .array => |a| a.elem,
         .slice => |sl| sl.elem,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) pn.args[0] else return false,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) pn.args[0] else return false,
         else => return false,
     };
-    return sema.viewsTextBytes(ctx, elem, bound);
+    return sema.viewsStringBytes(ctx, elem, bound);
 }
 
-/// Whether `if value as name` binds the bytes of a Text that a write
-/// view in the optional points at (`(!Text)?`): the binding is a
-/// `String`, the read view of that Text.
-pub fn optionalBindsTextBytes(ctx: *const SemContext, cond: Sexp) bool {
+/// Whether `if value as name` binds the bytes of a String that a write
+/// view in the optional points at (`(!String)?`): the binding is a
+/// `?String`, the read view of that String.
+pub fn optionalBindsStringBytes(ctx: *const SemContext, cond: Sexp) bool {
     const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
     const bound = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
     const t = typeOf(ctx, ir.As.value(cond)) orelse return false;
     return switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
-        .optional => |inner| ctx.types.get(inner) == .write_view and sema.viewsTextBytes(ctx, inner, bound),
+        .optional => |inner| ctx.types.get(inner) == .write_view and sema.viewsStringBytes(ctx, inner, bound),
         else => false,
     };
 }
@@ -1168,8 +1168,8 @@ const Planner = struct {
                     _ = isPureArg(ctx, argValue(a));
                     _ = argumentHold(ctx, argValue(a));
                 }
-                // How `print` and the Text operations read each argument.
-                if (isPrintCall(ctx, e) or textCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
+                // How `print` and the String operations read each argument.
+                if (isPrintCall(ctx, e) or stringCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
                     _ = printsByAddress(ctx, a);
                 };
                 try p.call(e);
@@ -1247,15 +1247,15 @@ const Planner = struct {
         } else null;
         // A resource is captured, then owned by the binding.
         if (ty != null and owns(ctx, ty.?)) try p.record(cond, .as_value, .owned, .body);
-        // The bytes of the Text a captured write view points at: the
+        // The bytes of the String a captured write view points at: the
         // pointer is captured, and the binding takes its bytes.
-        if (used and optionalBindsTextBytes(ctx, cond)) try p.record(cond, .as_value, .pointer, .body);
+        if (used and optionalBindsStringBytes(ctx, cond)) try p.record(cond, .as_value, .pointer, .body);
     }
 
     fn forLoop(p: *Planner, loop: Sexp) !void {
         const ctx = p.ctx;
         const source = ir.For.source(loop);
-        if (loopBindsTextBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
+        if (loopBindsStringBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);
             try p.record(loop, .range_end, .owned, .construct);
@@ -1410,7 +1410,7 @@ const Planner = struct {
     fn placeAssign(p: *Planner, target: Sexp, value: Sexp) !void {
         const ctx = p.ctx;
         const place_ty = typeOf(ctx, target);
-        if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellVecTy(ctx, t)) return p.openAssign(target, value);
+        if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellListTy(ctx, t)) return p.openAssign(target, value);
         if (target != .src and isPtrViewExpr(ctx, target)) return p.openAssign(target, value);
         if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(target, value);
         try p.record(value, .new_value, .owned, .assignment);
@@ -1498,18 +1498,18 @@ fn divides(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
     }
 }
 
-fn isVecTy(ctx: *const SemContext, ty: TypeId) bool {
+fn isListTy(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
-        .parameterized_nominal => |pn| pn.sym == ctx.vec_sym_id,
+        .parameterized_nominal => |pn| pn.sym == ctx.list_sym_id,
         else => false,
     };
 }
 
-/// A Cell holding a Vec, reached by value, view, or shared handle.
-fn isCellVecTy(ctx: *const SemContext, ty: TypeId) bool {
+/// A Cell holding a List, reached by value, view, or shared handle.
+fn isCellListTy(ctx: *const SemContext, ty: TypeId) bool {
     const cell = switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
         .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,
         else => return false,
     };
-    return isVecTy(ctx, cell);
+    return isListTy(ctx, cell);
 }

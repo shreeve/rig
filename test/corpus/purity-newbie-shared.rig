@@ -1,6 +1,6 @@
 # A counter shared between two owners, attempt 3: a shared Cell
 struct Clicker
-  name: String
+  name: ?String
   counter: *Cell[Int]
 
   sub click(!self)

@@ -1,6 +1,6 @@
 sub main()
   x = while true
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     defer
       for i in 0..100

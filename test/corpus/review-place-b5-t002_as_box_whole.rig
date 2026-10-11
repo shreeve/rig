@@ -2,7 +2,7 @@ struct P
   x: Int
 
 sub main()
-  o: Box[P]? = Box(P(x: 1))
+  o: ^P? = ^P(x: 1)
   if o as b
-    b = Box(P(x: 2))
+    b = ^P(x: 2)
     print(b.x)

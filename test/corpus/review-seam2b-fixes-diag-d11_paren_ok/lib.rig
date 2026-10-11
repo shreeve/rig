@@ -12,7 +12,7 @@ pub struct T
     T(n: 1)
 
 pub enum E
-  a(s: String)
+  a(s: ?String)
   b
 
 pub fun mk() -> T

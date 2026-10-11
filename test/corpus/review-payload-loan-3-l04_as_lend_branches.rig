@@ -1,13 +1,13 @@
 struct P
-  t: Text
+  t: String
 
 sub main()
-  p = P(t: Text("hello"))
-  q = P(t: Text("bye"))
+  p = P(t: String("hello"))
+  q = P(t: String("bye"))
   o1: (!P)? = !p
   o2: (!P)? = !q
   c = true
   if (!o1 if c else !o2) as x
     r = ?x.t[1..]
-    x.t = Text("other")
+    x.t = String("other")
     print(r)

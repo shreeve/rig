@@ -3,7 +3,7 @@
 # instead.
 
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub f(a: !E, b: !E, c: Bool)
@@ -13,7 +13,7 @@ sub f(a: !E, b: !E, c: Bool)
     .b => pass
 
 sub main()
-  x = E.a(t: Text("x"))
+  x = E.a(t: String("x"))
   y = E.b
   f(!x, !y, true)
 

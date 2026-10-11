@@ -1,27 +1,27 @@
 struct Node
   key: Int
-  left: Box[Node]?
-  right: Box[Node]?
+  left: ^Node?
+  right: ^Node?
 
   drop(!self)
     print("drop", self.key)
 
-sub insert(slot: !Box[Node]?, key: Int)
+sub insert(slot: !^Node?, key: Int)
   if !slot as n
     if key < n.key
       insert(!n.left, key)
     else
       insert(!n.right, key)
   else
-    slot = Box(Node(key: key, left: none, right: none))
+    slot = ^Node(key: key, left: none, right: none)
 
-sub walk(slot: ?Box[Node]?)
+sub walk(slot: ?^Node?)
   if slot as n
     walk(?n.left)
     print(n.key)
     walk(?n.right)
 
-sub rotate_left(slot: !Box[Node]?)
+sub rotate_left(slot: !^Node?)
   if <slot as n
     if <n.right as r
       n.right = <r.left
@@ -31,7 +31,7 @@ sub rotate_left(slot: !Box[Node]?)
       slot = <n
 
 sub main()
-  root: Box[Node]? = none
+  root: ^Node? = none
   for k in [1, 2, 3]
     insert(!root, k)
   rotate_left(!root)

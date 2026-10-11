@@ -1,24 +1,24 @@
-# generic bodies: headers through a temp index over Vec[T?] and Vec[O[T]], read/write/return a view. Expect accept, clean.
+# generic bodies: headers through a temp index over List[T?] and List[O[T]], read/write/return a view. Expect accept, clean.
 enum O[T]
   some(x: T)
   nothing
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-sub at[T](v: ?Vec[O[T]])
-  match ?v[idx(?Text("a"))]
+sub at[T](v: ?List[O[T]])
+  match ?v[idx(?String("a"))]
     .some(x) => print(x)
     .nothing => pass
 
-sub setw[T](v: !Vec[T?], x: T)
-  if !v[idx(?Text("a"))] as y
+sub setw[T](v: !List[T?], x: T)
+  if !v[idx(?String("a"))] as y
     y = <x
 
-sub show[T](v: ?Vec[T?])
-  if v[idx(?Text("a"))] as y
+sub show[T](v: ?List[T?])
+  if v[idx(?String("a"))] as y
     print(y)
-  while v[idx(?Text("a"))] as y
+  while v[idx(?String("a"))] as y
     print(y)
     break
 
@@ -27,15 +27,15 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[O[Text]] = Vec()
-  !v.push(O.some(x: Text("q")))
+  v: List[O[String]] = List()
+  !v.push(O.some(x: String("q")))
   at(?v)
   print(clobber(3))
-  w: Vec[Text?] = Vec()
-  !w.push(Text("a"))
-  setw(!w, Text("b"))
+  w: List[String?] = List()
+  !w.push(String("a"))
+  setw(!w, String("b"))
   print(w)
-  n: Vec[Int?] = Vec()
+  n: List[Int?] = List()
   !n.push(4)
   setw(!n, 5)
   show(?n)

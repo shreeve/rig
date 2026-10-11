@@ -1,11 +1,11 @@
-# A slice of a Vec points into its buffer, which `push` may move: the
-# Vec cannot be written or moved while the slice is live.
+# A slice of a List points into its buffer, which `push` may move: the
+# List cannot be written or moved while the slice is live.
 
-sub eat(v: Vec[Int])
+sub eat(v: List[Int])
   print(v.len)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   s = ?v[0..1]
   !v.push(2)

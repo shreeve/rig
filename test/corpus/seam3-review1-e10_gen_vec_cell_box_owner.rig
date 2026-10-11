@@ -2,14 +2,14 @@ struct P
   x: Int
   y: Int
 
-fun keep[T](x: T) -> *Cell[Vec[T]]
-  xs: Vec[T] = Vec()
+fun keep[T](x: T) -> *Cell[List[T]]
+  xs: List[T] = List()
   !xs.push(x)
   *Cell(<xs)
 
 sub main()
-  b = Box(P(x: 7, y: 8))
+  b = ^P(x: 7, y: 8)
   c = keep(?b)
   <b
-  old = (!c).replace(Vec())
+  old = (!c).replace(List())
   print(old[0].x)

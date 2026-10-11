@@ -2,7 +2,7 @@ pub enum Mode
   fast
   slow
 
-pub fun f[m: Mode, s: String, b: Bool, n: U8, T](x: T) -> T
+pub fun f[m: Mode, s: ?String, b: Bool, n: U8, T](x: T) -> T
   if b and m == .fast
     print(s, n)
   x

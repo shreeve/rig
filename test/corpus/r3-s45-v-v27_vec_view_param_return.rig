@@ -1,5 +1,5 @@
-fun firsts(a: ?Int, b: ?Int) -> Vec[?Int]
-  v: Vec[?Int] = Vec()
+fun firsts(a: ?Int, b: ?Int) -> List[?Int]
+  v: List[?Int] = List()
   !v.push(a)
   !v.push(b)
   v

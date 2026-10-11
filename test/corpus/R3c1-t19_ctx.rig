@@ -1,6 +1,6 @@
 struct P
   x: Int
-  s: String
+  s: ?String
 
 struct Flags
   same: Bool

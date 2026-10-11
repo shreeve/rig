@@ -8,8 +8,8 @@ error Bad
   oops
 
 fun f(k: Int) -> Int!
-  b = Box(value: R(n: k))
-  o: Box[R]? = Box(value: R(n: k + 10))
+  b = ^R(n: k)
+  o: ^R? = ^R(n: k + 10)
   if !o as x
     defer print("deferred", x.n)
     return Bad.oops if k > 1
@@ -17,18 +17,18 @@ fun f(k: Int) -> Int!
   b.n
 
 fun h(k: Int) -> Int!
-  o: Box[R]? = Box(value: R(n: k + 20))
+  o: ^R? = ^R(n: k + 20)
   if !o as x
     x.n = f(k)!
     return x.n
   0
 
-fun mkopt(k: Int) -> Box[R]?
+fun mkopt(k: Int) -> ^R?
   return none if k > 1
-  Box(value: R(n: 5))
+  ^R(n: 5)
 
 fun g(k: Int) -> Int?
-  b = Box(value: R(n: k))
+  b = ^R(n: k)
   o = mkopt(k)
   if ?o as y
     q = mkopt(k)?

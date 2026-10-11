@@ -2,7 +2,7 @@ struct Counter
   hits: Cell[Int]
 
 sub main()
-  v: Vec[Counter] = Vec()
+  v: List[Counter] = List()
   !v.push(Counter(hits: Cell(0)))
   for k in ?v
     !k.hits.set(k.hits.get() + 1)

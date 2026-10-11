@@ -4,11 +4,11 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun first[T](v: ?Vec[T]) -> T
+fun first[T](v: ?List[T]) -> T
   v[0]
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
   b = first(?v)
   print(b.n)

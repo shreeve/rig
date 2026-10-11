@@ -4,20 +4,20 @@ struct Tok
   n: Int
 
 struct Parser
-  src: ?Vec[Tok]
-  scratch: Vec[Tok]
+  src: ?List[Tok]
+  scratch: List[Tok]
 
-  fun next(!self, other: ?Vec[Tok]) -> ?Tok
+  fun next(!self, other: ?List[Tok]) -> ?Tok
     self.src = other
     ?self.src[0]
 
 sub main()
-  a: Vec[Tok] = Vec()
+  a: List[Tok] = List()
   !a.push(Tok(n: 1))
-  p = Parser(src: ?a, scratch: Vec())
+  p = Parser(src: ?a, scratch: List())
   t = ?a[0]
   if true
-    b: Vec[Tok] = Vec()
+    b: List[Tok] = List()
     !b.push(Tok(n: 2))
     t = (!p).next(?b)
   print(t.n)

@@ -1,11 +1,11 @@
-# H3: generic loop over ?Vec[T], body: capture +x in a closure
+# H3: generic loop over ?List[T], body: capture +x in a closure
 struct S
-  t: Text
+  t: String
 
 struct Holder[T]
   x: T?
 
-fun cap[T](v: ?Vec[T]) -> Int
+fun cap[T](v: ?List[T]) -> Int
   n = 0
   for x in v
     f = |+x| 1
@@ -13,7 +13,7 @@ fun cap[T](v: ?Vec[T]) -> Int
   n
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   print(cap(?v))

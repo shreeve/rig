@@ -1,11 +1,11 @@
 struct H
-  log: Cell[Vec[Int]]
-  items: Vec[Int]
+  log: Cell[List[Int]]
+  items: List[Int]
 
-fun f(x: !H) -> Vec[Int]
+fun f(x: !H) -> List[Int]
   <x.items
 
 sub main()
-  h = *H(log: Cell(Vec()), items: Vec())
+  h = *H(log: Cell(List()), items: List())
   v = f(!h)
   print(v.len)

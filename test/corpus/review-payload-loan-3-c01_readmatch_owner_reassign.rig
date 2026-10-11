@@ -1,9 +1,9 @@
 enum Opt
-  some(t: Text)
+  some(t: String)
   none
 
 sub main()
-  o = Opt.some(Text("hello"))
+  o = Opt.some(String("hello"))
   match o
     .some(x)
       r = ?x

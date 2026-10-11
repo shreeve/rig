@@ -1,10 +1,10 @@
 struct Node
-  kids: Vec[*Node]
+  kids: List[*Node]
   val: Int
 
 sub main()
-  leaf = *Node(kids: Vec(), val: 2)
-  root = Node(kids: Vec(), val: 1)
+  leaf = *Node(kids: List(), val: 2)
+  root = Node(kids: List(), val: 1)
   !root.kids.push(<leaf)
   total = root.val
   for k in ?root.kids

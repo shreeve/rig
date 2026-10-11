@@ -1,18 +1,18 @@
-# H3: generic loop over ?Vec[T], body: push into Vec[T] by bare x
+# H3: generic loop over ?List[T], body: push into List[T] by bare x
 struct S
-  t: Text
+  t: String
 
 struct Holder[T]
   x: T?
 
-fun cp[T](v: ?Vec[T]) -> Vec[T]
-  out: Vec[T] = Vec()
+fun cp[T](v: ?List[T]) -> List[T]
+  out: List[T] = List()
   for x in v
     !out.push(x)
   <out
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   print(cp(?v))

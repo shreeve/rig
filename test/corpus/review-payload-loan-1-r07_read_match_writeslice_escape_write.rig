@@ -1,10 +1,10 @@
 enum WS
-  a(s: ![]Text)
+  a(s: ![]String)
   b
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("hello"))
+  v: List[String] = List()
+  !v.push(String("hello"))
   e = WS.a(!v[..])
   r = ""
   match e
@@ -13,6 +13,6 @@ sub main()
     .b => pass
   match e
     .a(s)
-      s[0] = Text("other")
+      s[0] = String("other")
     .b => pass
   print(r)

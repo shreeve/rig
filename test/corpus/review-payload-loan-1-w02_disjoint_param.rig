@@ -1,6 +1,6 @@
 struct P
-  t: Text
-  xs: Vec[Int]
+  t: String
+  xs: List[Int]
 
 sub f(p: !P)
   s = ?p.t[1..]
@@ -8,5 +8,5 @@ sub f(p: !P)
   print(s, p.xs.len)
 
 sub main()
-  p = P(t: Text("hello"), xs: Vec())
+  p = P(t: String("hello"), xs: List())
   f(!p)

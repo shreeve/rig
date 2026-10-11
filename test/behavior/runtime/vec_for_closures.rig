@@ -1,4 +1,4 @@
-# `for cb in ?subs` walks a `Vec[*sub()]` by viewed slot and calls
+# `for cb in ?subs` walks a `List[*sub()]` by viewed slot and calls
 # each closure; all handles and the shared cell are released at scope exit.
 
 sub main()
@@ -7,7 +7,7 @@ sub main()
   cb2: *sub() = *|+count| !count.set(count.get() + 10)
   cb3: *sub() = *|+count| !count.set(count.get() + 100)
 
-  subs: Vec[*sub()] = Vec()
+  subs: List[*sub()] = List()
   !subs.push(+cb1)
   !subs.push(+cb2)
   !subs.push(+cb3)

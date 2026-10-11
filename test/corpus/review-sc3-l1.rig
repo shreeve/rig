@@ -8,7 +8,7 @@ fun make(k: Int) -> Res?
   Res(id: k) if k > 0 else none
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   for n in 1..5
     !xs.push(n)
   :outer while (!xs).pop() as x and make(x) as r

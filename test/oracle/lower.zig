@@ -44,7 +44,7 @@ fn abstain(why: []const u8) Error {
 
 /// What the context does with a value (Core §3).
 const How = enum {
-    /// Reads it: a `print` or `Text` argument, an operand, a condition,
+    /// Reads it: a `print` or `String` argument, an operand, a condition,
     /// an object whose field or element is read. Never moves a name.
     read,
     /// Takes it: a binding, an owned parameter, a stored field or
@@ -70,7 +70,7 @@ const Place = struct {
     slice: bool = false,
     /// For a slice, the type of what is sliced.
     slice_of: TypeId = 0,
-    /// The path passes through a `[]T` or String stored in a place or
+    /// The path passes through a `[]T` or `?String` stored in a place or
     /// seen through a view: what it reaches carries that view's loans,
     /// not a loan on its holder (Core s7).
     carry: bool = false,
@@ -824,7 +824,7 @@ const Lowerer = struct {
         const x = self.varOf(name) orelse return abstain("a drop of something not a local");
         const xv = self.f.vars.items[x];
         // What a parameter views, the caller owns (SPEC §7 "Drop").
-        if (xv.param and self.ctx.types.get(xv.ty) != .string and xv.kind != .owning and xv.kind != .plain) {
+        if (xv.param and self.ctx.types.get(xv.ty) != .string_view and xv.kind != .owning and xv.kind != .plain) {
             return self.found(.C5, self.posOf(s), "a parameter's view is the caller's; it is not dropped here", .{});
         }
         try self.keptByDefer(x, self.posOf(s));
@@ -890,7 +890,7 @@ const Lowerer = struct {
         /// The subject's type, whose elements or payloads the header binds.
         ty: TypeId,
         /// For a read lend of a place (`match ?h`): the place's root, whose
-        /// loans a String payload carries instead of the loan on it.
+        /// loans a `?String` payload carries instead of the loan on it.
         carry_from: ?VarId = null,
         /// For a lend of a value the header made (`match ?mk()`): the
         /// header's temporary, which the tests of the statement may read
@@ -1091,22 +1091,22 @@ const Lowerer = struct {
         if (h.lent_temp and (xv.holds_views or (xv.kind != .plain and (hv.kind == .read_view or hv.kind == .write_view)))) {
             return self.found(.C5, leaf.src.pos, "a loan of a temporary the header made outlives its statement", .{});
         }
-        // A binding of a Text's bytes, a `String`, views the Text it is
+        // A binding of a String's bytes, a `?String`, views the String it is
         // stored in: a lend of the holder, as a `?T` of a stored `T` is.
         const slot = stored orelse self.ctx.payloadFieldOf(leaf);
-        const views_text = slot != null and sema.viewsTextBytes(self.ctx, slot.?, xv.ty);
-        // Its bytes are in the Text's storage: a pointer into it, as a
+        const views_string = slot != null and sema.viewsStringBytes(self.ctx, slot.?, xv.ty);
+        // Its bytes are in the String's storage: a pointer into it, as a
         // `?T` of a stored `T` is.
-        if (views_text) xv.holds_pointers = true;
-        // A String payload of a read lend carries the String's loans, not
+        if (views_string) xv.holds_pointers = true;
+        // A `?String` payload of a read lend carries the `?String`'s loans, not
         // the loan on what holds it (Core s7).
-        if (h.carry_from) |r| if (self.ctx.types.get(xv.ty) == .string and !views_text) {
+        if (h.carry_from) |r| if (self.ctx.types.get(xv.ty) == .string_view and !views_string) {
             try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(r), .uses = try self.one(h.v), .def = x, .carry = true });
             return;
         };
         const held_view = hv.kind == .read_view or hv.kind == .write_view;
         if (!held_view) switch (self.ctx.types.get(xv.ty)) {
-            .read_view, .write_view, .string => if (views_text or (self.ctx.types.get(xv.ty) != .string and (stored == null or stored.? != xv.ty))) {
+            .read_view, .write_view, .string_view => if (views_string or (self.ctx.types.get(xv.ty) != .string_view and (stored == null or stored.? != xv.ty))) {
                 const mode: core.Mode = if (self.ctx.types.get(xv.ty) == .write_view) .write else .read;
                 const loan = try self.newLoan(self.rootPlace(h.v), mode, false, 0, h.pos);
                 try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(h.v), .def = x, .loan = loan, .access = .{ .root = h.v, .kind = if (mode == .read) .read else .write } });
@@ -1140,7 +1140,7 @@ const Lowerer = struct {
         return switch (self.ctx.types.get(ty)) {
             .array => |arr| arr.elem,
             .slice => |sl| sl.elem,
-            .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) pn.args[0] else null,
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.list_sym_id and pn.args.len == 1) pn.args[0] else null,
             else => null,
         };
     }
@@ -1529,15 +1529,15 @@ const Lowerer = struct {
     }
 
     /// Whether a slice of a value of type `ty`, itself or through a
-    /// write view, slices a String or a read view: what that views
+    /// write view, slices a `?String` or a read view: what that views
     /// cannot change while its own loans live, which the slice carries.
-    fn slicesString(self: *Lowerer, ty: TypeId) bool {
+    fn slicesStringView(self: *Lowerer, ty: TypeId) bool {
         const t = switch (self.ctx.types.get(ty)) {
             .write_view => |inner| inner,
             else => ty,
         };
         return switch (self.ctx.types.get(t)) {
-            .string, .read_view => true,
+            .string_view, .read_view => true,
             else => false,
         };
     }
@@ -1696,9 +1696,9 @@ const Lowerer = struct {
                 // `+x` reads `x` and makes a new owner of its value, part by
                 // part (Core s2): it carries the loans of the views the value
                 // holds; through a view, `+r` of a `?T` is a new `T`, which
-                // carries no loan on what `r` sees, and `+s` of a String view
-                // makes a Text that holds none.
-                const through = p.via != .own or self.isRef(p.ty) or sema.unwrapViews(self.ctx, p.ty) == self.ctx.types.string_id;
+                // carries no loan on what `r` sees, and `+s` of a `?String` view
+                // makes a String that holds none.
+                const through = p.via != .own or self.isRef(p.ty) or sema.unwrapViews(self.ctx, p.ty) == self.ctx.types.string_view_id;
                 try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .unpoint = through, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read } });
                 return t;
             },
@@ -1805,10 +1805,12 @@ const Lowerer = struct {
                 .take => return abstain("a stack closure stored"),
                 .read, .view => return try self.closure(e, false),
             },
-            .share => {
-                // `*<x` moves `x` into a counted box and `*S(...)` boxes a
-                // new value: the box takes it, with its loans (Core s8, s9).
-                // An owned closure's environment is the box (Core §7).
+            .share, .box => {
+                // `*<x` moves `x` into a counted handle and `*S(...)` makes
+                // a new value there; `^<x` and `^S(...)` do so in a box of
+                // one owner: the holder takes it, with its loans (Core s8,
+                // s9). An owned closure's environment is the counted
+                // handle (Core §7).
                 const operand = ir.get(e, .operand);
                 const v = if (operand.isKind(.lambda)) try self.closure(operand, true) else try self.eval(operand, .take, null);
                 const t = try self.temp(try self.typeOf(e), pos);
@@ -1992,11 +1994,11 @@ const Lowerer = struct {
             .shared => handle = true,
             .weak => return abstain("an access through a weak handle"),
             // A view reached through a slice carries that view's loans,
-            // through a write view too (Core s7). A String reached through
-            // a view is that view's, loans and all: the bytes of a Text
-            // are that Text's, and a String a call returned views what its
+            // through a write view too (Core s7). A `?String` reached through
+            // a view is that view's, loans and all: the bytes of a String
+            // are that String's, and a `?String` a call returned views what its
             // arguments view.
-            .string => {
+            .string_view => {
                 if (via == .own) via = .read;
             },
             .slice => if (via != .read or !carry) {
@@ -2029,9 +2031,9 @@ const Lowerer = struct {
         if (info.unsupported) |why| return abstain(why);
         // A bare slice of a place lends it (Core §4), and so does one
         // through a write view, which may change or replace what the
-        // slice views; a slice of a String or of a read view copies the
+        // slice views; a slice of a `?String` or of a read view copies the
         // view and its loans.
-        if (p.slice and !self.slicesStatic(p.slice_of) and (p.via == .own or (p.via == .write and !self.slicesString(p.slice_of)))) return try self.lend(p, .read, e, p.ty);
+        if (p.slice and !self.slicesStatic(p.slice_of) and (p.via == .own or (p.via == .write and !self.slicesStringView(p.slice_of)))) return try self.lend(p, .read, e, p.ty);
         // A value holding a write view moves as an owner does (Core §1);
         // the compiler lends one on where it is handed over bare, which
         // the oracle does not model.
@@ -2330,7 +2332,7 @@ const Lowerer = struct {
             .read_view, .write_view => ty != p.ty,
             else => false,
         };
-        // A generic loop's element of a `?Vec[T]` is a copy the iteration
+        // A generic loop's element of a `?List[T]` is a copy the iteration
         // holds (SPEC "Generic bodies"): `?x` lends that copy, whose loan
         // ends with the iteration.
         const loop_copy = p.path.len == 0 and mode == .read and self.loop_elems.contains(p.root) and self.genericLoopCopy(p.root);
@@ -2348,10 +2350,10 @@ const Lowerer = struct {
         }
         const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
         const loan = try self.lentLoan(p, mode, deref, 0, pos);
-        // A slice or a String views the place's bytes, and copies of it
+        // A slice or a `?String` views the place's bytes, and copies of it
         // carry the loan; a `?T` or `!T` points at the place.
         self.f.loans.items[loan].pointer = switch (self.ctx.types.get(ty)) {
-            .slice, .string => false,
+            .slice, .string_view => false,
             else => !p.slice,
         };
         const t = try self.viewTemp(ty, kind, pos);
@@ -2548,9 +2550,9 @@ const Lowerer = struct {
 
     fn shapeOf(ctx: *const sema.SemContext, ty: TypeId) Shape {
         return switch (ctx.types.get(ty)) {
-            .read_view, .write_view, .slice, .string, .callable => .view,
+            .read_view, .write_view, .slice, .string_view, .callable => .view,
             .optional => |o| switch (ctx.types.get(o)) {
-                .read_view, .write_view, .slice, .string => .view,
+                .read_view, .write_view, .slice, .string_view => .view,
                 else => .take,
             },
             else => .take,
@@ -2568,7 +2570,7 @@ const Lowerer = struct {
         var uses: std.ArrayList(VarId) = .empty;
         var access: ?core.Access = null;
         var activation: ?core.LoanId = null;
-        // The var whose elements the call hands back, for a Vec's `get`,
+        // The var whose elements the call hands back, for a List's `get`,
         // `pop`, and `remove`.
         var elem_from: ?VarId = null;
         // A write receiver reached through a write view.
@@ -2620,8 +2622,8 @@ const Lowerer = struct {
                 self.groups += 1;
                 group = self.groups;
                 if (std.mem.eql(u8, name, "swap")) all_read = true else shapes = &.{ .view, .take };
-            } else if (self.ctx.textCallOf(e) == .new) {
-                // `Text(...)` formats its arguments as `print` does.
+            } else if (self.ctx.stringCallOf(e) == .new) {
+                // `String(...)` formats its arguments as `print` does.
                 all_read = true;
             } else if (sym == null) {
                 // A conversion, `Int(x)`, reads its argument.
@@ -2710,11 +2712,11 @@ const Lowerer = struct {
                     },
                     .swap, .read, .write => all_read = true,
                 } else all_read = true;
-                // `get`, `pop`, and `remove` hand back an element of a Vec:
-                // a value it held, which carries the loans the Vec's
-                // elements carry, and no loan on the Vec (Core s7: a view
+                // `get`, `pop`, and `remove` hand back an element of a List:
+                // a value it held, which carries the loans the List's
+                // elements carry, and no loan on the List (Core s7: a view
                 // reached through another carries that view's loans).
-                const elem_method = self.isVec(recv_ty) and for ([_][]const u8{ "get", "pop", "remove" }) |m| {
+                const elem_method = self.isList(recv_ty) and for ([_][]const u8{ "get", "pop", "remove" }) |m| {
                     if (std.mem.eql(u8, m, ir.Member.name(callee).getText(self.src))) break true;
                 } else false;
                 switch (recv_mode) {
@@ -2949,16 +2951,16 @@ const Lowerer = struct {
         return result;
     }
 
-    /// Whether `ty` is a Vec, or a view of one.
-    fn isVec(self: *Lowerer, ty: TypeId) bool {
+    /// Whether `ty` is a List, or a view of one.
+    fn isList(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
-            .parameterized_nominal => |pn| pn.sym == self.ctx.vec_sym_id,
+            .parameterized_nominal => |pn| pn.sym == self.ctx.list_sym_id,
             else => false,
         };
     }
 
     /// A built-in generic's method parameters at the receiver's type
-    /// arguments: `push(x: T)` of a `Vec[?Int]` takes a `?Int`, which it
+    /// arguments: `push(x: T)` of a `List[?Int]` takes a `?Int`, which it
     /// stores (Core §5).
     fn instParams(self: *Lowerer, recv_ty: TypeId, params: []const TypeId) Error![]const TypeId {
         const pn = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
@@ -2982,10 +2984,10 @@ const Lowerer = struct {
     fn storesViews(self: *Lowerer, p: Place) Error!bool {
         var ty = p.ty;
         if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
-        // A slice's place is its elements; a slice of a Text, its bytes.
+        // A slice's place is its elements; a slice of a String, its bytes.
         switch (self.ctx.types.get(ty)) {
             .slice => |sl| ty = sl.elem,
-            .string => if (p.slice) return false,
+            .string_view => if (p.slice) return false,
             else => {},
         }
         return (try self.kinds.of(ty)).holds_views;
@@ -3137,7 +3139,7 @@ const Lowerer = struct {
         return false;
     }
 
-    /// A type argument of plain data. An instance at a String is checked
+    /// A type argument of plain data. An instance at a `?String` is checked
     /// against whether the body stores a `T` where no loan may go (Core
     /// s9), which the oracle does not answer either.
     fn plainInstanceArg(self: *Lowerer, t: TypeId) Error!void {
@@ -3154,7 +3156,7 @@ const Lowerer = struct {
     /// type arguments (SPEC "Generic bodies"): each of plain data; or an
     /// owner that holds no view, where the body, and every generic body
     /// it calls at its own type parameters, never copies a value of a
-    /// type parameter (so `sort.sort_by(!v, less)` of a `Vec[Text]`). In
+    /// type parameter (so `sort.sort_by(!v, less)` of a `List[String]`). In
     /// a generic body, a call at its own type parameters is that body's
     /// to answer for its instances (`t_calls`).
     fn genericCall(self: *Lowerer, e: Sexp, type_args: []const TypeId) Error!void {
@@ -3253,7 +3255,7 @@ const Lowerer = struct {
         if (self.ctx.elemCallOf(callee)) |ec| {
             return .{ if (ec.op == .read) .read else .write, null };
         }
-        if (self.ctx.textCallOf(callee)) |tc| {
+        if (self.ctx.stringCallOf(callee)) |tc| {
             _ = tc;
             return .{ .write, null };
         }
@@ -3270,10 +3272,10 @@ const Lowerer = struct {
             else => {},
         }
         const decl = sema.nominalDecl(self.ctx, recv_ty) orelse {
-            // A built-in method of an array, slice, or String: it writes
+            // A built-in method of an array, slice, or `?String`: it writes
             // its receiver only where `!` says so.
             return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
-                .array, .slice, .string => .{ if (obj.isKind(.write)) .write else .read, null },
+                .array, .slice, .string_view => .{ if (obj.isKind(.write)) .write else .read, null },
                 else => abstain("a method of an unusual type"),
             };
         };
@@ -3284,11 +3286,11 @@ const Lowerer = struct {
                 if (try self.methodOf(inner_decl, mname)) |found_method| return found_method;
             }
         }
-        // A `Cell[Vec[T]]` answers its Vec's members, each marked as the
-        // Vec's own are (SPEC "Cell").
+        // A `Cell[List[T]]` answers its List's members, each marked as the
+        // List's own are (SPEC "Cell").
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id and pn.args.len == 1) {
-                if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.vec_sym_id) {
+                if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.list_sym_id) {
                     if (try self.methodOf(held, mname)) |found_method| return found_method;
                 };
             },

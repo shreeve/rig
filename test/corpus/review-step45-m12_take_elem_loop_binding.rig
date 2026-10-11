@@ -1,8 +1,8 @@
 # take an element of a loop element (for row in v) reached read-only: reject
 sub main()
-  v: Vec[Vec[Text?]] = Vec()
-  r: Vec[Text?] = Vec()
-  !r.push(Text("a"))
+  v: List[List[String?]] = List()
+  r: List[String?] = List()
+  !r.push(String("a"))
   !v.push(<r)
   for row in v
     t = <row[0]

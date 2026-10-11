@@ -6,7 +6,7 @@ enum Color
   red
   green
 
-fun find(key: Int) -> String?
+fun find(key: Int) -> (?String)?
   if key == 1
     return "one"
   none

@@ -1,11 +1,11 @@
-# A `!self` method pushes onto a Cell[Vec] of a named local in a loop
+# A `!self` method pushes onto a Cell[List] of a named local in a loop
 # whose argument may leave the iteration. The push may reallocate the
-# Vec, so the `drop` and the next allocations must see the new buffer:
+# List, so the `drop` and the next allocations must see the new buffer:
 # a stale header would free a buffer twice.
 # release
 
 struct V
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   drop(!self)
     print("drop", self.c.len)
@@ -15,14 +15,14 @@ struct V
     self.c.len
 
 struct P
-  c: Cell[Vec[Int]]
+  c: Cell[List[Int]]
 
   fun add(!self, n: Int) -> Int
     !self.c.push(n)
     self.c.len
 
-fun build(n: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun build(n: Int) -> List[Int]
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i)
   v

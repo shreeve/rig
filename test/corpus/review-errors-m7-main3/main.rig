@@ -1,6 +1,6 @@
 use lib
 
-fun k(d: lib.Disk) -> String
+fun k(d: lib.Disk) -> ?String
   match d
     lib.DEF => "def"
 

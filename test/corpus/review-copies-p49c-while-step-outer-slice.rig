@@ -1,9 +1,9 @@
 # A plain `while c: step` whose step reads a slice declared before the
-# loop, after the body grew the Vec.
+# loop, after the body grew the List.
 #
 # oracle: main reject C4
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   i = 0

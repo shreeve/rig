@@ -1,5 +1,5 @@
 # A read view held as a pointer and reached through a pointer to it (a
-# loop binding over a Vec of views) is dereferenced before a field is
+# loop binding over a List of views) is dereferenced before a field is
 # reached; a generic closure's read capture of a write view binding is
 # the read view of what it points at.
 
@@ -19,7 +19,7 @@ fun poke[T](g: !G[T]) -> Int
 
 sub main()
   p = P(n: 3)
-  rv: Vec[?P] = Vec()
+  rv: List[?P] = List()
   !rv.push(?p)
   for x in rv
     print(x.n)

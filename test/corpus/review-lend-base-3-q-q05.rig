@@ -1,10 +1,10 @@
 struct P
   x: Int
   o: Int?
-  items: Vec[Int]
+  items: List[Int]
 
 fun mk() -> P
-  P(x: 1, o: 2, items: Vec[Int]())
+  P(x: 1, o: 2, items: List[Int]())
 
 sub main()
   k = 1

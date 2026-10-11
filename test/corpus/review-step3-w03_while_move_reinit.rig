@@ -1,15 +1,15 @@
-sub eat(v: Vec[Int]?)
+sub eat(v: List[Int]?)
   print("eat")
 
 sub main()
-  o: Vec[Int]? = Vec()
+  o: List[Int]? = List()
   k = 0
   while o as x
     print(x.len, k)
     eat(<o)
     k += 1
     if k < 3
-      o = Vec()
+      o = List()
     else
       o = none
   print("end")

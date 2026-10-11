@@ -21,7 +21,7 @@ sub main()
   n = 5
   m = 6
   print(n, m)
-  t = Text("abc")
+  t = String("abc")
   s = [2 of ?t[..2]]
   print(s[1])
   !t.add("d")

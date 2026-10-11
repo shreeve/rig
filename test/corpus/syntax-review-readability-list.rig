@@ -1,13 +1,13 @@
 struct Node
   value: Int
-  next: Box[Node]?
+  next: ^Node?
 
-struct List
-  head: Box[Node]? = none
+struct Chain
+  head: ^Node? = none
   len: Int = 0
 
   sub push(!self, v: Int)
-    self.head = Box(value: Node(value: v, next: <self.head))
+    self.head = ^Node(value: v, next: <self.head)
     self.len += 1
 
   fun pop(!self) -> Int?
@@ -34,13 +34,13 @@ struct List
   sub bump_all(!self, by: Int)
     bump(!self.head, by)
 
-sub bump(slot: !Box[Node]?, by: Int)
+sub bump(slot: !^Node?, by: Int)
   if !slot as n
     n.value += by
     bump(!n.next, by)
 
 sub main()
-  l = List()
+  l = Chain()
   for v in 1..6
     !l.push(v)
   print(l.len, l.sum())

@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 enum E
   a(w: !P)
@@ -12,11 +12,11 @@ fun get(h: !H) -> !E
   !h.e
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   h = H(e: E.a(!p))
   match get(!h)
     .a(w)
-      w.t = Text("other")
+      w.t = String("other")
     .b => pass
   match h.e
     .a(w) => print(w.t)

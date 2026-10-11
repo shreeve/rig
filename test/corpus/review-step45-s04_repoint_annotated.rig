@@ -1,8 +1,8 @@
 # a write-view local declared with a type annotation, then re-pointed via a match value
 sub main()
-  a = Text("a")
-  b = Text("b")
-  w: !Text = !a
+  a = String("a")
+  b = String("b")
+  w: !String = !a
   k = 2
   w = match k
     1 => !a

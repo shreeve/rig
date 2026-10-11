@@ -5,13 +5,13 @@ struct G[T]
 fun take[T](g: !G[T]) -> T
   <g.f
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 
 sub main()
-  o: Vec[Int]? = mkv(1)
+  o: List[Int]? = mkv(1)
   a = G(f: <o)
   x = take(!a)
   print(x == none, a.f == none)

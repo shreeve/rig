@@ -13,10 +13,10 @@ sub main()
   c = Cell(0)
   Cell(1).set(2)
   print(Counter().hit())
-  b = Box(Cell(3))
+  b = ^Cell(3)
   print(c.get(), b)
 
 # error: 13:7: `Cell(0)` makes a `Cell[Int]`, which holds a Cell, so it lives only behind a shared handle: write `*Cell(0)`
 # error: 14:3: `Cell(1)` makes a `Cell[Int]`, which holds a Cell, so it lives only behind a shared handle: write `*Cell(1)`
 # error: 15:9: `Counter()` makes a `Counter`, which holds a Cell, so it lives only behind a shared handle: write `*Counter()`
-# error: 16:11: `Cell(3)` makes a `Cell[Int]`, which holds a Cell, so it lives only behind a shared handle: write `*Cell(3)`
+# error: 16:8: `Cell(3)` makes a `Cell[Int]`, which holds a Cell, so it lives only behind a shared handle: write `*Cell(3)`

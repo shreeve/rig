@@ -1,11 +1,11 @@
 struct P
-  v: Vec[Int]
+  v: List[Int]
 
   fun n(?self) -> Int
     self.v.len
 
 enum E
-  a(v: Vec[Int])
+  a(v: List[Int])
   b
 
 fun size(p: ?P) -> Int
@@ -15,7 +15,7 @@ fun sizei(n: ?Int) -> Int
   n + 1
 
 sub main()
-  p = P(v: Vec())
+  p = P(v: List())
   e: E = .b
   print(p, p.n(), p.v.len)
   match e

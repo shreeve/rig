@@ -2,7 +2,7 @@ pub fun same[T](x: T) -> T
   x
 
 pub struct Tagger
-  pub label: String
+  pub label: ?String
 
   pub sub show[T](?self, x: T)
     print(self.label, x)

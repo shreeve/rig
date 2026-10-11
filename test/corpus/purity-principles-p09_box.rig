@@ -11,7 +11,7 @@ sub write(p: !P)
   p.x += 10
 
 sub main()
-  b = Box(P(x: 1))
+  b = ^P(x: 1)
   b.x = 5
   !b.bump()
   write(!b)

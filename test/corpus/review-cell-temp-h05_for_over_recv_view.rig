@@ -5,17 +5,17 @@
 # oracle: D.items accept
 struct D
   c: Cell[Int]
-  xs: Vec[Int]
+  xs: List[Int]
 
   drop(!self)
     print("drop", self.c.get())
 
-  fun items(!self) -> ?Vec[Int]
+  fun items(!self) -> ?List[Int]
     !self.c.set(9)
     ?self.xs
 
 fun mkd(n: Int) -> D
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   D(c: Cell(n), xs: <v)
 

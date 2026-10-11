@@ -3,7 +3,7 @@
 # the call would read the copy after its buffer was freed.
 
 struct P
-  v: Vec[Int]
+  v: List[Int]
 
   fun peek(?self, other: !P) -> Int
     for i in 0..100
@@ -11,7 +11,7 @@ struct P
     self.v[0]
 
 fun mk(k: Int) -> P
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(k)
   P(v: <v)
 

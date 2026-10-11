@@ -1,10 +1,10 @@
 # bad: if ?h.o as p, keep bytes, reassign holder
 struct H
-  o: Text?
+  o: String?
 
 sub main()
-  h = H(o: Text("abc"))
-  keep: String = ""
+  h = H(o: String("abc"))
+  keep: ?String = ""
   if ?h.o as p
     keep = p
   h = H(o: none)

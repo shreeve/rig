@@ -17,10 +17,10 @@ fun cond(t: *Tok) -> Bool
   false
 
 sub main()
-  v: Vec[*Tok] = Vec()
+  v: List[*Tok] = List()
   !v.push(*Tok(n: 1))
   !v.push(*Tok(n: 2))
-  keep: Vec[*Tok] = Vec()
+  keep: List[*Tok] = List()
   while (!v).pop() as t
     !keep.push(<t)
   print(keep.len)

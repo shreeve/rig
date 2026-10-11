@@ -1,4 +1,4 @@
-fun walk[T](v: ?Vec[T]) -> Int
+fun walk[T](v: ?List[T]) -> Int
   c = 0
   for x in v
     f = |?x| 1
@@ -6,6 +6,6 @@ fun walk[T](v: ?Vec[T]) -> Int
   c
 
 sub main()
-  w: Vec[Int] = Vec()
+  w: List[Int] = List()
   !w.push(1)
   print(walk(?w))

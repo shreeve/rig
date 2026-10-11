@@ -8,5 +8,5 @@ struct Res
 
 sub main()
   r = lib.f(Res(n: 1))
-  v: Vec[Res] = Vec()
+  v: List[Res] = List()
   print(r.n, lib.g(?v))

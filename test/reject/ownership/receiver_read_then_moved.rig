@@ -2,13 +2,13 @@
 # argument cannot move what it may be.
 
 struct P
-  v: Vec[Int]
+  v: List[Int]
 
   fun sum(?self, k: Int) -> Int
     self.v[0] + k
 
 fun mk(k: Int) -> P
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(k)
   P(v: <v)
 

@@ -9,21 +9,21 @@ error E
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], n: Int) -> S?
+fun mk(v: ?List[Int], n: Int) -> S?
   if n < 4
     return S(s: ?v[..])
   none
 
-fun mkf(v: ?Vec[Int], n: Int) -> S?!
+fun mkf(v: ?List[Int], n: Int) -> S?!
   return E.bad if n == 70
   mk(v, n)
 
-sub grow(v: !Vec[Int])
+sub grow(v: !List[Int])
   for i in 0..50
     !v.push(i)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   n = 0

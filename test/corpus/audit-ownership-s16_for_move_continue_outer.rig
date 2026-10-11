@@ -25,7 +25,7 @@ fun fail(k: Int) -> Int!
 
 sub main()
   for j in 0..2
-    v: Vec[*Tok] = Vec()
+    v: List[*Tok] = List()
     for i in 0..3
       !v.push(*Tok(n: i + j * 10))
     :inner for t in <v

@@ -6,7 +6,7 @@ struct B
 
 enum Tree
   leaf(b: *B)
-  node(l: Box[Tree], r: Box[Tree])
+  node(l: ^Tree, r: ^Tree)
 
 fun count(t: ?Tree) -> Int
   match t
@@ -36,7 +36,7 @@ sub edit(t: !Tree)
     _ => print("x")
 
 sub main()
-  t: Tree = .node(l: Box(Tree.leaf(b: *B(n: 3))), r: Box(Tree.leaf(b: *B(n: 4))))
+  t: Tree = .node(l: ^Tree.leaf(b: *B(n: 3)), r: ^Tree.leaf(b: *B(n: 4)))
   print(count(?t))
   edit(!t)
   print(count(?t))

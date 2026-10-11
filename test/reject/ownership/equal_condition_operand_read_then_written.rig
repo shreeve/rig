@@ -1,13 +1,13 @@
 # An `if` condition is its own statement, and `==` holds its left
 # operand there as anywhere.
 
-fun grow(t: !Text) -> Text
+fun grow(t: !String) -> String
   for _ in 0..100
     !t.add("abcdefgh")
-  Text("x")
+  String("x")
 
 sub main()
-  a = Text("a")
+  a = String("a")
   if a == grow(!a)
     print("same")
 

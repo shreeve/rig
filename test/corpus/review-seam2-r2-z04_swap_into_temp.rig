@@ -6,22 +6,22 @@
 # oracle: main reject C5
 struct S
   n: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("dropS", self.n)
 
 struct H
-  r: String
+  r: ?String
 
-  sub set(!self, s: String)
+  sub set(!self, s: ?String)
     self.r = s
 
   drop(!self)
     print("dropH sees", self.r)
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("hello world, long enough to be on the heap ", n))
+  S(n: n, t: String("hello world, long enough to be on the heap ", n))
 
 fun mkh() -> H
   H(r: "init")

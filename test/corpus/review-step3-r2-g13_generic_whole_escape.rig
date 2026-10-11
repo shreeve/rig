@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum Opt[T]
   some(v: T)
@@ -12,6 +12,6 @@ fun whole[T](o: ?Opt[T]) -> ?Opt[T]
     x => ?x
 
 sub main()
-  o: Opt[Res] = .some(v: Res(n: 7, t: Text("seven")))
+  o: Opt[Res] = .some(v: Res(n: 7, t: String("seven")))
   x = whole(?o)
   print(x)

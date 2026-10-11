@@ -1,21 +1,21 @@
-# H3: generic loop over ?Vec[T], body: T = Box[Text], return element
+# H3: generic loop over ?List[T], body: T = ^Text, return element
 struct S
-  t: Text
+  t: String
 
 struct Holder[T]
   x: T?
 
-fun first[T](v: ?Vec[T]) -> T?
+fun first[T](v: ?List[T]) -> T?
   for x in v
     return x
   none
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
-  b: Vec[Box[Text]] = Vec()
-  !b.push(Box(Text("q")))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  b: List[^String] = List()
+  !b.push(^String("q"))
   r = first(?b)
   <b
   print(r)

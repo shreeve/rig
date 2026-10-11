@@ -1,7 +1,7 @@
 # The built-in `upgrade` on a weak handle takes no arguments.
 
 struct User
-  name: String
+  name: ?String
 
 sub main()
   rc = *User(name: "x")

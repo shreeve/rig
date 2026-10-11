@@ -4,7 +4,7 @@ struct P
   n: Int
 
 sub main()
-  v = Vec[P]()
+  v = List[P]()
   !v.push(P(n: 1))
   f = lib.first(?v)
   for i in 0..100

@@ -4,6 +4,6 @@ struct B
     print("drop", self.n)
 
 sub main()
-  v: Vec[*B] = Vec()
+  v: List[*B] = List()
   !v.push(*B(n: 1))
   print(v[0].n)

@@ -1,7 +1,7 @@
 struct P
   arr: [4]Int
-  v: Vec[Int]
-  s: Text
+  v: List[Int]
+  s: String
 
 fun sum(xs: ?[]Int) -> Int
   t = 0
@@ -11,10 +11,10 @@ fun sum(xs: ?[]Int) -> Int
 
 sub main()
   arr = [1, 2, 3, 4]
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(5)
   !v.push(6)
-  s = Text("abcdef")
-  p = P(arr: [1, 2, 3, 4], v: Vec[Int](), s: Text("xyz"))
+  s = String("abcdef")
+  p = P(arr: [1, 2, 3, 4], v: List[Int](), s: String("xyz"))
   print((?s)[1..3])
   print(arr[0], v.len, s, p.arr[0])

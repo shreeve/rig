@@ -1,9 +1,9 @@
 pub struct Counter
-  pub label: String
+  pub label: ?String
   pub step: Int = 1
   count: Int
 
-  pub fun make(label: String) -> Counter
+  pub fun make(label: ?String) -> Counter
     Counter(label: label, count: 0)
 
   pub fun value(?self) -> Int
@@ -32,5 +32,5 @@ pub enum Shape
       .circle(r) => r
       .dot => 0
 
-pub fun boxed(label: String) -> Box[Counter]
-  Box(Counter.make(label))
+pub fun boxed(label: ?String) -> ^Counter
+  ^Counter.make(label)

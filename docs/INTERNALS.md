@@ -152,7 +152,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Box`, `Signal` as built-in generics, `Endian` as a built-in enum, and the built-in type names (`Int`, `String`, `Text`, ...), symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian` as a built-in enum, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
@@ -238,7 +238,7 @@ detached sigil, is the one reported.
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
 | `struct Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on a `struct` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
-| `-> ?T from a, b`, `-> String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
+| `-> ?T from a, b`, `-> ?String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `@type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `@`; sema rejects a keyword parameter |
 
@@ -394,7 +394,7 @@ tree.
 ## The semantic IR
 
 The IR's design rule: **every effect visible in the source stays a
-named node**: move, lend, clone, drop, share, weak,
+named node**: move, lend, clone, drop, box, share, weak,
 capture mode, propagation (`propagate` for `e!`, `propagate_none` for
 `e?`), and compile-time parameters. The parse stage
 adds no type information; sema records types separately, keyed by node.
@@ -513,13 +513,16 @@ A few kinds serve more than one surface form:
   builds from the bar list (the one `@wrapper` kind), or `_`.
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
   qualified type `module.Type`; the other type kinds (`optional`,
-  `shared`, `fun_type`, ...) appear only in type positions.
+  `shared`, `boxed`, `fun_type`, ...) appear only in type positions.
+  `^x` is `(box x)` and the type `^T` is `(boxed T)`. The box is the
+  one built-in generic type that no name reaches: `^` resolves to its
+  instance (`TypeResolver.boxOf`), and sema prints it as `^T`.
 - A bracket list after a value is `(index object index)` with one
   argument and `(inst object args...)` with more; in a type,
-  `Vec[Int]` is `(generic_inst Vec Int)`, and another module's
+  `List[Int]` is `(generic_inst List Int)`, and another module's
   `lib.Wrap[Int]` is `(generic_inst (member lib Wrap) Int)`: the grammar
   names a type the same way with and without arguments (`tname`). The parser cannot tell
-  `xs[0]` from `Vec[Int]` or `check[.strict]`, so sema decides by what
+  `xs[0]` from `List[Int]` or `check[.strict]`, so sema decides by what
   the object names (`instTarget`): a generic type or a function (named
   directly, through its module, or through its type, or a method of
   the receiver's type) makes it compile-time arguments, and anything
@@ -559,7 +562,8 @@ A few kinds serve more than one surface form:
   `params`.
 
 An owned closure is `(share (lambda ...))`, and its type
-`(shared (fun_type ...))`.
+`(shared (fun_type ...))`. `(box (lambda ...))` and `(boxed (fun_type
+...))` are rejected: a function has no box, and `^fun` is reserved.
 
 `(zig_extern "file.zig" decls...)` is an `extern zig` block of the
 standard library: its declarations are `fun` and `sub` nodes (or `pub`
@@ -684,16 +688,16 @@ rejected, so a chain of proxies always ends.
 id, and whether it is the root) and returns a `SemContext`, which every
 later pass reads. It runs these steps in order:
 
-1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `Vec[T]`,
-   `Box[T]`, and `Signal[T]` are registered as generic types whose methods are
+1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `List[T]`,
+   `^T`, and `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
    and substitution as user generics, and `Endian` as an enum. The
    methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
-   slices, arrays, Vecs, and Strings, which have no symbol, are checked
-   by `elemsCall` and recorded as `elemCallOf` facts. `Text` is a
-   built-in type like `String` (the `text` type, with drop glue), and
+   slices, arrays, Lists, and `?String` values, which have no symbol, are checked
+   by `elemsCall` and recorded as `elemCallOf` facts. `String` is a
+   built-in type like `?String` (the `text` type, with drop glue), and
    its operations, which have no symbol either, are checked by
-   `checkTextNew` and `textCall` and recorded as `textCallOf` facts.
+   `checkStringNew` and `stringCall` and recorded as `stringCallOf` facts.
 2. **symbols** (`resolve.resolveSymbols`): one walk creates a `Symbol`
    for every declaration and binding, and a `Scope` for every node that
    opens one, recorded under that node.
@@ -753,7 +757,7 @@ ownership:
   called, so it cannot leave `raw` as a value.
 
 Temporaries (SPEC §7) desugar into a hidden binding per statement. A
-value made where it is only read (`readLeaf`: a `print` or `Text`
+value made where it is only read (`readLeaf`: a `print` or `String`
 argument, an `==` operand, a `?self` receiver, the object of a field
 or element read) is bound to a hidden name `_t` at the start of its
 statement and dropped at its end: `print(mk().n)` is `_t = mk()`,
@@ -877,7 +881,7 @@ around the rule.
 - **The error is always reported.** A rewrite is the source line the path is on. The sigil the whole path takes comes from the type expected there:
   - `!` for a write view;
   - `?` for a read view, but none for an argument a `?T` parameter takes;
-  - `?` for a slice of an array, a Vec, or a Text;
+  - `?` for a slice of an array, a List, or a String;
   - none for a value that copies, and `+` for one that does not;
   - the lend's own sigil for a value taken where no type is expected.
 
@@ -920,7 +924,7 @@ asks it, and nothing else decides it:
   view (`readsInPlace`);
 - a value checked where a view goes (`checkExpr`'s `lentInPlace`): lent
   to write where a write view is passed, bound, or stored, and lent to
-  read where a `?T`, `[]T`, or String goes and a leaf is a write view or
+  read where a `?T`, `[]T`, or `?String` goes and a leaf is a write view or
   a value that is no view (`sl(a if c else b)`). A branch of read views
   copies the view it takes, so it is read as a value; a function's
   result (`isReturnLeaf`) hands its views to the caller and is not
@@ -952,8 +956,8 @@ into a `Place`: the expression its path starts from and what that is
 constant or global, imported module, temporary, or a view a call or
 sigil yields), the fields and elements on the way, whether a view or
 handle is on the way, the step that makes it read-only and why
-(`Block`: a `*T`, an element of a `[]T` or String, a `.len`, a `?T`),
-and the element of a `Cell[Vec[E]]` it goes through. Every consumer
+(`Block`: a `*T`, an element of a `[]T` or `?String`, a `.len`, a `?T`),
+and the element of a `Cell[List[E]]` it goes through. Every consumer
 then asks `requireAccess(place, access, at)`, which owns the
 diagnostics, for one `Access`: `assign` (`p = v`, `p op= v`),
 `lend_write` (`!p`, `!xs[a..b]`, an element method's receiver,
@@ -1006,7 +1010,7 @@ lives through the body.
 | a part of a made value that is plain data | itself: `e` is a temporary of the header | a copy, read in the header |
 | a branching value one leaf of which is a place | itself, when its type copies or every leaf is a read view (`readsInPlace`) | a copy; otherwise the header reads it in place, which lends it (`?B`, or `!B` as written), and `lendsBranch` rejects the leaf a name holds: lend each leaf, or take each with `<` |
 
-So `for x in v` is `for x in ?v`; `match b` on a `Box[E]` is `match ?b`
+So `for x in v` is `for x in ?v`; `match b` on a `^E` is `match ?b`
 and `match h` on a `*E` is `match ?h`, whose payloads view the value
 the box or handle holds (the lend table, Core §4); `if o as x` over an
 owning optional place is `if ?o as x`, with `x: ?T`, while an optional
@@ -1057,7 +1061,7 @@ where it copies (`rejectHeaderCopy`).
 
 A held header is rejected, conservatively, where its value could not
 be held for the construct: when the made value makes a statement
-temporary of its own (`match mk(?Text(...)).e`, `for x in mk(t()).v`),
+temporary of its own (`match mk(?String(...)).e`, `for x in mk(t()).v`),
 which would end with the header while the held value lives on, and,
 for `as`, in a joined condition (`if mk().o as r and c`), in a value
 `if`, and in a `while` condition, which is evaluated again each
@@ -1127,73 +1131,73 @@ instead of re-deriving it by name:
 | `symbolOf(leaf)` | the symbol an identifier names, at its declaration or any use |
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
-| `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a value that copies where it is expected (`copiedThrough`), an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
-| `lendOf(node)` | for a node lent where a view of another type is expected, or a slice argument lent as the view it is (below): the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a Text's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a Text's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a value that copies where it is expected (`copiedThrough`), an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced `?String` or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
+| `lendOf(node)` | for a node lent where a view of another type is expected, or a slice argument lent as the view it is (below): the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a String's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a String's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
 | `lendsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
-| `sliceLendOf(slice)` | what a slice `xs[a..b]` lends of what it slices (`sema.sliceLend`): the elements of an array or a Vec, a Text's bytes through handles and boxes, or nothing of a value that is itself a view; the type checker slices by it, and the ownership checker lends by it |
+| `sliceLendOf(slice)` | what a slice `xs[a..b]` lends of what it slices (`sema.sliceLend`): the elements of an array or a List, a String's bytes through handles and boxes, or nothing of a value that is itself a view; the type checker slices by it, and the ownership checker lends by it |
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (the receiver too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
-| `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments |
+| `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
-| `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?Text]` binds a `String`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
+| `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?String]` binds a `?String`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read or to write. The ownership checker holds it in a hidden var named by its source, lent to what reads it (to write, under `!`: `lendTempToWrite`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
 | `writesTemp(node)` | whether the node is a temporary lent to write, or the value a part lent to write starts from (`!mk()`, `!(a if c else b).f`, recorded by `lendsToWrite`): its statement's slot is written, so emit reaches it there at every site that lends it (`emitMemberBase`), never through a copy |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or lend sigil that is one. Kept beside the table, not in `check --facts=sema` |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
-| `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is a `lendOf` `text`, walked as `?t[..]` |
+| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 **The lend table.** Which views a value lends (Core §4) is decided in
 one place, `sema.lendsAs(from, kind, view)`: lending a value of type
 `from` to read or to write makes a view of type `view` through a list of
-rows (`LendStep`): `unbox` (a `Box[T]` lends the views of its `T`),
-`elems` (an array lends `[]T`, and `![]T` to write), `text` (a Text
-lends its bytes, a `String`), `read_only` (a `![]T` is lent on as a
+rows (`LendStep`): `unbox` (a `^T` lends the views of its `T`),
+`elems` (an array lends `[]T`, and `![]T` to write), `text` (a String
+lends its bytes, a `?String`), `read_only` (a `![]T` is lent on as a
 `[]T`), and `callable` (a function or an owned closure lends a
 `?fun(...)`). No rows is the first row, `?T` of a `T`. Typecheck asks it
 where a value meets an expected view (`lendView`) and records the rows
 it used (`lendOf`); the ownership checker and emit read that record.
 
-**One text view.** The read view of a `Text` is its bytes, a
-`String`, and there is no pointer view of a Text. The type store makes
-it so: `TypeStore.absorbed` interns `?Text` and `?String` as `String`,
-and a read view of a read view, `?(?T)`, as `?T`, so no type holds a
-pointer to a Text, whichever way it is named, inferred, or instantiated.
-Every place that made a `?Text` is the desugaring of the lend that makes
-the `String`, and emit writes each as the Text's `.bytes()`:
+**One text view.** The read view of a `String` is its bytes, a
+`?String`, and there is no pointer view of a String. The type store makes
+it so: `TypeStore.absorbed` interns the read view of a `String`, and of
+a `?String`, as `?String`, and a read view of a read view, `?(?T)`, as `?T`, so no type holds a
+pointer to a String, whichever way it is named, inferred, or instantiated.
+Every place that made a `?String` is the desugaring of the lend that makes
+the `?String`, and emit writes each as the String's `.bytes()`:
 
 - `?t` with no expected type is `?t[..]`: the `text` row of the lend
   table, recorded on the lend (`readViewOf`);
-- `for x in ?v` over a Text element is `for e in ?v` with `x = ?e[..]` in
+- `for x in ?v` over a String element is `for e in ?v` with `x = ?e[..]` in
   the body: the loop walks the elements by address and binds each one's
-  bytes (`storage.loopBindsTextBytes`, the loop's `element` storage);
-- a payload binding of a Text field, `.full(t)`, is `t = ?payload.t[..]`,
-  bound by address (`viewsTextBytes`, `storage.payloadByAddress`), and
+  bytes (`storage.loopBindsStringBytes`, the loop's `element` storage);
+- a payload binding of a String field, `.full(t)`, is `t = ?payload.t[..]`,
+  bound by address (`viewsStringBytes`, `storage.payloadByAddress`), and
   the ownership checker gives it the `read` ref a view of a field has,
   so it views the matched value (`bindPayload`);
-- `if o as p` over an optional Text, or a `(!Text)?`, is `p = ?inner[..]`
-  (`storage.optionalBindsTextBytes`, `bindOptionalView`);
-- a capture `|?t|` of a Text is `?t[..]` (`writeCapturedView`);
-- a generic `?T` at `T = Text` is `rig.ReadView(rig.Text)`, which is
-  `[]const u8`; `rig.lend` of a Text is its bytes, and what `rig.viewed`
+- `if o as p` over an optional String, or a `(!String)?`, is `p = ?inner[..]`
+  (`storage.optionalBindsStringBytes`, `bindOptionalView`);
+- a capture `|?t|` of a String is `?t[..]` (`writeCapturedView`);
+- a generic `?T` at `T = String` is `rig.ReadView(rig.String)`, which is
+  `[]const u8`; `rig.lend` of a String is its bytes, and what `rig.viewed`
   reaches of one is its bytes. Inference binds a `T` that only `?T`
-  parameters meet a `String` for to the Text it views (`Bound.text_view`);
-- `+s` of a `String` is `Text(s)`: `cloneable` of a `String` is `text`,
-  and the clone's type is `Text`.
+  parameters meet a `?String` for to the String it views (`Bound.text_view`);
+- `+s` of a `?String` is `String(s)`: `cloneable` of a `?String` is `text`,
+  and the clone's type is `String`.
 
-A `String` is a view, so nothing lends a `String` place to write: `!s`,
+A `?String` is a view, so nothing lends a `?String` place to write: `!s`,
 and so `swap` and `replace` of one, are rejected where the lend is
-checked (`synthLend`), and `!String` as a written type is rejected where
+checked (`synthLend`), and `!?String` as a written type is rejected where
 it is resolved. The unwritten steps make no new effect: the lend, the
 loan, and the bytes are the ones `?t[..]` already has.
 
@@ -1203,15 +1207,15 @@ value is lent to read where it is, as `?e` would lend it (Core sentence
 (`Checker.view_arg`), and records the lend as implicit
 (`Lend.implicit`, and the use `lend`, `recordImplicitLend`). A slice is
 lent the way its name is: a slice argument written with no lend,
-`xs[a..b]` of an array, a Vec, a Text, or a `![]T`, desugars to
+`xs[a..b]` of an array, a List, a String, or a `![]T`, desugars to
 `?xs[a..b]` where its parameter takes the read view that makes (a `[]T`
-or a String, or an optional of one). Whether a slice lends what it
+or a `?String`, or an optional of one). Whether a slice lends what it
 slices is decided once, for every slice, written or not, bound or an
 argument (`sliceLendsObject`), by what holds the elements: an array's
-or a Vec's, however reached, a `![]T`'s, and a Text's, owned, boxed,
+or a List's, however reached, a `![]T`'s, and a String's, owned, boxed,
 behind a `*T`, or through a write view of one, which may add to it or
-replace it, are lent; a Text's through a read view, which cannot change
-while that view's loan lives, and what a String or a `[]T` views, are
+replace it, are lent; a String's through a read view, which cannot change
+while that view's loan lives, and what a `?String` or a `[]T` views, are
 not: the slice is a value carrying the view's loans. `synthSlice` types
 it as that lend, whose own rows are the
 slice's (`sliceLendOf`), and the same branch records it implicit with no
@@ -1237,12 +1241,12 @@ on it where it is (`matches_in_place`), reads it again
 returns points (`holds_view`), and for each of its bindings whether it
 is captured by address (`catch_all_by_address`, `payload_by_address`, a
 question about the binding within its match); and for each `for`,
-whether it consumes its source (`for_consumes`: a Vec it takes or its
+whether it consumes its source (`for_consumes`: a List it takes or its
 source makes that owns resources, or an array of values that move,
 which it takes or its source makes), which emit lowers to a consuming
 loop, the plan gives an iterator and elements, and the ownership checker
 walks as taking the source; and for each argument of `print`,
-`Text(...)`, or `add`, whether it is read where it is, by address
+`String(...)`, or `add`, whether it is read where it is, by address
 (`print_by_address`: a function's binding, or a field or element, not a
 slice, of a type read by address), which emit passes as an address. The
 ownership checker holds every place an argument reads in place while the
@@ -1285,17 +1289,17 @@ emitter ask these, never a predicate built for another question:
 
 | Function | Answer |
 |---|---|
-| `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, Vec, Box, Text, or owned closure |
+| `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, List, `^T`, String, or owned closure |
 | `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
 | `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
-| `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a Vec's or Box's buffer): a value of it lives only behind a shared handle (below) |
+| `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a List's or box's buffer): a value of it lives only behind a shared handle (below) |
 | `changesByMark` | a `Cell`, a `Signal`, or a value that holds a Cell by value: what a write lend reaches through a `*`, by a marked call (below). A write view of such a value changes its Cells and Signals only; the checker blocks every other write through it as one through a shared handle |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
-| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, a deep copy part by part (`deep`: a Vec, a box, an array, an optional, or a struct or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
+| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or a struct or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
-| `isPlainData` | copies and holds no view or function value (a String aside): plain data, what a Cell, a Signal, and an owned closure's parameters and result hold |
+| `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell, a Signal, and an owned closure's parameters and result hold |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
 | `readsAsValue` | a scalar (a primitive or a plain enum): an operator, generic inference, and a binding with no type read a read view of one as the value |
 
@@ -1345,7 +1349,7 @@ copy, move, or temporary of a value holding a Cell exists for the
 checkers or emit to reason about.
 
 **A marked call on a Cell.** `Cell`'s and `Signal`'s changing members take
-`!self` (`resolve.registerBuiltins`), and a `Cell[Vec[T]]`'s `push`, `pop`,
+`!self` (`resolve.registerBuiltins`), and a `Cell[List[T]]`'s `push`, `pop`,
 and `clear` and element assignment are marked the same way, so the
 receiver-sigil rule is the whole enforcement: `!c.set(v)` is `set` of the
 write view `!Cell[T]` that the lend table gives a handle, a `*T` lending
@@ -1460,7 +1464,7 @@ ordering, `==`, integer operators, negation, a float or integer literal
 beside a `T`, a constant shift, `not_error` for a `T!` return (an
 error set cannot fill it), `copies` where the body copies a value
 holding a `T` in a way the ownership checker does not see (cloning it,
-reading it out of a `Vec` or `Cell`, or moving it out of a view), and
+reading it out of a `List` or `Cell`, or moving it out of a view), and
 `no_cleanup` where it discards one, leaves it as a temporary, or puts it
 in an array. An operator's operand of type `?T` or `!T` counts as a `T`
 (`operandValue`), and `==` on a value that holds a `T` (`T?`, `[4]T`,
@@ -1500,8 +1504,8 @@ function's integer value parameters are part of its instances
 signature holds. A value takes at most `sema.max_value_bytes`
 (8 MiB), from `sema.minBytes`, which counts what a value holds inline:
 a `Cell[T]` is its `T`, a `Signal[T]` its value twice (the current and
-a pending one) and its subscriber list, a `Vec` its buffer's slice and
-length, and a `Box` its pointer. An array type is checked where it is
+a pending one) and its subscriber list, a `List` its buffer's slice and
+length, and a `^T` its pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
 from an argument, at that argument (`checkArraysIn`); a synthesis whose
 diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
@@ -1561,8 +1565,8 @@ generic function and type, and each generic method of a `pub` type,
 at its own parameters (`nest[T]`), following instances over type
 parameters too (kept apart in `Reached`, never recorded). As in the
 program's expansion, a use over parameters the instance does not bind
-is left to the instances that bind them: `List[X]` does not follow
-`List[Pair[T, U]]` in its method `zip[U]`, which `zip[T, U]` follows.
+is left to the instances that bind them: `Chain[X]` does not follow
+`Chain[Pair[T, U]]` in its method `zip[U]`, which `zip[T, U]` follows.
 An instance at distinct parameters (`f[A]` reached from `g[A]`) is kept
 as the generic at its own (`f[T]`), which expands to the same depths,
 so a chain of public generics is expanded once per link. One nesting
@@ -1665,7 +1669,7 @@ of the same call cannot lend or move their roots, and so does a write
 loan any argument's value carries (a write view a method's result keeps
 of its receiver: `both((!b).firstw(), ?b)` is rejected). Likewise, an
 argument that reads a place by value whose value shares storage the
-place owns (a Vec, a box, a handle, a struct holding one, or what a
+place owns (a List, a box, a handle, a struct holding one, or what a
 write view reaches: `print(v, grow(!v))`) leaves a read loan of the
 place's root, marked as an argument's read, until the call ends
 (`holdRead`), so a later argument cannot lend it to write or move it.
@@ -1705,44 +1709,44 @@ closure that captures it) puts the stored loans in that parameter's
 flow, as a store into a local does. So a view of one parameter stored
 in another keeps the first lent for the rest of the body: after
 `a.r = ?b[..]`, `!b.push(x)` is rejected.
-**Strings are views.** A String points into a Text's buffer or into
+**`?String` values are views.** A `?String` points into a String's buffer or into
 bytes that live for the whole program, so the contents pass
-treats it as a view the value may or may not hold: `String` sets a
+treats it as a view the value may or may not hold: `?String` sets a
 `string` bit in a type's `Views` (reaching through optionals, fields,
-handles, and a Vec's or Box's elements, but not into a Cell or Signal),
+handles, and a List's or box's elements, but not into a Cell or Signal),
 and the checker tracks the loans of any value whose type has it, while
-sema's type-level `holdsMarkedView` ignores it (a struct holding a String
-is not a view type, and `Vec[String]` is plain data). `?t[a..b]` of a
-Text lends the Text as `?v[a..b]` lends a Vec; a literal carries no
-loan (nor does a `Static`, below), and a String parameter, like a `?T` one, holds an external
-loan of itself, so a function's String result views what its
+sema's type-level `holdsMarkedView` ignores it (a struct holding a `?String`
+is not a view type, and `List[?String]` is plain data). `?t[a..b]` of a
+String lends the String as `?v[a..b]` lends a List; a literal carries no
+loan (nor does a `Static`, below), and a `?String` parameter, like a `?T` one, holds an external
+loan of itself, so a function's `?String` result views what its
 arguments do. A value of a type that holds views keeps only the loans
 that lead to what could hold what it views (`carry`, Core sentence 7):
 a loan of a var whose type reaches that memory only through a read view
 it holds, or not at all (`sema.ViewReach`), stands for that var's own
-loans, judged the same way. A String's memory is a Text's or a
-literal's bytes, which a var reaches by owning a Text, or a `!Text`. A
-value that holds only Strings (`sema.holdsViewOnly`) reads what it
+loans, judged the same way. A `?String`'s memory is a String's or a
+literal's bytes, which a var reaches by owning a String, or a `!String`. A
+value that holds only `?String` values (`sema.holdsViewOnly`) reads what it
 views, so the loans it keeps are read loans, and so does a call's result
 that holds no write view (`carryResult`, Core sentence 7). So `!it.next()` of an
-iterator holding Strings views what `it` views, not `it`, and a String
+iterator holding `?String` values views what `it` views, not `it`, and a `?String`
 read through a write view of a struct that holds it, copied into a binding, or read out of a
-`Vec[String]` keeps what the String views. A value holding a write
+`List[?String]` keeps what the `?String` views. A value holding a write
 view, a type parameter, or a type not known keeps every loan.
 The loans of a `for` source no binding holds go to its elements, and
 the views deferred code stores stay when it runs at a scope's exit,
 so that exit checks them. A value whose loans
 the checker cannot follow per var (a Cell's or Signal's contents, an
-owned closure's captures) holds no String with a loan, which rejects
-a String parameter stored there; a generic body that stores a `T`
+owned closure's captures) holds no `?String` with a loan, which rejects
+a `?String` parameter stored there; a generic body that stores a `T`
 there records a `view` requirement (`PlainRequirement.view`), and an
-instance whose `T` holds a String is rejected (`checkViews`).
+instance whose `T` holds a `?String` is rejected (`checkViews`).
 
-**Static.** `Static` (the `static` type) is the text that is a String
-without a loan: its meaning is that desugaring, a `String` whose loans
+**Static.** `Static` (the `static` type) is the text that is a `?String`
+without a loan: its meaning is that desugaring, a `?String` whose loans
 are always empty. So it is plain data (`copies`, no drop glue, no bit in
-`Views`, `holdsIn` plain) with the representation of a String
-(`[]const u8`), and every operation of a String that reads has the same
+`Views`, `holdsIn` plain) with the representation of a `?String`
+(`[]const u8`), and every operation of a `?String` that reads has the same
 checker arm and the same emitted Zig (`len`, index, slice, `for`, `==`,
 `<`, `print`); the loan walk sees a plain value, which is why a
 `Cell`, a `Signal`, an owned closure, and a generic body that stores a
@@ -1757,23 +1761,23 @@ checker:
 - the join of values that are all `Static` (`unify`, for a branch, a
   `??`, a `match` or loop value, and a list literal).
 
-Nothing else has the type, and nothing converts a String to a `Static`.
+Nothing else has the type, and nothing converts a `?String` to a `Static`.
 The one conversion goes the other way and is one rule,
-`typecheck.readsAsString`, applied in `meets`: a `Static` where a
-`String` is expected, inside an optional (`Static?` as `String?`), and as
-the elements of a read slice (`[]Static` as `[]String`). `unify` joins a
-`Static` and a `String` as the `String` because `compatible` holds in
-one direction; a generic `T` that both bind is the `String`
+`typecheck.readsAsStringView`, applied in `meets`: a `Static` where a
+`?String` is expected, inside an optional (`Static?` as `(?String)?`), and as
+the elements of a read slice (`[]Static` as `[]?String`). `unify` joins a
+`Static` and a `?String` as the `?String` because `compatible` holds in
+one direction; a generic `T` that both bind is the `?String`
 (`inferBindings`). The rule is read-only by construction: it compares
 types by id, so a place of type `Static` takes only a `Static`
-(`mismatch` adds `staticHint`), and nothing lends a `String` place to
+(`mismatch` adds `staticHint`), and nothing lends a `?String` place to
 write. A binding
-that holds a literal is a `Static`, so assigning it a `String` is
-rejected with a hint to declare it `String`.
+that holds a literal is a `Static`, so assigning it a `?String` is
+rejected with a hint to declare it `?String`.
 
 What a slice lends is the type checker's record (`sliceLendOf`), never
-a type test of its own: a slice of a Text through a handle (`?h[..]` of
-a `*Text`) lends the handle, as `?h` does.
+a type test of its own: a slice of a String through a handle (`?h[..]` of
+a `*String`) lends the handle, as `?h` does.
 A slice of an array (`?xs[a..b]`) held in the storage of the var it is
 reached from, which may be the function's own (a parameter taken by
 value, a loop or pattern binding), also holds a *frame* loan of that
@@ -1784,7 +1788,7 @@ loans, the caller's included. A write slice (`!xs[a..b]`)
 takes a write loan the same way; one of a `![]T` var lends it on, as
 any lend of a view does. A lend of a place reached through a read view
 (an element of a read-only `[]T`, `?c.items[0]` with `items:
-?Vec[Item]`, a String's bytes) is the lend through a copy of that view
+?List[Item]`, a `?String`'s bytes) is the lend through a copy of that view
 (`t = c.items` then `?t[0]`): it keeps what the view keeps, which the
 place's var holds, and no loan on the var (`walkThroughView`). The var
 is still held while the place's indexes run.
@@ -1805,7 +1809,7 @@ it owns a value whose drop at scope exit may run a `drop` body
 or `depends` for a value holding a type parameter), which could read
 what the value views, or when a live var or temporary holds a loan of
 it. Any other drop only releases memory and uses no view (Core sentence
-6), so a `Vec[?Int]`'s loans end at its last use. A closure binding
+6), so a `List[?Int]`'s loans end at its last use. A closure binding
 whose environment's drop may run a `drop` body (`env_drop_reads`), a
 parameter, and the hidden var that keeps a `for` source lent are always
 live. Desugared, a drop that runs no `drop` body is a release of memory
@@ -1944,7 +1948,7 @@ fact and stays beside it: `payloadViewTaken` rejects `<y` of a binding
 a read `match` binds, which `moveSource` calls a binding, since `y`
 views the subject. A statement `<x` of a binding drops it, except
 where `sema.undroppable` says it cannot: a view parameter, a capture,
-or a `for` element that views a slot of the Vec it walks
+or a `for` element that views a slot of the List it walks
 (`sema.forViewsSlot`, which the type checker marks on the element,
 `slot_view`, and the ownership checker walks as a loop view). The
 ownership checker rejects such a `<x` by it, and the type checker's
@@ -1968,19 +1972,19 @@ imported. `checkInstantiations` then rejects an instance whose argument
 there owns a resource, with a note at the copy, an instance whose
 argument holds a write view (a write view is never stored in a value),
 and an instance whose argument may view something (a read view, a slice,
-a String) where the body stores a value that reaches a `T`, at any depth
-(`sema.reachedTypeVars`: through `Vec`, arrays, optionals, `*`, `~`,
-`Box`, and every argument of a generic instance), in a Cell, a Signal,
+a `?String`) where the body stores a value that reaches a `T`, at any depth
+(`sema.reachedTypeVars`: through `List`, arrays, optionals, `*`, `~`,
+`^T`, and every argument of a generic instance), in a Cell, a Signal,
 or an owned closure, which carry no loan (`checkViews`). A call site sees the
 instance's signature, so moves, lends, and the loans a result carries
 are checked there with the real types.
 
-**A holder of a read view.** A `Box`, an optional, a generic function's
-`T`, and a generic struct's field or `T` hold a read view as a `Vec`
+**A holder of a read view.** A `^T`, an optional, a generic function's
+`T`, and a generic struct's field or `T` hold a read view as a `List`
 element does, by one rule: a value whose type may hold a view
 (`sema.mayHoldView`) carries the loans of every view it was made from.
-`h = Box(?v)`, `h = same(?v)` and `h: (?T)? = ?v` mean
-`view = ?v; h = Box(view)` (and likewise), the loan on `v` lasting to the
+`h = ^?v`, `h = same(?v)` and `h: (?T)? = ?v` mean
+`view = ?v; h = ^view` (and likewise), the loan on `v` lasting to the
 last use of `h`, of a copy of `h`, or of a view `h` gave out; the checker
 walks exactly that, so no pass has a list of holders. The holders that
 carry no loan are the ones `Cell`, `Signal`, and an owned closure
@@ -2031,7 +2035,7 @@ kind of binding: a write view of what the binding reaches, a read view
 of it (a write view `!T` read as `?T`, `![]T` as `[]T`), or the value.
 In debug and test builds, `sema.checkBindingAccess` checks after type
 checking that every binding's type is the one its access gives
-(`.write` a write view; `.read` a read view, a slice, a String, or a
+(`.write` a write view; `.read` a read view, a slice, a `?String`, or a
 type parameter's value read in place; none a value), reporting an
 internal error where one is not. `SemContext.bindingAccess` reads the fact, and gives a
 parameter's or local's from its type. Every pass reads it, and none
@@ -2079,7 +2083,7 @@ and each desugars into forms the checker already walks:
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
 | `\|+x\|` | `c = +x` where the closure is made, then `\|<c\|`, the capture named `x`: `+x` reads through a view, copies a value that copies, counts a handle again, and clones an owner (`sema.cloneable`) |
-| `Cell.get`, `Vec.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
+| `Cell.get`, `List.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
 
 A generic body that does any of these to a `T` records
 `Requirement.copies`, which each instance must meet. No value holds a
@@ -2122,16 +2126,16 @@ origins its type gives.
 **Could hold** is one classifier, `sema.viewReach` (and
 `reachTargets`). A view's *targets* are the memory its views point
 into: a `?T`'s or `!T`'s `T`, a `[]T`'s or `![]T`'s `T` elements, a
-String's bytes (a Text's, or a literal's); a function, a lent callable,
+`?String`'s bytes (a String's, or a literal's); a function, a lent callable,
 a type parameter, or a type not known points anywhere. A slice's targets
 are elements: an array's, a slice's, or a generic instance's argument
 (`elem_view`), never a field, so a struct's `n: Int` cannot be what an
 `[]Int` views. A holder type
 reaches a target `owned` when a path of parts it holds by value (fields,
-payloads, an optional's, array's, Vec's, Box's, Cell's or Signal's
+payloads, an optional's, array's, List's, box's, Cell's or Signal's
 contents, a handle's) and write views leads to memory of the target's
 type, `through_view` when every path crosses a read view (`?T`, `[]T`,
-a String), and `none` when no path does. Types are compared across
+a `?String`), and `none` when no path does. Types are compared across
 modules by their declaration (`viewAtom`), and two types that compare
 equal may stand for unequal ones, which only keeps more loans. A
 parameter's own memory is the callee's copy, so for origins only memory
@@ -2200,9 +2204,9 @@ body satisfies (`-> T from a, b`). With origins from the signature's
 types this fires only when the classifier misses an edge: a compiler
 bug becomes a rejection, never a hole in a caller. One such edge is
 known: where a result's targets are anything (a type parameter's or a
-callable's), a String parameter taken by value is never counted, which
+callable's), a `?String` parameter taken by value is never counted, which
 can only reject a body that returns one; no generic or callable body
-can turn a String into a `T` or a callable. A `from` clause is
+can turn a `?String` into a `T` or a callable. A `from` clause is
 part of a declaration, not of its function type: a function lent as a
 value (`?first`) is called with its type's origins, which every body
 satisfies. Recursion needs no fixpoint: a call of the function from its
@@ -2290,8 +2294,8 @@ there; an unused one is a plain `{ }`, which Zig compiles to nothing.
 
 `for x in it` is `while (!it).next() as x`, and nothing else: no pass
 has a form of its own for it. A `for` source is an iterator when its
-type, past views, is a struct or enum (not a `Vec`, array, slice,
-`String`, or range, which keep their own meaning) that declares
+type, past views, is a struct or enum (not a `List`, array, slice,
+`?String`, or range, which keep their own meaning) that declares
 `next(!self) -> T?` (`Checker.iteratorShape`, the one place this is
 decided); a `next` of another shape is reported where the loop is.
 `Checker.iterLoop` then classifies the source once, by
@@ -2414,7 +2418,7 @@ a `Pending` entry it no longer uses. `Facts` also answers a few node
 queries that combine recorded facts without a classifier of their own
 (`stmtTemps` and `firstStmtTemp` list the `dropsTemp` facts in the order
 the IR makes them; `receiverOf`, `argParams`, and `receiverWrites` read
-`callParamsOf`; `isNoneLeaf`, `textCall`, and `isTypeCallee` read
+`callParamsOf`; `isNoneLeaf`, `stringCall`, and `isTypeCallee` read
 symbols); a query that decides more than that belongs in `Pending`.
 
 - **Bindings** are `const` unless reassigned, written through, holding
@@ -2449,7 +2453,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   order, including early returns, loop exits, and error propagation.
 - **Views.** `!T` parameters, `!self` receivers, and bindings of a
   write view are pointers, read through `.*`. A `?T` of a scalar or a view (a
-  number, `Bool`, a plain enum, an error, a slice or `String`, a
+  number, `Bool`, a plain enum, an error, a slice or `?String`, a
   function, or an optional of one) is a copy: Zig parameters are
   immutable. Any other `?T` (a struct, an array, an enum with
   payloads) is a pointer, since a copy of a value with drop glue
@@ -2479,10 +2483,10 @@ symbols); a query that decides more than that belongs in `Pending`.
   call's arguments dereferences it before the handle's `.value`
   (`derefToHandle`).
   A type argument never holds a Cell by value, so a generic type's
-  `rig.ReadView(T)` is a read-only pointer, and a Vec element reached
+  `rig.ReadView(T)` is a read-only pointer, and a List element reached
   through a read view is `constSlot(i)`, a `*const T`.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
-  `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
+  `^T` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
   is `?T`, `T!` is `anyerror!T`, an error set's members are Zig errors
   named with their set, `error.@"E.name"`, and in a module other than
@@ -2526,14 +2530,14 @@ symbols); a query that decides more than that belongs in `Pending`.
   compile-time parameter is reached through a slice (`rig.elems`),
   since Zig rejects any index into an array of length 0, and `[n of x]`
   is `@as([n]T, @splat(x))`. An element that is not copied
-  (`sema.copies`) is reached where it is, as a field is: a Vec's through `constSlot(i).*` or `slot(i).*`, a slice's
+  (`sema.copies`) is reached where it is, as a field is: a List's through `constSlot(i).*` or `slot(i).*`, a slice's
   through `rig.elemPtr`, never a copy of its bits through `at(i)`. A
   loop that takes an array of values that move hands them over one at
-  a time (`rig.arrayIntoIter`), as one that takes a Vec does
+  a time (`rig.arrayIntoIter`), as one that takes a List does
   (`intoIter`), and drops what a `break` leaves.
 - **Defaults.** A field default is the Zig struct field's default
   value, which Zig copies into each value a constructor makes: a
-  literal, a constant, `rig.Vec(T).empty`, a `rig.Cell(T)`, or
+  literal, a constant, `rig.List(T).empty`, a `rig.Cell(T)`, or
   `@splat(x)`, none of which allocates, so each value's is its own. A
   parameter default is written at each call that leaves it out: a
   literal from the declaring module's source, and a constant of another
@@ -2567,7 +2571,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   order>) }`. An argument is left where it stands (`isPureArg`) only if
   evaluating it early or late reads nothing a later-written argument
   could change: a literal, a constant, or a view held as a pointer to a
-  name. A view held by value (a `String`'s bytes, a slice, a copy of a
+  name. A view held by value (a `?String`'s bytes, a slice, a copy of a
   number) reads the name where the call runs, so it is not pure, and a
   call that reorders it with an argument that has an effect evaluates
   both into temporaries in source order (`hoistsArgs`). The ownership
@@ -2720,18 +2724,18 @@ reviewed.
 | Piece | Role |
 |---|---|
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
-| `Box(T)` | `Box[T]`: a pointer to one heap `T`. `init` allocates, `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
+| `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
-| `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
-| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
+| `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
+| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
-| `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
-| `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a Text's bytes and a Vec's elements copied (`Vec.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
-| `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |
+| `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
+| `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
+| `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
-| `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
+| `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 16 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
@@ -2743,12 +2747,12 @@ reviewed.
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
 | `discard`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
-| `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
+| `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
-| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int` |
-| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
+| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int` |
+| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 
 ## Tests
@@ -2792,7 +2796,7 @@ closure (Core s9); and checks a generic body once, each type parameter
 owning and holding no view, with a copy of one left to each instance
 (SPEC "Generic bodies"), and a call of a generic function or type at
 type arguments of plain data, or of owners where the bodies it runs
-never copy a type parameter. Every element of a Vec, an array, or a
+never copy a type parameter. Every element of a List, an array, or a
 slice is a place: what `push`, `insert`, a store, or a literal puts in
 a container joins the loans the container carries, an element read out
 of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the

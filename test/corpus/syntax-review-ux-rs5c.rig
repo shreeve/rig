@@ -1,9 +1,9 @@
 struct Doc
-  title: String
-  words: Vec[String]
+  title: ?String
+  words: List[?String]
 
 fun make() -> Doc
-  Doc(title: "t", words: Vec())
+  Doc(title: "t", words: List())
 
 sub main()
   r = ?make()

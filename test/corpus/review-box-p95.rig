@@ -8,6 +8,6 @@ fun same[T](a: ?T, b: ?T) -> Bool
   a == b
 
 sub main()
-  x = Box(value: 1)
-  y = Box(value: 1)
+  x = ^1
+  y = ^1
   print(same(?x, ?y))

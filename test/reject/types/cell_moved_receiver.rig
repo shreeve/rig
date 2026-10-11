@@ -1,14 +1,14 @@
-# A Cell's `set`, `replace`, and its Vec's `push`, `pop`, and `clear`
+# A Cell's `set`, `replace`, and its List's `push`, `pop`, and `clear`
 # take their receiver lent to write, as any `!self` method does, so a
 # `*Cell` handle moved there with `<` is rejected: `<` would end the
 # binding for a call that only lends it.
 
 sub main()
-  c: *Cell[Vec[Int]] = *Cell(Vec[Int]())
+  c: *Cell[List[Int]] = *Cell(List[Int]())
   (<c).push(1)
-  d: *Cell[Vec[Int]] = *Cell(Vec[Int]())
+  d: *Cell[List[Int]] = *Cell(List[Int]())
   x = (<d).pop()
-  e: *Cell[Vec[Int]] = *Cell(Vec[Int]())
+  e: *Cell[List[Int]] = *Cell(List[Int]())
   (<e).clear()
   n: *Cell[Int] = *Cell(1)
   (<n).set(2)

@@ -1,8 +1,8 @@
-# +w where w: Vec[?Vec[Text]] holds pointer views
+# +w where w: List[?List[Text]] holds pointer views
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("x"))
-  w: Vec[?Vec[Text]] = Vec()
+  v: List[String] = List()
+  !v.push(String("x"))
+  w: List[?List[String]] = List()
   !w.push(?v)
   c = +w
   <w

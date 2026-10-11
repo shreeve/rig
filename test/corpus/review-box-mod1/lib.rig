@@ -17,8 +17,8 @@ pub enum E
   a(r: R)
   b
 
-pub fun mk(n: Int) -> Box[R]
-  Box(value: R(n: n))
+pub fun mk(n: Int) -> ^R
+  ^R(n: n)
 
 pub fun rd(r: ?R) -> Int
   r.n

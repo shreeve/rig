@@ -8,7 +8,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -29,12 +29,12 @@ fun optw(e: !E, ok: Bool) -> (!E)?
   e
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("x")))
+  e = E.a(r: Res(n: 1, t: String("x")))
   match getw(!e)
     .a(r) => r.n = 60
     .b => pass
   print(e)
-  f = E.a(r: Res(n: 2, t: Text("y")))
+  f = E.a(r: Res(n: 2, t: String("y")))
   c = e == f
   match (!e if c else !f)
     .a(r)
@@ -42,7 +42,7 @@ sub main()
       !r.t.add("!")
     .b => pass
   print(e, f)
-  g = E.a(r: Res(n: 3, t: Text("z")))
+  g = E.a(r: Res(n: 3, t: String("z")))
   match (!e if c else (!f if c else !g))
     .a(r) => r.n = 30
     .b => pass

@@ -1,5 +1,5 @@
-fun map[T, U](xs: ?[]T, f: ?fun(?T) -> U) -> Vec[U]
-  out: Vec[U] = Vec()
+fun map[T, U](xs: ?[]T, f: ?fun(?T) -> U) -> List[U]
+  out: List[U] = List()
   for x in xs
     !out.push(f(?x))
   out
@@ -15,7 +15,7 @@ sub main()
   s = ?a[..]
   print(total(?s))
   print(map(?s, |n| n * 2))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   print(map(?v[..], |n| n + 1))
   print(map(?a, |n| n + 1))

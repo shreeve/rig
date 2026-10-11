@@ -1,32 +1,32 @@
 struct S
   n: Int
-  v: Vec[Int]
-  o: Vec[Int]?
+  v: List[Int]
+  o: List[Int]?
 
 sub h1()
-  h = *S(n: 1, v: Vec(), o: none)
+  h = *S(n: 1, v: List(), o: none)
   w = <h.v
   print(w.len)
 
 sub h2()
-  h = *S(n: 1, v: Vec(), o: none)
+  h = *S(n: 1, v: List(), o: none)
   w = <h.o
   print(w)
 
 sub h3()
-  h = *S(n: 1, v: Vec(), o: none)
+  h = *S(n: 1, v: List(), o: none)
   k = ~h
   if k.upgrade() as g
     w = <g.v
     print(w.len)
 
 sub h4()
-  h = *S(n: 1, v: Vec(), o: none)
+  h = *S(n: 1, v: List(), o: none)
   w = <(+h).v
   print(w.len)
 
 sub h5()
-  h = *S(n: 1, v: Vec(), o: none)
+  h = *S(n: 1, v: List(), o: none)
   w = <(!h).v
   print(w.len)
 

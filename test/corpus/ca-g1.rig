@@ -5,14 +5,14 @@ fun sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
     while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
       !xs.swap(j, j - 1)
 
-fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
-  out: Vec[U] = Vec()
+fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
+  out: List[U] = List()
   for x in xs
     !out.push(f(?x))
   out
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(3)
   !v.push(1)
   !v.push(2)

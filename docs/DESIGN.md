@@ -51,7 +51,7 @@ achieves correctness through rigor; Rig aims for rigor plus visibility.
 it happens, and reading is unmarked. Sharing and weak handles, failure,
 capture modes, compile-time parameters, and the unsafe boundary are
 written too. Like Rust, Rig leaves some effects implicit: a drop where
-a scope ends, the allocation a `Vec`, `Box`, or `Text` makes, and a plain
+a scope ends, the allocation a `List`, `^T`, or `String` makes, and a plain
 copy. A change to a shared `Cell` is marked, `!c.set(5)`; a `Cell` lives
 only behind a shared handle, so it takes only values that carry no loan.
 A count is added only where
@@ -64,7 +64,7 @@ the call, and moving a local out with `return x` or `break x`, where
 its scope ends anyway. Writing through a receiver
 (`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out,
 and so is lending on a write view a binding already holds
-(`v: !Vec[Int]` lends on with `!v.push(x)` and `f(!v)`): at a call, `!`
+(`v: !List[Int]` lends on with `!v.push(x)` and `f(!v)`): at a call, `!`
 marks exactly the values it may change. A held read view is passed
 on bare, since a copy of it can change nothing.
 
@@ -114,7 +114,8 @@ For a value `x` of type `T`:
 | `!x` | `!T` | exclusive, writable loan | none: checked statically |
 | `+x` | `T` | a new owner (`T` is plain data or a handle) | a count bump for a handle |
 | `<x` as a statement | (none) | release now: a move to nowhere | runs the drop glue |
-| `*x` | `*T` | move into a new counted box | one allocation |
+| `^x` | `^T` | move into a new box | one allocation |
+| `*x` | `*T` | move into a new counted handle | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
 | `e?` | `T` when `e : T?` | return `none` from the function | a branch |
@@ -125,7 +126,7 @@ whenever it type-checks. That is the first law.
 **Totality.** A sigil never fails at run time; failure belongs to
 methods. This is why the way back from a weak handle is a method:
 `w.upgrade()` returns an optional `*U?`, because the value may be
-gone. A sigil for it (say `^w`) would be the only partial sigil. The
+gone. A sigil for it (say `$w`) would be the only partial sigil. The
 round trip is total going down (`~x`), fallible coming up
 (`upgrade()`).
 
@@ -171,7 +172,7 @@ it, suffixes included, so `?User?` views an optional:
 | `*User?` | an optional shared handle (what `upgrade()` returns) |
 | `*(User?)` | a shared handle to an optional `User` |
 | `?User?` | a read view of an optional `User` |
-| `*Cell[Vec[*sub()]]` | a shared cell holding a list of owned closures |
+| `*Cell[List[*sub()]]` | a shared cell holding a list of owned closures |
 | `+n.first()` | clone the handle `first` returns |
 | `!v.push(x)` | lend `v` to write, then call a writing method |
 
@@ -203,7 +204,7 @@ can always be read: a `!T` is accepted where a `?T` is expected.
 
 **The same sigils, the same meanings, elsewhere.** A closure's bar list
 reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
-`|?x|` and `|!x|` lend, `|~x|` holds weakly). A loop over a Vec says how its source
+`|?x|` and `|!x|` lend, `|~x|` holds weakly). A loop over a List says how its source
 is lent (`for x in ?v`), and a `match` says the same of its subject (`match !e`
 writes the payload in place, `match <e` takes it). Receivers are
 `?self`, `!self`, and `<self`, the only place a sigil may prefix a
@@ -378,7 +379,7 @@ a condition or an operand of `and`, `or`, or `not`.
 ### Brackets for compile time
 
 Square brackets hold everything known at compile time, and parentheses
-what is known when the program runs: `struct Wrap[T]`, `Vec[Int]()`,
+what is known when the program runs: `struct Wrap[T]`, `List[Int]()`,
 `fun max[T](a: T, b: T)`, `fun check[mode: Mode](n: Int)`,
 `check[.strict](5)`. One spelling covers type arguments and
 compile-time values, as Zig's `comptime` does for both, so a call shows

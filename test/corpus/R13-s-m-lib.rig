@@ -1,8 +1,8 @@
 pub struct Bag
-  items: Vec[Int]
+  items: List[Int]
 
   fun new() -> Bag
-    Bag(items: Vec[Int]())
+    Bag(items: List[Int]())
 
   fun count(<self) -> Int
     self.items.len

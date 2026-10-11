@@ -1,4 +1,4 @@
-# A box of a handle, a boxed value's data field named `unbox` (the box's
+# A boxed value's data field named `unbox` (the box's
 # own `unbox` is only called), and `match` on each boxed enum a loop
 # walks by viewed slot.
 
@@ -13,22 +13,19 @@ enum Sh
   s(k: Int)
 
 sub main()
-  h = Box(*R(n: 1))
-  print(h)
-  b = Box(P(unbox: 4))
+  b = ^P(unbox: 4)
   print(b.unbox)
   p = <b.unbox()
   print(p.unbox)
-  v: Vec[Box[Sh]] = Vec()
-  !v.push(Box(Sh.s(k: 3)))
-  !v.push(Box(Sh.c(r: 2)))
+  v: List[^Sh] = List()
+  !v.push(^Sh.s(k: 3))
+  !v.push(^Sh.c(r: 2))
   for x in ?v
     match x
       .c(r) => print("c", r)
       .s(k) => print("s", k)
 
 # expect:
-# R(n: 1)
 # 4
 # 4
 # s 3

@@ -6,7 +6,7 @@
 # parameter, the parameter taken to write first.
 
 struct P
-  t: Text
+  t: String
 
 enum E
   a(w: P)
@@ -16,39 +16,39 @@ struct H
   e: E
 
 fun mk() -> H
-  H(e: E.a(P(t: Text("m"))))
+  H(e: E.a(P(t: String("m"))))
 
 fun peek(h: ?H) -> ?E from h
   ?h.e
 
 sub place()
-  e = E.a(P(t: Text("p")))
+  e = E.a(P(t: String("p")))
   match e
-    .a(w) => w.t = Text("x")
+    .a(w) => w.t = String("x")
     .b => pass
 
 sub held()
   match mk().e
-    .a(w) => w.t = Text("x")
+    .a(w) => w.t = String("x")
     .b => pass
 
 sub viewed_call(h: ?H)
   match peek(h)
-    .a(w) => w.t = Text("x")
+    .a(w) => w.t = String("x")
     .b => pass
 
 sub optional(p: !P)
   o: (!P)? = !p
   if o as x
-    x.t = Text("x")
+    x.t = String("x")
 
 sub optional_param(o: (!P)?)
   if o as x
-    x.t = Text("x")
+    x.t = String("x")
 
 sub read_view(e: ?E)
   match e
-    .a(w) => w.t = Text("x")
+    .a(w) => w.t = String("x")
     .b => pass
 
 sub main()

@@ -2,7 +2,7 @@
 # `catch` (handle); a bare call would hide the failure path.
 
 struct User
-  name: String
+  name: ?String
 
 fun loadUser(id: U64) -> User!
   User(name: "Steve")

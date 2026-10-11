@@ -105,12 +105,12 @@ sub t4938()
   print(op4938, op4938 ?? 0)
 
 sub t5674()
-  vec5674: Vec[Float] = Vec()
+  vec5674: List[Float] = List()
   !vec5674.push((|| 10.25)())
   print(vec5674)
 
 sub t5396()
-  vv5396: Vec[F32] = Vec()
+  vv5396: List[F32] = List()
   !vv5396.push(0)
   x5396: F32 = vv5396[0]
   print(x5396)
@@ -121,7 +121,7 @@ sub t2545()
 
 sub t773()
   const cst773: U64 = 14
-  vw773: Vec[U64] = Vec()
+  vw773: List[U64] = List()
   pushit773 = |!vw773, x: U64| !vw773.push(x)
   pushit773(cst773)
   print(vw773)

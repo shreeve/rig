@@ -18,7 +18,7 @@ enum E
       .nothing => pass
 
 struct B
-  b: Box[C]
+  b: ^C
   o: C?
 
   sub hit(!self)
@@ -47,7 +47,7 @@ sub main()
   for x in <arr
     x.hit()
     print(x.c.get())
-  b = B(b: Box(mk(10)), o: mk(20))
+  b = B(b: ^mk(10), o: mk(20))
   for _ in 0..3
     b.hit()
   if b.o as y

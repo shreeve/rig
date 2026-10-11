@@ -1,10 +1,10 @@
-# An imported struct holding a Vec of handles is filled through its
+# An imported struct holding a List of handles is filled through its
 # write method, iterated by field, and drops its elements.
 
 use lib
 
 sub main()
-  h = lib.H(items: Vec())
+  h = lib.H(items: List())
   !h.add(*lib.B(n: 1))
   !h.add(*lib.B(n: 2))
   print(h.count())

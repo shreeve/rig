@@ -1,20 +1,20 @@
-# The body re-points the condition's binding at a body-local Vec; the
+# The body re-points the condition's binding at a body-local List; the
 # step reads it after the local dropped.
 struct S
   s: []Int
 
-fun mk(v: ?Vec[Int], i: Int) -> S?
+fun mk(v: ?List[Int], i: Int) -> S?
   if i < 3
     return S(s: ?v[..])
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   i = 0
   while mk(?v, i) as h: k += h.s[0]
-    local: Vec[Int] = Vec()
+    local: List[Int] = List()
     !local.push(i)
     h = S(s: ?local[..])
     i += 1

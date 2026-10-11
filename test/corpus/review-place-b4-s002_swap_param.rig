@@ -1,6 +1,6 @@
 struct P
-  a: String
-  b: String
+  a: ?String
+  b: ?String
 
 sub f(p: P)
   swap(!p.a, !p.b)

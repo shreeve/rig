@@ -80,7 +80,7 @@ fun hand(h: *R, n: Int) -> Int
   print("use", h.id)
   n
 
-fun bx(b: Box[R], n: Int) -> Int
+fun bx(b: ^R, n: Int) -> Int
   print("use", b.id)
   n
 
@@ -111,14 +111,14 @@ fun h0() -> Int?
   print("val", hr(HR.two(a: mk(1), b: *mk(2))))
   m1 = M(r: mk(3))
   !m1.put(optr(rt_int(4004))?)
-  print("val", m1.peek(bx(Box(optr(rt_int(3005))?), take3(mk(6), 6, mk(7)))))
+  print("val", m1.peek(bx(^optr(rt_int(3005))?, take3(mk(6), 6, mk(7)))))
   0
 
 sub h1()!
   print("val", may(rt_int(5))!)
   q1 = Q(h: *mk(18), o: none)
   print("val", hand(*mk(19), qq(Q(h: *mk(20), o: mayr(rt_int(3021))!))))
-  v3: Vec[*R] = Vec()
+  v3: List[*R] = List()
   !v3.push(*mk(22))
   !v3.push(*mk(23))
 
@@ -126,7 +126,7 @@ sub h2()!
   print("val", two(mk(34), mk(35)))
   b1 = [qq(Q(h: *mayr(rt_int(0))!, o: mayr(rt_int(0))!)), ints([6, ints([5, 2])])]
   print("val", b1[0])
-  v3: Vec[*R] = Vec()
+  v3: List[*R] = List()
   !v3.push(*mk(38))
   !v3.push(*mk(39))
   m6 = M(r: mk(40))

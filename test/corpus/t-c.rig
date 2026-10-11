@@ -1,4 +1,4 @@
-# An element cannot be moved out of a Vec: the Vec still owns the slot.
+# An element cannot be moved out of a List: the List still owns the slot.
 
 struct P
   n: Int
@@ -7,7 +7,7 @@ sub eat(p: P)
   print(p.n)
 
 sub main()
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   !v.push(P(n: 7))
   eat(v[0])
 

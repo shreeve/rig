@@ -2,10 +2,10 @@ struct Point
   x: Int
   y: Int
 
-sub bump(v: !Vec[Int])
+sub bump(v: !List[Int])
   !v.push(1)
 
-sub twice(v: !Vec[Int])
+sub twice(v: !List[Int])
   bump(!v)
   bump(!v)
 
@@ -13,7 +13,7 @@ fun fx(p: !Point) -> !Int
   !p.x
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   twice(!v)
   p = Point(x: 1, y: 2)
   r = fx(!p)

@@ -1,7 +1,7 @@
-# A write payload binding holding a Vec, as a name target: the value
-# replaces the subject, which drops the Vec the store writes into.
+# A write payload binding holding a List, as a name target: the value
+# replaces the subject, which drops the List the store writes into.
 enum Bx
-  has(v: Vec[Int])
+  has(v: List[Int])
   nothing
 
 fun grow(b: !Bx) -> Int
@@ -9,13 +9,13 @@ fun grow(b: !Bx) -> Int
   0
 
 sub main()
-  b = Bx.has(Vec())
+  b = Bx.has(List())
   k = 0
   match !b
     .has(d)
       d = match k
         0
           grow(!b)
-          Vec()
-        _ => Vec()
+          List()
+        _ => List()
     .nothing => pass

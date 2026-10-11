@@ -1,10 +1,10 @@
 # A returned view must come from a view parameter, not a local.
 
 struct User
-  name: Text
+  name: String
 
 fun bad() -> ?String
-  user = User(name: Text("Steve"))
+  user = User(name: String("Steve"))
   ?user.name
 
 fun name(user: ?User) -> ?String

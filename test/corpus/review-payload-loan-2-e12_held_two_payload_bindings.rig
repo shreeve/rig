@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 enum WP2
   a(w: !P, v: ?P)
@@ -12,8 +12,8 @@ fun mk(p: !P, q: ?P) -> H from p, q
   H(e: WP2.a(w: !p, v: q))
 
 sub main()
-  p = P(t: Text("hello"))
-  q = P(t: Text("q"))
+  p = P(t: String("hello"))
+  q = P(t: String("q"))
   match mk(!p, ?q).e
     .a(w: w, v: v)
       r = ?w.t[1..]

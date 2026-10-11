@@ -1,14 +1,14 @@
 # The fold: a String that views a Text slot (guard): rejected, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct H
-  t: Text
+  t: String
 
 sub main()
-  e = E.full(t: Text("hello"))
-  keep: String = ""
+  e = E.full(t: String("hello"))
+  keep: ?String = ""
   match ?e
     .full(p) if p.len > 2 => keep = p
     _ => pass

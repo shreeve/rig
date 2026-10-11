@@ -1,4 +1,4 @@
-# `for x in !xs` views each element of a Vec or array for writing:
+# `for x in !xs` views each element of a List or array for writing:
 # assigning `x` (or its fields) writes the element in place, and a
 # resource element that is replaced is dropped.
 
@@ -12,14 +12,14 @@ struct B
     print("drop", self.n)
 
 struct H
-  v: Vec[Int]
+  v: List[Int]
 
-sub bump(xs: !Vec[Int])
+sub bump(xs: !List[Int])
   for x in !xs
     x += 1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   for x in !v
@@ -34,19 +34,19 @@ sub main()
     y *= 3
   print(a[0], a[2])
 
-  ps: Vec[P] = Vec()
+  ps: List[P] = List()
   !ps.push(P(x: 1))
   for p in !ps
     p.x = 7
   print(ps[0].x)
 
-  h = H(v: Vec())
+  h = H(v: List())
   !h.v.push(4)
   for e in !h.v
     e *= 2
   print(h.v[0])
 
-  bs: Vec[*B] = Vec()
+  bs: List[*B] = List()
   !bs.push(*B(n: 1))
   !bs.push(*B(n: 2))
   for b in !bs

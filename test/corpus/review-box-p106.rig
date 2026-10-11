@@ -3,5 +3,5 @@ struct R
 
 sub main()
   s = *R(n: 3)
-  b = Box(value: ~s)
+  b = ^~s
   print(b)

@@ -2,17 +2,17 @@
 # handles, and each child points up weakly, so the cycle does not leak.
 
 struct Node
-  name: String
+  name: ?String
   parent: ~Node?
-  children: Cell[Vec[*Node]]
+  children: Cell[List[*Node]]
 
   drop(!self)
     print("free", self.name)
 
 # Make a child of `parent` and hand back a handle to it.
-fun child(parent: ?*Node, name: String) -> *Node
+fun child(parent: ?*Node, name: ?String) -> *Node
   up = +parent
-  kid = *Node(name: name, parent: ~up, children: Cell(Vec()))
+  kid = *Node(name: name, parent: ~up, children: Cell(List()))
   !parent.children.push(+kid)
   kid
 
@@ -32,7 +32,7 @@ fun has_parent(n: ?*Node) -> Bool
   false
 
 sub main()
-  root = *Node(name: "root", parent: none, children: Cell(Vec()))
+  root = *Node(name: "root", parent: none, children: Cell(List()))
   a = child(?root, "a")
   b = child(?root, "b")
   a1 = child(?a, "a1")

@@ -1,8 +1,8 @@
 struct W
-  f: !Text
+  f: !String
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   w = W(f: !t)
   for b in w.f
     if b == 104

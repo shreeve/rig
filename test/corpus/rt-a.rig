@@ -1,9 +1,9 @@
 struct Split
-  rest: String
-  sep: String
+  rest: ?String
+  sep: ?String
   done: Bool
 
-  pub fun next(!self) -> String?
+  pub fun next(!self) -> (?String)?
     if self.done
       return none
     i = find(self.rest, self.sep) ?? -1
@@ -14,7 +14,7 @@ struct Split
     self.rest = self.rest[i + self.sep.len..]
     part
 
-fun find(s: String, pat: String) -> Int?
+fun find(s: ?String, pat: ?String) -> Int?
   if pat.len > s.len
     return none
   i = 0
@@ -23,7 +23,7 @@ fun find(s: String, pat: String) -> Int?
       return i
   none
 
-fun split(s: String, sep: String) -> Split
+fun split(s: ?String, sep: ?String) -> Split
   Split(rest: s, sep: sep, done: false)
 
 sub main()

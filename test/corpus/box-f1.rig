@@ -8,7 +8,7 @@ enum Shape
       .square(s) => s * s
 
 sub main()
-  b = Box(value: Shape.circle(r: 2))
+  b = ^Shape.circle(r: 2)
   print(b.area())
   match b
     .circle(r) => print("circle", r)

@@ -3,7 +3,7 @@
 # its statement.
 
 struct Bag
-  v: Vec[Int]
+  v: List[Int]
 
 fun keep(b: ?Bag) -> ?Bag
   b
@@ -11,29 +11,29 @@ fun keep(b: ?Bag) -> ?Bag
 fun keep_s(xs: []Int) -> []Int
   xs
 
-fun keep_t(s: String) -> String
+fun keep_t(s: ?String) -> ?String
   s
 
 sub add(a: !Int, b: ?Int)
   a += b
 
 fun mk() -> Bag
-  Bag(v: Vec())
+  Bag(v: List())
 
 sub one()
-  b = Bag(v: Vec())
+  b = Bag(v: List())
   r = keep(?b)
   <b
   print(r.v.len)
 
 sub two()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   s = keep_s(?v)
   !v.push(1)
   print(s)
 
 sub three()
-  t = Text("a")
+  t = String("a")
   s = keep_t(?t)
   !t.add("b")
   print(s)

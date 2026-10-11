@@ -2,7 +2,7 @@
 # must spell the move as `<u.consume()`.
 
 struct User
-  name: String
+  name: ?String
 
   sub consume(self: User)
     print(self.name)

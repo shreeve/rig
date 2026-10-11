@@ -1,5 +1,5 @@
-# A `Vec[*sub()]` holding clones of two closures: the originals stay
-# callable, and at scope exit the Vec's clones, the closures, and the
+# A `List[*sub()]` holding clones of two closures: the originals stay
+# callable, and at scope exit the List's clones, the closures, and the
 # captured cell are all released.
 
 sub main()
@@ -7,7 +7,7 @@ sub main()
   cb1: *sub() = *|+count| !count.set(count.get() + 1)
   cb2: *sub() = *|+count| !count.set(count.get() + 10)
 
-  subs: Vec[*sub()] = Vec()
+  subs: List[*sub()] = List()
   !subs.push(+cb1)
   !subs.push(+cb2)
 

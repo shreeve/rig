@@ -1,7 +1,7 @@
-# for element binding matched; view escapes the loop; the Vec then grows. Expect reject.
+# for element binding matched; view escapes the loop; the List then grows. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,15 +12,15 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[E] = Vec()
-  !v.push(E.a(r: Res(n: 1, t: Text("one"))))
-  k = Res(n: 0, t: Text("k"))
+  v: List[E] = List()
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   for e in v
     match e
       .a(r) => saved = ?r
       .b(r) => saved = ?r
   for _ in 0..100
-    !v.push(E.b(r: Res(n: 2, t: Text("x"))))
+    !v.push(E.b(r: Res(n: 2, t: String("x"))))
   print(clobber(1))
   print(saved.t)

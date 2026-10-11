@@ -2,20 +2,20 @@
 # fallback that may be an owner a name holds needs `<`. A read of `o?`
 # takes nothing.
 
-fun mko(k: Int) -> Text?
-  Text("o") if k > 0 else none
+fun mko(k: Int) -> String?
+  String("o") if k > 0 else none
 
-fun f(o: Text?) -> Int?
+fun f(o: String?) -> Int?
   print(o?)
   1
 
 sub main()
-  e = Text("e")
-  g = Text("g")
+  e = String("e")
+  g = String("g")
   c = true
   y = mko(0) ?? (e if c else g)
   print(y, f(none))
 
-# error: 16:18: `e` owns a `Text`, which can't be copied by `=`: write `<e` to move it, `+e` to clone it, or `?e` to view it
-# error: 16:30: `g` owns a `Text`, which can't be copied by `=`: write `<g` to move it, `+g` to clone it, or `?g` to view it
+# error: 16:18: `e` owns a `String`, which can't be copied by `=`: write `<e` to move it, `+e` to clone it, or `?e` to view it
+# error: 16:30: `g` owns a `String`, which can't be copied by `=`: write `<g` to move it, `+g` to clone it, or `?g` to view it
 # errors: 2

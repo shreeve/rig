@@ -188,8 +188,8 @@ const Checker = struct {
     }
 
     /// Add the flowing loans a var can carry: none if its type holds no
-    /// view, and only those it keeps (`core.Func.keeps`): a String read
-    /// out through a `?String` carries the String's loans, not the loan
+    /// view, and only those it keeps (`core.Func.keeps`): a `?String` read
+    /// out through a `?String` carries the `?String`'s loans, not the loan
     /// on the place it was read from.
     fn take(self: *Checker, v: VarId, st: State, flow: Bits) void {
         const vr = self.f.vars.items[v];
@@ -244,7 +244,7 @@ const Checker = struct {
         // lent to write, unless it may itself be or hold a write view
         // (Core s7: a result that holds no write view carries its loans
         // as read loans, even of an argument lent to write), and a write
-        // view pushed into a Vec of them stays one (Core §5).
+        // view pushed into a List of them stays one (Core §5).
         const stored_full = self.stored_full;
         stored_full.copyFrom(stored);
         if (op.what == .call) {

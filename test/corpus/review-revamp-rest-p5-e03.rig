@@ -7,8 +7,8 @@ fun g() -> Int
   1
 
 sub main()
-  vs = Vec[Vec[Int]]()
-  !vs.push(Vec[Int]())
-  !vs.push(Vec[Int]())
+  vs = List[List[Int]]()
+  !vs.push(List[Int]())
+  !vs.push(List[Int]())
   !vs[f()].push(g())
   print(vs[0].len, vs[1].len)

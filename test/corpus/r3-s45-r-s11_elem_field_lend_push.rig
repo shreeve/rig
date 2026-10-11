@@ -1,9 +1,9 @@
 struct R
-  name: Text
+  name: String
 
 sub main()
-  v: Vec[R] = Vec()
-  !v.push(R(name: Text("a")))
+  v: List[R] = List()
+  !v.push(R(name: String("a")))
   s = ?v[0].name
-  !v.push(R(name: Text("b")))
+  !v.push(R(name: String("b")))
   print(s)

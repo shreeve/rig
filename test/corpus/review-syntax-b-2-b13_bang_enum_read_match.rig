@@ -1,5 +1,5 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub f(e: !E)
@@ -11,5 +11,5 @@ sub f(e: !E)
   print(s)
 
 sub main()
-  x = E.a(Text("hello"))
+  x = E.a(String("hello"))
   f(!x)

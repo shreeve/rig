@@ -1,6 +1,6 @@
 struct K
   hits: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
   n: Int
 
   sub hit(!self)
@@ -11,7 +11,7 @@ struct N
   next: (~N)?
 
 fun made() -> K
-  K(hits: Cell(0), log: Cell(Vec[Int]()), n: 3)
+  K(hits: Cell(0), log: Cell(List[Int]()), n: 3)
 
 sub main()
   k = made()

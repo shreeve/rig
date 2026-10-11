@@ -4,13 +4,13 @@ struct H
   r: !Int
 
 sub run(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   h = H(r: !v[0])
   h.r = match k
     1 => 4
     _
-      u: Vec[Int] = Vec()
+      u: List[Int] = List()
       !u.push(1)
       h.r = !u[0]
       3

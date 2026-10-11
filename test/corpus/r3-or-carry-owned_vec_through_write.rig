@@ -1,11 +1,11 @@
-# An element of a Vec the holder owns, reached through `!self`, lends
+# An element of a List the holder owns, reached through `!self`, lends
 # `self`: the holder cannot change while the view is used.
 
 struct Tok
   kind: Int
 
 struct P
-  toks: Vec[Tok]
+  toks: List[Tok]
   pos: Int
 
   fun next(!self) -> ?Tok
@@ -14,7 +14,7 @@ struct P
     t
 
 sub main()
-  p = P(toks: Vec(), pos: 0)
+  p = P(toks: List(), pos: 0)
   !p.toks.push(Tok(kind: 1))
   a = (!p).next()
   print(a.kind)

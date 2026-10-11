@@ -5,7 +5,7 @@ struct B
     print("drop", self.n)
 
 enum Slot
-  full(b: *B, v: Vec[Int])
+  full(b: *B, v: List[Int])
   empty
 
 sub keep(b: *B)
@@ -24,11 +24,11 @@ sub g(s: Slot)
     .full(b, v) if v.len > 0 => keep(<b)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   print(f(.full(b: *B(n: 1), v: <v)))
-  print(f(.full(b: *B(n: 2), v: Vec())))
-  print(f(.full(b: *B(n: 3), v: Vec())))
+  print(f(.full(b: *B(n: 2), v: List())))
+  print(f(.full(b: *B(n: 3), v: List())))
   print(f(.empty))
-  g(.full(b: *B(n: 4), v: Vec()))
+  g(.full(b: *B(n: 4), v: List()))
   print("end")

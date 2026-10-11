@@ -1,6 +1,6 @@
 sub main()
-  t = Text("abcdefghijklmnop")
-  cv: *Cell[Vec[String]] = *Cell(Vec())
+  t = String("abcdefghijklmnop")
+  cv: *Cell[List[?String]] = *Cell(List())
   keep = +cv
   !cv.push(?t[..3])
   <cv

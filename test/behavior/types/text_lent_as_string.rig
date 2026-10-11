@@ -2,18 +2,18 @@
 # view of one lends it as is, and a bare Text argument is lent to read
 # as `?t` would be.
 
-fun n(s: String) -> Int
+fun n(s: ?String) -> Int
   s.len
 
-fun a(p: ?Text) -> Int
+fun a(p: ?String) -> Int
   n(?p) + n(?p[1..])
 
-fun b(p: ?Text) -> Int
+fun b(p: ?String) -> Int
   n(p)
 
 sub main()
-  t = Text("abc")
-  print(a(?t), n(t), n(?Text("x")), n(Text("yz")), b(t))
+  t = String("abc")
+  print(a(?t), n(t), n(?String("x")), n(String("yz")), b(t))
 
 # expect:
 # 5 3 1 2 3

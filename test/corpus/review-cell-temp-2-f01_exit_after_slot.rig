@@ -13,7 +13,7 @@ error E
 
 struct D
   c: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   drop(!self)
     print("drop", self.c.get(), self.log.len)
@@ -26,7 +26,7 @@ struct D
     self.log.len
 
 fun mkd(n: Int) -> D
-  d = D(c: Cell(n), log: Cell(Vec()))
+  d = D(c: Cell(n), log: Cell(List()))
   d.log.push(n)
   d
 

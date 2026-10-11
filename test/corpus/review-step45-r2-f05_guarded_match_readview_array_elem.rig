@@ -1,6 +1,6 @@
 # guarded match on an element of a ?[1]E array parameter with Text payload
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 fun f(v: ?[1]E) -> Int
@@ -10,5 +10,5 @@ fun f(v: ?[1]E) -> Int
     .b(n) => n
 
 sub main()
-  e = [E.a(t: Text("hello"))]
+  e = [E.a(t: String("hello"))]
   print(f(?e))

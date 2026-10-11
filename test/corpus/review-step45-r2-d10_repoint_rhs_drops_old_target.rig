@@ -1,11 +1,11 @@
 # right side drops/replaces the old target through a function that takes ownership-ish ops
-fun swapin(x: !Text, y: !Text) -> !Text
-  x = Text("replaced")
+fun swapin(x: !String, y: !String) -> !String
+  x = String("replaced")
   y
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   w = swapin(!a, !b)
   !w.add("!")

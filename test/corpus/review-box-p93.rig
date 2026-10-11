@@ -4,13 +4,13 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun unbox[T](b: Box[T]) -> T
+fun unbox[T](b: ^T) -> T
   <b.take()
 
-fun wrap[T](v: T) -> Box[T]
-  Box(value: <v)
+fun wrap[T](v: T) -> ^T
+  ^<v
 
-fun peek[T](b: ?Box[T]) -> ?T
+fun peek[T](b: ?^T) -> ?T
   ?b
 
 struct Pair[T]

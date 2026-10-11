@@ -6,7 +6,7 @@ struct Wrap[T]
 
 type Km = Meters
 type IW = Wrap[Int]
-type BI = Box[Int]
+type BI = ^Int
 type CI = Cell[Int]
 
 sub main()

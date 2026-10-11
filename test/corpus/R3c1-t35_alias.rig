@@ -1,13 +1,13 @@
 struct P
   x: Int
   y: Int
-  s: String
+  s: ?String
 
 fun bump(p: !P) -> P
   p.x += 1
   P(x: 1, y: 2, s: "a")
 
-fun bumpS(s: !String) -> String
+fun bumpS(s: !String) -> ?String
   s = "zzz"
   "a"
 

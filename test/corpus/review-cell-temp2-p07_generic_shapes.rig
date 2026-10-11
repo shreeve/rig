@@ -100,10 +100,10 @@ sub showi(n: ?Int)
 fun readi(n: ?Int) -> Int
   n + 1
 
-sub showt(t: ?Text)
+sub showt(t: ?String)
   print("t", t)
 
-fun readt(t: ?Text) -> Int
+fun readt(t: ?String) -> Int
   t.len
 
 sub shapes[X](h: H[X], x1: X, x2: X, x3: X, f: ?sub(?X), g: ?fun(?X) -> Int, k: Bool)!

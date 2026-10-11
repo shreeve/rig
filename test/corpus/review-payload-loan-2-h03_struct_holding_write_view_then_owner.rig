@@ -1,8 +1,8 @@
 struct H
-  w: !Text
+  w: !String
 
 sub main()
-  x = Text("hello")
+  x = String("hello")
   h = H(w: !x)
   r = ?h.w[1..]
   !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")

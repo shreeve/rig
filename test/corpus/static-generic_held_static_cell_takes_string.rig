@@ -2,7 +2,7 @@ sub put[T](c: !Cell[T], x: T)
   !c.set(x)
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   c = *Cell("lit")
   put(!c, ?t[..])
   <t

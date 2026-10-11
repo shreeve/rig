@@ -3,7 +3,7 @@
 # here, a `Bool` in a condition and an operand of `and`, `or`, or `not`.
 
 struct Set
-  items: Vec[Int]
+  items: List[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
       return false if x == k
@@ -18,7 +18,7 @@ fun fill(s: !Set) -> Int!
   0
 
 sub main()
-  set = Set(items: Vec())
+  set = Set(items: List())
   if !set.insert(1)
     print("new")
   while !set.insert(2)

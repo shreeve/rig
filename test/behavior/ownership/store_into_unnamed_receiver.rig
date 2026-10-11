@@ -4,29 +4,29 @@
 # outlive the holder may be stored there.
 
 struct H
-  r: String
-  rs: Vec[String]
+  r: ?String
+  rs: List[?String]
 
-  sub keep(!self, r: String)
+  sub keep(!self, r: ?String)
     !self.rs.push(r)
 
 fun wrap(h: !H) -> !H
   h
 
-fun wv(v: !Vec[H]) -> !Vec[H]
+fun wv(v: !List[H]) -> !List[H]
   v
 
 fun f(n: Int) -> Int
   n
 
 sub main()
-  t = Text("one")
-  u = Text("two")
-  h = H(r: "", rs: Vec())
-  a = H(r: "", rs: Vec())
-  b = H(r: "", rs: Vec())
-  v: Vec[H] = Vec()
-  !v.push(H(r: "", rs: Vec()))
+  t = String("one")
+  u = String("two")
+  h = H(r: "", rs: List())
+  a = H(r: "", rs: List())
+  b = H(r: "", rs: List())
+  v: List[H] = List()
+  !v.push(H(r: "", rs: List()))
   c = f(1) == 1
   wrap(!h).keep(?t)
   (!a if c else !b).keep(?u)

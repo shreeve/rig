@@ -1,6 +1,6 @@
 struct S
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 struct H
   s: ?S
@@ -9,7 +9,7 @@ fun rt(n: Int) -> Int
   n
 
 fun mk(n: Int) -> S
-  s = S(n: n, v: Vec())
+  s = S(n: n, v: List())
   !s.v.push(n)
   s
 

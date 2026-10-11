@@ -15,7 +15,7 @@ sub main()
   match <e
     .a(r) => print((!r).next() % 10)
     .b => pass
-  b = Box(random.Random.seeded(5))
+  b = ^random.Random.seeded(5)
   print((!b).next() % 10)
   h = *random.Random.seeded(5)
   g = +h

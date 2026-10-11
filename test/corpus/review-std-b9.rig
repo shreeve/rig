@@ -1,11 +1,11 @@
 struct Holder
-  v: Vec[[]Int]
+  v: List[[]Int]
 
   sub put(!self, ys: []Int)
     !self.v.push(ys)
 
 sub main()
-  h = Holder(v: Vec())
+  h = Holder(v: List())
   if true
     a = [1, 2, 3]
     !h.put(?a)

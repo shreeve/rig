@@ -10,8 +10,8 @@ error Bad
 
 struct S
   n: Int
-  t: Text
-  items: Vec[Int]
+  t: String
+  items: List[Int]
   e: E
 
 enum E
@@ -19,13 +19,13 @@ enum E
   b
 
 struct H
-  r: String
+  r: ?String
 
   drop(!self)
     print("drop", self.r)
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("x"), items: Vec(), e: E.a)
+  S(n: n, t: String("x"), items: List(), e: E.a)
 
 fun mkh() -> H
   H(r: "init")
@@ -41,14 +41,14 @@ fun arr() -> [2]Int
 
 sub main()
   c = true
-  t = Text("a")
+  t = String("a")
   (!mkh()).r = "lit"
   (!mkh()).r = ?t
   (!arr())[0] = 6
   (!mk(1)).n += 1
   (!(mkopt(5) ?? mk(6))).e = E.b
   (!(mkf(0) catch mk(8))).items[0] *= 7
-  (!(mk(3) if c else mk(4))).t = Text("new")
+  (!(mk(3) if c else mk(4))).t = String("new")
   a = mk(1)
   b = mk(2)
   print((?(mk(1) if c else mk(2))).n, (?(mkopt(1) ?? mk(2))).n)
@@ -60,7 +60,7 @@ sub main()
 # error: 48:4: `(!mk(1)).n`: write a lend on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mk(1)`, then `tmp.n += 1`
 # error: 49:4: `(!(mkopt(5) ?? mk(6))).e`: write a lend on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkopt(5) ?? mk(6)`, then `tmp.e = E.b`
 # error: 50:4: `(!(mkf(0) catch mk(8))).items`: write a lend on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkf(0) catch mk(8)`, then `tmp.items[0] *= 7`
-# error: 51:4: `(!(mk(3) if c else mk(4))).t`: write a lend on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mk(3) if c else mk(4)`, then `tmp.t = Text("new")`
+# error: 51:4: `(!(mk(3) if c else mk(4))).t`: write a lend on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mk(3) if c else mk(4)`, then `tmp.t = String("new")`
 # error: 54:10: `(?(mk(1) if c else mk(2))).n`: write a lend on the whole path, not its base: `print((mk(1) if c else mk(2)).n, (mkopt(1) ?? mk(2)).n)`
 # error: 54:40: `(?(mkopt(1) ?? mk(2))).n`: write a lend on the whole path, not its base: `print((mk(1) if c else mk(2)).n, (mkopt(1) ?? mk(2)).n)`
 # error: 55:10: `(?(mkf(1) catch mk(2))).n`: write a lend on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`

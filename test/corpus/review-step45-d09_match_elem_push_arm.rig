@@ -1,11 +1,11 @@
 # match on element, push inside the arm (block arm)
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 sub main()
-  v: Vec[E] = Vec()
-  !v.push(E.a(t: Text("hi")))
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
   match v[0]
     .a(t)
       !v.push(E.b(n: 1))

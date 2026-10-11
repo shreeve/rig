@@ -5,13 +5,13 @@ enum Shape
   circle(r: Int)
   point
 
-fun grow(v: !Vec[Shape]) -> Int
+fun grow(v: !List[Shape]) -> Int
   for _ in 0..10
     !v.push(.point)
   v.len
 
 sub main()
-  v: Vec[Shape] = Vec()
+  v: List[Shape] = List()
   !v.push(.circle(r: 5))
   x = !v
   match ?x[0]

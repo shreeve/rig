@@ -1,6 +1,6 @@
 # An open range leaves out a side of a slice: `xs[a..]` runs to the end,
 # `xs[..b]` starts at 0, and `xs[..]` is the whole. It slices a String,
-# an array, a Vec, and a `[]T`.
+# an array, a List, and a `[]T`.
 
 fun rest(xs: []Int) -> []Int
   xs[1..]
@@ -10,7 +10,7 @@ sub main()
   print(s[7..], s[..5], s[..], s[s.len..].len)
   a = [1, 2, 3, 4]
   print(a[1..], a[..2], a[..], a[4..])
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(10)
   !v.push(20)
   !v.push(30)

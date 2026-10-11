@@ -16,8 +16,8 @@ enum Opt[T]
 fun id[T](a: T) -> T
   a
 
-fun pair[T, U](a: T) -> Vec[U]
-  Vec()
+fun pair[T, U](a: T) -> List[U]
+  List()
 
 fun tag[T, U](a: T) -> Int
   1
@@ -35,5 +35,5 @@ sub main()
 # error: 27:21: type mismatch: expected `Opt[Opt[U8]]`, got `Opt[Opt[Int]]`; `Opt.some` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, name the type: `Opt[Opt[U8]].some(...)`
 # error: 28:21: type mismatch: expected `Opt[Opt[U8]]`, got `Opt[Opt[Int]]`; `Opt.some` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, name the type: `Opt[Opt[U8]].some(...)`
 # error: 29:16: type mismatch: expected `Opt[U8]`, got `Opt[Int]`; `id` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, give it in brackets: `id[Opt[U8]](...)`
-# error: 31:7: cannot infer `U` for `pair` from its arguments or the type expected of its result; give the type where the value goes: `x: Vec[U] = pair(...)`, with a type in place of `U`
+# error: 31:7: cannot infer `U` for `pair` from its arguments or the type expected of its result; give the type where the value goes: `x: List[U] = pair(...)`, with a type in place of `U`
 # error: 32:9: cannot infer `U` for `tag` from its arguments or the type expected of its result; give `U` in brackets, naming each array, slice, or function type in them with a `type` alias

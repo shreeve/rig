@@ -1,13 +1,13 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
-fun peek(e: !E, d: ?Text) -> ?Text
+fun peek(e: !E, d: ?String) -> ?String
   match !e
     .a(t) => ?t
     .b => d
 
 sub main()
-  e = E.a(Text("hello"))
-  d = Text("d")
+  e = E.a(String("hello"))
+  d = String("d")
   print(peek(!e, ?d))

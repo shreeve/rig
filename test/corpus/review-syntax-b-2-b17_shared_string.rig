@@ -1,5 +1,5 @@
 sub main()
-  t = Text("hello")
+  t = String("hello")
   h = *(?t[..])
   s = h[1..]
   print(s)

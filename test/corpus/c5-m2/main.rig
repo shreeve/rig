@@ -8,7 +8,7 @@ struct Wrap[T]
     self.v
 
 type IW = Wrap[Int]
-type IV = Vec[Int]
+type IV = List[Int]
 type B2 = lib.Byte
 type Q = B2
 type LUP = lib.UP

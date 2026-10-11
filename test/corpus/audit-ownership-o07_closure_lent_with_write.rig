@@ -1,8 +1,8 @@
-sub run(v: !Vec[Int], f: ?fun() -> Int)
+sub run(v: !List[Int], f: ?fun() -> Int)
   !v.push(f())
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   run(!v, |?v| v.len)
   print(v)

@@ -4,7 +4,7 @@ struct Counter
 sub main()
   c: Cell[Int] = Cell(1)
   d = Cell(c.get())
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(c.get())
   s = *Cell(5)
   t = +s

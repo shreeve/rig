@@ -1,4 +1,4 @@
 sub main()
-  v = Vec[Int]()
-  b = Box(v)
+  v = List[Int]()
+  b = ^v
   print(b, v)

@@ -10,7 +10,7 @@ fun is3[T](x: T?) -> Bool
 sub main()
   x: Int? = 3
   n: Int? = none
-  s: String? = "a"
+  s: (?String)? = "a"
   b: U8? = 3
   print(holds(x, 3), holds(n, 3), holds(s, "a"), holds(s, "b"))
   print(is3(x), is3(n), is3(b))

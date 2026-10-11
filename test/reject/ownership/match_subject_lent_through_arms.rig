@@ -9,23 +9,23 @@ enum Shape
   circle(r: Int)
   point
 
-fun grow(v: !Vec[Shape]) -> Bool
+fun grow(v: !List[Shape]) -> Bool
   for _ in 0..100
     !v.push(.point)
   false
 
 struct H
-  o: Box[Int]?
+  o: ^Int?
 
 fun clear(h: !H) -> Bool
   h.o = none
   false
 
-fun first(v: ?Vec[Shape]) -> []Shape
+fun first(v: ?List[Shape]) -> []Shape
   ?v[..1]
 
 sub main()
-  v: Vec[Shape] = Vec()
+  v: List[Shape] = List()
   !v.push(.circle(r: 5))
   w = !v
   n = match ?w[0]
@@ -44,7 +44,7 @@ sub main()
       .circle(_) if grow(!v) => print(k)
       _ => print(0)
     _ => print(k)
-  h = H(o: Box(3))
+  h = H(o: ^3)
   z = !h
   if ?z.o as s
     print(clear(!h))

@@ -4,15 +4,15 @@ enum E
   b
 
 sub main()
-  vv: Vec[Vec[E]] = Vec()
-  w: Vec[E] = Vec()
+  vv: List[List[E]] = List()
+  w: List[E] = List()
   !w.push(E.a(n: 4))
   !vv.push(<w)
   i = 0
   match !vv[0][i]
     .a(n)
       for _ in 0..64
-        x: Vec[E] = Vec()
+        x: List[E] = List()
         !vv.push(<x)
       n = 5
     .b => pass

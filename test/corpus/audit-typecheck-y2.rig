@@ -1,10 +1,10 @@
 struct S
   f: Int?
 
-sub t(b: ?Box[S])
+sub t(b: ?^S)
   y = <b.f
   print(y ?? 0)
 
 sub main()
-  b = Box(S(f: 3))
+  b = ^S(f: 3)
   t(?b)

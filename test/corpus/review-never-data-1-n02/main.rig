@@ -2,5 +2,5 @@ use lib
 
 sub main()
   w: lib.Wrap[lib.C]? = none
-  v: Vec[lib.C] = Vec()
+  v: List[lib.C] = List()
   print(v.len)

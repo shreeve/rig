@@ -1,9 +1,9 @@
 # The value re-points the write-view name target; the store must go
 # through the new view (u[0]), as for an element target (m23).
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(8)
   w = !v[0]
   k = 0

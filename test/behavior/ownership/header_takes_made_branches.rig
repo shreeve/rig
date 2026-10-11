@@ -4,7 +4,7 @@
 
 struct N
   id: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.id)
@@ -13,14 +13,14 @@ enum Shape
   dot
   line(n: N)
 
-fun mkv(k: Int) -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mkv(k: Int) -> List[Int]
+  v: List[Int] = List()
   !v.push(k)
   !v.push(k * 10)
   v
 
 fun mks(k: Int) -> Shape
-  .line(n: N(id: k, t: Text("s")))
+  .line(n: N(id: k, t: String("s")))
 
 sub main()
   c = true

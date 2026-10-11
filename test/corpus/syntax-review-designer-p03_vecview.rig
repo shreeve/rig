@@ -4,7 +4,7 @@ struct P
 sub main()
   a = P(x: 1)
   b = P(x: 2)
-  v: Vec[?P] = Vec()
+  v: List[?P] = List()
   !v.push(?a)
   !v.push(?b)
   print(v.len)

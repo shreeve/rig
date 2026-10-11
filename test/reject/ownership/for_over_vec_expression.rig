@@ -1,18 +1,18 @@
-# A `for` over a Vec walks a named Vec in place, or consumes the Vec a
+# A `for` over a List walks a named List in place, or consumes the List a
 # call makes. Any other expression (`o?`, a ternary, a `match`) could
-# name a place on one path and make a Vec on another, so it is bound
+# name a place on one path and make a List on another, so it is bound
 # to a name first.
 
-fun total(o: Vec[Int]?) -> Int?
+fun total(o: List[Int]?) -> Int?
   t = 0
   for e in ?o?
     t += e
   t
 
 sub main()
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   !a.push(1)
-  b: Vec[Int] = Vec()
+  b: List[Int] = List()
   !b.push(2)
   c = a.len > 0
   for e in ?(a if c else b)

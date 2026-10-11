@@ -5,9 +5,9 @@ struct R
     print("drop", self.n)
 
 sub main()
-  v: Vec[*R] = Vec()
+  v: List[*R] = List()
   !v.push(*R(n: 1))
-  o: Vec[*R]? = <v
+  o: List[*R]? = <v
   if !o as w
     for x in <w
       print(x.n)

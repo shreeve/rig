@@ -1,10 +1,10 @@
 # right side reads the old target a directly (allowed only if w's loan ended): w = pick(?a, !b)
-fun pick(x: ?Text, y: !Text) -> !Text
+fun pick(x: ?String, y: !String) -> !String
   y
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   w = pick(?a, !b)
   !w.add("!")

@@ -1,4 +1,4 @@
 sub main()
-  o: Text? = Text("x")
+  o: String? = String("x")
   p = +o
   print(p)

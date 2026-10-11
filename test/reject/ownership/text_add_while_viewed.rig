@@ -2,7 +2,7 @@
 # the view is in use, since the change may move its bytes.
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   s = ?t[..]
   !t.add("d")
   print(s)

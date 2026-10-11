@@ -1,9 +1,9 @@
 sub main()
-  cv: *Cell[Vec[String]] = *Cell(Vec())
+  cv: *Cell[List[?String]] = *Cell(List())
   !cv.push("lit")
   keep = +cv
   if true
-    t = Text("abcdefghijklmnop")
+    t = String("abcdefghijklmnop")
     s = ?t[..3]
     f = |+cv, s| (!cv)[0] = s
     f(s)

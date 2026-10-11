@@ -5,17 +5,17 @@
 # oracle: main reject C5
 
 struct B
-  o: Text?
+  o: String?
 
 enum E
-  a(t: Text)
+  a(t: String)
   z
 
 fun mk() -> B
-  B(o: Text("o"))
+  B(o: String("o"))
 
 fun mke() -> E
-  E.a(t: Text("e"))
+  E.a(t: String("e"))
 
 sub main()
   if ?mk().o as t

@@ -1,5 +1,5 @@
 struct H
-  name: String
+  name: ?String
   cb: Cell[(*sub())?]
 
   drop(!self)

@@ -6,10 +6,10 @@ struct Leaf
 
 enum Ex
   lit(l: Leaf)
-  neg(a: Box[Ex])
+  neg(a: ^Ex)
 
 sub main()
-  t = Box(value: Ex.neg(a: Box(value: Ex.lit(l: Leaf(n: 2)))))
+  t = ^Ex.neg(a: ^Ex.lit(l: Leaf(n: 2)))
   match ?t
     .lit(l) => print(l.n)
     .neg(a)

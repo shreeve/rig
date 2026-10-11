@@ -30,7 +30,7 @@ fun sum[n: Int](xs: ?[n]Int) -> Int
 fun first[n: Int](xs: ?[n]Int) -> Int
   xs[0]
 
-sub show[s: String, b: Bool, o: Int?]()
+sub show[s: ?String, b: Bool, o: Int?]()
   print(s, b, o)
 
 sub main()

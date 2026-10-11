@@ -1,11 +1,11 @@
 struct P
   x: Int
 
-fun first(v: ?Vec[P]) -> ?P
+fun first(v: ?List[P]) -> ?P
   ?v[0]
 
 sub main()
-  v: Vec[P] = Vec()
+  v: List[P] = List()
   !v.push(P(x: 1))
   r = first(?v)
   !v.push(P(x: 2))

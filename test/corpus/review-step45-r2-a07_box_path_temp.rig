@@ -1,18 +1,18 @@
 # match !b.v[idx(?Text("a"))] through a Box: must reject
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 struct S
-  v: Vec[E]
+  v: List[E]
 
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  b = Box(S(v: Vec()))
-  !b.v.push(E.a(t: Text("hi")))
-  match !b.v[idx(?Text("a"))]
+  b = ^S(v: List())
+  !b.v.push(E.a(t: String("hi")))
+  match !b.v[idx(?String("a"))]
     .a(t) if t.len > 0 => !t.add("!")
     .a(t) => !t.add("?")
     .b(n) => print(n)

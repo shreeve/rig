@@ -2,7 +2,7 @@
 # write, consumed, in a loop that continues, and a guard.
 struct C
   c: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.c.set(self.c.get() + 1)
@@ -14,7 +14,7 @@ enum E
   nothing
 
 fun mk(n: Int) -> C
-  C(c: Cell(n), log: Cell(Vec()))
+  C(c: Cell(n), log: Cell(List()))
 
 fun maybe(n: Int) -> Int?
   return none if n % 2 == 1

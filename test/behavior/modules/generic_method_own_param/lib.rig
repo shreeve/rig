@@ -2,16 +2,16 @@ pub struct Pair[A, B]
   pub a: A
   pub b: B
 
-pub struct List[T]
-  pub items: Vec[T]
+pub struct Chain[T]
+  pub items: List[T]
 
-  pub fun zip[U](?self, other: ?List[U]) -> List[Pair[T, U]]
-    out: Vec[Pair[T, U]] = Vec()
+  pub fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]
+    out: List[Pair[T, U]] = List()
     i = 0
     while i < self.items.len and i < other.items.len
       !out.push(Pair(a: self.items[i], b: other.items[i]))
       i += 1
-    List(items: <out)
+    Chain(items: <out)
 
 struct Wrap[T]
   v: T

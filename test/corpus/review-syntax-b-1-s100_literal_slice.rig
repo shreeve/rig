@@ -10,6 +10,6 @@ fun keep(xs: []Int) -> []Int
 sub main()
   print(total([1, 2, 3][1..]))
   print(keep([4, 5, 6][1..]))
-  t: Vec[Text] = Vec()
-  !t.push(Text("a"))
+  t: List[String] = List()
+  !t.push(String("a"))
   print(total([t.len, 2][..]))

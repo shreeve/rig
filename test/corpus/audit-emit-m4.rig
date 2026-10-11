@@ -5,21 +5,21 @@ struct HasH
   h: *N
 
 struct HasB
-  b: Box[Int]
+  b: ^Int
 
 sub main()
-  a: Vec[Int] = Vec(capacity: 8)
-  b: Vec[Int] = Vec()
+  a: List[Int] = List(capacity: 8)
+  b: List[Int] = List()
   !a.push(1)
   !b.push(1)
-  x = Box(1)
-  y = Box(1)
+  x = ^1
+  y = ^1
   p = HasH(h: *N(n: 1))
   q = HasH(h: *N(n: 1))
   print(p == q)
   s = *N(n: 1)
   t = *N(n: 1)
   print(s == t)
-  hb = HasB(b: Box(2))
-  hc = HasB(b: Box(2))
+  hb = HasB(b: ^2)
+  hc = HasB(b: ^2)
   print(hb == hc)

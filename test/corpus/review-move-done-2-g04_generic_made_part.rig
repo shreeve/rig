@@ -8,8 +8,8 @@ fun wrap[T](x: T) -> G[T]
 fun get[T](x: T, c: Bool) -> T
   <(wrap(<x).f if c else wrap(<x).f)
 
-fun mkv(n: Int) -> Vec[Int]
-  xs: Vec[Int] = Vec()
+fun mkv(n: Int) -> List[Int]
+  xs: List[Int] = List()
   !xs.push(n)
   xs
 

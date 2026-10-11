@@ -1,7 +1,7 @@
 # Subject is a branching value of views; payload view escapes; then one owner is reassigned. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,13 +12,13 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  e1 = E.a(r: Res(n: 1, t: Text("one")))
-  e2 = E.b(r: Res(n: 2, t: Text("two")))
-  k = Res(n: 0, t: Text("k"))
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.b(r: Res(n: 2, t: String("two")))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match ?e1 if false else ?e2
     .a(r) => saved = ?r
     .b(r) => saved = ?r
-  e2 = E.a(r: Res(n: 9, t: Text("nine")))
+  e2 = E.a(r: Res(n: 9, t: String("nine")))
   print(clobber(1))
   print(saved.t)

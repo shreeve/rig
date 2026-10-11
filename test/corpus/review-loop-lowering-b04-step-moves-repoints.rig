@@ -16,7 +16,7 @@ fun mv(d: D, c: Int) -> D
   print("step", d.n, c)
   D(n: d.n + 1)
 
-fun pick(a: ?Vec[Int], b: ?Vec[Int], c: Int) -> []Int
+fun pick(a: ?List[Int], b: ?List[Int], c: Int) -> []Int
   ?a[..] if c % 2 == 0 else ?b[..]
 
 fun lim(c: Int, n: Int) -> Int?
@@ -35,9 +35,9 @@ sub main()
       continue if c == 2
     print("tail", c)
   print("o", o.n)
-  a: Vec[Int] = Vec()
+  a: List[Int] = List()
   !a.push(1)
-  b: Vec[Int] = Vec()
+  b: List[Int] = List()
   !b.push(2)
   s = pick(?a, ?b, 0)
   k = 0

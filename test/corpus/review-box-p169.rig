@@ -5,7 +5,7 @@ struct R
     print("drop", self.n)
 
 sub main()
-  o: Box[R]? = Box(value: R(n: 1))
+  o: ^R? = ^R(n: 1)
   if !o as x
     <x
   if ?o as y

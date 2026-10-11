@@ -1,8 +1,8 @@
 struct Words
-  s: String
+  s: ?String
   i: Int = 0
 
-  fun next(!self) -> String?
+  fun next(!self) -> (?String)?
     while self.i < self.s.len and self.s[self.i] == 32
       self.i += 1
     return none if self.i >= self.s.len

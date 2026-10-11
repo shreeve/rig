@@ -1,8 +1,8 @@
 struct Wrap[T]
   v: T
 
-  fun conv2[U](?self) -> Vec[U]
-    Vec()
+  fun conv2[U](?self) -> List[U]
+    List()
 
   fun get(?self) -> T
     self.v

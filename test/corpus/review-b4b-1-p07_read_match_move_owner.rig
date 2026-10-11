@@ -1,18 +1,18 @@
 # read match through temp index, arm moves the owner then uses payload. Expect reject.
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-sub eat(v: Vec[E])
+sub eat(v: List[E])
   print(v.len)
 
 sub main()
-  v: Vec[E] = Vec()
-  !v.push(E.a(t: Text("q")))
-  match v[idx(?Text("a"))]
+  v: List[E] = List()
+  !v.push(E.a(t: String("q")))
+  match v[idx(?String("a"))]
     .a(t)
       eat(<v)
       print(t)

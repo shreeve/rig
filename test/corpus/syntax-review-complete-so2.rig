@@ -2,5 +2,5 @@ struct P
   n: Int
 
 sub main()
-  v: Vec[*P] = Vec()
+  v: List[*P] = List()
   s = ?v[..]

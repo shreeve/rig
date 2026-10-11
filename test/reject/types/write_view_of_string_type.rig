@@ -1,16 +1,16 @@
-# Nothing lends a `String` place to write, so a write view of one has no
+# Nothing lends a `?String` place to write, so a write view of one has no
 # value and cannot be written as a type: assign to the place to point it
-# at other text, or hold a `Text` to change text in place.
+# at other text, or hold a `String` to change text in place.
 
-sub clear(s: !String)
+sub clear(s: !?String)
   pass
 
-sub maybe(s: (!String)?)
+sub maybe(s: (!?String)?)
   pass
 
 sub main()
   pass
 
-# error: 5:14: `!String` cannot be written
-# error: 8:15: `!String` cannot be written
+# error: 5:14: `!?String` cannot be written
+# error: 8:15: `!?String` cannot be written
 # errors: 2

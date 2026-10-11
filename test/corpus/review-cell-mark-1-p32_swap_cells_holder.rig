@@ -1,8 +1,8 @@
 struct H
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
 sub main()
-  a = *H(log: Cell(Vec()))
-  b = *H(log: Cell(Vec()))
+  a = *H(log: Cell(List()))
+  b = *H(log: Cell(List()))
   swap(!a.log, !b.log)
   print(a.log.len)

@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
   n: Int
 
 enum E
@@ -7,7 +7,7 @@ enum E
   z
 
 sub main()
-  p = P(t: Text("hello"), n: 3)
+  p = P(t: String("hello"), n: 3)
   n = 5
   a = [1, 2, 3]
   e = E.a(w: !p, k: !n, s: !a[..])

@@ -24,7 +24,7 @@ struct Wrap[T]
     Wrap(v: v)
 
 enum E
-  a(s: String)
+  a(s: ?String)
   b
 
 sub sete(e: !E)

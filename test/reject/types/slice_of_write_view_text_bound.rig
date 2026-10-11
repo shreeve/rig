@@ -1,31 +1,31 @@
 # A slice of a write view of a Text lends that view, so a binding writes
-# the lend, as for a slice of the Text itself: a `!Text` parameter and
-# local, a `!*Text`, and a `!Box[Text]`.
+# the lend, as for a slice of the Text itself: a `!String` parameter and
+# local, a `!*String`, and a `!^String`.
 
-sub param(t: !Text)
+sub param(t: !String)
   s = t[1..]
   print(s)
 
 sub local()
-  t = Text("hello")
+  t = String("hello")
   w = !t
   s = w[1..]
   print(s)
 
-sub shared(h: !*Text)
+sub shared(h: !*String)
   s = h[1..]
   print(s)
 
-sub boxed(b: !Box[Text])
+sub boxed(b: !^String)
   s = b[1..]
   print(s)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   param(!t)
 
-# error: 6:7: a slice of a Text views it; write `?t[1..]`
-# error: 12:7: a slice of a Text views it; write `?w[1..]`
-# error: 16:7: a slice of a Text views it; write `?h[1..]`
-# error: 20:7: a slice of a Text views it; write `?b[1..]`
+# error: 6:7: a slice of a String views it; write `?t[1..]`
+# error: 12:7: a slice of a String views it; write `?w[1..]`
+# error: 16:7: a slice of a String views it; write `?h[1..]`
+# error: 20:7: a slice of a String views it; write `?b[1..]`
 # errors: 4

@@ -1,20 +1,20 @@
 # A block-local name at the tail of a branch stored in a field leaves the
 # branch before its defer runs; the defer cannot write it.
 struct H
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
   c = true
-  h = H(v: Vec())
+  h = H(v: List())
   h.v = if c
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(1)
     defer
       for i in 0..100
         !v.push(i)
     v
   else
-    Vec[Int]()
+    List[Int]()
   !h.v.push(3)
   print(h.v.len)
 

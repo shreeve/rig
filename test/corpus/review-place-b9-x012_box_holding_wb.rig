@@ -3,7 +3,7 @@ struct H
 
 sub main()
   n = 1
-  b = Box(H(w: !n))
+  b = ^H(w: !n)
   b.w = 6
   b.w += 1
   print(n)

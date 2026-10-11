@@ -17,19 +17,19 @@ error E
 
 struct S
   n: Int
-  v: Vec[Int]
+  v: List[Int]
   arr: [2]Int
-  vs: [2]Vec[Int]
+  vs: [2]List[Int]
   o: Int?
 
 fun mk() -> S
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  S(n: 1, v: <v, arr: [1, 2], vs: [Vec(), Vec()], o: 3)
+  S(n: 1, v: <v, arr: [1, 2], vs: [List(), List()], o: 3)
 
-fun get(bad: Bool) -> Vec[Int]!
+fun get(bad: Bool) -> List[Int]!
   return E.bad if bad
-  Vec[Int]()
+  List[Int]()
 
 fun mkh() -> *S
   *mk()
@@ -70,12 +70,12 @@ sub for_copying()
     print(x)
 
 sub branch_leaves(c: Bool)
-  x = <(mk().v if c else Vec[Int]())
+  x = <(mk().v if c else List[Int]())
   y = <(get(true) catch mk().v)
   print(x.len, y.len)
 
-fun made_leaf_value(c: Bool) -> Vec[Int]
-  w: Vec[Int] = Vec()
+fun made_leaf_value(c: Bool) -> List[Int]
+  w: List[Int] = List()
   <(mk().v if c else <w)
 
 fun made_optional() -> Int?

@@ -23,13 +23,13 @@ fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
 fun getw[T](w: ?W[T]) -> ?W[T] from w
   w
 
-fun geta[T](a: ?Vec[Opt[T]]) -> ?Vec[Opt[T]] from a
+fun geta[T](a: ?List[Opt[T]]) -> ?List[Opt[T]] from a
   a
 
 fun gete[T](e: ?E[T]) -> ?E[T] from e
   e
 
-fun getxs[T](xs: ?Vec[T]) -> ?Vec[T] from xs
+fun getxs[T](xs: ?List[T]) -> ?List[T] from xs
   xs
 
 fun place[T](o: ?Opt[T], d: T) -> T
@@ -77,12 +77,12 @@ fun field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
     .some(v) => v
     .nothing => <d
 
-fun elem[T](a: ?Vec[Opt[T]], d: T) -> T
+fun elem[T](a: ?List[Opt[T]], d: T) -> T
   match a[0]
     .some(v) => v
     .nothing => <d
 
-fun elem_of_call[T](a: ?Vec[Opt[T]], d: T) -> T
+fun elem_of_call[T](a: ?List[Opt[T]], d: T) -> T
   match geta(a)[0]
     .some(v) => v
     .nothing => <d
@@ -124,7 +124,7 @@ fun while_field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
     return v
   <d
 
-fun for_call[T](xs: ?Vec[T], d: T) -> T
+fun for_call[T](xs: ?List[T], d: T) -> T
   for x in getxs(xs)
     return x
   <d
@@ -132,10 +132,10 @@ fun for_call[T](xs: ?Vec[T], d: T) -> T
 sub main()
   o: Opt[Int] = .some(v: 1)
   w: W[Int] = W(o: .some(v: 2), p: 3)
-  a: Vec[Opt[Int]] = Vec()
+  a: List[Opt[Int]] = List()
   !a.push(.some(v: 4))
   e2: E[Int] = .has(p: P(x: 6))
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(7)
   print(place(?o, 0))
   print(lend(?o, 0))

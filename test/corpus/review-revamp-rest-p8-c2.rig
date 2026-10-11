@@ -4,7 +4,7 @@ struct P
     self.n + k
 
 sub main()
-  c = *Cell[Vec[P]](value: Vec())
+  c = *Cell[List[P]](value: List())
   !c.push(P(n: 41))
   d = c
   print(c[0].plus((!d).push(P(n: 1)) ?? 1))

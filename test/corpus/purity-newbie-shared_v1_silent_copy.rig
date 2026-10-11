@@ -7,7 +7,7 @@ struct Counter
     self.count += 1
 
 struct Clicker
-  name: String
+  name: ?String
   counter: Counter
 
   sub click(!self)

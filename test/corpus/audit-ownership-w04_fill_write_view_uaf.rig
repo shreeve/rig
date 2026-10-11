@@ -1,11 +1,11 @@
 struct Ed
-  t: !Vec[Int]
+  t: !List[Int]
 
 sub clear(e: Ed)
-  e.t = Vec()
+  e.t = List()
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   arr = [2 of Ed(t: !v)]

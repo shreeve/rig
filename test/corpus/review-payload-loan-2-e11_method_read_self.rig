@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 enum WP
   a(w: !P)
@@ -12,7 +12,7 @@ struct H
     ?self.e
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   h = H(e: WP.a(!p))
   match h.peek()
     .a(w)

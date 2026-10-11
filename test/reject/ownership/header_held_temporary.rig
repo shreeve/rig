@@ -7,7 +7,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 struct Counter unique
   hits: Int
@@ -25,7 +25,7 @@ fun mkh(r: ?Res) -> H
   H(e: E.a(c: Counter(hits: r.n)), arr: [Counter(hits: r.n), Counter(hits: 2)], o: Counter(hits: r.n))
 
 fun mkres(n: Int) -> Res
-  Res(n: n, t: Text("abc"))
+  Res(n: n, t: String("abc"))
 
 sub main()
   match mkh(?mkres(1)).e

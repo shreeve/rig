@@ -1,8 +1,8 @@
 struct Res
-  v: Vec[Int]
+  v: List[Int]
 
 sub main()
-  o: Res? = Res(v: Vec())
+  o: Res? = Res(v: List())
   if ?o as x and !o as y
     !y.v.push(1)
     print(x.v.len)

@@ -2,7 +2,7 @@ struct Item
   n: Int
 
 sub main()
-  v: Vec[Item] = Vec()
+  v: List[Item] = List()
   !v.push(Item(n: 1))
   g = |!v|
     !v.push(Item(n: 2))

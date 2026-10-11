@@ -5,19 +5,19 @@ struct Pair[T, U]
   a: T
   b: U
 
-sub show(p: Pair[Int, String,])
+sub show(p: Pair[Int, ?String,])
   print(p.a, p.b)
 
 fun add[n: Int](x: Int) -> Int
   n + x
 
 sub main()
-  v = Vec[Int,]()
+  v = List[Int,]()
   !v.push(add[3,](1))
   print(v.len, v[0])
   p = Pair[
     Int,
-    String,
+    ?String,
   ](a: 1, b: "x")
   show(p)
 

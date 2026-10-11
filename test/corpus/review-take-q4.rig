@@ -2,12 +2,12 @@ struct N
   v: Int
 
 struct S
-  a: Box[N]?
+  a: ^N?
 
 fun f(s: !S) -> Int?
   b = (<s.a)?
   b.v
 
 sub main()
-  s = S(a: Box(value: N(v: 3)))
+  s = S(a: ^N(v: 3))
   print(f(!s), s)

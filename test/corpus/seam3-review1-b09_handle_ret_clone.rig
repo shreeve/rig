@@ -1,8 +1,8 @@
-fun share(v: ?Vec[Int]) -> *Box[?Vec[Int]]
-  *Box(v)
+fun share(v: ?List[Int]) -> *^?List[Int]
+  *^v
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h = share(?v)
   h2 = +h

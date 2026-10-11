@@ -1,14 +1,14 @@
 # while-as; body moves owner then breaks (no reuse). Expect accept, clean.
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-sub eat(v: Vec[Text?])
+sub eat(v: List[String?])
   print(v.len)
 
 sub main()
-  a: Vec[Text?] = Vec()
-  !a.push(Text("a"))
-  while a[idx(?Text("a"))] as t
+  a: List[String?] = List()
+  !a.push(String("a"))
+  while a[idx(?String("a"))] as t
     print(t)
     eat(<a)
     break

@@ -1,25 +1,25 @@
 # generic helpers + closures, the way a Rust dev would write them
-fun map[T, U](xs: ?Vec[T], f: ?fun(?T) -> U) -> Vec[U]
-  out: Vec[U] = Vec()
+fun map[T, U](xs: ?List[T], f: ?fun(?T) -> U) -> List[U]
+  out: List[U] = List()
   for x in xs
     !out.push(f(?x))
   out
 
-fun filter[T](xs: ?Vec[T], keep: ?fun(?T) -> Bool) -> Vec[T]
-  out: Vec[T] = Vec()
+fun filter[T](xs: ?List[T], keep: ?fun(?T) -> Bool) -> List[T]
+  out: List[T] = List()
   for x in xs
     if keep(?x)
       !out.push(x)
   out
 
-fun fold[T, A](xs: ?Vec[T], init: A, f: ?fun(A, ?T) -> A) -> A
+fun fold[T, A](xs: ?List[T], init: A, f: ?fun(A, ?T) -> A) -> A
   acc = init
   for x in xs
     acc = f(acc, ?x)
   acc
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 1..11
     !v.push(i)
   squares = map(?v, |x| x * x)

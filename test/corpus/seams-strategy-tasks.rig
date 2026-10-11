@@ -3,22 +3,22 @@
 use std.sort
 
 struct Task
-  name: Text
+  name: String
   priority: Int
   done: Bool = false
 
-fun make_task(prefix: String, n: Int, priority: Int) -> Task
-  Task(name: Text(prefix, "-", n), priority: priority)
+fun make_task(prefix: ?String, n: Int, priority: Int) -> Task
+  Task(name: String(prefix, "-", n), priority: priority)
 
-fun report(tasks: ?Vec[Task]) -> Text
-  out = Text("tasks: ", tasks.len, "\n")
+fun report(tasks: ?List[Task]) -> String
+  out = String("tasks: ", tasks.len, "\n")
   for t in tasks
     mark = "x" if t.done else " "
     !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")
   out
 
 sub main()
-  board: Vec[Task] = Vec()
+  board: List[Task] = List()
   i = 0
   while i < 5 : i += 1
     !board.push(make_task("job", i, (i * 7) % 5))

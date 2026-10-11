@@ -2,7 +2,7 @@ struct P
   x: Int
 
 sub main()
-  v: Vec[Box[P]?] = Vec()
-  !v.push(Box(P(x: 1)))
+  v: List[^P?] = List()
+  !v.push(^P(x: 1))
   b = <v[0]
   print(b?.x)

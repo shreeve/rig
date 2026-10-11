@@ -11,5 +11,5 @@ fun make[T, n: Int](x: T) -> Ring[T, n]
 sub main()
   r = make[Int, 3](7)
   print(r.first(), r.size[2](), r.items.len)
-  s = make[String, 2]("a")
+  s = make[?String, 2]("a")
   print(s.first(), s.items.len)

@@ -1,11 +1,11 @@
-# Cell holding a Vec[Text]: set, replace, take
+# Cell holding a List[Text]: set, replace, take
 sub main()
-  c = Cell(Vec[Text]())
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
+  c = Cell(List[String]())
+  v: List[String] = List()
+  !v.push(String("a"))
   c.set(<v)
-  w: Vec[Text] = Vec()
-  !w.push(Text("b"))
+  w: List[String] = List()
+  !w.push(String("b"))
   old = c.replace(<w)
   print(old)
   <old

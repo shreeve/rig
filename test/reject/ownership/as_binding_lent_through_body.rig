@@ -3,7 +3,7 @@
 # write lend of it in the body, or in a later part, is rejected.
 
 struct H
-  o: Box[Int]?
+  o: ^Int?
 
 fun clear(h: !H) -> Bool
   h.o = none
@@ -14,12 +14,12 @@ fun yes(h: !H) -> Bool
   true
 
 sub main()
-  h = H(o: Box(3))
+  h = H(o: ^3)
   z = !h
   while ?z.o as s
     print(clear(!h))
     print(s)
-  g = H(o: Box(4))
+  g = H(o: ^4)
   y = !g
   if ?y.o as s and yes(!g)
     print(s)

@@ -1,7 +1,7 @@
-fun items(v: Vec[Int]) -> []Int
+fun items(v: List[Int]) -> []Int
   ?v[..]
 
 sub main()
-  b: Vec[Int] = Vec()
+  b: List[Int] = List()
   it = items(b)
   print(it.len)

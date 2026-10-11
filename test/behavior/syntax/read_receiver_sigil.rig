@@ -8,7 +8,7 @@ struct Point
   fun shifted(?self, d: Int) -> Point
     Point(x: self.x + d)
 
-  sub show(?self, label: String)
+  sub show(?self, label: ?String)
     print(label, self.x)
 
 struct Line
@@ -28,7 +28,7 @@ sub main()
   print(?pts[1].shifted(0).x)
   ?p.show("p")
   show_point(?(p.shifted(4)))
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   print(?v.get(0) ?? 0)
   i = 0

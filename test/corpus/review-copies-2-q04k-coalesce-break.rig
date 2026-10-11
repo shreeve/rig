@@ -15,7 +15,7 @@ fun opt(r: ?P, k: Int) -> (?P)?!
 
 sub main()
   a = P(x: 1)
-  os: Vec[(?P)?] = Vec()
+  os: List[(?P)?] = List()
   !os.push(?a)
   !os.push(none)
   !os.push(?a)

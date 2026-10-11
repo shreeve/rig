@@ -1,13 +1,13 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
 fun keep(s: ?S) -> ?S
   s
 
 sub main()
-  v: Vec[*S] = Vec()
-  !v.push(*S(n: 1, t: Text("a")))
+  v: List[*S] = List()
+  !v.push(*S(n: 1, t: String("a")))
   k = keep(?v[0])
   !v.clear()
   print(k.n)

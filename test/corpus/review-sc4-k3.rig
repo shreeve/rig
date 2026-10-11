@@ -5,7 +5,7 @@ struct Counter
     self.n += 1
 
 sub main()
-  v: Vec[Counter] = Vec()
+  v: List[Counter] = List()
   !v.push(Counter(n: 1))
   w = !v
   !w[0].bump()

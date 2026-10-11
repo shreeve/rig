@@ -1,0 +1,14 @@
+# `Vec[T]` is written `List[T]`. The old name is unbound, with a hint.
+
+fun total(v: ?Vec[Int]) -> Int
+  v.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  w = Vec[Int]()
+  print(total(?v), w.len)
+
+# error: 3:15: use of unbound type `Vec`; a growable array is `List[T]`
+# error: 7:6: use of unbound type `Vec`; a growable array is `List[T]`
+# error: 7:17: use of unbound name `Vec`; a growable array is `List[T]`
+# error: 8:7: use of unbound name `Vec`; a growable array is `List[T]`

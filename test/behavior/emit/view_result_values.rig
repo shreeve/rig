@@ -33,7 +33,7 @@ fun wr(a: !Int) -> !Int
 fun wb(a: !Bool) -> !Bool
   a
 
-fun ws(a: !Text) -> !Text
+fun ws(a: !String) -> !String
   a
 
 fun wo(a: !Int?) -> !Int?
@@ -77,7 +77,7 @@ sub main()
   x = 6
   y = 2
   b = true
-  s = Text("hi")
+  s = String("hi")
   o: Int? = 3
   n: Int? = none
   c = Color.red

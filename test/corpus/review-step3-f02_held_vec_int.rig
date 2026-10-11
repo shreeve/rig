@@ -1,11 +1,11 @@
 struct Bag
-  v: Vec[Int]
-  w: Vec[Int]
+  v: List[Int]
+  w: List[Int]
 
 fun mk(n: Int) -> Bag
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
-  Bag(v: <v, w: Vec())
+  Bag(v: <v, w: List())
 
 sub main()
   for x in mk(10).v

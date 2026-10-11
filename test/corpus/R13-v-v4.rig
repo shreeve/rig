@@ -6,17 +6,17 @@ enum Opt[T]
   no
 
 enum Hold
-  vec(v: Vec[Int])
+  vec(v: List[Int])
   sh(h: *N)
   wk(w: ~N)
   maybe(m: *N?)
-  str(s: String)
+  str(s: ?String)
 
 fun mk() -> Hold
-  .vec(Vec[Int]())
+  .vec(List[Int]())
 
 sub main()
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
   a = Opt.some(<v)
   n = *N(a: 2)
@@ -26,7 +26,7 @@ sub main()
   e: Hold = .maybe(none)
   f = Hold.str("x")
   g = mk()
-  h = Opt.some(Opt.some(Vec[Int]()))
-  xs = Vec[*N]()
+  h = Opt.some(Opt.some(List[Int]()))
+  xs = List[*N]()
   !xs.push(<n)
   print(a, b, c, d, e, f, g, h, xs.len)

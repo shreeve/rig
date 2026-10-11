@@ -5,11 +5,11 @@ fun keep[T](x: ?T) -> ?T
   x
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(4)
   a = [1, 2]
   print(first(v), first(a))
-  t = Text("q")
+  t = String("q")
   k = keep(?t)
   print(k)
   !t.add("z")

@@ -9,11 +9,11 @@ enum E
   a(xs: [4]Int)
   b
 
-fun idx(s: ?Text, i: Int) -> Int
+fun idx(s: ?String, i: Int) -> Int
   s.len - 1 + i
 
-fun at2(v: ?Vec[E], i: Int) -> ?E from v
-  match ?v[idx(?Text("a"), i)]
+fun at2(v: ?List[E], i: Int) -> ?E from v
+  match ?v[idx(?String("a"), i)]
     x => x
 
 fun clobber(n: Int) -> Int
@@ -30,17 +30,17 @@ sub main()
   z = E.b
   r = ?z
   for i in 0..2
-    match ?v[idx(?Text("a"), i)]
+    match ?v[idx(?String("a"), i)]
       x => if i == 0
         r = x
   show(r)
   g = ?z
   for i in 0..2
-    match ?v[idx(?Text("a"), i)]
+    match ?v[idx(?String("a"), i)]
       x if i == 0 => g = x
       _ => print("skip")
   show(g)
-  w: Vec[E] = Vec()
+  w: List[E] = List()
   !w.push(E.a(xs: [7, 7, 7, 7]))
   !w.push(E.a(xs: [8, 8, 8, 8]))
   s = at2(?w, 1)

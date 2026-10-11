@@ -1,4 +1,4 @@
-sub g(w: !Vec[[]Int], u: []Int)
+sub g(w: !List[[]Int], u: []Int)
   s = w[0][1..]
   w[0] = u
   print(s)
@@ -6,7 +6,7 @@ sub g(w: !Vec[[]Int], u: []Int)
 sub main()
   a = [1, 2, 3]
   b = [4, 5, 6]
-  v: Vec[[]Int] = Vec()
+  v: List[[]Int] = List()
   !v.push(?a[..])
   g(!v, ?b[..])
   print(v)

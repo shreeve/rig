@@ -1,5 +1,5 @@
 enum E
-  a(t: Text)
+  a(t: String)
   z
 
   sub grow(!self)
@@ -11,5 +11,5 @@ enum E
       .z => pass
 
 sub main()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   !e.grow()

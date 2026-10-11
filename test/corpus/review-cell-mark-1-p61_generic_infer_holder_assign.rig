@@ -1,6 +1,6 @@
 struct H
   n: Cell[Int]
-  items: Vec[Int]
+  items: List[Int]
 
 struct S
   h: *H
@@ -9,9 +9,9 @@ sub zap[T](a: !T, b: !T)
   a = <b
 
 sub main()
-  v = Vec[Int]()
+  v = List[Int]()
   !v.push(1)
   s = *S(h: *H(n: Cell(1), items: <v))
-  t = *S(h: *H(n: Cell(2), items: Vec()))
+  t = *S(h: *H(n: Cell(2), items: List()))
   zap(!s.h, !t.h)
   print(s.h.items.len)

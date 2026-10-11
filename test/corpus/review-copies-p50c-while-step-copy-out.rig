@@ -1,12 +1,12 @@
 # The step reads, through a copy out of a view, a struct whose slice
-# views a Vec the body grows.
+# views a List the body grows.
 #
 # oracle: main accept
 struct S
   s: []Int
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   k = 0
   i = 0

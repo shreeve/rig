@@ -6,7 +6,7 @@
 # oracle: main accept
 struct S
   n: Int
-  items: Vec[Int]
+  items: List[Int]
 
   sub bump(!self)
     self.n += 1
@@ -15,10 +15,10 @@ struct S
     print("drop", self.n)
 
 fun mkh() -> *S
-  *S(n: 1, items: Vec())
+  *S(n: 1, items: List())
 
-fun mkb() -> Box[S]
-  Box(S(n: 10, items: Vec()))
+fun mkb() -> ^S
+  ^S(n: 10, items: List())
 
 sub main()
   !mkb().bump()

@@ -1,7 +1,7 @@
 # Generic bodies that copy a T (Requirement.copies), instantiated with
 # plain structs, arrays, optionals, and String holders.
 struct P
-  s: String
+  s: ?String
   n: Int
 
 fun first[T](xs: ?[2]T) -> T

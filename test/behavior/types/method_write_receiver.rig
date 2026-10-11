@@ -2,9 +2,9 @@
 # view explicitly as `!u.modify(...)`. The body may read fields.
 
 struct User
-  name: String
+  name: ?String
 
-  sub modify(!self, new_name: String)
+  sub modify(!self, new_name: ?String)
     print(self.name)
     print(new_name)
 

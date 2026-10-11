@@ -3,5 +3,5 @@ fun two[T](a: T, b: T) -> [2]T
   [<a, <b]
 
 sub main()
-  x = two(Text("a"), Text("b"))
+  x = two(String("a"), String("b"))
   print(x)

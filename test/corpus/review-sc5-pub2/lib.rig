@@ -18,7 +18,7 @@ pub fun hidden() -> Hidden
 pub fun wrap() -> Wrap[Int]
   Wrap(v: 5, w: 6)
 
-pub fun hiddens() -> Vec[Hidden]
-  v = Vec[Hidden]()
+pub fun hiddens() -> List[Hidden]
+  v = List[Hidden]()
   !v.push(hidden())
   v

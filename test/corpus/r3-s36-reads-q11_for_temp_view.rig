@@ -1,5 +1,5 @@
-fun mv() -> Vec[Int]
-  v: Vec[Int] = Vec()
+fun mv() -> List[Int]
+  v: List[Int] = List()
   !v.push(1)
   v
 

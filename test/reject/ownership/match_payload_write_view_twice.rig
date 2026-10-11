@@ -2,14 +2,14 @@
 # a nested match on the same value cannot bind a second view of it.
 
 struct Wrap
-  v: Vec[Int]
+  v: List[Int]
 
 enum Hold
   none_
   has(w: Wrap)
 
 sub main()
-  x = Wrap(v: Vec())
+  x = Wrap(v: List())
   !x.v.push(1)
   h: Hold = .has(<x)
   match !h
@@ -17,7 +17,7 @@ sub main()
       for n in ?a.v
         match !h
           .has(b)
-            b.v = Vec()
+            b.v = List()
           .none_
             print("n")
         print(n)

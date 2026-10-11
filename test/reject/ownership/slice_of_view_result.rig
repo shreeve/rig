@@ -2,20 +2,20 @@
 # statement holds only while it runs: the view, which owns nothing to
 # drop. The message says so, and to bind the view first.
 
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 struct H
-  t: Text
+  t: String
 
-  fun at(!self) -> !Text
+  fun at(!self) -> !String
     !self.t
 
-fun get(h: !H) -> !Text
+fun get(h: !H) -> !String
   !h.t
 
 sub main()
-  h = H(t: Text("hello"))
+  h = H(t: String("hello"))
   s = keep(?get(!h)[1..])
   print(s)
   r = keep(?(!h).at()[1..])

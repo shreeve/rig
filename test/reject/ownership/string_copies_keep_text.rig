@@ -1,22 +1,22 @@
-# A String copied out of a Vec or a slice of one views the Text it
-# views, not the Vec: dropping the Vec is fine, changing the Text is not,
+# A String copied out of a List or a slice of one views the Text it
+# views, not the List: dropping the List is fine, changing the Text is not,
 # and the Text must outlive the copy.
 
-fun first[T](xs: ?Vec[T]) -> T
+fun first[T](xs: ?List[T]) -> T
   xs[0]
 
 sub main()
-  v: Vec[String] = Vec()
-  t = Text("scoped text here")
+  v: List[?String] = List()
+  t = String("scoped text here")
   !v.push(?t[..])
   s = first(?v)
   <v
   !t.add("more")
   print(s)
-  o: String = "x"
+  o: ?String = "x"
   if true
-    u = Text("abcdefghijklmnop")
-    w: Vec[String] = Vec()
+    u = String("abcdefghijklmnop")
+    w: List[?String] = List()
     !w.push(?u[..])
     sl = ?w[..]
     o = sl[0]

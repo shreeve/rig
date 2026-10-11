@@ -1,8 +1,8 @@
 sub main()
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   s = ?e[..]
   if true
-    v: Vec[Int] = Vec()
+    v: List[Int] = List()
     !v.push(7)
     defer s = ?v[..]
   print(s)

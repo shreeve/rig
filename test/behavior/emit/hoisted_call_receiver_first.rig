@@ -15,11 +15,11 @@ fun take(k: !K) -> K
   k.n = k.n + 1
   K(n: k.n)
 
-fun say(s: String) -> Int
+fun say(s: ?String) -> Int
   print(s)
   1
 
-fun mk(s: String) -> K
+fun mk(s: ?String) -> K
   print(s)
   K(n: 1)
 
@@ -31,7 +31,7 @@ sub main()
   print(ps[say("i")].add(b: say("b"), a: say("a")))
   print((!ps[say("i")]).bump(b: say("b"), a: say("a")))
   print(ps[1].n)
-  v: Vec[K] = Vec()
+  v: List[K] = List()
   !v.push(K(n: 4))
   print(v[say("v") - 1].add(b: say("b"), a: say("a")))
 

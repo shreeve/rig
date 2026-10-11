@@ -1,7 +1,7 @@
 # An index must be an integer.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   print(v["0"])
 
 # error: an index must be an integer; got `Static`

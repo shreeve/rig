@@ -7,7 +7,7 @@ sub main()
       x = 10
       3
     _ => 4
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   v[0] += match k
     0

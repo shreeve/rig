@@ -5,18 +5,18 @@
 use std.text
 
 sub main()
-  o: String = "init"
-  while text.cut(?Text("k=v"), "=") as kv
+  o: ?String = "init"
+  while text.cut(?String("k=v"), "=") as kv
     o = kv.after
     break
   print(o)
-  p: String = "init"
+  p: ?String = "init"
   :outer for _ in 0..2
-    while text.cut(?Text("a=b"), "=") as kv
+    while text.cut(?String("a=b"), "=") as kv
       p = kv.after
       continue :outer
   print(p)
 
-# error: 9:19: a view of the temporary `Text("k=v")` outlives its statement
-# error: 15:21: a view of the temporary `Text("a=b")` outlives its statement
+# error: 9:19: a view of the temporary `String("k=v")` outlives its statement
+# error: 15:21: a view of the temporary `String("a=b")` outlives its statement
 # errors: 2

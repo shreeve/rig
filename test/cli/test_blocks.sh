@@ -21,7 +21,7 @@ test "area"
   print(area(2, 3))
 
 test "shared handles are released"
-  v: Vec[*Cell[Int]] = Vec()
+  v: List[*Cell[Int]] = List()
   (!v).push(*Cell(1))
   print(v.len)
 EOF

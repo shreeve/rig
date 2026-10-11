@@ -4,14 +4,14 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub g(r: ?R, b: Box[R])
+sub g(r: ?R, b: ^R)
   print(r.n, b.n)
 
-sub h(b: Box[R], r: ?R)
+sub h(b: ^R, r: ?R)
   print(r.n, b.n)
 
 sub main()
-  b = Box(value: R(n: 1))
+  b = ^R(n: 1)
   g(?b, <b)
-  c = Box(value: R(n: 2))
+  c = ^R(n: 2)
   h(<c, ?c)

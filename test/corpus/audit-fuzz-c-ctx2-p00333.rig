@@ -100,13 +100,13 @@ struct W387
 
 sub t408()
   arr408: [2]F32 = [0, (-1.5)]
-  vec408: Vec[F32] = Vec()
+  vec408: List[F32] = List()
   !vec408.push(arr408[1])
   print(vec408)
 
 sub t5652()
   o5652: U64? = id_u64(18098824267028067248)
-  vw5652: Vec[U64] = Vec()
+  vw5652: List[U64] = List()
   pushit5652 = |!vw5652, x: U64| !vw5652.push(x)
   pushit5652((o5652 ?? 2))
   print(vw5652)
@@ -167,7 +167,7 @@ sub t645()
   print(x645)
 
 sub t1102()
-  gv1102: Vec[I8] = Vec()
+  gv1102: List[I8] = List()
   !gv1102.push(2)
   qo1102: I8? = none
   print(qo1102 ?? (gv1102.get(0) ?? 0))

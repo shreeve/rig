@@ -1,6 +1,6 @@
 struct K
   hits: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
   n: Int
 
   sub hit(!self)
@@ -11,13 +11,13 @@ struct N
   next: (~N)?
 
 fun made() -> K
-  K(hits: Cell(0), log: Cell(Vec[Int]()), n: 3)
+  K(hits: Cell(0), log: Cell(List[Int]()), n: 3)
 
 sub main()
   k = made()
   h = *N(v: 1, next: none)
   wk = ~h
-  s = Text("abcdef")
+  s = String("abcdef")
   y = (?s[1..4])[1..2]
   print(y)
   print(k.hits.get(), k.log.len, k.n, h.v)

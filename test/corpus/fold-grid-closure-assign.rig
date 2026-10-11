@@ -1,25 +1,25 @@
 # The fold: a String that views a Text slot (closure-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct S
-  name: String
+  name: ?String
 
 struct H
-  t: Text
+  t: String
 
 fun id[T](x: ?T) -> ?T from x
   x
 
-fun first(v: ?Vec[Text]) -> ?Text from v
+fun first(v: ?List[String]) -> ?String from v
   ?v[0]
 
 sub main()
-  o = Text("hello")
-  keep: String = ""
+  o = String("hello")
+  keep: ?String = ""
   f = |?o| o.len
   keep = ?o
   _ = f()
-  o = Text("zzzz")
+  o = String("zzzz")
   print(keep)

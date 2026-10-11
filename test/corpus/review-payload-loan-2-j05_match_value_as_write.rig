@@ -1,16 +1,16 @@
 struct P
-  t: Text
+  t: String
 
 enum WP
   a(w: !P)
   b
 
 sub main()
-  p = P(t: Text("hello"))
-  d = P(t: Text("d"))
+  p = P(t: String("hello"))
+  d = P(t: String("d"))
   e = WP.a(!p)
   r: !P = match e
     .a(w) => w
     .b => !d
-  r.t = Text("x")
+  r.t = String("x")
   print(p.t)

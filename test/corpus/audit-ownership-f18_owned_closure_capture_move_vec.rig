@@ -17,7 +17,7 @@ fun cond(t: *Tok) -> Bool
   false
 
 sub main()
-  v: Vec[*Tok] = Vec()
+  v: List[*Tok] = List()
   !v.push(*Tok(n: 1))
   f: *sub() = *|<v| print("len", v.len)
   g = +f

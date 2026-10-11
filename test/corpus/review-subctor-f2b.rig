@@ -2,6 +2,6 @@ struct Wrap[T]
   item: T
 
 sub main()
-  v = Vec[Int]()
+  v = List[Int]()
   w = Wrap(item: ?v)
   print(w)

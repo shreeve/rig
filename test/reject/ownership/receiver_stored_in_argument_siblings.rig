@@ -11,7 +11,7 @@ struct VH
   s: ?Src
 
 struct Src
-  items: Vec[Int]
+  items: List[Int]
 
   sub put(?self, out: !Holder)
     out.r = ?self.items[..]
@@ -38,12 +38,12 @@ struct HV
     out.r = self.r
 
 fun mk() -> Src
-  s = Src(items: Vec())
+  s = Src(items: List())
   !s.items.push(4)
   s
 
 sub write_receiver(h: !Holder)
-  s = Src(items: Vec())
+  s = Src(items: List())
   !s.items.push(5)
   !s.putw(!h)
   <s
@@ -51,13 +51,13 @@ sub write_receiver(h: !Holder)
 
 sub view_of_self(t: ?Src)
   v = VH(s: t)
-  s = Src(items: Vec())
+  s = Src(items: List())
   s.me(!v)
   <s
   print(v.s.items.len)
 
 sub nested_field(h: !Holder)
-  o = Outer(b: Src(items: Vec()))
+  o = Outer(b: Src(items: List()))
   !o.b.items.push(5)
   o.b.put(!h)
   <o
@@ -70,7 +70,7 @@ sub element(h: !Holder)
   print(h.r[0])
 
 sub through_handle(h: !Holder)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(5)
   s = *Src(items: <v)
   s.put(!h)
@@ -78,7 +78,7 @@ sub through_handle(h: !Holder)
   print(h.r[0])
 
 sub consumed(h: !Holder)
-  y: Vec[Int] = Vec()
+  y: List[Int] = List()
   !y.push(9)
   hv = HV(r: ?y[..])
   <hv.give(!h)
@@ -93,7 +93,7 @@ sub main()
   x = [1, 2]
   h = Holder(r: ?x[..])
   write_receiver(!h)
-  t = Src(items: Vec())
+  t = Src(items: List())
   view_of_self(?t)
   nested_field(!h)
   element(!h)

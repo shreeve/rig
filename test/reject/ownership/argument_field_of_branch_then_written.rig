@@ -2,10 +2,10 @@
 # argument cannot lend what the branch may be to write.
 
 struct P
-  v: Vec[Int]
+  v: List[Int]
 
 fun mk(k: Int) -> P
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(k)
   P(v: <v)
 

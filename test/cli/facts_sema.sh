@@ -4,7 +4,7 @@ source "$ROOT/test/cli/_lib.sh"
 
 cat >main.rig <<'EOF2'
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   print(v.len)
 EOF2
@@ -12,7 +12,7 @@ EOF2
 "$RIG" check --facts=sema main.rig >facts.txt 2>err.txt || fail "rig check --facts=sema: $(cat err.txt)"
 out=$(cat facts.txt)
 expect_has "$out" 'names leaf 2:3-2:4 "v" v local' "a name's symbol"
-expect_has "$out" 'types leaf 4:9-4:10 "v" Vec[Int]' "an expression's type"
+expect_has "$out" 'types leaf 4:9-4:10 "v" List[Int]' "an expression's type"
 expect_has "$out" 'scopes block 2:3-5:1' "a scope"
 "$RIG" check --facts=sema main.rig >again.txt 2>/dev/null
 cmp -s facts.txt again.txt || fail "two dumps of one program differ"
@@ -23,13 +23,13 @@ enum Opt[T]
   nothing
 
 sub main()
-  t = Text("t")
+  t = String("t")
   match Opt.some(v: ?t)
     .some(v) => print(v)
     .nothing => pass
 EOF2
 "$RIG" check --facts=sema payload.rig >payload.txt 2>err.txt || fail "rig check --facts=sema payload.rig: $(cat err.txt)"
-expect_has "$(cat payload.txt)" 'payload_fields leaf 8:11-8:12 "v" String' "a payload field's type at the instance"
+expect_has "$(cat payload.txt)" 'payload_fields leaf 8:11-8:12 "v" ?String' "a payload field's type at the instance"
 
 cat >bad.rig <<'EOF2'
 sub main()

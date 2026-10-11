@@ -8,13 +8,13 @@ struct R
     self.n += 1
 
 struct S
-  b: Box[R]
+  b: ^R
 
 sub wr(r: !R)
   r.n = 9
 
 sub main()
-  s = *S(b: Box(value: R(n: 1)))
+  s = *S(b: ^R(n: 1))
   s.b.n = 3
   !s.b.bump()
   wr(!s.b)

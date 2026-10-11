@@ -1,4 +1,4 @@
-# A view of a Cell-holding temporary pushed into a longer-lived Vec of views.
+# A view of a Cell-holding temporary pushed into a longer-lived List of views.
 #
 struct D
   c: Cell[Int]
@@ -7,6 +7,6 @@ fun mkd(n: Int) -> D
   D(c: Cell(n))
 
 sub main()
-  v: Vec[?D] = Vec()
+  v: List[?D] = List()
   !v.push(?mkd(1))
   print(v[0].c.get())

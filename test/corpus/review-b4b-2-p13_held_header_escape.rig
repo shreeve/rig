@@ -1,7 +1,7 @@
 # Subject is a part of a value the header makes (held); the view escapes the match. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -15,10 +15,10 @@ struct HE
   e: E
 
 fun mkh() -> HE
-  HE(e: E.a(r: Res(n: 1, t: Text("held"))))
+  HE(e: E.a(r: Res(n: 1, t: String("held"))))
 
 sub main()
-  k = Res(n: 0, t: Text("k"))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match mkh().e
     .a(r) if r.n > 0 => saved = ?r

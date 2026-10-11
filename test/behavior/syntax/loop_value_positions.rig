@@ -21,7 +21,7 @@ fun nested(limit: Int) -> Int
     0
   x
 
-fun kind(n: Int) -> String
+fun kind(n: Int) -> ?String
   match n
     0 => "zero"
     _

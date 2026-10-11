@@ -1,5 +1,5 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 fun first(o: ?H?) -> Int
   if o as q
@@ -7,7 +7,7 @@ fun first(o: ?H?) -> Int
   0
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(5)
   o: H? = H(w: !xs)
   f = |+o| first(?o)

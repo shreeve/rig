@@ -1,9 +1,9 @@
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   !v.swap(0, 1)
   print(v)
-  a = [Text("x"), Text("y")]
+  a = [String("x"), String("y")]
   !a.swap(0, 1)
   print(a)

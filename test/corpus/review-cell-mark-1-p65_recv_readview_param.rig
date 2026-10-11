@@ -1,6 +1,6 @@
 struct C
   n: Cell[Int]
-  log: Cell[Vec[Int]]
+  log: Cell[List[Int]]
 
   sub hit(!self)
     !self.n.set(self.n.get() + 1)
@@ -9,7 +9,7 @@ struct C
 struct S
   h: *C
 
-sub f(k: ?*C, s: ?S, v: ?Vec[*C])
+sub f(k: ?*C, s: ?S, v: ?List[*C])
   !k.hit()
   !s.h.hit()
   !v[0].hit()
@@ -17,9 +17,9 @@ sub f(k: ?*C, s: ?S, v: ?Vec[*C])
     !x.hit()
 
 sub main()
-  k = *C(n: Cell(0), log: Cell(Vec()))
+  k = *C(n: Cell(0), log: Cell(List()))
   s = S(h: +k)
-  v = Vec[*C]()
+  v = List[*C]()
   !v.push(+k)
   f(?k, ?s, ?v)
   print(k.n.get(), k.log.len)

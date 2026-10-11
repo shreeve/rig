@@ -10,11 +10,11 @@ fun plain(n: Int) -> Int
   return ParseError.empty if n < 0
   n
 
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   return ParseError.empty if s == ""
   s.len
 
-fun kind(s: String) -> Int
+fun kind(s: ?String) -> Int
   parse(s) catch |err|
     match err
       .empty => 1

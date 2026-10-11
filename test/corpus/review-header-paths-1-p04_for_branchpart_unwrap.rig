@@ -1,29 +1,29 @@
 struct Res
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 enum E
   a(r: Res)
   b
 
 fun mk(n: Int) -> E
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   E.a(r: Res(n: n, v: <v))
 
 struct W
   e: E
   o: E?
-  v: Vec[Int]
+  v: List[Int]
 
 fun mkw(n: Int) -> W
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i + 1)
   W(e: mk(n), o: mk(n + 10), v: <v)
 
 struct V
-  ov: Vec[Int]?
+  ov: List[Int]?
 
 fun f(a: !V, b: !V, c: Bool) -> Int?
   n = 0
@@ -37,7 +37,7 @@ fun f(a: !V, b: !V, c: Bool) -> Int?
   1
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   x = V(ov: <v)

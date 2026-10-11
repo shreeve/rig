@@ -1,4 +1,4 @@
-fun f(n: Int) -> Result[Int, String]
+fun f(n: Int) -> Result[Int, ?String]
   n
 
 sub main()

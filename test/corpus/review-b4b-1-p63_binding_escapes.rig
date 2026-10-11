@@ -1,13 +1,13 @@
 # a binding of a header that points escapes into an outer name / is returned; then the owner is grown. Expect reject at the push.
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  v: Vec[Text?] = Vec()
-  !v.push(Text("a"))
-  r: (?Text)? = none
-  if v[idx(?Text("a"))] as t
+  v: List[String?] = List()
+  !v.push(String("a"))
+  r: (?String)? = none
+  if v[idx(?String("a"))] as t
     r = t
   for _ in 0..64
-    !v.push(Text("zzzzzzzzzzzzzzzzzzzzzzzzz"))
+    !v.push(String("zzzzzzzzzzzzzzzzzzzzzzzzz"))
   print(r)

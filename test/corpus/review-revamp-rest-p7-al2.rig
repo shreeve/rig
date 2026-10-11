@@ -1,4 +1,4 @@
-type S = String
+type S = ?String
 type B = Bool
 type O = Int?
 

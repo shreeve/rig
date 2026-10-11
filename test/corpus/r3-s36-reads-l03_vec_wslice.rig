@@ -2,7 +2,7 @@ sub zero(xs: ![]Int)
   xs[0] = 0
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(4)
   zero(!v)
   print(v)

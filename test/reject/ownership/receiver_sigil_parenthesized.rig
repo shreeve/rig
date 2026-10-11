@@ -2,7 +2,7 @@
 # not to the receiver, which the call then needs lent to write.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   n = !(v.pop())
   print(n ?? 0)

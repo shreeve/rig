@@ -1,7 +1,7 @@
 use std.os
 
 sub main()
-  name = Text("RIG_", "NOPE")
+  name = String("RIG_", "NOPE")
   v = os.env(?name) ?? "unset"
   !name.add("X")
   print(v, name)

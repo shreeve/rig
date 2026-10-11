@@ -1,5 +1,5 @@
 struct U
-  name: String
+  name: ?String
   boss: Int?
 
 sub main()

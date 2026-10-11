@@ -17,7 +17,7 @@ fun first[T](r: !T, ok: Bool) -> (!T)!
   r
 
 sub main()
-  vs: Vec[Int] = Vec()
+  vs: List[Int] = List()
   k = first(!vs, false) catch !vs
   !k.push(1)
   print(vs.len)

@@ -1,5 +1,5 @@
 struct H
-  v: !Vec[Int]
+  v: !List[Int]
 
 sub f(h1: !H, h2: !H, c: Bool)
   n = 0
@@ -10,10 +10,10 @@ sub f(h1: !H, h2: !H, c: Bool)
   print(n)
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..5
     !v.push(i + 1)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   h1 = H(v: !v)
   h2 = H(v: !u)
   f(!h1, !h2, true)

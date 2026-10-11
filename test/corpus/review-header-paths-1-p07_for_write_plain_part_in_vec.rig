@@ -1,23 +1,23 @@
 struct Res
   n: Int
-  v: Vec[Int]
+  v: List[Int]
 
 enum E
   a(r: Res)
   b
 
 fun mk(n: Int) -> E
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(n)
   E.a(r: Res(n: n, v: <v))
 
 struct W
   e: E
   o: E?
-  v: Vec[Int]
+  v: List[Int]
 
 fun mkw(n: Int) -> W
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   for i in 0..n
     !v.push(i + 1)
   W(e: mk(n), o: mk(n + 10), v: <v)
@@ -25,16 +25,16 @@ fun mkw(n: Int) -> W
 struct A3
   arr: [3]Int
 
-sub f(a: !Vec[A3], b: !Vec[A3], c: Bool)
+sub f(a: !List[A3], b: !List[A3], c: Bool)
   for x in !(a if c else b)[0].arr
     for _ in 0..100
       !a.push(A3(arr: [1, 2, 3]))
     x = 7
 
 sub main()
-  x: Vec[A3] = Vec()
+  x: List[A3] = List()
   !x.push(A3(arr: [1, 2, 3]))
-  y: Vec[A3] = Vec()
+  y: List[A3] = List()
   !y.push(A3(arr: [1, 2, 3]))
   f(!x, !y, true)
   print(x[0].arr)

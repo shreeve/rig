@@ -1,5 +1,5 @@
-# if (?v[idx(?Text("a"))] if c else ?w) as t over Vec[Int]?: a view of t escapes the if
-fun idx(s: String) -> Int
+# if (?v[idx(?Text("a"))] if c else ?w) as t over List[Int]?: a view of t escapes the if
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -8,20 +8,20 @@ fun clobber(n: Int) -> Int
   a[1] + b[2]
 
 sub main()
-  v: Vec[Vec[Int]?] = Vec()
-  inner: Vec[Int] = Vec()
+  v: List[List[Int]?] = List()
+  inner: List[Int] = List()
   !inner.push(42)
   !v.push(<inner)
-  w: Vec[Int]? = none
+  w: List[Int]? = none
   c = v.len == 1
-  dummy: Vec[Int] = Vec()
+  dummy: List[Int] = List()
   r = ?dummy
-  if (?v[idx(?Text("a"))] if c else ?w) as t
+  if (?v[idx(?String("a"))] if c else ?w) as t
     r = ?t
   print(clobber(1000))
-  big: Vec[Int]? = none
+  big: List[Int]? = none
   for k in 0..3
-    q: Vec[Int] = Vec()
+    q: List[Int] = List()
     !q.push(k)
     !q.push(k)
     !q.push(k)

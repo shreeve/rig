@@ -1,0 +1,71 @@
+# `^T` holds one `T` alone on the heap. `^Node(...)` makes a box, `^<x`
+# boxes an existing owner, and `^x` copies plain data into a box. The
+# sigil binds tighter than a suffix: `^Node?` is an optional box and
+# `^(Int?)` a box of an optional.
+
+struct Node
+  n: Int
+  next: ^Node?
+
+struct Pair
+  a: Int
+  b: Int
+
+type Cell3 = ^Int
+
+fun wrap[T](x: T) -> ^T
+  ^<x
+
+fun total(p: ?Pair) -> Int
+  p.a + p.b
+
+fun first(xs: ?List[Int]) -> Int
+  xs.get(0) ?? -1
+
+sub main()
+  tail = ^Node(n: 1, next: none)
+  head = ^Node(n: 2, next: <tail)
+  print(head.n)
+  if ?head.next as t
+    print(t.n)
+
+  p = Pair(a: 3, b: 4)
+  moved = ^<p
+  copied = ^5
+  print(moved.a, copied)
+  print(total(?moved))
+
+  maybe: ^Int? = none
+  held: ^(Int?) = ^none
+  print(maybe == none, held)
+
+  alias: Cell3 = ^7
+  both = [^1, ^2]
+  print(alias, both[0], both[1])
+
+  w = wrap("hi")
+  print(w)
+
+  grid: [2]^Int = [^8, ^9]
+  print(grid[0], grid[1])
+  vs: List[^Int] = List()
+  !vs.push(^10)
+  !vs.push(^11)
+  print(vs.len)
+
+  nums = List[Int]()
+  !nums.push(4)
+  view_box: ^?List[Int] = ^?nums
+  print(first(?nums))
+
+# expect:
+# 2
+# 1
+# 3 5
+# 7
+# true none
+# 7 1 2
+# hi
+# 8 9
+# 2
+# 4

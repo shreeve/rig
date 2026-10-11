@@ -1,5 +1,5 @@
 struct H
-  v: Vec[Int]
+  v: List[Int]
 
   sub put(!self, dst: !Slot)
     !self.v.push(1)
@@ -9,9 +9,9 @@ struct Slot
   s: []Int
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   h = H(v: <v)
-  e: Vec[Int] = Vec()
+  e: List[Int] = List()
   sl = Slot(s: ?e[..])
   !h.put(!sl)
   for i in 0..100

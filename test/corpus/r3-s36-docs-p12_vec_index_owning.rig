@@ -6,6 +6,6 @@ fun get_n(b: ?*B) -> Int
   b.n
 
 sub main()
-  v: Vec[*B] = Vec()
+  v: List[*B] = List()
   !v.push(*B(n: 1))
   print(get_n(?v[0]))

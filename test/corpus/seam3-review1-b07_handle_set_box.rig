@@ -1,12 +1,12 @@
 struct Holder
-  b: Box[?Vec[Int]]?
+  b: (^?List[Int])?
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   h: *Holder = *Holder(b: none)
   h2 = +h
-  !h.b = Box(?v)
+  !h.b = ^?v
   <h
   !v.push(2)
   if h2.b as b

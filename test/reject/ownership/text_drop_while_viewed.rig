@@ -1,21 +1,21 @@
 # A Text cannot be dropped, cleared, or reassigned while a String
 # views it, even through a function's result.
 
-fun first(s: String) -> String
+fun first(s: ?String) -> ?String
   s[..1]
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   a = first(?t)
   <t
   print(a)
-  u = Text("xyz")
+  u = String("xyz")
   b = ?u[..]
   !u.clear()
   print(b)
-  w = Text("w")
+  w = String("w")
   c = ?w[..]
-  w = Text("v")
+  w = String("v")
   print(c, w)
 
 # error: 10:4: cannot drop `t` while it is lent

@@ -1,4 +1,4 @@
-# H2: Cell set/replace through nested Vec/array/Box/field paths under read views
+# H2: Cell set/replace through nested List/array/Box/field paths under read views
 struct C
   c: Cell[Int]
 
@@ -6,18 +6,18 @@ struct C
     !self.c.set(self.c.get() + 1)
 
 struct S
-  cs: Vec[C]
+  cs: List[C]
   arr: [2]C
-  b: Box[C]
+  b: ^C
 
-sub viaVecVec(v: !Vec[Vec[C]])
+sub viaVecVec(v: !List[List[C]])
   !v[0][0].c.set(11)
   !v[0][0].hit()
 
-sub viaArrVec(a: ![1]Vec[C])
+sub viaArrVec(a: ![1]List[C])
   !a[0][0].c.set(21)
 
-sub viaVecBox(v: !Vec[Box[C]])
+sub viaVecBox(v: !List[^C])
   !v[0].c.set(31)
   _ = !v[0].c.replace(32)
 
@@ -26,31 +26,31 @@ sub viaStruct(s: !S)
   !s.arr[1].c.set(42)
   !s.b.c.set(43)
 
-sub viaSlice(s: []Vec[C])
+sub viaSlice(s: []List[C])
   !s[0][0].c.set(61)
 
-sub viaVecCells(v: !Vec[Vec[Cell[Int]]])
+sub viaVecCells(v: !List[List[Cell[Int]]])
   !v[0][0].set(71)
 
 sub main()
-  vv: Vec[Vec[C]] = Vec()
-  inner: Vec[C] = Vec()
+  vv: List[List[C]] = List()
+  inner: List[C] = List()
   !inner.push(C(c: Cell(0)))
   !vv.push(<inner)
   viaVecVec(!vv)
-  av = [Vec[C]()]
+  av = [List[C]()]
   !av[0].push(C(c: Cell(0)))
   viaArrVec(!av)
-  vb: Vec[Box[C]] = Vec()
-  !vb.push(Box(C(c: Cell(0))))
+  vb: List[^C] = List()
+  !vb.push(^C(c: Cell(0)))
   viaVecBox(!vb)
-  cs: Vec[C] = Vec()
+  cs: List[C] = List()
   !cs.push(C(c: Cell(0)))
-  s = S(cs: <cs, arr: [C(c: Cell(0)), C(c: Cell(0))], b: Box(C(c: Cell(0))))
+  s = S(cs: <cs, arr: [C(c: Cell(0)), C(c: Cell(0))], b: ^C(c: Cell(0)))
   viaStruct(?s)
   viaSlice(?vv)
-  vc: Vec[Vec[Cell[Int]]] = Vec()
-  ic: Vec[Cell[Int]] = Vec()
+  vc: List[List[Cell[Int]]] = List()
+  ic: List[Cell[Int]] = List()
   !ic.push(Cell(0))
   !vc.push(<ic)
   viaVecCells(!vc)

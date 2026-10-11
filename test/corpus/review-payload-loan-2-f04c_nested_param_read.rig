@@ -1,5 +1,5 @@
 struct Q
-  t: Text
+  t: String
 
 enum In
   a(q: !Q)
@@ -18,7 +18,7 @@ sub show(o: !Out)
     .z => pass
 
 sub main()
-  q = Q(t: Text("hi"))
+  q = Q(t: String("hi"))
   i = In.a(!q)
   o = Out.a(!i)
   show(!o)

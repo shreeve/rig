@@ -8,5 +8,5 @@ struct Pair[K, V]
   v: V
 
 sub main()
-  v: Vec[Pair[String, B]] = Vec()
+  v: List[Pair[?String, B]] = List()
   print(v.len)

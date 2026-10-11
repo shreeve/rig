@@ -1,5 +1,5 @@
 struct R
-  f: String
+  f: ?String
 
 sub g(w: !R)
   s = w.f[1..]
@@ -7,7 +7,7 @@ sub g(w: !R)
   print(s)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   r = R(f: ?t[..])
   g(!r)
   print(r.f)

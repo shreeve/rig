@@ -1,5 +1,5 @@
 struct U
-  name: String
+  name: ?String
 
 fun find(i: Int) -> U?
   return U(name: "a") if i == 1

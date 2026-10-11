@@ -1,7 +1,7 @@
 sub main()
   a = 1
   b = 2
-  ws: Vec[!Int] = Vec()
+  ws: List[!Int] = List()
   !ws.push(!a)
   !ws.push(!b)
   ws[1] = 9

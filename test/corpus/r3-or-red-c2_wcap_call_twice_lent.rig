@@ -2,7 +2,7 @@ sub call(f: ?fun(Int) -> Int)
   print(f(1), f(2))
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   add = |!v, k: Int|
     !v.push(k)
     v.len

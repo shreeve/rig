@@ -6,14 +6,14 @@
 struct S
   s: []Int
 
-fun nx(v: !Vec[Int]) -> S?
+fun nx(v: !List[Int]) -> S?
   !v.push(v.len)
   if v.len < 6
     return S(s: ?v[..])
   none
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   k = 0
   while nx(!v) as h: k += h.s[h.s.len - 1]
     k += 100

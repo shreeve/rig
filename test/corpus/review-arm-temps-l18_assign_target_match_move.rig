@@ -1,6 +1,6 @@
 # The arm moves the owner the target views.
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
   k = 0
@@ -9,5 +9,5 @@ sub main()
     _ => 3
   print("done")
 
-fun sink(v: Vec[Int]) -> Int
+fun sink(v: List[Int]) -> Int
   v.len

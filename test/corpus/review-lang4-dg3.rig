@@ -1,9 +1,9 @@
 struct H
-  w: !Box[Int]
+  w: !^Int
 
 sub main()
-  b = Box(5)
+  b = ^5
   h = H(w: !b)
   r = ?h.w
-  h.w = Box(6)
+  h.w = ^6
   print(r)

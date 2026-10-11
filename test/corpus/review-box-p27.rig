@@ -8,7 +8,7 @@ struct R
     self.n
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
   for x in !v
     print(<x.eat())

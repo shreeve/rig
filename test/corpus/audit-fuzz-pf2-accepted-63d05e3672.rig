@@ -85,14 +85,14 @@ struct Pair[T, U]
     ?self.first
 
 struct Shelf[T]
-  items: Vec[T]
+  items: List[T]
 
   sub add(!self, x: T)
     !self.items.push(<x)
 
   fun take(!self) -> T?
     (!self.items).pop()
-  a11: String? = none
+  a11: (?String)? = none
 
 enum Maybe[T]
   just(v: T)
@@ -104,7 +104,7 @@ fun get_or[T](m: Maybe[T], d: T) -> T
     .nada => d
 
 fun fill_shelf[T](a: T, b: T) -> Shelf[T]
-  s = Shelf[T](items: Vec())
+  s = Shelf[T](items: List())
   !s.add(<a)
   !s.add(<b)
   s
@@ -127,16 +127,16 @@ sub h0()
   o9: *R? = *mk(70)
   r9 = unwrap_or(<o9, *mk(80))
   print("use", r9.id)
-  a11: String? = none
-  b11: String? = "s90"
+  a11: (?String)? = none
+  b11: (?String)? = "s90"
   r11 = first_some(<a11, <b11)
   if ?r11 as w12
     print("str", w12)
 
 sub h1()
-  r14 = cycle(Box(mk(100)), rt_int(2))
+  r14 = cycle(^mk(100), rt_int(2))
   print("use", r14.id)
-  r16 = pick(Box(mk(110)), Box(mk(120)), rt_bool(true))
+  r16 = pick(^mk(110), ^mk(120), rt_bool(true))
   print("use", r16.id)
   r18 = Pair(first: *mk(130), second: "s140")
   f18 = first_ref(?r18)

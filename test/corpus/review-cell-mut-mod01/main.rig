@@ -29,7 +29,7 @@ sub main()
   for _ in 0..2
     g.run(bump)
   print(g.x.c.get())
-  gs: Vec[lib.G[L]] = Vec()
+  gs: List[lib.G[L]] = List()
   !gs.push(lib.G(x: L(c: Cell(5))))
   for x in ?gs
     x.run(bump)

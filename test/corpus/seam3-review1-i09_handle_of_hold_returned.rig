@@ -1,12 +1,12 @@
 struct Hold[T]
   v: T
 
-fun share(v: ?Vec[Int]) -> *Hold[?Vec[Int]]
+fun share(v: ?List[Int]) -> *Hold[?List[Int]]
   *Hold(v: v)
 
 sub main()
-  hs: Vec[*Hold[?Vec[Int]]] = Vec()
-  v: Vec[Int] = Vec()
+  hs: List[*Hold[?List[Int]]] = List()
+  v: List[Int] = List()
   !v.push(1)
   h = share(?v)
   !hs.push(+h)

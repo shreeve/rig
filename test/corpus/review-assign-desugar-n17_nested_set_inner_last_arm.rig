@@ -1,7 +1,7 @@
 # A nested assignment inside the value; the inner one's last arm
 # re-points the OUTER target at its local.
 sub run(k: Int)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
   x = 0
   w = !v[0..1]
@@ -11,7 +11,7 @@ sub run(k: Int)
       x = match k
         1 => 5
         _
-          u: Vec[Int] = Vec()
+          u: List[Int] = List()
           !u.push(1)
           w = !u[0..1]
           6

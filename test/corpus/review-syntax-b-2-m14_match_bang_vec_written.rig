@@ -1,9 +1,9 @@
 enum V
-  a(v: Vec[Int])
+  a(v: List[Int])
   b
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   e = V.a(<v)
   match !e

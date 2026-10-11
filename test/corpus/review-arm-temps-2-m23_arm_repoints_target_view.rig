@@ -1,9 +1,9 @@
 # The arm re-points the write view the target writes through; the store
 # goes through the new view, as emit evaluates the target after the value.
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(7)
-  u: Vec[Int] = Vec()
+  u: List[Int] = List()
   !u.push(8)
   w = !v[0..1]
   k = 0

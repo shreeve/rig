@@ -1,5 +1,5 @@
 struct Bag[T]
-  items: Vec[T]
+  items: List[T]
   n: Int
 
   sub add(!self, x: T)
@@ -14,7 +14,7 @@ sub fill[T](b: !Bag[T], x: T, y: T)
   !b.add(<y)
 
 sub main()
-  b = Bag[Int](items: Vec(), n: 0)
+  b = Bag[Int](items: List(), n: 0)
   fill(!b, 3, 4)
   (!b).add(5)
   print((?b).count(), b.items.len)

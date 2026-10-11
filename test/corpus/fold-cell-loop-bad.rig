@@ -1,15 +1,15 @@
 # The fold: a String that views a Text slot (cell-loop-bad): rejected, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct H
-  t: Text
+  t: String
 
 sub main()
-  v: Vec[Text] = Vec()
-  !v.push(Text("a"))
-  c: *Cell[String] = *Cell("x")
+  v: List[String] = List()
+  !v.push(String("a"))
+  c: *Cell[?String] = *Cell("x")
   for x in ?v
     !c.set(?x)
   print(c.get())

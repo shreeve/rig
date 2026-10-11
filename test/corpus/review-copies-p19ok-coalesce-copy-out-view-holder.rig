@@ -1,13 +1,13 @@
 struct S
-  v: ?Vec[Int]
+  v: ?List[Int]
 
 fun pick(r: ?S?, d: S) -> S
   r ?? d
 
 sub main()
-  xs: Vec[Int] = Vec()
+  xs: List[Int] = List()
   !xs.push(1)
-  ys: Vec[Int] = Vec()
+  ys: List[Int] = List()
   o: S? = S(v: ?xs)
   c = pick(?o, S(v: ?ys))
   o = none

@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum Opt[T]
   some(v: T)
@@ -16,8 +16,8 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  o: Opt[Res] = .some(v: Res(n: 7, t: Text("seven")))
-  d = Res(n: 0, t: Text("d"))
+  o: Opt[Res] = .some(v: Res(n: 7, t: String("seven")))
+  d = Res(n: 0, t: String("d"))
   x = peek(?o, ?d)
   print(clobber(1000))
   print(x.n, x.t)

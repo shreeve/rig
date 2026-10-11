@@ -1,11 +1,11 @@
 error E
   bad
 
-fun a() -> Vec[Int]!
-  v = Vec[Int]()
+fun a() -> List[Int]!
+  v = List[Int]()
   !v.push(1)
   <v
 
 sub main()
-  for x in a() catch Vec[Int]()
+  for x in a() catch List[Int]()
     print(x)

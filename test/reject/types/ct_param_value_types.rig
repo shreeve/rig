@@ -1,6 +1,6 @@
 # A compile-time argument is a literal, an enum value, or `none`, so a
 # compile-time parameter's type is one such a value can have: a number,
-# `Bool`, `String`, an enum whose variants carry nothing, or an optional
+# `Bool`, `?String`, an enum whose variants carry nothing, or an optional
 # of one.
 
 struct Res
@@ -25,7 +25,7 @@ fun b[p: P]() -> Int
 fun c[xs: [2]Int]() -> Int
   1
 
-fun d[v: Vec[Int]]() -> Int
+fun d[v: List[Int]]() -> Int
   1
 
 fun e[f: fun(Int) -> Int]() -> Int
@@ -40,6 +40,6 @@ sub main()
 # error: 19:10: compile-time parameter `o` cannot have the type `Res?`
 # error: 22:10: compile-time parameter `p` cannot have the type `P`
 # error: 25:11: compile-time parameter `xs` cannot have the type `[2]Int`
-# error: 28:10: compile-time parameter `v` cannot have the type `Vec[Int]`
+# error: 28:10: compile-time parameter `v` cannot have the type `List[Int]`
 # error: 31:10: compile-time parameter `f` cannot have the type `fun(Int) -> Int`
 # error: 34:10: compile-time parameter `s` cannot have the type `Shape`

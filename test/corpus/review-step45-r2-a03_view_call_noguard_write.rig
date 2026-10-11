@@ -1,14 +1,14 @@
 # match !getw(!v)[0] guarded, NO temporary: subject has no storage -> evalSubject copy?
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
-fun getw(v: !Vec[E]) -> !Vec[E]
+fun getw(v: !List[E]) -> !List[E]
   v
 
 sub main()
-  v: Vec[E] = Vec()
-  !v.push(E.a(t: Text("hi")))
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
   match !getw(!v)[0]
     .a(t) if t.len > 0
       for _ in 0..40

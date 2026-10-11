@@ -10,7 +10,7 @@ struct P
 fun look(p: ?P) -> ?P from p
   p
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -19,8 +19,8 @@ fun clobber(n: Int) -> Int
 
 sub main()
   k = 41
-  match look(?P(xs: [F.a(n: k), F.b(n: 2)])).xs[idx(?Text("a"))]
+  match look(?P(xs: [F.a(n: k), F.b(n: 2)])).xs[idx(?String("a"))]
     .a(n) => print(clobber(n), n)
     .b(n) => print(n)
-  if look(?P(xs: [F.a(n: k), F.b(n: 2)])).xs[idx(?Text("a"))] as y
+  if look(?P(xs: [F.a(n: k), F.b(n: 2)])).xs[idx(?String("a"))] as y
     print(y)

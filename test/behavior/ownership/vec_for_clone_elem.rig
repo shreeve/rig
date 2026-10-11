@@ -1,6 +1,6 @@
 # The element of `for x in ?v` views its slot; cloning it (`+x`) makes
 # an independent strong handle, which may be kept after the loop and
-# outlive the Vec.
+# outlive the List.
 
 struct B
   n: Int
@@ -10,9 +10,9 @@ struct B
 
 sub main()
   count: *Cell[Int] = *Cell(0)
-  subs: Vec[*sub()] = Vec()
+  subs: List[*sub()] = List()
   !subs.push(*|+count| !count.set(count.get() + 1))
-  other: Vec[*sub()] = Vec()
+  other: List[*sub()] = List()
   for cb in ?subs
     !other.push(+cb)
   <subs
@@ -20,7 +20,7 @@ sub main()
     cb()
   print(count.get())
 
-  v: Vec[*B] = Vec()
+  v: List[*B] = List()
   !v.push(*B(n: 1))
   !v.push(*B(n: 2))
   held = *B(n: 0)

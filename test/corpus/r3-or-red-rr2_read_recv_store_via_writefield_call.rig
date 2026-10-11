@@ -1,13 +1,13 @@
 struct Holder
-  name: String
+  name: ?String
 
-  sub rename(!self, s: String)
+  sub rename(!self, s: ?String)
     self.name = s
 
 struct Ctx
   w: !Holder
 
-  fun put(?self, s: String) -> Int
+  fun put(?self, s: ?String) -> Int
     !self.w.rename(s)
     0
 
@@ -15,6 +15,6 @@ sub main()
   h = Holder(name: "a")
   c = Ctx(w: !h)
   if true
-    q = Text("zz")
+    q = String("zz")
     k = c.put(?q)
   print(c.w.name)

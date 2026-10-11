@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 fun first[T](xs: []T, d: ?T) -> ?T
   for x in xs
@@ -12,9 +12,9 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[Box[Res]] = Vec()
-  !v.push(Box(Res(n: 5, t: Text("five"))))
-  d = Box(Res(n: 0, t: Text("d")))
+  v: List[^Res] = List()
+  !v.push(^Res(n: 5, t: String("five")))
+  d = ^Res(n: 0, t: String("d"))
   x = first(?v, ?d)
   print(clobber(1000))
   print(x.n, x.t)

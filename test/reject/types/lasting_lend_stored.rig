@@ -13,10 +13,10 @@ fun count(xs: []Int) -> Int
   xs.len
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  xs: Vec[[]Int] = Vec()
-  hs: Vec[Holder] = Vec()
+  xs: List[[]Int] = List()
+  hs: List[Holder] = List()
   !xs.push(head(v))
   !xs.push(head(?v))
   !xs.push([head(v)][0])

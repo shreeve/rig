@@ -1,8 +1,8 @@
-# Iterating a Vec views it for the loop only; it can be written again
+# Iterating a List views it for the loop only; it can be written again
 # after the loop.
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
   !v.push(2)
   total = 0

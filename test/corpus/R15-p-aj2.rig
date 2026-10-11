@@ -1,5 +1,5 @@
 struct H
-  w: !Vec[Int]
+  w: !List[Int]
 
 sub f(y: ![2]H)
   t = !y[0].w[..]
@@ -7,10 +7,10 @@ sub f(y: ![2]H)
   t[0] = 99
 
 sub main()
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   !v.push(1)
-  d: Vec[Int] = Vec()
-  e: Vec[Int] = Vec()
+  d: List[Int] = List()
+  e: List[Int] = List()
   ys = [H(w: !d), H(w: !e)]
   !ys.fill(H(w: !v))
   f(!ys)

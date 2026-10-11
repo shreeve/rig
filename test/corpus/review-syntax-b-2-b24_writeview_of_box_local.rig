@@ -1,6 +1,6 @@
 sub main()
-  b = Box(Text("hello"))
+  b = ^String("hello")
   w = !b
   s = w[1..]
-  w = Box(Text("x"))
+  w = ^String("x")
   print(s)

@@ -7,7 +7,7 @@ sub bump(p: !P)
 sub bumpi(n: !Int)
   n += 1
 
-sub f(q: ?P, qs: ?Vec[Int])
+sub f(q: ?P, qs: ?List[Int])
   bump(!q)
   w = !q
   !qs.push(1)
@@ -16,7 +16,7 @@ sub main()
   p = P(x: 1)
   r = ?p
   bump(!r)
-  v: Vec[Int] = Vec()
+  v: List[Int] = List()
   f(?p, ?v)
   a = [1, 2]
   s = ?a[..]
