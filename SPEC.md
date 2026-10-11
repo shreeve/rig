@@ -826,7 +826,7 @@ no variant `native` on enum `Endian`
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
 | `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#callable-views) |
-| `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-text-and-signal) |
+| `Cell[T]`, `Vec[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-text-and-signal) |
 | `Text` | owned, growable text | [§10](#text) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
@@ -951,7 +951,7 @@ name.
 A `struct` lists its fields, then its methods. It is constructed by
 naming its fields, `Point(x: 1, y: 2)`, and a struct with exactly one
 field also takes it by position: `Meters(3.5)` is
-`Meters(value: 3.5)`, as `Box(x)`, `*Cell(0)`, and `*Signal(0)` are
+`Meters(value: 3.5)`, as `^x`, `*Cell(0)`, and `*Signal(0)` are
 ([SYNTAX §11](SYNTAX.md#constructors)). A field may have a default
 value, and a constructor may omit that field. Like a parameter default,
 it is a literal (a number, a string, `true` / `false`, `none`, or
@@ -1635,7 +1635,7 @@ fun same[T](x: T) -> T
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  b = Box(?v)
+  b = ^?v
   r = same(?v)
   print(b.len, r.len)
 ```
@@ -1652,7 +1652,7 @@ fun same[T](x: T) -> T
 
 sub main()
   v: Vec[Int] = Vec()
-  b = Box(?v)
+  b = ^?v
   r = same(?v)
   !v.push(1)
   print(b.len, r.len)
@@ -3584,7 +3584,7 @@ are rejected. A local binding is no constant, whatever it holds:
 | a held `!T` | `?T` | `!T` (lent on) |
 | `![]T` | `[]T` | `![]T` (lent on) |
 | `Text` | `String` (also `String?`) | `!Text` |
-| `Box[T]` | the views of `T`, through any number of boxes | the write views of `T` |
+| `^T` | the views of `T`, through any number of boxes | the write views of `T` |
 | `*T` | the read views of `T` | `!*T`, the handle itself, never a view of the value |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row |
 | a function or closure | `?fun` | |
@@ -4485,13 +4485,13 @@ them (`replace(!p.f, v)` exchanges it).
 ```rig
 struct Node
   value: Int
-  next: Box[Node]?
+  next: ^Node?
 
 struct Stack
-  top: Box[Node]?
+  top: ^Node?
 
   sub push(!self, v: Int)
-    self.top = Box(Node(value: v, next: <self.top))
+    self.top = ^Node(value: v, next: <self.top)
 
   fun pop(!self) -> Int?
     if <self.top as n
@@ -4501,7 +4501,7 @@ struct Stack
 
   sub reverse(!self)
     cur = <self.top
-    prev: Box[Node]? = none
+    prev: ^Node? = none
     while <cur as n
       cur = <n.next
       n.next = <prev
@@ -5039,8 +5039,8 @@ drop 1
 
 ### Box
 
-`Box[T]` owns one `T` on the heap. A struct or enum can hold itself
-through a box (`next: Box[Node]?`), since a box is a pointer whatever
+`^T` owns one `T` on the heap. A struct or enum can hold itself
+through a box (`next: ^Node?`), since a box is a pointer whatever
 `T` is. A box is the value's one owner: it moves (`<b`), is never
 copied, `+b` boxes a clone of its value ([§7](#clone)), and dropping it
 drops the value and frees the memory.
@@ -5048,21 +5048,21 @@ Long chains of boxes are released without deep recursion.
 
 | Member | Meaning |
 |---|---|
-| `Box(v)` | move `v` into a new box |
+| `^v` | move `v` into a new box |
 | `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a Vec's (`!b.push(x)`, `b.len`), a Text's (`!b.add(s)`, `b.len`) |
 | `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or Vec, a `String` of a boxed Text, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
 | `<s.f` | take an optional box out of a field, leaving `none` ([§7](#places)) |
 | `match b`, `match !b` | match a boxed enum where it is |
 
-The box is reached as it is held: through an owned box or a `!Box[T]`
-its value can be written, through a `?Box[T]` only read. A box of a
-shared handle (`Box[*S]`) reaches the value through the handle, as
-`*Box[S]` does: it is read, and written only through a Cell. A consuming
+The box is reached as it is held: through an owned box or a `!^T`
+its value can be written, through a `?^T` only read. A box of a
+shared handle (`^*S`) reaches the value through the handle, as
+`*^S` does: it is read, and written only through a Cell. A consuming
 (`<self`) method of the value, `<b.m()`, takes the value out of the box
-first. `T` may be a read view (`Box(?v)`, a `Box[?Vec[Int]]`): the box keeps
+first. `T` may be a read view (`^?v`, a `^?Vec[Int]`): the box keeps
 `v` lent while it is used. `T` holds no write view. A box has no field of its own: `b.value`
-of a `Box[Int]` names nothing, and the number is lent (`?b`) or taken
+of a `^Int` names nothing, and the number is lent (`?b`) or taken
 apart. A Vec holds boxes as it holds handles:
 walked by viewed slot and moved out with `pop` ([Vec](#vec)).
 
@@ -5072,18 +5072,18 @@ through a view of the box:
 ```rig
 enum Expr
   num(n: Int)
-  add(l: Box[Expr], r: Box[Expr])
+  add(l: ^Expr, r: ^Expr)
 
-fun eval(e: ?Box[Expr]) -> Int
+fun eval(e: ?^Expr) -> Int
   match e
     .num(n) => n
     .add(l, r) => eval(?l) + eval(?r)
 
-fun num(n: Int) -> Box[Expr]
-  Box(.num(n))
+fun num(n: Int) -> ^Expr
+  ^.num(n)
 
 sub main()
-  e = Box(Expr.add(l: num(2), r: num(3)))
+  e = ^Expr.add(l: num(2), r: num(3))
   print(eval(?e))
 ```
 
@@ -5097,26 +5097,26 @@ box is used where it is:
 ```rig
 struct Node
   key: Int
-  left: Box[Node]?
-  right: Box[Node]?
+  left: ^Node?
+  right: ^Node?
 
-sub insert(slot: !Box[Node]?, key: Int)
+sub insert(slot: !^Node?, key: Int)
   if !slot as n
     if key < n.key
       insert(!n.left, key)
     else
       insert(!n.right, key)
   else
-    slot = Box(Node(key: key, left: none, right: none))
+    slot = ^Node(key: key, left: none, right: none)
 
-sub walk(slot: ?Box[Node]?)
+sub walk(slot: ?^Node?)
   if slot as n
     walk(?n.left)
     print(n.key)
     walk(?n.right)
 
 sub main()
-  root: Box[Node]? = none
+  root: ^Node? = none
   for k in [5, 2, 8, 1]
     insert(!root, k)
   walk(?root)
@@ -5147,9 +5147,9 @@ Text. A `String` is the view of text; a Text is where text is built.
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t`, with or without a String or `String?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
 | a view `p: ?Text` (a name, or a call's result) | a `String`: `p[a..b]` is a view of its bytes, with no further `?` |
-| a write view `w: !Text` (also of a `*Text` or a `Box[Text]`) | `?w[a..b]`, which lends `w`, as a slice of the Text itself does: `w` may add to the Text or replace it |
+| a write view `w: !Text` (also of a `*Text` or a `^Text`) | `?w[a..b]`, which lends `w`, as a slice of the Text itself does: `w` may add to the Text or replace it |
 | `for b in t`, `for b in ?t` | its bytes, as `U8`s |
-| `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
+| `?b[a..b]`, `?b` of a `^Text` | the same, through the box |
 | `+t`, `+s` of a String | a new Text holding the same bytes |
 | `t == u`, `t == s` | compares its bytes with a Text's or a String's; a boxed Text too |
 
@@ -5264,15 +5264,15 @@ body's `T = Static`. Where a String must outlive the Text it came from,
 copy it into a Text of its own: `Text(s)`.
 
 A Text owns its bytes, and a `Vec[Text]` owns its Texts, as
-`Vec[Box[Text]]` does through its boxes. A Vec that
+`Vec[^Text]` does through its boxes. A Vec that
 holds views keeps their Texts lent until its last use, not until it is
 dropped, since dropping it reads none of them.
 
 ```rig
 sub main()
-  owned: Vec[Box[Text]] = Vec()
-  !owned.push(Box(Text("one")))
-  !owned.push(Box(Text("two")))
+  owned: Vec[^Text] = Vec()
+  !owned.push(^Text("one"))
+  !owned.push(^Text("two"))
   t = Text("a b")
   views: Vec[String] = Vec()
   !views.push(?t[..1])
@@ -6713,7 +6713,7 @@ sub main()
   print(Shape.dot, Shape.circle(2.5), Shape.rect(w: 2, h: 3))
   h = *User(name: "bob", age: 1)
   w = ~h
-  b = Box(User(name: "cy", age: 2))
+  b = ^User(name: "cy", age: 2)
   print(h, w, b, *Cell(5))
 ```
 

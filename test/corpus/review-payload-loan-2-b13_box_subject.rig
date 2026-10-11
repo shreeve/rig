@@ -7,7 +7,7 @@ enum WP
 
 sub main()
   p = P(t: Text("hello"))
-  b = Box(WP.a(!p))
+  b = ^WP.a(!p)
   match b
     .a(w)
       r = ?w.t[1..]

@@ -5,9 +5,9 @@ enum Sh
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  b = Box(Sh.circle(<v))
+  b = ^Sh.circle(<v)
   match ?b
     .circle(r)
-      b = Box(Sh.dot)
+      b = ^Sh.dot
       print(r.len)
     .dot => print("dot")

@@ -8,6 +8,6 @@ struct R
     self.n
 
 sub main()
-  o: Box[R]? = Box(value: R(n: 1))
+  o: ^R? = ^R(n: 1)
   if !o as b
     print(<b.eat())

@@ -4,14 +4,14 @@ struct C
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)
 
-fun peek(b: !Box[C]) -> Int
+fun peek(b: !^C) -> Int
   !b.hit()
   b.hits.get()
 
 sub main()
-  b = Box(value: C(hits: Cell(value: 0)))
+  b = ^C(hits: Cell(value: 0))
   !b.hit()
   print(peek(!b))
-  cell: Cell[Box[C]] = Cell(value: Box(value: C(hits: Cell(value: 5))))
-  old = (!cell).replace(Box(value: C(hits: Cell(value: 7))))
+  cell: Cell[^C] = Cell(value: ^C(hits: Cell(value: 5)))
+  old = (!cell).replace(^C(hits: Cell(value: 7)))
   print(old.hits.get())

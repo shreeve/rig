@@ -3,8 +3,8 @@ enum Sh
   s(k: Int)
 
 sub main()
-  v: Vec[Box[Sh]] = Vec()
-  !v.push(Box(value: Sh.s(k: 3)))
+  v: Vec[^Sh] = Vec()
+  !v.push(^Sh.s(k: 3))
   for x in ?v
     match x
       .c(r) => print("c", r)

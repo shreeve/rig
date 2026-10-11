@@ -8,5 +8,5 @@ fun grow(t: !Text) -> Int
 sub main()
   t = Text("abc")
   print(both(t, grow(!t)))
-  b = Box(Text("abc"))
+  b = ^Text("abc")
   print(both(b, grow(!b)))

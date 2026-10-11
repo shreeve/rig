@@ -9,6 +9,6 @@ sub bump(s: !S)
   s.n += 1
 
 sub main()
-  b = Box(S(n: 3, v: Vec()))
+  b = ^S(n: 3, v: Vec())
   bump(!b)
   print(get(?b), b.n)

@@ -1,7 +1,7 @@
 sub main()
-  b = Box(value: "hi")
+  b = ^"hi"
   print(b)
   s = <b.take()
   print(s)
-  c = Box(value: [1, 2, 3])
+  c = ^[1, 2, 3]
   print(c)

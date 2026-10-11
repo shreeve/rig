@@ -53,7 +53,7 @@ sub main()
   while o as x and m > 0
     print("while", x.n)
     m -= 1
-  b = Box(Shape.circle(r: 4))
+  b = ^Shape.circle(r: 4)
   match b
     .circle(r) => print("circle", r)
     .square(s) => print("square", s)

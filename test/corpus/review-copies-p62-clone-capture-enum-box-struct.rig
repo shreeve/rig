@@ -27,7 +27,7 @@ sub main()
   e = E.n(h: *N(v: 1))
   g = |+e| elen(?e)
   <e
-  b = Box(Text("boxed"))
+  b = ^Text("boxed")
   h = |+b| b.len
   <b
   r = R(name: Text("rec"), hs: Vec())

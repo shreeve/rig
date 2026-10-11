@@ -66,19 +66,19 @@ sub main()
   print(maybe(?o), maybe(?e), name(?ot), size(?ov))
   a = [1, 2, 3]
   print(size(?a))
-  bb = Box(Box(S(n: 6)))
+  bb = ^^S(n: 6)
   inc(!bb)
-  ba = Box([4, 5, 6])
-  bt = Box(Text("box"))
+  ba = ^[4, 5, 6]
+  bt = ^Text("box")
   print(get(?bb), total(?ba), first(?bt))
   w: Vec[Int] = Vec()
   !w.push(7)
   !w.push(8)
-  bv = Box(<w)
+  bv = ^<w
   zero_boxed(!bv)
   print(total(?bv))
 
-sub zero_boxed(b: !Box[Vec[Int]])
+sub zero_boxed(b: !^Vec[Int])
   zero(!b)
 
 # expect:

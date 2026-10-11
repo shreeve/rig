@@ -3,10 +3,10 @@ struct Player
   scores: Vec[Int]
 
 sub main()
-  ps: Vec[Box[Player]] = Vec()
+  ps: Vec[^Player] = Vec()
   p = Player(name: "a", scores: Vec())
   !p.scores.push(3)
-  !ps.push(Box(value: <p))
+  !ps.push(^<p)
   print(ps[0].name)
   for q in ?ps
     print(q.name, q.scores.len)

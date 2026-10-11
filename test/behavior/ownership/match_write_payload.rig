@@ -37,7 +37,7 @@ sub main()
   x = Holder(s: .rect(w: 2, h: 3))
   grow(!x.s)
   print(x.s)
-  b = Box(Shape.circle(r: 5))
+  b = ^Shape.circle(r: 5)
   match !b
     .circle(r) => r = 50
     _ => print("other")

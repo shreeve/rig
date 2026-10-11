@@ -11,7 +11,7 @@ sub eat(r: R)
   print("ate", r.n)
 
 sub main()
-  b = Box(value: E.full(R(n: 1)))
+  b = ^E.full(R(n: 1))
   match !b
     .full(r)
       r.n = 5

@@ -5,11 +5,11 @@ struct R
     print("drop", self.n)
 
 struct S
-  b: Box[R]
+  b: ^R
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+  v: Vec[^R] = Vec()
+  !v.push(^R(n: 1))
   for x in ?v
     s = S(b: x)
     print(s.b.n)

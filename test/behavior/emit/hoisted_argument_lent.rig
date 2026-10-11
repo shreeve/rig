@@ -21,7 +21,7 @@ fun px(p: ?P, n: Int) -> Int
 
 sub main()
   print(pick(n: g(1), s: Text("hello world, long enough to be on the heap")))
-  b = Box(P(x: 40, t: Text("t")))
+  b = ^P(x: 40, t: Text("t"))
   print(px(n: g(2), p: b))
 
 # expect:

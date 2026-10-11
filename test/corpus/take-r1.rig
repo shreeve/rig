@@ -1,9 +1,9 @@
 struct N
   v: Int
-  next: Box[N]?
+  next: ^N?
 
 struct S
-  top: Box[N]?
+  top: ^N?
   name: String
   n: N
 

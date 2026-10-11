@@ -21,9 +21,9 @@ sub field()
   print(s)
 
 sub boxed()
-  b = Box(*Text("hello"))
+  b = ^*Text("hello")
   s = ?b[1..]
-  b = Box(*Text("other"))
+  b = ^*Text("other")
   print(s)
 
 sub upgraded()

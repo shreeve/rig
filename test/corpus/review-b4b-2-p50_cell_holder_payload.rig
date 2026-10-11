@@ -40,7 +40,7 @@ sub main()
     .none => pass
   saved.hits.set(6)
   show(?u)
-  b = Box(U.k(c: Counter(hits: Cell(1))))
+  b = ^U.k(c: Counter(hits: Cell(1)))
   match b
     .k(c) => saved = ?c
     .none => pass

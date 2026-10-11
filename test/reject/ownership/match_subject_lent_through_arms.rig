@@ -15,7 +15,7 @@ fun grow(v: !Vec[Shape]) -> Bool
   false
 
 struct H
-  o: Box[Int]?
+  o: ^Int?
 
 fun clear(h: !H) -> Bool
   h.o = none
@@ -44,7 +44,7 @@ sub main()
       .circle(_) if grow(!v) => print(k)
       _ => print(0)
     _ => print(k)
-  h = H(o: Box(3))
+  h = H(o: ^3)
   z = !h
   if ?z.o as s
     print(clear(!h))

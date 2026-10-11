@@ -28,7 +28,7 @@ enum V
   b
 
 enum B
-  a(b: Box[Text])
+  a(b: ^Text)
   b
 
 struct P
@@ -86,12 +86,12 @@ sub vec()
   print(e)
 
 sub boxed()
-  e = B.a(Box(Text("box")))
+  e = B.a(^Text("box"))
   match !e
     .a(b)
       s = keep(?b[1..])
       print(s)
-      b = Box(Text("new"))
+      b = ^Text("new")
       print(b[..1])
     .b => pass
   print(e)
@@ -140,7 +140,7 @@ sub param(e: !E)
     .b => pass
 
 sub subjects()
-  e = Box(E.a(Text("boxed")))
+  e = ^E.a(Text("boxed"))
   match !e
     .a(t)
       s = ?t[1..]

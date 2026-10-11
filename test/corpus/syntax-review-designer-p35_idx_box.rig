@@ -6,8 +6,8 @@ fun name_of(p: ?Player) -> String
   p.name
 
 sub main()
-  ps: Vec[Box[Player]] = Vec()
-  !ps.push(Box(value: Player(name: "a", scores: Vec())))
+  ps: Vec[^Player] = Vec()
+  !ps.push(^Player(name: "a", scores: Vec()))
   print(name_of(?ps[0]))
   q = !ps[0]
   !q.scores.push(1)

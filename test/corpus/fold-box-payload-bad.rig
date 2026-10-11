@@ -8,9 +8,9 @@ struct H
 
 sub main()
   e = E.full(t: Text("a"))
-  b: Box[String] = Box("x")
+  b: ^String = ^"x"
   match ?e
-    .full(p) => b = Box(p)
+    .full(p) => b = ^p
     .empty => pass
   e = E.empty
   print(b)

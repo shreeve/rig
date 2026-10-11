@@ -16,7 +16,7 @@ sub main()
   c = C(n: 100, big: I128.min)
   bumpc(!c)
   print(c.n, c.big)
-  b = Box(C(n: 255, big: 0))
+  b = ^C(n: 255, big: 0)
   b.n +%= 1
   print(b.n)
   v = Vec[U8]()

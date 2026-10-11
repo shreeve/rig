@@ -1,4 +1,4 @@
 sub main()
-  b = Box(Text("x"))
+  b = ^Text("x")
   c = +b
   print(?c)

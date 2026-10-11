@@ -95,7 +95,7 @@ sub main()
   show[Ring[Int, 4]](@name(Ring[Int, 4]))
   show[Vec[Int]](@name(Vec[Int]))
   show[*Cell[Bool]](@name(*Cell[Bool]))
-  show[Box[Point]](@name(Box[Point]))
+  show[^Point](@name(^Point))
   show[Signal[F32]](@name(Signal[F32]))
   show[Vec[Vec[I8]]](@name(Vec[Vec[I8]]))
   show[Int?](@name(Int?))
@@ -154,7 +154,7 @@ sub main()
 # Ring[Int, 4]
 # Vec[Int]
 # *Cell[Bool]
-# Box[Point]
+# ^Point
 # Signal[F32]
 # Vec[Vec[I8]]
 # Int?

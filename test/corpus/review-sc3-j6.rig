@@ -16,9 +16,9 @@ fun mk(i: Int) -> Res!
   Res(id: i)
 
 sub main()
-  xs: Vec[Box[Res]] = Vec()
+  xs: Vec[^Res] = Vec()
   for i in 1..5
-    !xs.push(Box(Res(id: i)))
+    !xs.push(^Res(id: i))
   total = 0
   for b in <xs
     n = parse(?b) catch continue

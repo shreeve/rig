@@ -5,9 +5,9 @@ struct R
     print("drop", self.n)
 
 sub main()
-  b: Box[Box[R]] = Box(value: Box(value: R(n: 1)))
+  b: ^^R = ^^R(n: 1)
   c = <b.take()
   print(c.n)
-  d: Box[*R] = Box(value: *R(n: 2))
+  d: ^*R = ^*R(n: 2)
   e = <d.take()
   print(e.n)

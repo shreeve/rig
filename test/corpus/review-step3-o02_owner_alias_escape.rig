@@ -19,7 +19,7 @@ sub main()
     .b => pass
   print(pad(77))
   print(saved.n, saved.t)
-  b = Box(E.a(r: Res(n: 2, t: Text("boxed"))))
+  b = ^E.a(r: Res(n: 2, t: Text("boxed")))
   match b
     .a(r) => saved = ?r
     .b => pass

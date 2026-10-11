@@ -25,14 +25,14 @@ fun fail(k: Int) -> Int!
 
 struct Node
   a: *Tok
-  next: Box[Node]?
+  next: ^Node?
 
 fun get(k: Int) -> Int?
   k if k > 0 else none
 
 fun run(k: Int) -> Int?
-  x: Box[Node]? = Box(Node(a: *Tok(n: 5), next: none))
-  b = Box(Node(a: *Tok(n: get(k)?), next: <x))
+  x: ^Node? = ^Node(a: *Tok(n: 5), next: none)
+  b = ^Node(a: *Tok(n: get(k)?), next: <x)
   b.a.n
 
 sub main()

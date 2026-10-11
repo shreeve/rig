@@ -44,13 +44,13 @@ sub optional_view()
   print(s)
 
 sub boxed_array()
-  b = Box([1, 2, 3])
+  b = ^[1, 2, 3]
   s = keep(?b)
   <b
   print(s)
 
 sub boxed_box()
-  b = Box(Box(S(n: 2)))
+  b = ^^S(n: 2)
   r = keep_s(?b)
   <b
   print(r.n)

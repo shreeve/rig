@@ -2,5 +2,5 @@ struct P
   x: Int
 
 sub main()
-  s = *Box(value: P(x: 1))
+  s = *^P(x: 1)
   print(s.x)

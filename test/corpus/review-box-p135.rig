@@ -13,11 +13,11 @@ enum E
   fun eat(<self) -> Int
     3
 
-fun g(e: ?Box[E]) -> Int
+fun g(e: ?^E) -> Int
   e.get()
 
 sub main()
-  e = Box(value: E.b)
+  e = ^E.b
   print(e.get(), g(?e))
   !e.set(5)
   print(e.get(), e)

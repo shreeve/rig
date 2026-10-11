@@ -9,8 +9,8 @@ fun reset(r: !*Node) -> Int
   r = *Node(n: 9)
   0
 
-fun rebox(b: !Box[Int]) -> Int
-  b = Box(5)
+fun rebox(b: !^Int) -> Int
+  b = ^5
   0
 
 fun clears(ss: !Vec[String]) -> Int
@@ -22,7 +22,7 @@ sub main()
   !ns.push(*Node(n: 1))
   rc = *Node(n: 1)
   print(rc, reset(!rc))
-  b = Box(3)
+  b = ^3
   print(b, rebox(!b))
   ss: Vec[String] = Vec()
   !ss.push("hi")

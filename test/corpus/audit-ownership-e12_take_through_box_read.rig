@@ -19,10 +19,10 @@ fun cond(t: *Tok) -> Bool
 struct H
   o: *Tok?
 
-sub f(b: ?Box[H])
+sub f(b: ?^H)
   x = <b.o
   print(x == none)
 
 sub main()
-  b = Box(H(o: *Tok(n: 1)))
+  b = ^H(o: *Tok(n: 1))
   f(?b)

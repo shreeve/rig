@@ -3,19 +3,19 @@
 
 struct Node
   key: Int
-  left: Box[Node]?
+  left: ^Node?
 
-fun first(n: ?Box[Node]) -> ?Node
+fun first(n: ?^Node) -> ?Node
   ?n
 
 sub main()
-  root: Box[Node]? = Box(Node(key: 1, left: none))
+  root: ^Node? = ^Node(key: 1, left: none)
   if !root as n
     root = none
     print(n.key)
-  a = Box(Node(key: 1, left: none))
+  a = ^Node(key: 1, left: none)
   f = first(?a)
-  a = Box(Node(key: 2, left: none))
+  a = ^Node(key: 2, left: none)
   print(f.key)
   r = ?a
   <a

@@ -6,7 +6,7 @@ struct H
 
 sub main()
   a = Big(v: Vec())
-  bx = Box(Big(v: Vec()))
+  bx = ^Big(v: Vec())
   !bx.v.push(1)
   h = H(r: ?a)
   h.r = ?bx

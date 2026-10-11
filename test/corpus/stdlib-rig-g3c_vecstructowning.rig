@@ -2,8 +2,8 @@ struct Row
   cells: Vec[Int]
 
 sub main()
-  rows: Vec[Box[Row]] = Vec()
-  !rows.push(Box(Row(cells: Vec())))
+  rows: Vec[^Row] = Vec()
+  !rows.push(^Row(cells: Vec()))
   for r in !rows
     !r.cells.push(4)
   for r in ?rows

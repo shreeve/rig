@@ -4,13 +4,13 @@ enum Shape
 
 sub main()
   s = Shape.circle(r: 3)
-  b = Box(?s)
+  b = ^?s
   match b
     .circle(r)
       print("c", r)
     .sq(x)
       print("s", x)
-  bb = Box(Box(?s))
+  bb = ^^?s
   match bb
     .circle(r)
       print("cc", r)

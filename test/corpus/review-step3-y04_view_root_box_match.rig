@@ -6,10 +6,10 @@ enum E
   b
 
 sub main()
-  b = Box(E.a(r: Res(t: Text("abc"))))
+  b = ^E.a(r: Res(t: Text("abc")))
   p = ?b
   match p
     .a(r)
-      b = Box(E.b)
+      b = ^E.b
       print(r.t)
     .b => pass

@@ -9,8 +9,8 @@ struct C
 struct S
   h: *C
 
-fun mkb(k: ?*C) -> Box[*C]
-  Box(+k)
+fun mkb(k: ?*C) -> ^*C
+  ^+k
 
 sub main()
   k = *C(n: Cell(0), log: Cell(Vec()))

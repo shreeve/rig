@@ -2,7 +2,7 @@ struct N
   v: Int
 
 struct S
-  a: Box[N]?
+  a: ^N?
 
 fun f(s: !S) -> Int?
   b = <s.a?

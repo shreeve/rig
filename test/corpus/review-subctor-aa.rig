@@ -13,7 +13,7 @@ struct Acc
     print("acc", self.n)
 
 sub main()
-  b = Box(Acc(1))
+  b = ^Acc(1)
   !b.bump(2)!
   b.show()!
   s = *Acc(5)

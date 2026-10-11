@@ -5,8 +5,8 @@ struct R
     print("drop", self.n)
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+  v: Vec[^R] = Vec()
+  !v.push(^R(n: 1))
   for x in ?v
     new x = x
     print(x.n)

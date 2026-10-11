@@ -5,7 +5,7 @@ enum E[T]
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  e = E.some(x: Box(?v))
+  e = E.some(x: ^?v)
   match e
     .some(b)
       <v

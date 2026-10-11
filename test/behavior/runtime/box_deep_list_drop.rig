@@ -4,9 +4,9 @@
 
 struct Node
   value: Int
-  next: Box[Node]?
+  next: ^Node?
 
-fun count(list: ?Box[Node]?) -> Int
+fun count(list: ?^Node?) -> Int
   n = 0
   cur = list
   while cur as node
@@ -15,10 +15,10 @@ fun count(list: ?Box[Node]?) -> Int
   n
 
 sub main()
-  head: Box[Node]? = none
+  head: ^Node? = none
   i = 0
   while i < 200000 : i += 1
-    head = Box(Node(value: i, next: <head))
+    head = ^Node(value: i, next: <head)
   print(count(?head))
 
 # expect:

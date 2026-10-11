@@ -5,8 +5,8 @@ struct R
     print("drop", self.n)
 
 struct S
-  b: Box[R]
-  o: Box[R]?
+  b: ^R
+  o: ^R?
 
   drop(!self)
     print("S drop", self.b.n)
@@ -16,5 +16,5 @@ struct S
     self.o = none
 
 sub main()
-  s = S(b: Box(value: R(n: 1)), o: Box(value: R(n: 2)))
+  s = S(b: ^R(n: 1), o: ^R(n: 2))
   print(s.b.n)

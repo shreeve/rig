@@ -1,6 +1,6 @@
 struct Node
   key: Int
-  left: Box[Node]?
+  left: ^Node?
 
 fun leftmost(n: ?Node) -> ?Node
   if n.left as l
@@ -8,8 +8,8 @@ fun leftmost(n: ?Node) -> ?Node
   n
 
 sub main()
-  root = Box(value: Node(key: 1, left: Box(value: Node(key: 0, left: none))))
+  root = ^Node(key: 1, left: ^Node(key: 0, left: none))
   m = leftmost(?root)
   print(m.key)
-  root = Box(value: Node(key: 5, left: none))
+  root = ^Node(key: 5, left: none)
   print(m.key)

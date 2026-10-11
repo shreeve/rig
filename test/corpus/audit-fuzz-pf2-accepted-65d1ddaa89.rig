@@ -80,7 +80,7 @@ fun hand(h: *R, n: Int) -> Int
   print("use", h.id)
   n
 
-fun bx(b: Box[R], n: Int) -> Int
+fun bx(b: ^R, n: Int) -> Int
   print("use", b.id)
   n
 
@@ -111,7 +111,7 @@ fun h0() -> Int?
   print("val", hr(HR.two(a: mk(1), b: *mk(2))))
   m1 = M(r: mk(3))
   !m1.put(optr(rt_int(4004))?)
-  print("val", m1.peek(bx(Box(optr(rt_int(3005))?), take3(mk(6), 6, mk(7)))))
+  print("val", m1.peek(bx(^optr(rt_int(3005))?, take3(mk(6), 6, mk(7)))))
   0
 
 sub h1()!

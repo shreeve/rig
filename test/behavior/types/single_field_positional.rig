@@ -1,5 +1,5 @@
 # A type with one field takes it by position, as a variant with one
-# field does: `Box(x)`, `*Cell(0)`, `*Signal(7)`, a one-field struct,
+# field does: `^x`, `*Cell(0)`, `*Signal(7)`, a one-field struct,
 # and a one-field generic type, whose argument is inferred from the
 # value. The named form stays legal.
 
@@ -11,11 +11,11 @@ struct Wrap[T]
 
 struct Node
   key: Int
-  next: Box[Node]?
+  next: ^Node?
 
 sub main()
-  b = Box(5)
-  n = Box(Node(key: 1, next: Box(Node(key: 2, next: none))))
+  b = ^5
+  n = ^Node(key: 1, next: ^Node(key: 2, next: none))
   c = *Cell(0)
   !c.set(c.get() + 3)
   s = *Signal(7)
@@ -23,7 +23,7 @@ sub main()
   m = Meters(3.5)
   w = Wrap(4)
   w2 = Wrap[String]("hi")
-  named = Box(value: 6)
+  named = ^6
   print(b, n, c.get(), s.get(), sh.get(), m, w, w2, named)
 
 # expect:

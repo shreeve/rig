@@ -1,5 +1,5 @@
 # A read view held in a field or an element reached through a write view
-# (`?Text`, `?Box[Text]`, `?*Text`) is sliced as a value: what it views
+# (`?Text`, `?^Text`, `?*Text`) is sliced as a value: what it views
 # cannot change while its loan lives, which the slice carries, so the
 # field or element may be re-pointed while the slice is used.
 # release
@@ -8,7 +8,7 @@ struct R
   f: ?Text
 
 struct RB
-  f: ?Box[Text]
+  f: ?^Text
 
 struct RS
   f: ?*Text
@@ -18,7 +18,7 @@ sub field(w: !R, u: ?Text)
   w.f = u
   print(s)
 
-sub boxed(w: !RB, u: ?Box[Text])
+sub boxed(w: !RB, u: ?^Text)
   s = w.f[1..]
   w.f = u
   print(s)
@@ -39,8 +39,8 @@ sub main()
   r = R(f: ?t)
   field(!r, ?u)
   print(r.f)
-  b = Box(Text("boxed"))
-  bu = Box(Text("other"))
+  b = ^Text("boxed")
+  bu = ^Text("other")
   rb = RB(f: ?b)
   boxed(!rb, ?bu)
   h = *Text("shared")

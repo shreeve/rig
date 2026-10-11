@@ -27,8 +27,8 @@ sub main()
   r = (!bs).remove(1)
   print("removed", r.n, bs.len)
 
-  boxes: Vec[Box[B]] = Vec()
-  !boxes.insert(0, Box(B(n: 9)))
+  boxes: Vec[^B] = Vec()
+  !boxes.insert(0, ^B(n: 9))
   y = (!boxes).remove(0)
   print("unboxed", y.n, boxes.len)
 

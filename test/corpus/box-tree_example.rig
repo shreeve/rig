@@ -1,5 +1,5 @@
-# A binary search tree that owns its nodes through boxes. `Box[T]` holds
-# one value on the heap: a node holds its children as `Box[Node[T]]?`.
+# A binary search tree that owns its nodes through boxes. `^T` holds
+# one value on the heap: a node holds its children as `^Node[T]?`.
 # `if !slot as n` views the node inside an optional box in place, so
 # insertion walks down with write views and stores a new leaf where
 # the walk ends; the reads walk down with read views. Dropping the
@@ -8,11 +8,11 @@
 struct Node[T]
   key: T
   count: Int
-  left: Box[Node[T]]?
-  right: Box[Node[T]]?
+  left: ^Node[T]?
+  right: ^Node[T]?
 
 struct Tree[T]
-  root: Box[Node[T]]?
+  root: ^Node[T]?
   size: Int
 
   sub add(!self, key: T)
@@ -26,7 +26,7 @@ struct Tree[T]
     depth(?self.root)
 
 # Count `key` in the subtree at `slot`: true when it is new.
-fun place[T](slot: !Box[Node[T]]?, key: T) -> Bool
+fun place[T](slot: !^Node[T]?, key: T) -> Bool
   if !slot as n
     if key == n.key
       n.count += 1
@@ -34,10 +34,10 @@ fun place[T](slot: !Box[Node[T]]?, key: T) -> Bool
     if key < n.key
       return place(!n.left, key)
     return place(!n.right, key)
-  slot = Box(value: Node(key: key, count: 1, left: none, right: none))
+  slot = ^Node(key: key, count: 1, left: none, right: none)
   true
 
-fun find[T](slot: ?Box[Node[T]]?, key: T) -> Int?
+fun find[T](slot: ?^Node[T]?, key: T) -> Int?
   if slot as n
     if key == n.key
       return n.count
@@ -46,7 +46,7 @@ fun find[T](slot: ?Box[Node[T]]?, key: T) -> Int?
     return find(?n.right, key)
   none
 
-fun depth[T](slot: ?Box[Node[T]]?) -> Int
+fun depth[T](slot: ?^Node[T]?) -> Int
   if slot as n
     l = depth(?n.left)
     r = depth(?n.right)
@@ -54,7 +54,7 @@ fun depth[T](slot: ?Box[Node[T]]?) -> Int
   else
     0
 
-sub show[T](slot: ?Box[Node[T]]?)
+sub show[T](slot: ?^Node[T]?)
   if slot as n
     show(?n.left)
     print(n.key, n.count)

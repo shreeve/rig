@@ -86,7 +86,7 @@ struct AH
     self.a[0] = H(r: r, rs: Vec())
 
 struct BH
-  b: Box[H]
+  b: ^H
 
   sub add(!self, r: String)
     !self.b.keep(r)

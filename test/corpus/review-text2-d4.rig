@@ -1,6 +1,6 @@
-fun boxes() -> Vec[Box[Text]]
-  v: Vec[Box[Text]] = Vec()
-  !v.push(Box(Text("one")))
+fun boxes() -> Vec[^Text]
+  v: Vec[^Text] = Vec()
+  !v.push(^Text("one"))
   v
 
 sub main()

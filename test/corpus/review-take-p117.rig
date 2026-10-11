@@ -1,12 +1,12 @@
 struct Node
   value: Int
-  next: Box[Node]?
+  next: ^Node?
 
   drop(!self)
     print("drop", self.value)
 
 struct Stack
-  top: Box[Node]?
+  top: ^Node?
 
   fun find(!self, k: Int) -> Int?
     while <self.top as n
@@ -20,7 +20,7 @@ struct Stack
 sub main()
   s = Stack(top: none)
   for v in [1, 2, 3, 4]
-    s.top = Box(value: Node(value: v, next: <s.top))
+    s.top = ^Node(value: v, next: <s.top)
   print((!s).find(9))
   print(s)
   print((!s).find(1))

@@ -10,11 +10,11 @@ struct R
   sub eat(<self)
     print("eat", self.n)
 
-fun mk() -> Box[R]
-  Box(R(n: 2))
+fun mk() -> ^R
+  ^R(n: 2)
 
 sub main()
-  b = Box(R(n: 1))
+  b = ^R(n: 1)
   <b.eat()
   mk().eat()
 

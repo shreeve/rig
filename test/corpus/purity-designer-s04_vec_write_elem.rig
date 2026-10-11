@@ -4,8 +4,8 @@ struct R
     print("d")
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(R(n: 1)))
+  v: Vec[^R] = Vec()
+  !v.push(^R(n: 1))
   for r in !v
     r.n += 1
   for r in ?v

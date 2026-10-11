@@ -16,7 +16,7 @@ sub main()
   rs: Vec[Rec] = Vec()
   !rs.push(Rec(name: Text("x"), n: 1))
   print(rs.len)
-  bs = [Box(1), Box(2)]
+  bs = [^1, ^2]
   print(bs)
   for x in v
     print(x)

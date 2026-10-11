@@ -1,6 +1,6 @@
 struct Node
   v: Int
-  next: Box[Node]?
+  next: ^Node?
 
   drop(!self)
     cur = <self.next
@@ -14,11 +14,11 @@ struct W[T]
     <self.x
 
 sub main()
-  head: Box[Node]? = none
+  head: ^Node? = none
   i = 0
   while i < 100000 : i += 1
-    head = Box(value: Node(v: i, next: <head))
-  b = Box(value: Node(v: 1, next: Box(value: Node(v: 2, next: none))))
+    head = ^Node(v: i, next: <head)
+  b = ^Node(v: 1, next: ^Node(v: 2, next: none))
   rest = <b.next
   print(b, rest)
   w = W[Int](x: 4)

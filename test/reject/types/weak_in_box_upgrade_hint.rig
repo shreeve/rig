@@ -6,15 +6,15 @@
 struct S
   n: Int
 
-fun f(a: ?Box[~S]) -> Int
+fun f(a: ?^~S) -> Int
   a.n
 
 sub main()
   h = *S(n: 1)
-  a: Box[~S] = Box(~h)
+  a: ^~S = ^~h
   if a.upgrade() as x
     print(x.n)
-  b: Box[Box[~S]] = Box(Box(~h))
+  b: ^^~S = ^^~h
   print(b.n)
   c: *~S = *(~h)
   print(c.n)

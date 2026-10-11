@@ -1,5 +1,5 @@
 # A box that holds a shared handle reaches its value through the
-# handle, as `*Box[S]` does: nothing is written there, since other
+# handle, as `*^S` does: nothing is written there, since other
 # handles may exist. Writing a field, calling a write method, lending a
 # field to write, and `match !b` are rejected.
 
@@ -15,9 +15,9 @@ struct S
     self.n += 1
 
 sub main()
-  b: Box[*S] = Box(*S(n: 1, xs: Vec()))
-  bb: Box[Box[*S]] = Box(Box(*S(n: 2, xs: Vec())))
-  e: Box[*K] = Box(*K.a(n: 3))
+  b: ^*S = ^*S(n: 1, xs: Vec())
+  bb: ^^*S = ^^*S(n: 2, xs: Vec())
+  e: ^*K = ^*K.a(n: 3)
   b.n = 5
   !bb.bump()
   !b.xs.push(1)

@@ -5,10 +5,10 @@
 
 struct N
   v: Int
-  next: Box[N]?
+  next: ^N?
 
 struct S
-  top: Box[N]?
+  top: ^N?
   n: N
 
 sub both(s: !S)

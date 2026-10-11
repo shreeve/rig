@@ -9,6 +9,6 @@ pub type IW = Wrap[Int]
 pub type PP = P
 pub type IV = Vec[Int]
 pub type Byte = U8
-pub type BS = Box[P]
+pub type BS = ^P
 type Hidden = P
 pub type AA = PP

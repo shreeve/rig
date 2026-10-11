@@ -1,14 +1,14 @@
 struct Node
   val: Int
-  next: Box[Node]?
+  next: ^Node?
 
 struct List
-  head: Box[Node]?
+  head: ^Node?
   len: Int = 0
 
   sub push(!self, v: Int)
     old = <self.head
-    self.head = Box(value: Node(val: v, next: <old))
+    self.head = ^Node(val: v, next: <old)
     self.len += 1
 
   fun pop(!self) -> Int?

@@ -353,7 +353,7 @@ support file.
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
 | interior mutability | `Rc<RefCell<T>>` | by hand | `*Cell[T]` |
-| heap box | `Box<T>` | `allocator.create(T)` | `Box[T]` |
+| heap box | `Box<T>` | `allocator.create(T)` | `^T` |
 | growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec[T]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
 | closure argument | `f: &dyn Fn(i64) -> i64` | a context pointer and a function | `f: ?fun(Int) -> Int` |
@@ -437,7 +437,7 @@ correspondences:
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
 | `*T`, `~T` | a runtime `RcBox(T)` pointer, a weak handle |
-| `Vec[T]`, `Cell[T]`, `Box[T]`, `Signal[T]` | runtime generic types |
+| `Vec[T]`, `Cell[T]`, `^T`, `Signal[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
 | a stack closure | a local struct holding its captures, with an `__rig_invoke` method |
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
@@ -769,7 +769,7 @@ Some habits need no error, only a different spelling: `xs.len` is a
 field, not `xs.len()`, since reading it runs no code; a constructor
 names its fields, `P(x: 1)`, not `.{ .x = 1 }`; `switch`'s `else =>` is
 `match`'s `_ =>`; and an allocator is never passed, because `*x`,
-`Box(v)`, `Vec`, and owned closures are the only things that allocate
+`^v`, `Vec`, and owned closures are the only things that allocate
 (besides the runtime's list of the program's arguments), and the
 compiler frees them.
 

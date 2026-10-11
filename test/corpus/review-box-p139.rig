@@ -11,7 +11,7 @@ sub main()
   q: R? = R(n: 2)
   if ?(<q) as y
     print(y.n)
-  b: Box[R]? = Box(value: R(n: 3))
+  b: ^R? = ^R(n: 3)
   if !(<b) as z
     print(z.n)
   print("end")

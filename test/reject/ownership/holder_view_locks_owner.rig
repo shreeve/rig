@@ -11,7 +11,7 @@ fun same[T](x: T) -> T
 
 sub main()
   a: Vec[Int] = Vec()
-  b = Box(?a)
+  b = ^?a
   !a.push(1)
   print(b.len)
   c: Vec[Int] = Vec()

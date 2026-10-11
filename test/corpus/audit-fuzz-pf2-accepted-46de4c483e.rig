@@ -79,7 +79,7 @@ fun hand(h: *R, n: Int) -> Int
   print("use", h.id)
   n
 
-fun bx(b: Box[R], n: Int) -> Int
+fun bx(b: ^R, n: Int) -> Int
   print("use", b.id)
   n
 # `if m as v` runs its branch with `v` bound to the value inside the
@@ -111,7 +111,7 @@ fun h0() -> Int?
   q0 = Q(h: *optr(rt_int(0))?, o: mk(2))
   print("val", 3)
   print("val", opt(rt_int(5))?)
-  print("val", bx(Box(optr(rt_int(4003))?), two(mk(4), mk(5))))
+  print("val", bx(^optr(rt_int(4003))?, two(mk(4), mk(5))))
   q4 = Q(h: *optr(rt_int(4006))?, o: none)
   e5 = HR.one(r: mk(7))
   0

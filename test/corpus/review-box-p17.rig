@@ -2,5 +2,5 @@ struct P
   x: Int
 
 sub main()
-  bb = Box(value: Box(value: P(x: 3)))
+  bb = ^^P(x: 3)
   print(bb.x)

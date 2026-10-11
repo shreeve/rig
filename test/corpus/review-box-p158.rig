@@ -5,7 +5,7 @@ struct R
     print("drop", self.n)
 
 struct H2
-  r: Box[R]?
+  r: ^R?
 
 struct H
   h2: H2
@@ -17,7 +17,7 @@ fun rin(h: ?H) -> ?H2
   ?h.h2
 
 sub main()
-  h = H(h2: H2(r: Box(value: R(n: 1))))
+  h = H(h2: H2(r: ^R(n: 1)))
   x = ?h.rinner().r
   h = H(h2: H2(r: none))
   if x as y

@@ -36,7 +36,7 @@ sub main()
   print(note, note.title)
   maybe: Text? = Text("m")
   print(maybe)
-  boxed = Box(Text("boxed"))
+  boxed = ^Text("boxed")
   shared = *Text("shared")
   other = +shared
   cell = *Cell(Text("one"))

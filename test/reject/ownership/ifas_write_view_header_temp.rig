@@ -3,15 +3,15 @@
 # value, so the field is rejected where it is declared.
 
 struct O
-  o: !Box[Int]?
+  o: !^Int?
 
 fun id(o: !O) -> !O
   o
 
 sub main()
-  b: Box[Int]? = Box(5)
+  b: ^Int? = ^5
   if id(!O(o: !b)).o as x
     print(x)
 
-# error: 6:6: a write view is never stored inside a value, and `!Box[Int]?` cannot stand here
+# error: 6:6: a write view is never stored inside a value, and `!^Int?` cannot stand here
 # errors: 1

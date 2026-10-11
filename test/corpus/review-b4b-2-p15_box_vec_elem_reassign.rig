@@ -15,12 +15,12 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  bs = [Box(E.a(r: Res(n: 1, t: Text("box")))), Box(E.b(r: Res(n: 2, t: Text("b2"))))]
+  bs = [^E.a(r: Res(n: 1, t: Text("box"))), ^E.b(r: Res(n: 2, t: Text("b2")))]
   k = Res(n: 0, t: Text("k"))
   saved = ?k
   match bs[idx(?Text("a"))]
     .a(r) => saved = ?r
     .b(r) => saved = ?r
-  bs[0] = Box(E.b(r: Res(n: 3, t: Text("other"))))
+  bs[0] = ^E.b(r: Res(n: 3, t: Text("other")))
   print(clobber(1))
   print(saved.t)

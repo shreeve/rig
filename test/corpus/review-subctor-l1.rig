@@ -37,6 +37,6 @@ sub main()
     print("e", e)
   b2 = Bag(Vec())
   <b2.eat(1)!
-  x = Box(*Node(3))
-  y = Box(Bag(Vec()))
+  x = ^*Node(3)
+  y = ^Bag(Vec())
   print(x, y)

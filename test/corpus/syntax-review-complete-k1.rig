@@ -8,9 +8,9 @@ fun bytes(s: String) -> Vec[U8]
   v
 
 sub main()
-  keys: Vec[Box[Vec[U8]]] = Vec()
-  !keys.push(Box(value: bytes("pear")))
-  !keys.push(Box(value: bytes("apple")))
+  keys: Vec[^Vec[U8]] = Vec()
+  !keys.push(^bytes("pear"))
+  !keys.push(^bytes("apple"))
   for k in ?keys
     print(less(?k, ?k))
   a = bytes("a")

@@ -16,8 +16,8 @@ fun mk[T](x: T) -> Wrap[T]
 fun mk2[T](x: T) -> Wrap[T]
   Wrap[T](x)
 
-fun boxit[T](x: T) -> Box[T]
-  Box(x)
+fun boxit[T](x: T) -> ^T
+  ^x
 
 sub main()
   w = mk(3)
@@ -28,5 +28,5 @@ sub main()
   print(b)
   sm = *M(4)
   print(sm.twice())
-  bm = Box(M(5))
+  bm = ^M(5)
   print(bm)

@@ -2,9 +2,9 @@ use lib
 
 sub main()
   r = lib.mk(1)
-  b = Box(lib.mk(2))
+  b = ^lib.mk(2)
   s = *lib.mk(3)
   h = lib.hold(lib.mk(4))
   print(r.n, b.n, s.n, h.v.n, h.peek())
-  v = Vec[Box[lib.Res]]()
-  !v.push(Box(lib.mk(5)))
+  v = Vec[^lib.Res]()
+  !v.push(^lib.mk(5))

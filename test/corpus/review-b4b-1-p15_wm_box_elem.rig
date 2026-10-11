@@ -4,8 +4,8 @@ enum E
   b
 
 sub main()
-  v: Vec[Box[E]] = Vec()
-  !v.push(Box(E.a(n: 1, t: Text("v"))))
+  v: Vec[^E] = Vec()
+  !v.push(^E.a(n: 1, t: Text("v")))
   i = 0
   match !v[i]
     .a(n, t)

@@ -3,6 +3,6 @@ fun same[T](x: T) -> T
 
 sub main()
   v: Vec[Int] = Vec()
-  b = Box(!v)
+  b = ^!v
   r = same(!v)
   print(b.len, r.len)

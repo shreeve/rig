@@ -7,16 +7,16 @@ struct R
   sub eat(<self)
     print("eat", self.n)
 
-fun mk() -> Box[R]
-  Box(value: R(n: 2))
+fun mk() -> ^R
+  ^R(n: 2)
 
-sub f(b: ?Box[R])
+sub f(b: ?^R)
   <b.eat()
 
-sub g(b: !Box[R])
+sub g(b: !^R)
   <b.eat()
 
 sub main()
   mk().eat()
-  s = *Box(value: R(n: 3))
+  s = *^R(n: 3)
   <s.eat()

@@ -1,6 +1,6 @@
 sub main()
   t = Text("abc")
   u = Text("abc")
-  b = Box(<t)
-  c = Box(<u)
+  b = ^<t
+  c = ^<u
   print(b == c, b.len == 3)

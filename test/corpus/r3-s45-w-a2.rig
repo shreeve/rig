@@ -2,7 +2,7 @@ sub main()
   a = [Text("x"), Text("y")]
   for t in <a
     print(t)
-  b = [Box(3), Box(4)]
+  b = [^3, ^4]
   c = <b
   print(c)
   s = ?c[..]

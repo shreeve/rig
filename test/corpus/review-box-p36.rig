@@ -6,17 +6,17 @@ struct R
 
 enum E
   empty
-  full(b: Box[R])
+  full(b: ^R)
 
-sub eat(b: Box[R])
+sub eat(b: ^R)
   print("eat", b.n)
 
 sub main()
-  e = Box(value: E.full(b: Box(value: R(n: 1))))
+  e = ^E.full(b: ^R(n: 1))
   match ?e
     .empty => print("empty")
     .full(b) => print(b.n)
   match !e
     .empty => print("empty")
-    .full(b) => b = Box(value: R(n: 7))
+    .full(b) => b = ^R(n: 7)
   print(e)

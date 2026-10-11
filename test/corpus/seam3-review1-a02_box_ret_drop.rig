@@ -1,5 +1,5 @@
-fun wrap(v: ?Vec[Int]) -> Box[?Vec[Int]]
-  Box(v)
+fun wrap(v: ?Vec[Int]) -> ^?Vec[Int]
+  ^v
 
 sub main()
   v: Vec[Int] = Vec()

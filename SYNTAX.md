@@ -1288,7 +1288,7 @@ sub main()
 A struct is built by calling its name with its fields named,
 `Point(x: 1, y: 2)`, leaving out fields that have defaults. A struct
 with exactly one field also takes it by position: `Meters(3.5)`, and
-the built-ins `Box(x)`, `*Cell(0)`, and `*Signal(0)`. A payload variant
+the built-ins `^x`, `*Cell(0)`, and `*Signal(0)`. A payload variant
 is built the same way, `.rect(w: 2, h: 5)` or `Shape.circle(2)`, and a
 generic type's arguments may be given in brackets:
 `Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,

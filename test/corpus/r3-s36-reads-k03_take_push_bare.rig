@@ -21,6 +21,6 @@ struct Hold
 
 sub main()
   b = mk(1)
-  hs: Vec[Box[Bag]] = Vec()
-  !hs.push(Box(b))
+  hs: Vec[^Bag] = Vec()
+  !hs.push(^b)
   print(hs.len)

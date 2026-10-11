@@ -1,6 +1,6 @@
 pub struct Tree
   key: Int
-  pub kids: Vec[Box[Tree]]
+  pub kids: Vec[^Tree]
 
   pub fun total(?self) -> Int
     t = self.key
@@ -8,8 +8,8 @@ pub struct Tree
       t += k.total()
     t
 
-pub fun leaf(key: Int) -> Box[Tree]
-  Box(Tree(key: key, kids: Vec()))
+pub fun leaf(key: Int) -> ^Tree
+  ^Tree(key: key, kids: Vec())
 
 pub struct Ticket
   n: Int
@@ -17,5 +17,5 @@ pub struct Ticket
   pub fun redeem(<self) -> Int
     self.n
 
-pub fun ticket(n: Int) -> Box[Ticket]
-  Box(Ticket(n: n))
+pub fun ticket(n: Int) -> ^Ticket
+  ^Ticket(n: n)

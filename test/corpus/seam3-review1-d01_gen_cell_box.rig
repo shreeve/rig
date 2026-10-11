@@ -1,5 +1,5 @@
-fun keep[T](x: T) -> *Cell[Box[T]]
-  *Cell(Box(x))
+fun keep[T](x: T) -> *Cell[^T]
+  *Cell(^x)
 
 sub main()
   v: Vec[Int] = Vec()

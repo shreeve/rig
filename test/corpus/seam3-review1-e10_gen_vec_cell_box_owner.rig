@@ -8,7 +8,7 @@ fun keep[T](x: T) -> *Cell[Vec[T]]
   *Cell(<xs)
 
 sub main()
-  b = Box(P(x: 7, y: 8))
+  b = ^P(x: 7, y: 8)
   c = keep(?b)
   <b
   old = (!c).replace(Vec())

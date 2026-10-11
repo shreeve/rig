@@ -1,5 +1,5 @@
 fun mk[T](x: T) -> *fun() -> Int
-  b = Box(x)
+  b = ^x
   *|<b| 1
 
 sub main()

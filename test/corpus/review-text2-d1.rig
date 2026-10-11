@@ -31,7 +31,7 @@ sub main()
     if j == 3
       break
   print("d")
-  v: Vec[Box[N]] = Vec()
+  v: Vec[^N] = Vec()
   if maybe(7) as n
-    !v.push(Box(<n))
+    !v.push(^<n)
   print("e")

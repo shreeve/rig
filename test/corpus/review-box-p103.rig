@@ -8,7 +8,7 @@ fun rd(r: ?*R) -> Int
   r.n
 
 sub main()
-  d: Box[*R] = Box(value: *R(n: 2))
+  d: ^*R = ^*R(n: 2)
   print(rd(?d))
-  f: Box[~R] = Box(value: ~(*R(n: 3)))
+  f: ^~R = ^~(*R(n: 3))
   print(f)

@@ -8,11 +8,11 @@ enum E
   a(c: Counter)
   b
 
-fun getb(b: ?Box[E], n: Int) -> ?Box[E]
+fun getb(b: ?^E, n: Int) -> ?^E
   b
 
 sub main()
-  b = Box(E.a(c: Counter(hits: Cell(1))))
+  b = ^E.a(c: Counter(hits: Cell(1)))
   match getb(b, Text("xyz").len)
     .a(c) => c.hit()
     .b => pass

@@ -26,7 +26,7 @@ sub main()
   !vv.push(Vec())
   !vv[0].push(vv.len)
   print(size(vv[0]), vv[0][0] + vv[0][0])
-  arr = [Box(Rec(name: Text("x"), n: 3))]
+  arr = [^Rec(name: Text("x"), n: 3)]
   arr[0].n = 9
   !arr[0].bump()
   print(arr[0].show(), arr[0].name)

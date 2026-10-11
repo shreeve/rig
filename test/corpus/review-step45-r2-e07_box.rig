@@ -1,4 +1,4 @@
-# H3: generic loop over ?Vec[T], body: Box(x)
+# H3: generic loop over ?Vec[T], body: ^x
 struct S
   t: Text
 
@@ -8,7 +8,7 @@ struct Holder[T]
 fun bx[T](v: ?Vec[T]) -> Int
   n = 0
   for x in v
-    b = Box(x)
+    b = ^x
     n += 1
   n
 

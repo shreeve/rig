@@ -5,10 +5,10 @@ struct R
     print("drop", self.n)
 
 struct H
-  r: Box[R]?
+  r: ^R?
 
 sub main()
-  s = *H(r: Box(value: R(n: 1)))
+  s = *H(r: ^R(n: 1))
   w = ~s
   if ?s.r as x
     print(x.n)

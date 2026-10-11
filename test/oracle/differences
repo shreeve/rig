@@ -129,7 +129,7 @@ test/corpus/r3-s36-reads-f06_for_array_write_in_body.rig main prod-rejects prod-
 # A generic body that reads `if o as v` of a `T?` where it stands copies
 # no `T` (Core s1), so an instance at an owner is sound; the compiler's
 # emitted body copies the payload, and it rejects the instance.
-test/corpus/audit-emit-q2.rig main prod-rejects prod-strict `peek(Box(R(n: 1)))` at `T = Box[R]`
+test/corpus/audit-emit-q2.rig main prod-rejects prod-strict `peek(^R(n: 1))` at `T = ^R`
 test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o)` at `T = Text`, whose body reads `if x as y` of a loop element where it stands
 
 # A write lend in an argument lasts until its statement ends where the

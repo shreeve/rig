@@ -1,6 +1,6 @@
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  bb = Box(Box(?v))
+  bb = ^^?v
   !v.push(2)
   print(bb.len)

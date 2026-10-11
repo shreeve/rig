@@ -1,4 +1,4 @@
-# A slice of a read view of a Text (`?Text`, `?*Text`, `?Box[Text]`) is
+# A slice of a read view of a Text (`?Text`, `?*Text`, `?^Text`) is
 # a String of its own: the Text cannot change while the read view's loan
 # lives, which the String carries. A slice of a write view of a Text
 # lends the view until its last use, after which the view writes again.
@@ -14,7 +14,7 @@ sub read_param(t: ?Text)
 sub shared(h: ?*Text)
   print(h[1..], word(h[..2]))
 
-sub boxed(b: ?Box[Text])
+sub boxed(b: ?^Text)
   print(b[1..], word(b[..2]))
 
 sub write_param(t: !Text)
@@ -31,7 +31,7 @@ sub main()
   read_param(?t)
   h = *Text("shared")
   shared(?h)
-  b = Box(Text("boxed"))
+  b = ^Text("boxed")
   boxed(?b)
   w = !t
   x = word(?w[1..])

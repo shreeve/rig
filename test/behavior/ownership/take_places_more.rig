@@ -32,7 +32,7 @@ struct N
   v: Int
 
 struct H
-  a: Box[N]?
+  a: ^N?
 
 fun first(h: !H) -> Int?
   b = (<h.a)?
@@ -44,7 +44,7 @@ sub peek(slot: !Int?)
 
 sub main()
   places()
-  h = H(a: Box(N(v: 3)))
+  h = H(a: ^N(v: 3))
   n = first(!h)
   print(n, h)
   print(first(!h))

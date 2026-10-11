@@ -1,10 +1,10 @@
 struct P
   x: Int
 
-sub eat(b: Box[P])
+sub eat(b: ^P)
   print(b.x)
 
 sub main()
-  b = Box(value: P(x: 1))
+  b = ^P(x: 1)
   eat(<b)
   print(b.x)

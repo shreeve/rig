@@ -8,7 +8,7 @@ sub main()
   n = 0
   r = R(y: !n)
   h = H(w: !r)
-  b = Box(<h)
+  b = ^<h
   if true
     k = 5
     b.w = R(y: !k)

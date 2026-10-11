@@ -9,7 +9,7 @@ fun rd(r: ?R) -> Int
 
 sub main()
   o: R? = R(n: 1)
-  b = Box(value: R(n: 5))
+  b = ^R(n: 5)
   f = *|<o, <b|
     if ?o as x
       print("f", x.n, rd(?b), b.n)

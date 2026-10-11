@@ -6,6 +6,6 @@ struct P
     self.value
 
 sub main()
-  b = Box(value: P(value: 3, take: 4))
+  b = ^P(value: 3, take: 4)
   b.value = 5
   print(b.value, b.take, b.init())

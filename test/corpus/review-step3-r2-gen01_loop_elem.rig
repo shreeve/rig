@@ -12,9 +12,9 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[Box[Res]] = Vec()
-  !v.push(Box(Res(n: 5, t: Text("five"))))
-  d = Box(Res(n: 0, t: Text("d")))
+  v: Vec[^Res] = Vec()
+  !v.push(^Res(n: 5, t: Text("five")))
+  d = ^Res(n: 0, t: Text("d"))
   x = first(?v, ?d)
   print(clobber(1000))
   print(x.n, x.t)

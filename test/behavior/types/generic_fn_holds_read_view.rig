@@ -8,8 +8,8 @@ fun same[T](x: T) -> T
 fun pick[T](a: T, b: T, first: Bool) -> T
   a if first else b
 
-fun boxed[T](x: T) -> Box[T]
-  Box(x)
+fun boxed[T](x: T) -> ^T
+  ^x
 
 fun maybe[T](x: T, keep: Bool) -> T?
   x if keep else none

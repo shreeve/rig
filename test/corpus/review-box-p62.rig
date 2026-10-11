@@ -5,9 +5,9 @@ struct R
     print("drop", self.n)
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
-  v[0] = Box(value: R(n: 5))
+  v: Vec[^R] = Vec()
+  !v.push(^R(n: 1))
+  v[0] = ^R(n: 5)
   print(v[0].n)
   v[0].n = 6
   print(v[0].n)

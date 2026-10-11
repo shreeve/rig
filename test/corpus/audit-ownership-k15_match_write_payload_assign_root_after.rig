@@ -1,6 +1,6 @@
 enum Tree
   leaf(v: Int)
-  node(l: Box[Tree], r: Box[Tree])
+  node(l: ^Tree, r: ^Tree)
 
 sub prune(t: !Tree)
   match !t
@@ -10,7 +10,7 @@ sub prune(t: !Tree)
     .leaf(v) => v += 1
 
 sub main()
-  t: Tree = .node(l: Box(Tree.leaf(v: 1)), r: Box(Tree.leaf(v: 3)))
+  t: Tree = .node(l: ^Tree.leaf(v: 1), r: ^Tree.leaf(v: 3))
   prune(!t)
   match t
     .leaf(v) => print(v)

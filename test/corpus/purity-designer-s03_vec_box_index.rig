@@ -2,6 +2,6 @@ struct R
   n: Int
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(R(n: 1)))
+  v: Vec[^R] = Vec()
+  !v.push(^R(n: 1))
   print(v[0].n)

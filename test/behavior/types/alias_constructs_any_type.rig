@@ -17,7 +17,7 @@ enum Mode
 type IW = Wrap[Int]
 type IV = Vec[Int]
 type IC = Cell[Int]
-type IB = Box[Int]
+type IB = ^Int
 type IS = Signal[Int]
 type M = Mode
 type Real = F32

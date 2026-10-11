@@ -3,9 +3,9 @@ struct Person
   tags: Vec[String]
 
 sub main()
-  people: Vec[Box[Person]] = Vec()
+  people: Vec[^Person] = Vec()
   for n in ["ada", "bob"]
-    !people.push(Box(value: Person(name: n, tags: Vec())))
+    !people.push(^Person(name: n, tags: Vec()))
   for p, i in !people
     !p.tags.push("member")
     !p.tags.push("admin") if i == 0

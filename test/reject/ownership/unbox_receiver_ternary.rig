@@ -6,13 +6,13 @@ struct N
 sub main()
   p: Vec[Int] = Vec()
   !p.push(5)
-  a = Box(N(v: <p))
-  b = Box(N(v: Vec()))
+  a = ^N(v: <p)
+  b = ^N(v: Vec())
   c = true
   n = (a if c else b).unbox()
   print(n.v.len)
   print(a.v[0])
 
-# error: 12:8: `a` owns a `Box[N]`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone
-# error: 12:20: `b` owns a `Box[N]`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone
+# error: 12:8: `a` owns a `^N`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone
+# error: 12:20: `b` owns a `^N`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone
 # errors: 2

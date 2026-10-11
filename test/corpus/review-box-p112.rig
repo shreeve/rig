@@ -5,11 +5,11 @@ struct R
     print("drop", self.n)
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+  v: Vec[^R] = Vec()
+  !v.push(^R(n: 1))
   for x in v
     y = <x
     print(y.n)
   for x in v
     x.n = 5
-  a = [Box(value: R(n: 1))]
+  a = [^R(n: 1)]

@@ -14,7 +14,7 @@ sub wr(o: !R?)
   o = R(n: 42)
 
 sub main()
-  b: Box[R?] = Box(value: none)
+  b: ^(R?) = ^none
   print(rd(?b))
   wr(!b)
   print(rd(?b))

@@ -7,13 +7,13 @@ struct P
 
 sub main()
   p = P(x: 1, y: 2)
-  b = Box(?p)
+  b = ^?p
   print(b.x, b.sum())
-  bb = Box(Box(?p))
+  bb = ^^?p
   print(bb.x, bb.sum())
-  q = Box(P(x: 5, y: 6))
-  bq = Box(?q)
+  q = ^P(x: 5, y: 6)
+  bq = ^?q
   print(bq.x, bq.sum())
   h = *P(x: 7, y: 8)
-  bh = Box(?h)
+  bh = ^?h
   print(bh.x, bh.sum())

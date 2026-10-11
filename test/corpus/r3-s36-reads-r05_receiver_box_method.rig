@@ -6,5 +6,5 @@ struct S
     self.n
 
 sub main()
-  b = Box(S(n: 3, v: Vec()))
+  b = ^S(n: 3, v: Vec())
   print(b.get(), b.n)

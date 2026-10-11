@@ -17,7 +17,7 @@ sub main()
   match <v[0]
     .full(b) => keep(<b)
     .empty => print("e")
-  bx = Box(Slot.full(b: *B(n: 2)))
+  bx = ^Slot.full(b: *B(n: 2))
   match <bx
     .full(b) => keep(<b)
     .empty => print("e")

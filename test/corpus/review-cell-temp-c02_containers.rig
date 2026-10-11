@@ -26,8 +26,8 @@ fun mkv(n: Int) -> Vec[D]
   !v.push(mkd(n + 1))
   v
 
-fun mkb(n: Int) -> Box[D]
-  Box(mkd(n))
+fun mkb(n: Int) -> ^D
+  ^mkd(n)
 
 fun mko(n: Int) -> D?
   return none if n < 0

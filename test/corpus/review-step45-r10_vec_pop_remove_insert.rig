@@ -1,4 +1,4 @@
-# pop / remove / insert on Vec[Text] and Vec[Box[Text]]
+# pop / remove / insert on Vec[Text] and Vec[^Text]
 sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
@@ -7,7 +7,7 @@ sub main()
   x = (!v).remove(1)
   if (!v).pop() as y
     print(x, y, v)
-  w: Vec[Box[Text]] = Vec()
-  !w.push(Box(Text("q")))
+  w: Vec[^Text] = Vec()
+  !w.push(^Text("q"))
   !w.clear()
   print(w.len)

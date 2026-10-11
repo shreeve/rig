@@ -126,13 +126,13 @@ sub h0()
     print("use", y9.id)
   if ?b8 as y10
     print("use", y10.id)
-  o11: Box[R]? = Box(mk(60))
-  r11 = unwrap_or(<o11, Box(mk(70)))
+  o11: ^R? = ^mk(60)
+  r11 = unwrap_or(<o11, ^mk(70))
   print("use", r11.id)
 
 sub h1()!
-  o13: Box[R]? = Box(mk(80))
-  r13 = unwrap_or(<o13, Box(mk(90)))
+  o13: ^R? = ^mk(80)
+  r13 = unwrap_or(<o13, ^mk(90))
   print("use", r13.id)
   r15 = ident(ident(*mk(100)))
   print("use", r15.id)

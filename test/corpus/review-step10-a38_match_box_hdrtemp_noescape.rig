@@ -1,5 +1,5 @@
 # a37 without any escape: a guarded `match ?bs[idx(?Text("a"))]` on an
-# element of an array of Box[E]. The subject once was copied into a
+# element of an array of ^E. The subject once was copied into a
 # `__rig_subject_N` typed `rig.Box(E)` and assigned the boxed `E`, which
 # Zig rejected; the guarded match now holds the boxed value's address.
 enum E
@@ -10,13 +10,13 @@ fun idx(s: ?Text) -> Int
   s.len - 1
 
 sub main()
-  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
   k = 3
   match ?bs[idx(?Text("a"))]
     .a(xs) if k > 2 => print(xs[0])
     _ => print(0)
-  v: Vec[Box[E]] = Vec()
-  !v.push(Box(E.a(xs: [8, 8, 8, 8])))
+  v: Vec[^E] = Vec()
+  !v.push(^E.a(xs: [8, 8, 8, 8]))
   match ?v[idx(?Text("a"))]
     .a(xs) if k > 2 => print(xs[0])
     _ => print(0)

@@ -7,9 +7,9 @@ struct R
   fun eat(<self) -> Int
     self.n
 
-sub f(b: !Box[R])
+sub f(b: !^R)
   print(<b.eat())
 
 sub main()
-  b = Box(value: R(n: 1))
+  b = ^R(n: 1)
   f(!b)

@@ -11,7 +11,7 @@ sub main()
     f()
     f()
   print(o)
-  b = Box(value: R(n: 5))
+  b = ^R(n: 5)
   g = |!b| b.n += 1
   g()
   print(b.n)

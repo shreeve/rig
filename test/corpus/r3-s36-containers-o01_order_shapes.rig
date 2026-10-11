@@ -4,7 +4,7 @@ struct P
 
 struct Q
   p: P
-  b: Box[P]
+  b: ^P
 
 fun val(n: Int, what: String) -> Int
   print("value", what)
@@ -32,7 +32,7 @@ sub main()
   arr[ix(2, "array")] = val(4, "array")
   m = [[0, 0], [0, 0]]
   m[ix(0, "outer")][ix(1, "inner")] = val(5, "nested")
-  q = Q(p: P(x: 0, a: [0, 0, 0]), b: Box(P(x: 0, a: [0, 0, 0])))
+  q = Q(p: P(x: 0, a: [0, 0, 0]), b: ^P(x: 0, a: [0, 0, 0]))
   q.b.x = val(6, "box-field")
   q.b.a[ix(0, "box-array")] += val(6, "box-array-compound")
   through(!x)

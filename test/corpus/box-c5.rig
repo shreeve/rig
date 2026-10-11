@@ -1,7 +1,7 @@
-fun wrap[T](x: T) -> Box[T]
-  Box(value: <x)
+fun wrap[T](x: T) -> ^T
+  ^<x
 
-fun unwrap[T](b: Box[T]) -> T
+fun unwrap[T](b: ^T) -> T
   <b.take()
 
 sub main()

@@ -3,12 +3,12 @@ enum K
   b
 
 sub main()
-  t = Box(value: true)
-  f = Box(value: 1.5)
-  k = Box(value: K.b)
+  t = ^true
+  f = ^1.5
+  k = ^K.b
   print(t, f, k)
   match ?k
     .a => print("a")
     .b => print("b")
-  u8b: Box[U8] = Box(value: 3)
+  u8b: ^U8 = ^3
   print(u8b)

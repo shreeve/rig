@@ -3,7 +3,7 @@ enum E
   b
 
 sub main()
-  x = Box(E.a(1))
+  x = ^E.a(1)
   match x
     .a(n) => print(n)
     .b => pass

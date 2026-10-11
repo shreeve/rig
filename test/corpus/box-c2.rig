@@ -1,10 +1,10 @@
 struct P
   x: Int
 
-sub f(b: ?Box[P])
+sub f(b: ?^P)
   b.x = 5
   q = <b.take()
 
 sub main()
-  b = Box(value: P(x: 1))
+  b = ^P(x: 1)
   f(?b)

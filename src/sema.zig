@@ -7748,7 +7748,7 @@ test "origins: a view reached through a read view is that view's" {
         \\  item: *Item
         \\
         \\struct Boxed
-        \\  b: Box[Item]
+        \\  b: ^Item
         \\
         \\enum Maybe
         \\  one(item: ?Item)

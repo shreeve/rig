@@ -1,6 +1,6 @@
-fun mk() -> Box[[]Int]
+fun mk() -> ^[]Int
   a = [1, 2, 3]
-  Box(value: a[0..2])
+  ^a[0..2]
 
 sub main()
   b = mk()

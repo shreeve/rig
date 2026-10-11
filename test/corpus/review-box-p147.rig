@@ -17,7 +17,7 @@ sub main()
       print("g", y.n)
   g()
   g()
-  b = Box(value: R(n: 5))
+  b = ^R(n: 5)
   h = |?b|
     print(rd(b), rd(?b))
   h()

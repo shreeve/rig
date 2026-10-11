@@ -2,5 +2,5 @@ struct S
   n: Int
 
 sub main()
-  bh: Box[*S] = Box(*S(n: 2))
+  bh: ^*S = ^*S(n: 2)
   print(bh.n)

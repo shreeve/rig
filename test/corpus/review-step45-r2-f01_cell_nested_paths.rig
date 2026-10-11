@@ -8,7 +8,7 @@ struct C
 struct S
   cs: Vec[C]
   arr: [2]C
-  b: Box[C]
+  b: ^C
 
 sub viaVecVec(v: !Vec[Vec[C]])
   !v[0][0].c.set(11)
@@ -17,7 +17,7 @@ sub viaVecVec(v: !Vec[Vec[C]])
 sub viaArrVec(a: ![1]Vec[C])
   !a[0][0].c.set(21)
 
-sub viaVecBox(v: !Vec[Box[C]])
+sub viaVecBox(v: !Vec[^C])
   !v[0].c.set(31)
   _ = !v[0].c.replace(32)
 
@@ -41,12 +41,12 @@ sub main()
   av = [Vec[C]()]
   !av[0].push(C(c: Cell(0)))
   viaArrVec(!av)
-  vb: Vec[Box[C]] = Vec()
-  !vb.push(Box(C(c: Cell(0))))
+  vb: Vec[^C] = Vec()
+  !vb.push(^C(c: Cell(0)))
   viaVecBox(!vb)
   cs: Vec[C] = Vec()
   !cs.push(C(c: Cell(0)))
-  s = S(cs: <cs, arr: [C(c: Cell(0)), C(c: Cell(0))], b: Box(C(c: Cell(0))))
+  s = S(cs: <cs, arr: [C(c: Cell(0)), C(c: Cell(0))], b: ^C(c: Cell(0)))
   viaStruct(?s)
   viaSlice(?vv)
   vc: Vec[Vec[Cell[Int]]] = Vec()

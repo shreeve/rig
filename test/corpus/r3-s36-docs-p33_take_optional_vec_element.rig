@@ -3,7 +3,7 @@ struct N
   v: Int
 
 sub main()
-  v: Vec[Box[N]?] = Vec()
-  !v.push(Box(N(v: 1)))
+  v: Vec[^N?] = Vec()
+  !v.push(^N(v: 1))
   if <v[0] as b
     print(b.v)

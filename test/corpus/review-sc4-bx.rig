@@ -9,7 +9,7 @@ enum Slot
   empty
 
 struct H
-  s: Box[Slot]
+  s: ^Slot
 
 sub edit(h: !H)
   match !h.s
@@ -23,14 +23,14 @@ fun peek(h: ?H) -> Int
     _ => 0
 
 sub main()
-  bx = Box(Slot.full(b: *B(n: 1), k: 0))
+  bx = ^Slot.full(b: *B(n: 1), k: 0)
   match !bx
     .full(b, k) if b.n > 0 => k = 3
     _ => print("e")
   match ?bx
     .full(b, k) if k == 3 => print("three", b.n)
     _ => print("e")
-  h = H(s: Box(Slot.full(b: *B(n: 2), k: 0)))
+  h = H(s: ^Slot.full(b: *B(n: 2), k: 0))
   edit(!h)
   edit(!h)
   print(peek(?h))

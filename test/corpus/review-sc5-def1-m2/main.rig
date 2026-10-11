@@ -15,7 +15,7 @@ struct Inner
 
 struct Outer
   inner: Inner
-  names: Vec[Box[Inner]] = Vec()
+  names: Vec[^Inner] = Vec()
   words: [N]String = [N of WORD]
   col: Color = DEF
   hs: Vec[*Inner] = Vec()
@@ -27,7 +27,7 @@ sub main()
   b = Outer(inner: Inner())
   !a.inner.xs.push("one")
   a.inner.c.set("changed")
-  !a.names.push(Box(Inner()))
+  !a.names.push(^Inner())
   !a.hs.push(*Inner())
   print(a.inner.xs.len, b.inner.xs.len, a.inner.c.get(), b.inner.c.get(), a.names.len, b.names.len, a.words, b.col == Color.blue, a.hs.len)
   moved = <a

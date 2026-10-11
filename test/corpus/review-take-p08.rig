@@ -7,8 +7,8 @@ struct S
   a: R?
 
 sub main()
-  v: Vec[Box[S]] = Vec()
-  !v.push(Box(value: S(a: R(n: 1))))
+  v: Vec[^S] = Vec()
+  !v.push(^S(a: R(n: 1)))
   for x in !v
     y = <x.a
     print(y)

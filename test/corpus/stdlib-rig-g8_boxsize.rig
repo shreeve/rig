@@ -1,13 +1,13 @@
 struct Node
   k: Int
-  next: Box[Node]?
+  next: ^Node?
 
-type BN = Box[Node]
-type OBN = Box[Node]?
+type BN = ^Node
+type OBN = ^Node?
 type SN = *Node
 type OSN = *Node?
 type VI = Vec[Int]
 
 sub main()
-  b: Box[Node]? = none
+  b: ^Node? = none
   print(@size(BN), @size(OBN), @size(SN), @size(OSN), @size(Node), @size(String), @size(VI), @size(@type(b)))

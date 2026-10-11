@@ -2,5 +2,5 @@
 sub main()
   for x in [Text("a"), Text("b")]
     print(x)
-  for b in [Box(1), Box(2)]
+  for b in [^1, ^2]
     print(b)

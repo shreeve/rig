@@ -4,10 +4,10 @@ struct Task
   priority: Int
   done: Bool = false
 
-fun make_task(prefix: String, n: Int, priority: Int) -> Box[Task]
-  Box(Task(name: Text(prefix, "-", n), priority: priority))
+fun make_task(prefix: String, n: Int, priority: Int) -> ^Task
+  ^Task(name: Text(prefix, "-", n), priority: priority)
 
-fun report(tasks: ?Vec[Box[Task]]) -> Text
+fun report(tasks: ?Vec[^Task]) -> Text
   out = Text("tasks: ", tasks.len, "\n")
   for t in ?tasks
     mark = "x" if t.done else " "
@@ -15,7 +15,7 @@ fun report(tasks: ?Vec[Box[Task]]) -> Text
   out
 
 sub main()
-  board: Vec[Box[Task]] = Vec()
+  board: Vec[^Task] = Vec()
   i = 0
   while i < 5 : i += 1
     !board.push(make_task("job", i, (i * 7) % 5))

@@ -4,9 +4,9 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun mk() -> Vec[Box[R]]
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+fun mk() -> Vec[^R]
+  v: Vec[^R] = Vec()
+  !v.push(^R(n: 1))
   v
 
 sub main()

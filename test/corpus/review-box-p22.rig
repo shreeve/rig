@@ -4,10 +4,10 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub f(b: !Box[R])
+sub f(b: !^R)
   r = <b.take()
   print(r.n)
 
 sub main()
-  b = Box(value: R(n: 1))
+  b = ^R(n: 1)
   f(!b)

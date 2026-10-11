@@ -3,8 +3,8 @@ struct Node
   kids: Vec[Int]
 
 sub main()
-  v: Vec[Box[Node]] = Vec()
-  !v.push(Box(value: Node(v: 1, kids: Vec())))
+  v: Vec[^Node] = Vec()
+  !v.push(^Node(v: 1, kids: Vec()))
   for n in ?v
     print(n.v)
   for n in !v

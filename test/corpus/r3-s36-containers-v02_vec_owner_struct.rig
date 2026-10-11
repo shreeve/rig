@@ -1,7 +1,7 @@
 struct R
-  name: Box[Int]
+  name: ^Int
 
 sub main()
   v: Vec[R] = Vec()
-  !v.push(R(name: Box(1)))
+  !v.push(R(name: ^1))
   print(v.len)

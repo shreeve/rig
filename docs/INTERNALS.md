@@ -671,7 +671,7 @@ id, and whether it is the root) and returns a `SemContext`, which every
 later pass reads. It runs these steps in order:
 
 1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `Vec[T]`,
-   `Box[T]`, and `Signal[T]` are registered as generic types whose methods are
+   `^T`, and `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
    and substitution as user generics, and `Endian` as an enum. The
    methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
@@ -992,7 +992,7 @@ lives through the body.
 | a part of a made value that is plain data | itself: `e` is a temporary of the header | a copy, read in the header |
 | a branching value one leaf of which is a place | itself, when its type copies or every leaf is a read view (`readsInPlace`) | a copy; otherwise the header reads it in place, which lends it (`?B`, or `!B` as written), and `lendsBranch` rejects the leaf a name holds: lend each leaf, or take each with `<` |
 
-So `for x in v` is `for x in ?v`; `match b` on a `Box[E]` is `match ?b`
+So `for x in v` is `for x in ?v`; `match b` on a `^E` is `match ?b`
 and `match h` on a `*E` is `match ?h`, whose payloads view the value
 the box or handle holds (the lend table, Core §4); `if o as x` over an
 owning optional place is `if ?o as x`, with `x: ?T`, while an optional
@@ -1142,7 +1142,7 @@ instead of re-deriving it by name:
 **The lend table.** Which views a value lends (Core §4) is decided in
 one place, `sema.lendsAs(from, kind, view)`: lending a value of type
 `from` to read or to write makes a view of type `view` through a list of
-rows (`LendStep`): `unbox` (a `Box[T]` lends the views of its `T`),
+rows (`LendStep`): `unbox` (a `^T` lends the views of its `T`),
 `elems` (an array lends `[]T`, and `![]T` to write), `text` (a Text
 lends its bytes, a `String`), `read_only` (a `![]T` is lent on as a
 `[]T`), and `callable` (a function or an owned closure lends a
@@ -1965,8 +1965,8 @@ are checked there with the real types.
 `T`, and a generic struct's field or `T` hold a read view as a `Vec`
 element does, by one rule: a value whose type may hold a view
 (`sema.mayHoldView`) carries the loans of every view it was made from.
-`h = Box(?v)`, `h = same(?v)` and `h: (?T)? = ?v` mean
-`view = ?v; h = Box(view)` (and likewise), the loan on `v` lasting to the
+`h = ^?v`, `h = same(?v)` and `h: (?T)? = ?v` mean
+`view = ?v; h = ^view` (and likewise), the loan on `v` lasting to the
 last use of `h`, of a copy of `h`, or of a view `h` gave out; the checker
 walks exactly that, so no pass has a list of holders. The holders that
 carry no loan are the ones `Cell`, `Signal`, and an owned closure
@@ -2468,7 +2468,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   `rig.ReadView(T)` is a read-only pointer, and a Vec element reached
   through a read view is `constSlot(i)`, a `*const T`.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
-  `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
+  `^T` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
   is `?T`, `T!` is `anyerror!T`, an error set's members are Zig errors
   named with their set, `error.@"E.name"`, and in a module other than
@@ -2706,7 +2706,7 @@ reviewed.
 | Piece | Role |
 |---|---|
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
-| `Box(T)` | `Box[T]`: a pointer to one heap `T`. `init` allocates, `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
+| `^T` | `^T`: a pointer to one heap `T`. `init` allocates, `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |

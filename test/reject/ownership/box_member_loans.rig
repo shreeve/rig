@@ -10,19 +10,19 @@ fun first(s: String) -> String
   s
 
 sub a()
-  b = Box(Box(S(n: 1, t: Text("x"))))
+  b = ^^S(n: 1, t: Text("x"))
   r = first(?b.t)
   <b
   print(r)
 
 sub c()
-  bt = Box(Box(Text("hi")))
+  bt = ^^Text("hi")
   s = first(?bt)
   !bt.add("!")
   print(s)
 
 sub d()
-  v: Box[Vec[Int]] = Box(Vec())
+  v: ^Vec[Int] = ^Vec()
   !v.push(1)
   w = ?v
   !v.push(2)

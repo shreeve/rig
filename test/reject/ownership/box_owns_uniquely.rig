@@ -11,7 +11,7 @@ struct H
   r: Res
 
 sub main()
-  b = Box(H(r: Res(n: 1)))
+  b = ^H(r: Res(n: 1))
   c = +b
 
-# error: 15:8: `+x` cannot clone a `Box[H]`
+# error: 15:8: `+x` cannot clone a `^H`

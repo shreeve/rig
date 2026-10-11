@@ -1,4 +1,4 @@
 sub main()
-  b = Box(Text("hello"))
+  b = ^Text("hello")
   !b.add("!")
   print(b)

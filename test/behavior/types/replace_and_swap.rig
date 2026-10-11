@@ -3,26 +3,26 @@
 
 struct Tree
   key: Int
-  left: Box[Tree]?
-  right: Box[Tree]?
+  left: ^Tree?
+  right: ^Tree?
 
-sub mirror(slot: !Box[Tree]?)
+sub mirror(slot: !^Tree?)
   if !slot as t
     swap(!t.left, !t.right)
     mirror(!t.left)
     mirror(!t.right)
 
-sub show(slot: ?Box[Tree]?)
+sub show(slot: ?^Tree?)
   if slot as t
     show(?t.left)
     print(t.key)
     show(?t.right)
 
-fun leaf(k: Int) -> Box[Tree]?
-  Box(Tree(key: k, left: none, right: none))
+fun leaf(k: Int) -> ^Tree?
+  ^Tree(key: k, left: none, right: none)
 
 sub main()
-  root: Box[Tree]? = Box(Tree(key: 2, left: leaf(1), right: leaf(3)))
+  root: ^Tree? = ^Tree(key: 2, left: leaf(1), right: leaf(3))
   mirror(!root)
   show(?root)
   a = 1

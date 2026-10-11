@@ -1,7 +1,7 @@
-fun wrap() -> Box[?Vec[Int]]
+fun wrap() -> ^?Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(1)
-  Box(?v)
+  ^?v
 
 sub main()
   b = wrap()

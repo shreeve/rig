@@ -32,5 +32,5 @@ pub enum Shape
       .circle(r) => r
       .dot => 0
 
-pub fun boxed(label: String) -> Box[Counter]
-  Box(Counter.make(label))
+pub fun boxed(label: String) -> ^Counter
+  ^Counter.make(label)

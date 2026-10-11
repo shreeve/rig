@@ -5,7 +5,7 @@
 struct S
   n: Int
 
-fun f(a: ?Box[~S]) -> Int
+fun f(a: ?^~S) -> Int
   w: ?~S = ?a
   if w.upgrade() as s
     return s.n
@@ -13,11 +13,11 @@ fun f(a: ?Box[~S]) -> Int
 
 sub main()
   h = *S(n: 1)
-  a: Box[~S] = Box(~h)
+  a: ^~S = ^~h
   w: ?~S = ?a
   if w.upgrade() as s
     print(s.n)
-  b: Box[Box[~S]] = Box(Box(~h))
+  b: ^^~S = ^^~h
   v: ?~S = ?b
   if v.upgrade() as s
     print(s.n + 1)

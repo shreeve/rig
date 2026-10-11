@@ -1,5 +1,5 @@
-fun boxit[T](x: T) -> Box[T]
-  Box(x)
+fun boxit[T](x: T) -> ^T
+  ^x
 
 sub main()
   v: Vec[Int] = Vec()

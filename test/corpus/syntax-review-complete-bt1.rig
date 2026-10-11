@@ -1,6 +1,6 @@
 struct Node
   keys: Vec[Int]
-  kids: Vec[Box[Node]]
+  kids: Vec[^Node]
 
 fun count(n: ?Node) -> Int
   total = n.keys.len
@@ -15,6 +15,6 @@ sub add(n: !Node, i: Int, key: Int)
 
 sub main()
   root = Node(keys: Vec(), kids: Vec())
-  !root.kids.push(Box(value: Node(keys: Vec(), kids: Vec())))
+  !root.kids.push(^Node(keys: Vec(), kids: Vec()))
   add(!root, 0, 5)
   print(count(?root))

@@ -78,14 +78,14 @@ fun env(name: String) -> String?
   none
 
 struct Map[K, V]
-  keys: Vec[Box[K]]
+  keys: Vec[^K]
   vals: Vec[V]
 
   fun new() -> Map[K, V]
     Map[K, V](keys: Vec(), vals: Vec())
 
   fun put(!self, k: K, v: V) -> V?
-    !self.keys.push(Box(<k))
+    !self.keys.push(^<k)
     !self.vals.push(<v)
     none
 

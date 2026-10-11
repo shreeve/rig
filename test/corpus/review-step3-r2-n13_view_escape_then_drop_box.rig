@@ -7,7 +7,7 @@ enum E
   b
 
 sub main()
-  b = Box(E.a(r: Res(n: 1, t: Text("x"))))
+  b = ^E.a(r: Res(n: 1, t: Text("x")))
   keep = Res(n: 0, t: Text("k"))
   saved = ?keep
   match b

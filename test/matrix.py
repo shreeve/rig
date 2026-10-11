@@ -247,7 +247,7 @@ TYPES = {
     "vec": dict(ty="Vec[Int]", decls="",
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
-    "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
+    "box": dict(ty="^N", decls=N_DECL, mk="^N(v: n)", ctor="^N(v: 5)"),
     "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A struct that holds a Cell, which lives only behind `*`: a value
@@ -384,7 +384,7 @@ CONTEXTS = {
 POKES = {
     "int": "x += 1", "string": 'x = "u"', "static": 'x = "u"',
     "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "vec": "for i in 0..100\n    !x.push(i)",
-    "shared": "x = *N(v: 9)", "box": "x = Box(N(v: 9))", "drop": "x = D(v: 9)",
+    "shared": "x = *N(v: 9)", "box": "x = ^N(v: 9)", "drop": "x = D(v: 9)",
     "unique": "x = U(v: 9)", "enum": "x = S.dot",
     "plain": "x = P(v: 9)", "array": "x[0] += 1",
 }
@@ -914,18 +914,18 @@ PAYLOAD_TYPES = {
     "vec": dict(ty="Vec[Int]", mk="xs: Vec[Int] = Vec()\n  !xs.push(8)\n  xs",
                 mk2="xs: Vec[Int] = Vec()\n  !xs.push(80)\n  !xs.push(81)\n  xs",
                 show="print(v[0], v.len)", out="8 1"),
-    "box": dict(ty="Box[N]", mk="Box(N(v: 6))", mk2="Box(N(v: 60))", show="print(v.v)", out="6"),
+    "box": dict(ty="^N", mk="^N(v: 6)", mk2="^N(v: 60)", show="print(v.v)", out="6"),
     "shared": dict(ty="*N", mk="*N(v: 7)", mk2="*N(v: 70)", show="print(v.v)", out="7"),
 }
 # How the match reaches the enum: a `?E` parameter matched bare or lent
-# again, a `?Box[E]` parameter, a field of a `?H` parameter, or, in a
+# again, a `?^E` parameter, a field of a `?H` parameter, or, in a
 # generic function, a `?G[T]` parameter, the view a call returns of one,
 # a lend of that view, a branching value, or a field of a view a call
 # returns. `main` makes `e` from `mk()` and passes `?e`.
 PAYLOAD_SUBJECTS = {
     "param": dict(param="e: ?E", subj="e"),
     "lend": dict(param="e: ?E", subj="?e"),
-    "box": dict(param="e: ?Box[E]", subj="e", make="e = Box(E.a(r: mk()))"),
+    "box": dict(param="e: ?^E", subj="e", make="e = ^E.a(r: mk())"),
     "field": dict(param="e: ?H", subj="e.e", make="e = H(e: E.a(r: mk()))"),
     "generic": dict(param="e: ?G[T]", subj="e", make="e: G[TY] = .a(r: mk())", generic=True),
     "generic_call": dict(param="e: ?G[T]", subj="getg(e)", make="e: G[TY] = .a(r: mk())", generic=True),
@@ -1123,10 +1123,10 @@ LENDW_TYPES = {
                 lends=dict(whole=("?@B", "print(s)", "[1, 2, 3]"), slice=("?@B[1..]", "print(s)", "[2, 3]"),
                            call=("tail(?@B)", "print(s)", "[2, 3]")),
                 write=_LW_GROW, show="print(@B.len)", out="67"),
-    "box": dict(ty="Box[Text]", mk='Box(Text("hello"))',
+    "box": dict(ty="^Text", mk='^Text("hello")',
                 lends=dict(whole=("?@B", "print(s)", "hello"), slice=("?@B[1..]", "print(s)", "ello"),
                            call=("text.trim(?@B)", "print(s)", "hello")),
-                write='@B = Box(Text("other"))', show="print(@B)", out="other"),
+                write='@B = ^Text("other")', show="print(@B)", out="other"),
     "struct": dict(ty="P", mk="P(xs: tail3())",
                    lends=dict(whole=("?@B", "print(s.xs)", "[1, 2, 3]"), slice=("?@B.xs[1..]", "print(s)", "[2, 3]"),
                               call=("@B.rest()", "print(s)", "[2, 3]")),
@@ -1157,7 +1157,7 @@ _LW_GET = _LW_HH + "\nfun get(h: !HH) -> !E\n  !h.e\n"
 _LW_TWO = ["e1 = E.a(mk())", "e2 = E.a(mk())", "c = true"]
 LENDW_BINDINGS.update({
     "match_named": dict(decls=_LW_E, setup=["e = E.a(mk())"], head=["match !e", "  .a(x: b)"], depth=4, after=["  .z => pass"]),
-    "match_box": dict(decls=_LW_E, setup=["e = Box(E.a(mk()))"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
+    "match_box": dict(decls=_LW_E, setup=["e = ^E.a(mk())"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_field": dict(decls=_LW_E + _LW_HH, setup=["h = HH(e: E.a(mk()))"], head=["match !h.e", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_index": dict(decls=_LW_E, setup=["es: Vec[E] = Vec()", "!es.push(E.a(mk()))"], head=["match !es[0]", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "match_generic": dict(decls="enum G[T]\n  a(x: T)\n  z\n", setup=["e: G[TY] = G.a(mk())"], head=["match !e", "  .a(b)"], depth=4, after=["  .z => pass"]),
@@ -1666,8 +1666,8 @@ SLICEVIEW_HOLDERS = {
     "write": dict(setup=["o = mk(1)", "x = !o"], x="x", place="x"),
     "shared": dict(setup=["x = *mk(1)"], x="x", replace="x = *mk(2)"),
     "wshared": dict(setup=["h = *mk(1)", "x = !h"], x="x", replace="x = *mk(2)"),
-    "box": dict(setup=["x = Box(mk(1))"], x="x", replace="x = Box(mk(2))"),
-    "wbox": dict(setup=["b = Box(mk(1))", "x = !b"], x="x", replace="x = Box(mk(2))"),
+    "box": dict(setup=["x = ^mk(1)"], x="x", replace="x = ^mk(2)"),
+    "wbox": dict(setup=["b = ^mk(1)", "x = !b"], x="x", replace="x = ^mk(2)"),
     "field": dict(setup=["h = H(f: mk(1))"], x="h.f", place="h.f"),
     "nested": dict(setup=["g = G(h: H(f: mk(1)))"], x="g.h.f", place="g.h.f"),
 }
@@ -1721,13 +1721,13 @@ def store_program(oname, fname, then):
 HOLDER_OWNERS = {
     "vec": dict(view="?Vec[Int]", mk=["o: Vec[Int] = Vec()", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
     "big": dict(view="?Big", mk=["o = Big(v: Vec())", "!o.v.push(7)"], read=".v.len", write="!o.v.push(8)", after="o.v.len"),
-    "boxed": dict(view="?Vec[Int]", mk=["o = Box(Vec[Int]())", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
+    "boxed": dict(view="?Vec[Int]", mk=["o = ^Vec[Int]()", "!o.push(7)"], read=".len", write="!o.push(8)", after="o.len"),
     "shared": dict(view="?Vec[Int]", mk=["o: *Vec[Int] = *Vec()"], read=".len", write=None, after="o.len", n=0),
 }
 
 HOLDER_FORMS = {
-    "box": dict(setup=["h = Box(@V)"], read="h{R}"),
-    "boxbox": dict(setup=["h = Box(Box(@V))"], read="h{R}"),
+    "box": dict(setup=["h = ^@V"], read="h{R}"),
+    "boxbox": dict(setup=["h = ^^@V"], read="h{R}"),
     "generic_fn": dict(setup=["h = same(@V)"], read="h{R}"),
     "generic_box": dict(setup=["h = boxed(@V)"], read="h{R}"),
     "optional": dict(setup=["h: (?T)? = @V"], read=None, opt=True),
@@ -1746,7 +1746,7 @@ def holder_program(oname, fname, change, then):
         return None, None
     out = ["struct Big\n  v: Vec[Int]\n",
            "fun same[T](x: T) -> T\n  x\n",
-           "fun boxed[T](x: T) -> Box[T]\n  Box(x)\n",
+           "fun boxed[T](x: T) -> ^T\n  ^x\n",
            "struct Hold[T]\n  v: T\n\n  fun get(?self) -> T\n    self.v\n",
            "struct Pair[A, B]\n  a: A\n  b: B\n"]
     view = o["view"]
@@ -1783,8 +1783,8 @@ NEST_WRAPPERS = {
     "shared": dict(ty="*Hold[T]", build=["w = *Hold(v: x)"]),
     "weak": dict(ty="~Hold[T]", build=["h = *Hold(v: x)", "w = ~h"]),
     "optional": dict(ty="T?", build=["w: T? = x"]),
-    "box": dict(ty="Box[T]", build=["w = Box(x)"]),
-    "vecbox": dict(ty="Vec[Box[T]]", build=["w: Vec[Box[T]] = Vec()", "!w.push(Box(x))"]),
+    "box": dict(ty="^T", build=["w = ^x"]),
+    "vecbox": dict(ty="Vec[^T]", build=["w: Vec[^T] = Vec()", "!w.push(^x)"]),
     "bare": dict(ty="T", build=["w = x"]),
 }
 NEST_HOMES = ("cell", "closure")

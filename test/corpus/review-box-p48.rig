@@ -4,11 +4,11 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun pick(b: !Box[R]) -> !R
+fun pick(b: !^R) -> !R
   !b
 
 sub main()
-  b = Box(value: R(n: 1))
+  b = ^R(n: 1)
   r = pick(!b)
   r = R(n: 9)
   print(b.n)

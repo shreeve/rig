@@ -4,27 +4,27 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun peek[T](b: ?Box[T]) -> ?T
+fun peek[T](b: ?^T) -> ?T
   ?b
 
 sub show[T](x: ?T)
   print(x)
 
-sub showb[T](b: ?Box[T])
+sub showb[T](b: ?^T)
   show(?b)
   show(b)
 
 sub wr[T](p: !T, v: T)
   p = <v
 
-sub setb[T](b: !Box[T], v: T)
+sub setb[T](b: !^T, v: T)
   wr[T](!b, <v)
 
 sub main()
-  i = Box(value: 5)
+  i = ^5
   print(peek(?i))
   showb(?i)
-  r = Box(value: R(n: 1))
+  r = ^R(n: 1)
   print(peek(?r).n)
   showb(?r)
   setb(!i, 6)

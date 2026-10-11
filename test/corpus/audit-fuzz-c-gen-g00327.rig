@@ -112,20 +112,20 @@ sub h0()
   m1: Maybe[String] = .nada
   r1 = get_or(<m1, "s10")
   print("str", r1)
-  r3 = cycle(Box(mk(20)), rt_int(1))
+  r3 = cycle(^mk(20), rt_int(1))
   print("use", r3.id)
   m5: Maybe[P] = .just(P(a: mk(30), b: mk(31)))
   r5 = get_or(<m5, P(a: mk(40), b: mk(41)))
   look(?r5.a)
   look(?r5.b)
-  r7 = cycle(Box(mk(50)), rt_int(0))
+  r7 = cycle(^mk(50), rt_int(0))
   print("use", r7.id)
   r9 = wrap(mk(60))
   if ?r9 as w10
     look(?w10)
 
 sub h1()!
-  r12 = keep_first(Box(mk(70)), Box(mk(80)))
+  r12 = keep_first(^mk(70), ^mk(80))
   print("use", r12.id)
   o14: R? = mk(90)
   r14 = chain(<o14)

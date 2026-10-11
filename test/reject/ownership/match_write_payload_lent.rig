@@ -32,7 +32,7 @@ enum N
   b
 
 enum B
-  a(b: Box[Text])
+  a(b: ^Text)
   b
 
 enum V
@@ -105,7 +105,7 @@ sub param(e: !E)
     .b => pass
 
 sub boxed_subject()
-  e = Box(E.a(Text("hello")))
+  e = ^E.a(Text("hello"))
   match !e
     .a(t)
       s = ?t[1..]
@@ -123,11 +123,11 @@ sub named()
     _ => pass
 
 sub box_payload()
-  e = B.a(Box(Text("hello")))
+  e = B.a(^Text("hello"))
   match !e
     .a(b)
       s = keep(?b[1..])
-      b = Box(Text("other"))
+      b = ^Text("other")
       print(s)
     .b => pass
 

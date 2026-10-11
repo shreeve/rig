@@ -1,6 +1,6 @@
 enum Expr
   num(v: Int)
-  add(l: Box[Expr], r: Box[Expr])
+  add(l: ^Expr, r: ^Expr)
 
 fun eval(e: ?Expr) -> Int
   match e
@@ -8,5 +8,5 @@ fun eval(e: ?Expr) -> Int
     .add(l, r) => eval(?l) + eval(?r)
 
 sub main()
-  e: Expr = .add(l: Box(value: Expr.num(1)), r: Box(value: Expr.num(2)))
+  e: Expr = .add(l: ^Expr.num(1), r: ^Expr.num(2))
   print(eval(?e))

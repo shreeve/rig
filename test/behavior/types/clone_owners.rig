@@ -5,7 +5,7 @@ struct H
   name: Text
   tags: Vec[Int]
   h: *Int
-  o: Box[Text]?
+  o: ^Text?
 
 enum E
   a(t: Text)
@@ -14,7 +14,7 @@ enum E
 
 enum Tree
   leaf(n: Int)
-  node(l: Box[Tree], r: Box[Tree])
+  node(l: ^Tree, r: ^Tree)
 
 fun sum(t: ?Tree) -> Int
   match t
@@ -27,11 +27,11 @@ sub main()
   w = +v
   !w.push(2)
   print(v.len, w.len)
-  b = Box(Text("x"))
+  b = ^Text("x")
   c = +b
   !c.add("y")
   print(b, c)
-  h = H(name: Text("n"), tags: Vec(), h: *5, o: Box(Text("ob")))
+  h = H(name: Text("n"), tags: Vec(), h: *5, o: ^Text("ob"))
   !h.tags.push(3)
   g = +h
   !g.tags.push(4)
@@ -55,7 +55,7 @@ sub main()
   print(arr2)
   r = ?v
   print(+r)
-  t = Tree.node(l: Box(Tree.leaf(n: 1)), r: Box(Tree.leaf(n: 2)))
+  t = Tree.node(l: ^Tree.leaf(n: 1), r: ^Tree.leaf(n: 2))
   u = +t
   print(sum(?t), sum(?u))
 

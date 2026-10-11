@@ -1,6 +1,6 @@
 # A slice of a write view of a Text lends that view, so a binding writes
 # the lend, as for a slice of the Text itself: a `!Text` parameter and
-# local, a `!*Text`, and a `!Box[Text]`.
+# local, a `!*Text`, and a `!^Text`.
 
 sub param(t: !Text)
   s = t[1..]
@@ -16,7 +16,7 @@ sub shared(h: !*Text)
   s = h[1..]
   print(s)
 
-sub boxed(b: !Box[Text])
+sub boxed(b: !^Text)
   s = b[1..]
   print(s)
 

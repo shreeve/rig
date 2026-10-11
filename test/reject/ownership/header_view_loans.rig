@@ -28,7 +28,7 @@ sub ifs()
     print(x.len)
 
 sub boxes()
-  b = Box(E.a(r: Res(n: 2, t: Text("b"))))
+  b = ^E.a(r: Res(n: 2, t: Text("b")))
   match b
     .a(r)
       <b

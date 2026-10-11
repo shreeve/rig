@@ -1,4 +1,4 @@
-# +v of Vec[Box[*D]] -- handle inside box inside vec
+# +v of Vec[^*D] -- handle inside box inside vec
 struct D
   n: Int
 
@@ -7,8 +7,8 @@ struct D
 
 sub main()
   a = *D(n: 1)
-  v: Vec[Box[*D]] = Vec()
-  !v.push(Box(+a))
+  v: Vec[^*D] = Vec()
+  !v.push(^+a)
   w = +v
   <a
   <v

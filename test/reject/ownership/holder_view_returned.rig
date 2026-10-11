@@ -4,9 +4,9 @@
 fun same[T](x: T) -> T
   x
 
-fun boxed() -> Box[?Vec[Int]]
+fun boxed() -> ^?Vec[Int]
   v: Vec[Int] = Vec()
-  Box(?v)
+  ^?v
 
 fun through() -> ?Vec[Int]
   v: Vec[Int] = Vec()
@@ -19,7 +19,7 @@ fun optional() -> (?Vec[Int])?
 sub main()
   print(boxed().len, through().len, optional() == none)
 
-# error: 9:8: cannot return a view of `v`, which this function was not lent
+# error: 9:5: cannot return a view of `v`, which this function was not lent
 # error: 13:9: cannot return a view of `v`, which this function was not lent
 # error: 17:4: cannot return a view of `v`, which this function was not lent
 # errors: 3

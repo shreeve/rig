@@ -10,7 +10,7 @@ fun idx(s: String) -> Int
   s.len - 1
 
 sub main()
-  b = Box(S(v: Vec()))
+  b = ^S(v: Vec())
   !b.v.push(E.a(t: Text("hi")))
   match !b.v[idx(?Text("a"))]
     .a(t) if t.len > 0 => !t.add("!")

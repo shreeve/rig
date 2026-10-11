@@ -1,15 +1,15 @@
 struct Node
   value: Int
-  next: Box[Node]?
+  next: ^Node?
 
   drop(!self)
     print("drop", self.value)
 
 struct Stack
-  top: Box[Node]?
+  top: ^Node?
 
   sub push(!self, v: Int)
-    self.top = Box(value: Node(value: v, next: <self.top))
+    self.top = ^Node(value: v, next: <self.top)
 
   fun pop(!self) -> Int?
     if <self.top as n
@@ -19,7 +19,7 @@ struct Stack
 
   sub reverse(!self)
     cur = <self.top
-    prev: Box[Node]? = none
+    prev: ^Node? = none
     while <cur as n
       cur = <n.next
       n.next = <prev

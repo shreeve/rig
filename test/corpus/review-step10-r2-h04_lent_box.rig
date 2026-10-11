@@ -24,4 +24,4 @@ fun pick(q: ?Q, n: Int) -> ?Q from q
   q
 
 sub main()
-  print(pick(n: g(1), q: Box(mkq(5))).t)
+  print(pick(n: g(1), q: ^mkq(5)).t)

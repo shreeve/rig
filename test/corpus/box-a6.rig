@@ -2,6 +2,6 @@ struct P
   x: Int
 
 sub main()
-  a = Box(value: P(x: 1))
-  b = Box(value: P(x: 1))
+  a = ^P(x: 1)
+  b = ^P(x: 1)
   print(a == b)

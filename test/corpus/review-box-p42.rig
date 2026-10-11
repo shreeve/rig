@@ -4,9 +4,9 @@ struct W[T]
 struct P
   x: Int
 
-fun mk() -> Box[W[?P]]
+fun mk() -> ^W[?P]
   p = P(x: 1)
-  Box(value: W(v: ?p))
+  ^W(v: ?p)
 
 sub main()
   b = mk()

@@ -3,9 +3,9 @@ struct U
 
 sub main()
   h = *U(name: "bo")
-  b = Box(U(name: "al"))
+  b = ^U(name: "al")
   c = Cell("x")
-  bs = Box("s")
+  bs = ^"s"
   z = 0.0
   f: Float = z / z
   print(h, b, c, bs, f, [f])

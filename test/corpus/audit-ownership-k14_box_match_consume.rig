@@ -1,21 +1,21 @@
 struct Node
   key: Int
-  left: Box[Node]?
-  right: Box[Node]?
+  left: ^Node?
+  right: ^Node?
 
   drop(!self)
     print("drop", self.key)
 
-sub insert(slot: !Box[Node]?, key: Int)
+sub insert(slot: !^Node?, key: Int)
   if !slot as n
     if key < n.key
       insert(!n.left, key)
     else
       insert(!n.right, key)
   else
-    slot = Box(Node(key: key, left: none, right: none))
+    slot = ^Node(key: key, left: none, right: none)
 
-sub walk(slot: ?Box[Node]?)
+sub walk(slot: ?^Node?)
   if slot as n
     walk(?n.left)
     print(n.key)
@@ -23,7 +23,7 @@ sub walk(slot: ?Box[Node]?)
 
 enum Tree
   leaf(v: Int)
-  node(l: Box[Tree], r: Box[Tree])
+  node(l: ^Tree, r: ^Tree)
 
 fun flatten(t: Tree, out: !Vec[Int])
   match <t
@@ -33,7 +33,7 @@ fun flatten(t: Tree, out: !Vec[Int])
       flatten(<r.unbox(), !out)
 
 sub main()
-  t: Tree = .node(l: Box(Tree.leaf(v: 1)), r: Box(Tree.leaf(v: 3)))
+  t: Tree = .node(l: ^Tree.leaf(v: 1), r: ^Tree.leaf(v: 3))
   v: Vec[Int] = Vec()
   flatten(<t, !v)
   print(v)

@@ -16,16 +16,16 @@ fun first(a: ?[4]Int) -> Int
   a[0]
 
 sub main()
-  b = Box(Vec[Int]())
+  b = ^Vec[Int]()
   fill(!b)
   print(total(?b), b)
-  arr = Box([4 of 7])
+  arr = ^[4 of 7]
   print(first(?arr))
-  s = Box("hi")
+  s = ^"hi"
   print(s)
-  bs = Vec[Box[String]]()
-  !bs.push(Box("a"))
-  bb = Box(Box("x"))
+  bs = Vec[^String]()
+  !bs.push(^"a")
+  bb = ^^"x"
   print(bs, bb)
   v = <b.unbox()
   print(v.len)

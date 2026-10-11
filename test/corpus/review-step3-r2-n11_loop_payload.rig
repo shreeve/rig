@@ -6,7 +6,7 @@ enum E
   a(r: Res)
   b
 
-fun find(v: ?Vec[Box[E]], d: ?Res) -> ?Res
+fun find(v: ?Vec[^E], d: ?Res) -> ?Res
   found = d
   for e in v
     match e
@@ -16,9 +16,9 @@ fun find(v: ?Vec[Box[E]], d: ?Res) -> ?Res
   found
 
 sub main()
-  v: Vec[Box[E]] = Vec()
-  !v.push(Box(E.a(r: Res(n: 1, t: Text("one")))))
-  !v.push(Box(E.a(r: Res(n: 2, t: Text("two")))))
+  v: Vec[^E] = Vec()
+  !v.push(^E.a(r: Res(n: 1, t: Text("one"))))
+  !v.push(^E.a(r: Res(n: 2, t: Text("two"))))
   d = Res(n: 0, t: Text("d"))
   x = find(?v, ?d)
   arr = [1, 2, 3, 4, 5, 6, 7, 8]

@@ -80,7 +80,7 @@ fun hand(h: *R, n: Int) -> Int
   print("use", h.id)
   n
 
-fun bx(b: Box[R], n: Int) -> Int
+fun bx(b: ^R, n: Int) -> Int
   print("use", b.id)
   n
 

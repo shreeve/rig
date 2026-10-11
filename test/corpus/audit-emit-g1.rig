@@ -6,7 +6,7 @@ struct R
 struct Node
   v: Int
   r: R
-  next: Box[Node]?
+  next: ^Node?
 
   sub bump(!self)
     self.v += 1
@@ -33,7 +33,7 @@ fun first[T](w: ?W[T]) -> ?T
   w.get()
 
 sub main()
-  b = Box(Node(v: 1, r: R(n: 1), next: Box(Node(v: 2, r: R(n: 2), next: none))))
+  b = ^Node(v: 1, r: R(n: 1), next: ^Node(v: 2, r: R(n: 2), next: none))
   !b.bump()
   print(b.v, read(?b), b.total())
   write(!b)
@@ -43,7 +43,7 @@ sub main()
   print(b.total())
   node = <b.unbox()
   print(node.v)
-  w = W(item: Box(R(n: 7)))
+  w = W(item: ^R(n: 7))
   print(first(?w).n)
-  wb = Box(W(item: 5))
+  wb = ^W(item: 5)
   print(wb.item, wb.get())

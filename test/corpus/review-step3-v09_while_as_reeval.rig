@@ -1,6 +1,6 @@
 struct Node
   n: Int
-  next: Box[Node]?
+  next: ^Node?
 
 sub main()
   o: Vec[Int]? = Vec()

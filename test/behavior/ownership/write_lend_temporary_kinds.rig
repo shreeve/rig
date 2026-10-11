@@ -38,8 +38,8 @@ fun mka() -> [3]Int
 fun mks() -> Seen
   Seen(items: Vec())
 
-fun mkbox() -> Box[P]
-  Box(P(n: 5))
+fun mkbox() -> ^P
+  ^P(n: 5)
 
 sub flip(b: !Bool)
   b = not b

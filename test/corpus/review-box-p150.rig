@@ -5,8 +5,8 @@ struct R
     print("drop", self.n)
 
 sub main()
-  o: Box[R]? = Box(value: R(n: 5))
+  o: ^R? = ^R(n: 5)
   if !o as x
     defer print("deferred", x.n)
-    x = Box(value: R(n: 6))
+    x = ^R(n: 6)
   print("end")

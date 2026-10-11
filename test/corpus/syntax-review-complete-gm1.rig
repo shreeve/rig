@@ -3,14 +3,14 @@ struct Entry[K, V]
   v: V
 
 struct Map[K, V]
-  es: Vec[Box[Entry[K, V]]]
+  es: Vec[^Entry[K, V]]
 
   sub put(!self, k: K, v: V)
     for e in !self.es
       if e.k == k
         e.v = <v
         return
-    !self.es.push(Box(value: Entry(k: k, v: <v)))
+    !self.es.push(^Entry(k: k, v: <v))
 
   sub each(?self, f: ?sub(?K, ?V))
     for e in ?self.es

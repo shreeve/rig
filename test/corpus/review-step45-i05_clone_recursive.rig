@@ -1,7 +1,7 @@
 # +l of a recursive Box list
 enum List
   nil
-  cons(head: Text, tail: Box[List])
+  cons(head: Text, tail: ^List)
 
 fun len(l: ?List) -> Int
   match l
@@ -9,7 +9,7 @@ fun len(l: ?List) -> Int
     .cons(_, t) => 1 + len(?t)
 
 sub main()
-  l = List.cons(head: Text("a"), tail: Box(List.cons(head: Text("b"), tail: Box(List.nil))))
+  l = List.cons(head: Text("a"), tail: ^List.cons(head: Text("b"), tail: ^List.nil))
   c = +l
   <l
   print(len(?c))

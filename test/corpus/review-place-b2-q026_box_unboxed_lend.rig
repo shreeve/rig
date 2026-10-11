@@ -5,6 +5,6 @@ sub f(p: !P)
   p.x = 5
 
 sub main()
-  b = Box(P(x: 1))
+  b = ^P(x: 1)
   f(!b)
   print(b.x)

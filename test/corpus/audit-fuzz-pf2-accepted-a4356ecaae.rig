@@ -79,7 +79,7 @@ fun hand(h: *R, n: Int) -> Int
   print("use", h.id)
   n
 
-fun bx(b: Box[R], n: Int) -> Int
+fun bx(b: ^R, n: Int) -> Int
   print("use", b.id)
   n
 
@@ -119,7 +119,7 @@ sub h1()!
   e2 = HR.one(r: mk(19))
   q3 = Q(h: *mk(20), o: mk(21))
   print("val", pp(P(a: mayr(rt_int(4022))!, b: mk(23))))
-  print("val", hand(*mayr(rt_int(3024))!, bx(Box(mayr(rt_int(4025))!), 0)))
+  print("val", hand(*mayr(rt_int(3024))!, bx(^mayr(rt_int(4025))!, 0)))
 
 sub main()
   h0() catch |e| print("caught", e)

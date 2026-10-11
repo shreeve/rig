@@ -38,7 +38,7 @@ sub main()
   t = Text("ab")
   for b in ?t
     print(b)
-  bx = Box(Text("c"))
+  bx = ^Text("c")
   for b in ?bx
     print(b)
   print(mkw().s.get(0), mkw().s[0])

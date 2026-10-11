@@ -14,7 +14,7 @@ fun rd(r: ?R) -> Int
   r.n
 
 sub main()
-  s = *Box(value: R(n: 1))
+  s = *^R(n: 1)
   print(s.n)
   w = ~s
   if w.upgrade() as t

@@ -10,8 +10,8 @@ struct R
   fun peek(?self) -> Int
     self.n
 
-fun mk() -> Box[R]
-  Box(value: R(n: 2))
+fun mk() -> ^R
+  ^R(n: 2)
 
 sub main()
   mk().eat()

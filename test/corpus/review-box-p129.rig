@@ -1,11 +1,11 @@
-fun peek(b: ?Box[Int]) -> ?Int
+fun peek(b: ?^Int) -> ?Int
   ?b
 
-fun peekv(b: ?Box[Vec[Int]]) -> ?Vec[Int]
+fun peekv(b: ?^Vec[Int]) -> ?Vec[Int]
   ?b
 
 sub main()
-  i = Box(value: 5)
+  i = ^5
   print(peek(?i))
-  v = Box(value: Vec[Int]())
+  v = ^Vec[Int]()
   print(peekv(?v).len)

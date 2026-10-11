@@ -87,7 +87,7 @@ struct AH
     self.a[0] = H(r: r, rs: Vec())
 
 struct BH
-  b: Box[H]
+  b: ^H
 
   sub add(!self, r: String)
     !self.b.keep(r)
@@ -122,6 +122,6 @@ fun f(n: Int) -> Int
 
 sub main()
   c = f(1) == 1
-  !BH(b: Box(mkh())).add(?mk(1).t)
+  !BH(b: ^mkh()).add(?mk(1).t)
   print("after", clobber(1))
   print(c)

@@ -8,5 +8,5 @@ struct R
     print("eat", self.n)
 
 sub main()
-  b = Box(value: R(n: 1))
+  b = ^R(n: 1)
   <b.eat()

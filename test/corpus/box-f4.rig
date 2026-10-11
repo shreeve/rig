@@ -2,7 +2,7 @@ struct P
   x: Int
 
 sub main()
-  a = [Box(value: P(x: 1)), Box(value: P(x: 2))]
+  a = [^P(x: 1), ^P(x: 2)]
   print(a[1].x, a)
-  w: Box[Box[P]] = Box(value: Box(value: P(x: 3)))
+  w: ^^P = ^^P(x: 3)
   print(w)

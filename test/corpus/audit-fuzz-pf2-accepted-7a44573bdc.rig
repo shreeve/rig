@@ -133,8 +133,8 @@ sub h1()
   if (!r7).take() as w14
     print("int", w14)
   print("int", r7.items.len)
-  r16 = fill_shelf(Box(mk(80)), Box(mk(90)))
-  !r16.add(Box(mk(100)))
+  r16 = fill_shelf(^mk(80), ^mk(90))
+  !r16.add(^mk(100))
   if (!r16).take() as w17
     print("use", w17.id)
   print("int", r16.items.len)

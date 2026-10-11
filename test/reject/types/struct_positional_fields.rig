@@ -1,4 +1,4 @@
-# A type with one field takes it by position (`Box(x)`); with more
+# A type with one field takes it by position (`^x`); with more
 # fields, they are set by name.
 
 struct P

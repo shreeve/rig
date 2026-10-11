@@ -1,8 +1,8 @@
 struct P
   x: Int
 
-fun wrap[T](v: T) -> Box[T]
-  Box(value: v)
+fun wrap[T](v: T) -> ^T
+  ^v
 
 fun mk() -> Int
   p = P(x: 1)

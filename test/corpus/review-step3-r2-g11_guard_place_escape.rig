@@ -12,7 +12,7 @@ fun inner(e: ?E) -> ?Res
     .a(r) => r
     .b(r) => r
 
-fun inner_box(b: ?Box[E]) -> ?Res
+fun inner_box(b: ?^E) -> ?Res
   match b
     .a(r) if r.n > 0 => r
     .a(r) => r
@@ -25,7 +25,7 @@ fun clobber(n: Int) -> Int
 sub main()
   e = E.a(r: Res(n: 1, t: Text("hello")))
   x = inner(?e)
-  b = Box(E.a(r: Res(n: 2, t: Text("boxed"))))
+  b = ^E.a(r: Res(n: 2, t: Text("boxed")))
   y = inner_box(?b)
   print(clobber(1000))
   print(x.n, x.t, y.n, y.t)

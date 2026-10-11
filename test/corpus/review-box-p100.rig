@@ -7,7 +7,7 @@ struct P
     ?self.v
 
 struct S
-  b: Box[P]
+  b: ^P
 
 fun rd(s: ?S) -> Int
   s.b.x + s.b.v.len + s.b.arr[1]
@@ -19,12 +19,12 @@ sub wr(s: !S)
   s.b.v[0] = 8
 
 sub main()
-  s = S(b: Box(value: P(x: 1, v: Vec(), arr: [1, 2, 3])))
+  s = S(b: ^P(x: 1, v: Vec(), arr: [1, 2, 3]))
   !s.b.v.push(1)
   wr(!s)
   print(rd(?s), s.b.v[0], s.b.vr().len)
   print("x is {s.b.x}")
-  b = Box(value: P(x: 1, v: Vec(), arr: [1, 2, 3]))
+  b = ^P(x: 1, v: Vec(), arr: [1, 2, 3])
   b.x *= 5
   b.arr[0] += 1
   print(b)

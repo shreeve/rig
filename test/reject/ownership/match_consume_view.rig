@@ -13,7 +13,7 @@ sub show(s: ?Shape)
 sub main()
   c: Shape = .circle(r: 1)
   show(?c)
-  b = Box(Shape.square(s: 2))
+  b = ^Shape.square(s: 2)
   match <b
     .circle(r) => print(r)
     .square(q) => print(q)

@@ -4,12 +4,12 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub eat(b: Box[R])
+sub eat(b: ^R)
   print("eat", b.n)
 
 sub main()
-  v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+  v: Vec[^R] = Vec()
+  !v.push(^R(n: 1))
   for x in ?v
     eat(<x)
   for x in v

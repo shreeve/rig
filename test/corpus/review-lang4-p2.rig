@@ -3,7 +3,7 @@ struct H
 
 sub main()
   v: Vec[Int] = Vec()
-  b = Box(H(w: !v))
+  b = ^H(w: !v)
   u: Vec[Int] = Vec()
   !u.push(3)
   b.w = <u

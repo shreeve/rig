@@ -6,10 +6,10 @@ enum E
   a(r: Res)
   b(r: Res)
 
-fun getb(b: ?Box[E], n: Int) -> ?Box[E]
+fun getb(b: ?^E, n: Int) -> ?^E
   b
 
-fun inner(b: ?Box[E]) -> ?Res
+fun inner(b: ?^E) -> ?Res
   match getb(b, Text("xyz").len)
     .a(r) => r
     .b(r) => r
@@ -19,7 +19,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  b = Box(E.a(r: Res(n: 1, t: Text("hello"))))
+  b = ^E.a(r: Res(n: 1, t: Text("hello")))
   x = inner(?b)
   print(clobber(1000))
   print(x.n, x.t)

@@ -2,7 +2,7 @@ struct H
   name: Text
   tags: Vec[Int]
   h: *Int
-  o: Box[Text]?
+  o: ^Text?
 
 enum E
   a(t: Text)
@@ -15,10 +15,10 @@ sub main()
   w = +v
   !w.push(2)
   print(v.len, w.len)
-  b = Box(Text("x"))
+  b = ^Text("x")
   c = +b
   print(b, c)
-  h = H(name: Text("n"), tags: Vec(), h: *5, o: Box(Text("ob")))
+  h = H(name: Text("n"), tags: Vec(), h: *5, o: ^Text("ob"))
   !h.tags.push(3)
   g = +h
   !g.tags.push(4)

@@ -12,7 +12,7 @@ enum Hold
   has(e: ?Wrap)
 
 sub main()
-  b = Box(value: Wrap(v: Vec()))
+  b = ^Wrap(v: Vec())
   e = Ed(t: !b)
   !e.t.v.push(1)
   r = Rd(t: ?b)

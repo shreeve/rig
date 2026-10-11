@@ -37,7 +37,7 @@ fun inner(e: ?E) -> Int
     .a(r) => show(r) + r.t.len
     .b(r) => show(?r)
 
-fun boxed(b: ?Box[E]) -> Int
+fun boxed(b: ?^E) -> Int
   match b
     .a(r) if r.n > 0 => r.n
     .a(r) => -r.n
@@ -56,7 +56,7 @@ fun peek[T](o: ?Opt[T]) -> Int
 sub main()
   e = E.a(r: Res(n: 1, t: Text("place")))
   print(inner(?e), inner(e))
-  b = Box(E.b(r: Res(n: 2, t: Text("box"))))
+  b = ^E.b(r: Res(n: 2, t: Text("box")))
   print(boxed(b))
   h = *E.a(r: Res(n: 3, t: Text("handle")))
   print(shared(h))

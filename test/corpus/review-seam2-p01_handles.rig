@@ -17,8 +17,8 @@ struct S
 fun mkh() -> *S
   *S(n: 1, items: Vec())
 
-fun mkb() -> Box[S]
-  Box(S(n: 10, items: Vec()))
+fun mkb() -> ^S
+  ^S(n: 10, items: Vec())
 
 sub main()
   !mkb().bump()

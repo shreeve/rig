@@ -1,5 +1,5 @@
 # `!t.push(b)` appends one byte, while `!t.add(b)` writes a `U8` as a
-# number. A `Box[Text]` is viewed through its box. A plain element of an
+# number. A `^Text` is viewed through its box. A plain element of an
 # owning temporary is read where it stands, and `??` on an owning
 # optional temporary gives its value or the fallback.
 
@@ -43,12 +43,12 @@ sub main()
     !t.push(text.to_lower(b))
   !t.add(" ", U8(65))
   print(t)
-  texts: Vec[Box[Text]] = Vec()
-  !texts.push(Box(Text(" one ")))
-  !texts.push(Box(Text("two")))
+  texts: Vec[^Text] = Vec()
+  !texts.push(^Text(" one "))
+  !texts.push(^Text("two"))
   for b in ?texts
     print(text.trim(?b), b[..2])
-  bx = Box(Text("boxed"))
+  bx = ^Text("boxed")
   print(bx[1..], text.starts_with(?bx, "box"))
   print(mkv()[0], mkv().len, mkw().v[0], mkw().t.len, ?bx == "boxed", bx == Text("boxed"))
   a = maybe(1) ?? N(id: 10)

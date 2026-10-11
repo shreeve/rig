@@ -8,8 +8,8 @@ enum E
 fun idx(s: ?Text) -> Int
   s.len
 
-fun mkb(k: Int) -> Box[E]
-  Box(E.a(xs: [k, k, k, k]))
+fun mkb(k: Int) -> ^E
+  ^E.a(xs: [k, k, k, k])
 
 fun mkh(k: Int) -> *E
   *E.a(xs: [k, k, k, k])

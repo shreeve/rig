@@ -4,14 +4,14 @@ struct A
 
 struct B
   n: Int
-  next: Box[A]?
+  next: ^A?
 
 sub main()
-  head: Box[A]? = none
+  head: ^A? = none
   i = 0
   while i < 150000
     b = *B(n: i, next: <head)
-    head = Box(value: A(n: i, next: <b))
+    head = ^A(n: i, next: <b)
     i += 1
   print("built")
   head = none

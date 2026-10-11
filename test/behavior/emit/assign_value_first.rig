@@ -38,8 +38,8 @@ fun renew(b: !B) -> Int
   !b.xs.push(100)
   3
 
-fun rebox(b: !Box[B]) -> Int
-  b = Box(B(xs: Vec()))
+fun rebox(b: !^B) -> Int
+  b = ^B(xs: Vec())
   !b.xs.push(4)
   3
 
@@ -81,7 +81,7 @@ sub main()
   b.xs[0] += renew(!b)
   print(b.xs)
 
-  bx: Box[B] = Box(B(xs: Vec()))
+  bx: ^B = ^B(xs: Vec())
   !bx.xs.push(1)
   bx.xs[0] = rebox(!bx)
   print(bx.xs)

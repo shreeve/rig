@@ -58,7 +58,7 @@ sub local(h: ?H)
       print(w.n, w.t)
     .b(_) => pass
 
-sub guarded(b: ?Box[E])
+sub guarded(b: ?^E)
   match b
     .a(r) if r.n > 0 => see(?r)
     _ => print("other")
@@ -100,7 +100,7 @@ sub main()
   arms(?f)
   h = H(e: E.a(r: Res(n: 2, t: Text("field"))))
   local(?h)
-  b = Box(E.a(r: Res(n: 3, t: Text("boxed"))))
+  b = ^E.a(r: Res(n: 3, t: Text("boxed")))
   guarded(?b)
   print(whole(?e), whole(?f), whole2(?e))
   c = copied(?e)

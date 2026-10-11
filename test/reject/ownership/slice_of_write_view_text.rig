@@ -1,7 +1,7 @@
 # A slice of a write view of a Text lends that view, as `?t[1..]` does:
 # the holder of a write view may add to the Text or assign it, which
 # frees the bytes the slice views, so it cannot while the slice is used.
-# A `!Text` parameter and local, a `!*Text`, and a `!Box[Text]`,
+# A `!Text` parameter and local, a `!*Text`, and a `!^Text`,
 # each written through by `add` or by assignment.
 
 fun word(s: String) -> String
@@ -29,14 +29,14 @@ sub shared_assign(h: !*Text)
   h = *Text("other")
   print(s)
 
-sub box_add(b: !Box[Text])
+sub box_add(b: !^Text)
   s = word(?b[1..])
   !b.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
-sub box_assign(b: !Box[Text])
+sub box_assign(b: !^Text)
   s = word(?b[1..])
-  b = Box(Text("other"))
+  b = ^Text("other")
   print(s)
 
 sub main()

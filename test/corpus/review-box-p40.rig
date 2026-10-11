@@ -1,6 +1,6 @@
-fun mk(k: Int) -> Box[fun(Int) -> Int]
+fun mk(k: Int) -> ^fun(Int) -> Int
   f = |x: Int| x + k
-  Box(value: f)
+  ^f
 
 sub main()
   b = mk(3)

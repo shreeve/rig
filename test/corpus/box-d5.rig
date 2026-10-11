@@ -1,12 +1,12 @@
 struct Node
   key: Int
-  next: Box[Node]?
+  next: ^Node?
 
-fun first(n: ?Box[Node]) -> ?Node
+fun first(n: ?^Node) -> ?Node
   ?n
 
 sub main()
-  a = Box(value: Node(key: 1, next: none))
+  a = ^Node(key: 1, next: none)
   f = first(?a)
-  a = Box(value: Node(key: 2, next: none))
+  a = ^Node(key: 2, next: none)
   print(f.key)

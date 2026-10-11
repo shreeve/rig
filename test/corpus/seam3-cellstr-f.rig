@@ -1,4 +1,4 @@
 sub main()
   x = 5
-  s = *Box(?x)
+  s = *^?x
   print(s)

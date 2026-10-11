@@ -1,15 +1,15 @@
 struct Node
   key: Int
-  left: Box[Node]?
+  left: ^Node?
 
-sub bad(slot: ?Box[Node]?)
+sub bad(slot: ?^Node?)
   if slot as n
     n.key = 3
     grow(!n.left)
 
-sub grow(s: !Box[Node]?)
+sub grow(s: !^Node?)
   s = none
 
 sub main()
-  root: Box[Node]? = Box(value: Node(key: 1, left: none))
+  root: ^Node? = ^Node(key: 1, left: none)
   bad(?root)

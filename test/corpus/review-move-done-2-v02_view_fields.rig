@@ -27,7 +27,7 @@ sub a()
 
 sub b()
   s = mks(1)
-  bx = Box(mks(2))
+  bx = ^mks(2)
   y = <bx.o
   print(y == none, bx.o == none, s.v.len)
 

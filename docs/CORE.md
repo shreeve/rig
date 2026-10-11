@@ -69,7 +69,7 @@ side; Rig names everything from the side the sigil is on.
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
-| **owning** | `Vec[T]`, `Box[T]`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
+| **owning** | `Vec[T]`, `^T`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
@@ -728,7 +728,7 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | a held `!T` | `?T` | `!T` (lent on) | built |
 | `![]T` | `[]T` | `![]T` (lent on) | built |
 | `Text` | `String` (also `String?`) | `!Text` | built |
-| `Box[T]` | the views of `T` | the write views of `T` | built |
+| `^T` | the views of `T` | the write views of `T` | built |
 | `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | built |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
@@ -739,7 +739,7 @@ copy carries no loan but those of the views it holds, as with a call's
 `?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
 part of `x`, and goes unwritten as an argument where `x` does:
 `total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `Vec` as it does on an array,
-and one `fun area(s: ?Shape)` serves a `Shape`, a `Box[Shape]`, and a
+and one `fun area(s: ?Shape)` serves a `Shape`, a `^Shape`, and a
 `*Shape`.
 
 ```rig
@@ -851,10 +851,10 @@ work. *(built)*
 
 ```rig
 struct Slot
-  item: Box[Int]?
+  item: ^Int?
 
 sub main()
-  s = Slot(item: Box(7))
+  s = Slot(item: ^7)
   if <s.item as b
     print(<b.unbox())
   print(s.item)

@@ -2,7 +2,7 @@ struct Res
   n: Int
   t: Text
 
-fun first(v: ?Vec[Box[Res]], d: ?Box[Res]) -> ?Box[Res]
+fun first(v: ?Vec[^Res], d: ?^Res) -> ?^Res
   for b in v
     return ?b
   d
@@ -17,9 +17,9 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: Vec[Box[Res]] = Vec()
-  !v.push(Box(Res(n: 5, t: Text("five"))))
-  d = Box(Res(n: 0, t: Text("d")))
+  v: Vec[^Res] = Vec()
+  !v.push(^Res(n: 5, t: Text("five")))
+  d = ^Res(n: 0, t: Text("d"))
   x = first(?v, ?d)
   print(clobber(1000))
   print(x.n, x.t)

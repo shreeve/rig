@@ -31,7 +31,7 @@ sub main()
   g = |+ro| vof(?ro)
   <o
   print(g())
-  bx = Box(Text("boxed"))
+  bx = ^Text("boxed")
   rb = ?bx
   h = |+rb| rb.len
   print(h())

@@ -1,5 +1,5 @@
 sub main()
   n = 1
   o: (!Int)? = !n
-  b = Box(o)
+  b = ^o
   print(n)

@@ -30,5 +30,5 @@ pub enum Shape
   fun size(?self) -> Int
     0
 
-pub fun boxed() -> Box[Counter]
-  Box(Counter.make("b"))
+pub fun boxed() -> ^Counter
+  ^Counter.make("b")

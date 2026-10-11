@@ -19,8 +19,8 @@ fun mk() -> N
   !v.push(7)
   N(t: Text("tt"), inner: In(t: Text("in")), arr: [1, 2], v: <v, name: "nm")
 
-fun mkbox() -> Box[Text]
-  Box(Text("bx"))
+fun mkbox() -> ^Text
+  ^Text("bx")
 
 fun mksh() -> *N
   *mk()

@@ -25,7 +25,7 @@ sub main()
   !w.push(*5)
   print(w.len, w[0] == none)
   print(g() == none)
-  x: Box[Int?] = Box(none)
+  x: ^(Int?) = ^none
   print(empty(?x))
 
 # expect:

@@ -27,10 +27,10 @@ struct H
   o: *Tok?
 
 sub main()
-  hs: Vec[Box[H]] = Vec()
-  !hs.push(Box(H(o: *Tok(n: 1))))
-  !hs.push(Box(H(o: none)))
-  !hs.push(Box(H(o: *Tok(n: 3))))
+  hs: Vec[^H] = Vec()
+  !hs.push(^H(o: *Tok(n: 1)))
+  !hs.push(^H(o: none))
+  !hs.push(^H(o: *Tok(n: 3)))
   for h in !hs
     t = <h.o ?? continue
     eat(<t)

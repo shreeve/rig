@@ -3,6 +3,6 @@ struct Node
 
 sub main()
   a: Vec[*Node?] = Vec()
-  b: Vec[Box[Node]?] = Vec()
+  b: Vec[^Node?] = Vec()
   c: Vec[Vec[Int]] = Vec()
   d: Vec[(*Node)?] = Vec()

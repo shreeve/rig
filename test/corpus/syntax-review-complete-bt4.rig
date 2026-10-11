@@ -1,7 +1,7 @@
 struct Node[K, V]
   keys: Vec[K]
   vals: Vec[V]
-  kids: Vec[Box[Node[K, V]]]
+  kids: Vec[^Node[K, V]]
 
   fun leaf() -> Self
     Node(keys: Vec(), vals: Vec(), kids: Vec())

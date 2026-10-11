@@ -11,7 +11,7 @@ struct R
     print("drop", self.n)
 
 sub main()
-  b = Box(value: W(v: 3))
+  b = ^W(v: 3)
   print(<b.eat())
-  c = Box(value: W(v: R(n: 4)))
+  c = ^W(v: R(n: 4))
   print(<c.eat())

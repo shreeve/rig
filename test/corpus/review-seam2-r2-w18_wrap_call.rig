@@ -9,7 +9,7 @@ struct S
   n: Int
   items: Vec[Int]
   o: Vec[Int]?
-  b: Box[Vec[Int]]
+  b: ^Vec[Int]
 
   drop(!self)
     print("drop", self.n, self.items, self.o)
@@ -19,7 +19,7 @@ fun mk(n: Int) -> S
   !v.push(n)
   w: Vec[Int] = Vec()
   !w.push(n * 10)
-  S(n: n, items: <v, o: <w, b: Box(Vec[Int]()))
+  S(n: n, items: <v, o: <w, b: ^Vec[Int]())
 
 fun mkopt(n: Int) -> S?
   return none if n == 0

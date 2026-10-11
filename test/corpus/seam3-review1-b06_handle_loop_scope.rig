@@ -1,7 +1,7 @@
 sub main()
-  hs: Vec[*Box[?Vec[Int]]] = Vec()
+  hs: Vec[*^?Vec[Int]] = Vec()
   for i in 0..2
     v: Vec[Int] = Vec()
     !v.push(i)
-    !hs.push(*Box(?v))
+    !hs.push(*^?v)
   print(hs[0].len)
