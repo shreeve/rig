@@ -11204,9 +11204,32 @@ const Checker = struct {
         for (captures) |cap| try self.checkCapture(cap, outer);
 
         const want: ?FunctionType = if (expected) |e| self.ctx.types.get(e).function else null;
+        // A closure that declares fewer parameters than the type it is
+        // checked against is the closure with `_` for each trailing
+        // parameter it leaves out (docs/INTERNALS.md, "Closures with
+        // fewer parameters").
+        const known: usize = if (want) |w| w.params.len else given_params.len;
+        if (known > ir.Lambda.params(node).items().len and (want != null or known > 0)) {
+            if (self.ctx.parser) |p| try p.padLambda(node, known);
+            // The resolver ran before the padding: declare the new `_`s as
+            // it declares the written ones.
+            for (ir.Lambda.params(node).items()) |p| {
+                if (self.ctx.symbolOf(p) != null) continue;
+                const id = try self.ctx.addSymbol(.{
+                    .name = "_",
+                    .kind = .param,
+                    .ty = self.ctx.types.unknown_id,
+                    .decl_pos = srcPos(p, 0),
+                    .scope = self.scope,
+                    .flags = .{},
+                });
+                try self.ctx.addToScope(self.scope, id);
+                try self.ctx.recordName(p, id);
+            }
+        }
         const param_nodes = ir.Lambda.params(node).items();
-        if (want) |w| if (param_nodes.len != w.params.len) {
-            try self.errAt(node, "this closure takes {d} parameter{s}, but its type `{s}` passes {d}", .{ param_nodes.len, plural(param_nodes.len), try self.tyName(expected.?), w.params.len });
+        if (want) |w| if (param_nodes.len > w.params.len) {
+            try self.errAt(node, "this closure takes {d} parameter{s}, but its type `{s}` passes {d}; a closure may take fewer, never more", .{ param_nodes.len, plural(param_nodes.len), try self.tyName(expected.?), w.params.len });
         };
 
         var params: std.ArrayList(TypeId) = .empty;

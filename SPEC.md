@@ -5500,8 +5500,43 @@ A bare parameter takes its type from the type the context expects: a
 binding annotation, the parameter of the function being called, a
 `List`'s element type, a struct field, or a function's return type. An
 annotation is allowed anywhere and must agree with the context; with no
-context, every parameter must be annotated. A closure takes exactly the
-parameters its type passes, and may ignore one by naming it `_`.
+context, every parameter must be annotated. A closure may ignore a
+parameter by naming it `_`, and, where its type is known, may leave out
+the trailing parameters it does not use: it is the same closure with a
+`_` for each one it omits. Only trailing parameters can be left out
+(`|_, c|` skips the second, `|c|` binds it), a closure never takes more
+parameters than its type passes, and an untyped closure (`f = || ...`)
+keeps the parameters it declares. An argument passed for an omitted
+parameter is handled as one passed to `_`: a lend ends as it does for
+any lend, and an owned argument nothing binds is dropped when the closure
+returns, after its body, in reverse order of the parameters. A
+capture list is unaffected: entries with a sigil are captures, and bare
+names are parameters, so `|+count, a|` still captures `count`.
+
+```rig
+struct Gone
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub each(f: ?sub(Int, Gone))
+  f(1, Gone(n: 2))
+
+sub main()
+  each(|| print("none"))
+  each(|i| print("i", i))
+  each(|_, g| print("g", g.n))
+```
+
+```output
+none
+drop 2
+i 1
+drop 2
+g 2
+drop 2
+```
 
 With a type from context, the body is checked against its return type,
 and a body whose type can fail may propagate with `!`

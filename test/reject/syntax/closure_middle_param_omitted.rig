@@ -1,0 +1,10 @@
+# Only trailing parameters may be left out: a closure that wants the
+# third parameter names the second as `_`.
+
+sub each(f: ?sub(Int, String, Int))
+  f(1, String("a", 1), 3)
+
+sub main()
+  each(|a, c: Int| print(a, c))
+
+# error: closure parameter `c` is declared `Int`, but the closure's type passes `String`
