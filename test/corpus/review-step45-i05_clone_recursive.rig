@@ -9,7 +9,7 @@ fun len(l: ?Chain) -> Int
     .cons(_, t) => 1 + len(?t)
 
 sub main()
-  l = List.cons(head: String("a"), tail: ^List.cons(head: String("b"), tail: ^List.nil))
+  l = Chain.cons(head: String("a"), tail: ^Chain.cons(head: String("b"), tail: ^Chain.nil))
   c = +l
   <l
   print(len(?c))

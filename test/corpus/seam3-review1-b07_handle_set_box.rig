@@ -1,5 +1,5 @@
 struct Holder
-  b: ^?List[Int]?
+  b: (^?List[Int])?
 
 sub main()
   v: List[Int] = List()

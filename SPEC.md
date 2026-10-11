@@ -2548,7 +2548,7 @@ sub main()
 ```
 
 ```output
-List[Int] U8 Pair[Int, Text] *Pair[U8, Bool]?
+List[Int] U8 Pair[Int, String] *Pair[U8, Bool]?
 ```
 
 Every other builtin is Zig's, keeps its Zig name, and works only

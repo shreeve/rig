@@ -206,6 +206,14 @@ and run the corpus after.
   become a recorded node fact (`sema.Question`), as the leaf walk did.
 - **What a view could hold:** `carry` and `sema.viewReach`, and `?String`
   values in Cells, generics, and closures.
+- **What a `^T` does not yet forward:** a box reaches its value's fields
+  and methods, and lends its views, but `xs[i]`, `?xs[a..b]`, `for x in
+  xs`, `==`, and arithmetic on a boxed array, List, or number name the
+  box and are rejected; a box has an `unbox` of its own that hides a
+  value's method of that name. A generic body cannot reach through a
+  `^T` of a handle either (it cannot call a method of `T`), so the box
+  and handle stacking rule is checked at generic instances only in
+  fields and signatures.
 - **Evaluation order versus what is emitted:** call arguments, `print`
   and `String(...)` arguments, and assignment targets.
 - **`defer`/`errdefer` at exits,** owners behind `Cell`, `^T`, and

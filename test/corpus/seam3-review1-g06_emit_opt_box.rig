@@ -3,10 +3,10 @@ struct P
 
 sub main()
   p = P(x: 4)
-  o: ^?P? = ^?p
+  o: (^?P)? = ^?p
   if o as b
     print(b.x)
   t = String("abc")
-  ot: ^?String? = ^?t
+  ot: (^?String)? = ^?t
   if ot as bt
     print(bt.len, bt)
