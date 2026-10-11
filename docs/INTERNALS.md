@@ -21,6 +21,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │  storage     src/storage.zig   the hidden storage emit makes
   │  ownership   src/ownership.zig moves, loans, drops, aliasing
   ▼
+inlining         src/inlining.zig  which small functions Zig inlines, program-wide
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig
   ▼
@@ -156,6 +157,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
+| `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`) |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
@@ -2642,6 +2644,77 @@ symbols); a query that decides more than that belongs in `Pending`.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
+- **Inlining.** A small `fun` or `sub` is emitted `pub inline fn`.
+  `inlining.decide` decides it once for the whole program, after every
+  module is checked, and emit reads it as `Facts.isInlined`. LLVM leaves a
+  small hot helper a call once its body grows, and pays the prologue and a
+  stack protector at each call. A function is inlined when
+
+  - its body has at most `inlining.max_size` (60) nodes, counting each
+    form of the tree once (a call, an operator, a binding, an `if`),
+    which Trig's JSON helpers (`string`, `plain`, `key`, `close`,
+    `literal`, 27 to 50) fit and larger ones in that parser do not;
+  - it is on no cycle of calls, directly or through others;
+  - every mention of it is the callee of a call, so it is never passed,
+    stored, returned, or captured, and no address of it is taken;
+  - it is not the root's `main`, has no compile-time parameters, is not a
+    member of a generic type, and holds no closure (`extern` functions
+    have no body);
+  - it keeps at most 64 KiB of values on its stack, and no function gets
+    more than that added by the inlined calls in it
+    (`max_inlined_frame_bytes`), since Zig puts an inlined body's locals in
+    its caller's frame and `rig.guardStack` is sized for frames of 16 MiB
+    (`checkFrames`);
+  - with the inlined calls in it, each counted at every call site, it
+    expands to at most `inlining.max_expanded` (320) nodes, so a chain of
+    functions that each call the next twice does not have Zig analyze the
+    innermost 2^n times.
+
+  A function that fails a test of the last two is dropped and the tests
+  run again, until none fails. A call resolves by the callee's name (a
+  function by its symbol, so a local of that name is not it), so two
+  functions of one name stand for each other: the analysis finds at most
+  more cycles and more value uses than there are.
+
+  Both of Zig's ways to inline, `inline fn` and `@call(.always_inline, ...)`,
+  analyze the body at each call, so an argument known at compile time is
+  known inside: `a + 1` called with `255` as a `U8` is a compile error
+  where Rig specifies a panic when it runs, and so is an index past the
+  end of an array, a division by zero, or a conversion that does not fit,
+  in a call that the program may never make. Emit therefore binds every
+  parameter of an inlined function through `rig.rt` at the top of the
+  body, as it does a constant in arithmetic:
+
+  ```zig
+  pub inline fn next(__rig_in_n: i64) i64 {
+      const n = rig.rt(__rig_in_n);
+      return n + 1;
+  }
+  ```
+
+  A value that crosses the boundary the other way is hidden the same way:
+  a call that may reach an inlined function (`Facts.callsInlined`) is
+  written `rig.rt(f(x))`. Zig knows the result of an inlined call that
+  no argument decides (`fun zero() -> Int  0`, one that ignores its
+  parameters, or one that passes on another's) at compile time, and so a
+  `const` bound to it, so `10 / z` would be a compile error in code that
+  never runs. `rig.rt` covers the whole result, an error or an optional
+  with its payload. The call graph holds every call emit makes: the `next`
+  of a `for` over an iterator is a call in the tree by then (the rewrite of
+  [Loops over an iterator](#loops-over-an-iterator)), and the only other
+  user function emit calls on its own, a type's `drop` body, is not inlined.
+
+  The desugaring is that: a function that is called, with a copy of its
+  parameters taken first (`var` where the parameter is a value that moves,
+  which it was already copied into), and its calls read through `rig.rt`.
+  The checker walks the same function, and the optimizer folds `rig.rt`
+  away. The panic is the same one at the same line.
+  `test/behavior/emit/inline_*.rig` run calls with literal arguments in
+  debug and `--release`, `test/cli/inline_grid.sh` runs every shape of
+  result against every use in both, `test/cli/inline.sh` checks which
+  functions are inlined, and `test/behavior/types/value_size_limit.rig`
+  holds the frames to their limit.
+
 - **Evaluation order of arguments.** A call's arguments are evaluated
   in the order they are written and passed in the order the parameters
   are declared: `f(b: e2, a: e1)` is `{ b = e2; a = e1; f(a, b) }`,

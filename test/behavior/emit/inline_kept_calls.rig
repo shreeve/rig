@@ -1,0 +1,49 @@
+# Functions that recurse, directly or through each other, and functions
+# used as values are called, not inlined; the small ones around them are.
+
+fun fact(n: Int) -> Int
+  1 if n <= 1 else n * fact(n - 1)
+
+fun even(n: Int) -> Bool
+  true if n == 0 else odd(n - 1)
+
+fun odd(n: Int) -> Bool
+  false if n == 0 else even(n - 1)
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun plus_one(n: Int) -> Int
+  n + 1
+
+obj Counter
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+  sub bump(!self, by: Int)
+    self.n += by
+
+sub main()
+  print(fact(5))
+  print(even(10))
+  print(odd(10))
+  print(apply(double, 21))
+  print(plus_one(plus_one(1)))
+  c = Counter(n: 1)
+  !c.bump(2)
+  !c.bump(3)
+  print(c.get())
+
+# release
+# expect:
+# 120
+# true
+# false
+# 42
+# 3
+# 6

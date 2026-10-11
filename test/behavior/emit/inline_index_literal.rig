@@ -1,0 +1,16 @@
+# An inlined function indexes with the checks of any other: a literal
+# index past the end panics when the program runs.
+
+fun at(xs: ?[3]Int, i: Int) -> Int
+  xs[i]
+
+sub main()
+  xs = [10, 20, 30]
+  print(at(?xs, 2))
+  print(at(?xs, 7))
+
+# release
+# expect-panic: index out of bounds
+
+# expect:
+# 30

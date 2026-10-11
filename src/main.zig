@@ -13,6 +13,7 @@ const ir = parser.ir;
 const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
+const inlining = @import("inlining.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
@@ -399,6 +400,7 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     try graph.writeAllDiagnostics(&writer.interface);
     try writer.interface.flush();
     if (graph.hasErrors()) std.process.exit(1);
+    try inlining.decide(allocator, &graph, inlining.max_size);
     return graph;
 }
 

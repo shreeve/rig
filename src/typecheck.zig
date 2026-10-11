@@ -12372,6 +12372,18 @@ pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
     try w.walk(tree, null, false);
 }
 
+/// The bytes of values the `fun` or `sub` `node` keeps on its stack, as
+/// `checkFrames` counts them, for a function with no closure; null when
+/// that depends on generic parameters or follows an error.
+pub fn frameBytesOfFunction(ctx: *SemContext, node: Sexp) Error!?u128 {
+    var w: FrameWalker = .{ .ctx = ctx };
+    var slots: FrameWalker.Slots = .empty;
+    defer slots.deinit(ctx.allocator);
+    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false);
+    for (slots.items) |ty| if (sema.containsTypeVar(ctx, ty)) return null;
+    return frameBytes(ctx, slots.items);
+}
+
 const FrameWalker = struct {
     ctx: *SemContext,
 

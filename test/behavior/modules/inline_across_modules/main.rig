@@ -1,0 +1,21 @@
+# An inlined function of another module is called with the checks of any
+# other; one that module's caller passes as a value is not inlined.
+
+use lib
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main()
+  print(lib.bump(1))
+  print(apply(lib.twice, 4))
+  print(lib.twice(5))
+  print(lib.bump(9223372036854775807))
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 2
+# 8
+# 10

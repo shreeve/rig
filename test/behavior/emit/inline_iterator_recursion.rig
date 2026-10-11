@@ -1,0 +1,27 @@
+# A `for` over an iterator calls `next` with no call in the source: an
+# iterator whose `next` loops over another of its own kind is recursive, so
+# Zig must not be asked to inline it into itself.
+
+obj Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    self.lo += 1
+    if self.hi > 100
+      inner = Count(lo: 0, hi: 1)
+      for x in !inner
+        print("inner", x)
+    self.lo - 1
+
+sub main()
+  c = Count(lo: 0, hi: 3)
+  for n in !c
+    print(n)
+
+# release
+# expect:
+# 0
+# 1
+# 2
