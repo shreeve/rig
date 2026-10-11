@@ -45,6 +45,7 @@ sub main()
   print(n)
   print(b.get())
 
+# release
 # expect:
 # 3
 # 6
@@ -53,4 +54,3 @@ sub main()
 # 11
 # 6
 # 3
-# release

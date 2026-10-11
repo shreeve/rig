@@ -38,8 +38,8 @@ sub main()
   print(name(.red), name(.green), name(.blue))
   print(code(.red), code(.green), code(.blue))
 
+# release
 # expect:
 # 1 12 23
 # 10 20 30
 # 1 2 3
-# release

@@ -27,8 +27,8 @@ sub main()
     print(s.get())
   print("done")
 
+# release
 # expect:
 # 10
 # 2
 # done
-# release

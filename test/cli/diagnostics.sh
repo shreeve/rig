@@ -139,4 +139,4 @@ expect_has "$out" "$m/foreign_array_len/lib.rig:1:28:   note: the array is made 
 printf 'pub obj Wrap[T]\n  v: T\n' >lib.rig
 printf 'use lib\n\nsub main()\n  print(lib.Wrap[Int].nope())\n' >main.rig
 out=$("$RIG" check main.rig 2>&1); expect_rc $? 1 "rig check of a missing method of another module's generic"
-expect_has "$out" "lib.rig:1:12:   note: \`lib.Wrap\` declared here" "a declaration note names its file"
+expect_has "$out" "lib.rig:1:9:   note: \`lib.Wrap\` declared here" "a declaration note names its file"

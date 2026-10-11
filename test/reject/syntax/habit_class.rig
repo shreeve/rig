@@ -1,6 +1,6 @@
-# A type is declared with `struct`.
+# A type is declared with `obj`.
 
 class Point
   x: Int
 
-# error: 3:1: Rig has no `class`; declare a type with `struct`
+# error: 3:1: Rig has no `class`; declare a type with `obj`

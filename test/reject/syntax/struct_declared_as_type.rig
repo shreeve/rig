@@ -1,4 +1,4 @@
-# A struct is declared with `struct`; `type` declares only an alias.
+# A struct is declared with `obj`; `type` declares only an alias.
 
 type Foo
   bar: Int
@@ -6,4 +6,4 @@ type Foo
 sub main()
   print("done")
 
-# error: 4:3: a struct is declared with `struct`: `struct Foo`
+# error: 4:3: a struct is declared with `obj`: `obj Foo`

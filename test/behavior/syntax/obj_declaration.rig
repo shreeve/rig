@@ -17,6 +17,6 @@ sub main()
   t = Token(id: 9)
   print(p.x + p.y, q.a + q.b, t.id)
 
+# release
 # expect:
 # 3 7 9
-# release

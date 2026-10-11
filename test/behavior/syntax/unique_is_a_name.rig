@@ -1,5 +1,5 @@
 # `unique` is a keyword only after a struct header's name or type
-# parameters, where it declares the struct unique (`struct Random unique`).
+# parameters, where it declares the struct unique (`obj Random unique`).
 # Everywhere else it is an ordinary name.
 
 obj Seed unique
