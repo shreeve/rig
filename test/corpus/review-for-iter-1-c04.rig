@@ -65,7 +65,7 @@ fun mkbuf() -> Buf
 sub main()
   keep: (?Item)? = none
   b = mkbuf()
-  for it in b
+  for it in !b
     keep = i
     break
   b = mkbuf()

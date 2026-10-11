@@ -6,7 +6,7 @@ use span
 
 sub main()
   r = span.span(3)
-  for x in r
+  for x in !r
     print("span", x)
   for y in span.span(2)
     print("made", y)

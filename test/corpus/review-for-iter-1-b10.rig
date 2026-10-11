@@ -67,6 +67,6 @@ sub eat(b: Buf)
 
 sub main()
   b = mkbuf()
-  for it in b
+  for it in !b
     eat(<b)
     print(it.name)

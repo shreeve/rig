@@ -65,7 +65,7 @@ fun mkbuf() -> Buf
 sub main()
   b = mkbuf()
   keep: (?Item)? = none
-  for it in b
+  for it in !b
     keep = i
   if keep as k
     print(k.name)

@@ -77,8 +77,8 @@ struct Holder
 sub main()
   h = *Holder(g: Gen(at: Cell(0), hi: 3), log: Cell(List()))
   d = +h
-  for n in h.g
+  for n in !h.g
     !d.log.push(n)
-    for m in d.g
+    for m in !d.g
       !d.log.push(m * 10)
   print(h.log.len)

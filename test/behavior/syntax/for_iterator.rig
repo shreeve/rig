@@ -26,13 +26,13 @@ fun first_over(k: Int) -> Int
 
 fun drain(it: !Count) -> Int
   total = 0
-  for n in it
+  for n in !it
     total += n
   total
 
 sub main()
   c = upto(6)
-  for n in c
+  for n in !c
     break if n == 2
   print("resumed at", (!c).next() ?? -1)
   for n in !c

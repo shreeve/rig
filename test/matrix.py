@@ -733,9 +733,8 @@ LOOP_JUMPS = {
 # -----------------------------------------------------------------------------
 
 ITER_SOURCES = {
-    "place": dict(setup=["it = mk(1)"], head="for k in it", rest="(!it).next() ?? -1", held=False),
-    "field": dict(setup=["h = Hold(it: mk(1))"], head="for k in h.it", rest="(!h.it).next() ?? -1", held=False),
-    "bang": dict(setup=["it = mk(1)"], head="for k in !it", rest="(!it).next() ?? -1", held=False),
+    "place": dict(setup=["it = mk(1)"], head="for k in !it", rest="(!it).next() ?? -1", held=False),
+    "field": dict(setup=["h = Hold(it: mk(1))"], head="for k in !h.it", rest="(!h.it).next() ?? -1", held=False),
     "made": dict(setup=[], head="for k in mk(1)", rest=None, held=True),
     "moved": dict(setup=["it = mk(1)"], head="for k in <it", rest=None, held=True),
 }

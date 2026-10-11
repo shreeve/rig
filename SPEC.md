@@ -2775,7 +2775,7 @@ written decides what the loop does with it:
 
 | Source | The loop is |
 |---|---|
-| `it`, `!it`: a name, or a field path from one (`a.b`) | `while (!it).next() as x` |
+| `!it`: a name, or a field path from one (`a.b`); a bare `it` is rejected | `while (!it).next() as x` |
 | `mk()`: a value made there | `h = mk()` held for the loop, then `while (!h).next() as x`; `h` ends with the loop |
 | `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while (!h).next() as x`; `it` is moved |
 | `?it` | rejected: reading an iterator cannot advance it |
@@ -2804,9 +2804,9 @@ fun upto(n: Int) -> Count
 
 sub main()
   c = upto(5)
-  for n in c
+  for n in !c
     break if n == 1
-  for n in c
+  for n in !c
     print("then", n)
   first = for w in text.words("a bb ccc")
     break w if w.len > 1
@@ -2848,11 +2848,14 @@ sub main()
   c = Count(lo: 0)
   for x in ?c
     print(x)
+  for x in c
+    print(x)
 ```
 
 ```error
 cannot iterate over `Reads`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes `?self`
-`for x in ?c` would only read an iterator, which `next` cannot advance; write `for x in c` (or `!c`) to advance it in place
+`for x in ?c` would only read an iterator, which `next` cannot advance; write `for x in !c` to advance it in place
+write `for x in !c`: the loop advances `c`
 ```
 
 ### Labels, break, and continue

@@ -68,7 +68,7 @@ side; Rig names everything from the side the sigil is on.
 
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
-| **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
+| **plain** | `Int`, `Bool`, `Static`, enums, structs whose parts are all plain | copies | built |
 | **owning** | `List[T]`, `^T`, `String`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T`, `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
@@ -400,7 +400,8 @@ cannot assign to `a[0]` while `a` is lent
 
 **7. A call passes on only the loans its signature shows.** A function
 returns a view only of what it was lent, or of something that lives for
-the whole program (literals, module constants, `os.args()`). Its result
+the whole program: a `Static` (a text literal is one), a module
+constant, or `os.args()`. Its result
 carries the loans of the arguments whose types could hold what it views,
 or, when the result says `from a`, of `a` alone. A result that holds no
 write view carries them as read loans, even one of an argument lent to
@@ -539,9 +540,9 @@ you share is a `Cell`, and it changes only by a marked call: `!c.set(5)`.
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
 element, or type argument by value. `Cell`, `Signal`, and owned
-closures hold no view that carries a loan; a `*T` carries the loans of
-what it holds.
-*(built)*
+closures are no-loan homes: they hold no view that carries a loan, so
+they keep text only as a `Static`; a `*T` carries the loans of what it
+holds. *(built)*
 
 ```rig
 sub main()
@@ -553,6 +554,31 @@ sub main()
 
 ```output
 5
+```
+
+A `Cell` keeps text as a `Static`, so a literal goes in and a `String`'s
+bytes do not:
+
+```rig
+sub main()
+  c = *Cell("one")
+  !c.set("two")
+  print(c.get())
+```
+
+```output
+two
+```
+
+```rig reject
+sub main()
+  t = String("abc")
+  c = *Cell("one")
+  !c.set(?t)
+```
+
+```error
+expected `Static`, got `?String`
 ```
 
 ```rig reject
@@ -752,7 +778,9 @@ read view: `?t`, a loop or pattern binding of a `String`, and a generic
 `?T` at `T = String` are all `?String` values, and a read view of a read
 view is that read view. A `?String` is a view, so nothing lends a
 `?String` place to write: assign to it to point it at other text, or hold
-a `String`. *(built)*
+a `String`. A `Static` is read as a `?String` where the text is only read;
+it never converts where the text can be written, and nothing converts a
+`?String` to a `Static`. *(built)*
 
 ```rig
 use std.sort
@@ -846,7 +874,9 @@ struct field may hold a `Cell`. Each field and element is a place:
 **Write views are not stored.** A `!T` (also `![]T`, `(!T)?`, `(!T)!`)
 is a parameter, a receiver, a result, or a local. It is never a field,
 an element, a type argument, or what a `?`, an optional, or a handle
-holds.
+holds. `^T`, optionals, and a generic `T` hold any value but a write view,
+as a `List` does. A holder of a read view carries its loan: `^?v` keeps
+`v` lent while the box, or a view it gave out, is used.
 
 `<` always leaves its source done: a name is ended, an optional place
 is emptied to `none`, and any other place is rejected, a part of a

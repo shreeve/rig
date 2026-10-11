@@ -70,6 +70,6 @@ sub main()
   p = Pair(a: upto(2), b: upto(2))
   for n in <p.a
     print(n)
-  for m in p.b
+  for m in !p.b
     print(m)
   print(p.b.lo)

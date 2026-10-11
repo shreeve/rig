@@ -67,5 +67,5 @@ fun eat(c: Count)
 
 sub main()
   c = upto(3)
-  for n in c
+  for n in !c
     eat(<c)
