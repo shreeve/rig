@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Migrate Rig 0.2 programs to Rig 0.3.0.
 
-    migrate-0.3.py scan  DIR     report what would change, change nothing
-    migrate-0.3.py apply DIR     rewrite every .rig file under DIR in place
+    migrate-0.3.py scan  PATH...  report what would change, change nothing
+    migrate-0.3.py apply PATH...  rewrite the programs in place
 
-The three renames of 0.3.0, applied in this order to each file:
+A PATH is a directory (every `.rig` and `.rig.tmpl` file under it) or a
+file of either kind. `scan` also prints a `HINT` for each other text
+file under a directory that spells Box, Vec, or Text the old way (a
+build script, a README, a generator): such a file is never rewritten.
+
+The renames of 0.3.0, applied in this order to each file:
 
   box     `Box[T]` -> `^T`, `Box(v)` -> `^v`.
   list    `Vec` -> `List`. A type your program already calls `List` is
@@ -12,6 +17,12 @@ The three renames of 0.3.0, applied in this order to each file:
   string  `Text` -> `String` (the owned text), and the read view
           `String` -> `?String` (`String?` -> `(?String)?`, `String!` ->
           `(?String)!`); `?Text` -> `?String`.
+
+Then, in `apply`, one change that needs the compiler: `for x in it` over
+an iterator that is a place is written `for x in !it`. The tool runs
+`rig check` (`$RIG`, else bin/rig of the checkout beside this tool, else
+`rig` on PATH) on each `.rig` file and inserts the `!` where the
+compiler asks for it. Without a compiler it prints a `MANUAL` line.
 
 `apply` is idempotent: it records the files it migrated, with the hash of
 what it wrote, in DIR/.rig-migrated-0.3, and skips a file whose hash is
@@ -484,14 +495,65 @@ def rewrite_prose(mode, line, path, n, report):
 
 
 MARK = ".rig-migrated-0.3"
+SKIP_DIRS = ("zig-cache", "zig-out", "node_modules")
+OLD_SPELLING = re.compile(r"(?<![A-Za-z0-9_.])(Box[\[(]|Vec\b|Text\b)")
 
 
-def files_under(root):
+def is_program(name):
+    return name.endswith(".rig") or name.endswith(".rig.tmpl")
+
+
+def files_under(root, want=is_program):
     for dp, ds, fs in os.walk(root):
-        ds[:] = sorted(d for d in ds if not d.startswith(".") and d not in ("zig-cache", "zig-out", "node_modules"))
+        ds[:] = sorted(d for d in ds if not d.startswith(".") and d not in SKIP_DIRS)
         for n in sorted(fs):
-            if n.endswith(".rig"):
+            if want(n) and n != MARK:
                 yield os.path.join(dp, n)
+
+
+def targets(paths):
+    """(root, path) for each program the PATHs name: the root holds the
+    record of what was migrated."""
+    out, seen = [], set()
+    for p in paths:
+        p = os.path.abspath(p)
+        if os.path.isdir(p):
+            found = [(p, f) for f in files_under(p)]
+        elif os.path.isfile(p):
+            if not is_program(p):
+                sys.exit("not a .rig or .rig.tmpl file: " + p)
+            found = [(os.path.dirname(p), p)]
+        else:
+            sys.exit("no such file or directory: " + p)
+        for root, f in found:
+            if f not in seen:
+                seen.add(f)
+                out.append((root, f))
+    return out
+
+
+def hints(paths):
+    """A line for each non-program text file under a directory PATH that
+    spells something the old way. Hints only: these files are not ours
+    to rewrite."""
+    out = []
+    for p in paths:
+        p = os.path.abspath(p)
+        if not os.path.isdir(p):
+            continue
+        for f in files_under(p, lambda n: not is_program(n)):
+            try:
+                if os.path.getsize(f) > 1 << 20:
+                    continue
+                text = open(f, encoding="utf-8").read()
+            except (UnicodeDecodeError, OSError):
+                continue
+            for n, line in enumerate(text.split("\n"), 1):
+                m = OLD_SPELLING.search(line)
+                if m:
+                    out.append("HINT %s:%d: old spelling `%s` (not rewritten)" % (os.path.relpath(f), n, m.group(1)))
+                    break
+    return out
 
 
 def migrate(text, path, report):
@@ -500,28 +562,74 @@ def migrate(text, path, report):
     return text
 
 
+ITER_DIAG = re.compile(r"^(.+?):(\d+):(\d+): error: write `for \S+ in !\S+`: the loop advances")
+
+
+def find_rig():
+    cands = [os.environ.get("RIG"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "rig")]
+    for c in cands:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return os.path.abspath(c)
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        c = os.path.join(d, "rig")
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+
+def iterator_loops(rig, files):
+    """Insert the `!` the compiler asks for, in any of `files`."""
+    ours = set(files)
+    for f in files:
+        if not f.endswith(".rig"):
+            continue
+        for _ in range(8):
+            r = subprocess.run([rig, "check", f], capture_output=True, text=True, cwd=os.path.dirname(f))
+            hits = {}
+            for l in (r.stderr + r.stdout).split("\n"):
+                m = ITER_DIAG.match(l)
+                if m:
+                    g = os.path.abspath(os.path.join(os.path.dirname(f), m.group(1)))
+                    if g in ours:
+                        hits.setdefault(g, set()).add((int(m.group(2)), int(m.group(3))))
+            if not hits:
+                break
+            for g, at in hits.items():
+                lines = open(g).read().split("\n")
+                for ln, col in sorted(at, reverse=True):
+                    lines[ln - 1] = lines[ln - 1][:col - 1] + "!" + lines[ln - 1][col - 1:]
+                    for k, l in enumerate(lines):
+                        m = ERROR_AT.match(l)
+                        if m and int(m.group(2)) == ln and int(m.group(3)) >= col:
+                            lines[k] = "%s%d:%d:%s" % (m.group(1), ln, int(m.group(3)) + 1, l[m.end():])
+                open(g, "w").write("\n".join(lines))
+
+
 def main():
     import hashlib
     args = sys.argv[1:]
-    if len(args) != 2 or args[0] not in ("scan", "apply"):
+    if len(args) < 2 or args[0] not in ("scan", "apply"):
         sys.exit(__doc__)
-    act, root = args[0], os.path.abspath(args[1])
-    if not os.path.isdir(root):
-        sys.exit("not a directory: " + root)
-    mark = os.path.join(root, MARK)
-    done = {}
-    if os.path.exists(mark):
-        for l in open(mark).read().split("\n"):
-            if l:
-                h, p = l.split("  ", 1)
-                done[p] = h
+    act, paths = args[0], args[1:]
+    marks = {}
     report, changed, skipped, total = [], 0, 0, 0
-    for path in files_under(root):
+    work = targets(paths)
+    for root, _ in work:
+        if root not in marks:
+            marks[root] = {}
+            mark = os.path.join(root, MARK)
+            if os.path.exists(mark):
+                for l in open(mark).read().split("\n"):
+                    if l:
+                        h, p = l.split("  ", 1)
+                        marks[root][p] = h
+    written = []
+    for root, path in work:
         rel = os.path.relpath(path, root)
         text = open(path).read()
         total += 1
         h = hashlib.sha256(text.encode()).hexdigest()
-        if done.get(rel) == h:
+        if marks[root].get(rel) == h:
             skipped += 1
             continue
         new = migrate(text, rel, report)
@@ -530,14 +638,25 @@ def main():
             if act == "apply":
                 open(path, "w").write(new)
         if act == "apply":
-            done[rel] = hashlib.sha256(new.encode()).hexdigest()
-    if act == "apply":
-        open(mark, "w").write("".join("%s  %s\n" % (h, p) for p, h in sorted(done.items())))
+            written.append((root, rel, path))
+    if act == "apply" and written:
+        rig = find_rig()
+        if rig is None:
+            report.append("MANUAL: no `rig` compiler found (set RIG); write `for x in !it` over an iterator in a place by hand")
+        else:
+            iterator_loops(rig, [p for _, _, p in written])
+        for root, rel, path in written:
+            marks[root][rel] = hashlib.sha256(open(path).read().encode()).hexdigest()
+        for root, m in marks.items():
+            open(os.path.join(root, MARK), "w").write("".join("%s  %s\n" % (h, p) for p, h in sorted(m.items())))
     seen = set()
     for r in report:
         if r not in seen and not r.startswith("SKIP"):
             seen.add(r)
             print(r)
+    if act == "scan":
+        for h in hints(paths):
+            print(h)
     print("%d files: %d %s, %d already migrated" % (total, changed, "rewritten" if act == "apply" else "to rewrite", skipped))
 
 

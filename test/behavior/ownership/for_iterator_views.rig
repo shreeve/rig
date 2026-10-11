@@ -50,10 +50,10 @@ sub main()
   for it in walk(?items)
     print(it.name, it.n)
   w = walk(?items)
-  for it in w
+  for it in !w
     print("first", it.name)
     break
-  for it in w
+  for it in !w
     print("then", it.name)
   print(longest(?items))
   !items.push(Item(name: "d", n: 1))

@@ -54,8 +54,8 @@ fun mkitems() -> List[Item]
 sub main()
   items = mkitems()
   w = walk(?items)
-  for it in w
+  for it in !w
     break
   !items.push(Item(name: "z", n: 0))
-  for it in w
+  for it in !w
     print(it.name)

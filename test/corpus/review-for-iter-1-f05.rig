@@ -71,5 +71,5 @@ sub main()
   for n in <p.a
     print(n)
   print("mid")
-  for m in p.b
+  for m in !p.b
     print(m)

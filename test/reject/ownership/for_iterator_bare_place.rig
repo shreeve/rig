@@ -1,0 +1,28 @@
+# A `for` advances an existing iterator, so a place that names one is
+# written `!it`; a value made in the header is held by the loop and
+# stays bare.
+
+struct Count
+  lo: Int
+  hi: Int
+
+  fun next(!self) -> Int?
+    return none if self.lo >= self.hi
+    n = self.lo
+    self.lo += 1
+    n
+
+fun mk() -> Count
+  Count(lo: 0, hi: 2)
+
+sub main()
+  c = Count(lo: 0, hi: 3)
+  for n in c
+    print(n)
+  for n in !c
+    print(n)
+  for n in mk()
+    print(n)
+
+# error: 20:12: write `for n in !c`: the loop advances `c`
+# errors: 1

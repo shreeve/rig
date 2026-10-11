@@ -87,6 +87,6 @@ sub main()
     print(n, g.at.get())
   g2 = *Gen(at: Cell(0), hi: 3)
   sh = Share(g: +g2)
-  for _ in sh
+  for _ in !sh
     break
   print(g2.at.get())

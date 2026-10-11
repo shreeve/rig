@@ -2127,7 +2127,7 @@ const Checker = struct {
 
     /// Whether a bare `for x in it` over an iterator in a place advances it,
     /// or the advance must be written `for x in !it`. The one switch.
-    const bare_place_advances = true;
+    const bare_place_advances = false;
 
     /// A name, or fields from one: the places a loop over an iterator
     /// advances where they stand.
@@ -2153,7 +2153,8 @@ const Checker = struct {
         const name = self.text(ir.For.@"var"(node));
         const index = ir.For.index(node);
         if (index != .nil) {
-            try self.errAt(index, "an iterator has no index binding; keep a count in the loop: `for {s} in {s}`", .{ name, shown });
+            const bang: []const u8 = if (self.hands(source).kind == .place) "!" else "";
+            try self.errAt(index, "an iterator has no index binding; keep a count in the loop: `for {s} in {s}{s}`", .{ name, bang, shown });
             return true;
         }
         // A place is evaluated again for each `next`, so it is a name or a
@@ -2166,7 +2167,7 @@ const Checker = struct {
         }
         const how: rig.IterSource = switch (mode) {
             .read => {
-                try self.errAt(source, "`for {s} in ?{s}` would only read an iterator, which `next` cannot advance; write `for {s} in {s}` (or `!{s}`) to advance it in place", .{ name, shown, name, shown, shown });
+                try self.errAt(source, "`for {s} in ?{s}` would only read an iterator, which `next` cannot advance; write `for {s} in !{s}` to advance it in place", .{ name, shown, name, shown });
                 return true;
             },
             .write => if (kind == .place) .place else {
@@ -2181,7 +2182,7 @@ const Checker = struct {
             },
             else => switch (kind) {
                 .place => if (bare_place_advances) .place else {
-                    try self.errAt(source, "a `for` advances an iterator only where it is marked: write `for {s} in !{s}`", .{ name, shown });
+                    try self.errAt(source, "write `for {s} in !{s}`: the loop advances `{s}`", .{ name, shown, shown });
                     return true;
                 },
                 .made => .made,

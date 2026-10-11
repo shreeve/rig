@@ -2292,7 +2292,7 @@ there; an unused one is a plain `{ }`, which Zig compiles to nothing.
 
 ### Loops over an iterator
 
-`for x in it` is `while (!it).next() as x`, and nothing else: no pass
+`for x in !it` is `while (!it).next() as x`, and nothing else: no pass
 has a form of its own for it. A `for` source is an iterator when its
 type, past views, is a struct or enum (not a `List`, array, slice,
 `?String`, or range, which keep their own meaning) that declares
@@ -2303,7 +2303,7 @@ what it hands over (`sema.handsOver`), as every header does:
 
 | The source | It desugars to |
 |---|---|
-| a name or field path `it`, or `!it` | `while (!it).next() as x` |
+| a name or field path, written `!it` (a bare `it` is rejected) | `while (!it).next() as x` |
 | a made value `e` | `{ h = e; while (!h).next() as x }` |
 | `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
 | `?it`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |

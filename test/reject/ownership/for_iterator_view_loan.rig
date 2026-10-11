@@ -21,7 +21,7 @@ sub main()
   for it in Walk(items: ?items, at: 0)
     !items.push(Item(n: it.n))
   w = Walk(items: ?items, at: 0)
-  for it in w
+  for it in !w
     !items.push(Item(n: it.n))
 
 # error: 22:5: cannot lend `items` to write while a read loan is live

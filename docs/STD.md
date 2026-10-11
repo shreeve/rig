@@ -409,7 +409,7 @@ sub main()
   for field in text.split("ann,,bob", ",")
     print("[", field, "]")
   rows = text.lines("x 1\r\ny  2\n")
-  for row in rows
+  for row in !rows
     for w in text.words(row)
       print(w, text.is_digit(w[0]))
 ```

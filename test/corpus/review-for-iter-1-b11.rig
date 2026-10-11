@@ -67,5 +67,5 @@ sub eat(b: Buf)
 
 sub main()
   b = mkbuf()
-  for _ in b
+  for _ in !b
     eat(<b)

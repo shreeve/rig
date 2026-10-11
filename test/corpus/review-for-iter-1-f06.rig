@@ -70,5 +70,5 @@ sub main()
   p = Pair(a: tracked(1, 2), b: tracked(2, 2))
   for n in <p.a
     print(n)
-  for m in p.a
+  for m in !p.a
     print(m)
