@@ -683,7 +683,7 @@ later pass reads. It runs these steps in order:
    by `elemsCall` and recorded as `elemCallOf` facts. `String` is a
    built-in type like `?String` (the `text` type, with drop glue), and
    its operations, which have no symbol either, are checked by
-   `checkTextNew` and `textCall` and recorded as `textCallOf` facts.
+   `checkStringNew` and `stringCall` and recorded as `stringCallOf` facts.
 2. **symbols** (`resolve.resolveSymbols`): one walk creates a `Symbol`
    for every declaration and binding, and a `Scope` for every node that
    opens one, recorded under that node.
@@ -1139,7 +1139,7 @@ instead of re-deriving it by name:
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
-| `textCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
+| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
@@ -1156,8 +1156,8 @@ it used (`lendOf`); the ownership checker and emit read that record.
 
 **One text view.** The read view of a `String` is its bytes, a
 `?String`, and there is no pointer view of a String. The type store makes
-it so: `TypeStore.absorbed` interns `?String` and `?String` as `?String`,
-and a read view of a read view, `?(?T)`, as `?T`, so no type holds a
+it so: `TypeStore.absorbed` interns the read view of a `String`, and of
+a `?String`, as `?String`, and a read view of a read view, `?(?T)`, as `?T`, so no type holds a
 pointer to a String, whichever way it is named, inferred, or instantiated.
 Every place that made a `?String` is the desugaring of the lend that makes
 the `?String`, and emit writes each as the String's `.bytes()`:
@@ -1166,13 +1166,13 @@ the `?String`, and emit writes each as the String's `.bytes()`:
   table, recorded on the lend (`readViewOf`);
 - `for x in ?v` over a String element is `for e in ?v` with `x = ?e[..]` in
   the body: the loop walks the elements by address and binds each one's
-  bytes (`storage.loopBindsTextBytes`, the loop's `element` storage);
+  bytes (`storage.loopBindsStringBytes`, the loop's `element` storage);
 - a payload binding of a String field, `.full(t)`, is `t = ?payload.t[..]`,
-  bound by address (`viewsTextBytes`, `storage.payloadByAddress`), and
+  bound by address (`viewsStringBytes`, `storage.payloadByAddress`), and
   the ownership checker gives it the `read` ref a view of a field has,
   so it views the matched value (`bindPayload`);
 - `if o as p` over an optional String, or a `(!String)?`, is `p = ?inner[..]`
-  (`storage.optionalBindsTextBytes`, `bindOptionalView`);
+  (`storage.optionalBindsStringBytes`, `bindOptionalView`);
 - a capture `|?t|` of a String is `?t[..]` (`writeCapturedView`);
 - a generic `?T` at `T = String` is `rig.ReadView(rig.String)`, which is
   `[]const u8`; `rig.lend` of a String is its bytes, and what `rig.viewed`
@@ -1183,7 +1183,7 @@ the `?String`, and emit writes each as the String's `.bytes()`:
 
 A `?String` is a view, so nothing lends a `?String` place to write: `!s`,
 and so `swap` and `replace` of one, are rejected where the lend is
-checked (`synthLend`), and `!String` as a written type is rejected where
+checked (`synthLend`), and `!?String` as a written type is rejected where
 it is resolved. The unwritten steps make no new effect: the lend, the
 loan, and the bytes are the ones `?t[..]` already has.
 
@@ -1749,7 +1749,7 @@ checker:
 
 Nothing else has the type, and nothing converts a `?String` to a `Static`.
 The one conversion goes the other way and is one rule,
-`typecheck.readsAsString`, applied in `meets`: a `Static` where a
+`typecheck.readsAsStringView`, applied in `meets`: a `Static` where a
 `?String` is expected, inside an optional (`Static?` as `(?String)?`), and as
 the elements of a read slice (`[]Static` as `[]?String`). `unify` joins a
 `Static` and a `?String` as the `?String` because `compatible` holds in
@@ -2404,7 +2404,7 @@ a `Pending` entry it no longer uses. `Facts` also answers a few node
 queries that combine recorded facts without a classifier of their own
 (`stmtTemps` and `firstStmtTemp` list the `dropsTemp` facts in the order
 the IR makes them; `receiverOf`, `argParams`, and `receiverWrites` read
-`callParamsOf`; `isNoneLeaf`, `textCall`, and `isTypeCallee` read
+`callParamsOf`; `isNoneLeaf`, `stringCall`, and `isTypeCallee` read
 symbols); a query that decides more than that belongs in `Pending`.
 
 - **Bindings** are `const` unless reassigned, written through, holding
