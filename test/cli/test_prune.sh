@@ -46,5 +46,26 @@ touch -t "$(ago 25)" dstore/one/used
 o=$(RIG_BUILD_STORE=$PWD/dstore RIG_BUILD_STORE_DAYS= RIG_TEST_OUT="$out" "$ROOT/test/run" --prune 2>&1) || fail "prune: $o"
 [[ -e dstore/three ]] && fail "kept a build unused for 3 days by default"
 [[ -f dstore/one/used ]] || fail "removed a build used a day ago by default"
+# RIG_BUILD_STORE_MAX_GB caps the store's size: over it, the least
+# recently used builds go first (the run's age prune is out of the way
+# with a long RIG_BUILD_STORE_DAYS); 0 means no cap.
+mkcap() {
+  rm -rf "$1"; mkdir -p "$1"
+  for n in a b c d; do mkdir -p "$1/$n/package"; dd if=/dev/zero of="$1/$n/package/blob" bs=1024 count=1024 2>/dev/null; done
+  touch -t "$(ago 4)" "$1/a/used"; touch -t "$(ago 3)" "$1/b/used"
+  touch -t "$(ago 2)" "$1/c/used"; touch "$1/d/used"
+}
+cap() { RIG_BUILD_STORE=$PWD/$1 RIG_BUILD_STORE_DAYS=9999 RIG_BUILD_STORE_MAX_GB=$2 RIG_TEST_OUT="$out" "$ROOT/test/run" --prune 2>&1; }
+mkcap cstore   # four 1 MB builds; 2.5 MB fits two of them
+o=$(cap cstore 0.0025) || fail "capped prune: $o"
+[[ -e cstore/a || -e cstore/b ]] && fail "kept the oldest builds over the cap"
+[[ -f cstore/c/used && -f cstore/d/used ]] || fail "removed recent builds that fit the cap"
+[[ -n $(find cstore -name '.trash.*') ]] && fail "left the trash after the cap"
+mkcap zstore
+o=$(cap zstore 0) || fail "uncapped prune: $o"
+[[ -f zstore/a/used && -f zstore/d/used ]] || fail "RIG_BUILD_STORE_MAX_GB=0 still removed builds"
+mkcap bstore
+o=$(cap bstore 50) || fail "default-sized prune: $o"
+[[ -f bstore/a/used ]] || fail "removed a build from a store under the cap"
 o=$(RIG_TEST_OUT="$out" "$ROOT/test/run" --prune corpus 2>&1); expect_rc $? 2 "--prune with a filter"
 exit 0
