@@ -1,0 +1,41 @@
+# An element of a Cell's List is stored through the Cell its target's
+# path starts from, which runs after the value and before the index: a
+# call there changes what the index then reads, and a lend of an element
+# is found before an index call runs.
+
+obj B
+  c: *Cell[List[Int]]
+
+fun pb(b: !B, x: !Cell[Int]) -> !B from b
+  !x.set(x.get() + 1)
+  b
+
+fun peek(x: ?Cell[Int]) -> Int
+  x.get()
+
+fun id(n: Int) -> Int
+  n
+
+sub main()
+  xs: List[Int] = List()
+  for _ in 0..4
+    !xs.push(0)
+  b = B(c: *Cell(<xs))
+  h: *Cell[Int] = *Cell(0)
+  g = +h
+  (!b.c)[peek(g)] = g.get() + 10
+  (!pb(!b, !h).c)[peek(g)] = g.get() + 20
+  print(b.c[0], b.c[1], b.c[2], h.get())
+
+  ys: List[Int] = List()
+  !ys.push(0)
+  !ys.push(0)
+  cs: List[*Cell[List[Int]]] = List()
+  !cs.push(*Cell(<ys))
+  i = 0
+  (!cs[i])[id(1)] = 5
+  print(cs[0][1])
+
+# expect:
+# 10 20 0 1
+# 5

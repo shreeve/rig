@@ -980,6 +980,7 @@ pub const Emitter = struct {
             .environment, .closure_env => "__rig_env",
             .invoked => "__rig_fn",
             .new_value => "__rig_new",
+            .base => "__rig_base",
             .index => "__rig_ix",
             .slot => "__rig_slot",
             // The storage of these is another's: the header's value, the
@@ -1349,10 +1350,10 @@ pub const Emitter = struct {
         const type_node = ir.Set.type(sexp);
         const expr = ir.Set.value(sexp);
 
-        if (kind.operator()) |op| return self.emitCompound(target, op, expr);
+        if (kind.operator()) |op| return self.emitCompound(sexp, op);
         if (target != .src) {
             return switch (kind) {
-                .default => self.emitPlaceAssign(target, expr),
+                .default => self.emitPlaceAssign(sexp),
                 else => self.unsupported(sexp, "this binding target"),
             };
         }
@@ -1535,8 +1536,9 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// A new value an assignment stores, `__rig_new_N`, and its `N`.
-    const NewValue = struct { id: u32, name: []const u8 };
+    /// A new value an assignment stores, `__rig_new_N`, its `N`, and the
+    /// flag that guards its drop if a later step leaves (`SetOrder.guard`).
+    const NewValue = struct { id: u32, name: []const u8, flag: []const u8 = "" };
 
     /// `{ const __rig_new_N: T = value`: a new value, computed before the
     /// one it replaces is dropped. The type lets a context-typed value
@@ -1554,14 +1556,50 @@ pub const Emitter = struct {
         return .{ .id = id, .name = name };
     }
 
+    /// `{ __rig_new_N: T = value;`, the value of assignment `set` made in
+    /// its turn, before its target's steps. When a later step can leave
+    /// (`SetOrder.guard`), the value is dropped on the way out unless the
+    /// store takes it, clearing the flag: `var __rig_new_N: T = value;
+    /// var __rig_live_N_new = true; defer if (__rig_live_N_new) rig.drop(&__rig_new_N);`.
+    fn openSetValue(self: *Emitter, set: Sexp, ty: ?TypeId, how: AssignValue) Error!NewValue {
+        const value = ir.Set.value(set);
+        const order = try self.need(self.facts.setOrder(set), set);
+        const id = self.nextId();
+        const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
+        const kind: ?ResourceKind = if (order.guard) (if (self.typeOf(value)) |t| self.kindOf(t) else null) else null;
+        if (order.guard and kind == null) return self.unsupported(value, "a guarded assignment value that owns nothing");
+        try self.w.print("{{ {s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", name });
+        if (ty) |t| {
+            try self.w.writeAll(": ");
+            try self.emitTypeTy(t);
+        }
+        try self.w.writeAll(" = ");
+        if (how == .view) try self.emitWriteViewPtr(value) else try self.emitBare(value);
+        try self.w.writeAll("; ");
+        const k = kind orelse return .{ .id = id, .name = name };
+        const flag = try self.fmt("__rig_live_{d}_new", .{id});
+        try self.w.print("var {s} = true; defer if ({s}) ", .{ flag, flag });
+        try self.writeDrop(name, k);
+        try self.w.writeAll("; ");
+        return .{ .id = id, .name = name, .flag = flag };
+    }
+
+    /// The new value as the store takes it: through its flag when a
+    /// later step could have left (`openSetValue`).
+    fn writeNewValue(self: *Emitter, new: NewValue) Error!void {
+        if (new.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ new.flag, new.name });
+        try self.w.writeAll(new.name);
+    }
+
     /// Assignment to a field or element. When the place may hold a
     /// resource, the old value is dropped after the new one is computed.
-    /// The value and the target's indices are evaluated first
-    /// (`openAssign`).
-    fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
+    /// The steps run in the order of `SetOrder` (`openAssign`).
+    fn emitPlaceAssign(self: *Emitter, set: Sexp) Error!void {
+        const target = ir.Set.target(set);
+        const value = ir.Set.value(set);
         const place_ty = self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellListTy(t)) {
-            const order = try self.openAssign(target, value, self.typeOf(target), .value);
+            const order = try self.openAssign(set, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
             try self.w.writeAll(".listSet(");
             try self.emitBare(ir.Index.index(target));
@@ -1572,7 +1610,7 @@ pub const Emitter = struct {
         };
         if (target != .src and self.isPtrViewExpr(target)) {
             // A field or element holding a write view is rebound.
-            const order = try self.openAssign(target, value, null, .view);
+            const order = try self.openAssign(set, null, .view);
             // An element is reached as the slot it is.
             if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitWriteViewPtr(target);
             try self.w.writeAll(" = ");
@@ -1582,57 +1620,55 @@ pub const Emitter = struct {
         }
         const may_own = if (place_ty) |t| self.kindOf(t) != null else true;
         if (!may_own) {
-            const order = try self.openAssign(target, value, place_ty, .value);
+            const order = try self.openAssign(set, place_ty, .value);
             try self.emitPlace(target);
             try self.w.writeAll(" = ");
             try self.emitBareAs(value, place_ty);
             try self.w.writeAll(";");
             return self.closeAssign(order);
         }
-        const new = try self.openNewValue(place_ty, value);
-        try self.w.writeAll("; ");
+        const new = try self.openSetValue(set, place_ty, .value);
         const first = self.hoisted.items.len;
-        if (self.facts.pending.actsBeforeStore(target, value)) try self.hoistIndices(target, new.id);
+        if ((try self.need(self.facts.setOrder(set), set)).held) try self.hoistTarget(set, new.id);
         const slot = try self.hiddenStorage(target, .slot, .pointer, .{ .id = new.id });
         try self.w.print("const {s} = &", .{slot});
         try self.emitPlace(target);
         self.hoisted.shrinkRetainingCapacity(first);
-        try self.w.print("; rig.drop({s}); {s}.* = {s}; }}", .{ slot, slot, new.name });
+        try self.w.print("; rig.drop({s}); {s}.* = ", .{ slot, slot });
+        try self.writeNewValue(new);
+        try self.w.writeAll("; }");
     }
 
     /// How `openAssign` evaluates an assignment's value: as a value, or
     /// as the view a view-holding place is pointed at.
     const AssignValue = enum { value, view };
 
-    /// Every assignment evaluates its value first, then its target's
-    /// index expressions from the outside in, and only then finds the
-    /// place and stores (SPEC §4), which is the order the ownership
-    /// checker walks it in: a call in the value that grows, replaces, or
-    /// frees what the target lies in cannot leave the store pointing
-    /// into freed memory. When the value or an index can act (a call,
-    /// an assignment, a drop, or a jump), this opens a block and
-    /// evaluates the value into `__rig_new_N` and each index into
-    /// `__rig_ix_N_k`, unless it is pure; the store written next names
-    /// them. Returns what `closeAssign` needs, or null when nothing can
-    /// act and the order is unobservable.
-    fn openAssign(self: *Emitter, target: Sexp, value: Sexp, ty: ?TypeId, how: AssignValue) Error!?usize {
-        if (!self.facts.pending.actsBeforeStore(target, value)) return null;
+    /// Every assignment evaluates its value first, then its target from
+    /// the base of its path outward, and only then finds the place and
+    /// stores (SPEC §4), which is the order the ownership checker walks
+    /// it in (`storage.eachSetStep`): a call in the value that grows,
+    /// replaces, or frees what the target lies in cannot leave the store
+    /// pointing into freed memory, and a call in the target cannot change
+    /// what the value reads. When a step can act (`SetOrder.held`), this
+    /// opens a block and evaluates the value into `__rig_new_N`, the base
+    /// into `__rig_base_N` (`SetOrder.base`), and each index into
+    /// `__rig_ix_N_k`, each in its turn and unless it is pure; the store
+    /// written next names them. Returns what `closeAssign` needs, or null
+    /// when nothing can act and the order is unobservable.
+    fn openAssign(self: *Emitter, set: Sexp, ty: ?TypeId, how: AssignValue) Error!?usize {
+        if (!(try self.need(self.facts.setOrder(set), set)).held) return null;
         const first = self.hoisted.items.len;
-        const id = self.nextId();
-        try self.w.writeAll("{ ");
-        if (!try self.isPureArg(value)) {
-            const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
-            try self.w.print("const {s}", .{name});
-            if (ty) |t| {
-                try self.w.writeAll(": ");
-                try self.emitTypeTy(t);
-            }
-            try self.w.writeAll(" = ");
-            if (how == .view) try self.emitWriteViewPtr(value) else try self.emitBare(value);
-            try self.w.writeAll("; ");
-            try self.hoisted.append(self.allocator, .{ .node = value, .name = name });
+        const value = ir.Set.value(set);
+        var id: u32 = undefined;
+        if (try self.isPureArg(value)) {
+            id = self.nextId();
+            try self.w.writeAll("{ ");
+        } else {
+            const new = try self.openSetValue(set, ty, how);
+            id = new.id;
+            try self.hoisted.append(self.allocator, .{ .node = value, .name = new.name, .flag = new.flag });
         }
-        try self.hoistIndices(target, id);
+        try self.hoistTarget(set, id);
         return first;
     }
 
@@ -1642,29 +1678,50 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// Evaluate each index of place `e` that is not pure into
-    /// `__rig_ix_<id>_<k>`, from the outside in, as `openAssign`
-    /// describes.
-    fn hoistIndices(self: *Emitter, e: Sexp, id: u32) Error!void {
-        switch (e.kind() orelse return) {
-            .member => try self.hoistIndices(ir.Member.object(e), id),
-            .index => {
-                try self.hoistIndices(ir.Index.object(e), id);
-                const index = ir.Index.index(e);
-                if (!index.isKind(.@"..")) return self.hoistIndex(index, id);
-                for ([2]Sexp{ ir.@"..".left(index), ir.@"..".right(index) }) |bound| if (bound != .nil) try self.hoistIndex(bound, id);
-            },
-            else => {},
-        }
+    /// Evaluate the steps of assignment `set`'s target that it holds, in
+    /// their turn (`storage.eachTargetStep`): its base into
+    /// `__rig_base_<id>` when `SetOrder.base`, then each index that is not
+    /// pure into `__rig_ix_<id>_<k>`, from the base outward.
+    fn hoistTarget(self: *Emitter, set: Sexp, id: u32) Error!void {
+        const Steps = struct {
+            e: *Emitter,
+            id: u32,
+            base: bool,
+
+            pub fn step(st: @This(), s: facts.SetStep) Error!void {
+                switch (s.role) {
+                    .value => {},
+                    .base => if (st.base) try st.e.hoistBase(s.node, st.id),
+                    .index => try st.e.hoistIndex(s.node, st.id),
+                }
+            }
+        };
+        const order = try self.need(self.facts.setOrder(set), set);
+        try facts.syntax.eachTargetStep(ir.Set.target(set), Steps{ .e = self, .id = id, .base = order.base });
+    }
+
+    /// `const __rig_base_<id> = base;`: the view the target's path starts
+    /// from, as the path would reach it where the place is found, the
+    /// pointer a write view is or the slice.
+    fn hoistBase(self: *Emitter, base: Sexp, id: u32) Error!void {
+        const name = try self.hiddenStorage(base, .base, .pointer, .{ .id = id });
+        try self.w.print("const {s} = ", .{name});
+        const saved = self.place_chain;
+        defer self.place_chain = saved;
+        self.place_chain = false;
+        if (self.isPtrViewExpr(base)) try self.emitWriteViewPtr(base) else try self.emitBare(base);
+        try self.w.writeAll("; ");
+        try self.hoisted.append(self.allocator, .{ .node = base, .name = name });
     }
 
     fn hoistIndex(self: *Emitter, index: Sexp, id: u32) Error!void {
         if (try self.isPureArg(index)) return;
         const name = try self.hiddenStorage(index, .index, .owned, .{ .pair = .{ id, @intCast(self.hoisted.items.len) } });
         try self.w.print("const {s}", .{name});
+        // An index is a number, read through a view of one.
         if (self.typeOf(index)) |t| {
             try self.w.writeAll(": ");
-            try self.emitTypeTy(t);
+            try self.emitTypeTy(self.peelViews(t));
         }
         try self.w.writeAll(" = ");
         const saved = self.place_chain;
@@ -1679,7 +1736,9 @@ pub const Emitter = struct {
     /// `e` (`openAssign`). The operators that lower to a builtin
     /// (`@divTrunc` for integer `/`, `rig.rem`, `@shlExact`) assign the
     /// builtin's result; the others use Zig's own compound assignment.
-    fn emitCompound(self: *Emitter, target: Sexp, op: Tag, value: Sexp) Error!void {
+    fn emitCompound(self: *Emitter, set: Sexp, op: Tag) Error!void {
+        const target = ir.Set.target(set);
+        const value = ir.Set.value(set);
         const builtin: ?[]const u8 = switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
             .@"<<" => "@shlExact",
@@ -1688,7 +1747,7 @@ pub const Emitter = struct {
         const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
-        const order = try self.openAssign(target, value, if (value_ty) |t| self.peelViews(t) else null, .value);
+        const order = try self.openAssign(set, if (value_ty) |t| self.peelViews(t) else null, .value);
         if (builtin) |b| {
             var slot: []const u8 = "";
             if (target == .src) {
@@ -5298,6 +5357,13 @@ pub const Emitter = struct {
     /// value, or the Cell's address.
     fn emitCellPtr(self: *Emitter, obj: Sexp) Error!void {
         const ty = self.typeOf(obj) orelse return self.unsupported(obj, "this Cell");
+        // The base of an assignment's target, held in its turn
+        // (`hoistBase`), holds the pointer its write view is.
+        if (self.hoistedOf(obj)) |h| {
+            if (!self.isPtrViewTy(ty)) return self.unsupported(obj, "a held Cell base that is no pointer");
+            if (self.facts.types.get(self.peelViews(ty)) == .shared) return self.w.print("(&{s}.*.value)", .{h.name});
+            return self.w.print("({s})", .{h.name});
+        }
         if (self.facts.types.get(self.peelViews(ty)) == .shared) {
             try self.w.writeAll("(&");
             try self.emitMemberBase(obj, ty);

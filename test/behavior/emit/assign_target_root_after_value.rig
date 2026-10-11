@@ -1,0 +1,87 @@
+# An assignment evaluates its value first, then its target from the
+# value its path starts from outward: a call there, a method's
+# receiver, a propagation, or a branch runs after the value, and before
+# the target's indexes. Each value below reads what its target's call
+# then changes, so it must see it unchanged.
+
+error E
+  bad
+
+obj P
+  n: Int
+  v: [2]Int
+
+  fun at(self: !P, k: !Int) -> !P
+    k += 1
+    self
+
+fun pick(t: ![]Int, k: !Int) -> ![]Int from t
+  k += 1
+  t
+
+fun pick_p(p: !P, k: !Int) -> !P
+  k += 1
+  p
+
+fun pick_opt(p: !P, k: !Int) -> (!P)?
+  k += 1
+  !p
+
+fun pick_err(p: !P, k: !Int) -> (!P)!
+  k += 1
+  !p
+
+fun flip(c: !Bool) -> Int
+  c = not c
+  0
+
+fun with_opt(p: !P) -> Int?
+  i = 1
+  pick_opt(!p, !i)?.n = i
+  pick_opt(!p, !i)?.v[0] += i
+  i
+
+fun with_err(p: !P) -> Int!
+  i = 1
+  pick_err(!p, !i)!.n = i
+  pick_err(!p, !i)!.v[1] <<= i
+  i
+
+sub main()
+  s: [3]Int = [10, 20, 30]
+  a: [3]Int = [0, 0, 0]
+  i = 1
+  pick(!a[..], !i)[0] = s[i]
+  pick(!a[..], !i)[1] += i
+  print(a, i)
+
+  p = P(n: 5, v: [5, 5])
+  j = 1
+  pick_p(!p, !j).n = j
+  pick_p(!p, !j).v[0] <<= j
+  pick_p(!p, !j).v[1] %= j
+  print(p, j)
+
+  k = 1
+  (!p).at(!k).n = k
+  (!p).at(!k).v[0] -= k
+  print(p, k)
+
+  b: [2]Int = [0, 0]
+  c: [2]Int = [0, 0]
+  yes = true
+  (!b[..] if yes else !c[..])[flip(!yes)] = 7
+  print(b, c, yes)
+
+  q = P(n: 5, v: [5, 5])
+  print(with_opt(!q) ?? 0, q)
+  r = P(n: 5, v: [5, 5])
+  print(with_err(!r) catch 0, r)
+
+# expect:
+# [20, 2, 0] 3
+# P(n: 1, v: [20, 2]) 4
+# P(n: 1, v: [18, 2]) 3
+# [7, 0] [0, 0] false
+# 3 P(n: 1, v: [7, 5])
+# 3 P(n: 1, v: [5, 20])

@@ -829,6 +829,9 @@ pub const StorageKind = enum {
     closure_env,
     /// An assignment's value, made before the store (`__rig_new`).
     new_value,
+    /// The value an assignment's target path starts from, evaluated after
+    /// the value and before the indexes (`__rig_base`).
+    base,
     /// An index of an assignment's target, evaluated before the store
     /// (`__rig_ix`).
     index,
@@ -951,6 +954,10 @@ pub const Question = enum(u8) {
     /// Of an argument, an assigned value, or an index: whether it is pure,
     /// so it stays where it is (`storage.isPureArg`).
     pure_arg,
+    /// Of an assignment: which of its steps are evaluated into storage in
+    /// their turn, and whether the value made first is dropped if a later
+    /// step leaves (`storage.setOrder`).
+    set_order,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.

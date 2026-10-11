@@ -853,34 +853,159 @@ fn decideMatchesInPlace(ctx: *const SemContext, match: Sexp) bool {
     return reachesPlace(ctx, subject) or (!hasStorage(ctx, subject) and isPtrViewExpr(ctx, subject));
 }
 
-/// Whether the value of an assignment, or an index of its target, can
-/// act when it runs: call, assign, drop, or leave. Then the order of the
-/// value, the indexes, and the store is observable (`openAssign`).
-pub fn actsBeforeStore(target: Sexp, value: Sexp) bool {
-    const acts = &[_]Tag{ .call, .builtin, .set, .drop, .@"return", .@"break", .@"continue", .propagate, .propagate_none };
-    if (contains(value, acts)) return true;
-    var e = target;
-    while (true) switch (e.kind() orelse return false) {
-        .member => e = ir.Member.object(e),
+// =============================================================================
+// The order of an assignment
+// =============================================================================
+
+/// One step of an assignment `place op= value`, in the order it runs
+/// (`eachSetStep`): the value, then the value the target's path starts
+/// from (its base), then each index on the path from the base outward,
+/// a range's bounds left to right. The store follows the last step.
+pub const SetStep = struct {
+    node: Sexp,
+    role: Role,
+
+    pub const Role = enum { value, base, index };
+};
+
+/// Call `visitor.step(SetStep)` for each step of assignment `set`, in the
+/// order it runs. The positive list of a target's steps: a field
+/// (`.member`) and an element (`.index`) continue the path to their
+/// object, and anything else is its base. A target that is a name has no
+/// steps; a name as a base is one, which evaluates nothing (`baseStays`).
+/// Emit, the storage plan, and the ownership checker all take an
+/// assignment's steps from here.
+pub fn eachSetStep(set: Sexp, visitor: anytype) !void {
+    try visitor.step(.{ .node = ir.Set.value(set), .role = .value });
+    try eachTargetStep(ir.Set.target(set), visitor);
+}
+
+/// The steps of target `e` (`eachSetStep`).
+pub fn eachTargetStep(e: Sexp, visitor: anytype) !void {
+    if (e == .src) return;
+    try eachPathStep(e, visitor);
+}
+
+fn eachPathStep(e: Sexp, visitor: anytype) !void {
+    switch (e.kind() orelse return visitor.step(.{ .node = e, .role = .base })) {
+        .member => try eachPathStep(ir.Member.object(e), visitor),
         .index => {
-            if (contains(ir.Index.index(e), acts)) return true;
-            e = ir.Index.object(e);
+            try eachPathStep(ir.Index.object(e), visitor);
+            const index = ir.Index.index(e);
+            if (!index.isKind(.@"..")) return visitor.step(.{ .node = index, .role = .index });
+            for ([2]Sexp{ ir.@"..".left(index), ir.@"..".right(index) }) |bound| if (bound != .nil) try visitor.step(.{ .node = bound, .role = .index });
         },
-        else => return false,
+        else => try visitor.step(.{ .node = e, .role = .base }),
+    }
+}
+
+/// How assignment `set` runs (`setOrder`): its desugaring is
+///
+///     { __v = value; __b = base; __i1 = index1; ...; place op= __v }
+///
+/// with the steps `eachSetStep` lists. Zig would find the place before it
+/// evaluates the value, and evaluate the base where it finds the place,
+/// so emit evaluates a step into hidden storage when its turn comes
+/// wherever Zig's own order could be told apart.
+pub const SetOrder = packed struct(u8) {
+    /// The value or an index can act (`setActs`), or the base can and the
+    /// value is not pure (`isPureArg`): the value, unless it is pure, is
+    /// made into `__rig_new` first, and then each index that is not pure
+    /// into `__rig_ix`, before the place is found. Otherwise Zig's own
+    /// order (the base, the indexes, the value) is one no program can
+    /// tell from this one, and stands.
+    held: bool = false,
+    /// The base is evaluated into `__rig_base` in its turn, after the
+    /// value and before the indexes: the steps are held, an index after
+    /// it is, and the base does not stay (`baseStays`). An unheld base is
+    /// evaluated where the place is found, after every held step, which
+    /// is its turn when no index is held.
+    base: bool = false,
+    /// The value owns a resource, and a step of the target can leave
+    /// (`setLeaves`): where the value is made into storage before that
+    /// step (`held`, or a place that owns, whose old value is dropped
+    /// after the new one is made), the storage is dropped on the way out
+    /// unless the store takes it.
+    guard: bool = false,
+    _: u5 = 0,
+};
+
+/// How assignment `set` runs, decided once.
+pub fn setOrder(ctx: *const SemContext, set: Sexp) SetOrder {
+    return decide(ctx, set, .set_order);
+}
+
+fn decideSetOrder(ctx: *const SemContext, set: Sexp) SetOrder {
+    const Scan = struct {
+        ctx: *const SemContext,
+        /// Whether the value or an index can act; whether the base can.
+        acts: bool = false,
+        base_acts: bool = false,
+        leaves: bool = false,
+        base: Sexp = .nil,
+        held_index: bool = false,
+
+        pub fn step(sc: *@This(), s: SetStep) error{}!void {
+            switch (s.role) {
+                .value => {},
+                .base => sc.base = s.node,
+                .index => if (!isPureArg(sc.ctx, s.node)) {
+                    sc.held_index = true;
+                },
+            }
+            if (setActs(s.node)) {
+                if (s.role == .base) sc.base_acts = true else sc.acts = true;
+            }
+            if (s.role != .value and setLeaves(s.node)) sc.leaves = true;
+        }
     };
+    var sc: Scan = .{ .ctx = ctx };
+    eachSetStep(set, &sc) catch unreachable;
+    // Zig evaluates the base, then the indexes, then the value: a base
+    // that acts is in its turn unless a value that is not pure must run
+    // before it.
+    const held = sc.acts or (sc.base_acts and !isPureArg(ctx, ir.Set.value(set)));
+    return .{
+        .held = held,
+        .base = held and sc.base != .nil and sc.held_index and !baseStays(sc.base),
+        .guard = sc.leaves and ownsValue(ctx, ir.Set.value(set)),
+    };
+}
+
+/// Whether step `e` of an assignment can act when it runs: call, assign,
+/// drop, or leave. Then the order of the steps and the store is
+/// observable.
+pub fn setActs(e: Sexp) bool {
+    return contains(e, &.{ .call, .builtin, .set, .drop, .@"return", .@"break", .@"continue", .propagate, .propagate_none });
+}
+
+/// Whether step `e` of an assignment can leave before the store: `!`,
+/// `?`, `return`, `break`, or `continue`.
+fn setLeaves(e: Sexp) bool {
+    return contains(e, &.{ .propagate, .propagate_none, .@"return", .@"break", .@"continue" });
+}
+
+/// Whether the base of an assignment's path gives the same place however
+/// late it is evaluated: a name, or a lend of a name or of a field path
+/// off one (`(!p)`, `(!p.q)`). A step that could change which place it
+/// gives changes the name, which a live loan of the target forbids.
+fn baseStays(e: Sexp) bool {
+    var p = lentPlace(e);
+    while (p.isKind(.member)) p = ir.Member.object(p);
+    return p == .src;
 }
 
 /// Whether assignment `set` to a name, which stores a value (a plain
 /// local, or what a `!T` local views) rather than pointing a view
 /// elsewhere, makes its value into `__rig_new` before the store: when
-/// the value can act (`actsBeforeStore`). An assignment is
+/// the value can act (`setOrder`). An assignment is
 /// `{ __v = value; place op= __v }`, so the store goes through the
 /// place as the value left it; Zig would take a `!T` local's pointer
 /// before the value runs (`w.* = switch ...`).
 pub fn storesAfterValue(ctx: *const SemContext, set: Sexp) bool {
     const target = ir.Set.target(set);
     const value = ir.Set.value(set);
-    if (target != .src or !actsBeforeStore(target, value) or isPureArg(ctx, value)) return false;
+    if (target != .src or !setOrder(ctx, set).held or isPureArg(ctx, value)) return false;
     const sym = ctx.symbolOf(target) orelse return false;
     const ty = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
     if (sema.isReadOrWriteView(ctx, ty)) return !ctx.repoints(set) and sema.assignWritesThrough(ctx, ty);
@@ -944,6 +1069,7 @@ pub fn Answer(comptime q: sema.Question) type {
         .match_mode => MatchMode,
         .hands => sema.Hands.Kind,
         .subject_hold => ?StorageBy,
+        .set_order => SetOrder,
     };
 }
 
@@ -982,6 +1108,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .consumes_receiver => Node.of(decideConsumesReceiver),
         .argument_hold => Node.of(decideArgumentHold),
         .pure_arg => Node.of(decideIsPureArg),
+        .set_order => Node.of(decideSetOrder),
     };
 }
 
@@ -992,6 +1119,7 @@ fn encode(comptime q: sema.Question, a: Answer(q)) u8 {
         .bool => @intFromBool(a),
         .@"enum" => @intFromEnum(a),
         .optional => if (a) |v| @intFromEnum(v) else no_answer,
+        .@"struct" => @bitCast(a),
         else => comptime unreachable,
     };
 }
@@ -1003,6 +1131,7 @@ pub fn decided(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) ?Answ
         .bool => a != 0,
         .@"enum" => @enumFromInt(a),
         .optional => |o| if (a == no_answer) @as(Answer(q), null) else @as(o.child, @enumFromInt(a)),
+        .@"struct" => @bitCast(a),
         else => comptime unreachable,
     };
 }
@@ -1384,13 +1513,14 @@ const Planner = struct {
         const kind = rig.bindingKindOf(ir.Set.op(set));
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
+        const order = setOrder(ctx, set);
         if (kind.operator()) |op| {
-            try p.openAssign(target, value);
+            try p.openAssign(set, order);
             if (target != .src and divides(ctx, op, target, value)) try p.record(target, .slot, .pointer, .assignment);
             return;
         }
         if (target != .src) {
-            if (kind == .default) try p.placeAssign(target, value);
+            if (kind == .default) try p.placeAssign(set, order);
             return;
         }
         if (std.mem.eql(u8, srcText(ctx, target), "_")) return;
@@ -1408,40 +1538,43 @@ const Planner = struct {
     }
 
     /// An assignment to a field or element (`emitPlaceAssign`).
-    fn placeAssign(p: *Planner, target: Sexp, value: Sexp) !void {
+    fn placeAssign(p: *Planner, set: Sexp, order: SetOrder) !void {
         const ctx = p.ctx;
+        const target = ir.Set.target(set);
         const place_ty = typeOf(ctx, target);
-        if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellListTy(ctx, t)) return p.openAssign(target, value);
-        if (target != .src and isPtrViewExpr(ctx, target)) return p.openAssign(target, value);
-        if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(target, value);
-        try p.record(value, .new_value, .owned, .assignment);
-        if (actsBeforeStore(target, value)) try p.indexes(target);
+        if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellListTy(ctx, t)) return p.openAssign(set, order);
+        if (target != .src and isPtrViewExpr(ctx, target)) return p.openAssign(set, order);
+        if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(set, order);
+        try p.record(ir.Set.value(set), .new_value, .owned, .assignment);
+        if (order.held) try p.targetSteps(set, order);
         try p.record(target, .slot, .pointer, .assignment);
     }
 
-    /// The value and the indexes of an assignment that can act before
-    /// its store, each evaluated first unless it is pure (`openAssign`).
-    fn openAssign(p: *Planner, target: Sexp, value: Sexp) !void {
-        if (!actsBeforeStore(target, value)) return;
-        if (!isPureArg(p.ctx, value)) try p.record(value, .new_value, .owned, .assignment);
-        try p.indexes(target);
+    /// The steps of an assignment whose order is held (`SetOrder`), each
+    /// evaluated into its storage in its turn unless it is pure
+    /// (`openAssign`).
+    fn openAssign(p: *Planner, set: Sexp, order: SetOrder) !void {
+        if (!order.held) return;
+        if (!isPureArg(p.ctx, ir.Set.value(set))) try p.record(ir.Set.value(set), .new_value, .owned, .assignment);
+        try p.targetSteps(set, order);
     }
 
-    fn indexes(p: *Planner, e: Sexp) !void {
-        switch (e.kind() orelse return) {
-            .member => try p.indexes(ir.Member.object(e)),
-            .index => {
-                try p.indexes(ir.Index.object(e));
-                const index = ir.Index.index(e);
-                if (!index.isKind(.@"..")) return p.indexOf(index);
-                for ([2]Sexp{ ir.@"..".left(index), ir.@"..".right(index) }) |bound| if (bound != .nil) try p.indexOf(bound);
-            },
-            else => {},
-        }
-    }
+    /// The storage of the target's steps an assignment holds: its base,
+    /// when `order.base`, and each index that is not pure.
+    fn targetSteps(p: *Planner, set: Sexp, order: SetOrder) !void {
+        const Steps = struct {
+            p: *Planner,
+            order: SetOrder,
 
-    fn indexOf(p: *Planner, e: Sexp) !void {
-        if (!isPureArg(p.ctx, e)) try p.record(e, .index, .owned, .assignment);
+            pub fn step(st: @This(), s: SetStep) !void {
+                switch (s.role) {
+                    .value => {},
+                    .base => if (st.order.base) try st.p.record(s.node, .base, .pointer, .assignment),
+                    .index => if (!isPureArg(st.p.ctx, s.node)) try st.p.record(s.node, .index, .owned, .assignment),
+                }
+            }
+        };
+        try eachTargetStep(ir.Set.target(set), Steps{ .p = p, .order = order });
     }
 
     /// The branches of `e`, when it is a value read where its leaves are
