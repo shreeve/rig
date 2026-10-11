@@ -1040,6 +1040,22 @@ pub const String = struct {
         self.list.items[self.list.items.len - 1] = b;
     }
 
+    /// `!t.reserve(n)`: room for `n` more bytes; the length is unchanged.
+    pub fn reserve(self: *String, n: Int) void {
+        const extra = std.math.cast(usize, n) orelse @panic("negative size");
+        if (self.list.capacity - self.list.items.len < extra) self.grow(extra);
+    }
+
+    /// `!t.push[T, e](v)`: append the bytes of the integer `v`, in byte
+    /// order `endian`, in one write.
+    pub fn pushInt(self: *String, comptime T: type, value: T, comptime endian: Endian) void {
+        const n = @divExact(@bitSizeOf(T), 8);
+        if (self.list.capacity - self.list.items.len < n) self.grow(n);
+        const off = self.list.items.len;
+        self.list.items.len = off + n;
+        writeInt(T, self.list.items, off, value, endian);
+    }
+
     fn appendBytes(self: *String, bytes_: []const u8) void {
         self.list.appendSlice(defaultAllocator(), bytes_) catch oom();
     }

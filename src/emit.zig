@@ -5002,19 +5002,31 @@ pub const Emitter = struct {
     /// `String(a, b)` → `rig.String.of(.{ a, &b })`; `!t.add(a, b)` →
     /// `t.add(.{ a, &b })`, the arguments written as `print`'s are
     /// (`emitPrintArgs`), so a place is read at the call; `!t.clear()` →
-    /// `t.clear()`.
+    /// `t.clear()`; `!t.reserve(n)` → `t.reserve(n)`; `!t.push[T, e](v)` →
+    /// `t.pushInt(T, v, e)`.
     fn emitStringCall(self: *Emitter, call: Sexp, op: facts.StringCall) Error!void {
         const args = ir.Call.args(call);
         switch (op) {
             .new => try self.w.writeAll("rig.String.of("),
-            .add, .push, .clear => {
+            .add, .push, .push_int, .reserve, .clear => {
                 const recv = ir.Member.object(self.facts.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
                 if (self.typeOf(recv)) |t| try self.writeReach(t);
                 if (op == .clear) return self.w.writeAll(".clear()");
-                if (op == .push) {
-                    try self.w.writeAll(".push(");
+                if (op == .push or op == .reserve) {
+                    try self.w.print(".{s}(", .{@tagName(op)});
                     try self.emitBare(args[0]);
+                    return self.w.writeAll(")");
+                }
+                // `.pushInt(T, v, endian)`; a one-byte `T` takes `.little`.
+                if (op == .push_int) {
+                    try self.w.writeAll(".pushInt(");
+                    try self.emitTypeTy(self.facts.stringNumOf(self.facts.calleeOf(call)) orelse return self.unsupported(call, "a `push` without its type"));
+                    try self.w.writeAll(", ");
+                    try self.emitBare(args[0]);
+                    try self.w.writeAll(", ");
+                    const given = self.facts.ctArgsOf(call);
+                    if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
                     return self.w.writeAll(")");
                 }
                 try self.w.writeAll(".add(");
