@@ -8962,7 +8962,7 @@ const Checker = struct {
             else => return self.badCall(args, given[0], "`{s}` {s} an integer or float type, or a `Simd` of them; got `{s}`", .{ method, if (op == .read) "reads" else "writes", try self.tyName(num) }),
         }
         if (one_byte) {
-            if (given.len == 2) return self.badCall(args, given[1], "`{s}` of a {s}`{s}` takes no byte order: `{s}[{s}]{s}`", .{ method, if (lanes == null) "one-byte " else "vector of one-byte lanes, ", try self.tyName(num), method, try self.tyName(num), if (op == .read) "(at)" else "(at, value)" });
+            if (given.len == 2) return self.badCall(args, given[1], "`{s}` of {s}`{s}`{s} takes no byte order: `{s}[{s}]{s}`", .{ method, if (lanes == null) "a one-byte " else "", try self.tyName(num), if (lanes == null) "" else ", whose lanes are one byte,", method, try self.tyName(num), if (op == .read) "(at)" else "(at, value)" });
         } else if (given.len != 2) {
             return self.badCall(args, b, "`{s}` of a `{s}` takes a byte order too: `{s}`", .{ method, try self.tyName(num), example });
         } else {
