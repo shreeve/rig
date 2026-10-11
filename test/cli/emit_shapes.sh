@@ -278,6 +278,6 @@ sub main()
     print(x, i)
 EOF2
 out=$("$RIG" emit loop_index.rig 2>/dev/null) || fail "rig emit loop_index.rig"
-expect_has "$out" '@as(isize, @bitCast(__rig_i_' "a loop index reads the counter's bits"
+expect_has "$out" '@as(i64, @bitCast(@as(u64, __rig_i_' "a loop index reads the counter's bits"
 grep -qF '@intCast(__rig_i_' <<<"$out" && fail "a loop index is range-checked each iteration: $out"
 true
