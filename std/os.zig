@@ -1,6 +1,6 @@
 //! `std.os`: the process's arguments and environment, which the runtime
 //! stores when the program starts (`rig.start`). Both live as long as
-//! the process, so they cross into Rig as Strings.
+//! the process, so they cross into Rig as `Static`s.
 
 const std = @import("std");
 const rig = @import("../runtime.zig");

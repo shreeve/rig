@@ -1,4 +1,4 @@
-//! `std.text`: searching and comparing Strings on Zig's `std.mem`,
+//! `std.text`: searching and comparing text (`?String`s) on Zig's `std.mem`,
 //! parsing numbers with `std.fmt`, and checking UTF-8 with
 //! `std.unicode`. A parse fails with the errors of `std.text.ParseError`,
 //! which the emitter names `error.@"std.text.ParseError.name"`.
