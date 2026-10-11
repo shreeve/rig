@@ -3255,8 +3255,8 @@ const Lowerer = struct {
         const obj = ir.Member.object(callee);
         const mname = ir.Member.name(callee).getText(self.src);
         if (self.ctx.elemCallOf(callee)) |ec| {
-            // A vector's methods read it as a value.
-            return .{ if (ec.op == .read or ec.op.isSimd()) .read else .write, null };
+            // An integer's bits and a vector's methods read it as a value.
+            return .{ if (ec.op == .read or ec.op.isBits() or ec.op.isSimd()) .read else .write, null };
         }
         if (self.ctx.stringCallOf(callee)) |tc| {
             _ = tc;
