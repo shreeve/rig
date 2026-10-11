@@ -819,11 +819,17 @@ payload.plain.param.guard_store inner
 payload.plain.param.return inner
 payload.plain.param.store inner
 plain.arg_then_write.move run
+simd.arg_then_write.move run
 plain.eq.move run
+simd.eq.move run
 plain.write_held.call run
+simd.write_held.call run
 plain.write_held.clone run
+simd.write_held.clone run
 plain.write_held.ctor run
+simd.write_held.ctor run
 plain.write_held.move run
+simd.write_held.move run
 shared.arg_then_write.catch run
 shared.arg_then_write.field run
 shared.arg_then_write.move run

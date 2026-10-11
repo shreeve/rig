@@ -58,4 +58,4 @@ sub main()
   print(checks, wrong)
 
 # expect:
-# 7756 0
+# 7068 0

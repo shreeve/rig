@@ -21,6 +21,6 @@ sub main()
 # error: 10:16: `.big` is not a type
 # error: 11:9: `read` takes two compile-time arguments, the type and the byte order
 # error: 12:11: `read` takes the type and the byte order in brackets
-# error: 13:16: `read` reads an integer or float type; got `Bool`
+# error: 13:16: `read` reads an integer or float type, or a `Simd` of them; got `Bool`
 # error: 14:26: integer value `70000` does not fit in `U16`
 # error: 15:16: no variant `native` on enum `Endian`
