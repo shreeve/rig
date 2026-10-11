@@ -1476,13 +1476,16 @@ pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, com
 
 /// `bytes.read[Simd[T, n], e](at)`: the `n` lanes of type `T` held in the
 /// bytes from `at`, each in byte order `e`; panics unless they are all in
-/// range. One check, then one unaligned load (never through a pointer of
-/// the vector's own alignment, which an unaligned offset breaks).
+/// range. One check, then one unaligned load of exactly the bytes read.
 pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endian: Endian) V {
     const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
     const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("read", n, offset, bytes.len);
-    const p: *align(1) const V = @ptrCast(bytes[i..][0..n]);
-    return lanesInOrder(p.*, endian);
+    // The bytes are loaded as an array of exactly `n`, then become the
+    // vector: a load through a vector pointer may touch the vector's whole
+    // register (Zig's own x86 backend loads 16 bytes for a 4-byte vector),
+    // past the bytes it was given. LLVM makes this one unaligned load.
+    const raw: [n]u8 = bytes[i..][0..n].*;
+    return lanesInOrder(@as(V, @bitCast(raw)), endian);
 }
 
 /// `!bytes.write[Simd[T, n], e](at, v)`: store the lanes of `v` in the
@@ -1491,8 +1494,8 @@ pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endi
 pub fn simdWrite(comptime V: type, bytes: anytype, offset: anytype, value: V, comptime endian: Endian) void {
     const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
     const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("write", n, offset, bytes.len);
-    const p: *align(1) V = @ptrCast(bytes[i..][0..n]);
-    p.* = lanesInOrder(value, endian);
+    // Stored as an array of exactly `n` bytes, as `simdRead` loads.
+    bytes[i..][0..n].* = @bitCast(lanesInOrder(value, endian));
 }
 
 /// `v` with each lane's bytes in the native order where `endian` is not
