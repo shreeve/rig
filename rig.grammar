@@ -18,13 +18,10 @@
 #   * reads a reserved word (each is a lexer rule) as a name where it
 #     names a member or a builtin: after `.` or `@`, before `:` inside
 #     ( ), and in a member list before `:` or after `fun` / `sub`;
-#   * classifies the contextual words: `new` is a keyword only at the
-#     start of a statement before a name or `const`; `of` is a keyword
-#     only after a value directly inside [ ] (`[n of x]`), `unique` only
-#     after a struct header's name or type parameters (`struct Random
-#     unique`), `from` only after a function's result type (`-> ?Item
-#     from a`), and `static` only right after that `from`; each is a
-#     name everywhere else;
+#   * classifies two contextual words: `new` is a keyword only at the
+#     start of a statement before a name or `const`, and `of` only after
+#     a value directly inside [ ] (`[n of x]`); each is a name everywhere
+#     else (the other contextual words are the parser's: see @keywords);
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);
 #   * classifies the tokens the parser cannot tell apart by its own
@@ -171,9 +168,6 @@ tokens
     bar_empty       # ||  an empty closure bar list: `|| print(1)`
     kwarg_name      # name directly followed by `:` inside ( )
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
-    unique          # unique  after a struct header's name or `]`: the struct is unique
-    from            # from  after a function's result type: what the result views
-    static          # static  right after that `from`: the result views only what lives for the whole program
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
     step_colon      # :   the first `:` of a `while` header: its step
@@ -458,6 +452,16 @@ tokens
     field: "a parameter", member: "a member"
     pattern: "a pattern", arm: "a match arm", params: "a parameter list"
     unary: "an operand", step: "an assignment or a call"
+
+# `unique`, `from` and `static` lex as names, and the parser reads one as
+# a keyword where its state takes the keyword: `unique` after a struct
+# header's name or type parameters (`struct Random unique`), `from` after
+# a function's result type (`-> ?Item from a`), and `static` right after
+# that `from`. Everywhere else each is a name.
+@keywords
+    ctx  unique from static
+
+@as IDENT = [ctx!]
 
 # ==============================================================================
 # PROGRAM STRUCTURE
