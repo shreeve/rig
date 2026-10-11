@@ -60,7 +60,7 @@ and `max` on slices and Lists, each taking a closure that is not stored
   the type that comes back.
 
 ### 0.3 `for` over an iterator *(decided)*
-`for x in it`, where `it` has `next(!self) -> T?`, is the desugaring
+`for x in !it`, where `it` has `next(!self) -> T?`, is the desugaring
 `while (!it).next() as x`, stated in INTERNALS ("Loops over an
 iterator") and SPEC §6 (`for`). A source made there is held in a hidden
 binding for the loop, and `<it` moves a place into one. The checker
