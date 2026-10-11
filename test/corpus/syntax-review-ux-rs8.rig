@@ -1,6 +1,6 @@
 struct Person
-  name: String
-  tags: List[String]
+  name: ?String
+  tags: List[?String]
 
 sub main()
   people: List[^Person] = List()

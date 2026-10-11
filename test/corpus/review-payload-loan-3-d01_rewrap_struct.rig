@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 struct H
   w: !P
@@ -9,15 +9,15 @@ enum E
   b
 
 sub put(q: !P)
-  q.t = Text("other")
+  q.t = String("other")
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   e = E.a(H(w: !p))
   match e
     .a(h)
       r = ?h.w.t[1..]
       g = H(w: h.w)
-      g.w.t = Text("other")
+      g.w.t = String("other")
       print(r)
     .b => pass

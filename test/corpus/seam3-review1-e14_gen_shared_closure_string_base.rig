@@ -6,7 +6,7 @@ fun mk[T](x: T) -> *sub()
   *|<h| print(h.v)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   !t.add(" world, a long text that lives on the heap")
   f = mk(?t[..])
   <t

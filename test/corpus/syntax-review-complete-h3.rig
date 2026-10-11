@@ -14,6 +14,6 @@ fun hash_int(k: ?Int) -> U64
   U64(k) if k >= 0 else 0
 
 sub main()
-  m = Map[Int, String].new(hash_int)
+  m = Map[Int, ?String].new(hash_int)
   five = 5
   print(m.slot(?five))

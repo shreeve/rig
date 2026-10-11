@@ -2,5 +2,5 @@ sub main()
   buf: List[U8] = List()
   for c in "hello"
     !buf.push(c)
-  s: String = ?buf[..]
+  s: ?String = ?buf[..]
   print(s)

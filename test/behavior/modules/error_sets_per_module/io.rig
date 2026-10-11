@@ -7,7 +7,7 @@ pub fun read(n: Int) -> Int!
   return IoError.closed if n < 0
   n
 
-pub fun kind(e: IoError = .closed) -> String
+pub fun kind(e: IoError = .closed) -> ?String
   match e
     .eof => "eof"
     IoError.closed => "closed"

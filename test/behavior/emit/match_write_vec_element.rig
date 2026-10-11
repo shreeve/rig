@@ -4,7 +4,7 @@
 # release
 
 enum E
-  a(n: Int, t: Text)
+  a(n: Int, t: String)
   b
 
 struct S
@@ -22,7 +22,7 @@ sub bump(p: !List[E], i: Int)
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(n: 1, t: Text("v")))
+  !v.push(E.a(n: 1, t: String("v")))
   !v.push(E.b)
   i = 0
   match !v[i]
@@ -35,14 +35,14 @@ sub main()
     .b => pass
   bump(!v, i)
   s: List[S] = List()
-  !s.push(S(e: E.a(n: 2, t: Text("s"))))
+  !s.push(S(e: E.a(n: 2, t: String("s"))))
   match !s[i].e
     .a(n, t)
       n += 20
       !t.add("y")
     .b => pass
   h = H(f: List())
-  !h.f.push(E.a(n: 3, t: Text("h")))
+  !h.f.push(E.a(n: 3, t: String("h")))
   match !h.f[i]
     .a(n, t)
       n += 30
@@ -50,7 +50,7 @@ sub main()
     .b => pass
   vv: List[List[E]] = List()
   w: List[E] = List()
-  !w.push(E.a(n: 4, t: Text("w")))
+  !w.push(E.a(n: 4, t: String("w")))
   !vv.push(<w)
   match !vv[0][i]
     .a(n, _) => n += 40

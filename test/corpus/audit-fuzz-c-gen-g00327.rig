@@ -109,7 +109,7 @@ fun fill_shelf[T](a: T, b: T) -> Shelf[T]
   s
 
 sub h0()
-  m1: Maybe[String] = .nada
+  m1: Maybe[?String] = .nada
   r1 = get_or(<m1, "s10")
   print("str", r1)
   r3 = cycle(^mk(20), rt_int(1))

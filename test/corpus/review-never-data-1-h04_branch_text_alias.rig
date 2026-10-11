@@ -20,5 +20,5 @@ sub main()
   k = a.s.c.len == 0
   !a.s.c.push(1)
   a2 = +a
-  t = Text(a.s if k else b.s, grow(!a2.s))
+  t = String(a.s if k else b.s, grow(!a2.s))
   print(t.len > 0)

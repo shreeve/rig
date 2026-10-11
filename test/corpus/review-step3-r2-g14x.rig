@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -18,12 +18,12 @@ fun inner(e: ?E) -> ?Res
     .b(r) => r
 
 fun inner2(e: ?E) -> ?Res
-  match get2(e, Text("xyz").len)
+  match get2(e, String("xyz").len)
     .a(r) => r
     .b(r) => r
 
 fun inner3(e: ?E) -> ?Res
-  match get2(e, Text("xyz").len)
+  match get2(e, String("xyz").len)
     .a(r) if r.n > 0 => r
     .a(r) => r
     .b(r) => r
@@ -33,7 +33,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("hello")))
+  e = E.a(r: Res(n: 1, t: String("hello")))
   x = inner(?e)
   y = inner2(?e)
   z = inner3(?e)

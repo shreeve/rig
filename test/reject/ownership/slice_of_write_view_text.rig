@@ -1,46 +1,46 @@
 # A slice of a write view of a Text lends that view, as `?t[1..]` does:
 # the holder of a write view may add to the Text or assign it, which
 # frees the bytes the slice views, so it cannot while the slice is used.
-# A `!Text` parameter and local, a `!*Text`, and a `!^Text`,
+# A `!String` parameter and local, a `!*String`, and a `!^String`,
 # each written through by `add` or by assignment.
 
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
-sub param_add(t: !Text)
+sub param_add(t: !String)
   s = word(?t[1..])
   !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
-sub param_assign(t: !Text)
+sub param_assign(t: !String)
   s = word(?t[1..])
-  t = Text("other")
+  t = String("other")
   print(s)
 
 sub local_add()
-  t = Text("hello")
+  t = String("hello")
   w = !t
   s = word(?w[1..])
   !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
-sub shared_assign(h: !*Text)
+sub shared_assign(h: !*String)
   s = word(?h[1..])
-  h = *Text("other")
+  h = *String("other")
   print(s)
 
-sub box_add(b: !^Text)
+sub box_add(b: !^String)
   s = word(?b[1..])
   !b.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
-sub box_assign(b: !^Text)
+sub box_assign(b: !^String)
   s = word(?b[1..])
-  b = ^Text("other")
+  b = ^String("other")
   print(s)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   param_add(!t)
 
 # error: 12:3: cannot lend `t` to write while a read loan is live

@@ -1,6 +1,6 @@
 pub struct P
   pub n: Int
-  pub t: Text
+  pub t: String
 
 pub enum E
   a(w: !P)

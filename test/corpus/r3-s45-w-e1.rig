@@ -1,5 +1,5 @@
 struct Rec
-  name: Text
+  name: String
   n: Int
 
 fun size(v: ?List[Int]) -> Int
@@ -16,19 +16,19 @@ sub main()
   q: List[Int] = List()
   rows[0] = <q
   print(rows)
-  ts: List[Text] = List()
-  !ts.push(Text("a"))
+  ts: List[String] = List()
+  !ts.push(String("a"))
   !ts[0].add("b")
   print(ts[0], ts[0].len)
-  ts[0] = Text("zz")
+  ts[0] = String("zz")
   print(ts)
   rs: List[Rec] = List()
-  !rs.push(Rec(name: Text("x"), n: 1))
+  !rs.push(Rec(name: String("x"), n: 1))
   rs[0].n = 4
-  rs[0].name = Text("y")
+  rs[0].name = String("y")
   print(rs[0].name, rs[0].n)
-  os: List[Text?] = List()
-  !os.push(Text("o"))
+  os: List[String?] = List()
+  !os.push(String("o"))
   if <os[0] as t
     print(t)
   print(os)

@@ -5,36 +5,36 @@
 # release
 
 struct S
-  o: Text?
+  o: String?
 
 struct H
   f: List[S]
 
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("q"))
-  w: Text? = Text("w")
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
   c = v.len == 1
-  if (!v[idx(?Text("a"))] if c else !w) as t
+  if (!v[idx(?String("a"))] if c else !w) as t
     !t.add("x")
-  if (!w if c else !v[idx(?Text("a"))]) as t
+  if (!w if c else !v[idx(?String("a"))]) as t
     !t.add("x")
   n = 0
-  while (!v[idx(?Text("a"))] if c else !w) as t
+  while (!v[idx(?String("a"))] if c else !w) as t
     !t.add("x")
     break
   h = H(f: List())
-  !h.f.push(S(o: Text("q")))
-  if (!h.f[idx(?Text("a"))].o if c else !w) as t
+  !h.f.push(S(o: String("q")))
+  if (!h.f[idx(?String("a"))].o if c else !w) as t
     !t.add("x")
-  if (?v[idx(?Text("a"))] if c else ?w) as t
+  if (?v[idx(?String("a"))] if c else ?w) as t
     print(t)
   arr: [1]Int? = [1]
   m: Int? = 2
-  if (!arr[idx(?Text("a"))] if c else !m) as k
+  if (!arr[idx(?String("a"))] if c else !m) as k
     k = 50
   print(v, w, h.f.len, arr, m, n)
 

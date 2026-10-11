@@ -3,7 +3,7 @@ enum Opt[T]
   none
 
 sub main()
-  o: Opt[Text] = Opt.some(Text("hello"))
+  o: Opt[String] = Opt.some(String("hello"))
   match !o
     .some(v)
       s = ?v[1..]

@@ -10,4 +10,4 @@ type VI = List[Int]
 
 sub main()
   b: ^Node? = none
-  print(@size(BN), @size(OBN), @size(SN), @size(OSN), @size(Node), @size(String), @size(VI), @size(@type(b)))
+  print(@size(BN), @size(OBN), @size(SN), @size(OSN), @size(Node), @size(?String), @size(VI), @size(@type(b)))

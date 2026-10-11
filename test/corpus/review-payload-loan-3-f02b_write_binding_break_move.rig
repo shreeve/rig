@@ -1,10 +1,10 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub main()
-  e = E.a(Text("hello"))
-  d = Text("dflt")
+  e = E.a(String("hello"))
+  d = String("dflt")
   r = while true
     match !e
       .a(t) => break <t

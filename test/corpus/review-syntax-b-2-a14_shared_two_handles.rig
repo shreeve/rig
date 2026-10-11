@@ -1,10 +1,10 @@
-sub f(r: ?*Text, h: !*Text)
+sub f(r: ?*String, h: !*String)
   s = r[1..]
-  h = *Text("other")
+  h = *String("other")
   print(s)
 
 sub main()
-  a = *Text("hello")
+  a = *String("hello")
   b = +a
   f(?a, !b)
   print(b)

@@ -1,11 +1,11 @@
 # store a view through a struct field holding a write view
 struct H
-  w: !List[String]
+  w: !List[?String]
 
 sub main()
-  inner: List[String] = List()
+  inner: List[?String] = List()
   h = H(w: !inner)
-  t = Text("x")
+  t = String("x")
   !h.w.push(?t)
   <h
   <t

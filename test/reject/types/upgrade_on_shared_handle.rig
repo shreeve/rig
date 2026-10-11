@@ -2,7 +2,7 @@
 # handle (whose type has no `upgrade` method) points at `~rc`.
 
 struct User
-  name: String
+  name: ?String
 
 sub main()
   rc = *User(name: "x")

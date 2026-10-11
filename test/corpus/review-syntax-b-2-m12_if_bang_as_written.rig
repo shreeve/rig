@@ -1,5 +1,5 @@
 sub main()
-  o: Text? = Text("hello")
+  o: String? = String("hello")
   if !o as w
     s = ?w[1..]
     for _ in 0..50

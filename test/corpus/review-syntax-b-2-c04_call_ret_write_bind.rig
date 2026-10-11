@@ -1,11 +1,11 @@
 struct H
-  t: Text
+  t: String
 
-fun get(h: !H) -> !Text
+fun get(h: !H) -> !String
   !h.t
 
 sub main()
-  h = H(t: Text("hello"))
+  h = H(t: String("hello"))
   s = get(!h)[1..]
   for _ in 0..50
     !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")

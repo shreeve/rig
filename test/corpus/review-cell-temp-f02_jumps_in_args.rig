@@ -7,7 +7,7 @@
 # oracle: main accept
 struct D
   c: Cell[Int]
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.c.get())
@@ -16,7 +16,7 @@ struct D
     !self.c.set(self.c.get() + n)
 
 fun mkd(n: Int) -> D
-  D(c: Cell(n), t: Text("owned"))
+  D(c: Cell(n), t: String("owned"))
 
 fun maybe(n: Int) -> Int?
   return none if n < 0

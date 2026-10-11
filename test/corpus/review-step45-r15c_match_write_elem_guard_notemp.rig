@@ -1,14 +1,14 @@
 # match !v[0] with a guard, no header temporary: a write payload grows the Text in the arm
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(t: Text("hi")))
+  !v.push(E.a(t: String("hi")))
   match !v[0]
     .a(t) if t.len > 0
       for _ in 0..40

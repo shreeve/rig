@@ -9,13 +9,13 @@ struct D
     print("drop", self.n)
 
 struct Rec
-  name: Text
+  name: String
   n: Int
 
 fun size(v: ?List[Int]) -> Int
   v.len
 
-fun first(v: ?List[Text]) -> String
+fun first(v: ?List[String]) -> ?String
   ?v[0]
 
 sub main()
@@ -25,18 +25,18 @@ sub main()
   !rows.push(<r)
   !rows[0].push(6)
   print(rows[0], rows[0].len, size(?rows[0]), size(rows[0]))
-  ts: List[Text] = List()
-  !ts.push(Text("a"))
+  ts: List[String] = List()
+  !ts.push(String("a"))
   !ts[0].add("b")
-  ts[0] = Text("zz")
+  ts[0] = String("zz")
   print(ts, first(?ts), ts[0] == ts[0], +ts[0])
   rs: List[Rec] = List()
-  !rs.push(Rec(name: Text("x"), n: 1))
+  !rs.push(Rec(name: String("x"), n: 1))
   rs[0].n = 4
-  rs[0].name = Text("y")
+  rs[0].name = String("y")
   print(rs[0].name, rs[0].n)
-  os: List[Text?] = List()
-  !os.push(Text("o"))
+  os: List[String?] = List()
+  !os.push(String("o"))
   if <os[0] as t
     print(t)
   print(os)
@@ -47,15 +47,15 @@ sub main()
   print("after")
   a = [D(n: 4), D(n: 5)]
   a[1] = D(n: 6)
-  m: List[List[Text]] = List()
-  row: List[Text] = List()
-  !row.push(Text("q"))
+  m: List[List[String]] = List()
+  row: List[String] = List()
+  !row.push(String("q"))
   !m.push(<row)
   for t in m[0]
     print(t)
   for t in !m[0]
     !t.add("!")
-  m[0][0] = Text("r")
+  m[0][0] = String("r")
   print(m)
   print("end")
 

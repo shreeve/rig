@@ -12,7 +12,7 @@ struct P
 fun mk(k: Int) -> P
   P(xs: [F.a(n: k), F.b(n: 2)])
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -21,9 +21,9 @@ fun clobber(n: Int) -> Int
 
 sub main()
   k = 41
-  match mk(k).items()[idx(?Text("a"))]
+  match mk(k).items()[idx(?String("a"))]
     .a(n) => print(clobber(n), n)
     .b(n) => print(n)
-  match P(xs: [F.a(n: k), F.b(n: 2)]).items()[idx(?Text("a"))]
+  match P(xs: [F.a(n: k), F.b(n: 2)]).items()[idx(?String("a"))]
     .a(n) => print(clobber(n), n)
     .b(n) => print(n)

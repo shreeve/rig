@@ -1,6 +1,6 @@
-fun keep(s: String) -> Static
+fun keep(s: ?String) -> Static
   s
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   print(keep(?t[..]))

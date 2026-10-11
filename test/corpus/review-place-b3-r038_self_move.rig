@@ -1,6 +1,6 @@
 struct P
   x: Int
-  s: String
+  s: ?String
 
   sub inc(<self)
     self.x += 1

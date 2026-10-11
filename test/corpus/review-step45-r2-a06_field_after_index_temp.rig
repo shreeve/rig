@@ -1,13 +1,13 @@
 # if !v[idx(?Text("a"))].o as t : field after an index with a temp (must reject)
 struct S
-  o: Text?
+  o: String?
 
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   v: List[S] = List()
-  !v.push(S(o: Text("q")))
-  if !v[idx(?Text("a"))].o as t
+  !v.push(S(o: String("q")))
+  if !v[idx(?String("a"))].o as t
     !t.add("x")
   print(v[0].o)

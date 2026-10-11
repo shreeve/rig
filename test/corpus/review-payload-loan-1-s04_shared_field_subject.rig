@@ -1,12 +1,12 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 struct H
   e: E
 
 sub main()
-  h = *H(e: E.a(Text("hello")))
+  h = *H(e: E.a(String("hello")))
   match !h.e
     .a(t)
       s = ?t[1..]

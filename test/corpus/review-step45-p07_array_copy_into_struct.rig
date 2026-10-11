@@ -1,8 +1,8 @@
 # struct literal field takes an array of owners bare (copy): reject
 struct S
-  arr: [2]Text
+  arr: [2]String
 
 sub main()
-  a = [Text("a"), Text("b")]
+  a = [String("a"), String("b")]
   s = S(arr: a)
   print(s.arr, a)

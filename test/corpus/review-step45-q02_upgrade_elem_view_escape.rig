@@ -1,13 +1,13 @@
 # element view through an upgraded weak handle escapes the if
 struct S
-  v: List[Text]
+  v: List[String]
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   h = *S(v: <v)
   w = ~h
-  s: String = "none"
+  s: ?String = "none"
   if w.upgrade() as g
     s = ?g.v[0]
   <h

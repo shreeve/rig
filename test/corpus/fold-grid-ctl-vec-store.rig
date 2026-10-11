@@ -1,24 +1,24 @@
 # The fold: a String that views a Text slot (ctl-vec-store): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct S
-  name: String
+  name: ?String
 
 struct H
-  t: Text
+  t: String
 
 fun id[T](x: ?T) -> ?T from x
   x
 
-fun first(v: ?List[Text]) -> ?Text from v
+fun first(v: ?List[String]) -> ?String from v
   ?v[0]
 
 sub main()
-  o = Text("hello")
-  vs: List[String] = List()
-  keep: String = ""
+  o = String("hello")
+  vs: List[?String] = List()
+  keep: ?String = ""
   !vs.push(?o)
   keep = vs[0]
   print(keep)

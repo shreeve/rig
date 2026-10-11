@@ -11,13 +11,13 @@ error StdError
   invalid
   overflow
 
-struct Text
+struct String
   bytes: List[U8]
 
-  fun new() -> Text
-    Text(bytes: List())
+  fun new() -> String
+    String(bytes: List())
 
-  sub push(!self, s: String)
+  sub push(!self, s: ?String)
     for b in s
       !self.bytes.push(b)
 
@@ -44,14 +44,14 @@ struct Lines
   fun next(!self) -> ([]U8)?
     none
 
-fun trim(s: String) -> String
+fun trim(s: ?String) -> ?String
   s
 
 fun trim_view(s: []U8) -> []U8
   s
 
-fun split(s: String, sep: String) -> List[String]
-  v: List[String] = List()
+fun split(s: ?String, sep: ?String) -> List[?String]
+  v: List[?String] = List()
   !v.push(s)
   v
 
@@ -59,11 +59,11 @@ fun parse_int(s: []U8) -> Int!
   return StdError.invalid if s.len == 0
   s.len
 
-fun read_file(path: String) -> Text!
+fun read_file(path: ?String) -> String!
   return StdError.not_found if path.len == 0
-  Text.new()
+  String.new()
 
-fun read_line() -> Text?!
+fun read_line() -> String?!
   return StdError.io_failed if false
   none
 
@@ -71,10 +71,10 @@ sub sort_by[T](v: !List[T], less: ?fun(T, T) -> Bool)
   if v.len > 1
     print(less(v[0], v[1]))
 
-fun args() -> List[String]
+fun args() -> List[?String]
   List()
 
-fun env(name: String) -> String?
+fun env(name: ?String) -> (?String)?
   none
 
 struct Map[K, V]
@@ -116,7 +116,7 @@ sub main()
   print("args", argv.len, argv.get(1), env("RIG_PROTO"), env("RIG_PROTO_UNSET"))
 
   # Text: an owned, growable byte string.
-  t = Text.new()
+  t = String.new()
   !t.push("total=")
   !t.push_int(-42)
   !t.push(", ok")
@@ -128,7 +128,7 @@ sub main()
 
   # Parsing, with Zig errors mapped to Rig error names.
   print(parse_int(trim_view(t.view()[6..9])) catch -1)
-  bad = Text.new()
+  bad = String.new()
   !bad.push("12x")
   print(parse_int(bad.view()) catch -1)
   n = parse_int(bad.view()) catch |e|
@@ -139,7 +139,7 @@ sub main()
   # Whole-file read through std.Io, then its lines.
   src = read_file("input.txt") catch |e|
     print("read failed", e)
-    Text.new()
+    String.new()
   words = 0
   it = src.lines()
   while !it.next() as line
@@ -148,12 +148,12 @@ sub main()
   print("nonblank lines", words)
   missing = read_file("no/such/file") catch |e|
     print("read failed", e)
-    Text.new()
+    String.new()
   print(missing.len())
 
   # Lines from stdin, through one process-wide std.Io reader.
   count = 0
-  longest = Text.new()
+  longest = String.new()
   while read_line()! as line
     count += 1
     if line.len() > longest.len()
@@ -168,7 +168,7 @@ sub main()
   print(nums)
 
   # Map[String, Int] and Map[Int, *Node] (owned values, drop glue).
-  counts: Map[String, Int] = Map[String, Int].new()
+  counts: Map[?String, Int] = Map[?String, Int].new()
   for w in split("a b a c b a", " ")
     _ = !counts.put(w, (counts.get(?w) ?? 0) + 1)
   a = "a"
@@ -192,13 +192,13 @@ sub main()
   print("left", nodes.len())
 
   # Owned keys: Map[Text, Int] hashes a Text by its bytes.
-  byname: Map[Text, Int] = Map[Text, Int].new()
+  byname: Map[String, Int] = Map[String, Int].new()
   for w in split("x y x", " ")
-    key = Text.new()
+    key = String.new()
     !key.push(w)
-    probe = Text.new()
+    probe = String.new()
     !probe.push(w)
     _ = !byname.put(<key, (byname.get(?probe) ?? 0) + 1)
-  probe = Text.new()
+  probe = String.new()
   !probe.push("x")
   print(byname.len(), byname.get(?probe))

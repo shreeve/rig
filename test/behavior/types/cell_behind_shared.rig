@@ -4,7 +4,7 @@
 
 struct Counter
   hits: Cell[Int] = Cell(0)
-  name: String
+  name: ?String
 
   fun hit(!self) -> Int
     !self.hits.set(self.hits.get() + 1)

@@ -1,8 +1,8 @@
 # while <v[i] as t: take elements in a loop
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   i = 0
   while i < v.len
     if <v[i] as t

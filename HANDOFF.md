@@ -84,7 +84,7 @@ structural weak spots, which these steps removed (the evidence is in
    expected, one lend table serves every owner (List, Text, `^T`, `*T`,
    optionals), and a header's subject is viewed or taken by its
    classification.
-4. **Containers hold anything.** `List[Text]`, nested Lists, and records
+4. **Containers hold anything.** `List[String]`, nested Lists, and records
    that own text work; `?v[i]`, `!v[i]`, and `<v[i]` lend or take an
    element; assigning a view place re-points it or writes through.
 5. **The remaining planned rules.** An error value meets `T!` only as
@@ -120,7 +120,7 @@ diagnostics name only forms that compile.
 **Held, each waiting on the change named:**
 
 - **Whole-program parameter summaries** (CORE §9, *planned*): a generic
-  `Holder[String]` built from literals is still rejected.
+  `Holder[?String]` built from literals is still rejected.
 - **Field-precise re-pointing:** with field-precise loans.
 - **Std search taking `x: ?T`:** it would reject
   `slices.contains(?v[..], ?t[4..5])`; decide whether implicit lends
@@ -207,7 +207,7 @@ and run the corpus after.
 - **What a view could hold:** `carry` and `sema.viewReach`, and String
   values in Cells, generics, and closures.
 - **Evaluation order versus what is emitted:** call arguments, `print`
-  and `Text(...)` arguments, and assignment targets.
+  and `String(...)` arguments, and assignment targets.
 - **`defer`/`errdefer` at exits,** owners behind `Cell`, `^T`, and
   `*T`, and generic instances.
 - **Statement-long loans the Core does not need** (compiler-stricter,

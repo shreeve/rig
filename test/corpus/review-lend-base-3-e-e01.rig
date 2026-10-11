@@ -7,13 +7,13 @@ fun tpl(n: Int) -> Int
 struct P
   x: Int
   items: List[Int]
-  s: Text
+  s: String
   f: fun(Int) -> Int
 
 fun mk(n: Int) -> P
   v = List[Int]()
   !v.push(n)
-  P(x: n, items: <v, s: Text("hello"), f: dbl)
+  P(x: n, items: <v, s: String("hello"), f: dbl)
 
 sub main()
   a = [1, 2, 3]
@@ -26,8 +26,8 @@ sub main()
   v2 = List[Int]()
   !v2.push(9)
   !v2.push(10)
-  t1 = Text("abcdef")
-  t2 = Text("uvwxyz")
+  t1 = String("abcdef")
+  t2 = String("uvwxyz")
   c = true
   _ = c
   y = (<(!a if c else !b))[1]

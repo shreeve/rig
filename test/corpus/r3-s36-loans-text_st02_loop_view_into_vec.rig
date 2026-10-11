@@ -1,6 +1,6 @@
 sub main()
-  names: List[String] = List()
+  names: List[?String] = List()
   for i in 0..3
-    t = Text("n", i)
+    t = String("n", i)
     !names.push(?t[..])
   print(names)

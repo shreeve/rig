@@ -1,14 +1,14 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   0
 
 sub main()
   v: List[E?] = List()
-  !v.push(E.a(t: Text("hello")))
-  match <v[idx(?Text("k"))]
+  !v.push(E.a(t: String("hello")))
+  match <v[idx(?String("k"))]
     .a(t) => print(t)
     .b => pass
   print(v.len)

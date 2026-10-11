@@ -1,10 +1,10 @@
 struct Reg
-  names: List[String]
+  names: List[?String]
 
-  sub add(!self, n: String)
+  sub add(!self, n: ?String)
     !self.names.push(n)
 
-  fun first(?self) -> String
+  fun first(?self) -> ?String
     self.names[0]
 
 sub main()

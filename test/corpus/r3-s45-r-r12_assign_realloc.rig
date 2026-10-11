@@ -1,13 +1,13 @@
-fun grow(v: !List[Text]) -> Text
-  !v.push(Text("x"))
-  !v.push(Text("y"))
-  !v.push(Text("z"))
-  !v.push(Text("w"))
-  !v.push(Text("q"))
-  Text("new")
+fun grow(v: !List[String]) -> String
+  !v.push(String("x"))
+  !v.push(String("y"))
+  !v.push(String("z"))
+  !v.push(String("w"))
+  !v.push(String("q"))
+  String("new")
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   v[0] = grow(!v)
   print(v)

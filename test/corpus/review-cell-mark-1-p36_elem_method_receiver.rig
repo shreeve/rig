@@ -1,5 +1,5 @@
 struct S
-  name: String
+  name: ?String
   v: List[Int]
 
   sub m(?self, d: !Cell[List[S]])

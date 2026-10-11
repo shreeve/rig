@@ -1,7 +1,7 @@
 # A function returns a payload view of a List element, guarded match. Expect accept, prints one 1.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -19,8 +19,8 @@ fun clobber(n: Int) -> Int
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(r: Res(n: 1, t: Text("one"))))
-  !v.push(E.b(r: Res(n: 2, t: Text("two"))))
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
+  !v.push(E.b(r: Res(n: 2, t: String("two"))))
   f = first(?v, 0)
   g = first(?v, 1)
   print(clobber(1))

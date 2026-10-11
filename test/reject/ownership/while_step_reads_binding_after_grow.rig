@@ -29,7 +29,7 @@ struct S
     self.s[0]
 
 struct T
-  s: String
+  s: ?String
 
 fun mk(v: ?List[Int]) -> S?
   if v.len < 40
@@ -41,7 +41,7 @@ fun all(v: ?List[Int]) -> ([]Int)?
     return ?v[..]
   none
 
-fun mkt(t: ?Text) -> T?
+fun mkt(t: ?String) -> T?
   if t.len < 200
     return T(s: ?t)
   none
@@ -83,7 +83,7 @@ sub closure()
   print(k)
 
 sub string()
-  t = Text("abc")
+  t = String("abc")
   k = 0
   while mkt(?t) as h: k += (1 if text.ends_with(h.s, "9") else 0)
     !t.add("0123456789")

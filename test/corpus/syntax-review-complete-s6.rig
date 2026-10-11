@@ -1,4 +1,4 @@
-fun as_str(b: []U8) -> String
+fun as_str(b: []U8) -> ?String
   raw
     @bitCast(b)
 

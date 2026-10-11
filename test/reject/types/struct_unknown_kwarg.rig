@@ -1,7 +1,7 @@
 # A constructor keyword must name a declared field.
 
 struct User
-  name: String
+  name: ?String
   age: Int
 
 sub main()

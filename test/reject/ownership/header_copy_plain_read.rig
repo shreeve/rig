@@ -3,11 +3,11 @@
 # read: it is rejected, as every such header is
 # (`header_temporary_rejected.rig`).
 
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  for x in [[1, 2], [3, 4]][idx(?Text("ab"))]
+  for x in [[1, 2], [3, 4]][idx(?String("ab"))]
     print(x)
 
 # errors: 1

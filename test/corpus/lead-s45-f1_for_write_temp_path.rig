@@ -1,12 +1,12 @@
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   0
 
 sub main()
-  v: List[List[Text]] = List()
-  inner: List[Text] = List()
-  !inner.push(Text("a"))
+  v: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
   !v.push(<inner)
-  for t in !v[idx(?Text("k"))]
+  for t in !v[idx(?String("k"))]
     !t.add("bcdefghijklmnopqrstuvwxyz0123456789")
   for t in v[0]
     print(t)

@@ -1,9 +1,9 @@
 struct P
-  t: Text
+  t: String
   xs: List[Int]
 
 sub main()
-  o: P? = P(t: Text("hello"), xs: List())
+  o: P? = P(t: String("hello"), xs: List())
   if !o as p
     s = ?p.t[1..]
     !p.xs.push(1)

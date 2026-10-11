@@ -1,5 +1,5 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 struct H
@@ -9,7 +9,7 @@ fun get(h: !H) -> !E
   !h.e
 
 sub main()
-  h = H(e: E.a(Text("hello")))
+  h = H(e: E.a(String("hello")))
   match !get(!h)
     .a(t)
       s = ?t[1..]

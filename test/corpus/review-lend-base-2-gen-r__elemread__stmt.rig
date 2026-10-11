@@ -36,11 +36,11 @@ struct S
   e: E
   f: fun(Int) -> Int
   g: fun(Int) -> Bool
-  t: Text
+  t: String
   s: Set
 
 fun mk(n: Int) -> S
-  S(x: n, o: n, a: [n, n], v: List(), q: Q(n: n), e: E.a(n: n), f: double, g: yes, t: Text("t"), s: Set(items: List()))
+  S(x: n, o: n, a: [n, n], v: List(), q: Q(n: n), e: E.a(n: n), f: double, g: yes, t: String("t"), s: Set(items: List()))
 
 fun pk(d: !S, k: Bool) -> (!S)?
   return none if k

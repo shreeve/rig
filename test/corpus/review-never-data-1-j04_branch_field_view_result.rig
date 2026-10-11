@@ -1,12 +1,12 @@
 struct H
-  t: Text
+  t: String
 
-fun name(h: ?H) -> String
+fun name(h: ?H) -> ?String
   h.t
 
 sub main()
-  a = H(t: Text("aaa"))
-  b = H(t: Text("bbb"))
+  a = H(t: String("aaa"))
+  b = H(t: String("bbb"))
   c = true
   s = name(a if c else b)
   <a

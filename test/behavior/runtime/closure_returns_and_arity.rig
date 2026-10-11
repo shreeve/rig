@@ -18,7 +18,7 @@ sub main()
     if n == 0
       return .zero
     .pos
-  name: *fun(Sign) -> String = *|s|
+  name: *fun(Sign) -> ?String = *|s|
     match s
       .neg => "negative"
       .zero => "zero"

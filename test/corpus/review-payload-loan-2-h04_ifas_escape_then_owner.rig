@@ -1,7 +1,7 @@
 sub main()
-  x = Text("hello")
-  o: (!Text)? = !x
-  d = Text("d")
+  x = String("hello")
+  o: (!String)? = !x
+  d = String("d")
   r = ?d[..]
   if o as w
     r = ?w[1..]

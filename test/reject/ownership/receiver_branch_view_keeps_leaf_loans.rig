@@ -4,32 +4,32 @@
 # and an element of a branching value.
 
 struct S
-  t: Text
+  t: String
 
-  fun inner(?self) -> ?Text
+  fun inner(?self) -> ?String
     ?self.t
 
 sub branch()
-  a = S(t: Text("aa"))
-  b = S(t: Text("bb"))
+  a = S(t: String("aa"))
+  b = S(t: String("bb"))
   c = a.t.len == 2
   r = (a if c else b).inner()
-  a.t = Text("zz")
+  a.t = String("zz")
   print(r, b.t)
 
 sub fallback()
-  b = S(t: Text("bb"))
-  o: S? = S(t: Text("oo"))
+  b = S(t: String("bb"))
+  o: S? = S(t: String("oo"))
   r = (o ?? b).inner()
-  b.t = Text("zz")
+  b.t = String("zz")
   print(r)
 
 sub element()
-  ts = [S(t: Text("a")), S(t: Text("b"))]
-  us = [S(t: Text("c")), S(t: Text("d"))]
+  ts = [S(t: String("a")), S(t: String("b"))]
+  us = [S(t: String("c")), S(t: String("d"))]
   c = ts[0].t.len == 1
   e = (ts if c else us)[1].inner()
-  ts[1].t = Text("zz")
+  ts[1].t = String("zz")
   print(e)
 
 sub main()

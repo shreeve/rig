@@ -1,5 +1,5 @@
 struct Player
-  name: String
+  name: ?String
   scores: List[Int]
 
 sub main()

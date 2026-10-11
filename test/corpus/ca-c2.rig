@@ -31,7 +31,7 @@ sub main()
     w = Wrap(n: 99)
   swap()
   print(w.n)
-  s: List[String] = List()
+  s: List[?String] = List()
   !s.push("a")
   print(total_of(?s, 10))
   outer = |?w|

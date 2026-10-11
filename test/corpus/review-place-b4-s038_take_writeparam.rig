@@ -1,7 +1,7 @@
 struct P
-  o: String?
+  o: (?String)?
 
-fun f(p: !P) -> String?
+fun f(p: !P) -> (?String)?
   <p.o
 
 sub main()

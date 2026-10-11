@@ -1,8 +1,8 @@
 # take an element of a loop element (for row in v) reached read-only: reject
 sub main()
-  v: List[List[Text?]] = List()
-  r: List[Text?] = List()
-  !r.push(Text("a"))
+  v: List[List[String?]] = List()
+  r: List[String?] = List()
+  !r.push(String("a"))
   !v.push(<r)
   for row in v
     t = <row[0]

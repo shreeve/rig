@@ -4,7 +4,7 @@ sub dropall[T](v: ?List[T])
     <x
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   dropall(?v)
   print(v)

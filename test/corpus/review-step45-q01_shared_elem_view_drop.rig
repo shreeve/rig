@@ -1,10 +1,10 @@
 # view of an element in a shared handle's List; drop the only handle
 struct S
-  v: List[Text]
+  v: List[String]
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   h = *S(v: <v)
   r = ?h.v[0]
   <h

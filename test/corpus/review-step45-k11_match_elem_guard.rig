@@ -1,11 +1,11 @@
 # guarded match on an element place, payload used in arm
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(t: Text("hi")))
+  !v.push(E.a(t: String("hi")))
   match v[0]
     .a(t) if t.len > 1 => print("long", t)
     .a(t) => print("short", t)

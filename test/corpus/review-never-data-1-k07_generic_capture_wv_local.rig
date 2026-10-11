@@ -1,6 +1,6 @@
 struct P
   n: Int
-  t: Text
+  t: String
 
 sub gen[T](v: !T, f: sub(?T))
   w = v
@@ -11,5 +11,5 @@ sub show(p: ?P)
   print(p.n, p.t)
 
 sub main()
-  p = P(n: 1, t: Text("ab"))
+  p = P(n: 1, t: String("ab"))
   gen(!p, show)

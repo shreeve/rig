@@ -1,11 +1,11 @@
 # match <v[0] on List[E?]... and match on an optional element taken
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 sub main()
   v: List[E?] = List()
-  !v.push(E.a(t: Text("hi")))
+  !v.push(E.a(t: String("hi")))
   if <v[0] as e
     match <e
       .a(t) => print(t)

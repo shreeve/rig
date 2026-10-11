@@ -1,13 +1,13 @@
 # a method stores a view into self's List field; then the source dropped
 struct Bag
-  items: List[String]
+  items: List[?String]
 
-  sub add(!self, s: String)
+  sub add(!self, s: ?String)
     !self.items.push(s)
 
 sub main()
   b = Bag(items: List())
-  t = Text("x")
+  t = String("x")
   !b.add(?t)
   <t
   print(b.items)

@@ -1,5 +1,5 @@
 struct Button
-  label: String
+  label: ?String
   handlers: List[*sub(Int)]
 
   sub on_click(!self, h: *sub(Int))

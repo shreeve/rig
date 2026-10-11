@@ -1,10 +1,10 @@
 # Symbol table: same-typed key and value, method with ?self.
 # Rust (elision rule 3) accepts the twin. Needs `from self`.
 struct Env
-  keys: []String
-  vals: []String
+  keys: []?String
+  vals: []?String
 
-  fun get(?self, name: String) -> String?
+  fun get(?self, name: ?String) -> (?String)?
     for i in 0..self.keys.len
       if self.keys[i] == name
         return self.vals[i]
@@ -14,7 +14,7 @@ sub main()
   ks = ["HOME", "PATH"]
   vs = ["/h", "/bin"]
   env = Env(keys: ?ks[..], vals: ?vs[..])
-  q = Text("HO", "ME")
+  q = String("HO", "ME")
   v = ?env.get(?q) ?? "?"
   !q.add("X")
   print(v, q)

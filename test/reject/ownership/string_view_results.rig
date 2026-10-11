@@ -1,34 +1,34 @@
-# A function returning a String, a `String?`, or a struct holding
+# A function returning a String, a `(?String)?`, or a struct holding
 # Strings may return a view of a String it was passed: its result keeps
 # viewed every Text its arguments view, and so does an iterator built
 # from one, and each part it gives.
 
-fun trim(s: String) -> String
+fun trim(s: ?String) -> ?String
   s
 
-fun strip(s: String) -> String?
+fun strip(s: ?String) -> (?String)?
   s[1..]
 
 struct Cut
-  before: String
+  before: ?String
 
-fun cut(s: String) -> Cut?
+fun cut(s: ?String) -> Cut?
   Cut(before: s[..1])
 
 struct Split
-  rest: String
+  rest: ?String
 
-  fun next(!self) -> String?
+  fun next(!self) -> (?String)?
     return none if self.rest.len == 0
     part = self.rest[..1]
     self.rest = self.rest[1..]
     part
 
-fun split(s: String) -> Split
+fun split(s: ?String) -> Split
   Split(rest: s)
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   a = trim(?t)
   !t.add("x")
   b = strip(?t)

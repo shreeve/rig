@@ -1,9 +1,9 @@
 # A method without a `self` receiver can't be called on an instance.
 
 struct User
-  name: String
+  name: ?String
 
-  fun make(default: String) -> User
+  fun make(default: ?String) -> User
     User(name: default)
 
 sub main()

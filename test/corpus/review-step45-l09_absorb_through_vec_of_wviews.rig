@@ -1,9 +1,9 @@
 # store a view through a write view held in a List; the target must keep the loan
 sub main()
-  inner: List[String] = List()
-  w: List[!List[String]] = List()
+  inner: List[?String] = List()
+  w: List[!List[?String]] = List()
   !w.push(!inner)
-  t = Text("x")
+  t = String("x")
   !w[0].push(?t)
   <w
   <t

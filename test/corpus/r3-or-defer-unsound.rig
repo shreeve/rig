@@ -15,7 +15,7 @@ error E
   bad
 
 struct H
-  s: String
+  s: ?String
 
 sub take(v: List[Int])
   print(v.len)
@@ -43,7 +43,7 @@ fun moved_before_propagate(n: Int) -> Int!
 sub views_a_later_value()
   h = H(s: "x")
   defer print(h.s)
-  t = Text("abc")
+  t = String("abc")
   h.s = ?t
 
 sub writes_while_viewed()

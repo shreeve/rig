@@ -1,11 +1,11 @@
 # w = !m; r = ?w; w = !n (re-point) then replace m while r still views m
 sub main()
-  m = Text("mmmm")
-  n = Text("nnnn")
+  m = String("mmmm")
+  n = String("nnnn")
   w = !m
   r = ?w
   w = !n
-  m = Text("zzzz")
+  m = String("zzzz")
   print(r)
-  w = Text("x")
+  w = String("x")
   print(n)

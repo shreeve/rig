@@ -1,15 +1,15 @@
 # while-as over List element via temp index, body pushes after using t (each iteration re-evaluates). Expect accept + clean.
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("a"))
+  v: List[String?] = List()
+  !v.push(String("a"))
   k = 0
-  while !v[idx(?Text("a"))] as t
+  while !v[idx(?String("a"))] as t
     !t.add("x")
     for _ in 0..64
-      !v.push(Text("zzzzzzzzzzzzzzzzzzz"))
+      !v.push(String("zzzzzzzzzzzzzzzzzzz"))
     k += 1
     break if k > 2
   print(v[0], v.len)

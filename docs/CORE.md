@@ -29,7 +29,7 @@ thing only:
 | Word | What it is | Which side | Where you see it |
 |---|---|---|---|
 | **lend** | the act | the owner's | the sigil: `?x` lends to read, `!x` lends to write |
-| **view** | the value handed over | it travels with the receiver: copied, returned, stored | a value of type `?T`, `!T`, `[]T`, `![]T`, or `String` |
+| **view** | the value handed over | it travels with the receiver: copied, returned, stored | a value of type `?T`, `!T`, `[]T`, `![]T`, or `?String` |
 | **loan** | the record | it stays with the owner, and limits the owner until every view is done | in the compiler, and in its error messages |
 
 - To **lend** `x` is to let someone use it without taking it. A lend
@@ -69,9 +69,9 @@ side; Rig names everything from the side the sigil is on.
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
-| **owning** | `List[T]`, `^T`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
+| **owning** | `List[T]`, `^T`, `String`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
-| **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
+| **view** | `?T`, `!T`, `[]T`, `![]T`, `?String` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
 **A `^T` is held like a handle and behaves like an owner:** one owner,
 moved by `<b`, with `+b` copying its value into a new box. *(built)*
@@ -222,7 +222,7 @@ a deep copy of a type declared in another module, or of one holding a
 
 ```rig
 struct File
-  name: String
+  name: ?String
 
   drop(!self)
     print("closing", self.name)
@@ -281,7 +281,7 @@ view the context expects** ([§4](#4-one-lend-table)). `?` promises that
 nothing changes. A read lend may
 go unwritten where its view lasts only for the use: an argument, a
 method's receiver, or a header's subject (sentence 1), and `print` and
-`Text` read their arguments the same way. A lend kept in a binding or a
+`String` read their arguments the same way. A lend kept in a binding or a
 field is written, and so is every write lend; so is a lend whose view a
 call's result keeps when that result is stored in a binding, a field, or
 a return, or handed to a call that stores it (`r = head(?v)`,
@@ -513,7 +513,7 @@ holds the counted value weakly, and `h.upgrade()` is the way back.
 
 ```rig
 struct User
-  name: String
+  name: ?String
 
 sub main()
   u = User(name: "ada")
@@ -624,8 +624,8 @@ sub main()
 
 ```rig pending
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   c = a.len > 0
   s = ?(a if c else b)
   print(s)
@@ -640,7 +640,7 @@ a
 
 - **Taking:** a binding, an argument to a parameter that owns it,
   `return`, a stored field or element, or `<`.
-- **Reading:** a `print` or `Text(...)` argument, an `==` operand, `?e`,
+- **Reading:** a `print` or `String(...)` argument, an `==` operand, `?e`,
   `+e`, a `?self` receiver, or a field or element read.
 
 Reading never moves a name, whatever form reads it: `print(a if c else
@@ -659,15 +659,15 @@ end with the header; what the header binds lives through the body. A
 value made there that `if … as`, `while … as`, `match`, or `for` binds
 is taken, as `<e` would take it: a call's result, or a branching value
 whose every branch is made there (`mk() if c else <a`). So
-`if starts_with(?Text(a, b), "x")` works, but
-`if cut(?Text(a, b), "=") as kv` must bind the `Text` first, because
+`if starts_with(?String(a, b), "x")` works, but
+`if cut(?String(a, b), "=") as kv` must bind the `String` first, because
 `kv` outlives the header. *(built* for `if … as`, `while … as`, `match`,
 and a `for` over plain elements; *planned* for a `for` over a made List
 of owners, which is bound to a name first today.*)*
 
 ```rig
 struct User
-  name: String
+  name: ?String
   tags: List[Int]
 
 fun load() -> User
@@ -687,7 +687,7 @@ use std.text
 sub main()
   a = "x"
   b = "yz"
-  if text.starts_with(?Text(a, b), "xy")
+  if text.starts_with(?String(a, b), "xy")
     print("starts")
 ```
 
@@ -699,18 +699,18 @@ starts
 use std.text
 
 sub main()
-  if text.cut(?Text("k", "=v"), "=") as kv
+  if text.cut(?String("k", "=v"), "=") as kv
     print(kv.after)
 ```
 
 ```error
-a view of the temporary `Text("k", "=v")` outlives its statement
+a view of the temporary `String("k", "=v")` outlives its statement
 ```
 
 ```rig pending
-fun names() -> List[Text]
-  v: List[Text] = List()
-  !v.push(Text("ada"))
+fun names() -> List[String]
+  v: List[String] = List()
+  !v.push(String("ada"))
   v
 
 sub main()
@@ -734,7 +734,7 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | a place `p.f` or `v[i]` | the views of the field or element | its write views | built |
 | a held `!T` | `?T` | `!T` (lent on) | built |
 | `![]T` | `[]T` | `![]T` (lent on) | built |
-| `Text` | `String` (also `String?`) | `!Text` | built |
+| `String` | `?String` (also `(?String)?`) | `!String` | built |
 | `^T` | the views of `T` | the write views of `T` | built |
 | `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | built |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
@@ -780,17 +780,17 @@ sub main()
 1
 ```
 
-A `Text` lends a `String`, which views its bytes, so the `Text` may not
+A `String` lends a `?String`, which views its bytes, so the `String` may not
 change while the view is used:
 
 ```rig
 use std.text
 
-fun or_none(s: String?) -> String
+fun or_none(s: (?String)?) -> ?String
   s ?? "none"
 
 sub main()
-  t = Text("  hi  ")
+  t = String("  hi  ")
   print(text.trim(?t), or_none(?t).len)
   !t.add("!")
   print(t)
@@ -803,7 +803,7 @@ hi 6
 
 ```rig reject
 sub main()
-  t = Text("abc")
+  t = String("abc")
   s = ?t[..2]
   !t.add("d")
   print(s)
@@ -852,7 +852,7 @@ no `<` (`m = p.n`). *(built)*
 `<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
 needs `<`. `copy`, `fill`, and `[n of x]` duplicate values, so they
 need elements that copy (§1), read views included, each copy carrying
-its loan *(built)*. So `List[Text]`,
+its loan *(built)*. So `List[String]`,
 `List[List[Int]]`, and a list of records that each own a string just
 work. *(built)*
 

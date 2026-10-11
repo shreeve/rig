@@ -1,12 +1,12 @@
 # match on an element of List[E] with an owner payload; payload view escapes arm
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(t: Text("hi")))
-  s: String = "none"
+  !v.push(E.a(t: String("hi")))
+  s: ?String = "none"
   match v[0]
     .a(t) => s = ?t
     .b(n) => print(n)

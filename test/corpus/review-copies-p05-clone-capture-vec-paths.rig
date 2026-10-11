@@ -4,16 +4,16 @@ struct N
     print("drop", self.v)
 
 fun build() -> *fun() -> Int
-  v: List[Text] = List()
-  !v.push(Text("aa"))
-  !v.push(Text("bbb"))
+  v: List[String] = List()
+  !v.push(String("aa"))
+  !v.push(String("bbb"))
   f = *|+v| v.len + v[1].len
-  !v.push(Text("c"))
+  !v.push(String("c"))
   f
 
 sub unused()
-  v: List[Text] = List()
-  !v.push(Text("zz"))
+  v: List[String] = List()
+  !v.push(String("zz"))
   f = |+v| v.len
   if v.len > 5
     print(f())

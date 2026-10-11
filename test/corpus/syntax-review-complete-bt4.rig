@@ -21,7 +21,7 @@ struct Node[K, V]
     none
 
 sub main()
-  n = Node[Int, String].leaf()
+  n = Node[Int, ?String].leaf()
   !n.keys.push(3)
   !n.vals.push("three")
   print(n.find(3), n.find(4))

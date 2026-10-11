@@ -5,28 +5,28 @@
 use std.text
 
 struct In
-  t: Text
+  t: String
 
 struct N
-  t: Text
+  t: String
   inner: In
   arr: [2]Int
   v: List[Int]
-  name: String
+  name: ?String
 
 fun mk() -> N
   v: List[Int] = List()
   !v.push(7)
-  N(t: Text("tt"), inner: In(t: Text("in")), arr: [1, 2], v: <v, name: "nm")
+  N(t: String("tt"), inner: In(t: String("in")), arr: [1, 2], v: <v, name: "nm")
 
-fun mkbox() -> ^Text
-  ^Text("bx")
+fun mkbox() -> ^String
+  ^String("bx")
 
 fun mksh() -> *N
   *mk()
 
-fun mkt() -> Text
-  Text("tx")
+fun mkt() -> String
+  String("tx")
 
 fun first(s: []Int) -> Int
   s[0]

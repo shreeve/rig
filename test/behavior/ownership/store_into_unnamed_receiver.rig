@@ -4,10 +4,10 @@
 # outlive the holder may be stored there.
 
 struct H
-  r: String
-  rs: List[String]
+  r: ?String
+  rs: List[?String]
 
-  sub keep(!self, r: String)
+  sub keep(!self, r: ?String)
     !self.rs.push(r)
 
 fun wrap(h: !H) -> !H
@@ -20,8 +20,8 @@ fun f(n: Int) -> Int
   n
 
 sub main()
-  t = Text("one")
-  u = Text("two")
+  t = String("one")
+  u = String("two")
   h = H(r: "", rs: List())
   a = H(r: "", rs: List())
   b = H(r: "", rs: List())

@@ -1,6 +1,6 @@
 # elements as receivers, operands and args
 struct Rec
-  name: Text
+  name: String
   n: Int
 
   fun show(?self) -> Int
@@ -13,22 +13,22 @@ struct Rec
 fun size(v: ?List[Int]) -> Int
   v.len
 
-fun nm(s: String) -> Int
+fun nm(s: ?String) -> Int
   s.len
 
 sub main()
   rs: List[Rec] = List()
-  !rs.push(Rec(name: Text("a"), n: 1))
-  !rs.push(Rec(name: Text("bb"), n: 2))
+  !rs.push(Rec(name: String("a"), n: 1))
+  !rs.push(Rec(name: String("bb"), n: 2))
   !rs[0].bump()
   print(rs[0].show(), rs[1].show(), rs[0].name == rs[1].name, nm(rs[1].name), nm(?rs[0].name))
   vv: List[List[Int]] = List()
   !vv.push(List())
   !vv[0].push(vv.len)
   print(size(vv[0]), vv[0][0] + vv[0][0])
-  arr = [^Rec(name: Text("x"), n: 3)]
+  arr = [^Rec(name: String("x"), n: 3)]
   arr[0].n = 9
   !arr[0].bump()
   print(arr[0].show(), arr[0].name)
   if rs[0].n > 1
-    print(Text(rs[0].name, rs[1].name))
+    print(String(rs[0].name, rs[1].name))

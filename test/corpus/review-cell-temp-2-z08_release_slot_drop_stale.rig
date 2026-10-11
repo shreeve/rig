@@ -40,9 +40,9 @@ fun vec1(n: Int) -> List[Int]
   !v.push(n)
   v
 
-fun vtext(n: Int) -> List[Text]
-  v: List[Text] = List()
-  t = Text("")
+fun vtext(n: Int) -> List[String]
+  v: List[String] = List()
+  t = String("")
   for _ in 0..n
     !t.add("x")
   !v.push(<t)

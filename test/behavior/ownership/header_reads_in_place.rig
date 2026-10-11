@@ -26,7 +26,7 @@ fun mk(n: Int) -> Bag
   !v.push(n + 1)
   Bag(v: <v, o: Res(n: n))
 
-fun bytes(t: ?Text) -> Int
+fun bytes(t: ?String) -> Int
   n = 0
   for _ in t
     n += 1
@@ -42,7 +42,7 @@ sub main()
   !rs.push(*Res(n: 7))
   for r in rs
     print(r.n)
-  t = Text("hi")
+  t = String("hi")
   for b in t
     print(b)
   print(bytes(?t))

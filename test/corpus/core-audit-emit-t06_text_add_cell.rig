@@ -6,7 +6,7 @@ sub main()
   c: Cell[List[Int]] = Cell(List())
   for i in 0..40
     !c.push(i * 1000)
-  t = Text()
+  t = String()
   !t.add(c, reset(!c))
   print(t)
   for i in 0..40

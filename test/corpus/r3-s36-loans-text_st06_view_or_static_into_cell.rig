@@ -1,6 +1,6 @@
 sub main()
-  t = Text("abc")
-  c: Cell[String] = Cell("x")
+  t = String("abc")
+  c: Cell[?String] = Cell("x")
   s = "lit"
   if t.len > 5
     s = ?t[..]

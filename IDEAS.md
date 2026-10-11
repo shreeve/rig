@@ -23,18 +23,18 @@ function by function wherever Rust uses iterators. That has to flip.
 ### 0.1 The target: `pak.rs`'s core, as Rig should read *(new)*
 ```rig fragment
 struct Pak
-  name: String
+  name: ?String
   entries: List[PakEntry]
   next: (*Pak)?
 
-  fun find(?self, name: String) -> (?PakEntry)?
+  fun find(?self, name: ?String) -> (?PakEntry)?
     self.entries.find(|e| e.name == name)
 
   fun over(<self, rest: Pak) -> Pak
     self.next = *<rest
     <self
 
-  fun read_file(?self, name: String) -> List[U8]?!
+  fun read_file(?self, name: ?String) -> List[U8]?!
     for p in self.path()
       if p.read_own(name)! as bytes
         return bytes
@@ -88,7 +88,7 @@ small round.
 In `for e in ?self.entries`, `e` is a **copy** when the element type
 copies, such as a struct of Strings and integers. So this is rejected:
 ```rig fragment
-fun find(?self, name: String) -> (?PakEntry)?
+fun find(?self, name: ?String) -> (?PakEntry)?
   for e in ?self.entries
     return ?e if e.name == name     # error: `e` is local to this function
   none
@@ -126,7 +126,7 @@ Nothing else can see a moved-in value, so writing it is safe.
 and write parameters stay as they are.
 
 ### 1.4 Error values that carry data *(roadmap)*
-`QError::Invalid(String)` has no Rig equivalent, because an error is only
+`QError::Invalid(?String)` has no Rig equivalent, because an error is only
 a name. Real programs need context such as `PakError.too_many(count: Int)`.
 The design must keep failure visible (`T!`, `e!`) and say who owns the
 payload.

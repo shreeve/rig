@@ -1,10 +1,10 @@
-sub f(e: !Text)
+sub f(e: !String)
   match e
     x
       r = ?x[1..]
-      x = Text("other")
+      x = String("other")
       print(r)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   f(!t)

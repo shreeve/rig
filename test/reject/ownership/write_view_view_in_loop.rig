@@ -2,12 +2,12 @@
 # views, and a copy made on the next iteration keeps the Text viewed.
 
 struct Holder
-  s: String
+  s: ?String
 
 sub main()
-  t = Text("scoped text here")
+  t = String("scoped text here")
   h = Holder(s: "lit")
-  o: String = "x"
+  o: ?String = "x"
   i = 0
   while i < 2
     w = !h

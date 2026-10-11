@@ -1,13 +1,13 @@
 struct P
-  t: Text
+  t: String
 
 struct H
   w: !P
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   o: H? = H(w: !p)
   if o as h
     r = ?h.w.t[1..]
-    h.w.t = Text("other")
+    h.w.t = String("other")
     print(r)

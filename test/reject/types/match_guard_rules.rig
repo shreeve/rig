@@ -15,7 +15,7 @@ enum Slot
 fun eat(b: *B) -> Bool
   b.n > 0
 
-fun size(n: Int) -> String
+fun size(n: Int) -> ?String
   match n
     k if k > 0 => "positive"
     0 => "zero"

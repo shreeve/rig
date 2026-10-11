@@ -1,5 +1,5 @@
 struct W
-  f: !Text
+  f: !String
 
 struct V
   w: W
@@ -11,6 +11,6 @@ sub g(v: !V)
   print(s)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   v = V(w: W(f: !t))
   g(!v)

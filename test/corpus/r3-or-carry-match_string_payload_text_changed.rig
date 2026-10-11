@@ -2,11 +2,11 @@
 # views: the Text cannot change while the payload is used.
 
 enum H
-  has(s: String)
+  has(s: ?String)
   no
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   h: H = .has(s: ?t)
   match ?h
     .has(s)

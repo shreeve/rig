@@ -2,13 +2,13 @@
 # lends the whole Text where a String is expected. A view views the
 # Text: once the view's last use is past, the Text can change again.
 
-fun first_word(s: String) -> String
+fun first_word(s: ?String) -> ?String
   i = 0
   while i < s.len and s[i] != 32
     i += 1
   s[..i]
 
-fun count(s: String, b: U8) -> Int
+fun count(s: ?String, b: U8) -> Int
   n = 0
   for c in s
     if c == b
@@ -16,7 +16,7 @@ fun count(s: String, b: U8) -> Int
   n
 
 sub main()
-  t = Text("hello world")
+  t = String("hello world")
   w = ?t[0..5]
   rest = ?t[6..]
   print(w, rest, w.len, ?t[..] == "hello world")

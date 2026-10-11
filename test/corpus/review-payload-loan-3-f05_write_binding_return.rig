@@ -1,15 +1,15 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
-fun pick(e: !E, d: !Text) -> !Text
+fun pick(e: !E, d: !String) -> !String
   match !e
     .a(t) => t
     .b => d
 
 sub main()
-  e = E.a(Text("hello"))
-  d = Text("dflt")
+  e = E.a(String("hello"))
+  d = String("dflt")
   r = pick(!e, !d)
   e = E.b
   print(r)

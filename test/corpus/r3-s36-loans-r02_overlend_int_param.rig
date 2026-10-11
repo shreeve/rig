@@ -1,6 +1,6 @@
 # The result views the `?Int` argument as well.
 struct Entry
-  name: String
+  name: ?String
 
 struct Table
   rows: [2]Entry

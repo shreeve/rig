@@ -1,9 +1,9 @@
 use std.text
 
 sub main()
-  line = Text("a;b;c")
-  sep = Text(";")
-  firsts: List[String] = List()
+  line = String("a;b;c")
+  sep = String(";")
+  firsts: List[?String] = List()
   parts = text.split(?line, ?sep)
   if (!parts).next() as p
     !firsts.push(p)

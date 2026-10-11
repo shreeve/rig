@@ -1,10 +1,10 @@
-sub f(r: ?Text, g: ?sub())
+sub f(r: ?String, g: ?sub())
   s = r[1..]
   g()
   print(s)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   g = |!t|
     for _ in 0..50
       !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")

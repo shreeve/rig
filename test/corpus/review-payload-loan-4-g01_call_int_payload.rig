@@ -1,9 +1,9 @@
 struct P
-  t: Text
+  t: String
 
 enum F
   a(n: Int)
-  s(t: Text)
+  s(t: String)
   w(p: !P)
   v(xs: List[Int])
   b
@@ -18,16 +18,16 @@ sub main()
       n += 10
     _ => pass
   print(f)
-  g = F.s(Text("hi"))
+  g = F.s(String("hi"))
   c = true
   match (!g if c else !f)
     .s(t) => !t.add(" there")
     _ => pass
   print(g)
-  p = P(t: Text("pp"))
+  p = P(t: String("pp"))
   h = F.w(!p)
   match getf(!h)
-    .w(q) => q.t = Text("qq")
+    .w(q) => q.t = String("qq")
     _ => pass
   match h
     .w(q) => print(q.t)

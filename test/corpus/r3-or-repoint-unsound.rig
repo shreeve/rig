@@ -10,8 +10,8 @@ sub new_place_held()
   w = 3
 
 sub old_view_kept()
-  m = Text("m")
-  n = Text("n")
+  m = String("m")
+  n = String("n")
   w = !m
   r = ?w
   w = !n

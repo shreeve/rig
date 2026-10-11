@@ -1,12 +1,12 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
 fun keep(s: (?S)?) -> (?S)?
   s
 
 sub main()
-  o: S? = S(n: 5, t: Text("a"))
+  o: S? = S(n: 5, t: String("a"))
   k = keep(?o)
   <o
   if k as x

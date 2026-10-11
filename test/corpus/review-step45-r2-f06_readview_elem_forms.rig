@@ -1,12 +1,12 @@
 # element of a read-view List in each form: while-as, lends of fields, implicit lend args, ?self method
 struct R
-  t: Text
+  t: String
   n: Int
 
   fun len(?self) -> Int
     self.t.len + self.n
 
-fun tl(s: String) -> Int
+fun tl(s: ?String) -> Int
   s.len
 
 fun rl(r: ?R) -> Int
@@ -24,7 +24,7 @@ fun f(v: ?List[R], o: ?List[Int?]) -> Int
 
 sub main()
   v: List[R] = List()
-  !v.push(R(t: Text("abc"), n: 2))
+  !v.push(R(t: String("abc"), n: 2))
   o: List[Int?] = List()
   !o.push(5)
   print(f(?v, ?o))

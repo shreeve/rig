@@ -3,13 +3,13 @@
 # compiler checks each body against its clause.
 
 struct Entry
-  key: String
-  value: String
+  key: ?String
+  value: ?String
 
 struct Env
   entries: List[Entry]
 
-  fun get(?self, key: String) -> String? from self
+  fun get(?self, key: ?String) -> (?String)? from self
     for e in ?self.entries
       if e.key == key
         return e.value
@@ -26,7 +26,7 @@ fun deep(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int] from a
     return a
   deep(a, b, n - 1)
 
-fun label(t: String) -> String from static
+fun label(t: ?String) -> ?String from static
   if t.len > 3
     "long"
   else
@@ -60,11 +60,11 @@ sub main()
   print(t.len)
   env = Env(entries: List())
   !env.entries.push(Entry(key: "HOME", value: "/home"))
-  q = Text("HO", "ME")
+  q = String("HO", "ME")
   if env.get(?q) as home
     !q.add("X")
     print(home, q)
-  w = Text("abcd")
+  w = String("abcd")
   l = label(?w)
   <w
   print(l)

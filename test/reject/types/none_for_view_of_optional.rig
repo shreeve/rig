@@ -5,7 +5,7 @@ fun first(v: ?List[Int]) -> ?List[Int]?
   return none if v.len == 0
   v
 
-fun head(t: ?Text) -> !Text?
+fun head(t: ?String) -> !String?
   return none if t.len == 0
   t
 
@@ -14,4 +14,4 @@ sub main()
   _ = first(?v)
 
 # error: 5:10: `none` needs an optional type; `?List[Int]?` is a view of an optional, not an optional view (write `(?List[Int])?`)
-# error: 9:10: `none` needs an optional type; `!Text?` is a view of an optional, not an optional view (write `(!Text)?`)
+# error: 9:10: `none` needs an optional type; `!String?` is a view of an optional, not an optional view (write `(!String)?`)

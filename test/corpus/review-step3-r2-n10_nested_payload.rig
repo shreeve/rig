@@ -1,13 +1,13 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum In
   x(r: Res)
   y
 
 enum Out
-  w(i: In, t: Text)
+  w(i: In, t: String)
   z
 
 fun deep(o: ?Out, d: ?Res) -> ?Res
@@ -24,8 +24,8 @@ fun deep(o: ?Out, d: ?Res) -> ?Res
     .z => d
 
 sub main()
-  o = Out.w(i: In.x(r: Res(n: 3, t: Text("three"))), t: Text("t"))
-  dd = Res(n: 0, t: Text("d"))
+  o = Out.w(i: In.x(r: Res(n: 3, t: String("three"))), t: String("t"))
+  dd = Res(n: 0, t: String("d"))
   r = deep(?o, ?dd)
   arr = [1, 2, 3, 4, 5, 6, 7, 8]
   print(arr[2])

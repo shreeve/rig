@@ -1,7 +1,7 @@
 # if mk()[0] as t: binding outlives the header (temp)
-fun mk() -> List[Text?]
-  v: List[Text?] = List()
-  !v.push(Text("a"))
+fun mk() -> List[String?]
+  v: List[String?] = List()
+  !v.push(String("a"))
   <v
 
 sub main()

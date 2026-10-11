@@ -1,6 +1,6 @@
 struct P
   n: Int
-  t: Text
+  t: String
 
 sub f(a: ?((!P)?), b: ?((!P)?), sa: ?((![]Int)?), sb: ?((![]Int)?), c: Bool)
   if (a if c else b) as x
@@ -14,8 +14,8 @@ sub f(a: ?((!P)?), b: ?((!P)?), sa: ?((![]Int)?), sb: ?((![]Int)?), c: Bool)
     print(s[0], g(), [s][0][1])
 
 sub main()
-  p = P(n: 4, t: Text("pp"))
-  q = P(n: 5, t: Text("qq"))
+  p = P(n: 4, t: String("pp"))
+  q = P(n: 5, t: String("qq"))
   o1: (!P)? = !p
   o2: (!P)? = !q
   arr = [1, 2]

@@ -1,10 +1,10 @@
-fun mkt() -> Text
-  Text("hello world")
+fun mkt() -> String
+  String("hello world")
 
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   s.len
 
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
 sub main()

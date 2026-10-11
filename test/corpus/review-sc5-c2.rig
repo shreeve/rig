@@ -3,15 +3,15 @@ struct R
   drop(!self)
     print("drop R", self.n)
 
-fun first(s: String) -> U8?
+fun first(s: ?String) -> U8?
   s.get(0)
 
-fun lead(s: String, f: ?fun(String) -> R?) -> Int
+fun lead(s: ?String, f: ?fun(?String) -> R?) -> Int
   if f(s) as r
     return r.n
   -1
 
-fun nested(s: String, f: ?fun(String) -> Int!) -> Int
+fun nested(s: ?String, f: ?fun(?String) -> Int!) -> Int
   f(s) catch -9
 
 error E

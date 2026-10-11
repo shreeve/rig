@@ -1,9 +1,9 @@
 struct B
   items: List[Int]
-  name: Text
+  name: String
 
 fun mk() -> B
-  b = B(items: List(), name: Text("hello world"))
+  b = B(items: List(), name: String("hello world"))
   !b.items.push(4)
   b
 
@@ -13,7 +13,7 @@ fun total(xs: []Int) -> Int
     n += x
   n
 
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   s.len
 
 sub main()

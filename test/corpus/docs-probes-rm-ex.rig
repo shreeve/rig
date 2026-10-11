@@ -1,4 +1,4 @@
-extern fun strlen(s: String) -> Int
+extern fun strlen(s: ?String) -> Int
 
 sub main()
   raw

@@ -1,9 +1,9 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 sub main()
-  o: Text? = Text("hello")
-  s: String = ""
+  o: String? = String("hello")
+  s: ?String = ""
   if !o as r
     !r.add("!")
     s = keep(?r[1..])

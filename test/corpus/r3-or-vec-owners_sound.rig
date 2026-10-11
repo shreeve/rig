@@ -4,7 +4,7 @@
 # (Core §5).
 use std.sort
 
-fun longer(a: ?Text, b: ?Text) -> Bool
+fun longer(a: ?String, b: ?String) -> Bool
   a.len > b.len
 
 fun count[T](xs: ?List[T]) -> Int
@@ -26,10 +26,10 @@ struct Stack[T]
     self.items.len
 
 sub sorted()
-  v: List[Text] = List()
-  !v.push(Text("ccc"))
-  !v.push(Text("a"))
-  !v.push(Text("bb"))
+  v: List[String] = List()
+  !v.push(String("ccc"))
+  !v.push(String("a"))
+  !v.push(String("bb"))
   sort.sort_by(!v, longer)
   print(v)
   !v.swap(0, 2)
@@ -38,9 +38,9 @@ sub sorted()
     print(t)
 
 sub stacked()
-  s: Stack[Text] = Stack(items: List())
-  !s.push(Text("x"))
-  !s.push(Text("y"))
+  s: Stack[String] = Stack(items: List())
+  !s.push(String("x"))
+  !s.push(String("y"))
   print(s.size())
 
 sub main()

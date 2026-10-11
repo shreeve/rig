@@ -7338,22 +7338,22 @@ test "storage: a header points at a place its temporaries reach, never into one"
         \\  e: E
         \\  xs: [3]Int
         \\  o: Int?
-        \\  t: Text
+        \\  t: String
         \\
         \\fun mk() -> S
-        \\  S(e: E.a(n: 1), xs: [1, 2, 3], o: 7, t: Text("p"))
+        \\  S(e: E.a(n: 1), xs: [1, 2, 3], o: 7, t: String("p"))
         \\
         \\fun id(s: ?S) -> ?S from s
         \\  s
         \\
-        \\fun idx(s: String) -> Int
+        \\fun idx(s: ?String) -> Int
         \\  s.len - 1
         \\
         \\fun get(v: !List[S]) -> !List[S] from v
         \\  v
         \\
         \\fun mkh(n: Int) -> *S
-        \\  *S(e: E.a(n: n), xs: [n, n, n], o: n, t: Text("p"))
+        \\  *S(e: E.a(n: n), xs: [n, n, n], o: n, t: String("p"))
         \\
         \\fun idh(s: ?*S) -> ?S from s
         \\  s
@@ -7361,10 +7361,10 @@ test "storage: a header points at a place its temporaries reach, never into one"
         \\sub main()
         \\  v: List[S] = List()
         \\  !v.push(mk())
-        \\  match v[idx(?Text("a"))].e
+        \\  match v[idx(?String("a"))].e
         \\    .a(n) => print(n)
         \\    .b => print(0)
-        \\  match !get(!v)[idx(?Text("a"))].e
+        \\  match !get(!v)[idx(?String("a"))].e
         \\    .a(n) => n = 2
         \\    .b => print(0)
         \\  match id(?mk()).e
@@ -7372,11 +7372,11 @@ test "storage: a header points at a place its temporaries reach, never into one"
         \\    .b => print(0)
         \\  for x in id(?mk()).xs
         \\    print(x)
-        \\  for x in !v[idx(?Text("a"))].xs
+        \\  for x in !v[idx(?String("a"))].xs
         \\    x = 0
         \\  if id(?mk()).o as n
         \\    print(n)
-        \\  if !v[idx(?Text("a"))].o as n
+        \\  if !v[idx(?String("a"))].o as n
         \\    n = 1
         \\  while id(?mk()).o as n
         \\    print(n)
@@ -7700,10 +7700,10 @@ test "origins: a result carries what could hold what it views" {
         \\fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
         \\  a
         \\
-        \\fun pick(s: String, t: ?Text, n: Int, u: ?Item) -> String
+        \\fun pick(s: ?String, t: ?String, n: Int, u: ?Item) -> ?String
         \\  s
         \\
-        \\sub fill(h: !Holder, x: []Int, k: Int, s: String)
+        \\sub fill(h: !Holder, x: []Int, k: Int, s: ?String)
         \\  h.r = x
         \\
         \\fun same[T](a: ?T, k: Int) -> ?T
@@ -7741,10 +7741,10 @@ test "origins: a view reached through a read view is that view's" {
         \\  scratch: List[Item]
         \\
         \\struct Cut
-        \\  before: String
+        \\  before: ?String
         \\
         \\struct Keeps
-        \\  t: ?Text
+        \\  t: ?String
         \\
         \\struct Shared
         \\  item: *Item
@@ -7903,10 +7903,10 @@ test "declarations: wrapper, sized, and alias types" {
 test "declarations: struct fields, methods, and enum variants" {
     var r = try factsRun(
         \\struct User
-        \\  name: String
+        \\  name: ?String
         \\  age: Int
         \\
-        \\  fun greet(?self) -> String
+        \\  fun greet(?self) -> ?String
         \\    self.name
         \\
         \\enum Shape
@@ -8371,7 +8371,7 @@ const Coverage = struct {
 test "facts: every name and expression in a program has a fact" {
     var r = try factsRun(
         \\struct Account
-        \\  owner: String
+        \\  owner: ?String
         \\  balance: Int
         \\
         \\  fun doubled(?self) -> Int
@@ -8507,14 +8507,14 @@ test "hands over: one kind per expression, by a positive list" {
     var h: HandsRun = .{ .r = try factsRun(
         \\struct P
         \\  x: Int
-        \\  t: Text
+        \\  t: String
         \\
         \\enum E
         \\  a(n: Int)
         \\  b
         \\
         \\fun mk() -> P
-        \\  P(x: 1, t: Text("a"))
+        \\  P(x: 1, t: String("a"))
         \\
         \\fun keep(p: ?P) -> ?P
         \\  p
@@ -8530,8 +8530,8 @@ test "hands over: one kind per expression, by a positive list" {
         \\  xs = [10, 20]
         \\  print(p.x, xs[0], mk().x, keep(?p).x, [1, 2][1])
         \\  print(p.t if c else q.t)
-        \\  print(Text("y") if c else Text("z"))
-        \\  print(mk().t if c else Text("w"))
+        \\  print(String("y") if c else String("z"))
+        \\  print(mk().t if c else String("w"))
         \\  print(o ?? 0, maybe() ?? 0)
         \\  e: E = .b
         \\  print(e == E.b, -p.x, +p.x, mk)

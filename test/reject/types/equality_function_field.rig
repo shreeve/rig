@@ -1,7 +1,7 @@
 # A struct holding a function value has no `==`, nor does a function.
 
 struct Op
-  name: String
+  name: ?String
   run: fun(Int) -> Int
 
 fun inc(n: Int) -> Int

@@ -1,7 +1,7 @@
-sub take(t: Text)
+sub take(t: String)
   print(t)
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   take(v[0])

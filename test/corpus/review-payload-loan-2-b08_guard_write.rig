@@ -1,16 +1,16 @@
 struct P
-  t: Text
+  t: String
 
 enum WP
   a(w: !P)
   b
 
-fun bump(t: !Text) -> Bool
+fun bump(t: !String) -> Bool
   !t.add("!")
   true
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   e = WP.a(!p)
   match e
     .a(w) if bump(!w.t) => print(w.t)

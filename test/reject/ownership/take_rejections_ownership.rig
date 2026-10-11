@@ -23,7 +23,7 @@ sub twice(s: !S)
 sub main()
   s = S(top: none, n: N(v: 1, next: none))
   nm = <s.n
-  msg: String? = "hi"
+  msg: (?String)? = "hi"
   m = <msg
   print(msg, m, nm)
   both(!s)

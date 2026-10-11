@@ -2,6 +2,6 @@ fun put[T](xs: []T, x: T) -> Int
   xs.len
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  print(put(v[..], Text("b")))
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(put(v[..], String("b")))

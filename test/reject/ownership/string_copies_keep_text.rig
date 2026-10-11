@@ -6,17 +6,17 @@ fun first[T](xs: ?List[T]) -> T
   xs[0]
 
 sub main()
-  v: List[String] = List()
-  t = Text("scoped text here")
+  v: List[?String] = List()
+  t = String("scoped text here")
   !v.push(?t[..])
   s = first(?v)
   <v
   !t.add("more")
   print(s)
-  o: String = "x"
+  o: ?String = "x"
   if true
-    u = Text("abcdefghijklmnop")
-    w: List[String] = List()
+    u = String("abcdefghijklmnop")
+    w: List[?String] = List()
     !w.push(?u[..])
     sl = ?w[..]
     o = sl[0]

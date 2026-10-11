@@ -1,6 +1,6 @@
 sub main()
-  t = Text("hello")
-  b = ^Text("hello")
+  t = String("hello")
+  b = ^String("hello")
   print(b.len, ?b[0..2], b == t)
   bb = ^^<t
   print(bb.len, bb)

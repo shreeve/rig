@@ -8,14 +8,14 @@
 struct Acc
   total: Int
 
-  sub put(!self, s: String, n: Int)
+  sub put(!self, s: ?String, n: Int)
     self.total += n + s.len
 
 struct P
   x: Int
   y: Int
 
-fun grow(t: !Text) -> Int
+fun grow(t: !String) -> Int
   for _ in 0..200
     !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
   1
@@ -29,10 +29,10 @@ fun bump(n: !Int) -> Int
   n += 10
   n
 
-sub show(s: String, n: Int)
+sub show(s: ?String, n: Int)
   print(s.len > 8000, n)
 
-sub show_text(s: ?Text, n: Int)
+sub show_text(s: ?String, n: Int)
   print(s.len > 8000, n)
 
 sub total(xs: []Int, n: Int)
@@ -45,9 +45,9 @@ fun pick[T](v: ?T, n: Int) -> Int
   n + 1
 
 sub main()
-  t = Text("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  t = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
   show(n: grow(!t), s: ?t)
-  u = Text("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  u = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
   show_text(n: grow(!u), s: ?u)
   v: List[Int] = List()
   !v.push(1)
@@ -55,11 +55,11 @@ sub main()
   x = 1
   both(b: bump(!x), a: ?x)
   both(b: ?x, a: bump(!x))
-  w = Text("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  w = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
   acc = Acc(total: 0)
   !acc.put(n: grow(!w), s: ?w)
   print(acc.total > 8000)
-  z = Text("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  z = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
   print(pick(n: grow(!z), v: ?z))
   q = 1
   p = P(y: bump(!q), x: ?q)

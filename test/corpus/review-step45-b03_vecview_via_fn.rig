@@ -1,10 +1,10 @@
 # a view stored into a List through a function, then the source dropped
-sub keep(v: !List[String], x: String)
+sub keep(v: !List[?String], x: ?String)
   !v.push(x)
 
 sub main()
-  t = Text("hello")
-  v: List[String] = List()
+  t = String("hello")
+  v: List[?String] = List()
   keep(!v, ?t)
   <t
   print(v)

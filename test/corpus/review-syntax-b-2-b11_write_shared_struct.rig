@@ -1,11 +1,11 @@
 struct S
-  t: Text
+  t: String
 
 sub f(h: !*S)
   s = h.t[1..]
-  h = *S(t: Text("other"))
+  h = *S(t: String("other"))
   print(s)
 
 sub main()
-  x = *S(t: Text("hello"))
+  x = *S(t: String("hello"))
   f(!x)

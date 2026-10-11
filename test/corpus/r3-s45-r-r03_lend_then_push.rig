@@ -1,6 +1,6 @@
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   r = ?v[0]
-  !v.push(Text("b"))
+  !v.push(String("b"))
   print(r)

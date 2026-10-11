@@ -66,7 +66,7 @@ expect_has "$out" "var @\"rig'\": i64 = 4;" "emitter name"
 cat >payload.rig <<'EOF2'
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res, k: Int)
@@ -87,7 +87,7 @@ fun guarded(e: ?E) -> Int
     x => count(x)
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("x")), k: 2)
+  e = E.a(r: Res(n: 1, t: String("x")), k: 2)
   print(whole(?e), guarded(?e))
 EOF2
 out=$("$RIG" emit payload.rig 2>/dev/null) || fail "rig emit payload.rig"
@@ -103,23 +103,23 @@ expect_has "$out" 'const x = &e.*;' "guarded catch-all of a lent subject"
 # through a copy in the call's block.
 cat >leaves.rig <<'EOF2'
 struct S
-  t: Text
+  t: String
 
-  fun inner(?self) -> ?Text
+  fun inner(?self) -> ?String
     ?self.t
 
-  fun pick(?self, x: Int, y: Int) -> ?Text
+  fun pick(?self, x: Int, y: Int) -> ?String
     ?self.t
 
 fun mks() -> S
-  S(t: Text("m"))
+  S(t: String("m"))
 
 fun f(n: Int) -> Int
   n
 
 sub main()
-  a = S(t: Text("aa"))
-  b = S(t: Text("bb"))
+  a = S(t: String("aa"))
+  b = S(t: String("bb"))
   c = a.t.len == 2
   r = (a if c else b).inner()
   print(r)
@@ -189,7 +189,7 @@ fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
   n + m
 
 sub main()
-  o = Opt.some(v: Text("t"))
+  o = Opt.some(v: String("t"))
   w = V(r: ?o)
   print(f(?w), g(?w), h(?o, ?o))
 EOF2
@@ -215,7 +215,7 @@ fun run() -> Int!
   pair(mk(1)!, mk(2)!)
 
 sub main()
-  print(run() catch 0, Text("abc").len)
+  print(run() catch 0, String("abc").len)
 EOF2
 out=$(RIG_SANITIZE=1 "$RIG" emit poison.rig 2>/dev/null) || fail "rig emit poison.rig"
 expect_has "$out" 'defer rig.poison(&__rig_arg_' "hoisted argument poisoned"
@@ -232,26 +232,26 @@ expect_eq "$out" "3 3" "poisoned program runs"
 # view, and `+s` of a String makes a Text.
 cat >textview.rig <<'EOF2'
 enum Slot
-  full(item: Text)
+  full(item: String)
   empty
 
 fun same[T](a: ?T, b: ?T) -> Bool
   a == b
 
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   s.len
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   v = ?t
-  names: List[Text] = List()
-  !names.push(Text("x"))
+  names: List[String] = List()
+  !names.push(String("x"))
   for x in ?names
     print(size(?x))
-  o: Text? = Text("o")
+  o: String? = String("o")
   if ?o as p
     print(size(?p))
-  slot = Slot.full(item: Text("s"))
+  slot = Slot.full(item: String("s"))
   match ?slot
     .full(item) => print(size(?item))
     .empty => pass

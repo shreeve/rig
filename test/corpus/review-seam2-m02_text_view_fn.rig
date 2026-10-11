@@ -4,10 +4,10 @@
 # oracle: wh accept
 # oracle: main accept
 struct H
-  t: Text
+  t: String
   v: List[Int]
 
-fun wt(t: !Text) -> !Text
+fun wt(t: !String) -> !String
   t
 
 fun wv(v: !List[Int]) -> !List[Int]
@@ -17,7 +17,7 @@ fun wh(h: !H) -> !H
   h
 
 sub main()
-  t = Text("a")
+  t = String("a")
   !wt(!t).add("b")
   wt(!t).add("c")
   print(wt(!t).len)
@@ -28,7 +28,7 @@ sub main()
   wv(!v).push(2)
   print(wv(!v).len)
   print(v)
-  h = H(t: Text("h"), v: List())
+  h = H(t: String("h"), v: List())
   !wh(!h).t.add("i")
   !wh(!h).v.push(3)
   print(h.t, h.v)

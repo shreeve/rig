@@ -46,11 +46,11 @@ sub moves_its_capture()
 
 sub keeps_a_call_view()
   slot = "x"
-  keep = |!slot, s: String| slot = s
+  keep = |!slot, s: ?String| slot = s
   keep("y")
   print(slot)
 
-fun owned_holds_a_view(s: String) -> *fun() -> Int
+fun owned_holds_a_view(s: ?String) -> *fun() -> Int
   *|?s| s.len
 
 sub used_after_move_capture()

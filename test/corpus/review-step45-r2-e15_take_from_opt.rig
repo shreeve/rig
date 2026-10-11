@@ -1,6 +1,6 @@
 # H3: generic loop over ?List[T], body: if <x as y : take out of the T? loop binding
 struct S
-  t: Text
+  t: String
 
 struct Holder[T]
   x: T?
@@ -12,11 +12,11 @@ fun grab[T](v: ?List[T?]) -> T?
   none
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
-  o: List[Text?] = List()
-  !o.push(Text("q"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  o: List[String?] = List()
+  !o.push(String("q"))
   r = grab(?o)
   <o
   print(r)

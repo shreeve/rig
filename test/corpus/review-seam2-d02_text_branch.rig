@@ -5,8 +5,8 @@
 # oracle: arr accept
 # oracle: fill accept
 # oracle: main accept
-fun mkt(s: String) -> Text
-  Text(s)
+fun mkt(s: ?String) -> String
+  String(s)
 
 fun f(n: Int) -> Int
   n
@@ -19,16 +19,16 @@ fun mkv() -> List[Int]
 fun arr() -> [3]Int
   [7, 8, 9]
 
-sub fill(t: !Text)
+sub fill(t: !String)
   !t.add("!")
   print(t)
 
 sub main()
   c = f(1) == 1
   !mkt("a").add("b")
-  !(Text("x") if c else mkt("y")).add("z")
-  fill(!(mkt("p") if c else Text("q")))
-  fill(!Text("lit"))
+  !(String("x") if c else mkt("y")).add("z")
+  fill(!(mkt("p") if c else String("q")))
+  fill(!String("lit"))
   !(mkv() if c else List[Int]()).push(2)
   !([1, 2, 3] if c else arr()).fill(0)
   print(?(arr() if c else [4, 5, 6])[..])

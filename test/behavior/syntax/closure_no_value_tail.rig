@@ -14,8 +14,8 @@ struct F
 sub each(f: ?sub(Int))
   f(1)
 
-sub feed(f: ?sub(Text))
-  f(Text("a", 1))
+sub feed(f: ?sub(String))
+  f(String("a", 1))
 
 sub main()
   each(|i|
@@ -31,9 +31,9 @@ sub main()
     else
       print(0)
   )
-  feed(|t: Text| <t)
-  keep: sub(Text) = |t: Text| <t
-  keep(Text("b"))
+  feed(|t: String| <t)
+  keep: sub(String) = |t: String| <t
+  keep(String("b"))
   print("done")
 
 # expect:

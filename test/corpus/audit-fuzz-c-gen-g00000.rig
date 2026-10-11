@@ -136,11 +136,11 @@ sub h1()!
   print("use", r13.id)
   r15 = ident(ident(*mk(100)))
   print("use", r15.id)
-  o17: String? = "s110"
+  o17: (?String)? = "s110"
   r17 = chain(<o17)
   if ?r17 as w18
     print("str", w18)
-  o20: String? = "s120"
+  o20: (?String)? = "s120"
   r20 = must(<o20)!
   print("str", r20)
 

@@ -7,10 +7,10 @@
 
 struct B
   v: List[Int]
-  o: Text?
+  o: String?
 
 enum E
-  a(t: Text)
+  a(t: String)
   z
 
 struct H
@@ -19,10 +19,10 @@ struct H
 fun mk() -> B
   v: List[Int] = List()
   !v.push(1)
-  B(v: <v, o: Text("o"))
+  B(v: <v, o: String("o"))
 
 fun mke() -> E
-  E.a(t: Text("e"))
+  E.a(t: String("e"))
 
 fun mv() -> List[Int]
   v: List[Int] = List()

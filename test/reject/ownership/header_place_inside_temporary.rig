@@ -15,16 +15,16 @@ struct S
   e: E
   xs: [3]Int
   o: Int?
-  t: Text
+  t: String
 
 fun mk() -> S
-  S(e: E.a(n: 42), xs: [1, 2, 3], o: 7, t: Text("pad"))
+  S(e: E.a(n: 42), xs: [1, 2, 3], o: 7, t: String("pad"))
 
 fun id(s: ?S) -> ?S from s
   s
 
 fun mkh(n: Int) -> *S
-  *S(e: E.a(n: n), xs: [n, n, n], o: n, t: Text("pad"))
+  *S(e: E.a(n: n), xs: [n, n, n], o: n, t: String("pad"))
 
 fun idh(s: ?*S) -> ?S from s
   s

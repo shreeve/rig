@@ -1,7 +1,7 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
-sub f(w: !Text)
+sub f(w: !String)
   g = |!w|
     s = keep(?w[1..])
     for _ in 0..50
@@ -10,5 +10,5 @@ sub f(w: !Text)
   g()
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   f(!t)

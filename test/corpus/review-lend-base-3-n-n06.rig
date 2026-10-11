@@ -17,9 +17,9 @@ struct Bag[T]
     self.items.len
 
 sub main()
-  v = List[Text]()
-  put(!v, Text("a"))
-  b = Bag[Text](items: List())
-  (!b).add(Text("x"))
-  !b.add(Text("y"))
+  v = List[String]()
+  put(!v, String("a"))
+  b = Bag[String](items: List())
+  (!b).add(String("x"))
+  !b.add(String("y"))
   print(v.len, b.size())

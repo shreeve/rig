@@ -1,4 +1,4 @@
-# A slice that `print` or `Text` reads implicitly is lent to read as
+# A slice that `print` or `String` reads implicitly is lent to read as
 # `?v[..]` would be: the loan lasts the statement, so a later argument
 # may not write the owner.
 
@@ -11,9 +11,9 @@ sub main()
   !v.push(1)
   print(v[..], (!v).pop())
   w: List[Int] = List()
-  t = Text(w[..], bump(!w))
+  t = String(w[..], bump(!w))
   print(t)
 
 # errors: 2
 # error: 12:17: cannot lend `v` to write while a read loan is live
-# error: 14:25: cannot lend `w` to write while a read loan is live
+# error: 14:27: cannot lend `w` to write while a read loan is live

@@ -9,7 +9,7 @@ pub fun check[T](x: T, ok: Bool) -> T!
 
 pub struct Bag[T]
   items: List[T]
-  name: String = "bag"
+  name: ?String = "bag"
 
   sub push(!self, x: T)
     !self.items.push(<x)

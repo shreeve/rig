@@ -1,6 +1,6 @@
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("hello"))
+  v: List[String] = List()
+  !v.push(String("hello"))
   for t in !v
     s = ?t[1..]
     for _ in 0..50

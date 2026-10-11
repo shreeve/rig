@@ -1,7 +1,7 @@
 # swap of elements carrying different loans
 sub main()
-  t = Text("x")
-  m: List[List[String]] = List()
+  t = String("x")
+  m: List[List[?String]] = List()
   !m.push(List())
   !m.push(List())
   !m[0].push(?t)

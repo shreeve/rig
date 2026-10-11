@@ -1,6 +1,6 @@
 # write match on a Text / String element. Expect reject or correct run.
 sub main()
-  t = Text("abc")
+  t = String("abc")
   i = 0
   match !t[i]
     x => x = 65

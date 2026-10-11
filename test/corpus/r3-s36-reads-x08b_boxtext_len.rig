@@ -1,3 +1,3 @@
 sub main()
-  b = ^Text("hello")
+  b = ^String("hello")
   print(b.len)

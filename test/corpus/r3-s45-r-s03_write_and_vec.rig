@@ -1,8 +1,8 @@
-sub f(a: !Text, v: !List[Text])
-  !v.push(Text("x"))
+sub f(a: !String, v: !List[String])
+  !v.push(String("x"))
   !a.add("y")
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   f(!v[0], !v)

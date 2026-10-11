@@ -6,7 +6,7 @@
 # oracle: main accept
 struct S
   n: Int
-  t: Text
+  t: String
 
   fun pick(!self, x: Int, y: Int) -> Int
     self.n += x * 10 + y
@@ -18,7 +18,7 @@ struct S
     print("drop", self.n, self.t)
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("t", n))
+  S(n: n, t: String("t", n))
 
 fun f(n: Int) -> Int
   print("arg", n)

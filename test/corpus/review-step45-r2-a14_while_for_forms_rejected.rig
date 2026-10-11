@@ -1,21 +1,21 @@
 # while-as / for read / for write over a place through a temp: each
 # header points at the place, so each binds the place's own
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("q"))
-  m: List[List[Text]] = List()
+  v: List[String?] = List()
+  !v.push(String("q"))
+  m: List[List[String]] = List()
   !m.push(List())
-  while v[idx(?Text("a"))] as t
+  while v[idx(?String("a"))] as t
     print(t)
     break
-  for x in m[idx(?Text("a"))]
+  for x in m[idx(?String("a"))]
     print(x)
-  for x in !m[idx(?Text("a"))]
+  for x in !m[idx(?String("a"))]
     !x.add("!")
-  if v[idx(?Text("a"))] as t
+  if v[idx(?String("a"))] as t
     print(t)
   else
     print("none")

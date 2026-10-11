@@ -16,5 +16,5 @@ sub main()
   bump()
   print(w.n)
   name = "rig"
-  greet = |?name, p: String| print(p, name)
+  greet = |?name, p: ?String| print(p, name)
   greet("hi")

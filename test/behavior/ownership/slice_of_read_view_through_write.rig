@@ -1,53 +1,53 @@
 # A read view held in a field or an element reached through a write view
-# (`?Text`, `?^Text`, `?*Text`) is sliced as a value: what it views
+# (`?String`, `?^String`, `?*String`) is sliced as a value: what it views
 # cannot change while its loan lives, which the slice carries, so the
 # field or element may be re-pointed while the slice is used.
 # release
 
 struct R
-  f: ?Text
+  f: ?String
 
 struct RB
-  f: ?^Text
+  f: ?^String
 
 struct RS
-  f: ?*Text
+  f: ?*String
 
-sub field(w: !R, u: ?Text)
+sub field(w: !R, u: ?String)
   s = w.f[1..]
   w.f = u
   print(s)
 
-sub boxed(w: !RB, u: ?^Text)
+sub boxed(w: !RB, u: ?^String)
   s = w.f[1..]
   w.f = u
   print(s)
 
-sub shared(w: !RS, u: ?*Text)
+sub shared(w: !RS, u: ?*String)
   s = w.f[1..]
   w.f = u
   print(s)
 
-sub element(w: !List[?Text], u: ?Text)
+sub element(w: !List[?String], u: ?String)
   s = w[0][1..]
   w[0] = u
   print(s)
 
 sub main()
-  t = Text("hello")
-  u = Text("other")
+  t = String("hello")
+  u = String("other")
   r = R(f: ?t)
   field(!r, ?u)
   print(r.f)
-  b = ^Text("boxed")
-  bu = ^Text("other")
+  b = ^String("boxed")
+  bu = ^String("other")
   rb = RB(f: ?b)
   boxed(!rb, ?bu)
-  h = *Text("shared")
-  hu = *Text("other")
+  h = *String("shared")
+  hu = *String("other")
   rs = RS(f: ?h)
   shared(!rs, ?hu)
-  v: List[?Text] = List()
+  v: List[?String] = List()
   !v.push(?t)
   element(!v, ?u)
   r2 = R(f: ?t)

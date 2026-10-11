@@ -2,10 +2,10 @@ struct P
   x: Int
   o: Int?
   items: List[Int]
-  s: Text
+  s: String
   arr: [3]Int
 
 sub main()
-  p = P(x: 1, o: 2, items: List[Int](), s: Text("hi"), arr: [1, 2, 3])
+  p = P(x: 1, o: 2, items: List[Int](), s: String("hi"), arr: [1, 2, 3])
   (?p).x = 5
   print(p.x, p.items.len)

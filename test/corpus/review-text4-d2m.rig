@@ -1,4 +1,4 @@
-fun f(s: String, c: Bool) -> Int
+fun f(s: ?String, c: Bool) -> Int
   ("b" if c else s).len
 
 sub main()

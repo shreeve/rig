@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 enum WP
   a(w: !P)
@@ -10,14 +10,14 @@ enum O
   z
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   o = O.a(WP.a(!p))
   match o
     .a(i)
       match i
         .a(w)
           r = ?w.t[1..]
-          w.t = Text("other")
+          w.t = String("other")
           print(r)
         .b => pass
     .z => pass

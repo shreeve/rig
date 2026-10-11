@@ -1,18 +1,18 @@
 struct P
-  t: Text
+  t: String
 
 enum E
   a(v: List[!P])
   b
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   xs: List[!P] = List()
   !xs.push(!p)
   e = E.a(<xs)
   match e
     .a(v)
       r = ?v[0].t[1..]
-      v[0].t = Text("other")
+      v[0].t = String("other")
       print(r)
     .b => pass

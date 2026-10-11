@@ -1,5 +1,5 @@
 struct Q
-  t: Text
+  t: String
 
 enum In
   a(q: !Q)
@@ -10,7 +10,7 @@ enum Out
   z
 
 sub main()
-  q = Q(t: Text("hi"))
+  q = Q(t: String("hi"))
   i = In.a(!q)
   o = Out.a(!i)
   match o

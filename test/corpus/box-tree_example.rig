@@ -61,7 +61,7 @@ sub show[T](slot: ?^Node[T]?)
     show(?n.right)
 
 sub main()
-  words = Tree[String](root: none, size: 0)
+  words = Tree[?String](root: none, size: 0)
   for w in ["the", "quick", "fox", "jumps", "over", "the", "lazy", "fox"]
     !words.add(w)
   show(?words.root)

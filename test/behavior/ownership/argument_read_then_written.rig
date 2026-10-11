@@ -34,7 +34,7 @@ fun bump(p: !P) -> Int
 fun sum(p: P, n: Int) -> Int
   p.x + p.y + n
 
-fun clears(ss: !List[String]) -> Int
+fun clears(ss: !List[?String]) -> Int
   ss = List()
   0
 
@@ -56,7 +56,7 @@ sub main()
   print(s.a)
   q = Q(p: p, n: bump(!p))
   print(q, p)
-  ss: List[String] = List()
+  ss: List[?String] = List()
   !ss.push("hi")
   print(ss[0], clears(!ss), ss.len)
 

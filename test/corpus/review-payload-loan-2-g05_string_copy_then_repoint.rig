@@ -3,7 +3,7 @@ enum WS
   b
 
 sub main()
-  s: String = "hello"
+  s: ?String = "hello"
   e = WS.a(!s)
   r = match e
     .a(w) => w

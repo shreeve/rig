@@ -1,6 +1,6 @@
 # H3: generic loop over ?List[T], body: T = ^Text, return element
 struct S
-  t: Text
+  t: String
 
 struct Holder[T]
   x: T?
@@ -11,11 +11,11 @@ fun first[T](v: ?List[T]) -> T?
   none
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
-  b: List[^Text] = List()
-  !b.push(^Text("q"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  b: List[^String] = List()
+  !b.push(^String("q"))
   r = first(?b)
   <b
   print(r)

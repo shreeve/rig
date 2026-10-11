@@ -9,7 +9,7 @@ struct Point
 struct Segment
   from: Point
   to: Point
-  label: String
+  label: ?String
 
 struct Sample
   at: Point

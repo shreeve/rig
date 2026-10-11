@@ -1,11 +1,11 @@
-# `Text` is a built-in type: its name is reserved.
+# `String` is a built-in type: its name is reserved.
 
-struct Text
+struct String
   n: Int
 
 sub main()
-  xs: List[Text] = List()
-  ys: [2]Text = [Text("a"), Text("b")]
+  xs: List[String] = List()
+  ys: [2]String = [String("a"), String("b")]
   print(xs.len, ys.len)
 
-# error: 3:8: `Text` is a reserved built-in nominal name and cannot be redefined
+# error: 3:8: `String` is a reserved built-in nominal name and cannot be redefined

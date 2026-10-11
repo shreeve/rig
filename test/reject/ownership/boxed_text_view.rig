@@ -2,13 +2,13 @@
 # dropped or changed while the view is in use.
 
 sub main()
-  b = ^Text("boxed")
+  b = ^String("boxed")
   s = ?b[1..]
   <b
   print(s)
-  c = ^Text("c")
+  c = ^String("c")
   w = ?c[..]
-  c = ^Text("d")
+  c = ^String("d")
   print(w, c)
 
 # error: 7:4: cannot drop `b` while it is lent

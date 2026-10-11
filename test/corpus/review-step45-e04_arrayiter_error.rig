@@ -2,16 +2,16 @@
 error Bad
   oops
 
-fun check(t: String) -> Int!
+fun check(t: ?String) -> Int!
   if t == "b"
     return Bad.oops
   1
 
-fun walk(a: [3]Text) -> Int!
+fun walk(a: [3]String) -> Int!
   n = 0
   for x in <a
     n += check(x)!
   n
 
 sub main()
-  print(walk([Text("a"), Text("b"), Text("c")]) catch -1)
+  print(walk([String("a"), String("b"), String("c")]) catch -1)

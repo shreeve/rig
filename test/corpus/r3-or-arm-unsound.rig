@@ -10,7 +10,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -39,10 +39,10 @@ fun guarded_return(e: ?E, k: ?Res) -> ?Res
   k
 
 sub main()
-  k = Res(n: 0, t: Text("k"))
-  e = E.a(r: Res(n: 1, t: Text("e")))
+  k = Res(n: 0, t: String("k"))
+  e = E.a(r: Res(n: 1, t: String("e")))
   yielded(?e, ?k)
   print(guarded_return(?e, ?k).t)
-  o = Opt.some(v: Text("o"))
-  d = Text("d")
+  o = Opt.some(v: String("o"))
+  d = String("d")
   print(o.peek(?d))

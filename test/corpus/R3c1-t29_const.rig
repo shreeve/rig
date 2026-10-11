@@ -1,6 +1,6 @@
 struct P
   x: Int
-  s: String
+  s: ?String
 
 const LESS = "a" < "b"
 const SAME = "a" == "a"

@@ -1,14 +1,14 @@
 # while (!v[idx(?Text("a"))] if c else !w) as t: re-evaluated each iteration
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("q"))
-  w: Text? = Text("w")
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
   c = v.len == 1
   n = 0
-  while (!v[idx(?Text("a"))] if c else !w) as t
+  while (!v[idx(?String("a"))] if c else !w) as t
     for _ in 0..40
       !t.add("xxxxxxxx")
     n += 1

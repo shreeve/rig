@@ -1,5 +1,5 @@
 struct S0
-  v: String
+  v: ?String
   o: Int?
 
 enum E1

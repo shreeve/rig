@@ -9,7 +9,7 @@ pub enum Color
 pub struct Cfg
   pub n: Int = limit
   pub c: Color = .green
-  pub s: String = "x"
+  pub s: ?String = "x"
   pub f: Float = .5
   pub v: List[Int] = List()
   pub m: U64 = big

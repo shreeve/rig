@@ -1,14 +1,14 @@
 # A branching left operand of `!=` holds each place it may be until
 # the right operand has run.
 
-fun grow(t: !Text) -> Text
+fun grow(t: !String) -> String
   for _ in 0..100
     !t.add("abcdefgh")
-  Text("x")
+  String("x")
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   c = true
   print((a if c else b) != grow(!a))
 

@@ -1,14 +1,14 @@
 struct P
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(p: ?P)
   b
 
 sub main()
-  p = P(n: 3, t: Text("pp"))
-  q = P(n: 4, t: Text("qq"))
+  p = P(n: 3, t: String("pp"))
+  q = P(n: 4, t: String("qq"))
   rv: List[?P] = List()
   !rv.push(?p)
   !rv.push(?q)

@@ -9,4 +9,4 @@ extern zig "os.zig"
   # not set. The text lives as long as the program: it views the
   # environment the process started with, which nothing in std changes
   # (a `set_env` would have to revisit this `Static`).
-  pub fun env(name: String) -> Static?
+  pub fun env(name: ?String) -> Static?

@@ -1,13 +1,13 @@
 # index the List a call returns: print, bind, lend, take
-fun mk() -> List[Text]
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+fun mk() -> List[String]
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   <v
 
-fun mko() -> List[Text?]
-  v: List[Text?] = List()
-  !v.push(Text("a"))
+fun mko() -> List[String?]
+  v: List[String?] = List()
+  !v.push(String("a"))
   <v
 
 sub main()

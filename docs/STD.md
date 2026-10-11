@@ -109,7 +109,7 @@ true -3.0 -2.0
 ## std.os
 
 The arguments and environment the program started with. Their text
-lives as long as the program, as a literal's does, and views no `Text`,
+lives as long as the program, as a literal's does, and views no `String`,
 so both are a `Static` ([SPEC §2](../SPEC.md#static)). They hold the
 bytes the operating system gave, which are not checked to be UTF-8.
 A `Static` carries no loan, so a result can be kept, returned, and
@@ -118,7 +118,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 | Function | Result |
 |---|---|
 | `args() -> []Static` | every argument, the program's name first |
-| `env(name: String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
+| `env(name: ?String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -254,7 +254,7 @@ O(log n) stack, with no other memory.
 use std.sort
 
 struct Player
-  name: String
+  name: ?String
   score: Int
 
 sub main()
@@ -305,7 +305,7 @@ sub main()
 use std.sort
 
 struct Player
-  name: String
+  name: ?String
   score: Int
 
 sub main()
@@ -348,32 +348,32 @@ bytes by convention, and nothing here checks that it is: every index
 and length is in bytes, and whitespace and case are ASCII's. A function
 that returns a String returns a part of the String it was given, a
 view of the same bytes, so nothing here allocates. A String taken from
-a `Text` ([SPEC §10](../SPEC.md#text)) keeps it lent through every
+a `String` ([SPEC §10](../SPEC.md#text)) keeps it lent through every
 part these functions return.
 
 | Function | Result |
 |---|---|
-| `find(s: String, pat: String) -> Int?` | the index of the first occurrence of `pat` in `s`, or `none`; 0 for `""` |
-| `find_last(s: String, pat: String) -> Int?` | the index of the last occurrence, or `none`; `s.len` for `""` |
-| `contains(s: String, pat: String) -> Bool` | whether `pat` occurs in `s`; every String contains `""` |
-| `starts_with(s: String, prefix: String) -> Bool`, `ends_with(s: String, suffix: String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
-| `count(s: String, pat: String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
-| `trim(s: String) -> String` | `s` without its leading and trailing ASCII whitespace |
-| `trim_start(s: String) -> String`, `trim_end(s: String) -> String` | `s` without its leading, or its trailing, ASCII whitespace |
-| `strip_prefix(s: String, prefix: String) -> String? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
-| `strip_suffix(s: String, suffix: String) -> String? from s` | `s` before `suffix`, or `none` when `s` does not end with it |
-| `cut(s: String, sep: String) -> Cut? from s` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
-| `split(s: String, sep: String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
-| `lines(s: String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
-| `words(s: String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
-| `parse_int(s: String) -> Int!` | `s` as a base-10 `Int`: an optional sign, `+` or `-`, then digits, and nothing else |
-| `parse_float(s: String) -> Float!` | `s` as a `Float`: an optional sign, then digits with an optional `.` and fraction and an optional exponent (`2.5`, `.5`, `1e-3`), or `inf`, `infinity`, or `nan` in any case; the nearest `Float` to the number |
-| `parse_bool(s: String) -> Bool!` | `true` for `"true"` and `false` for `"false"` |
+| `find(s: ?String, pat: ?String) -> Int?` | the index of the first occurrence of `pat` in `s`, or `none`; 0 for `""` |
+| `find_last(s: ?String, pat: ?String) -> Int?` | the index of the last occurrence, or `none`; `s.len` for `""` |
+| `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every String contains `""` |
+| `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
+| `count(s: ?String, pat: ?String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
+| `trim(s: ?String) -> ?String` | `s` without its leading and trailing ASCII whitespace |
+| `trim_start(s: ?String) -> ?String`, `trim_end(s: ?String) -> ?String` | `s` without its leading, or its trailing, ASCII whitespace |
+| `strip_prefix(s: ?String, prefix: ?String) -> (?String)? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
+| `strip_suffix(s: ?String, suffix: ?String) -> (?String)? from s` | `s` before `suffix`, or `none` when `s` does not end with it |
+| `cut(s: ?String, sep: ?String) -> Cut? from s` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
+| `split(s: ?String, sep: ?String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
+| `lines(s: ?String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
+| `words(s: ?String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
+| `parse_int(s: ?String) -> Int!` | `s` as a base-10 `Int`: an optional sign, `+` or `-`, then digits, and nothing else |
+| `parse_float(s: ?String) -> Float!` | `s` as a `Float`: an optional sign, then digits with an optional `.` and fraction and an optional exponent (`2.5`, `.5`, `1e-3`), or `inf`, `infinity`, or `nan` in any case; the nearest `Float` to the number |
+| `parse_bool(s: ?String) -> Bool!` | `true` for `"true"` and `false` for `"false"` |
 | `is_digit(b: U8) -> Bool`, `is_alpha(b: U8) -> Bool` | whether `b` is an ASCII digit, or an ASCII letter |
 | `is_space(b: U8) -> Bool` | whether `b` is ASCII whitespace: a space, tab, line feed, vertical tab, form feed, or carriage return |
 | `to_upper(b: U8) -> U8`, `to_lower(b: U8) -> U8` | `b` in upper, or lower, case when it is an ASCII letter, else `b` |
 | `valid_utf8(bytes: []U8) -> Bool` | whether `bytes` is well-formed UTF-8 |
-| `compare(a: String, b: String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
+| `compare(a: ?String, b: ?String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
 
 ```rig
 use std.text
@@ -433,7 +433,7 @@ the number is too large for its type: an `Int` outside `Int.min` to
 ```rig
 use std.text
 
-fun total(xs: []String) -> Int!
+fun total(xs: []?String) -> Int!
   sum = 0
   for x in xs
     sum += text.parse_int(text.trim(x))!
@@ -463,7 +463,7 @@ use std.sort
 use std.text
 
 struct City
-  name: String
+  name: ?String
   pop: Int
 
 sub main()

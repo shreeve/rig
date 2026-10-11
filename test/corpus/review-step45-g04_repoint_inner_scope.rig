@@ -1,9 +1,9 @@
 # re-point at an inner-scope local, then write after it is gone
 sub main()
-  m = Text("m")
+  m = String("m")
   w = !m
   if true
-    k = Text("k")
+    k = String("k")
     w = !k
   !w.add("!")
   print(m)

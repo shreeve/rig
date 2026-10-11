@@ -6,5 +6,5 @@ fun grow(c: !Cell[List[Int]]) -> Int
 sub main()
   c: Cell[List[Int]] = Cell(List())
   !c.push(42)
-  t = Text(c, grow(!c))
+  t = String(c, grow(!c))
   print(t.len, t)

@@ -3,7 +3,7 @@ sub main()
   !v.push(1)
   bb = ^^?v
   print(bb.len)
-  t = Text("hi")
+  t = String("hi")
   bt = ^^?t
   print(bt, bt.len)
   !v.push(2)

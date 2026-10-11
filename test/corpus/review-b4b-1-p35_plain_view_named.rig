@@ -13,7 +13,7 @@ fun look(p: ?P) -> ?P from p
 fun lookw(p: !P) -> !P from p
   p
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -22,9 +22,9 @@ fun clobber(n: Int) -> Int
 
 sub main()
   p = P(xs: [Q(a: 41, b: 42), none])
-  if look(?p).xs[idx(?Text("a"))] as q
+  if look(?p).xs[idx(?String("a"))] as q
     print(clobber(1000), q.a, q.b)
-  if !lookw(!p).xs[idx(?Text("a"))] as q
+  if !lookw(!p).xs[idx(?String("a"))] as q
     q.a = 7
     print(clobber(1000), q.a, q.b)
   print(p.xs[0])

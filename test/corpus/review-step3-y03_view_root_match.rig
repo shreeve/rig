@@ -1,5 +1,5 @@
 struct Res
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -9,7 +9,7 @@ struct S
   e: E
 
 sub main()
-  s = S(e: E.a(r: Res(t: Text("abc"))))
+  s = S(e: E.a(r: Res(t: String("abc"))))
   p = ?s
   match p.e
     .a(r)

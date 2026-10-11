@@ -23,7 +23,7 @@ struct Marker[T]
 sub main()
   t: Tag[Int] = .off
   print(t.flip() == .on, t.is_on())
-  m: Marker[String] = Marker(n: 1)
+  m: Marker[?String] = Marker(n: 1)
   print(m.next().n)
 
 # expect:

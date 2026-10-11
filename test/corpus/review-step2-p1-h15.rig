@@ -1,8 +1,8 @@
-fun grow(t: !Text) -> Int
+fun grow(t: !String) -> Int
   for _ in 0..100
     !t.add("abcdefgh")
   1
 
 sub main()
-  a = Text("a")
+  a = String("a")
   print(a, grow(!a))

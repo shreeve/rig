@@ -1,6 +1,6 @@
 # +a of [2]Text? and of [2]^Int
 sub main()
-  a: [2]Text? = [Text("a"), none]
+  a: [2]String? = [String("a"), none]
   b = +a
   c = [^1, ^2]
   d = +c

@@ -5,7 +5,7 @@
 struct Job
   when: Int
   const: Bool
-  where: String
+  where: ?String
 
   fun yield(?self) -> Int
     self.when * 2

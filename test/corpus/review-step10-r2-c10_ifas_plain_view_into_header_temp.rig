@@ -7,10 +7,10 @@ struct Q
 
 struct H
   q: Q?
-  t: Text
+  t: String
 
 fun mkh(k: Int) -> H
-  H(q: Q(xs: [k, k, k, k]), t: Text("a text long enough to live on the heap"))
+  H(q: Q(xs: [k, k, k, k]), t: String("a text long enough to live on the heap"))
 
 fun pick(h: ?H) -> ?Q?
   ?h.q

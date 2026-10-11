@@ -9,7 +9,7 @@ struct D
 fun mk(n: Int) -> D
   D(n: n)
 
-fun at(i: Int, what: String) -> Int
+fun at(i: Int, what: ?String) -> Int
   print(what)
   i
 

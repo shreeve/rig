@@ -1,8 +1,8 @@
 # if v[0] as t on List[Text?], the binding escapes to an outer view
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("hi"))
-  s: String = "none"
+  v: List[String?] = List()
+  !v.push(String("hi"))
+  s: ?String = "none"
   if v[0] as t
     s = ?t
   v[0] = none

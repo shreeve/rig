@@ -81,10 +81,10 @@ sub lends[T](a: T, b: T, k: T, c: Bool)
 
 sub main()
   g(Pt(x: 3, y: 4))
-  g(Text("two two two two two two two two"))
+  g(String("two two two two two two two two"))
   two(Pt(x: 3, y: 4), Pt(x: 7, y: 8))
   cell(*Counter(hits: Cell(1)), bump, show)
-  lends(Text("one"), Text("two"), Text("k"), false)
+  lends(String("one"), String("two"), String("k"), false)
   lends(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0), true)
 
 # expect:

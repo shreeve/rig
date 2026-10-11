@@ -15,7 +15,7 @@ struct P
   o: Int?
   arr: [3]Int
   items: List[Int]
-  name: Text
+  name: String
   v: List[Int]
 
 fun own(v: List[Int]) -> Int
@@ -28,7 +28,7 @@ fun sum(xs: []Int) -> Int
   xs[0]
 
 fun mk() -> P
-  P(x: 1, o: 2, arr: [1, 2, 3], items: List(), name: Text("nm"), v: List())
+  P(x: 1, o: 2, arr: [1, 2, 3], items: List(), name: String("nm"), v: List())
 
 fun add(a: Int, b: Int, c: Int, d: Int) -> Int
   a + b + c + d
@@ -39,7 +39,7 @@ sub poke(k: ?Log)
 sub main()
   p = mk()
   k = *Log(log: Cell(List()))
-  t = Text("abcd")
+  t = String("abcd")
   arr = [1, 2, 3]
   print(own((?p).items))
   a = gid((?p).items)
@@ -59,7 +59,7 @@ sub main()
   (!t).push_str("d")
   g = <(?p).items
   poke(k)
-  s: String = (?p).name
+  s: ?String = (?p).name
   yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy = add(1111111111, 2222222222, 3333333333, (?p).x) + add(1111111111, 2222222222, 3333333333, 4)
   h = (
     ?p
@@ -71,8 +71,8 @@ sub main()
 # error: 52:13: type mismatch: expected `[]Int`, got `[3]Int`; write `?p.arr` or `?p.arr[..]`
 # error: 57:4: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate
 # error: 58:14: no method `len` on type `List[Int]`; `len` is a field: write `p.v.len`
-# error: 59:8: type `!Text` has no method `push_str`
-# error: 62:15: type mismatch: expected `String`, got `Text`; lend it as a String with `?p.name` or `?p.name[..]`
+# error: 59:8: type `!String` has no method `push_str`
+# error: 62:16: type mismatch: expected `?String`, got `String`; lend it as a `?String` with `?p.name` or `?p.name[..]`
 # error: 37:4: `(?k).log`: write a lend on the whole path, not its base; and a read lend is not written through
 # error: 44:14: `(?p).items`: write a lend on the whole path, not its base: `print(own(+p.items))`
 # error: 45:12: `(?p).items`: write a lend on the whole path, not its base: `a = gid(+p.items)`
@@ -89,7 +89,7 @@ sub main()
 # error: 57:4: `(?p).x`: write a lend on the whole path, not its base; and a read lend is not written through
 # error: 58:8: `(?p).v`: write a lend on the whole path, not its base
 # error: 60:9: `(?p).items`: write a lend on the whole path, not its base; and a read lend is not written through
-# error: 62:16: `(?p).name`: write a lend on the whole path, not its base: `s: String = ?p.name`
+# error: 62:17: `(?p).name`: write a lend on the whole path, not its base: `s: ?String = ?p.name`
 # error: 63:80: `(?p).x`: write a lend on the whole path, not its base: `yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy = add(1111111111, 2222222222, 3333333333, p.x) + add(1111111111, 2222222222, 3333333333, 4)`
 # error: 65:5: `(?p).x`: write a lend on the whole path, not its base
 # error: 67:5: `((!p)).x`: write a lend on the whole path, not its base: `p.x = 6`

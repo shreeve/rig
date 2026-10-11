@@ -15,7 +15,7 @@ struct H
   q: Q
 
 struct S
-  cb: fun(Text, ?Q, Int) -> Int
+  cb: fun(String, ?Q, Int) -> Int
   wr: fun(!Q, Int) -> Int
 
 fun gf(k: Int) -> Int!
@@ -30,7 +30,7 @@ fun g(k: Int) -> Int
 fun mkh(k: Int) -> H
   H(q: Q(c: k, n: k))
 
-fun usq(t: Text, q: ?Q, n: Int) -> Int
+fun usq(t: String, q: ?Q, n: Int) -> Int
   t.len + q.c + n
 
 fun wr(q: !Q, n: Int) -> Int
@@ -38,7 +38,7 @@ fun wr(q: !Q, n: Int) -> Int
   q.n
 
 fun run(s: ?S, k: Int) -> Int!
-  s.cb(Text("a text long enough to live on the heap"), ?mkh(5).q, gf(k)!)
+  s.cb(String("a text long enough to live on the heap"), ?mkh(5).q, gf(k)!)
 
 sub main()
   s = S(cb: usq, wr: wr)

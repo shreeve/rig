@@ -1,12 +1,12 @@
 struct P
-  t: Text
+  t: String
   n: Int
   xs: List[Int]
 
 sub main()
   xs: List[Int] = List()
   !xs.push(7)
-  p = P(t: Text("hello"), n: 3, xs: <xs)
+  p = P(t: String("hello"), n: 3, xs: <xs)
   o: (!P)? = !p
   if o as x
     print(x.n, x.xs.len)
@@ -14,7 +14,7 @@ sub main()
   so: (![]Int)? = !a[..]
   if so as s
     print(s.len, s[1])
-  tt = Text("abc")
-  to: (!Text)? = !tt
+  tt = String("abc")
+  to: (!String)? = !tt
   if to as t
     print(t.len, t[1..])

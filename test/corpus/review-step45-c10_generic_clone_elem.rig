@@ -3,7 +3,7 @@ fun dup[T](v: ?List[T], i: Int) -> T
   +v[i]
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   t = dup(?v, 0)
   print(t, v)

@@ -4,8 +4,8 @@ fun mkv() -> List[Int]
   !v.push(2)
   v
 
-fun mks() -> List[String]
-  v: List[String] = List()
+fun mks() -> List[?String]
+  v: List[?String] = List()
   !v.push("a")
   v
 

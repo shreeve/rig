@@ -1,13 +1,13 @@
 enum WS
-  a(s: ![]Text)
+  a(s: ![]String)
   b
 
-sub put(s: ![]Text)
-  s[0] = Text("other")
+sub put(s: ![]String)
+  s[0] = String("other")
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("hello"))
+  v: List[String] = List()
+  !v.push(String("hello"))
   e = WS.a(!v[..])
   match e
     .a(s)

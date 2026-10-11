@@ -1,6 +1,6 @@
 struct S
-  x: String
-  y: String
+  x: ?String
+  y: ?String
 
 sub bump(p: !String, q: !String)
   p = "one"

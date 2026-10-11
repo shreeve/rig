@@ -1,7 +1,7 @@
 # A payload of `match !h` is a write view: it carries the write loan on `h`.
 
 enum H
-  has(s: String)
+  has(s: ?String)
   no
 
 sub main()

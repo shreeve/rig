@@ -1,13 +1,13 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 sub main()
-  a = Text("hello")
-  b = Text("world")
-  v: List[!Text] = List()
+  a = String("hello")
+  b = String("world")
+  v: List[!String] = List()
   !v.push(!a)
   !v.push(!b)
-  out: List[String] = List()
+  out: List[?String] = List()
   for w in v
     !out.push(keep(w[1..]))
   for w in !v

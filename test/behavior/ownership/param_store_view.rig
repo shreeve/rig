@@ -10,7 +10,7 @@ struct Holder
     self.r = s
 
 struct Text2
-  s: String
+  s: ?String
 
 fun total(xs: []Int) -> Int
   n = 0
@@ -54,7 +54,7 @@ fun closure_reads(a: !Holder, b: !List[Int]) -> Int
   b.len
 
 # A String viewing a Text stays readable beside the Text.
-fun text_view(a: !Text2, b: !Text) -> Int
+fun text_view(a: !Text2, b: !String) -> Int
   !b.add("def")
   a.s = ?b[1..4]
   print(a.s, b)
@@ -86,8 +86,8 @@ sub main()
   v5 = mk()
   h5 = Holder(r: ?x[..])
   print(closure_reads(!h5, !v5))
-  t = Text("abc")
-  q = Text("zz")
+  t = String("abc")
+  q = String("zz")
   w = Text2(s: ?q[..])
   print(text_view(!w, !t))
   print(w.s)

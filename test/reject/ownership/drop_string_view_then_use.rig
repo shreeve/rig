@@ -2,7 +2,7 @@
 # may not be used after it.
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   s = ?t[..2]
   <s
   !t.add("d")

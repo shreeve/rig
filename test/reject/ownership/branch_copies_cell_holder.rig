@@ -30,7 +30,7 @@ sub main()
   print(a.s if k else b.s, grow(!a2.s))
   f = |?a| grow(!a.s)
   print(a.s if k else b.s, f())
-  t = Text(a.s if k else b.s, grow(!a2.s))
+  t = String(a.s if k else b.s, grow(!a2.s))
   print(a.s.c if k else b.s.c, growc(!a2.s.c))
   y = if k
     a.s
@@ -44,7 +44,7 @@ sub main()
 
 # error: 30:9: would copy a `S`, which holds a Cell, out of `a.s`
 # error: 32:9: would copy a `S`, which holds a Cell, out of `a.s`
-# error: 33:12: would copy a `S`, which holds a Cell, out of `a.s`
+# error: 33:14: would copy a `S`, which holds a Cell, out of `a.s`
 # error: 34:9: would copy a `Cell[List[Int]]`, which holds a Cell, out of `a.s.c`
 # error: 36:5: lend each branch
 # error: 38:5: lend each branch

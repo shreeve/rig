@@ -1,11 +1,11 @@
 struct P
-  s: String
+  s: ?String
 
-sub put(c: !List[P], s: String)
+sub put(c: !List[P], s: ?String)
   c[0] = P(s: s)
 
 sub main()
-  t = Text("abcdefghijklmnop")
+  t = String("abcdefghijklmnop")
   v: List[P] = List()
   !v.push(P(s: "x"))
   put(!v, ?t[..3])

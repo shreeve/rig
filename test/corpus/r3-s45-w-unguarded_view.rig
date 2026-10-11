@@ -16,12 +16,12 @@ fun get(e: ?E, n: Int) -> ?E
 
 sub main()
   e = E.a(c: Counter(hits: Cell(1)))
-  match get(e, Text("xy").len)
+  match get(e, String("xy").len)
     .a(c) => c.hit()
     .b => pass
   print(e)
   b = ^E.a(c: Counter(hits: Cell(1)))
-  match getb(b, Text("xyz").len)
+  match getb(b, String("xyz").len)
     .a(c) => c.hit()
     _ => pass
   print(b)

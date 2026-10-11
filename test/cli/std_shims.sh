@@ -27,8 +27,8 @@ cat >lib/half.rig <<'EOF2'
 extern zig "half.zig"
   pub fun half(x: Int) -> Int
   pub fun same[T](x: T) -> T
-  pub fun parse(s: String) -> Int!
-  pub sub save(s: String)!
+  pub fun parse(s: ?String) -> Int!
+  pub sub save(s: ?String)!
 EOF2
 out=$(RIG_STD="$PWD/lib" "$RIG" check main.rig 2>&1); expect_rc $? 1 "untrusted signatures"
 expect_has "$out" "half.rig:3:11: error: a Zig-backed function cannot take compile-time parameters: write \`same\` in Rig" "generic"

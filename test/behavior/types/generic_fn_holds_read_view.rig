@@ -38,7 +38,7 @@ sub main()
     print(x.len)
   ts = twice(?w)
   print(ts[0].len + ts[1].len)
-  t = Text("abc")
+  t = String("abc")
   print(same(?t).len, pick(?t, ?t, true))
 
 # expect:

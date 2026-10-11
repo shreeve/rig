@@ -1,7 +1,7 @@
 # Integer ranges that together cover every value of the type make a
 # complete match, needing no default arm.
 
-fun size(n: U8) -> String
+fun size(n: U8) -> ?String
   match n
     0..10 => "small"
     10..100 => "medium"

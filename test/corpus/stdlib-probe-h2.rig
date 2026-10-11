@@ -18,7 +18,7 @@ struct Map[K, V]
     !self.slots.push(Pair(k: k, v: v))
 
 sub main()
-  m = Map[String, Int](slots: List())
+  m = Map[?String, Int](slots: List())
   !m.put("a", 1)
   !m.put("b", 2)
   !m.put("a", 3)

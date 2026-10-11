@@ -13,10 +13,10 @@
 # oracle: made_in_stmt accept
 
 struct S
-  t: Text
+  t: String
   xs: [4]Int
 
-  fun inner(?self) -> ?Text
+  fun inner(?self) -> ?String
     ?self.t
 
 struct W
@@ -33,7 +33,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 fun mk(n: Int) -> W
-  W(s: S(t: Text("a text long enough to live on the heap:", n), xs: [n, n, n, n]))
+  W(s: S(t: String("a text long enough to live on the heap:", n), xs: [n, n, n, n]))
 
 fun maybe(n: Int) -> W?
   return mk(n) if n > 0 else none

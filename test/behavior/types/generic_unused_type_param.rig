@@ -8,7 +8,7 @@ enum Marker[T]
   two
 
 sub main()
-  t: Tag[String] = Tag(n: 1)
+  t: Tag[?String] = Tag(n: 1)
   print(t.n)
   m: Marker[Int] = .two
   print(m)

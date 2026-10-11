@@ -11,7 +11,7 @@ sub main()
   empty: [0]Int = []
   slices.reverse(!empty)
   print(odd, slices.contains(?empty, 1), slices.index_of(?empty, 1))
-  v: List[String] = List()
+  v: List[?String] = List()
   !v.push("a")
   !v.push("b")
   !v.push("a")

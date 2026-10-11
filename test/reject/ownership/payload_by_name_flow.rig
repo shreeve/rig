@@ -6,26 +6,26 @@ struct B
   n: Int
 
 enum Bag
-  two(a: *B, t: Text)
+  two(a: *B, t: String)
   empty
 
-fun label(e: ?Bag, d: ?Text) -> ?Text from e, d
+fun label(e: ?Bag, d: ?String) -> ?String from e, d
   match e
     .two(t: t) => ?t
     _ => d
 
 sub main()
-  x: Bag = .two(a: *B(n: 1), t: Text("x"))
+  x: Bag = .two(a: *B(n: 1), t: String("x"))
   match <x
     .two(t: t) => print(t)
     _ => pass
   print(x)
-  y: Bag = .two(a: *B(n: 2), t: Text("y"))
-  d = Text("")
+  y: Bag = .two(a: *B(n: 2), t: String("y"))
+  d = String("")
   v = label(?y, ?d)
   y = .empty
   print(v)
-  z: Bag = .two(a: *B(n: 3), t: Text("z"))
+  z: Bag = .two(a: *B(n: 3), t: String("z"))
   match z
     .two(t: t)
       w = ?t

@@ -1,9 +1,9 @@
 struct BankAccount
-  owner: String
+  owner: ?String
   balance: Float = 0.0
   history: List[Float]
 
-  fun new(owner: String) -> Self
+  fun new(owner: ?String) -> Self
     BankAccount(owner: owner, history: List())
 
   sub deposit(!self, amt: Float)

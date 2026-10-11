@@ -1,4 +1,4 @@
-fun find(s: String, pat: String) -> Int?
+fun find(s: ?String, pat: ?String) -> Int?
   i = 0
   while i + pat.len <= s.len
     if s[i..i + pat.len] == pat
@@ -7,11 +7,11 @@ fun find(s: String, pat: String) -> Int?
   none
 
 struct Split
-  rest: String
-  sep: String
+  rest: ?String
+  sep: ?String
   done: Bool
 
-  fun next(!self) -> String?
+  fun next(!self) -> (?String)?
     return none if self.done
     at = find(self.rest, self.sep) ?? -1
     if at < 0
@@ -22,9 +22,9 @@ struct Split
     part
 
 struct Lines
-  rest: String
+  rest: ?String
 
-  fun next(!self) -> String?
+  fun next(!self) -> (?String)?
     return none if self.rest.len == 0
     end = find(self.rest, "\n") ?? -1
     if end < 0
@@ -36,25 +36,25 @@ struct Lines
     strip_suffix(line, "\r") ?? line
 
 struct Cut
-  before: String
-  after: String
+  before: ?String
+  after: ?String
 
-fun strip_suffix(s: String, suffix: String) -> String?
+fun strip_suffix(s: ?String, suffix: ?String) -> (?String)?
   return none if suffix.len > s.len or s[s.len - suffix.len..] != suffix
   s[..s.len - suffix.len]
 
-fun cut(s: String, sep: String) -> Cut?
+fun cut(s: ?String, sep: ?String) -> Cut?
   i = find(s, sep)?
   Cut(before: s[..i], after: s[i + sep.len..])
 
-fun split(s: String, sep: String) -> Split
+fun split(s: ?String, sep: ?String) -> Split
   Split(rest: s, sep: sep, done: false)
 
-fun trim(s: String) -> String
+fun trim(s: ?String) -> ?String
   s
 
 sub main()
-  t = Text("a,b,c")
+  t = String("a,b,c")
   it = split(?t, ",")
   a = (!it).next()
   b = (!it).next()

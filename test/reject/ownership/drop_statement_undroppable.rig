@@ -12,7 +12,7 @@ sub look(o: ?List[Int])
 sub main()
   v: List[List[Int]] = List()
   !v.push(List[Int]())
-  s: String = "abc"
+  s: ?String = "abc"
   r = ?v
   <r
   each(|?v, i|

@@ -7,7 +7,7 @@ NAME = "x"
 struct S
   a: [3]Int = ARR
 
-fun g(a: [3]I32 = ARR, n: String = NAME) -> Int
+fun g(a: [3]I32 = ARR, n: ?String = NAME) -> Int
   a[0] + n.len
 
 sub main()

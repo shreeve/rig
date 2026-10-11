@@ -11,5 +11,5 @@ sub f[T](o: !Opt[T], x: T)
     .none => pass
 
 sub main()
-  o = Opt.some(Text("hello"))
-  f(!o, Text("other"))
+  o = Opt.some(String("hello"))
+  f(!o, String("other"))

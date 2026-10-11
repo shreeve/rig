@@ -1,12 +1,12 @@
 # w = f(!v) re-points at a returned element view
-fun last(v: !List[Text]) -> !Text
+fun last(v: !List[String]) -> !String
   !v[v.len - 1]
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
-  m = Text("m")
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  m = String("m")
   w = !m
   w = last(!v)
   !w.add("!")

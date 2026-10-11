@@ -1,11 +1,11 @@
 use std.text
 
 struct Split
-  rest: String
-  sep: String
+  rest: ?String
+  sep: ?String
   done: Bool
 
-  fun next(!self) -> String?
+  fun next(!self) -> (?String)?
     return none if self.done
     if text.find(self.rest, self.sep) as at
       part = self.rest[..at]
@@ -15,7 +15,7 @@ struct Split
     self.rest
 
 sub main()
-  t = Text("a,b,c")
+  t = String("a,b,c")
   s = Split(rest: ?t, sep: ",", done: false)
   while (!s).next() as p
     print(p)

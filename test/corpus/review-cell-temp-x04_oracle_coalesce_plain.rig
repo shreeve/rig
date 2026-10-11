@@ -5,14 +5,14 @@
 # oracle: mkt accept
 # oracle: main accept
 struct T
-  t: Text
+  t: String
   n: Int
 
 fun opt(p: ?T) -> (?T)?
   p
 
 fun mkt(n: Int) -> T
-  T(t: Text("x"), n: n)
+  T(t: String("x"), n: n)
 
 sub main()
   print((opt(?mkt(5)) ?? ?mkt(0)).n)

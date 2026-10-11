@@ -1,9 +1,9 @@
 enum WT
-  a(w: !Text)
+  a(w: !String)
   b
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   e = WT.a(!t)
   match e
     .a(w)

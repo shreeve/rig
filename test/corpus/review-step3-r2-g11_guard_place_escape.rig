@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -23,9 +23,9 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("hello")))
+  e = E.a(r: Res(n: 1, t: String("hello")))
   x = inner(?e)
-  b = ^E.a(r: Res(n: 2, t: Text("boxed")))
+  b = ^E.a(r: Res(n: 2, t: String("boxed")))
   y = inner_box(?b)
   print(clobber(1000))
   print(x.n, x.t, y.n, y.t)

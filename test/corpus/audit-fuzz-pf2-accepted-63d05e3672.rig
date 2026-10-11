@@ -92,7 +92,7 @@ struct Shelf[T]
 
   fun take(!self) -> T?
     (!self.items).pop()
-  a11: String? = none
+  a11: (?String)? = none
 
 enum Maybe[T]
   just(v: T)
@@ -127,8 +127,8 @@ sub h0()
   o9: *R? = *mk(70)
   r9 = unwrap_or(<o9, *mk(80))
   print("use", r9.id)
-  a11: String? = none
-  b11: String? = "s90"
+  a11: (?String)? = none
+  b11: (?String)? = "s90"
   r11 = first_some(<a11, <b11)
   if ?r11 as w12
     print("str", w12)

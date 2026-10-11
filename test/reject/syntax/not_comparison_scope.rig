@@ -6,7 +6,7 @@
 struct Item
   qty: Int
   price: Float
-  name: String
+  name: ?String
 
 sub ordered(it: ?Item)
   print(not it.qty > 3)

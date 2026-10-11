@@ -1,4 +1,4 @@
 sub main()
-  b = ^Text("hello")
+  b = ^String("hello")
   !b.add("!")
   print(b)

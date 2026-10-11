@@ -2,15 +2,15 @@
 # else b).inner()`), held while `a.t` is replaced: rejected.
 
 struct S
-  t: Text
+  t: String
 
-  fun inner(?self) -> ?Text
+  fun inner(?self) -> ?String
     ?self.t
 
 sub main()
-  a = S(t: Text("aa"))
-  b = S(t: Text("bb"))
+  a = S(t: String("aa"))
+  b = S(t: String("bb"))
   c = a.t.len == 2
   r = (a if c else b).inner()
-  a.t = Text("zz")
+  a.t = String("zz")
   print(r, b.t)

@@ -1,6 +1,6 @@
 # A compile-time argument is a literal, an enum value, or `none`, so a
 # compile-time parameter's type is one such a value can have: a number,
-# `Bool`, `String`, an enum whose variants carry nothing, or an optional
+# `Bool`, `?String`, an enum whose variants carry nothing, or an optional
 # of one.
 
 struct Res

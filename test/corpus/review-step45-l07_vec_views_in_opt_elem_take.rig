@@ -1,9 +1,9 @@
 # take a List of views out of an optional element, then drop the source
 sub main()
-  t = Text("x")
-  inner: List[String] = List()
+  t = String("x")
+  inner: List[?String] = List()
   !inner.push(?t)
-  outer: List[List[String]?] = List()
+  outer: List[List[?String]?] = List()
   !outer.push(<inner)
   if <outer[0] as got
     <t

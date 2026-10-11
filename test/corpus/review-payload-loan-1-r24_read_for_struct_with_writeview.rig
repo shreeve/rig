@@ -1,11 +1,11 @@
 struct P
-  t: Text
+  t: String
 
 struct H
   w: !P
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   hs: List[H] = List()
   !hs.push(H(w: !p))
   for h in hs

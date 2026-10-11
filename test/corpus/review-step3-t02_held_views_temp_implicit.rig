@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.n)
@@ -16,7 +16,7 @@ fun mkh(r: ?Res) -> H
   H(e: E.a(r: r))
 
 fun mkres(n: Int) -> Res
-  Res(n: n, t: Text("abc"))
+  Res(n: n, t: String("abc"))
 
 sub main()
   match mkh(mkres(1)).e

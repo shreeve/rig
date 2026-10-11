@@ -3,7 +3,7 @@
 # enums as `.variant`, and Vecs and arrays as `[a, b]`.
 
 struct User
-  name: String
+  name: ?String
   age: Int
 
 enum Color
@@ -17,7 +17,7 @@ enum Shape
 sub main()
   u = User(name: "ada", age: 36)
   print(u)
-  m: String? = "hi"
+  m: (?String)? = "hi"
   n: Int? = none
   print(m, n)
   print(["a", "b"], [1, 2])

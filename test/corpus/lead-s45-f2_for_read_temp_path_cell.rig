@@ -1,7 +1,7 @@
 struct C
   hits: Cell[Int]
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   0
 
 sub main()
@@ -9,6 +9,6 @@ sub main()
   inner: List[C] = List()
   !inner.push(C(hits: Cell(0)))
   !v.push(<inner)
-  for c in v[idx(?Text("k"))]
+  for c in v[idx(?String("k"))]
     !c.hits.set(5)
   print(v[0][0].hits.get())

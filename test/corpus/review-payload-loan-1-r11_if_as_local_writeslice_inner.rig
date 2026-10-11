@@ -1,8 +1,8 @@
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("hello"))
-  o: (![]Text)? = !v[..]
+  v: List[String] = List()
+  !v.push(String("hello"))
+  o: (![]String)? = !v[..]
   if o as s
     r = ?s[0][1..]
-    s[0] = Text("other")
+    s[0] = String("other")
     print(r)

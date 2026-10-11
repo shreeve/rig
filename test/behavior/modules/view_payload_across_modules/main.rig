@@ -1,15 +1,15 @@
 # A match binds a payload field of an imported enum's instance that is
-# itself a view (`Opt[?Text]`) as the view it is.
+# itself a view (`Opt[?String]`) as the view it is.
 use opt
 
-fun first(x: ?Text, d: ?Text) -> ?Text from x, d
+fun first(x: ?String, d: ?String) -> ?String from x, d
   match opt.wrap(x)
     .some(v) => v
     .nothing => d
 
 sub main()
-  t = Text("t")
-  d = Text("d")
+  t = String("t")
+  d = String("d")
   print(first(?t, ?d))
 
 # expect:

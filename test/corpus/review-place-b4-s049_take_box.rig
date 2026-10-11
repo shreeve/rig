@@ -1,5 +1,5 @@
 struct P
-  o: String?
+  o: (?String)?
 
 sub main()
   b = ^P(o: "a")

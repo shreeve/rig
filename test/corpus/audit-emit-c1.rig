@@ -3,7 +3,7 @@ struct P
   y: Int
 
 struct Q
-  name: String
+  name: ?String
   v: List[Int]
 
 fun same(a: ?P, b: ?P) -> Bool

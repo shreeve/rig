@@ -20,7 +20,7 @@ struct Tree
 
 struct Pair
   v: List[Int]
-  name: String
+  name: ?String
 
 sub fill(v: !List[Int])
   !v.push(1)

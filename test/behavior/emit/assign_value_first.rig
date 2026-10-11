@@ -47,7 +47,7 @@ fun bump(n: !Int) -> Int
   n += 1
   10
 
-fun grow_s(v: !List[String]) -> String
+fun grow_s(v: !List[?String]) -> ?String
   for _ in 0..100
     !v.push("x")
   "new"
@@ -108,7 +108,7 @@ sub main()
   q[1] <<= grow(!q)
   print(q[0], q[1])
 
-  s: List[String] = List()
+  s: List[?String] = List()
   !s.push("old")
   s[0] = grow_s(!s)
   print(s[0], s.len)

@@ -8,20 +8,20 @@
 
 struct S
   n: Int
-  t: Text
+  t: String
   items: List[Int]
 
 struct H
-  rs: List[String]
+  rs: List[?String]
 
-  sub keep(!self, r: String)
+  sub keep(!self, r: ?String)
     !self.rs.push(r)
 
   drop(!self)
     print(self.rs)
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("t"), items: List())
+  S(n: n, t: String("t"), items: List())
 
 fun mkh() -> H
   H(rs: List())

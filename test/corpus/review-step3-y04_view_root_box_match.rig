@@ -1,12 +1,12 @@
 struct Res
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
   b
 
 sub main()
-  b = ^E.a(r: Res(t: Text("abc")))
+  b = ^E.a(r: Res(t: String("abc")))
   p = ?b
   match p
     .a(r)

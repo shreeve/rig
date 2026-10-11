@@ -8,4 +8,4 @@ fun f[T, on: Bool](a: T, b: T) -> T
 
 sub main()
   print(f[Int, true](1, 2))
-  print(f[String, true]("a", "b"))
+  print(f[?String, true]("a", "b"))

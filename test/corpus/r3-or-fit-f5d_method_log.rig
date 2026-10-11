@@ -1,14 +1,14 @@
 struct Logger
-  prefix: String
+  prefix: ?String
   lines: Int
 
-  sub say(!self, msg: String)
+  sub say(!self, msg: ?String)
     self.lines += 1
     print(self.prefix, msg)
 
 sub main()
   log = Logger(prefix: "app:", lines: 0)
-  name = Text("ada")
+  name = String("ada")
   !log.say(?name)
   <name
   !log.say("done")

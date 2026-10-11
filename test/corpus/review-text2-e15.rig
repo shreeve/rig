@@ -1,4 +1,4 @@
-sub put(c: !Cell[List[String]], s: String)
+sub put(c: !Cell[List[?String]], s: ?String)
   !c.set(List())
   !c.push("a")
   c[0] = s

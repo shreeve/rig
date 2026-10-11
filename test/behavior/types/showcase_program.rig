@@ -3,11 +3,11 @@
 # parameter specializes the function, and a user type may be named `Bytes`.
 
 struct User
-  name: String
+  name: ?String
   id: U64
 
 struct Profile
-  name: String
+  name: ?String
 
 struct UserView
   user: ?User

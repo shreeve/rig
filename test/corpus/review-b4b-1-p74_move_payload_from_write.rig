@@ -1,18 +1,18 @@
 # write match through a temp index; the arm moves the payload out. Expect reject or correct (no double free).
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-sub eat(t: Text)
+sub eat(t: String)
   print(t)
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(t: Text("q")))
-  match !v[idx(?Text("a"))]
+  !v.push(E.a(t: String("q")))
+  match !v[idx(?String("a"))]
     .a(t) => eat(<t)
     .b => pass
   print(v)

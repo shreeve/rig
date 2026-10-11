@@ -155,7 +155,7 @@ handle breaks it.
 ### A first program
 
 ```rig
-fun label(n: Int) -> String
+fun label(n: Int) -> ?String
   match n % 15
     0 => "fizzbuzz"
     3, 6, 9, 12 => "fizz"
@@ -185,7 +185,7 @@ values and separates them with spaces.
 
 ```rig
 struct Account
-  owner: String
+  owner: ?String
   balance: Int
 
   fun can_pay(?self, amount: Int) -> Bool
@@ -218,7 +218,7 @@ A read is written when its view is kept: `xs = ?b.all()` and
 
 ```rig
 struct File
-  name: String
+  name: ?String
 
   drop(!self)
     print("closing", self.name)
@@ -254,7 +254,7 @@ when `cfg2`, its last owner, goes out of scope.
 error ParseError
   empty
 
-fun parse_len(s: String) -> Int!
+fun parse_len(s: ?String) -> Int!
   return ParseError.empty if s == ""
   s.len
 
@@ -422,8 +422,8 @@ correspondences:
 
 | Rig | Zig |
 |---|---|
-| `Int`, `U8`, `Float`, `String`, `Static` | `i64`, `u8`, `f64`, `[]const u8` |
-| `Text` | `rig.Text`, a growable byte buffer the runtime frees |
+| `Int`, `U8`, `Float`, `?String`, `Static` | `i64`, `u8`, `f64`, `[]const u8` |
+| `String` | `rig.Text`, a growable byte buffer the runtime frees |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@backingInt(e)))` |
 | `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
@@ -434,7 +434,7 @@ correspondences:
 | `[n of x]` | `@as([n]T, @splat(x))` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
-| a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `String`, a slice, a plain enum); `*const T` for a struct, an array, or a generic instance |
+| a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `?String`, a slice, a plain enum); `*const T` for a struct, an array, or a generic instance |
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
 | `*T`, `~T` | a runtime `RcBox(T)` pointer, a weak handle |
@@ -470,7 +470,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | switch | `switch` | `match` / `case` | `switch` | `match` |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
 | exceptions | error codes | `raise` / `try` | `throw` / `error` returns | `T!`, `f()!`, `catch` |
-| string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`, `Text(a, b)`: no interpolation |
+| string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`, `String(a, b)`: no interpolation |
 | memory | `malloc`, `free` | a garbage collector | a garbage collector | owners, released where their scope ends |
 
 A Rig program frees what it allocates at a point you can see: when its
@@ -670,10 +670,10 @@ sub main()
 with `!`:
 
 ```rig reject
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   s.len
 
-fun twice(s: String) -> Int!
+fun twice(s: ?String) -> Int!
   parse(s)? * 2
 ```
 
@@ -681,13 +681,13 @@ fun twice(s: String) -> Int!
 `?` propagates `none`, and `parse(s)` fails with an error instead: propagate the failure with `parse(s)!`, or handle it with `catch`
 ```
 
-**`+` on strings.** A `String` is a view of text it does not own, so
-there is nothing for `+` to write into. Rig's `String` is Go's or
-Odin's `string`; Rust's `String` is Rig's `Text`. A literal is a
-`Static`: a `String` known to view only text that lives for the whole
+**`+` on strings.** A `?String` is a view of text it does not own, so
+there is nothing for `+` to write into. Rig's `?String` is Go's or
+Odin's `string`; Rust's `?String` is Rig's `String`. A literal is a
+`Static`: a `?String` known to view only text that lives for the whole
 program, so it can also be kept in a `Cell` ([SPEC](SPEC.md#static)).
 Text is built in a
-`Text`, which owns its bytes: `Text(a, b)` writes each value as
+`String`, which owns its bytes: `String(a, b)` writes each value as
 `print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
 
 ```rig reject
@@ -697,16 +697,16 @@ sub main()
 ```
 
 ```error
-Rig has no `+` on text: build it with `Text(a, b)` or `!t.add(...)`
+Rig has no `+` on text: build it with `String(a, b)` or `!t.add(...)`
 ```
 
 ```rig
 sub main()
   name = "ada"
-  t = Text("hi ", name)
+  t = String("hi ", name)
   !t.add(", you are ", 36)
   print(t)
-  print(Text("bye ", name).len)
+  print(String("bye ", name).len)
 ```
 
 ```output
@@ -780,11 +780,11 @@ You will reach for these and not find them:
 
 - **traits and bounds**: a generic body may do with `T` only what each
   instance supports;
-- **string interpolation**: text is built with `Text(...)` and
+- **string interpolation**: text is built with `String(...)` and
   `!t.add(...)`, which write values as `print` does;
 - **concurrency and async**;
 - **a large standard library**: beyond `print`, `Cell`, `List`,
-  `Text`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
+  `String`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,
   `std.os`, `std.time`, `std.random`, `std.sort`, `std.slices`, and
   `std.text` so far;

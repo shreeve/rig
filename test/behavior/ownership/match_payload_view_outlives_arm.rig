@@ -7,7 +7,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
   xs: [2]Int
 
 enum E
@@ -22,7 +22,7 @@ enum Opt[T]
   nothing
 
 enum K
-  k(t: Text)
+  k(t: String)
   none
 
 struct Key unique
@@ -76,7 +76,7 @@ fun elems(e: ?E, d: ?[2]Int) -> []Int from e, d
     .a(r) => ?r.xs[0..2]
     .b(_) => ?d[0..1]
 
-fun pick(e: ?K) -> String from e
+fun pick(e: ?K) -> ?String from e
   match ?e
     .k(t) => return ?t
     .none => return "none"
@@ -91,8 +91,8 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub stores()
-  e = E.a(r: Res(n: 1, t: Text("x"), xs: [1, 2]))
-  k = Res(n: 0, t: Text("k"), xs: [0, 0])
+  e = E.a(r: Res(n: 1, t: String("x"), xs: [1, 2]))
+  k = Res(n: 0, t: String("k"), xs: [0, 0])
   saved = ?k
   match e
     .a(r) => saved = ?r
@@ -104,8 +104,8 @@ sub stores()
   v = match e
     .a(r) => ?r
     .b(r) => ?r
-  s: String = "s"
-  o = K.k(t: Text("kt"))
+  s: ?String = "s"
+  o = K.k(t: String("kt"))
   match o
     .k(t) => s = ?t
     .none => pass
@@ -113,10 +113,10 @@ sub stores()
   print(saved.t, hold.r.t, v.t, s)
 
 sub main()
-  e = E.a(r: Res(n: 2, t: Text("a"), xs: [3, 4]))
-  f = E.b(r: Res(n: 0, t: Text("b"), xs: [5, 6]))
-  bx = ^E.a(r: Res(n: 3, t: Text("box"), xs: [7, 8]))
-  h = *E.b(r: Res(n: 4, t: Text("handle"), xs: [9, 9]))
+  e = E.a(r: Res(n: 2, t: String("a"), xs: [3, 4]))
+  f = E.b(r: Res(n: 0, t: String("b"), xs: [5, 6]))
+  bx = ^E.a(r: Res(n: 3, t: String("box"), xs: [7, 8]))
+  h = *E.b(r: Res(n: 4, t: String("handle"), xs: [9, 9]))
   r1 = ret(?e)
   r2 = ret(?f)
   r3 = boxed(?bx)
@@ -124,13 +124,13 @@ sub main()
   r5 = guarded(?e)
   r6 = guarded(?f)
   w1 = whole(?e)
-  o = Opt.some(v: Text("gen"))
-  d = Text("d")
+  o = Opt.some(v: String("gen"))
+  d = String("d")
   g1 = peek(?o, ?d)
   g2 = gwhole(?o)
   zz = [0, 0]
   x1 = elems(?e, ?zz)
-  kk = K.k(t: Text("pick"))
+  kk = K.k(t: String("pick"))
   p1 = pick(?kk)
   u = U.k(key: Key(n: 5))
   dk = Key(n: 0)

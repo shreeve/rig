@@ -1,11 +1,11 @@
 struct P
-  t: Text
+  t: String
 
 struct H
   o: (!P)?
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   h = H(o: !p)
   if h.o as y
     print(y.t)

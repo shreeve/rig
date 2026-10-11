@@ -23,7 +23,7 @@ sub main()
   print(first(?arr))
   s = ^"hi"
   print(s)
-  bs = List[^String]()
+  bs = List[^?String]()
   !bs.push(^"a")
   print(bs)
   v = <b.unbox()

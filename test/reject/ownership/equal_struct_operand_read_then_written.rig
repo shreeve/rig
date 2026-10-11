@@ -2,15 +2,15 @@
 # operand runs: the right operand cannot lend the left one to write.
 
 struct Q
-  t: Text
+  t: String
 
 fun growq(q: !Q) -> Q
   for _ in 0..100
     !q.t.add("abcdefgh")
-  Q(t: Text("x"))
+  Q(t: String("x"))
 
 sub main()
-  q = Q(t: Text("a"))
+  q = Q(t: String("a"))
   print(q == growq(!q))
 
 # error: 14:21: cannot lend `q` to write while the left operand's read of it is in use

@@ -1,9 +1,9 @@
 struct P
-  t: Text
+  t: String
   n: Int
 
 sub main()
-  p = P(t: Text("hello"), n: 1)
+  p = P(t: String("hello"), n: 1)
   o: (!P)? = !p
   while o as y
     print(y.t, y.n)

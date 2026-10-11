@@ -3,7 +3,7 @@
 # must fit the operator.
 
 struct P
-  name: String
+  name: ?String
 
 sub main()
   f = 1.5
@@ -22,7 +22,7 @@ sub main()
 # error: `<<=` requires an integer target; `f` has type `Float`
 # error: `|=` requires an integer target; `f` has type `Float`
 # error: `%=` requires a numeric target; `s` has type `Static`
-# error: `^=` requires an integer target; this place has type `String`
+# error: `^=` requires an integer target; this place has type `?String`
 # error: division by zero
 # error: shift amount `64` is out of range for `Int` (0..63)
 # error: a shift amount must be an integer; got `Float`

@@ -1,8 +1,8 @@
-fun head(o: !Text?) -> String
+fun head(o: !String?) -> ?String
   if !o as t
     return ?t[..3]
   ""
 
 sub main()
-  o: Text? = Text("hello")
+  o: String? = String("hello")
   print(head(!o))

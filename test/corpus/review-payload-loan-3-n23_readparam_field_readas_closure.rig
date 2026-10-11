@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
   n: Int
 
 struct H
@@ -11,6 +11,6 @@ sub f(h: ?H)
     print(g())
 
 sub main()
-  p = P(t: Text("hello"), n: 3)
+  p = P(t: String("hello"), n: 3)
   h = H(o: !p)
   f(?h)

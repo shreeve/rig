@@ -1,13 +1,13 @@
 # <mk().n where the made value has a drop body
 struct D
   n: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.n, self.t)
 
 fun mk() -> D
-  D(n: 5, t: Text("hi"))
+  D(n: 5, t: String("hi"))
 
 sub main()
   x = <mk().n

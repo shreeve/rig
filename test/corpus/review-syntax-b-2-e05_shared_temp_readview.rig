@@ -1,9 +1,9 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
-fun id(r: ?*Text) -> ?*Text
+fun id(r: ?*String) -> ?*String
   r
 
 sub main()
-  s = keep(id(?*Text("hello"))[1..])
+  s = keep(id(?*String("hello"))[1..])
   print(s)

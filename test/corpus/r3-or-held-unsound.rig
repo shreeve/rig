@@ -7,7 +7,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -18,10 +18,10 @@ struct H
   o: Res?
 
 fun mkh() -> H
-  H(e: E.a(r: Res(n: 1, t: Text("a"))), o: Res(n: 2, t: Text("b")))
+  H(e: E.a(r: Res(n: 1, t: String("a"))), o: Res(n: 2, t: String("b")))
 
 sub payload_kept()
-  keep = Res(n: 0, t: Text("k"))
+  keep = Res(n: 0, t: String("k"))
   saved = ?keep
   match mkh().e
     .a(r) => saved = ?r
@@ -29,7 +29,7 @@ sub payload_kept()
   print(saved.n)
 
 sub value_kept()
-  keep = Res(n: 0, t: Text("k"))
+  keep = Res(n: 0, t: String("k"))
   saved = ?keep
   if mkh().o as r
     saved = ?r

@@ -27,4 +27,4 @@ fun go3[T](x: T) -> Int
   List[T]().len
 
 sub main()
-  print(go(1), go(Text("t")), go2(Text("a"), Text("b")), go2(3, 4), go3(1))
+  print(go(1), go(String("t")), go2(String("a"), String("b")), go2(3, 4), go3(1))

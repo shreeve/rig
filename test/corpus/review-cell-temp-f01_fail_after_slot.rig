@@ -10,7 +10,7 @@
 # oracle: main accept
 struct D
   c: Cell[Int]
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.c.get())
@@ -22,7 +22,7 @@ error E
   bad
 
 fun mkd(n: Int) -> D
-  D(c: Cell(n), t: Text("owned"))
+  D(c: Cell(n), t: String("owned"))
 
 fun fails(n: Int) -> Int!
   return E.bad if n < 0

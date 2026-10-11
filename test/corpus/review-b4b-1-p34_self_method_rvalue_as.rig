@@ -8,7 +8,7 @@ struct P
 fun mk(k: Int) -> P
   P(xs: [k, 2])
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -17,8 +17,8 @@ fun clobber(n: Int) -> Int
 
 sub main()
   k = 41
-  if mk(k).items()[idx(?Text("a"))] as n
+  if mk(k).items()[idx(?String("a"))] as n
     print(clobber(n), n)
-  while mk(k).items()[idx(?Text("a"))] as n
+  while mk(k).items()[idx(?String("a"))] as n
     print(clobber(n), n)
     break

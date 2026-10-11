@@ -1,15 +1,15 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 enum B
-  a(b: ^Text)
+  a(b: ^String)
   z
 
 sub main()
-  e = B.a(^Text("hello"))
+  e = B.a(^String("hello"))
   match !e
     .a(b)
       s = keep(?b[1..])
-      b = ^Text("other")
+      b = ^String("other")
       print(s)
     .z => print("z")

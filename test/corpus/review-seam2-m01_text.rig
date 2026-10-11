@@ -7,10 +7,10 @@
 # oracle: f accept
 # oracle: app accept
 struct H
-  t: Text
-  ts: List[Text]
+  t: String
+  ts: List[String]
 
-  fun tv(!self) -> !Text
+  fun tv(!self) -> !String
     !self.t
 
   fun show(!self) -> Int
@@ -20,18 +20,18 @@ struct H
   drop(!self)
     print("dropH", self.t)
 
-fun mkh(s: String) -> H
-  h = H(t: Text(s), ts: List())
-  !h.ts.push(Text(s, "0"))
+fun mkh(s: ?String) -> H
+  h = H(t: String(s), ts: List())
+  !h.ts.push(String(s, "0"))
   h
 
-fun mkt(s: String) -> Text
-  Text(s)
+fun mkt(s: ?String) -> String
+  String(s)
 
 fun f(n: Int) -> Int
   n
 
-sub app(t: !Text)
+sub app(t: !String)
   !t.add("+")
   print("app", t)
 

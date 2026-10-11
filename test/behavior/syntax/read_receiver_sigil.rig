@@ -8,7 +8,7 @@ struct Point
   fun shifted(?self, d: Int) -> Point
     Point(x: self.x + d)
 
-  sub show(?self, label: String)
+  sub show(?self, label: ?String)
     print(label, self.x)
 
 struct Line

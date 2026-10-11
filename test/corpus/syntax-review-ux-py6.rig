@@ -3,7 +3,7 @@ error ParseError
   bad_digit
   empty
 
-fun parse_int(s: String) -> Int!
+fun parse_int(s: ?String) -> Int!
   return ParseError.empty if s.len == 0
   n = 0
   for ch in s

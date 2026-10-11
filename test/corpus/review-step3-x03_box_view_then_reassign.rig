@@ -1,12 +1,12 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
-fun first(s: String) -> String
+fun first(s: ?String) -> ?String
   s
 
 sub main()
-  b = ^^S(n: 1, t: Text("x"))
+  b = ^^S(n: 1, t: String("x"))
   r = first(?b.t)
-  b = ^^S(n: 2, t: Text("y"))
+  b = ^^S(n: 2, t: String("y"))
   print(r)

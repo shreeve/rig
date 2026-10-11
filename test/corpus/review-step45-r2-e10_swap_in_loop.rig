@@ -1,6 +1,6 @@
 # H3: generic loop over ?List[T], body: swap the List while looping
 struct S
-  t: Text
+  t: String
 
 struct Holder[T]
   x: T?
@@ -10,8 +10,8 @@ sub sw[T](v: !List[T])
     !v.swap(0, 1)
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   sw(!v)
   print(v)

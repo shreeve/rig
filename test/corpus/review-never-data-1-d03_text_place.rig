@@ -21,4 +21,4 @@ sub main()
   _ = k
   a2 = +a
   !a.s.c.push(1)
-  print(Text(a.s, grow(!a2.s)))
+  print(String(a.s, grow(!a2.s)))

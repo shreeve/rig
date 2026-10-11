@@ -1,9 +1,9 @@
-sub stash(c: *Cell[String], s: String)
+sub stash(c: *Cell[?String], s: ?String)
   !c.set(s)
 
 sub main()
-  c: *Cell[String] = *Cell("lit")
-  t = Text("hello")
+  c: *Cell[?String] = *Cell("lit")
+  t = String("hello")
   stash(+c, ?t[..])
   <t
   print(c.get())

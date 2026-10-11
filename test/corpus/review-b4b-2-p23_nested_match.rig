@@ -1,6 +1,6 @@
 # Nested match: view of an inner payload escapes both matches, then the outer subject is reassigned. Expect reject.
 enum In
-  x(t: Text)
+  x(t: String)
   y
 
 struct Res
@@ -16,8 +16,8 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  e = E.a(r: Res(n: 1, i: In.x(t: Text("inner"))))
-  k = Text("k")
+  e = E.a(r: Res(n: 1, i: In.x(t: String("inner"))))
+  k = String("k")
   saved = ?k
   match e
     .a(r)

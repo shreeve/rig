@@ -16,22 +16,22 @@
 # oracle: main accept
 struct S
   n: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("dropS", self.n)
 
 struct H
-  rs: List[String]
+  rs: List[?String]
 
-  sub keep(!self, r: String)
+  sub keep(!self, r: ?String)
     !self.rs.push(r)
 
-  sub keep2(!self, a: String, b: String)
+  sub keep2(!self, a: ?String, b: ?String)
     !self.rs.push(a)
     !self.rs.push(b)
 
-  sub keepg[T](!self, r: String, k: T)
+  sub keepg[T](!self, r: ?String, k: T)
     !self.rs.push(r)
 
   fun me(!self) -> !H
@@ -48,7 +48,7 @@ struct HH
     !self.inner
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("hello world, long enough to be on the heap ", n))
+  S(n: n, t: String("hello world, long enough to be on the heap ", n))
 
 fun mkh() -> H
   H(rs: List())
@@ -68,7 +68,7 @@ fun wrap(h: !H) -> !H
 fun f(n: Int) -> Int
   n
 
-sub put(r: String, h: !H)
+sub put(r: ?String, h: !H)
   !h.rs.push(r)
 
 sub main()

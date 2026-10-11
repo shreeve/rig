@@ -1,4 +1,4 @@
-fun cls(x: U128) -> String
+fun cls(x: U128) -> ?String
   match x
     0 => "zero"
     340282366920938463463374607431768211455 => "max"

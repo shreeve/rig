@@ -1,6 +1,6 @@
 # H3: generic loop over ?List[T], body: pass by value to a T param
 struct S
-  t: Text
+  t: String
 
 struct Holder[T]
   x: T?
@@ -15,7 +15,7 @@ fun all[T](v: ?List[T]) -> Int
   n
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   print(all(?v))

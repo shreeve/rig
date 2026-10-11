@@ -1,8 +1,8 @@
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("hello"))
+  v: List[String] = List()
+  !v.push(String("hello"))
   w = !v[..]
   x = !w
   s = x[0..1]
-  x[0] = Text("other")
+  x[0] = String("other")
   print(s)

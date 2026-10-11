@@ -3,7 +3,7 @@
 # Store it through `keep(p, !h)`, and read `h` only on the next
 # iteration (loop-carried), after the arm and the subject have ended.
 struct P
-  t: Text
+  t: String
 
 enum E
   a(p: P)
@@ -13,7 +13,7 @@ struct Holder
   r: (?P)?
 
 fun mk(k: Int) -> E
-  E.a(p: P(t: Text("a payload text long enough for the heap")))
+  E.a(p: P(t: String("a payload text long enough for the heap")))
 
 fun keep(p: ?P, h: !Holder) -> Int
   h.r = p

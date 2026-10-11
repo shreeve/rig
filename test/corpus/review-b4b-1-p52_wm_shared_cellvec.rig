@@ -1,16 +1,16 @@
 # write/read match on an element of a *Cell[List[E]] through a temp index; arm pushes via the cell. Expect reject.
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   c: *Cell[List[E]] = *Cell(List())
-  !c.push(E.a(t: Text("x")))
+  !c.push(E.a(t: String("x")))
   d = +c
-  match c[idx(?Text("a"))]
+  match c[idx(?String("a"))]
     .a(t)
       for _ in 0..64
         !d.push(E.b)

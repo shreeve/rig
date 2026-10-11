@@ -1,7 +1,7 @@
 error E
   bad
 
-fun p(s: String) -> Int!
+fun p(s: ?String) -> Int!
   return E.bad if s == ""
   s.len
 

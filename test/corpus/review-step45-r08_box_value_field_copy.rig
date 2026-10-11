@@ -1,5 +1,5 @@
 # x = b.value of a ^Text: copy of an owner, reject
 sub main()
-  b = ^Text("a")
+  b = ^String("a")
   x = b.value
   print(x, b)

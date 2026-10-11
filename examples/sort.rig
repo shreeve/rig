@@ -6,7 +6,7 @@
 # returns.
 
 struct Player
-  name: String
+  name: ?String
   score: Int
 
 sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)

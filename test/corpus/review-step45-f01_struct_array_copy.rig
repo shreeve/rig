@@ -1,8 +1,8 @@
 # a struct holding an array of Text is owning: bare copy must be rejected
 struct S
-  arr: [2]Text
+  arr: [2]String
 
 sub main()
-  s = S(arr: [Text("a"), Text("b")])
+  s = S(arr: [String("a"), String("b")])
   t = s
   print(t.arr, s.arr)

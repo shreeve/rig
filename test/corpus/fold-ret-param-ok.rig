@@ -1,14 +1,14 @@
 # The fold: a String that views a Text slot (ret-param-ok): rejected, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct H
-  t: Text
+  t: String
 
-fun f(t: ?Text) -> String
+fun f(t: ?String) -> ?String
   t
 
 sub main()
-  o = Text("a")
+  o = String("a")
   print(f(?o))

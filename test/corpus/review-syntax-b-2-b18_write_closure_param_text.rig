@@ -1,4 +1,4 @@
-sub f(w: !Text)
+sub f(w: !String)
   g = |!w|
     s = w[1..]
     for _ in 0..50
@@ -7,5 +7,5 @@ sub f(w: !Text)
   g()
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   f(!t)

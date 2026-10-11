@@ -1,8 +1,8 @@
 sub main()
-  t = Text("hi")
+  t = String("hi")
   f = |+t|
     print(t)
-    new t = Text("local")
+    new t = String("local")
     <t
     print(1)
   f()

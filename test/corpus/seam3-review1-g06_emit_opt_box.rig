@@ -6,7 +6,7 @@ sub main()
   o: ^?P? = ^?p
   if o as b
     print(b.x)
-  t = Text("abc")
-  ot: ^?Text? = ^?t
+  t = String("abc")
+  ot: ^?String? = ^?t
   if ot as bt
     print(bt.len, bt)

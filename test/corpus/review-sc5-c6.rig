@@ -6,12 +6,12 @@ struct R
   drop(!self)
     print("drop R", self.n)
 
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   if s.len == 0
     return Parse.empty
   s.len
 
-sub each(xs: []String, f: ?sub(String)!)!
+sub each(xs: []?String, f: ?sub(?String)!)!
   for x in xs
     f(x)!
 

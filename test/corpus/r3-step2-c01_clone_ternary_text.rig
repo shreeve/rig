@@ -1,6 +1,6 @@
 sub main()
-  a = Text("x")
-  b = Text("y")
+  a = String("x")
+  b = String("y")
   c = true
   d = +(a if c else b)
   print(d, a)

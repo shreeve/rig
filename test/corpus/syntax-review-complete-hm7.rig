@@ -45,7 +45,7 @@ fun hash_str(s: ?String) -> U64
   h
 
 sub main()
-  m = Map[String, Int].new(hash_str)
+  m = Map[?String, Int].new(hash_str)
   !m.put("one", 1)
   !m.put("two", 2)
   !m.put("one", 11)

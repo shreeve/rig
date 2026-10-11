@@ -5,7 +5,7 @@
 # release
 
 struct Item
-  name: String
+  name: ?String
   n: Int
 
 struct Walk

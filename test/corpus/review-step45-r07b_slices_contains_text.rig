@@ -2,7 +2,7 @@
 use std.slices
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
-  print(slices.contains(?v, Text("b")))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  print(slices.contains(?v, String("b")))

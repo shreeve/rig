@@ -10,7 +10,7 @@ enum Hold
   sh(h: *N)
   wk(w: ~N)
   maybe(m: *N?)
-  str(s: String)
+  str(s: ?String)
 
 fun mk() -> Hold
   .vec(List[Int]())

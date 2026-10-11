@@ -95,10 +95,10 @@ returns a value. Every call has its parentheses.
 
 ```rig
 struct User
-  name: String
+  name: ?String
   visits: Int
 
-fun greeting(u: ?User) -> String
+fun greeting(u: ?User) -> ?String
   if u.visits > 1
     "welcome back"
   else
@@ -127,7 +127,7 @@ many readers or one writer at a time, never both.
 
 ```rig
 struct File
-  name: String
+  name: ?String
 
   drop(!self)
     print("closing", self.name)
@@ -328,7 +328,7 @@ and environment variable. The suite runs on Linux and macOS in
   functions and held in structs) whose loans end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
 - shared `*T` and weak `~T` handles, `Cell`, `List`, `^T`, and `Signal`
-- `Text`, owned text built with `Text(a, b)` and `!t.add(...)`, whose
+- `String`, owned text built with `String(a, b)` and `!t.add(...)`, whose
   Strings (`?t[a..b]`) view it
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values

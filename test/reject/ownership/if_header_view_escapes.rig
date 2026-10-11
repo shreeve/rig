@@ -16,13 +16,13 @@ fun idp(n: ?N) -> (?List[Int])?
   ?n.v
 
 sub main()
-  o: String = "init"
-  if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
+  o: ?String = "init"
+  if text.strip_prefix(?String("pre-fix"), "pre-") as rest
     o = rest
-  v: List[String] = List()
-  if text.cut(?Text("q,r"), ",") as kv
+  v: List[?String] = List()
+  if text.cut(?String("q,r"), ",") as kv
     !v.push(kv.before)
-  if text.cut(?Text("s,t"), ",") as kv and kv.before.len > 0
+  if text.cut(?String("s,t"), ",") as kv and kv.before.len > 0
     o = kv.after
   keep: List[Int] = List()
   p = ?keep
@@ -30,13 +30,13 @@ sub main()
     p = r
   if false
     print("x")
-  else if text.cut(?Text("u,w"), ",") as kv
+  else if text.cut(?String("u,w"), ",") as kv
     o = kv.before
   print(o, v, p)
 
-# error: 20:25: a view of the temporary `Text("pre-fix")` outlives its statement
-# error: 23:16: a view of the temporary `Text("q,r")` outlives its statement
-# error: 25:16: a view of the temporary `Text("s,t")` outlives its statement
+# error: 20:25: a view of the temporary `String("pre-fix")` outlives its statement
+# error: 23:16: a view of the temporary `String("q,r")` outlives its statement
+# error: 25:16: a view of the temporary `String("s,t")` outlives its statement
 # error: 29:11: a view of the temporary `mk()` outlives its statement
-# error: 33:21: a view of the temporary `Text("u,w")` outlives its statement
+# error: 33:21: a view of the temporary `String("u,w")` outlives its statement
 # errors: 5

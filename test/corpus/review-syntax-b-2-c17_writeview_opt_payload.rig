@@ -1,9 +1,9 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 sub main()
-  t = Text("hello")
-  o: (!Text)? = !t
+  t = String("hello")
+  o: (!String)? = !t
   s = ""
   if o as w
     s = keep(w[1..])

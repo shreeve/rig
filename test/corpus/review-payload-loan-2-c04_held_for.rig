@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
 
 struct H
   ws: List[!P]
@@ -10,8 +10,8 @@ fun mk(p: !P) -> H from p
   H(ws: <v)
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   for w in mk(!p).ws
     r = ?w.t[1..]
-    w.t = Text("other")
+    w.t = String("other")
     print(r)

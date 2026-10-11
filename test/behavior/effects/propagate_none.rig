@@ -3,7 +3,7 @@
 # values made earlier in the expression are dropped.
 
 struct User
-  name: String
+  name: ?String
   age: Int
 
 struct Wrap

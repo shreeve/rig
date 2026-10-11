@@ -2,11 +2,11 @@
 # that views a Text; nor can a Cell hold one.
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   s = ?t[..]
   f = *|?s| print(s)
   f()
-  c: *Cell[String] = *Cell("free")
+  c: *Cell[?String] = *Cell("free")
   !c.set(?t[1..])
   print(c.get())
 

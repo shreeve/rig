@@ -1,6 +1,6 @@
 sub main()
-  t = Text("ab")
+  t = String("ab")
   u = +t
   !u.add("c")
-  b = ^Text("x")
+  b = ^String("x")
   print(t, u, ?b)

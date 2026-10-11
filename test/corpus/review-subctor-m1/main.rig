@@ -8,7 +8,7 @@ sub main()
   !m.bump(2)!
   print(m)
   w = lib.W(4)
-  w2 = lib.W[String]("s")
+  w2 = lib.W[?String]("s")
   print(w, w2)
   r = lib.Res(List())
   print(r)

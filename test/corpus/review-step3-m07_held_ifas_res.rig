@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.n)
@@ -10,10 +10,10 @@ struct Bag
   p: Res?
 
 fun mk(n: Int) -> Bag
-  Bag(o: Res(n: n, t: Text("a")), p: none)
+  Bag(o: Res(n: n, t: String("a")), p: none)
 
 sub main()
-  keep = Res(n: 0, t: Text("k"))
+  keep = Res(n: 0, t: String("k"))
   saved = ?keep
   if mk(1).o as r
     print("in", r.n)

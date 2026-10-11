@@ -1,10 +1,10 @@
 # if <v[idx(?Text("a"))] as t: take an optional element, header temporary
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("q"))
-  if <v[idx(?Text("a"))] as t
+  v: List[String?] = List()
+  !v.push(String("q"))
+  if <v[idx(?String("a"))] as t
     print(t)
   print(v)

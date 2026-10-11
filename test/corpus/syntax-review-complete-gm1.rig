@@ -27,7 +27,7 @@ struct Node
     print("drop", self.id)
 
 sub main()
-  m = Map[String, *Node](es: List())
+  m = Map[?String, *Node](es: List())
   !m.put("a", *Node(id: 1))
   !m.put("b", *Node(id: 2))
   !m.put("a", *Node(id: 3))

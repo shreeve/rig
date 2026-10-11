@@ -1,5 +1,5 @@
 struct Count
-  word: String
+  word: ?String
   n: Int
 
 sub main()

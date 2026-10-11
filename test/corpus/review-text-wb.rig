@@ -1,8 +1,8 @@
 struct Tok
-  kind: String
+  kind: ?String
   n: Int
 
-fun tok(kind: String, n: Int) -> Tok
+fun tok(kind: ?String, n: Int) -> Tok
   Tok(kind: kind, n: n)
 
 sub main()

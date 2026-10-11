@@ -1,5 +1,5 @@
 sub main()
-  t = Text("hello")
+  t = String("hello")
   r = id(?t[..])
   print(r)
 

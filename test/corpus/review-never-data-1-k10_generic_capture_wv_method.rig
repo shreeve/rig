@@ -1,6 +1,6 @@
 struct P
   n: Int
-  t: Text
+  t: String
 
   fun len(?self) -> Int
     self.t.len
@@ -13,5 +13,5 @@ fun ln(p: ?P) -> Int
   p.len()
 
 sub main()
-  p = P(n: 1, t: Text("ab"))
+  p = P(n: 1, t: String("ab"))
   print(gen(!p, ln))

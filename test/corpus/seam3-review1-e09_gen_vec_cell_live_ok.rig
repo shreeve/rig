@@ -4,7 +4,7 @@ fun keep[T](x: T) -> *Cell[List[T]]
   *Cell(<xs)
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   c = keep(?t)
   old = (!c).replace(List())
   print(old[0])

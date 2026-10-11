@@ -3,13 +3,13 @@
 # receiver whose value copies is taken as a copy, as an argument is.)
 
 struct User
-  name: Text
+  name: String
 
   sub consume(self: User)
     print(self.name)
 
 sub main()
-  u = User(name: Text("Steve"))
+  u = User(name: String("Steve"))
   u.consume()
 
 # error: method `consume` consumes the receiver; write `<u.consume()`

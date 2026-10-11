@@ -1,14 +1,14 @@
 # The fold: a String that views a Text slot (ret-loop-local-bad): rejected, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct H
-  t: Text
+  t: String
 
-fun f() -> String
-  v: List[Text] = List()
-  !v.push(Text("a"))
+fun f() -> ?String
+  v: List[String] = List()
+  !v.push(String("a"))
   for x in ?v
     return ?x
   ""

@@ -1,7 +1,7 @@
 # A payload view carried out of a loop through break (ok use). Expect accept, prints one.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,8 +12,8 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  es = [E.b, E.a(r: Res(n: 1, t: Text("one")))]
-  k = Res(n: 0, t: Text("k"))
+  es = [E.b, E.a(r: Res(n: 1, t: String("one")))]
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   for e in es
     match e

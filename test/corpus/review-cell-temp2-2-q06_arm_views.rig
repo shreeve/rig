@@ -61,7 +61,7 @@ fun tk(x: D, n: Int) -> Int
 fun tk2(x: D, y: D, n: Int) -> Int
   x.c.get() + y.c.get() + n
 
-fun tv(v: List[Int], t: Text, n: Int) -> Int
+fun tv(v: List[Int], t: String, n: Int) -> Int
   v.len + t.len + n
 
 fun mkv(n: Int) -> List[Int]!

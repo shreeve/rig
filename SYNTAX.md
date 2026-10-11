@@ -229,7 +229,7 @@ is a reserved name, the absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
-The built-in types `Cell`, `List`, `Text`, `Signal`, and
+The built-in types `Cell`, `List`, `String`, `Signal`, and
 `Endian` are reserved names. The built-in functions `print`, `replace`, and `swap`
 are names a declaration may hide.
 
@@ -470,7 +470,7 @@ operator does, and which types it takes, is in
 | Form | Written | Meaning |
 |---|---|---|
 | a named type | `Int`, `Point`, `geo.Point` | a built-in, local, or imported type |
-| a generic instance | `List[Int]`, `Pair[Int, String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
+| a generic instance | `List[Int]`, `Pair[Int, ?String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
 | read view | `?T` | [SPEC §7](SPEC.md#lending) |
@@ -481,15 +481,15 @@ operator does, and which types it takes, is in
 | array | `[4]Int`, `[LIMIT * 2]U8`, `[n]T` | a length known at compile time |
 | slice | `[]T` | a read-only view |
 | writable slice | `![]T` | a write view: where `!T` stands |
-| function | `fun(Int, Int) -> Int`, `sub(String)`, `sub(Int)!` | [SPEC §11](SPEC.md#function-types) |
+| function | `fun(Int, Int) -> Int`, `sub(?String)`, `sub(Int)!` | [SPEC §11](SPEC.md#function-types) |
 | owned closure | `*fun(Int) -> Int`, `*sub()` | |
 | weak closure | `~fun(Int) -> Int` | |
 | callable view | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),
-`F32`, `Bool`, `String`, `Static`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
-what each holds. `Text`, owned text, is a built-in type
+`F32`, `Bool`, `?String`, `Static`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
+what each holds. `String`, owned text, is a built-in type
 ([SPEC §10](SPEC.md#text)).
 
 **How the sigils combine.** The holding sigils `^`, `*` and `~` bind to
@@ -512,7 +512,7 @@ fail, and `(?S)?` an optional read view of an `S`.
 
 ```rig
 struct User
-  name: String
+  name: ?String
 
 fun named(u: ?*User?) -> Bool
   u != none
@@ -529,7 +529,7 @@ false true
 
 ```rig reject
 struct User
-  name: String
+  name: ?String
 
 sub main()
   c: *(User?) = none
@@ -568,7 +568,7 @@ fun area(w: Int, h: Int) -> Int
 fun sign(n: Int) -> Int
   return 1 if n > 0 else -1 if n < 0 else 0
 
-sub report(label: String, n: Int)
+sub report(label: ?String, n: Int)
   print(label, n)
 
 sub main()
@@ -592,7 +592,7 @@ sign -1
   `fun answer() -> Int`.
 - The body's last expression is its value; `return e` leaves early.
 - A result that holds a view may say which parameters it views, after
-  its type: `-> ?Item from a`, `-> String from a, b`, `-> ?T from
+  its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
   self`, or `-> String from static` for only what lives for the whole
   program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
@@ -770,11 +770,11 @@ value. There is no `<T>` and no `comptime` keyword.
 
 | | Declared | Used |
 |---|---|---|
-| generic type | `struct Pair[T, U]`, `enum Option[T]` | `Pair[Int, String]`, `Pair(first: 1, second: "x")`, `Option[Int].some(7)` |
+| generic type | `struct Pair[T, U]`, `enum Option[T]` | `Pair[Int, ?String]`, `Pair(first: 1, second: "x")`, `Option[Int].some(7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
 | generic method | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
-| both | `sub rep[T, n: Int](x: T)` | `rep[String, 3]("hi")` |
+| both | `sub rep[T, n: Int](x: T)` | `rep[?String, 3]("hi")` |
 | a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
 | a type with a value | `struct Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [4 of 0])` |
 
@@ -799,13 +799,13 @@ sub rep[T, n: Int](x: T)
   for i in 0..n
     print(i, x)
 
-fun label(n: Int) -> String
+fun label(n: Int) -> ?String
   "big" if n > 9 else "small"
 
 sub main()
   b = Wrap(v: 12)
   print(b.map(label).v, max(3, 7), max[Float](1, 2))
-  rep[String, 2]("hi")
+  rep[?String, 2]("hi")
 ```
 
 ```output
@@ -950,7 +950,7 @@ write the ternary.
 error E
   bad
 
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   return E.bad if s == "x"
   s.len
 
@@ -999,7 +999,7 @@ iteration. An `else` block runs when the loop ends without `break`.
 
 ### for
 
-`for x in source` walks a range `a..b`, an array, a slice, a `String`
+`for x in source` walks a range `a..b`, an array, a slice, a `?String`
 (its bytes), a `List`, or an iterator, a value whose type has
 `next(!self) -> T?` (`for x in it` is `while (!it).next() as x`).
 `for x, i in xs` also binds the index, after the element (not for an
@@ -1099,7 +1099,7 @@ pattern may list alternatives (`0, 1 =>`) and end with a guard
 arm that matches runs, and there is no fallthrough.
 
 ```rig
-fun kind(n: Int) -> String
+fun kind(n: Int) -> ?String
   match n
     0, 1 => "unit"
     k if k < 0 => "negative"
@@ -1297,8 +1297,8 @@ is built the same way, `.rect(w: 2, h: 5)` or `Shape.circle(2)`, and a
 generic type's arguments may be given in brackets:
 `Pair[Int, Float](first: 1, second: 2.5)`, `List[Int]()`,
 `Option[Int].some(7)`. A `List` is built empty, `List()` or
-`List(capacity: 16)`. A `Text` is built from any values, each written
-as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
+`List(capacity: 16)`. A `String` is built from any values, each written
+as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 
 ### Members, indexes, and slices
 

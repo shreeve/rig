@@ -1,4 +1,4 @@
 sub main()
-  t = Text("abcdefgh")
+  t = String("abcdefgh")
   !t.add(?t[..])
   print(t)

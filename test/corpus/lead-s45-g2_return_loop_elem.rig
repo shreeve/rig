@@ -4,7 +4,7 @@ fun first[T](v: ?List[T]) -> T?
   none
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   f = first(?v)
   print(v.len)

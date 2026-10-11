@@ -1,11 +1,11 @@
 # for over element (array) of a List via temp index; body pushes. Expect reject.
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   m: List[[2]Int] = List()
   !m.push([1, 2])
-  for x in !m[idx(?Text("k"))]
+  for x in !m[idx(?String("k"))]
     !m.push([3, 4])
     x *= 10
   print(m)

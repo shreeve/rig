@@ -3,9 +3,9 @@ sub add[T](v: !List[T], x: T)
   !v.push(<x)
 
 sub main()
-  t = Text("x")
-  v: List[String] = List()
-  s: String = ?t
+  t = String("x")
+  v: List[?String] = List()
+  s: ?String = ?t
   add(!v, s)
   <t
   print(v)

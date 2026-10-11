@@ -22,7 +22,7 @@ sub main()
   sh: *Cell[Int] = *Cell(9)
   m = Meters(3.5)
   w = Wrap(4)
-  w2 = Wrap[String]("hi")
+  w2 = Wrap[?String]("hi")
   named = ^6
   print(b, n, c.get(), s.get(), sh.get(), m, w, w2, named)
 

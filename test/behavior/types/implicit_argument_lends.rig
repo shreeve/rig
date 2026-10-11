@@ -23,7 +23,7 @@ fun total(xs: []Int) -> Int
     t += x
   t
 
-fun first(s: String) -> String
+fun first(s: ?String) -> ?String
   s[..1]
 
 fun mk(n: Int) -> Bag
@@ -50,8 +50,8 @@ sub main()
   b = mk(3)
   print(size(b), size(mk(4)), total(b.v), total([1, 2]))
   a = [1, 2, 3]
-  t = Text("hey")
-  print(total(a), first(t), first(Text("zz")))
+  t = String("hey")
+  print(total(a), first(t), first(String("zz")))
   h = *S(n: 4)
   bx = ^S(n: 5)
   print(get(h), get(bx), show(7), show(b.v.len))

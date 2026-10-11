@@ -7,7 +7,7 @@ struct P
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -45,8 +45,8 @@ fun first(e: ?E) -> Int
     .c(r) => r.n
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("hi")))
-  d = Res(n: 0, t: Text("d"))
+  e = E.a(r: Res(n: 1, t: String("hi")))
+  d = Res(n: 0, t: String("d"))
   r = pick(!e, !d)
   print(clobber(1))
   r.n = 5

@@ -16,7 +16,7 @@ enum Negative
 enum Huge
   big = 5000000000
 
-enum Text
+enum String
   yes = "yes"
 
 enum Mixed

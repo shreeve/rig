@@ -1,7 +1,7 @@
 # if v[0] as t then <t: the binding views the element; reject
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("a"))
+  v: List[String?] = List()
+  !v.push(String("a"))
   if v[0] as t
     k = <t
     print(k)

@@ -1,5 +1,5 @@
 sub main()
-  a = [Text("a"), Text("b")]
+  a = [String("a"), String("b")]
   for t in a
     print(t)
   for t in !a

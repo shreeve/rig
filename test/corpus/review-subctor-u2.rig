@@ -12,7 +12,7 @@ struct Node
 
 sub main()
   a = Bag(List[Int]())
-  b: Bag[String] = Bag(List())
+  b: Bag[?String] = Bag(List())
   c = Opt(3)
   d: Opt[Int] = Opt(none)
   e = Sh(*Node(1))

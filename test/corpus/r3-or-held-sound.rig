@@ -10,7 +10,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -25,7 +25,7 @@ struct H
 fun mkh() -> H
   v: List[Int] = List()
   !v.push(4)
-  H(e: E.a(r: Res(n: 1, t: Text("a"))), v: <v, o: Res(n: 2, t: Text("b")), k: 3)
+  H(e: E.a(r: Res(n: 1, t: String("a"))), v: <v, o: Res(n: 2, t: String("b")), k: 3)
 
 sub match_part()
   match mkh().e

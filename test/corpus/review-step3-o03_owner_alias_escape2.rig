@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,8 +12,8 @@ sub show(e: ?E, saved: !?Res)
     .b => pass
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("hello")))
-  keep = Res(n: 0, t: Text("k"))
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  keep = Res(n: 0, t: String("k"))
   saved = ?keep
   show(?e, !saved)
   print(saved.n, saved.t)

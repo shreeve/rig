@@ -1,8 +1,8 @@
-sub eat(c: String)
+sub eat(c: ?String)
   print(c)
 
 sub main()
-  v: List[String] = List()
+  v: List[?String] = List()
   !v.push("a")
   eat(<v[0])
 

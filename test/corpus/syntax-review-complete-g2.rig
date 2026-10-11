@@ -1,17 +1,17 @@
 struct Entry
-  k: String
+  k: ?String
   v: Int
 
 struct Map
   es: List[Entry]
 
-  fun get(?self, k: String) -> (?Entry)?
+  fun get(?self, k: ?String) -> (?Entry)?
     for e, i in self.es
       if e.k == k
         return ?self.es[i]
     none
 
-  fun get_mut(!self, k: String) -> (!Entry)?
+  fun get_mut(!self, k: ?String) -> (!Entry)?
     i = 0
     while i < self.es.len : i += 1
       if self.es[i].k == k

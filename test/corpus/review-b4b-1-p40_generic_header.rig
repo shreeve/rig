@@ -3,22 +3,22 @@ enum O[T]
   some(x: T)
   nothing
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub at[T](v: ?List[O[T]])
-  match ?v[idx(?Text("a"))]
+  match ?v[idx(?String("a"))]
     .some(x) => print(x)
     .nothing => pass
 
 sub setw[T](v: !List[T?], x: T)
-  if !v[idx(?Text("a"))] as y
+  if !v[idx(?String("a"))] as y
     y = <x
 
 sub show[T](v: ?List[T?])
-  if v[idx(?Text("a"))] as y
+  if v[idx(?String("a"))] as y
     print(y)
-  while v[idx(?Text("a"))] as y
+  while v[idx(?String("a"))] as y
     print(y)
     break
 
@@ -27,13 +27,13 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: List[O[Text]] = List()
-  !v.push(O.some(x: Text("q")))
+  v: List[O[String]] = List()
+  !v.push(O.some(x: String("q")))
   at(?v)
   print(clobber(3))
-  w: List[Text?] = List()
-  !w.push(Text("a"))
-  setw(!w, Text("b"))
+  w: List[String?] = List()
+  !w.push(String("a"))
+  setw(!w, String("b"))
   print(w)
   n: List[Int?] = List()
   !n.push(4)

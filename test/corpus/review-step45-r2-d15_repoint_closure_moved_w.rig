@@ -1,10 +1,10 @@
 # move w into an owned-ish closure capture <w, re-point w, write a, call closure
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   f = |<w| !w.add("!")
   w = !b
-  a = Text("A")
+  a = String("A")
   f()
   print(a, b)

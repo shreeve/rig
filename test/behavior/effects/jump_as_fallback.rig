@@ -17,7 +17,7 @@ fun find(xs: ?List[Int], k: Int) -> Int?
     return i if x == k
   none
 
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   return E.bad if s == "x"
   s.len
 
@@ -27,11 +27,11 @@ fun index_of(xs: ?List[Int], k: Int) -> Int!
   print("found", guard.id)
   i
 
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   n = parse(s) catch return -1
   n * 10
 
-fun describe(s: String) -> String
+fun describe(s: ?String) -> ?String
   n = parse(s) catch |e| return "error" if e == E.bad else "other"
   "ok" if n > 0 else "empty"
 

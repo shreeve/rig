@@ -15,7 +15,7 @@ sub main()
   c: *Cell[List[Int]] = *Cell(List())
   for i in 0..40
     !c.push(i * 1000)
-  t = Text()
+  t = String()
   d = +c
   !t.add(c, reset(!d))
   print(t)

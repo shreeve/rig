@@ -8,7 +8,7 @@
 HISTORY = 3
 
 struct Tape
-  label: String
+  label: ?String
   minutes: Int
 
   drop(!self)

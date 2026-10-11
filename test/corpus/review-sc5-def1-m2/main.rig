@@ -10,13 +10,13 @@ enum Color
 DEF = Color.blue
 
 struct Inner
-  xs: List[String] = List()
-  c: Cell[String] = Cell("x")
+  xs: List[?String] = List()
+  c: Cell[?String] = Cell("x")
 
 struct Outer
   inner: Inner
   names: List[^Inner] = List()
-  words: [N]String = [N of WORD]
+  words: [N]?String = [N of WORD]
   col: Color = DEF
   hs: List[*Inner] = List()
 

@@ -9,7 +9,7 @@ struct P
 struct S
   n: Int?
   p: P?
-  s: String?
+  s: (?String)?
 
   sub clear(!self)
     <self.n

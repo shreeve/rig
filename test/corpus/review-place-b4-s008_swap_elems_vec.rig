@@ -1,5 +1,5 @@
 sub main()
-  v: List[String] = List()
+  v: List[?String] = List()
   !v.push("a")
   !v.push("b")
   !v.swap(0, 1)

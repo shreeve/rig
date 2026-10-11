@@ -1,7 +1,7 @@
 # A fallible associated method called without `!` or `catch` is rejected.
 
 struct User
-  name: String
+  name: ?String
 
   fun make() -> User!
     User(name: "x")

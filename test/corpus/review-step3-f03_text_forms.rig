@@ -1,11 +1,11 @@
 sub main()
-  bt = ^Text("ab")
+  bt = ^String("ab")
   for b in bt
     print(b)
-  h = *Text("cd")
+  h = *String("cd")
   for b in h
     print(b)
-  o: Text? = Text("ef")
+  o: String? = String("ef")
   if o as s
     for b in s
       print(b)

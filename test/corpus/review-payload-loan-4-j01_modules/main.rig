@@ -1,7 +1,7 @@
 use m
 
 sub main()
-  p = m.P(n: 1, t: Text("x"))
+  p = m.P(n: 1, t: String("x"))
   e = m.E.a(!p)
   m.poke(!e)
   c = true
@@ -15,13 +15,13 @@ sub main()
   match e
     .a(w) => print(w.t)
     _ => pass
-  g1: m.G[Text] = m.G.a(Text("q"))
+  g1: m.G[String] = m.G.a(String("q"))
   print(m.peek(?g1))
   o: (!m.E)? = !e
   if o as x
     h = |?x| 1
     print(h())
-  q = m.P(n: 2, t: Text("y"))
+  q = m.P(n: 2, t: String("y"))
   r = m.E.r(?q)
   match r
     .r(z) => print(z.n)

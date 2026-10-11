@@ -244,7 +244,7 @@ guarded, nested, and of a branch of write lends; `if !o as b` and
 `while !o as b`; `for b in !v`, with an index and over an array; a `!T`
 parameter; a `|!b|` capture; a held `b = !x`; a `defer` in the arm) of
 a Text, a
-Vec, a `Box[Text]`, or a struct holding a Vec, whole, sliced, or to a
+Vec, a `Box[String]`, or a struct holding a Vec, whole, sliced, or to a
 call or `?self` method, then writes through the binding while the view
 is live, or after its last use; a program that runs must print what the
 view showed before the write. A read binding of a write view (`if o as

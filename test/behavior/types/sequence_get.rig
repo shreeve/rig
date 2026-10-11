@@ -15,7 +15,7 @@ fun first(xs: ?[3]Int) -> Int
 fun at(s: []Int, i: Int) -> Int?
   s.get(i)
 
-fun byte(s: String, i: Int) -> U8
+fun byte(s: ?String, i: Int) -> U8
   s.get(i) ?? 0
 
 sub main()

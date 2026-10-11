@@ -1,5 +1,5 @@
 sub main()
-  b = ^Text("boxed")
+  b = ^String("boxed")
   s = ?b[1..]
   t = <b.unbox()
   print(s, t)

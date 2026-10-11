@@ -1,17 +1,17 @@
-# Neither a struct nor an iterator holds `!Text`: a write view is never
+# Neither a struct nor an iterator holds `!String`: a write view is never
 # stored inside a value, so no String reached through one can view the
 # Text while the holder writes it. Each field is rejected where it is
 # declared.
 
 struct W
-  t: !Text
+  t: !String
 
 struct It
-  t: !Text
+  t: !String
 
 sub main()
   print(1)
 
-# error: 7:6: a write view is never stored inside a value, and `!Text` cannot stand here
-# error: 10:6: a write view is never stored inside a value, and `!Text` cannot stand here
+# error: 7:6: a write view is never stored inside a value, and `!String` cannot stand here
+# error: 10:6: a write view is never stored inside a value, and `!String` cannot stand here
 # errors: 2

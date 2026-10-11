@@ -3,13 +3,13 @@ error E
 
 struct P
   x: Int
-  s: String
+  s: ?String
 
-fun mk(tag: String, x: Int) -> P
+fun mk(tag: ?String, x: Int) -> P
   print("mk", tag)
   P(x: x, s: tag)
 
-fun name(tag: String) -> String
+fun name(tag: ?String) -> ?String
   print("name", tag)
   tag
 
@@ -17,7 +17,7 @@ fun get(n: Int) -> P!
   return E.bad if n < 0
   P(x: n, s: "g")
 
-fun getS(n: Int) -> String!
+fun getS(n: Int) -> (?String)!
   return E.bad if n < 0
   "s"
 

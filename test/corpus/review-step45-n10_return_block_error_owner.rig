@@ -2,12 +2,12 @@
 error Bad
   oops
 
-fun f(c: Bool) -> List[Text]!
-  v: List[Text] = List()
-  !v.push(Text("a"))
+fun f(c: Bool) -> List[String]!
+  v: List[String] = List()
+  !v.push(String("a"))
   errdefer print("errdefer")
   return (Bad.oops if c else <v)
 
 sub main()
-  print(f(true) catch List[Text]())
-  print(f(false) catch List[Text]())
+  print(f(true) catch List[String]())
+  print(f(false) catch List[String]())

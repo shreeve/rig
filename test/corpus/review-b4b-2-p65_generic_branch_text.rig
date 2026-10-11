@@ -19,4 +19,4 @@ sub g[T](a: T, b: T, c: T, k: T)
   print(saved, o1, o2)
 
 sub main()
-  g(Text("one"), Text("two"), Text("three"), Text("k"))
+  g(String("one"), String("two"), String("three"), String("k"))

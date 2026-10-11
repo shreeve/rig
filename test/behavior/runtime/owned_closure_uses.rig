@@ -25,7 +25,7 @@ sub main()
   if <later as run
     run()
 
-  greet: *sub(String, Int) = *|name, times|
+  greet: *sub(?String, Int) = *|name, times|
     i = 0
     while i < times : i += 1
       print("hi", name)

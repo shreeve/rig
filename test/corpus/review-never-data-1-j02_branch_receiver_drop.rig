@@ -1,14 +1,14 @@
 struct H
-  v: List[Text]
+  v: List[String]
 
-  fun first(?self) -> ?Text
+  fun first(?self) -> ?String
     ?self.v[0]
 
 sub main()
   a = H(v: List())
   b = H(v: List())
-  !a.v.push(Text("a"))
-  !b.v.push(Text("b"))
+  !a.v.push(String("a"))
+  !b.v.push(String("b"))
   c = a.v.len > 0
   r = (a if c else b).first()
   <a

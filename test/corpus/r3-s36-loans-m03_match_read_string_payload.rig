@@ -1,5 +1,5 @@
 enum H
-  has(s: String)
+  has(s: ?String)
   no
 
 sub main()

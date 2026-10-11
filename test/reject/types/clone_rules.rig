@@ -2,7 +2,7 @@
 # unique value (Core sentence 2).
 
 struct File
-  name: Text
+  name: String
 
   drop(!self)
     print("closing", self.name)
@@ -12,14 +12,14 @@ struct Holder
 
 struct C unique
   n: Int
-  t: Text
+  t: String
 
 sub main()
-  a = File(name: Text("a"))
+  a = File(name: String("a"))
   b = +a
   hs: List[Holder] = List()
   c = +hs
-  d = C(n: 1, t: Text("x"))
+  d = C(n: 1, t: String("x"))
   e = +d
 
 # error: 19:8: `+x` cannot clone a `File`: a value with a `drop` body

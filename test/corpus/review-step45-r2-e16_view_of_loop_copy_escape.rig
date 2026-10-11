@@ -11,9 +11,9 @@ fun clobber(n: Int) -> Int
   a[1] + b[2]
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
   r = lastref(?v)
   print(clobber(1000))
   print(r)

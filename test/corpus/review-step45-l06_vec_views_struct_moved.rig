@@ -1,9 +1,9 @@
 # struct holding a List of views moved into a List of structs, then source dropped
 struct Bag
-  items: List[String]
+  items: List[?String]
 
 sub main()
-  t = Text("x")
+  t = String("x")
   b = Bag(items: List())
   !b.items.push(?t)
   bags: List[Bag] = List()

@@ -3,11 +3,11 @@
 use std.sort
 use std.text
 
-sub classes(s: String)
+sub classes(s: ?String)
   for b in s
     print(b, text.is_digit(b), text.is_alpha(b), text.is_space(b), text.to_upper(b), text.to_lower(b))
 
-fun digits(s: String) -> Int
+fun digits(s: ?String) -> Int
   n = 0
   for b in s
     if text.is_digit(b)

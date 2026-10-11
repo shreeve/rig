@@ -1,9 +1,9 @@
 # temp deep inside an index expression: v[k(idx(?Text("a")))]
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun k(n: Int) -> Int
@@ -11,8 +11,8 @@ fun k(n: Int) -> Int
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(t: Text("hi")))
-  match !v[k(idx(?Text("a")))]
+  !v.push(E.a(t: String("hi")))
+  match !v[k(idx(?String("a")))]
     .a(t) if t.len > 0 => !t.add("!")
     .a(t) => !t.add("?")
     .b(n) => print(n)

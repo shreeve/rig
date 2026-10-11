@@ -10,7 +10,7 @@ struct N
   drop(!self)
     print("drop", self.v)
 
-fun mk(v: ?List[Text]) -> *fun() -> Int
+fun mk(v: ?List[String]) -> *fun() -> Int
   *|+v| v.len + v[0].len
 
 fun risky(n: Int) -> Int!
@@ -26,8 +26,8 @@ fun run(n: Int) -> Int!
   f() + k
 
 sub main()
-  ts: List[Text] = List()
-  !ts.push(Text("hello"))
+  ts: List[String] = List()
+  !ts.push(String("hello"))
   g = mk(?ts)
   <ts
   print(g())

@@ -26,12 +26,12 @@ fun growv(v: !List[Int]) -> Int
     !v.push(i)
   0
 
-fun grow(t: !Text) -> Text
+fun grow(t: !String) -> String
   for _ in 0..100
     !t.add("ab")
-  Text("x")
+  String("x")
 
-fun growi(t: !Text) -> Int
+fun growi(t: !String) -> Int
   !t.add("ab")
   t.len
 
@@ -54,11 +54,11 @@ sub main()
   vs: List[Int] = List()
   !vs.push(5)
   print(vs[growv(!vs)], vs.len)
-  t = Text("a")
+  t = String("a")
   print(grow(!t) == t, t.len)
   print(t.len == growi(!t))
-  print(t == Text("x") or growi(!t) > 0, t.len)
-  u = Text("u")
+  print(t == String("x") or growi(!t) > 0, t.len)
+  u = String("u")
   print(t != grow(!u), u.len)
   same = t == +t
   print(same, growi(!t))

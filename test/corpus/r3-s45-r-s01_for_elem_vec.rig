@@ -1,7 +1,7 @@
 sub main()
-  m: List[List[Text]] = List()
-  row: List[Text] = List()
-  !row.push(Text("a"))
+  m: List[List[String]] = List()
+  row: List[String] = List()
+  !row.push(String("a"))
   !m.push(<row)
   for t in m[0]
     print(t)

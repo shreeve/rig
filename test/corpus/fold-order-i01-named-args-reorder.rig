@@ -1,11 +1,11 @@
 # order: named arguments written out of order: grow first in source, bytes after
-fun grow(t: !Text) -> Int
+fun grow(t: !String) -> Int
   !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
   1
 
-sub show(s: String, n: Int)
+sub show(s: ?String, n: Int)
   print(s.len, n)
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   show(n: grow(!t), s: ?t)

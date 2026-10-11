@@ -1,8 +1,8 @@
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
 sub main()
-  h = *Text("hello")
+  h = *String("hello")
   s = word(?h[1..])
   <h
   print(s)

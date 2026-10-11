@@ -1,5 +1,5 @@
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("abcdefghijklmnop"))
+  v: List[String] = List()
+  !v.push(String("abcdefghijklmnop"))
   !v[0].add(?v[0])
   print(v)

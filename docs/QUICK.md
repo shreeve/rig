@@ -69,7 +69,7 @@ b`. `!` never negates.
 
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a
 read parameter (`print(w[1..3])`);
-`Text(a, b)` builds text the same way; `@size(T)`, `@align(T)`, and
+`String(a, b)` builds text the same way; `@size(T)`, `@align(T)`, and
 `@name(T)` describe a type.
 
 ```rig

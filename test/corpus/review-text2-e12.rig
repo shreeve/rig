@@ -1,9 +1,9 @@
-sub put(c: !Cell[List[String]], s: String)
+sub put(c: !Cell[List[?String]], s: ?String)
   (!c)[0] = s
 
 sub main()
-  t = Text("abcdefghijklmnop")
-  cv: Cell[List[String]] = Cell(List())
+  t = String("abcdefghijklmnop")
+  cv: Cell[List[?String]] = Cell(List())
   !cv.push("lit")
   put(!cv, ?t[..3])
   <t

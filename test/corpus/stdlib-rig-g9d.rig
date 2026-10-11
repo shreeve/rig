@@ -2,5 +2,5 @@ sub main()
   buf: List[U8] = List()
   !buf.push(104)
   raw
-    s: String = @bitCast(?buf[..])
+    s: ?String = @bitCast(?buf[..])
     print(s)

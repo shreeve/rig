@@ -3,16 +3,16 @@
 # that dies each iteration is fine.
 
 struct Box2
-  label: String
+  label: ?String
 
-  fun show(?self, s: String) -> Int
+  fun show(?self, s: ?String) -> Int
     print(self.label, s)
     s.len
 
 sub main()
   b = Box2(label: "x")
   for n in ["a", "cd"]
-    q = Text(n)
+    q = String(n)
     k = b.show(?q)
     print(k)
   print(b.label)

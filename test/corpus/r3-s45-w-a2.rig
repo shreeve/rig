@@ -1,5 +1,5 @@
 sub main()
-  a = [Text("x"), Text("y")]
+  a = [String("x"), String("y")]
   for t in <a
     print(t)
   b = [^3, ^4]

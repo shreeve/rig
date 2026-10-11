@@ -18,7 +18,7 @@ fun geto(h: ?H, n: Int) -> ?Counter?
 
 sub main()
   h = H(o: Counter(hits: Cell(1)))
-  if geto(h, Text("xyz").len) as c
+  if geto(h, String("xyz").len) as c
     c.hit()
   print(h)
 

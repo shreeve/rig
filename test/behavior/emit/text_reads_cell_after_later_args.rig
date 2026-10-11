@@ -1,4 +1,4 @@
-# `Text(...)` reads every place that owns storage when it is called,
+# `String(...)` reads every place that owns storage when it is called,
 # after its later arguments ran, as `print` does: here a later argument
 # grows the Cell's List, which moves its buffer, or replaces the List,
 # which frees it.
@@ -23,16 +23,16 @@ sub main()
   c: *Cell[List[Int]] = *Cell(List())
   !c.push(42)
   e = +c
-  t = Text(c, grow(!e))
+  t = String(c, grow(!e))
   print(t.len)
   d: *Cell[List[Int]] = *Cell(List())
   !d.push(7)
   f = +d
-  u = Text(d, reset(!f))
+  u = String(d, reset(!f))
   print(u)
   s = *S(c: Cell(List()))
   s2 = +s
-  w = Text(s, " ", grow_s(!s2))
+  w = String(s, " ", grow_s(!s2))
   print(w)
 
 # expect:

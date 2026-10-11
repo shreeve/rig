@@ -13,10 +13,10 @@
 # oracle: made_fallback reject C5
 
 struct S
-  t: Text
+  t: String
   xs: [4]Int
 
-  fun inner(?self) -> ?Text
+  fun inner(?self) -> ?String
     ?self.t
 
 struct W
@@ -29,7 +29,7 @@ struct P
     ?self.xs
 
 fun mk(n: Int) -> W
-  W(s: S(t: Text("a text long enough to live on the heap:", n), xs: [n, n, n, n]))
+  W(s: S(t: String("a text long enough to live on the heap:", n), xs: [n, n, n, n]))
 
 fun maybe(n: Int) -> W?
   return mk(n) if n > 0 else none

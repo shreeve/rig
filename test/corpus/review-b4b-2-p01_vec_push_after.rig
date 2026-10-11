@@ -1,7 +1,7 @@
 # Payload view of a List element escapes the arm; the List then grows. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -13,8 +13,8 @@ fun clobber(n: Int) -> Int
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(r: Res(n: 1, t: Text("one"))))
-  k = Res(n: 0, t: Text("k"))
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match v[0]
     .a(r) => saved = ?r

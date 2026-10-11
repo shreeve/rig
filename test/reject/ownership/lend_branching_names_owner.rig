@@ -3,16 +3,16 @@
 
 use std.text
 
-fun size(s: ?Text) -> Int
+fun size(s: ?String) -> Int
   s.len
 
-fun g(o: Text?) -> Int?
+fun g(o: String?) -> Int?
   print(text.trim(?o?))
   1
 
 sub main()
-  a = Text("aaaa")
-  b = Text("bb")
+  a = String("aaaa")
+  b = String("bb")
   c = true
   print(size(?(a if c else b)))
   print(size(?a if c else ?b), g(none))

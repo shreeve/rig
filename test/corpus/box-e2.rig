@@ -14,7 +14,7 @@ fun count[T](top: ?^Node[T]?) -> Int
   n
 
 sub main()
-  s: ^Node[String]? = none
+  s: ^Node[?String]? = none
   s = push(<s, "a")
   s = push(<s, "b")
   print(count(?s), s)

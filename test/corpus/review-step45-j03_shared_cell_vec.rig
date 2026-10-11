@@ -1,10 +1,10 @@
 # *Cell[List[Text]] shared by two handles; replace through one
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   c = *Cell(<v)
   d = +c
-  w: List[Text] = List()
-  !w.push(Text("b"))
+  w: List[String] = List()
+  !w.push(String("b"))
   old = (!d).replace(<w)
   print(old)

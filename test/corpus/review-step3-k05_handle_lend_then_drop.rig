@@ -1,6 +1,6 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
 fun get(s: ?S, n: Int) -> Int
   s.n + n
@@ -9,5 +9,5 @@ fun eat(h: *S) -> Int
   0
 
 sub main()
-  h = *S(n: 1, t: Text("x"))
+  h = *S(n: 1, t: String("x"))
   print(get(h, eat(<h)))

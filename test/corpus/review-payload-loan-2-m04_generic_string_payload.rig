@@ -3,7 +3,7 @@ enum G[T]
   b
 
 sub main()
-  s: String = "hello"
+  s: ?String = "hello"
   e: G[!String] = G[!String].a(!s)
   match e
     .a(w) => print(w, w.len)

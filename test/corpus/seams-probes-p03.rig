@@ -1,7 +1,7 @@
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   s.len
 
 sub main()
   i = 0
-  while i < 3 : i += size(?Text("ab"))
+  while i < 3 : i += size(?String("ab"))
     print(i)

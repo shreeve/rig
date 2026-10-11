@@ -6,17 +6,17 @@
 # branching value is read in place, so it is a lend of a name it may be.
 
 struct H
-  items: List[Text]
+  items: List[String]
 
-fun mk() -> List[Text]
-  v: List[Text] = List()
-  !v.push(Text("a"))
+fun mk() -> List[String]
+  v: List[String] = List()
+  !v.push(String("a"))
   v
 
 fun mkh() -> H
   H(items: mk())
 
-fun items(v: ?List[Text], k: ?List[Text]) -> ?List[Text]
+fun items(v: ?List[String], k: ?List[String]) -> ?List[String]
   v
 
 sub main()
@@ -38,11 +38,11 @@ sub main()
   for x in v if c else k
     print(x)
 
-# error: 26:12: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 28:13: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 30:13: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 32:13: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
-# error: 34:12: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `items(?v, ?k)` to a name first
-# error: 36:12: a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mkh()` to a name first
+# error: 26:12: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 28:13: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 30:13: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 32:13: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+# error: 34:12: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `items(?v, ?k)` to a name first
+# error: 36:12: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mkh()` to a name first
 # error: 38:12: cannot lend `v if c else k`: it may be `v`, a value a name holds
 # errors: 7

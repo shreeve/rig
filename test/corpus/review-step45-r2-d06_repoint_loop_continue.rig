@@ -1,8 +1,8 @@
 # re-point in a loop with continue and break, old target used after the loop
 sub main()
-  a = Text("a")
-  b = Text("b")
-  c = Text("c")
+  a = String("a")
+  b = String("b")
+  c = String("c")
   w = !a
   for i in 0..6
     if i % 3 == 0
@@ -12,6 +12,6 @@ sub main()
       break
     w = !c
     !w.add("x")
-  a = Text("A")
+  a = String("A")
   !w.add("!")
   print(a, b, c)

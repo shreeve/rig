@@ -1,8 +1,8 @@
 # +w where w: List[?List[Text]] holds pointer views
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("x"))
-  w: List[?List[Text]] = List()
+  v: List[String] = List()
+  !v.push(String("x"))
+  w: List[?List[String]] = List()
   !w.push(?v)
   c = +w
   <w

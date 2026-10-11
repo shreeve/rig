@@ -10,7 +10,7 @@ fun grow(xs: []Int, v: !List[Int]) -> Int
   !v.push(1)
   xs.len
 
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
 fun mk() -> [3]Int
@@ -19,7 +19,7 @@ fun mk() -> [3]Int
 sub main()
   w = [1, 2, 3, 4]
   v: List[Int] = List()
-  t = Text("abc")
+  t = String("abc")
   r = keep(?w[1..3])
   w[0] = 9
   print(r)

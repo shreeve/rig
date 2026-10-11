@@ -1,4 +1,4 @@
-extern fun write(fd: I32, buf: String, n: U64) -> I64
+extern fun write(fd: I32, buf: ?String, n: U64) -> I64
 
 sub main()
   raw

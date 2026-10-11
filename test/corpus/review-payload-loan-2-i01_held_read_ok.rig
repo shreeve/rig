@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
   n: Int
 
 enum WP
@@ -28,7 +28,7 @@ fun pass_through(x: !Int, d: !Int) -> !Int from x, d
     .b => d
 
 sub main()
-  p = P(t: Text("hello"), n: 2)
+  p = P(t: String("hello"), n: 2)
   match mk(!p).e
     .a(w)
       r = ?w.t[1..]

@@ -1,16 +1,16 @@
 struct P
-  t: Text
+  t: String
 
 enum WP
   a(w: !P)
   b
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   o: WP? = WP.a(!p)
   match o ?? WP.b
     .a(w)
       r = ?w.t[1..]
-      w.t = Text("other")
+      w.t = String("other")
       print(r)
     .b => pass

@@ -1,10 +1,10 @@
 # A Text cannot be moved while a String views it.
 
-sub eat(t: Text)
+sub eat(t: String)
   print(t)
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   s = ?t[1..]
   eat(<t)
   print(s)

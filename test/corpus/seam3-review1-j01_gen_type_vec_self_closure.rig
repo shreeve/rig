@@ -5,8 +5,8 @@ struct Stack[T]
     *|<self| print(self.items[0])
 
 sub main()
-  b = ^Text("hello")
-  s: Stack[?^Text] = Stack(items: List())
+  b = ^String("hello")
+  s: Stack[?^String] = Stack(items: List())
   !s.items.push(?b)
   f = <s.later()
   <b

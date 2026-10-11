@@ -1,9 +1,9 @@
-sub f(w: !^Text)
+sub f(w: !^String)
   for b in w
     if b == 104
-      w = ^Text("x")
+      w = ^String("x")
     print(b)
 
 sub main()
-  t = ^Text("hello")
+  t = ^String("hello")
   f(!t)

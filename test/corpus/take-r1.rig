@@ -4,7 +4,7 @@ struct N
 
 struct S
   top: ^N?
-  name: String
+  name: ?String
   n: N
 
 sub rd(s: ?S)

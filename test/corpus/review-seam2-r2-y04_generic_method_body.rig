@@ -8,22 +8,22 @@
 # oracle: main accept
 struct S
   n: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("dropS", self.n)
 
 struct H
-  rs: List[String]
+  rs: List[?String]
 
-  sub keep(!self, r: String)
+  sub keep(!self, r: ?String)
     !self.rs.push(r)
 
   drop(!self)
     print("dropH sees", self.rs)
 
 fun mk(n: Int) -> S
-  S(n: n, t: Text("hello world, long enough to be on the heap"))
+  S(n: n, t: String("hello world, long enough to be on the heap"))
 
 fun mkh() -> H
   H(rs: List())

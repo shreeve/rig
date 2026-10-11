@@ -1,9 +1,9 @@
 # m[0] = <inner where inner holds ?t; then drop t
 sub main()
-  m: List[List[String]] = List()
+  m: List[List[?String]] = List()
   !m.push(List())
-  t = Text("x")
-  inner: List[String] = List()
+  t = String("x")
+  inner: List[?String] = List()
   !inner.push(?t)
   m[0] = <inner
   <t

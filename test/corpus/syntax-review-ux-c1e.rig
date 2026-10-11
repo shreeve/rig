@@ -4,7 +4,7 @@ fun mulw(a: U64, b: U64) -> U64
     r: U64 = @truncate(wide)
     r
 
-fun fnv1a(s: String) -> U64
+fun fnv1a(s: ?String) -> U64
   h: U64 = 0xcbf29ce484222325
   for b in s
     h ^= U64(b)

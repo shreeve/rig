@@ -1,6 +1,6 @@
 # guarded match on an element of a List in a shared handle
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 struct S
@@ -8,7 +8,7 @@ struct S
 
 sub main()
   e: List[E] = List()
-  !e.push(E.a(t: Text("hi")))
+  !e.push(E.a(t: String("hi")))
   h = *S(v: <e)
   match h.v[0]
     .a(t) if t.len > 1 => print(t)

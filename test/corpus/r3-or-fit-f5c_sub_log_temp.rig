@@ -1,13 +1,13 @@
 struct Ctx
-  name: String
+  name: ?String
   count: Int
 
-sub log(ctx: !Ctx, msg: String)
+sub log(ctx: !Ctx, msg: ?String)
   ctx.count += 1
   print(ctx.name, ctx.count, msg)
 
 sub main()
   ctx = Ctx(name: "app", count: 0)
   for i in 0..3
-    log(!ctx, ?Text("step ", i))
+    log(!ctx, ?String("step ", i))
   print(ctx.count)

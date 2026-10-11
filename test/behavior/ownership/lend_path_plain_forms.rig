@@ -104,7 +104,7 @@ sub main()
   (!p if c else !r).x += 1
   n = (?p if c else ?r).s.items.len
   print(p.x, r.x, n)
-  t = Text("abc")
+  t = String("abc")
   print((?t[..])[0], (?arr[1..])[0], (?t[1..]).len)
 
 # expect:

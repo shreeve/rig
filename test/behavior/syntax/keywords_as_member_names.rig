@@ -4,7 +4,7 @@
 
 struct Token
   type: Int
-  error: String
+  error: ?String
   drop: Bool
   in: Int
 

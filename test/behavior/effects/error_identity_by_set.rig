@@ -17,7 +17,7 @@ fun fetch(n: Int) -> Int!
   return Net.refused if n == 4
   n
 
-fun describe(n: Int) -> String
+fun describe(n: Int) -> ?String
   _ = fetch(n) catch |e|
     match e
       Net.timeout => return "net timeout"
@@ -25,7 +25,7 @@ fun describe(n: Int) -> String
       _ => return "other"
   "ok"
 
-fun only_net(n: Int) -> String
+fun only_net(n: Int) -> ?String
   _ = fetch(n) catch |e|
     match e
       Net.timeout => return "net timeout"

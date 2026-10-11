@@ -5,7 +5,7 @@
 TEXT = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs. A quick fox, a lazy dog!"
 
 struct Entry
-  word: String
+  word: ?String
   count: Int
 
 fun is_letter(b: U8) -> Bool
@@ -14,20 +14,20 @@ fun is_letter(b: U8) -> Bool
 fun lower(b: U8) -> U8
   b + 32 if b >= 65 and b <= 90 else b
 
-fun same_word(a: String, b: String) -> Bool
+fun same_word(a: ?String, b: ?String) -> Bool
   return false if a.len != b.len
   for x, i in a
     return false if lower(x) != lower(b[i])
   true
 
-sub add(counts: !List[Entry], word: String)
+sub add(counts: !List[Entry], word: ?String)
   for e in !counts
     if same_word(e.word, word)
       e.count += 1
       return
   !counts.push(Entry(word: word, count: 1))
 
-fun tally(text: String) -> List[Entry]
+fun tally(text: ?String) -> List[Entry]
   counts: List[Entry] = List()
   start = 0
   for b, i in text

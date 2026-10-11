@@ -8,7 +8,7 @@ struct P
 struct Q
   z: Int
 
-fun name() -> String
+fun name() -> ?String
   print("called")
   "abc"
 

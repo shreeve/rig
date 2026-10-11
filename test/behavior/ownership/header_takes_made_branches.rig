@@ -4,7 +4,7 @@
 
 struct N
   id: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.id)
@@ -20,7 +20,7 @@ fun mkv(k: Int) -> List[Int]
   v
 
 fun mks(k: Int) -> Shape
-  .line(n: N(id: k, t: Text("s")))
+  .line(n: N(id: k, t: String("s")))
 
 sub main()
   c = true

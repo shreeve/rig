@@ -1,6 +1,6 @@
 # Order: the value (with its arm) runs first, then the target's indexes,
 # outermost first; identical on main and the branch.
-fun at(i: Int, what: String) -> Int
+fun at(i: Int, what: ?String) -> Int
   print(what)
   i
 

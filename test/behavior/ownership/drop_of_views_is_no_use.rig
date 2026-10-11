@@ -15,7 +15,7 @@
 
 struct Item
   n: Int
-  name: String
+  name: ?String
 
 struct Holder[T]
   items: List[T]

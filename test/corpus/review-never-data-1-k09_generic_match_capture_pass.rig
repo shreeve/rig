@@ -1,6 +1,6 @@
 struct P
   n: Int
-  t: Text
+  t: String
 
 enum G[T]
   a(x: T)
@@ -17,5 +17,5 @@ sub show(p: ?P)
   print(p.n, p.t)
 
 sub main()
-  g2: G[P] = G.a(P(n: 4, t: Text("x")))
+  g2: G[P] = G.a(P(n: 4, t: String("x")))
   poke(!g2, show)

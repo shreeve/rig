@@ -1,8 +1,8 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 sub main()
-  o: Text? = Text("hello")
+  o: String? = String("hello")
   if !o as w
     s = keep(?w[1..])
     for _ in 0..50

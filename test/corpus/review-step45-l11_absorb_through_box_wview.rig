@@ -1,8 +1,8 @@
 # store a view through a local write view of a Box of a List of views
 sub main()
-  b = ^List[String]()
+  b = ^List[?String]()
   w = !b
-  t = Text("x")
+  t = String("x")
   !w.push(?t)
   <t
   print(b)

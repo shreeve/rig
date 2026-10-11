@@ -1,11 +1,11 @@
 # write match on a Box element of a List, and on a handle element. Expect accept, clean.
 enum E
-  a(n: Int, t: Text)
+  a(n: Int, t: String)
   b
 
 sub main()
   v: List[^E] = List()
-  !v.push(^E.a(n: 1, t: Text("v")))
+  !v.push(^E.a(n: 1, t: String("v")))
   i = 0
   match !v[i]
     .a(n, t)

@@ -1,18 +1,18 @@
 # match on a field of a view returned by a method whose argument is a temp
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 struct S
   es: List[E]
 
-  fun at(!self, s: String) -> !E
+  fun at(!self, s: ?String) -> !E
     !self.es[s.len - 1]
 
 sub main()
   s = S(es: List())
-  !s.es.push(E.a(t: Text("hi")))
-  match (!(!s)).at(?Text("a"))
+  !s.es.push(E.a(t: String("hi")))
+  match (!(!s)).at(?String("a"))
     .a(t) if t.len > 0
       for _ in 0..40
         !t.add("xxxxxxxx")

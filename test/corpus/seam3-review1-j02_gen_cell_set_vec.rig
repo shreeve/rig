@@ -4,8 +4,8 @@ sub stash[T](c: *Cell[List[T]], x: T)
   _ = (!c).replace(<xs)
 
 sub main()
-  c: *Cell[List[?^Text]] = *Cell(List())
-  b = ^Text("hello")
+  c: *Cell[List[?^String]] = *Cell(List())
+  b = ^String("hello")
   stash(+c, ?b)
   <b
   old = (!c).replace(List())

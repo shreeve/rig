@@ -1,7 +1,7 @@
 struct W
-  t: !Text
+  t: !String
 
-fun grab(o: ?W?) -> String
+fun grab(o: ?W?) -> ?String
   if o as w
     return ?w.t[..3]
   ""
@@ -11,7 +11,7 @@ sub grow(o: !W?)
     !w.t.add("more more more more more more more more more")
 
 sub main()
-  t = Text("abcdefghijklmnop")
+  t = String("abcdefghijklmnop")
   o: W? = W(t: !t)
   s = grab(?o)
   grow(!o)

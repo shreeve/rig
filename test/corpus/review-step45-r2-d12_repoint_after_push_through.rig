@@ -1,9 +1,9 @@
 # push a view through w into its target List, re-point w, then drop the viewed Text
 sub main()
-  inner: List[String] = List()
-  other: List[String] = List()
+  inner: List[?String] = List()
+  other: List[?String] = List()
   w = !inner
-  t = Text("t")
+  t = String("t")
   !w.push(?t)
   w = !other
   <t

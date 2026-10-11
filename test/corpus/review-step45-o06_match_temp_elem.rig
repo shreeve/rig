@@ -1,11 +1,11 @@
 # match on an element of a temporary List of enums with owner payloads
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 fun mk() -> List[E]
   v: List[E] = List()
-  !v.push(E.a(t: Text("hi")))
+  !v.push(E.a(t: String("hi")))
   <v
 
 sub main()

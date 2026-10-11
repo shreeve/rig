@@ -1,6 +1,6 @@
 # write match on an element of a List in a Box, an array in a Box, a List reached through `if !o as v`, and a `!H` param's field. Expect clean, correct.
 enum E
-  a(n: Int, t: Text)
+  a(n: Int, t: String)
   b
 
 struct H
@@ -17,11 +17,11 @@ sub main()
   i = 0
   o: List[E]? = List()
   if !o as v
-    !v.push(E.a(n: 9, t: Text("o")))
+    !v.push(E.a(n: 9, t: String("o")))
     match !v[i]
       .a(n, _) => n += 1
       .b => pass
   h = H(f: List())
-  !h.f.push(E.a(n: 3, t: Text("h")))
+  !h.f.push(E.a(n: 3, t: String("h")))
   viaparam(!h, i)
   print(o, h.f[0])

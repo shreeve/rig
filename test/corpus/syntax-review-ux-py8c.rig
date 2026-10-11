@@ -7,7 +7,7 @@ sub puts(bytes: []U8)
   raw
     _ = putchar(10)
 
-fun upper(s: String) -> List[U8]
+fun upper(s: ?String) -> List[U8]
   out: List[U8] = List()
   for b in s
     !out.push(b - 32 if b >= 97 and b <= 122 else b)

@@ -1,10 +1,10 @@
 # +s where s holds a Cell must be rejected
 struct S
   c: Cell[Int]
-  t: Text
+  t: String
 
 sub main()
-  s = S(c: Cell(1), t: Text("x"))
+  s = S(c: Cell(1), t: String("x"))
   d = +s
   d.c.set(2)
   print(s.c.get())

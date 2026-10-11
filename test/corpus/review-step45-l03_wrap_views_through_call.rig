@@ -1,10 +1,10 @@
 # a List of views passed by value through a function and returned
-fun wrap(v: List[String]) -> List[String]
+fun wrap(v: List[?String]) -> List[?String]
   <v
 
 sub main()
-  t = Text("x")
-  v: List[String] = List()
+  t = String("x")
+  v: List[?String] = List()
   !v.push(?t)
   w = wrap(<v)
   <t

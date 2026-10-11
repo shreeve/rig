@@ -1,4 +1,4 @@
-fun mk() -> String?
+fun mk() -> (?String)?
   "a"
 
 sub main()

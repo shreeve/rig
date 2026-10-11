@@ -35,7 +35,7 @@ sub main()
   f = |+v| v.len
   !v.push(2)
   print(f(), v.len)
-  t = Text("hi")
+  t = String("hi")
   g = |+t| t.len
   !t.add("!")
   print(g(), t)

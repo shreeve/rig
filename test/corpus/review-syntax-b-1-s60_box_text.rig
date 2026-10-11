@@ -1,8 +1,8 @@
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
 sub main()
-  b = ^Text("hello")
+  b = ^String("hello")
   s = word(?b[1..])
   <b
   print(s)

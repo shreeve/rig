@@ -1,6 +1,6 @@
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("hello"))
+  v: List[String] = List()
+  !v.push(String("hello"))
   s = ""
   if v.get(0) as r
     s = r[1..]

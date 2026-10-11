@@ -1,5 +1,5 @@
 sub main()
-  x: Text? = Text("a")
+  x: String? = String("a")
   r = ?x
   f = |+r| r
   print(f())

@@ -13,23 +13,23 @@ fun pick(s: ?S) -> ?Int
   ?s.n
 
 sub main()
-  print(text.trim(?Text("  padded  ")) == "padded")
-  n = text.find(?Text("abc"), "b") ?? -1
+  print(text.trim(?String("  padded  ")) == "padded")
+  n = text.find(?String("abc"), "b") ?? -1
   a = "x"
   b = "yz"
-  if text.starts_with(?Text(a, b), "xy")
+  if text.starts_with(?String(a, b), "xy")
     print("starts", n)
   i = 0
-  while text.find(?Text(i), "3") == none
+  while text.find(?String(i), "3") == none
     i += 1
-  print(i, text.trim(?Text(" v ")), ?Text("abcdef")[2..4])
+  print(i, text.trim(?String(" v ")), ?String("abcdef")[2..4])
   print(pick(?S(n: 4)) + 1, ?[1, 2, 3][1..])
-  kv_text = Text("k=v")
+  kv_text = String("k=v")
   if text.cut(?kv_text, "=") as kv
     print(kv.before, kv.after)
   j = 0
   while true
-    pass_text = Text("pass=", j)
+    pass_text = String("pass=", j)
     kw = text.cut(?pass_text, "=") ?? break
     print(kw.after)
     j += 1

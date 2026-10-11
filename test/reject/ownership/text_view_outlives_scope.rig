@@ -2,13 +2,13 @@
 # Strings, cannot outlive the Text.
 
 struct Name
-  s: String
+  s: ?String
 
 sub main()
   n = Name(s: "none")
-  names: List[String] = List()
+  names: List[?String] = List()
   if true
-    t = Text("inner")
+    t = String("inner")
     n = Name(s: ?t[..])
     !names.push(?t[1..])
   print(n.s, names)

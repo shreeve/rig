@@ -3,7 +3,7 @@ use lib
 sub main()
   a = lib.cons("a", none)
   b = lib.cons("b", <a)
-  n: lib.Node[String] = lib.Node(v: "c", next: <b)
+  n: lib.Node[?String] = lib.Node(v: "c", next: <b)
   print(n.val())
   t = lib.Tree[Int](kids: List(), v: 1)
   !t.kids.push(lib.Tree(kids: List(), v: 2))

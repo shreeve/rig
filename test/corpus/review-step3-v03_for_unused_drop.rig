@@ -5,9 +5,9 @@ sub main()
   for _ in v
     <v
     break
-  t = Text("abc")
+  t = String("abc")
   for _ in t
-    t = Text("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    t = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   o: List[Int]? = List()
   if o as _
     o = none

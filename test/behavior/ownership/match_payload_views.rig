@@ -6,7 +6,7 @@
 
 struct Res
   n: Int
-  t: Text
+  t: String
 
 struct Counter
   hits: Cell[Int]
@@ -54,11 +54,11 @@ fun peek[T](o: ?Opt[T]) -> Int
     .nothing => 0
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("place")))
+  e = E.a(r: Res(n: 1, t: String("place")))
   print(inner(?e), inner(e))
-  b = ^E.b(r: Res(n: 2, t: Text("box")))
+  b = ^E.b(r: Res(n: 2, t: String("box")))
   print(boxed(b))
-  h = *E.a(r: Res(n: 3, t: Text("handle")))
+  h = *E.a(r: Res(n: 3, t: String("handle")))
   print(shared(h))
   c = *C.a(c: Counter(hits: Cell(1)))
   match get(!c)
@@ -70,7 +70,7 @@ sub main()
     .b => pass
   match c
     x => print(x)
-  o: Opt[Res] = .some(v: Res(n: 7, t: Text("seven")))
+  o: Opt[Res] = .some(v: Res(n: 7, t: String("seven")))
   print(peek(o))
 
 # expect:

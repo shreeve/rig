@@ -6,7 +6,7 @@ error Net
   timeout
   refused
 
-fun name(d: Disk) -> String
+fun name(d: Disk) -> ?String
   match d
     Disk.timeout => "t"
     .full => "f"
@@ -17,7 +17,7 @@ fun fetch(n: Int) -> Int!
   return Net.refused if n == 3
   n
 
-fun cls(n: Int, flag: Bool) -> String
+fun cls(n: Int, flag: Bool) -> ?String
   _ = fetch(n) catch |e|
     s = match e
       Net.timeout if flag => "nt-flag"

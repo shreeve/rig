@@ -1,7 +1,7 @@
 # A constructor may not name the same field twice.
 
 struct User
-  name: String
+  name: ?String
   age: Int
 
 sub main()

@@ -1,15 +1,15 @@
 # write match on List element through temp index; arm pushes then writes payload. Expect reject.
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(t: Text("q")))
-  match !v[idx(?Text("a"))]
+  !v.push(E.a(t: String("q")))
+  match !v[idx(?String("a"))]
     .a(t)
       for _ in 0..64
         !v.push(E.b(n: 5))

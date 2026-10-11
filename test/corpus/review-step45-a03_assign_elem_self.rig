@@ -1,6 +1,6 @@
 # v[0] = <v[0]? and v[0] = v[0]
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("a"))
+  v: List[String?] = List()
+  !v.push(String("a"))
   v[0] = <v[0]
   print(v)

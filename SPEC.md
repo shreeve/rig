@@ -107,7 +107,7 @@ every mode.
 | `U8` `U16` `U32` `U64` `U128` | unsigned integers | `u8` ... `u128` |
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
-| `String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([Strings](#strings)) | `[]const u8` |
+| `?String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([Strings](#strings)) | `[]const u8` |
 | `Static` | text that lives for the whole program: a string literal, or text derived only from literals; plain data that carries no loan ([Static](#static)) | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
 
@@ -232,32 +232,32 @@ integer value `16777217` does not fit exactly in `F32`
 
 ### Strings
 
-A `String` has a length `s.len` and can be indexed (`s[0]`, or
+A `?String` has a length `s.len` and can be indexed (`s[0]`, or
 `s.get(i)`, a `U8?` that is `none` past the end), and a `for` loop over
 it yields its bytes as `U8`. Strings compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§5](#operators)).
 
 A String is a read view of bytes it does not own. A `Static`'s last as
-long as the program ([Static](#static)); one taken from a `Text`
+long as the program ([Static](#static)); one taken from a `String`
 (`?t[..]`) carries the Text's loan ([§10](#text)). The bytes are
 UTF-8 by convention, and nothing checks it: lengths and indexes count
 bytes, and a slice checks only its bounds.
 
-There is one view of text. The read view of a `Text` is its bytes, a
-`String`: `?t`, a loop or pattern binding of a `Text` element, a
-generic `?T` at `T = Text`, and a type written `?Text` are all
-`String`s, and a read view of a `String` is that `String` (`?s`).
-`+s` of a `String` copies its bytes into a new `Text`. A `String` is a
-view, so nothing lends a `String` place to write, `swap` and `replace`
+There is one view of text. The read view of a `String` is its bytes, a
+`?String`: `?t`, a loop or pattern binding of a `String` element, a
+generic `?T` at `T = String`, and a type written `?String` are all
+`?String`s, and a read view of a `?String` is that `?String` (`?s`).
+`+s` of a `?String` copies its bytes into a new `String`. A `?String` is a
+view, so nothing lends a `?String` place to write, `swap` and `replace`
 of one included: assign to the place to point it at other text, or
-hold a `Text` to change text in place.
+hold a `String` to change text in place.
 
 #### Static
 
-A `Static` is a `String` known to view only bytes that live for the
+A `Static` is a `?String` known to view only bytes that live for the
 whole program. It is plain data: it copies, it carries no loan, and it
-has the same bytes and operations as a `String` (`len`, indexing,
+has the same bytes and operations as a `?String` (`len`, indexing,
 slicing, `for`, `==` and `<`). Where a `Static` comes from is one list;
 nothing else has the type:
 
@@ -268,26 +268,26 @@ nothing else has the type:
 - a branch (`a if c else b`, `if`, `match`), a `??`, or a list literal
   whose every value is a `Static`.
 
-A `String` that may view a `Text` (a parameter, `?t[..]`, the result of
+A `?String` that may view a `String` (a parameter, `?t[..]`, the result of
 a function over Strings such as `text.trim("  a  ")`) is not one, and
-nothing turns a `String` into a `Static`. A `Static` is read as a
-`String` where the text is only read: an argument or a field of type
-`String`, a returned or bound `String`, a `Static?` as a `String?`, a
-`[]Static` as a `[]String`, and in a branch, a `??`, or a list literal
-that mixes the two (their type is `String`). A generic `T` that a
-`Static` and a `String` both bind is the `String` (unless a place that
+nothing turns a `?String` into a `Static`. A `Static` is read as a
+`?String` where the text is only read: an argument or a field of type
+`?String`, a returned or bound `?String`, a `Static?` as a `(?String)?`, a
+`[]Static` as a `[]?String`, and in a branch, a `??`, or a list literal
+that mixes the two (their type is `?String`). A generic `T` that a
+`Static` and a `?String` both bind is the `?String` (unless a place that
 holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
 is `"Static"`, but a type parameter bound to a `Static` is named
 `"String"`, since both are one Zig type. It never converts
 where the text can be written: a place of type `Static` holds only a
-`Static`, a `String` is not written into one, and a binding that holds a
-literal is a `Static` (`s = "a"`), so a `String` is assigned to it only
-when it is declared `s: String = "a"`.
+`Static`, a `?String` is not written into one, and a binding that holds a
+literal is a `Static` (`s = "a"`), so a `?String` is assigned to it only
+when it is declared `s: ?String = "a"`.
 
 Because a `Static` carries no loan, it goes where no loan is tracked:
 in a `Cell`, a `Signal`, an owned closure, and in a struct field or a
-generic `T` kept there. A `String` there is rejected by its type, with
-a hint that points to a `String` parameter for text that is only read.
+generic `T` kept there. A `?String` there is rejected by its type, with
+a hint that points to a `?String` parameter for text that is only read.
 
 ```rig
 struct Tag
@@ -320,13 +320,13 @@ sub keep(c: !Cell[Static], s: Static)
   !c.set(s)
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   c = *Cell("a")
   keep(!c, ?t[..])
 ```
 
 ```error
-type mismatch: expected `Static`, got `String`
+type mismatch: expected `Static`, got `?String`
 ```
 
 ### Arrays
@@ -455,7 +455,7 @@ sub main()
 ### Slices
 
 `xs[a..b]` is the part of `xs` from index `a` up to, not including,
-`b`. Of a `String` it is a `String`. Of an array or a `List` it is
+`b`. Of a `?String` it is a `?String`. Of an array or a `List` it is
 written `?xs[a..b]`, or with no `?` as an argument, as `xs` itself is
 lent: a `[]T`, a read view of the elements, which lends
 part of `xs` ([§7](#lending)), so `xs` cannot be
@@ -514,7 +514,7 @@ way its name is (`total(a[1..])` is `total(?a[1..])`); anywhere else,
 such as a binding or a field, the lend is written. A slice argument
 whose parameter takes no read view is rejected: `!a[1..]` lends it to
 write where a `![]T` goes, and a parameter that owns its value takes a
-copy (`Text(?t[1..])`). A temporary array, a literal,
+copy (`String(?t[1..])`). A temporary array, a literal,
 a fill, or a call's result, passed as a `[]T` argument is lent as a
 temporary of its statement: it lives until the statement ends, so a
 call that returns a view of it is rejected where the view outlives the
@@ -552,12 +552,12 @@ fun total(xs: []Int) -> Int
     n += x
   n
 
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   s.len
 
 sub main()
   a = [1, 2, 3, 4]
-  t = Text("hello")
+  t = String("hello")
   print(total(a[1..3]), total(?a[1..3]), size(t[1..]))
 ```
 
@@ -691,9 +691,9 @@ sub main()
   !a[..3].copy(?b[..])
   !a[3..].fill(0)
   !a.swap(0, 5)
-  t: List[Text] = List()
-  !t.push(Text("x"))
-  !t.push(Text("y"))
+  t: List[String] = List()
+  !t.push(String("x"))
+  !t.push(String("y"))
   !t.swap(0, 1)
   print(a, t)
 ```
@@ -761,7 +761,7 @@ sub main()
 ```
 
 ```error
-cannot lend a slice of a String to write; a String is read-only
+cannot lend a slice of a `?String` to write; a `?String` is read-only
 ```
 
 ### Bytes
@@ -828,7 +828,7 @@ no variant `native` on enum `Endian`
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
 | `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#callable-views) |
 | `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-text-and-signal) |
-| `Text` | owned, growable text | [§10](#text) |
+| `String` | owned, growable text | [§10](#text) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
@@ -860,9 +860,9 @@ where its value is taken ([§7](#reading)):
 | Kind | Types | A bare name where the value is taken |
 |---|---|---|
 | **plain** | numbers, `Bool`, plain enums, and optionals, arrays, structs, and enums of them | copies it |
-| **owning** | `List`, `^T`, `Text`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
+| **owning** | `List`, `^T`, `String`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
 | **handle** | `*T`, `~T`, and owned closures | the same: `<h` moves it, `+h` adds a count |
-| **view** | `?T`, `!T`, `[]T`, `![]T`, `String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
+| **view** | `?T`, `!T`, `[]T`, `![]T`, `?String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
 
 A struct, enum, optional, or array is owning if any part is owning or a
 handle; otherwise a view if any part is a view; otherwise plain. No
@@ -872,7 +872,7 @@ handles have **drop glue** ([§8](#8-drop-and-drop-glue)): code the
 compiler generates to release them.
 
 **Plain data**, in this reference, is a value that owns nothing and
-holds no `?T`, `!T`, or slice: a plain value, a `String`, or an
+holds no `?T`, `!T`, or slice: a plain value, a `?String`, or an
 optional, array, struct, or enum of them. It copies freely. A String in
 it is still a view, which may carry a Text's loan ([Strings](#strings)).
 
@@ -969,8 +969,8 @@ RETRIES = 3
 
 struct Config
   retries: Int = RETRIES
-  name: String = "anon"
-  tags: List[String] = List()
+  name: ?String = "anon"
+  tags: List[?String] = List()
   verbose: Bool
 
 struct Stats
@@ -1311,15 +1311,15 @@ parameters are type parameters and compile-time integers
 parameter is named in the type's fields and methods, as an array length
 (`items: [n]T`) or as a value in a method's body.
 An instance names its compile-time arguments in brackets, in a type
-(`Pair[Int, String]`, `Ring[Int, LIMIT * 2]`) or in an expression:
+(`Pair[Int, ?String]`, `Ring[Int, LIMIT * 2]`) or in an expression:
 `Wrap[Int](value: 3)`, `List[Int]()`, `Option[Int].some(7)`,
-`Pair[Int, String].make(1, "x")`, `Ring[Int, 4].new(0)`. A value
+`Pair[Int, ?String].make(1, "x")`, `Ring[Int, 4].new(0)`. A value
 argument is a compile-time integer, as an array length is, that the
 parameter's type holds; the same value names the same type, so
 `Ring[Int, 2 + 2]` is `Ring[Int, 4]`. Without them, a constructor takes them
 from the expected type when there is one, and otherwise infers them
 from the values that fill it: a constructor's fields
-(`Pair(first: 1, second: "x")` is a `Pair[Int, String]`, and
+(`Pair(first: 1, second: "x")` is a `Pair[Int, ?String]`, and
 `Ring(items: [1, 2, 3])` a `Ring[Int, 3]`), a payload
 variant's fields (`Option.some(7)`), or an associated function's
 arguments (`Pair.make(1, 2)`), as a generic function's call infers its
@@ -1355,9 +1355,9 @@ sub main()
   q = Option.some(2.5)
   v = List[Int]()
   !v.push(3)
-  r = Pair[Int, String].make(1, "x")
+  r = Pair[Int, ?String].make(1, "x")
   n = Option[Int].nothing
-  log = *Cell[List[*Pair[Int, String]]](value: List())
+  log = *Cell[List[*Pair[Int, ?String]]](value: List())
   print(q, v[0], r.second, n, log.len)
 ```
 
@@ -1432,7 +1432,7 @@ order:
    parameter's function type, and the type its body returns binds what
    only the result mentions, so `map(?names[..], |s| s.len)` of
    `fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]` is
-   `map[String, Int]`.
+   `map[?String, Int]`.
 3. **From the expected result.** A parameter that only literals give a
    type takes one from the type expected of the call's result, where
    there is one (a typed binding, parameter, field, or assigned place,
@@ -1671,7 +1671,7 @@ handle of a function: an owned closure is held as a `T`, with
 
 ```rig
 struct Track
-  title: String
+  title: ?String
 
   drop(!self)
     print("free", self.title)
@@ -1777,7 +1777,7 @@ or an imported one) constructs values, calls associated functions, and
 names variants; one of a generic instance (`Wrap[Int]`, `List[Int]`,
 `Cell[Int]`) constructs it as naming the instance does; one of a number
 type converts to it (`Byte(x)`) and names its limits (`Byte.max`).
-An alias is not a value, and an alias of any other type (`String`,
+An alias is not a value, and an alias of any other type (`?String`,
 `Int?`) has no constructor.
 
 ```rig
@@ -1928,7 +1928,7 @@ fun grow(v: !List[Int]) -> Int
   !v.push(v.len)
   v.len
 
-fun at(i: Int, what: String) -> Int
+fun at(i: Int, what: ?String) -> Int
   print(what)
   i
 
@@ -2187,7 +2187,7 @@ wrapped result. Constant wrapping arithmetic is computed in its type,
 as the program computes it.
 
 ```rig
-fun fnv1a(s: String) -> U64
+fun fnv1a(s: ?String) -> U64
   h: U64 = 14695981039346656037
   for b in s
     h ^= U64(b)
@@ -2215,7 +2215,7 @@ operator `+%` requires integer operands; got `Float`
 ```
 
 `==` and `!=` compare two values of the same type, by content. The
-equatable types are numbers, `Bool`, `String`, errors, and plain enums,
+equatable types are numbers, `Bool`, `?String`, errors, and plain enums,
 and, when everything they hold is equatable: optionals, where `none`
 equals only `none` and a value compares with an optional as its value;
 arrays and `[]T` slices, element by element; structs, field by field;
@@ -2236,7 +2236,7 @@ struct that declares `drop`, or a struct or payload that holds a `?T`,
 diagnostic names the field that does.
 
 Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
-`String`s or two `[]U8` slices, ordered by their bytes: the first byte
+`?String`s or two `[]U8` slices, ordered by their bytes: the first byte
 that differs decides, and a prefix sorts before the longer string.
 Structs, enums, and other slices have no ordering.
 
@@ -2389,7 +2389,7 @@ cover every value. The inline ternary `a if c else b` is the one-line
 form.
 
 ```rig
-fun classify(x: Int) -> String
+fun classify(x: Int) -> ?String
   if x > 0
     "positive"
   else if x < 0
@@ -2534,13 +2534,13 @@ struct Pair[A, B]
   a: A
   b: B
 
-fun name[T]() -> String
+fun name[T]() -> ?String
   @name(T)
 
 type Byte = U8
 
 sub main()
-  print(@name(List[Int]), @name(Byte), name[Pair[Int, Text]](), name[*Pair[U8, Bool]?]())
+  print(@name(List[Int]), @name(Byte), name[Pair[Int, String]](), name[*Pair[U8, Bool]?]())
 ```
 
 ```output
@@ -2634,7 +2634,7 @@ cannot lend `v` to write while a read loan is live
 
 ### for
 
-`for x in source` walks an array, a slice, a `String` (bytes), a
+`for x in source` walks an array, a slice, a `?String` (bytes), a
 `List`, an iterator (below), or a range `a..b` (from `a` up to, not
 including, `b`; the bounds are evaluated once). `for x, i in xs` also binds the index (not for
 ranges); the element comes first, the reverse of Python's
@@ -2729,14 +2729,14 @@ every branch is made there), whose new List the loop consumes as `<v`
 does. A branching value that may be a name's (`a if c else b`) is a
 value, never a place, so walking it in place would lend it, which is
 rejected ([§7](#lending)): lend each branch, `for e in ?a if c else ?b`.
-A List whose elements move (a `List[Text]`, a List of
+A List whose elements move (a `List[String]`, a List of
 owners) is walked only where a name holds it, or a field or element of
 one, so a call's result, or a part of a value made there (`mk().items`),
 is bound to a name first:
 
 ```rig reject
 struct H
-  items: List[Text]
+  items: List[String]
 
 fun mk() -> H
   H(items: List())
@@ -2752,7 +2752,7 @@ sub main()
 
 ```error
 cannot lend `a if a.len > 0 else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if a.len > 0 else ?b`
-a loop over a List of `Text` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
+a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
 ```
 
 An iterator is a value whose type declares `next(!self) -> T?`. A
@@ -2775,7 +2775,7 @@ A type with a `next` of another shape (`next(?self)`, one that takes
 more than `self`, or one that gives no optional) is not an iterator, and
 a `for` over it is rejected with the shape to write. An element
 (`xs[i]`), whose index the body could change, is bound to a name first.
-An iterator has no index binding. The `List`, array, slice, `String`, and range sources
+An iterator has no index binding. The `List`, array, slice, `?String`, and range sources
 keep the meanings above.
 
 ```rig
@@ -2909,7 +2909,7 @@ enum Shape
   square(s: Int)
   point
 
-fun describe(s: Shape) -> String
+fun describe(s: Shape) -> ?String
   match s
     .circle(r) if r > 10 => "big circle"
     .circle(_), .square(_) => "small shape"
@@ -2935,11 +2935,11 @@ dropped at the end of the arm, as a `_` field is.
 
 ```rig
 enum Shape
-  rect(w: Int, h: Int, label: Text)
+  rect(w: Int, h: Int, label: String)
   point
 
 sub main()
-  s: Shape = .rect(w: 3, h: 4, label: Text("box"))
+  s: Shape = .rect(w: 3, h: 4, label: String("box"))
   match s
     .rect(h: tall) if tall > 3 => print("tall", tall)
     .rect(w, h, _) => print(w * h)
@@ -2947,7 +2947,7 @@ sub main()
   match !s
     .rect(label: l, w: w)
       w = 30
-      l = Text("wide")
+      l = String("wide")
     .point => pass
   match <s
     .rect(label: l) => print(l)
@@ -2977,7 +2977,7 @@ through 9, and its end may be one past the type's largest value:
 `100..256` covers the rest of a `U8`.
 
 ```rig
-fun size(n: U8) -> String
+fun size(n: U8) -> ?String
   match n
     0..10 => "small"
     10..100 => "medium"
@@ -3108,7 +3108,7 @@ cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fi
 ```rig
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -3119,13 +3119,13 @@ fun inner(e: ?E) -> ?Res
     .a(r) => ?r
     .b(r) => ?r
 
-fun name(e: ?E) -> String
+fun name(e: ?E) -> ?String
   match e
     .a(r) => ?r.t
     .b(r) => ?r.t
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("hi")))
+  e = E.a(r: Res(n: 1, t: String("hi")))
   print(name(?e), inner(?e).n)
 ```
 
@@ -3136,15 +3136,15 @@ hi 1
 ```rig reject
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
   b
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("hi")))
-  k = Res(n: 0, t: Text("k"))
+  e = E.a(r: Res(n: 1, t: String("hi")))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match e
     .a(r) => saved = ?r
@@ -3275,7 +3275,7 @@ use of `n` after move
 
 An expression either **takes** its value or only **reads** it. A
 binding, an argument to a parameter that owns it, `return`, a stored
-field or element, and `<` take. A `print` or `Text(...)` argument, an
+field or element, and `<` take. A `print` or `String(...)` argument, an
 `==` operand, `?e`, a `?self` receiver, and a field or element read
 only read. Reading never moves a name, whatever form reads it: a read
 passes through `a if c else b`, `??`, `catch`, `e!`, and `e?` to their
@@ -3310,7 +3310,7 @@ expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`,
 `p: Point = r` with `r: ?Point`); the loan taken to reach it ends
 there, and the copy carries only the loans of the views it holds. An
 operator, and a binding with no type, read a view of a number, `Bool`,
-`String`, or plain enum as the value; a binding with no type copies a
+`?String`, or plain enum as the value; a binding with no type copies a
 read view of anything else as the view. A bare name or place only
 reads, so a binding with no type reads the value a name's write view
 sees when that value copies (`x = w`), and holds
@@ -3482,7 +3482,7 @@ is dropped automatically when its block ends, including on early
 So a drop is only needed to release something early, or to end a view
 a binding holds. A view parameter cannot be dropped: the caller owns
 what it views. Plain data owns nothing, so `<n` of an `Int` or a struct
-of numbers drops nothing, and is rejected. A String may view a `Text`
+of numbers drops nothing, and is rejected. A String may view a `String`
 (§10), so `<s` of a String, or of a struct holding one, ends the loan
 it carries.
 
@@ -3535,7 +3535,7 @@ where its view lasts only for the use: an argument to a view parameter
 way its name is: `total(w[1..3])` is `total(?w[1..3])`), a method's receiver
 ([§3](#structs)), the subject of a `for`, `if … as`, or `match`
 ([§6](#6-control-flow)), and a held view or a function name lent on to
-read ([§11](#callable-views)). `print(...)` and `Text(...)` read their
+read ([§11](#callable-views)). `print(...)` and `String(...)` read their
 arguments, so a slice there goes unwritten too (`print(w[1..3])`). A
 lend kept in a binding or a field is always written: `r = ?x`. So is a
 lend whose view a call's result keeps, when that result is kept in a
@@ -3585,7 +3585,7 @@ are rejected. A local binding is no constant, whatever it holds:
 | a place `p.f` or `v[i]` | the views of the field or element | its write views |
 | a held `!T` | `?T` | `!T` (lent on) |
 | `![]T` | `[]T` | `![]T` (lent on) |
-| `Text` | `String` (also `String?`) | `!Text` |
+| `String` | `?String` (also `(?String)?`) | `!String` |
 | `^T` | the views of `T`, through any number of boxes | the write views of `T` |
 | `*T` | the read views of `T` | `!*T`, the handle itself, never a view of the value |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row |
@@ -3759,7 +3759,7 @@ sub main()
   c = true
   (!p if c else !q).x += 1
   print(p.x, p.o, q.x, arr)
-  t = Text("abc")
+  t = String("abc")
   print((?t[1..])[0], (?arr[1..]).len)
 ```
 
@@ -3811,7 +3811,7 @@ so `w = !n` then `w += n` is rejected.
 
 ```rig reject
 struct User
-  name: String
+  name: ?String
 
 sub main()
   u = User(name: "ada")
@@ -3962,12 +3962,12 @@ write or move it. `grow(!a) == a` is accepted: the write finishes
 before `a` is read.
 
 ```rig reject
-fun grow(t: !Text) -> Text
+fun grow(t: !String) -> String
   !t.add("more")
-  Text("x")
+  String("x")
 
 sub main()
-  a = Text("a")
+  a = String("a")
   print(a == grow(!a))
 ```
 
@@ -4147,13 +4147,13 @@ struct B
   drop(!self)
     print("drop", self.n)
 
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   s.len
 
 sub main()
   a = B(n: 2)
   b = B(n: 3)
-  print(B(n: 1), size(?Text("four")))
+  print(B(n: 1), size(?String("four")))
   print(a if b.n > 5 else b)
   print("next")
 ```
@@ -4291,11 +4291,11 @@ value, so it is rejected: lend each branch, `?a if c else ?b`.
 use std.text
 
 sub main()
-  print(text.trim(?Text("  padded  ")) == "padded")
-  n = text.find(?Text("abc"), "b") ?? -1
-  if text.starts_with(?Text("x", n), "x1")
+  print(text.trim(?String("  padded  ")) == "padded")
+  n = text.find(?String("abc"), "b") ?? -1
+  if text.starts_with(?String("x", n), "x1")
     print("starts")
-  kv_text = Text("k=v")
+  kv_text = String("k=v")
   if text.cut(?kv_text, "=") as kv
     print(kv.before, kv.after)
 ```
@@ -4314,13 +4314,13 @@ struct S
 
 sub main()
   r = ?S(n: 1)
-  s = text.trim(?Text(" a "))
+  s = text.trim(?String(" a "))
   print(r.n, s)
 ```
 
 ```error
 a view of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
-a view of the temporary `Text(" a ")` outlives its statement
+a view of the temporary `String(" a ")` outlives its statement
 ```
 
 A header that makes a temporary is evaluated before that temporary
@@ -4331,12 +4331,12 @@ place's own, as it would with no temporary: a write through what it
 binds reaches the place.
 
 ```rig
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   arr: [1]Int? = [1]
-  if !arr[idx(?Text("a"))] as n
+  if !arr[idx(?String("a"))] as n
     n = 50
   print(arr)
 ```
@@ -4349,7 +4349,7 @@ Any other subject that makes a temporary, a value made in the header or
 a part of one, has no place that outlives the header, so what the header
 binds would be a copy of it, which a write through the binding would
 miss: it is rejected, whatever it binds, unless it takes
-the value made there (`match parse(?Text(s))`, `if find(?Text(s)) as
+the value made there (`match parse(?String(s))`, `if find(?Text(s)) as
 i`) or binds plain data of it. Bind the value, the index, or the
 argument to a name first.
 
@@ -4357,11 +4357,11 @@ argument to a name first.
 struct P
   o: Int?
 
-fun mk(s: ?Text) -> P
+fun mk(s: ?String) -> P
   P(o: s.len)
 
 sub main()
-  if mk(?Text("a")).o as n
+  if mk(?String("a")).o as n
     print(n)
 ```
 
@@ -4381,16 +4381,16 @@ change while the view lives.
 
 ```rig
 struct S
-  t: Text
+  t: String
 
-  fun name(?self) -> String
+  fun name(?self) -> ?String
     ?self.t
 
 sub main()
-  a = S(t: Text("aa"))
-  b = S(t: Text("bb"))
+  a = S(t: String("aa"))
+  b = S(t: String("bb"))
   n = (a if a.t.len > 1 else b).name()
-  print(n, S(t: Text("cc")).name())
+  print(n, S(t: String("cc")).name())
 ```
 
 ```output
@@ -4399,16 +4399,16 @@ aa cc
 
 ```rig reject
 struct S
-  t: Text
+  t: String
 
-  fun name(?self) -> String
+  fun name(?self) -> ?String
     ?self.t
 
 sub main()
-  a = S(t: Text("aa"))
-  b = S(t: Text("bb"))
+  a = S(t: String("aa"))
+  b = S(t: String("bb"))
   n = (a if a.t.len > 1 else b).name()
-  a.t = Text("zz")
+  a.t = String("zz")
   print(n)
 ```
 
@@ -4529,18 +4529,18 @@ was there, owned; `swap(!a, !b)` exchanges the values of two places of
 one type, which may be different fields of one value
 (`swap(!t.left, !t.right)`). The places are lent to write for the call,
 and the values hold no `?T`, `!T`, or slice. A place that holds a view, a
-`String` among them, is not lent to write: assign to it to point it at
+`?String` among them, is not lent to write: assign to it to point it at
 other text. Like `print`, both are names a declaration may hide.
 
 ```rig
 struct Pair
-  left: Text
-  right: Text
+  left: String
+  right: String
 
 sub main()
-  p = Pair(left: Text("a"), right: Text("b"))
+  p = Pair(left: String("a"), right: String("b"))
   swap(!p.left, !p.right)
-  old = replace(!p.left, Text("c"))
+  old = replace(!p.left, String("c"))
   print(p, old)
 ```
 
@@ -4665,7 +4665,7 @@ strong handle goes.
 
 ```rig
 struct User
-  name: String
+  name: ?String
 
   drop(!self)
     print("released", self.name)
@@ -4695,10 +4695,10 @@ a shared handle (`*a` with `a: *T`, or the type `*(*T)`) is rejected;
 clone it instead.
 
 **Access is read-only.** Field reads, element reads (`h[i]` of a
-`*[N]T`, `*List[T]`, or `*String`), and `?self` methods reach through a
+`*[N]T`, `*List[T]`, or `*?String`), and `?self` methods reach through a
 handle automatically, including through fields and loop elements. `?h`
 lends the value's read views ([§7](#lending)), a `?Shape` of a `*Shape`
-and a String of a `*Text`, with the loan on `h`, so `h` may not be
+and a String of a `*String`, with the loan on `h`, so `h` may not be
 dropped, moved, or reassigned while the view is used. `!h` lends only
 the handle itself (a `!*T`), never a write view of the value. Writing a
 field, calling a `!self` method, or consuming the value through a handle
@@ -4952,7 +4952,7 @@ a value of `Cell[Int]` holds a Cell, so it lives only behind a shared handle: wr
 buffer: a `List` is an owning value whatever its elements are, and they
 are of any type but a write view or a value that holds a Cell
 ([CORE §5](docs/CORE.md#5-containers-and-fields-hold-values)): plain
-data, owning values (a `Text`, a `List`, a box, a handle, a struct that
+data, owning values (a `String`, a `List`, a box, a handle, a struct that
 owns one), and read views.
 
 | Member | Meaning |
@@ -4995,7 +4995,7 @@ sub main()
 
 ```rig
 sub main()
-  v: List[String] = List()
+  v: List[?String] = List()
   !v.push("b")
   !v.insert(0, "a")
   !v.insert(v.len, "c")
@@ -5055,7 +5055,7 @@ optional box, and a box of an optional is `^(Node?)`.
 | `^<x` | move the owner `x` into a new box |
 | `^x` | copy the plain value `x` into a new box |
 | `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a List's (`!b.push(x)`, `b.len`), a Text's (`!b.add(s)`, `b.len`) |
-| `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or List, a `String` of a boxed Text, through any number of boxes |
+| `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or List, a `?String` of a boxed Text, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
 | `<s.f` | take an optional box out of a field, leaving `none` ([§7](#places)) |
 | `match b`, `match !b` | match a boxed enum where it is |
@@ -5153,25 +5153,25 @@ sub main()
 
 ### Text
 
-`Text` is owned, growable text: bytes on the heap, UTF-8 by convention,
+`String` is owned, growable text: bytes on the heap, UTF-8 by convention,
 released when the Text is dropped. It is an owning value, so a bare
 name moves nothing: `<t` moves it and `+t` copies its bytes into a new
-Text. A `String` is the view of text; a Text is where text is built.
+Text. A `?String` is the view of text; a Text is where text is built.
 
 | Member | Meaning |
 |---|---|
-| `Text()` | an empty Text; nothing is allocated until text is added |
-| `Text(a, b, ...)` | a Text holding each value as `print` writes it ([§17](#17-printing)), with no separators |
+| `String()` | an empty Text; nothing is allocated until text is added |
+| `String(a, b, ...)` | a Text holding each value as `print` writes it ([§17](#17-printing)), with no separators |
 | `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
 | `!t.push(b)` | append one byte `b`, a `U8`, given by position |
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
-| `?t`, with or without a String or `String?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
-| a view `p: ?Text` (a name, or a call's result) | a `String`: `p[a..b]` is a view of its bytes, with no further `?` |
-| a write view `w: !Text` (also of a `*Text` or a `^Text`) | `?w[a..b]`, which lends `w`, as a slice of the Text itself does: `w` may add to the Text or replace it |
+| `?t`, with or without a String or `(?String)?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
+| a view `p: ?String` (a name, or a call's result) | a `?String`: `p[a..b]` is a view of its bytes, with no further `?` |
+| a write view `w: !String` (also of a `*String` or a `^String`) | `?w[a..b]`, which lends `w`, as a slice of the Text itself does: `w` may add to the Text or replace it |
 | `for b in t`, `for b in ?t` | its bytes, as `U8`s |
-| `?b[a..b]`, `?b` of a `^Text` | the same, through the box |
+| `?b[a..b]`, `?b` of a `^String` | the same, through the box |
 | `+t`, `+s` of a String | a new Text holding the same bytes |
 | `t == u`, `t == s` | compares its bytes with a Text's or a String's; a boxed Text too |
 
@@ -5179,7 +5179,7 @@ Each value is written as `print` writes it at the top level: a String
 or a Text as its text, a number as `print` shows it, a struct, enum,
 optional, array, or List as `print` writes it, with the Strings inside
 it quoted. Rig has no `+` on text and no interpolation: text is built
-with `Text(...)` and `!t.add(...)`, and every change to a Text is
+with `String(...)` and `!t.add(...)`, and every change to a Text is
 written with `!`.
 
 ```rig
@@ -5188,7 +5188,7 @@ struct Point
   y: Float
 
 sub main()
-  t = Text("n=", 42, " p=", Point(x: 1, y: 2.5))
+  t = String("n=", 42, " p=", Point(x: 1, y: 2.5))
   !t.add(" ok=", true, " ", ["a", "b"])
   print(t)
   print(t.len, t == "n=42", t[..4])
@@ -5208,7 +5208,7 @@ fresh 5
 slice lends an array, and the String it makes carries the loan: while
 the String is in use, the Text cannot be changed, moved, or dropped,
 and the String cannot outlive it. The loan goes wherever the String
-goes: into a binding, a struct field, a `List[String]`, an optional, a
+goes: into a binding, a struct field, a `List[?String]`, an optional, a
 closure's captures, and a call's result, since a function returning a
 String may return a view of a String it was passed
 ([§7](#second-class-views)). Once the last use of the String, and of
@@ -5216,29 +5216,29 @@ every value holding it, is past, the Text is free again; a List holding
 one is in use until its last use, since dropping it reads no String
 ([§7](#how-long-a-loan-lasts)).
 
-`Text(...)` and `!t.add(...)` only read their arguments, as `print`
+`String(...)` and `!t.add(...)` only read their arguments, as `print`
 does: a place is read where it is when the call runs, after its later
 arguments, and a value made there is a temporary its statement drops
 ([§7](#temporaries)). A String viewing a temporary Text, as in
-`text.trim(?Text(a, b))`, may be used within its statement, and within
+`text.trim(?String(a, b))`, may be used within its statement, and within
 a header only by the header itself ([§7](#temporaries)); bind the Text
 to a name to keep the view longer.
 
 ```rig
-fun first_word(s: String) -> String
+fun first_word(s: ?String) -> ?String
   i = 0
   while i < s.len and s[i] != 32
     i += 1
   s[..i]
 
 struct Entry
-  name: String
+  name: ?String
 
 sub main()
-  t = Text("hello world")
+  t = String("hello world")
   w = first_word(?t)
   e = Entry(name: ?t[6..])
-  names: List[String] = List()
+  names: List[?String] = List()
   !names.push(w)
   print(w, e, names)
   <names
@@ -5252,15 +5252,15 @@ hello world!
 ```
 
 ```rig reject
-fun first_word(s: String) -> String
+fun first_word(s: ?String) -> ?String
   s[..5]
 
-fun local() -> String
-  t = Text("gone")
+fun local() -> ?String
+  t = String("gone")
   ?t[..]
 
 sub main()
-  t = Text("hello world")
+  t = String("hello world")
   w = first_word(?t)
   !t.add("!")
   print(w, local())
@@ -5283,20 +5283,20 @@ when every String passed is a literal. A `Static` carries no loan, so
 it can be stored there ([Static](#static)): a `Cell[Static]`, a
 `Signal[Static]`, an owned closure that captures one, and a generic
 body's `T = Static`. Where a String must outlive the Text it came from,
-copy it into a Text of its own: `Text(s)`.
+copy it into a Text of its own: `String(s)`.
 
-A Text owns its bytes, and a `List[Text]` owns its Texts, as
-`List[^Text]` does through its boxes. A List that
+A Text owns its bytes, and a `List[String]` owns its Texts, as
+`List[^String]` does through its boxes. A List that
 holds views keeps their Texts lent until its last use, not until it is
 dropped, since dropping it reads none of them.
 
 ```rig
 sub main()
-  owned: List[^Text] = List()
-  !owned.push(^Text("one"))
-  !owned.push(^Text("two"))
-  t = Text("a b")
-  views: List[String] = List()
+  owned: List[^String] = List()
+  !owned.push(^String("one"))
+  !owned.push(^String("two"))
+  t = String("a b")
+  views: List[?String] = List()
   !views.push(?t[..1])
   print(owned, views)
   !t.add("!")
@@ -5309,11 +5309,11 @@ a b!
 ```
 
 ```rig reject
-sub keep(c: !Cell[String], s: String)
+sub keep(c: !Cell[?String], s: ?String)
   !c.set(s)
 
 sub main()
-  c: *Cell[String] = *Cell("")
+  c: *Cell[?String] = *Cell("")
   keep(!c, "a")
 ```
 
@@ -5499,7 +5499,7 @@ sub main()
 | Type | Meaning |
 |---|---|
 | `fun(Int, Int) -> Int` | takes two `Int`s, returns an `Int` |
-| `sub(String)` | takes a `String`, returns nothing |
+| `sub(?String)` | takes a `?String`, returns nothing |
 | `*fun(Int) -> Int`, `*sub()` | an owned closure of that shape |
 | `~fun(Int) -> Int`, `~sub()` | a weak handle to an owned closure |
 | `?fun(Int) -> Int`, `?sub()` | a callable view ([below](#callable-views)) |
@@ -5676,7 +5676,7 @@ sub main()
 ```
 
 An owned closure's parameters and result are plain data: numbers,
-`Bool`, `String`, plain enums, and structs, arrays, and optionals of
+`Bool`, `?String`, plain enums, and structs, arrays, and optionals of
 plain data. Pass owning values in as captures. An owned closure can be stored
 anywhere, so it carries no loan ([§7](#changes-and-shared-storage)): it
 cannot capture a `?T`, `!T`, or slice, or a value holding one, nor a
@@ -5698,7 +5698,7 @@ expected, and `none` needs a known optional type.
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `if ?a as x`, `if !a as x` | the same, with `x` a view of the value inside `a` |
-| `?a` where a `View?` is expected | a view of the value inside `a`, or `none`: `?a` of an `S?` where a `(?S)?` is expected, of a `Text?` where a `String?` is, of a `List[Int]?` where a `([]Int)?` is; `?a` itself is a `?(S?)` |
+| `?a` where a `View?` is expected | a view of the value inside `a`, or `none`: `?a` of an `S?` where a `(?S)?` is expected, of a `String?` where a `(?String)?` is, of a `List[Int]?` where a `([]Int)?` is; `?a` itself is a `?(S?)` |
 | `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§7](#places)) |
 | `while a as x` | repeat while `a` produces a value |
 | `if a as x and b as y`, `if a as x and x > 0` | bindings and `Bool` conditions joined by `and`; `else` runs when any fails |
@@ -5738,7 +5738,7 @@ function owns, including values already computed for the same call.
 
 ```rig
 struct User
-  name: String
+  name: ?String
   boss: Int?
 
 fun find(id: Int) -> User?
@@ -5746,7 +5746,7 @@ fun find(id: Int) -> User?
   return User(name: "grace", boss: none) if id == 2
   none
 
-fun boss_name(id: Int) -> String?
+fun boss_name(id: Int) -> (?String)?
   find(find(id)?.boss?)?.name
 
 sub main()
@@ -5810,7 +5810,7 @@ drop 12
 
 ```rig reject
 struct User
-  name: String
+  name: ?String
 
 sub main()
   u: User? = none
@@ -5951,7 +5951,7 @@ must say what happens to the failure, visibly:
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A `drop` body and a `defer` cannot propagate, and a
 closure propagates only when its type can fail: one checked against
-`?fun(String) -> Int!`, `?sub(String)!`, or `*fun(String) -> Int!`
+`?fun(?String) -> Int!`, `?sub(?String)!`, or `*fun(?String) -> Int!`
 sends the failure of its `!` to whoever calls it, as a function does.
 A closure whose type cannot fail, or whose type is inferred from its
 body, handles failures with `catch`. A fallible type is only allowed as
@@ -5965,11 +5965,11 @@ generic `T!` whose `T` an error set fills.
 error Parse
   empty
 
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   return Parse.empty if s.len == 0
   s.len
 
-sub each(xs: []String, f: ?sub(String)!)!
+sub each(xs: []?String, f: ?sub(?String)!)!
   for x in xs
     f(x)!
 
@@ -6009,10 +6009,10 @@ not saved: SaveError.full
 ```
 
 ```rig
-fun parse_len(s: String) -> Int!
+fun parse_len(s: ?String) -> Int!
   s.len
 
-fun double_len(s: String) -> Int!
+fun double_len(s: ?String) -> Int!
   parse_len(s)! * 2
 
 sub main()
@@ -6026,7 +6026,7 @@ sub main()
 ```
 
 ```rig reject
-fun parse_len(s: String) -> Int!
+fun parse_len(s: ?String) -> Int!
   s.len
 
 sub main()
@@ -6043,11 +6043,11 @@ A jump as the handler leaves instead of giving a value:
 error E
   bad
 
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   return E.bad if s == "x"
   s.len
 
-fun size(s: String) -> Int
+fun size(s: ?String) -> Int
   n = parse(s) catch return -1
   n * 10
 
@@ -6157,12 +6157,12 @@ error ParseError
   empty
   too_long
 
-fun parse_len(s: String) -> Int!
+fun parse_len(s: ?String) -> Int!
   return ParseError.empty if s == ""
   return ParseError.too_long if s.len > 5
   s.len
 
-fun describe(s: String) -> String
+fun describe(s: ?String) -> ?String
   n = parse_len(s) catch |err|
     match err
       .empty => return "empty"
@@ -6199,7 +6199,7 @@ fun fetch(n: Int) -> Int!
   return Net.refused if n == 3
   n
 
-fun describe(n: Int) -> String
+fun describe(n: Int) -> ?String
   _ = fetch(n) catch |err|
     match err
       Net.timeout => return "network timeout"
@@ -6364,7 +6364,7 @@ body is not called by name, so it takes no `pub`.
 
 ```rig file=bank.rig
 pub struct Account
-  pub owner: String
+  pub owner: ?String
   balance: Int
 
   pub fun total(?self) -> Int
@@ -6373,7 +6373,7 @@ pub struct Account
   sub audit(?self)
     print("audit", self.balance)
 
-pub fun open(owner: String) -> Account
+pub fun open(owner: ?String) -> Account
   Account(owner: owner, balance: 100)
 ```
 
@@ -6393,7 +6393,7 @@ Here `audit` and `balance` are private to `bank`:
 
 ```rig file=bank.rig
 pub struct Account
-  pub owner: String
+  pub owner: ?String
   balance: Int
 
   pub fun total(?self) -> Int
@@ -6549,7 +6549,7 @@ is checked, when the program is compiled, to be the one its Rig
 signature lowers to. Such a function takes no compile-time parameters.
 Its signature is trusted where the checker cannot see a body: one that
 returns a view and takes no view parameter, as
-`std.os.args() -> []String` does, returns something that lives as long
+`std.os.args() -> []?String` does, returns something that lives as long
 as the program.
 
 A Zig-backed function may fail, returning `T!` or declared
@@ -6606,7 +6606,7 @@ A type parameter needs a name of its own: not a built-in type (`Int`,
 on a generic type, a method of the type; no local or parameter inside
 the declaration may reuse it, and the same holds for a generic type's
 value parameters. A compile-time value's type is a number, `Bool`,
-`String`, an enum whose variants carry nothing, or an optional of one
+`?String`, an enum whose variants carry nothing, or an optional of one
 of these, and it cannot mention a type parameter; on a generic type it
 is an integer. An integer compile-time value sizes arrays
 ([arrays](#arrays)).
@@ -6661,7 +6661,7 @@ sub main()
   print(check[.strict](5), check[.loose](5), either[.strict](3, 12))
   show[4]()
   show[LIMIT * 2]()
-  tag[String, LIMIT > 3]("x")
+  tag[?String, LIMIT > 3]("x")
 ```
 
 ```output
@@ -6700,7 +6700,7 @@ direct call; it is not a value.
 | Value | Printed as |
 |---|---|
 | numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point, `1.0`, and a NaN is `nan` on every platform |
-| `String`, `Text` | its text; inside other values, quoted |
+| `?String`, `String` | its text; inside other values, quoted |
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
 | error | `Disk.timeout`: its set and its name, without the module |
@@ -6714,13 +6714,13 @@ direct call; it is not a value.
 | function | `<fun>` |
 
 A value nested more than 64 levels deep prints its deeper parts as
-`...`. A temporary printed, `print(Text("n=", n))` or `print(make())`,
-is dropped when the statement ends ([§7](#temporaries)). A `[]U8` and a `String` are the same bytes at run time, so
+`...`. A temporary printed, `print(String("n=", n))` or `print(make())`,
+is dropped when the statement ends ([§7](#temporaries)). A `[]U8` and a `?String` are the same bytes at run time, so
 `print` rejects a value that holds a `[]U8`; print its bytes one by one.
 
 ```rig
 struct User
-  name: String
+  name: ?String
   age: Int
 
 enum Shape

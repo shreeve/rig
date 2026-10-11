@@ -1,8 +1,8 @@
 struct P
-  t: Text
+  t: String
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   o: (!P)? = !p
   if o as y
     print(y.t)

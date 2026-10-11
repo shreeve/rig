@@ -3,7 +3,7 @@ error BankError
   insufficient_funds
 
 struct Account
-  owner: String
+  owner: ?String
   balance: Int = 0
 
   sub deposit(!self, amount: Int)

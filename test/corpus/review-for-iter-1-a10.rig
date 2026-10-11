@@ -29,7 +29,7 @@ fun tracked(id: Int, n: Int) -> Tracked
   Tracked(id: id, left: n)
 
 struct Item
-  name: String
+  name: ?String
   n: In
 
 struct Walk
@@ -53,13 +53,13 @@ fun mkitems() -> List[Item]
 
 struct Names
   at: In
-  fun next(!self) -> String?
+  fun next(!self) -> (?String)?
     return none if self.at >= 3
     self.at += 1
     "s{self.at}"
 
 sub main()
-  keep: List[String] = List()
+  keep: List[?String] = List()
   for s in Names(at: 0)
     !keep.push(s)
   print(keep.len)

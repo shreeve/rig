@@ -1,5 +1,5 @@
 struct Todo
-  title: String
+  title: ?String
   done: Bool = false
 
 sub main()

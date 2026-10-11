@@ -1,11 +1,11 @@
 struct H
-  t: Text
+  t: String
 
-  fun get(!self) -> ?Text
+  fun get(!self) -> ?String
     ?self.t
 
 sub main()
-  h = H(t: Text("hello"))
+  h = H(t: String("hello"))
   r = (!h).get()
   s = r[1..]
   for _ in 0..50

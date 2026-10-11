@@ -2,4 +2,4 @@ fun first[K](k: ?K) -> Int
   1
 
 sub main()
-  print(first(?"a"), first[String]("b"))
+  print(first(?"a"), first[?String]("b"))

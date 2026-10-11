@@ -1,5 +1,5 @@
 sub main()
-  t = Text("abcdef")
+  t = String("abcdef")
   v: List[Static] = List()
   !v.push(?t[..2])
   <t

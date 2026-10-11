@@ -1,6 +1,6 @@
 sub main()
-  t = Text("a b")
-  views: List[String] = List()
+  t = String("a b")
+  views: List[?String] = List()
   !views.push(?t[..1])
   !t.add("!")
   print(views)

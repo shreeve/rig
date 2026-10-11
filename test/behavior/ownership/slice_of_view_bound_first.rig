@@ -3,30 +3,30 @@
 # read, then sliced. Each lends what it views until the slice's last use.
 # release
 
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 struct H
-  t: Text
+  t: String
 
-fun get(h: !H) -> !Text
+fun get(h: !H) -> !String
   !h.t
 
-sub f(a: !Text, b: !Text, c: Bool)
+sub f(a: !String, b: !String, c: Bool)
   s = keep((?a if c else ?b)[1..])
   print(s)
   !a.add("x")
   print(a)
 
 sub main()
-  h = H(t: Text("hello"))
+  h = H(t: String("hello"))
   w = get(!h)
   s = keep(?w[1..])
   print(s)
   !h.t.add("x")
   print(h.t)
-  x = Text("hello")
-  y = Text("world")
+  x = String("hello")
+  y = String("world")
   f(!x, !y, false)
 
 # oracle: f accept

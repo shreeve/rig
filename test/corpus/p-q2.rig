@@ -1,8 +1,8 @@
 struct Note
-  title: Text
+  title: String
 
 sub main()
-  n = Note(title: Text("a"))
+  n = Note(title: String("a"))
   v = ?n.title[..]
   !n.title.add("b")
   print(v)

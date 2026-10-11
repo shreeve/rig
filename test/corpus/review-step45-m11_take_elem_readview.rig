@@ -1,8 +1,8 @@
 # take an optional element through a read view param: reject
-fun grab(v: ?List[Text?]) -> Text?
+fun grab(v: ?List[String?]) -> String?
   <v[0]
 
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("a"))
+  v: List[String?] = List()
+  !v.push(String("a"))
   print(grab(?v))

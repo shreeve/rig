@@ -40,7 +40,7 @@ test/corpus/review-syntax-b-2-v06_if_bang_as_escape_written.rig f prod-rejects p
 test/corpus/review-syntax-b-2-v09_match_bang_escape_ok.rig main prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
 test/corpus/review-syntax-b-2-v11_if_bang_as_owned_escape.rig main prod-rejects prod-strict `s = keep(r[1..])` of an `if !o as r` binding is used past the `if`
 test/corpus/review-syntax-b-2-v12_match_bang_param_escape.rig f prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
-test/corpus/review-payload-loan-1-v01_return_write_of_payload.rig get prod-rejects prod-strict `!t` of a `match !e` binding returned as `!Text`
+test/corpus/review-payload-loan-1-v01_return_write_of_payload.rig get prod-rejects prod-strict `!t` of a `match !e` binding returned as `!String`
 test/corpus/review-payload-loan-1-v02_return_read_of_payload.rig head prod-rejects prod-strict `?t[..3]` of a `match !e` binding returned
 test/corpus/review-payload-loan-1-v04_if_as_return.rig head prod-rejects prod-strict `?t[..3]` of an `if !o as t` binding returned
 test/corpus/review-payload-loan-1-v08_return_whole_view_of_payload.rig peek prod-rejects prod-strict `?t` of a `match !e` binding returned
@@ -72,7 +72,7 @@ test/corpus/review-payload-loan-4-e15_loop_hold_across.rig main prod-rejects pro
 # deferred code runs still holds its loan there.
 test/corpus/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
 test/corpus/review-payload-loan-1-p15_defer_write_after_view.rig main prod-rejects prod-strict `defer !t.add("x")` of a `match !e` binding before `s = ?t[1..]`, whose last use precedes the exit
-test/corpus/review-payload-loan-1-v15_defer_param.rig f prod-rejects prod-strict `defer !t.add("x")` of a `!Text` parameter before `s = ?t[1..]`, whose last use precedes the exit
+test/corpus/review-payload-loan-1-v15_defer_param.rig f prod-rejects prod-strict `defer !t.add("x")` of a `!String` parameter before `s = ?t[1..]`, whose last use precedes the exit
 test/corpus/review-payload-loan-1-v15b_defer_ifas.rig main prod-rejects prod-strict `defer !t.add("x")` of an `if !o as t` binding before `s = ?t[1..]`, whose last use precedes the exit
 test/corpus/review-step45-k04_defer_elem_write.rig main prod-rejects prod-strict `defer !v[0].add("!")` before `x = ?v[0]`, whose last use precedes the exit
 test/corpus/review-step45-k04b_defer_push_plain.rig main prod-rejects prod-strict `defer !v.push(2)` before `x = ?v`, whose last use precedes the exit
@@ -130,7 +130,7 @@ test/corpus/r3-s36-reads-f06_for_array_write_in_body.rig main prod-rejects prod-
 # no `T` (Core s1), so an instance at an owner is sound; the compiler's
 # emitted body copies the payload, and it rejects the instance.
 test/corpus/audit-emit-q2.rig main prod-rejects prod-strict `peek(^R(n: 1))` at `T = ^R`
-test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o)` at `T = Text`, whose body reads `if x as y` of a loop element where it stands
+test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o)` at `T = String`, whose body reads `if x as y` of a loop element where it stands
 
 # A write lend in an argument lasts until its statement ends where the
 # call's result is or holds a write view, or the call may store it, and

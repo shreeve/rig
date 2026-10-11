@@ -1,8 +1,8 @@
-fun label(n: Int) -> String
+fun label(n: Int) -> ?String
   "big" if n > 10 else "small"
 
 struct Tag
-  name: String
+  name: ?String
 
 sub main()
   tags: List[Tag] = List()

@@ -1,6 +1,6 @@
 # nested consuming loops over [2][2]Text with breaks at both levels
 sub main()
-  a = [[Text("a"), Text("b")], [Text("c"), Text("d")]]
+  a = [[String("a"), String("b")], [String("c"), String("d")]]
   for row in <a
     for x in <row
       print(x)

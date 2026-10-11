@@ -1,7 +1,7 @@
 # A5d: for x in <mk() over a made List of owners
-fun mk() -> List[Text]
-  v: List[Text] = List()
-  !v.push(Text("a"))
+fun mk() -> List[String]
+  v: List[String] = List()
+  !v.push(String("a"))
   v
 
 sub main()

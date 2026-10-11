@@ -2,9 +2,9 @@
 # unwrapping it first.
 
 struct User
-  name: String
+  name: ?String
 
-fun name_of(u: User?) -> String
+fun name_of(u: User?) -> ?String
   u.name
 
 sub main()

@@ -4,22 +4,22 @@ use std.sort
 struct P
   n: Int
 
-fun longer(a: ?Text, b: ?Text) -> Bool
+fun longer(a: ?String, b: ?String) -> Bool
   a.len > b.len
 
 fun bigger(a: ?^P, b: ?^P) -> Bool
   a.n > b.n
 
 sub main()
-  v: List[Text] = List()
+  v: List[String] = List()
   for i in 0..30
-    t = Text("")
+    t = String("")
     for _ in 0..(30 - i)
       !t.add("x")
     !v.push(<t)
-  !v.push(Text("a"))
-  !v.push(Text("ccc"))
-  !v.push(Text("bb"))
+  !v.push(String("a"))
+  !v.push(String("ccc"))
+  !v.push(String("bb"))
   sort.sort_by(!v, longer)
   print(v[0], v[1], v[2], v.len)
   a = [^P(n: 1), ^P(n: 3), ^P(n: 2)]

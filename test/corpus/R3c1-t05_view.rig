@@ -12,7 +12,7 @@ fun eqb(a: ?P, b: ?P) -> Bool
 fun eqm(a: !P, b: P) -> Bool
   a == b and b == a
 
-fun ords(a: ?String, b: String) -> Bool
+fun ords(a: ?String, b: ?String) -> Bool
   a < b and not (b < a) and a <= ?b
 
 fun eqs(a: ?S, b: ?S) -> Bool

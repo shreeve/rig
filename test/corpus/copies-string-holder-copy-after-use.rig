@@ -1,11 +1,11 @@
 struct S
-  s: String
+  s: ?String
 
 fun get(p: ?S) -> S
   p
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   s = S(s: ?t)
   u = get(?s)
   print(u.s)

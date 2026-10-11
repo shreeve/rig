@@ -1,8 +1,8 @@
 # Taking a read view (`?user`) of a dropped value is rejected.
 
 struct User
-  name: String
-  tags: List[String]
+  name: ?String
+  tags: List[?String]
 
 sub main()
   user = User(name: "Steve", tags: List())

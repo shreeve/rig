@@ -1,8 +1,8 @@
 struct Player
-  name: String
+  name: ?String
   scores: List[Int]
 
-fun name_of(p: ?Player) -> String
+fun name_of(p: ?Player) -> ?String
   p.name
 
 sub main()

@@ -1,8 +1,8 @@
-fun grow(v: !List[Text]) -> Int
-  !v.push(Text("z"))
+fun grow(v: !List[String]) -> Int
+  !v.push(String("z"))
   1
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   print(v[0], grow(!v))

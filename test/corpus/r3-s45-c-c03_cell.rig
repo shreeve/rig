@@ -1,7 +1,7 @@
 struct C
   n: Cell[Int]
-  t: Text
+  t: String
 
 sub main()
-  c = C(n: Cell(1), t: Text("x"))
+  c = C(n: Cell(1), t: String("x"))
   d = +c

@@ -10,5 +10,5 @@ pub struct Wrap[T]
 pub error Fault
   bent
 
-pub fun name[T]() -> String
+pub fun name[T]() -> ?String
   @name(T)

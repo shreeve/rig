@@ -18,7 +18,7 @@ sub main()
   p = Point(x: 3, y: 4)
   bp = ^?p
   print(bp.x + bp.y)
-  t = Text("hello")
+  t = String("hello")
   bt = ^?t
   print(bt.len, bt)
   moved = <b

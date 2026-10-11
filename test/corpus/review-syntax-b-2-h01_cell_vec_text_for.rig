@@ -1,6 +1,6 @@
 sub main()
-  c = *Cell[List[Text]](List())
-  !c.push(Text("hello"))
+  c = *Cell[List[String]](List())
+  !c.push(String("hello"))
   d = +c
   for x in c
     s = x[1..]

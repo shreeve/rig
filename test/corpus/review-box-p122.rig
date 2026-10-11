@@ -26,7 +26,7 @@ sub main()
   q: P? = P(x: 1, y: 2)
   setp(!q)
   print(q, rd(?q))
-  s: String? = "hi"
+  s: (?String)? = "hi"
   if !s as t
     t = "yo"
   print(s)

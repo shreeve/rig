@@ -1,6 +1,6 @@
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   for x in <v
     <x
   print(1)

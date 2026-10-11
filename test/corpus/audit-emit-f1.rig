@@ -8,7 +8,7 @@ struct R
 
 struct H
   cb: *fun(Int) -> Int
-  name: String
+  name: ?String
 
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)

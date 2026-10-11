@@ -1,7 +1,7 @@
 # defer writes an element; a view of the element is still live at defer? 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   defer !v[0].add("!")
   x = ?v[0]
   print(x)

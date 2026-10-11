@@ -25,9 +25,9 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  o = Opt.some(v: Text("t"))
+  o = Opt.some(v: String("t"))
   w = V(r: ?o)
-  d = Text("d")
+  d = String("d")
   x = get(?w, ?d)
   y = getg(?w, ?d)
   print(clobber(9))

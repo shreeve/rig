@@ -2,8 +2,8 @@ use std.sort
 use std.slices
 
 sub main()
-  t = Text("b a c")
-  v: List[String] = List()
+  t = String("b a c")
+  v: List[?String] = List()
   !v.push(?t[0..1])
   !v.push(?t[2..3])
   sort.sort(!v[..])

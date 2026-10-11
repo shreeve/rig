@@ -1,5 +1,5 @@
 struct P
-  a: String
+  a: ?String
 
 sub main()
   ps = [P(a: "x")]

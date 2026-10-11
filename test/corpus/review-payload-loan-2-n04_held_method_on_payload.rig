@@ -1,7 +1,7 @@
 struct P
-  t: Text
+  t: String
 
-  sub put(!self, s: Text)
+  sub put(!self, s: String)
     self.t = <s
 
 enum WP
@@ -15,10 +15,10 @@ fun mk(p: !P) -> H from p
   H(e: WP.a(!p))
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   match mk(!p).e
     .a(w)
       r = ?w.t[1..]
-      w.put(Text("other"))
+      w.put(String("other"))
       print(r)
     .b => pass

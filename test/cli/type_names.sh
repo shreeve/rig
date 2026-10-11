@@ -9,7 +9,7 @@ cat >main.rig <<'EOF2'
 struct Point
   x: Int
 
-fun name[T]() -> String
+fun name[T]() -> ?String
   @name(T)
 
 sub main()

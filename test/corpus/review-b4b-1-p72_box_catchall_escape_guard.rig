@@ -3,7 +3,7 @@ enum E
   a(xs: [4]Int)
   b
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
@@ -11,7 +11,7 @@ sub main()
   z = E.b
   r = ?z
   k = 3
-  match ?bs[idx(?Text("a"))]
+  match ?bs[idx(?String("a"))]
     x if k > 2 => r = x
     _ => pass
   bs[0] = ^E.a(xs: [9, 9, 9, 9])

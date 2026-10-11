@@ -1,13 +1,13 @@
 # order (UAF): named arguments out of order; emit takes the bytes before grow runs
-fun grow(t: !Text) -> Int
+fun grow(t: !String) -> Int
   for _ in 0..200
     !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
   1
 
-sub show(s: String, n: Int)
+sub show(s: ?String, n: Int)
   print(s.len, n)
   print(s)
 
 sub main()
-  t = Text("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  t = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
   show(n: grow(!t), s: ?t)

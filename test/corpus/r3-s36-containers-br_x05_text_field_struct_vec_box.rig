@@ -1,9 +1,9 @@
 struct Rec
-  name: Text
+  name: String
   n: Int
 
 sub main()
   v: List[^Rec] = List()
-  !v.push(^Rec(name: Text("x"), n: 1))
+  !v.push(^Rec(name: String("x"), n: 1))
   for r in ?v
     print(r.name, r.n)

@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -10,7 +10,7 @@ fun getw(e: !E) -> !E
   e
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("x")))
+  e = E.a(r: Res(n: 1, t: String("x")))
   match getw(!e)
     .a(r) if r.n > 0 => r.n = 50
     .a(r) => r.n = 60

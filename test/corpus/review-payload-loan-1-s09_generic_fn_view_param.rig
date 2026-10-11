@@ -1,15 +1,15 @@
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 fun pass_through[T](x: ?T) -> ?T
   x
 
 sub main()
-  e = E.a(Text("hello"))
+  e = E.a(String("hello"))
   match !e
     .a(t)
       s = pass_through(?t)
-      t = Text("other")
+      t = String("other")
       print(s)
     .b => pass

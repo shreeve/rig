@@ -19,5 +19,5 @@ sub g[T](a: T, b: T)
   print(saved)
 
 sub main()
-  g(Text("a"), Text("b"))
+  g(String("a"), String("b"))
   g(1, 2)

@@ -1,8 +1,8 @@
 # w = !a if c else !b re-points to a branching view
 sub main()
-  m = Text("m")
-  a = Text("a")
-  b = Text("b")
+  m = String("m")
+  a = String("a")
+  b = String("b")
   w = !m
   c = a.len == 1
   w = !a if c else !b

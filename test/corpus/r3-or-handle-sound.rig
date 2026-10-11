@@ -11,7 +11,7 @@
 # oracle: lends_the_handle accept
 
 struct User
-  name: String
+  name: ?String
 
 struct Holder
   r: ?List[Int]

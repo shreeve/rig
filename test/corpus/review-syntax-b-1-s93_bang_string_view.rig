@@ -1,9 +1,9 @@
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
 sub main()
-  t = Text("hello")
-  s: String = ?t
+  t = String("hello")
+  s: ?String = ?t
   w = !s
   x = word(w[1..])
   for _ in 0..50

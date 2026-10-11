@@ -27,8 +27,8 @@ sub main()
   p = pick(?o, ?d)
   print(big(7))
   print(p)
-  t = Opt.some(v: Text("two two two two two two two two"))
-  dt = Opt[Text].nothing
+  t = Opt.some(v: String("two two two two two two two two"))
+  dt = Opt[String].nothing
   q = pick(?t, ?dt)
   print(big(9))
   print(q)

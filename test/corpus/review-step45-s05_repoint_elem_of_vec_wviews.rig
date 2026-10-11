@@ -1,10 +1,10 @@
 # re-point an element of a List[!Text], then use the old target
 sub main()
-  a = Text("a")
-  b = Text("b")
-  ws: List[!Text] = List()
+  a = String("a")
+  b = String("b")
+  ws: List[!String] = List()
   !ws.push(!a)
   ws[0] = !b
-  a = Text("A")
+  a = String("A")
   !ws[0].add("!")
   print(a, b)

@@ -1,4 +1,4 @@
 sub main()
-  t = Text("a")
-  a = [t, Text("b")]
+  t = String("a")
+  a = [t, String("b")]
   print(a, t)

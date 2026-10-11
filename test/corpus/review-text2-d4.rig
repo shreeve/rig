@@ -1,6 +1,6 @@
-fun boxes() -> List[^Text]
-  v: List[^Text] = List()
-  !v.push(^Text("one"))
+fun boxes() -> List[^String]
+  v: List[^String] = List()
+  !v.push(^String("one"))
   v
 
 sub main()

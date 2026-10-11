@@ -3,7 +3,7 @@
 # a `?List[Int]` parameter lent as `[]Int`, a `*Q` place as `?Q`.
 struct Q
   xs: [4]Int
-  t: Text
+  t: String
 
 fun g(k: Int) -> Int
   k
@@ -33,5 +33,5 @@ sub main()
   !v.push(1)
   !v.push(2)
   print(viaview(?v))
-  h = *Q(xs: [1, 2, 3, 4], t: Text("handle text long enough for the heap"))
+  h = *Q(xs: [1, 2, 3, 4], t: String("handle text long enough for the heap"))
   print(pq(n: g(1), q: h).t)

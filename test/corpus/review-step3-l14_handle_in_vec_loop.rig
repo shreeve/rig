@@ -1,13 +1,13 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
 fun keep(s: ?S) -> ?S
   s
 
 sub main()
   v: List[*S] = List()
-  !v.push(*S(n: 1, t: Text("a")))
+  !v.push(*S(n: 1, t: String("a")))
   for h in v
     k = keep(h)
     print(k.n)

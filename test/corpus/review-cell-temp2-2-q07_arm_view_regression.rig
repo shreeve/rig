@@ -6,13 +6,13 @@ struct P
 
 struct HT
   v: ?P
-  t: Text
+  t: String
 
 fun len2(h: ?HT) -> Int
   h.v.n + h.t.len
 
 fun mkht(v: ?P) -> HT
-  HT(v: v, t: Text("ab"))
+  HT(v: v, t: String("ab"))
 
 enum Bx
   has(p: P)
@@ -20,7 +20,7 @@ enum Bx
 
 sub arms(b: ?Bx)
   match b
-    .has(x) => print("arm", len2(?HT(v: ?x, t: Text("abc"))))
+    .has(x) => print("arm", len2(?HT(v: ?x, t: String("abc"))))
     .nothing => print("none")
   match b
     .has(x) => print("arm2", mkht(?x).t.len, len2(?mkht(?x)))
@@ -34,7 +34,7 @@ fun arms3(b: ?Bx) -> Int
 
 fun arms4(n: Int) -> Int
   match n
-    m if m > 0 => len2(?HT(v: ?P(n: m), t: Text("q")))
+    m if m > 0 => len2(?HT(v: ?P(n: m), t: String("q")))
     m => m
 
 sub main()

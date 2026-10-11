@@ -4,7 +4,7 @@
 
 struct S
   n: Int
-  t: Text
+  t: String
 
   sub bump(!self)
     self.n += 1
@@ -19,7 +19,7 @@ fun read(b: ?^S) -> Int
   b.n + b.get()
 
 sub main()
-  b = ^S(n: 1, t: Text("x"))
+  b = ^S(n: 1, t: String("x"))
   b.n = 5
   !b.bump()
   !b.t.add("y")
@@ -28,10 +28,10 @@ sub main()
   !v.push(3)
   !v.push(4)
   print(v.len)
-  bt = ^Text("q")
+  bt = ^String("q")
   print(bt.len, bt == "q")
   <b.eat()
-  h = *Text("abc")
+  h = *String("abc")
   print(h.len, h == "abc")
 
 # expect:

@@ -9,41 +9,41 @@ struct D
     print("drop", self.c.get())
 
 struct L
-  t: Cell[Text]
-  v: Cell[List[Text]]
+  t: Cell[String]
+  v: Cell[List[String]]
   d: Cell[D]
 
   drop(!self)
-    print("dropL", (!self.t).replace(Text("-")), self.v.len)
+    print("dropL", (!self.t).replace(String("-")), self.v.len)
 
 fun mkd(n: Int) -> D
   D(c: Cell(n))
 
-fun mkl(s: String) -> L
-  L(t: Cell(Text(s)), v: Cell(List()), d: Cell(mkd(0)))
+fun mkl(s: ?String) -> L
+  L(t: Cell(String(s)), v: Cell(List()), d: Cell(mkd(0)))
 
-fun freshT() -> Cell[Text]
-  Cell(Text("ft"))
+fun freshT() -> Cell[String]
+  Cell(String("ft"))
 
-fun freshV() -> Cell[List[Text]]
-  w: List[Text] = List()
-  !w.push(Text("v0"))
+fun freshV() -> Cell[List[String]]
+  w: List[String] = List()
+  !w.push(String("v0"))
   Cell(<w)
 
 fun freshD() -> Cell[D]
   Cell(mkd(100))
 
 sub main()
-  mkl("a").t.set(Text("b"))
-  print(mkl("c").t.replace(Text("d")))
-  mkl("e").v.push(Text("x"))
+  mkl("a").t.set(String("b"))
+  print(mkl("c").t.replace(String("d")))
+  mkl("e").v.push(String("x"))
   print(mkl("f").v.pop())
   mkl("g").v.clear()
   mkl("h").d.set(mkd(5))
   print(mkl("i").d.replace(mkd(6)).c.get())
-  freshT().set(Text("z"))
-  print(freshT().replace(Text("y")))
-  freshV().push(Text("w"))
+  freshT().set(String("z"))
+  print(freshT().replace(String("y")))
+  freshV().push(String("w"))
   print(freshV().pop())
   freshV().clear()
   freshD().set(mkd(7))

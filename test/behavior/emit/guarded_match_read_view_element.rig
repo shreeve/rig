@@ -11,7 +11,7 @@ enum E
   b(n: Int)
 
 enum T
-  a(t: Text)
+  a(t: String)
   b
 
 enum K
@@ -48,7 +48,7 @@ sub main()
   e: List[E] = List()
   !e.push(E.a(n: 5))
   t: List[T] = List()
-  !t.push(T.a(t: Text("hello")))
+  !t.push(T.a(t: String("hello")))
   k: List[*K] = List()
   !k.push(*K.a(x: C(c: Cell(0))))
   cell(?k)

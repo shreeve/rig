@@ -1,11 +1,11 @@
 enum WV
-  a(w: !List[Text])
+  a(w: !List[String])
   b
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   e = WV.a(!v)
   match e
     .a(w)

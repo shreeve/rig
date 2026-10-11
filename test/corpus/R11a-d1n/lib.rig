@@ -1,2 +1,2 @@
-pub fun first(v: ?List[String]) -> ?String
+pub fun first(v: ?List[?String]) -> ?String
   ?v[0]

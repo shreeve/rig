@@ -2,7 +2,7 @@ error Bad
   oops
 
 struct T
-  s: String
+  s: ?String
   x: Int
 
 struct H

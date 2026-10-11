@@ -670,10 +670,10 @@ test "Facts answers as the context it was made from" {
     const source =
         \\struct S
         \\  n: Int
-        \\  t: Text
+        \\  t: String
         \\
         \\fun mk(n: Int) -> S
-        \\  S(n: n, t: Text("s"))
+        \\  S(n: n, t: String("s"))
         \\
         \\sub main()
         \\  s = mk(1)
@@ -757,11 +757,11 @@ test "Facts reads the leaf walk the storage plan decided" {
 test "Facts reads every match decision the plan made" {
     const source =
         \\enum E
-        \\  a(n: Int, t: Text)
+        \\  a(n: Int, t: String)
         \\  b
         \\
         \\sub main()
-        \\  e = E.a(n: 1, t: Text("x"))
+        \\  e = E.a(n: 1, t: String("x"))
         \\  match e
         \\    .a(n, t) if n > 0 => print(n, t)
         \\    other => print(other)

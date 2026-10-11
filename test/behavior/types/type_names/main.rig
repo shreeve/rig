@@ -17,7 +17,7 @@ struct Pair[A, B]
 struct Ring[T, n: Int]
   items: [n]T
 
-  fun name(?self) -> String
+  fun name(?self) -> ?String
     @name(Self)
 
 enum Shape
@@ -34,10 +34,10 @@ error Oops
 struct Holder[T]
   v: T
 
-  fun name(?self) -> String
+  fun name(?self) -> ?String
     @name(T)
 
-  fun view(?self) -> String
+  fun view(?self) -> ?String
     @name(?T)
 
 type Byte = U8
@@ -54,12 +54,12 @@ type CB = ?fun(Int) -> Int
 type HO = *(Int?)
 type HF = *F?
 
-fun name[T]() -> String
+fun name[T]() -> ?String
   @name(T)
 
 # Prints the name `@name` gives `T` where it is written, and checks
 # that the name a type parameter gets in a generic body agrees.
-sub show[T](direct: String)
+sub show[T](direct: ?String)
   through = name[T]()
   print(direct if direct == through else "{direct} != {through}")
 
@@ -81,8 +81,8 @@ sub main()
   show[F64](@name(F64))
   show[Bool](@name(Bool))
   show[Void](@name(Void))
+  show[?String](@name(?String))
   show[String](@name(String))
-  show[Text](@name(Text))
   show[Endian](@name(Endian))
   show[Point](@name(Point))
   show[Shape](@name(Shape))
@@ -91,7 +91,7 @@ sub main()
   show[g.Point](@name(g.Point))
   show[g.Fault](@name(g.Fault))
   show[g.Wrap[Point]](@name(g.Wrap[Point]))
-  show[Pair[Int, Text]](@name(Pair[Int, Text]))
+  show[Pair[Int, String]](@name(Pair[Int, String]))
   show[Ring[Int, 4]](@name(Ring[Int, 4]))
   show[List[Int]](@name(List[Int]))
   show[*Cell[Bool]](@name(*Cell[Bool]))

@@ -6,12 +6,12 @@ enum E
   a(x: C)
   b(n: Int)
 
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
   arr = [E.a(x: C(c: Cell(1)))]
-  match arr[idx(?Text("a"))]
+  match arr[idx(?String("a"))]
     .a(x) if x.c.get() == 1 => x.c.set(5)
     .a(x) => x.c.set(6)
     .b(n) => print(n)

@@ -1,7 +1,7 @@
 fun less(a: ?List[U8], b: ?List[U8]) -> Bool
   ?a[..] < ?b[..]
 
-fun bytes(s: String) -> List[U8]
+fun bytes(s: ?String) -> List[U8]
   v: List[U8] = List()
   for c in s
     !v.push(c)

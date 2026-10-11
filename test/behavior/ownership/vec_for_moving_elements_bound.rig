@@ -3,17 +3,17 @@
 # is walked where the name holds it, or taken with `<`.
 
 struct H
-  items: List[Text]
+  items: List[String]
 
-fun mk() -> List[Text]
-  v: List[Text] = List()
-  !v.push(Text("a"))
+fun mk() -> List[String]
+  v: List[String] = List()
+  !v.push(String("a"))
   v
 
 fun mkh() -> H
   H(items: mk())
 
-fun items(v: ?List[Text], k: ?List[Text]) -> ?List[Text]
+fun items(v: ?List[String], k: ?List[String]) -> ?List[String]
   v
 
 sub main()

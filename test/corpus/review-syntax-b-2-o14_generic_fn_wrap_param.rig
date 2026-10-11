@@ -1,4 +1,4 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 struct Wrap[T]
@@ -8,7 +8,7 @@ fun cut[T](w: ?Wrap[T]) -> T
   w.x
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   w = Wrap(x: ?t)
   s = keep(cut(?w)[1..])
   for _ in 0..50

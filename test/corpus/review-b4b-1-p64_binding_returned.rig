@@ -1,9 +1,9 @@
 # a header binding that points is returned from the function. Expect accept, clean.
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-fun get(v: ?List[Text?]) -> (?Text)? from v
-  if v[idx(?Text("a"))] as t
+fun get(v: ?List[String?]) -> (?String)? from v
+  if v[idx(?String("a"))] as t
     return t
   none
 
@@ -12,7 +12,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("a"))
+  v: List[String?] = List()
+  !v.push(String("a"))
   r = get(?v)
   print(clobber(1), r)

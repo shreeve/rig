@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -10,7 +10,7 @@ sub eat(r: Res)
   print(r.n)
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("x")))
+  e = E.a(r: Res(n: 1, t: String("x")))
   match e
     .a(r) => eat(<r)
     .b => pass

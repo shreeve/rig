@@ -1,10 +1,10 @@
 # swap through a write slice of owners
-sub flip(s: ![]Text)
+sub flip(s: ![]String)
   !s.swap(0, 1)
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   flip(!v)
   print(v)

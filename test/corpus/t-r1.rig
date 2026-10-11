@@ -13,7 +13,7 @@ fun rebox(b: !^Int) -> Int
   b = ^5
   0
 
-fun clears(ss: !List[String]) -> Int
+fun clears(ss: !List[?String]) -> Int
   ss = List()
   0
 
@@ -24,6 +24,6 @@ sub main()
   print(rc, reset(!rc))
   b = ^3
   print(b, rebox(!b))
-  ss: List[String] = List()
+  ss: List[?String] = List()
   !ss.push("hi")
   print(ss[0], clears(!ss))

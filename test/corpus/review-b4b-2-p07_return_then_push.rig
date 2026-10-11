@@ -1,7 +1,7 @@
 # A function returns a payload view of a List element; the caller then pushes. Expect reject at the push.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -18,9 +18,9 @@ fun clobber(n: Int) -> Int
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(r: Res(n: 1, t: Text("one"))))
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
   f = first(?v)
   for i in 0..100
-    !v.push(E.b(r: Res(n: i, t: Text("x"))))
+    !v.push(E.b(r: Res(n: i, t: String("x"))))
   print(clobber(1))
   print(f.t)

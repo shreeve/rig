@@ -1,7 +1,7 @@
 # Shared handle subject; view escapes; the handle is dropped. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,8 +12,8 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  h = *E.a(r: Res(n: 1, t: Text("handle")))
-  k = Res(n: 0, t: Text("k"))
+  h = *E.a(r: Res(n: 1, t: String("handle")))
+  k = Res(n: 0, t: String("k"))
   saved = ?k
   match h
     .a(r) => saved = ?r

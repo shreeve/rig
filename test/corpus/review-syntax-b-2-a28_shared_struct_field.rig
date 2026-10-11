@@ -1,8 +1,8 @@
 struct S
-  t: Text
+  t: String
 
 sub main()
-  p = *S(t: Text("hello"))
+  p = *S(t: String("hello"))
   q = +p
   r = ?p.t
   s = r[1..]

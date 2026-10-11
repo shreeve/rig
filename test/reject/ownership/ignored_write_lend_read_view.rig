@@ -18,14 +18,14 @@ fun rd(x: ?Int) -> Int
 fun total(xs: []Int) -> Int
   xs[0]
 
-fun len(s: String) -> Int
+fun len(s: ?String) -> Int
   s.len
 
 sub main()
   n = 1
   p = P(x: 1)
   arr = [1, 2]
-  t = Text("ab")
+  t = String("ab")
   w = !n
   print(rd(w))
   print(rd(!n))

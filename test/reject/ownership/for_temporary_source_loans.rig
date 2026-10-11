@@ -3,19 +3,19 @@
 # stored outside the loop keeps it viewed.
 
 struct C
-  s: String
+  s: ?String
 
-fun halves(s: String) -> [2]String
+fun halves(s: ?String) -> [2]?String
   [s[..s.len / 2], s[s.len / 2..]]
 
-fun firsts(s: String) -> List[String]
-  v: List[String] = List()
+fun firsts(s: ?String) -> List[?String]
+  v: List[?String] = List()
   !v.push(s[..1])
   v
 
 sub main()
-  t = Text("abcdefghijklmnop")
-  o: String = "x"
+  t = String("abcdefghijklmnop")
+  o: ?String = "x"
   for x in [?t[..1], ?t[1..2]]
     o = x
   for c in [C(s: ?t[..3])]

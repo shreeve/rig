@@ -1,13 +1,13 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 enum E
-  a(t: Text)
+  a(t: String)
   b
 
 sub main()
-  e = E.a(Text("hello"))
-  s: String = ""
+  e = E.a(String("hello"))
+  s: ?String = ""
   match !e
     .a(t) => s = keep(?t[1..])
     .b => pass

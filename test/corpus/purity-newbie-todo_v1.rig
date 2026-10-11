@@ -1,12 +1,12 @@
 # To-do list, first attempt, Python/TS habits
 struct Todo
-  title: String
+  title: ?String
   done: Bool = false
 
 struct TodoList
   items: List[Todo]
 
-  sub add(!self, title: String)
+  sub add(!self, title: ?String)
     self.items.push(Todo(title: title))
 
   sub complete(!self, index: Int)

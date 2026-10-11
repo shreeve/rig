@@ -4,7 +4,7 @@
 # `h = …; while (!h).next() as it` it is written as does.
 
 struct Item
-  name: String
+  name: ?String
   n: Int
 
 struct Buf

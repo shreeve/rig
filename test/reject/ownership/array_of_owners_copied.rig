@@ -2,13 +2,13 @@
 # the array's type.
 
 struct S
-  arr: [2]Text
+  arr: [2]String
 
 sub main()
-  a = [Text("a"), Text("b")]
+  a = [String("a"), String("b")]
   b = a
   s = S(arr: a)
   print(a, b, s.arr)
 
-# error: 9:7: `a` owns a `[2]Text`, which can't be copied by `=`: write `<a` to move it, `+a` to clone it, or `?a` to view it
-# error: 10:14: `a` owns a `[2]Text`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone
+# error: 9:7: `a` owns a `[2]String`, which can't be copied by `=`: write `<a` to move it, `+a` to clone it, or `?a` to view it
+# error: 10:14: `a` owns a `[2]String`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone

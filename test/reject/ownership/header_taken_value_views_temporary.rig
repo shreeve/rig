@@ -3,28 +3,28 @@
 # made outlives the temporary, in a `match`, an `if … as`, or a `for`.
 
 enum F
-  a(s: String)
+  a(s: ?String)
   b
 
-fun mkf(t: String) -> F
+fun mkf(t: ?String) -> F
   .a(s: t)
 
-fun mko(t: String) -> String?
+fun mko(t: ?String) -> (?String)?
   t
 
-fun mka(t: String) -> [2]String
+fun mka(t: ?String) -> [2]?String
   [t, t]
 
 sub main()
-  match mkf(?Text("a text long enough to live on the heap"))
+  match mkf(?String("a text long enough to live on the heap"))
     .a(s) => print(s)
     .b => print("b")
-  if mko(?Text("a text long enough to live on the heap")) as s
+  if mko(?String("a text long enough to live on the heap")) as s
     print(s)
-  for s in mka(?Text("a text long enough to live on the heap"))
+  for s in mka(?String("a text long enough to live on the heap"))
     print(s)
 
 # errors: 3
-# error: 19:14: a view of the temporary `Text("a text long enough to live on the heap")` outlives its statement
-# error: 22:11: a view of the temporary `Text("a text long enough to live on the heap")` outlives its statement
-# error: 24:17: a view of the temporary `Text("a text long enough to live on the heap")` outlives its statement
+# error: 19:14: a view of the temporary `String("a text long enough to live on the heap")` outlives its statement
+# error: 22:11: a view of the temporary `String("a text long enough to live on the heap")` outlives its statement
+# error: 24:17: a view of the temporary `String("a text long enough to live on the heap")` outlives its statement

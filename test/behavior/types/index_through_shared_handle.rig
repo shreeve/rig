@@ -1,4 +1,4 @@
-# A shared handle reads: indexing a `*[N]T`, `*List[T]`, or `*String`
+# A shared handle reads: indexing a `*[N]T`, `*List[T]`, or `*?String`
 # reads an element of the value it holds, as a field read does, through
 # a view of the handle, a field holding one, and a nested index.
 

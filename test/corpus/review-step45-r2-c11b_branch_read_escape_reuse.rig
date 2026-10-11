@@ -1,5 +1,5 @@
 # if (?v[idx(?Text("a"))] if c else ?w) as t over List[Int]?: a view of t escapes the if
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -16,7 +16,7 @@ sub main()
   c = v.len == 1
   dummy: List[Int] = List()
   r = ?dummy
-  if (?v[idx(?Text("a"))] if c else ?w) as t
+  if (?v[idx(?String("a"))] if c else ?w) as t
     r = ?t
   print(clobber(1000))
   big: List[Int]? = none

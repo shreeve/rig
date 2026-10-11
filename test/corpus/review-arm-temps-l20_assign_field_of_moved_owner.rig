@@ -1,12 +1,12 @@
 struct S
   n: Int
-  t: Text
+  t: String
 
 fun sink(s: S) -> Int
   s.t.len
 
 sub main()
-  s = S(n: 1, t: Text("abc"))
+  s = S(n: 1, t: String("abc"))
   k = 0
   s.n = match k
     0 => sink(<s)

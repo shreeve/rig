@@ -4,7 +4,7 @@ fun mk[T](x: T) -> *sub()
   *|<xs| print(xs[0])
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   f = mk(?t)
   <t
   f()

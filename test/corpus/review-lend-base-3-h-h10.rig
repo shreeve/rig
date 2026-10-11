@@ -1,7 +1,7 @@
 struct P
   arr: [4]Int
   v: List[Int]
-  s: Text
+  s: String
 
 fun sum(xs: ?[]Int) -> Int
   t = 0
@@ -14,8 +14,8 @@ sub main()
   v = List[Int]()
   !v.push(5)
   !v.push(6)
-  s = Text("abcdef")
-  p = P(arr: [1, 2, 3, 4], v: List[Int](), s: Text("xyz"))
+  s = String("abcdef")
+  p = P(arr: [1, 2, 3, 4], v: List[Int](), s: String("xyz"))
   y = (?p).arr[1..3].len
   print(y)
   print(arr[0], v.len, s, p.arr[0])

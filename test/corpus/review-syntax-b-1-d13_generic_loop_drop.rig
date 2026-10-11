@@ -3,7 +3,7 @@ sub f[T](v: ?List[T])
     <x
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   f(v)
   print(v)

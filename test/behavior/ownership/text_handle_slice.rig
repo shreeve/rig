@@ -3,19 +3,19 @@
 # while it is used.
 
 struct W
-  t: *Text
+  t: *String
 
-fun first(s: String) -> String
+fun first(s: ?String) -> ?String
   s[0..1]
 
 sub main()
-  h = *Text("hello")
+  h = *String("hello")
   s = ?h[1..]
   g = +h
   print(s, first(?g[..]))
   w = W(t: +h)
   u = ?w.t[..2]
-  vs: List[*Text] = List()
+  vs: List[*String] = List()
   !vs.push(+h)
   v = ?vs[0][3..]
   print(u, v)

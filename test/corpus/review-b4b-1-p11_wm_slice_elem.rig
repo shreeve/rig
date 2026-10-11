@@ -1,6 +1,6 @@
 # write match on element of a write slice, and on a !List parameter's element via a view-returning call. Expect accept, clean.
 enum E
-  a(n: Int, t: Text)
+  a(n: Int, t: String)
   b
 
 fun first(v: !List[E]) -> !List[E] from v
@@ -15,7 +15,7 @@ sub bump(s: ![]E, i: Int)
 
 sub main()
   v: List[E] = List()
-  !v.push(E.a(n: 1, t: Text("v")))
+  !v.push(E.a(n: 1, t: String("v")))
   !v.push(E.b)
   bump(!v[0..2], 0)
   i = 0
@@ -24,7 +24,7 @@ sub main()
       n += 10
       !t.add("f")
     .b => pass
-  arr = [E.a(n: 5, t: Text("a")), E.b]
+  arr = [E.a(n: 5, t: String("a")), E.b]
   bump(!arr[0..], i)
   match !arr[i]
     .a(n, _) => n += 7

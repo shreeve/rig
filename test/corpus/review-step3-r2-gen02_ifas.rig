@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 fun pick[T](o: ?(T?), d: ?T) -> ?T
   if o as x
@@ -12,8 +12,8 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  o: Res? = Res(n: 5, t: Text("five"))
-  d = Res(n: 0, t: Text("d"))
+  o: Res? = Res(n: 5, t: String("five"))
+  d = Res(n: 0, t: String("d"))
   x = pick(?o, ?d)
   print(clobber(1000))
   print(x.n, x.t)

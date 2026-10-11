@@ -3,7 +3,7 @@
 # it was given.
 use std.text
 
-fun show(s: String) -> String
+fun show(s: ?String) -> ?String
   s
 
 sub main()

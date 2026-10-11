@@ -22,7 +22,7 @@ struct Bag
     self
 
 struct Conn
-  name: String
+  name: ?String
   fun close(<self) -> Int
     self.name.len
 

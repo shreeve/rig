@@ -1,11 +1,11 @@
 # writing an element of a shared handle's List: reject
 struct S
-  v: List[Text]
+  v: List[String]
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   h = *S(v: <v)
-  h.v[0] = Text("z")
+  h.v[0] = String("z")
   !h.v[0].add("!")
   print(h.v)

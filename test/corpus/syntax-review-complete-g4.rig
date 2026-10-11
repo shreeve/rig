@@ -1,17 +1,17 @@
 struct Entry
-  k: String
+  k: ?String
   v: Int
 
 struct Map
   es: List[Entry]
 
-  fun get(?self, k: String) -> (?Entry)?
+  fun get(?self, k: ?String) -> (?Entry)?
     for e, i in self.es
       if e.k == k
         return ?self.es[i]
     none
 
-fun lookup(m: ?Map, k: String) -> Int?
+fun lookup(m: ?Map, k: ?String) -> Int?
   m.get(k)?.v
 
 sub main()

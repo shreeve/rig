@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -16,7 +16,7 @@ fun g(o: ?((!E)?)) -> Int?
   1
 
 sub main()
-  e = E.a(r: Res(n: 1, t: Text("x")))
+  e = E.a(r: Res(n: 1, t: String("x")))
   o: (!E)? = !e
   _ = g(?o)
   print(e)

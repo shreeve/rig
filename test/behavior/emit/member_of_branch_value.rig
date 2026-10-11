@@ -1,14 +1,14 @@
 # A field or element of a value that branches (a ternary or `??`) whose branches have different Zig types, a literal and a
 # String: the value is read as its Rig type first.
 
-fun pick(s: String, c: Bool) -> Int
+fun pick(s: ?String, c: Bool) -> Int
   ("b" if c else s).len
 
-fun first(s: String, c: Bool) -> U8
+fun first(s: ?String, c: Bool) -> U8
   ("b" if c else s)[0]
 
 sub main()
-  o: String? = none
+  o: (?String)? = none
   k = 2
   print(pick("abc", false), pick("abc", true))
   print(first("xyz", false), first("xyz", true))

@@ -96,8 +96,8 @@ sub popped_view()
   print(r)
 
 sub element_of_owner()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   t = <v[0]
   print(t)
 
@@ -112,20 +112,20 @@ sub field_inner_scope()
   print(bag.items)
 
 sub through_write_views()
-  inner: List[String] = List()
-  w: List[!List[String]] = List()
+  inner: List[?String] = List()
+  w: List[!List[?String]] = List()
   !w.push(!inner)
-  t = Text("x")
+  t = String("x")
   !w[0].push(?t)
   <w
   <t
   print(inner)
 
 struct Holder
-  s: String
+  s: ?String
 
 sub swapped_view()
-  t = Text("a")
+  t = String("a")
   h = Holder(s: ?t)
   k = Holder(s: "b")
   swap(!h, !k)
@@ -133,7 +133,7 @@ sub swapped_view()
   print(k.s)
 
 sub replaced_view()
-  t = Text("a")
+  t = String("a")
   h = Holder(s: "b")
   old = h.s
   h.s = ?t

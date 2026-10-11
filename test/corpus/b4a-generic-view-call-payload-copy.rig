@@ -16,5 +16,5 @@ fun peek1[T](o: ?Opt[T], d: T) -> T
     .nothing => d
 
 sub main()
-  o: Opt[Text] = .some(v: Text("t"))
-  print(peek3(?o, Text("d")))
+  o: Opt[String] = .some(v: String("t"))
+  print(peek3(?o, String("d")))

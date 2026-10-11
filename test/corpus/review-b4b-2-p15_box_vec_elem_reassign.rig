@@ -1,7 +1,7 @@
 # Box element of a List via a view param; view escapes; element replaced. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -11,16 +11,16 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  bs = [^E.a(r: Res(n: 1, t: Text("box"))), ^E.b(r: Res(n: 2, t: Text("b2")))]
-  k = Res(n: 0, t: Text("k"))
+  bs = [^E.a(r: Res(n: 1, t: String("box"))), ^E.b(r: Res(n: 2, t: String("b2")))]
+  k = Res(n: 0, t: String("k"))
   saved = ?k
-  match bs[idx(?Text("a"))]
+  match bs[idx(?String("a"))]
     .a(r) => saved = ?r
     .b(r) => saved = ?r
-  bs[0] = ^E.b(r: Res(n: 3, t: Text("other")))
+  bs[0] = ^E.b(r: Res(n: 3, t: String("other")))
   print(clobber(1))
   print(saved.t)

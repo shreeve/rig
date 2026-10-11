@@ -1,6 +1,6 @@
 struct Doc
-  title: String
-  words: List[String]
+  title: ?String
+  words: List[?String]
 
 fun make() -> Doc
   Doc(title: "t", words: List())

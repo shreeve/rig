@@ -10,7 +10,7 @@ enum K
 struct S
   n: Int
   xs: List[Int]
-  t: Text
+  t: String
   k: K
   c: *Cell[Int]
 
@@ -20,7 +20,7 @@ struct S
 fun mk(n: Int) -> S
   xs: List[Int] = List()
   !xs.push(n * 10)
-  S(n: n, xs: <xs, t: Text("s", n), k: .a(n: n + 1), c: *Cell(n))
+  S(n: n, xs: <xs, t: String("s", n), k: .a(n: n + 1), c: *Cell(n))
 
 fun first(v: ?List[Int]) -> Int
   v[0]

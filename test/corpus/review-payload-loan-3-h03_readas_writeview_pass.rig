@@ -1,8 +1,8 @@
 struct P
-  t: Text
+  t: String
 
 sub put(q: !P)
-  q.t = Text("other")
+  q.t = String("other")
 
 sub f(o: ?((!P)?))
   if o as x
@@ -11,6 +11,6 @@ sub f(o: ?((!P)?))
     print(r)
 
 sub main()
-  p = P(t: Text("hello"))
+  p = P(t: String("hello"))
   o: (!P)? = !p
   f(?o)

@@ -1,10 +1,10 @@
 # w = h.w where w: !Text local and h.w: !Text held -> writes through?
 struct H
-  w: !Text
+  w: !String
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   h = H(w: !b)
   w = h.w

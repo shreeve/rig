@@ -1,7 +1,7 @@
-fun parse(s: String) -> Int!
+fun parse(s: ?String) -> Int!
   s.len
 
-fun apply(f: ?fun(String) -> Int!, s: String) -> Int!
+fun apply(f: ?fun(?String) -> Int!, s: ?String) -> Int!
   f(s)!
 
 sub main()

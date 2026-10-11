@@ -1,6 +1,6 @@
 sub main()
-  o: Text? = Text("hello")
-  d = Text("dflt")
+  o: String? = String("hello")
+  d = String("dflt")
   r = if !o as t
     t
   else

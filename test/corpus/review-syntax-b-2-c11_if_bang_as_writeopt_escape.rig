@@ -1,7 +1,7 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
-sub f(w: !Text?)
+sub f(w: !String?)
   s = ""
   if !w as r
     s = keep(?r[1..])
@@ -9,5 +9,5 @@ sub f(w: !Text?)
   print(s)
 
 sub main()
-  o: Text? = Text("hello")
+  o: String? = String("hello")
   f(!o)

@@ -2,10 +2,10 @@ struct A
   xs: [3]Int
 
 struct Name
-  s: String
+  s: ?String
 
 struct Sl
-  items: List[String]
+  items: List[?String]
 
 enum Kind
   one

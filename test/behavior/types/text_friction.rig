@@ -1,5 +1,5 @@
 # `!t.push(b)` appends one byte, while `!t.add(b)` writes a `U8` as a
-# number. A `^Text` is viewed through its box. A plain element of an
+# number. A `^String` is viewed through its box. A plain element of an
 # owning temporary is read where it stands, and `??` on an owning
 # optional temporary gives its value or the fallback.
 
@@ -16,21 +16,21 @@ fun maybe(k: Int) -> N?
 
 struct W
   v: List[Int]
-  t: Text
+  t: String
 
 fun mkw() -> W
-  W(v: mkv(), t: Text("wt"))
+  W(v: mkv(), t: String("wt"))
 
 fun mkv() -> List[Int]
   v: List[Int] = List()
   !v.push(3)
   v
 
-fun mko(k: Int) -> Text?
-  Text("opt", k) if k > 0 else none
+fun mko(k: Int) -> String?
+  String("opt", k) if k > 0 else none
 
-fun mkf(k: Int) -> Text!
-  Text("ok", k)
+fun mkf(k: Int) -> String!
+  String("ok", k)
 
 fun fresh(k: Int) -> Int?!
   print(mko(k)?, mkf(k)!, mko(k)?.len)
@@ -38,19 +38,19 @@ fun fresh(k: Int) -> Int?!
 
 sub main()
   print(fresh(1) catch 0, fresh(0) catch 0)
-  t = Text()
+  t = String()
   for b in "Hi"
     !t.push(text.to_lower(b))
   !t.add(" ", U8(65))
   print(t)
-  texts: List[^Text] = List()
-  !texts.push(^Text(" one "))
-  !texts.push(^Text("two"))
+  texts: List[^String] = List()
+  !texts.push(^String(" one "))
+  !texts.push(^String("two"))
   for b in ?texts
     print(text.trim(?b), b[..2])
-  bx = ^Text("boxed")
+  bx = ^String("boxed")
   print(bx[1..], text.starts_with(?bx, "box"))
-  print(mkv()[0], mkv().len, mkw().v[0], mkw().t.len, ?bx == "boxed", bx == Text("boxed"))
+  print(mkv()[0], mkv().len, mkw().v[0], mkw().t.len, ?bx == "boxed", bx == String("boxed"))
   a = maybe(1) ?? N(id: 10)
   c = maybe(0) ?? N(id: 20)
   print(a.id, c.id, (maybe(0) ?? N(id: 30)).id)

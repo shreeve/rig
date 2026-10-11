@@ -1,25 +1,25 @@
 # statement temporaries inside an element index in every statement form
-fun idx(s: String) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-sub grow(t: !Text)
+sub grow(t: !String)
   for _ in 0..40
     !t.add("xxxxxxxx")
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("q"))
-  v[idx(?Text("a"))] = Text("z")
-  !v[idx(?Text("a"))].add("!")
-  grow(!v[idx(?Text("a"))])
+  v: List[String] = List()
+  !v.push(String("q"))
+  v[idx(?String("a"))] = String("z")
+  !v[idx(?String("a"))].add("!")
+  grow(!v[idx(?String("a"))])
   print(v[0].len)
-  o: List[Text?] = List()
-  !o.push(Text("p"))
-  t = <o[idx(?Text("a"))]
+  o: List[String?] = List()
+  !o.push(String("p"))
+  t = <o[idx(?String("a"))]
   print(t, o)
   n: List[Int] = List()
   !n.push(1)
-  n[idx(?Text("a"))] += 5
+  n[idx(?String("a"))] += 5
   print(n)
-  s = ?v[idx(?Text("a"))]
+  s = ?v[idx(?String("a"))]
   print(s.len)

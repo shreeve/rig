@@ -6,11 +6,11 @@ struct Q
   p: P
   b: ^P
 
-fun val(n: Int, what: String) -> Int
+fun val(n: Int, what: ?String) -> Int
   print("value", what)
   n
 
-fun ix(i: Int, what: String) -> Int
+fun ix(i: Int, what: ?String) -> Int
   print("index", what)
   i
 

@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: ?Res)
@@ -13,7 +13,7 @@ fun mkh(r: ?Res) -> H
   H(e: E.a(r: r))
 
 sub main()
-  x = Res(n: 1, t: Text("a"))
+  x = Res(n: 1, t: String("a"))
   match mkh(?x).e
     .a(r)
       <x

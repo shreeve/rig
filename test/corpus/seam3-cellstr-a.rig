@@ -1,6 +1,6 @@
 sub main()
   c = Cell("lit")
   print(c.get())
-  t = Text("local")
+  t = String("local")
   c.set(?t[..])
   print(c.get())

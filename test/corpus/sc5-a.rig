@@ -8,7 +8,7 @@ struct Buf
   size: Int = LIMIT
   items: List[Int] = List()
 
-fun fnv(s: String) -> U64
+fun fnv(s: ?String) -> U64
   h: U64 = 14695981039346656037
   for b in s
     h = (h ^ U64(b)) *% 1099511628211

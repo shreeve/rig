@@ -1,11 +1,11 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
-sub f(a: ![2]Text)
+sub f(a: ![2]String)
   s = keep(?a[0][1..])
-  a[0] = Text("x")
+  a[0] = String("x")
   print(s)
 
 sub main()
-  a = [Text("hello"), Text("world")]
+  a = [String("hello"), String("world")]
   f(!a)

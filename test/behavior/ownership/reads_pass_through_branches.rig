@@ -6,27 +6,27 @@ use std.text
 
 struct N
   id: Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop", self.id)
 
 fun mk() -> N
-  N(id: 9, t: Text("m"))
+  N(id: 9, t: String("m"))
 
 error E
   bad
 
 fun fails(k: Int) -> N!
   return E.bad if k > 0
-  N(id: 8, t: Text("f"))
+  N(id: 8, t: String("f"))
 
 fun f(o: N?, c: Bool) -> Int?
   print(mk() if c else o?)
   print(o?)
   1
 
-fun g(o: Text?) -> Int?
+fun g(o: String?) -> Int?
   print(o?.len)
   print(o? == "hi")
   1
@@ -36,21 +36,21 @@ fun h(o: List[Int]?) -> Int?
   1
 
 fun k(o: (N?)?) -> Int?
-  print(o? ?? N(id: 5, t: Text("e")))
+  print(o? ?? N(id: 5, t: String("e")))
   1
 
 sub main()
-  oa: N? = N(id: 1, t: Text("a"))
-  ob: N? = N(id: 2, t: Text("b"))
+  oa: N? = N(id: 1, t: String("a"))
+  ob: N? = N(id: 2, t: String("b"))
   c = true
-  print((oa if c else ob) ?? N(id: 3, t: Text("c")))
+  print((oa if c else ob) ?? N(id: 3, t: String("c")))
   print(f(none, c), g(none), h(none), k(none))
-  a = Text("aaaa")
-  b = Text("bb")
+  a = String("aaaa")
+  b = String("bb")
   print(a if c else b)
   print((a if c else b) == "aaaa", (b if c else a).len)
-  m = N(id: 6, t: Text("x"))
-  n = N(id: 7, t: Text("y"))
+  m = N(id: 6, t: String("x"))
+  n = N(id: 7, t: String("y"))
   print(m if c else n, (n if c else m).t)
   print(fails(1) catch m, (fails(0) catch n).id)
   print(?a if c else ?b, text.trim(?a if c else ?b))

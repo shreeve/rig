@@ -1,7 +1,7 @@
 # Payload views pushed into a List of views; the subject List then dropped. Expect reject.
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
@@ -12,7 +12,7 @@ fun clobber(n: Int) -> Int
   a[1]
 
 sub main()
-  es = [E.a(r: Res(n: 1, t: Text("one"))), E.b(r: Res(n: 2, t: Text("two")))]
+  es = [E.a(r: Res(n: 1, t: String("one"))), E.b(r: Res(n: 2, t: String("two")))]
   views: List[?Res] = List()
   for e in es
     match e

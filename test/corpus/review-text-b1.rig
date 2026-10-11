@@ -1,8 +1,8 @@
 struct H
-  t: Text
+  t: String
 
 sub main()
-  p = *H(t: Text("abcdefghijklmnop"))
+  p = *H(t: String("abcdefghijklmnop"))
   q = p
   !p.t.add(?q.t[..])
   print(p.t)

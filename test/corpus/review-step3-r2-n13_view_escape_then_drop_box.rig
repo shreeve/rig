@@ -1,14 +1,14 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(r: Res)
   b
 
 sub main()
-  b = ^E.a(r: Res(n: 1, t: Text("x")))
-  keep = Res(n: 0, t: Text("k"))
+  b = ^E.a(r: Res(n: 1, t: String("x")))
+  keep = Res(n: 0, t: String("k"))
   saved = ?keep
   match b
     .a(r) if r.n > 0 => saved = r

@@ -5,7 +5,7 @@ enum Sh
 
 struct Box2
   s: Sh
-  tag: String
+  tag: ?String
 
 fun mk(k: Int) -> Sh
   print("mk", k)

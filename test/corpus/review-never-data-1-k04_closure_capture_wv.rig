@@ -1,6 +1,6 @@
 struct P
   n: Int
-  t: Text
+  t: String
 
 sub viaw(w: !P)
   f = |?w| w.n + w.t.len
@@ -16,7 +16,7 @@ sub show(p: ?P)
   print(p.n, p.t)
 
 sub main()
-  p = P(n: 1, t: Text("ab"))
+  p = P(n: 1, t: String("ab"))
   viaw(!p)
   w = !p
   k = |?w| w.n

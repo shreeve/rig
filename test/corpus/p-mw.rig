@@ -1,11 +1,11 @@
 struct W
   v: List[Int]
-  t: Text
+  t: String
 
 fun mkw() -> W
   v: List[Int] = List()
   !v.push(7)
-  W(v: <v, t: Text("wt"))
+  W(v: <v, t: String("wt"))
 
 sub keep(v: List[Int])
   print(v)

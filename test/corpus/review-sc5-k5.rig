@@ -4,7 +4,7 @@ enum Color
 
 DEF = .red
 F = main
-S: String = "a"
+S: ?String = "a"
 T = -S
 U = [1, 2][0]
 V = Color.blue

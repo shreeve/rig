@@ -1,8 +1,8 @@
 sub main()
-  c: *Cell[List[String]] = *Cell(List())
+  c: *Cell[List[?String]] = *Cell(List())
   !c.push("a")
   if true
-    t = Text("abcdefghijklmnop")
+    t = String("abcdefghijklmnop")
     f = |?c, ?t|
       (!c)[0] = ?t[..3]
       !c.push(?t[..2])

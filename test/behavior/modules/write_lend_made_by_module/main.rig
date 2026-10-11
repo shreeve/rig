@@ -13,7 +13,7 @@ struct U
     U(n: 1)
 
 enum E
-  a(s: String)
+  a(s: ?String)
   b
 
 sub sete(e: !E)

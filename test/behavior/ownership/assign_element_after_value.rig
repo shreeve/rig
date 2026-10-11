@@ -1,26 +1,26 @@
 # `v[i] = e` evaluates `e`, then the index, then finds the element: a
 # value or an index that grows the List leaves the store in the new buffer.
 
-fun grow(v: !List[Text]) -> Text
-  !v.push(Text("x"))
-  !v.push(Text("y"))
-  !v.push(Text("z"))
-  !v.push(Text("w"))
-  Text("new")
+fun grow(v: !List[String]) -> String
+  !v.push(String("x"))
+  !v.push(String("y"))
+  !v.push(String("z"))
+  !v.push(String("w"))
+  String("new")
 
-fun at_end(v: !List[Text]) -> Int
-  !v.push(Text("p"))
-  !v.push(Text("q"))
-  !v.push(Text("r"))
-  !v.push(Text("s"))
+fun at_end(v: !List[String]) -> Int
+  !v.push(String("p"))
+  !v.push(String("q"))
+  !v.push(String("r"))
+  !v.push(String("s"))
   0
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   v[0] = grow(!v)
   print(v)
-  v[at_end(!v)] = Text("n")
+  v[at_end(!v)] = String("n")
   print(v)
 
 # expect:

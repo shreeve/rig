@@ -2,7 +2,7 @@
 # handle.
 
 struct User
-  name: String
+  name: ?String
 
   sub consume(self: User)
     print(self.name)

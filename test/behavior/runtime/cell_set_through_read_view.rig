@@ -6,7 +6,7 @@
 
 struct Counter
   hits: Cell[Int]
-  name: String
+  name: ?String
 
   sub hit(!self)
     !self.hits.set(self.hits.get() + 1)

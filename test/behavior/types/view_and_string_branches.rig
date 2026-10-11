@@ -6,33 +6,33 @@
 use std.text
 
 struct S
-  t: Text
+  t: String
 
-  fun get(?self) -> ?Text
+  fun get(?self) -> ?String
     ?self.t
 
-fun pick(a: ?Text, ok: Bool) -> (?Text)?
+fun pick(a: ?String, ok: Bool) -> (?String)?
   a if ok else none
 
-fun g(a: ?Text) -> Int?
+fun g(a: ?String) -> Int?
   print(pick(a, true)? == "aa", pick(a, true)?.len)
   1
 
-fun either(a: ?Text, b: ?Text, c: Bool) -> Bool
+fun either(a: ?String, b: ?String, c: Bool) -> Bool
   (a if c else b) == "bb"
 
-fun f(s: String, c: Bool) -> Int
+fun f(s: ?String, c: Bool) -> Int
   ("b" if c else s).len
 
-fun mkt() -> Text
-  Text("made")
+fun mkt() -> String
+  String("made")
 
 sub main()
-  s = S(t: Text("aa"))
+  s = S(t: String("aa"))
   print(s.get() == "x", s.get() == s.get(), mkt() == s.get())
   print(g(?s.t))
-  a = Text("aa")
-  b = Text("bb")
+  a = String("aa")
+  b = String("bb")
   c = false
   print((?a if c else ?b) == "bb", either(?a, ?b, c))
   print(f("abc", false), f("abc", true), ("b" if c else text.trim(" abc ")).len)

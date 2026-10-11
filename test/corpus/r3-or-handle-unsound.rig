@@ -10,19 +10,19 @@
 # oracle: moved_handle reject C1
 
 struct User
-  name: Text
+  name: String
 
 struct Holder
   r: ?List[Int]
 
 sub drop_while_viewed()
-  a = *User(name: Text("bob"))
+  a = *User(name: String("bob"))
   r = ?a.name
   <a
   print(r)
 
 sub lend_then_drop()
-  a = *User(name: Text("eve"))
+  a = *User(name: String("eve"))
   u = ?a
   <a
   print(u.name)
@@ -48,7 +48,7 @@ sub weak_carries()
     print(k.r.len)
 
 sub moved_handle()
-  a = *User(name: Text("fay"))
+  a = *User(name: String("fay"))
   b = <a
   print(a.name, b.name)
 

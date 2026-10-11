@@ -1,9 +1,9 @@
-sub g(w: !Text)
+sub g(w: !String)
   for _ in 0..50
     !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   w = !t
   r = ?w
   s = r[1..]

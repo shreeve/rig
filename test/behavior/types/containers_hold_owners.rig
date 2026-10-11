@@ -37,7 +37,7 @@ sub main()
   !b.push(7)
   !bags.push(Bag(items: <b))
   print(rows.len, total(?bags[..]))
-  ts = [Text("x"), Text("y")]
+  ts = [String("x"), String("y")]
   for t in <ts
     print(t)
 

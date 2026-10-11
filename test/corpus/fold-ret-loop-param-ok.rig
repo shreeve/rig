@@ -1,17 +1,17 @@
 # The fold: a String that views a Text slot (ret-loop-param-ok): rejected, or runs sanitizer-clean.
 enum E
-  full(t: Text)
+  full(t: String)
   empty
 
 struct H
-  t: Text
+  t: String
 
-fun f(v: ?List[Text]) -> String from v
+fun f(v: ?List[String]) -> ?String from v
   for x in ?v
     return ?x
   ""
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   print(f(?v))

@@ -1,8 +1,8 @@
 # a closure capturing !v writes an element; elem view held across
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  f = |!v| v[0] = Text("z")
+  v: List[String] = List()
+  !v.push(String("a"))
+  f = |!v| v[0] = String("z")
   x = ?v[0]
   f()
   print(x)

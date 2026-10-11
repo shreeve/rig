@@ -5,7 +5,7 @@ struct Holder[T]
     self.v
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   h = Holder(v: ?t[..])
   !t.add("def")
   print(h.get())

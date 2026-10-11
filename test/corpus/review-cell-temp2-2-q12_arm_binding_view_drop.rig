@@ -6,14 +6,14 @@ struct P
 
 struct HI
   v: ?Int
-  t: Text
+  t: String
 
   drop(!self)
     print("drop hi", self.v)
 
 struct HP
   v: ?P
-  t: Text
+  t: String
 
   drop(!self)
     print("drop hp", self.v.n)
@@ -36,9 +36,9 @@ sub main()
   for i in 0..3
     match i * 10
       0 => print("zero")
-      m => print("m", showi(?HI(v: ?m, t: Text("ab"))))
+      m => print("m", showi(?HI(v: ?m, t: String("ab"))))
   match mkbx(7)
-    .has(x) => print("x", showp(?HP(v: ?x, t: Text("abc"))))
+    .has(x) => print("x", showp(?HP(v: ?x, t: String("abc"))))
     .nothing => print("none")
 
 # expect:

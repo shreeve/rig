@@ -17,7 +17,7 @@ sub main()
   k = made()
   h = *N(v: 1, next: none)
   wk = ~h
-  s = Text("abc")
+  s = String("abc")
   (!s).push_str("d")
   print(s)
   print(k.hits.get(), k.log.len, k.n, h.v)

@@ -1,5 +1,5 @@
 sub main()
-  t = Text("hello")
+  t = String("hello")
   s = (!t)[1..]
   for _ in 0..50
     !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")

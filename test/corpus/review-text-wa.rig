@@ -1,8 +1,8 @@
 struct Person
-  name: String
+  name: ?String
   tags: List[Int]
 
-  fun label(?self) -> String
+  fun label(?self) -> ?String
     self.name
 
 sub main()

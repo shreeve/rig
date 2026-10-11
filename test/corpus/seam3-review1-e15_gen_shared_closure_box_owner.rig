@@ -6,7 +6,7 @@ fun mk[T](x: T) -> *sub()
   *|<h| print(h.v)
 
 sub main()
-  b = ^Text("hello")
+  b = ^String("hello")
   f = mk(?b)
   <b
   f()

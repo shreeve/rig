@@ -6,8 +6,8 @@ sub keep[T](v: ?List[T], k: !Keep[T])
     k.item = x
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  k = Keep[Text](item: none)
+  v: List[String] = List()
+  !v.push(String("a"))
+  k = Keep[String](item: none)
   keep(?v, !k)
   print(v.len)

@@ -2,7 +2,7 @@ error Bad
   oops
 
 struct N
-  s: String
+  s: ?String
   k: Int
 
 fun get(r: ?N, ok: Bool) -> (?N)!
@@ -10,7 +10,7 @@ fun get(r: ?N, ok: Bool) -> (?N)!
   r
 
 sub main()
-  t = Text("hello", 3)
+  t = String("hello", 3)
   n = N(s: ?t, k: 1)
   b = N(s: "zz", k: 2)
   c: N = get(?n, true) catch ?b

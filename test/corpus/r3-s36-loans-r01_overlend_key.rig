@@ -2,7 +2,7 @@
 # `?Entry` can come from a `?Key`. Editing the key while the entry is
 # in use is rejected.
 struct Entry
-  name: String
+  name: ?String
   hits: Int
 
 struct Key

@@ -9,7 +9,7 @@ fun first[T](v: ?List[T]) -> ?T from v
 fun firstw[T](v: !List[T]) -> !T from v
   !v[0]
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -19,16 +19,16 @@ fun clobber(n: Int) -> Int
 sub main()
   vv: List[[2]Q?] = List()
   !vv.push([Q(a: 41, b: 42), none])
-  if first(?vv)[idx(?Text("a"))] as q
+  if first(?vv)[idx(?String("a"))] as q
     print(clobber(1000), q.a, q.b)
-  if !firstw(!vv)[idx(?Text("a"))] as q
+  if !firstw(!vv)[idx(?String("a"))] as q
     q.a = 7
     print(clobber(1000), q.a, q.b)
   print(vv[0])
-  tv: List[[2]Text?] = List()
-  !tv.push([Text("x"), none])
-  if !firstw(!tv)[idx(?Text("a"))] as t
+  tv: List[[2]String?] = List()
+  !tv.push([String("x"), none])
+  if !firstw(!tv)[idx(?String("a"))] as t
     !t.add("y")
-  if first(?tv)[idx(?Text("a"))] as t
+  if first(?tv)[idx(?String("a"))] as t
     print(clobber(1000), t)
   print(tv[0])

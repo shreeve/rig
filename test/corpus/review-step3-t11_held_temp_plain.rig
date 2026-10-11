@@ -1,6 +1,6 @@
 struct Res
   n: Int
-  t: Text
+  t: String
 
 struct P
   a: Int
@@ -12,13 +12,13 @@ enum E
 
 struct H
   e: E
-  t: Text
+  t: String
 
 fun mkh(r: ?Res) -> H
-  H(e: E.a(p: P(a: r.n, b: 2)), t: Text("q"))
+  H(e: E.a(p: P(a: r.n, b: 2)), t: String("q"))
 
 fun mkres(n: Int) -> Res
-  Res(n: n, t: Text("abc"))
+  Res(n: n, t: String("abc"))
 
 sub main()
   match mkh(?mkres(1)).e

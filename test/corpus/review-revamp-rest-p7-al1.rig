@@ -2,7 +2,7 @@ struct Pair[A, B]
   a: A
   b: B
 
-type IP = Pair[Int, String]
+type IP = Pair[Int, ?String]
 type CI = Cell[Int]
 type BI = ^Int
 type VI = List[Int]

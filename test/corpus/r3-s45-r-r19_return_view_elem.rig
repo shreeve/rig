@@ -1,8 +1,8 @@
-fun firstof(v: ?List[Text]) -> String
+fun firstof(v: ?List[String]) -> ?String
   ?v[0]
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   s = firstof(?v)
   print(s)

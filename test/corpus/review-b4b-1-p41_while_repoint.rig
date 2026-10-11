@@ -1,16 +1,16 @@
 # while-as re-evaluated each iteration while the body re-points the view it goes through. Expect accept, clean.
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 sub main()
-  a: List[Text?] = List()
-  !a.push(Text("a"))
-  b: List[Text?] = List()
-  !b.push(Text("b"))
+  a: List[String?] = List()
+  !a.push(String("a"))
+  b: List[String?] = List()
+  !b.push(String("b"))
   !b.push(none)
   r = ?a
   k = 0
-  while r[idx(?Text("a"))] as t
+  while r[idx(?String("a"))] as t
     print(t)
     r = ?b
     k += 1

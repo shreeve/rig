@@ -5,7 +5,7 @@ sub fill[T](v: !List[T], x: T)
     return
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  fill(!v, Text("z"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  fill(!v, String("z"))
   print(v)

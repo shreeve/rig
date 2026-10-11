@@ -6,13 +6,13 @@ struct R unique
 
 struct S
   rs: [1]R
-  t: Text
+  t: String
 
 fun dup[T](v: ?List[T]) -> List[T]
   +v
 
 sub main()
-  s = S(rs: [R(seed: 1)], t: Text("x"))
+  s = S(rs: [R(seed: 1)], t: String("x"))
   c = +s
   print(c.t)
 

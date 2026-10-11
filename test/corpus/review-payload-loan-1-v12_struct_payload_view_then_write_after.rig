@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
   xs: List[Int]
 
 enum S
@@ -7,7 +7,7 @@ enum S
   b
 
 sub main()
-  e = S.a(P(t: Text("hello"), xs: List()))
+  e = S.a(P(t: String("hello"), xs: List()))
   match !e
     .a(p)
       r = ?p.xs[..]

@@ -6,7 +6,7 @@ struct Pair[T, U]
   second: U
 
 sub main()
-  p: Pair[Int, String] = Pair(first: 42, second: "answer")
+  p: Pair[Int, ?String] = Pair(first: 42, second: "answer")
   print(p.first)
   print(p.second)
 

@@ -1,8 +1,8 @@
 # copying an owner out of a read slice must be rejected
-fun first(s: []Text) -> Text
+fun first(s: []String) -> String
   s[0]
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
+  v: List[String] = List()
+  !v.push(String("a"))
   print(first(?v))

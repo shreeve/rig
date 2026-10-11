@@ -1,7 +1,7 @@
 # if v[0] as t (optional element), then v[0] = none inside
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("hi"))
+  v: List[String?] = List()
+  !v.push(String("hi"))
   if v[0] as t
     v[0] = none
     print(t)

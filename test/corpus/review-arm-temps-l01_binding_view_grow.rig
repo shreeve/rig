@@ -1,7 +1,7 @@
 # An arm binding that views the subject's payload, which a write lend in
 # the arm would reallocate: must be rejected in both arm forms.
 enum Sh
-  name(t: Text)
+  name(t: String)
   point
 
 fun grow(v: !List[Sh]) -> Int
@@ -11,7 +11,7 @@ fun grow(v: !List[Sh]) -> Int
 
 sub main()
   v: List[Sh] = List()
-  !v.push(.name(t: Text("abc")))
+  !v.push(.name(t: String("abc")))
   x = !v
   match ?x[0]
     .name(t) => print("simple", grow(!v), t.len)

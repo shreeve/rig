@@ -16,4 +16,4 @@ fun gen[T](x: T) -> Int
 
 sub main()
   print(gen(N(id: 1)))
-  print(gen(Text("t")))
+  print(gen(String("t")))

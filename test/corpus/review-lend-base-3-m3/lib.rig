@@ -1,6 +1,6 @@
 pub struct P
   x: Int
-  s: Text
+  s: String
 
 pub fun gets(p: ?P) -> Int
   (?p).s.len

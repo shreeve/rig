@@ -1,13 +1,13 @@
 # branching subjects with a made leaf / ?? / catch. Expect reject.
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
-fun mk() -> Text?
-  Text("m")
+fun mk() -> String?
+  String("m")
 
 sub main()
-  v: List[Text?] = List()
-  !v.push(Text("a"))
+  v: List[String?] = List()
+  !v.push(String("a"))
   c = true
-  if (v[idx(?Text("a"))] if c else mk()) as t
+  if (v[idx(?String("a"))] if c else mk()) as t
     print(t)

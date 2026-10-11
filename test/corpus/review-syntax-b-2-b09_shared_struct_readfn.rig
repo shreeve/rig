@@ -1,11 +1,11 @@
 struct S
-  t: Text
+  t: String
 
-fun name(p: ?S) -> ?Text
+fun name(p: ?S) -> ?String
   ?p.t
 
 sub main()
-  h = *S(t: Text("hello"))
+  h = *S(t: String("hello"))
   s = name(?h)[1..]
-  h = *S(t: Text("x"))
+  h = *S(t: String("x"))
   print(s)

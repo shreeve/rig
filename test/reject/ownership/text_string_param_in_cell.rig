@@ -1,14 +1,14 @@
 # A String parameter may view a caller's Text, so it cannot be stored
 # where no loan is tracked: in a Cell, a Signal, or an owned closure.
 
-sub keep(c: !Cell[String], s: String)
+sub keep(c: !Cell[?String], s: ?String)
   !c.set(s)
 
-fun later(s: String) -> *sub()
+fun later(s: ?String) -> *sub()
   *|?s| print(s)
 
 sub main()
-  c: *Cell[String] = *Cell("a")
+  c: *Cell[?String] = *Cell("a")
   keep(!c, "b")
   f = later("c")
   f()

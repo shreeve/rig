@@ -23,7 +23,7 @@ enum Opt[T]
   nothing
 
 sub main()
-  t = Text("t")
+  t = String("t")
   match Opt.some(v: ?t)
     .some(v) => print(v)
     .nothing => pass

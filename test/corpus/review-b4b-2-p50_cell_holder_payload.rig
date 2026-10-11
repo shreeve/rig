@@ -6,7 +6,7 @@ enum U
   k(c: Counter)
   none
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -47,7 +47,7 @@ sub main()
   saved.hits.set(7)
   show(?b)
   us = [U.k(c: Counter(hits: Cell(1))), U.none]
-  match us[idx(?Text("a"))]
+  match us[idx(?String("a"))]
     .k(c) => saved = ?c
     .none => pass
   saved.hits.set(8)

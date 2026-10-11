@@ -1,8 +1,8 @@
-fun pick(s: String, k: ?Int) -> String
+fun pick(s: ?String, k: ?Int) -> ?String
   s[k..]
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   k = 1
   r = pick(?t, ?k)
   k = 2

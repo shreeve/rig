@@ -7,7 +7,7 @@
 use io
 use parse
 
-fun describe(n: Int) -> String
+fun describe(n: Int) -> ?String
   _ = parse.parse(n) catch |e|
     match e
       io.IoError.eof => return "io eof"

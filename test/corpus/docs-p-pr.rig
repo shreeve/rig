@@ -1,5 +1,5 @@
 struct U
-  name: String
+  name: ?String
 
 sub main()
   h = *U(name: "bo")

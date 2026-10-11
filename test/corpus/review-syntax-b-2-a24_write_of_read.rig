@@ -1,6 +1,6 @@
 sub main()
-  t = Text("hello")
-  u = Text("other")
+  t = String("hello")
+  u = String("other")
   r = ?t
   w = !r
   s = w[1..]

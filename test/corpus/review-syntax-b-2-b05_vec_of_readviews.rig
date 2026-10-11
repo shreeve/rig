@@ -1,6 +1,6 @@
 sub main()
-  t = Text("hello")
-  v: List[?Text] = List()
+  t = String("hello")
+  v: List[?String] = List()
   !v.push(?t)
   s = v[0][1..]
   !v.clear()

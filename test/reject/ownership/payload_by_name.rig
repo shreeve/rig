@@ -5,18 +5,18 @@ struct B
   n: Int
 
 enum Bag
-  two(a: *B, t: Text)
+  two(a: *B, t: String)
   empty
 
 sub keep(b: *B)
   print(b.n)
 
-fun bump(t: !Text) -> Bool
+fun bump(t: !String) -> Bool
   !t.add("!")
   true
 
 sub main()
-  x: Bag = .two(a: *B(n: 1), t: Text("x"))
+  x: Bag = .two(a: *B(n: 1), t: String("x"))
   match x
     .two(a: a) => keep(<a)
     _ => pass

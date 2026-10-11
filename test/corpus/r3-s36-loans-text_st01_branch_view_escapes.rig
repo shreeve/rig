@@ -1,6 +1,6 @@
 sub main()
   s = "static"
   if s.len > 0
-    t = Text("inner")
+    t = String("inner")
     s = ?t[..]
   print(s)

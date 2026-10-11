@@ -1,11 +1,11 @@
 struct Entry
-  k: String
+  k: ?String
   v: Int
 
 struct Map
   es: List[Entry]
 
-  fun get(?self, k: String) -> (?Int)?
+  fun get(?self, k: ?String) -> (?Int)?
     for e in ?self.es
       if e.k == k
         return ?e.v

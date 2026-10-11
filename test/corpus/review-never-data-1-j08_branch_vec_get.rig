@@ -1,8 +1,8 @@
 sub main()
-  a: List[Text] = List()
-  b: List[Text] = List()
-  !a.push(Text("x"))
-  !b.push(Text("y"))
+  a: List[String] = List()
+  b: List[String] = List()
+  !a.push(String("x"))
+  !b.push(String("y"))
   c = true
   r = (a if c else b).get(0)
   <a

@@ -1,10 +1,10 @@
 enum WT
-  a(w: !Text)
+  a(w: !String)
   b
 
 sub main()
-  x = Text("hello")
-  d = Text("d")
+  x = String("hello")
+  d = String("d")
   e = WT.a(!x)
   r = match e
     .a(w) => ?w[1..]

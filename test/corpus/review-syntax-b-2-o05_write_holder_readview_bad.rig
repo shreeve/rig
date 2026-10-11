@@ -1,8 +1,8 @@
 struct R
-  f: ?Text
+  f: ?String
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   r = R(f: ?t)
   w = !r
   s = w.f[1..]

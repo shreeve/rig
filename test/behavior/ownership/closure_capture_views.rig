@@ -42,7 +42,7 @@ sub main()
   swap()
   print(w.n)
   name = "rig"
-  greet = |?name, p: String| print(p, name)
+  greet = |?name, p: ?String| print(p, name)
   greet("hi")
   outer = |?w|
     inner = |?w| w.n

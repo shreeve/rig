@@ -1,6 +1,6 @@
 # A literal pattern under `match !place` of an Int is rejected.
 # Each subject, condition operand, and place is evaluated once.
-fun s(tag: String, v: Int) -> Int
+fun s(tag: ?String, v: Int) -> Int
   print(tag)
   v
 

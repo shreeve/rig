@@ -6,10 +6,10 @@
 # oracle: main accept
 struct Q
   n: Int
-  t: Text
+  t: String
 
 fun mk(n: Int) -> Q
-  Q(n: n, t: Text("x"))
+  Q(n: n, t: String("x"))
 
 sub go(k: Bool, j: Bool)
   a = mk(1)

@@ -1,7 +1,7 @@
 # `~x` needs a shared handle `*T`; a plain struct value has no weak form.
 
 struct User
-  name: String
+  name: ?String
 
 sub main()
   u = User(name: "x")

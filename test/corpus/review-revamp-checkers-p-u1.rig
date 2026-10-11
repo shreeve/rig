@@ -1,6 +1,6 @@
 sub main()
   x = K
-  s: String = x
+  s: ?String = x
   print(s)
 
 K = 5

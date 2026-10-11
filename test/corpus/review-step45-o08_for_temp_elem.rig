@@ -1,8 +1,8 @@
 # for over an element of a temporary: for t in mk()[0]
-fun mk() -> List[List[Text]]
-  m: List[List[Text]] = List()
-  r: List[Text] = List()
-  !r.push(Text("a"))
+fun mk() -> List[List[String]]
+  m: List[List[String]] = List()
+  r: List[String] = List()
+  !r.push(String("a"))
   !m.push(<r)
   <m
 

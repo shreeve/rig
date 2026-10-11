@@ -29,7 +29,7 @@ fun tracked(id: Int, n: Int) -> Tracked
   Tracked(id: id, left: n)
 
 struct Item
-  name: String
+  name: ?String
   n: In
 
 struct Walk
@@ -63,7 +63,7 @@ fun mk[T](v: List[T]) -> Cnt[T]
   Cnt(items: <v, at: 0)
 
 sub main()
-  v: List[String] = List()
+  v: List[?String] = List()
   !v.push("p")
   !v.push("q")
   for s in mk(<v)

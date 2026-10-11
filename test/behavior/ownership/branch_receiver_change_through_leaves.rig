@@ -10,7 +10,7 @@ error Bad
 
 struct Q
   c: Cell[Int]
-  t: Text
+  t: String
 
   fun bump(!self) -> Int
     !self.c.set(self.c.get() + 1)
@@ -28,10 +28,10 @@ fun g(k: Int) -> Int
   k
 
 fun mkq(n: Int) -> *Q
-  *Q(c: Cell(n), t: Text("a text long enough to live on the heap"))
+  *Q(c: Cell(n), t: String("a text long enough to live on the heap"))
 
 fun mkh(n: Int) -> *H
-  *H(q: Q(c: Cell(n), t: Text("a text long enough to live on the heap")), qs: [mkq(n), mkq(n)])
+  *H(q: Q(c: Cell(n), t: String("a text long enough to live on the heap")), qs: [mkq(n), mkq(n)])
 
 fun maybe(c: Bool) -> (*H)?
   if c

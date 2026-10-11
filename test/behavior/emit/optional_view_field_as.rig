@@ -3,7 +3,7 @@
 # dereference a field's view twice, which Zig rejects.
 
 struct H
-  o: ?Text?
+  o: ?String?
 
 sub show(h: ?H)
   if h.o as t
@@ -13,12 +13,12 @@ sub showAll(hs: ?[2]H)
   if hs[1].o as t
     print(t)
 
-fun pick(hs: ?[2]H, i: Int) -> ?Text? from hs
+fun pick(hs: ?[2]H, i: Int) -> ?String? from hs
   hs[i].o
 
 sub main()
-  s: Text? = Text("hi")
-  e: Text? = none
+  s: String? = String("hi")
+  e: String? = none
   h = H(o: ?s)
   show(?h)
   if h.o as u

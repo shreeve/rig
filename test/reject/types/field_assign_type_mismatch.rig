@@ -1,12 +1,12 @@
 # Assigning to a field checks the value against the field's type.
 
 struct User
-  name: String
+  name: ?String
 
 sub main()
   u = User(name: "x")
   u.name = 5
   print(u.name)
 
-# error: 8:12: type mismatch: expected `String`, got `Int`
+# error: 8:12: type mismatch: expected `?String`, got `Int`
 # errors: 1

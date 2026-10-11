@@ -51,7 +51,7 @@ achieves correctness through rigor; Rig aims for rigor plus visibility.
 it happens, and reading is unmarked. Sharing and weak handles, failure,
 capture modes, compile-time parameters, and the unsafe boundary are
 written too. Like Rust, Rig leaves some effects implicit: a drop where
-a scope ends, the allocation a `List`, `^T`, or `Text` makes, and a plain
+a scope ends, the allocation a `List`, `^T`, or `String` makes, and a plain
 copy. A change to a shared `Cell` is marked, `!c.set(5)`; a `Cell` lives
 only behind a shared handle, so it takes only values that carry no loan.
 A count is added only where

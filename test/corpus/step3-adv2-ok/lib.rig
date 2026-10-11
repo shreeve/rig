@@ -18,7 +18,7 @@ pub struct Deep[T]
     1
 
 pub struct Tagger
-  label: String
+  label: ?String
 
   fun add[T](?self, x: T) -> T
     x + 1

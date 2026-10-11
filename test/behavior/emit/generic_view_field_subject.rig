@@ -47,14 +47,14 @@ fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
   n + m
 
 sub main()
-  o = Opt.some(v: Text("t"))
+  o = Opt.some(v: String("t"))
   w = V(r: ?o)
   print(f(?w), g(?w))
   i = Opt.some(v: [5, 6, 7, 8])
   wi = V(r: ?i)
   print(f(?wi), g(?wi))
-  x = Opt.some(v: Text("x"))
-  y = Opt.some(v: Text("y"))
+  x = Opt.some(v: String("x"))
+  y = Opt.some(v: String("y"))
   print(h(?x, ?y))
 
 # expect:

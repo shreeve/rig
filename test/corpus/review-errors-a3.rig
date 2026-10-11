@@ -10,7 +10,7 @@ fun fetch(n: Int) -> Int!
   return Net.refused if n == 3
   n
 
-fun cls(n: Int) -> String
+fun cls(n: Int) -> ?String
   _ = fetch(n) catch |e|
     s = match e
       Net.timeout, Net.refused => "net"
@@ -18,7 +18,7 @@ fun cls(n: Int) -> String
     return s
   "ok"
 
-fun dup(n: Int) -> String
+fun dup(n: Int) -> ?String
   _ = fetch(n) catch |e|
     match e
       .refused => return "a"
@@ -26,7 +26,7 @@ fun dup(n: Int) -> String
       _ => return "c"
   "ok"
 
-fun mism(d: Disk) -> String
+fun mism(d: Disk) -> ?String
   match d
     Net.timeout => "x"
     _ => "y"

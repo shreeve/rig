@@ -1,8 +1,8 @@
 pub struct Counter
-  pub label: String
+  pub label: ?String
   count: Int
 
-  pub fun make(label: String) -> Counter
+  pub fun make(label: ?String) -> Counter
     Counter(label: label, count: 0)
 
   fun fresh() -> Counter

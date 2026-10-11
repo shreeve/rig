@@ -1,12 +1,12 @@
 struct P
   x: Int
-  s: String
+  s: ?String
 
 sub main()
   v = List[P]()
   !v.push(P(x: 1, s: "a"))
   !v.push(P(x: 1, s: "a"))
-  w = List[String]()
+  w = List[?String]()
   !w.push("hi")
   !w.push("hi")
   b = List[U8]()

@@ -1,7 +1,7 @@
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("hello"))
-  d = Text("dflt")
+  v: List[String] = List()
+  !v.push(String("hello"))
+  d = String("dflt")
   r = for t in !v
     break <t
   else

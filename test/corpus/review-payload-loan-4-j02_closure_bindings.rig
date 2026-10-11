@@ -1,6 +1,6 @@
 struct P
   n: Int
-  t: Text
+  t: String
 
 enum E
   a(w: !P)
@@ -11,7 +11,7 @@ fun getw(e: !E) -> !E
   e
 
 sub main()
-  p = P(n: 1, t: Text("x"))
+  p = P(n: 1, t: String("x"))
   e = E.a(!p)
   f = |!e| match getw(!e)
     .a(w)
@@ -20,7 +20,7 @@ sub main()
     _ => 0
   print(f())
   print(f())
-  q = P(n: 7, t: Text("y"))
+  q = P(n: 7, t: String("y"))
   r = E.r(?q)
   g = |?r| match r
     .r(z) => z.n

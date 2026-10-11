@@ -1,13 +1,13 @@
 # move w into a struct, then re-point w; the struct still views a
 struct H
-  v: !Text
+  v: !String
 
 sub main()
-  a = Text("a")
-  b = Text("b")
+  a = String("a")
+  b = String("b")
   w = !a
   h = H(v: <w)
   w = !b
-  a = Text("A")
+  a = String("A")
   !h.v.add("!")
   print(a, b)

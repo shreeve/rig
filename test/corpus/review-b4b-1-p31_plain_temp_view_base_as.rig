@@ -5,7 +5,7 @@ struct P
 fun look(p: ?P) -> ?P from p
   p
 
-fun idx(s: ?Text) -> Int
+fun idx(s: ?String) -> Int
   s.len - 1
 
 fun clobber(n: Int) -> Int
@@ -14,7 +14,7 @@ fun clobber(n: Int) -> Int
 
 sub main()
   k = 41
-  if look(?P(xs: [k, 2])).xs[idx(?Text("a"))] as n
+  if look(?P(xs: [k, 2])).xs[idx(?String("a"))] as n
     print(clobber(n), n)
-  for x in look(?P(xs: [k, 2])).xs[idx(?Text("a"))..]
+  for x in look(?P(xs: [k, 2])).xs[idx(?String("a"))..]
     print(clobber(1), x)

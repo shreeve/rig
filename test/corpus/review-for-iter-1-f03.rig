@@ -29,7 +29,7 @@ fun tracked(id: Int, n: Int) -> Tracked
   Tracked(id: id, left: n)
 
 struct Item
-  name: String
+  name: ?String
   n: In
 
 struct Walk

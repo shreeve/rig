@@ -23,7 +23,7 @@ sub fill_plain()
   print(a)
 
 sub fill_string()
-  t = Text("x")
+  t = String("x")
   a = ["a", "b"]
   !a.fill(?t)
   !t.add("y")

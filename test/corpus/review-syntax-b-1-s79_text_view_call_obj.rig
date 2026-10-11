@@ -1,11 +1,11 @@
-fun gett(t: !Text) -> !Text
+fun gett(t: !String) -> !String
   t
 
-fun word(s: String) -> String
+fun word(s: ?String) -> ?String
   s
 
 sub main()
-  t = Text("hello")
+  t = String("hello")
   r = word(?gett(!t)[1..])
   for _ in 0..50
     !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")

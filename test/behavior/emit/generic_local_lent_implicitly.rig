@@ -18,11 +18,11 @@ fun hoisted[T](x: T) -> Int
   2
 
 struct P
-  t: Text
+  t: String
 
 sub main()
   print(direct(5), hoisted(6))
-  print(direct(P(t: Text("p"))), hoisted(P(t: Text("q"))))
+  print(direct(P(t: String("p"))), hoisted(P(t: String("q"))))
 
 # expect:
 # 5 5

@@ -1,6 +1,6 @@
 struct P
   x: Int
-  fun show(?self) -> String
+  fun show(?self) -> ?String
     "P"
 
 sub main()

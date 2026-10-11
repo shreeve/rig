@@ -1,8 +1,8 @@
-struct Text
+struct String
   bytes: List[U8]
 
 sub main()
-  v: List[^Text] = List()
-  !v.push(^Text(bytes: List()))
+  v: List[^String] = List()
+  !v.push(^String(bytes: List()))
   for t in ?v
     print(t.bytes.len)

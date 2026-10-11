@@ -1,6 +1,6 @@
 # guarded match on an element of a ?List[E] parameter, Text payload, no Cell
 enum E
-  a(t: Text)
+  a(t: String)
   b(n: Int)
 
 fun f(v: ?List[E]) -> Int
@@ -11,5 +11,5 @@ fun f(v: ?List[E]) -> Int
 
 sub main()
   e: List[E] = List()
-  !e.push(E.a(t: Text("hello")))
+  !e.push(E.a(t: String("hello")))
   print(f(?e))

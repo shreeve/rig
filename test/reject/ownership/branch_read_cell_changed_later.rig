@@ -20,8 +20,8 @@ sub main()
   k = true
   !a.s.c.push(1)
   print(a.s if k else b.s, grow(!a.s))
-  print(Text(b.s if k else a.s, grow(!a.s)))
+  print(String(b.s if k else a.s, grow(!a.s)))
 
 # error: 22:9: `a.s if k else b.s` would copy a `S`, which holds a Cell, out of `a.s`
-# error: 23:14: `b.s if k else a.s` would copy a `S`, which holds a Cell, out of `b.s`
+# error: 23:16: `b.s if k else a.s` would copy a `S`, which holds a Cell, out of `b.s`
 # errors: 2

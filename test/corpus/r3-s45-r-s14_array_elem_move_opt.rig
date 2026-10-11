@@ -1,5 +1,5 @@
 sub main()
-  a: [2]Text? = [Text("x"), none]
+  a: [2]String? = [String("x"), none]
   if <a[0] as t
     print(t)
   print(a)

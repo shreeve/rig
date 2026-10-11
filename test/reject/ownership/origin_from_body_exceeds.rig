@@ -20,7 +20,7 @@ fun both(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
 fun through(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
   both(a, b)
 
-fun only(s: String) -> String from static
+fun only(s: ?String) -> ?String from static
   s
 
 sub main()

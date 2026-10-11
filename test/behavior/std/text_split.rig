@@ -2,7 +2,7 @@
 # `\n` and `\r\n`, and `words` on runs of ASCII whitespace.
 use std.text
 
-sub parts(s: String, sep: String)
+sub parts(s: ?String, sep: ?String)
   it = text.split(s, sep)
   n = 0
   while (!it).next() as part
@@ -10,7 +10,7 @@ sub parts(s: String, sep: String)
     n += 1
   print(n, "parts, one more than", text.count(s, sep), "separators")
 
-sub each_line(s: String)
+sub each_line(s: ?String)
   ls = text.lines(s)
   n = 0
   while (!ls).next() as l
@@ -19,7 +19,7 @@ sub each_line(s: String)
     n += 1
   print(n, "lines")
 
-sub each_word(s: String)
+sub each_word(s: ?String)
   ws = text.words(s)
   n = 0
   while (!ws).next() as w

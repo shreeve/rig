@@ -1,7 +1,7 @@
 struct H
-  o: (!Text)?
+  o: (!String)?
 
-sub f(h: ?H, a: ?((!Text)?), c: Bool)
+sub f(h: ?H, a: ?((!String)?), c: Bool)
   if h.o as t
     print(t, t.len)
     g = |?t| t.len
@@ -10,8 +10,8 @@ sub f(h: ?H, a: ?((!Text)?), c: Bool)
     print(t)
 
 sub main()
-  x = Text("hey")
-  y = Text("yo")
+  x = String("hey")
+  y = String("yo")
   h = H(o: !x)
-  o: (!Text)? = !y
+  o: (!String)? = !y
   f(?h, ?o, true)

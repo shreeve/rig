@@ -2,10 +2,10 @@ SECRET = 7
 pub OPEN = 3
 
 pub struct Counter
-  pub label: String
+  pub label: ?String
   count: Int
 
-  pub fun make(label: String) -> Counter
+  pub fun make(label: ?String) -> Counter
     Counter(label: label, count: SECRET)
 
   fun peek(?self) -> Int

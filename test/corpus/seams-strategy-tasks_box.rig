@@ -1,14 +1,14 @@
 # The same board, with the workaround the compiler allows: boxed tasks.
 struct Task
-  name: Text
+  name: String
   priority: Int
   done: Bool = false
 
-fun make_task(prefix: String, n: Int, priority: Int) -> ^Task
-  ^Task(name: Text(prefix, "-", n), priority: priority)
+fun make_task(prefix: ?String, n: Int, priority: Int) -> ^Task
+  ^Task(name: String(prefix, "-", n), priority: priority)
 
-fun report(tasks: ?List[^Task]) -> Text
-  out = Text("tasks: ", tasks.len, "\n")
+fun report(tasks: ?List[^Task]) -> String
+  out = String("tasks: ", tasks.len, "\n")
   for t in ?tasks
     mark = "x" if t.done else " "
     !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")

@@ -2,16 +2,16 @@
 # loans, not a loan on `self`.
 
 struct P
-  src: String
+  src: ?String
   pos: Int
 
-  fun word(!self) -> String
+  fun word(!self) -> ?String
     w = self.src[0..1]
     self.pos += 1
     w
 
 sub main()
-  t = Text("abc")
+  t = String("abc")
   p = P(src: ?t, pos: 0)
   a = (!p).word()
   p.pos = 5

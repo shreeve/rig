@@ -1,15 +1,15 @@
-fun keep(s: String) -> String
+fun keep(s: ?String) -> ?String
   s
 
 struct P
-  t: Text
+  t: String
 
 enum F
   a(p: P)
   b
 
 sub main()
-  e = F.a(P(t: Text("hello")))
+  e = F.a(P(t: String("hello")))
   match !e
     .a(p)
       s = keep(?p.t[1..])

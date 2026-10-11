@@ -9,7 +9,7 @@ sub main()
   !v.push(4)
   a = [1, 2]
   print(first(v), first(a))
-  t = Text("q")
+  t = String("q")
   k = keep(?t)
   print(k)
   !t.add("z")

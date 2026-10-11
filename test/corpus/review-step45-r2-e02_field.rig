@@ -1,6 +1,6 @@
 # H3: generic loop over ?List[T], body: store into a struct field
 struct S
-  t: Text
+  t: String
 
 struct Holder[T]
   x: T?
@@ -12,7 +12,7 @@ fun hold[T](v: ?List[T]) -> Holder[T]
   <h
 
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
   print(hold(?v).x)

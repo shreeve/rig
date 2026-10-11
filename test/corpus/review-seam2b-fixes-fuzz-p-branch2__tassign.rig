@@ -33,7 +33,7 @@ struct K2
 
 struct S
   n: Int
-  t: Text
+  t: String
   items: List[Int]
   arr: [3]Int
   kk: K2
@@ -65,7 +65,7 @@ fun mk(n: Int) -> S
   v: List[Int] = List()
   !v.push(3)
   !v.push(1)
-  S(n: n, t: Text("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+  S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
 
 fun mkopt(n: Int) -> S?
   return none if n == 0
@@ -93,14 +93,14 @@ fun f(n: Int) -> Int
 sub viatemp()
   c = f(1) == 1
   k = 3
-  (!(mk(3) if not c else mk(4))).t = Text("new text long for heap")
+  (!(mk(3) if not c else mk(4))).t = String("new text long for heap")
   print(c, k)
 
 sub vianame()
   c = f(1) == 1
   k = 3
   tt = (mk(3) if not c else mk(4))
-  tt.t = Text("new text long for heap")
+  tt.t = String("new text long for heap")
   print(c, k)
 
 sub main()

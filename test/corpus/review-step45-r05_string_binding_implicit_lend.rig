@@ -1,7 +1,7 @@
 # s: String = v[0] lends the element; push must be rejected while s is used
 sub main()
-  v: List[Text] = List()
-  !v.push(Text("a"))
-  s: String = v[0]
-  !v.push(Text("b"))
+  v: List[String] = List()
+  !v.push(String("a"))
+  s: ?String = v[0]
+  !v.push(String("b"))
   print(s)

@@ -1,10 +1,10 @@
 # A5e: for x in <mk().items
 struct H
-  items: List[Text]
+  items: List[String]
 
 fun mk() -> H
   h = H(items: List())
-  !h.items.push(Text("a"))
+  !h.items.push(String("a"))
   h
 
 sub main()

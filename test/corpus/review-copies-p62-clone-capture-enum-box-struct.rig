@@ -7,12 +7,12 @@ struct N
     print("drop", self.v)
 
 enum E
-  t(s: Text)
+  t(s: String)
   n(h: *N)
   none
 
 struct R
-  name: Text
+  name: String
   hs: List[*N]
 
 fun elen(e: ?E) -> Int
@@ -22,15 +22,15 @@ fun elen(e: ?E) -> Int
     .none => 0
 
 sub main()
-  e = E.t(s: Text("enum text"))
+  e = E.t(s: String("enum text"))
   f = |+e| elen(?e)
   e = E.n(h: *N(v: 1))
   g = |+e| elen(?e)
   <e
-  b = ^Text("boxed")
+  b = ^String("boxed")
   h = |+b| b.len
   <b
-  r = R(name: Text("rec"), hs: List())
+  r = R(name: String("rec"), hs: List())
   !r.hs.push(*N(v: 2))
   k = *|+r| r.name.len + r.hs[0].v
   <r

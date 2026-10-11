@@ -3,9 +3,9 @@
 # outlive them.
 
 sub main()
-  s: String = "x"
+  s: ?String = "x"
   if true
-    t = Text("abcdefghijklmnop")
+    t = String("abcdefghijklmnop")
     defer s = ?t[..]
   print(s)
   e: List[Int] = List()

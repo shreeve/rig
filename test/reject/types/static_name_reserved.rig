@@ -1,4 +1,4 @@
-# `Static` is a built-in type, like `Text`, and cannot be redefined.
+# `Static` is a built-in type, like `String`, and cannot be redefined.
 
 struct Static
   n: Int

@@ -4,35 +4,35 @@
 # A value views a Text only where it can reach one.
 
 struct Person
-  name: String
+  name: ?String
   tags: List[Int]
 
-  fun label(?self) -> String
+  fun label(?self) -> ?String
     self.name
 
 struct Reg
-  names: List[String]
+  names: List[?String]
 
-  sub add(!self, n: String)
+  sub add(!self, n: ?String)
     !self.names.push(n)
 
-  fun first(?self) -> String
+  fun first(?self) -> ?String
     self.names[0]
 
 enum E
-  a(c: String)
+  a(c: ?String)
   b
 
-fun copy(s: String) -> String
+fun copy(s: ?String) -> ?String
   r = ?s
-  x: String = r
+  x: ?String = r
   x
 
-fun pick(e: E) -> String
+fun pick(e: E) -> ?String
   match e
     .a(c)
       r = ?c
-      x: String = r
+      x: ?String = r
       return x
     .b
       return "b"
@@ -43,9 +43,9 @@ sub main()
   o = r
   s = "other"
   print(o, s)
-  t = Text("abcdefghijklmnop")
+  t = String("abcdefghijklmnop")
   v = ?t[..]
-  x: String = v
+  x: ?String = v
   v = "free"
   print(x, v, copy(?t), pick(E.a(?t[..3])))
   p = Person(name: "Ann", tags: List())
@@ -57,12 +57,12 @@ sub main()
   f = ?reg.first()
   !reg.add("y")
   print(f, reg.names)
-  lits: List[String] = List()
+  lits: List[?String] = List()
   !lits.push("a")
-  last: String = "z"
+  last: ?String = "z"
   for n in ?lits
     last = n
-  c: *Cell[String] = *Cell("b")
+  c: *Cell[?String] = *Cell("b")
   for n in ?lits
     !c.set(n)
   <lits

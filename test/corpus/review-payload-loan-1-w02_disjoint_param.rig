@@ -1,5 +1,5 @@
 struct P
-  t: Text
+  t: String
   xs: List[Int]
 
 sub f(p: !P)
@@ -8,5 +8,5 @@ sub f(p: !P)
   print(s, p.xs.len)
 
 sub main()
-  p = P(t: Text("hello"), xs: List())
+  p = P(t: String("hello"), xs: List())
   f(!p)
