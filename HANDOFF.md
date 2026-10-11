@@ -266,8 +266,21 @@ and run the corpus after.
 
 ## The gates
 
-The machine is shared. Check `sysctl -n vm.loadavg` before a full run,
-and wait while the 1-minute load is above about 12.
+Two gates (AGENTS.md, "Land fast, release deep"):
+
+- **The fast gate, per round:** the build, `./test/run --delta`, the
+  round's new tests, a targeted grid of the forms it changes, and one
+  independent review in parallel. A round that changes a soundness
+  classifier also runs the full matrix.
+- **The deep gate, on `main` about twice a day:** everything below, plus
+  equivalence against the last deep run and the JSON benchmark guard. A
+  failure is bisected and fixed before any new round lands; a tag needs
+  a clean deep gate.
+
+The machines are shared: run heavy work through the job queue
+(`cpuq run --cores 2 -- …`, with `-j "$CPUQ_CORES"`), and start a job only
+when no one else is waiting. Full runs go to the Linux machine, pup, one
+at a time with its spare cores.
 
 ```bash
 ./test/run -j 2                               # full suite; the sanitizer is on by default
