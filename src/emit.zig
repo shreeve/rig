@@ -3305,17 +3305,17 @@ pub const Emitter = struct {
     /// position are moved out.
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
         // A scalar beside a vector stands for every lane (`sema.splatOf`):
-        // Zig splats only where it is told to.
+        // Zig splats only where it is told to, and the vector is a run-time
+        // value (`writeVectorOpen`).
         if (self.facts.splatOf(sexp)) |vt| if (!sameNode(sexp, self.splatting)) {
             const saved = self.splatting;
             defer self.splatting = saved;
             self.splatting = sexp;
             self.want_ptr = false;
-            try self.w.writeAll("@as(");
-            try self.emitTypeTy(vt);
-            try self.w.writeAll(", @splat(");
+            try self.writeVectorOpen(vt);
+            try self.w.writeAll("@splat(");
             try self.emitBare(sexp);
-            return self.w.writeAll("))");
+            return self.w.writeAll(")))");
         };
         // A part of the value whose use is known has that use; any other
         // value has the use its own context recorded.
@@ -3977,9 +3977,9 @@ pub const Emitter = struct {
                 try self.emitElemCall(sexp, ec)
             else if (self.simdConversion(sexp)) |vt| {
                 // `Simd[T, n](a)`: the vector of an array's elements.
-                try self.writeAsOpen(vt);
+                try self.writeVectorOpen(vt);
                 try self.emitBare(ir.Call.args(sexp)[0]);
-                try self.w.writeAll(")");
+                try self.w.writeAll("))");
             }
             else if (try self.hoistsArgs(sexp))
                 try self.emitHoistedCall(sexp)
@@ -5090,13 +5090,12 @@ pub const Emitter = struct {
                 const ct = self.facts.ctArgsOf(call);
                 if (ct.len > 1) try self.emitBare(ct[1]) else try self.w.writeAll(".little");
             },
-            // `@as(V, @splat(x))`.
+            // `rig.rt(@as(V, @splat(x)))`.
             .splat => {
-                try self.w.writeAll("@as(");
-                try self.emitTypeTy(ec.num);
-                try self.w.writeAll(", @splat(");
+                try self.writeVectorOpen(ec.num);
+                try self.w.writeAll("@splat(");
                 try self.emitBare(args[0]);
-                return self.w.writeAll("))");
+                return self.w.writeAll(")))");
             },
             // `rig.maskBits(m)`, `rig.maskAny(m)`, `rig.maskAll(m)`: the
             // runtime lowers each per target.
@@ -5193,6 +5192,20 @@ pub const Emitter = struct {
             },
         }
         try self.w.writeAll(")");
+    }
+
+    /// `rig.rt(@as(V, `, which a vector's construction closes with `))`
+    /// after its value.
+    /// Every vector a program makes comes from a construction (`splat`,
+    /// `Simd[T, n](a)`, a scalar splatted beside a vector), a parameter,
+    /// or bytes read when the program runs, and no constant holds one; so
+    /// with each construction a run-time value, no vector is known to Zig
+    /// when it compiles, and a lane that overflows panics when the program
+    /// runs, as Rig specifies, rather than stopping Zig's fold.
+    fn writeVectorOpen(self: *Emitter, vt: TypeId) Error!void {
+        try self.w.writeAll("rig.rt(@as(");
+        try self.emitTypeTy(vt);
+        try self.w.writeAll(", ");
     }
 
     /// The vector type a call of a vector type makes, `Simd[T, n](a)`,

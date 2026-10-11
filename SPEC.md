@@ -844,7 +844,11 @@ the orderings number lanes, and `-v` signed or float lanes. A scalar of
 the lane type, or a literal that fits it, stands for every lane, on
 either side: `v < 0x20`, `v == quote`, `1 + v`. The compound forms
 (`v += 1`, `m |= v == q`) assign the result. `/`, `%`, and the shifts
-take no vector. Precedence is unchanged, so masks are combined in
+take no vector. A vector's lanes are computed only when the program
+runs, even from constants: where a constant scalar that overflows is
+rejected (`x: I8 = -128` then `x * -1`), a lane that overflows panics
+when the program runs (`Simd[I8, 4].splat(-128) * -1`). Both stop the
+program before it uses a wrong value. Precedence is unchanged, so masks are combined in
 parentheses: `(v == 0x22) | (v == 0x5C)`.
 
 **Masks.** `m.bits()` is a `U64` whose bit `i` is lane `i`, the higher

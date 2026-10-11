@@ -1,0 +1,7 @@
+sub main()
+  a = Simd[U8, 4]([250, 1, 2, 3]) + 10
+  print(a)
+
+# expect-panic: integer overflow
+
+# release

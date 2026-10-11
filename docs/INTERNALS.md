@@ -1678,15 +1678,22 @@ runtime function with value arguments, or the existing `read` and
 | Rig | Zig |
 |---|---|
 | `Simd[T, n]` | `@Vector(n, T)` (`bool` lanes for a mask) |
-| `Simd[T, n].splat(x)` | `@as(@Vector(n, T), @splat(x))` |
-| `Simd[T, n](a)` | `@as(@Vector(n, T), a)` |
+| `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))` |
+| `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))` |
 | `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows |
-| a scalar beside a vector, `v + 1` | `@as(V, @splat(1))` where the scalar stands (`splatOf`) |
+| a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`) |
 | `v.not()` | `~v`, or `!m` of a mask |
 | `m.bits()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
 | `m.select(a, b)` | `@select(T, m, a, b)` |
 | `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)` |
 | `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
+
+Every vector comes from one of those constructions, a parameter, or
+bytes read when the program runs (no constant holds one), and each
+construction goes through `rig.rt`, so no vector is known to Zig when it
+compiles: a lane that overflows panics when the program runs, never
+stopping Zig's fold, where Rig's own fold rejects a constant scalar
+that overflows.
 
 None of these makes hidden storage or takes an address: a splat is an
 rvalue, and the runtime functions take their vectors by value. So the

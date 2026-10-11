@@ -1476,6 +1476,8 @@ pub fn maskBits(m: anytype) u64 {
     if (comptime (n == 32 or n == 64) and neonIntrinsics()) return maskBitsNeon(n, m);
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m);
     if (comptime n >= 8 and builtin.cpu.arch.isWasm() and !wasmSimd()) return maskBitsSwar(n, m);
+    // `@bitCast` of a mask gives wrong bits on aarch64 without NEON (Zig
+    // 0.17); Rig builds no such target, so it takes this form too.
     return maskBitsCast(n, m);
 }
 
