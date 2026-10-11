@@ -480,7 +480,7 @@ From lowest to highest precedence:
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |
-| `<<` `>>` | shifts |
+| `<<` `<<%` `>>` | shifts; `<<%` drops the bits it shifts out |
 | `+` `-` `+%` `-%` | `+%` and `-%` wrap |
 | `*` `/` `%` `*%` | `*%` wraps |
 | `-x` and the sigils | prefix |
@@ -492,7 +492,9 @@ could read as `(not a) == b` ([SPEC §5](SPEC.md#operators)). `not a
 and b` is `(not a) and b`. `as` binds tighter than `and`, in a condition that
 binds ([§10](#conditions-that-bind)). There is no `&&`, `||`, `**`,
 `++`, or `--`, and prefix `!` lends to write, never "not". The bitwise
-complement of an integer is the method `x.not()`. What each
+complement of an integer is the method `x.not()`, and the counts of its bits
+are the methods `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()`;
+`x.swap_bytes()` reverses its bytes. What each
 operator does, and which types it takes, is in
 [SPEC §5](SPEC.md#operators).
 
@@ -877,7 +879,7 @@ declarations without bodies, which that Zig file implements
 | `const x = e`, `const x: T = e` | declare a fixed `x`, which cannot be reassigned |
 | `new x = e`, `new x: T = e`, `new const x = e` | declare a new `x` shadowing the visible one; `e` may read the old |
 | `x = <y` | move `y` into `x` |
-| `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `&=` `\|=` `^=` `<<=` `>>=` | compound assignment |
+| `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `&=` `\|=` `^=` `<<=` `<<%=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it |
 
@@ -1657,7 +1659,7 @@ simple    = tail | assign
           | "return" [tail] | "break" [":" name] [tail] | "continue" [":" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="
-                     | "*%=" | "&=" | "|=" | "^=" | "<<=" | ">>=") tail
+                     | "*%=" | "&=" | "|=" | "^=" | "<<=" | "<<%=" | ">>=") tail
 tail      = expr | ["*"] bars assign                # a closure whose body assigns
 
 expr      = value | if | while | for | match | closure

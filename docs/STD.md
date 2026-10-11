@@ -341,6 +341,25 @@ sub main()
 ["bob", "ann", "cy"] 1 false
 ```
 
+## List
+
+`List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room
+for `n` more elements without changing the length, so the next `n`
+pushes allocate nothing; a negative `n` panics.
+
+```rig
+sub main()
+  v: List[Int] = List()
+  !v.reserve(3)
+  for i in 0..3
+    !v.push(i * i)
+  print(v.len, v)
+```
+
+```output
+3 [0, 1, 4]
+```
+
 ## String
 
 `String` is built in ([SPEC §10](../SPEC.md#string)). Besides `add` and

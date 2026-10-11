@@ -1,0 +1,32 @@
+# `!v.reserve(n)` makes room for `n` more elements without changing the
+# length; pushing across the growth boundaries keeps every element.
+
+sub main()
+  v: List[Int] = List()
+  !v.reserve(0)
+  print(v.len)
+  !v.reserve(10)
+  print(v.len)
+  for i in 0..10
+    !v.push(i)
+  !v.reserve(1000)
+  for i in 10..2000
+    !v.push(i)
+  print(v.len)
+  total = 0
+  for x in v
+    total += x
+  print(total)
+  s: List[String] = List()
+  !s.reserve(3)
+  for i in 0..9
+    !s.push(String("n", i))
+  !s.reserve(1)
+  print(s.len, s[8])
+
+# expect:
+# 0
+# 0
+# 2000
+# 1999000
+# 9 n8

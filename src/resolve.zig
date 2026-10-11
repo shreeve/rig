@@ -20,6 +20,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const diag = @import("diag.zig");
 const sema = @import("sema.zig");
 const Wide = sema.Wide;
 
@@ -423,7 +424,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     self.ctx.symbols.items[existing].flags.reassigned = true;
                 } else if (self.scope == self.module_scope) {
@@ -2023,7 +2024,7 @@ pub const TypeResolver = struct {
 
     fn sourceText(self: *const TypeResolver, node: Sexp) Error![]const u8 {
         const sp = self.ctx.span(node);
-        return self.ctx.source[sp.start..sp.end];
+        return diag.textOf(self.ctx.source, sp);
     }
 
     /// A declaration `module.Name` names in an imported module, or null
@@ -2352,6 +2353,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id),
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
+            try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
             try method(ctx, "pop", .write, &.{write_self}, opt_t),
             try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id),

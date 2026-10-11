@@ -13,6 +13,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const diag = @import("diag.zig");
 const sema = @import("sema.zig");
 
 const Sexp = parser.Sexp;
@@ -566,7 +567,7 @@ fn decideMatchMode(ctx: *const SemContext, match: Sexp) MatchMode {
 
 /// Whether `pattern` is a catch-all arm's: a name, or `_`.
 pub fn isCatchAll(source: []const u8, pattern: Sexp) bool {
-    return pattern == .src and !isLiteralText(source[pattern.src.pos..][0..pattern.src.len]);
+    return pattern == .src and !isLiteralText(rig.leafText(source, pattern.src));
 }
 
 /// Whether some arm of `match` has a guard.

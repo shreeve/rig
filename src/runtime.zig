@@ -862,7 +862,7 @@ pub fn List(comptime T: type) type {
 
         pub fn initCapacity(capacity: Int) Self {
             var v: Self = .empty;
-            v.reserve(std.math.cast(usize, capacity) orelse @panic("negative size"));
+            v.reserve(capacity);
             return v;
         }
 
@@ -875,7 +875,7 @@ pub fn List(comptime T: type) type {
         /// `+v`: a new List holding a clone of each element (`cloneValue`).
         pub fn clone(self: *const Self) Self {
             var out: Self = .empty;
-            out.reserve(self.len);
+            out.reserveTotal(self.len);
             for (self.items()) |*e| out.push(cloneValue(e));
             return out;
         }
@@ -885,9 +885,17 @@ pub fn List(comptime T: type) type {
             return self.buf[0..self.len];
         }
 
-        fn reserve(self: *Self, want: usize) void {
+        /// Room for `want` elements in all.
+        fn reserveTotal(self: *Self, want: usize) void {
             if (want <= self.buf.len) return;
             self.grow(want);
+        }
+
+        /// `!v.reserve(n)`: room for `n` more elements; the length is
+        /// unchanged. Panics when `n` is negative.
+        pub fn reserve(self: *Self, n: Int) void {
+            const extra = std.math.cast(usize, n) orelse @panic("negative size");
+            self.reserveTotal(self.len +| extra);
         }
 
         /// The out-of-line growth, so `push` stays small enough to inline.
@@ -934,7 +942,7 @@ pub fn List(comptime T: type) type {
         /// one; `i` may be `len`. Panics unless `0 <= i <= len`.
         pub fn insert(self: *Self, i: Int, value: T) void {
             const idx = index(i, self.len + 1);
-            self.reserve(self.len + 1);
+            self.reserveTotal(self.len + 1);
             std.mem.copyBackwards(T, self.buf[idx + 1 .. self.len + 1], self.buf[idx..self.len]);
             self.buf[idx] = value;
             self.len += 1;

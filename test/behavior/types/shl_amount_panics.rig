@@ -1,0 +1,15 @@
+# A `<<` amount at or over the width panics, and so does a `<<` that loses bits.
+
+fun shift(x: U8, n: Int) -> U8
+  x << n
+
+sub main()
+  print(shift(1, 7))
+  print(shift(3, 7))
+
+# expect-panic: left shift overflowed bits
+
+# release
+
+# expect:
+# 128
