@@ -1301,7 +1301,9 @@ whether it evaluates its arguments first (`hoists_args`), how it holds
 its receiver (`receiver_hold`), whether it consumes a temporary
 receiver (`consumes_receiver`), how it holds each argument
 (`argument_hold`), and whether an argument, an assigned value, or an
-index is pure, staying where it is (`pure_arg`). Typecheck's arm-local
+index is pure, staying where it is (`pure_arg`); and for each
+assignment, which of its steps it evaluates into storage in their turn
+(`set_order`, [Assignments](#assignments)). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
@@ -1440,7 +1442,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
-| `new_value`, `index`, `slot` | `__rig_new`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then finds its place (`storage.actsBeforeStore`) | owned, owned, pointer | assignment |
+| `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -2428,17 +2430,73 @@ is one desugaring, which the checker walks (`walkSet`) and emit writes
 (`emitSet`):
 
 ```text
-place op= value   ==>   { __v = value; place op= __v }
+place op= value   ==>   { __v = value; __b = base; __i1 = i1; ... __in = in; place(__b, __i1..__in) op= __v }
 ```
+
+Its steps, in the order they run, are one list, `storage.eachSetStep`:
+the value; then the target's base, the value its path of fields and
+elements starts from (a name, a lend `(!h)`, a call `pick(!t, !i)`, a
+method's result `(!p).at(!i)`, a propagation `get(!h)?`, a branch
+`(!a if c else !b)`); then each index on the path from the base outward,
+a range's bounds left to right. A target that is a name has no steps.
+The store comes last: it finds the place through the base and indexes
+as they were evaluated, and stores.
 
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
-scope it opens, and the drops and defers that end them. Only then is
-the target evaluated, its indexes from the outside in, and the store
-made through the place as the value left it. A temporary the value
-makes outside its nested scopes (`mk(5).n`) belongs to the assignment's
-statement, as every statement's temporaries do, so it lives until after
-the store: `__v = value;` does not end it.
+scope it opens, and the drops and defers that end them. Only then does
+the target run, from its base outward, and the store is made through
+the place as the value left it. So a call the target starts from runs
+after the value, and cannot change what the value reads:
+`pick(!t, !i)[0] = s[i]` reads `s[i]` before `pick` writes `i`, and
+`take(<x, !t)[0] = x[0]` reads `x[0]` before `take` frees `x`. A
+temporary the value makes outside its nested scopes (`mk(5).n`) belongs
+to the assignment's statement, as every statement's temporaries do, so
+it lives until after the store: `__v = value;` does not end it.
+
+**The fact: `SetOrder`** (`storage.setOrder`, the decision `set_order`,
+read by emit as `Facts.setOrder`). Which steps emit evaluates into
+storage in their turn is decided once per assignment, from the steps
+and three positive lists:
+
+- `held`: the value or an index can act (`storage.setActs`: a call, an
+  assignment, a drop, `return`, `break`, `continue`, `!`, or `?` in it,
+  outside the closures it holds), or the base can and the value is not
+  pure (`isPureArg`). Then the value is made into `__rig_new_N` unless
+  it is pure, and each index into `__rig_ix_N_k` unless it is pure.
+  Otherwise Zig's own order (the base, the indexes, then the value) is
+  one no program can tell from this one, and stands.
+- `base`: the steps are held, an index after the base is, and the base
+  does not stay (`baseStays`: a name, or a lend of a name or of a field
+  path off one, gives the same place whenever it runs). Then the base
+  is evaluated into `__rig_base_N` in its turn: the pointer a write
+  view is, or the slice. A base not held is evaluated where the place
+  is found, after every held step, which is its turn when no index is
+  held.
+- `guard`: the value owns a resource and a step of the target can leave
+  (`setLeaves`: `!`, `?`, `return`, `break`, `continue`). The value,
+  where it is made first (when `held`, or into a place that owns, whose
+  old value is dropped only after the new one is made), is then
+  `var __rig_new_N` with a flag, dropped by a `defer` on the way out
+  unless the store takes it (`rig.take(&__rig_live_N_new,
+  __rig_new_N)`), as a call's hoisted argument is.
+
+Its readers, each taking the steps from `eachSetStep`:
+
+- **The storage plan** records the storage the fact names (`new_value`,
+  `base`, `index`, and `slot`; `Planner.assignment`).
+- **Emit** writes the steps the fact holds, in their turn
+  (`openAssign`, `openSetValue`, `hoistTarget`, `emitPlaceAssign`), and
+  the store through the names they were held in.
+- **The ownership checker** walks the steps in the same order
+  (`walkSet`): the value, then a base that is no place, then the
+  indexes, then the store (`walkFieldAssign`).
+- A pass that removes run-time checks reads it to know which indexes
+  are evaluated before the place is found, and what each step could
+  have changed by then.
+
+A new reader takes the steps from `eachSetStep` and the held storage
+from `setOrder`, and decides neither again.
 
 - **The checker** walks the value, then the target. While the value is
   walked, the target's uses lie ahead, in the statement after `__v`:
@@ -2453,16 +2511,32 @@ the store: `__v = value;` does not end it.
   symbols pinned inside the loop or block it leaves are not live on its
   path (`walkJump`). Liveness positions are not patched: the target's
   uses are recorded where they stand, and a scope that ends after the
-  assignment (one whose last line it is) sees them as behind it.
-- **Emit** makes `__v` whenever the value can act (`actsBeforeStore`: a
-  call, an assignment, a drop, or a jump), as the `new_value` storage
-  fact `__rig_new_N`, then stores through the place: a field or element
-  through `openAssign` or `openNewValue`, a compound through
-  `openAssign`, a reassigned resource through `openNewValue`, and any
-  other name store through `storesAfterValue`. So Zig never takes the
-  place's address before the value runs: `w = match ...` through a
-  `!T` local is `{ const __rig_new_N = switch ...; w.* = __rig_new_N; }`,
-  never `w.* = switch ...`.
+  assignment (one whose last line it is) sees them as behind it. A
+  base's loans stay live while the indexes after it run, as the view
+  it gives is used by the store, so an index cannot change what the
+  base views.
+- **Emit** makes `__v` whenever the value can act or the fact holds it,
+  as the `new_value` storage fact `__rig_new_N`, then stores through
+  the place: a field or element through `openAssign` or
+  `openSetValue`, a compound through `openAssign`, a reassigned
+  resource through `openNewValue`, and any other name store through
+  `storesAfterValue`. So Zig never takes the place's address before the
+  value runs: `w = match ...` through a `!T` local is
+  `{ const __rig_new_N = switch ...; w.* = __rig_new_N; }`, never
+  `w.* = switch ...`, and `pick(!t, !i)[k] = s[i]` with `k` a local is
+  `{ const __rig_new_N = s[i]; const __rig_base_N = pick(t, &i);
+  const __rig_ix_N_k = k; rig.elemPtr(__rig_base_N, __rig_ix_N_k).* =
+  __rig_new_N; }`.
+
+A loop's step (`while c : place op= value`) and a deferred assignment
+are assignments, with the same steps and the same fact. The other forms
+that evaluate more than one part record their order as facts too, which
+the checker walks and emit writes: a call evaluates its receiver, then
+its arguments in the order written (`hoists_args`, `receiver_hold`,
+`argument_hold`; [Emit](#emit), "Evaluation order of arguments"), and a
+`match`, `if … as`, `while … as`, or `for` evaluates its subject once,
+before its arms or body (`match_block`, `subject_hold`,
+`header_points`).
 
 The other forms whose value may hold statements have no place to
 evaluate after it: `return value`, `break value`, and a new binding's
@@ -2725,10 +2799,11 @@ symbols); a query that decides more than that belongs in `Pending`.
   the chokepoint checks the storage's `life` against the scope emit
   gives it, so each of these becomes a slot or a fact the checker walks.
 - **Assignments.** Zig finds the address of `place.* = f()` before it
-  calls `f`, so an assignment whose value or indexes can act (a call,
-  an assignment, a drop, a jump) evaluates the value into
-  `__rig_new_N` and each index into `__rig_ix_N_k` first, then stores
-  (`openAssign`, and `storesAfterValue` for a name): the desugaring
+  calls `f`, and evaluates a call the place starts from where it finds
+  the place, so an assignment any step of which can act (a call, an
+  assignment, a drop, a jump) evaluates its steps into storage in
+  their turn, then stores (`SetOrder`, `openAssign`, and
+  `storesAfterValue` for a name): the desugaring
   [Assignments](#assignments) gives, which the ownership checker walks,
   and the order SPEC §4 gives. A lend, a
   slice, or a receiver takes its place's address up to each index

@@ -1914,9 +1914,10 @@ sub main()
 21
 ```
 
-An assignment evaluates its value first, then the indexes of its
-target from left to right (the outermost index first), and only then finds the place and stores
-into it; a compound assignment reads the place there, combines, and
+An assignment evaluates its value first, then its target from left to
+right: the value its path starts from (a call, `pick(!t, !i)[0] = s[i]`,
+runs after `s[i]` is read), then its indexes (the outermost index
+first), and only then finds the place and stores into it; a compound assignment reads the place there, combines, and
 writes it back. A call on the right that grows the List an element is
 in, or replaces the value a field is in, is safe: the store lands in
 the value as the call left it, and panics if the element is gone.
