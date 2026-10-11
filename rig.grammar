@@ -323,7 +323,7 @@ tokens
     if                          cond then else?
     as                          value name:leaf
     while                       cond step? body:block else:block?
-    for                         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
+    for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block?
     match                       subject ...arms:arm
     arm                         pattern guard? body
     alt_pattern                 ...alts
@@ -749,6 +749,8 @@ step     = assign
 # mode slot.
 for      = FOR var:name ["," index:name] IN source:value body:block [ELSE else:block]
                                                     → (for mode:iter)
+         | FOR source:value body:block [ELSE else:block]
+                                                    → (for mode:iter var:_)
 
 match    = MATCH subject:value INDENT arms:arms OUTDENT → (match)
 
