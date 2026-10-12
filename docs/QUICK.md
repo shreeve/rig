@@ -15,6 +15,10 @@ states the ownership model in full; [SYNTAX](../SYNTAX.md) and
 After a type, `T?` may be `none` and `T!` may fail; after an
 expression, `e?` passes `none` up and `e!` passes a failure up.
 
+**After a name, `[]` is compile time and `()` is run time.** Indexing is
+the one familiar exception: `max[Float](1, 2)` passes a type, `xs[i]`
+indexes a value.
+
 **Reading is unmarked; writing is marked.** A bare argument is lent to
 read where its parameter is a read view: `size(v)` is `size(?v)` for
 `size(xs: ?List[Int])`. Where the parameter owns its value, a bare owner

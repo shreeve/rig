@@ -797,8 +797,9 @@ sub main()
 
 ### Generics and compile-time parameters
 
-Square brackets hold everything known at compile time, and parentheses
-what is known when the program runs. In a bracket list after a declared
+After a name, square brackets give compile-time arguments and
+parentheses give run-time ones. Indexing is the one familiar exception.
+In a bracket list after a declared
 name, a bare name is a type parameter and `name: Type` a compile-time
 value. There is no `<T>` and no `comptime` keyword.
 

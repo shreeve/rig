@@ -378,8 +378,9 @@ a condition or an operand of `and`, `or`, or `not`.
 
 ### Brackets for compile time
 
-Square brackets hold everything known at compile time, and parentheses
-what is known when the program runs: `obj Wrap[T]`, `List[Int]()`,
+After a name, square brackets give compile-time arguments and
+parentheses give run-time ones. Indexing is the one familiar exception.
+Examples: `obj Wrap[T]`, `List[Int]()`,
 `fun max[T](a: T, b: T)`, `fun check[mode: Mode](n: Int)`,
 `check[.strict](5)`. One spelling covers type arguments and
 compile-time values, as Zig's `comptime` does for both, so a call shows
