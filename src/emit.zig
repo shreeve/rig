@@ -1779,6 +1779,22 @@ pub const Emitter = struct {
         try self.hoisted.append(self.allocator, .{ .node = index, .name = name });
     }
 
+    /// Whether `ty` is a vector, or a view of one.
+    fn isSimd(self: *Emitter, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return self.facts.types.get(self.peelViews(t)) == .simd;
+    }
+
+    /// The runtime function that shifts a vector's lanes by one amount
+    /// (`<<`, `<<%`, or `>>`).
+    fn vecShift(op: Tag) []const u8 {
+        return switch (op) {
+            .@"<<" => "rig.vecShl",
+            .@"<<%" => "rig.vecShlWrap",
+            else => "rig.vecShr",
+        };
+    }
+
     /// `x op= e` on a name or place, with the place evaluated once, after
     /// `e` (`openAssign`). The operators that lower to a builtin
     /// (`@divTrunc` for integer `/`, `rig.rem`, `@shlExact`) assign the
@@ -1787,12 +1803,15 @@ pub const Emitter = struct {
         try self.inUnit(set);
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
-        const builtin: ?[]const u8 = switch (op) {
+        const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
+        // A vector's lanes shift through the runtime (`vecShift`), which
+        // takes the amount as it is.
+        const lanes = shift and self.isSimd(self.typeOf(target));
+        const builtin: ?[]const u8 = if (lanes) vecShift(op) else switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
             .@"<<" => "@shlExact",
             else => null,
         };
-        const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
         const order = try self.openAssign(set, if (value_ty) |t| self.peelViews(t) else null, .value);
@@ -1808,9 +1827,10 @@ pub const Emitter = struct {
                 try self.emitPlace(target);
                 try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
             }
-            try self.w.writeAll(if (shift) ", @intCast(" else ", ");
+            const cast = shift and !lanes;
+            try self.w.writeAll(if (cast) ", @intCast(" else ", ");
             try self.emitBare(value);
-            if (shift) try self.w.writeAll(")");
+            if (cast) try self.w.writeAll(")");
             try self.w.writeAll(if (target == .src) ");" else "); }");
             return self.closeAssign(order);
         }
@@ -4058,7 +4078,7 @@ pub const Emitter = struct {
             else => {},
         }
         if (self.literal_ty == null) switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
                 // does not evaluate it again with other intermediate types.
@@ -4067,7 +4087,7 @@ pub const Emitter = struct {
             else => {},
         };
         switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .neg, .index => self.rt_names = true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .neg, .index => self.rt_names = true,
             else => {},
         }
         switch (head) {
@@ -4203,9 +4223,9 @@ pub const Emitter = struct {
                 try self.w.print(".{f}", .{ident(name)});
             },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
-            .@"+%", .@"-%", .@"*%" => {
+            .@"+%", .@"-%", .@"*%", .@"+|", .@"-|" => {
                 // In the expression's type, so that literal operands wrap
-                // as it does rather than as a Zig `comptime_int`.
+                // or saturate as it does rather than as a Zig `comptime_int`.
                 if (!bare) try self.w.writeAll("(");
                 try self.writeAsOpen(self.typeOf(sexp) orelse self.facts.types.int_id);
                 try self.emitBare(ir.get(sexp, .left));
@@ -4226,6 +4246,13 @@ pub const Emitter = struct {
                 // does. The shift amount is cast to the width Zig requires,
                 // so one at or over the width panics in either; the shifted
                 // value has the expression's type.
+                if (self.isSimd(self.typeOf(sexp))) {
+                    try self.w.print("{s}(", .{vecShift(head)});
+                    try self.emitBare(ir.get(sexp, .left));
+                    try self.w.writeAll(", ");
+                    try self.emitBare(ir.get(sexp, .right));
+                    return self.w.writeAll(")");
+                }
                 const shl = head == .@"<<";
                 const wrap = head == .@"<<%";
                 const parens = !shl and !bare;
@@ -4776,7 +4803,7 @@ pub const Emitter = struct {
             return self.derefToHandle(t);
         };
         const needs_parens = movesCompound(o) or if (o.kind()) |h| switch (h) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .propagate, .call, .array => true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .propagate, .call, .array => true,
             else => false,
         } else false;
         if (needs_parens) try self.w.writeAll("(");
@@ -5321,6 +5348,24 @@ pub const Emitter = struct {
                 try self.emitTypeTy(ec.elem);
                 try self.w.writeAll(", ");
                 try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")");
+            },
+            // `rig.lookup(t, idx)`, lowered per target by the runtime.
+            .lookup => {
+                try self.w.writeAll("rig.lookup(");
+                try self.emitBare(ir.Member.object(callee));
+                try self.w.writeAll(", ");
+                try self.emitBare(args[0]);
+                return self.w.writeAll(")");
+            },
+            // `rig.lag(k, cur, prev)`: one constant shuffle.
+            .lag => {
+                try self.w.writeAll("rig.lag(");
+                try self.emitBare(self.facts.ctArgsOf(call)[0]);
+                try self.w.writeAll(", ");
+                try self.emitBare(ir.Member.object(callee));
+                try self.w.writeAll(", ");
+                try self.emitBare(args[0]);
                 return self.w.writeAll(")");
             },
             // `rig.withLane(v, i, x)`.

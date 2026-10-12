@@ -1,0 +1,54 @@
+# `+|` and `-|` saturate: a result past the type's limits stops at the
+# limit, with no panic and no wrap. They bind as `+` and `-` do, and `+|=`
+# and `-|=` assign. A constant result is folded in its type.
+
+LIMIT: U8 = 250 +| 10
+FLOOR: I8 = -100 -| 100
+
+fun add(a: U8, b: U8) -> U8
+  a +| b
+
+fun minus(a: I16, b: I16) -> I16
+  a -| b
+
+sub main()
+  print(add(200, 55), add(200, 56), add(255, 255), add(0, 0))
+  print(minus(-32000, 768), minus(-32000, 769), minus(32000, -767), minus(32000, -768))
+  print(LIMIT, FLOOR)
+  u: U64 = 18446744073709551615
+  print(u +| 1, u -| u, U64(3) -| 5)
+  i: Int = 9223372036854775807
+  print(i +| 1, -i -| 2, i -| -1, (-i - 1) +| -1)
+  x: U32 = 4294967290
+  print(x +| 2 * 4, (x +| 2) * 1, 10 -| 2 + 3)
+  c: U8 = 7
+  c +|= 250
+  print(c)
+  c +|= 1
+  print(c)
+  c -|= 200
+  print(c)
+  c -|= 100
+  print(c)
+  d: I8 = -120
+  d -|= 10
+  print(d)
+  d +|= 127
+  d +|= 127
+  print(d)
+
+# expect:
+# 255 255 255 0
+# -32768 -32768 32767 32767
+# 255 -128
+# 18446744073709551615 0 0
+# 9223372036854775807 -9223372036854775808 9223372036854775807 -9223372036854775808
+# 4294967295 4294967292 11
+# 255
+# 255
+# 55
+# 0
+# -128
+# 126
+
+# release

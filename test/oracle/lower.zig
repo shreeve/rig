@@ -1762,7 +1762,7 @@ const Lowerer = struct {
                 try self.emit(.{ .pos = pos, .what = .make, .reads = try self.pair(n, v), .def = t });
                 return t;
             },
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => {
                 // An operand is read as its value (SPEC §7).
                 const l = try self.readOpt(ir.get(e, .left));
                 const r = try self.readOpt(ir.get(e, .right));

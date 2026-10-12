@@ -1627,6 +1627,148 @@ pub fn withLane(v: anytype, i: anytype, x: @typeInfo(@TypeOf(v)).vector.child) @
     return lanes;
 }
 
+/// `v << c`, `v <<% c`, and `v >> c` of a vector of integers: every lane
+/// shifted by the one amount `c`, which must be below the lane width (a
+/// cast that panics otherwise, as for a scalar). `<<` panics where a lane
+/// loses bits or its sign, found by shifting back (`(r >> c) != v`): no
+/// overflow intrinsic, and a vector known at compile time still panics
+/// when the program runs rather than stopping the build.
+pub inline fn vecShl(v: anytype, amount: anytype) @TypeOf(v) {
+    const k = laneAmount(@TypeOf(v), amount);
+    const r = v << k;
+    if (@reduce(.Or, (r >> k) != v)) panic.shlOverflow();
+    return r;
+}
+
+pub inline fn vecShlWrap(v: anytype, amount: anytype) @TypeOf(v) {
+    return v << laneAmount(@TypeOf(v), amount);
+}
+
+pub inline fn vecShr(v: anytype, amount: anytype) @TypeOf(v) {
+    return v >> laneAmount(@TypeOf(v), amount);
+}
+
+/// A shift amount for every lane of `V`, in the width Zig shifts by.
+inline fn laneAmount(comptime V: type, amount: anytype) @Vector(@typeInfo(V).vector.len, std.math.Log2Int(@typeInfo(V).vector.child)) {
+    return @splat(@intCast(amount));
+}
+
+/// `cur.lag[k](prev)`: lane `i` is `cur[i - k]` for `i >= k`, and
+/// `prev[n - k + i]` below: the lanes of `prev` then `cur`, `k` lanes
+/// back from the end. One constant two-vector shuffle, which LLVM lowers
+/// to `ext` on NEON, `palignr` on x86 (with a lane-crossing permute for
+/// AVX2's 32 bytes), and `i8x16.shuffle` on WASM. Typecheck holds `k` to
+/// 1..n-1.
+pub inline fn lag(comptime k: usize, cur: anytype, prev: @TypeOf(cur)) @TypeOf(cur) {
+    const info = @typeInfo(@TypeOf(cur)).vector;
+    return @shuffle(info.child, prev, cur, lagIndices(info.len, k));
+}
+
+fn lagIndices(comptime n: usize, comptime k: usize) @Vector(n, i32) {
+    @setEvalBranchQuota(100_000);
+    var a: [n]i32 = undefined;
+    for (&a, 0..) |*x, i| x.* = if (i < k) @intCast(n - k + i) else ~@as(i32, @intCast(i - k));
+    return a;
+}
+
+/// `t.lookup(idx)` of a table `t` of 16, 32, or 64 bytes: lane `i` is
+/// `t[idx[i]]`, or 0 where `idx[i]` is past the table. Each target's
+/// table instruction takes 16 indexes at a time (a shorter `idx` is
+/// filled out with indexes past the table, and a longer one taken in
+/// pieces): NEON's `tbl` takes 1 to 4 table registers and gives 0 past
+/// them. x86's `pshufb` (SSSE3; `vpshufb`, 32 indexes against a table
+/// repeated in both halves, with AVX2) and WASM's `i8x16.swizzle` read one
+/// 16-byte table piece, so each piece is looked up with the indexes moved
+/// down to it, and the results OR together. `pshufb` reads only an
+/// index's low 4 bits unless its bit 7 is set, which gives 0: a saturating
+/// add of 0x70 sets bit 7 exactly where an index is 16 or more. Elsewhere,
+/// and at compile time, a lane at a time (`lookupLanes`); every form gives
+/// the same lanes (`test "lookup: every form agrees"`).
+pub inline fn lookup(table: anytype, idx: anytype) @TypeOf(idx) {
+    const n = @typeInfo(@TypeOf(idx)).vector.len;
+    if (@inComptime() or comptime !lookupInstructions()) return lookupLanes(table, idx);
+    if (comptime n >= 16) return lookupPieces(table, idx);
+    const wide = @shuffle(u8, idx, @as(@Vector(16, u8), @splat(0xFF)), padIndices(n));
+    return @shuffle(u8, lookupPieces(table, wide), undefined, iota(n, 0));
+}
+
+/// `lookup` of 16 or more indexes, a target's table instructions at a time.
+inline fn lookupPieces(table: anytype, idx: anytype) @TypeOf(idx) {
+    const m = @typeInfo(@TypeOf(table)).vector.len;
+    const n = @typeInfo(@TypeOf(idx)).vector.len;
+    const P = @Vector(16, u8);
+    const ts: [m / 16]P = @bitCast(table);
+    if (comptime builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2) and n >= 32) {
+        const W = @Vector(32, u8);
+        const pieces: [n / 32]W = @bitCast(idx);
+        var out: [n / 32]W = undefined;
+        inline for (pieces, &out) |piece, *o| {
+            var r: W = @splat(0);
+            inline for (ts, 0..) |t, j| {
+                const both = @shuffle(u8, t, undefined, iota(32, 0) & @as(@Vector(32, i32), @splat(15)));
+                r |= @"llvm.x86.avx2.pshuf.b"(both, (piece -% @as(W, @splat(16 * j))) +| @as(W, @splat(0x70)));
+            }
+            o.* = r;
+        }
+        return @bitCast(out);
+    }
+    const pieces: [n / 16]P = @bitCast(idx);
+    var out: [n / 16]P = undefined;
+    inline for (pieces, &out) |piece, *o| o.* = lookup16(m, ts, piece);
+    return @bitCast(out);
+}
+
+/// One 16-index piece of `lookup`.
+inline fn lookup16(comptime m: usize, ts: [m / 16]@Vector(16, u8), idx: @Vector(16, u8)) @Vector(16, u8) {
+    const P = @Vector(16, u8);
+    if (comptime neonIntrinsics()) return switch (m) {
+        16 => @"llvm.aarch64.neon.tbl1.v16i8"(ts[0], idx),
+        32 => @"llvm.aarch64.neon.tbl2.v16i8"(ts[0], ts[1], idx),
+        else => @"llvm.aarch64.neon.tbl4.v16i8"(ts[0], ts[1], ts[2], ts[3], idx),
+    };
+    var r: P = @splat(0);
+    inline for (ts, 0..) |t, j| {
+        const down = idx -% @as(P, @splat(16 * j));
+        r |= if (comptime wasmSimd()) @"llvm.wasm.swizzle"(t, down) else @"llvm.x86.ssse3.pshuf.b.128"(t, down +| @as(P, @splat(0x70)));
+    }
+    return r;
+}
+
+/// Whether the target has a table instruction `lookup` uses: NEON, x86's
+/// SSSE3, or WASM SIMD, each through LLVM.
+fn lookupInstructions() bool {
+    if (builtin.zig_backend != .stage2_llvm) return false;
+    return neonIntrinsics() or wasmSimd() or
+        (builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3));
+}
+
+/// `lookup` a lane at a time.
+fn lookupLanes(table: anytype, idx: anytype) @TypeOf(idx) {
+    const m = @typeInfo(@TypeOf(table)).vector.len;
+    const n = @typeInfo(@TypeOf(idx)).vector.len;
+    const t: [m]u8 = table;
+    const is: [n]u8 = idx;
+    var out: [n]u8 = undefined;
+    for (is, &out) |j, *o| o.* = if (j < m) t[j] else 0;
+    return out;
+}
+
+/// Lanes `0..n` of a vector, then 16 - n lanes of the second operand's.
+fn padIndices(comptime n: usize) @Vector(16, i32) {
+    var a: [16]i32 = undefined;
+    for (&a, 0..) |*x, i| x.* = if (i < n) @intCast(i) else ~@as(i32, @intCast(i));
+    return a;
+}
+
+/// The table instructions, each named only where `lookupInstructions`
+/// picks it.
+extern fn @"llvm.aarch64.neon.tbl1.v16i8"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+extern fn @"llvm.aarch64.neon.tbl2.v16i8"(@Vector(16, u8), @Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+extern fn @"llvm.aarch64.neon.tbl4.v16i8"(@Vector(16, u8), @Vector(16, u8), @Vector(16, u8), @Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+extern fn @"llvm.x86.ssse3.pshuf.b.128"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+extern fn @"llvm.x86.avx2.pshuf.b"(@Vector(32, u8), @Vector(32, u8)) @Vector(32, u8);
+extern fn @"llvm.wasm.swizzle"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+
 /// The mask helpers (`maskBits`, `maskFirst`, `maskAny`, `maskAll`, and the
 /// functions they call) are `inline`: called, a wide mask is moved through
 /// its lanes one by one (about 56 moves per 32 bytes on aarch64), where
@@ -2683,6 +2825,82 @@ test "maskBits: every form agrees" {
             try testing.expectEqual(want != 0, maskAny(m));
             try testing.expectEqual(if (want == 0) null else @as(?i64, @ctz(want)), maskFirst(m));
             try testing.expectEqual(want == std.math.maxInt(@Int(.unsigned, n)), maskAll(m));
+        }
+    }
+}
+
+/// An index for `lookup`'s tests: in the table, just past it, around
+/// `pshufb`'s bit 7 and the saturating add of 0x70, or anything.
+fn lookupIndex(r: std.Random, m: usize) u8 {
+    const edges = [_]u8{ 0, 15, 16, 31, 32, 47, 48, 63, 64, 0x6F, 0x70, 0x7F, 0x80, 0x8F, 0x90, 0xEF, 0xF0, 0xFF };
+    return switch (r.uintLessThan(u8, 4)) {
+        0 => edges[r.uintLessThan(usize, edges.len)],
+        1 => r.uintLessThan(u8, @intCast(m)),
+        else => r.int(u8),
+    };
+}
+
+test "lookup: every form agrees" {
+    var prng = std.Random.DefaultPrng.init(0x7ab1e);
+    const r = prng.random();
+    inline for (.{ 16, 32, 64 }) |m| {
+        inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
+            for (0..300) |_| {
+                var t: [m]u8 = undefined;
+                r.bytes(&t);
+                var is: [n]u8 = undefined;
+                for (&is) |*x| x.* = lookupIndex(r, m);
+                var want: [n]u8 = undefined;
+                for (is, &want) |j, *w| w.* = if (j < m) t[j] else 0;
+                const table: @Vector(m, u8) = t;
+                const idx: @Vector(n, u8) = is;
+                try testing.expectEqual(want, @as([n]u8, lookup(table, idx)));
+                try testing.expectEqual(want, @as([n]u8, lookupLanes(table, idx)));
+            }
+        }
+    }
+}
+
+test "lookup: at compile time" {
+    const t: @Vector(16, u8) = "0123456789abcdef".*;
+    const idx: @Vector(4, u8) = .{ 0, 15, 16, 0x80 };
+    const r = comptime lookup(t, idx);
+    try testing.expectEqual([4]u8{ '0', 'f', 0, 0 }, @as([4]u8, r));
+}
+
+test "lag: every amount and lane count" {
+    inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
+        var p: [n]u16 = undefined;
+        var c: [n]u16 = undefined;
+        for (&p, &c, 0..) |*x, *y, i| {
+            x.* = @intCast(i);
+            y.* = @intCast(1000 + i);
+        }
+        inline for (1..n) |k| {
+            const got: [n]u16 = lag(k, @as(@Vector(n, u16), c), @as(@Vector(n, u16), p));
+            for (got, 0..) |g, i| try testing.expectEqual(if (i >= k) c[i - k] else p[n - k + i], g);
+        }
+    }
+}
+
+test "vecShl, vecShlWrap, vecShr: every lane type and amount" {
+    var prng = std.Random.DefaultPrng.init(0x5417);
+    const r = prng.random();
+    inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
+        inline for (.{ 2, 16, 32, 64 }) |n| {
+            for (0..@bitSizeOf(T)) |c| {
+                var xs: [n]T = undefined;
+                for (&xs) |*x| x.* = if (r.boolean()) r.int(T) else @truncate(r.int(T) >> @intCast(r.uintLessThan(usize, @bitSizeOf(T))));
+                const v: @Vector(n, T) = xs;
+                const k: std.math.Log2Int(T) = @intCast(c);
+                var lost = false;
+                for (xs, @as([n]T, vecShlWrap(v, c)), @as([n]T, vecShr(v, c))) |x, wrapped, right| {
+                    try testing.expectEqual(x << k, wrapped);
+                    try testing.expectEqual(x >> k, right);
+                    if ((x << k) >> k != x) lost = true;
+                }
+                if (!lost) try testing.expectEqual(@as([n]T, vecShlWrap(v, c)), @as([n]T, vecShl(v, c)));
+            }
         }
     }
 }

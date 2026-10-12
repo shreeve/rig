@@ -1,0 +1,17 @@
+# A shift amount known only when the program runs must be below the lane
+# width, as a scalar's is.
+
+fun shift(v: Simd[U16, 4], n: Int) -> Simd[U16, 4]
+  v >> n
+
+sub main()
+  v = Simd[U16, 4].splat(0x8000)
+  print(shift(v, 15))
+  print(shift(v, 16))
+
+# expect-panic: integer does not fit in destination type
+
+# release
+
+# expect:
+# [1, 1, 1, 1]

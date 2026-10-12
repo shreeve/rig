@@ -1,0 +1,26 @@
+# `+|` and `-|` saturate integers: a float, a Bool, or two integer types
+# are rejected, as for the wrapping forms, and so is a generic body's `T`
+# that is no integer.
+
+fun twice[T](x: T) -> T
+  x +| x
+
+sub main()
+  f = 1.5
+  b = true
+  u: U8 = 1
+  i: I8 = 1
+  print(f +| 1.0, b -| b, u +| i)
+  f +|= 1.0
+  f -|= 1.0
+  print(twice(u), twice(f))
+  print(u +| 256)
+
+# error: 13:9: operator `+|` requires integer operands; got `Float`
+# error: 13:19: operator `-|` requires integer operands; got `Bool`
+# error: 13:27: operator `+|` operands have different types `U8` and `I8`
+# error: 14:3: `+|=` requires an integer target; `f` has type `Float`
+# error: 15:3: `-|=` requires an integer target; `f` has type `Float`
+# error: 16:19: `twice[Float]` cannot use `T = Float`: the generic body applies `+|` to `T`, which `Float` does not support
+# error: 17:14: integer value `256` does not fit in `U8` (0..255)
+# errors: 7
