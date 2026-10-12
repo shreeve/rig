@@ -1683,6 +1683,9 @@ inline fn foldBytes(comptime n: usize, w: @Vector(n, u8), comptime and_: bool) @
 
 /// The indices `from`, `from + 1`, ... of a shuffle mask.
 fn iota(comptime n: usize, comptime from: i32) @Vector(n, i32) {
+    // A mask known at compile time makes the caller's whole body run at
+    // compile time, with these loops counted against its one quota.
+    @setEvalBranchQuota(100_000);
     var a: [n]i32 = undefined;
     for (&a, 0..) |*x, j| x.* = from + @as(i32, @intCast(j));
     return a;
