@@ -375,12 +375,28 @@ pub obj Doc
       return -1 if i < 0
       # Escapes back to back need no scan between them.
       continue if i < src.len and src[i] == BACKSLASH
+      i = (!self).copy_plain(src, i)
       j = (!self).plain(src, i)
       return -1 if j < 0
       return (!self).fail(.eof, j) if j >= src.len
       !self.text.add(src[i..j])
       i = j
     -1
+
+  # Appends to `text` the plain ASCII bytes from `at` on, 16 at a time
+  # as they are scanned: each block is stored whole and its bytes before
+  # the first quote, backslash, control byte or byte of 0x80 or more are
+  # kept. Returns the index of that byte, or where fewer than 16 bytes
+  # are left; `plain` takes the run from there.
+  fun copy_plain(!self, src: ?String, at: Int) -> Int
+    i = at
+    while i + 16 <= src.len : i += 16
+      block = src.read[Simd[U8, 16]](i)
+      if special(block).first() as k
+        !self.text.push(block, keep: k)
+        return i + k
+      !self.text.push(block, keep: 16)
+    i
 
   # Decodes the escape whose backslash is at `at`; returns the index after it.
   fun escape(!self, src: ?String, at: Int) -> Int
