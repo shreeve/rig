@@ -57,6 +57,15 @@ Any file more than 2% above its baseline in `guard.txt` fails the guard.
 A change meant to move the counts, such as a faster parser or a new Zig,
 commits a new baseline with `--update`.
 
+## The string-scan sweep: `xbench.sh`
+
+`xbench.sh build|time|perf OUT` builds, times and counts the sweep of
+`skip_plain_ascii` (SWAR stage of 16, 32 or 64 bytes or none, 16- or 32-lane
+SIMD, `variants/simd32.py`) next to the competitors, on Linux or macOS;
+`timers/perf.py` counts cycles and instructions per byte with Linux
+`perf stat`, and `PIN=CPU` pins `timers/time.py` with `taskset`. Results:
+the "Linux x86 (pup)" section of docs/json/RESULTS.md.
+
 ## Competitors
 
 Each binary takes `FILE N`, like the Rig programs.
