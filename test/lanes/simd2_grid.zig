@@ -45,7 +45,7 @@ fn lanes(comptime T: type, comptime n: usize, r: std.Random) [n]T {
     return xs;
 }
 
-fn saturating(comptime T: type, comptime n: usize, r: std.Random) void {
+noinline fn saturating(comptime T: type, comptime n: usize, r: std.Random) void {
     const xs = lanes(T, n, r);
     const ys = lanes(T, n, r);
     const a = load(T, n, &xs);
@@ -62,7 +62,7 @@ fn saturating(comptime T: type, comptime n: usize, r: std.Random) void {
     }
 }
 
-fn shifts(comptime T: type, comptime n: usize, r: std.Random) void {
+noinline fn shifts(comptime T: type, comptime n: usize, r: std.Random) void {
     for (0..@bitSizeOf(T)) |c| {
         const k: std.math.Log2Int(T) = @intCast(c);
         var xs = lanes(T, n, r);
@@ -83,7 +83,7 @@ fn shifts(comptime T: type, comptime n: usize, r: std.Random) void {
     }
 }
 
-fn lookups(comptime m: usize, comptime n: usize, r: std.Random) void {
+noinline fn lookups(comptime m: usize, comptime n: usize, r: std.Random) void {
     var t: [m]u8 = undefined;
     r.bytes(&t);
     const edges = [_]u8{ 0, 15, 16, 31, 32, 47, 48, 63, 64, 0x6F, 0x70, 0x7F, 0x80, 0x8F, 0x90, 0xEF, 0xF0, 0xFF };
@@ -100,7 +100,7 @@ fn lookups(comptime m: usize, comptime n: usize, r: std.Random) void {
     }
 }
 
-fn lags(comptime T: type, comptime n: usize, r: std.Random) void {
+noinline fn lags(comptime T: type, comptime n: usize, r: std.Random) void {
     const ps = lanes(T, n, r);
     const cs = lanes(T, n, r);
     const p = load(T, n, &ps);
@@ -140,8 +140,13 @@ pub fn main(init: std.process.Init) !void {
         inline for (types) |T| inline for (lane_counts) |n| {
             saturating(T, n, r);
             shifts(T, n, r);
-            lags(T, n, r);
-            cells += 3;
+            cells += 2;
+            // `lag` is one shuffle whatever the lanes hold: every amount
+            // on half the lane types keeps the build small.
+            if (comptime T == u8 or T == u16 or T == i32 or T == u64) {
+                lags(T, n, r);
+                cells += 1;
+            }
         };
         inline for (.{ 16, 32, 64 }) |m| inline for (lane_counts) |n| {
             for (0..8) |_| lookups(m, n, r);

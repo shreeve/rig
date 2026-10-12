@@ -4,7 +4,10 @@
 # without AVX2, `x86_64_v3` with it) in Debug, ReleaseSafe, and
 # ReleaseFast, runs it, and checks that `vecShl` panics where a lane loses
 # a bit. With WASM=1 it also runs WASM, with and without SIMD, under
-# wasmtime. Exits 1 if any build or cell fails.
+# wasmtime (WASM SIMD in the optimized modes only: at -O0, LLVM shifts a
+# vector by an amount narrower than a byte wrong, e.g. `<16 x i8>` by
+# `<16 x i3>`, which no Rig target builds). Exits 1 if any build or cell
+# fails.
 #
 #   test/lanes/simd2_grid.sh [cpu...]
 set -u
@@ -21,6 +24,7 @@ for cpu in "${@:-native}"; do targets+=("native:$cpu"); done
 for t in "${targets[@]}"; do
     target=${t%%:*}; cpu=${t#*:}
     for mode in Debug ReleaseSafe ReleaseFast; do
+        [ "$cpu" = generic+simd128 ] && [ "$mode" = Debug ] && continue
         exe=$out/grid-$target-$cpu-$mode
         [ "$target" = wasm32-wasi ] && exe=$exe.wasm
         if ! "$zig" build-exe -target "$target" -mcpu="$cpu" -O "$mode" -femit-bin="$exe" --cache-dir "$out/cache" \
@@ -33,7 +37,7 @@ for t in "${targets[@]}"; do
         tail -40 "$out/o"; [ $rc = 0 ] || status=1
         [ "$mode" = ReleaseFast ] && continue
         for ty in u8 i8 u16 i64; do for n in 2 16 32 64; do
-            if "${run[@]}" shl "$ty" "$n" >"$out/o" 2>&1 || ! grep -q "left shift overflowed bits" "$out/o"; then
+            if ( "${run[@]}" shl "$ty" "$n" >"$out/o" 2>&1 ) 2>/dev/null || ! grep -q "left shift overflowed bits" "$out/o"; then
                 echo "  vecShl $ty x$n: no panic"; status=1
             fi
         done; done

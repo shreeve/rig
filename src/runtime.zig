@@ -1634,18 +1634,40 @@ pub fn withLane(v: anytype, i: anytype, x: @typeInfo(@TypeOf(v)).vector.child) @
 /// overflow intrinsic, and a vector known at compile time still panics
 /// when the program runs rather than stopping the build.
 pub inline fn vecShl(v: anytype, amount: anytype) @TypeOf(v) {
-    const k = laneAmount(@TypeOf(v), amount);
-    const r = v << k;
-    if (@reduce(.Or, (r >> k) != v)) panic.shlOverflow();
-    return r;
+    return laneShift(.left_checked, v, amount);
 }
 
 pub inline fn vecShlWrap(v: anytype, amount: anytype) @TypeOf(v) {
-    return v << laneAmount(@TypeOf(v), amount);
+    return laneShift(.left, v, amount);
 }
 
 pub inline fn vecShr(v: anytype, amount: anytype) @TypeOf(v) {
-    return v >> laneAmount(@TypeOf(v), amount);
+    return laneShift(.right, v, amount);
+}
+
+const Shift = enum { left, left_checked, right };
+
+/// A shift of every lane of `v` by `amount`. On WASM SIMD a vector of
+/// less than 16 bytes is shifted as the low lanes of a 16-byte one: LLVM
+/// (Zig 0.17) gives wrong lanes for `>>` of a `Simd[U8, 2]` or
+/// `Simd[U8, 4]` there in an optimized build (`test/lanes/simd2_grid.zig`).
+inline fn laneShift(comptime op: Shift, v: anytype, amount: anytype) @TypeOf(v) {
+    const V = @TypeOf(v);
+    const info = @typeInfo(V).vector;
+    if (comptime wasmSimd() and @sizeOf([info.len]info.child) < 16) {
+        const m = 16 / @sizeOf(info.child);
+        const wide = @shuffle(info.child, v, @as(V, @splat(0)), padIndicesTo(m, info.len));
+        return @shuffle(info.child, laneShiftWhole(op, wide, amount), undefined, iota(info.len, 0));
+    }
+    return laneShiftWhole(op, v, amount);
+}
+
+inline fn laneShiftWhole(comptime op: Shift, v: anytype, amount: anytype) @TypeOf(v) {
+    const k = laneAmount(@TypeOf(v), amount);
+    if (op == .right) return v >> k;
+    const r = v << k;
+    if (op == .left_checked and @reduce(.Or, (r >> k) != v)) panic.shlOverflow();
+    return r;
 }
 
 /// A shift amount for every lane of `V`, in the width Zig shifts by.
@@ -1755,8 +1777,14 @@ fn lookupLanes(table: anytype, idx: anytype) @TypeOf(idx) {
 
 /// Lanes `0..n` of a vector, then 16 - n lanes of the second operand's.
 fn padIndices(comptime n: usize) @Vector(16, i32) {
-    var a: [16]i32 = undefined;
-    for (&a, 0..) |*x, i| x.* = if (i < n) @intCast(i) else ~@as(i32, @intCast(i));
+    return padIndicesTo(16, n);
+}
+
+/// Lanes `0..n` of a vector, then `m - n` lanes of the second operand's
+/// (its first lane, for an operand of every lane alike).
+fn padIndicesTo(comptime m: usize, comptime n: usize) @Vector(m, i32) {
+    var a: [m]i32 = undefined;
+    for (&a, 0..) |*x, i| x.* = if (i < n) @intCast(i) else -1;
     return a;
 }
 
