@@ -2682,7 +2682,7 @@ const Checker = struct {
         const saved_matching = self.matching;
         defer self.matching = saved_matching;
         self.matching = node;
-        var cov: MatchCoverage = .{};
+        var cov: MatchCoverage = .{ .variant_total = sema.enumVariantCount(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) };
         var arm_values: std.ArrayList(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
         defer cov.deinit(self.ctx.allocator);
@@ -2701,12 +2701,12 @@ const Checker = struct {
             // A guarded arm may not run for the values its pattern
             // matches, so it covers none of them; later arms may repeat
             // its pattern.
-            var guarded: MatchCoverage = if (guard != .nil) try cov.clone(self.ctx.allocator) else .{};
+            var guarded: MatchCoverage = .{ .before = &cov, .variant_total = cov.variant_total };
             defer guarded.deinit(self.ctx.allocator);
             for (alts) |alt| try self.checkPattern(alt, scrutinee, if (guard != .nil) &guarded else &cov, mode);
             if (guard != .nil) {
                 var it = guarded.variants.keyIterator();
-                while (it.next()) |k| if (!cov.variants.contains(k.*)) try cov.guarded.put(self.ctx.allocator, k.*, {});
+                while (it.next()) |k| try cov.guarded.put(self.ctx.allocator, k.*, {});
             }
             if (viewed) |v| {
                 if (pattern.isKind(.variant_pattern)) {
@@ -2762,7 +2762,7 @@ const Checker = struct {
     const MatchCoverage = struct {
         variants: std.StringHashMapUnmanaged(u32) = .empty,
         bools: [2]bool = .{ false, false },
-        /// Inclusive integer intervals, disjoint and in order.
+        /// Inclusive integer intervals, disjoint, apart, and in order.
         ints: std.ArrayList([2]Wide) = .empty,
         has_default: bool = false,
         /// An arm's pattern was rejected without saying what it meant to
@@ -2770,6 +2770,13 @@ const Checker = struct {
         rejected: bool = false,
         /// Variants only a guarded arm matches, which covers none.
         guarded: std.StringHashMapUnmanaged(void) = .empty,
+        /// How many variants the scrutinee's type has, when it is an
+        /// enum (`sema.enumVariantCount`), counted once for the match.
+        variant_total: ?usize = null,
+        /// For a guarded arm, which covers nothing after it, what the
+        /// arms before it cover: its patterns may not repeat that either,
+        /// and what they cover is its own.
+        before: ?*const MatchCoverage = null,
 
         fn deinit(c: *MatchCoverage, a: std.mem.Allocator) void {
             c.variants.deinit(a);
@@ -2777,10 +2784,34 @@ const Checker = struct {
             c.guarded.deinit(a);
         }
 
-        fn clone(c: *const MatchCoverage, a: std.mem.Allocator) Error!MatchCoverage {
-            var variants = try c.variants.clone(a);
-            errdefer variants.deinit(a);
-            return .{ .variants = variants, .bools = c.bools, .ints = try c.ints.clone(a), .has_default = c.has_default };
+        /// Where the pattern that first covered variant (or error) key
+        /// `name` is.
+        fn variantAt(c: *const MatchCoverage, name: []const u8) ?u32 {
+            if (c.variants.get(name)) |pos| return pos;
+            return if (c.before) |b| b.variantAt(name) else null;
+        }
+
+        /// Whether a pattern covered Bool value `i` (0 for `false`).
+        fn hasBool(c: *const MatchCoverage, i: usize) bool {
+            return c.bools[i] or if (c.before) |b| b.hasBool(i) else false;
+        }
+
+        /// Whether a pattern covered a value from `lo` to `hi`.
+        fn overlapsInts(c: *const MatchCoverage, lo: Wide, hi: Wide) bool {
+            const ints = c.ints.items;
+            const at = intsAfter(ints, lo);
+            if ((at > 0 and ints[at - 1][1] >= lo) or (at < ints.len and ints[at][0] <= hi)) return true;
+            return if (c.before) |b| b.overlapsInts(lo, hi) else false;
+        }
+
+        /// The first of `ints` that starts after `lo`: of an interval
+        /// from `lo`, only it and the one before it can overlap.
+        fn intsAfter(ints: []const [2]Wide, lo: Wide) usize {
+            return std.sort.upperBound([2]Wide, ints, lo, struct {
+                fn order(key: Wide, iv: [2]Wide) std.math.Order {
+                    return std.math.order(key, iv[0]);
+                }
+            }.order);
         }
     };
 
@@ -3079,7 +3110,7 @@ const Checker = struct {
     /// Whether the arms so far match every value of the scrutinee type.
     fn coversAll(self: *Checker, cov: *MatchCoverage, scrutinee: TypeId) bool {
         const ty = sema.unwrapViews(self.ctx, scrutinee);
-        if (sema.enumVariantCount(self.ctx, ty)) |total| return cov.variants.count() >= total;
+        if (cov.variant_total) |total| return cov.variants.count() >= total;
         switch (self.ctx.types.get(ty)) {
             .bool => return cov.bools[0] and cov.bools[1],
             .int, .int_literal => {
@@ -3141,24 +3172,23 @@ const Checker = struct {
     }
 
     /// Record an integer interval a pattern matches; it may not overlap
-    /// an earlier one.
+    /// an earlier one. It joins an interval it touches, so a run of
+    /// values is one interval and `coversAll` reads past it at once.
     fn coverInts(self: *Checker, cov: *MatchCoverage, lo: Wide, hi: Wide, pos: u32) Error!void {
-        const ints = cov.ints.items;
-        // The first interval that starts after `lo`: only it and the one
-        // before it can overlap.
-        const at = std.sort.upperBound([2]Wide, ints, lo, struct {
-            fn order(key: Wide, iv: [2]Wide) std.math.Order {
-                return std.math.order(key, iv[0]);
-            }
-        }.order);
-        if ((at > 0 and ints[at - 1][1] >= lo) or (at < ints.len and ints[at][0] <= hi)) {
-            return self.err(pos, "this pattern overlaps an earlier arm", .{});
-        }
-        try cov.ints.insert(self.ctx.allocator, at, .{ lo, hi });
+        if (cov.overlapsInts(lo, hi)) return self.err(pos, "this pattern overlaps an earlier arm", .{});
+        const ints = &cov.ints;
+        const at = MatchCoverage.intsAfter(ints.items, lo);
+        const joins_next = at < ints.items.len and ints.items[at][0] == hi + 1;
+        if (at > 0 and ints.items[at - 1][1] + 1 == lo) {
+            const prev = &ints.items[at - 1];
+            prev[1] = if (joins_next) ints.items[at][1] else hi;
+            if (joins_next) _ = ints.orderedRemove(at);
+        } else if (joins_next) {
+            ints.items[at][0] = lo;
+        } else try ints.insert(self.ctx.allocator, at, .{ lo, hi });
     }
 
     fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage, mode: MatchMode) Error!void {
-        const covered = &cov.variants;
         switch (pattern) {
             .src => {
                 const name = self.text(pattern);
@@ -3166,7 +3196,7 @@ const Checker = struct {
                     try self.checkExpr(pattern, scrutinee);
                     if (std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) {
                         const i: usize = if (name[0] == 't') 1 else 0;
-                        if (cov.bools[i]) try self.errAt(pattern, "this pattern overlaps an earlier arm", .{});
+                        if (cov.hasBool(i)) try self.errAt(pattern, "this pattern overlaps an earlier arm", .{});
                         cov.bools[i] = true;
                     } else if (self.constInt(pattern)) |v| try self.coverInts(cov, v, v, pattern.src.pos);
                     return;
@@ -3194,17 +3224,17 @@ const Checker = struct {
                         if (sema.unwrapViews(self.ctx, scrutinee) == self.t().any_error_id) {
                             const set = try self.resolveErrorName(name);
                             try self.ctx.recordType(pattern, set);
-                            if (!self.isPoison(set)) try self.recordCovered(try self.errorArmKey(self.t().any_error_id, set, self.text(name)), self.startOf(pattern), covered);
+                            if (!self.isPoison(set)) try self.recordCovered(try self.errorArmKey(self.t().any_error_id, set, self.text(name)), self.startOf(pattern), cov);
                             return;
                         }
                         if (!self.isPoison(scrutinee) and (try sema.lookupVariant(self.ctx, scrutinee, self.text(name))) == null) {
                             try self.reportMissingVariant(scrutinee, self.text(name), srcPos(name, 0));
                         }
                         try self.ctx.recordType(pattern, scrutinee);
-                        try self.recordCovered(self.text(name), self.startOf(pattern), covered);
+                        try self.recordCovered(self.text(name), self.startOf(pattern), cov);
                     },
                     .member => try self.checkQualifiedPattern(pattern, scrutinee, cov),
-                    .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, covered, mode),
+                    .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, cov, mode),
                     .range_pattern => try self.checkRangePattern(pattern, scrutinee, cov),
                     else => {
                         try self.checkExpr(pattern, scrutinee);
@@ -3253,21 +3283,21 @@ const Checker = struct {
         try self.coverInts(cov, lo.?, hi.? - 1, pos);
     }
 
-    fn recordCovered(self: *Checker, name: []const u8, pos: u32, covered: *std.StringHashMapUnmanaged(u32)) Error!void {
-        if (covered.get(name)) |first| {
+    fn recordCovered(self: *Checker, name: []const u8, pos: u32, cov: *MatchCoverage) Error!void {
+        if (cov.variantAt(name)) |first| {
             try self.err(pos, "duplicate arm for variant `{s}`", .{name});
             try self.note(first, "first arm here", .{});
             return;
         }
-        try covered.put(self.ctx.allocator, name, pos);
+        try cov.variants.put(self.ctx.allocator, name, pos);
     }
 
-    fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32), mode: MatchMode) Error!void {
+    fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage, mode: MatchMode) Error!void {
         const name = ir.VariantPattern.name(pattern);
         const vname = self.text(name);
         const vpos = name.src.pos;
         const bindings = ir.VariantPattern.bindings(pattern);
-        try self.recordCovered(vname, vpos, covered);
+        try self.recordCovered(vname, vpos, cov);
         if (sema.unwrapViews(self.ctx, scrutinee) == self.t().any_error_id) {
             try self.err(vpos, "an error has no payload to destructure; match it as `.{s}`", .{vname});
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
@@ -11435,7 +11465,7 @@ const Checker = struct {
             // `Color.red` meant `.red`, which the arm covers; what any
             // other rejected pattern meant is unknown.
             if (!value and ty == subject and (try sema.lookupVariant(self.ctx, ty, name)) != null) {
-                try self.recordCovered(name, self.startOf(pattern), &cov.variants);
+                try self.recordCovered(name, self.startOf(pattern), cov);
                 return self.errAt(pattern, "a pattern names a variant without its enum: `.{s}`; only an error's pattern names its set", .{name});
             }
             cov.rejected = true;
@@ -11447,7 +11477,7 @@ const Checker = struct {
             cov.rejected = true;
             return self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(subject), try self.tyName(ty) });
         }
-        try self.recordCovered(try self.errorArmKey(subject, ty, name), self.startOf(pattern), &cov.variants);
+        try self.recordCovered(try self.errorArmKey(subject, ty, name), self.startOf(pattern), cov);
     }
 
     fn checkEnumLit(self: *Checker, name_node: Sexp, expected: TypeId) Error!void {

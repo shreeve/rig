@@ -899,6 +899,9 @@ fn placeUnits(a: std.mem.Allocator, root: Sexp, events: []const UnitEvent, out: 
     // Each paused unit -> how many units had started when it paused.
     var paused: std.AutoHashMapUnmanaged(NodeKey, usize) = .empty;
     var open: std.ArrayList(NodeKey) = .empty;
+    // Each node of `root` with an id -> the nearest one around it, found
+    // at the first resume.
+    var up: ?std.AutoHashMapUnmanaged(NodeKey, NodeKey) = null;
     for (events) |ev| switch (ev) {
         .enter => |k| {
             if (seen.contains(k)) return k;
@@ -913,8 +916,12 @@ fn placeUnits(a: std.mem.Allocator, root: Sexp, events: []const UnitEvent, out: 
         },
         .@"resume" => |k| {
             const since = (paused.fetchRemove(k) orelse return k).value;
-            const node = findNode(root, k) orelse return k;
-            for (out.items[since..]) |x| if (findNode(node, x.unit) == null) return k;
+            if (up == null) {
+                up = .empty;
+                try mapParents(a, root, 0, &up.?);
+            }
+            if (!up.?.contains(k)) return k;
+            for (out.items[since..]) |x| if (!within(&up.?, x.unit, k)) return k;
             try open.append(a, k);
         },
         .jump => {},
@@ -1009,6 +1016,26 @@ fn where(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, key: ?NodeKey
     const node = findNode(root, k) orelse return std.fmt.allocPrint(a, "node {d}", .{k});
     const lc = diag.lineCol(ctx.source, ctx.startOf(node));
     return std.fmt.allocPrint(a, "{d}:{d}", .{ lc.line, lc.col });
+}
+
+/// Map each node with an id in `e` to the nearest node with an id around
+/// it, or 0 for none: `around` for `e` itself. A node met twice keeps
+/// where it is first met, as `findNode` finds it.
+fn mapParents(a: std.mem.Allocator, e: Sexp, around: NodeKey, up: *std.AutoHashMapUnmanaged(NodeKey, NodeKey)) Error!void {
+    if (e != .list) return;
+    const id = e.list.id;
+    if (id != 0) {
+        const gop = try up.getOrPut(a, id);
+        if (!gop.found_existing) gop.value_ptr.* = around;
+    }
+    for (e.items()) |c| try mapParents(a, c, if (id != 0) id else around, up);
+}
+
+/// Whether node `key` is node `outer` or lies inside it (`mapParents`).
+fn within(up: *const std.AutoHashMapUnmanaged(NodeKey, NodeKey), key: NodeKey, outer: NodeKey) bool {
+    var k = key;
+    while (k != outer) k = up.get(k) orelse return false;
+    return true;
 }
 
 fn findNode(e: Sexp, key: NodeKey) ?Sexp {

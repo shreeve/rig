@@ -648,10 +648,9 @@ fn decideSubjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
 /// The payload fields of variant `vname` of an enum type.
 pub fn variantPayload(ctx: *const SemContext, enum_ty: TypeId, vname: []const u8) ?[]const sema.Field {
     const decl = sema.nominalDecl(ctx, enum_ty) orelse return null;
-    for (decl.symbol().fields orelse return null) |f| {
-        if (f.is_variant and std.mem.eql(u8, f.name, vname)) return f.payload orelse &.{};
-    }
-    return null;
+    const fields = decl.symbol().fields orelse return null;
+    const i = sema.variantIn(ctx, fields, vname) orelse return null;
+    return fields[i].payload orelse &.{};
 }
 
 /// Whether a `match !x` binding of a field of type `ty` points at the

@@ -1800,6 +1800,10 @@ pub const SemContext = struct {
     unit_of: std.AutoHashMapUnmanaged(NodeKey, NodeKey) = .empty,
     /// The root of each unit -> its kind.
     unit_roots: std.AutoHashMapUnmanaged(NodeKey, rig.UnitKind) = .empty,
+    /// The variants of each enum with many fields, by name, keyed by
+    /// where its fields are (`findVariant`), so that finding one walks no
+    /// others. Lives in the arena.
+    variant_index: std.AutoHashMapUnmanaged(usize, VariantIndex) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -6001,12 +6005,52 @@ fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocato
     return null;
 }
 
+/// The first variant of each name among a declaration's `fields`, by
+/// its place in them. A declaration's fields are replaced whole, never
+/// in place, and never freed before the context is.
+const VariantIndex = struct {
+    len: usize,
+    first: std.StringHashMapUnmanaged(u32),
+};
+
+/// An enum with no more fields than this is searched in turn.
+const variant_index_min = 16;
+
+/// The place in `fields`, a declaration's, of its first variant `name`,
+/// after indexing the variants of an enum with many fields (`variantIn`).
+fn findVariant(ctx: *SemContext, fields: []const Field, name: []const u8) std.mem.Allocator.Error!?usize {
+    if (fields.len > variant_index_min) {
+        const a = ctx.arena.allocator();
+        const entry = try ctx.variant_index.getOrPut(a, @intFromPtr(fields.ptr));
+        const index = entry.value_ptr;
+        if (!entry.found_existing or index.len != fields.len) {
+            index.* = .{ .len = fields.len, .first = .empty };
+            for (fields, 0..) |f, i| if (f.is_variant) {
+                const slot = try index.first.getOrPut(a, f.name);
+                if (!slot.found_existing) slot.value_ptr.* = @intCast(i);
+            };
+        }
+    }
+    return variantIn(ctx, fields, name);
+}
+
+/// The place in `fields`, a declaration's, of its first variant `name`:
+/// through the index of them `findVariant` built, else in turn.
+pub fn variantIn(ctx: *const SemContext, fields: []const Field, name: []const u8) ?usize {
+    if (ctx.variant_index.getPtr(@intFromPtr(fields.ptr))) |index| {
+        if (index.len == fields.len) return if (index.first.get(name)) |i| i else null;
+    }
+    for (fields, 0..) |f, i| if (f.is_variant and std.mem.eql(u8, f.name, name)) return i;
+    return null;
+}
+
 /// An enum variant of the receiver's nominal, local or imported.
 pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
     const decl = nominalDecl(ctx, receiver_ty) orelse return null;
     const subst = if (membersOf(ctx, unwrapViews(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
-    for (decl.symbol().fields orelse return null) |f| {
-        if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
+    const fields = decl.symbol().fields orelse return null;
+    if (try findVariant(ctx, fields, name)) |i| {
+        const f = fields[i];
         var payload = f.payload orelse &.{};
         if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {
             const typed = try ctx.arena.allocator().dupe(Field, payload);
