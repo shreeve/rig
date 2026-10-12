@@ -406,6 +406,13 @@ const Pass = struct {
             out.all = true;
             return;
         }
+        // A statement that is never one (`rig.StmtClass.none`) is opaque,
+        // as `raw` is.
+        if (node.isKind(.block)) for (ir.Block.stmts(node)) |stmt| {
+            if (stmt.kind()) |k| if (rig.stmtClass(k) == .none) {
+                out.all = true;
+            };
+        };
         if (p.ctx.writeSiteOf(node)) |w| try out.add(p.a, p.effectOf(node, w));
         for (node.items()) |c| try p.collectKills(c, out);
     }
@@ -616,25 +623,27 @@ const Pass = struct {
         p.defers.shrinkRetainingCapacity(mark);
     }
 
-    /// A statement: a structured one (`rig.structured_kinds`), or a unit.
+    /// A statement, by its skeleton (`rig.skeletonOf`), the one `eachUnit`
+    /// lists the units by.
     fn walkStmt(p: *Pass, stmt: Sexp, st: *State) Error!void {
-        const kind = stmt.kind() orelse return;
-        switch (kind) {
-            .block => try p.walkBlock(stmt, st),
-            .@"if" => try p.walkIf(stmt, st),
-            .@"while" => try p.walkWhile(stmt, st),
-            .@"for" => try p.walkFor(stmt, st),
-            .match => try p.walkMatch(stmt, st),
-            .labeled => try p.walkStmt(ir.Labeled.stmt(stmt), st),
+        switch (rig.skeletonOf(stmt)) {
+            .unit => |kind| switch (kind) {
+                .raw => try p.walkRaw(stmt, st),
+                else => try p.walkUnit(stmt, kind, st),
+            },
+            .block => |b| try p.walkBlock(b, st),
+            .@"if" => |x| try p.walkIf(stmt, x.cond, x.then, x.@"else", st),
+            .@"while" => |x| try p.walkWhile(stmt, x.cond, x.body, x.step, x.@"else", st),
+            .@"for" => |x| try p.walkFor(stmt, x.source, x.body, x.@"else", st),
+            .match => |m| try p.walkMatch(m, st),
+            .labeled => |inner| try p.walkStmt(inner, st),
             // A `defer` body runs at its block's exits, from facts this
             // pass does not track: it is walked from none.
-            .@"defer", .@"errdefer" => {
+            .@"defer" => |body| {
                 var fresh: State = .{};
-                try p.walkBranch(ir.get(stmt, .body), &fresh);
+                try p.walkBranch(body, &fresh);
                 try p.defers.append(p.a, stmt);
             },
-            .raw_block => try p.walkRaw(stmt, st),
-            else => try p.walkUnit(stmt, .stmt, st),
         }
     }
 
@@ -762,12 +771,10 @@ const Pass = struct {
     /// `if`: the guard parts, the `then` from the last one's true edge,
     /// the `else` from the facts before less the condition's writes; after
     /// it, the facts before less every write in it.
-    fn walkIf(p: *Pass, node: Sexp, st: *State) Error!void {
-        const cond = ir.If.cond(node);
+    fn walkIf(p: *Pass, node: Sexp, cond: Sexp, then: Sexp, else_b: Sexp, st: *State) Error!void {
         var t = try st.clone(p.a);
         try p.walkCond(cond, &t);
-        try p.walkBranch(ir.If.then(node), &t);
-        const else_b = ir.If.@"else"(node);
+        try p.walkBranch(then, &t);
         if (else_b != .nil) {
             var e = try st.clone(p.a);
             applyKills(&e, &(try p.killsOf(cond)));
@@ -782,9 +789,7 @@ const Pass = struct {
     /// (`0 <= i` kept when every write of `i` adds a constant); the step
     /// from the facts at the body's end met with what each `continue` to
     /// it carries.
-    fn walkWhile(p: *Pass, node: Sexp, st: *State) Error!void {
-        const cond = ir.While.cond(node);
-        const step = ir.While.step(node);
+    fn walkWhile(p: *Pass, node: Sexp, cond: Sexp, body: Sexp, step: Sexp, else_b: Sexp, st: *State) Error!void {
         const kills = try p.killsOf(node);
         var head = try st.clone(p.a);
         applyKills(&head, &kills);
@@ -792,13 +797,12 @@ const Pass = struct {
         const frame = p.loops.items.len - 1;
         var t = try head.clone(p.a);
         try p.walkCond(cond, &t);
-        try p.walkBranch(ir.While.body(node), &t);
+        try p.walkBranch(body, &t);
         if (step != .nil) {
             var s = try State.meet(p.a, &t, &p.loops.items[frame].step_in);
             try p.walkUnit(step, .step, &s);
         }
         p.loops.shrinkRetainingCapacity(frame);
-        const else_b = ir.While.@"else"(node);
         if (else_b != .nil) {
             var e = try head.clone(p.a);
             applyKills(&e, &(try p.killsOf(cond)));
@@ -810,14 +814,13 @@ const Pass = struct {
 
     /// `for`: its source unit once, then the body each iteration from `L`.
     /// A `for` binding gets no facts.
-    fn walkFor(p: *Pass, node: Sexp, st: *State) Error!void {
+    fn walkFor(p: *Pass, node: Sexp, source_node: Sexp, body: Sexp, else_b: Sexp, st: *State) Error!void {
         const kills = try p.killsOf(node);
         var head = try st.clone(p.a);
-        try p.walkUnit(ir.For.source(node), .source, &head);
+        try p.walkUnit(source_node, .source, &head);
         applyKills(&head, &kills);
         var b = try head.clone(p.a);
-        try p.walkBranch(ir.For.body(node), &b);
-        const else_b = ir.For.@"else"(node);
+        try p.walkBranch(body, &b);
         if (else_b != .nil) {
             var e = try head.clone(p.a);
             try p.walkBranch(else_b, &e);
@@ -879,25 +882,33 @@ pub fn walkTrace(ctx: *SemContext, a: std.mem.Allocator, root: Sexp, out: *std.A
 /// A unit, and the unit around it when it starts (null at a body's top).
 const Placed = struct { unit: NodeKey, parent: ?NodeKey };
 
-/// Each unit of `events` once, where it first starts, with the unit open
-/// around it then: emit writes a selection again for each arm, and the
-/// same unit's code in pieces.
-fn placeUnits(a: std.mem.Allocator, events: []const UnitEvent) Error!std.ArrayList(Placed) {
-    var out: std.ArrayList(Placed) = .empty;
+/// Each unit of `events` where it starts, with the unit open around it
+/// then. A unit starts once: after it, only a `pause` and a `resume` of
+/// it may write more of its code (`Emitter.pauseUnit`). Returns what
+/// breaks that, or null.
+fn placeUnits(a: std.mem.Allocator, events: []const UnitEvent, out: *std.ArrayList(Placed)) Error!?NodeKey {
     var seen: std.AutoHashMapUnmanaged(NodeKey, void) = .empty;
+    var paused: std.AutoHashMapUnmanaged(NodeKey, void) = .empty;
     var open: std.ArrayList(NodeKey) = .empty;
     for (events) |ev| switch (ev) {
         .enter => |k| {
-            if (!seen.contains(k)) {
-                try seen.put(a, k, {});
-                try out.append(a, .{ .unit = k, .parent = open.getLastOrNull() });
-            }
+            if (seen.contains(k)) return k;
+            try seen.put(a, k, {});
+            try out.append(a, .{ .unit = k, .parent = open.getLastOrNull() });
             try open.append(a, k);
         },
-        .exit => _ = open.pop(),
+        .exit => |k| if (open.pop() != k) return k,
+        .pause => |k| {
+            if (open.pop() != k) return k;
+            try paused.put(a, k, {});
+        },
+        .@"resume" => |k| {
+            if (!paused.remove(k)) return k;
+            try open.append(a, k);
+        },
         .jump => {},
     };
-    return out;
+    return null;
 }
 
 /// The block each unit's statement lies in (`rig.eachUnit`): a body, or
@@ -933,8 +944,10 @@ const Groups = struct {
 pub fn checkUnitOrder(ctx: *SemContext, a: std.mem.Allocator, root: Sexp, emitted: []const UnitEvent) Error!?[]const u8 {
     var walked: std.ArrayList(UnitEvent) = .empty;
     try walkTrace(ctx, a, root, &walked);
-    const w = try placeUnits(a, walked.items);
-    const e = try placeUnits(a, emitted);
+    var w: std.ArrayList(Placed) = .empty;
+    if (try placeUnits(a, walked.items, &w)) |k| return try std.fmt.allocPrint(a, "{s}: the walk visits the unit twice", .{try where(ctx, a, root, k)});
+    var e: std.ArrayList(Placed) = .empty;
+    if (try placeUnits(a, emitted, &e)) |k| return try std.fmt.allocPrint(a, "{s}: emit writes the unit's code again after it ended", .{try where(ctx, a, root, k)});
     var groups: Groups = .{ .a = a };
     try rig.eachBody(root, &groups, Groups.body);
     // A body emit leaves out (a `test` outside `rig test`) has no units in
@@ -968,9 +981,11 @@ pub fn checkUnitOrder(ctx: *SemContext, a: std.mem.Allocator, root: Sexp, emitte
     }
     var dests: std.AutoHashMapUnmanaged(NodeKey, sema.JumpDest.To) = .empty;
     for (walked.items) |ev| if (ev == .jump) try dests.put(a, ev.jump.node, ev.jump.to);
+    var jumped: std.AutoHashMapUnmanaged(NodeKey, void) = .empty;
     for (emitted) |ev| if (ev == .jump) {
         const to = dests.get(ev.jump.node) orelse return try std.fmt.allocPrint(a, "{s}: emit writes a jump the walk does not visit", .{try where(ctx, a, root, ev.jump.node)});
         if (to != ev.jump.to) return try std.fmt.allocPrint(a, "{s}: the jump goes to its target's {s}, the walk sends it to its {s}", .{ try where(ctx, a, root, ev.jump.node), @tagName(ev.jump.to), @tagName(to) });
+        if ((try jumped.getOrPut(a, ev.jump.node)).found_existing) return try std.fmt.allocPrint(a, "{s}: emit writes the jump twice", .{try where(ctx, a, root, ev.jump.node)});
     };
     return null;
 }
@@ -1481,9 +1496,10 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
     // Every program of test/behavior/emit and test/behavior/proofs: the
     // units emit writes, in the order their code runs, are the ones the
     // walk visits, each in the same unit, and the units of each block in
-    // the same order; each jump goes where the walk sends its facts. A
-    // trace with two units of a block swapped, or a jump sent elsewhere,
-    // fails the test.
+    // the same order; each unit's code starts once, and each jump is
+    // written once and goes where the walk sends its facts. A trace with
+    // two units of a block swapped, a unit written twice, or a jump sent
+    // elsewhere fails the test.
     const emit = @import("emit.zig");
     const facts = @import("facts.zig");
     const modules = @import("modules.zig");
@@ -1525,7 +1541,8 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
         };
         // Swap the first two units that start one after the other at a
         // body's top level: the test must see it.
-        const placed = try placeUnits(aa, trace.items);
+        var placed: std.ArrayList(Placed) = .empty;
+        try std.testing.expect(try placeUnits(aa, trace.items, &placed) == null);
         var groups: Groups = .{ .a = aa };
         try rig.eachBody(m.ir, &groups, Groups.body);
         var i: usize = 0;
@@ -1535,9 +1552,16 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
             if (x.parent != null or y.parent != null) continue;
             if (groups.of.get(x.unit) != groups.of.get(y.unit)) continue;
             var bad: std.ArrayList(UnitEvent) = .empty;
+            const swap = struct {
+                fn of(k: NodeKey, u: NodeKey, v: NodeKey) NodeKey {
+                    return if (k == u) v else if (k == v) u else k;
+                }
+            }.of;
             for (trace.items) |ev| try bad.append(aa, switch (ev) {
-                .enter => |k| .{ .enter = if (k == x.unit) y.unit else if (k == y.unit) x.unit else k },
-                .exit => |k| .{ .exit = if (k == x.unit) y.unit else if (k == y.unit) x.unit else k },
+                .enter => |k| .{ .enter = swap(k, x.unit, y.unit) },
+                .exit => |k| .{ .exit = swap(k, x.unit, y.unit) },
+                .pause => |k| .{ .pause = swap(k, x.unit, y.unit) },
+                .@"resume" => |k| .{ .@"resume" = swap(k, x.unit, y.unit) },
                 .jump => ev,
             });
             if (try checkUnitOrder(m.sema, aa, m.ir, bad.items) == null) {
@@ -1558,6 +1582,17 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
             }
             break;
         };
+        // A unit written a second time after it ended: the test must see it.
+        if (placed.items.len > 0) {
+            var bad = try std.ArrayList(UnitEvent).initCapacity(aa, trace.items.len + 2);
+            bad.appendSliceAssumeCapacity(trace.items);
+            bad.appendAssumeCapacity(.{ .enter = placed.items[0].unit });
+            bad.appendAssumeCapacity(.{ .exit = placed.items[0].unit });
+            if (try checkUnitOrder(m.sema, aa, m.ir, bad.items) == null) {
+                std.debug.print("{s}: a unit written twice went unseen\n", .{path});
+                return error.TestUnexpectedResult;
+            }
+        }
     }
     try std.testing.expect(compared > 100);
     try std.testing.expect(units > 1000);

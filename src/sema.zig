@@ -787,6 +787,11 @@ pub const WriteSite = struct { sym: SymbolId, kind: WriteKind };
 pub const UnitEvent = union(enum) {
     enter: NodeKey,
     exit: NodeKey,
+    /// Emit stops writing a unit's code to write other units' (a
+    /// statement `match`'s arms), and takes it up again: the same
+    /// occurrence of the unit.
+    pause: NodeKey,
+    @"resume": NodeKey,
     /// A `break` or `continue`, and the point of its target it goes to.
     jump: struct { node: NodeKey, to: JumpDest.To },
 };

@@ -129,7 +129,7 @@ fn bodiesOfDecl(decl: Sexp, ctx: anytype, comptime f: anytype) !void {
 
 /// What a unit is (`eachUnit`).
 pub const UnitKind = enum {
-    /// A statement of a block that orders no others (`structured_kinds`).
+    /// A statement of a block that orders no others (`stmtClass`).
     stmt,
     /// The step of a `while`.
     step,
@@ -145,15 +145,68 @@ pub const UnitKind = enum {
     raw,
 };
 
-/// The statements that order the units they hold, and are no unit
-/// themselves: the skeleton `eachUnit` walks. Every other statement is
-/// one unit.
-pub const structured_kinds = [_]Tag{ .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" };
+/// What a statement of a block is to the units of a body
+/// (`skeletonOf`). Every IR tag is listed, so a new one fails to compile
+/// until it is placed.
+pub const StmtClass = enum {
+    /// It orders the units it holds, and is no unit itself.
+    structured,
+    /// One unit: it orders nothing inside it.
+    unit,
+    /// A `raw` block: one opaque unit.
+    raw,
+    /// Never a statement (a declaration, a pattern, a type, a part of
+    /// another node): met as one, it is an opaque unit.
+    none,
+};
 
-/// Whether statement `stmt` is a structured one (`structured_kinds`).
-pub fn isStructured(stmt: Sexp) bool {
-    const k = stmt.kind() orelse return false;
-    return std.mem.findScalar(Tag, &structured_kinds, k) != null;
+pub fn stmtClass(tag: Tag) StmtClass {
+    return switch (tag) {
+        .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
+        .raw_block => .raw,
+        // Assignments, drops, `pass`, the exits and jumps, and expressions.
+        .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+    };
+}
+
+/// How a statement orders the units it holds: the one skeleton `eachUnit`
+/// lists the units by and the proof pass walks (docs/INTERNALS.md,
+/// "Proven checks").
+pub const Skeleton = union(enum) {
+    /// One unit, of kind `stmt` or `raw`.
+    unit: UnitKind,
+    /// A block: its statements in order.
+    block: Sexp,
+    @"if": struct { cond: Sexp, then: Sexp, @"else": Sexp },
+    @"while": struct { cond: Sexp, body: Sexp, step: Sexp, @"else": Sexp },
+    @"for": struct { source: Sexp, body: Sexp, @"else": Sexp },
+    /// A statement `match`: its selection unit, then each arm's body.
+    match: Sexp,
+    /// A labeled statement: the statement.
+    labeled: Sexp,
+    /// A `defer` or `errdefer`: its body, run at its block's exits.
+    @"defer": Sexp,
+};
+
+/// The skeleton of statement `stmt` (`StmtClass`). A leaf is a unit that
+/// holds nothing to check or write.
+pub fn skeletonOf(stmt: Sexp) Skeleton {
+    const tag = stmt.kind() orelse return .{ .unit = .stmt };
+    return switch (stmtClass(tag)) {
+        .unit => .{ .unit = .stmt },
+        .raw, .none => .{ .unit = .raw },
+        .structured => switch (tag) {
+            .block => .{ .block = stmt },
+            .@"if" => .{ .@"if" = .{ .cond = ir.If.cond(stmt), .then = ir.If.then(stmt), .@"else" = ir.If.@"else"(stmt) } },
+            .@"while" => .{ .@"while" = .{ .cond = ir.While.cond(stmt), .body = ir.While.body(stmt), .step = ir.While.step(stmt), .@"else" = ir.While.@"else"(stmt) } },
+            .@"for" => .{ .@"for" = .{ .source = ir.For.source(stmt), .body = ir.For.body(stmt), .@"else" = ir.For.@"else"(stmt) } },
+            .match => .{ .match = stmt },
+            .labeled => .{ .labeled = ir.Labeled.stmt(stmt) },
+            .@"defer", .@"errdefer" => .{ .@"defer" = ir.get(stmt, .body) },
+            else => unreachable,
+        },
+    };
 }
 
 /// Call `visitor.enter(root, kind)` and `visitor.exit(root)` around each
@@ -190,33 +243,31 @@ fn unitsOfBranch(b: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
 }
 
 fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    const kind = stmt.kind() orelse return unitOf(stmt, .stmt, visitor);
-    switch (kind) {
-        .block => try unitsOfBranch(stmt, visitor),
-        .@"if" => {
-            try unitsOfCond(ir.If.cond(stmt), visitor);
-            try unitsOfBranch(ir.If.then(stmt), visitor);
-            try unitsOfBranch(ir.If.@"else"(stmt), visitor);
+    switch (skeletonOf(stmt)) {
+        .unit => |kind| try unitOf(stmt, kind, visitor),
+        .block => |b| try unitsOfBranch(b, visitor),
+        .@"if" => |x| {
+            try unitsOfCond(x.cond, visitor);
+            try unitsOfBranch(x.then, visitor);
+            try unitsOfBranch(x.@"else", visitor);
         },
-        .@"while" => {
-            try unitsOfCond(ir.While.cond(stmt), visitor);
-            try unitsOfBranch(ir.While.body(stmt), visitor);
-            if (ir.While.step(stmt) != .nil) try unitOf(ir.While.step(stmt), .step, visitor);
-            try unitsOfBranch(ir.While.@"else"(stmt), visitor);
+        .@"while" => |x| {
+            try unitsOfCond(x.cond, visitor);
+            try unitsOfBranch(x.body, visitor);
+            if (x.step != .nil) try unitOf(x.step, .step, visitor);
+            try unitsOfBranch(x.@"else", visitor);
         },
-        .@"for" => {
-            try unitOf(ir.For.source(stmt), .source, visitor);
-            try unitsOfBranch(ir.For.body(stmt), visitor);
-            try unitsOfBranch(ir.For.@"else"(stmt), visitor);
+        .@"for" => |x| {
+            try unitOf(x.source, .source, visitor);
+            try unitsOfBranch(x.body, visitor);
+            try unitsOfBranch(x.@"else", visitor);
         },
-        .match => {
-            try unitOf(stmt, .selection, visitor);
-            for (ir.Match.arms(stmt)) |arm| try unitsOfBranch(ir.Arm.body(arm), visitor);
+        .match => |m| {
+            try unitOf(m, .selection, visitor);
+            for (ir.Match.arms(m)) |arm| try unitsOfBranch(ir.Arm.body(arm), visitor);
         },
-        .labeled => try unitsOfStmt(ir.Labeled.stmt(stmt), visitor),
-        .@"defer", .@"errdefer" => try unitsOfBranch(ir.get(stmt, .body), visitor),
-        .raw_block => try unitOf(stmt, .raw, visitor),
-        else => try unitOf(stmt, .stmt, visitor),
+        .labeled => |inner| try unitsOfStmt(inner, visitor),
+        .@"defer" => |body| try unitsOfBranch(body, visitor),
     }
 }
 

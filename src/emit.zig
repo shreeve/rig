@@ -294,6 +294,9 @@ pub const Emitter = struct {
     /// (`enterUnit`): each check, write, and hidden storage emit writes
     /// lies in the innermost (`inUnit`).
     units: std.ArrayList(facts.NodeKey) = .empty,
+    /// The units emit stopped writing to write others' code, which it
+    /// takes up again (`pauseUnit`).
+    paused: std.AutoArrayHashMapUnmanaged(facts.NodeKey, void) = .empty,
     /// When set, the units in the order their code runs, and where each
     /// jump goes: the unit-order test of the proof pass
     /// (`proofs.checkUnitOrder`).
@@ -324,6 +327,7 @@ pub const Emitter = struct {
         self.temp_slots.deinit(self.allocator);
         self.targets.deinit(self.allocator);
         self.units.deinit(self.allocator);
+        self.paused.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -2009,9 +2013,11 @@ pub const Emitter = struct {
         // around the `if`.
         if (cond.isKind(.as) and self.facts.headerOf(cond) == .held) {
             try self.openBrace();
+            // The held value is the `as` part's code, which the `if` takes
+            // up again for its test.
             const entered = try self.enterUnit(cond);
             const mark = try self.emitHeld(cond);
-            self.leaveUnit(entered);
+            if (entered) _ = try self.pauseUnit(cond);
             defer self.hoisted.shrinkRetainingCapacity(mark);
             try self.writeIndent(self.indent);
             try self.emitIfAs(sexp);
@@ -2741,7 +2747,7 @@ pub const Emitter = struct {
                 }
             }
             // An arm runs after the selection.
-            const paused = self.pauseUnit(sexp);
+            const paused = try self.pauseUnit(sexp);
             if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
             try self.resumeUnit(sexp, paused);
             try self.w.writeAll(",\n");
@@ -3021,7 +3027,7 @@ pub const Emitter = struct {
             try self.pushScope();
             defer self.popScope() catch {};
             const prelude = try self.armBindings(arm, info, subj);
-            const paused = self.pauseUnit(sexp);
+            const paused = try self.pauseUnit(sexp);
             if (value_pos) try self.emitValueBlock(ir.Arm.body(arm), prelude, self.typeOf(sexp)) else try self.emitBodyWith(ir.Arm.body(arm), prelude);
             try self.resumeUnit(sexp, paused);
             try self.w.writeAll(",\n");
@@ -6970,7 +6976,9 @@ pub const Emitter = struct {
         const key = node.list.id;
         if (self.units.items.len > 0 and self.units.getLast() == key) return false;
         try self.units.append(self.allocator, key);
-        if (self.unit_trace) |t| try t.append(self.allocator, .{ .enter = key });
+        // A paused unit is taken up again, not written anew.
+        const resumed = self.paused.swapRemove(key);
+        if (self.unit_trace) |t| try t.append(self.allocator, if (resumed) .{ .@"resume" = key } else .{ .enter = key });
         return true;
     }
 
@@ -6982,9 +6990,11 @@ pub const Emitter = struct {
 
     /// Stop writing the code of a statement `match`'s selection while an
     /// arm runs, which comes after it; `resumeUnit` takes it up again.
-    fn pauseUnit(self: *Emitter, root: Sexp) bool {
+    fn pauseUnit(self: *Emitter, root: Sexp) Error!bool {
         if (root != .list or self.units.items.len == 0 or self.units.getLast() != root.list.id) return false;
-        self.leaveUnit(true);
+        const key = self.units.pop().?;
+        try self.paused.put(self.allocator, key, {});
+        if (self.unit_trace) |t| try t.append(self.allocator, .{ .pause = key });
         return true;
     }
 
