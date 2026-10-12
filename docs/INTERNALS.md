@@ -1542,7 +1542,10 @@ operands before it held); a `while` step; a `for` source; a statement
 `match`'s selection (its subject, every pattern, every guard); and a
 `raw` block. The structured statements (a block, `if`, `while`, `for`,
 `match`, a labeled one, `defer`) are no unit: they order the units they
-hold. A block inside a unit's expression (an arm of a value `match`, a
+hold. `rig.stmtClass` places every IR tag (structured, a unit, `raw`, or
+never a statement, which is opaque as `raw` is), so a new tag fails to
+compile until it is placed, and `rig.skeletonOf` gives the one skeleton
+that `eachUnit` lists units by and the proof walk follows. A block inside a unit's expression (an arm of a value `match`, a
 branch of a value `if`, a `catch` handler, a value loop's body) and a
 closure's body hold units of their own, nested in it. The storage plan
 records each node's unit (`SemContext.unitOf`). The proof is the
@@ -1636,9 +1639,12 @@ fail a run rather than a proof:
   compiler traces the units emit writes, in the order their code runs,
   and each Zig jump it writes, and checks that they are the units the
   walk visits, nested alike, the units of each block in the same order,
-  and each jump going where the walk sends its facts. A unit test runs
+  each unit's code started once (only a pause and a resume of it, as a
+  `match`'s selection around each arm, write more of it), and each jump
+  written once, going where the walk sends its facts. A unit test runs
   it over `test/behavior/emit` and `test/behavior/proofs`, and checks
-  that a swapped pair of units or a misdirected jump fails it.
+  that a swapped pair of units, a unit written twice, or a misdirected
+  jump fails it.
 - The differential run (`./test/run --proofs-diff`): each program with
   a proven test runs in debug (every omitted test asserted), with
   `--release`, and with `--release` and `RIG_NO_PROOFS=1`; all three
