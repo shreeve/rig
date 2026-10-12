@@ -376,6 +376,8 @@ pub obj Doc
       # Escapes back to back need no scan between them.
       continue if i < src.len and src[i] == BACKSLASH
       i = (!self).copy_plain(src, i)
+      # Stopped at a quote, backslash or control byte: the loop's top takes it.
+      continue if i < src.len and (src[i] == QUOTE or src[i] == BACKSLASH or src[i] < SPACE)
       j = (!self).plain(src, i)
       return -1 if j < 0
       return (!self).fail(.eof, j) if j >= src.len

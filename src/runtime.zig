@@ -1135,7 +1135,7 @@ pub const String = struct {
             const p: *align(1) T = @ptrCast(dst);
             p.* = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(value) else value;
         }
-        l.items.len = used + k;
+        l.items.len = used +% k;
     }
 
     noinline fn keepPanic(count: Int, n: usize) noreturn {
