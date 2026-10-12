@@ -41,12 +41,25 @@ ago() {
 package() { mkdir -p "$home/$1/rig"; touch "$home/$1/rig/runtime.zig"; touch -t "$(ago "$2")" "$home/$1"; }
 # The time of the last trim.
 trimmed() { touch -t "$(ago "$1")" "$home/.trimmed"; }
+# Start a command in its own process group (so `stop` can end all of it,
+# children included); the group id is the command's pid, left in `$grp`.
+spawn() {
+    perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' "$@" &
+    grp=$!
+}
+# SIGKILL the group `$1` and wait, bounded, until none of it is left.
+stop() {
+    kill -9 -- "-$1" 2>/dev/null
+    wait "$1" 2>/dev/null
+    for _ in $(seq 100); do kill -0 -- "-$1" 2>/dev/null || return 0; sleep 0.1; done
+    fail "process group $1 outlived SIGKILL"
+}
 # Hold a shared lock on a package's lock file, as a run does, in the
 # background; `$holder` is its pid.
 hold() {
     : >>"$home/$1/.lock"
-    perl -e 'use Fcntl ":flock"; open(F, "<", $ARGV[0]) or die; flock(F, LOCK_SH) or die; print "held\n"; $| = 1; sleep 120' "$home/$1/.lock" >held.txt &
-    holder=$!
+    spawn perl -e 'use Fcntl ":flock"; open(F, "<", $ARGV[0]) or die; flock(F, LOCK_SH) or die; $| = 1; print "held\n"; sleep 120' "$home/$1/.lock" >held.txt
+    holder=$grp
     until grep -q held held.txt 2>/dev/null; do sleep 0.1; done
 }
 
@@ -151,8 +164,8 @@ expect_rc "$rc" 0 "run after a future stamp: $out"
 [[ ! -e "$home/future-0123456789abcdef" ]] || fail "a stamp in the future stopped the trim"
 
 # A run killed with SIGKILL holds no lock: once old, its package goes.
-"$RIG" run sleeper.rig >/dev/null 2>&1 &
-runner=$!
+spawn "$RIG" run sleeper.rig >/dev/null 2>&1
+runner=$grp
 sleeping=""
 for _ in $(seq 600); do
     sleeping=$(ls -d "$home"/sleeper-* 2>/dev/null)
@@ -172,10 +185,7 @@ trimmed 2
 out=$("$RIG" run hello.rig 2>&1); rc=$?
 expect_rc "$rc" 0 "run beside a running program: $out"
 [[ -d "$sleeping" ]] || fail "the trim removed the package of a program still running"
-pkill -9 -P "$runner" 2>/dev/null
-kill -9 "$runner" 2>/dev/null
-wait "$runner" 2>/dev/null
-pkill -9 -f "$sleeping" 2>/dev/null
+stop "$runner"
 touch -t "$(ago 9)" "$sleeping"
 trimmed 2
 out=$("$RIG" run hello.rig 2>&1); rc=$?
@@ -232,7 +242,7 @@ done
 [[ -d out/old-0123456789abcdef ]] || fail "clean removed RIG_OUT_DIR's files"
 
 # With only rig's entries left, and no lock held, the home goes too.
-kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+stop "$holder"
 rm -rf "$home/notes" "$home/up-0123456789ABCDEF" "$home/mine-0123456789abcdef" "$home/linked-0123456789abcdef" "$home/link-0123456789abcdef" "$home/.trash-0123456789abcdef" "$home/.trimmed"
 out=$("$RIG" clean 2>&1); rc=$?
 expect_rc "$rc" 0 "second clean: $out"
@@ -362,7 +372,7 @@ expect_has "$out" "least recently used" "the trim of a cache over the cap, befor
 [[ -d "$home/stale-0123456789abcdef" ]] || fail "the cap removed a package whose lock is held"
 [[ ! -e "$home/stale2-0123456789abcdef" ]] || fail "the cap kept the least recently used package that was free"
 [[ "$(cat "$home/.usage")" -eq "$(measure_all)" ]] || fail "the estimate is not the cache's size after a cap trim"
-kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+stop "$holder"
 
 # Under the cap, within the day: the estimate alone decides, and nothing
 # is read or removed.
