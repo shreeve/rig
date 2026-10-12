@@ -7,7 +7,7 @@ vectors made at run time.
 
 A `clean` program has no overflowing lane and must print `true` twice
 (the operator, then its compound form, against the expected lanes). An
-`ovf` program has an overflowing last lane and must stop with a panic
+`ovf` program (or `sparse`, one vector used twice with a single overflowing lane) has an overflowing lane and must stop with a panic
 `integer overflow` after printing `start`. Prints each cell that fails
 and exits 1 if any does.
 """
@@ -45,7 +45,23 @@ def lane_values(op, bits, signed, n, ovf):
 def result(op, x, y):
     return {"add": x + y, "sub": x - y, "mul": x * y, "neg": -x}[op]
 
+def sparse_program(op, ty, n):
+    """One vector used twice (`x op x`), almost all lanes zero and lane 5
+    overflowing: the shape on which Zig's own vector `*` missed an
+    overflow of `Simd[I8, 32]` on aarch64 with --release."""
+    bits, signed = TYPES[ty]
+    lo, hi = rng(bits, signed)
+    big = lo if op == "neg" else hi
+    src = f"sub main()\n  a: [{n}]{ty} = [{n} of 0]\n"
+    src += f"  for i in 0..{n}\n    if i == 5\n      a[i] = {ty}({big})\n"
+    src += "    else if i == 7 or i == 13\n      a[i] = 1\n    else if i == 9\n      a[i] = 7\n"
+    src += f'  x = Simd[{ty}, {n}](a)\n  print("start")\n'
+    src += "  r = -x\n" if op == "neg" else f"  r = x {SYM[op]} x\n"
+    return src + "  print(r[0])\n"
+
 def program(op, ty, n, ovf):
+    if ovf == "sparse":
+        return sparse_program(op, ty, n)
     bits, signed = TYPES[ty]
     xs, ys = lane_values(op, bits, signed, n, ovf)
     lo, hi = rng(bits, signed)
@@ -92,7 +108,7 @@ def program(op, ty, n, ovf):
 
 def run_cell(rig, release, work, cell):
     op, ty, n, ovf = cell
-    name = f"{op}_{ty}_{n}_{'ovf' if ovf else 'clean'}"
+    name = f"{op}_{ty}_{n}_{ovf if isinstance(ovf, str) else 'ovf' if ovf else 'clean'}"
     path = os.path.join(work, name + ".rig")
     with open(path, "w") as f:
         f.write(program(op, ty, n, ovf))
@@ -120,6 +136,8 @@ def main():
                 continue
             cells += [(op, ty, n, False) for n in LANES]
             cells += [(op, ty, n, True) for n in OVF_LANES]
+            if op != "sub":
+                cells += [(op, ty, n, "sparse") for n in OVF_LANES]
     bad = 0
     with tempfile.TemporaryDirectory() as work, cf.ThreadPoolExecutor(a.jobs) as ex:
         for res in ex.map(lambda c: run_cell(a.rig, a.release, work, c), cells):
