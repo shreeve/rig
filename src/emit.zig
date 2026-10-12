@@ -5716,6 +5716,7 @@ pub const Emitter = struct {
             return writeErrorName(self.w, set.facts, set.symbol().name, rig.leafText(decl.source, name.src));
         };
         if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
+        if (e.isKind(.call) and decl.stringCall(e) == .new) return self.w.writeAll("rig.String.empty");
         if (decl.same(self.facts)) {
             const saved = self.keep_comptime;
             defer self.keep_comptime = saved;

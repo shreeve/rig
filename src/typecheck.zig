@@ -537,14 +537,14 @@ const Checker = struct {
     /// A parameter or field default, of type `ty`, means the same value
     /// wherever it is filled in: a literal, or a module constant (this
     /// module's or an imported one, or a number type's limit). A field's
-    /// may also be an empty or literal constructor, `List()`, `Cell(0)`,
-    /// or `[n of 0]`, which each value gets a fresh one of.
+    /// may also be an empty or literal constructor, `List()`, `String()`,
+    /// `Cell(0)`, or `[n of 0]`, which each value gets a fresh one of.
     fn checkDefaultValue(self: *Checker, value: Sexp, ty: TypeId, what: []const u8) Error!void {
         const field = std.mem.eql(u8, what, "field");
         const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
         if (!ok) {
             if (field) {
-                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `List()`, `Cell(0)`, `[n of 0]`", .{});
+                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `List()`, `String()`, `Cell(0)`, `[n of 0]`", .{});
             } else try self.errAt(value, "a default parameter value must be a literal, a module constant, or a number type's limit", .{});
             return;
         }
@@ -582,6 +582,8 @@ const Checker = struct {
         }
         if (!e.isKind(.call)) return false;
         var callee = ir.Call.callee(e);
+        // `String()`: the empty text, which owns nothing yet.
+        if (callee == .src and std.mem.eql(u8, self.text(callee), "String") and self.lookupQuiet(callee) == null) return ir.Call.args(e).len == 0;
         if (rig.isBracketList(callee)) callee = ir.get(callee, .object);
         if (callee != .src) return false;
         const id = self.lookupQuiet(callee) orelse return false;
@@ -4324,7 +4326,7 @@ const Checker = struct {
             .type_var => |tv| tv,
             else => null,
         };
-        if (value != inner and !readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
+        if (value != inner and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
         if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
         return true;
@@ -9972,7 +9974,7 @@ const Checker = struct {
             else => return false,
         };
         switch (self.ctx.types.get(actual)) {
-            .array => |a| if (a.elem == elem) {
+            .array => |a| if (a.elem == elem or (!want_write and sema.readsAsStringView(self.ctx, a.elem, elem))) {
                 if (self.hands(e).hasStorage()) {
                     const shown = try self.plainText(e);
                     const sigil: u8 = if (want_write) '!' else '?';
@@ -12206,23 +12208,6 @@ fn copiedOut(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     return !meets(ctx, actual, expected) and compatible(ctx, inner, expected);
 }
 
-/// Whether `actual` is read as `expected`, which differs from it only by
-/// a `Static` where a `?String` goes: the one conversion between the two,
-/// which reads the text and writes nothing. It holds for the text itself,
-/// a read view of it (`?Static` as `?String`), and an optional of either
-/// (a `Static?` as a `(?String)?`). A write view, a handle, and the elements
-/// of anything else hold exactly their type.
-fn readsAsStringView(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
-    if (actual == ctx.types.static_id) return expected == ctx.types.string_view_id;
-    const a = ctx.types.get(actual);
-    const e = ctx.types.get(expected);
-    return switch (a) {
-        .read_view => |inner| e == .read_view and readsAsStringView(ctx, inner, e.read_view),
-        .optional => |inner| e == .optional and readsAsStringView(ctx, inner, e.optional),
-        else => false,
-    };
-}
-
 /// Can a value of type `actual` be used as itself where `expected` is
 /// required?
 fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
@@ -12236,14 +12221,14 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         .optional => |inner| {
             if (a == .none_literal) return true;
             // A `Static?` is read as a `(?String)?`.
-            if (a == .optional) if (readsAsStringView(ctx, a.optional, inner)) return true;
+            if (a == .optional) if (sema.readsAsStringView(ctx, a.optional, inner)) return true;
             return meets(ctx, actual, inner);
         },
         // A `Static` is read as the `?String` it is, a view that carries
         // no loan. Only where the text is read: a place that can be
         // written (`!x`) holds exactly its type.
         .string_view => if (a == .static) return true,
-        .read_view => |inner| if (readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner,
+        .read_view => |inner| if (sema.readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner,
         // A `T!` holds a `T`; an error value meets it only as `return`'s
         // operand (`Checker.isReturnLeaf`).
         .fallible => |inner| return meets(ctx, actual, inner),
@@ -12251,7 +12236,7 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         .slice => |want| switch (a) {
             .read_view, .write_view => |inner| if (inner == expected) return true,
             // The elements of a `[]Static` are read as `?String`s.
-            .slice => |have| if (readsAsStringView(ctx, have.elem, want.elem)) return true,
+            .slice => |have| if (sema.readsAsStringView(ctx, have.elem, want.elem)) return true,
             else => {},
         },
         else => {},

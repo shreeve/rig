@@ -6539,6 +6539,23 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
     return false;
 }
 
+/// Whether `actual` is read as `expected`, which differs from it only by
+/// a `Static` where a `?String` goes: the one conversion between the two,
+/// which reads the text and writes nothing. It holds for the text itself,
+/// a read view of it (`?Static` as `?String`), and an optional of either
+/// (a `Static?` as a `(?String)?`). A write view, a handle, and the elements
+/// of anything else hold exactly their type.
+pub fn readsAsStringView(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+    if (actual == ctx.types.static_id) return expected == ctx.types.string_view_id;
+    const a = ctx.types.get(actual);
+    const e = ctx.types.get(expected);
+    return switch (a) {
+        .read_view => |inner| e == .read_view and readsAsStringView(ctx, inner, e.read_view),
+        .optional => |inner| e == .optional and readsAsStringView(ctx, inner, e.optional),
+        else => false,
+    };
+}
+
 /// The elements of an array or a List of `elem`: `[]T` to read, `![]T`
 /// to write.
 fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId, lend: *Lend) bool {
@@ -6549,7 +6566,10 @@ fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId,
         },
         .write => writeSliceElem(ctx, view) orelse return false,
     };
-    return want == elem and lend.push(.elems);
+    // Read, the elements of a `Static` array or List are `?String`s too
+    // (`readsAsStringView`); written, they are exactly their type.
+    const reads = want == elem or (kind == .read and readsAsStringView(ctx, elem, want));
+    return reads and lend.push(.elems);
 }
 
 /// The element type of the `[]T` a value of type `ty` lends (`lendsAs`):

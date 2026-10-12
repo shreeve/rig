@@ -47,7 +47,7 @@ checked for its type, as any generic call is.
 
 | Function | Result |
 |---|---|
-| `abs[T](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; panics on a type's minimum integer (`Int.min`) |
+| `abs[T](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; a Float's zero comes back as `+0.0`; panics on a type's minimum integer (`Int.min`) |
 | `min[T](a: T, b: T) -> T`, `max[T](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal |
 | `clamp[T](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo` |
 | `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
@@ -85,8 +85,11 @@ negative number) is NaN, which equals nothing, itself included.
 | `sqrt(x: Float) -> Float` | the square root |
 | `floor(x: Float) -> Float` | the largest whole number not above `x` |
 | `ceil(x: Float) -> Float` | the smallest whole number not below `x` |
+| `trunc(x: Float) -> Float` | `x` rounded toward zero, keeping its sign (`trunc(-0.5)` is `-0.0`) |
+| `copysign(x: Float, sign: Float) -> Float` | the magnitude of `x` with the sign of `sign`, a zero's or a NaN's included |
 | `exp(x: Float) -> Float` | e to the power `x` |
 | `ln(x: Float) -> Float` | the natural logarithm |
+| `log2(x: Float) -> Float` | the base-2 logarithm |
 | `sin(x: Float) -> Float`, `cos(x: Float) -> Float` | the sine and cosine of `x` radians |
 | `powf(x: Float, y: Float) -> Float` | `x` to the power `y` |
 
@@ -98,6 +101,7 @@ sub main()
   print(math.exp(0.0), math.ln(math.E))
   print(math.cos(math.PI), math.powf(2.0, 0.5) == math.sqrt(2.0))
   print(Int(math.floor(7.9)))
+  print(math.abs(-0.0), math.trunc(-2.7), math.copysign(3.0, -1.0), math.log2(8.0))
 ```
 
 ```output
@@ -105,6 +109,7 @@ true -3.0 -2.0
 1.0 1.0
 -1.0 true
 7
+0.0 -2.0 -3.0 3.0
 ```
 
 ## std.os

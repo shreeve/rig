@@ -281,7 +281,7 @@ a function over `?String` values such as `text.trim("  a  ")`) is not one, and
 nothing turns a `?String` into a `Static`. A `Static` is read as a
 `?String` where the text is only read: an argument or a field of type
 `?String`, a returned or bound `?String`, a `Static?` as a `(?String)?`, a
-`[]Static` as a `[]?String`, and in a branch, a `??`, or a list literal
+`[]Static` as a `[]?String` (so an array or a List of `Static`, lent to read, is one), and in a branch, a `??`, or a list literal
 that mixes the two (their type is `?String`). A generic `T` that a
 `Static` and a `?String` both bind is the `?String` (unless a place that
 holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
@@ -1118,7 +1118,7 @@ value, and a constructor may omit that field. Like a parameter default,
 it is a literal (a number, a string, `true` / `false`, `none`, or
 `.variant`) or a module constant, of this module or an imported one
 (`LIMIT`, `lib.LIMIT`, `U8.max`); a field's may also be an empty or
-literal constructor: `List()`, `List[T]()`, `Cell(0)`, or `[n of x]` with
+literal constructor: `List()`, `List[T]()`, `String()`, `Cell(0)`, or `[n of x]` with
 a literal or constant `x`. Each value the constructor makes gets a fresh
 default, so no two share a `List`. A struct with a `Cell` field lives
 only behind a shared handle, so it is made under `*`
