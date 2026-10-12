@@ -936,3 +936,132 @@ Cycles and instructions per byte (`perf stat`; these don't depend on load):
 | citm_catalog | 1.547 | 1.344 | 15% more cycles | 8.48 | 6.50 | 30% more |
 | gsoc-2018 | 0.904 | 0.981 | 8% fewer cycles | 4.04 | 2.59 | 56% more |
 | github_events | 1.462 | 1.305 | 12% more cycles | 8.10 | 5.70 | 42% more |
+
+## Checks and IPC after proofs2 (Rig main at 34ffed549)
+
+What is left of std.json's safety checks once the compiler has removed
+the ones it proves, what each class costs, and how std.json's instruction
+counts and IPC compare with sonic-rs's on each architecture. Rig main
+34ffed549 has proofs2 (#138) and wide vector reads (#141), and not proven
+Simd reads. The tools are in `bench/json/checks/` and
+`bench/json/timers/ipc.py` (bench/json/README.md, "Checks").
+
+### The checks left
+
+`checks/inventory.py` on `checks/probe.rig`: every branch into a panic
+block, charged through DWARF's inline chain to a line of std.json. 95
+checks are left on aarch64 and 85 on x86_64. By class, on aarch64:
+
+| class | sites | where |
+|---|---:|---|
+| reads not proven (`rig.at`, `readInt`, `simdRead`, `slice`) | about 40 | `literal` (10), `utf8_end`, `key`, `plain`, `escaped`, `document`, `hex_value`, the string scan's loop |
+| position arithmetic (`i + 16 <= len`, `i + k`, `i - first`) | about 15 | the string scan, `take_digits`, `number`, `utf8_end` |
+| a List's length as an `Int` (`rig.len`) | about 11 | `size`, `open`, `close`, `add_float`, `add_int` |
+| the tape entries' arithmetic (`len * 16 + tag`) | about 9 | `close`, `add_float`, `add_int`, `add_string` |
+| List `slot` and `pop`, narrowing casts | about 8 | `close`, `push_utf8` |
+| `m << m.leading_zeros()` | 3 | `eisel_lemire`, `normal_float_bits` |
+
+- **`document` reads each value's first byte with a check.** It
+  tests `i < n` first, but `i >= 0` comes back from `skip_space`, and
+  the proof does not cross the call. `key` reads its `"` and `:` the
+  same way.
+- **The string scan's 16-byte read is checked in its loop.** proofs2
+  proves `i + 16 <= s.len` from the loop's condition and makes proven
+  forms of `at` and `readInt`, but `simdRead` has none. The loop body is
+  20 instructions per 16 bytes on both architectures. 5 of them are the
+  read's check, and 2 more keep the counters it tests.
+
+### What each class costs
+
+`checks/sizing.py`: each class made unchecked in a copy of rig-safe's
+emitted Zig, as a proof would emit it (runtime safety off around the
+original expression, which keeps LLVM's no-overflow fact). Instructions
+retired per byte on the Mac, the median of 5 runs (the count does not
+depend on load, but one run can be off by several percent either way);
+"all" is every class but `sread`:
+
+| file | base | len | tape | pos | idx | shl | sread | all |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| twitter | 8.78 | 8.67 (1.3% fewer) | 8.88 (1.1% more) | 8.77 (0.2% fewer) | 8.64 (1.6% fewer) | 8.79 (0.1% more) | 8.65 (1.5% fewer) | 8.37 (4.7% fewer) |
+| twitterescaped | 9.94 | 9.89 (0.5% fewer) | 9.80 (1.4% fewer) | 10.07 (1.3% more) | 9.51 (4.3% fewer) | 9.94 (the same) | 9.81 (1.3% fewer) | 9.47 (4.7% fewer) |
+| canada | 16.82 | 16.48 (2.0% fewer) | 16.75 (0.4% fewer) | 16.47 (2.1% fewer) | 16.31 (3.0% fewer) | 16.91 (0.5% more) | 16.81 (0.1% fewer) | 15.54 (7.6% fewer) |
+| citm_catalog | 8.09 | 8.06 (0.3% fewer) | 8.21 (1.6% more) | 8.16 (1.0% more) | 7.88 (2.5% fewer) | 8.10 (0.1% more) | 8.03 (0.7% fewer) | 7.76 (4.0% fewer) |
+| gsoc-2018 | 3.66 | 3.65 (0.4% fewer) | 3.68 (0.6% more) | 3.58 (2.2% fewer) | 3.64 (0.5% fewer) | 3.69 (0.9% more) | 3.34 (8.7% fewer) | 3.36 (8.3% fewer) |
+| github_events | 7.28 | 7.20 (1.1% fewer) | 7.34 (0.9% more) | 7.41 (1.9% more) | 7.18 (1.4% fewer) | 7.28 (the same) | 7.05 (3.1% fewer) | 6.83 (6.2% fewer) |
+
+- **The string scan's read (`sread`) is the one that matters.** On its own
+  it saves 9% of gsoc-2018's instructions, as much as every other class
+  together, and 3% of github_events'.
+- **The rest save 4-9% of instructions together, and none more than 4%
+  alone.** Some classes alone add instructions, since the code LLVM lays
+  out and inlines changes with them.
+
+In time (Mac, interleaved, fastest of 15 at a load of 3; MB/s):
+
+| file | base | `sread` | all but `sread` | sonic-rs |
+|---|---:|---:|---:|---:|
+| twitter | 3356 | 3354 | 3194 | 3124 |
+| twitterescaped | 3149 | 3160 | 3096 | 2819 |
+| canada | 2024 | 2026 | 2145 | 2024 |
+| citm_catalog | 4086 | 4082 | 3705 | 3813 |
+| gsoc-2018 | 7618 | 8048 | 7413 | 7257 |
+| github_events | 4051 | 4098 | 3836 | 3763 |
+
+- **A proven `simdRead` makes gsoc-2018 6% faster** and github_events 1%
+  faster, and changes nothing elsewhere.
+- **Removing every other check is slower on four files** (citm_catalog
+  9%, github_events and twitter 5%, gsoc-2018 3%), and faster only on
+  canada (6%). The checks that never fail cost Apple's wide core little;
+  the layout and inlining that change with them cost more.
+- **Wrapping arithmetic is not an unchecked add.** Removing the position
+  checks by writing `+%` for `+` added 1-2.5% of instructions: a checked
+  add leaves LLVM the fact that it did not overflow, and `+%` loses it.
+
+### IPC against sonic-rs, Mac
+
+`timers/ipc.py`, the same builds (sonic-rs 0.5.10 and simd-json,
+`target-cpu=native`), the median of 5. The instruction counts hold from
+run to run; the cycle counts, and so IPC, move with the load (a load of
+about 3), so take IPC as a comparison within one run and time from the
+interleaved table above:
+
+| file | std.json instructions/byte | IPC | sonic-rs instructions/byte | IPC | simd-json instructions/byte | IPC |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 8.77 | 6.2 | 8.66 | 5.3 | 8.03 | 4.8 |
+| twitterescaped | 9.94 | 5.9 | 10.52 | 5.7 | 13.01 | 3.8 |
+| canada | 16.81 | 7.1 | 15.76 | 6.1 | 18.05 | 4.8 |
+| citm_catalog | 8.06 | 6.2 | 7.20 | 5.4 | 7.34 | 5.3 |
+| gsoc-2018 | 3.66 | 6.3 | 3.35 | 4.9 | 5.35 | 4.0 |
+| github_events | 7.28 | 6.1 | 6.41 | 5.5 | 7.46 | 5.8 |
+
+On the Mac std.json retires 6% fewer to 14% more instructions than
+sonic-rs, at a higher IPC on every file: it does about as much work and
+does it faster, which is why it leads sonic-rs in time there.
+
+### The same parsers on each architecture
+
+Instructions per byte on the Mac (above) and on pup (`perf stat`, "With
+proofs2" above, on 2cc2008e6, whose std.json code is the same):
+
+| file | std.json, x86_64 against aarch64 | sonic-rs, x86_64 against aarch64 | std.json against sonic-rs, aarch64 | x86_64 |
+|---|---|---|---|---|
+| twitter | 10% more | 9% fewer | 2% more | 23% more |
+| twitterescaped | 10% more | the same | 6% fewer | 4% more |
+| canada | 6% more | 4% more | 7% more | 9% more |
+| citm_catalog | 5% more | 10% fewer | 12% more | 30% more |
+| gsoc-2018 | 10% more | 22% fewer | 10% more | 56% more |
+| github_events | 11% more | 11% fewer | 14% more | 42% more |
+
+- **sonic-rs retires fewer instructions on x86_64 than on aarch64**, up to
+  22% fewer on gsoc-2018: with AVX2 it reads 32 bytes a step, against 16
+  with NEON. std.json reads 16 on both.
+- **std.json retires 5-11% more on x86_64.** Its hot loops compile to the
+  same steps on both (the string scan: 21 instructions on x86_64, 20 on
+  aarch64), so the difference is elsewhere: x86_64's two-operand
+  instructions and 16 general registers against aarch64's 31 are the
+  likely cause, not yet shown by a profile.
+- **So the x86_64 gap is two things.** On gsoc-2018 it is width: a
+  32-lane scan gains 10% there on pup ("The string-scan sweep"). On
+  citm_catalog and github_events it is whitespace, where a prototype of
+  sonic-rs's whitespace bitmap, kept between calls, measured 13% to 34%
+  faster on pup.
