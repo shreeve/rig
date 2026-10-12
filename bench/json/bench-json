@@ -16,6 +16,8 @@ usage: cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json [options]
                       zig-value-safe  std.json.parseFromSlice(Value), -OReleaseSafe
                       zig-value-fast  the same, -OReleaseFast
                     and experiments, only when named:
+                      rig-safeinl     rig-safe with the runtime's maskFirst
+                                      inline (sizes a wide mask's call)
                       rig-nocheck     rig-fast's emitted Zig with Rig's index,
                                       slice, and read bounds checks removed from
                                       its runtime: sizes what they cost
@@ -113,6 +115,14 @@ def unchecked_runtime(path):
         sys.exit("the runtime's bounds checks changed shape; update unchecked_runtime")
     open(path, "w").write(s)
 
+def inline_mask_first(path):
+    """Experiment only: make the runtime's `maskFirst` inline, so a wide mask
+    reaches its reduction in a register instead of crossing a call."""
+    s = open(path).read()
+    if s.count("pub fn maskFirst(") != 1:
+        sys.exit("the runtime's maskFirst changed shape; update inline_mask_first")
+    open(path, "w").write(s.replace("pub fn maskFirst(", "pub inline fn maskFirst(", 1))
+
 def build(name, variant, data, tmp, zig):
     d = os.path.join(tmp, "%s-%s" % (name, variant))
     exe = os.path.join(d, "prog")
@@ -135,8 +145,12 @@ def build(name, variant, data, tmp, zig):
         open(os.path.join(d, "main.rig"), "w").write(MAIN.replace("@PARTS@", rig_parts(data)))
         out = os.path.join(d, "out")
         env = dict(os.environ, RIG_OUT_DIR=out, ZIG=zig)
-        mode = "--release" if base == "rig-safe" else "--release=fast"
+        mode = "--release" if base in ("rig-safe", "rig-safeinl") else "--release=fast"
         run([RIG, "build", mode, "-o", exe + ".tmp", os.path.join(d, "main.rig")], env=env)
+        if base == "rig-safeinl":
+            inline_mask_first(os.path.join(out, "rig", "runtime.zig"))
+            run([zig, "build-exe", "-OReleaseSafe", "--cache-dir", os.path.join(out, ".zc"),
+                 "-femit-bin=" + exe + ".tmp", os.path.join(out, "__rig_main.zig")], cwd=out)
         if base == "rig-nocheck":
             unchecked_runtime(os.path.join(out, "rig", "runtime.zig"))
             run([zig, "build-exe", "-OReleaseFast", "--cache-dir", os.path.join(out, ".zc"),

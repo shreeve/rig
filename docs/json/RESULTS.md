@@ -729,3 +729,144 @@ Against sonic-rs, std.json is:
   citm_catalog.
 - **Against the others:** 3.1-11x Zig's std.json (safe), 2.9-5.5x
   serde_json, and ahead of simd-json's tape on four of the six files.
+
+## Linux x86 (pup), and the string-scan sweep
+
+Machine: pup, an Intel Core Ultra 9 185H (22 threads, AVX2 and BMI2, no
+AVX-512), Linux, Zig 0.17.0. Rig is main at f09357281 plus the bench
+tooling of this branch; sonic-rs 0.5.10, simd-json and serde_json are built
+`-C target-cpu=native`. Timing: `bench/json/xbench.sh time`, run under
+`cpuq run --exclusive` (the window's other load was 0.2 CPUs), pinned to one
+P core with `taskset`, interleaved, the fastest of 15 runs of about 400 ms.
+The Mac numbers are from the same script, at a load of about 3
+(`--exclusive` is off on the Mac), fastest of 15. Every figure is
+std.json (`rig build --release`, every check kept) against sonic-rs
+on that machine, as "faster" or "slower" than sonic-rs's MB/s.
+
+### Every parser, pup
+
+The landed scan (a 16-byte SWAR stage, then 16-lane SIMD), MB/s, and
+against sonic-rs:
+
+| file | std.json | sonic-rs | simd-json (tape) | zimdjson (DOM, fast) | serde_json | Zig std.json (tape, safe) | Zig std.json (tape, fast) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| twitter | 2193 (19% slower) | 2701 | 2445 (9% slower) | 4254 (57% faster) | 375 (86% slower) | 681 (75% slower) | 790 (71% slower) |
+| twitterescaped | 2057 (4% slower) | 2153 | 1417 (34% slower) | 2835 (32% faster) | 325 (85% slower) | 468 (78% slower) | 555 (74% slower) |
+| canada | 1252 (11% slower) | 1404 | 1084 (23% slower) | 940 (33% slower) | 345 (75% slower) | 388 (72% slower) | 523 (63% slower) |
+| citm_catalog | 2490 (29% slower) | 3484 | 2575 (26% slower) | 4461 (28% faster) | 676 (81% slower) | 742 (79% slower) | 1022 (71% slower) |
+| gsoc-2018 | 4457 (12% slower) | 5089 | 3484 (32% slower) | 5344 (5% faster) | 1166 (77% slower) | 435 (91% slower) | 433 (91% slower) |
+| github_events | 2633 (30% slower) | 3769 | 2735 (27% slower) | 4921 (31% faster) | 423 (89% slower) | 617 (84% slower) | 727 (81% slower) |
+
+std.json is 18% slower than sonic-rs by geomean on pup (4% to 30% slower
+file by file), where on the Mac it is 1% faster. zimdjson, which uses AVX2
+for its structural pass, is the fastest here (5% to 57% faster than
+sonic-rs on five files; 33% slower on canada). Zig's own std.json is 63% to 91% slower.
+
+### Cycles and instructions per byte, pup
+
+`perf stat` on the P core (`xbench.sh perf`; cycles and instructions of N
+parses minus one, over N - 1 and the file's size, the least of 3). These
+don't depend on load.
+
+| file | rig-safe cycles/byte | sonic-rs | rig-safe instructions/byte | sonic-rs | rig-safe IPC | sonic-rs |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 2.173 | 1.779 | 10.965 | 7.973 | 5.05 | 4.48 |
+| twitterescaped | 2.264 | 2.160 | 12.358 | 10.553 | 5.46 | 4.89 |
+| canada | 3.727 | 3.365 | 19.230 | 16.103 | 5.16 | 4.78 |
+| citm_catalog | 1.981 | 1.426 | 10.263 | 6.370 | 5.18 | 4.47 |
+| gsoc-2018 | 1.029 | 0.995 | 4.639 | 2.577 | 4.51 | 2.59 |
+| github_events | 1.747 | 1.225 | 9.627 | 5.528 | 5.51 | 4.51 |
+
+The gap is instructions: std.json retires 37% to 80% more per byte than
+sonic-rs on twitter, citm_catalog, gsoc-2018 and github_events (37%, 61%,
+80%, 74%), and only its higher IPC (about 5 against 4.5) hides some of it;
+it takes 22%, 39%, 3% and 43% more cycles on those four. On canada and
+twitterescaped, where numbers and escapes dominate, it retires 19% and 17%
+more and takes 11% and 5% more cycles.
+
+### The string-scan sweep
+
+Bench-only variants of `skip_plain_ascii`: the SWAR stage is `TIER` bytes
+(16 landed), then 16-lane or 32-lane SIMD blocks (`bench/json/variants/simd32.py`
+rewrites `std/json.rig`; `std/json.rig` itself is unchanged). "SWAR only" is
+`TIER = 10^9`: the SIMD loop never runs. The 32-lane rows read the last 32
+bytes again at the end of the document, as the 16-lane ones read 16.
+
+String lengths by file (`json-string-stats.py`, from "String lengths"
+above): keys are 7 to 12 bytes long and 71% to 100% fit in 16 bytes in every
+file; the bytes are in the values. twitter's values average 42 bytes (82% of
+the string bytes are in values over 32), gsoc-2018's 187 bytes (95%),
+github_events' 51 (86%), citm_catalog's 22 (16%); canada has 12 strings in
+all, and twitterescaped's strings are mostly `\u` escapes, which end the scan
+at once.
+
+Pup, against sonic-rs:
+
+| variant | twitter | twitterescaped | canada | citm_catalog | gsoc-2018 | github_events | geomean |
+|---|---|---|---|---|---|---|---|
+| SWAR 16, 16-lane | 19% slower | 4% slower | 11% slower | 29% slower | 12% slower | 30% slower | 18% slower |
+| SWAR 32, 16-lane | 19% slower | 5% slower | 11% slower | 29% slower | 13% slower | 31% slower | 19% slower |
+| SWAR 64, 16-lane | 19% slower | 5% slower | 11% slower | 29% slower | 16% slower | 32% slower | 19% slower |
+| SWAR only, (16-lane tail) | 19% slower | 5% slower | 12% slower | 30% slower | 26% slower | 34% slower | 22% slower |
+| SWAR 16, 32-lane | 16% slower | 5% slower | 11% slower | 32% slower | 4% slower | 33% slower | 18% slower |
+| SWAR 32, 32-lane | 17% slower | 5% slower | 11% slower | 32% slower | 7% slower | 33% slower | 18% slower |
+| SWAR 64, 32-lane | 18% slower | 5% slower | 11% slower | 32% slower | 11% slower | 36% slower | 20% slower |
+| SWAR only, (32-lane tail) | 17% slower | 5% slower | 11% slower | 32% slower | 26% slower | 37% slower | 22% slower |
+| SWAR 16, 16-lane inlined maskFirst | 19% slower | 4% slower | 11% slower | 29% slower | 12% slower | 30% slower | 18% slower |
+| SWAR 16, 32-lane inlined maskFirst | 16% slower | 5% slower | 11% slower | 32% slower | 4% slower | 32% slower | 17% slower |
+| SWAR 64, 32-lane inlined maskFirst | 18% slower | 5% slower | 11% slower | 32% slower | 11% slower | 36% slower | 20% slower |
+
+Mac (Apple silicon), against sonic-rs, load about 3:
+
+| variant | twitter | twitterescaped | canada | citm_catalog | gsoc-2018 | github_events | geomean |
+|---|---|---|---|---|---|---|---|
+| SWAR 16, 16-lane | 4% faster | 7% faster | 4% slower | 2% slower | 3% slower | 6% faster | 1% faster |
+| SWAR 32, 16-lane | 4% faster | 9% faster | 4% slower | 2% slower | 3% slower | 3% faster | 1% faster |
+| SWAR 64, 16-lane | 5% faster | 9% faster | 3% slower | 2% slower | 6% slower | 3% faster | 1% faster |
+| SWAR only, (16-lane tail) | 4% faster | 9% faster | 3% slower | 1% slower | 19% slower | 1% faster | 2% slower |
+| SWAR 16, 32-lane | 33% slower | 33% slower | 3% slower | 8% slower | 66% slower | 46% slower | 35% slower |
+| SWAR 32, 32-lane | 10% slower | 9% slower | 4% slower | 5% slower | 62% slower | 39% slower | 25% slower |
+| SWAR 64, 32-lane | 3% slower | 1% slower | 4% slower | 5% slower | 58% slower | 20% slower | 18% slower |
+| SWAR only, (32-lane tail) | 1% slower | 2% faster | 4% slower | 5% slower | 23% slower | 3% slower | 6% slower |
+
+#### Reading the sweep
+
+- **The SWAR stage's length barely matters.** On both machines 16, 32 and 64
+  are within 1% to 3% of each other by geomean, and 16 is best or tied
+  except on twitter and twitterescaped on the Mac (64 is 1% better, which is
+  noise). Only gsoc-2018 (long strings) and github_events move: SWAR 64
+  costs gsoc-2018 3% (Mac) to 4% (pup) and github_events 2% to 3%. Dropping
+  SIMD altogether (SWAR only) costs gsoc-2018 about 15% on both machines
+  and github_events about 5%.
+- **Best variant, Mac:** SWAR 16 with 16-lane blocks, the landed one (1%
+  faster than sonic-rs by geomean; SWAR 32 and 64 tie it within 1%).
+- **Best variant, pup:** SWAR 16 with 16-lane blocks and SWAR 16 with 32-lane
+  blocks tie (18% slower than sonic-rs by geomean, a 0.6% difference, which
+  is noise). 32 lanes gain 10% on gsoc-2018 (4% slower than sonic-rs against
+  12%) and 4% on twitter, and lose 5% on citm_catalog and 4% on github_events.
+  So 32-byte blocks do not win on x86 either, except on long-string files.
+
+#### The 32-lane loss on the Mac is Rig's lowering, not the lane count
+
+On aarch64 the 32-lane rows are 18% to 35% slower than sonic-rs (gsoc-2018
+58% to 66% slower). The emitted assembly for the 32-lane exit shows why:
+the compares and ORs are two `q` registers, but `rig.maskFirst` is not
+inlined (`_rig.runtime.maskFirst__func_875`; nothing marks it `noinline`, so
+it is LLVM's size heuristic), and its `@Vector(32, bool)` argument crosses
+the call as about 56 `umov`, `mov.s` and stack-store lane moves per 32-byte
+block. The 16-lane form is inlined and is not affected. With `maskFirst`
+declared `pub inline fn` in the emitted runtime (`rig-safeinl`, an experiment,
+never a build mode), the 32-lane rows recover:
+
+| variant | twitter | twitterescaped | canada | citm_catalog | gsoc-2018 | github_events | geomean |
+|---|---|---|---|---|---|---|---|
+| SWAR 16, 16-lane | 4% faster | 9% faster | 1% slower | 1% slower | 2% slower | 6% faster | 2% faster |
+| SWAR 16, 16-lane inlined maskFirst | 4% faster | 9% faster | 0% slower | 2% slower | 3% slower | 5% faster | 2% faster |
+| SWAR 16, 32-lane inlined maskFirst | 0% slower | 4% faster | 3% slower | 2% slower | 1% faster | 2% faster | 0% faster |
+| SWAR 64, 32-lane inlined maskFirst | 1% faster | 9% faster | 1% slower | 2% slower | 4% slower | 1% faster | 0% faster |
+
+(That Mac run began at a load of about 10, so its cells are noisier than the
+table above; the 16-lane rows in it agree with the table above within 2%.)
+So a 32-lane mask on NEON needs `maskFirst` inlined to be usable, and then
+ties the 16-lane scan without beating it. On pup inlining changes nothing (the `inlined
+maskFirst` rows above equal the plain ones within 2%); its assembly was not read.

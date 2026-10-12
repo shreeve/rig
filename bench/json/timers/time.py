@@ -21,12 +21,15 @@ EXT = {
 }
 variants = sys.argv[1].split(",")
 reps = int(sys.argv[2]) if len(sys.argv) > 2 else 7
-MS = 400
+MS = int(os.environ.get("MS", "400"))
+
+PIN = os.environ.get("PIN")  # a CPU list for taskset (Linux): pin to one P core
 
 def args(f, v, n):
-    if v in EXT: return EXT[v] + [os.path.join(DATA, f + ".json"), str(n)]
+    pre = ["taskset", "-c", PIN] if PIN else []
+    if v in EXT: return pre + EXT[v] + [os.path.join(DATA, f + ".json"), str(n)]
     exe = os.path.join(B, "%s-%s" % (f, v), "prog")
-    return [exe] + (["tape"] if v.startswith("zig-tape") else []) + [str(n)]
+    return pre + [exe] + (["tape"] if v.startswith("zig-tape") else []) + [str(n)]
 
 def run(f, v, n):
     p = subprocess.run(args(f, v, n), capture_output=True, text=True)
