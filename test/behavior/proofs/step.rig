@@ -1,0 +1,16 @@
+# A body that does not write `i` leaves the guard standing for the step.
+
+fun run(at: Int, n: Int) -> Int
+  i = at
+  t = 0
+  while i < n : i += 1 # proves: += no_overflow
+    t += 1
+    continue
+  t
+
+sub main()
+  print(run(Int.max - 5, Int.max))
+
+# release
+# expect:
+# 5

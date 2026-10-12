@@ -24,7 +24,11 @@ changed through the `*` handle to the value holding it (`cellmut.`),
 built in debug and with `--release`, and a value holding a Cell made or
 held anywhere but behind `*` (`cellmut.value.`, `celltemp.value.`),
 every one of which must be rejected, and a branch of such places copied
-by value (`cellbranch.`), likewise. The rule is
+by value (`cellbranch.`), likewise, and a guard, a write between it and
+a use, and the use, whose test the compiler omits only where the guard
+still holds (`proof.`, below), and a write and a use in the slots of each
+statement form, proven exactly where the unit rule says, and run alike in
+debug and with `--release` (`unit.`, below). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -46,6 +50,9 @@ and again built with `--release`.
     test/matrix.py --timeout 20 --mem 2048   # each program's limits
     test/matrix.py --delta         # check every program, but do not run one
                                    # whose runs passed before (below)
+    test/matrix.py --deep          # also each write of the proof. grid with
+                                   # its use nested, and every write, use, and
+                                   # guard of the unit. grid (the deep gate)
 
 Each program is stopped past its time, past 1 MB of output, or when its
 processes hold more than its memory, and every loop a cell writes
@@ -242,7 +249,7 @@ RESULTS = None
 
 # What a sound program never does when it runs (test/run's CORPUS_BAD_RE).
 BAD = re.compile(
-    r"rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free"
+    r"rig: a proven check failed|rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free"
     r"|\.zig:\d+:\d+: error|\.rig:\d+:\d+: error|Segmentation fault|Bus error|General protection"
     r"|Illegal instruction|reached unreachable|access of union field|invalid enum value"
     r"|incorrect alignment|attempt to use null value|switch on corrupt value|invalid error code"
@@ -2125,6 +2132,553 @@ def program(tname, fname, cname):
     return "\n".join(out)
 
 
+# -----------------------------------------------------------------------------
+# Proven checks (`proof.`): a guard, a write between it and a use, and the
+# use (docs/INTERNALS.md, "Proven checks"). Each cell's `--facts=proofs`
+# entry at its use must be what PROOF_USES says the guard's facts, less
+# what the write ends, prove: a positive copy of the pass's rules, kept
+# apart from them so the two cannot drift together. Each cell starts `i`
+# where the use is in range exactly when the write does not move it, so a
+# write that ends a fact the use needs makes the cell panic with the
+# test's own message, in debug and with `--release`; a debug run that
+# reaches a proven test that fails panics with "rig: a proven check
+# failed", which fails the cell.
+# -----------------------------------------------------------------------------
+
+PROOF_LEN, PROOF_SHORT = 12, 2
+
+# name: (how it holds, its text, the facts on its true edge, the width it
+# leaves room for). `fits` is `s.len <= max_len`, which a length read
+# shows.
+PROOF_GUARDS = {
+    "while_lt": ("while", "i < s.len", dict(nonneg=False, below=1, fits=True), 1),
+    "if_lt": ("if", "i < s.len", dict(nonneg=False, below=1, fits=True), 1),
+    "while_le8": ("while", "i + 8 <= s.len", dict(nonneg=False, below=8, fits=True), 8),
+    "if_le8": ("if", "i + 8 <= s.len", dict(nonneg=False, below=8, fits=True), 8),
+    "if_nonneg": ("if", "0 <= i and i < s.len", dict(nonneg=True, below=1, fits=True), 1),
+    "check": ("stmt", "c = s[i]", dict(nonneg=True, below=1, fits=False), 1),
+    "if_gt": ("if", "s.len > i", dict(nonneg=False, below=1, fits=True), 1),
+    # `+%` and `or` make no fact (the wrapping guard still reads s.len).
+    "while_wrap": ("while", "i +% 8 <= s.len", dict(nonneg=False, below=None, fits=True), 8),
+    "if_or": ("if", "i < s.len or flag", dict(nonneg=False, below=None, fits=False), 1),
+}
+
+# name: (lines before the use, with `U` where the use goes if it is inside
+# them; what the write does to the facts; how it moves `i`: "+1", "len",
+# "repoint", or "loop", where the use runs at `i` and then `i + 1`).
+_moved = dict(below=None)
+PROOF_MUTATIONS = {
+    "none": ([], {}, None),
+    "add": (["i += 1"], _moved, "+1"),
+    "add_assign": (["i = i + 1"], _moved, "+1"),
+    "len": (["i = s.len"], dict(below=None, nonneg=True, fits=True), "len"),
+    "bump": (["bump(!i)"], dict(below=None, nonneg=False), "+1"),
+    "closure": (["f = |!i| i += 1", "f()"], dict(below=None, nonneg=False), "+1"),
+    "defer": (["if flag", "  defer i += 1"], _moved, "+1"),
+    "value": (["out[0] = next(!i)"], dict(below=None, nonneg=False), "+1"),
+    "repoint": (["REPOINT"], dict(below=None, fits=False), "repoint"),
+    "branch": (["if flag", "  i += 1"], _moved, "+1"),
+    "arm": (["match k", "  1 => i += 1", "  _ => pass"], _moved, "+1"),
+    "loop": (["m = 0", "while m < 2", "  U", "  i += 1", "  m += 1"], _moved, "loop"),
+    "raw": (["raw", "  i += 1"], dict(below=None, nonneg=False, fits=False), "+1"),
+    "shadow": (["new i = i + 1"], dict(below=None, nonneg=False), "+1"),
+    "step": (["m = 0", "while m < 2 : i += 1", "  m += 1", "  U", "  continue"], _moved, "loop"),
+}
+
+# name: (the use as a statement, the node it is (`L:C KIND`'s kind), the
+# text the node starts with, the width it reads or writes (None: an add,
+# which cannot overflow here), whether it writes `s`, the expression it is
+# right of `and` (None: it is a statement), and the panic its own test
+# makes.
+PROOF_USES = {
+    "index": ("print(s[i])", "index", "s[i]", 1, False, "s[i] != 255", "index out of bounds"),
+    "index_set": ("s[i] = 7", "index", "s[i]", 1, True, None, "index out of bounds"),
+    "read": ("print(s.read[U64, .little](i))", "read", "s.read", 8, False, "s.read[U64, .little](i) != 0", "byte read out of range"),
+    "write": ("!s.write[U32, .little](i, 0x01020304)", "write", "s.write", 4, True, None, "byte write out of range"),
+    "add": ("print(i + 1)", "+", "i + 1", None, False, "i + 1 > 0", None),
+    "add_set": ("i += 1", "+=", "i += 1", None, False, None, None),
+    "add8": ("print(i + 8)", "+", "i + 8", None, False, "i + 8 > 0", None),
+}
+PROOF_PLACES = ("straight", "nested", "and")
+
+
+def proof_tests(facts, uname):
+    """The tests the use's node has proven under `facts` (docs/INTERNALS.md,
+    "Proven checks"): an index or a byte access, `0 <= i` and room for its
+    width; an add of `c`, room for `c`, or any room below a length that
+    fits."""
+    _, kind, _, width, _, _, _ = PROOF_USES[uname]
+    below = facts["below"]
+    if width is not None:
+        tests = []
+        if facts["nonneg"]:
+            tests.append("lower")
+        if below is not None and below >= width:
+            tests.append("upper")
+        return tests
+    c = 8 if uname == "add8" else 1
+    return ["no_overflow"] if below is not None and (below >= c or facts["fits"]) else []
+
+
+def proof_program(gname, mname, uname, place, deep=False):
+    """A `proof.` cell: the program, what it prints, the panic it must make
+    (None: it runs clean), and the `--facts=proofs` entry at its use
+    (None: there is none). None where the form cannot stand, and, but with
+    `deep`, for a write with its use anywhere but straight after it."""
+    ghow, gtext, gfacts, groom = PROOF_GUARDS[gname]
+    mlines, meffect, mmove = PROOF_MUTATIONS[mname]
+    ustmt, ukind, ustart, uwidth, uwrites, uexpr, upanic = PROOF_USES[uname]
+    if place != "straight" and mname != "none" and not (deep and place == "nested"):
+        return None
+    if place == "and" and (uexpr is None or ghow == "stmt"):
+        return None
+    L = PROOF_LEN
+    # The largest start the guard and the unmoved use both allow.
+    at = L - max(groom, uwidth or 1)
+    text = "?String" if not uwrites else "![]U8"
+    sig = [f"t: {text}"]
+    if mname == "repoint":
+        sig.append(f"u: {text}")
+    if mname == "value":
+        sig.append("out: ![]Int")
+    sig += ["at: Int", "flag: Bool", "k: Int"]
+    body = ["s = t" if not uwrites else "s = <t", "i = at"]
+    # `i += 1` is followed by a read of `i`, which it would otherwise leave
+    # unread.
+    # The use's line is marked with a NUL until its place is known.
+    stmts = ["\0" + ustmt] + (["print(i)"] if uname == "add_set" else [])
+    use = [uexpr] if place == "and" else stmts
+    if place == "nested":
+        use = ["if flag"] + ["  " + x for x in stmts]
+    inner = []
+    if mlines and any(l.strip() == "U" for l in mlines):
+        for l in mlines:
+            if l.strip() == "U":
+                pad = l[: len(l) - len(l.lstrip())]
+                inner += [pad + u for u in use]
+            else:
+                inner.append(l)
+    else:
+        repoint = "s = u" if not uwrites else "s = <u"
+        inner = [repoint if l == "REPOINT" else l for l in mlines] + use
+    out = []
+    if ghow == "stmt":
+        body += [gtext, "print(c)"] + inner
+        out.append(str(ord("a") + at) if not uwrites else "0")
+    elif place == "and":
+        head = f"\0{ghow} {gtext} and {uexpr}"
+        body += [head, '  print("ok")'] + (["  break"] if ghow == "while" else [])
+    else:
+        body += [f"{ghow} {gtext}"] + ["  " + l for l in inner] + (["  break"] if ghow == "while" else [])
+    # Where the use's node starts.
+    needle = uexpr if place == "and" else ustmt
+    line_no = col = None
+    for n, l in enumerate(body):
+        if "\0" in l:
+            l = body[n] = l.replace("\0", "")
+            line_no, col = n, l.index(needle) + needle.index(ustart) + 1
+    # What runs: the values of `i` where the use runs, and the view's length.
+    # What runs: `i` where the use runs, once, or twice in a loop that
+    # adds one after it, and the length of the view.
+    i = {"+1": at + 1, "len": L}.get(mmove, at)
+    length = PROOF_SHORT if mmove == "repoint" else L
+    data = "abcdefghijkl"
+    prints = [out[0]] if ghow == "stmt" else []
+    panic = None
+    buf = [0] * L
+    for _ in range(2 if mmove == "loop" else 1):
+        if uwidth is not None and (i < 0 or i + uwidth > length):
+            panic = upanic
+            break
+        if place == "and":
+            prints.append("ok")
+        elif uname == "index":
+            prints.append(str(ord(data[i])))
+        elif uname == "read":
+            prints.append(str(int.from_bytes(data[i:i + 8].encode(), "little")))
+        elif uname == "index_set":
+            buf[i] = 7
+        elif uname == "write":
+            buf[i:i + 4] = [4, 3, 2, 1]
+        elif uname == "add":
+            prints.append(str(i + 1))
+        elif uname == "add8":
+            prints.append(str(i + 8))
+        elif uname == "add_set":
+            i += 1
+            prints.append(str(i))
+        i += 1
+    if uwrites and panic is None:
+        prints.append("[" + ", ".join(map(str, buf)) + "]")
+    expect = "".join(x + "\n" for x in prints)
+    facts = dict(gfacts)
+    facts.update(meffect)
+    tests = proof_tests(facts, uname)
+    src = ["sub bump(n: !Int)", "  n += 1", "", "fun next(n: !Int) -> Int", "  n += 1", "  7", ""]
+    src.append(f"sub probe({', '.join(sig)})")
+    first = len(src) + 1
+    src += ["  " + l for l in body]
+    src.append("")
+    src.append("sub main()")
+    args = []
+    if not uwrites:
+        args.append(f'"{data}"')
+        if mname == "repoint":
+            args.append(f'"{data[:PROOF_SHORT]}"')
+    else:
+        src.append(f"  a: [{L}]U8 = [{L} of 0]")
+        args.append("!a[..]")
+        if mname == "repoint":
+            src.append(f"  b: [{PROOF_SHORT}]U8 = [{PROOF_SHORT} of 0]")
+            args.append("!b[..]")
+    if mname == "value":
+        src.append("  o = [0]")
+        args.append("!o[..]")
+    args += [str(at), "true", "1"]
+    src.append(f"  probe({', '.join(args)})")
+    if uwrites:
+        src.append("  print(a)")
+    at_use = f"{first + line_no}:{col + 2}"
+    entry = f"{at_use} {ukind} {' '.join(tests)}" if tests else None
+    return "\n".join(src) + "\n", expect, panic, (at_use, ukind), entry
+
+
+def proof_dump_at(dump, at, kind):
+    """The `--facts=proofs` entries of `kind` at `at` (`L:C`)."""
+    return [l for l in dump.splitlines() if l.startswith("%s %s " % (at, kind))]
+
+
+def run_proof(path, keep, started_dir, cell):
+    """Classify one `proof.` cell: the checker accepts it, `--facts=proofs`
+    lists exactly the tests the cell's table proves at its use, and it
+    runs as it must in debug and with `--release`: clean, printing what it
+    must, or panicking with its use's own message."""
+    expect, panic, (line, kind), entry = cell
+    try:
+        chk = subprocess.run([RIG, "check", "--facts=proofs", path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return "fail", "rig check timed out"
+    if chk.returncode != 0:
+        return "fail", "rejected, but must be accepted: " + first_error(chk.stdout + chk.stderr)
+    got = proof_dump_at(chk.stdout, line, kind)
+    if got != ([entry] if entry else []):
+        return "fail", f"proves {got}, expected {entry or 'nothing'} at {line}"
+    key = RESULTS and RESULTS.key(path, (expect, panic), True)
+    if key and RESULTS.carried(key):
+        return "ok", "carried over"
+    unguarded = []
+    for flags in ([], ["--release"]):
+        why = run_proof_built(path, keep, started_dir, expect, panic, flags, unguarded)
+        if why:
+            return "fail", ("--release: " if flags else "") + why
+    if key and not unguarded:
+        RESULTS.record(key, path, (expect, panic), True)
+    return "ok", ""
+
+
+def run_proof_built(path, keep, started_dir, expect, panic, flags, unguarded):
+    """One build of a `proof.` cell: None when it exits 0 printing `expect`,
+    or, with `panic`, exits non-zero with that panic after printing
+    `expect`; else why not. Nothing a sound program never does may show
+    (BAD), a proven test's assertion included."""
+    outdir = path[:-4] + (".release" if flags else "") + ".out"
+    started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
+    env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
+    try:
+        r = run_capped([RIG, "run"] + flags + [path], env)
+    except subprocess.TimeoutExpired:
+        return "timed out"
+    except MemoryError as e:
+        return str(e)
+    err = r.stderr
+    if "rig: sanitizer: mapping limit reached" in err:
+        unguarded.append(flags)
+    ran = os.path.isfile(started) and "rig: the program did not run" not in err
+    if os.path.lexists(started):
+        os.remove(started)
+    if not keep:
+        shutil.rmtree(outdir, ignore_errors=True)
+    if not ran:
+        return "the program did not run: " + first_line(err)
+    m = BAD.search(err)
+    if m:
+        return next((l for l in err.splitlines() if BAD.search(l)), m.group(0)).strip()
+    if panic is None and r.returncode != 0:
+        return "exit %d: %s" % (r.returncode, first_line(err))
+    if panic is not None and (r.returncode == 0 or "panic: " + panic not in err):
+        return "expected panic %r; exit %d: %s" % (panic, r.returncode, first_line(err))
+    if r.stdout != expect:
+        return "printed " + repr(r.stdout) + ", expected " + repr(expect)
+    return None
+
+
+# -----------------------------------------------------------------------------
+# Units (`unit.`): a write of `i` and a use of it, each in a slot of a
+# statement form, under a guard (docs/INTERNALS.md, "Proven checks"). The
+# form's own text decides which slots are one unit and which run after
+# which; `UNIT_FORMS` says, for each slot the use is in, which slots a
+# write in ends the guard's facts: its own unit's slots and those on a
+# path from the guard to it. That is a third statement of the unit rule,
+# kept apart from the pass and from emit, and it names no order inside a
+# unit, so it holds whichever order a run takes. `i` starts where the
+# use is in range exactly when the write runs before it. Each cell must
+# be accepted (or rejected with a diagnostic, which proves nothing); its
+# `--facts=proofs` entry at the use must be what the rule gives; and it
+# must run the same in debug, where a proven test that fails panics with
+# "rig: a proven check failed", and with `--release`: the same output, the
+# same exit, the same panic.
+# -----------------------------------------------------------------------------
+
+UNIT_LEN = 12
+
+# name: (lines, with `{X}` for an expression slot X (an Int), `{X?}` for a
+# Bool slot, and a line `{X:}` for a statement slot; for each slot the
+# use may be in, the slots whose write ends what the guard showed).
+_ALL4 = ("P1", "P2", "B", "S")
+UNIT_FORMS = {
+    "call": (["print({A}, {B})"], {"A": "AB", "B": "AB"}),
+    "bind": (["x = {A} + {B}", "print(x)"], {"A": "AB", "B": "AB"}),
+    "name": (["n = {A}", "print(n)"], {"A": "A"}),
+    "compound": (["n += {A}", "print(n)"], {"A": "A"}),
+    "elem": (["w[{A}] = {B}"], {"A": "AB", "B": "AB"}),
+    "elem_compound": (["w[{A}] += {B}"], {"A": "AB", "B": "AB"}),
+    "root_call": (["pick(!w, {A})[{B}] = {C}"], {"A": "ABC", "B": "ABC", "C": "ABC"}),
+    "root_method": (["(!p).at({A}).v[{B}] = {C}"], {"A": "ABC", "B": "ABC", "C": "ABC"}),
+    "root_opt": (["get(!p, {A})?.v[{B}] = {C}"], {"A": "ABC", "B": "ABC", "C": "ABC"}),
+    "root_branch": (["(!w if {A?} else !w2[..])[{B}] = {C}"], {"A": "ABC", "B": "ABC", "C": "ABC"}),
+    "return": (["if flag", "  return {A} + {B}"], {"A": "AB", "B": "AB"}),
+    "while": (["while {P1} + m < 1 and {P2?} : m += 1 + {S}", "  {B:}"], {s: _ALL4 for s in _ALL4}),
+    "while_cont_cond": (["while (opt({P1}, m) ?? continue) + m < 1 and {P2?} : m += 1 + {S}", "  {B:}"], {s: _ALL4 for s in _ALL4}),
+    "while_cont_body": (["while {P1} + m < 1 and {P2?} : m += 1 + {S}", "  {B:}", "  continue"], {s: _ALL4 for s in _ALL4}),
+    "while_cont_step": (["while {P1} + m < 1 and {P2?} : m += 1 + (opt({S}, 1) ?? continue)", "  {B:}"], {s: _ALL4 for s in _ALL4}),
+    "if": (["if {P1?} and {P2?}", "  {T:}", "else", "  {E:}"],
+           {"P1": ("P1",), "P2": ("P1", "P2"), "T": ("P1", "P2", "T"), "E": ("P1", "P2", "E")}),
+    "match": (["match {A}", "  0 if {G1?}", "    {B1:}", "  _ if {G2?}", "    {B2:}", "  _ => pass"],
+              {"A": ("A", "G1", "G2"), "G1": ("A", "G1", "G2"), "G2": ("A", "G1", "G2"),
+               "B1": ("A", "G1", "G2", "B1"), "B2": ("A", "G1", "G2", "B2")}),
+    "value_if": (["x = {A} if flag else {B}", "print(x)"], {"A": "AB", "B": "AB"}),
+    "value_and": (["ok = {A?} and {B?}", "print(ok)"], {"A": "AB", "B": "AB"}),
+    "value_match": (["x = match k", "  1", "    {X1:}", "    {V}", "  _", "    {X2:}", "    0", "print(x)"],
+                    {"X1": ("X1", "X2", "V"), "X2": ("X1", "X2", "V"), "V": ("X1", "X2", "V")}),
+    # A `defer` body is walked from no facts: a use in it is never proven.
+    "defer": (["if flag", "  defer", "    {D:}", "  {I:}", "{O:}"],
+              {"D": None, "I": ("I",), "O": ("D", "I", "O")}),
+}
+
+# name: (as an Int expression, as a statement, whether it keeps `0 <= i`).
+UNIT_WRITES = {
+    "bump": ("bump(!i)", "print(bump(!i))", False),
+    "closure": ("run(|!i| i += 1)", "print(run(|!i| i += 1))", False),
+    "nested": (None, "i += 1", True),
+    "none": (None, None, True),
+}
+
+# name: (as an Int expression, as a statement, the dump's kind, the text
+# the node starts with, its width (None: an add)).
+UNIT_USES = {
+    "index": ("Int(s[i])", "print(s[i])", "index", "s[i]", 1),
+    "read": ("Int(s.read[U32, .little](i))", "print(s.read[U32, .little](i))", "read", "s.read", 4),
+    "add": ("(i + 1)", "print(i + 1)", "+", "i + 1", None),
+    "write": (None, "!s.write[U32, .little](i, 0x01020304)", "write", "s.write", 4),
+}
+
+# name: (lines before the form, the form's indent, lines after it, the
+# facts the guard shows).
+UNIT_GUARDS = {
+    "if": (["if i < s.len"], "  ", [], dict(nonneg=False, below=1)),
+    "while": (["while i < s.len"], "  ", ["  break"], dict(nonneg=False, below=1)),
+    "check": (["c = s[i]", "print(c)"], "", [], dict(nonneg=True, below=1)),
+}
+
+UNIT_PRELUDE = """obj P
+  v: [2]Int
+
+  fun at(self: !P, n: Int) -> !P
+    self
+
+fun z(n: Int) -> Int
+  0
+
+fun bump(n: !Int) -> Int
+  n += 1
+  0
+
+fun run(f: ?sub()) -> Int
+  f()
+  0
+
+fun opt(n: Int, m: Int) -> Int?
+  n if m > 0 else none
+
+fun pick(t: ![]Int, n: Int) -> ![]Int from t
+  t
+
+fun get(p: !P, n: Int) -> (!P)?
+  !p
+"""
+
+
+def unit_slots(lines):
+    """The slots of a form, in the order they appear: (name, how), with how
+    `expr`, `bool`, or `stmt`."""
+    out = []
+    for l in lines:
+        for m in re.finditer(r"\{(\w+)([?:]?)\}", l):
+            out.append((m.group(1), {"": "expr", "?": "bool", ":": "stmt"}[m.group(2)]))
+    return out
+
+
+def unit_program(fname, wname, wslot, uname, uslot, gname):
+    """A `unit.` cell: the program, the use's `L:C`, its dump kind, and the
+    entry the rule gives (None: nothing proven); None where the write or
+    the use cannot stand in its slot."""
+    lines, kills = UNIT_FORMS[fname]
+    slots = dict(unit_slots(lines))
+    wexpr, wstmt, keeps_nonneg = UNIT_WRITES[wname]
+    uexpr, ustmt, ukind, ustart, uwidth = UNIT_USES[uname]
+    if uslot not in slots or uslot not in kills:
+        return None
+    if wname == "none":
+        if wslot is not None:
+            return None
+    elif wslot not in slots or (slots[wslot] != "stmt" and wexpr is None):
+        return None
+    if slots[uslot] != "stmt" and uexpr is None:
+        return None
+    filled = {}
+    for name, how in slots.items():
+        parts = []
+        if name == wslot and wname != "none":
+            parts.append(wstmt if how == "stmt" else f"z({wexpr})")
+        if name == uslot:
+            parts.append("\0" + (ustmt if how == "stmt" else f"z({uexpr})"))
+        if how == "stmt":
+            filled[name] = parts or ["pass"]
+        elif how == "bool":
+            filled[name] = [" + ".join(parts) + " == 0" if parts else "true"]
+        else:
+            filled[name] = [" + ".join(parts) if parts else "0"]
+    body = []
+    for l in lines:
+        m = re.fullmatch(r"(\s*)\{(\w+):\}", l)
+        if m:
+            body += [m.group(1) + x for x in filled[m.group(2)]]
+            continue
+        body.append(re.sub(r"\{(\w+)[?]?\}", lambda mm: filled[mm.group(1)][0], l))
+    before, indent, after, gfacts = UNIT_GUARDS[gname]
+    width = uwidth or 1
+    at = UNIT_LEN - width
+    probe = ["i = at", "n = 0", "m = 0", "p = P(v: [0, 0])", "w2: [2]Int = [0, 0]"]
+    probe += before + [indent + l for l in body] + after + ["print(i, n, m, p, w2)", "0"]
+    line_no = col = None
+    for k, l in enumerate(probe):
+        if "\0" in l:
+            l = probe[k] = l.replace("\0", "")
+            needle = ustmt if slots[uslot] == "stmt" else f"z({uexpr})"
+            col = l.index(needle) + needle.index(ustart) + 1
+            line_no = k
+    src = UNIT_PRELUDE.splitlines()
+    src.append("")
+    src.append("fun probe(s: ![]U8, w: ![]Int, at: Int, k: Int, flag: Bool) -> Int?")
+    first = len(src) + 1
+    src += ["  " + l for l in probe]
+    src.append("")
+    src.append("sub main()")
+    src.append(f"  a: [{UNIT_LEN}]U8 = [{', '.join(str(97 + j) for j in range(UNIT_LEN))}]")
+    src.append("  t: [2]Int = [0, 0]")
+    src.append(f"  print(probe(!a[..], !t[..], {at}, 1, true) ?? 9)")
+    src.append("  print(a, t)")
+    at_use = f"{first + line_no}:{col + 2}"
+    # The rule: the guard's facts reach the use unless a write ends them.
+    facts = dict(gfacts)
+    ends = kills[uslot]
+    if ends is None:
+        facts = dict(nonneg=False, below=None)
+    elif wname != "none" and wslot in ends:
+        facts["below"] = None
+        if not keeps_nonneg:
+            facts["nonneg"] = False
+    tests = []
+    if uwidth is not None:
+        if facts["nonneg"]:
+            tests.append("lower")
+        if facts["below"] is not None and facts["below"] >= uwidth:
+            tests.append("upper")
+    elif facts["below"] is not None and facts["below"] >= 1:
+        tests.append("no_overflow")
+    entry = f"{at_use} {ukind} {' '.join(tests)}" if tests else None
+    return "\n".join(src) + "\n", (at_use, ukind), entry
+
+
+def unit_cells(deep):
+    """Every `unit.` cell's id and arguments: with `deep`, every form,
+    write, write slot, use, use slot, and guard; else each form's slot
+    pairs with `bump(!i)` and `s[i]` under `if`, and each use slot with no
+    write under each guard."""
+    for f, (lines, kills) in UNIT_FORMS.items():
+        names = [n for n, _ in unit_slots(lines)]
+        for g in UNIT_GUARDS:
+            for w in UNIT_WRITES:
+                for u in UNIT_USES:
+                    if not deep and not ((w == "bump" and u == "index" and g == "if") or (w == "none" and u == "index")):
+                        continue
+                    for ws in (names if w != "none" else [None]):
+                        for us in names:
+                            yield f"unit.{g}.{f}.{w}.{ws or '-'}.{u}.{us}", (f, w, ws, u, us, g)
+
+
+def run_unit(path, keep, started_dir, cell):
+    """Classify one `unit.` cell: the checker rejects it with a diagnostic,
+    or `--facts=proofs` lists exactly what the rule gives at its use, and
+    it runs alike in debug and with `--release`, with nothing a sound
+    program never does (a proven test's assertion included)."""
+    (line, kind), entry = cell
+    try:
+        chk = subprocess.run([RIG, "check", "--facts=proofs", path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return "fail", "rig check timed out"
+    if chk.returncode != 0:
+        if POS.search(chk.stdout + chk.stderr) and not CRASH.search(chk.stdout + chk.stderr):
+            return "ok", "rejected"
+        return "fail", "rejected without a diagnostic: " + first_error(chk.stdout + chk.stderr)
+    got = proof_dump_at(chk.stdout, line, kind)
+    if got != ([entry] if entry else []):
+        return "fail", f"proves {got}, the rule gives {entry or 'nothing'} at {line}"
+    key = RESULTS and RESULTS.key(path, ("unit", entry), True)
+    if key and RESULTS.carried(key):
+        return "ok", "carried over"
+    runs, unguarded = [], []
+    for flags in ([], ["--release"]):
+        outdir = path[:-4] + (".release" if flags else "") + ".out"
+        started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
+        env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
+        try:
+            r = run_capped([RIG, "run"] + flags + [path], env)
+        except subprocess.TimeoutExpired:
+            return "fail", ("--release: " if flags else "") + "timed out"
+        except MemoryError as e:
+            return "fail", str(e)
+        if "rig: sanitizer: mapping limit reached" in r.stderr:
+            unguarded.append(flags)
+        ran = os.path.isfile(started) and "rig: the program did not run" not in r.stderr
+        if os.path.lexists(started):
+            os.remove(started)
+        if not keep:
+            shutil.rmtree(outdir, ignore_errors=True)
+        if not ran:
+            return "fail", ("--release: " if flags else "") + "the program did not run: " + first_line(r.stderr)
+        m = BAD.search(r.stderr)
+        if m:
+            return "fail", ("--release: " if flags else "") + next((l for l in r.stderr.splitlines() if BAD.search(l)), m.group(0)).strip()
+        panic = re.search(r"panic: (.*)", r.stderr)
+        runs.append((r.returncode, r.stdout, panic.group(1).strip() if panic else None))
+    if runs[0] != runs[1]:
+        return "fail", f"debug {runs[0]!r} but --release {runs[1]!r}"
+    if key and not unguarded:
+        RESULTS.record(key, path, ("unit", entry), True)
+    return "ok", ""
+
+
 # A program that runs away is stopped: after RUN_SECONDS (`--timeout`),
 # when it has printed more than RUN_OUTPUT bytes, or when its processes
 # (the compiler, Zig, the program) hold more than RUN_MB megabytes
@@ -2286,7 +2840,7 @@ def first_error(s):
 
 
 # Every function a program's verdict reads (Results hashes their code).
-VERDICT_CODE = (tree_rss, run_capped, run_one, run_built, first_line, first_error)
+VERDICT_CODE = (tree_rss, run_capped, run_one, run_built, first_line, first_error, run_proof, run_proof_built, proof_dump_at, run_unit)
 
 
 def main():
@@ -2302,6 +2856,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=RUN_SECONDS, help=f"seconds each program may take to build and run (default {RUN_SECONDS})")
     ap.add_argument("--mem", type=int, default=RUN_MB, help=f"megabytes each program may use (default {RUN_MB})")
     ap.add_argument("--delta", action="store_true", help="do not run a program whose runs passed before (the results cache)")
+    ap.add_argument("--deep", action="store_true", help="every write of the proof. grid with its use nested too, and the whole unit. grid (the deep gate)")
     args = ap.parse_args()
     RIG = os.path.abspath(args.rig) if args.rig else RIG
     RUN_SECONDS, RUN_MB = args.timeout, args.mem
@@ -2568,6 +3123,34 @@ def main():
         cells.append((ident, path))
         # No run prints this: a program that runs fails the cell.
         expects[ident] = "(rejected)\n"
+    proofs = {}
+    for g in PROOF_GUARDS:
+        for m in PROOF_MUTATIONS:
+            for u in PROOF_USES:
+                for place in PROOF_PLACES:
+                    ident = f"proof.{g}.{m}.{u}.{place}"
+                    if not wanted(ident):
+                        continue
+                    cell = proof_program(g, m, u, place, args.deep)
+                    if cell is None:
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(cell[0])
+                    cells.append((ident, path))
+                    proofs[ident] = cell[1:]
+    units = {}
+    for ident, (f, w, ws, u, us, g) in unit_cells(args.deep):
+        if not wanted(ident):
+            continue
+        cell = unit_program(f, w, ws, u, us, g)
+        if cell is None:
+            continue
+        path = os.path.join(work, ident.replace(".", "__").replace("-", "_") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(cell[0])
+        cells.append((ident, path))
+        units[ident] = cell[1:]
     if args.oracle:
         sys.exit(run_oracle(work, cells, args))
     results = {}
@@ -2583,7 +3166,9 @@ def main():
         RESULTS = Results(cache, args.delta, started_dir)
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
-            futs = {pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), i in release): i for i, p in cells}
+            futs = {(pool.submit(run_proof, p, bool(args.keep), started_dir, proofs[i]) if i in proofs else
+                     pool.submit(run_unit, p, bool(args.keep), started_dir, units[i]) if i in units else
+                     pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), i in release)): i for i, p in cells}
             for fut in concurrent.futures.as_completed(futs):
                 results[futs[fut]] = fut.result()
     finally:

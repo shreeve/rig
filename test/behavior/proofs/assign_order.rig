@@ -1,0 +1,15 @@
+# A check in a statement before the assignment proves its target.
+
+sub put(t: ![]U8, src: ?String, at: Int)
+  i = at
+  c = t[i]
+  t[i] = src[i] + c # proves: index lower upper
+
+sub main()
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", 2)
+  print(a)
+
+# release
+# expect:
+# [0, 0, 99, 0]

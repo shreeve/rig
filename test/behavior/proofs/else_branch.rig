@@ -1,0 +1,16 @@
+# The true edge proves the use.
+
+fun pick(s: ?String, at: Int) -> U8
+  i = at
+  if i < s.len
+    return s[i] # proves: index upper
+  else
+    print("out of range")
+  0
+
+sub main()
+  print(pick("abc", 2))
+
+# release
+# expect:
+# 99

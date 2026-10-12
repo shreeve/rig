@@ -1,0 +1,17 @@
+# A guard on `n` once `n = s.len` proves `i < s.len`, which stays true
+# when `n` changes later, since `i` and `s` do not.
+
+fun get(s: ?String, at: Int) -> U8
+  n = s.len
+  i = at
+  if i < n
+    n -= 2
+    return s[i] # proves: index upper
+  0
+
+sub main()
+  print(get("abc", 2))
+
+# release
+# expect:
+# 99

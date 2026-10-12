@@ -1,0 +1,14 @@
+# Shifting an element up: the value's check of `t[i]` says nothing about
+# `i + 1`, which the place may compute first.
+
+sub shift(t: ![]U8, at: Int)
+  i = at
+  t[i + 1] = t[i] # keeps: + no_overflow
+
+sub main()
+  a: [4]U8 = [1, 2, 3, 4]
+  shift(!a[..], Int.max)
+  print(a)
+
+# release
+# expect-panic: integer overflow

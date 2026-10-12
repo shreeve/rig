@@ -99,7 +99,7 @@ const SymbolResolver = struct {
             .@"for" => try self.walkFor(sexp),
             .@"if" => try self.walkConditional(ir.If.cond(sexp), &.{ir.If.then(sexp)}, ir.If.@"else"(sexp)),
             .write => {
-                try self.markWritten(ir.Write.operand(sexp));
+                try self.markWritten(sexp, ir.Write.operand(sexp), .lend_write);
                 try self.walk(ir.Write.operand(sexp));
             },
             .@"while" => try self.walkConditional(ir.While.cond(sexp), &.{ ir.While.step(sexp), ir.While.body(sexp) }, ir.While.@"else"(sexp)),
@@ -252,7 +252,7 @@ const SymbolResolver = struct {
                 continue;
             }
             // `|!x|` writes the binding it captures, as `!x` does.
-            if (cap.isKind(.cap_write)) try self.markWritten(name_node);
+            if (cap.isKind(.cap_write)) try self.markWritten(cap, name_node, .capture);
             _ = try self.declare(name_node, .capture, .{});
         }
         try self.bindParams(ir.Lambda.params(node), .run_time, .nil, captures);
@@ -394,7 +394,7 @@ const SymbolResolver = struct {
         const target = ir.Set.target(node);
         try self.walk(ir.Set.value(node));
         if (target != .src) {
-            try self.markWritten(target);
+            try self.markWritten(node, target, .elem_store);
             try self.walk(target);
             return;
         }
@@ -404,7 +404,7 @@ const SymbolResolver = struct {
             .default => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     try self.ctx.recordName(target, existing);
-                    self.ctx.symbols.items[existing].flags.reassigned = true;
+                    try self.ctx.recordWrite(node, existing, .assign);
                     return;
                 }
                 try self.checkNewLocal(target);
@@ -426,7 +426,7 @@ const SymbolResolver = struct {
             .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
-                    self.ctx.symbols.items[existing].flags.reassigned = true;
+                    try self.ctx.recordWrite(node, existing, .compound);
                 } else if (self.scope == self.module_scope) {
                     // A module-level `K += 1` declares nothing it could
                     // update; the checker rejects it, and `K` is bound so
@@ -438,8 +438,9 @@ const SymbolResolver = struct {
     }
 
     /// `!x`, `!x.f`, and assignments to `x.f` / `x[i]` write the binding
-    /// `x` is: it cannot be a constant.
-    fn markWritten(self: *SymbolResolver, place: Sexp) Error!void {
+    /// `x` is: it cannot be a constant. `node` is the site that writes it
+    /// (`SemContext.recordWrite`).
+    fn markWritten(self: *SymbolResolver, node: Sexp, place: Sexp, kind: sema.WriteKind) Error!void {
         var p = place;
         while (p.kind()) |h| {
             if (h != .member and h != .index) return;
@@ -447,7 +448,7 @@ const SymbolResolver = struct {
         }
         const name = identAt(self.ctx.source, p) orelse return;
         const id = self.ctx.lookup(self.scope, name) orelse return;
-        self.ctx.symbols.items[id].flags.written = true;
+        try self.ctx.recordWrite(node, id, kind);
     }
 
     /// The existing binding `x = ...` assigns to: a local or parameter of
@@ -484,7 +485,7 @@ const SymbolResolver = struct {
 
     fn walkFor(self: *SymbolResolver, node: Sexp) Error!void {
         // `for x in !xs` writes `xs` through `x`.
-        if (ir.For.mode(node).tag == .write) try self.markWritten(ir.For.source(node));
+        if (ir.For.mode(node).tag == .write) try self.markWritten(node, ir.For.source(node), .lend_write);
         try self.walk(ir.For.source(node));
         {
             const prev = try self.enter(node, .block);

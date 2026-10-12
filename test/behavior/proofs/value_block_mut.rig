@@ -1,0 +1,19 @@
+# A value that holds statements: an arm of the `match` writes `i`, so
+# no `s[i]` in the statement is proven by the guard before it.
+
+fun pick(s: ?String, at: Int, k: Int) -> U8
+  i = at
+  if i < s.len
+    x = match k
+      1
+        i += 1
+        s[i] # keeps: index upper
+      _ => s[i] # keeps: index upper
+    return x
+  0
+
+sub main()
+  print(pick("abc", 2, 1))
+
+# release
+# expect-panic: index out of bounds

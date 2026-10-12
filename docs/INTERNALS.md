@@ -20,6 +20,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │  sema        src/sema.zig      names, types, effects, the facts table
   │  storage     src/storage.zig   the hidden storage emit makes
   │  ownership   src/ownership.zig moves, loans, drops, aliasing
+  │  proofs      src/proofs.zig    the tests known to pass
   ▼
 inlining         src/inlining.zig  which small functions Zig inlines, program-wide
 emit             src/emit.zig      one Zig file per module
@@ -32,10 +33,11 @@ zig run / zig build-exe            debug (leak-checked), safe, or fast
 every checker on the program and its imports. `check --facts` then
 prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)),
 `check --facts=sema` every fact sema recorded for its expressions
-(`sema.Facts`), and `check --facts=storage` the hidden storage emit makes
+(`sema.Facts`), `check --facts=storage` the hidden storage emit makes
 for them ([Storage facts](#storage-facts)), one per line, keyed by node
 kind and span with no compiler ids, so two compilers' dumps of a program
-diff cleanly.
+diff cleanly, and `check --facts=proofs` the tests known to pass
+([Proven checks](#proven-checks)).
 A module whose sema reports an error (other than a local that is never
 read, a lint on well-typed code) is not ownership-checked: ownership
 reads the types sema settled, as Rust's checker waits for its
@@ -124,8 +126,10 @@ or `-Ofast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. `emit` prints the root module's Zig and names the
 package directory on stderr; `build` names it when Zig fails.
 `RIG_LEAK_TRACE=1` at build time adds `__rig_leak_trace` to the root
-module, and `RIG_SANITIZE=1` adds `__rig_sanitize` (see
-[the runtime](#the-runtime)). `run` and `test` also add
+module, `RIG_SANITIZE=1` adds `__rig_sanitize` (see
+[the runtime](#the-runtime)), and `RIG_VERIFY_PROOFS=1` adds
+`__rig_verify_proofs`, which makes an optimized build assert the tests
+it omits ([Proven checks](#proven-checks)). `run` and `test` also add
 `__rig_run_started`, the name of the variable `RIG_PROGRAM_STARTED`,
 which is what makes `rig.start` create the file: a program `rig build`
 makes has no such declaration, never reads that variable, and creates
@@ -158,6 +162,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
+| `src/proofs.zig` | the proven checks: which index, byte-access, and add tests a guard or a check already made |
 | `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`) |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
@@ -1196,6 +1201,7 @@ instead of re-deriving it by name:
 | `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
+| `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded by the storage plan; emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 **The lend table.** Which views a value lends (Core §4) is decided in
@@ -1499,6 +1505,164 @@ that binds one is rejected where typecheck records it
 a read match's
 payload view of a copy lives for its arm (`arm_view`); a `payload` copy only copies
 fields out, and an `error_value` is plain data.
+
+### Proven checks
+
+A check is the test an operation makes before it acts: `s[i]` tests
+`0 <= i` and `i < s.len`; `s.read[T, e](i)` and `!s.write[T, e](i, v)`
+test `0 <= i` and `i + @size(T) <= s.len`; `i + c` and `i += c` test that
+the sum fits. The proof pass (`src/proofs.zig`), on a module the
+ownership checker accepted (`ModuleGraph.check` runs it only on a
+`.checked` module), records which of a node's tests already passed
+(`SemContext.provenOf`, a `sema.Proven`): a guard or a check that ran made
+the same test on every path to the node, and nothing it named was
+written between. Emit reads it through `Facts.provenOf` and writes the
+operation without those tests:
+
+```text
+s[i]   ==>  test 0 <= i unless lower is proven; test i < s.len unless upper is proven; s.ptr[i]
+i + c  ==>  test that i + c fits unless no_overflow is proven; i + c
+```
+
+An omitted test is one the program already made, so the program means
+what it meant. A debug build still makes it, as an assertion ("rig: a
+proven check failed (compiler bug)"), so every test that runs checks the
+proofs it reaches; `./test/run`, the corpus, and the matrix fail on that
+message even where a panic is expected. An optimized build makes it too
+when `RIG_VERIFY_PROOFS=1` is set as it is built (the root module then
+declares `__rig_verify_proofs`), and `RIG_NO_PROOFS=1` makes emit write
+every test, as if nothing were proven.
+
+**Units.** A body is cut into units (`rig.eachUnit`), the one list every
+pass reads: a statement that orders no others (an assignment, a binding,
+an expression, `return`, `break`, `continue`, `<x`); each guard part of
+an `if` or `while` condition (an `as` part, or an operand of the top
+`and` chain of any other part, which Zig's `and` runs only after the
+operands before it held); a `while` step; a `for` source; a statement
+`match`'s selection (its subject, every pattern, every guard); and a
+`raw` block. The structured statements (a block, `if`, `while`, `for`,
+`match`, a labeled one, `defer`) are no unit: they order the units they
+hold. `rig.stmtClass` places every IR tag (structured, a unit, `raw`, or
+never a statement, which is opaque as `raw` is), so a new tag fails to
+compile until it is placed, and `rig.skeletonOf` gives the one skeleton
+that `eachUnit` lists units by and the proof walk follows. A block inside a unit's expression (an arm of a value `match`, a
+branch of a value `if`, a `catch` handler, a value loop's body) and a
+closure's body hold units of their own, nested in it. The storage plan
+records each node's unit (`SemContext.unitOf`). The proof is the
+desugaring
+
+```text
+unit u  ==>  prove every check in u from E - K(u); then add u's facts
+```
+
+where `E` is the facts at `u`'s entry and `K(u)` every write anywhere in
+`u` (nested units, closure literals, and `defer`s registered in it
+included), but an assignment's own store, which follows every other step
+of the assignment (`storage.eachSetStep`). Inside a unit nothing is
+ordered: whatever order emit picks for its parts (an assignment's steps,
+a held receiver or argument, a hoisted value), every write it runs is in
+`K(u)`, and no fact `u` makes is visible to its own checks. A unit
+nested in `u` starts from `E - K(u)` too.
+
+**Facts.** The pass tracks four facts, about bindings, by symbol:
+`nonneg(i)`, `0 <= i`; `below(i, k, b)`, `i + k <= b` exactly;
+`fits(s)`, `s.len <= 2^62 - 1`; and `eq(n, s)`, `n == s.len`. `i` and
+`n` are locals or parameters of type `Int` of the body being walked (not
+a capture, a view, or a field); a bound `b` is `len(s)`, where `s` is
+such a binding of type `?String`, `[]T`, or `![]T`, or `int(n)`; `k` is
+at most `2^62`. Each list below is positive: a shape not on it makes
+nothing and proves nothing. A unit makes its facts on its exit, each
+only if nothing in `K(u)` names it; then an assignment's store applies,
+and then what the store makes.
+
+| Unit | Makes, on its exit |
+|---|---|
+| a guard part, on its true edge | `i < b`: `below(i, 1, b)`; `i <= b`: `below(i, 0, b)`; `i + k < b` or `k + i < b`: `below(i, k + 1, b)`; `i + k <= b`: `below(i, k, b)`; `0 <= i` or `0 < i`: `nonneg(i)`; each either way round. `b` is written `s.len` (which also gives `fits(s)`: the length was read through `rig.len`, which tests the margin) or `n`, `k` is an integer literal, and the `+` is checked (`+%` is another operator) |
+| `x = s[i]`, `x = s.read[T, e](i)`, or the statement `!s.write[T, e](i, v)`, `T` concrete: the check ran | `nonneg(i)`, `below(i, width, len(s))`, before the store |
+| `i = c` with a literal `c`, `i = j` with `nonneg(j)` | `nonneg(i)`, after the store |
+| `n = s.len` | `nonneg(n)`, `fits(s)`, and `eq(n, s)`, after the store |
+
+With `eq(n, s)` held, `below(i, k, int(n))` also gives `below(i, k,
+len(s))`, which then lasts while `i` and `s` do, whatever `n` does. A
+guard in a value (`x = s[i] if i < s.len else 0`, `ok = i < n and s[i]`)
+is part of its unit, and makes nothing.
+
+| Node | Proven |
+|---|---|
+| `s[i]`, read or a place | `lower` under `nonneg(i)`; `upper` under `below(i, k, len(s))`, `k >= 1` |
+| `s.read[T, e](i)`, `!s.write[T, e](i, v)`, on the callee | the same, with `k >= @size(T)` |
+| `i + c`, and the `set` of `i += c`, `0 < c <= 2^62` a literal | `no_overflow` under `below(i, k, b)` with `k >= c` (`i + c <= b`), or under `below(i, k, len(s))` and `fits(s)` (`i + c <= 2^62 - 1 + c`) |
+
+**Writes.** A binding changes only where an assignment or a `!` says so
+(Core sentences 4 and 9), and resolve and typecheck record each such
+site where they find it (`SemContext.recordWrite`, a `sema.WriteKind`):
+an assignment or compound assignment of the binding, a `!x` or
+`for e in !x` of it or a part of it, a store into a part of it, `<x.f`,
+a `|!x|` capture, and `<x` of the binding itself. The binding's
+`reassigned` and `written` flags are derived from that record. A write
+ends every fact naming the binding it writes, but `i += c` and
+`i = i + c` with a literal `c >= 0` keep `nonneg(i)`, and a `!s`,
+`s[j] = x`, or `!s.write` of a slice view `s` keeps `len(s)`, `fits(s)`,
+and `eq(_, s)`, since writing through a view changes elements, never its
+length. A `raw` block ends every fact, and nothing in it is proven. A
+write view made before a guard and used after it makes the guard's read
+of what it views a rejection (Core sentences 5 and 6), so in an accepted
+module every write between a fact and its use is in a unit between them.
+
+**Between units** the walk follows the skeleton, each of whose edges is
+a fact emit and the ownership checker read too:
+
+| Construct | The walk |
+|---|---|
+| block | its statements in order; at its end, the kills of its `defer`s |
+| `if` | the guard parts in order, each from the true edge of the one before (`rig.eachGuardPart`, `rig.eachGuardOperand`); `then` from the last one's; `else` from `E - K(condition)`; after it, `E - K(if)` |
+| `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; `else` from `L - K(condition)`; after it, `E - K(loop)` |
+| `for` | the source unit; then `L` as for `while`, the body from `L`; a `for` binding gets no facts |
+| statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
+| `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
+| `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, or `continue` statement nothing is reached |
+| `raw` | opaque: nothing in it is proven, no fact outlives it, and a jump out of it carries none |
+| a closure's body, a `defer` body, a function's body | from no facts |
+
+A meet keeps the facts both sides hold, a `below` with the smaller `k`.
+Every state inside a loop holds `L`, so no fixpoint is needed.
+
+**Keeping emit and the walk together.** Three checks make a divergence
+fail a run rather than a proof:
+
+- Emit enters each unit as it writes the unit's code (`enterUnit`), and
+  asserts, in every debug build of the compiler, that each check, write,
+  expression, and hidden storage location it writes lies in the unit
+  that holds it (`Emitter.inUnit`): no hoist carries a check or a write
+  into another unit's code unseen.
+- The unit-order test (`proofs.checkUnitOrder`): a debug build of the
+  compiler traces the units emit writes, in the order their code runs,
+  and each Zig jump it writes, and checks that they are the units the
+  walk visits, nested alike, the units of each block in the same order,
+  each unit's code started once (only a pause and a resume of it, as a
+  `match`'s selection around each arm, write more of it, and only units
+  inside its construct start while it is paused), and each jump
+  written once, going where the walk sends its facts. A unit test runs
+  it over `test/behavior/emit` and `test/behavior/proofs`, and checks
+  that a swapped pair of units, a unit written twice, a paused unit
+  taken up again after a later unit, or a misdirected jump fails it.
+- The differential run (`./test/run --proofs-diff`): each program with
+  a proven test runs in debug (every omitted test asserted), with
+  `--release`, and with `--release` and `RIG_NO_PROOFS=1`; all three
+  must print the same, exit the same, and panic the same, and no proven
+  check may fail. `--proofs-diff=all` runs every program.
+
+`rig check --facts=proofs` prints each node with a test known to pass,
+`L:C KIND TESTS` (`index`, `read`, `write`, `+`, or `+=`, then `lower`,
+`upper`, `no_overflow`), in source order. `test/cli/facts_proofs.sh`
+compares it on `test/behavior/proofs/swar.rig` line by line and checks
+the `# proves:` and `# keeps:` marks of every program beside it.
+`test/matrix.py`'s `proof.` grid puts each guard, write, and use
+together and checks the dump against its own copy of these tables; its
+`unit.` grid puts a write of `i` in each slot of each statement form
+beside a use, and checks that the use is proven exactly when a guard
+dominates its unit and no write of `i` is in that unit or on a path
+from the guard.
 
 ### Generics
 
@@ -3112,6 +3276,8 @@ reviewed.
 | `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 13 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
+| `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index` and `readInt` make it, with the same panic. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
+| `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |

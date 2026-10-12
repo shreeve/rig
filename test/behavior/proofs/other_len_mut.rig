@@ -1,0 +1,13 @@
+# A guard on one view's length proves nothing about another's.
+
+fun pick(t: ?String, s: ?String, at: Int) -> U8
+  i = at
+  if i < t.len
+    return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(pick("abcd", "ab", 3))
+
+# release
+# expect-panic: index out of bounds

@@ -26,6 +26,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
+const proofs = @import("proofs.zig");
 const ownership = @import("ownership.zig");
 const diag = @import("diag.zig");
 const ir = parser.ir;
@@ -441,6 +442,9 @@ pub const ModuleGraph = struct {
         try m.sema.plain_reqs.appendSlice(self.allocator, own.ownPlainReqs());
 
         m.state = if (m.sema.hasErrors()) .failed else .checked;
+        // Which tests are known to pass rests on the ownership checker's
+        // acceptance (docs/INTERNALS.md, "Proven checks").
+        if (m.state == .checked) try proofs.check(m.sema, m.ir);
     }
 
     fn errorAt(self: *ModuleGraph, id: ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {

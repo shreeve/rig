@@ -1,0 +1,15 @@
+# A guard's false edge proves nothing.
+
+fun pick(s: ?String, at: Int) -> U8
+  i = at
+  if i < s.len
+    print("in range")
+  else
+    return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(pick("abc", 5))
+
+# release
+# expect-panic: index out of bounds

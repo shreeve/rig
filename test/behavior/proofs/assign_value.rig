@@ -1,0 +1,20 @@
+# The value writes another binding: the target's `a[i]` is proven.
+
+fun next(n: !Int) -> Int
+  n += 1
+  7
+
+sub put(a: ![]Int, at: Int)
+  i = at
+  j = 0
+  if i < a.len
+    a[i] = next(!j) # proves: index upper
+
+sub main()
+  a = [1, 2, 3]
+  put(!a[..], 2)
+  print(a)
+
+# release
+# expect:
+# [1, 2, 7]

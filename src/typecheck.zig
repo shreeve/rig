@@ -718,6 +718,7 @@ const Checker = struct {
                     return self.checkDiscard(name);
                 }
                 const ty = try self.synthExpr(name);
+                if (self.ctx.symbolOf(name)) |id| try self.ctx.recordWrite(stmt, id, .move);
                 if (try self.payloadViewTaken(name, "drop")) return;
                 // Plain data owns nothing, and ends a loan only when it
                 // may hold a view (a `?String` may view a String).
@@ -5003,6 +5004,7 @@ const Checker = struct {
     fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Move.operand(e);
         const ty = try self.synthExpr(operand);
+        if (operand == .src) if (self.ctx.symbolOf(operand)) |id| try self.ctx.recordWrite(e, id, .move);
         if (try self.payloadViewTaken(operand, "move")) return self.t().invalid_id;
         if (self.isPoison(ty)) return ty;
         if (try self.rejectLane(operand, .take)) return self.t().invalid_id;
@@ -5018,7 +5020,7 @@ const Checker = struct {
         // The owner changes: it lives in mutable storage. (Through a
         // view or handle, the place is the owner's.)
         if (!place.indirect) if (place.sym) |id| {
-            self.ctx.symbols.items[id].flags.written = true;
+            try self.ctx.recordWrite(e, id, .take);
         };
         return ty;
     }

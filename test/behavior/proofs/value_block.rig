@@ -1,0 +1,21 @@
+# The control for `value_block_mut.rig`: arms that write nothing see what
+# the guard before the statement showed.
+
+fun pick(s: ?String, at: Int, k: Int) -> U8
+  i = at
+  if i < s.len
+    x = match k
+      1
+        print(k)
+        s[i] # proves: index upper
+      _ => s[i] # proves: index upper
+    return x
+  0
+
+sub main()
+  print(pick("abc", 2, 1))
+
+# release
+# expect:
+# 1
+# 99

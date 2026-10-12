@@ -1,0 +1,15 @@
+# A guard before the assignment proves the place's add.
+
+sub shift(t: ![]U8, at: Int)
+  i = at
+  if i + 1 < t.len
+    t[i + 1] = t[i] # proves: + no_overflow
+
+sub main()
+  a: [4]U8 = [1, 2, 3, 4]
+  shift(!a[..], 1)
+  print(a)
+
+# release
+# expect:
+# [1, 2, 2, 4]

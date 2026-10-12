@@ -1,0 +1,16 @@
+# `n = s.len` makes `n` stand for the length while neither changes: a
+# guard on `n` proves an index into `s`.
+
+fun count(src: ?String) -> Int
+  n = src.len
+  i = 0
+  while i < n and src[i] != 0 # proves: index lower upper
+    i += 1 # proves: += no_overflow
+  i
+
+sub main()
+  print(count("abc"))
+
+# release
+# expect:
+# 3

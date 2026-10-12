@@ -1,0 +1,17 @@
+# A closure that writes another binding leaves `i`'s guard standing.
+
+fun pick(s: ?String, at: Int) -> U8
+  i = at
+  j = 0
+  if i < s.len
+    f = |!j| j += 1
+    f()
+    return s[i] # proves: index upper
+  0
+
+sub main()
+  print(pick("abc", 2))
+
+# release
+# expect:
+# 99

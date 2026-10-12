@@ -110,6 +110,241 @@ pub fn isJump(e: Sexp) bool {
     return std.mem.findScalar(Tag, &jump_kinds, k) != null;
 }
 
+/// Call `f(ctx, owner, body)` for the body of each function, `sub`,
+/// `test`, and `drop` declared in module `root`, members of types
+/// included: the bodies `eachUnit` lists the units of.
+pub fn eachBody(root: Sexp, ctx: anytype, comptime f: anytype) !void {
+    if (root.kind() != .module) return;
+    for (ir.Module.decls(root)) |d| try bodiesOfDecl(d, ctx, f);
+}
+
+fn bodiesOfDecl(decl: Sexp, ctx: anytype, comptime f: anytype) !void {
+    switch (decl.kind() orelse return) {
+        .@"pub" => try bodiesOfDecl(ir.Pub.decl(decl), ctx, f),
+        .fun, .sub, .drop_decl, .@"test" => if (ir.get(decl, .body) != .nil) try f(ctx, decl, ir.get(decl, .body)),
+        .@"struct", .@"enum", .generic_struct, .generic_enum => for (ir.rest(decl, .members)) |m| try bodiesOfDecl(m, ctx, f),
+        else => {},
+    }
+}
+
+/// What a unit is (`eachUnit`).
+pub const UnitKind = enum {
+    /// A statement of a block that orders no others (`stmtClass`).
+    stmt,
+    /// The step of a `while`.
+    step,
+    /// A guard part of an `if` or `while` condition: an `as` part, or an
+    /// operand of the top `and` chain of any other part.
+    guard,
+    /// The source of a `for`.
+    source,
+    /// A statement `match`'s selection: its subject, every pattern, and
+    /// every guard, which run before an arm's body and never after it.
+    selection,
+    /// A `raw` block, opaque: no unit is listed inside it.
+    raw,
+};
+
+/// What a statement of a block is to the units of a body
+/// (`skeletonOf`). Every IR tag is listed, so a new one fails to compile
+/// until it is placed.
+pub const StmtClass = enum {
+    /// It orders the units it holds, and is no unit itself.
+    structured,
+    /// One unit: it orders nothing inside it.
+    unit,
+    /// A `raw` block: one opaque unit.
+    raw,
+    /// Never a statement (a declaration, a pattern, a type, a part of
+    /// another node): met as one, it is an opaque unit.
+    none,
+};
+
+pub fn stmtClass(tag: Tag) StmtClass {
+    return switch (tag) {
+        .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
+        .raw_block => .raw,
+        // Assignments, drops, `pass`, the exits and jumps, and expressions.
+        .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+    };
+}
+
+/// How a statement orders the units it holds: the one skeleton `eachUnit`
+/// lists the units by and the proof pass walks (docs/INTERNALS.md,
+/// "Proven checks").
+pub const Skeleton = union(enum) {
+    /// One unit, of kind `stmt` or `raw`.
+    unit: UnitKind,
+    /// A block: its statements in order.
+    block: Sexp,
+    @"if": struct { cond: Sexp, then: Sexp, @"else": Sexp },
+    @"while": struct { cond: Sexp, body: Sexp, step: Sexp, @"else": Sexp },
+    @"for": struct { source: Sexp, body: Sexp, @"else": Sexp },
+    /// A statement `match`: its selection unit, then each arm's body.
+    match: Sexp,
+    /// A labeled statement: the statement.
+    labeled: Sexp,
+    /// A `defer` or `errdefer`: its body, run at its block's exits.
+    @"defer": Sexp,
+};
+
+/// The skeleton of statement `stmt` (`StmtClass`). A leaf is a unit that
+/// holds nothing to check or write.
+pub fn skeletonOf(stmt: Sexp) Skeleton {
+    const tag = stmt.kind() orelse return .{ .unit = .stmt };
+    return switch (stmtClass(tag)) {
+        .unit => .{ .unit = .stmt },
+        .raw, .none => .{ .unit = .raw },
+        .structured => switch (tag) {
+            .block => .{ .block = stmt },
+            .@"if" => .{ .@"if" = .{ .cond = ir.If.cond(stmt), .then = ir.If.then(stmt), .@"else" = ir.If.@"else"(stmt) } },
+            .@"while" => .{ .@"while" = .{ .cond = ir.While.cond(stmt), .body = ir.While.body(stmt), .step = ir.While.step(stmt), .@"else" = ir.While.@"else"(stmt) } },
+            .@"for" => .{ .@"for" = .{ .source = ir.For.source(stmt), .body = ir.For.body(stmt), .@"else" = ir.For.@"else"(stmt) } },
+            .match => .{ .match = stmt },
+            .labeled => .{ .labeled = ir.Labeled.stmt(stmt) },
+            .@"defer", .@"errdefer" => .{ .@"defer" = ir.get(stmt, .body) },
+            else => unreachable,
+        },
+    };
+}
+
+/// Call `visitor.enter(root, kind)` and `visitor.exit(root)` around each
+/// unit of a function or closure body, in the order the body runs them
+/// (docs/INTERNALS.md, "Proven checks"). A unit is a part of a body
+/// inside which nothing is ordered: a statement, a guard part, a `while`
+/// step, a `for` source, a statement `match`'s selection, or a `raw`
+/// block. A block inside a unit's expression (an arm of a value `match`,
+/// a branch of a value `if`, a `catch` handler, a loop's body) and a
+/// closure's body hold units of their own, listed between the enter and
+/// the exit of the unit around them. The selection's root is the `match`
+/// node; its nodes are the subject, the patterns, and the guards
+/// (`selectionParts`). The one list of a body's units: the storage plan
+/// records each node's unit from it (`SemContext.unitOf`), and the proof
+/// pass and emit enter the same units.
+pub fn eachUnit(body: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    try unitsOfBranch(body, visitor);
+}
+
+/// The errors a unit visitor's `enter` may return, which every step of
+/// `eachUnit` passes on.
+fn VisitError(comptime V: type) type {
+    const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
+    return @typeInfo(@typeInfo(@TypeOf(T.enter)).@"fn".return_type.?).error_union.error_set;
+}
+
+/// A branch: a block, or one statement.
+fn unitsOfBranch(b: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    if (b.isKind(.block)) {
+        for (ir.Block.stmts(b)) |s| try unitsOfStmt(s, visitor);
+        return;
+    }
+    if (b != .nil) try unitsOfStmt(b, visitor);
+}
+
+fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    switch (skeletonOf(stmt)) {
+        .unit => |kind| try unitOf(stmt, kind, visitor),
+        .block => |b| try unitsOfBranch(b, visitor),
+        .@"if" => |x| {
+            try unitsOfCond(x.cond, visitor);
+            try unitsOfBranch(x.then, visitor);
+            try unitsOfBranch(x.@"else", visitor);
+        },
+        .@"while" => |x| {
+            try unitsOfCond(x.cond, visitor);
+            try unitsOfBranch(x.body, visitor);
+            if (x.step != .nil) try unitOf(x.step, .step, visitor);
+            try unitsOfBranch(x.@"else", visitor);
+        },
+        .@"for" => |x| {
+            try unitOf(x.source, .source, visitor);
+            try unitsOfBranch(x.body, visitor);
+            try unitsOfBranch(x.@"else", visitor);
+        },
+        .match => |m| {
+            try unitOf(m, .selection, visitor);
+            for (ir.Match.arms(m)) |arm| try unitsOfBranch(ir.Arm.body(arm), visitor);
+        },
+        .labeled => |inner| try unitsOfStmt(inner, visitor),
+        .@"defer" => |body| try unitsOfBranch(body, visitor),
+    }
+}
+
+/// The guard parts of a condition (`eachGuardPart`), each `and` operand
+/// of a part that binds nothing its own unit.
+fn unitsOfCond(cond: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    const Parts = struct {
+        v: @TypeOf(visitor),
+        pub fn part(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
+            try eachGuardOperand(p, self, @This().unit);
+        }
+        fn unit(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
+            try unitOf(p, .guard, self.v);
+        }
+    };
+    try eachGuardPart(cond, Parts{ .v = visitor });
+}
+
+/// Call `f(ctx, e)` for each operand of guard part `part`'s top `and`
+/// chain, left to right, or for the part itself: an `as` part, or one
+/// that is no `and`. Zig's `and` runs each only when those before it
+/// held, as Rig's does.
+pub fn eachGuardOperand(part: Sexp, ctx: anytype, comptime f: anytype) !void {
+    if (part.isKind(.@"and")) {
+        try eachGuardOperand(ir.get(part, .left), ctx, f);
+        return eachGuardOperand(ir.get(part, .right), ctx, f);
+    }
+    try f(ctx, part);
+}
+
+/// The nodes of a statement `match`'s selection unit: its subject, then
+/// each arm's pattern and guard.
+pub fn selectionParts(a: std.mem.Allocator, match: Sexp) ![]const Sexp {
+    var out: std.ArrayList(Sexp) = .empty;
+    try out.append(a, ir.Match.subject(match));
+    for (ir.Match.arms(match)) |arm| {
+        try out.append(a, ir.Arm.pattern(arm));
+        if (ir.Arm.guard(arm) != .nil) try out.append(a, ir.Arm.guard(arm));
+    }
+    return out.items;
+}
+
+fn unitOf(root: Sexp, kind: UnitKind, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    // A leaf (a name, a literal) holds nothing to check or write.
+    if (root != .list) return;
+    try visitor.enter(root, kind);
+    switch (kind) {
+        // Nothing inside `raw` is a unit of its own.
+        .raw => {},
+        .selection => {
+            try nestedUnits(ir.Match.subject(root), visitor);
+            for (ir.Match.arms(root)) |arm| {
+                try nestedUnits(ir.Arm.pattern(arm), visitor);
+                try nestedUnits(ir.Arm.guard(arm), visitor);
+            }
+        },
+        else => try nestedUnits(root, visitor),
+    }
+    try visitor.exit(root);
+}
+
+/// The units of the blocks and closure bodies inside a unit's expression.
+/// A visitor with a `nest` method is given each such block before and
+/// after its units.
+fn nestedUnits(e: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    if (e != .list) return;
+    if (e.isKind(.block)) {
+        const V = @TypeOf(visitor);
+        const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
+        if (@hasDecl(T, "nest")) try visitor.nest(e, true);
+        try unitsOfBranch(e, visitor);
+        if (@hasDecl(T, "nest")) try visitor.nest(e, false);
+        return;
+    }
+    for (e.items()) |c| try nestedUnits(c, visitor);
+}
+
 /// `x[...]`: an index, or compile-time arguments (sema tells which).
 pub fn isBracketList(e: Sexp) bool {
     return e.isKind(.index) or e.isKind(.inst);
@@ -2912,6 +3147,82 @@ test "a condition's guard parts: each part a binding condition joins, or the who
         try testing.expectEqual(w.len, parts.n);
         for (w, parts.texts[0..parts.n]) |a, b| try testing.expectEqualStrings(a, std.mem.trim(u8, b, " "));
     }
+}
+
+test "a body's units: statements, guard parts, steps, sources, selections, and raw blocks, nested in the unit holding their block" {
+    const source =
+        \\fun f(s: ?String, o: Int?, k: Int) -> Int
+        \\  i = 0
+        \\  while o as x and i < s.len and s[i] > 0: i += 1
+        \\    if i > 2 and x > 1
+        \\      break
+        \\  for c in s[i..]
+        \\    print(c)
+        \\  match k
+        \\    1 if i > 0 => print(1)
+        \\    _ => pass
+        \\  y = match k
+        \\    1
+        \\      print(2)
+        \\      3
+        \\    _ => 4
+        \\  raw
+        \\    print(5)
+        \\  defer print(6)
+        \\  g = |n: Int| n + 1
+        \\  i + y + g(1)
+        \\
+    ;
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    const Units = struct {
+        lines: std.ArrayList(u8) = .empty,
+        depth: usize = 0,
+        parser: *const Parser,
+        pub fn enter(self: *@This(), root: Sexp, kind: UnitKind) std.mem.Allocator.Error!void {
+            const sp = self.parser.span(root);
+            const text = std.mem.trim(u8, self.parser.base.source[sp.start..sp.end], " \n");
+            const line_end = std.mem.indexOfScalar(u8, text, '\n') orelse text.len;
+            for (0..self.depth) |_| try self.lines.appendSlice(testing.allocator, "  ");
+            try self.lines.print(testing.allocator, "{s} {s}\n", .{ @tagName(kind), text[0..line_end] });
+            self.depth += 1;
+        }
+        pub fn exit(self: *@This(), _: Sexp) std.mem.Allocator.Error!void {
+            self.depth -= 1;
+        }
+    };
+    var units: Units = .{ .parser = &p };
+    defer units.lines.deinit(testing.allocator);
+    const Body = struct {
+        fn each(u: *Units, _: Sexp, body: Sexp) std.mem.Allocator.Error!void {
+            try eachUnit(body, u);
+        }
+    };
+    try eachBody(tree, &units, Body.each);
+    try testing.expectEqualStrings(
+        \\stmt i = 0
+        \\guard o as x
+        \\guard i < s.len
+        \\guard s[i] > 0
+        \\guard i > 2
+        \\guard x > 1
+        \\stmt break
+        \\step i += 1
+        \\source s[i..]
+        \\stmt print(c)
+        \\selection match k
+        \\stmt print(1)
+        \\stmt pass
+        \\stmt y = match k
+        \\  stmt print(2)
+        \\raw raw
+        \\stmt print(6)
+        \\stmt g = |n: Int| n + 1
+        \\  stmt n + 1
+        \\stmt i + y + g(1)
+        \\
+    , units.lines.items);
 }
 
 test "a body's exits are `return`, `!`, and `?`; the jumps are `break` and `continue`" {

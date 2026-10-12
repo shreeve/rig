@@ -1,0 +1,22 @@
+# `call_target_mut.rig` with a compound store: the call that writes `i`
+# is a step of the statement, so `s[i]` keeps its test.
+
+fun pick(t: ![]U8, n: !Int) -> ![]U8 from t
+  n += 1
+  t
+
+sub put(t: ![]U8, s: ?String, at: Int)
+  i = at
+  if i < s.len
+    pick(!t, !i)[0] += s[i] # keeps: index upper
+  print(i)
+
+sub main()
+  a: [4]U8 = [1, 0, 0, 0]
+  put(!a[..], "abcd", 3)
+  print(a)
+
+# release
+# expect:
+# 4
+# [101, 0, 0, 0]

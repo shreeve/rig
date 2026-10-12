@@ -56,7 +56,10 @@ each test's output, `RIG_BUILD_STORE` where programs build (see
 | `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 
 Areas: `syntax`, `types`, `effects`, `ownership`, `emit`, `runtime`, `modules`,
-`std` (the standard library).
+`std` (the standard library), and `proofs` (the tests the compiler omits,
+docs/INTERNALS.md, "Proven checks": each program there marks its use
+`# proves:` or `# keeps:`, which `test/cli/facts_proofs.sh` checks
+against `rig check --facts=proofs`).
 A multi-file test is a directory `<name>/` with an entry `main.rig`; the
 directives go in `main.rig`.
 
@@ -299,7 +302,25 @@ built with `--release`, where Zig's optimizer would expose a write
 through a read-only pointer (`cellmut.`). A value holding a Cell made
 or held anywhere but behind `*` (a local, a by-value parameter, a List
 element, a temporary changed where it stands) must be rejected
-(`cellmut.value.`, `celltemp.value.`). Every loop a cell
+(`cellmut.value.`, `celltemp.value.`). It also guards an index, a byte
+read or write, or an add with each guard the compiler knows, and two
+that prove nothing (`+%`, `or`), writes what the guard named between it
+and the use in each way a program can (an assignment, a `!` lend, a
+closure, a `defer`, a branch, a `match` arm, a loop, `raw`, a shadowing
+`new`, a step), and checks that `rig check --facts=proofs` lists at the
+use exactly the tests its own table of the rules proves, and that the
+program runs clean, or panics with the use's own message where the write
+moved the index out of range, in debug and with `--release` (`proof.`;
+`--deep` also nests each use). It puts a write of `i` (`bump(!i)`, a
+`|!i|` closure, a nested `i += 1`) and a use of it in the slots of each
+statement form (a call, a binding, an assignment and each target root, a
+`return`, a `while` with a `continue` in each part, an `if`, a `match`
+with guards, value forms, a `defer`), under a guard, and checks that the
+use is proven exactly when the guard's facts reach its unit (no write of
+`i` in it or on a path from the guard), and that each cell runs alike in
+debug and with `--release` (`unit.`: each slot pair with `bump(!i)` and
+`s[i]` under an `if`, and each slot with no write under each guard;
+`--deep` runs every write, use, and guard). Every loop a cell
 writes counts its passes and stops at a cap, and each program is
 stopped past its time (`--timeout`), when its processes hold more than
 its memory (`--mem`; an address-space limit would stop the sanitizer,
@@ -399,6 +420,23 @@ repository's git directory, by a hash of its binary, the section, the
 program's path, and the contents of the program and of every module
 beside it that a `use` could name; so a rerun against the same old
 compiler runs only the new one. `--no-cache` runs both.
+
+## The differential run of the proven checks
+
+```bash
+./test/run --proofs-diff [filter...]        # programs with a proven test
+./test/run --proofs-diff=all [filter...]    # every program
+```
+
+replaces each behavior, example, and corpus program's own checks with
+the differential run of the tests the compiler omits (docs/INTERNALS.md,
+"Proven checks"): a program `rig check --facts=proofs` lists a test for
+runs in debug, where every omitted test is still made as an assertion,
+with `--release`, and with `--release` and `RIG_NO_PROOFS=1`, where emit
+omits nothing. The three runs must print the same, exit the same, and
+panic with the same message, and no proven check may fail. Other tests
+pass untouched. The fast gate runs it on the programs with a proven
+test; the deep gate on every program.
 
 ## Known bugs
 

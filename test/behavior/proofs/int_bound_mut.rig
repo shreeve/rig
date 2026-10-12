@@ -1,0 +1,13 @@
+# `i <= n` leaves no room above `i`: `i += 1` keeps its test.
+
+fun step(at: Int, n: Int) -> Int
+  i = at
+  if i <= n
+    i += 1 # keeps: += no_overflow
+  i
+
+sub main()
+  print(step(Int.max, Int.max))
+
+# release
+# expect-panic: integer overflow

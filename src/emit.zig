@@ -45,6 +45,8 @@ const TypeId = facts.TypeId;
 const SymbolId = facts.SymbolId;
 
 pub const Error = std.mem.Allocator.Error || Writer.Error || error{Unsupported};
+pub const UnitEvent = facts.UnitEvent;
+const check_units = facts.check_units;
 
 /// How a resource binding is released.
 const ResourceKind = enum {
@@ -288,6 +290,20 @@ pub const Emitter = struct {
     /// The statement or declaration being emitted, where an internal
     /// error about a node without a position is reported.
     stmt: Sexp = .nil,
+    /// The units whose code is being written, innermost last
+    /// (`enterUnit`): each check, write, and hidden storage emit writes
+    /// lies in the innermost (`inUnit`).
+    units: std.ArrayList(facts.NodeKey) = .empty,
+    /// The units emit stopped writing to write others' code, which it
+    /// takes up again (`pauseUnit`).
+    paused: std.AutoArrayHashMapUnmanaged(facts.NodeKey, void) = .empty,
+    /// When set, the units in the order their code runs, and where each
+    /// jump goes: the unit-order test of the proof pass
+    /// (`proofs.checkUnitOrder`).
+    unit_trace: ?*std.ArrayList(UnitEvent) = null,
+    /// Write every test, ignoring which are known to pass (`provenOf`):
+    /// `RIG_NO_PROOFS`, for the differential run of the proofs.
+    no_proofs: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer, ctx: Facts) Emitter {
         return .{
@@ -310,6 +326,8 @@ pub const Emitter = struct {
         self.hoisted.deinit(self.allocator);
         self.temp_slots.deinit(self.allocator);
         self.targets.deinit(self.allocator);
+        self.units.deinit(self.allocator);
+        self.paused.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -968,6 +986,9 @@ pub const Emitter = struct {
     /// way, or emit would make storage the ownership checker did not walk.
     fn hiddenStorage(self: *Emitter, node: Sexp, kind: facts.StorageKind, by: facts.StorageBy, suffix: StorageSuffix) Error![]const u8 {
         const fact = self.facts.storageOf(node, kind) orelse return self.unsupported(node, "hidden storage the storage facts do not record");
+        // A statement's slot is declared before it runs; its value is
+        // written where the temporary is.
+        if (kind != .temp) try self.inUnit(node);
         if (fact.by != by) return self.unsupported(node, "hidden storage held other than its storage fact says");
         const base: []const u8 = switch (kind) {
             .temp => "__rig_tmp",
@@ -1164,6 +1185,8 @@ pub const Emitter = struct {
     /// its end: declared before it, each with a `defer` for an exit from
     /// inside it (a failure, a jump), and dropped right after it.
     fn emitStmt(self: *Emitter, sexp: Sexp) Error!void {
+        const entered = try self.enterUnit(sexp);
+        defer self.leaveUnit(entered);
         const first = self.temp_slots.items.len;
         try self.emitTempSlots(sexp);
         defer self.temp_slots.shrinkRetainingCapacity(first);
@@ -1292,6 +1315,7 @@ pub const Emitter = struct {
 
     fn emitStmtOnly(self: *Emitter, sexp: Sexp) Error!void {
         self.stmt = sexp;
+        try self.inUnit(sexp);
         const head = sexp.kind() orelse {
             try self.w.writeAll("_ = ");
             try self.emitExpr(sexp);
@@ -1355,12 +1379,25 @@ pub const Emitter = struct {
 
     /// `(set kind target type expr)`.
     fn emitSet(self: *Emitter, sexp: Sexp) Error!void {
+        try self.inUnit(sexp);
         const kind = rig.bindingKindOf(ir.Set.op(sexp));
         const target = ir.Set.target(sexp);
         const type_node = ir.Set.type(sexp);
         const expr = ir.Set.value(sexp);
 
-        if (kind.operator()) |op| return self.emitCompound(sexp, op);
+        if (kind.operator()) |op| {
+            // `i += c` known not to overflow (`provenOf`): `i` read once,
+            // as `+=` reads it.
+            if (op == .@"+" and target == .src and self.provenOf(sexp).no_overflow) {
+                try self.emitPlace(target);
+                try self.w.writeAll(" = rig.addProven(");
+                try self.emitPlace(target);
+                try self.w.writeAll(", ");
+                try self.emitBare(expr);
+                return self.w.writeAll(");");
+            }
+            return self.emitCompound(sexp, op);
+        }
         if (target != .src) {
             return switch (kind) {
                 .default => self.emitPlaceAssign(sexp),
@@ -1747,6 +1784,7 @@ pub const Emitter = struct {
     /// (`@divTrunc` for integer `/`, `rig.rem`, `@shlExact`) assign the
     /// builtin's result; the others use Zig's own compound assignment.
     fn emitCompound(self: *Emitter, set: Sexp, op: Tag) Error!void {
+        try self.inUnit(set);
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
         const builtin: ?[]const u8 = switch (op) {
@@ -1934,6 +1972,7 @@ pub const Emitter = struct {
         const value = ir.Break.value(node);
         const jump = try self.jumpTarget(node);
         if (jump.dest.to != .exit) return self.unsupported(node, "a `break` that does not leave its target");
+        if (self.unit_trace) |tr| try tr.append(self.allocator, .{ .jump = .{ .node = node.list.id, .to = .exit } });
         const t = jump.target;
         if (value == .nil) return self.w.print("break :{s};", .{jumpTo(t.brk)});
         const ty = t.value_ty orelse return self.unsupported(node, "a `break` value outside a loop used as a value");
@@ -1961,6 +2000,7 @@ pub const Emitter = struct {
             .step => .{ .to = .head, .word = "break", .label = t.step },
         };
         if (zig.to != jump.dest.to) return self.unsupported(node, "a `continue` the checkers sent elsewhere");
+        if (self.unit_trace) |tr| try tr.append(self.allocator, .{ .jump = .{ .node = node.list.id, .to = zig.to } });
         const label = zig.label orelse return self.unsupported(node, "a `continue` from a part with no block");
         try self.w.print("{s} :{s};", .{ zig.word, jumpTo(label) });
     }
@@ -1973,7 +2013,11 @@ pub const Emitter = struct {
         // around the `if`.
         if (cond.isKind(.as) and self.facts.headerOf(cond) == .held) {
             try self.openBrace();
+            // The held value is the `as` part's code, which the `if` takes
+            // up again for its test.
+            const entered = try self.enterUnit(cond);
             const mark = try self.emitHeld(cond);
+            if (entered) _ = try self.pauseUnit(cond);
             defer self.hoisted.shrinkRetainingCapacity(mark);
             try self.writeIndent(self.indent);
             try self.emitIfAs(sexp);
@@ -2080,6 +2124,8 @@ pub const Emitter = struct {
     /// `(cond) ` for `if`/`while`, or the head of `if expr as name`,
     /// whose prelude binds the name (`emitOptionalHead`).
     fn emitCond(self: *Emitter, cond: Sexp) Error!Prelude {
+        const entered = try self.enterUnit(cond);
+        defer self.leaveUnit(entered);
         if (cond.isKind(.as)) return self.emitOptionalHead(cond);
         try self.w.writeAll("(");
         try self.emitHeader(cond);
@@ -2133,6 +2179,9 @@ pub const Emitter = struct {
         target: JumpTarget,
         /// Its index in `targets`, once entered.
         index: usize = 0,
+        /// A `for` whose source's unit is being written (`enterUnit`),
+        /// until the loop is entered.
+        source_unit: bool = false,
     };
 
     /// `while` and every form of `for` (docs/INTERNALS.md, "Loops"):
@@ -2162,7 +2211,10 @@ pub const Emitter = struct {
         lp.target = .{ .node = loop, .rig_label = rig_label, .brk = if (has_res) lp.res else lp.loop, .loop = lp.loop, .body = lp.body, .value_ty = value };
         if (has_res) try self.openLoopBlock(&lp);
         const depth = self.targets.items.len;
+        // A `for` source's code is its unit's until the loop starts.
+        if (loop.isKind(.@"for")) lp.source_unit = try self.enterUnit(ir.For.source(loop));
         if (loop.isKind(.@"while")) try self.emitWhile(loop, &lp) else try self.emitFor(loop, &lp);
+        self.leaveUnit(lp.source_unit);
         // The loop has ended: a jump in its `else` targets the loop around it.
         std.debug.assert(self.targets.items.len == depth + 1);
         _ = self.targets.pop();
@@ -2198,6 +2250,8 @@ pub const Emitter = struct {
     /// Make loop `lp` the target of the jumps that go to it, emitting its
     /// condition until its body opens.
     fn enterLoop(self: *Emitter, lp: *Loop) Error!void {
+        self.leaveUnit(lp.source_unit);
+        lp.source_unit = false;
         lp.target.part = .cond;
         lp.index = self.targets.items.len;
         try self.targets.append(self.allocator, lp.target);
@@ -2234,8 +2288,15 @@ pub const Emitter = struct {
         try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
         try self.w.writeAll("while (true) ");
+        // Zig runs a continue expression after the body: what its units
+        // trace goes after the body's.
+        var step_trace: std.ArrayList(UnitEvent) = .empty;
+        defer step_trace.deinit(self.allocator);
+        const trace = self.unit_trace;
         if (step != .nil and !step_inside) {
             try self.w.writeAll(": (");
+            if (trace != null) self.unit_trace = &step_trace;
+            defer self.unit_trace = trace;
             try self.emitStep(step, lp);
             try self.w.writeAll(") ");
         }
@@ -2254,6 +2315,8 @@ pub const Emitter = struct {
                 opened += 1;
             } else {
                 try self.w.writeAll("if (!(");
+                const entered = try self.enterUnit(p);
+                defer self.leaveUnit(entered);
                 try self.emitHeader(p);
                 try self.w.writeAll(")) break;\n");
             }
@@ -2262,6 +2325,7 @@ pub const Emitter = struct {
         const body = try self.openLoopBody(lp);
         try self.closeLoopBody(lp, body, ir.While.body(sexp));
         try self.w.writeAll("\n");
+        if (trace) |t| try t.appendSlice(self.allocator, step_trace.items);
         if (step != .nil and step_inside) {
             try self.writeIndent(self.indent);
             try self.emitStep(step, lp);
@@ -2682,7 +2746,10 @@ pub const Emitter = struct {
                     if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (by_ptr) "*" else "", prelude.aliases[0].payload });
                 }
             }
+            // An arm runs after the selection.
+            const paused = try self.pauseUnit(sexp);
             if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
+            try self.resumeUnit(sexp, paused);
             try self.w.writeAll(",\n");
         }
         try self.closeBrace();
@@ -2960,7 +3027,9 @@ pub const Emitter = struct {
             try self.pushScope();
             defer self.popScope() catch {};
             const prelude = try self.armBindings(arm, info, subj);
+            const paused = try self.pauseUnit(sexp);
             if (value_pos) try self.emitValueBlock(ir.Arm.body(arm), prelude, self.typeOf(sexp)) else try self.emitBodyWith(ir.Arm.body(arm), prelude);
+            try self.resumeUnit(sexp, paused);
             try self.w.writeAll(",\n");
         }
         // No arm ran: impossible, since sema requires the arms to cover
@@ -3406,6 +3475,9 @@ pub const Emitter = struct {
     /// its scope (return, break value): resource bindings in tail
     /// position are moved out.
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        const entered = try self.enterUnit(sexp);
+        defer self.leaveUnit(entered);
+        try self.inUnit(sexp);
         // A scalar beside a vector stands for every lane (`sema.splatOf`):
         // Zig splats only where it is told to, and the vector is a run-time
         // value (`writeVectorOpen`).
@@ -4247,6 +4319,7 @@ pub const Emitter = struct {
 
     /// A binary operator node: `(op left right)`.
     fn emitInfix(self: *Emitter, sexp: Sexp, bare: bool) Error!void {
+        try self.inUnit(sexp);
         const kind = sexp.kind().?;
         const op = @tagName(kind);
         const is_eq = kind == .@"==" or kind == .@"!=";
@@ -4294,6 +4367,8 @@ pub const Emitter = struct {
             try self.emitExpr(operands[1]);
             return self.w.writeAll(")");
         };
+        // An add known not to overflow (`provenOf`).
+        if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});
@@ -4343,6 +4418,7 @@ pub const Emitter = struct {
     /// `List` of plain data. As a place, a `List` element is `x.slot(i).*`,
     /// and the base of any element is a place too.
     fn emitIndex(self: *Emitter, sexp: Sexp, as_place: bool) Error!void {
+        try self.inUnit(sexp);
         const base = ir.Index.object(sexp);
         const index = ir.Index.index(sexp);
         const base_ty = self.typeOf(base);
@@ -4391,20 +4467,17 @@ pub const Emitter = struct {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
             // is assigned through.
-            if (in_place) {
-                try self.w.writeAll("rig.elemPtr(");
-                try self.emitIndexBase(base, base_ty, .bare);
-                try self.w.writeAll(", ");
-                self.place_chain = false;
-                try self.emitBare(index);
-                return self.w.writeAll(").*");
-            }
-            try self.w.writeAll("rig.at(");
+            // A test known to pass is omitted (`provenOf`).
+            const proven = provenTests(self.provenOf(sexp));
+            try self.w.writeAll(if (in_place)
+                (if (proven != null) "rig.elemPtrProven(" else "rig.elemPtr(")
+            else if (proven != null) "rig.atProven(" else "rig.at(");
             try self.emitIndexBase(base, base_ty, .bare);
             try self.w.writeAll(", ");
             self.place_chain = false;
             try self.emitBare(index);
-            return self.w.writeAll(")");
+            if (proven) |p| try self.w.print(", .{s}", .{p});
+            return self.w.writeAll(if (in_place) ").*" else ")");
         };
         const may_be_empty = switch (self.facts.types.get(n)) {
             .ct_value => |v| v.int == 0,
@@ -5181,6 +5254,7 @@ pub const Emitter = struct {
     /// `rig.readInt` and `rig.writeInt`, on the receiver's elements
     /// (`emitElems`). The arguments are plain data, so none is hoisted.
     fn emitElemCall(self: *Emitter, call: Sexp, ec: facts.ElemCall) Error!void {
+        try self.inUnit(call);
         const callee = self.facts.calleeOf(call);
         const args = ir.Call.args(call);
         switch (ec.op) {
@@ -5190,9 +5264,12 @@ pub const Emitter = struct {
             // no byte order.
             .read, .write => {
                 const vector = self.facts.types.get(ec.num) == .simd;
+                // A test known to pass is omitted (`provenOf`); a vector's
+                // tests are never proven.
+                const proven = if (vector) null else provenTests(self.provenOf(callee));
                 try self.w.writeAll(if (ec.op == .read)
-                    (if (vector) "rig.simdRead(" else "rig.readInt(")
-                else if (vector) "rig.simdWrite(" else "rig.writeInt(");
+                    (if (vector) "rig.simdRead(" else if (proven != null) "rig.readIntProven(" else "rig.readInt(")
+                else if (vector) "rig.simdWrite(" else if (proven != null) "rig.writeIntProven(" else "rig.writeInt(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.emitElems(ir.Member.object(callee));
@@ -5203,6 +5280,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(", ");
                 const given = self.facts.ctArgsOf(call);
                 if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
+                if (proven) |p| try self.w.print(", .{s}", .{p});
             },
             // `rig.rt(@as(V, @splat(x)))`.
             .splat => {
@@ -6886,6 +6964,61 @@ pub const Emitter = struct {
     /// Report a construct the emitter cannot lower. Sema is responsible
     /// for rejecting it with a proper diagnostic; reaching this is a
     /// compiler bug.
+    // =========================================================================
+    // Units (docs/INTERNALS.md, "Proven checks")
+    // =========================================================================
+
+    /// Start writing the code of the unit `node` is the root of
+    /// (`facts.unitRootKind`), unless it is the one being written; the
+    /// caller passes the result to `leaveUnit`.
+    fn enterUnit(self: *Emitter, node: Sexp) Error!bool {
+        if (self.facts.unitRootKind(node) == null) return false;
+        const key = node.list.id;
+        if (self.units.items.len > 0 and self.units.getLast() == key) return false;
+        try self.units.append(self.allocator, key);
+        // A paused unit is taken up again, not written anew.
+        const resumed = self.paused.swapRemove(key);
+        if (self.unit_trace) |t| try t.append(self.allocator, if (resumed) .{ .@"resume" = key } else .{ .enter = key });
+        return true;
+    }
+
+    fn leaveUnit(self: *Emitter, entered: bool) void {
+        if (!entered) return;
+        const key = self.units.pop().?;
+        if (self.unit_trace) |t| t.append(self.allocator, .{ .exit = key }) catch {};
+    }
+
+    /// Stop writing the code of a statement `match`'s selection while an
+    /// arm runs, which comes after it; `resumeUnit` takes it up again.
+    fn pauseUnit(self: *Emitter, root: Sexp) Error!bool {
+        if (root != .list or self.units.items.len == 0 or self.units.getLast() != root.list.id) return false;
+        const key = self.units.pop().?;
+        try self.paused.put(self.allocator, key, {});
+        if (self.unit_trace) |t| try t.append(self.allocator, .{ .pause = key });
+        return true;
+    }
+
+    fn resumeUnit(self: *Emitter, root: Sexp, paused: bool) Error!void {
+        if (paused) _ = try self.enterUnit(root);
+    }
+
+    /// The assertion that keeps the proof pass honest: emit writes `node`
+    /// inside the code of the unit that holds it, so no hoist carries a
+    /// check, a write, or a value into another unit's code. On in every
+    /// debug build of the compiler.
+    fn inUnit(self: *Emitter, node: Sexp) Error!void {
+        if (!check_units) return;
+        const want = self.facts.unitOf(node) orelse return;
+        const have: ?facts.NodeKey = if (self.units.items.len > 0) self.units.getLast() else null;
+        if (have != want) return self.unsupported(node, "code outside the unit that holds it (docs/INTERNALS.md, \"Proven checks\")");
+    }
+
+    /// The tests of `node` known to pass, which emit omits.
+    fn provenOf(self: *Emitter, node: Sexp) facts.Proven {
+        if (self.no_proofs) return .{};
+        return self.facts.provenOf(node);
+    }
+
     fn unsupported(self: *Emitter, node: Sexp, what: []const u8) Error {
         const lc = diag.lineCol(self.source, self.facts.startOf(if (node == .nil) self.stmt else node));
         std.debug.print("{d}:{d}: internal error: cannot emit {s} (sema should have rejected it)\n", .{ lc.line, lc.col, what });
@@ -7083,6 +7216,15 @@ const isLiteralText = facts.syntax.isLiteralText;
 /// An integer or float literal.
 fn isNumberText(t: []const u8) bool {
     return facts.syntax.isIntLiteralText(t) or facts.syntax.isFloatLiteralText(t);
+}
+
+/// The runtime's name for the tests of an index or byte access known to
+/// pass (`rig.Proven`), or null when none is.
+fn provenTests(p: facts.Proven) ?[]const u8 {
+    if (p.lower and p.upper) return "both";
+    if (p.lower) return "lower";
+    if (p.upper) return "upper";
+    return null;
 }
 
 fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {

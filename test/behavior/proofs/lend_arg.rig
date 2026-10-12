@@ -1,0 +1,20 @@
+# `bump(!j)` writes another binding: `a[i]` is proven.
+
+sub bump(n: !Int)
+  n += 1
+
+fun pick(a: []Int, at: Int) -> Int
+  i = at
+  j = 0
+  if i < a.len
+    bump(!j)
+    return a[i] + j # proves: index upper
+  0
+
+sub main()
+  a = [1, 2, 3]
+  print(pick(a[..], 2))
+
+# release
+# expect:
+# 4

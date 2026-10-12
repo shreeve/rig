@@ -1,0 +1,23 @@
+# The target's root is a call that writes `i`: whichever of the call and
+# the value runs first, nothing the guard showed of `i` is known while
+# the statement runs, so `s[i]` keeps its test.
+
+fun pick(t: ![]U8, n: !Int) -> ![]U8 from t
+  n += 1
+  t
+
+sub put(t: ![]U8, s: ?String, at: Int)
+  i = at
+  if i < s.len
+    pick(!t, !i)[0] = s[i] # keeps: index upper
+  print(i)
+
+sub main()
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", 3)
+  print(a)
+
+# release
+# expect:
+# 4
+# [100, 0, 0, 0]

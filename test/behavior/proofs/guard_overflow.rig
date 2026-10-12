@@ -1,0 +1,16 @@
+# The same loop from 0 runs.
+
+fun count(s: ?String, at: Int) -> Int
+  i = at
+  n = 0
+  while i + 8 <= s.len
+    n += 1
+    i += 8 # proves: += no_overflow
+  n
+
+sub main()
+  print(count("abcdefghijklmnopq", 0))
+
+# release
+# expect:
+# 2

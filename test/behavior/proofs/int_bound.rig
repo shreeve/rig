@@ -1,0 +1,14 @@
+# `i < n` leaves room for one: `i += 1` fits.
+
+fun step(at: Int, n: Int) -> Int
+  i = at
+  if i < n
+    i += 1 # proves: += no_overflow
+  i
+
+sub main()
+  print(step(Int.max - 1, Int.max))
+
+# release
+# expect:
+# 9223372036854775807

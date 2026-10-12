@@ -54,6 +54,15 @@ pub const Lend = sema.Lend;
 pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
+pub const Proven = sema.Proven;
+pub const UnitKind = rig.UnitKind;
+pub const NodeKey = sema.NodeKey;
+
+/// Emit asserts that it writes each node inside the unit that holds it
+/// (`Emitter.inUnit`) in every debug build of the compiler.
+pub const check_units = @import("builtin").mode == .debug;
+
+pub const UnitEvent = sema.UnitEvent;
 pub const GenericCall = sema.GenericCall;
 pub const Use = sema.Use;
 pub const Header = sema.Header;
@@ -200,6 +209,20 @@ pub const Facts = struct {
     }
     pub fn splatOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().splatOf(node);
+    }
+    /// The root of the innermost unit holding `node` (`rig.eachUnit`),
+    /// which emit asserts it writes the node inside.
+    pub fn unitOf(f: Facts, node: Sexp) ?sema.NodeKey {
+        return f.c().unitOf(node);
+    }
+    /// The kind of the unit `node` is the root of, or null.
+    pub fn unitRootKind(f: Facts, node: Sexp) ?UnitKind {
+        return f.c().unitRootKind(node);
+    }
+    /// Which of the node's tests are known to pass (`src/proofs.zig`):
+    /// emit omits those, and a debug build makes them as assertions.
+    pub fn provenOf(f: Facts, node: Sexp) Proven {
+        return f.c().provenOf(node);
     }
     pub fn callableOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().callableOf(node);
@@ -623,6 +646,7 @@ pub const syntax = struct {
     pub const argValue = storage.argValue;
     pub const eachTargetStep = storage.eachTargetStep;
     pub const eachGuardPart = rig.eachGuardPart;
+    pub const eachGuardOperand = rig.eachGuardOperand;
     pub const leavesBody = rig.leavesBody;
     pub const contains = storage.contains;
     pub const isCatchAll = storage.isCatchAll;

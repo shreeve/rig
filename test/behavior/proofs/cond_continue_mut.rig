@@ -1,0 +1,18 @@
+# A `continue` in the condition reaches the step before the guard after it
+# ran: the step's `i += 1` keeps its test.
+
+fun pick(i: Int) -> Int?
+  none
+
+fun run(at: Int, n: Int) -> Int
+  i = at
+  t = 0
+  while (pick(i) ?? continue) > 0 and i < n : i += 1 # keeps: += no_overflow
+    t += 1
+  t
+
+sub main()
+  print(run(Int.max, Int.max))
+
+# release
+# expect-panic: integer overflow

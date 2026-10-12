@@ -1,0 +1,19 @@
+# Writing the bound `n` ends the guard `i < n`: the add keeps its test.
+# (`n` is no length here, so nothing the guard showed outlives the write;
+# its twin `len_equal_write.rig` keeps what `n = s.len` lets the guard
+# show of `s`.)
+
+fun step(m: Int, at: Int) -> Int
+  n = m
+  i = at
+  if i < n
+    n -= 2
+    return i + 1 + n # keeps: + no_overflow
+  0
+
+sub main()
+  print(step(4, 3))
+
+# release
+# expect:
+# 6
