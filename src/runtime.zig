@@ -1715,29 +1715,44 @@ pub inline fn lookup(table: anytype, idx: anytype) @TypeOf(idx) {
 }
 
 /// `lookup` of 16 or more indexes, a target's table instructions at a time.
+/// Vectors are cut into pieces and joined again by shuffles: through an
+/// array, LLVM moves each 8 bytes at a time.
 inline fn lookupPieces(table: anytype, idx: anytype) @TypeOf(idx) {
     const m = @typeInfo(@TypeOf(table)).vector.len;
     const n = @typeInfo(@TypeOf(idx)).vector.len;
-    const P = @Vector(16, u8);
-    const ts: [m / 16]P = @bitCast(table);
-    if (comptime avx2 and n >= 32) {
-        const W = @Vector(32, u8);
-        const pieces: [n / 32]W = @bitCast(idx);
-        var out: [n / 32]W = undefined;
-        inline for (pieces, &out) |piece, *o| {
+    var ts: [m / 16]@Vector(16, u8) = undefined;
+    inline for (&ts, 0..) |*t, j| t.* = @shuffle(u8, table, undefined, iota(16, 16 * j));
+    const w = if (avx2 and n >= 32) 32 else 16;
+    const W = @Vector(w, u8);
+    var out: [n / w]W = undefined;
+    inline for (&out, 0..) |*o, k| {
+        const piece: W = @shuffle(u8, idx, undefined, iota(w, w * k));
+        if (w == 32) {
             var r: W = @splat(0);
             inline for (ts, 0..) |t, j| {
                 const both = @shuffle(u8, t, undefined, iota(32, 0) & @as(@Vector(32, i32), @splat(15)));
                 r |= @"llvm.x86.avx2.pshuf.b"(both, (piece -% @as(W, @splat(16 * j))) +| @as(W, @splat(0x70)));
             }
             o.* = r;
-        }
-        return @bitCast(out);
+        } else o.* = lookup16(m, ts, piece);
     }
-    const pieces: [n / 16]P = @bitCast(idx);
-    var out: [n / 16]P = undefined;
-    inline for (pieces, &out) |piece, *o| o.* = lookup16(m, ts, piece);
-    return @bitCast(out);
+    return joinPieces(w, n, out);
+}
+
+/// The `n / w` pieces of `w` bytes as one vector of `n`, by halves.
+inline fn joinPieces(comptime w: usize, comptime n: usize, pieces: [n / w]@Vector(w, u8)) @Vector(n, u8) {
+    if (n == w) return pieces[0];
+    const h = n / 2;
+    const lo = joinPieces(w, h, pieces[0 .. h / w].*);
+    const hi = joinPieces(w, h, pieces[h / w ..].*);
+    return @shuffle(u8, lo, hi, concatIndices(h));
+}
+
+/// The lanes of `a` then of `b`, each of `h` lanes.
+fn concatIndices(comptime h: usize) @Vector(2 * h, i32) {
+    var a: [2 * h]i32 = undefined;
+    for (&a, 0..) |*x, i| x.* = if (i < h) @intCast(i) else ~@as(i32, @intCast(i - h));
+    return a;
 }
 
 /// One 16-index piece of `lookup`.
