@@ -6014,14 +6014,114 @@ sub main()
 30
 ```
 
-An owned closure's parameters and result are plain data: numbers,
-`Bool`, `?String`, plain enums, and structs, arrays, and optionals of
-plain data. Pass owning values in as captures. An owned closure can be stored
-anywhere, so it carries no loan ([§7](#changes-and-shared-storage)): it
-cannot capture a `?T`, `!T`, or slice, or a value holding one, nor a
-`?String` that may view a String ([§10](#string)); a stack closure can. `*`
-applies only to a closure literal, not to a function name or a closure
-binding.
+An owned closure is a method on its own environment: `*|<a, +b, p, q|`
+checked against `*fun(P, !Q) -> R` is a value `*Env(a: <a, b: +b)` of
+a type whose fields are the captures and whose one method is
+`fun invoke(?self, p: P, q: !Q) -> R`, and `h(x, !y)` is
+`h.invoke(x, !y)`. So the body reads its captures, and a re-entrant
+call is one more read of them. Its parameters and result are any a
+function's may be, and follow a function's rules
+([Core sentences 4 and 7](docs/CORE.md#2-the-core-in-ten-sentences)): a view it is given,
+read or write, lasts the call; what it is given to own, it drops,
+returns, or stores through a write parameter, once, also when its body
+fails or leaves the parameter out; and its result views only what the
+call lent it, never its environment. A function type's parameters and
+result are not parts of a value of that type, so a
+`List[*sub(!Checker)]` holds no write view.
+
+A stored closure takes a write view as an argument, for one call:
+
+```rig
+obj Mapper
+  f: *fun(!Checker, Int) -> Int
+
+obj Checker
+  calls: Int
+  mappers: List[Mapper]
+
+  fun map(!self, m: Int, t: Int) -> Int
+    f = +self.mappers[m].f
+    f(!self, t)
+
+sub main()
+  c = Checker(calls: 0, mappers: List())
+  double: *fun(!Checker, Int) -> Int = *|k, t|
+    k.calls += 1
+    t * 2
+  !c.mappers.push(Mapper(f: <double))
+  r = (!c).map(0, 21)
+  print(r, c.calls)
+```
+
+```output
+42 1
+```
+
+Calling a closure reads what holds it until the call returns, so a
+closure held in `self` is not called with `!self`: the call could
+replace it there and free the environment it runs in. Clone the handle
+first, as `map` does above, `f = +self.mappers[m].f`, which adds one
+count.
+
+State that changes between calls lives in a captured `*Cell`, and
+what the closure owns it captures with `<`:
+
+```rig
+obj Checker
+  lookups: Int
+
+  fun global_type(!self, name: ?String) -> Int
+    self.lookups += 1
+    name.len
+
+fun resolver(name: ?String) -> *fun(!Checker) -> Int
+  owned = String(name)
+  cache: *Cell[Int?] = *Cell(none)
+  *|<owned, <cache, c|
+    if cache.get() as v
+      return v
+    n = (!c).global_type(?owned)
+    !cache.set(n)
+    n
+
+sub main()
+  c = Checker(lookups: 0)
+  array = resolver("Array")
+  a = array(!c)
+  b = array(!c)
+  print(a, b, c.lookups)
+```
+
+```output
+5 5 1
+```
+
+A closure takes a view or an owner, and returns an owner:
+
+```rig
+sub main()
+  shout: *fun(?String) -> String = *|s| String(s, "!")
+  sum: *fun(List[Int]) -> Int = *|v|
+    t = 0
+    for x in v
+      t += x
+    t
+  v: List[Int] = List()
+  !v.push(2)
+  !v.push(3)
+  print(shout("hi"), sum(<v))
+```
+
+```output
+hi! 5
+```
+
+An owned closure can be stored anywhere, so its environment carries no
+loan ([§7](#changes-and-shared-storage)): it cannot capture a `?T`,
+`!T`, or slice, or a value holding one, nor a `?String` that may view a
+String ([§10](#string)); a stack closure can. `*` applies only to a
+closure literal, not to a function name or a closure binding: write
+`*|a| f(a)`.
 
 ---
 
@@ -7109,7 +7209,6 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
-| an owned closure taking or returning an owning value | `` an owned closure takes plain data `` |
 | `/`, `%`, or a shift of a vector; a vector's lanes summed, converted, or shuffled | `` operator `/` does not take a `Simd` ``, `` type `Simd[U8, 16]` has no method `sum` `` |
 | a module constant holding a vector | `` a module-level constant needs a value known at compile time `` |
 

@@ -2240,20 +2240,30 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     return null;
 }
 
-/// `*fun(...) -> R` / `*sub(...)`: an owned closure passes plain Copy
-/// values through its type-erased form, and may fail (`-> R!`).
+/// `*fun(...) -> R` / `*sub(...)`: an owned closure is a method on its
+/// own environment (docs/INTERNALS.md, "Owned closures"), so its
+/// parameters and result stand where a function's do (`Home.signature`).
 fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!void {
     const f = ctx.types.get(ty).function;
     const is_fun_type = fun_type.isKind(.fun_type);
     const nodes: []const Sexp = if (is_fun_type) ir.FunType.params(fun_type).items() else &.{};
     for (f.params, 0..) |p, i| {
-        if (sema.isClosureValue(ctx, p)) continue;
-        const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure takes plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data); `{s}` is not one", .{try sema.formatType(ctx, p)});
+        const at = if (i < nodes.len) nodes[i] else fun_type;
+        try reportMisplaced(ctx, at, p, .signature);
     }
-    if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
-        const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
+    if (!f.is_sub) {
+        const at = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ir.FunType.returns(fun_type) else fun_type;
+        try reportMisplaced(ctx, at, f.returns, .signature);
+    }
+}
+
+/// `ty`, written `node`, reported where `sema.misplaced` says it may not
+/// stand at `home`.
+fn reportMisplaced(ctx: *SemContext, node: Sexp, ty: TypeId, home: sema.Home) Error!void {
+    const shown = try sema.formatType(ctx, ty);
+    switch (sema.misplaced(ctx, ty, home) orelse return) {
+        .cell => try ctx.errAt(node, sema.cell_misplaced, .{ shown, shown }),
+        .write_view => try ctx.errAt(node, sema.write_view_misplaced, .{shown}),
     }
 }
 
