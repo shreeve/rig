@@ -27,9 +27,11 @@ def instructions(exe, n):
 
 def per_byte(exe, size):
     # (N parses - 1 parse) / (N - 1) / bytes, N giving about 60 MB of
-    # parsing, so the program's start costs nothing; the least of 3.
+    # parsing, so the program's start costs nothing; the median of 5, since
+    # a run's count can be off by several percent either way.
     n = max(21, int(6e7 / size))
-    return min((instructions(exe, n) - instructions(exe, 1)) / (n - 1) / size for _ in range(3))
+    runs = sorted((instructions(exe, n) - instructions(exe, 1)) / (n - 1) / size for _ in range(5))
+    return runs[2]
 
 def main():
     if sys.platform != "darwin":

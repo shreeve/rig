@@ -91,12 +91,41 @@ These time `bench-json --out` builds and the competitors together:
 | `timers/timeall.py VARIANTS [REPS]` | the same over the five main corpus files |
 | `timers/cyc.py DIR FILES VARIANTS` | wall time, cycles, and instructions of builds in `DIR`, from `/usr/bin/time -l` (macOS) |
 | `timers/ins.py DIR FILES VARIANTS` | instructions retired per byte, exact under load: (instructions of N parses minus those of one) over (N - 1) and the file's size |
+| `timers/ipc.py NAME=COMMAND ...` | instructions and cycles per byte, and IPC, for any parsers that take `[FILE] N`, std.json's builds and the competitors alike |
 | `timers/nibble.py`, `timers/zigpatch.sh` | patch the emitted Zig to try a lowering (`RIG ZIG=timers/zigpatch.sh`, with `NIB_MODE`) before Rig ships it |
 
-The instruction and cycle counters (`cyc.py`, `ins.py`) read the counters
-`/usr/bin/time -l` prints on macOS, so they run there only. They are the
-measure to trust when the machine is loaded: wall time moves by 7% with
-the load, instructions per byte do not.
+The instruction and cycle counters (`cyc.py`, `ins.py`, `ipc.py`) read
+the counters `/usr/bin/time -l` prints on macOS, so they run there only.
+Instructions per byte are the measure to trust when the machine is
+loaded: wall time moves by 7% with the load and the cycle count by as
+much as 16%, since it follows the core and the clock the program runs
+on, while instructions do not. One run's instruction count can still be
+off by several percent either way, so the tools take the median of 5.
+
+## Checks: `checks/`
+
+What std.json's safety checks cost after the compiler has removed the
+ones it proves. Both tools run on macOS; RESULTS.md, "Checks and IPC
+after proofs2", has what they found.
+
+```sh
+D=$(mktemp -d)
+RIG_OUT_DIR=$D/pkg bin/rig build --release -o $D/probe bench/json/checks/probe.rig
+bench/json/checks/inventory.py $D/pkg __rig_std_json.zig       # each check left, per line, aarch64 and x86_64
+cpuq run --cores 2 --label rig:json -- bench/json/checks/sizing.py $D/sz   # each class's cost
+BENCH_OUT=$D/sz python3 bench/json/timers/time.py base,sread 15      # and in time
+```
+
+- `inventory.py PKG MODULE.zig [TARGET...]` builds an emitted package
+  `-O ReleaseSafe` for each target, finds every branch into a panic
+  block, and charges it through DWARF's inline chain to a line of the
+  module. It names the runtime routine that made each check.
+- `sizing.py OUT` builds the six corpus programs, then copies with one
+  class of checks made unchecked, and counts instructions per byte. A
+  check is made unchecked as a proof emits it, runtime safety off around
+  the original expression, which keeps LLVM's no-overflow fact; wrapping
+  `+%` loses it and adds instructions. Its patches match the emitted
+  text, and one that matches nothing stops the run.
 
 ## Generators
 

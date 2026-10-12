@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Instructions retired per byte (exact, from /usr/bin/time -l) for builds
 in a bench-json --out dir: (instructions of N parses - instructions of 1)
-/ (N - 1) / bytes, N giving at least 60 MB parsed; the least of 3.  usage: ins.py DIR FILES VARIANTS [N]"""
+/ (N - 1) / bytes, N giving at least 60 MB parsed; the median of 5.  usage: ins.py DIR FILES VARIANTS [N]"""
 import os, re, subprocess, sys
 d, files, variants = sys.argv[1], sys.argv[2].split(","), sys.argv[3].split(",")
 n = int(sys.argv[4]) if len(sys.argv) > 4 else 21
@@ -16,7 +16,7 @@ for f in files:
     size = os.path.getsize(os.path.join(DATA, f + ".json"))
     k = max(n, int(6e7 / size))  # about 60 MB of parsing, so startup noise is small
     for v in variants:
-        res[f, v] = min((ins(f, v, k) - ins(f, v, 1)) / (k - 1) / size for _ in range(3))
+        res[f, v] = sorted((ins(f, v, k) - ins(f, v, 1)) / (k - 1) / size for _ in range(5))[2]
 print("instructions retired per byte (exact); %% vs %s" % base)
 print("| file | " + " | ".join(variants) + " |")
 print("|---|" + "---:|" * len(variants))
