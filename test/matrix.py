@@ -2195,6 +2195,8 @@ PROOF_USES = {
     "index_set": ("s[i] = 7", "index", "s[i]", 1, True, None, "index out of bounds"),
     "read": ("print(s.read[U64, .little](i))", "read", "s.read", 8, False, "s.read[U64, .little](i) != 0", "byte read out of range"),
     "write": ("!s.write[U32, .little](i, 0x01020304)", "write", "s.write", 4, True, None, "byte write out of range"),
+    "simd": ("print(s.read[Simd[U8, 8]](i)[0])", "read", "s.read", 8, False, "s.read[Simd[U8, 8]](i)[0] != 0", "byte read out of range"),
+    "simd_write": ("!s.write[Simd[U8, 4]](i, Simd[U8, 4].splat(9))", "write", "s.write", 4, True, None, "byte write out of range"),
     "add": ("print(i + 1)", "+", "i + 1", None, False, "i + 1 > 0", None),
     "add_set": ("i += 1", "+=", "i += 1", None, False, None, None),
     "add8": ("print(i + 8)", "+", "i + 8", None, False, "i + 8 > 0", None),
@@ -2300,6 +2302,10 @@ def proof_program(gname, mname, uname, place, deep=False):
             buf[i] = 7
         elif uname == "write":
             buf[i:i + 4] = [4, 3, 2, 1]
+        elif uname == "simd":
+            prints.append(str(ord(data[i])))
+        elif uname == "simd_write":
+            buf[i:i + 4] = [9, 9, 9, 9]
         elif uname == "add":
             prints.append(str(i + 1))
         elif uname == "add8":
@@ -2480,6 +2486,8 @@ UNIT_USES = {
     "read": ("Int(s.read[U32, .little](i))", "print(s.read[U32, .little](i))", "read", "s.read", 4),
     "add": ("(i + 1)", "print(i + 1)", "+", "i + 1", None),
     "write": (None, "!s.write[U32, .little](i, 0x01020304)", "write", "s.write", 4),
+    "simd": ("Int(s.read[Simd[U8, 4]](i)[0])", "print(s.read[Simd[U8, 4]](i)[0])", "read", "s.read", 4),
+    "simd_write": (None, "!s.write[Simd[U8, 4]](i, Simd[U8, 4].splat(9))", "write", "s.write", 4),
 }
 
 # name: (lines before the form, the form's indent, lines after it, the

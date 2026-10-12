@@ -1,0 +1,26 @@
+# A guard proves a vector's read only for as many bytes as it leaves room
+# for: room for 16 proves nothing about a 64-lane read, nor about eight
+# 4-byte lanes (32 bytes).
+
+fun lanes64(s: ?String) -> Int
+  i = 0
+  if i + 16 <= s.len
+    return Int(s.read[Simd[U8, 64]](i)[0]) # keeps: read upper
+  0
+
+fun words8(s: ?String) -> Int
+  i = 0
+  if i + 16 <= s.len
+    return Int(s.read[Simd[U32, 8], .little](i)[0]) # keeps: read upper
+  0
+
+sub main()
+  print(lanes64("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
+  print(words8("0123456789abcdef0123456789abcdef"))
+  print(lanes64("0123456789abcdef0123456789abcdef"))
+
+# release
+# expect-panic: byte read out of range
+# expect:
+# 48
+# 858927408
