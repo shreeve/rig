@@ -1,0 +1,11 @@
+MB/s (fastest of 15 interleaved runs) and the change against `base` in time / in cycles; instructions per byte last
+| file | base | esc_hex16 | esc_hex16b | src:wsbits | src:wsbits3 | src:wsbits3+wsb_tbl | src:wsbits4+wsb_tbl | utf8_kl+esc_copy16+esc_hex16b |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| twitter | 3231 (9.86 i/B) | 3254: 1% faster / 1% faster (9.87 i/B) | 3251: 1% faster / 0% (9.87 i/B) | 2781: 14% slower / 14% slower (9.51 i/B) | 2961: 8% slower / 9% slower (9.64 i/B) | 3178: 2% slower / 2% slower (9.34 i/B) | 3156: 2% slower / 2% slower (10.17 i/B) | 3419: 6% faster / 6% faster (9.08 i/B) |
+| twitterescaped | 3032 (10.70 i/B) | 2921: 4% slower / 4% slower (10.60 i/B) | 3149: 4% faster / 4% faster (10.25 i/B) | 2708: 11% slower / 11% slower (11.49 i/B) | 2845: 6% slower / 6% slower (11.75 i/B) | 2801: 8% slower / 8% slower (11.88 i/B) | 2849: 6% slower / 6% slower (11.58 i/B) | 3236: 7% faster / 6% faster (9.94 i/B) |
+| canada | 1962 (17.71 i/B) | 1965: 0% / 0% (17.71 i/B) | 1959: 0% / 0% (17.71 i/B) | 1852: 6% slower / 5% slower (18.94 i/B) | 2063: 5% faster / 5% faster (16.76 i/B) | 2080: 6% faster / 6% faster (16.64 i/B) | 2099: 7% faster / 7% faster (16.46 i/B) | 1960: 0% / 0% (17.71 i/B) |
+| citm_catalog | 3763 (9.18 i/B) | 3760: 0% / 0% (9.18 i/B) | 3763: 0% / 0% (9.18 i/B) | 3892: 3% faster / 4% faster (7.44 i/B) | 4350: 16% faster / 16% faster (7.31 i/B) | 4676: 24% faster / 24% faster (7.06 i/B) | 3829: 2% faster / 2% faster (8.81 i/B) | 3752: 0% / 0% (9.16 i/B) |
+| gsoc-2018 | 7078 (4.08 i/B) | 7022: 1% slower / 1% slower (4.11 i/B) | 7062: 0% / 0% (4.11 i/B) | 6201: 12% slower / 12% slower (3.98 i/B) | 6496: 8% slower / 6% slower (4.01 i/B) | 6848: 3% slower / 3% slower (3.93 i/B) | 6787: 4% slower / 4% slower (4.19 i/B) | 7330: 4% faster / 4% faster (4.02 i/B) |
+| github_events | 3954 (8.26 i/B) | 3940: 0% / 0% (8.27 i/B) | 3925: 1% slower / 0% (8.27 i/B) | 3315: 16% slower / 16% slower (7.54 i/B) | 3509: 11% slower / 11% slower (7.72 i/B) | 3787: 4% slower / 4% slower (7.54 i/B) | 3820: 3% slower / 3% slower (8.21 i/B) | 3985: 1% faster / 1% faster (8.17 i/B) |
+
+Load:  1:41  up  6:56, 2 users, load averages: 7.00 5.42 4.88  1:43  up  6:58, 2 users, load averages: 5.11 5.27 4.90 
