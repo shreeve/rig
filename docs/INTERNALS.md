@@ -1863,9 +1863,10 @@ runtime function with value arguments, or the existing `read` and
 
 Every vector comes from one of those constructions, a parameter, bytes
 read when the program runs, or a module constant, which is a Zig `var`
-that nothing writes (`Emitter.emitConst`; typecheck's `isConstExpr`
-admits only `Simd[T, n](a)` and `.splat(x)` of constants, through
-`isVectorMade`). Each construction goes through `rig.rt`, so no vector
+that nothing writes (`Emitter.emitConst`): `checkModuleConst` takes a
+vector only as a constant's whole value, `Simd[T, n](a)` or `.splat(x)`
+of constants (`isVectorMade`), never inside an array or a branch, which
+Zig would know when it compiles. Each construction goes through `rig.rt`, so no vector
 is known to Zig when it compiles: a lane that overflows panics when the program runs, never
 stopping Zig's fold, where Rig's own fold rejects a constant scalar
 that overflows.

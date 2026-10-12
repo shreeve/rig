@@ -36,11 +36,12 @@ for t in "${targets[@]}"; do
         "${run[@]}" "$seeds" >"$out/o" 2>&1; rc=$?
         tail -40 "$out/o"; [ $rc = 0 ] || status=1
         [ "$mode" = ReleaseFast ] && continue
+        # (The shell's "Abort trap" notes for the expected panics are dropped.)
         for ty in u8 i8 u16 i64; do for n in 2 16 32 64; do
-            if ( "${run[@]}" shl "$ty" "$n" >"$out/o" 2>&1 ) 2>/dev/null || ! grep -q "left shift overflowed bits" "$out/o"; then
+            if "${run[@]}" shl "$ty" "$n" >"$out/o" 2>&1 || ! grep -q "left shift overflowed bits" "$out/o"; then
                 echo "  vecShl $ty x$n: no panic"; status=1
             fi
-        done; done
+        done; done 2>/dev/null
     done
 done
 exit $status

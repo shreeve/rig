@@ -79,8 +79,8 @@ saturate, stopping at the type's limits.
 `v + 1` and `v == q` work lane by lane, a comparison gives a mask
 (`Simd[Bool, 16]`), and `m.first()` (the first true lane, `Int?`), `m.bits()`, `m.any()`, or `m.all()` reduce it.
 A vector copies like an `Int`, and `v[i]` reads a lane. `v >> 4` shifts
-every lane, `t.lookup(idx)` looks each lane of `idx` up in a 16-byte
-table `t`, and `cur.lag[1](prev)` sees each lane's neighbour one lane
+every lane, `t.lookup(idx)` looks each lane of `idx` up in a table `t`
+of 16, 32, or 64 bytes, and `cur.lag[1](prev)` sees each lane's neighbour one lane
 back, across from `prev`.
 
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a

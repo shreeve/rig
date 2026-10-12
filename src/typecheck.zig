@@ -437,8 +437,13 @@ const Checker = struct {
         try self.checkSet(node);
         const value = ir.Set.value(node);
         if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
-        if (!self.isConstExpr(value)) {
-            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, arrays, and vectors (`Simd[T, n](array)`, `Simd[T, n].splat(x)`) over them", .{});
+        // A vector made of constants, `Simd[U8, 16](array)` or
+        // `Simd[U8, 16].splat(x)` (or through an alias of the type), is a
+        // module constant's whole value: it is a Zig `var` (`emitConst`),
+        // and an array or a branch holding one would be known to Zig.
+        const vector = value.isKind(.call) and self.isVectorMade(value) and self.isConstExpr(ir.Call.args(value)[0]);
+        if (!vector and !self.isConstExpr(value)) {
+            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", .{});
         }
     }
 
@@ -448,9 +453,6 @@ const Checker = struct {
             return true;
         }
         if (e.isKind(.array_fill)) return self.isConstExpr(ir.ArrayFill.value(e));
-        // A vector made of constants: `Simd[U8, 16](array)` or
-        // `Simd[U8, 16].splat(x)` (or through an alias of the type).
-        if (e.isKind(.call)) return self.isVectorMade(e) and self.isConstExpr(ir.Call.args(e)[0]);
         // A ternary `a if c else b` over constants.
         if (e.isKind(.@"if")) return self.isConstExpr(ir.If.cond(e)) and self.isConstExpr(ir.If.then(e)) and self.isConstExpr(ir.If.@"else"(e));
         return self.isComptimeKnown(e);
