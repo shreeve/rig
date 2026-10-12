@@ -1782,7 +1782,8 @@ pub const Emitter = struct {
     /// `x op= e` on a name or place, with the place evaluated once, after
     /// `e` (`openAssign`). The operators that lower to a builtin
     /// (`@divTrunc` for integer `/`, `rig.rem`, `@shlExact`) assign the
-    /// builtin's result; the others use Zig's own compound assignment.
+    /// builtin's result, as do the checked operators on integer vector lanes
+    /// (`laneHelper`); the others use Zig's own compound assignment.
     fn emitCompound(self: *Emitter, set: Sexp, op: Tag) Error!void {
         try self.inUnit(set);
         const target = ir.Set.target(set);
@@ -1790,6 +1791,7 @@ pub const Emitter = struct {
         const builtin: ?[]const u8 = switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
             .@"<<" => "@shlExact",
+            .@"+", .@"-", .@"*" => self.laneHelper(op, self.typeOf(target)),
             else => null,
         };
         const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
@@ -4190,6 +4192,11 @@ pub const Emitter = struct {
                 const operand = ir.Neg.operand(sexp);
                 // Zig rejects the literal `-0` as ambiguous; `0 - 0` is 0.
                 if (operand == .src and isIntZeroText(self.srcText(operand))) return self.w.writeAll("0");
+                if (self.laneHelper(.neg, self.typeOf(sexp))) |helper| {
+                    try self.w.print("{s}(", .{helper});
+                    try self.emitBare(operand);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("-");
                 try self.emitExpr(operand);
             },
@@ -4317,6 +4324,26 @@ pub const Emitter = struct {
         try self.emitPlace(place);
     }
 
+    /// The runtime helper that checks `op` on the integer lanes of a
+    /// vector of type `ty`, or null when `ty` is not one. Zig's own
+    /// vector `+`, `-`, `*`, and `-` test LLVM's overflow bits, which
+    /// aarch64 gets wrong for wide byte vectors (see `rig.vecAdd`).
+    fn laneHelper(self: *Emitter, op: Tag, ty: ?TypeId) ?[]const u8 {
+        const t = ty orelse return null;
+        const simd = switch (self.facts.types.get(self.peelViews(t))) {
+            .simd => |v| v,
+            else => return null,
+        };
+        if (self.facts.types.get(simd.elem) != .int) return null;
+        return switch (op) {
+            .@"+" => "rig.vecAdd",
+            .@"-" => "rig.vecSub",
+            .@"*" => "rig.vecMul",
+            .neg => "rig.vecNeg",
+            else => null,
+        };
+    }
+
     /// A binary operator node: `(op left right)`.
     fn emitInfix(self: *Emitter, sexp: Sexp, bare: bool) Error!void {
         try self.inUnit(sexp);
@@ -4369,6 +4396,13 @@ pub const Emitter = struct {
         };
         // An add known not to overflow (`provenOf`).
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
+        if (self.laneHelper(kind, self.typeOf(sexp))) |helper| {
+            try self.w.print("{s}(", .{helper});
+            try self.emitBare(operands[0]);
+            try self.w.writeAll(", ");
+            try self.emitBare(operands[1]);
+            return self.w.writeAll(")");
+        }
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});

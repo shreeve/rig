@@ -1471,6 +1471,79 @@ pub inline fn addProven(a: Int, b: Int) Int {
     return a + b;
 }
 
+// Checked lane arithmetic. Zig's own `a + b` on an integer vector tests
+// the overflow bits of `@addWithOverflow(a, b)`, and LLVM miscompiles
+// those bits on aarch64 when the vector is 32 or 64 lanes of bytes and
+// both the flags and the result are used: a sum with no overflow in any
+// lane reports one (`@reduce(.Or, flags)` is true), so a correct program
+// panics. The helpers below never ask for the intrinsic: they compute the
+// wrapped result and find an overflowing lane with lane comparisons, then
+// panic as a scalar overflow does.
+
+noinline fn laneOverflow() noreturn {
+    @branchHint(.cold);
+    panic.integerOverflow();
+}
+
+inline fn laneUnsigned(comptime V: type) bool {
+    return @typeInfo(@typeInfo(V).vector.child).int.signedness == .unsigned;
+}
+
+inline fn laneZero(comptime V: type) V {
+    return @splat(0);
+}
+
+/// Panics unless no lane of `bad` is set.
+inline fn laneCheck(bad: anytype) void {
+    if (@reduce(.Or, bad)) laneOverflow();
+}
+
+/// `a + b` lane by lane: the sum wrapped, overflow where an unsigned
+/// sum is below an addend or a signed sum has the sign of neither.
+pub inline fn vecAdd(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const r = a +% b;
+    laneCheck(if (comptime laneUnsigned(V)) r < a else ((a ^ r) & (b ^ r)) < laneZero(V));
+    return r;
+}
+
+/// `a - b` lane by lane: the difference wrapped, overflow where an
+/// unsigned `a` is below `b` or a signed difference has the sign of
+/// neither `a` nor the negation of `b`.
+pub inline fn vecSub(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const r = a -% b;
+    laneCheck(if (comptime laneUnsigned(V)) a < b else ((a ^ b) & (a ^ r)) < laneZero(V));
+    return r;
+}
+
+/// `a * b` lane by lane: the product wrapped, overflow where it differs
+/// from the product taken in lanes twice as wide. A 64-bit lane has no
+/// wider vector lane, so each is tested as a scalar.
+pub inline fn vecMul(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const info = @typeInfo(V).vector;
+    const r = a *% b;
+    if (comptime @bitSizeOf(info.child) >= 64) {
+        const xs: [info.len]info.child = a;
+        const ys: [info.len]info.child = b;
+        for (xs, ys) |x, y| if (@mulWithOverflow(x, y)[1] != 0) laneOverflow();
+    } else {
+        const W = @Vector(info.len, @Int(@typeInfo(info.child).int.signedness, @bitSizeOf(info.child) * 2));
+        const wide = @as(W, @intCast(a)) *% @as(W, @intCast(b));
+        laneCheck(wide != @as(W, @intCast(r)));
+    }
+    return r;
+}
+
+/// `-a` lane by lane (signed lanes): overflow where a lane is the least
+/// value of its type.
+pub inline fn vecNeg(a: anytype) @TypeOf(a) {
+    const V = @TypeOf(a);
+    laneCheck(a == @as(V, @splat(std.math.minInt(@typeInfo(V).vector.child))));
+    return laneZero(V) -% a;
+}
+
 /// `s[lo..hi]` of a string, slice, or array pointer: the elements from
 /// `lo` up to `hi` (`null`: the end); panics unless `0 <= lo <= hi <= len`.
 pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@TypeOf(items)) {
