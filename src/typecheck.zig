@@ -438,7 +438,7 @@ const Checker = struct {
         const value = ir.Set.value(node);
         if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
         if (!self.isConstExpr(value)) {
-            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, and arrays over them", .{});
+            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, arrays, and vectors (`Simd[T, n](array)`, `Simd[T, n].splat(x)`) over them", .{});
         }
     }
 
@@ -448,9 +448,26 @@ const Checker = struct {
             return true;
         }
         if (e.isKind(.array_fill)) return self.isConstExpr(ir.ArrayFill.value(e));
+        // A vector made of constants: `Simd[U8, 16](array)` or
+        // `Simd[U8, 16].splat(x)` (or through an alias of the type).
+        if (e.isKind(.call)) return self.isVectorMade(e) and self.isConstExpr(ir.Call.args(e)[0]);
         // A ternary `a if c else b` over constants.
         if (e.isKind(.@"if")) return self.isConstExpr(ir.If.cond(e)) and self.isConstExpr(ir.If.then(e)) and self.isConstExpr(ir.If.@"else"(e));
         return self.isComptimeKnown(e);
+    }
+
+    /// A call that makes a vector of its one argument: `Simd[T, n](a)`,
+    /// `Block(a)` for an alias `Block` of a vector type, or `.splat(x)` of
+    /// either.
+    fn isVectorMade(self: *Checker, call: Sexp) bool {
+        const ty = self.ctx.typeOf(call) orelse return false;
+        if (self.ctx.types.get(ty) != .simd or ir.Call.args(call).len != 1) return false;
+        const callee = ir.Call.callee(call);
+        if (self.ctx.elemCallOf(callee)) |ec| return ec.op == .splat;
+        const named = if (rig.isBracketList(callee)) ir.get(callee, .object) else callee;
+        if (named != .src) return false;
+        const id = self.ctx.symbolOf(named) orelse self.lookupQuiet(named) orelse return false;
+        return if (rig.isBracketList(callee)) id == self.ctx.simd_sym_id else self.ctx.symbols.items[id].kind == .type_alias;
     }
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";

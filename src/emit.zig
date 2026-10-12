@@ -394,11 +394,15 @@ pub const Emitter = struct {
         }
     }
 
-    /// A module-level constant, `name = value`.
+    /// A module-level constant, `name = value`. A vector is a Zig `var`,
+    /// never written: Zig knows no vector when it compiles
+    /// (`writeVectorOpen`), and LLVM still folds the never-written value.
     fn emitConst(self: *Emitter, node: Sexp) Error!void {
         const target = ir.Set.target(node);
-        try self.w.print("pub const {f}: ", .{ident(self.srcText(target))});
-        try self.emitTypeTy(self.typeOf(target) orelse return self.unsupported(node, "an untyped constant"));
+        const ty = self.typeOf(target) orelse return self.unsupported(node, "an untyped constant");
+        const vector = self.facts.types.get(ty) == .simd;
+        try self.w.print("pub {s} {f}: ", .{ if (vector) "var" else "const", ident(self.srcText(target)) });
+        try self.emitTypeTy(ty);
         try self.w.writeAll(" = ");
         const saved = self.keep_comptime;
         defer self.keep_comptime = saved;
@@ -5436,7 +5440,8 @@ pub const Emitter = struct {
     /// after its value.
     /// Every vector a program makes comes from a construction (`splat`,
     /// `Simd[T, n](a)`, a scalar splatted beside a vector), a parameter,
-    /// or bytes read when the program runs, and no constant holds one; so
+    /// or bytes read when the program runs, and a module constant that
+    /// holds one is a Zig `var` (`emitConst`); so
     /// with each construction a run-time value, no vector is known to Zig
     /// when it compiles, and a lane that overflows panics when the program
     /// runs, as Rig specifies, rather than stopping Zig's fold.

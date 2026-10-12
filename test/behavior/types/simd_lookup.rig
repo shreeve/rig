@@ -1,0 +1,52 @@
+# `t.lookup(idx)` gives, in each lane, the byte of table `t` at that
+# lane's index, or 0 where the index is past the table. A table is 16, 32,
+# or 64 bytes; the indexes are a `Simd[U8, n]` of any lane count.
+
+type Table = Simd[U8, 16]
+
+HEX = Table([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66])
+
+fun squares(n: Int) -> [64]U8
+  a: [64]U8 = [64 of 0]
+  for k in 0..64
+    a[k] = U8((k * k + n) % 256)
+  a
+
+sub main()
+  idx = Simd[U8, 4]([0, 15, 16, 255])
+  print(HEX.lookup(idx))
+  i16 = Simd[U8, 16]([15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0])
+  print(HEX.lookup(i16))
+  print(HEX.lookup(i16 +| 2))
+  print(HEX.lookup(Simd[U8, 2]([10, 128])), HEX.lookup(Simd[U8, 8].splat(9)))
+  sq = squares(1)
+  wide = Simd[U8, 64](sq)
+  t64 = Simd[U8, 64](squares(0))
+  r64 = t64.lookup(wide)
+  print(r64[0], r64[1], r64[2], r64[3], r64[7], r64[8], r64[63])
+  a32: [32]U8 = [32 of 0]
+  for k in 0..32
+    a32[k] = U8(255 - k)
+  t32 = Simd[U8, 32](a32)
+  r32 = t32.lookup(Simd[U8, 32](a32) -% 224)
+  print(r32[0], r32[31], r32[16])
+  r16 = HEX.lookup(Simd[U8, 64](sq) & 0x0F)
+  print(r16[0], r16[2], r16[5], r16[63])
+  bytes = "deadbeef cafe"
+  hex = Simd[U8, 16].splat(0)
+  for k in 0..bytes.len
+    hex = hex.with(k, bytes[k] & 0x0F)
+  r = HEX.lookup(hex)
+  print(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[12])
+
+# expect:
+# [48, 102, 0, 0]
+# [102, 101, 100, 99, 98, 97, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48]
+# [0, 0, 102, 101, 100, 99, 98, 97, 57, 56, 55, 54, 53, 52, 51, 50]
+# [97, 0] [57, 57, 57, 57, 57, 57, 57, 57]
+# 1 4 25 100 196 0 0
+# 224 255 240
+# 49 53 97 50
+# 52 53 49 52 50 53 53 54 48 53
+
+# release
