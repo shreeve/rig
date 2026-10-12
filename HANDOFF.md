@@ -27,6 +27,10 @@ from).
   - **Text and lists:** String `reserve`, `push[T, e]`, and List
     `reserve`; a byte order on a one-byte type is rejected; clearing a
     List of plain values sets its length.
+  - **Owned closures:** `*fun` and `*sub` take and return anything a
+    function's signature may hold: write and read views for the call,
+    owners, and handles (docs/CORE.md §7). A temporary callee,
+    `(+h.f)(x)`, is planned.
   - **Vectors:** `Simd[T, n]`, `n` lanes of a number or `Bool` (`n` a
     power of two from 2 to 64): lane-wise operators that panic on
     overflow (`+%` and friends wrap), comparisons that give a mask
