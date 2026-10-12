@@ -1,0 +1,96 @@
+# Every lane count, 2 to 64: room for one byte fewer than a
+# `Simd[U8, n]` holds proves nothing about its read or its write,
+# which run past the end at `s.len - n + 1`.
+
+fun at2(s: ?String, at: Int) -> Int
+  i = at
+  if i + 1 <= s.len
+    return Int(s.read[Simd[U8, 2]](i)[0]) # keeps: read upper
+  0
+
+sub put2(s: ![]U8, at: Int)
+  i = at
+  if i + 1 <= s.len
+    !s.write[Simd[U8, 2]](i, Simd[U8, 2].splat(9)) # keeps: write upper
+
+fun at4(s: ?String, at: Int) -> Int
+  i = at
+  if i + 3 <= s.len
+    return Int(s.read[Simd[U8, 4]](i)[0]) # keeps: read upper
+  0
+
+sub put4(s: ![]U8, at: Int)
+  i = at
+  if i + 3 <= s.len
+    !s.write[Simd[U8, 4]](i, Simd[U8, 4].splat(9)) # keeps: write upper
+
+fun at8(s: ?String, at: Int) -> Int
+  i = at
+  if i + 7 <= s.len
+    return Int(s.read[Simd[U8, 8]](i)[0]) # keeps: read upper
+  0
+
+sub put8(s: ![]U8, at: Int)
+  i = at
+  if i + 7 <= s.len
+    !s.write[Simd[U8, 8]](i, Simd[U8, 8].splat(9)) # keeps: write upper
+
+fun at16(s: ?String, at: Int) -> Int
+  i = at
+  if i + 15 <= s.len
+    return Int(s.read[Simd[U8, 16]](i)[0]) # keeps: read upper
+  0
+
+sub put16(s: ![]U8, at: Int)
+  i = at
+  if i + 15 <= s.len
+    !s.write[Simd[U8, 16]](i, Simd[U8, 16].splat(9)) # keeps: write upper
+
+fun at32(s: ?String, at: Int) -> Int
+  i = at
+  if i + 31 <= s.len
+    return Int(s.read[Simd[U8, 32]](i)[0]) # keeps: read upper
+  0
+
+sub put32(s: ![]U8, at: Int)
+  i = at
+  if i + 31 <= s.len
+    !s.write[Simd[U8, 32]](i, Simd[U8, 32].splat(9)) # keeps: write upper
+
+fun at64(s: ?String, at: Int) -> Int
+  i = at
+  if i + 63 <= s.len
+    return Int(s.read[Simd[U8, 64]](i)[0]) # keeps: read upper
+  0
+
+sub put64(s: ![]U8, at: Int)
+  i = at
+  if i + 63 <= s.len
+    !s.write[Simd[U8, 64]](i, Simd[U8, 64].splat(9)) # keeps: write upper
+
+sub main()
+  s = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl"
+  a: [64]U8 = [64 of 1]
+  put2(!a[..], 62)
+  print(at2(s, 62), a[62])
+  put4(!a[..], 60)
+  print(at4(s, 60), a[60])
+  put8(!a[..], 56)
+  print(at8(s, 56), a[56])
+  put16(!a[..], 48)
+  print(at16(s, 48), a[48])
+  put32(!a[..], 32)
+  print(at32(s, 32), a[32])
+  put64(!a[..], 0)
+  print(at64(s, 0), a[0])
+  print(at2(s, 63))
+
+# release
+# expect-panic: byte read out of range
+# expect:
+# 107 9
+# 105 9
+# 101 9
+# 119 9
+# 103 9
+# 97 9

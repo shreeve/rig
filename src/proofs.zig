@@ -337,12 +337,17 @@ const Pass = struct {
         return null;
     }
 
-    /// The size in bytes of the number type a `read` or `write` names,
-    /// when it is concrete.
+    /// The size in bytes of the type a `read` or `write` names, when it is
+    /// concrete: a number, or a `Simd` of `n` numbers, `n` times the size
+    /// of one (its bytes are read as an integer of that size is).
     fn numSize(p: *const Pass, ty: sema.TypeId) ?u64 {
         return switch (p.ctx.types.get(ty)) {
             .int => |info| info.width() / 8,
             .float => |info| (if (info.bits == 0) 64 else info.bits) / 8,
+            .simd => |v| switch (p.ctx.types.get(v.elem)) {
+                .int, .float => (p.numSize(v.elem) orelse return null) * (sema.simdLen(p.ctx, v) orelse return null),
+                else => null,
+            },
             else => null,
         };
     }
