@@ -4912,6 +4912,7 @@ pub const Emitter = struct {
     /// backing integer type exactly, so its operand, any integer, goes
     /// through `@intCast` (checked in safe builds, as the tag is).
     fn emitBuiltin(self: *Emitter, sexp: Sexp) Error!void {
+        if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "variants")) return self.emitVariants(sexp);
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "name")) return self.emitNameQuery(sexp);
         const name = zigBuiltinName(self.srcText(ir.Builtin.name(sexp)));
         const cast = std.mem.eql(u8, name, "fromBackingInt");
@@ -4923,6 +4924,28 @@ pub const Emitter = struct {
         }
         if (cast) try self.w.writeAll(")");
         try self.w.writeAll(")");
+    }
+
+    /// `@variants(T)`: `[N]T{ T.a, T.b }`, the variants in order.
+    fn emitVariants(self: *Emitter, sexp: Sexp) Error!void {
+        const arr = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped `@variants`");
+        const elem = switch (self.facts.types.get(arr)) {
+            .array => |a| a.elem,
+            else => return self.unsupported(sexp, "`@variants` of this type"),
+        };
+        const decl = self.facts.nominalDecl(elem) orelse return self.unsupported(sexp, "`@variants` of this type");
+        try self.w.writeAll("(");
+        try self.emitTypeTy(arr);
+        try self.w.writeAll("{ ");
+        var first = true;
+        for (decl.symbol().fields orelse &.{}) |f| {
+            if (!f.is_variant) continue;
+            if (!first) try self.w.writeAll(", ");
+            first = false;
+            try self.emitTypeTy(elem);
+            try self.w.print(".{f}", .{ident(f.name)});
+        }
+        try self.w.writeAll(" })");
     }
 
     /// `@name(T)`: the type's name as sema's printer spells it, the
@@ -5264,12 +5287,14 @@ pub const Emitter = struct {
             // no byte order.
             .read, .write => {
                 const vector = self.facts.types.get(ec.num) == .simd;
-                // A test known to pass is omitted (`provenOf`); a vector's
-                // tests are never proven.
-                const proven = if (vector) null else provenTests(self.provenOf(callee));
-                try self.w.writeAll(if (ec.op == .read)
-                    (if (vector) "rig.simdRead(" else if (proven != null) "rig.readIntProven(" else "rig.readInt(")
-                else if (vector) "rig.simdWrite(" else if (proven != null) "rig.writeIntProven(" else "rig.writeInt(");
+                // A test known to pass is omitted (`provenOf`).
+                const proven = provenTests(self.provenOf(callee));
+                const read = ec.op == .read;
+                try self.w.writeAll(if (vector) (if (proven != null)
+                    (if (read) "rig.simdReadProven(" else "rig.simdWriteProven(")
+                else if (read) "rig.simdRead(" else "rig.simdWrite(") else if (proven != null)
+                    (if (read) "rig.readIntProven(" else "rig.writeIntProven(")
+                else if (read) "rig.readInt(" else "rig.writeInt(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.emitElems(ir.Member.object(callee));
@@ -5365,6 +5390,33 @@ pub const Emitter = struct {
                 try self.emitBare(ir.Member.object(callee));
                 return self.w.writeAll(")))");
             },
+            // `@as(u64, @bitCast(x))`.
+            .to_bits => {
+                try self.writeAsOpen(ec.elem);
+                try self.w.writeAll("@bitCast(");
+                try self.writeAsOpen(ec.num);
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")))");
+            },
+            // `@as(f64, @bitCast(@as(u64, u)))`.
+            .from_bits => {
+                try self.writeAsOpen(ec.num);
+                try self.w.writeAll("@bitCast(");
+                try self.writeAsOpen(ec.elem);
+                try self.emitBare(args[0]);
+                return self.w.writeAll(")))");
+            },
+            // The low bits, read in the target's signedness.
+            .wrap => return self.emitWrap(args[0], ec),
+            // `rig.enumFromInt(E, n)`.
+            .from_int => {
+                try self.w.writeAll("rig.enumFromInt(");
+                try self.emitTypeTy(ec.num);
+                try self.w.writeAll(", ");
+                try self.writeAsOpen(ec.elem);
+                try self.emitBare(args[0]);
+                return self.w.writeAll("))");
+            },
             .swap_bytes => {
                 try self.w.writeAll("@byteSwap(");
                 try self.writeAsOpen(ec.num);
@@ -5385,6 +5437,33 @@ pub const Emitter = struct {
             },
         }
         try self.w.writeAll(")");
+    }
+
+    /// `I32.wrap(x)`: to a narrower target, truncate the source's bits;
+    /// to a wider one, widen at the source's signedness; then read the
+    /// bits as the target.
+    fn emitWrap(self: *Emitter, arg: Sexp, ec: facts.ElemCall) Error!void {
+        const from = self.facts.types.get(ec.elem).int;
+        const to = self.facts.types.get(ec.num).int;
+        const wf = from.width();
+        const wt = to.width();
+        try self.writeAsOpen(ec.num);
+        try self.w.writeAll("@bitCast(");
+        if (wt < wf) {
+            try self.w.print("@as(u{d}, @truncate(@as(u{d}, @bitCast(", .{ wt, wf });
+            try self.writeAsOpen(ec.elem);
+            try self.emitBare(arg);
+            return self.w.writeAll(")))))))");
+        }
+        if (wt == wf) {
+            try self.writeAsOpen(ec.elem);
+            try self.emitBare(arg);
+            return self.w.writeAll(")))");
+        }
+        try self.w.print("@as({c}{d}, @intCast(", .{ @as(u8, if (from.signed) 'i' else 'u'), wt });
+        try self.writeAsOpen(ec.elem);
+        try self.emitBare(arg);
+        try self.w.writeAll(")))))");
     }
 
     /// `rig.rt(@as(V, `, which a vector's construction closes with `))`

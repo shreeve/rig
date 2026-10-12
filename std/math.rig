@@ -65,7 +65,28 @@ pub fun mod(a: Int, b: Int) -> Int
   r = a % b
   r + b if r != 0 and (r < 0) != (b < 0) else r
 
+# A finite float as decimal digits: `|f| = digits * 10^exp`.
+pub obj Decimal
+  # Whether the sign bit is set, also of a zero.
+  pub neg: Bool
+  # The shortest digits that read back as the same float, without a
+  # trailing zero; 0 for a zero.
+  pub digits: U64
+  # The power of ten that scales `digits`; 0 for a zero.
+  pub exp: Int
+
+# The shortest decimal digits and exponent that read back as exactly `f`,
+# or `none` for NaN and the infinities. It allocates nothing.
+pub fun shortest(f: Float) -> Decimal?
+  if f.to_bits() >> 52 & 0x7FF == 0x7FF
+    return none
+  Decimal(neg: f.to_bits() >> 63 == 1, digits: shortest_digits(f), exp: shortest_exp(f))
+
 extern zig "math.zig"
+  # The digits of `shortest` for a finite `f`.
+  fun shortest_digits(f: Float) -> U64
+  # The exponent of `shortest` for a finite `f`.
+  fun shortest_exp(f: Float) -> Int
   # Panics: `clamp`'s bounds are the wrong way round.
   sub clamp_bounds()
 

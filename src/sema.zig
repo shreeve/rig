@@ -1107,7 +1107,12 @@ pub const Use = enum {
 /// integer or a `Bool`, or lane by lane of a vector, and
 /// `x.swap_bytes()` (`elem` and `num` are its type), and
 /// `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()` (`num`
-/// is the integer's type, `elem` the `Int` they give); and the methods of
+/// is the integer's type, `elem` the `Int` they give); `f.to_bits()`
+/// (`num` is the float's type, `elem` the unsigned integer of its width);
+/// the functions of a type, which take an integer (`elem` is its type):
+/// `I32.wrap(x)` (`num` the target), `Float.from_bits(u)` (`num` the
+/// float, `elem` the unsigned integer), `Status.from_int(n)` (`num` the
+/// enum); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
 /// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
 /// `v.array()`, `v.with(i, x)`, and `m.select(a, b)`, whose `num` is the
@@ -1131,6 +1136,10 @@ pub const ElemOp = enum {
     trailing_zeros,
     count_ones,
     swap_bytes,
+    to_bits,
+    from_bits,
+    wrap,
+    from_int,
     splat,
     bits,
     first,
@@ -1144,8 +1153,17 @@ pub const ElemOp = enum {
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
-            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => true,
-            .copy, .fill, .swap, .read, .write, .splat, .bits, .first, .any, .all, .array, .with, .select => false,
+            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits => true,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => false,
+        };
+    }
+
+    /// Whether the call is a function of a number type or a plain enum:
+    /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`.
+    pub fn isTypeFn(op: ElemOp) bool {
+        return switch (op) {
+            .from_bits, .wrap, .from_int => true,
+            else => false,
         };
     }
 
@@ -1154,7 +1172,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int => false,
         };
     }
 };

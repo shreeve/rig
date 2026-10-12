@@ -112,6 +112,37 @@ true -3.0 -2.0
 0.0 -2.0 -3.0 3.0
 ```
 
+`shortest(f: Float) -> Decimal?` is the shortest decimal that reads back
+as exactly `f`: a `Decimal` with `neg` (the sign bit), `digits: U64`
+without a trailing zero (0 for a zero), and `exp: Int`, so that `|f|` is
+`digits * 10^exp`. It is `none` for NaN and the infinities, and allocates
+nothing. Formatting, such as an exponent form, is built above it.
+
+```rig
+use std.math
+
+sub show(f: Float)
+  if math.shortest(f) as d
+    print(d.neg, d.digits, d.exp)
+  else
+    print("none")
+
+sub main()
+  show(5e-324)
+  show(-0.1)
+  show(123.45)
+  show(0.0)
+  show(math.sqrt(-1.0))
+```
+
+```output
+false 5 -324
+true 1 -1
+false 12345 -2
+false 0 0
+none
+```
+
 ## std.os
 
 The arguments and environment the program started with. Their text
