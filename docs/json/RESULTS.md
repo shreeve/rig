@@ -870,3 +870,69 @@ table above; the 16-lane rows in it agree with the table above within 2%.)
 So a 32-lane mask on NEON needs `maskFirst` inlined to be usable, and then
 ties the 16-lane scan without beating it. On pup inlining changes nothing (the `inlined
 maskFirst` rows above equal the plain ones within 2%); its assembly was not read.
+
+## With proofs2 (Rig main at 2cc2008e6)
+
+The same measurement as "Linux x86 (pup)" above, repeated on main after #138
+(proofs2) landed: `bench/json/timers/time.py` on a `rig build --release`
+std.json with the landed scan (a 16-byte SWAR stage, 16-lane blocks),
+interleaved, the fastest of 15 runs of about 400 ms, each parser against
+sonic-rs 0.5.10 on the same machine. The last column is the earlier
+table's landed-scan row, the same comparison at f09357281, before #138.
+MB/s is 10^6 bytes per second. The geomean is of the six files' ratios.
+The two measurements are from different sessions, so allow a few percent
+between them.
+
+### Mac (Apple silicon)
+
+The load was 4.5 to 5, a little over the target of 4 (the other Mac jobs
+were held; `--exclusive` is off on the Mac).
+
+| file | std.json | sonic-rs | simd-json (tape) | zimdjson (DOM) | std.json vs sonic-rs | simd-json vs sonic-rs | zimdjson vs sonic-rs | std.json vs sonic-rs before #138 |
+|---|---:|---:|---:|---:|---|---|---|---|
+| twitter | 3359 | 3152 | 3501 | 3641 | 7% faster | 11% faster | 16% faster | 4% faster |
+| twitterescaped | 3142 | 2836 | 1371 | 2787 | 11% faster | 52% slower | 2% slower | 7% faster |
+| canada | 2027 | 2019 | 1331 | 1339 | 0% faster | 34% slower | 34% slower | 4% slower |
+| citm_catalog | 4111 | 3815 | 4125 | 3966 | 8% faster | 8% faster | 4% faster | 2% slower |
+| gsoc-2018 | 7547 | 7258 | 3963 | 3875 | 4% faster | 45% slower | 47% slower | 3% slower |
+| github_events | 4076 | 3761 | 3737 | 4009 | 8% faster | 1% slower | 7% faster | 6% faster |
+| geomean | | | | | 6% faster | | | 1% faster |
+
+Cycles of std.json, from `cyc.py` (wall MB/s, bytes per kilocycle,
+instructions per byte; `cyc.py` reads macOS's `time -l`, so sonic-rs, which
+it cannot run, has no cycle count here):
+
+| file | MB/s | bytes per kilocycle | instructions/byte |
+|---|---:|---:|---:|
+| twitter | 3310 | 768 | 8.77 |
+| twitterescaped | 3140 | 726 | 9.94 |
+| canada | 2030 | 474 | 16.80 |
+| citm_catalog | 4062 | 951 | 8.06 |
+| gsoc-2018 | 7522 | 1769 | 3.66 |
+| github_events | 3979 | 930 | 7.28 |
+
+### pup (Intel Core Ultra 9 185H, x86_64)
+
+Timed under `cpuq run --exclusive`, pinned to a P core; the `perf stat`
+counts are on the same core.
+
+| file | std.json | sonic-rs | simd-json (tape) | zimdjson (DOM) | std.json vs sonic-rs | simd-json vs sonic-rs | zimdjson vs sonic-rs | std.json vs sonic-rs before #138 |
+|---|---:|---:|---:|---:|---|---|---|---|
+| twitter | 2521 | 2698 | 2447 | 4235 | 7% slower | 9% slower | 57% faster | 19% slower |
+| twitterescaped | 2317 | 2143 | 1423 | 2807 | 8% faster | 34% slower | 31% faster | 4% slower |
+| canada | 1312 | 1386 | 1068 | 926 | 5% slower | 23% slower | 33% slower | 11% slower |
+| citm_catalog | 2895 | 3481 | 2554 | 4429 | 17% slower | 27% slower | 27% faster | 29% slower |
+| gsoc-2018 | 5055 | 5112 | 3481 | 5410 | 1% slower | 32% slower | 6% faster | 12% slower |
+| github_events | 3068 | 3800 | 2726 | 4828 | 19% slower | 28% slower | 27% faster | 30% slower |
+| geomean | | | | | 7% slower | | | 18% slower |
+
+Cycles and instructions per byte (`perf stat`; these don't depend on load):
+
+| file | std.json cycles/byte | sonic-rs | std.json vs sonic-rs | std.json instructions/byte | sonic-rs | std.json vs sonic-rs |
+|---|---:|---:|---|---:|---:|---|
+| twitter | 1.856 | 1.678 | 11% more cycles | 9.69 | 7.89 | 23% more |
+| twitterescaped | 1.995 | 2.099 | 5% fewer cycles | 10.93 | 10.48 | 4% more |
+| canada | 3.503 | 3.380 | 4% more cycles | 17.81 | 16.35 | 9% more |
+| citm_catalog | 1.547 | 1.344 | 15% more cycles | 8.48 | 6.50 | 30% more |
+| gsoc-2018 | 0.904 | 0.981 | 8% fewer cycles | 4.04 | 2.59 | 56% more |
+| github_events | 1.462 | 1.305 | 12% more cycles | 8.10 | 5.70 | 42% more |
