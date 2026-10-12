@@ -80,6 +80,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.owned_bindings.deinit(ctx.allocator);
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
+    defer c.jump_targets.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
@@ -220,6 +221,10 @@ const Checker = struct {
     /// about to be checked.
     loop_label: []const u8 = "",
     loop_value: ?*LoopValue = null,
+    /// Each `break` and `continue` that names a construct being checked,
+    /// and that construct (`sema.eachJumpTo`), recorded as the construct
+    /// is entered (`enterFrame`).
+    jump_targets: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
     /// What typing found that the walk over paths reads
@@ -767,7 +772,7 @@ const Checker = struct {
                     }
                 }
                 var frame: LoopFrame = .{ .label = label, .node = inner, .is_loop = false, .parent = self.body.loops };
-                self.body.loops = &frame;
+                try self.enterFrame(&frame);
                 defer self.body.loops = frame.parent;
                 try self.checkStmt(inner);
             },
@@ -1948,10 +1953,24 @@ const Checker = struct {
 
     /// The frame of the loop being entered, which takes the pending label
     /// and value.
-    fn enterLoop(self: *Checker, frame: *LoopFrame, node: Sexp) void {
+    fn enterLoop(self: *Checker, frame: *LoopFrame, node: Sexp) Error!void {
         frame.* = .{ .label = self.loop_label, .node = node, .value = self.loop_value, .parent = self.body.loops };
         self.loop_label = "";
         self.loop_value = null;
+        try self.enterFrame(frame);
+    }
+
+    /// Make `frame` the innermost around the code being checked, and
+    /// record the jumps that name its construct (`sema.eachJumpTo`).
+    fn enterFrame(self: *Checker, frame: *LoopFrame) Error!void {
+        const Record = struct {
+            c: *Checker,
+            node: Sexp,
+            pub fn jump(r: @This(), j: Sexp) Error!void {
+                try r.c.jump_targets.put(r.c.ctx.allocator, nodeId(j), r.node);
+            }
+        };
+        try sema.eachJumpTo(self.ctx.source, frame.node, frame.label, Record{ .c = self, .node = frame.node });
         self.body.loops = frame;
     }
 
@@ -1967,7 +1986,7 @@ const Checker = struct {
 
     fn checkWhile(self: *Checker, node: Sexp) Error!void {
         var frame: LoopFrame = undefined;
-        self.enterLoop(&frame, node);
+        try self.enterLoop(&frame, node);
         defer frame.cond_continues.deinit(self.ctx.allocator);
         const prev = self.scope;
         const cond = ir.While.cond(node);
@@ -2009,7 +2028,7 @@ const Checker = struct {
 
     fn checkFor(self: *Checker, node: Sexp) Error!void {
         var frame: LoopFrame = undefined;
-        self.enterLoop(&frame, node);
+        try self.enterLoop(&frame, node);
         frame.part = .source;
         const mode = ir.For.mode(node).tag;
         const binding = ir.For.@"var"(node);
@@ -2364,25 +2383,20 @@ const Checker = struct {
         }
     }
 
-    /// Where `break` or `continue` `node` goes (`sema.JumpDest`), the one
-    /// resolution of a jump, which emit and the ownership checker read: an
-    /// unlabeled jump names the innermost loop around it, a labeled one
-    /// the innermost loop or labeled block of its name, lexically. A
-    /// closure's or a `defer`'s body starts with none, and a `for` source
-    /// and a loop's `else` are outside the loop. A `continue` from a
-    /// `while`'s condition is recorded once the step's point is decided
-    /// (`settleConditionJumps`). Null for a jump that names nothing it
-    /// can leave, which is reported here.
+    /// Where `break` or `continue` `node` goes (`sema.JumpDest`), which
+    /// emit and the ownership checker read: the construct it names, as
+    /// recorded when that construct was entered (`sema.eachJumpTo`), and
+    /// the point of it the part of the loop being checked sends it to. A
+    /// `continue` from a `while`'s condition is recorded once the step's
+    /// point is decided (`settleConditionJumps`). Null for a jump that
+    /// names nothing it can leave, which is reported here.
     fn resolveJump(self: *Checker, node: Sexp) Error!?*LoopFrame {
         const brk = node.isKind(.@"break");
         const label = ir.get(node, .label);
         var target = self.body.loops;
-        while (target) |f| : (target = f.parent) {
-            if (f.part == .source) continue;
-            if (label == .nil) {
-                if (f.is_loop) break;
-            } else if (std.mem.eql(u8, f.label, self.text(label))) break;
-        }
+        if (self.jump_targets.get(nodeId(node))) |named| {
+            while (target) |f| : (target = f.parent) if (sameNode(f.node, named)) break;
+        } else target = null;
         const word = if (brk) "break" else "continue";
         const f = target orelse {
             const where = if (self.body.in_closure) " (a closure body cannot leave a loop around it)" else "";
@@ -12529,13 +12543,8 @@ fn holdsInt(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
 /// `while true` with no `break` out of it: the loop only ends by
 /// `return`, so a function may end with it.
 fn loopsForever(source: []const u8, s: Sexp) bool {
-    var label: []const u8 = "";
-    var loop = s;
-    if (s.isKind(.labeled)) {
-        label = identAt(source, ir.Labeled.label(s)) orelse "";
-        loop = ir.Labeled.stmt(s);
-    }
-    return isWhileTrue(source, loop) and !sema.breaksOut(source, ir.While.body(loop), label, false, false);
+    const loop = if (s.isKind(.labeled)) ir.Labeled.stmt(s) else s;
+    return isWhileTrue(source, loop) and !sema.breaksOut(source, s, false);
 }
 
 fn isWhileTrue(source: []const u8, loop: Sexp) bool {

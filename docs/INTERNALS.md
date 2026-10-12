@@ -2409,16 +2409,21 @@ loop's continue expression, and its source is evaluated before the loop
 is entered, so a jump in it targets the loop around this one, as the
 checker walks it before `walkLoop`.
 
-**Jump targets.** Where each `break` and `continue` goes is resolved
-once, by the type checker (`Checker.resolveJump`), and recorded as the
-jump's `JumpDest` (`SemContext.jumpDestOf`): the construct it names
-(the `while` or `for`, or a labeled `match` or `raw` block) and the
-point it goes to, `exit` (past the construct, a `break`), `step`, or
-`head`. The resolution is lexical: an unlabeled jump names the
-innermost loop around it, a labeled one the innermost loop or block of
-its name, so a label may repeat an enclosing one; a closure's or a
-`defer`'s body starts with none, and a `for` source and a loop's
-`else` are outside the loop. A `continue` goes to `step` from the body
+**Jump targets.** Which construct each `break` and `continue` names
+(the `while` or `for`, or a labeled `match` or `raw` block) is one rule,
+`sema.eachJumpTo`, which lists the jumps that name a construct. It is
+lexical: an unlabeled jump names the innermost loop around it, a
+labeled one the innermost loop or block of its name, so a label may
+repeat an enclosing one; a closure's or a `defer`'s body is another
+body, and a `for` source and a loop's `else` are outside the loop, so a
+`break v` in a nested `for`'s source gives the loop around that `for`
+its value. The type checker records, as it enters each construct, the
+jumps that name it, and resolves each jump once from that record
+(`Checker.resolveJump`) into its `JumpDest` (`SemContext.jumpDestOf`):
+the construct and the point it goes to, `exit` (past the construct, a
+`break`), `step`, or `head`. The walks of a loop's value
+(`hasValueBreaks`, `loopValues`, and through them `yieldedLeaves`) take
+its `break`s from the same rule. A `continue` goes to `step` from the body
 of a `while` with a step, and from its condition when the step is the
 continue expression; to `head` from a step, and in a loop with no step.
 Its errors (a jump not inside a loop, a label naming nothing around it,

@@ -1,0 +1,64 @@
+# A `for` source runs before its loop is entered, so a `break` there
+# leaves the loop around that `for`, with its value. It counts as that
+# loop's value even when it is the only `break` that gives one.
+#
+# release
+
+fun some(i: Int) -> Int?
+  i if i != 1 else none
+
+fun mk(i: Int) -> List[Int]
+  l: List[Int] = List()
+  !l.push(i)
+  !l.push(i + 1)
+  l
+
+sub main()
+  n = for i in 0..3
+    for j in 0..(some(i) ?? break 5)
+      print("n", i, j)
+  else
+    0
+  print(n)
+
+  f = for i in 0..3
+    for j in 0..(some(i) ?? break 2.5)
+      print("f", i, j)
+    break 0.5 if i == 2
+  else
+    1.5
+  print(f)
+
+  s = for i in 0..3
+    for j in 0..(some(i) ?? break String("from the source"))
+      print("s", i, j)
+    break String("from the body") if i == 2
+  else
+    String("from the else")
+  print(s)
+
+  a: List[Int] = List()
+  !a.push(7)
+  l = for i in 0..3
+    for j in 0..(some(i) ?? break mk(9))
+      print("l", i, j)
+    break +a if i == 2
+  else
+    +a
+  print(l.len, l[0], l[1], a.len)
+
+  # Without the nested source's `break`, the body's leaves the loop.
+  m = for i in 2..5
+    for _ in 0..(some(i) ?? break 99)
+      pass
+    break i * 10 if i == 3
+  else
+    -1
+  print(m)
+
+# expect:
+# 5
+# 2.5
+# from the source
+# 2 9 10 1
+# 30
