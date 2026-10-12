@@ -3095,7 +3095,9 @@ pub const Checker = struct {
                 const pos = expr.src.pos;
                 const name = v.name;
                 if (v.closure) return; // reported by walkName
-                if (v.loop_view) {
+                // A loop view passed to a call is lent on for the call, as
+                // `?x` lends it; anywhere else it would be copied out.
+                if (v.loop_view and !(sink == .argument and self.isViewType(v.ty))) {
                     try self.err(pos, "bare use of loop view `{s}` in {s} would carry the viewed handle past the loop; " ++ loop_view_rule, .{ name, sink.text() });
                     return;
                 }
@@ -5729,6 +5731,15 @@ pub const Checker = struct {
             .read_view => .read,
             .write_view => .write,
             else => .none,
+        };
+    }
+
+    /// Whether `ty` is a view: a `?T`, `!T`, slice, or `?String`.
+    fn isViewType(self: *const Checker, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return switch (self.typeData(t)) {
+            .read_view, .write_view, .slice, .string_view => true,
+            else => false,
         };
     }
 

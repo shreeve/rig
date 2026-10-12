@@ -28,7 +28,11 @@ by value (`cellbranch.`), likewise, and a guard, a write between it and
 a use, and the use, whose test the compiler omits only where the guard
 still holds (`proof.`, below), and a write and a use in the slots of each
 statement form, proven exactly where the unit rule says, and run alike in
-debug and with `--release` (`unit.`, below). The rule is
+debug and with `--release` (`unit.`, below), and a generic `==`, `!=`, or
+ordering over every pairing of a view, an optional, an owner, and a List
+element, at each instance type, which is rejected with a diagnostic or
+runs, in debug and with `--release`, and prints what the values compare
+as (`cmp.`). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -751,6 +755,113 @@ ITER_SOURCES = {
 }
 ITER_CONTEXTS = ("end", "break", "continue", "return", "fail", "else", "value_end", "value_break",
                  "tail_end", "tail_break", "nested", "labeled")
+
+
+# A generic `==`, `!=`, or ordering over two operands, each a view, an
+# optional, an owner, or a List element, with `K` any instance type.
+EQ_TYPES = {
+    "int": dict(ty="Int", decl="", mk=["n"], copy=True, eq=True, ord=True),
+    "float": dict(ty="Float", decl="", mk=["return 1.5 if n == 1", "2.5"], copy=True, eq=True, ord=True),
+    "string": dict(ty="String", decl="", mk=['return String("a") if n == 1', 'String("b")'], copy=False, eq=True, ord=True),
+    "view": dict(ty="?String", decl="", mk=['return "a" if n == 1', '"b"'], copy=True, eq=True, ord=True),
+    "obj": dict(ty="P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['P(n: n, s: String("x"))'], copy=False, eq=True, ord=False),
+    "enum": dict(ty="E", decl="enum E\n  a(x: Int)\n  z\n\n", mk=["E.a(x: n)"], copy=True, eq=True, ord=False),
+    "list": dict(ty="List[Int]", decl="", mk=["l: List[Int] = List()", "!l.push(n)", "l"], copy=False, eq=False, ord=False),
+    "box": dict(ty="^P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['^P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
+    "shared": dict(ty="*P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['*P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
+}
+# form -> (parameter type with K, whether it may be none, the operand in the body)
+EQ_FORMS = {
+    "view": ("?K", False, "{v}"),
+    "wview": ("!K", False, "{v}"),
+    "own": ("K", False, "{v}"),
+    "opt": ("K?", True, "{v}"),
+    "vopt": ("?K?", True, "{v}"),
+    "optv": ("(?K)?", True, "{v}"),
+    "elem": ("?List[K]", False, "{v}[0]"),
+    "elemopt": ("?List[K?]", True, "{v}[0]"),
+}
+EQ_RIGHT = ("view", "wview", "own", "opt", "vopt", "optv")
+EQ_ORDER_FORMS = ("view", "own", "opt", "vopt", "optv")
+
+
+def eq_operand(form, spec, n, i):
+    """The setup lines and the argument for one operand holding value `n`
+    (0 is none) in the form."""
+    ty, copy = spec["ty"], spec["copy"]
+    a, x = f"a{i}", f"x{i}"
+    take = x if copy else f"<{x}"
+    if form in ("view", "wview", "own"):
+        arg = {"view": f"?{a}", "wview": f"!{a}", "own": a if copy else f"<{a}"}[form]
+        return [f"{a} = mk({n})"], arg
+    if form in ("opt", "vopt"):
+        arg = take if form == "opt" else f"?{x}"
+        return [f"{x}: {opt(ty)} = " + ("none" if n == 0 else f"mk({n})")], arg
+    if form == "optv":
+        if n == 0:
+            return [f"{x}: {opt(rd(ty))} = none"], x
+        return [f"{a} = mk({n})", f"{x}: {opt(rd(ty))} = ?{a}"], x
+    if form == "elem":
+        return [f"{x}: List[{ty}] = List()", f"!{x}.push(mk({n}))"], f"?{x}"
+    return [f"{x}: List[{opt(ty)}] = List()", f"!{x}.push(" + ("none" if n == 0 else f"mk({n})") + ")"], f"?{x}"
+
+
+def eq_expect(op, left, right):
+    if left is None or right is None:
+        return left is None and right is None if op == "eq" else not (left is None and right is None)
+    return {"eq": left == right, "ne": left != right, "lt": left < right, "ge": left >= right}[op]
+
+
+def eq_program(tname, lform, rform, group):
+    """The program, and what it prints (None where it must be rejected)."""
+    spec = EQ_TYPES[tname]
+    ops = ("eq", "ne") if group == "eq" else ("lt", "ge")
+    symbol = {"eq": "==", "ne": "!=", "lt": "<", "ge": ">="}
+    lty, lmay, lbody = EQ_FORMS[lform]
+    rty, rmay, rbody = EQ_FORMS[rform]
+    lines = [spec["decl"].rstrip("\n")] if spec["decl"] else []
+    if lines:
+        lines.append("")
+    lines += [f"fun mk(n: Int) -> {spec['ty']}"] + ["  " + l for l in spec["mk"]] + [""]
+    for op in ops:
+        lines += [f"fun {op}[K](a: {lty}, b: {rty}) -> Bool",
+                  f"  {lbody.format(v='a')} {symbol[op]} {rbody.format(v='b')}", ""]
+    run, out = [], []
+    lcases = (0, 1, 2) if lmay and group == "eq" else (1, 2)
+    rcases = (0, 1, 2) if rmay and group == "eq" else (1, 2)
+    i = 0
+    for lc in lcases:
+        for rc in rcases:
+            shown = []
+            for op in ops:
+                ls, la = eq_operand(lform, spec, lc, i)
+                rs, ra = eq_operand(rform, spec, rc, i + 1)
+                i += 2
+                run += ls + rs
+                shown.append(f"{op}[{spec['ty']}]({la}, {ra})")
+            run.append("print(" + ", ".join(shown) + ")")
+            vals = [None if c == 0 else c for c in (lc, rc)]
+            out.append(" ".join("true" if eq_expect(op, *vals) else "false" for op in ops))
+    lines += ["sub main()"] + ["  " + l for l in run]
+    ok = spec["eq"] if group == "eq" else spec["ord"]
+    return "\n".join(lines) + "\n", ("\n".join(out) + "\n") if ok else None
+
+
+def eq_cells():
+    """The `cmp.` cells: (id, program, expected output or None to be rejected)."""
+    cells = []
+    for tname, spec in EQ_TYPES.items():
+        for group in ("eq", "ord"):
+            ordered = group == "ord"
+            for lform in (EQ_ORDER_FORMS + ("elem", "elemopt") if ordered else EQ_FORMS):
+                for rform in EQ_RIGHT:
+                    if ordered and not spec["ord"] and lform != rform:
+                        continue
+                    if ordered and rform not in EQ_ORDER_FORMS:
+                        continue
+                    src, out = eq_program(tname, lform, rform, group)
+                    cells.append((f"cmp.{tname}.{group}.{lform}.{rform}", src, out))
+    return cells
 
 
 def iter_program(source, ctx):
@@ -2735,7 +2846,8 @@ def run_one(path, keep, started_dir, expect=None, release=False):
     """Classify one program: rejected, ok, or a failure with its reason.
     With `expect`, a program that runs must print exactly that; with
     `release`, also when built with `--release`, and it must be
-    accepted."""
+    accepted; with `release == "also"`, a program that is accepted is
+    also built with `--release`, but it may be rejected."""
     d = os.path.dirname(path)
     try:
         chk = subprocess.run([RIG, "check", path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -2747,7 +2859,7 @@ def run_one(path, keep, started_dir, expect=None, release=False):
     if chk.returncode != 0:
         # A program also built with `--release` is one the checker must
         # accept.
-        if release:
+        if release is True:
             return "fail", "rejected, but must be accepted: " + first_error(out)
         if POS.search(out):
             return "rejected", first_error(out)
@@ -2917,6 +3029,7 @@ def main():
                     fh.write(store_program(o, f, then))
                 cells.append((ident, path))
     release = set()
+    also = set()
     for o in STEP_OWNERS:
         for hname in STEP_HOLDERS:
             for shape in STEP_SHAPES:
@@ -2972,6 +3085,15 @@ def main():
             expects[ident] = out if out is not None else "(rejected)\n"
             if out is not None:
                 release.add(ident)
+    for ident, src, out in eq_cells():
+        if not wanted(ident):
+            continue
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        expects[ident] = out if out is not None else "(rejected)\n"
+        also.add(ident)
     for call in NAMED_CALLS:
         for kind in NAMED_KINDS:
             for order in NAMED_ORDERS:
@@ -3168,7 +3290,7 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
             futs = {(pool.submit(run_proof, p, bool(args.keep), started_dir, proofs[i]) if i in proofs else
                      pool.submit(run_unit, p, bool(args.keep), started_dir, units[i]) if i in units else
-                     pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), i in release)): i for i, p in cells}
+                     pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), "also" if i in also else i in release)): i for i, p in cells}
             for fut in concurrent.futures.as_completed(futs):
                 results[futs[fut]] = fut.result()
     finally:

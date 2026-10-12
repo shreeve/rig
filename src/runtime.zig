@@ -229,11 +229,31 @@ pub fn create(comptime T: type) *T {
 pub fn eql(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
+    // An optional beside another operand is compared by the value it
+    // holds, whatever form that operand has: a `String?` beside a
+    // `?String` compares the text, and `none` equals only `none`.
+    if (comptime @typeInfo(A) == .optional) {
+        const x = a orelse return nullish(b);
+        return eql(x, b);
+    }
+    if (comptime @typeInfo(B) == .optional) {
+        const y = b orelse return nullish(a);
+        return eql(a, y);
+    }
     // A String compares with a String or a `?String` by its bytes.
     if (comptime isString(A) or isString(B)) return std.mem.eql(u8, stringBytes(a), stringBytes(b));
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
+}
+
+/// Whether `x` is `none`: the literal, or an optional holding nothing.
+fn nullish(x: anytype) bool {
+    return switch (@typeInfo(@TypeOf(x))) {
+        .null => true,
+        .optional => x == null,
+        else => false,
+    };
 }
 
 /// A `String`, or a pointer to one (a viewed `String`), or a box or shared

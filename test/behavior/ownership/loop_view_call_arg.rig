@@ -1,0 +1,51 @@
+# A bare loop view passed to a view parameter is lent on for the call, as
+# `?s` lends it: over Lists of Strings, objects, and boxes (a boxed
+# element reaches the boxed value's view).
+
+obj Circle
+  r: Float
+
+  fun area(?self) -> Float
+    3.0 * self.r * self.r
+
+obj Tag
+  name: String
+
+sub text(s: ?String)
+  print(s)
+
+sub tag(t: ?Tag)
+  print(t.name)
+
+sub round(c: ?Circle)
+  print(c.area())
+
+sub boxed(c: ?^Circle)
+  print(c.r)
+
+sub main()
+  names: List[String] = List()
+  !names.push(String("a"))
+  for s in names
+    text(s)
+  for s in ?names
+    text(s)
+  tags: List[Tag] = List()
+  !tags.push(Tag(name: String("t")))
+  for t in tags
+    tag(t)
+  shapes: List[^Circle] = List()
+  !shapes.push(^Circle(r: 1.0))
+  for c in shapes
+    round(c)
+    boxed(c)
+  for c in ?shapes
+    round(c)
+
+# expect:
+# a
+# a
+# t
+# 3.0
+# 1.0
+# 3.0

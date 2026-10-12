@@ -1528,6 +1528,11 @@ const HiddenName = enum(u16) {
     }
 };
 
+/// The name of the binding that holds a `for` loop's source.
+pub fn hiddenIteratorName() []const u8 {
+    return HiddenName.iterator.text();
+}
+
 /// A leaf for a name no source text holds, at `pos` inside the `for`
 /// keyword (which holds no leaf); its `id` tells `leafText` which name.
 fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
