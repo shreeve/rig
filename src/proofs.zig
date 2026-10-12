@@ -884,11 +884,15 @@ const Placed = struct { unit: NodeKey, parent: ?NodeKey };
 
 /// Each unit of `events` where it starts, with the unit open around it
 /// then. A unit starts once: after it, only a `pause` and a `resume` of
-/// it may write more of its code (`Emitter.pauseUnit`). Returns what
-/// breaks that, or null.
-fn placeUnits(a: std.mem.Allocator, events: []const UnitEvent, out: *std.ArrayList(Placed)) Error!?NodeKey {
+/// it may write more of its code (`Emitter.pauseUnit`), and every unit
+/// that starts while it is paused lies inside the construct it is the
+/// unit of (a `match`'s arms; nothing, for an `as` part), so a resume
+/// never comes after a later sibling. Returns the unit that breaks this,
+/// or null.
+fn placeUnits(a: std.mem.Allocator, root: Sexp, events: []const UnitEvent, out: *std.ArrayList(Placed)) Error!?NodeKey {
     var seen: std.AutoHashMapUnmanaged(NodeKey, void) = .empty;
-    var paused: std.AutoHashMapUnmanaged(NodeKey, void) = .empty;
+    // Each paused unit -> how many units had started when it paused.
+    var paused: std.AutoHashMapUnmanaged(NodeKey, usize) = .empty;
     var open: std.ArrayList(NodeKey) = .empty;
     for (events) |ev| switch (ev) {
         .enter => |k| {
@@ -900,14 +904,18 @@ fn placeUnits(a: std.mem.Allocator, events: []const UnitEvent, out: *std.ArrayLi
         .exit => |k| if (open.pop() != k) return k,
         .pause => |k| {
             if (open.pop() != k) return k;
-            try paused.put(a, k, {});
+            try paused.put(a, k, out.items.len);
         },
         .@"resume" => |k| {
-            if (!paused.remove(k)) return k;
+            const since = (paused.fetchRemove(k) orelse return k).value;
+            const node = findNode(root, k) orelse return k;
+            for (out.items[since..]) |x| if (findNode(node, x.unit) == null) return k;
             try open.append(a, k);
         },
         .jump => {},
     };
+    var left = paused.keyIterator();
+    if (left.next()) |k| return k.*;
     return null;
 }
 
@@ -945,9 +953,9 @@ pub fn checkUnitOrder(ctx: *SemContext, a: std.mem.Allocator, root: Sexp, emitte
     var walked: std.ArrayList(UnitEvent) = .empty;
     try walkTrace(ctx, a, root, &walked);
     var w: std.ArrayList(Placed) = .empty;
-    if (try placeUnits(a, walked.items, &w)) |k| return try std.fmt.allocPrint(a, "{s}: the walk visits the unit twice", .{try where(ctx, a, root, k)});
+    if (try placeUnits(a, root, walked.items, &w)) |k| return try std.fmt.allocPrint(a, "{s}: the walk visits the unit twice", .{try where(ctx, a, root, k)});
     var e: std.ArrayList(Placed) = .empty;
-    if (try placeUnits(a, emitted, &e)) |k| return try std.fmt.allocPrint(a, "{s}: emit writes the unit's code again after it ended", .{try where(ctx, a, root, k)});
+    if (try placeUnits(a, root, emitted, &e)) |k| return try std.fmt.allocPrint(a, "{s}: emit writes the unit's code again after it ended, or after a later unit", .{try where(ctx, a, root, k)});
     var groups: Groups = .{ .a = a };
     try rig.eachBody(root, &groups, Groups.body);
     // A body emit leaves out (a `test` outside `rig test`) has no units in
@@ -1498,8 +1506,9 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
     // walk visits, each in the same unit, and the units of each block in
     // the same order; each unit's code starts once, and each jump is
     // written once and goes where the walk sends its facts. A trace with
-    // two units of a block swapped, a unit written twice, or a jump sent
-    // elsewhere fails the test.
+    // two units of a block swapped, a unit written twice, a paused unit
+    // taken up again after a later unit, or a jump sent elsewhere fails
+    // the test.
     const emit = @import("emit.zig");
     const facts = @import("facts.zig");
     const modules = @import("modules.zig");
@@ -1513,6 +1522,7 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
     var compared: usize = 0;
     var units: usize = 0;
     var swapped: usize = 0;
+    var late_resumes: usize = 0;
     for (names.items) |path| {
         // The compiler runs in an arena, as `rig` does.
         var arena = std.heap.ArenaAllocator.init(a);
@@ -1542,7 +1552,7 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
         // Swap the first two units that start one after the other at a
         // body's top level: the test must see it.
         var placed: std.ArrayList(Placed) = .empty;
-        try std.testing.expect(try placeUnits(aa, trace.items, &placed) == null);
+        try std.testing.expect(try placeUnits(aa, m.ir, trace.items, &placed) == null);
         var groups: Groups = .{ .a = aa };
         try rig.eachBody(m.ir, &groups, Groups.body);
         var i: usize = 0;
@@ -1582,6 +1592,32 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
             }
             break;
         };
+        // A paused unit taken up again only after a later unit ran: the
+        // test must see it.
+        late: for (trace.items, 0..) |ev, r| if (ev == .@"resume") {
+            const k = ev.@"resume";
+            // The resume's unit ends right after it.
+            if (r + 1 >= trace.items.len or trace.items[r + 1] != .exit or trace.items[r + 1].exit != k) continue;
+            // The next unit to start after it, and where it ends.
+            var j = r + 2;
+            while (j < trace.items.len and trace.items[j] != .enter) : (j += 1) {}
+            if (j == trace.items.len) continue;
+            const u = trace.items[j].enter;
+            var end = j + 1;
+            while (end < trace.items.len and !(trace.items[end] == .exit and trace.items[end].exit == u)) : (end += 1) {}
+            if (end == trace.items.len) continue;
+            var bad: std.ArrayList(UnitEvent) = .empty;
+            try bad.appendSlice(aa, trace.items[0..r]);
+            try bad.appendSlice(aa, trace.items[r + 2 .. end + 1]);
+            try bad.appendSlice(aa, &.{ .{ .@"resume" = k }, .{ .exit = k } });
+            try bad.appendSlice(aa, trace.items[end + 1 ..]);
+            if (try checkUnitOrder(m.sema, aa, m.ir, bad.items) == null) {
+                std.debug.print("{s}: a resume after a later unit went unseen\n", .{path});
+                return error.TestUnexpectedResult;
+            }
+            late_resumes += 1;
+            break :late;
+        };
         // A unit written a second time after it ended: the test must see it.
         if (placed.items.len > 0) {
             var bad = try std.ArrayList(UnitEvent).initCapacity(aa, trace.items.len + 2);
@@ -1597,4 +1633,5 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
     try std.testing.expect(compared > 100);
     try std.testing.expect(units > 1000);
     try std.testing.expect(swapped > 50);
+    try std.testing.expect(late_resumes > 5);
 }

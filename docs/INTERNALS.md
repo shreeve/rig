@@ -1640,11 +1640,12 @@ fail a run rather than a proof:
   and each Zig jump it writes, and checks that they are the units the
   walk visits, nested alike, the units of each block in the same order,
   each unit's code started once (only a pause and a resume of it, as a
-  `match`'s selection around each arm, write more of it), and each jump
+  `match`'s selection around each arm, write more of it, and only units
+  inside its construct start while it is paused), and each jump
   written once, going where the walk sends its facts. A unit test runs
   it over `test/behavior/emit` and `test/behavior/proofs`, and checks
-  that a swapped pair of units, a unit written twice, or a misdirected
-  jump fails it.
+  that a swapped pair of units, a unit written twice, a paused unit
+  taken up again after a later unit, or a misdirected jump fails it.
 - The differential run (`./test/run --proofs-diff`): each program with
   a proven test runs in debug (every omitted test asserted), with
   `--release`, and with `--release` and `RIG_NO_PROOFS=1`; all three
