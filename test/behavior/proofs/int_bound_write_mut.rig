@@ -1,9 +1,10 @@
 # Writing the bound `n` ends the guard `i < n`: the add keeps its test.
-# (Its value cannot overflow: a later `n` does not change what the guard
-# showed of `i`. Round 1 drops the fact all the same.)
+# (`n` is no length here, so nothing the guard showed outlives the write;
+# its twin `len_equal_write.rig` keeps what `n = s.len` lets the guard
+# show of `s`.)
 
-fun step(s: ?String, at: Int) -> Int
-  n = s.len
+fun step(m: Int, at: Int) -> Int
+  n = m
   i = at
   if i < n
     n -= 2
@@ -11,7 +12,7 @@ fun step(s: ?String, at: Int) -> Int
   0
 
 sub main()
-  print(step("abcd", 3))
+  print(step(4, 3))
 
 # release
 # expect:

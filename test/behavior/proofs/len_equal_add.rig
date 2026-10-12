@@ -1,0 +1,17 @@
+# After `n = s.len`, the guard `i < n` shows `i + 1 <= s.len`, which
+# stays true when `n` changes, since `i` and `s` do not: `i + 1` fits.
+
+fun step(s: ?String, at: Int) -> Int
+  n = s.len
+  i = at
+  if i < n
+    n -= 2
+    return i + 1 + n # proves: + no_overflow
+  0
+
+sub main()
+  print(step("abcd", 3))
+
+# release
+# expect:
+# 6
