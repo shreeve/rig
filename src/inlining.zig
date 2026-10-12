@@ -51,9 +51,9 @@ pub const max_inlined_frame_bytes: u128 = 64 << 10;
 /// The most nodes an inlined function may expand to at a call, counting
 /// the inlined calls in it (each of them as often as it is called):
 /// otherwise a chain of functions that each call the next twice would make
-/// Zig analyze a body 2^n times. A function with one call in the program
-/// is exempt, since nothing repeats it: its expansion is counted in its
-/// caller's. std.json, the program that set
+/// Zig analyze a body 2^n times. A function with one call, in a function
+/// with compile-time values, is exempt: its expansion is counted in each
+/// instance of the caller. std.json, the program that set
 /// `max_size`, has a hot helper (`key`) that expands to 287.
 pub const max_expanded = 320;
 
@@ -85,6 +85,8 @@ const Fn = struct {
     frame: ?u128 = null,
     /// How many calls may reach it.
     call_sites: u32 = 0,
+    /// The function of the first call that may reach it.
+    first_caller: ?u32 = null,
     /// The inlined calls in it, nested ones too (`inlinedCalls`).
     n_calls: ?u64 = null,
     /// Its size with the inlined calls in it (`expanded`).
@@ -242,7 +244,10 @@ const Pass = struct {
             } else try self.visit(module, cur, callee),
         }
         if (cur) |from| try self.fns.items[from].calls.appendSlice(self.a, targets.items);
-        for (targets.items) |t| self.fns.items[t].call_sites += 1;
+        for (targets.items) |t| {
+            if (self.fns.items[t].call_sites == 0) self.fns.items[t].first_caller = cur;
+            self.fns.items[t].call_sites += 1;
+        }
         if (targets.items.len > 0 and call.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = call.list.id, .targets = targets.items });
         // The bracket list of a generic call, `f[T](x)`.
         if (raw.isKind(.inst)) for (raw.items()[2..]) |a| try self.visit(module, cur, a);
@@ -284,6 +289,16 @@ const Pass = struct {
         return total;
     }
 
+    /// Whether `f` is called from one place, in a function with
+    /// compile-time values: each instance of that function holds a copy of
+    /// `f`, which no one call site of an ordinary function does, so the
+    /// copies are the ones Zig counts and LLVM cannot merge.
+    fn oncePerInstance(self: *Pass, f: *const Fn) bool {
+        if (f.call_sites != 1) return false;
+        const caller = f.first_caller orelse return false;
+        return sema.tparamsOf(self.fns.items[caller].node) != .nil;
+    }
+
     /// The inlined calls in `v`, counting those in the inlined bodies.
     fn inlinedCalls(self: *Pass, v: u32) u64 {
         if (self.fns.items[v].n_calls) |n| return n;
@@ -311,7 +326,7 @@ const Pass = struct {
             }
             for (self.fns.items, 0..) |*f, i| {
                 const v: u32 = @intCast(i);
-                if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and f.call_sites != 1))) {
+                if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
                     f.inlined = false;
                     again = true;
                     break;

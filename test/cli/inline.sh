@@ -254,24 +254,48 @@ expect_has "$out" 'pub inline fn pick(' "the callee of an instance"
 expect_has "$out" 'pub fn same(comptime T: type' "a function with a compile-time type"
 expect_has "$out" 'pub fn down(' "recursion through an instance"
 
-# A function that is called from one place only is exempt from
-# inlining.max_expanded (nothing repeats it), as with `once` here, which
-# expands to over 320 nodes; `twice` is the same body called twice.
+# A function that is called from one place only, in a function with
+# compile-time values, is exempt from inlining.max_expanded (each instance
+# of the caller holds a copy): `once` here expands to over 320 nodes. The
+# same body called from an ordinary function, or from two places, is called.
 {
     echo 'fun leaf(n: Int) -> Int'
     echo '  total = n'
     for i in $(seq 1 18); do echo "  total += $i * n"; done
     echo '  total'
-    for name in once twice; do
+    for name in once twice plain; do
         echo
         echo "fun $name(n: Int) -> Int"
         echo '  leaf(n) + leaf(n + 1) + leaf(n + 2) + leaf(n + 3) + leaf(n + 4) + leaf(n + 5) + leaf(n + 6) + leaf(n + 7)'
     done
     echo
+    echo 'fun inst[b: Bool](n: Int) -> Int'
+    echo '  once(n) if b else twice(n) + twice(n + 1)'
+    echo
     echo 'sub main()'
-    echo '  print(once(1) + twice(2) + twice(3))'
+    echo '  print(inst[true](1) + inst[false](2) + plain(3))'
 } >once.rig
 out=$(emit once.rig)
 expect_has "$out" 'pub inline fn leaf(' "the leaf"
-expect_has "$out" 'pub inline fn once(' "an expansion over the limit, called from one place"
-expect_has "$out" 'pub fn twice(' "the same expansion, called from two"
+expect_has "$out" 'pub inline fn once(' "an expansion over the limit, called from one instance function"
+expect_has "$out" 'pub fn twice(' "the same expansion, called from two places"
+expect_has "$out" 'pub fn plain(' "the same expansion, called from an ordinary function"
+
+# Inlining keeps what the proofs omitted: a Simd read proven in bounds
+# stays proven in a function that is inlined, whether it is small or is
+# called from one place only.
+{
+    echo 'fun scan(s: ?String, at: Int) -> Int'
+    echo '  i = at'
+    echo '  while i + 16 <= s.len : i += 16'
+    echo '    v = s.read[Simd[U8, 16]](i)'
+    echo '    if (v == 0x22).first() as k'
+    echo '      return i + k'
+    echo '  s.len'
+    echo
+    echo 'sub main()'
+    echo '  print(scan("abc\"abcdefghijklmnopq", 0))'
+} >proven.rig
+out=$(emit proven.rig)
+expect_has "$out" 'pub inline fn scan(' "a function with a proven read"
+expect_has "$out" 'rig.simdReadProven(' "the read stays proven when inlined"

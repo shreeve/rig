@@ -3056,8 +3056,9 @@ symbols); a query that decides more than that belongs in `Pending`.
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
-    innermost 2^n times. A function called from one place only is exempt
-    from this limit, since nothing repeats it;
+    innermost 2^n times. A function called from one place only, in a
+    function with compile-time values, is exempt from this limit: each
+    instance of the caller holds a copy that LLVM cannot merge into one;
   - no function holds more than `inlining.max_inlined_calls` (256) inlined
     calls, those inside the inlined bodies counted too: Zig charges each to
     the function's compile-time evaluation budget (1000 backwards
