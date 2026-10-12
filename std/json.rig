@@ -631,37 +631,44 @@ fun eight_digits(d: U64) -> U64
   v = ((v *% 6553601) >> 16) & 0x0000FFFF0000FFFF
   (v *% 42949672960001) >> 32
 
-# How many bytes `skip_plain_ascii` tests at a time: 1 (a byte at a
-# time), 8 (a U64), or 16 (a U128, then a U64). docs/json/RESULTS.md
-# compares them: U64 is fastest today.
-SCAN = 8
+# How many bytes `skip_plain_ascii` tests by SWAR, a U64 at a time,
+# before it goes on 16 bytes at a time with SIMD: most keys end within
+# them, and most string bytes are in values beyond them.
+TIER = 16
 
 ONES64: U64 = 0x0101010101010101
-ONES128: U128 = 0x01010101010101010101010101010101
+
+# The lanes of `v` that end a run of plain ASCII in a string: a quote,
+# a backslash, a control byte, or a byte of 0x80 or more.
+fun special(v: Simd[U8, 16]) -> Simd[Bool, 16]
+  (v == QUOTE) | (v == BACKSLASH) | (v < SPACE) | (v >= 0x80)
 
 # The index of the first byte from `at` on that is a quote, a
-# backslash, a control byte, or 0x80 or more, or `s.len`. SWAR: a block
-# of bytes is read as one number, whose marked bytes `special64` finds
-# all at once.
+# backslash, a control byte, or 0x80 or more, or `s.len`: the first
+# TIER bytes a U64 at a time (`special64`), the rest 16 at a time.
 fun skip_plain_ascii(s: ?String, at: Int) -> Int
   # Outside `s` there are no bytes to skip. From here on
   # 0 <= at <= s.len, which bounds every read below.
   return at if at < 0 or at > s.len
   i = at
-  if SCAN == 16
-    while i + 16 <= s.len
-      # NEEDS (wide reads): a U128 read of the 16 bytes loads them one
-      # at a time on every target; two U64 reads load two words.
-      low = U128(s.read[U64, .little](i))
-      high = U128(s.read[U64, .little](i + 8))
-      m = special128(low | (high << 64))
-      return i + first_marked128(m) if m != 0
-      i += 16
-  if SCAN >= 8
-    while i + 8 <= s.len
-      m = special64(s.read[U64, .little](i))
-      return i + first_marked64(m) if m != 0
-      i += 8
+  stop = at + TIER
+  while i + 8 <= s.len and i < stop
+    m = special64(s.read[U64, .little](i))
+    return i + first_marked64(m) if m != 0
+    i += 8
+  while i + 16 <= s.len : i += 16
+    if special(s.read[Simd[U8, 16]](i)).first() as k
+      return i + k
+  # Fewer than 16 bytes are left: read the last 16 of `s` again, and
+  # drop the lanes before `i`, which this scan or its caller has seen.
+  if i < s.len and s.len >= 16
+    m = special(s.read[Simd[U8, 16]](s.len - 16)).bits() >> (i + 16 - s.len)
+    return i + m.trailing_zeros() if m != 0
+    return s.len
+  while i + 8 <= s.len
+    m = special64(s.read[U64, .little](i))
+    return i + first_marked64(m) if m != 0
+    i += 8
   for c, k in s[i..]
     return i + k if c == QUOTE or c == BACKSLASH or c < SPACE or c >= 0x80
   s.len
@@ -682,17 +689,6 @@ fun special64(w: U64) -> U64
 
 # The index of the first byte `special64` marked in `m` (not 0).
 fun first_marked64(m: U64) -> Int
-  m.trailing_zeros() >> 3
-
-fun special128(w: U128) -> U128
-  quote = w ^ (ONES128 * 0x22)
-  slash = w ^ (ONES128 * 0x5C)
-  zero_quote = (quote -% ONES128) & quote.not()
-  zero_slash = (slash -% ONES128) & slash.not()
-  control = (w -% ONES128 * 0x20) & w.not()
-  (zero_quote | zero_slash | control | w) & (ONES128 * 0x80)
-
-fun first_marked128(m: U128) -> Int
   m.trailing_zeros() >> 3
 
 # The index just past the UTF-8 sequence that starts at `at`, or -1
