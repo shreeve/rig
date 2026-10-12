@@ -1,0 +1,7 @@
+sub main()
+  m = Simd[U8, 4].splat(200) == 200
+  print(m.select(Simd[U8, 4].splat(255), 0) + 1)
+
+# expect-panic: integer overflow
+
+# release

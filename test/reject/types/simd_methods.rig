@@ -1,0 +1,32 @@
+# A vector's methods: `bits`, `any`, `all`, and `select` are a mask's;
+# each takes its own arguments; a vector type has only `splat`, and a
+# vector is made by naming its lanes and count.
+
+sub main()
+  v = Simd[U8, 4].splat(1)
+  m = v == 1
+  print(v.bits(), v.any(), v.select(v, v))
+  print(m.select(v), m.bits(1), v.with(4, 1), v.with(0, 300))
+  print(m.select(v, Simd[U8, 8].splat(0)), m.select(v, 1.5))
+  print(Simd[U8, 4].zero(), Simd[U8, 4].splat(), Simd[U8, 4].splat(256))
+  print(Simd(1), Simd[U8, 4](1), Simd[U8, 4]([1, 2, 3]))
+  print(v.sum(), v.min())
+
+# error: 8:11: `bits` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`
+# error: 8:21: `any` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`
+# error: 8:30: `select` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`
+# error: 9:11: `select` takes two arguments, the lanes where the mask is true and where it is false; got 1 argument
+# error: 9:24: `bits` takes no arguments; got 1 argument
+# error: 9:40: lane `4` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3
+# error: 9:57: integer value `300` does not fit in `U8` (0..255)
+# error: 10:18: `select` picks lanes from two vectors of one type; got `Simd[U8, 4]` and `Simd[U8, 8]`
+# error: 10:56: type mismatch: expected `U8`, got `Float`
+# error: 11:21: `Simd[U8, 4]` has no function `zero`; a vector is made with `Simd[U8, 4].splat(x)`, every lane `x`, or from an array of its lanes, `Simd[U8, 4]([...])`
+# error: 11:41: `splat` takes one argument, the value of every lane; got 0
+# error: 11:68: integer value `256` does not fit in `U8` (0..255)
+# error: 12:9: a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`
+# error: 12:30: type mismatch: expected `[4]U8`, got `Int`
+# error: 12:46: array literal has 3 elements; `[4]U8` needs 4
+# error: 13:11: type `Simd[U8, 4]` has no method `sum`
+# error: 13:20: type `Simd[U8, 4]` has no method `min`
+# errors: 17

@@ -1,0 +1,17 @@
+# A vector write is checked once: all its bytes must be in range.
+
+sub store(b: ![]U8, at: Int)
+  !b.write[Simd[U16, 2], .big](at, Simd[U16, 2]([0x4142, 0x4344]))
+
+sub main()
+  b: [6]U8 = [0, 0, 0, 0, 0, 0]
+  store(!b, 2)
+  print(b)
+  store(!b, 3)
+
+# expect-panic: byte write out of range: 4 bytes at offset 3 of 6
+
+# release
+
+# expect:
+# [0, 0, 65, 66, 67, 68]

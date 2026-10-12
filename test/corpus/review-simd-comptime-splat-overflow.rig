@@ -1,0 +1,8 @@
+sub main()
+  v = Simd[U64, 2].splat(1)
+  w = v - 2
+  print(w)
+
+# expect-panic: integer overflow
+
+# release

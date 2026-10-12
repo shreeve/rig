@@ -1,0 +1,23 @@
+# `read` and `write` take a vector of number lanes, in a byte order
+# unless the lanes are one byte, which take none; a constant offset into
+# an array must leave room for every lane.
+
+sub main()
+  s = "abcdabcdabcdabcd"
+  b: [8]U8 = [1, 2, 3, 4, 5, 6, 7, 8]
+  print(s.read[Simd[Bool, 16]](0))
+  print(s.read[Simd[U32, 4]](0))
+  print(b.read[Simd[U8, 4]](6))
+  print(b.read[Simd[U16, 4], .big](1))
+  !b.write[Simd[U16, 2]](0, Simd[U16, 2].splat(1))
+  !b.write[Simd[U8, 4]](0, Simd[U16, 4].splat(1))
+  print(s.read[Simd[U8, 4], .big](0))
+
+# error: 8:16: `read` reads an integer or float type, or a `Simd` of them; got `Simd[Bool, 16]`
+# error: 9:9: `read` of a `Simd[U32, 4]` takes a byte order too: `read[U32, .little](at)`
+# error: 10:29: `read` of a `Simd[U8, 4]` at `6` runs past the end of an array of length 8: it needs 4 bytes
+# error: 11:36: `read` of a `Simd[U16, 4]` at `1` runs past the end of an array of length 8: it needs 8 bytes
+# error: 12:4: `write` of a `Simd[U16, 2]` takes a byte order too: `write[U32, .little](at, value)`
+# error: 13:28: type mismatch: expected `Simd[U8, 4]`, got `Simd[U16, 4]`
+# error: 14:29: `read` of `Simd[U8, 4]`, whose lanes are one byte, takes no byte order: `read[Simd[U8, 4]](at)`
+# errors: 7

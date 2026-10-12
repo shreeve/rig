@@ -1,0 +1,29 @@
+# A vector is made from one value for every lane, or from an array of
+# its lanes, through its type or an alias of it; it prints as the array
+# of its lanes, and a mask as Bools.
+
+type Block = Simd[U8, 16]
+type Pair = Simd[F64, 2]
+
+sub main()
+  a = Simd[U8, 4].splat(7)
+  b = Simd[I16, 4]([-1, 0, 1, 300])
+  k: U8 = 9
+  c = Block.splat(k)
+  d = Pair([0.5, -2.0])
+  arr: [4]U32 = [1, 2, 3, 4]
+  e = Simd[U32, 4](arr)
+  f = Simd[Bool, 2]([true, false])
+  print(a, b)
+  print(c)
+  print(d, e, f)
+  print(String("a=", a, " f=", f))
+  g: Simd[U64, 2] = Simd[U64, 2].splat(18446744073709551615)
+  print(g)
+
+# expect:
+# [7, 7, 7, 7] [-1, 0, 1, 300]
+# [9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]
+# [0.5, -2.0] [1, 2, 3, 4] [true, false]
+# a=[7, 7, 7, 7] f=[true, false]
+# [18446744073709551615, 18446744073709551615]

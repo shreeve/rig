@@ -1,0 +1,22 @@
+# A lane of a vector is a part of its value, not a place: it is read with
+# `v[i]`, and never assigned, lent, or taken; `v.with(i, x)` is the copy
+# with one lane changed.
+
+sub inc(x: !U8)
+  x += 1
+
+sub main()
+  v = Simd[U8, 4].splat(1)
+  v[0] = 2
+  v[1] += 2
+  inc(!v[2])
+  r = ?v[3]
+  x = <v[0]
+  print(v, r, x)
+
+# error: 10:3: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(0, x)`
+# error: 11:3: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(1, x)`
+# error: 12:8: a lane of `v` is a value, not a place, so it is not lent to write: change it with `v = v.with(2, x)`
+# error: 13:8: a lane of `v` is a value, not a place, so it is not lent: read it as `v[3]`
+# error: 14:8: a lane of `v` is a value, not a place, so it is not taken: read it as `v[0]`
+# errors: 5

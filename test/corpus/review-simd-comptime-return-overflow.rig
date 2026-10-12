@@ -1,0 +1,9 @@
+fun mk() -> Simd[U8, 4]
+  Simd[U8, 4].splat(250) + 10
+
+sub main()
+  print(mk())
+
+# expect-panic: integer overflow
+
+# release

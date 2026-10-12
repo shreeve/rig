@@ -259,7 +259,7 @@ is a reserved name, the absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
-The built-in types `Cell`, `List`, `String`, `Signal`, and
+The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
 `Endian` are reserved names. The built-in functions `print`, `replace`, and `swap`
 are names a declaration may hide.
 
@@ -518,6 +518,7 @@ operator does, and which types it takes, is in
 | owned closure | `*fun(Int) -> Int`, `*sub()` | |
 | weak closure | `~fun(Int) -> Int` | |
 | callable view | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
+| vector | `Simd[U8, 16]`, `Simd[Bool, 64]`, `Simd[F32, n]` | lanes operated on together ([SPEC §2](SPEC.md#vectors)) |
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),

@@ -25,7 +25,18 @@ from).
     `trailing_zeros`, `count_ones`, and `swap_bytes`, and the wrapping
     left shift `<<%` and `<<%=`.
   - **Text and lists:** String `reserve`, `push[T, e]`, and List
-    `reserve`; a byte order on a one-byte type is rejected.
+    `reserve`; a byte order on a one-byte type is rejected; clearing a
+    List of plain values sets its length.
+  - **Vectors:** `Simd[T, n]`, `n` lanes of a number or `Bool` (`n` a
+    power of two from 2 to 64): lane-wise operators that panic on
+    overflow (`+%` and friends wrap), comparisons that give a mask
+    `Simd[Bool, n]` with `any()`, `all()`, and `bits()`, `v.with(i, x)`,
+    and byte reads with one bounds check. A vector is plain data
+    (docs/CORE.md).
+  - **Evaluation order:** every assignment evaluates its value first,
+    then its target's steps, then stores; the order is one recorded fact
+    (`storage.SetOrder`, `storage.eachSetStep`) that emit and the
+    ownership checker both read.
   - **Speed:** runtime fast paths for push, add, and clear; small,
     only-called functions are emitted `inline` by a size rule the
     compiler decides, with no syntax (`src/inlining.zig`); a `for` index
@@ -231,8 +242,9 @@ and run the corpus after.
   `^T` of a handle either (it cannot call a method of `T`), so the box
   and handle stacking rule is checked at generic instances only in
   fields and signatures.
-- **Evaluation order versus what is emitted:** call arguments, `print`
-  and `String(...)` arguments, and assignment targets.
+- **Evaluation order versus what is emitted:** call arguments, and
+  `print` and `String(...)` arguments. Assignments share one recorded
+  order (`storage.SetOrder`).
 - **`defer`/`errdefer` at exits,** owners behind `Cell`, `^T`, and
   `*T`, and generic instances.
 - **Statement-long loans the Core does not need** (compiler-stricter,
@@ -274,17 +286,15 @@ and run the corpus after.
 
 ## What comes next
 
-**In flight**, in landing order (each is a branch; none is on `main`):
+**In flight**, in landing order (each is a branch, not yet on `main`):
 
-1. Runtime `List.clear` for plain elements (`rtclear`).
-2. SIMD round 1: `Simd[T, n]` vectors (`simd`).
-3. `m.first()`, and lowering `any` and `all` (`simdfirst`).
-4. One recorded evaluation order for assignments (`setorder`, PR #128),
-   which fixes a use-after-free on `main`.
-5. Checker-proved check elimination, redesigned around units
-   (`loopfacts`, then `proofs2`; the draft PR #126 closes).
-6. `std.json`, the JSON parser moving in from the Trig project; it
-   lands last.
+1. `m.first()` on masks, and `any` and `all` that stay fast in loops
+   (`simdfirst`).
+2. Checker-proved check elimination, redesigned around units: first
+   `loopfacts` (where loop steps run and jumps go, recorded once; no
+   emitted change), then `proofs2`.
+3. `std.json`, the JSON parser moving in from the Trig project, with
+   its tests and benchmark; it lands last.
 
 **Toward `v0.3.0`:** the docs pass, the deep gate, and the tag with a
 migration guide (`tools/migrate-0.3.py`).
@@ -292,7 +302,8 @@ migration guide (`tools/migrate-0.3.py`).
 **Later:**
 
 - SIMD round 2: byte lookup, a joined shift, a saturating subtract (its
-  spelling is undecided), `pad:` reads, and `blocks(N)`.
+  spelling is undecided), `pad:` reads, `blocks(N)`, and one load for
+  4- and 8-byte byte-lane reads on ARM.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
 - A frame-size guard for every function.

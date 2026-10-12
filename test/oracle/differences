@@ -158,9 +158,11 @@ test/corpus/review-c-rules-r2-cf_generic_ok.rig main prod-rejects prod-strict `p
 int.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 plain.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 array.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
+simd.arg_then_write.read_view run prod-rejects ref-gap `print(r, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 int.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 plain.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 array.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
+simd.arg_then_write.write_view run prod-rejects ref-gap `print(w, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
 int.eq_then_write.read_view run prod-rejects ref-gap `(r) == pokev(!a)`: an earlier operand's read keeps `a` lent (Core §6)
 int.eq_then_write.write_view run prod-rejects ref-gap `(w) == pokev(!a)`: an earlier operand's read keeps `a` lent (Core §6)
 drop.recv_view_arg_then_write.read_view run prod-rejects ref-gap `print((r).me().v, poke(!a))`: an earlier argument's read keeps `a` lent (Core §6)
@@ -170,9 +172,11 @@ shared.recv_view_arg_then_write.write_view run prod-rejects ref-gap `print((w).m
 int.eq.write_view run prod-rejects prod-strict `print(w == a)`: the write loan lasts through the statement, past `w`'s read
 plain.eq.write_view run prod-rejects prod-strict `print(w == a)`: the write loan lasts through the statement, past `w`'s read
 array.eq.write_view run prod-rejects prod-strict `print(w == a)`: the write loan lasts through the statement, past `w`'s read
+simd.eq.write_view run prod-rejects prod-strict `print(w == a)`: the write loan lasts through the statement, past `w`'s read
 int.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
 plain.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
 array.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
+simd.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
 
 # A bare write view as a constructor's field value is a write lend there,
 # so a second field reading the same view is a second write lend; Core
