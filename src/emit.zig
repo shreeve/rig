@@ -5406,6 +5406,18 @@ pub const Emitter = struct {
                 try self.emitBare(args[0]);
                 return self.w.writeAll(")))");
             },
+            // `std.math.nan(f64)`, `std.math.inf(f64)`.
+            .nan, .inf => {
+                try self.w.print("std.math.{s}(", .{@tagName(ec.op)});
+                try self.emitTypeTy(ec.num);
+                return self.w.writeAll(")");
+            },
+            // `rig.frexpFraction(x)`, `rig.frexpExponent(x)`.
+            .fraction, .exponent => {
+                try self.w.print("rig.frexp{s}(", .{if (ec.op == .fraction) "Fraction" else "Exponent"});
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")");
+            },
             // The low bits, read in the target's signedness.
             .wrap => return self.emitWrap(args[0], ec),
             // `rig.enumFromInt(E, n)`.

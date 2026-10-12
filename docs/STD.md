@@ -76,6 +76,8 @@ sub main()
 true true
 ```
 
+The Float constants NaN and infinity, and `frexp` (`fraction` and `exponent`), are methods of the number types, not of this module: `Float.nan()`, `Float.inf()`, `x.fraction()`, `x.exponent()` ([SPEC](../SPEC.md#numbers)).
+
 Float functions, from Zig's. They follow IEEE 754: a result out of
 range is an infinity, and an undefined one (the square root of a
 negative number) is NaN, which equals nothing, itself included.

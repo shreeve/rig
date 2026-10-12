@@ -248,6 +248,13 @@ takes an integer, not a float: convert a `Float` with `Int(x)` first.
 integer `u`, a `U64` (a `U32` for `F32`), and `f.to_bits()` reads those
 bits from a float, as the unsigned integer of its width. They convert the
 representation, where `U64(f)` converts the value.
+`Float.nan()` and `Float.inf()` (also `F32.nan()`, `F32.inf()`) are the
+NaN and the positive infinity; `-Float.inf()` is the negative one.
+`f.fraction()` and `f.exponent()` are what C, Python, and Go call
+`frexp`: `f` is `f.fraction()` times 2 to the power `f.exponent()`, the
+fraction in [0.5, 1) in magnitude and of `f`'s type, the exponent an
+`Int`. A zero gives `(±0, 0)` and an infinity or a NaN gives itself and
+exponent 0, as Go's `Frexp` does; a subnormal is normalized.
 
 ```rig
 sub main()
@@ -258,12 +265,14 @@ sub main()
   print(b, Float.from_bits(b), Float.from_bits(0x8000000000000000))
   y: F32 = 1.5
   print(y.to_bits(), F32.from_bits(0x3FC00000))
+  print(x.fraction(), x.exponent(), Float.inf(), -F32.inf(), Float.nan() != Float.nan())
 ```
 
 ```output
 705032704 255 18446744073709551615 -56
 4609434218613702656 1.5 -0.0
 1069547520 1.5
+0.75 1 inf -inf true
 ```
 
 ```rig reject

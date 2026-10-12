@@ -1140,6 +1140,10 @@ pub const ElemOp = enum {
     from_bits,
     wrap,
     from_int,
+    nan,
+    inf,
+    fraction,
+    exponent,
     splat,
     bits,
     first,
@@ -1153,8 +1157,8 @@ pub const ElemOp = enum {
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
-            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => false,
+            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select => false,
         };
     }
 
@@ -1162,7 +1166,7 @@ pub const ElemOp = enum {
     /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`.
     pub fn isTypeFn(op: ElemOp) bool {
         return switch (op) {
-            .from_bits, .wrap, .from_int => true,
+            .from_bits, .wrap, .from_int, .nan, .inf => true,
             else => false,
         };
     }
@@ -1172,7 +1176,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent => false,
         };
     }
 };

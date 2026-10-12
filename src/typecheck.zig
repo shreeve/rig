@@ -5553,7 +5553,7 @@ const Checker = struct {
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -6968,6 +6968,7 @@ const Checker = struct {
         if (!op.isBits()) return null;
         const value = sema.unwrapViews(self.ctx, obj_ty);
         if (op == .to_bits) return self.toBitsCall(callee, obj, value, method, pos, args);
+        if (op == .fraction or op == .exponent) return self.frexpCall(callee, obj, value, op, method, pos, args);
         // `v.not()` of a vector: lane by lane, of integer or `Bool` lanes.
         // A mask's bits are counted as `bits()`'s.
         const lane = if (sema.simdOf(self.ctx, value)) |v| (if (op == .not) v.elem else {
@@ -7011,6 +7012,23 @@ const Checker = struct {
         return result;
     }
 
+    /// `f.fraction()` and `f.exponent()`, the two halves of what C,
+    /// Python, and Go call `frexp`: the fraction, a float of the
+    /// receiver's type, and the exponent, an `Int`. Null when the
+    /// receiver is not a float.
+    fn frexpCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, op: sema.ElemOp, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        if (self.ctx.types.get(value) != .float) return null;
+        if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume its receiver");
+        const result = if (op == .fraction) value else self.t().int_id;
+        if (args.len > 0) {
+            try self.err(pos, "`{s}` takes no arguments; got {d}", .{ method, args.len });
+            try self.synthArgs(args);
+        }
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{value}), .returns = result, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = result, .num = value });
+        return result;
+    }
+
     /// The unsigned integer type as wide as a float of `info`.
     fn bitsType(self: *Checker, info: sema.FloatInfo) Error!TypeId {
         return self.ctx.intern(.{ .int = .{ .bits = if (info.bits == 32) 32 else 64, .signed = false } });
@@ -7025,8 +7043,16 @@ const Checker = struct {
         const tt = self.ctx.types.get(target);
         const is_wrap = std.mem.eql(u8, method, "wrap");
         const is_bits = std.mem.eql(u8, method, "from_bits");
+        const special: ?sema.ElemOp = if (tt == .float and std.mem.eql(u8, method, "nan")) .nan else if (tt == .float and std.mem.eql(u8, method, "inf")) .inf else null;
+        if (special) |op| {
+            if (ct) |b| return self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
+            if (args.len != 0) return self.badCall(args, pos, "`{s}.{s}()` takes no arguments; got {d}", .{ shown, method, args.len });
+            try self.noteCallee(.{ .params = &.{}, .returns = target, .is_sub = false });
+            try self.ctx.recordElemCall(callee, .{ .op = op, .elem = target, .num = target });
+            return target;
+        }
         if ((is_wrap and tt != .int) or (is_bits and tt != .float) or !(is_wrap or is_bits)) {
-            const fns: []const u8 = if (tt == .int) "`wrap`" else "`from_bits`";
+            const fns: []const u8 = if (tt == .int) "`wrap`" else "`from_bits`, `nan`, and `inf`";
             return self.badCall(args, pos, "`{s}` has no function `{s}`; its function is {s}, and its limits are `{s}.min` and `{s}.max`", .{ shown, method, fns, shown, shown });
         }
         if (ct) |b| return self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
@@ -9109,14 +9135,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -9131,7 +9157,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
         }
         return self.t().void_id;
     }

@@ -1364,6 +1364,18 @@ pub fn notNan(x: anytype) @TypeOf(x) {
     return x;
 }
 
+/// `x.fraction()`: the fraction of `frexp`, in [0.5, 1) in magnitude.
+pub fn frexpFraction(x: anytype) @TypeOf(x) {
+    return std.math.frexp(x).significand;
+}
+
+/// `x.exponent()`: the exponent of `frexp`; 0 for an infinity or a NaN,
+/// as Go's.
+pub fn frexpExponent(x: anytype) i64 {
+    if (!std.math.isFinite(x)) return 0;
+    return std.math.frexp(x).exponent;
+}
+
 /// The variant of plain enum `E` whose integer value is `n`, or null.
 pub fn enumFromInt(comptime E: type, n: anytype) ?E {
     return std.enums.fromInt(E, n);
