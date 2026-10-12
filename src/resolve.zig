@@ -516,14 +516,15 @@ const SymbolResolver = struct {
     /// The parts of a binding condition, in order; each `as` enters the
     /// scope of its binding, which the caller leaves.
     fn walkConditionParts(self: *SymbolResolver, cond: Sexp) Error!void {
-        if (rig.isConditionJoin(cond)) {
-            try self.walkConditionParts(ir.get(cond, .left));
-            return self.walkConditionParts(ir.get(cond, .right));
-        }
-        if (!cond.isKind(.as)) return self.walk(cond);
-        try self.walk(ir.As.value(cond));
-        _ = try self.enter(cond, .block);
-        if (try self.bindFresh(ir.As.name(cond), "optional binding")) |id| self.ctx.symbols.items[id].flags.as_bound = true;
+        try rig.eachGuardPart(cond, self);
+    }
+
+    /// One part of a binding condition (`rig.eachGuardPart`).
+    pub fn part(self: *SymbolResolver, p: Sexp) Error!void {
+        if (!p.isKind(.as)) return self.walk(p);
+        try self.walk(ir.As.value(p));
+        _ = try self.enter(p, .block);
+        if (try self.bindFresh(ir.As.name(p), "optional binding")) |id| self.ctx.symbols.items[id].flags.as_bound = true;
     }
 
     /// `(catch value name-or-_ handler)`.

@@ -742,6 +742,9 @@ pub const Facts = struct {
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
+    /// `break` and `continue` nodes -> where each goes (`JumpDest`),
+    /// which the type checker resolves (`SemContext.jumpDestOf`).
+    jump_dests: std.AutoHashMapUnmanaged(NodeKey, JumpDest) = .empty,
     /// Scalar operands of a lane-wise operator or of `select` (`exprKey`)
     /// -> the vector type they stand for, every lane theirs
     /// (`SemContext.recordSplat`).
@@ -769,6 +772,31 @@ pub const Header = enum {
 
 /// A header's `Header`, and the value it holds when `held`.
 pub const HeaderFact = struct { how: Header, base: Sexp = .nil };
+
+/// Where a `break` or `continue` goes (docs/INTERNALS.md, "Loops"): the
+/// construct it names and the point of it it goes to. The type checker
+/// resolves every jump once, lexically (`Checker.resolveJump`), and emit
+/// and the ownership checker read the answer.
+pub const JumpDest = struct {
+    /// The `while` or `for` a jump leaves or continues, or the `match` or
+    /// `raw` block a labeled `break` leaves.
+    target: Sexp,
+    to: To,
+
+    pub const To = enum {
+        /// Past the construct: a `break`.
+        exit,
+        /// The loop's step, which runs before the next iteration: a
+        /// `continue` from the body of a `while` with a step, or from its
+        /// condition when the step is the loop's continue expression
+        /// (`storage.StepPoint`).
+        step,
+        /// The loop's head, the next iteration's condition: a `continue`
+        /// in a loop with no step, from a step, or from a condition whose
+        /// step runs after the body.
+        head,
+    };
+};
 
 /// A hidden storage location emit makes for an expression or construct
 /// (docs/INTERNALS.md, "Storage facts"): decided once, before ownership
@@ -970,6 +998,10 @@ pub const Question = enum(u8) {
     /// their turn, and whether the value made first is dropped if a later
     /// step leaves (`storage.setOrder`).
     set_order,
+    /// Of a `while`: where its step runs, as the loop's continue
+    /// expression or after the body in the condition's bindings
+    /// (`storage.stepPoint`).
+    step_point,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.
@@ -1366,6 +1398,10 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     switch (V) {
         StringCall, Use => try w.print(" {s}", .{@tagName(v)}),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
+        JumpDest => {
+            const at = diag.lineCol(ctx.source, ctx.startOf(v.target));
+            try w.print(" {s} {s} {d}:{d}", .{ @tagName(v.to), @tagName(v.target.kind().?), at.line, at.col });
+        },
         Lend => {
             if (v.implicit) try w.writeAll(" implicit");
             for (v.steps()) |step| try w.print(" {s}", .{@tagName(step)});
@@ -2330,6 +2366,17 @@ pub const SemContext = struct {
     pub fn headerOf(self: *const SemContext, node: Sexp) ?Header {
         const fact = self.facts.headers.get(nodeKey(node) orelse return null) orelse return null;
         return fact.how;
+    }
+
+    /// The `break` or `continue` `jump` goes to `dest` (`JumpDest`).
+    pub fn recordJumpDest(self: *SemContext, jump: Sexp, dest: JumpDest) !void {
+        try self.facts.jump_dests.put(self.allocator, recordKey(jump), dest);
+    }
+
+    /// Where the `break` or `continue` `jump` goes; null for a jump the
+    /// type checker did not reach or rejected.
+    pub fn jumpDestOf(self: *const SemContext, jump: Sexp) ?JumpDest {
+        return self.facts.jump_dests.get(nodeKey(jump) orelse return null);
     }
 
     /// The variant pattern `pattern` binds, for each payload field of its
@@ -4779,18 +4826,6 @@ pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
     return step == .list and child == .list and step.list.id == child.list.id;
 }
 
-/// Whether `step`, the step of a `while` whose condition is `cond`,
-/// reads a name an `as` part of `cond` binds. Such a step runs in the
-/// bindings' scope, after the body; any other runs after that scope
-/// ends (docs/INTERNALS.md, "Control flow").
-pub fn stepReadsBinding(ctx: *const SemContext, cond: Sexp, step: Sexp) bool {
-    if (step == .nil) return false;
-    if (rig.isConditionJoin(cond)) return stepReadsBinding(ctx, ir.get(cond, .left), step) or stepReadsBinding(ctx, ir.get(cond, .right), step);
-    if (!cond.isKind(.as)) return false;
-    const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
-    return findUse(ctx, step, sym) != null;
-}
-
 /// The first name in `node` that reads binding `sym`: `sym` itself, or a
 /// closure's capture of it, whose symbol leads back to `sym` through its
 /// `origin`.
@@ -6056,34 +6091,94 @@ pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
     };
 }
 
-/// Whether `e` holds a `break` (with a value, when `valued`) that leaves
-/// the loop whose body it is: an unlabeled one outside nested loops, or
-/// one naming the loop's `label`, outside closures. A nested loop's
-/// `else` runs after that loop, so its jumps are the outer loop's. A
-/// nested construct labeled `label` too is the one its jumps name
-/// (`shadows`).
-pub fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool, valued: bool) bool {
-    const h = e.kind() orelse return false;
+/// Call `visitor.jump(j)` for each `break` and `continue` that names
+/// construct `c`, labeled `label` (or ""), in the order they appear: the
+/// one rule of which construct a jump names (docs/INTERNALS.md, "Loops"),
+/// which the type checker records as each jump's `JumpDest` and the
+/// walks of a loop's value read. An unlabeled jump names the innermost
+/// loop around it, and a labeled one the innermost loop or labeled
+/// `match` or `raw` block of its name. A closure's body and a `defer`'s
+/// are another body's, which no jump leaves. A `for` source runs before
+/// its loop is entered and a loop's `else` after it ends, so a jump there
+/// names what is around that loop. `c` is a `while` or `for`, whose
+/// condition, step, and body it walks, or the statement a label names.
+pub fn eachJumpTo(source: []const u8, c: Sexp, label: []const u8, visitor: anytype) !void {
+    switch (c.kind() orelse return) {
+        .@"while" => for ([_]Sexp{ ir.While.cond(c), ir.While.step(c), ir.While.body(c) }) |part| try jumpsIn(source, part, label, false, visitor),
+        .@"for" => try jumpsIn(source, ir.For.body(c), label, false, visitor),
+        // An unlabeled jump never names a block.
+        else => try jumpsIn(source, c, label, true, visitor),
+    }
+}
+
+/// The jumps in `e` that name the construct labeled `label` around it
+/// (`eachJumpTo`); `nested`: from inside a construct within it that an
+/// unlabeled jump names instead.
+fn jumpsIn(source: []const u8, e: Sexp, label: []const u8, nested: bool, visitor: anytype) !void {
+    const h = e.kind() orelse return;
     switch (h) {
-        .@"break" => {
-            if (valued and ir.Break.value(e) == .nil) return false;
-            const l = ir.Break.label(e);
-            if (l == .nil) return !nested;
-            return label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
+        .@"break", .@"continue" => {
+            const l = ir.get(e, .label);
+            const names = if (l == .nil) !nested else label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
+            if (names) try visitor.jump(e);
         },
-        .lambda => return false,
-        .@"while", .@"for" => {
-            if (breaksOut(source, ir.get(e, .@"else"), label, nested, valued)) return true;
-            return label.len > 0 and breaksOut(source, ir.get(e, .body), label, true, valued);
-        },
-        .labeled => if (shadows(source, e, label)) |stmt| {
-            if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) return breaksOut(source, ir.get(stmt, .@"else"), label, nested, valued);
-            return breaksOut(source, stmt, "", nested, valued);
+        .lambda, .@"defer", .@"errdefer" => return,
+        .@"while", .@"for", .labeled => {
+            var loop = e;
+            // A construct labeled `label` too is the one its jumps name.
+            var shadowed = false;
+            if (h == .labeled) {
+                const stmt = ir.Labeled.stmt(e);
+                const same = label.len > 0 and std.mem.eql(u8, identAt(source, ir.Labeled.label(e)) orelse "", label);
+                if (!same) return jumpsIn(source, stmt, label, nested, visitor);
+                if (!stmt.isKind(.@"while") and !stmt.isKind(.@"for")) return jumpsIn(source, stmt, "", nested, visitor);
+                loop = stmt;
+                shadowed = true;
+            }
+            // A nested loop: its `for` source and its `else` are outside
+            // it, and inside it only a labeled jump can name a construct
+            // around it.
+            const is_while = loop.isKind(.@"while");
+            if (!is_while) try jumpsIn(source, ir.For.source(loop), label, nested, visitor);
+            const inside = if (is_while)
+                [3]Sexp{ ir.While.cond(loop), ir.While.step(loop), ir.While.body(loop) }
+            else
+                [3]Sexp{ ir.For.body(loop), .nil, .nil };
+            if (!shadowed and label.len > 0) for (inside) |part| try jumpsIn(source, part, label, true, visitor);
+            return jumpsIn(source, ir.get(loop, .@"else"), label, nested, visitor);
         },
         else => {},
     }
-    for (rig.children(e)) |c| if (breaksOut(source, c, label, nested, valued)) return true;
-    return false;
+    for (rig.children(e)) |c| try jumpsIn(source, c, label, nested, visitor);
+}
+
+/// The loop `e` is, labeled or not, and its label; null for a construct
+/// that is no loop.
+fn loopOf(source: []const u8, e: Sexp) ?struct { loop: Sexp, label: []const u8 } {
+    var label: []const u8 = "";
+    var loop = e;
+    if (e.isKind(.labeled)) {
+        label = identAt(source, ir.Labeled.label(e)) orelse "";
+        loop = ir.Labeled.stmt(e);
+    }
+    if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return null;
+    return .{ .loop = loop, .label = label };
+}
+
+/// Whether a `break` (with a value, when `valued`) leaves loop `e`,
+/// labeled or not (`eachJumpTo`).
+pub fn breaksOut(source: []const u8, e: Sexp, valued: bool) bool {
+    const l = loopOf(source, e) orelse return false;
+    const Found = struct {
+        valued: bool,
+        found: bool = false,
+        pub fn jump(f: *@This(), j: Sexp) error{}!void {
+            if (j.isKind(.@"break") and (!f.valued or ir.Break.value(j) != .nil)) f.found = true;
+        }
+    };
+    var found: Found = .{ .valued = valued };
+    eachJumpTo(source, l.loop, l.label, &found) catch unreachable;
+    return found.found;
 }
 
 /// Call `f(context, part)` for each part of `e` that yields its value:
@@ -6872,63 +6967,23 @@ pub fn yieldsThroughParts(e: Sexp) bool {
 }
 
 /// The values a loop used as a value gives, appended to `out`: the value
-/// of each `break` that leaves it (unlabeled in its own body, or naming
-/// its label from a nested loop), and its `else`'s tail. A closure's
-/// body is another function's, so a `break` there leaves no loop here.
+/// of each `break` that leaves it (`eachJumpTo`), and its `else`'s tail.
 pub fn loopValues(a: std.mem.Allocator, source: []const u8, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    var label: []const u8 = "";
-    var loop = e;
-    if (e.isKind(.labeled)) {
-        label = identAt(source, ir.Labeled.label(e)) orelse "";
-        loop = ir.Labeled.stmt(e);
-    }
-    if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return;
-    try breakValues(a, source, ir.get(loop, .body), label, false, out);
-    const else_ = ir.get(loop, .@"else");
+    const l = loopOf(source, e) orelse return;
+    const Values = struct {
+        a: std.mem.Allocator,
+        out: *std.ArrayList(Sexp),
+        pub fn jump(v: *@This(), j: Sexp) std.mem.Allocator.Error!void {
+            if (j.isKind(.@"break") and ir.Break.value(j) != .nil) try v.out.append(v.a, ir.Break.value(j));
+        }
+    };
+    var values: Values = .{ .a = a, .out = out };
+    try eachJumpTo(source, l.loop, l.label, &values);
+    const else_ = ir.get(l.loop, .@"else");
     if (else_ != .nil) {
         const tail = tailOf(else_);
         if (tail != .nil) try out.append(a, tail);
     }
-}
-
-/// The values of the `break`s in `e` that leave the loop labeled `label`
-/// (`nested`: from inside a loop within it, so only by its label), the
-/// walk `breaksOut` makes.
-fn breakValues(a: std.mem.Allocator, source: []const u8, e: Sexp, label: []const u8, nested: bool, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    const h = e.kind() orelse return;
-    switch (h) {
-        .@"break" => {
-            const value = ir.Break.value(e);
-            if (value == .nil) return;
-            const l = ir.Break.label(e);
-            const leaves = if (l == .nil) !nested else label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
-            if (leaves) try out.append(a, value);
-            return;
-        },
-        .lambda => return,
-        .@"while", .@"for" => {
-            try breakValues(a, source, ir.get(e, .@"else"), label, nested, out);
-            if (label.len > 0) try breakValues(a, source, ir.get(e, .body), label, true, out);
-            return;
-        },
-        .labeled => if (shadows(source, e, label)) |stmt| {
-            if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) return breakValues(a, source, ir.get(stmt, .@"else"), label, nested, out);
-            return breakValues(a, source, stmt, "", nested, out);
-        },
-        else => {},
-    }
-    for (rig.children(e)) |c| try breakValues(a, source, c, label, nested, out);
-}
-
-/// The statement `e`, a `(labeled name stmt)` inside the construct
-/// labeled `label`, labels when it repeats that label, so a
-/// `break :label` within it leaves `e`, the innermost so named: of a
-/// labeled loop only the `else`, which runs after the loop, can still
-/// leave the outer construct, and of a labeled `match` or `raw` block
-/// only an unlabeled `break`. Null when `e` has another label.
-fn shadows(source: []const u8, e: Sexp, label: []const u8) ?Sexp {
-    if (label.len == 0 or !std.mem.eql(u8, identAt(source, ir.Labeled.label(e)) orelse "", label)) return null;
-    return ir.Labeled.stmt(e);
 }
 
 /// The leaves of the value `node` gives, appended to `out`, through
@@ -6960,14 +7015,7 @@ pub fn yieldedLeaves(a: std.mem.Allocator, source: []const u8, node: Sexp, out: 
 /// A loop used as a value: a `while` or `for`, labeled or not, that a
 /// `break` with a value leaves.
 pub fn hasValueBreaks(source: []const u8, e: Sexp) bool {
-    var label: []const u8 = "";
-    var loop = e;
-    if (e.isKind(.labeled)) {
-        label = identAt(source, ir.Labeled.label(e)) orelse "";
-        loop = ir.Labeled.stmt(e);
-    }
-    if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return false;
-    return breaksOut(source, ir.get(loop, .body), label, false, true);
+    return breaksOut(source, e, true);
 }
 
 pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
@@ -8900,4 +8948,63 @@ test "hands over: value parts, leaves, and value statements" {
     n = 1;
     try std.testing.expect(yieldsValue(r.source, nthNode(r.tree, .block, &n).?));
     try std.testing.expect(!yieldsValue(r.source, .nil));
+}
+
+test "a jump in a nested `for` source or `else` names the loop around it" {
+    const source =
+        \\sub main()
+        \\  x = for i in 0..3
+        \\    for j in 0..(some(i) ?? break 5)
+        \\      continue
+        \\    else
+        \\      break 6
+        \\  else
+        \\    0
+        \\  :a while true
+        \\    :a for k in 0..(n ?? break)
+        \\      break :a
+        \\    defer
+        \\      break
+        \\    f = ||
+        \\      break
+        \\
+    ;
+    var p = parser.Parser.init(std.testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    var n: usize = 0;
+    const outer = nthNode(tree, .@"for", &n).?;
+    n = 1;
+    const inner = nthNode(tree, .@"for", &n).?;
+    const Jumps = struct {
+        list: [8]Sexp = undefined,
+        len: usize = 0,
+        pub fn jump(j: *@This(), e: Sexp) error{}!void {
+            j.list[j.len] = e;
+            j.len += 1;
+        }
+    };
+    // The outer loop: the `break 5` in the source, the `break 6` in the
+    // inner loop's `else`.
+    var jumps: Jumps = .{};
+    try eachJumpTo(source, outer, "", &jumps);
+    try std.testing.expectEqual(2, jumps.len);
+    try std.testing.expect(hasValueBreaks(source, outer));
+    // The inner loop: only the `continue` in its body.
+    jumps = .{};
+    try eachJumpTo(source, inner, "", &jumps);
+    try std.testing.expectEqual(1, jumps.len);
+    try std.testing.expect(jumps.list[0].isKind(.@"continue"));
+    try std.testing.expect(!hasValueBreaks(source, inner));
+    // `:a while`: the `break` in the source of the inner `:a for`,
+    // not the one in its body, which names it; nothing in a `defer` or a
+    // closure.
+    n = 0;
+    const labeled = nthNode(tree, .@"while", &n).?;
+    jumps = .{};
+    try eachJumpTo(source, labeled, "a", &jumps);
+    try std.testing.expectEqual(1, jumps.len);
+    n = 1;
+    const fallback = nthNode(tree, .@"??", &n).?;
+    try std.testing.expect(jumps.list[0].items().ptr == ir.get(fallback, .right).items().ptr);
 }

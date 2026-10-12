@@ -121,26 +121,34 @@ const Header = struct { label: []const u8 = "", first: usize };
 const ZigLabel = struct { name: []const u8, used: bool = false };
 
 /// A loop, or a labeled `match` or `raw` block, that a `break` or
-/// `continue` can name (docs/INTERNALS.md, "Loops"). Jumps resolve to
-/// one by lexical scope: an unlabeled jump to the innermost loop, a
-/// labeled one to the innermost target of that name.
+/// `continue` can go to, while it is emitted (docs/INTERNALS.md,
+/// "Loops"). A jump finds it by the construct its `JumpDest` names,
+/// which the type checker resolved.
 const JumpTarget = struct {
+    /// The construct: the `while` or `for`, or the `match` or `raw` block.
+    node: Sexp,
     /// Its Rig label, or "".
     rig_label: []const u8,
-    /// False for a labeled `match` or `raw` block, which only
-    /// `break :label` leaves.
-    is_loop: bool = true,
     /// Where a `break` goes: the loop's result block, or the loop.
     brk: *ZigLabel,
-    /// Where a `continue` goes from the part of the loop being emitted:
-    /// `continue :loop` from the condition, `break :body` from the body,
-    /// and `break :step` from the step.
-    cont: ?ContinueTo = null,
+    /// The Zig loop, which `continue :loop` goes on with; null for a
+    /// labeled block, which no `continue` names.
+    loop: ?*ZigLabel = null,
+    /// The body's block, which `break :body` leaves.
+    body: ?*ZigLabel = null,
+    /// The step's block, while the step is emitted.
+    step: ?*ZigLabel = null,
+    /// Where the loop's step runs; null for a loop with no step.
+    step_point: ?facts.StepPoint = null,
+    /// The part of the loop being emitted, which decides the Zig jump a
+    /// `continue` is: `continue :loop` from the condition, `break :body`
+    /// from the body, and `break :step` from the step.
+    part: LoopPart = .cond,
     /// The type of a loop used as a value, whose `break` gives it one.
     value_ty: ?TypeId = null,
 };
 
-const ContinueTo = struct { word: []const u8, label: *ZigLabel };
+const LoopPart = enum { cond, body, step };
 
 /// A labeled construct being written into a buffer of its own, until
 /// `closeLabeled` knows whether its label is used.
@@ -1846,19 +1854,16 @@ pub const Emitter = struct {
     // Control flow
     // -------------------------------------------------------------------------
 
-    /// The target of a jump with Rig label `label` (`.nil` for none): an
-    /// unlabeled jump targets the innermost loop, and a labeled one the
-    /// innermost loop or block of that name, at any depth.
-    fn jumpTarget(self: *Emitter, label: Sexp) ?*JumpTarget {
+    /// The target being emitted that jump `node` goes to (`JumpDest`).
+    fn jumpTarget(self: *Emitter, node: Sexp) Error!struct { dest: facts.JumpDest, target: *JumpTarget } {
+        const dest = try self.need(self.facts.jumpDest(node), node);
         var i = self.targets.items.len;
         while (i > 0) {
             i -= 1;
             const t = &self.targets.items[i];
-            if (label == .nil) {
-                if (t.is_loop) return t;
-            } else if (std.mem.eql(u8, self.srcText(label), t.rig_label)) return t;
+            if (sameNode(t.node, dest.target)) return .{ .dest = dest, .target = t };
         }
-        return null;
+        return self.unsupported(node, "a jump to a construct that is not being emitted");
     }
 
     /// A fresh Zig label `__rig_<kind>_N`.
@@ -1927,7 +1932,9 @@ pub const Emitter = struct {
     /// the loop; a value leaves the block of the loop it gives a value to.
     fn emitBreak(self: *Emitter, node: Sexp) Error!void {
         const value = ir.Break.value(node);
-        const t = self.jumpTarget(ir.Break.label(node)) orelse return self.unsupported(node, "a `break` with no loop or block to leave");
+        const jump = try self.jumpTarget(node);
+        if (jump.dest.to != .exit) return self.unsupported(node, "a `break` that does not leave its target");
+        const t = jump.target;
         if (value == .nil) return self.w.print("break :{s};", .{jumpTo(t.brk)});
         const ty = t.value_ty orelse return self.unsupported(node, "a `break` value outside a loop used as a value");
         try self.w.print("break :{s} ", .{jumpTo(t.brk)});
@@ -1936,12 +1943,26 @@ pub const Emitter = struct {
         try self.w.writeAll(";");
     }
 
-    /// `(continue label?)`: goes where the part of the loop being emitted
-    /// sends it (`JumpTarget.cont`).
+    /// `(continue label?)`: the Zig jump from the part of the loop being
+    /// emitted (`JumpTarget.part`) that goes where the checkers sent it
+    /// (`JumpDest.to`): from the condition, `continue :loop`, which runs
+    /// a step that is the continue expression; from the body,
+    /// `break :body`, which goes on to the step or the head; from the
+    /// step, `break :step`, which ends it.
     fn emitContinue(self: *Emitter, node: Sexp) Error!void {
-        const t = self.jumpTarget(ir.Continue.label(node)) orelse return self.unsupported(node, "a `continue` with no loop");
-        const c = t.cont orelse return self.unsupported(node, "a `continue` to a block");
-        try self.w.print("{s} :{s};", .{ c.word, jumpTo(c.label) });
+        const jump = try self.jumpTarget(node);
+        const t = jump.target;
+        const loop = t.loop orelse return self.unsupported(node, "a `continue` to a block");
+        const has_step = t.step_point != null;
+        const step_continues = if (t.step_point) |sp| sp == .continue_expr else false;
+        const zig: struct { to: facts.JumpDest.To, word: []const u8, label: ?*ZigLabel } = switch (t.part) {
+            .cond => .{ .to = if (step_continues) .step else .head, .word = "continue", .label = loop },
+            .body => .{ .to = if (has_step) .step else .head, .word = "break", .label = t.body },
+            .step => .{ .to = .head, .word = "break", .label = t.step },
+        };
+        if (zig.to != jump.dest.to) return self.unsupported(node, "a `continue` the checkers sent elsewhere");
+        const label = zig.label orelse return self.unsupported(node, "a `continue` from a part with no block");
+        try self.w.print("{s} :{s};", .{ zig.word, jumpTo(label) });
     }
 
     /// Statement `if`: `(if cond then else?)`.
@@ -1983,17 +2004,16 @@ pub const Emitter = struct {
 
     /// The parts of a binding condition (`rig.bindsInCondition`), in order.
     fn conditionParts(self: *Emitter, cond: Sexp) Error![]const Sexp {
-        var parts: std.ArrayList(Sexp) = .empty;
-        try self.collectParts(cond, &parts);
-        return parts.items;
-    }
-
-    fn collectParts(self: *Emitter, cond: Sexp, parts: *std.ArrayList(Sexp)) Error!void {
-        if (rig.isConditionJoin(cond)) {
-            try self.collectParts(ir.get(cond, .left), parts);
-            return self.collectParts(ir.get(cond, .right), parts);
-        }
-        try parts.append(self.arena.allocator(), cond);
+        const Parts = struct {
+            list: std.ArrayList(Sexp) = .empty,
+            a: std.mem.Allocator,
+            pub fn part(v: *@This(), p: Sexp) Error!void {
+                try v.list.append(v.a, p);
+            }
+        };
+        var parts: Parts = .{ .a = self.arena.allocator() };
+        try facts.syntax.eachGuardPart(cond, &parts);
+        return parts.list.items;
     }
 
     /// One nested `if` per part of a binding condition, each opening its
@@ -2090,7 +2110,7 @@ pub const Emitter = struct {
         const name = self.srcText(ir.Labeled.label(sexp));
         if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) return self.emitLoop(stmt, name, null);
         const label = try self.rigLabel(name, "label");
-        try self.targets.append(self.allocator, .{ .rig_label = name, .is_loop = false, .brk = label });
+        try self.targets.append(self.allocator, .{ .node = stmt, .rig_label = name, .brk = label, .part = .body });
         defer _ = self.targets.pop();
         const l = try self.openLabeled(label);
         try self.openBrace();
@@ -2139,7 +2159,7 @@ pub const Emitter = struct {
             .target = undefined,
         };
         const has_res = else_ != .nil or value != null;
-        lp.target = .{ .rig_label = rig_label, .brk = if (has_res) lp.res else lp.loop, .value_ty = value };
+        lp.target = .{ .node = loop, .rig_label = rig_label, .brk = if (has_res) lp.res else lp.loop, .loop = lp.loop, .body = lp.body, .value_ty = value };
         if (has_res) try self.openLoopBlock(&lp);
         const depth = self.targets.items.len;
         if (loop.isKind(.@"while")) try self.emitWhile(loop, &lp) else try self.emitFor(loop, &lp);
@@ -2175,17 +2195,17 @@ pub const Emitter = struct {
         if (lp.outer != null) try self.writeIndent(self.indent);
     }
 
-    /// Make loop `lp` the target of the jumps that name it, with
-    /// `continue` going to `cont` until its body opens.
-    fn enterLoop(self: *Emitter, lp: *Loop, cont: ContinueTo) Error!void {
-        lp.target.cont = cont;
+    /// Make loop `lp` the target of the jumps that go to it, emitting its
+    /// condition until its body opens.
+    fn enterLoop(self: *Emitter, lp: *Loop) Error!void {
+        lp.target.part = .cond;
         lp.index = self.targets.items.len;
         try self.targets.append(self.allocator, lp.target);
     }
 
     /// Open the body's block, which a `continue` leaves.
     fn openLoopBody(self: *Emitter, lp: *Loop) Error!Labeled {
-        self.targets.items[lp.index].cont = .{ .word = "break", .label = lp.body };
+        self.targets.items[lp.index].part = .body;
         const l = try self.openLabeled(lp.body);
         try self.openBrace();
         return l;
@@ -2196,22 +2216,22 @@ pub const Emitter = struct {
         try self.emitStmts(try self.stmtsOf(body));
         try self.closeBrace();
         try self.closeLabeled(l);
-        self.targets.items[lp.index].cont = .{ .word = "continue", .label = lp.loop };
+        self.targets.items[lp.index].part = .cond;
     }
 
     /// `(while cond step body else?)` (`emitLoop`): a `while (true)` with
     /// one `if` per part of the condition inside, each leaving the loop
-    /// when it fails, then the body's block. A step that reads a binding
-    /// of the condition (`sema.stepReadsBinding`) follows the body in the
-    /// bindings' scope; any other is the loop's continue expression, which
-    /// runs after the bindings end, also after a `continue` in the
-    /// condition.
+    /// when it fails, then the body's block. A step that runs after the
+    /// body (`StepPoint.after_body`) follows it in the bindings' scope;
+    /// any other is the loop's continue expression, which runs after the
+    /// bindings end, also after a `continue` in the condition.
     fn emitWhile(self: *Emitter, sexp: Sexp, lp: *Loop) Error!void {
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
-        const step_inside = self.facts.pending.stepReadsBinding(cond, step);
+        lp.target.step_point = if (step == .nil) null else try self.need(self.facts.stepPoint(sexp), sexp);
+        const step_inside = lp.target.step_point == .after_body;
         try self.startLoopLine(lp);
-        try self.enterLoop(lp, .{ .word = "continue", .label = lp.loop });
+        try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
         try self.w.writeAll("while (true) ");
         if (step != .nil and !step_inside) {
@@ -2260,9 +2280,14 @@ pub const Emitter = struct {
     /// ends the step.
     fn emitStep(self: *Emitter, step: Sexp, lp: *Loop) Error!void {
         const label = try self.newLabel("step");
-        const saved = self.targets.items[lp.index].cont;
-        self.targets.items[lp.index].cont = .{ .word = "break", .label = label };
-        defer self.targets.items[lp.index].cont = saved;
+        const t = &self.targets.items[lp.index];
+        const saved = t.part;
+        t.part = .step;
+        t.step = label;
+        defer {
+            self.targets.items[lp.index].part = saved;
+            self.targets.items[lp.index].step = null;
+        }
         const l = try self.openLabeled(label);
         try self.w.writeAll("{ ");
         try self.emitStmt(step);
@@ -2395,7 +2420,7 @@ pub const Emitter = struct {
             } else elem_name = try self.fmt("{s}{s}", .{ if (by_ptr) "*" else "", stored.zig_name });
         };
         try self.w.print("{s}{s}{s}| ", .{ elem_name, if (indexed) ", " else "", if (indexed) counter else "" });
-        try self.enterLoop(lp, .{ .word = "continue", .label = lp.loop });
+        try self.enterLoop(lp);
         const body = try self.openLoopBody(lp);
         if (bytes_of.len > 0) try self.line("const {s} = {s}.bytes();", .{ bytes_name, bytes_of });
         try self.bindLoopIndex(sexp, counter);
@@ -2428,7 +2453,7 @@ pub const Emitter = struct {
         try self.line("defer {s}.deinit();", .{it});
         if (indexed) try self.line("var {s}: usize = 0;", .{counter});
         try self.startLoopLine(lp);
-        try self.enterLoop(lp, .{ .word = "continue", .label = lp.loop });
+        try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
         try self.w.print("while ({s}.next()) |{s}| ", .{ it, tmp });
         if (indexed) try self.w.print(": ({s} += 1) ", .{counter});
@@ -2466,7 +2491,7 @@ pub const Emitter = struct {
             try self.w.writeAll(";\n");
         }
         try self.startLoopLine(lp);
-        try self.enterLoop(lp, .{ .word = "continue", .label = lp.loop });
+        try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
         try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, end, counter });
         const body = try self.openLoopBody(lp);

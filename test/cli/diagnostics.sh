@@ -11,11 +11,11 @@ fun pick(n: Int) -> Int
   n
 
 sub main()
-  f = ||
-    break
+  s = String("a")
+  t = <s
   x = *(*(1))
-  print(pick(1), x)
-  f()
+  print(pick(1), x, t)
+  print(s)
 EOF
 "$RIG" check spans.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a rejected program"
 expect_eq "$(cat out.txt)" "spans.rig:3:5: error: \`return\` needs a value of type \`Int\`
@@ -26,14 +26,17 @@ spans.rig:9:9: error: this value is already a shared handle \`*Int\`; \`*\` woul
         ^~~~" "diagnostics at node spans"
 cat >own.rig <<'EOF'
 sub main()
-  f = ||
-    break
-  f()
+  s = String("a")
+  t = <s
+  print(s, t)
 EOF
 "$RIG" check own.rig >out.txt 2>&1; expect_rc $? 1 "rig check of an ownership error"
-expect_eq "$(cat out.txt)" "own.rig:3:5: error: \`break\` is not inside a loop (a closure body cannot leave a loop around it)
-    break
-    ^~~~~" "ownership diagnostic at its node span"
+expect_eq "$(cat out.txt)" "own.rig:4:9: error: use of \`s\` after move
+  print(s, t)
+        ^
+own.rig:3:8:   note: \`s\` was moved here
+  t = <s
+       ^" "ownership diagnostic at its node span"
 
 # A parse error points at the token the parser stopped on, and says
 # what the parser expected there when that is a short list.

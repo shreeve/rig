@@ -3107,7 +3107,11 @@ refer to it from an inner loop. A `match` or `raw` statement may be
 labeled too, and `break :name` leaves it. No other statement takes a
 label, since no jump could use it, and none takes two. A jump after `??` or `catch`
 may name a label too ([§12](#the-fallback-of-)). A label may repeat an
-enclosing one's name; the innermost is meant.
+enclosing one's name; the innermost is meant. A `for` source is
+evaluated before its loop is entered, as a loop's `else` runs after it
+ends, so a jump in either (`for j in 0..(n ?? break v)`) leaves or
+continues the loop around that `for`, and a `break` value there is that
+loop's value.
 
 ```rig reject
 sub main()
