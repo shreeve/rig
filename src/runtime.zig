@@ -2121,7 +2121,7 @@ extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
 /// stack page by page as a frame grows only on x86; elsewhere a frame
 /// larger than the guard below the stack steps over it, and an overflow
 /// would write into whatever is mapped beyond instead of stopping the
-/// program. A frame holds at most 16 MiB of values (`checkFrames` in
+/// program. A frame holds at most 13 MiB of values (`checkFrames` in
 /// the compiler), so 64 MiB kept free below the stack catches it.
 ///
 /// - macOS guards the stack with one page, and once the address space

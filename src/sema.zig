@@ -145,17 +145,21 @@ pub const max_array_len: Wide = std.math.maxInt(u32);
 /// data belongs in a `List`.
 pub const max_value_bytes: u64 = 8 << 20;
 
-/// The most bytes of values one function keeps on its stack: 16 MiB, the
-/// size of the main thread's stack, so a function that keeps more could
-/// never run. Zig's own temporaries at most about double it, which keeps
-/// every frame well inside the 64 MiB below the stack that stops an
-/// overflow (`rig.guardStack`).
-pub const max_frame_bytes: u64 = 16 << 20;
+/// The most bytes of values one function keeps on its stack, with the
+/// frames inlined into it: 13 MiB of the main thread's 16 MiB stack, which
+/// leaves room for the frames below it and for the few temporaries Zig
+/// adds that `typecheck.checkFrames` does not count. Only one frame is held
+/// to it: how deep calls nest is not known, so a chain of frames that each
+/// fit can still overflow the stack (`rig.guardStack` stops it).
+pub const max_frame_bytes: u64 = 13 << 20;
 
 /// The values one function or closure keeps on its stack: `label` names
 /// it in messages, declared at `pos` in module `module_id` (0 for the
 /// module that keeps the frame).
-pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, module_id: u32 = 0 };
+///
+/// `names` holds the name of the local each type is, empty for a temporary,
+/// so a diagnostic can name the largest.
+pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, module_id: u32 = 0 };
 
 pub const Type = union(enum) {
     /// A type error was reported here.
@@ -5683,7 +5687,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const fr = foreign.generic_frames.items[i];
         const tys = try a.alloc(TypeId, fr.tys.len);
         for (fr.tys, tys) |t, *out| out.* = try importType(ctx, foreign, t, m);
-        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .module_id = if (fr.module_id == 0) m else fr.module_id });
+        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .module_id = if (fr.module_id == 0) m else fr.module_id });
     }
     for (foreign.paramEntries(.fn_uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .fn_uses, i)) continue;

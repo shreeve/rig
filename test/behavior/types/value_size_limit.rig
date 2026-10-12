@@ -1,4 +1,4 @@
-# A value may take up to 8 MiB, and a function may keep up to 16 MiB of
+# A value may take up to 8 MiB, and a function may keep up to 13 MiB of
 # values on its stack: an array local, a struct, and a module constant
 # at the limit all run, and so does a function keeping 12 MiB.
 
