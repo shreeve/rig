@@ -62,8 +62,8 @@ fn needsDrop(comptime T: type) bool {
 }
 
 /// How a read view `?T` is held: a copy of a scalar or a view (a
-/// number, `Bool`, a plain enum, an error, a slice or `?String`, a
-/// function, or an optional of one), a pointer to anything else, and
+/// number, `Bool`, a vector, a plain enum, an error, a slice or
+/// `?String`, a function, or an optional of one), a pointer to anything else, and
 /// for a `String` its bytes, the one text view, `?String`. The
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
@@ -76,7 +76,7 @@ pub fn ReadView(comptime T: type) type {
 
 fn copiedByReadView(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer => true,
+        .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
         else => false,
     };
@@ -1182,6 +1182,7 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
         .error_union => |e| suffixedName(e.payload, "!", names),
         .error_set => |e| errorSetName(e.error_names.?[0], names),
         .array => |a| std.fmt.comptimePrint("[{d}]", .{a.len}) ++ nameOf(a.child, names),
+        .vector => |v| "Simd[" ++ nameOf(v.child, names) ++ std.fmt.comptimePrint(", {d}]", .{v.len}),
         // A function, or a strong handle. A type parameter holds no view
         // or slice: its instance is a type the generic body may copy.
         .pointer => |p| if (@typeInfo(p.child) == .@"fn")
@@ -1458,7 +1459,7 @@ pub const Endian = enum { little, big };
 /// are all in range.
 pub fn readInt(comptime T: type, bytes: anytype, offset: anytype, comptime endian: Endian) T {
     const n = @divExact(@bitSizeOf(T), 8);
-    const i = byteOffset(bytes.len, offset, n) orelse @panic("byte read out of range");
+    const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("read", n, offset, bytes.len);
     const Bits = @Int(.unsigned, @bitSizeOf(T));
     // One load of the `n` bytes, however wide, whatever the target's
     // native integer width (an integer array load is split into bytes
@@ -1473,7 +1474,7 @@ pub fn readInt(comptime T: type, bytes: anytype, offset: anytype, comptime endia
 /// range.
 pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, comptime endian: Endian) void {
     const n = @divExact(@bitSizeOf(T), 8);
-    const i = byteOffset(bytes.len, offset, n) orelse @panic("byte write out of range");
+    const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("write", n, offset, bytes.len);
     const Bits = @Int(.unsigned, @bitSizeOf(T));
     const raw: Bits = @bitCast(value);
     const ordered = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw;
@@ -1482,6 +1483,183 @@ pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, com
     // are not native.
     const dst: *align(1) Bits = @ptrCast(bytes[i..][0..n]);
     dst.* = ordered;
+}
+
+/// `bytes.read[Simd[T, n], e](at)`: the `n` lanes of type `T` held in the
+/// bytes from `at`, each in byte order `e`; panics unless they are all in
+/// range. One check, then one unaligned load of exactly the bytes read.
+pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endian: Endian) V {
+    const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
+    const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("read", n, offset, bytes.len);
+    // The bytes are loaded as an array of exactly `n`, then become the
+    // vector: a load through a vector pointer may touch the vector's whole
+    // register (Zig's own x86 backend loads 16 bytes for a 4-byte vector),
+    // past the bytes it was given. LLVM makes this one unaligned load.
+    const raw: [n]u8 = bytes[i..][0..n].*;
+    return lanesInOrder(@as(V, @bitCast(raw)), endian);
+}
+
+/// `!bytes.write[Simd[T, n], e](at, v)`: store the lanes of `v` in the
+/// bytes from `at`, each in byte order `e`; panics unless they are all in
+/// range. One check, then one unaligned store.
+pub fn simdWrite(comptime V: type, bytes: anytype, offset: anytype, value: V, comptime endian: Endian) void {
+    const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
+    const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("write", n, offset, bytes.len);
+    // Stored as an array of exactly `n` bytes, as `simdRead` loads.
+    bytes[i..][0..n].* = @bitCast(lanesInOrder(value, endian));
+}
+
+/// `v` with each lane's bytes in the native order where `endian` is not
+/// it: the same swap reads and writes. One-byte lanes have no order.
+fn lanesInOrder(v: anytype, comptime endian: Endian) @TypeOf(v) {
+    const V = @TypeOf(v);
+    const T = @typeInfo(V).vector.child;
+    if (comptime @sizeOf(T) == 1 or zigEndian(endian) == builtin.cpu.arch.endian()) return v;
+    const Bits = @Int(.unsigned, @bitSizeOf(T));
+    const n = @typeInfo(V).vector.len;
+    return @bitCast(@byteSwap(@as(@Vector(n, Bits), @bitCast(v))));
+}
+
+/// `v[i]`: lane `i` of a vector, with `i` checked as an index is.
+pub fn lane(v: anytype, i: anytype) @typeInfo(@TypeOf(v)).vector.child {
+    const info = @typeInfo(@TypeOf(v)).vector;
+    const lanes: [info.len]info.child = v;
+    return lanes[index(i, info.len)];
+}
+
+/// `v.with(i, x)`: a copy of `v` whose lane `i` is `x`, with `i` checked
+/// as an index is.
+pub fn withLane(v: anytype, i: anytype, x: @typeInfo(@TypeOf(v)).vector.child) @TypeOf(v) {
+    const info = @typeInfo(@TypeOf(v)).vector;
+    var lanes: [info.len]info.child = v;
+    lanes[index(i, info.len)] = x;
+    return lanes;
+}
+
+/// `m.bits()`: bit `i` is lane `i` of mask `m`, the higher bits 0. Each
+/// target gets the fastest form measured for it (docs/INTERNALS.md,
+/// "Vectors"): NEON's pairwise-add reduction for 32 and 64 lanes, 16-lane
+/// bitmasks on WASM SIMD for more than 16 (a wider mask would be taken
+/// apart lane by lane), a multiply that gathers eight lanes at a time on
+/// WASM without SIMD, and Zig's own `@bitCast` elsewhere (one `pmovmskb`
+/// per 16 lanes on x86, one `i8x16.bitmask` on WASM SIMD). Every form
+/// gives the same bits (`test "maskBits: every form agrees"`).
+pub fn maskBits(m: anytype) u64 {
+    const n = @typeInfo(@TypeOf(m)).vector.len;
+    if (comptime (n == 32 or n == 64) and neonIntrinsics()) return maskBitsNeon(n, m);
+    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m);
+    if (comptime n >= 8 and builtin.cpu.arch.isWasm() and !wasmSimd()) return maskBitsSwar(n, m);
+    // `@bitCast` of a mask gives wrong bits on aarch64 without NEON (Zig
+    // 0.17); Rig builds no such target, so it takes this form too.
+    return maskBitsCast(n, m);
+}
+
+/// `m.any()`: whether any lane of mask `m` is true.
+pub fn maskAny(m: anytype) bool {
+    const n = @typeInfo(@TypeOf(m)).vector.len;
+    // WASM SIMD reduces a mask of more than 16 lanes lane by lane.
+    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) != 0;
+    // On NEON, the lanes as bytes reduce to a `umaxv`, which shares the
+    // bytes `maskBits` weighs when `bits()` follows.
+    if (comptime n >= 16 and neonIntrinsics()) return @reduce(.Max, maskBytes(n, m)) != 0;
+    return @reduce(.Or, m);
+}
+
+/// `m.all()`: whether every lane of mask `m` is true.
+pub fn maskAll(m: anytype) bool {
+    const n = @typeInfo(@TypeOf(m)).vector.len;
+    if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) == std.math.maxInt(@Int(.unsigned, n));
+    if (comptime n >= 16 and neonIntrinsics()) return @reduce(.Min, maskBytes(n, m)) != 0;
+    return @reduce(.And, m);
+}
+
+/// A mask's lanes as bytes, 0xFF for true and 0 for false.
+fn maskBytes(comptime n: usize, m: @Vector(n, bool)) @Vector(n, u8) {
+    return @select(u8, m, @as(@Vector(n, u8), @splat(0xFF)), @as(@Vector(n, u8), @splat(0)));
+}
+
+/// Whether NEON's intrinsics may be named: an aarch64 target with NEON,
+/// built by LLVM (Zig's own backends do not know them, and an intrinsic
+/// for a feature the target lacks stops LLVM).
+fn neonIntrinsics() bool {
+    return builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm and
+        std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
+}
+
+/// Whether the target is WASM with its 128-bit SIMD.
+fn wasmSimd() bool {
+    return builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(builtin.cpu.features, .simd128);
+}
+
+fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
+    return @as(@Int(.unsigned, n), @bitCast(m));
+}
+
+/// simdjson's reduction: each lane's bit weighted within its byte, then
+/// pairwise adds (`addp`) fold 16 lanes into 2 bytes, 64 into 8.
+fn maskBitsNeon(comptime n: usize, m: @Vector(n, bool)) u64 {
+    const V = @Vector(16, u8);
+    const addp = @"llvm.aarch64.neon.addp.v16i8";
+    const eight = [8]u8{ 1, 2, 4, 8, 16, 32, 64, 128 };
+    const weights: @Vector(n, u8) = comptime weightsOf(n, eight);
+    // The pieces come from the mask as bytes, never through `[n]bool`,
+    // which would take each lane apart; the result is read as a lane of
+    // a wider vector, one `fmov`.
+    const pieces: [n / 16]V = @bitCast(maskBytes(n, m) & weights);
+    if (n == 32) {
+        const s1 = addp(pieces[0], pieces[1]);
+        const s2 = addp(s1, s1);
+        const s3 = addp(s2, s2);
+        return @as(@Vector(4, u32), @bitCast(s3))[0];
+    }
+    const s1 = addp(pieces[0], pieces[1]);
+    const s2 = addp(pieces[2], pieces[3]);
+    const s3 = addp(s1, s2);
+    const s4 = addp(s3, s3);
+    return @as(@Vector(2, u64), @bitCast(s4))[0];
+}
+
+/// `eight` repeated to `n` bytes.
+fn weightsOf(comptime n: usize, comptime eight: [8]u8) [n]u8 {
+    var w: [n]u8 = undefined;
+    for (&w, 0..) |*x, i| x.* = eight[i % 8];
+    return w;
+}
+
+/// NEON's pairwise add of two 16-byte vectors; named only where
+/// `neonIntrinsics` holds.
+extern fn @"llvm.aarch64.neon.addp.v16i8"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+
+/// A mask of more than 16 lanes as 16-lane bitmasks, one `i8x16.bitmask`
+/// each on WASM SIMD.
+fn maskBitsPieces(comptime n: usize, m: @Vector(n, bool)) u64 {
+    const bytes: [n]u8 = @select(u8, m, @as(@Vector(n, u8), @splat(0xFF)), @as(@Vector(n, u8), @splat(0)));
+    var r: u64 = 0;
+    inline for (0..n / 16) |k| {
+        const piece: @Vector(16, u8) = bytes[k * 16 ..][0..16].*;
+        r |= @as(u64, @as(u16, @bitCast(piece >= @as(@Vector(16, u8), @splat(0x80))))) << (k * 16);
+    }
+    return r;
+}
+
+/// A mask's lanes as bytes of 0 or 1, gathered eight at a time into the
+/// top byte of one multiply: lane `i` of eight lands on bit `56 + i`, and
+/// no two partial products meet.
+fn maskBitsSwar(comptime n: usize, m: @Vector(n, bool)) u64 {
+    const bytes: [n]u8 = @select(u8, m, @as(@Vector(n, u8), @splat(1)), @as(@Vector(n, u8), @splat(0)));
+    var r: u64 = 0;
+    inline for (0..n / 8) |k| {
+        const x = std.mem.readInt(u64, bytes[k * 8 ..][0..8], .little);
+        r |= ((x *% 0x0102040810204080) >> 56) << (k * 8);
+    }
+    return r;
+}
+
+/// A `read` or `write` of `n` bytes at `offset` that runs past `count`
+/// bytes, or starts before them.
+fn bytesPanic(comptime what: []const u8, n: usize, offset: anytype, count: usize) noreturn {
+    @branchHint(.cold);
+    std.debug.panic("byte " ++ what ++ " out of range: {d} bytes at offset {d} of {d}", .{ n, offset, count });
 }
 
 /// `offset` as a `usize` with `offset + n <= count`, or null.
@@ -2188,6 +2366,8 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
     defer print_depth -= 1;
     switch (@typeInfo(T)) {
         .pointer, .array => try writeList(w, value),
+        // A vector prints as the array of its lanes.
+        .vector => |v| try writeList(w, @as([v.len]v.child, value)),
         .@"union" => switch (value) {
             inline else => |payload, tag| {
                 try w.print(".{s}", .{@tagName(tag)});
@@ -2278,6 +2458,41 @@ test "guardStack holds the stack to 16 MiB on Linux" {
     try std.posix.setrlimit(.STACK, .{ .cur = 2 * stack_size, .max = before.max });
     try std.testing.expect(guarded());
     try std.testing.expectEqual(stack_size, (try std.posix.getrlimit(.STACK)).cur);
+}
+
+test "maskBits: every form agrees" {
+    var prng = std.Random.DefaultPrng.init(0x5eed);
+    const r = prng.random();
+    inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
+        for (0..200) |_| {
+            var lanes: [n]bool = undefined;
+            for (&lanes) |*l| l.* = r.boolean();
+            const m: @Vector(n, bool) = lanes;
+            var want: u64 = 0;
+            for (lanes, 0..) |l, i| want |= @as(u64, @intFromBool(l)) << @intCast(i);
+            try testing.expectEqual(want, maskBits(m));
+            try testing.expectEqual(want, maskBitsCast(n, m));
+            if (n >= 8) try testing.expectEqual(want, maskBitsSwar(n, m));
+            if (n >= 16) try testing.expectEqual(want, maskBitsPieces(n, m));
+            if (comptime (n == 32 or n == 64) and neonIntrinsics()) try testing.expectEqual(want, maskBitsNeon(n, m));
+            try testing.expectEqual(want != 0, maskAny(m));
+            try testing.expectEqual(want == std.math.maxInt(@Int(.unsigned, n)), maskAll(m));
+        }
+    }
+}
+
+test "simdRead and simdWrite: lanes in either byte order, one unaligned access" {
+    var buf: [19]u8 = undefined;
+    for (&buf, 0..) |*b, i| b.* = @intCast(i);
+    const v = simdRead(@Vector(4, u16), buf[0..], 1, .little);
+    try testing.expectEqual([4]u16{ 0x0201, 0x0403, 0x0605, 0x0807 }, @as([4]u16, v));
+    const w = simdRead(@Vector(4, u16), buf[0..], 1, .big);
+    try testing.expectEqual([4]u16{ 0x0102, 0x0304, 0x0506, 0x0708 }, @as([4]u16, w));
+    simdWrite(@Vector(4, u16), buf[0..], 11, w, .big);
+    try testing.expectEqualSlices(u8, buf[1..9], buf[11..19]);
+    const bytes = simdRead(@Vector(16, u8), buf[0..], 3, .little);
+    try testing.expectEqual(@as(u8, 3), lane(bytes, 0));
+    try testing.expectEqual(@as(u8, 9), lane(withLane(bytes, 15, 9), 15));
 }
 
 test "viewedPtr reaches what a read view views, or the view's own copy" {
@@ -2755,6 +2970,23 @@ test "past its limit the sanitizer hands out unguarded blocks" {
     a.free(one);
     try testing.expect(try faults(freed, readByte));
     a.free(two);
+    try testing.expectEqual(0, s.live);
+}
+
+test "the sanitizer aligns a block as its type asks: a List of 64-byte vectors" {
+    if (!Sanitizer.supported) return error.SkipZigTest;
+    var s: Sanitizer = .{ .max_live = 8, .noted = true };
+    const a = s.allocator();
+    const V = @Vector(64, u8);
+    const blocks = try a.alignedAlloc(V, .@"64", 3);
+    try testing.expect(s.owns(@intFromPtr(blocks.ptr)));
+    try testing.expectEqual(0, @intFromPtr(blocks.ptr) % 64);
+    for (blocks, 0..) |*v, i| v.* = @splat(@intCast(i));
+    try testing.expectEqual(@as(u8, 2), blocks[2][63]);
+    a.free(blocks);
+    const odd = try a.alloc(@Vector(16, u8), 5);
+    try testing.expectEqual(0, @intFromPtr(odd.ptr) % @alignOf(@Vector(16, u8)));
+    a.free(odd);
     try testing.expectEqual(0, s.live);
 }
 

@@ -1,0 +1,95 @@
+# A vector is plain data, one value like an `Int`: a field, an element of
+# a List or an array, an optional, a Cell, and a closure hold copies of
+# it, and a lend of it views it as a lend of an `Int` does.
+
+type Block = Simd[U8, 4]
+
+obj Lexer
+  ahead: Block
+  pos: Int
+
+  fun peek(?self) -> U8
+    self.ahead[0]
+
+  sub skip(!self)
+    self.ahead = self.ahead.with(0, 0)
+    self.pos += 1
+
+obj Wrap[T]
+  value: T
+
+sub bump(v: !Block)
+  v = v + 1
+
+fun twice(v: ?Block) -> Block
+  v + v
+
+fun first(v: ?Block) -> ?Block
+  v
+
+fun lanes[n: Int](v: Simd[U8, n]) -> Int
+  n
+
+fun same[T](x: T) -> T
+  x
+
+fun named[T](x: T) -> ?String
+  @name(Wrap[T])
+
+sub main()
+  l = Lexer(ahead: Block([1, 2, 3, 4]), pos: 0)
+  l.ahead = l.ahead + 1
+  bump(!l.ahead)
+  print(l.ahead, l.peek(), l)
+  (!l).skip()
+  print(l)
+  m = l
+  m.ahead = Block.splat(9)
+  print(l.ahead, m.ahead)
+  xs: List[Block] = List()
+  !xs.push(l.ahead)
+  !xs.push(Block.splat(5))
+  bump(!xs[0])
+  xs[1] = xs[1] * 2
+  for v in xs
+    print(v)
+  print(xs[1][3], xs.len, (!xs).pop())
+  o: Block? = none
+  print(o)
+  o = xs[0]
+  if o as got
+    print(got)
+  print(o ?? Block.splat(0))
+  r = ?l.ahead
+  print(r + 1, r[1], twice(r), twice(?l.ahead), first(r))
+  arr = [Simd[I8, 2]([1, -1]), Simd[I8, 2]([2, -2])]
+  arr[0] = arr[1]
+  print(arr)
+  c = *Cell(Block.splat(1))
+  !c.set(c.get() + 1)
+  print(c.get())
+  f = |+l| l.ahead[1]
+  g = *|v: Block| v.array()[2]
+  print(f(), g(l.ahead))
+  print(lanes(l.ahead), lanes(Simd[U8, 64].splat(0)))
+  w = Wrap(value: l.ahead)
+  print(w, same(l.ahead), same(w).value[3])
+  print(@name(Block), @name(Simd[Bool, 64]), named(l.ahead == 0))
+
+# expect:
+# [3, 4, 5, 6] 3 Lexer(ahead: [3, 4, 5, 6], pos: 0)
+# Lexer(ahead: [0, 4, 5, 6], pos: 1)
+# [0, 4, 5, 6] [9, 9, 9, 9]
+# [1, 5, 6, 7]
+# [10, 10, 10, 10]
+# 10 2 [10, 10, 10, 10]
+# none
+# [1, 5, 6, 7]
+# [1, 5, 6, 7]
+# [1, 5, 6, 7] 4 [0, 8, 10, 12] [0, 8, 10, 12] [0, 4, 5, 6]
+# [[2, -2], [2, -2]]
+# [2, 2, 2, 2]
+# 4 5
+# 4 64
+# Wrap(value: [0, 4, 5, 6]) [0, 4, 5, 6] 6
+# Simd[U8, 4] Simd[Bool, 64] Wrap[Simd[Bool, 4]]

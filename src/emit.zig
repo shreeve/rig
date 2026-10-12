@@ -241,6 +241,8 @@ pub const Emitter = struct {
     place_chain: bool = false,
     /// The value `emitLend` is lending, which it emits as itself.
     lending: Sexp = .nil,
+    /// The scalar operand being written splatted (`sema.splatOf`).
+    splatting: Sexp = .nil,
     /// Arguments and receivers of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
@@ -3379,6 +3381,19 @@ pub const Emitter = struct {
     /// its scope (return, break value): resource bindings in tail
     /// position are moved out.
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        // A scalar beside a vector stands for every lane (`sema.splatOf`):
+        // Zig splats only where it is told to, and the vector is a run-time
+        // value (`writeVectorOpen`).
+        if (self.facts.splatOf(sexp)) |vt| if (!sameNode(sexp, self.splatting)) {
+            const saved = self.splatting;
+            defer self.splatting = saved;
+            self.splatting = sexp;
+            self.want_ptr = false;
+            try self.writeVectorOpen(vt);
+            try self.w.writeAll("@splat(");
+            try self.emitBare(sexp);
+            return self.w.writeAll(")))");
+        };
         // A part of the value whose use is known has that use; any other
         // value has the use its own context recorded.
         const saved_use = self.use;
@@ -4037,6 +4052,12 @@ pub const Emitter = struct {
             },
             .call => if (self.facts.elemCallOf(self.facts.calleeOf(sexp))) |ec|
                 try self.emitElemCall(sexp, ec)
+            else if (self.simdConversion(sexp)) |vt| {
+                // `Simd[T, n](a)`: the vector of an array's elements.
+                try self.writeVectorOpen(vt);
+                try self.emitBare(ir.Call.args(sexp)[0]);
+                try self.w.writeAll("))");
+            }
             else if (try self.hoistsArgs(sexp))
                 try self.emitHoistedCall(sexp)
             else
@@ -4305,6 +4326,16 @@ pub const Emitter = struct {
         self.place_chain = as_place;
 
         if (index.isKind(.@"..")) return self.emitSlice(sexp, base, base_ty, index);
+        // A lane of a vector is a value, read with its index checked
+        // (Zig indexes a vector only at a constant).
+        if (base_ty != null and self.facts.types.get(self.peelViews(base_ty.?)) == .simd) {
+            self.place_chain = false;
+            try self.w.writeAll("rig.lane(");
+            try self.emitBare(base);
+            try self.w.writeAll(", ");
+            try self.emitBare(index);
+            return self.w.writeAll(")");
+        }
         // An element of a Cell's List is a copy; `c[i] = x` is `emitPlaceAssign`'s.
         if (base_ty != null and self.isCellListTy(base_ty.?)) {
             try self.emitCellPtr(base);
@@ -5129,9 +5160,14 @@ pub const Emitter = struct {
         const args = ir.Call.args(call);
         switch (ec.op) {
             // `rig.readInt(T, bytes, at, endian)`,
-            // `rig.writeInt(T, bytes, at, value, endian)`.
+            // `rig.writeInt(T, bytes, at, value, endian)`, and for a vector
+            // `rig.simdRead` and `rig.simdWrite`, whose one-byte lanes need
+            // no byte order.
             .read, .write => {
-                try self.w.writeAll(if (ec.op == .read) "rig.readInt(" else "rig.writeInt(");
+                const vector = self.facts.types.get(ec.num) == .simd;
+                try self.w.writeAll(if (ec.op == .read)
+                    (if (vector) "rig.simdRead(" else "rig.readInt(")
+                else if (vector) "rig.simdWrite(" else "rig.writeInt(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.emitElems(ir.Member.object(callee));
@@ -5143,10 +5179,64 @@ pub const Emitter = struct {
                 const given = self.facts.ctArgsOf(call);
                 if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
             },
+            // `rig.rt(@as(V, @splat(x)))`.
+            .splat => {
+                try self.writeVectorOpen(ec.num);
+                try self.w.writeAll("@splat(");
+                try self.emitBare(args[0]);
+                return self.w.writeAll(")))");
+            },
+            // `rig.maskBits(m)`, `rig.maskAny(m)`, `rig.maskAll(m)`: the
+            // runtime lowers each per target.
+            .bits, .any, .all => {
+                try self.w.writeAll(switch (ec.op) {
+                    .bits => "rig.maskBits(",
+                    .any => "rig.maskAny(",
+                    else => "rig.maskAll(",
+                });
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")");
+            },
+            // `@select(T, m, a, b)`.
+            .select => {
+                try self.w.writeAll("@select(");
+                try self.emitTypeTy(ec.elem);
+                try self.w.writeAll(", ");
+                try self.emitBare(ir.Member.object(callee));
+                for (args) |a| {
+                    try self.w.writeAll(", ");
+                    try self.emitBare(a);
+                }
+                return self.w.writeAll(")");
+            },
+            // `@as([n]T, v)`.
+            .array => {
+                try self.w.writeAll("@as([");
+                try self.emitTypeTy(self.facts.types.get(ec.num).simd.len);
+                try self.w.writeAll("]");
+                try self.emitTypeTy(ec.elem);
+                try self.w.writeAll(", ");
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")");
+            },
+            // `rig.withLane(v, i, x)`.
+            .with => {
+                try self.w.writeAll("rig.withLane(");
+                try self.emitBare(ir.Member.object(callee));
+                for (args) |a| {
+                    try self.w.writeAll(", ");
+                    try self.emitBare(a);
+                }
+                return self.w.writeAll(")");
+            },
             // `(~x)`, or `(!x)` of a Bool.
             .not => {
                 const obj = ir.Member.object(callee);
-                if (self.peelViews(ec.num) == self.facts.types.bool_id) {
+                const lanes = switch (self.facts.types.get(self.peelViews(ec.num))) {
+                    .simd => |v| v.elem,
+                    else => self.peelViews(ec.num),
+                };
+                if (lanes == self.facts.types.bool_id) {
                     try self.w.writeAll("(!");
                     try self.emitExpr(obj);
                     return self.w.writeAll(")");
@@ -5193,6 +5283,32 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// `rig.rt(@as(V, `, which a vector's construction closes with `))`
+    /// after its value.
+    /// Every vector a program makes comes from a construction (`splat`,
+    /// `Simd[T, n](a)`, a scalar splatted beside a vector), a parameter,
+    /// or bytes read when the program runs, and no constant holds one; so
+    /// with each construction a run-time value, no vector is known to Zig
+    /// when it compiles, and a lane that overflows panics when the program
+    /// runs, as Rig specifies, rather than stopping Zig's fold.
+    fn writeVectorOpen(self: *Emitter, vt: TypeId) Error!void {
+        try self.w.writeAll("rig.rt(@as(");
+        try self.emitTypeTy(vt);
+        try self.w.writeAll(", ");
+    }
+
+    /// The vector type a call of a vector type makes, `Simd[T, n](a)`,
+    /// or `Block(a)` and `lib.Block(a)` for an alias of one; null for any
+    /// other call.
+    fn simdConversion(self: *Emitter, call: Sexp) ?TypeId {
+        const ty = self.typeOf(call) orelse return null;
+        if (self.facts.types.get(ty) != .simd) return null;
+        const callee = ir.Call.callee(call);
+        if (self.facts.isTypeCallee(callee)) return ty;
+        const id = self.facts.symbolOf(callee) orelse return null;
+        return if (self.facts.symbols.items[id].kind == .type_alias) ty else null;
+    }
+
     /// The elements of a method's receiver (a slice, an array, a List, or
     /// a `?String`, viewed or not) as a Zig slice or array pointer: a
     /// slice or `?String` as it is, an array through its address (writable
@@ -5210,6 +5326,11 @@ pub const Emitter = struct {
             defer self.read_place = saved_read;
             self.read_place = !writes;
             return self.emitAddressOf(place);
+        }
+        // A String lent to read, `(?s).read[...]`, lends its bytes.
+        if (self.stringReach(ty)) |reach| {
+            try self.emitBaseExpr(place);
+            return self.w.print("{s}.bytes()", .{reach});
         }
         try self.emitBare(place);
     }
@@ -6345,6 +6466,13 @@ pub const Emitter = struct {
                 try self.w.writeAll("]");
                 try self.emitTypeTy(a.elem);
             },
+            .simd => |v| {
+                try self.w.writeAll("@Vector(");
+                try self.emitTypeTy(v.len);
+                try self.w.writeAll(", ");
+                try self.emitTypeTy(v.elem);
+                try self.w.writeAll(")");
+            },
             // An array length or a generic type's value argument.
             .ct_value => |v| try self.w.print("{d}", .{v.int}),
             .ct_param => |sym_id| try self.writeTypeParam(sym_id),
@@ -6621,6 +6749,8 @@ pub const Emitter = struct {
             const t = self.peelViews(ty);
             const scalar = switch (self.facts.types.get(t)) {
                 .optional => |inner| self.isScalarTy(inner) and !self.isErrorSetTy(inner),
+                // A vector's `==` is Zig's, lane by lane.
+                .simd => true,
                 else => self.isScalarTy(t),
             };
             if (!scalar) return true;
@@ -6658,7 +6788,9 @@ pub const Emitter = struct {
     };
 
     /// How `a < b` (`<=`, `>`, `>=`) lowers when Zig's operator does not
-    /// order its operands; null for numbers.
+    /// order its operands: text and byte slices, and a type parameter's
+    /// values. Null for numbers and vectors, whatever their compile-time
+    /// arguments (`Simd[U8, n]` orders lane by lane with Zig's `<`).
     fn orderOperator(self: *Emitter, kind: Tag, operands: [2]Sexp) ?OrderOperator {
         var bytes = false;
         var generic = false;
@@ -6667,7 +6799,8 @@ pub const Emitter = struct {
             const t = self.peelViews(ty);
             switch (self.facts.types.get(t)) {
                 .string_view, .static, .slice => bytes = true,
-                else => generic = generic or self.facts.containsTypeVar(t),
+                .type_var => generic = true,
+                else => {},
             }
         }
         if (!bytes and !generic) return null;

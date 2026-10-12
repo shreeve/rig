@@ -1,0 +1,16 @@
+# A vector read is checked once: all its bytes must be in range.
+
+fun load(s: ?String, at: Int) -> Simd[U8, 16]
+  s.read[Simd[U8, 16]](at)
+
+sub main()
+  s = "0123456789abcdefg"
+  print(load(s, 1) == 0x67)
+  print(load(s, 2))
+
+# expect-panic: byte read out of range: 16 bytes at offset 2 of 17
+
+# release
+
+# expect:
+# [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true]

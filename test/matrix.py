@@ -4,7 +4,7 @@
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
-`drop`, a struct declared `unique`, and a few cells of a struct holding
+`drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
 stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
@@ -280,6 +280,9 @@ TYPES = {
     # which a view's value is copied out as a number's is.
     "plain": dict(ty="P", decls="obj P\n  v: Int\n", mk="P(v: n)", ctor="P(v: 5)"),
     "array": dict(ty="A2", decls="type A2 = [2]Int\n", mk="[n, n + 1]", ctor="[5, 6]"),
+    # A vector: plain data, one value like an Int (Core §1), whose `==`
+    # gives a mask.
+    "simd": dict(ty="Simd[U8, 4]", decls="", mk="Simd[U8, 4].splat(U8(n))", ctor="Simd[U8, 4]([1, 2, 3, 4])"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: List[Int])\n",
                  mk="xs: List[Int] = List()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
@@ -403,7 +406,7 @@ POKES = {
     "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "list": "for i in 0..100\n    !x.push(i)",
     "shared": "x = *N(v: 9)", "box": "x = ^N(v: 9)", "drop": "x = D(v: 9)",
     "unique": "x = U(v: 9)", "enum": "x = S.dot",
-    "plain": "x = P(v: 9)", "array": "x[0] += 1",
+    "plain": "x = P(v: 9)", "array": "x[0] += 1", "simd": "x = x +% 1",
 }
 WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
@@ -2038,7 +2041,7 @@ def program(tname, fname, cname):
     if "recv" in ctx and tname not in ctx["recv"] or tname not in ctx.get("types", (tname,)):
         return None
     if "tail" in ctx:
-        if fname != "call" or tname in ("int", "string", "static", "plain", "array"):
+        if fname != "call" or tname in ("int", "string", "static", "plain", "array", "simd"):
             return None
         write = TAIL_WRITES.get(tname, "print(look(?t))")
         lines = []

@@ -2168,6 +2168,7 @@ pub const TypeResolver = struct {
 
     /// The instance of generic `sym_id` at `args`, spelled at `pos`.
     fn instanceOf(self: *TypeResolver, sym_id: SymbolId, args_in: []const TypeId, pos: u32) Error!TypeId {
+        if (sym_id == self.ctx.simd_sym_id) return simdInstance(self.ctx, args_in, pos);
         const sym = self.ctx.symbols.items[sym_id];
         const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args_in } });
         const inst = self.ctx.types.get(ty).parameterized_nominal;
@@ -2186,6 +2187,31 @@ pub const TypeResolver = struct {
         return ty;
     }
 };
+
+/// `Simd[T, n]`, spelled at `pos`: a vector, a type of its own kind
+/// (`Type.simd`), not a generic instance. Its lanes are a number or
+/// `Bool`, and `n` is a power of two from 2 to 64; a compile-time
+/// parameter `n` is checked at each instance (`Requirement.lane_count`).
+/// Poison after a diagnostic.
+pub fn simdInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!TypeId {
+    const t = &ctx.types;
+    if (args.len != 2 or sema.containsPoison(ctx, args[0]) or sema.containsPoison(ctx, args[1])) return t.invalid_id;
+    const elem = args[0];
+    const len = args[1];
+    if (!sema.isLaneType(ctx, elem)) {
+        try ctx.err(pos, "a lane of a `Simd` is a number or `Bool`; got `{s}`", .{try sema.formatType(ctx, elem)});
+        return t.invalid_id;
+    }
+    switch (t.get(len)) {
+        .ct_value => |v| if (!sema.lanesInRange(v.int)) {
+            try ctx.err(pos, "a lane count is a power of two from 2 to 64; got {d}", .{v.int});
+            return t.invalid_id;
+        },
+        .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .lane_count, .pos = pos, .op = "a lane count" }),
+        else => return t.invalid_id,
+    }
+    return ctx.intern(.{ .simd = .{ .elem = elem, .len = len } });
+}
 
 /// Element-type rules of the built-in generics. An instance over generic
 /// parameters (`List[T]` in `Stack[T]`) is checked for each instantiation
@@ -2390,6 +2416,17 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .{ .name = "little", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
             .{ .name = "big", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
         });
+    }
+
+    // Simd[T, n: Int]: a vector of `n` lanes. An instance is a type of
+    // its own kind (`simdInstance`), whose operators and methods typing
+    // knows; the symbol only names it, so it is reserved like `List`.
+    {
+        const g = try addGeneric(ctx, module_scope, module_scope, "Simd", &.{ "T", "n" });
+        ctx.simd_sym_id = g.sym;
+        const n = ctx.symbols.items[g.sym].type_params.?[1];
+        ctx.symbols.items[n].kind = .param;
+        ctx.symbols.items[n].ty = ctx.types.int_id;
     }
 
     // Signal[T]: a value that copies, plus subscriber closures notified on `set`.

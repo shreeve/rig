@@ -1,0 +1,70 @@
+# Every vector operator and method works where the lane count is a
+# compile-time parameter, decided by the vector type, not by a known
+# count: two vectors, a vector and a scalar or a literal on either side,
+# a view of one, the compound forms, and each method.
+
+fun ops[n: Int](v: Simd[I32, n], w: Simd[I32, n], s: I32) -> U64
+  a = (v + w) - (s * v) + (v - 1) * 2 + (1 - w) + -v
+  b = (v +% w) -% (s *% v) +% 1
+  c = (v & w) | (s ^ v) | (v & 1) | (6 | w)
+  m1 = (v == w) | (v != s) | (s == v) | (v != 3)
+  m2 = (v < w) | (v <= s) | (s > v) | (v >= 2) | (0x20 < w) | (w > 1)
+  m3 = (v < 0) ^ (w >= v)
+  print(a, b, c)
+  (m1 & m2.not() | m3).bits()
+
+fun viewed[n: Int](v: ?Simd[I32, n], w: !Simd[I32, n]) -> Simd[Bool, n]
+  w += v
+  w -= 1
+  w *= 2
+  w +%= v
+  w &= 0x7FFF
+  w |= 1
+  w ^= v
+  w < v
+
+LIM: U8 = 0x20
+
+fun methods[n: Int](v: Simd[U8, n], k: U8) -> Int
+  m = (v < k) & (v < LIM) & (LIM > v)
+  arr = v.array()
+  picked = m.select(v, k)
+  both = m.select(0, 1)
+  z = Simd[U8, n].splat(k)
+  f = Simd[U8, n](arr)
+  print(m.bits(), m.any(), m.all(), m.not().bits(), v.not()[0], picked, both, z == f, v[1], v.with(0, k)[0])
+  Int(arr[n - 1]) + n
+
+fun read[n: Int](s: ?String, at: Int) -> U64
+  (s.read[Simd[U8, n]](at) == 0x22).bits()
+
+obj Window[n: Int]
+  lanes: Simd[U8, n]
+
+  fun low(?self, k: U8) -> Simd[Bool, n]
+    self.lanes < k
+
+sub main()
+  print(ops(Simd[I32, 2]([1, -2]), Simd[I32, 2]([3, 4]), 2))
+  print(ops(Simd[I32, 4]([1, -2, 3, 5]), Simd[I32, 4]([3, 4, -1, 5]), 3))
+  w = Simd[I32, 4].splat(10)
+  print(viewed(?Simd[I32, 4]([1, 2, 3, 4]), !w), w)
+  print(methods(Simd[U8, 4]([1, 9, 3, 7]), 5))
+  print(methods(Simd[U8, 16]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]), 8))
+  s = "0123456789\"bcdef0123456789abcdef0123456789abcdef0123456789abcd\"f"
+  print(read[16](s, 0), read[64](s, 0), read[2](s, 9))
+  win = Window(lanes: Simd[U8, 8]([1, 2, 3, 4, 5, 6, 7, 8]))
+  print(win.low(4), win.low(4).bits())
+
+# expect:
+# [-1, -1] [3, 7] [7, -2]
+# 1
+# [-2, 1, -4, -6] [2, 9, -6, -4] [7, -1, -1, 7]
+# 9
+# [false, false, false, false] [20, 27, 24, 27]
+# 5 true false 10 254 [1, 5, 3, 5] [0, 1, 0, 1] [false, false, false, false] 9 5
+# 11
+# 255 true false 65280 255 [0, 1, 2, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8, 8, 8, 8] [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1] [false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false] 1 8
+# 31
+# 1024 4611686018427388928 2
+# [true, true, true, false, false, false, false, false] 7

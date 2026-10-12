@@ -1,0 +1,9 @@
+# Comparisons do not chain, and `|` binds tighter than `==`, so two
+# masks or Bools are combined with each comparison in parentheses.
+
+sub main()
+  v = Simd[U8, 16].splat(0x22)
+  print(v == 0x22 | v == 0x5C)
+
+# error: 6:23: unexpected `==`; comparisons do not chain, and `|`, `&`, and `^` bind tighter than a comparison: put each comparison in parentheses, `(a == b) | (c == d)`
+# errors: 1

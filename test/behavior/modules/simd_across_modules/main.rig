@@ -1,0 +1,19 @@
+# A vector type, a function taking or making one, and a struct holding
+# one, used from another module, through an alias of the type too.
+
+use lib
+
+sub main()
+  a = lib.ones()
+  b = lib.Block([1, 2, 1, 4])
+  c = lib.Block.splat(3)
+  l = lib.Lexer(ahead: b + c)
+  print(a, b, c, l.first(), l)
+  print(lib.hits(?b, 1), lib.hits(b, 4), lib.widen(b), lib.widen(Simd[U8, 16].splat(254))[15])
+  x: lib.Block = b
+  print(x == b, @name(lib.Block))
+
+# expect:
+# [1, 1, 1, 1] [1, 2, 1, 4] [3, 3, 3, 3] 4 Lexer(ahead: [4, 5, 4, 7])
+# 5 8 [2, 3, 2, 5] 255
+# [true, true, true, true] Simd[U8, 4]
