@@ -1791,7 +1791,7 @@ pub const Emitter = struct {
         const builtin: ?[]const u8 = switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
             .@"<<" => "@shlExact",
-            .@"+", .@"-", .@"*" => self.laneHelper(op, self.typeOf(target)),
+            .@"+", .@"-", .@"*" => self.laneHelper(set, op),
             else => null,
         };
         const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
@@ -4192,7 +4192,7 @@ pub const Emitter = struct {
                 const operand = ir.Neg.operand(sexp);
                 // Zig rejects the literal `-0` as ambiguous; `0 - 0` is 0.
                 if (operand == .src and isIntZeroText(self.srcText(operand))) return self.w.writeAll("0");
-                if (self.laneHelper(.neg, self.typeOf(sexp))) |helper| {
+                if (self.laneHelper(sexp, .neg)) |helper| {
                     try self.w.print("{s}(", .{helper});
                     try self.emitBare(operand);
                     return self.w.writeAll(")");
@@ -4324,23 +4324,19 @@ pub const Emitter = struct {
         try self.emitPlace(place);
     }
 
-    /// The runtime helper that checks `op` on the integer lanes of a
-    /// vector of type `ty`, or null when `ty` is not one. Zig's own
-    /// vector `+`, `-`, `*`, and `-` test LLVM's overflow bits, which
-    /// aarch64 gets wrong for wide byte vectors (see `rig.vecAdd`).
-    fn laneHelper(self: *Emitter, op: Tag, ty: ?TypeId) ?[]const u8 {
-        const t = ty orelse return null;
-        const simd = switch (self.facts.types.get(self.peelViews(t))) {
-            .simd => |v| v,
-            else => return null,
-        };
-        if (self.facts.types.get(simd.elem) != .int) return null;
+    /// The runtime helper that checks the arithmetic `e` on the integer
+    /// lanes of a vector, or null when `e` is not that (`storage.laneChecked`,
+    /// a recorded fact). Zig's own vector `+`, `-`, `*`, and `-` test LLVM's
+    /// overflow bits, which aarch64 gets wrong for wide byte vectors (see
+    /// `rig.vecAdd`).
+    fn laneHelper(self: *Emitter, e: Sexp, op: Tag) ?[]const u8 {
+        if (!(self.facts.laneChecked(e) orelse false)) return null;
         return switch (op) {
             .@"+" => "rig.vecAdd",
             .@"-" => "rig.vecSub",
             .@"*" => "rig.vecMul",
             .neg => "rig.vecNeg",
-            else => null,
+            else => unreachable,
         };
     }
 
@@ -4396,7 +4392,7 @@ pub const Emitter = struct {
         };
         // An add known not to overflow (`provenOf`).
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
-        if (self.laneHelper(kind, self.typeOf(sexp))) |helper| {
+        if (self.laneHelper(sexp, kind)) |helper| {
             try self.w.print("{s}(", .{helper});
             try self.emitBare(operands[0]);
             try self.w.writeAll(", ");

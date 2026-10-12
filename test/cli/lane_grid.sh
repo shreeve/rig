@@ -16,3 +16,7 @@ python3 "$ROOT/test/lanes/lane_grid.py" --impl rig --jobs "$jobs" --zig "${ZIG:-
 # The same operations as Rig programs, in debug and with --release.
 python3 "$ROOT/test/lanes/rig_grid.py" "$RIG" --jobs "$jobs" || fail "the Rig lane grid in debug"
 python3 "$ROOT/test/lanes/rig_grid.py" "$RIG" --release --jobs "$jobs" || fail "the Rig lane grid with --release"
+
+# Compound assignment through every kind of place.
+python3 "$ROOT/test/lanes/place_grid.py" "$RIG" --jobs "$jobs" || fail "the place grid in debug"
+python3 "$ROOT/test/lanes/place_grid.py" "$RIG" --release --jobs "$jobs" || fail "the place grid with --release"

@@ -412,6 +412,11 @@ pub const Facts = struct {
     pub fn argumentHold(f: Facts, v: Sexp) ?ArgumentHold {
         return storage.decided(f.c(), v, .argument_hold);
     }
+    /// Whether arithmetic on vector lanes is made by a checking runtime
+    /// helper (`storage.laneChecked`).
+    pub fn laneChecked(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .lane_checked);
+    }
     pub fn isPureArg(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .pure_arg);
     }
