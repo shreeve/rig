@@ -1,0 +1,97 @@
+# `m.first()` is the index of the first true lane of a mask, or `none`.
+# Every lane count, every single true lane, every run of true lanes from
+# a lane on, and the scans built on it agree with a scan byte by byte.
+
+QUOTE: U8 = 0x22
+BACKSLASH: U8 = 0x5C
+
+fun slow(s: ?String, at: Int) -> Int
+  i = at
+  while i < s.len : i += 1
+    return i if s[i] == QUOTE or s[i] == BACKSLASH
+  s.len
+
+fun tail(s: ?String, at: Int) -> Int
+  i = at
+  while i < s.len : i += 1
+    return i if s[i] == QUOTE or s[i] == BACKSLASH
+  s.len
+
+# `first` gates itself: the one nibble mask is tested and located.
+fun scan16(s: ?String, at: Int) -> Int
+  i = at
+  while i + 16 <= s.len : i += 16
+    v = s.read[Simd[U8, 16]](i)
+    if ((v == QUOTE) | (v == BACKSLASH)).first() as k
+      return i + k
+  tail(s, i)
+
+fun scan16_or(s: ?String, at: Int) -> Int
+  i = at
+  while i + 16 <= s.len : i += 16
+    v = s.read[Simd[U8, 16]](i)
+    k = ((v == QUOTE) | (v == BACKSLASH)).first() ?? 16
+    return i + k if k < 16
+  tail(s, i)
+
+fun scan64(s: ?String, at: Int) -> Int
+  i = at
+  while i + 64 <= s.len : i += 64
+    v = s.read[Simd[U8, 64]](i)
+    if ((v == QUOTE) | (v == BACKSLASH)).first() as k
+      return i + k
+  scan16(s, i)
+
+fun scan32(s: ?String, at: Int) -> Int
+  i = at
+  while i + 32 <= s.len : i += 32
+    v = s.read[Simd[U8, 32]](i)
+    if ((v == QUOTE) | (v == BACKSLASH)).first() as k
+      return i + k
+  scan16(s, i)
+
+fun every_lane8(from: Int) -> Int
+  lanes: [8]Bool = [false, false, false, false, false, false, false, false]
+  for j in from..8
+    lanes[j] = true
+  m = Simd[Bool, 8](lanes)
+  (m.first() ?? -1)
+
+sub main()
+  v2 = Simd[U8, 2]([5, 7])
+  print((v2 > 9).first(), (v2 > 5).first(), (v2 > 1).first())
+  v4 = Simd[I64, 4]([5, -1, 5, 0])
+  print((v4 == 5).first(), (v4 < 0).first(), (v4 > 9).first())
+  wrong = 0
+  for j in 0..9
+    want = j if j < 8 else -1
+    wrong += 1 if every_lane8(j) != want
+  s = String()
+  for _ in 0..200
+    !s.push(0x41)
+  checks = 0
+  for n in 0..201
+    for k in 0..3
+      t = String()
+      for i in 0..n
+        !t.push(0x22 if k == 0 and i == n - 1 else (0x5C if k == 1 and i == n / 2 else 0x41))
+      for at in 0..(n + 1)
+        want = slow(?t, at)
+        checks += 1
+        wrong += 1 if scan16(?t, at) != want or scan16_or(?t, at) != want
+        wrong += 1 if scan32(?t, at) != want or scan64(?t, at) != want
+  print(checks, wrong)
+  b = Simd[U8, 16].splat(0)
+  hits = 0
+  for j in 0..16
+    m = b.with(j, 1) == 1
+    hits += 1 if m.first() == j
+    hits += 1 if (m | (b.with(15, 1) == 1)).first() == j
+  none16 = (b == 1).first()
+  print(hits, none16)
+
+# expect:
+# none 1 0
+# 0 1 none
+# 60903 0
+# 32 none
