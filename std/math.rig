@@ -66,12 +66,12 @@ pub fun mod(a: Int, b: Int) -> Int
 # A finite float as decimal digits: `|f| = digits * 10^exp`.
 pub obj Decimal
   # Whether the sign bit is set, also of a zero.
-  neg: Bool
+  pub neg: Bool
   # The shortest digits that read back as the same float, without a
   # trailing zero; 0 for a zero.
-  digits: U64
+  pub digits: U64
   # The power of ten that scales `digits`; 0 for a zero.
-  exp: Int
+  pub exp: Int
 
 # The shortest decimal digits and exponent that read back as exactly `f`,
 # or `none` for NaN and the infinities. It allocates nothing.
