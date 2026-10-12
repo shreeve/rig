@@ -1,0 +1,29 @@
+# A function keeps at most 13 MiB of values on its stack, since the stack
+# holds 16 MiB and the frames below also need room. Two arrays of 7.2 MB
+# are over it, a call result a binding takes counts twice (a debug build
+# holds it in a temporary first), and a closure's body is a frame of its
+# own. The error names the largest locals.
+
+fun make(k: Int) -> [900000]Int
+  [900000 of k]
+
+fun two_arrays(i: Int) -> Int
+  a = [900000 of 1]
+  b = [900000 of 2]
+  a[i] + b[i]
+
+fun two_calls(i: Int) -> Int
+  a = make(i)
+  b = make(i + 1)
+  a[i] + b[i]
+
+sub main()
+  f = |k: Int|
+    p = [900000 of k]
+    q = [900000 of k]
+    p[0] + q[0]
+  print(two_arrays(1), two_calls(1), f(1))
+
+# error: 10:5: `two_arrays` keeps 14400008 bytes of values on its stack; a function keeps at most 13631488 (13 MiB), since the stack holds 16 MiB. Its largest: `a` (7200000 bytes), `b` (7200000 bytes)
+# error: 15:5: `two_calls` keeps 28800008 bytes
+# error: 21:7: a closure keeps 14400008 bytes

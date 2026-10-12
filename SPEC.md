@@ -418,13 +418,20 @@ A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
 array, a struct or an enum, and each instance of a generic type or
 function, for the arrays it makes and, for a type, for itself. A
 `Cell` or `Signal` holds its value inline, so it counts at the size of
-what it holds. The values a function keeps on its stack take at most 16 MiB together: the
-bindings it declares and its by-value parameters, each once, and every
-array literal, fill, and call whose value no binding takes directly.
-This holds for every function, method, closure (whose captures count
-where it is made), test, and `main`, and for each instance of a
-generic one. The stack holds 16 MiB, so a function that keeps more
-could never run. Larger data belongs in a `List`, which keeps its
+what it holds. The values a function keeps on its stack take at most 13 MiB together:
+the bindings it declares and its by-value parameters, each once, every
+array literal and fill whose value no binding takes directly, and every
+call of a function or method (twice when a binding takes its result,
+since a debug build holds it in a temporary first). The frames of the
+small functions inlined into it count too, and a call that would take
+the frame over the limit is not inlined. This holds for every function,
+method, closure (whose captures count where it is made), test, and
+`main`, and for each instance of a generic one. The stack holds 16 MiB,
+and the frames below the one that overflows need room too. Only one
+frame is checked: how deeply calls nest, by recursion or a long chain,
+is not known, so a chain of frames that each fit can still run off the
+stack, which stops the program as below. The error names the largest
+locals; keep large data in a box (`^T`) or a `List`, which holds its
 elements on the heap. A value or function too large is reported once;
 a type or function holding a value too large is not reported again.
 
@@ -452,7 +459,7 @@ sub main()
 
 ```error
 `Grid` takes 8388672 bytes; a value takes at most 8388608 (8 MiB)
-`sums` keeps 19200008 bytes of values on its stack; a function keeps at most 16777216 (16 MiB)
+`sums` keeps 19200008 bytes of values on its stack; a function keeps at most 13631488 (13 MiB)
 `[2000000]Int` takes 16000000 bytes
 ```
 

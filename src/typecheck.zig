@@ -12846,7 +12846,9 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 /// `sema.max_frame_bytes` of values on its stack: each binding it
 /// declares and each by-value parameter, once, and each array literal,
 /// fill, and call whose value no binding takes directly (a temporary). A
-/// closure's captures count in the frame that makes it. A frame whose
+/// closure's captures count in the frame that makes it. A call's result
+/// counts twice when a binding takes it, since a debug build holds it in a
+/// temporary first. A frame whose
 /// size depends on generic parameters is checked at each instance
 /// (`checkInstanceSizes`).
 pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
@@ -12855,21 +12857,27 @@ pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
 }
 
 /// The bytes of values the `fun` or `sub` `node` keeps on its stack, as
-/// `checkFrames` counts them, for a function with no closure; null when
-/// that depends on generic parameters or follows an error.
+/// `checkFrames` counts them, not counting the frames of its closures; null
+/// when that depends on generic parameters or follows an error.
 pub fn frameBytesOfFunction(ctx: *SemContext, node: Sexp) Error!?u128 {
-    var w: FrameWalker = .{ .ctx = ctx };
+    var w: FrameWalker = .{ .ctx = ctx, .captures_only = true };
     var slots: FrameWalker.Slots = .empty;
     defer slots.deinit(ctx.allocator);
     for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false);
-    for (slots.items) |ty| if (sema.containsTypeVar(ctx, ty)) return null;
-    return frameBytes(ctx, slots.items);
+    const tys = try ctx.arena.allocator().alloc(TypeId, slots.items.len);
+    for (slots.items, tys) |s, *t| t.* = s.ty;
+    for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) return null;
+    return frameBytes(ctx, tys);
 }
 
 const FrameWalker = struct {
     ctx: *SemContext,
+    /// Walking one function for its size alone: a closure's body is a frame
+    /// of its own, which `checkFrames` reports, so only its captures count.
+    captures_only: bool = false,
 
-    const Slots = std.ArrayList(TypeId);
+    const Slot = struct { ty: TypeId, name: []const u8 };
+    const Slots = std.ArrayList(Slot);
 
     fn walk(self: *FrameWalker, node: Sexp, frame: ?*Slots, bound: bool) Error!void {
         const ctx = self.ctx;
@@ -12882,7 +12890,7 @@ const FrameWalker = struct {
                 else => return,
             }
             if (sym.decl_pos != node.src.pos or sym.flags.comptime_known or sym.scope == sema.module_scope) return;
-            try f.append(ctx.allocator, sym.ty);
+            try f.append(ctx.allocator, .{ .ty = sym.ty, .name = sym.name });
             return;
         }
         // A group (a parameter list) has no kind.
@@ -12904,6 +12912,7 @@ const FrameWalker = struct {
             .lambda => {
                 // The captures are stored where the closure is made.
                 try self.walk(ir.Lambda.captures(node), frame, false);
+                if (self.captures_only) return;
                 try self.frameOf("a closure", ctx.startOf(node), &.{ ir.Lambda.params(node), ir.Lambda.body(node) });
             },
             .set => {
@@ -12912,12 +12921,24 @@ const FrameWalker = struct {
             },
             else => {
                 if (frame) |f| switch (kind) {
-                    .array, .array_fill, .call => if (!bound) if (ctx.typeOf(node)) |ty| try f.append(ctx.allocator, ty),
+                    .array, .array_fill => if (!bound) if (ctx.typeOf(node)) |ty| try f.append(ctx.allocator, .{ .ty = ty, .name = "" }),
+                    .call => if (ctx.typeOf(node)) |ty| {
+                        // A constructor builds its value where a binding takes it.
+                        if (!bound or self.callsFunction(node)) try f.append(ctx.allocator, .{ .ty = ty, .name = "" });
+                    },
                     else => {},
                 };
                 for (rig.children(node)) |c| try self.walk(c, frame, false);
             },
         }
+    }
+
+    /// Whether `call` calls a function or method, not a type's constructor.
+    fn callsFunction(self: *FrameWalker, call: Sexp) bool {
+        const callee = self.ctx.calleeOf(call);
+        if (callee.isKind(.member)) return true;
+        const id = self.ctx.symbolOf(callee) orelse return false;
+        return self.ctx.symbols.items[id].kind == .function;
     }
 
     /// The frame of the body `parts` make up, checked now or, when its
@@ -12927,14 +12948,21 @@ const FrameWalker = struct {
         var slots: Slots = .empty;
         defer slots.deinit(ctx.allocator);
         for (parts) |p| try self.walk(p, &slots, false);
-        const tys = slots.items;
-        if (tys.len == 0) return;
+        const items = slots.items;
+        if (items.len == 0) return;
+        const arena = ctx.arena.allocator();
+        const tys = try arena.alloc(TypeId, items.len);
+        const names = try arena.alloc([]const u8, items.len);
+        for (items, tys, names) |s, *t, *n| {
+            t.* = s.ty;
+            n.* = s.name;
+        }
         for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
-            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = try ctx.arena.allocator().dupe(TypeId, tys) });
+            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names });
             return;
         };
         const bytes = (try frameBytes(ctx, tys)) orelse return;
-        if (bytes > sema.max_frame_bytes) try reportFrame(ctx, pos, label, bytes, null);
+        if (bytes > sema.max_frame_bytes) try reportFrame(ctx, pos, label, bytes, null, tys, names);
     }
 };
 
@@ -12951,9 +12979,28 @@ fn frameBytes(ctx: *SemContext, tys: []const TypeId) Error!?u128 {
     return total;
 }
 
-fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?sema.InstanceRoot) Error!void {
+fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8) Error!void {
     const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
-    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (16 MiB), the size of the stack. Keep large data in a `List`", .{ label, bytes, in, sema.max_frame_bytes });
+    // The three largest, by name where a local has one.
+    var top: [3]usize = undefined;
+    var n: usize = 0;
+    for (tys, 0..) |ty, i| {
+        const b = (try sema.minBytes(ctx, ty)) orelse 0;
+        var at = n;
+        while (at > 0 and (try sema.minBytes(ctx, tys[top[at - 1]])).? < b) : (at -= 1) {}
+        if (at >= top.len) continue;
+        if (n < top.len) n += 1;
+        var j = n - 1;
+        while (j > at) : (j -= 1) top[j] = top[j - 1];
+        top[at] = i;
+    }
+    var largest: std.ArrayList(u8) = .empty;
+    for (top[0..n], 0..) |i, k| {
+        const b = (try sema.minBytes(ctx, tys[i])) orelse 0;
+        const what = if (names[i].len > 0) try ctx.arena.allocator().print("`{s}`", .{names[i]}) else "a temporary";
+        try largest.appendSlice(ctx.arena.allocator(), try ctx.arena.allocator().print("{s}{s} ({d} bytes)", .{ if (k == 0) "" else ", ", what, b }));
+    }
+    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (13 MiB), since the stack holds 16 MiB. Its largest: {s}. Keep large data on the heap, in a box (`^T`) or a `List`", .{ label, bytes, in, sema.max_frame_bytes, largest.items });
 }
 
 /// The arrays a generic declaration makes, in one instance, and a generic
@@ -13001,7 +13048,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         }
         const bytes = (try frameBytes(ctx, buf.items)) orelse continue;
         if (bytes <= sema.max_frame_bytes) continue;
-        try reportFrame(ctx, at, fr.label, bytes, of);
+        try reportFrame(ctx, at, fr.label, bytes, of, buf.items, fr.names);
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;
     }

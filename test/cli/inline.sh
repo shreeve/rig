@@ -188,3 +188,22 @@ expect_lacks "$out" 'inline fn next' "an iterator that loops over itself"
 # result is a run-time value.
 out=$(emit small.rig)
 expect_has "$out" 'rig.print(.{ rig.rt(next(41)) })' "a call of an inlined function"
+
+# A function that keeps nearly all of `sema.max_frame_bytes` calls what
+# would take it over, though the callee is small enough to inline.
+cat >framefull.rig <<'RIG'
+fun bump(i: Int) -> Int
+  t = [4000 of i]
+  t[i % 4000] + 1
+
+fun near(i: Int) -> Int
+  a = [850000 of 1]
+  b = [850000 of 2]
+  bump(i) + a[i] + b[i]
+
+sub main()
+  print(near(3))
+RIG
+out=$(emit framefull.rig)
+expect_has "$out" 'pub fn bump(' "a callee that would overfill the caller's frame"
+expect_has "$out" 'pub fn near(' "the caller"

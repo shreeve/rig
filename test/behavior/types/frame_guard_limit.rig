@@ -1,0 +1,38 @@
+# A function may keep up to 13 MiB of values on its stack: two arrays of
+# 6.8 MB, call results a binding takes (counted twice), and a function
+# whose frame an inlined callee would push over the limit all run.
+
+fun make(k: Int) -> [400000]Int
+  [400000 of k]
+
+fun bump(i: Int) -> Int
+  t = [4000 of i]
+  t[i % 4000] + 1
+
+sub two_arrays(i: Int)
+  a = [850000 of 1]
+  b = [850000 of 2]
+  b[i] += a[i]
+  print(b[i], a.len + b.len)
+
+sub two_calls(i: Int)
+  a = make(i)
+  b = make(i + 1)
+  print(a[i] + b[i], a.len + b.len)
+
+# `bump` is small enough to inline, but would take the frame over 13 MiB,
+# so it is called.
+sub near_limit(i: Int)
+  a = [850000 of 1]
+  b = [850000 of 2]
+  print(bump(i) + a[i] + b[i])
+
+sub main()
+  two_arrays(849999)
+  two_calls(7)
+  near_limit(3)
+
+# expect:
+# 3 1700000
+# 15 800000
+# 7

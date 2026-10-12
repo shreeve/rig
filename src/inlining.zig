@@ -41,8 +41,9 @@ pub const max_size = 60;
 
 /// The most bytes of values the inlined calls in one function may add to
 /// its frame. Zig puts the locals of an inlined body in the caller's
-/// frame, and the stack guard (`rig.guardStack`) is sized for a frame of
-/// 16 MiB, which `typecheck.checkFrames` holds each function to.
+/// frame, so a function's own frame with the inlined ones in it also stays
+/// within `sema.max_frame_bytes`, which `typecheck.checkFrames` holds the
+/// function's own frame to: inlining stops short of a frame that big.
 pub const max_inlined_frame_bytes: u128 = 64 << 10;
 
 /// The most nodes an inlined function may expand to at a call, counting
@@ -64,7 +65,8 @@ const Fn = struct {
     /// Mentioned other than as a callee.
     used_as_value: bool = false,
     calls: std.ArrayList(u32) = .empty,
-    /// The bytes of values it keeps on its stack, once it is a candidate.
+    /// The bytes of values it keeps on its stack; 0 when that depends on
+    /// generic parameters.
     own: u128 = 0,
     inlined: bool = false,
     /// Its frame with the inlined calls in it (`frames`).
@@ -266,7 +268,8 @@ const Pass = struct {
     }
 
     /// Stop inlining until no function adds more than
-    /// `max_inlined_frame_bytes` to its frame, no inlined function has a
+    /// `max_inlined_frame_bytes` to its frame, no function has a frame of
+    /// more than `sema.max_frame_bytes` with the inlined calls in it, no inlined function has a
     /// frame of more than that, and none expands to more than
     /// `max_expanded` nodes.
     fn fit(self: *Pass) void {
@@ -284,7 +287,7 @@ const Pass = struct {
                     again = true;
                     break;
                 }
-                if (self.added(v) <= max_inlined_frame_bytes) continue;
+                if (self.added(v) <= max_inlined_frame_bytes and f.own + self.added(v) <= sema.max_frame_bytes) continue;
                 // The largest of the inlined calls.
                 var biggest: ?u32 = null;
                 for (f.calls.items) |w| {
@@ -367,10 +370,12 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     for (mods, 0..) |m, i| try pass.visit(i, null, m.ir);
     for (0..pass.fns.items.len) |v| if (pass.fns.items[v].index == 0) try pass.strong(@intCast(v));
     for (pass.fns.items) |*f| {
+        if (ir.get(f.node, .body) == .nil) continue;
+        f.own = (try typecheck.frameBytesOfFunction(mods[f.module].sema, f.node)) orelse continue;
+    }
+    for (pass.fns.items) |*f| {
         if (!f.eligible or f.used_as_value or f.cyclic or f.size > max) continue;
-        const own = (try typecheck.frameBytesOfFunction(mods[f.module].sema, f.node)) orelse continue;
-        if (own > max_inlined_frame_bytes) continue;
-        f.own = own;
+        if (f.own > max_inlined_frame_bytes) continue;
         f.inlined = true;
     }
     pass.fit();

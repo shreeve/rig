@@ -1,6 +1,6 @@
 # The values a function keeps on its stack (its locals, its by-value
-# parameters, and the arrays and call results it does not bind) take at
-# most 16 MiB together, the size of the stack. Closures, `main`, and
+# parameters, the arrays it does not bind, and its call results) take at
+# most 13 MiB together (the stack holds 16 MiB). Closures, `main`, and
 # each instance of a generic function or type are checked the same way.
 
 obj Ring[T, n: Int]
@@ -42,7 +42,7 @@ sub main()
   ring = *Ring[Int, 700000](items: [700000 of 0])
   print(big(1), params(x, y, z), temps(1), triple[700000](1), f(1), ring.spread())
 
-# error: 15:5: `big` keeps 24000008 bytes of values on its stack; a function keeps at most 16777216 (16 MiB)
+# error: 15:5: `big` keeps 24000008 bytes of values on its stack; a function keeps at most 13631488 (13 MiB)
 # error: 21:5: `params` keeps 16800000 bytes
 # error: 24:5: `temps` keeps 16800008 bytes
 # error: 33:5: `main` keeps
