@@ -408,8 +408,9 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 | its instance | `Ring<i64, 4>` | `Ring(i64, 4)` | `Ring[Int, 4]` |
 | a filled array | `[0; N]` | `@as([n]i64, @splat(0))` | `[n of 0]` |
 
-Square brackets hold everything known at compile time, types and
-values alike, and parentheses what is known when the program runs. Zig
+After a name, square brackets give compile-time arguments, types and
+values alike, and parentheses give run-time ones. Indexing is the one
+familiar exception. Zig
 passes types and compile-time values the same way, as `comptime`
 parameters, and Rig puts them all in brackets, so a call shows which
 arguments shape the code. Brackets also keep type arguments apart from
