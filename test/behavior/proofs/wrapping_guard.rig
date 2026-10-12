@@ -1,0 +1,19 @@
+# The checked `i + 8 <= s.len`, from `i = 0`, proves the read.
+
+fun count(s: ?String) -> Int
+  i = 0
+  n = 0
+  while i + 8 <= s.len
+    x = s.read[U64, .little](i) # proves: read lower upper
+    n += 1
+    print(x)
+    i += 8
+  n
+
+sub main()
+  print(count("abcdefghij"))
+
+# release
+# expect:
+# 7523094288207667809
+# 1

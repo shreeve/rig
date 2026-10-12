@@ -1,0 +1,18 @@
+# The loop's body sees its guard.
+
+fun last(s: ?String) -> U8
+  i = 0
+  c: U8 = 0
+  while i < s.len
+    c = s[i] # proves: index lower upper
+    i += 1
+  else
+    return c
+  0
+
+sub main()
+  print(last("abc"))
+
+# release
+# expect:
+# 99

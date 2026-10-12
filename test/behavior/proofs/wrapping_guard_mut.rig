@@ -1,0 +1,18 @@
+# `i +% 8 <= s.len` says nothing about `i + 8`: the sum wraps, the guard
+# passes, and the read keeps both its tests.
+
+fun count(s: ?String, at: Int) -> Int
+  i = at
+  n = 0
+  while i +% 8 <= s.len
+    x = s.read[U64, .little](i) # keeps: read lower upper
+    n += 1
+    print(x)
+    i += 8
+  n
+
+sub main()
+  print(count("abcdefghij", Int.max - 3))
+
+# release
+# expect-panic: byte read out of range

@@ -1,0 +1,16 @@
+# A `match` arm that writes `i` ends the guard after the `match`.
+
+fun pick(s: ?String, at: Int, k: Int) -> U8
+  i = at
+  if i < s.len
+    match k
+      1 => i += 1
+      _ => pass
+    return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(pick("abc", 2, 1))
+
+# release
+# expect-panic: index out of bounds

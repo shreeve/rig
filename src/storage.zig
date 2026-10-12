@@ -1232,7 +1232,26 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < p.used.bit_length) p.used.set(s.origin);
     try p.walk(tree);
     try planConsumed(ctx, tree);
+    try rig.eachBody(tree, ctx, planUnits);
     verifyDecisions(ctx);
+}
+
+/// Record the units of a body (`rig.eachUnit`): the innermost one
+/// holding each node (`SemContext.unitOf`), which emit asserts each
+/// check, write, and hidden storage it writes sits in.
+fn planUnits(ctx: *SemContext, owner: Sexp, body: Sexp) !void {
+    _ = owner;
+    const Units = struct {
+        ctx: *SemContext,
+        pub fn enter(u: @This(), root: Sexp, kind: rig.UnitKind) std.mem.Allocator.Error!void {
+            var arena = std.heap.ArenaAllocator.init(u.ctx.allocator);
+            defer arena.deinit();
+            const parts: []const Sexp = if (kind == .selection) try rig.selectionParts(arena.allocator(), root) else &.{root};
+            try u.ctx.recordUnit(root, kind, parts);
+        }
+        pub fn exit(_: @This(), _: Sexp) std.mem.Allocator.Error!void {}
+    };
+    try rig.eachUnit(body, Units{ .ctx = ctx });
 }
 
 /// Record the bindings a use may move out (`SemContext.consumed`): the

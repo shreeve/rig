@@ -91,7 +91,9 @@ whose value does not fit panic in debug and safe builds.
 The fast mode is the one outside that guarantee: it drops the
 overflow and conversion checks, so there an overflow or an out-of-range
 conversion is undefined behavior. Indexing and slicing stay checked in
-every mode.
+every mode; a test the compiler proves already passed (a guard or an
+earlier check made it on every path, and nothing it tested changed
+since) is not repeated.
 
 ---
 
@@ -117,6 +119,8 @@ Every named type is an owner, and a view is never a name: it is written
 
 `Int` is `I64` and `Float` is `F64`: one type under two names. Every
 other numeric type is distinct, and there are no implicit conversions.
+A length read as an `Int` is below 2^62; a longer one panics (no target
+holds one).
 A literal takes the numeric type its context expects, and must fit it
 (a float literal, its range; an integer literal given a float type,
 exactly). Constant arithmetic is checked at compile time. Arithmetic on

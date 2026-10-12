@@ -110,6 +110,190 @@ pub fn isJump(e: Sexp) bool {
     return std.mem.findScalar(Tag, &jump_kinds, k) != null;
 }
 
+/// Call `f(ctx, owner, body)` for the body of each function, `sub`,
+/// `test`, and `drop` declared in module `root`, members of types
+/// included: the bodies `eachUnit` lists the units of.
+pub fn eachBody(root: Sexp, ctx: anytype, comptime f: anytype) !void {
+    if (root.kind() != .module) return;
+    for (ir.Module.decls(root)) |d| try bodiesOfDecl(d, ctx, f);
+}
+
+fn bodiesOfDecl(decl: Sexp, ctx: anytype, comptime f: anytype) !void {
+    switch (decl.kind() orelse return) {
+        .@"pub" => try bodiesOfDecl(ir.Pub.decl(decl), ctx, f),
+        .fun, .sub, .drop_decl, .@"test" => if (ir.get(decl, .body) != .nil) try f(ctx, decl, ir.get(decl, .body)),
+        .@"struct", .@"enum", .generic_struct, .generic_enum => for (ir.rest(decl, .members)) |m| try bodiesOfDecl(m, ctx, f),
+        else => {},
+    }
+}
+
+/// What a unit is (`eachUnit`).
+pub const UnitKind = enum {
+    /// A statement of a block that orders no others (`structured_kinds`).
+    stmt,
+    /// The step of a `while`.
+    step,
+    /// A guard part of an `if` or `while` condition: an `as` part, or an
+    /// operand of the top `and` chain of any other part.
+    guard,
+    /// The source of a `for`.
+    source,
+    /// A statement `match`'s selection: its subject, every pattern, and
+    /// every guard, which run before an arm's body and never after it.
+    selection,
+    /// A `raw` block, opaque: no unit is listed inside it.
+    raw,
+};
+
+/// The statements that order the units they hold, and are no unit
+/// themselves: the skeleton `eachUnit` walks. Every other statement is
+/// one unit.
+pub const structured_kinds = [_]Tag{ .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" };
+
+/// Whether statement `stmt` is a structured one (`structured_kinds`).
+pub fn isStructured(stmt: Sexp) bool {
+    const k = stmt.kind() orelse return false;
+    return std.mem.findScalar(Tag, &structured_kinds, k) != null;
+}
+
+/// Call `visitor.enter(root, kind)` and `visitor.exit(root)` around each
+/// unit of a function or closure body, in the order the body runs them
+/// (docs/INTERNALS.md, "Proven checks"). A unit is a part of a body
+/// inside which nothing is ordered: a statement, a guard part, a `while`
+/// step, a `for` source, a statement `match`'s selection, or a `raw`
+/// block. A block inside a unit's expression (an arm of a value `match`,
+/// a branch of a value `if`, a `catch` handler, a loop's body) and a
+/// closure's body hold units of their own, listed between the enter and
+/// the exit of the unit around them. The selection's root is the `match`
+/// node; its nodes are the subject, the patterns, and the guards
+/// (`selectionParts`). The one list of a body's units: the storage plan
+/// records each node's unit from it (`SemContext.unitOf`), and the proof
+/// pass and emit enter the same units.
+pub fn eachUnit(body: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    try unitsOfBranch(body, visitor);
+}
+
+/// The errors a unit visitor's `enter` may return, which every step of
+/// `eachUnit` passes on.
+fn VisitError(comptime V: type) type {
+    const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
+    return @typeInfo(@typeInfo(@TypeOf(T.enter)).@"fn".return_type.?).error_union.error_set;
+}
+
+/// A branch: a block, or one statement.
+fn unitsOfBranch(b: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    if (b.isKind(.block)) {
+        for (ir.Block.stmts(b)) |s| try unitsOfStmt(s, visitor);
+        return;
+    }
+    if (b != .nil) try unitsOfStmt(b, visitor);
+}
+
+fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    const kind = stmt.kind() orelse return unitOf(stmt, .stmt, visitor);
+    switch (kind) {
+        .block => try unitsOfBranch(stmt, visitor),
+        .@"if" => {
+            try unitsOfCond(ir.If.cond(stmt), visitor);
+            try unitsOfBranch(ir.If.then(stmt), visitor);
+            try unitsOfBranch(ir.If.@"else"(stmt), visitor);
+        },
+        .@"while" => {
+            try unitsOfCond(ir.While.cond(stmt), visitor);
+            try unitsOfBranch(ir.While.body(stmt), visitor);
+            if (ir.While.step(stmt) != .nil) try unitOf(ir.While.step(stmt), .step, visitor);
+            try unitsOfBranch(ir.While.@"else"(stmt), visitor);
+        },
+        .@"for" => {
+            try unitOf(ir.For.source(stmt), .source, visitor);
+            try unitsOfBranch(ir.For.body(stmt), visitor);
+            try unitsOfBranch(ir.For.@"else"(stmt), visitor);
+        },
+        .match => {
+            try unitOf(stmt, .selection, visitor);
+            for (ir.Match.arms(stmt)) |arm| try unitsOfBranch(ir.Arm.body(arm), visitor);
+        },
+        .labeled => try unitsOfStmt(ir.Labeled.stmt(stmt), visitor),
+        .@"defer", .@"errdefer" => try unitsOfBranch(ir.get(stmt, .body), visitor),
+        .raw_block => try unitOf(stmt, .raw, visitor),
+        else => try unitOf(stmt, .stmt, visitor),
+    }
+}
+
+/// The guard parts of a condition (`eachGuardPart`), each `and` operand
+/// of a part that binds nothing its own unit.
+fn unitsOfCond(cond: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    const Parts = struct {
+        v: @TypeOf(visitor),
+        pub fn part(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
+            try eachGuardOperand(p, self, @This().unit);
+        }
+        fn unit(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
+            try unitOf(p, .guard, self.v);
+        }
+    };
+    try eachGuardPart(cond, Parts{ .v = visitor });
+}
+
+/// Call `f(ctx, e)` for each operand of guard part `part`'s top `and`
+/// chain, left to right, or for the part itself: an `as` part, or one
+/// that is no `and`. Zig's `and` runs each only when those before it
+/// held, as Rig's does.
+pub fn eachGuardOperand(part: Sexp, ctx: anytype, comptime f: anytype) !void {
+    if (part.isKind(.@"and")) {
+        try eachGuardOperand(ir.get(part, .left), ctx, f);
+        return eachGuardOperand(ir.get(part, .right), ctx, f);
+    }
+    try f(ctx, part);
+}
+
+/// The nodes of a statement `match`'s selection unit: its subject, then
+/// each arm's pattern and guard.
+pub fn selectionParts(a: std.mem.Allocator, match: Sexp) ![]const Sexp {
+    var out: std.ArrayList(Sexp) = .empty;
+    try out.append(a, ir.Match.subject(match));
+    for (ir.Match.arms(match)) |arm| {
+        try out.append(a, ir.Arm.pattern(arm));
+        if (ir.Arm.guard(arm) != .nil) try out.append(a, ir.Arm.guard(arm));
+    }
+    return out.items;
+}
+
+fn unitOf(root: Sexp, kind: UnitKind, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    // A leaf (a name, a literal) holds nothing to check or write.
+    if (root != .list) return;
+    try visitor.enter(root, kind);
+    switch (kind) {
+        // Nothing inside `raw` is a unit of its own.
+        .raw => {},
+        .selection => {
+            try nestedUnits(ir.Match.subject(root), visitor);
+            for (ir.Match.arms(root)) |arm| {
+                try nestedUnits(ir.Arm.pattern(arm), visitor);
+                try nestedUnits(ir.Arm.guard(arm), visitor);
+            }
+        },
+        else => try nestedUnits(root, visitor),
+    }
+    try visitor.exit(root);
+}
+
+/// The units of the blocks and closure bodies inside a unit's expression.
+/// A visitor with a `nest` method is given each such block before and
+/// after its units.
+fn nestedUnits(e: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
+    if (e != .list) return;
+    if (e.isKind(.block)) {
+        const V = @TypeOf(visitor);
+        const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
+        if (@hasDecl(T, "nest")) try visitor.nest(e, true);
+        try unitsOfBranch(e, visitor);
+        if (@hasDecl(T, "nest")) try visitor.nest(e, false);
+        return;
+    }
+    for (e.items()) |c| try nestedUnits(c, visitor);
+}
+
 /// `x[...]`: an index, or compile-time arguments (sema tells which).
 pub fn isBracketList(e: Sexp) bool {
     return e.isKind(.index) or e.isKind(.inst);

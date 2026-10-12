@@ -1,0 +1,14 @@
+# Room for 8 bytes proves an 8-byte read.
+
+fun peek(s: ?String, at: Int) -> U64
+  i = at
+  if i + 8 <= s.len
+    return s.read[U64, .little](i) # proves: read upper
+  0
+
+sub main()
+  print(peek("abcdefghijkl", 4))
+
+# release
+# expect:
+# 7812454979559974501

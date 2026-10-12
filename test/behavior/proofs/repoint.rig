@@ -1,0 +1,16 @@
+# A guard on the view `s` holds while `s` is not assigned.
+
+fun pick(t: ?String, at: Int) -> U8
+  s = t
+  i = at
+  if i < s.len
+    u = t[..1]
+    return s[i] + u[0] # proves: index upper
+  0
+
+sub main()
+  print(pick("abcd", 3))
+
+# release
+# expect:
+# 197

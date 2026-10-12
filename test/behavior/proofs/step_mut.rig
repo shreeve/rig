@@ -1,0 +1,17 @@
+# A `continue` goes to the step after the body wrote `i`: the step's
+# `i += 1` keeps its test.
+
+fun run(at: Int, n: Int) -> Int
+  i = at
+  t = 0
+  while i < n : i += 1 # keeps: += no_overflow
+    t += 1
+    i += 5
+    continue
+  t
+
+sub main()
+  print(run(Int.max - 5, Int.max))
+
+# release
+# expect-panic: integer overflow

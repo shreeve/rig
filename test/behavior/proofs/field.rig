@@ -1,0 +1,18 @@
+# A local copy of the field is a subject.
+
+obj Cursor
+  i: Int
+
+fun pick(s: ?String, c: ?Cursor) -> U8
+  i = c.i
+  if i < s.len
+    return s[i] # proves: index upper
+  0
+
+sub main()
+  c = Cursor(i: 2)
+  print(pick("abc", ?c))
+
+# release
+# expect:
+# 99

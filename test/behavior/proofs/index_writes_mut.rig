@@ -1,0 +1,22 @@
+# The target's index writes `i`: the value's `s[i]` keeps its test, and
+# the guard proves nothing in the statement.
+
+fun next(n: !Int) -> Int
+  n += 1
+  n
+
+sub put(t: ![]U8, s: ?String, at: Int)
+  i = at
+  if i < s.len
+    t[next(!i) - 4] = s[i] # keeps: index upper
+  print(i)
+
+sub main()
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", 3)
+  print(a)
+
+# release
+# expect:
+# 4
+# [100, 0, 0, 0]

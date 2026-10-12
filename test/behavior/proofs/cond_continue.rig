@@ -1,0 +1,21 @@
+# Without a `continue` in the condition, every path to the step passed the
+# guard.
+
+fun pick(i: Int) -> Int?
+  if i % 2 == 0
+    return i
+  none
+
+fun run(at: Int, n: Int) -> Int
+  i = at
+  t = 0
+  while i < n and (pick(i) ?? 0) >= 0 : i += 1 # proves: += no_overflow
+    t += 1
+  t
+
+sub main()
+  print(run(Int.max - 5, Int.max))
+
+# release
+# expect:
+# 5

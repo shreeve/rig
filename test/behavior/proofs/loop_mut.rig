@@ -1,0 +1,20 @@
+# A guard before a loop proves nothing in it about a binding the loop
+# writes: the second iteration reads past the end.
+
+fun total(a: []Int, at: Int) -> Int
+  i = at
+  t = 0
+  if i < a.len
+    k = 0
+    while k < 2
+      t += a[i] # keeps: index upper
+      i += 1
+      k += 1
+  t
+
+sub main()
+  a = [1, 2, 3]
+  print(total(a[..], 2))
+
+# release
+# expect-panic: index out of bounds

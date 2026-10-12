@@ -1,0 +1,14 @@
+# A guard on the view that is indexed.
+
+fun pick(t: ?String, s: ?String, at: Int) -> U8
+  i = at
+  if i < s.len
+    return s[i] # proves: index upper
+  t[0]
+
+sub main()
+  print(pick("abcd", "ab", 1))
+
+# release
+# expect:
+# 98

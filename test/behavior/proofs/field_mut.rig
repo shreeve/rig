@@ -1,0 +1,20 @@
+# A field is never a fact's subject: `(!self).bump()` writes it.
+
+obj Cursor
+  i: Int
+
+  sub bump(!self)
+    self.i += 1
+
+fun pick(s: ?String, c: !Cursor) -> U8
+  if c.i < s.len
+    (!c).bump()
+    return s[c.i] # keeps: index upper
+  0
+
+sub main()
+  c = Cursor(i: 2)
+  print(pick("abc", !c))
+
+# release
+# expect-panic: index out of bounds

@@ -1,0 +1,14 @@
+# Without the `raw` block the guard stands.
+
+fun pick(s: ?String, at: Int) -> U8
+  i = at
+  if i < s.len
+    return s[i] # proves: index upper
+  0
+
+sub main()
+  print(pick("abc", 0))
+
+# release
+# expect:
+# 97

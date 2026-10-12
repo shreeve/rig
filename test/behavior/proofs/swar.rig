@@ -1,0 +1,63 @@
+# The loops of a JSON scanner, eight bytes at a time. `rig check
+# --facts=proofs` on this file is compared line by line in
+# test/cli/facts_proofs.sh.
+
+fun is_digit(c: U8) -> Bool
+  c >= 48 and c <= 57
+
+fun skip_space(s: ?String, at: Int) -> Int
+  i = at
+  while i < s.len
+    c = s[i]
+    if c == 32 and i + 8 <= s.len and s.read[U64, .little](i) == 0x2020202020202020
+      i += 8
+    else if c == 32 or c == 10 or c == 13 or c == 9
+      i += 1
+    else
+      break
+  i
+
+fun take_digits(s: ?String, at: Int) -> Int
+  i = at
+  while i + 8 <= s.len
+    d = s.read[U64, .little](i)
+    if d & 0xf0f0f0f0f0f0f0f0 != 0x3030303030303030 or (d +% 0x0606060606060606) & 0xf0f0f0f0f0f0f0f0 != 0x3030303030303030
+      break
+    i += 8
+  while i < s.len and is_digit(s[i])
+    i += 1
+  i
+
+fun skip_plain_ascii(s: ?String, at: Int) -> Int
+  i = at
+  while i + 8 <= s.len
+    w = s.read[U64, .little](i)
+    if w & 0x8080808080808080 != 0
+      break
+    i += 8
+  for c, k in s[i..]
+    return i + k if c >= 128 or c == 34
+  s.len
+
+fun count_high(s: ?String) -> Int
+  n = 0
+  i = 0
+  while i + 8 <= s.len
+    w = s.read[U64, .little](i)
+    if w & 0x8080808080808080 != 0
+      n += 1
+    i += 8
+  n
+
+sub main()
+  print(skip_space("             x", 0))
+  print(take_digits("1234567890123x", 0))
+  print(skip_plain_ascii("abcdefghijklmnop\"", 0))
+  print(count_high("abcdefgh\u{e9}bcdefgh"))
+
+# release
+# expect:
+# 13
+# 13
+# 16
+# 1

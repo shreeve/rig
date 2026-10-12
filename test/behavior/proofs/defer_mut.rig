@@ -1,0 +1,18 @@
+# A `defer` in an inner block runs where that block ends, before the use.
+
+fun pick(s: ?String, at: Int, flag: Bool) -> U8
+  i = at
+  if i < s.len
+    if flag
+      defer i += 1
+      print(i)
+    return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(pick("abc", 2, true))
+
+# release
+# expect-panic: index out of bounds
+# expect:
+# 2

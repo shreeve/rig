@@ -1,0 +1,16 @@
+# The loop's own `i + 8` is not proven at its entry: from `Int.max - 3` it
+# overflows.
+
+fun count(s: ?String, at: Int) -> Int
+  i = at
+  n = 0
+  while i + 8 <= s.len # keeps: + no_overflow
+    n += 1
+    i += 8
+  n
+
+sub main()
+  print(count("abcdefghij", Int.max - 3))
+
+# release
+# expect-panic: integer overflow

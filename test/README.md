@@ -54,7 +54,10 @@ each test's output, `RIG_BUILD_STORE` where programs build (see
 | `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 
 Areas: `syntax`, `types`, `effects`, `ownership`, `emit`, `runtime`, `modules`,
-`std` (the standard library).
+`std` (the standard library), and `proofs` (the tests the compiler omits,
+docs/INTERNALS.md, "Proven checks": each program there marks its use
+`# proves:` or `# keeps:`, which `test/cli/facts_proofs.sh` checks
+against `rig check --facts=proofs`).
 A multi-file test is a directory `<name>/` with an entry `main.rig`; the
 directives go in `main.rig`.
 
@@ -282,7 +285,16 @@ built with `--release`, where Zig's optimizer would expose a write
 through a read-only pointer (`cellmut.`). A value holding a Cell made
 or held anywhere but behind `*` (a local, a by-value parameter, a List
 element, a temporary changed where it stands) must be rejected
-(`cellmut.value.`, `celltemp.value.`). Every loop a cell
+(`cellmut.value.`, `celltemp.value.`). It also guards an index, a byte
+read or write, or an add with each guard the compiler knows, and two
+that prove nothing (`+%`, `or`), writes what the guard named between it
+and the use in each way a program can (an assignment, a `!` lend, a
+closure, a `defer`, a branch, a `match` arm, a loop, `raw`, a shadowing
+`new`, a step), and checks that `rig check --facts=proofs` lists at the
+use exactly the tests its own table of the rules proves, and that the
+program runs clean, or panics with the use's own message where the write
+moved the index out of range, in debug and with `--release` (`proof.`;
+`--deep` also nests each use). Every loop a cell
 writes counts its passes and stops at a cap, and each program is
 stopped past its time (`--timeout`), when its processes hold more than
 its memory (`--mem`; an address-space limit would stop the sanitizer,

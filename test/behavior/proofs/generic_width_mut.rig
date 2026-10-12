@@ -1,0 +1,14 @@
+# In a generic body the width of `read[T]` is not known: a guard for 4
+# bytes proves nothing about a `U64` read.
+
+fun peek[T](s: ?String, at: Int, d: T) -> T
+  i = at
+  if i + 4 <= s.len
+    return s.read[T, .little](i) # keeps: read upper
+  d
+
+sub main()
+  print(peek[U64]("abcdef", 2, 0))
+
+# release
+# expect-panic: byte read out of range

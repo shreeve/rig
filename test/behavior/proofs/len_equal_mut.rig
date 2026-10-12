@@ -1,0 +1,17 @@
+# Re-pointing `s` after `n = s.len` ends what `n` said of its length: a
+# guard on `n` proves nothing about the shorter `s`.
+
+fun get(t: ?String, at: Int) -> U8
+  s = t
+  n = s.len
+  s = t[..1]
+  i = at
+  if i < n
+    return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(get("abc", 2))
+
+# release
+# expect-panic: index out of bounds

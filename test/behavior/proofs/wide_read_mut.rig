@@ -1,0 +1,13 @@
+# Room for 8 bytes proves nothing about a 16-byte read.
+
+fun peek(s: ?String, at: Int) -> U128
+  i = at
+  if i + 8 <= s.len
+    return s.read[U128, .little](i) # keeps: read upper
+  0
+
+sub main()
+  print(peek("abcdefghijkl", 4))
+
+# release
+# expect-panic: byte read out of range

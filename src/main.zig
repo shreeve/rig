@@ -17,6 +17,7 @@ const inlining = @import("inlining.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
+const proofs = @import("proofs.zig");
 
 const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
@@ -41,6 +42,8 @@ const usage =
     \\                         module's expressions instead (check)
     \\  --facts=storage        Print the hidden storage emit makes for the
     \\                         root module instead (check)
+    \\  --facts=proofs         Print the tests of the root module that are
+    \\                         known to pass, which emit omits (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
     \\                         `--release=safe` are Zig's safe mode, which
     \\                         keeps overflow and bounds checks;
@@ -82,6 +85,12 @@ const usage =
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
     \\                   any use of freed memory crash where it happens
     \\                   (much slower; `./test/run` sets it)
+    \\  RIG_NO_PROOFS    Set to 1 to make every test, as if the compiler
+    \\                   proved none: the differential run of the proofs
+    \\  RIG_VERIFY_PROOFS
+    \\                   Set to 1 when building with --release to make
+    \\                   the tests the compiler proved, and omits, as
+    \\                   assertions, as every debug build does
     \\  RIG_STD          For developing the standard library: a directory
     \\                   to read it from, in place of the copy built into
     \\                   rig
@@ -106,9 +115,9 @@ const Mode = enum {
     }
 };
 
-/// What `check --facts` prints: the IR's syntax facts, sema's, or the
-/// hidden storage emit makes.
-const Facts = enum { none, syntax, sema, storage };
+/// What `check --facts` prints: the IR's syntax facts, sema's, the
+/// hidden storage emit makes, or the tests known to pass.
+const Facts = enum { none, syntax, sema, storage, proofs };
 
 const Options = struct {
     command: Command,
@@ -140,19 +149,25 @@ const Env = struct {
         return env.flag("RIG_SANITIZE");
     }
 
+    fn verifyProofs(env: Env) bool {
+        return env.flag("RIG_VERIFY_PROOFS");
+    }
+
     /// Set, and not to `0`.
     fn flag(env: Env, name: []const u8) bool {
         const value = env.get(name) orelse return false;
         return !std.mem.eql(u8, value, "0");
     }
 
-    /// The declarations that ask the runtime for leak traces or the
-    /// sanitizer, written into the root module (`runtime.zig`); and, in a
+    /// The declarations that ask the runtime for leak traces, the
+    /// sanitizer, or the assertions of proven tests, written into the root
+    /// module (`runtime.zig`); and, in a
     /// package `rig run` or `rig test` builds (`hook`), the variable
     /// naming the file the program creates as it starts (`buildCommand`).
     fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool) !void {
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
+        if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
     }
 };
@@ -182,14 +197,15 @@ pub fn main(init: std.process.Init) !void {
             switch (opts.facts) {
                 .none => {},
                 .syntax => try printFacts(io, graph.root()),
-                .sema, .storage => {
+                .sema, .storage, .proofs => {
                     const m = graph.root();
                     var buffer: [4096]u8 = undefined;
                     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
-                    if (opts.facts == .sema)
-                        try sema.writeFactsDump(m.sema, allocator, m.ir, &writer.interface)
-                    else
-                        try sema.writeStorageDump(m.sema, allocator, m.ir, &writer.interface);
+                    switch (opts.facts) {
+                        .sema => try sema.writeFactsDump(m.sema, allocator, m.ir, &writer.interface),
+                        .storage => try sema.writeStorageDump(m.sema, allocator, m.ir, &writer.interface),
+                        else => try proofs.writeDump(m.sema, allocator, m.ir, &writer.interface),
+                    }
                     try writer.interface.flush();
                 },
             }
@@ -236,6 +252,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .sema;
         } else if (eql(arg, "--facts=storage")) {
             facts = .storage;
+        } else if (eql(arg, "--facts=proofs")) {
+            facts = .proofs;
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});
@@ -650,9 +668,23 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, emit_facts.Facts.of(m.sema));
         defer em.deinit();
         em.poison = env.sanitize();
+        em.no_proofs = env.flag("RIG_NO_PROOFS");
+        // A debug build of the compiler checks that emit writes the units
+        // the proof pass walks, in the same order (`proofs.checkUnitOrder`).
+        var trace: std.ArrayList(emit.UnitEvent) = .empty;
+        defer trace.deinit(allocator);
+        if (emit_facts.check_units) em.unit_trace = &trace;
         try em.emit(m.ir);
+        if (emit_facts.check_units) {
+            var arena = std.heap.ArenaAllocator.init(allocator);
+            defer arena.deinit();
+            if (try proofs.checkUnitOrder(m.sema, arena.allocator(), m.ir, trace.items)) |what| {
+                std.debug.print("{s}: internal error: emit writes units other than the proof pass walks: {s}\n", .{ m.display, what });
+                return error.Unsupported;
+            }
+        }
         links_libc = links_libc or em.links_libc;
-        if (i == 0 and (env.leakTrace() or env.sanitize() or hook)) {
+        if (i == 0 and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook)) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook);
         }
@@ -1291,6 +1323,7 @@ test {
     _ = emit;
     _ = emit_facts;
     _ = sema;
+    _ = proofs;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
 }

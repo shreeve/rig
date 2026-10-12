@@ -1,0 +1,15 @@
+# A loop's `else` runs when its condition fails: it sees no guard.
+
+fun last(s: ?String) -> U8
+  i = 0
+  while i < s.len
+    i += 1
+  else
+    return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(last("abc"))
+
+# release
+# expect-panic: index out of bounds

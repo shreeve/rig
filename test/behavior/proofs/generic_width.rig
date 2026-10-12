@@ -1,0 +1,14 @@
+# A concrete width in a generic body.
+
+fun peek[T](s: ?String, at: Int, d: T) -> U32
+  i = at
+  if i + 4 <= s.len
+    return s.read[U32, .little](i) # proves: read upper
+  0
+
+sub main()
+  print(peek[U64]("abcdef", 2, 0))
+
+# release
+# expect:
+# 1717920867

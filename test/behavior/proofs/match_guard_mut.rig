@@ -1,0 +1,20 @@
+# An arm runs after the guards before it failed: a guard that writes `i`
+# ends the facts every later arm would use.
+
+fun bump(n: !Int) -> Bool
+  n += 1
+  false
+
+fun pick(s: ?String, at: Int, k: Int) -> U8
+  i = at
+  if i < s.len
+    match k
+      1 if bump(!i) => print(1)
+      _ => return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(pick("abc", 2, 1))
+
+# release
+# expect-panic: index out of bounds

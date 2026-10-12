@@ -1,0 +1,16 @@
+# Assigning the view `s` points it at shorter text: the guard on its old
+# length proves nothing.
+
+fun pick(t: ?String, at: Int) -> U8
+  s = t
+  i = at
+  if i < s.len
+    s = t[..1]
+    return s[i] # keeps: index upper
+  0
+
+sub main()
+  print(pick("abcd", 3))
+
+# release
+# expect-panic: index out of bounds

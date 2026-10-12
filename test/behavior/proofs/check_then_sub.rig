@@ -1,0 +1,13 @@
+# `c = s[i]` shows `0 <= i` and `i < s.len` for what follows.
+
+fun peek(s: ?String, at: Int) -> U8
+  i = at
+  c = s[i]
+  return c + s.read[U8](i) # proves: read lower upper
+
+sub main()
+  print(peek("abc", 0))
+
+# release
+# expect:
+# 194

@@ -1,0 +1,13 @@
+# `c = s[i]` showed `0 <= i`; `i -= 1` ends it.
+
+fun peek(s: ?String, at: Int) -> U8
+  i = at
+  c = s[i]
+  i -= 1
+  return c + s.read[U8](i) # keeps: read lower
+
+sub main()
+  print(peek("abc", 0))
+
+# release
+# expect-panic: byte read out of range

@@ -1,0 +1,14 @@
+# The place of `t[i] = src[i]` may be found before its value runs: the
+# value's check proves nothing about the target.
+
+sub put(t: ![]U8, src: ?String, at: Int)
+  i = at
+  t[i] = src[i] # keeps: index lower upper
+
+sub main()
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", -1)
+  print(a)
+
+# release
+# expect-panic: index out of bounds
