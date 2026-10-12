@@ -1,0 +1,14 @@
+# A field read straight off a constructor is a run-time value.
+
+obj P
+  a: Int = 9223372036854775807
+
+sub main()
+  print(P(a: 1).a + 1)
+  print(P().a + 1)
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 2

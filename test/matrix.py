@@ -834,6 +834,146 @@ def iter_output(source, ctx):
     return "\n".join(out + ["end"]) + "\n"
 
 
+# -----------------------------------------------------------------------------
+# Constants Zig must not fold: a part of a constant (an element of a
+# constant array, a field of a value built of literals, a payload, a
+# byte of text) is a run-time value. Each cell reads one part, with
+# one operator that fails on it, in one way; the program either is
+# rejected by `rig check` with a diagnostic (where Rig folds a constant
+# scalar itself) or panics when it runs, before it prints. A Zig compile
+# error, or a value printed, fails the cell. Cells are
+# `fold.<constant>.<access>.<op>`, accepted and run in debug and with
+# `--release` unless the constant is a scalar.
+# -----------------------------------------------------------------------------
+
+FOLD_MAX = "9223372036854775807"
+FOLD_VALUES = [FOLD_MAX, "(-9223372036854775807 - 1)", "0", "(-1)"]
+FOLD_BYTES = ["255", "0", "0", "255"]
+FOLD_FIELDS = "abcd"
+# op: (the role of the value it fails on, the expression over X, the
+# types it applies to)
+FOLD_OPS = {
+    "add": (0, "X + 1", "iu"), "sub": (1, "X - 1", "iu"), "mul": (0, "X * 2", "iu"),
+    "neg": (1, "-X", "i"), "shl": (0, "X << 1", "iu"), "conv": (0, "U8(X)", "i"),
+    "div0": (2, "1 / X", "iu"), "mod0": (2, "1 % X", "iu"), "divm1": (1, "X / (-1)", "i"),
+}
+FOLD_FEW = ("add", "conv", "div0")
+FOLD_DECLS = ("obj P\n  a: Int\n  b: Int\n  c: Int\n  d: Int\n\n"
+              "obj D\n  a: Int = 9223372036854775807\n  b: Int = -9223372036854775808\n  c: Int = 0\n  d: Int = -1\n\n"
+              "enum E\n  v(a: Int, b: Int, c: Int, d: Int)\n\n")
+FOLD_ARRAY = "[" + ", ".join(FOLD_VALUES) + "]"
+# constant -> (the declaration, how a part is read ({r} the index of the
+# role, {f} its field name), the element type: `i` Int, `u` U8, the
+# accesses that apply)
+FOLD_CONSTS = {
+    "array": dict(top=f"K = {FOLD_ARRAY}", read="K[{r}]", ty="i",
+                  access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "for", "slice")),
+    "nested": dict(top=f"K = [{FOLD_ARRAY}, {FOLD_ARRAY}]", read="K[1][{r}]", ty="i",
+                   access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "row")),
+    "text": dict(top='K = "\\xff\\x00\\x00\\xff"', read="K[{r}]", ty="u",
+                 access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "for", "guard")),
+    "literal": dict(top="", read=f"{FOLD_ARRAY}[{{r}}]", ty="i", access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm")),
+    "ctor": dict(top="", read="P(a: " + FOLD_VALUES[0] + ", b: " + FOLD_VALUES[1] + ", c: 0, d: (-1)).{f}", ty="i",
+                 access=("direct", "bound", "arg", "generic", "subject", "arm")),
+    "default": dict(top="", read="D().{f}", ty="i", access=("direct", "bound", "arg", "generic", "subject", "arm")),
+    "local": dict(top="", pre=f"K = {FOLD_ARRAY}", read="K[{r}]", ty="i",
+                  access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "for")),
+    "variant": dict(top="", ty="i", access=("direct", "bound")),
+    "optional": dict(top=None, ty="i", access=("as", "coalesce", "arm")),
+    "optarray": dict(top="O: [4]Int? = [" + ", ".join(FOLD_VALUES) + "]", ty="i", access=("as", "coalesce")),
+    "scalar": dict(top=None, ty="i", access=("direct", "bound", "arm"), rejected=True),
+}
+
+
+def fold_cells():
+    """(id, constant, access, op) of every cell."""
+    cells = []
+    for c, spec in FOLD_CONSTS.items():
+        for a in spec["access"]:
+            for op, (_, _, kinds) in FOLD_OPS.items():
+                if spec["ty"] not in kinds or (spec["ty"] == "u" and op in ("conv", "neg", "divm1")):
+                    continue
+                if a not in ("direct", "bound") and op not in FOLD_FEW + ("sub",):
+                    continue
+                if a == "generic" and op == "conv":
+                    continue
+                cells.append((f"fold.{c}.{a}.{op}", c, a, op))
+    return cells
+
+
+def fold_pattern(role):
+    """A `.v` pattern that binds only the field of `role`."""
+    return ".v(" + ", ".join("abcd"[i] if i == role else "_" for i in range(4)) + ")"
+
+
+def fold_program(c, a, op):
+    """The program for one constant cell, and whether it must be accepted."""
+    spec = FOLD_CONSTS[c]
+    role, tmpl, _ = FOLD_OPS[op]
+    ty = "U8" if spec["ty"] == "u" else "Int"
+    if c == "text":
+        role = {"add": 0, "sub": 1, "mul": 0, "shl": 0, "div0": 1, "mod0": 1}[op]
+    value = (FOLD_BYTES if spec["ty"] == "u" else FOLD_VALUES)[role]
+    top, pre = [FOLD_DECLS], []
+    main = []
+    use = lambda x: tmpl.replace("X", x)
+    if spec["top"]:
+        top.append(spec["top"] + "\n")
+    if c == "optional":
+        top.append(f"O: Int? = {value}\n")
+    if c == "scalar":
+        top.append(f"K = {value}\n")
+    if spec.get("pre"):
+        main.append(spec["pre"])
+    read = spec.get("read", "").format(r=role, f=FOLD_FIELDS[role]) if "read" in spec else None
+    if c == "scalar":
+        read = "K"
+    if c == "optional":
+        read = "(O ?? 0)"
+    if c == "optarray":
+        read = f"(O[{role}] ?? 0)"
+    helpers = []
+    if a == "direct":
+        if c == "variant":
+            main += ["match E.v(a: " + FOLD_VALUES[0] + ", b: " + FOLD_VALUES[1] + ", c: 0, d: (-1))",
+                     f"  {fold_pattern(role)} => print({use('abcd'[role])})"]
+        else:
+            main.append(f"print({use(read)})")
+    elif a == "bound":
+        if c == "variant":
+            main += ["e = E.v(a: " + FOLD_VALUES[0] + ", b: " + FOLD_VALUES[1] + ", c: 0, d: (-1))",
+                     "match e", f"  {fold_pattern(role)} => print({use('abcd'[role])})"]
+        else:
+            main += [f"m = {read}", f"print({use('m')})"]
+    elif a == "runtime":
+        main += ["i = 0", f"i += {role}", f"print({use(spec['read'].format(r='i', f=''))})"]
+    elif a == "arg":
+        helpers.append(f"sub f(x: {ty})\n  print({use('x')})\n")
+        main.append(f"f({read})")
+    elif a == "generic":
+        helpers.append(f"sub g[T](x: T)\n  print({use('x')})\n")
+        main.append(f"g({read})")
+    elif a == "subject":
+        main += [f"match {read}", f"  {7 if c != 'text' else 7} => print(0)", f"  n => print({use('n')})"]
+    elif a == "arm":
+        main += ["match true", f"  true => print({use(read)})", "  _ => print(0)"]
+    elif a == "for":
+        src = "K"
+        main += [f"for x in {src}", f"  if x == {value}", f"    print({use('x')})"]
+    elif a == "slice":
+        main += ["s = ?K[0..4]", f"print({use(f's[{role}]')})"]
+    elif a == "row":
+        main += ["row = K[1]", f"print({use(f'row[{role}]')})"]
+    elif a == "guard":
+        main += ["if K.len > 0", f"  print({use(read)})"]
+    elif a == "as":
+        main += [f"if {'O' if c == 'optional' else f'O[{role}]'} as x", f"  print({use('x')})"]
+    elif a == "coalesce":
+        main.append(f"print({use(read)})")
+    src = "\n".join(top) + "\n" + "\n".join(helpers) + "\nsub main()\n" + "\n".join("  " + l for l in main) + "\n"
+    return src, not FOLD_CONSTS[c].get("rejected", False)
+
+
 def loop_program(outer, inner, jump, end):
     """The program for one loop cell."""
     # Every pass of every loop counts, so a loop that runs away (a step a
@@ -2980,6 +3120,18 @@ def main():
             expects[ident] = out if out is not None else "(rejected)\n"
             if out is not None:
                 release.add(ident)
+    for ident, c, a, op in fold_cells():
+        if not wanted(ident):
+            continue
+        src, accepted = fold_program(c, a, op)
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        # The part is read when the program runs: it panics before it prints.
+        expects[ident] = ""
+        if accepted:
+            release.add(ident)
     for call in NAMED_CALLS:
         for kind in NAMED_KINDS:
             for order in NAMED_ORDERS:

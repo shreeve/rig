@@ -2683,7 +2683,12 @@ pub const Emitter = struct {
                     const saved_path = self.subject_path;
                     defer self.subject_path = saved_path;
                     self.subject_path = subject;
+                    // A value built of constants is switched on at run
+                    // time: its payloads are not constants.
+                    const fixed = info.mode == .read and !info.boxed and isZigComptimeIn(self, subject, 0);
+                    try self.openFixed(fixed, subject);
                     try self.emitBare(subject);
+                    try self.closeFixed(fixed, subject);
                 }
                 if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
                 try self.closeHeader(h);
@@ -3366,7 +3371,14 @@ pub const Emitter = struct {
         if (points) {
             try self.emitSubjectPtr(value, false);
             try self.w.writeAll(".*");
-        } else try self.emitHeader(value);
+        } else {
+            // An optional built of constants is tested at run time, and
+            // so is the value inside it.
+            const fixed = self.isScalarPart(value) and isZigComptimeIn(self, value, 0);
+            try self.openFixed(fixed, value);
+            try self.emitHeader(value);
+            try self.closeFixed(fixed, value);
+        }
         try self.w.writeAll(") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
         const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.facts.types.get(self.peelViews(t))) {
@@ -4463,6 +4475,9 @@ pub const Emitter = struct {
             .array => |a| a.len,
             else => null,
         } else null;
+        // A value read from a constant is a run-time value (`readsFixed`).
+        const fixed = !in_place and self.readsFixed(sexp, base, index);
+        if (fixed) try self.w.writeAll("rig.rt(");
         const n = array_len orelse {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
@@ -4477,7 +4492,9 @@ pub const Emitter = struct {
             self.place_chain = false;
             try self.emitBare(index);
             if (proven) |p| try self.w.print(", .{s}", .{p});
-            return self.w.writeAll(if (in_place) ").*" else ")");
+            try self.w.writeAll(if (in_place) ").*" else ")");
+            if (fixed) try self.w.writeAll(")");
+            return;
         };
         const may_be_empty = switch (self.facts.types.get(n)) {
             .ct_value => |v| v.int == 0,
@@ -4497,7 +4514,9 @@ pub const Emitter = struct {
             try self.emitBare(index);
             try self.w.writeAll(", ");
             try self.emitTypeTy(n);
-            return self.w.writeAll(")]");
+            try self.w.writeAll(")]");
+            if (fixed) try self.w.writeAll(")");
+            return;
         }
         // An array literal is indexed through parentheses: `([_]T{ ... })[i]`.
         const literal = base.isKind(.array);
@@ -4517,6 +4536,52 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
+        if (fixed) try self.w.writeAll(")");
+    }
+
+    /// Whether `part`, an element of `base` at `index`, is a value of
+    /// plain data that Zig would know at compile time: both are built
+    /// only from constants (`isZigComptimeIn`), as in `table[0]` for a
+    /// module constant `table`. Rig folds only the constant scalars it
+    /// checks itself, so Zig must not fold the rest: a part of a constant
+    /// is read through `rig.rt`, which keeps it a run-time value, as an
+    /// inlined function's result is. A part that is itself an aggregate
+    /// is left bare: what reads it, binds it, or matches it makes the
+    /// run-time value (`isZigComptimeIn` in `emitBind`, `emitMatchSubject`).
+    fn readsFixed(self: *Emitter, part: Sexp, base: Sexp, index: Sexp) bool {
+        return !self.keep_comptime and self.isScalarPart(part) and isZigComptimeIn(self, base, 0) and isZigComptimeIn(self, index, 0);
+    }
+
+    /// The start of a `value` read as a run-time value (`rig.rt`), when
+    /// `fixed`: a scalar is given its type first, since a literal alone
+    /// is a compile-time integer or float, which `rig.rt` would keep.
+    fn openFixed(self: *Emitter, fixed: bool, value: Sexp) Error!void {
+        if (!fixed) return;
+        try self.w.writeAll("rig.rt(");
+        if (!self.isScalarPart(value)) return;
+        const t = self.typeOf(value).?;
+        const types = self.facts.types;
+        try self.writeAsOpen(switch (types.get(t)) {
+            .int_literal => types.int_id,
+            .float_literal => types.float_id,
+            else => t,
+        });
+    }
+
+    fn closeFixed(self: *Emitter, fixed: bool, value: Sexp) Error!void {
+        if (!fixed) return;
+        try self.w.writeAll(if (self.isScalarPart(value)) "))" else ")");
+    }
+
+    /// `part`'s type is a number or a `Bool`, or an optional of one: what
+    /// an operator can fail on once Zig knows it.
+    fn isScalarPart(self: *Emitter, part: Sexp) bool {
+        var t = self.peelViews(self.typeOf(part) orelse return false);
+        while (true) switch (self.facts.types.get(t)) {
+            .optional => |inner| t = inner,
+            .int, .float, .int_literal, .float_literal, .bool => return true,
+            else => return false,
+        };
     }
 
     /// Whether place `e` is reached through a read view or a shared
@@ -4667,6 +4732,11 @@ pub const Emitter = struct {
             try self.writeModuleName(self.srcText(obj));
             return self.w.print(".{f})", .{ident(field)});
         }
+        // A field of a value built of constants is a run-time value
+        // (`readsFixed`).
+        const fixed = obj_ty != null and !self.place_chain and !self.keep_comptime and !self.isModuleValue(obj, sexp) and
+            self.isScalarPart(sexp) and isZigComptimeIn(self, obj, 0);
+        if (fixed) try self.w.writeAll("rig.rt(");
         try self.emitMemberBase(obj, obj_ty);
         if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
             // A consuming method of an owned box's value takes the value
@@ -4677,6 +4747,7 @@ pub const Emitter = struct {
             } else try self.writeReach(t);
         };
         try self.w.print(".{f}", .{ident(field)});
+        if (fixed) try self.w.writeAll(")");
     }
 
     /// `.value` for each shared handle and box that member access on a
@@ -7193,7 +7264,10 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
             const sym = em.facts.symbolOf(e) orelse return true;
             const sd = em.facts.symbols.items[sym];
             return switch (sd.kind) {
-                .local, .param, .capture => sd.flags.comptime_known,
+                // A module-level binding is a Zig `pub const`, known at
+                // compile time whatever it holds.
+                .local => em.facts.isModuleLevel(sym) or sd.flags.comptime_known,
+                .param, .capture => sd.flags.comptime_known,
                 else => true,
             };
         },
@@ -7202,9 +7276,13 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
             switch (h) {
                 .call => {
                     // A constructor or variant of constant arguments is
-                    // constant; a function call is not.
+                    // constant; a function call is not. A member callee
+                    // without a type of its own names a variant or a
+                    // type of another module (`emitCallPlain`).
                     const callee = em.facts.calleeOf(e);
-                    const ctor = callee.isKind(.enum_lit) or (callee == .src and if (em.facts.symbolOf(callee)) |id| em.isTypeSym(id) else false);
+                    const ctor = callee.isKind(.enum_lit) or
+                        (callee == .src and if (em.facts.symbolOf(callee)) |id| em.isTypeSym(id) else false) or
+                        (callee.isKind(.member) and em.facts.typeOf(callee) == null);
                     if (!ctor) return false;
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
