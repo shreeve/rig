@@ -1561,7 +1561,7 @@ pub fn maskBits(m: anytype) u64 {
 /// bitmask, whose lowest set bit is the lane.
 pub fn maskFirst(m: anytype) ?i64 {
     const n = @typeInfo(@TypeOf(m)).vector.len;
-    if (comptime n >= 16 and n % 16 == 0 and neonIntrinsics()) {
+    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
         const bytes = maskBytes(n, m);
         if (comptime n == 16) {
             const mask = nibbleMask(bytes);
@@ -1590,10 +1590,12 @@ fn nibbleMask(bytes: @Vector(16, u8)) u64 {
     return @bitCast(narrow);
 }
 
-/// The OR (or AND) of the 16-byte pieces of `w`, by halving shuffles: an
+/// The OR (or AND) of the 16-byte pieces of `w`, a power of two bytes of 16
+/// or more, by halving shuffles: an
 /// OR over the pieces as an array makes LLVM move them through general
 /// registers.
 fn foldBytes(comptime n: usize, w: @Vector(n, u8), comptime and_: bool) @Vector(16, u8) {
+    comptime std.debug.assert(n >= 16 and std.math.isPowerOfTwo(n));
     if (n == 16) return w;
     const h = n / 2;
     const lo = @shuffle(u8, w, undefined, iota(h, 0));
@@ -1616,7 +1618,7 @@ pub fn maskAny(m: anytype) bool {
     // On NEON, the pieces OR into one, whose largest byte (`umaxv`) is
     // the answer; spelled as a reduction, LLVM turns it back into a
     // bitmask in a loop.
-    if (comptime n >= 16 and n % 16 == 0 and neonIntrinsics()) {
+    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
         return @"llvm.aarch64.neon.umaxv.i32.v16i8"(foldBytes(n, maskBytes(n, m), false)) != 0;
     }
     return @reduce(.Or, m);
@@ -1626,7 +1628,7 @@ pub fn maskAny(m: anytype) bool {
 pub fn maskAll(m: anytype) bool {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) == std.math.maxInt(@Int(.unsigned, n));
-    if (comptime n >= 16 and n % 16 == 0 and neonIntrinsics()) {
+    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
         return @"llvm.aarch64.neon.uminv.i32.v16i8"(foldBytes(n, maskBytes(n, m), true)) != 0;
     }
     return @reduce(.And, m);
