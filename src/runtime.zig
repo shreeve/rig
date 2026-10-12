@@ -1720,7 +1720,7 @@ inline fn lookupPieces(table: anytype, idx: anytype) @TypeOf(idx) {
     const n = @typeInfo(@TypeOf(idx)).vector.len;
     const P = @Vector(16, u8);
     const ts: [m / 16]P = @bitCast(table);
-    if (comptime builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2) and n >= 32) {
+    if (comptime avx2 and n >= 32) {
         const W = @Vector(32, u8);
         const pieces: [n / 32]W = @bitCast(idx);
         var out: [n / 32]W = undefined;
@@ -1759,10 +1759,13 @@ inline fn lookup16(comptime m: usize, ts: [m / 16]@Vector(16, u8), idx: @Vector(
 /// Whether the target has a table instruction `lookup` uses: NEON, x86's
 /// SSSE3, or WASM SIMD, each through LLVM.
 fn lookupInstructions() bool {
-    if (builtin.zig_backend != .stage2_llvm) return false;
-    return neonIntrinsics() or wasmSimd() or
-        (builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3));
+    return lookup_instructions;
 }
+
+const lookup_instructions = builtin.zig_backend == .stage2_llvm and (neon_intrinsics or wasm_simd or
+    (builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3)));
+const avx2 = builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and
+    std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
 
 /// `lookup` a lane at a time.
 fn lookupLanes(table: anytype, idx: anytype) @TypeOf(idx) {
@@ -1919,14 +1922,20 @@ inline fn maskBytes(comptime n: usize, m: @Vector(n, bool)) @Vector(n, u8) {
 /// built by LLVM (Zig's own backends do not know them, and an intrinsic
 /// for a feature the target lacks stops LLVM).
 fn neonIntrinsics() bool {
-    return builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm and
-        std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
+    return neon_intrinsics;
 }
+
+/// Decided once: a feature test in an inline helper would count against
+/// the branch quota of every function that calls it.
+const neon_intrinsics = builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm and
+    std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
 
 /// Whether the target is WASM with its 128-bit SIMD.
 fn wasmSimd() bool {
-    return builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(builtin.cpu.features, .simd128);
+    return wasm_simd;
 }
+
+const wasm_simd = builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(builtin.cpu.features, .simd128);
 
 inline fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
     return @as(@Int(.unsigned, n), @bitCast(m));
