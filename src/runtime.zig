@@ -1495,8 +1495,21 @@ pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endi
     // vector: a load through a vector pointer may touch the vector's whole
     // register (Zig's own x86 backend loads 16 bytes for a 4-byte vector),
     // past the bytes it was given. LLVM makes this one unaligned load.
+    if (comptime smallVector(n)) {
+        // A vector of 1, 2, 4 or 8 bytes is one integer of that width:
+        // one scalar load, where a byte-array to byte-vector cast is
+        // lowered lane by lane on aarch64.
+        const Bits = @Int(.unsigned, n * 8);
+        const src: *align(1) const Bits = @ptrCast(bytes[i..][0..n]);
+        return lanesInOrder(@as(V, @bitCast(src.*)), endian);
+    }
     const raw: [n]u8 = bytes[i..][0..n].*;
     return lanesInOrder(@as(V, @bitCast(raw)), endian);
+}
+
+/// Whether `n` bytes fit one scalar register access: 1, 2, 4 or 8.
+fn smallVector(comptime n: usize) bool {
+    return n == 1 or n == 2 or n == 4 or n == 8;
 }
 
 /// `!bytes.write[Simd[T, n], e](at, v)`: store the lanes of `v` in the
@@ -1505,7 +1518,13 @@ pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endi
 pub fn simdWrite(comptime V: type, bytes: anytype, offset: anytype, value: V, comptime endian: Endian) void {
     const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
     const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("write", n, offset, bytes.len);
-    // Stored as an array of exactly `n` bytes, as `simdRead` loads.
+    // Stored as exactly `n` bytes, as `simdRead` loads.
+    if (comptime smallVector(n)) {
+        const Bits = @Int(.unsigned, n * 8);
+        const dst: *align(1) Bits = @ptrCast(bytes[i..][0..n]);
+        dst.* = @bitCast(lanesInOrder(value, endian));
+        return;
+    }
     bytes[i..][0..n].* = @bitCast(lanesInOrder(value, endian));
 }
 
@@ -2579,6 +2598,26 @@ test "simdRead and simdWrite: lanes in either byte order, one unaligned access" 
     const bytes = simdRead(@Vector(16, u8), buf[0..], 3, .little);
     try testing.expectEqual(@as(u8, 3), lane(bytes, 0));
     try testing.expectEqual(@as(u8, 9), lane(withLane(bytes, 15, 9), 15));
+}
+
+test "simdRead and simdWrite: every 1 to 8 byte vector touches exactly its bytes" {
+    inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64, f32 }) |T| {
+        inline for (.{ 1, 2, 4, 8 }) |n| {
+            if (@sizeOf(T) * n > 8) continue;
+            const V = @Vector(n, T);
+            const size = @sizeOf(T) * n;
+            inline for (.{ Endian.little, Endian.big }) |e| {
+                var buf: [size + 2]u8 = undefined;
+                for (&buf, 0..) |*b, k| b.* = @intCast(k * 7 + 1);
+                const v = simdRead(V, buf[1..][0..size], 0, e);
+                var out: [size + 2]u8 = @splat(0xEE);
+                simdWrite(V, out[1..][0..size], 0, v, e);
+                try testing.expectEqual(@as(u8, 0xEE), out[0]);
+                try testing.expectEqual(@as(u8, 0xEE), out[size + 1]);
+                try testing.expectEqualSlices(u8, buf[1..][0..size], out[1..][0..size]);
+            }
+        }
+    }
 }
 
 test "viewedPtr reaches what a read view views, or the view's own copy" {
