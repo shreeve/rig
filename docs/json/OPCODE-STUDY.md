@@ -35,8 +35,9 @@ only sizes what a feature would give.
   - On pup the tests are built optimized (`OP_MODE=-Osafe`). An x86
     Debug build uses Zig's own backend, where the patches take their
     portable fallbacks, so only an optimized build runs `pshufb`.
-  - A broken copy of each nontrivial patch (`patches/zz_*.py`) fails
-    the tests. That shows the patched code decides the result.
+  - A broken copy of the whitespace, UTF-8, escape-copy and digit
+    patches (`patches/zz_*.py`) fails the tests. That shows the patched
+    code decides the result.
 - **Timing.** `optime.py` interleaves every variant and file and keeps
   each one's fastest of 15 runs of about 250 ms. It also reads the cycles
   of the same runs (`/usr/bin/time -l` on the Mac; `perf stat` on pup).
