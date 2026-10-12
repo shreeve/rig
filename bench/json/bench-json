@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""Measure std/json.rig against Zig's std.json on the benchmark corpus.
+
+usage: cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json [options]
+   or, to time on a quiet machine:
+       cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json --out D --build-only
+       cpuq run --exclusive --cores 1 --label rig:json -- bench/json/bench-json --out D --time-only
+
+  --files a,b       corpus files (default: twitter,twitterescaped,canada,citm_catalog,
+                    gsoc-2018,github_events from test/json/data/simd-json, which tools/fetch-json-data.sh fetches)
+  --variants a,b    what to build and time (default: all but experiments):
+                      rig-safe        rig build --release (Zig's safe mode)
+                      rig-fast        rig build --release=fast
+                      zig-tape-safe   std.json.Scanner -> the same tape, -OReleaseSafe
+                      zig-tape-fast   the same, -OReleaseFast
+                      zig-value-safe  std.json.parseFromSlice(Value), -OReleaseSafe
+                      zig-value-fast  the same, -OReleaseFast
+                    and experiments, only when named:
+                      rig-nocheck     rig-fast's emitted Zig with Rig's index,
+                                      slice, and read bounds checks removed from
+                                      its runtime: sizes what they cost
+                    A Rig variant may name settings after `@`, joined by
+                    `+`: each rewrites a module constant or `type` alias
+                    of std/json.rig, as in rig-safe@TIER=0 (SIMD only);
+                    `src=NAME` takes the parser from $JSON_DIR/NAME.rig
+                    instead, to compare experiments.
+  --ms N            aim each timed run at about N ms (default 400)
+  --reps N          timed runs per variant, interleaved across variants;
+                    the fastest counts (default 5)
+  --out DIR         keep the builds in DIR and reuse them; with
+  --build-only      build and stop, and later
+  --time-only       time what DIR holds (for `cpuq run --exclusive`)
+
+Each program embeds the file (as string literals for Rig, @embedFile for
+Zig), parses it N times in a loop, and prints the nanoseconds the loop
+took on the monotonic clock and a checksum. MB/s is bytes * N / time,
+with MB = 10^6 bytes. Builds and runs use a temporary RIG_OUT_DIR,
+deleted afterwards. bench/json/bench-json.zig says what each Zig baseline does.
+Environment: RIG (the compiler), JSON (the parser; default std/json.rig).
+"""
+import argparse, os, re, shutil, stat, subprocess, sys, tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
+DATA = os.path.join(ROOT, "test", "json", "data", "simd-json")
+FILES = ["twitter", "twitterescaped", "canada", "citm_catalog", "gsoc-2018", "github_events"]
+DEFAULT = ["rig-safe", "rig-fast", "zig-tape-safe", "zig-tape-fast", "zig-value-safe", "zig-value-fast"]
+CHUNK = 60000
+
+MAIN = '''use json
+use std.os
+use std.text
+use std.time
+
+@PARTS@
+
+fun main() -> Int
+  src = String()
+  for p in PARTS
+    !src.add(p)
+  n = text.parse_int(os.args()[1]) catch 1
+  d = json.new_doc()
+  check = 0
+  start = time.now()
+  for _ in 0..n
+    if not (!d).parse(?src)
+      print("error", json.error_name(d.error), d.error_pos)
+      return 1
+    check += d.size()
+  print(start.elapsed(), check)
+  0
+'''
+
+def rig_parts(data):
+    chunks, cur, n = [], [], 0
+    for b in data:
+        if b == 0x22: e = '\\"'
+        elif b == 0x5C: e = "\\\\"
+        elif 0x20 <= b < 0x7F: e = chr(b)
+        else: e = "\\x%02x" % b
+        cur.append(e); n += len(e)
+        if n >= CHUNK:
+            chunks.append("".join(cur)); cur, n = [], 0
+    chunks.append("".join(cur))
+    return "PARTS = [\n" + "".join('  "%s",\n' % c for c in chunks) + "]\n"
+
+def run(cmd, env=None, cwd=None):
+    p = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=cwd)
+    if p.returncode != 0:
+        sys.exit("failed: %s\n%s%s" % (" ".join(cmd), p.stdout[-2000:], p.stderr[-4000:]))
+    return p.stdout + p.stderr
+
+def zig_wrapper(tmp):
+    """A `zig` that limits its jobs to the cores cpuq granted."""
+    path = os.path.join(tmp, "zig-jobs")
+    jobs = os.environ.get("CPUQ_CORES", "2")
+    with open(path, "w") as f:
+        f.write('#!/bin/sh\ncmd="$1"; shift\nexec zig "$cmd" -j%s "$@"\n' % jobs)
+    os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+    return path
+
+def unchecked_runtime(path):
+    """Experiment only: strip the bounds checks from an emitted runtime."""
+    s = open(path).read()
+    s = re.sub(r"(pub fn index\(i: anytype, count: usize\) usize \{\n)    const idx = std\.math\.cast\(usize, i\) orelse indexPanic\(\);\n    if \(idx >= count\) indexPanic\(\);\n    return idx;",
+               r"\1    _ = count;\n    return @intCast(i);", s)
+    s = re.sub(r"(fn byteOffset\(count: usize, offset: anytype, n: usize\) \?usize \{\n)    const i = std\.math\.cast\(usize, offset\) orelse return null;\n    if \(i > count or count - i < n\) return null;\n    return i;",
+               r"\1    _ = count;\n    _ = n;\n    return @intCast(offset);", s)
+    s = re.sub(r"(fn bounds\(count: usize, lo: anytype, hi: anytype\) \[2\]usize \{\n)    const l = std\.math\.cast\(usize, lo\) orelse slicePanic\(\);\n    const h = if \(@TypeOf\(hi\) == @TypeOf\(null\)\) count else std\.math\.cast\(usize, hi\) orelse slicePanic\(\);\n    if \(l > h or h > count\) slicePanic\(\);\n",
+               r"\1    const l: usize = @intCast(lo);\n    const h: usize = if (@TypeOf(hi) == @TypeOf(null)) count else @intCast(hi);\n", s)
+    if s.count("_ = count;") != 2 or "const l: usize = @intCast(lo);" not in s:
+        sys.exit("the runtime's bounds checks changed shape; update unchecked_runtime")
+    open(path, "w").write(s)
+
+def build(name, variant, data, tmp, zig):
+    d = os.path.join(tmp, "%s-%s" % (name, variant))
+    exe = os.path.join(d, "prog")
+    if os.path.exists(exe):
+        return exe
+    os.makedirs(d, exist_ok=True)
+    base, _, sets = variant.partition("@")
+    if base.startswith("rig-"):
+        settings = [kv.split("=", 1) for kv in filter(None, sets.split("+"))]
+        path = os.environ.get("JSON", os.path.join(ROOT, "std", "json.rig"))
+        for k, v in settings:
+            if k == "src":
+                path = os.path.join(os.environ.get("JSON_DIR", os.path.join(ROOT, "std")), v + ".rig")
+        src = open(path).read()
+        for k, v in settings:
+            if k == "src": continue
+            src, count = re.subn(r"^((?:type )?%s *(?::[^=]*)?)= .*$" % re.escape(k), r"\1= %s" % v, src, flags=re.M)
+            if count != 1: sys.exit("no module constant %s in std/json.rig" % k)
+        open(os.path.join(d, "json.rig"), "w").write(src)
+        open(os.path.join(d, "main.rig"), "w").write(MAIN.replace("@PARTS@", rig_parts(data)))
+        out = os.path.join(d, "out")
+        env = dict(os.environ, RIG_OUT_DIR=out, ZIG=zig)
+        mode = "--release" if base == "rig-safe" else "--release=fast"
+        run([RIG, "build", mode, "-o", exe + ".tmp", os.path.join(d, "main.rig")], env=env)
+        if base == "rig-nocheck":
+            unchecked_runtime(os.path.join(out, "rig", "runtime.zig"))
+            run([zig, "build-exe", "-OReleaseFast", "--cache-dir", os.path.join(out, ".zc"),
+                 "-femit-bin=" + exe + ".tmp", os.path.join(out, "__rig_main.zig")], cwd=out)
+        shutil.rmtree(out, ignore_errors=True)
+    else:
+        with open(os.path.join(d, "input.json"), "wb") as f: f.write(data)
+        shutil.copy(os.path.join(HERE, "bench-json.zig"), os.path.join(d, "main.zig"))
+        opt = "-OReleaseSafe" if base.endswith("-safe") else "-OReleaseFast"
+        run([zig, "build-exe", opt, "--cache-dir", os.path.join(d, ".zc"), "-femit-bin=" + exe + ".tmp",
+             os.path.join(d, "main.zig")], cwd=d)
+        shutil.rmtree(os.path.join(d, ".zc"), ignore_errors=True)
+    os.rename(exe + ".tmp", exe)
+    return exe
+
+def time_it(exe, variant, n):
+    base = variant.partition("@")[0]
+    args = [exe] + (["tape" if "-tape-" in base else "value"] if base.startswith("zig-") else []) + [str(n)]
+    p = subprocess.run(args, capture_output=True, text=True)
+    if p.returncode != 0:
+        sys.exit("failed: %s\n%s%s" % (" ".join(args), p.stdout, p.stderr))
+    ns, check = (p.stdout + p.stderr).split()[:2]
+    return int(ns), int(check)
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--files", default=",".join(FILES))
+    ap.add_argument("--variants", default=",".join(DEFAULT))
+    ap.add_argument("--ms", type=int, default=400)
+    ap.add_argument("--reps", type=int, default=5)
+    ap.add_argument("--out", help="keep the builds here, and reuse those already there")
+    ap.add_argument("--build-only", action="store_true")
+    ap.add_argument("--time-only", action="store_true", help="time the builds in --out")
+    a = ap.parse_args()
+    if "CPUQ_CORES" not in os.environ:
+        print("note: not under cpuq; see the usage line", file=sys.stderr)
+    files = a.files.split(",")
+    variants = a.variants.split(",")
+    tmp = a.out or tempfile.mkdtemp(prefix="rig-bench-json-")
+    os.makedirs(tmp, exist_ok=True)
+    try:
+        zig = zig_wrapper(tmp)
+        data = {f: open(os.path.join(DATA, f + ".json"), "rb").read() for f in files}
+        exes = {}
+        for f in files:
+            for v in variants:
+                if a.time_only:
+                    exes[f, v] = os.path.join(tmp, "%s-%s" % (f, v), "prog")
+                    if not os.path.exists(exes[f, v]): sys.exit("no build of %s %s in %s" % (f, v, tmp))
+                else:
+                    exes[f, v] = build(f, v, data[f], tmp, zig)
+        if a.build_only:
+            return
+        # Calibrate, and check that every tape agrees on its length.
+        counts, sizes = {}, {}
+        for f in files:
+            for v in variants:
+                ns, check = time_it(exes[f, v], v, 2)
+                if not v.startswith("zig-value"):
+                    sizes.setdefault(f, check)
+                    if sizes[f] != check: sys.exit("%s %s: tape size %d, not %d" % (f, v, check // 2, sizes[f] // 2))
+                counts[f, v] = max(2, int(a.ms * 1e6 / max(ns / 2, 1)))
+        # Interleave the runs, so a change in the machine's load falls on
+        # every variant alike; keep each one's fastest.
+        best = {}
+        for _ in range(a.reps):
+            for f in files:
+                for v in variants:
+                    n = counts[f, v]
+                    t = time_it(exes[f, v], v, n)[0] / n
+                    best[f, v] = min(best.get((f, v), t), t)
+        print("| file | bytes | " + " | ".join(variants) + " |")
+        print("|---|---:|" + "---:|" * len(variants))
+        for f in files:
+            print("| %s | %d | %s |" % (f, len(data[f]), " | ".join("%.0f" % (len(data[f]) / best[f, v] * 1e3) for v in variants)))
+        print("\nMB/s (10^6 bytes per second), the fastest of %d interleaved runs of about %d ms." % (a.reps, a.ms))
+    finally:
+        if not a.out:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+main()

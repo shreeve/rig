@@ -65,10 +65,25 @@ jobs:
       - name: Build Rig
         run: zig build
 
+      # The files test/run's json checker and corpus groups read: not in
+      # the repository, pinned by sha256 in tools/fetch-json-data.sh, and
+      # cached by the hash of that script.
+      - name: Restore the JSON test data
+        uses: actions/cache@v4
+        with:
+          path: |
+            rig/test/json/data/simd-json
+            rig/test/json/data/simdjson
+          key: json-data-${{ hashFiles('rig/tools/fetch-json-data.sh') }}
+
+      - name: Fetch the JSON test data
+        run: tools/fetch-json-data.sh
+
       # test/run stops a test with GNU timeout, or with perl where there
       # is none (macOS). Shard 1 also runs the whole-program checks.
       - name: Test
         # Release builds on a cold cache can take minutes on a CI runner.
         env:
           RIG_TEST_TIMEOUT: 300
+          JSON_REQUIRE_DATA: 1
         run: ./test/run -j 4 --shard ${{ matrix.shard }}/4

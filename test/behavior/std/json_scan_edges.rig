@@ -1,0 +1,82 @@
+# Every place a string scan can stop, from every start: the scan starts
+# at `at` (1 to 18, after spaces and `\"` escapes, so special bytes lie
+# before it inside the overlapping tail read; or after a UTF-8 run; or
+# after raw control whitespace), runs over `a` plain bytes (0 to 130),
+# and stops at a control byte, a 0xFF, a backslash, a quote, or the end
+# of the input, with `b` (0 to 33) more bytes after the stop.
+use std.json
+
+FILL = "plain !#[]~\x7f {}:,09AZaz/"
+
+sub add_fill(s: !String, k: Int)
+  for j in 0..k
+    !s.push(FILL[j % FILL.len])
+
+# 0 when `src` parses as expected, else 1, after printing why.
+fun check(src: ?String, ok: Bool, kind: Static, pos: Int, n: Int) -> Int
+  doc = json.new_doc()
+  got = (!doc).parse(?src)
+  if ok
+    return 0 if got and doc.size() == 1 and doc.get_str(0).len == n
+  else if not got and json.error_name(doc.error) == kind and doc.error_pos == pos
+    return 0
+  print("MISMATCH len", src.len, "want", ok, kind, pos, n, "got", got, json.error_name(doc.error), doc.error_pos)
+  1
+
+sub main()
+  bad = 0
+  total = 0
+  for c in 0..20
+    for a in 0..131
+      for b in 0..34
+        for stop in 0..5
+          continue if stop == 4 and b > 0
+          s = String()
+          decoded = 0
+          in_array = false
+          if c < 18
+            for _ in 0..c / 9
+              !s.push(0x20)
+            !s.push(0x22)
+            for _ in 0..c % 9
+              !s.add("\\\"")
+            decoded = c % 9
+          else if c == 18
+            !s.add("\"\xc3\xa9")
+            decoded = 2
+          else
+            !s.add("[1,\n\t\r\"")
+            in_array = true
+          add_fill(!s, a)
+          pos = s.len
+          ok = false
+          kind = "eof"
+          want = pos
+          if stop == 0
+            !s.push(0x01)
+            kind = "control"
+          else if stop == 1
+            !s.push(0xFF)
+            kind = "utf8"
+          else if stop == 2
+            !s.push(0x5C)
+            want = pos + 1
+            kind = "escape" if b > 0 else "eof"
+          else if stop == 3
+            !s.push(0x22)
+            want = pos + 1
+            if in_array
+              kind = "unexpected" if b > 0 else "eof"
+            else if b > 0
+              kind = "trailing"
+            else
+              ok = true
+          if stop < 4
+            add_fill(!s, b)
+          total += 1
+          bad += check(?s, ok, kind, want, decoded + a)
+  print("checked", total, "mismatches", bad)
+
+# release
+# expect:
+# checked 358940 mismatches 0

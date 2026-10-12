@@ -1,0 +1,10 @@
+use std.json
+
+sub main()
+  doc = json.new_doc()
+  a = "[\"a\\n\"]"
+  b = "[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n\"]"
+  print((!doc).parse(?a))
+  v = ?doc.get_str(1)
+  print((!doc).parse(?b))
+  print(v)

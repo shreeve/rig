@@ -1,0 +1,20 @@
+[package]
+name = "bench-sonic"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "sonic_value"
+path = "src/main.rs"
+
+[dependencies]
+# default features (none): utf8_lossy off, arbitrary_precision off
+sonic-rs = "=0.5.10"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+# panic: default (unwind)
+

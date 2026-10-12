@@ -1,0 +1,25 @@
+[package]
+name = "bench-simdjson"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "simdjson_tape"
+path = "src/tape.rs"
+
+[[bin]]
+name = "simdjson_value"
+path = "src/value.rs"
+
+[dependencies]
+# default features: swar-number-parsing, serde_impl, runtime-detection
+# (approx-number-parsing, value-no-dup-keys, big-int-as-float, 128bit all off)
+simd-json = "=0.18.1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+# panic: default (unwind)
+

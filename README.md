@@ -348,10 +348,11 @@ and environment variable. The suite runs on Linux and macOS in
   rules as scalars, comparisons that give masks, and byte reads
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
-  environment), `std.time`, `std.random`, `std.sort`, `std.slices`, and
-  `std.text` (searching, splitting, and parsing `?String` values)
+  environment), `std.time`, `std.random`, `std.sort`, `std.slices`,
+  `std.text` (searching, splitting, and parsing `?String` values), and
+  `std.json` (a fast JSON parser; experimental)
 
-**Not yet:** JSON, most of a standard library (files, maps, number formatting),
+**Not yet:** most of a standard library (files, maps, number formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a
@@ -373,6 +374,8 @@ storing or returning a stack closure (lending one to a call, as a
   tested
 - [docs/INTERNALS.md](docs/INTERNALS.md): how the compiler works
 - [docs/ROADMAP.md](docs/ROADMAP.md): where Rig is going
+- [docs/json/](docs/json/DESIGN.md): the JSON parser's design and measurements
+- [docs/simd/](docs/simd/README.md): the design for portable vectors
 - [FAQ.md](FAQ.md): common questions
 - [examples/](examples/README.md): short programs
 - [AGENTS.md](AGENTS.md): rules for working on Rig

@@ -1,0 +1,20 @@
+[package]
+name = "bench-serde-fr"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "serde_json_value_fr"
+path = "../serde_default/src/main.rs"
+
+[dependencies]
+# float_roundtrip on; preserve_order off (BTreeMap), arbitrary_precision off
+serde_json = { version = "=1.0.151", features = ["float_roundtrip"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+# panic: default (unwind)
+

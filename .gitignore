@@ -4,3 +4,11 @@ bin/
 .claude/
 .equiv-docs/
 src/parser.zig
+test/json/data/*
+!test/json/data/README.md
+bench/json/zimdjson/upstream/
+bench/json/zimdjson/.zc/
+bench/json/zimdjson/.zgc/
+bench/json/zimdjson/prog-*
+bench/json/rust-bench/target-*/
+bench/json/rust-bench/*/target/

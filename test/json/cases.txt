@@ -1,0 +1,187 @@
+# One case per line: NAME<TAB>INPUT<TAB>EXPECT. INPUT uses Python bytes
+# escapes (\xNN, \t, \n, \\). EXPECT is `ok` (the value comes from Python's
+# json module; see tests/json/README.md) or `error KIND OFFSET`, OFFSET a
+# 0-based byte offset. Several come from serde_json's tests/test.rs.
+lit-null	null	ok
+lit-true	 true 	ok
+lit-false	false	ok
+lit-n	n	error eof 1
+lit-nul	nul	error eof 3
+lit-nulla	nulla	error trailing 4
+lit-t	t	error eof 1
+lit-truz	truz	error unexpected 3
+lit-faz	faz	error unexpected 2
+lit-truea	truea	error trailing 4
+lit-falsea	falsea	error trailing 5
+lit-NaN	NaN	error unexpected 0
+lit-nan	nan	error unexpected 1
+lit-inf	Infinity	error unexpected 0
+lit-neg-inf	-Infinity	error number 1
+lit-upper	TRUE	error unexpected 0
+empty		error empty 0
+empty-space	 \t\r\n 	error empty 5
+bom	\xef\xbb\xbf[]	error unexpected 0
+ws-formfeed	[\x0c]	error unexpected 1
+ws-vtab	[\x0b1]	error unexpected 1
+ws-nbsp	[\xc2\xa01]	error unexpected 1
+num-plus	+	error unexpected 0
+num-plus1	+1	error unexpected 0
+num-dot	.	error unexpected 0
+num-minus	-	error number 1
+num-00	00	error number 1
+num-01	01	error number 1
+num-neg01	-01	error number 2
+num-0x80	0x80	error trailing 1
+num-backslash0	\\0	error unexpected 0
+num-dot0	.0	error unexpected 0
+num-0dot	0.	error number 2
+num-1dot	1.	error number 2
+num-1dota	1.a	error number 2
+num-1dote1	1.e1	error number 2
+num-1e	1e	error number 2
+num-1eplus	1e+	error number 3
+num-1a	1a	error trailing 1
+num-neg-dot	-.5	error number 1
+num-arr-minus	[-]	error number 2
+num-arr-2dot	[2.]	error number 3
+num-range	100e777777777777777777777777777	error range 0
+num-neg-range	-100e777777777777777777777777777	error range 0
+num-1e309	1e309	error range 0
+num-max-up	1.7976931348623159e308	error range 0
+num-neg-max-up	[1, -1.7976931348623159e308]	error range 4
+num-zero	0	ok
+num-neg-zero	-0	ok
+num-neg-zero-f	-0.0	ok
+num-neg-zero-e	-0e2	ok
+num-neg-zero-fe	-0.0e2	ok
+num-neg-tiny	-1e-400	ok
+num-neg-tinier	-1e-4000000000000000000000000000000000000000000000000	ok
+num-i64-max	9223372036854775807	ok
+num-i64-min	-9223372036854775808	ok
+num-i64-max1	9223372036854775808	ok
+num-i64-min1	-9223372036854775809	ok
+num-u64-max	18446744073709551615	ok
+num-u64-max1	18446744073709551616	ok
+num-20-digits	12345678901234567890	ok
+num-big	3333333333333333333333333	ok
+num-59bit	576460752303423487	ok
+num-59bit1	576460752303423488	ok
+num-neg59bit	-576460752303423487	ok
+num-neg59bit1	-576460752303423488	ok
+num-f64-a	[0.0, 3.0, 3.1, -1.2, 0.4, 2.638344616030823e-256]	ok
+num-f64-b	[3.00, 0.4e5, 0.4e+5, 0.4e15, 0.4e+15, 0.4e-01, 0.4e-001, 0.4e-0, 0.00e00, 0.00e+00, 0.00e-00]	ok
+num-f64-c	[3.5E-2147483647, 0.0100000000000000000001, -9223372036854777856.0, 18446744073709551616.0, 2.220446049250313e-16]	ok
+num-f64-d	[0.0000000000000000000000000000000000000000000000000123e50, 100e-777777777777777777777777777, 0e1000000000000000000000000000000000000000000000]	ok
+num-f64-e	[1010101010101010101010101010101010101010, 0.1010101010101010101010101010101010101010]	ok
+num-1e308-digits	100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000	ok
+num-1e309-digits	1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000	error range 0
+num-roundtrip	[51.240817837550540, -93.3113703768803, -36.573994842753436, 52.314008204106244, 97.45365320034685, 2.0030397744267762e-253, 7.101215824554616e260, 1.769268377902049e74, -1.6727517818542075e58, 3.9287532173373315e299]	ok
+num-boundaries	[5e-324, 4.9406564584124654e-324, 2.4703282292062327e-324, 2.4703282292062328e-324, 2.2250738585072011e-308, 2.2250738585072014e-308, 1.7976931348623157e308, 1.7976931348623158e308, 9007199254740993.0, 9007199254740993e0, 1E22, 1E23, 1e-22, 1e-23]	ok
+num-exp-forms	[1E5, 1e+5, 1e-5, 1E-5, 0e0, 0E-0, 123.456e-789, 1.5e+0300]	ok
+num-17-digits	[-65.613616999999977, 43.420273000000009, -0.12345678901234567, 12345678901234567e-5, 0.99999999999999999, 9.9999999999999999e22, 1.0000000000000001, 72057594037927937e0]	ok
+num-19-digits	[123456789012345678e-3, 1234567890123456789e-10, 9999999999999999999e-19, 1000000000000000001e-18, 9223372036854775809e0, 1152921504606846977.0, 9999999999999999999.0]	ok
+num-ties	[9007199254740995e0, 18014398509481986e0, 18014398509481990e0, 4503599627370497.5, 4503599627370496.5, 9007199254740993000e-3, 9007199254740993001e-3, 9007199254740992999e-3, 36028797018963972e0, 36028797018963980e0]	ok
+num-normal-edges	[1e-306, 1e-307, 9999999999999999999e-307, 9999999999999999999e-306, 1e287, 1e288, 9999999999999999999e287, 9999999999999999999e288, 9999999999999999999e289, 1844674407370955161e-306, 1000000000000000000e-325, 4.9e-324, 1e-342, 1e-343]	ok
+num-19-digits-range	9999999999999999999e290	error range 0
+str-empty	""	ok
+str-foo	 "foo" 	ok
+str-escapes	"\\"\\\\\\/\\b\\f\\n\\r\\t"	ok
+str-u	["\\u000b", "\\u000B", "\\u12ab", "\\uAB12", "\\u00e9", "\\u0000", "\\u001f", "\\u007f"]	ok
+str-pair	"\\uD83C\\uDF95"	ok
+str-pair-lower	"\\ud834\\udd1e"	ok
+str-raw-utf8	["\xce\xa3", "\xe2\x82\xac", "\xf0\x9f\x98\x8b", "\xef\xbf\xbf", "\xf4\x8f\xbf\xbf", "\x7f"]	ok
+str-mixed	"a\\nb\xc3\xa9c\\u0041\\ud83d\\ude00d"	ok
+str-quote	"	error eof 1
+str-lol	"lol	error eof 4
+str-lol-a	"lol"a	error trailing 5
+str-esc-eof	"\\	error eof 2
+str-lone-high-ffff	"\\uD83C\\uFFFF"	error surrogate 1
+str-lone-low	"\\uDC00"	error surrogate 1
+str-lone-high	"\\uD800"	error surrogate 1
+str-high-x	"\\uD800x"	error surrogate 1
+str-high-n	"\\uD800\\n"	error surrogate 1
+str-high-high	"\\uD800\\uD800"	error surrogate 1
+str-raw-lf	"\n"	error control 1
+str-raw-1f	"\x1f"	error control 1
+str-raw-tab	"a\tb"	error control 2
+str-raw-nul	"a\x00"	error control 2
+str-ctrl-after-esc	"\\n\x01"	error control 3
+str-bad-utf8	"\x9f\x92\x96"	error utf8 1
+str-bad-utf8-after-esc	"\\n\x9f\x92\x96"	error utf8 3
+str-overlong	"\xc0\x80"	error utf8 1
+str-overlong3	"\xe0\x80\xaf"	error utf8 1
+str-utf8-surrogate	"\xed\xa0\x80"	error utf8 1
+str-past-max	"\xf4\x90\x80\x80"	error utf8 1
+str-f5	"\xf5\x80\x80\x80"	error utf8 1
+str-cut	"\xe6\x97"	error utf8 1
+str-cut-eof	"\xe6\x97	error utf8 1
+str-u-short	"\\u003	error eof 6
+str-u-bad0	"\\u\xfa030"	error escape 3
+str-u-bad1	"\\u0\xfa30"	error escape 4
+str-u-bad2	"\\u00\xfa0"	error escape 5
+str-u-bad3	"\\u003\xfa"	error escape 6
+str-u-g	"\\uggggxy"	error escape 3
+str-bad-esc	"\\x"	error escape 2
+str-bad-esc-a	"\\a"	error escape 2
+str-bad-esc-u-upper	"\\U0041"	error escape 2
+str-single	'a'	error unexpected 0
+list-empty	[]	ok
+list-space	[ ]	ok
+list-null	 [ null ] 	ok
+list-nested	[[3], [1, 2], [[[]]], {}]	ok
+list-open	[	error eof 1
+list-open-space	[ 	error eof 2
+list-1	[1	error eof 2
+list-1comma	[1,	error eof 3
+list-trailing-comma	[1,]	error unexpected 3
+list-leading-comma	[,1]	error unexpected 1
+list-double-comma	[1,,2]	error unexpected 3
+list-no-comma	[1 2]	error unexpected 3
+list-trailing	[]a	error trailing 2
+list-two	[] []	error trailing 3
+list-wrong-close	[1}	error unexpected 2
+list-colon	[1:2]	error unexpected 2
+obj-empty	{}	ok
+obj-space	{ }	ok
+obj-one	{"a":3}	ok
+obj-two	 { "a" : 3 , "b" : 4 } 	ok
+obj-nested	{"a": {"b": 3, "c": 4}, "d": [{}, {"e": null}]}	ok
+obj-dup	{"a": 1, "a": 2}	ok
+obj-esc-key	{"\\u0061\\n": "\\t"}	ok
+obj-open	{	error eof 1
+obj-open-space	{ 	error eof 2
+obj-int-key	{1	error unexpected 1
+obj-key-eof	{ "a"	error eof 5
+obj-key-eof2	{"a"	error eof 4
+obj-key-eof3	{"a" 	error eof 5
+obj-no-colon	{"a" 1	error unexpected 5
+obj-colon-eof	{"a":	error eof 5
+obj-value-eof	{"a":1	error eof 6
+obj-no-comma	{"a":1 1	error unexpected 7
+obj-comma-eof	{"a":1,	error eof 7
+obj-trailing	{}a	error trailing 2
+obj-trailing-comma	{"a":1,}	error unexpected 7
+obj-leading-comma	{,}	error unexpected 1
+obj-no-value	{"a":}	error unexpected 5
+obj-wrong-close	{"a":1]	error unexpected 6
+obj-single-key	{'a':1}	error unexpected 1
+obj-bare-key	{a:1}	error unexpected 1
+obj-two-colons	{"a"::1}	error unexpected 5
+# Two three-byte \u escapes back to back are decoded together; each
+# other neighbor, error, or end falls back to one escape at a time.
+str-u3-pair	"\\u4e2d\\u6587"	ok
+str-u3-run	"\\u65e5\\u672c\\u8a9e\\u0041\\u3042"	ok
+str-u3-u2	"\\u4e2d\\u00e9"	ok
+str-u3-u1	"\\u4e2d\\u0041"	ok
+str-u3-bounds	"\\u0800\\ud7ff\\ue000\\uffff\\u07ff\\u0800"	ok
+str-u3-surrogates	"\\u4e2d\\ud83d\\ude00\\u6587"	ok
+str-u3-esc	"\\u4e2d\\n\\u6587\\""	ok
+str-u3-key	{"\\u4e2d\\u6587": "\\u65e5\\u672c"}	ok
+str-u3-lone-low	"\\u4e2d\\udc00"	error surrogate 7
+str-u3-lone-high	"\\u4e2d\\ud800"	error surrogate 7
+str-high-u3	"\\ud83d\\u4e2d"	error surrogate 1
+str-u3-bad-hex	"\\u4e2d\\u12g4"	error escape 11
+str-u3-short	"\\u4e2d\\u12	error eof 11
+str-u3-u-quote	"\\u4e2d\\u"	error escape 9
+str-u3-u-eof	"\\u4e2d\\u	error eof 9
+str-u3-pair-eof	"\\u4e2d\\u6587	error eof 13
