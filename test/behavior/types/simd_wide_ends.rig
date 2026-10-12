@@ -1,0 +1,34 @@
+# A 16, 32 or 64 byte vector read or write touches exactly its own
+# bytes: at the very end of a `List` or a `String`, the last lane is
+# the last byte, and a write leaves its neighbors alone.
+
+sub main()
+  xs: List[U8] = List()
+  for i in 0..100
+    !xs.push(U8(i))
+  t = String()
+  for i in 0..100
+    !t.push(U8(i + 100))
+  v16 = xs.read[Simd[U8, 16]](84)
+  v32 = xs.read[Simd[U8, 32]](68)
+  v64 = xs.read[Simd[U8, 64]](36)
+  print(v16[0], v16[15], v32[0], v32[31], v64[0], v64[63])
+  rt = ?t
+  s64 = rt.read[Simd[U8, 64]](36)
+  print(s64[0], s64[63])
+  w = xs.read[Simd[U16, 32], .big](36)
+  print(w[0], w[31])
+  !xs.write[Simd[U8, 64]](36, v64 +% 100)
+  print(xs[35], xs[36], xs[99])
+  !xs.write[Simd[U16, 32], .big](36, w)
+  print(xs[35], xs[36], xs[99])
+  !xs.write[Simd[U8, 16]](84, v16 +% 1)
+  print(xs[83], xs[84], xs[99])
+
+# expect:
+# 84 99 68 99 36 99
+# 136 199
+# 9253 25187
+# 35 136 199
+# 35 36 99
+# 83 85 100

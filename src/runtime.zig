@@ -1555,8 +1555,23 @@ pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endi
         const src: *align(1) const Bits = @ptrCast(bytes[i..][0..n]);
         return lanesInOrder(@as(V, @bitCast(src.*)), endian);
     }
+    if (comptime wideVector(V, n)) {
+        // A whole-register vector: a load through an unaligned vector
+        // pointer from the bounds-checked slice touches exactly its
+        // `n` bytes, and lowers to the target's own vector loads (the
+        // array copy of 64 bytes is spilled and rebuilt byte by byte
+        // on x86).
+        const src: *align(1) const V = @ptrCast(bytes[i..][0..n]);
+        return lanesInOrder(src.*, endian);
+    }
     const raw: [n]u8 = bytes[i..][0..n].*;
     return lanesInOrder(@as(V, @bitCast(raw)), endian);
+}
+
+/// Whether the vector `V` of `n` bytes is whole registers with no padding,
+/// so an unaligned vector access touches exactly its `n` bytes.
+fn wideVector(comptime V: type, comptime n: usize) bool {
+    return n >= 16 and @sizeOf(V) == n;
 }
 
 /// Whether `n` bytes fit one scalar register access: 1, 2, 4 or 8.
@@ -1575,6 +1590,11 @@ pub fn simdWrite(comptime V: type, bytes: anytype, offset: anytype, value: V, co
         const Bits = @Int(.unsigned, n * 8);
         const dst: *align(1) Bits = @ptrCast(bytes[i..][0..n]);
         dst.* = @bitCast(lanesInOrder(value, endian));
+        return;
+    }
+    if (comptime wideVector(V, n)) {
+        const dst: *align(1) V = @ptrCast(bytes[i..][0..n]);
+        dst.* = lanesInOrder(value, endian);
         return;
     }
     bytes[i..][0..n].* = @bitCast(lanesInOrder(value, endian));
@@ -2726,6 +2746,25 @@ test "simdRead and simdWrite: every 1 to 8 byte vector touches exactly its bytes
             inline for (.{ Endian.little, Endian.big }) |e| {
                 var buf: [size + 2]u8 = undefined;
                 for (&buf, 0..) |*b, k| b.* = @intCast(k * 7 + 1);
+                const v = simdRead(V, buf[1..][0..size], 0, e);
+                var out: [size + 2]u8 = @splat(0xEE);
+                simdWrite(V, out[1..][0..size], 0, v, e);
+                try testing.expectEqual(@as(u8, 0xEE), out[0]);
+                try testing.expectEqual(@as(u8, 0xEE), out[size + 1]);
+                try testing.expectEqualSlices(u8, buf[1..][0..size], out[1..][0..size]);
+            }
+        }
+    }
+}
+
+test "simdRead and simdWrite: wide vectors touch exactly their bytes, padded ones too" {
+    inline for (.{ u8, u16, u32, u64, f32 }) |T| {
+        inline for (.{ 3, 5, 6, 12, 16, 24, 32, 64 }) |lanes| {
+            const V = @Vector(lanes, T);
+            const size = @sizeOf([lanes]T);
+            inline for (.{ Endian.little, Endian.big }) |e| {
+                var buf: [size + 2]u8 = undefined;
+                for (&buf, 0..) |*b, k| b.* = @truncate(k * 7 + 1);
                 const v = simdRead(V, buf[1..][0..size], 0, e);
                 var out: [size + 2]u8 = @splat(0xEE);
                 simdWrite(V, out[1..][0..size], 0, v, e);
