@@ -280,6 +280,14 @@ EOF2
 out=$("$RIG" emit loop_index.rig 2>/dev/null) || fail "rig emit loop_index.rig"
 expect_has "$out" '@as(i64, @bitCast(@as(u64, __rig_i_' "a loop index reads the counter's bits"
 grep -qF '@intCast(__rig_i_' <<<"$out" && fail "a loop index is range-checked each iteration: $out"
+
+# The mask helpers are inlined into their callers: called, a wide mask
+# is taken apart lane by lane. (Their asm, checked by hand with
+# `zig build-obj -target aarch64-macos`, has no `umov` and no call.)
+for f in maskBits maskFirst maskAny maskAll nibbleMask foldBytes maskBytes \
+         maskBitsCast maskBitsNeon maskBitsPieces maskBitsSwar; do
+  grep -qE "^(pub )?inline fn $f\(" "$ROOT/src/runtime.zig" || fail "runtime: $f is not an inline fn"
+done
 true
 
 # A test the compiler proved is omitted (docs/INTERNALS.md, "Proven
