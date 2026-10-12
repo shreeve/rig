@@ -1194,6 +1194,7 @@ instead of re-deriving it by name:
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
 | `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
+| `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 **The lend table.** Which views a value lends (Core §4) is decided in
@@ -1305,7 +1306,8 @@ receiver (`consumes_receiver`), how it holds each argument
 (`argument_hold`), and whether an argument, an assigned value, or an
 index is pure, staying where it is (`pure_arg`); and for each
 assignment, which of its steps it evaluates into storage in their turn
-(`set_order`, [Assignments](#assignments)). Typecheck's arm-local
+(`set_order`, [Assignments](#assignments)); and for each `while`,
+where its step runs (`step_point`, [Loops](#loops)). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
@@ -2284,7 +2286,7 @@ L_res: {                         // the loop's block: what its header holds, its
         x = a or break           // one `if` per part of the condition, each `else break`
         c or break
         L_body: { body }         // the body's own scope
-        step                     // here when it reads a binding (`sema.stepReadsBinding`)
+        step                     // here when it reads a binding (`StepPoint.after_body`)
     }
     else                         // after the loop
 }
@@ -2292,19 +2294,25 @@ L_res: {                         // the loop's block: what its header holds, its
 
 | Step | The checker | The emitted Zig |
 |---|---|---|
-| condition | each part walked in order in the loop (`walkConditionParts`); a part failing exits to the `else` | `if (a) \|x\| { ... } else break;`, `if (!(c)) break;` |
+| condition | each guard part (`rig.eachGuardPart`) walked in order in the loop (`walkConditionParts`); a part failing exits to the `else` | `if (a) \|x\| { ... } else break;`, `if (!(c)) break;` |
 | binding | the parts' bindings in a scope around the body's | the `if`'s capture, and an owned binding's local and drop guard in its block |
 | body | its own scope (`pushScopeFor`), holding a `for`'s element | `L_body: { ... }`; for a `for`, the Zig loop's body block |
 | body end | the body's scope pops: its defers and drops run, its loans end | the end of `L_body` |
 | step | walked after the body scope pops (`walkStep`): in the bindings' scope when it reads a binding, else after it pops | a statement after `L_body` in the innermost `if`, or the loop's continue expression, which Zig runs after the `if`s end |
 | back edge | `exitTo` the loop's entry, joined into the head | the end of the Zig loop's body |
-| `continue` | in the body, to the step's point (`step_point`), or to the entry then the step; in the step, to the entry; in the condition, to the entry through a step that reads no binding (the type checker rejects one where the step reads a binding, which it would leave unbound) | `break :L_body`; `break :L_step` out of the step's block; `continue :L` |
+| `continue` | where its `JumpDest` says: `step` from the body, to the step's point (`step_point`) when the step runs after the body, or else to the entry then the step; `head` from the step, to the entry; from the condition, `step`, to the entry through a step that is the continue expression (the type checker rejects one where the step runs after the body, which it would skip, leaving what the step reads unbound) | `break :L_body`; `break :L_step` out of the step's block; `continue :L` |
 | `break`, `break x` | joined after the `else`; `x` consumed like a returned value | `break :L_res x`, or `break :L` when the loop has no `else` and no value |
 | `else` | walked after the loop's iterations, with the enclosing loop as the jumps' target | statements after the loop in `L_res`, or `break :L_res value` for a loop used as a value |
 
-A step reads a binding when a name in it is the binding or a
-closure's capture of it (`sema.findUse`, which the type checker's step
-rules use too).
+**Where the step runs** is the decision `step_point`
+(`storage.stepPoint`, read by emit as `Facts.stepPoint`): `after_body`
+when the step reads a binding of the condition, so it runs in the
+bindings' scope, and `continue_expr` otherwise. A step reads a binding
+when a name in it is the binding or a closure's capture of it
+(`sema.findUse`, which the type checker's step rules use too). Emit
+places the step by it, the ownership checker walks it there
+(`loopIteration`), and the type checker's jump resolver sends a
+`continue` from the condition by it.
 
 A `for` has no condition and no step of its own: it is Zig's `for`, or a
 `while` over a consuming iterator or a range, whose counter is the Zig
@@ -2312,17 +2320,45 @@ loop's continue expression, and its source is evaluated before the loop
 is entered, so a jump in it targets the loop around this one, as the
 checker walks it before `walkLoop`.
 
-**Jump targets.** Each loop, and each labeled `match` or `raw` block,
-is a `JumpTarget` on `Emitter.targets` while it is emitted, popped
-before its `else`. A jump resolves by lexical scope, as `walkJump`
-does: an unlabeled one to the innermost loop, a labeled one to the
-innermost target of its name, so a label may repeat an enclosing one.
-The target says where each jump goes from the part being emitted
+**Jump targets.** Where each `break` and `continue` goes is resolved
+once, by the type checker (`Checker.resolveJump`), and recorded as the
+jump's `JumpDest` (`SemContext.jumpDestOf`): the construct it names
+(the `while` or `for`, or a labeled `match` or `raw` block) and the
+point it goes to, `exit` (past the construct, a `break`), `step`, or
+`head`. The resolution is lexical: an unlabeled jump names the
+innermost loop around it, a labeled one the innermost loop or block of
+its name, so a label may repeat an enclosing one; a closure's or a
+`defer`'s body starts with none, and a `for` source and a loop's
+`else` are outside the loop. A `continue` goes to `step` from the body
+of a `while` with a step, and from its condition when the step is the
+continue expression; to `head` from a step, and in a loop with no step.
+Its errors (a jump not inside a loop, a label naming nothing around it,
+`continue` naming a block, a `continue` in the condition that would
+leave the step's binding unbound) are reported there.
+
+Emit and the ownership checker read the record. Each loop, and each
+labeled `match` or `raw` block, is a `JumpTarget` on `Emitter.targets`
+while it is emitted, popped before its `else`, and a jump finds its
+target by the construct its `JumpDest` names. The target knows which
+part of the loop is being emitted, which gives the Zig jump
 (`continue :L` from the condition, `break :L_body` from the body,
-`break :L_step` from the step), and every jump emit writes names its
-Zig label; none relies on Zig's innermost-loop rule. A Rig label is the
-Zig label's name unless an enclosing construct has the same one, which
-Zig rejects; then it is `__rig_label_N`.
+`break :L_step` from the step); emit checks that it goes where the
+`JumpDest` says, and every jump emit writes names its Zig label; none
+relies on Zig's innermost-loop rule. The ownership checker files the
+state at a jump under the construct's breaks, the step's point, or the
+head, by the same record (`walkJump`). A Rig label is the Zig label's
+name unless an enclosing construct has the same one, which Zig rejects;
+then it is `__rig_label_N`.
+
+**Exits.** `return`, `e!`, and `e?` leave the function or closure body
+that holds them, on the edge where they fail or always; a jump goes to
+its `JumpDest` in the body instead. The positive list is one,
+`rig.leavesBody` (`body_exit_kinds`), beside the jumps' (`rig.isJump`):
+the storage plan asks them whether an assignment's step or an argument
+can leave (`setActs`, `setLeaves`), and the ownership checker whether
+evaluating a value can (`leavesEarly`). The type checker sends each
+exit's failure where the body says (`fail_to`), and rejects one with
+nowhere to go.
 
 **Labels.** Zig rejects a label nothing jumps to. Emit writes each
 labeled construct into a buffer of its own (`openLabeled`) and puts the

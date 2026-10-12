@@ -734,6 +734,9 @@ pub const Facts = struct {
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
+    /// `break` and `continue` nodes -> where each goes (`JumpDest`),
+    /// which the type checker resolves (`SemContext.jumpDestOf`).
+    jump_dests: std.AutoHashMapUnmanaged(NodeKey, JumpDest) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
@@ -757,6 +760,31 @@ pub const Header = enum {
 
 /// A header's `Header`, and the value it holds when `held`.
 pub const HeaderFact = struct { how: Header, base: Sexp = .nil };
+
+/// Where a `break` or `continue` goes (docs/INTERNALS.md, "Loops"): the
+/// construct it names and the point of it it goes to. The type checker
+/// resolves every jump once, lexically (`Checker.resolveJump`), and emit
+/// and the ownership checker read the answer.
+pub const JumpDest = struct {
+    /// The `while` or `for` a jump leaves or continues, or the `match` or
+    /// `raw` block a labeled `break` leaves.
+    target: Sexp,
+    to: To,
+
+    pub const To = enum {
+        /// Past the construct: a `break`.
+        exit,
+        /// The loop's step, which runs before the next iteration: a
+        /// `continue` from the body of a `while` with a step, or from its
+        /// condition when the step is the loop's continue expression
+        /// (`storage.StepPoint`).
+        step,
+        /// The loop's head, the next iteration's condition: a `continue`
+        /// in a loop with no step, from a step, or from a condition whose
+        /// step runs after the body.
+        head,
+    };
+};
 
 /// A hidden storage location emit makes for an expression or construct
 /// (docs/INTERNALS.md, "Storage facts"): decided once, before ownership
@@ -958,6 +986,10 @@ pub const Question = enum(u8) {
     /// their turn, and whether the value made first is dropped if a later
     /// step leaves (`storage.setOrder`).
     set_order,
+    /// Of a `while`: where its step runs, as the loop's continue
+    /// expression or after the body in the condition's bindings
+    /// (`storage.stepPoint`).
+    step_point,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.
@@ -1332,6 +1364,10 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     switch (V) {
         StringCall, Use => try w.print(" {s}", .{@tagName(v)}),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
+        JumpDest => {
+            const at = diag.lineCol(ctx.source, ctx.startOf(v.target));
+            try w.print(" {s} {s} {d}:{d}", .{ @tagName(v.to), @tagName(v.target.kind().?), at.line, at.col });
+        },
         Lend => {
             if (v.implicit) try w.writeAll(" implicit");
             for (v.steps()) |step| try w.print(" {s}", .{@tagName(step)});
@@ -2275,6 +2311,17 @@ pub const SemContext = struct {
     pub fn headerOf(self: *const SemContext, node: Sexp) ?Header {
         const fact = self.facts.headers.get(nodeKey(node) orelse return null) orelse return null;
         return fact.how;
+    }
+
+    /// The `break` or `continue` `jump` goes to `dest` (`JumpDest`).
+    pub fn recordJumpDest(self: *SemContext, jump: Sexp, dest: JumpDest) !void {
+        try self.facts.jump_dests.put(self.allocator, recordKey(jump), dest);
+    }
+
+    /// Where the `break` or `continue` `jump` goes; null for a jump the
+    /// type checker did not reach or rejected.
+    pub fn jumpDestOf(self: *const SemContext, jump: Sexp) ?JumpDest {
+        return self.facts.jump_dests.get(nodeKey(jump) orelse return null);
     }
 
     /// The variant pattern `pattern` binds, for each payload field of its
@@ -4634,18 +4681,6 @@ pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
     if (!parent.isKind(.@"while")) return false;
     const step = ir.While.step(parent);
     return step == .list and child == .list and step.list.id == child.list.id;
-}
-
-/// Whether `step`, the step of a `while` whose condition is `cond`,
-/// reads a name an `as` part of `cond` binds. Such a step runs in the
-/// bindings' scope, after the body; any other runs after that scope
-/// ends (docs/INTERNALS.md, "Control flow").
-pub fn stepReadsBinding(ctx: *const SemContext, cond: Sexp, step: Sexp) bool {
-    if (step == .nil) return false;
-    if (rig.isConditionJoin(cond)) return stepReadsBinding(ctx, ir.get(cond, .left), step) or stepReadsBinding(ctx, ir.get(cond, .right), step);
-    if (!cond.isKind(.as)) return false;
-    const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
-    return findUse(ctx, step, sym) != null;
 }
 
 /// The first name in `node` that reads binding `sym`: `sym` itself, or a

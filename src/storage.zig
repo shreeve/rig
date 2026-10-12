@@ -251,7 +251,7 @@ fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
         const v = argValue(a);
         // A `!` or `?`, or a `return`, `break`, or `continue` in a
         // `catch` handler or a branch, leaves the enclosing block.
-        if (owned and contains(v, &.{ .propagate, .propagate_none, .@"return", .@"break", .@"continue" })) return true;
+        if (owned and contains(v, &leave_kinds)) return true;
         if (ownsValue(ctx, v)) owned = true;
     }
     return false;
@@ -976,14 +976,18 @@ fn decideSetOrder(ctx: *const SemContext, set: Sexp) SetOrder {
 /// drop, or leave. Then the order of the steps and the store is
 /// observable.
 pub fn setActs(e: Sexp) bool {
-    return contains(e, &.{ .call, .builtin, .set, .drop, .@"return", .@"break", .@"continue", .propagate, .propagate_none });
+    return contains(e, &([_]Tag{ .call, .builtin, .set, .drop } ++ leave_kinds));
 }
 
 /// Whether step `e` of an assignment can leave before the store: `!`,
 /// `?`, `return`, `break`, or `continue`.
 fn setLeaves(e: Sexp) bool {
-    return contains(e, &.{ .propagate, .propagate_none, .@"return", .@"break", .@"continue" });
+    return contains(e, &leave_kinds);
 }
+
+/// The nodes that leave the code around them: a body's exits and the
+/// jumps (`rig.leavesBody`, `rig.isJump`).
+pub const leave_kinds = rig.body_exit_kinds ++ rig.jump_kinds;
 
 /// Whether the base of an assignment's path gives the same place however
 /// late it is evaluated: a name, or a lend of a name or of a field path
@@ -1010,6 +1014,47 @@ pub fn storesAfterValue(ctx: *const SemContext, set: Sexp) bool {
     const ty = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
     if (sema.isReadOrWriteView(ctx, ty)) return !ctx.repoints(set) and sema.assignWritesThrough(ctx, ty);
     return true;
+}
+
+/// Where the step of a `while` runs (docs/INTERNALS.md, "Loops"), which
+/// emit lowers to, the ownership checker walks, and the type checker's
+/// jump resolver reads.
+pub const StepPoint = enum(u8) {
+    /// The loop's continue expression, after the condition's bindings end:
+    /// a `continue` from the condition or the body goes on to it. A
+    /// `while` with no step has nothing to place, and is this too.
+    continue_expr,
+    /// After the body, in the scope of the condition's bindings, which the
+    /// step reads: a `continue` from the body goes on to it, and one from
+    /// the condition would skip binding what it reads.
+    after_body,
+};
+
+/// Where the step of `while` loop `loop` runs, decided once.
+pub fn stepPoint(ctx: *const SemContext, loop: Sexp) StepPoint {
+    return decide(ctx, loop, .step_point);
+}
+
+/// A step that reads a name an `as` part of the condition binds runs in
+/// the bindings' scope, after the body; any other is the continue
+/// expression, which runs after that scope ends. A name reads a binding
+/// when it is the binding or a closure's capture of it (`sema.findUse`).
+fn decideStepPoint(ctx: *const SemContext, loop: Sexp) StepPoint {
+    const step = ir.While.step(loop);
+    if (step == .nil) return .continue_expr;
+    const Reads = struct {
+        ctx: *const SemContext,
+        step: Sexp,
+        found: bool = false,
+        pub fn part(r: *@This(), p: Sexp) error{}!void {
+            if (!p.isKind(.as)) return;
+            const sym = r.ctx.symbolOf(ir.As.name(p)) orelse return;
+            if (sema.findUse(r.ctx, r.step, sym) != null) r.found = true;
+        }
+    };
+    var reads: Reads = .{ .ctx = ctx, .step = step };
+    rig.eachGuardPart(ir.While.cond(loop), &reads) catch unreachable;
+    return if (reads.found) .after_body else .continue_expr;
 }
 
 /// Whether `e` holds a node of one of `kinds`, outside the closures in it.
@@ -1070,6 +1115,7 @@ pub fn Answer(comptime q: sema.Question) type {
         .hands => sema.Hands.Kind,
         .subject_hold => ?StorageBy,
         .set_order => SetOrder,
+        .step_point => StepPoint,
     };
 }
 
@@ -1109,6 +1155,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .argument_hold => Node.of(decideArgumentHold),
         .pure_arg => Node.of(decideIsPureArg),
         .set_order => Node.of(decideSetOrder),
+        .step_point => Node.of(decideStepPoint),
     };
 }
 
@@ -1308,7 +1355,10 @@ const Planner = struct {
             .@"for" => try p.forLoop(e),
             .match => try p.match(e),
             .@"if" => try p.condition(ir.If.cond(e)),
-            .@"while" => try p.condition(ir.While.cond(e)),
+            .@"while" => {
+                _ = stepPoint(ctx, e);
+                try p.condition(ir.While.cond(e));
+            },
             .@"catch" => if (p.isUsed(ir.Catch.name(e))) try p.record(e, .error_value, .copy, .handler),
             .share => if (ir.Share.operand(e).isKind(.lambda)) try p.record(ir.Share.operand(e), .closure_env, .owned, .expression),
             else => {},
@@ -1334,12 +1384,13 @@ const Planner = struct {
         if (points and sema.handsOver(p.ctx, e).kind == .branches and !isPtrViewExpr(p.ctx, e)) try p.leaf(e);
     }
 
-    /// An `if` or `while` condition: each part of a joined one.
+    /// An `if` or `while` condition: each of its guard parts
+    /// (`rig.eachGuardPart`).
     fn condition(p: *Planner, cond: Sexp) !void {
-        if (rig.isConditionJoin(cond)) {
-            try p.condition(ir.get(cond, .left));
-            return p.condition(ir.get(cond, .right));
-        }
+        try rig.eachGuardPart(cond, p);
+    }
+
+    pub fn part(p: *Planner, cond: Sexp) !void {
         if (cond.isKind(.as)) return p.optional(cond);
         try p.header(cond);
     }

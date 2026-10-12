@@ -68,6 +68,48 @@ pub fn isConditionJoin(cond: Sexp) bool {
     return cond.isKind(.@"and") and bindsInCondition(cond);
 }
 
+/// Call `visitor.part(p)` for each guard part of an `if` or `while`
+/// condition, in the order they run: each part a binding condition joins
+/// (`isConditionJoin`), which is a header of its own, or else the whole
+/// condition, which is one. The one list of a condition's parts: emit
+/// writes one `if` per part, and the storage plan, the type checker, the
+/// symbol resolver, and the ownership checker walk the same parts. A
+/// visitor with a `join` method is also given each `and` that joins
+/// parts, after the parts it joins.
+pub fn eachGuardPart(cond: Sexp, visitor: anytype) !void {
+    if (isConditionJoin(cond)) {
+        try eachGuardPart(ir.get(cond, .left), visitor);
+        try eachGuardPart(ir.get(cond, .right), visitor);
+        const V = @TypeOf(visitor);
+        const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
+        if (@hasDecl(T, "join")) try visitor.join(cond);
+        return;
+    }
+    try visitor.part(cond);
+}
+
+/// The nodes that leave the function or closure body holding them, on
+/// the edge where they fail or always: `return`, `e!`, `e?`. A jump
+/// (`jump_kinds`) goes to its `JumpDest` in the body instead.
+pub const body_exit_kinds = [_]Tag{ .@"return", .propagate, .propagate_none };
+
+/// The jumps, `break` and `continue`, each to the construct its
+/// `JumpDest` names.
+pub const jump_kinds = [_]Tag{ .@"break", .@"continue" };
+
+/// Whether `e` leaves the body that holds it (`body_exit_kinds`): the
+/// positive list of a body's exits.
+pub fn leavesBody(e: Sexp) bool {
+    const k = e.kind() orelse return false;
+    return std.mem.findScalar(Tag, &body_exit_kinds, k) != null;
+}
+
+/// Whether `e` is a jump (`jump_kinds`).
+pub fn isJump(e: Sexp) bool {
+    const k = e.kind() orelse return false;
+    return std.mem.findScalar(Tag, &jump_kinds, k) != null;
+}
+
 /// `x[...]`: an index, or compile-time arguments (sema tells which).
 pub fn isBracketList(e: Sexp) bool {
     return e.isKind(.index) or e.isKind(.inst);
@@ -2817,6 +2859,74 @@ test "writeZigIdent escapes Zig keywords and emitter names" {
     try w.writeAll(" ");
     try writeZigIdent(&w, "count");
     try testing.expectEqualStrings("@\"var\" @\"u8\" @\"rig'\" count", w.buffered());
+}
+
+test "a condition's guard parts: each part a binding condition joins, or the whole condition" {
+    const source =
+        \\while a as x and x > 0 and b as y: i += 1
+        \\  pass
+        \\while i < n and s[i] > 0
+        \\  pass
+        \\if a as x and (p and q)
+        \\  pass
+        \\
+    ;
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    const Parts = struct {
+        texts: [4][]const u8 = undefined,
+        n: usize = 0,
+        parser: *const Parser,
+        fn part(self: *@This(), e: Sexp) !void {
+            const sp = self.parser.span(e);
+            self.texts[self.n] = self.parser.base.source[sp.start..sp.end];
+            self.n += 1;
+        }
+    };
+    const decls = ir.Module.decls(tree);
+    const want = [_][]const []const u8{
+        &.{ "a as x", "x > 0", "b as y" },
+        &.{"i < n and s[i] > 0"},
+        &.{ "a as x", "p and q" },
+    };
+    for (decls, want) |d, w| {
+        const cond = if (d.isKind(.@"while")) ir.While.cond(d) else ir.If.cond(d);
+        var parts: Parts = .{ .parser = &p };
+        try eachGuardPart(cond, &parts);
+        try testing.expectEqual(w.len, parts.n);
+        for (w, parts.texts[0..parts.n]) |a, b| try testing.expectEqualStrings(a, std.mem.trim(u8, b, " "));
+    }
+}
+
+test "a body's exits are `return`, `!`, and `?`; the jumps are `break` and `continue`" {
+    const source =
+        \\fun f(o: Int?, r: Int!) -> Int?
+        \\  for i in 0..3
+        \\    break if i == 1
+        \\    continue
+        \\  x = o?
+        \\  y = r!
+        \\  return x + y
+        \\
+    ;
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    const Count = struct {
+        exits: usize = 0,
+        jumps: usize = 0,
+        fn walk(self: *@This(), e: Sexp) void {
+            if (leavesBody(e)) self.exits += 1;
+            if (isJump(e)) self.jumps += 1;
+            std.debug.assert(!(leavesBody(e) and isJump(e)));
+            if (e == .list) for (e.items()) |c| self.walk(c);
+        }
+    };
+    var c: Count = .{};
+    c.walk(tree);
+    try testing.expectEqual(3, c.exits);
+    try testing.expectEqual(2, c.jumps);
 }
 
 test "parser: for-source sigil moves into the mode slot" {

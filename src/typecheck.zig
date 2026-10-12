@@ -273,18 +273,37 @@ const Checker = struct {
         /// The name of the `fun` or `sub` being checked, for messages.
         name: Sexp = .nil,
         /// The loops and labeled blocks around the code being checked,
-        /// innermost first: what a `break` leaves.
+        /// innermost first: what a `break` or `continue` names
+        /// (`resolveJump`).
         loops: ?*LoopFrame = null,
+        /// A closure's body, or code inside one: a jump there cannot leave
+        /// a loop around the closure.
+        in_closure: bool = false,
     };
 
     const LoopFrame = struct {
         label: []const u8,
+        /// The construct a jump to this frame names: a `while` or `for`,
+        /// or a labeled block's `match` or `raw` block.
+        node: Sexp,
         /// False for a labeled block, which only `break :label` leaves.
         is_loop: bool = true,
+        /// The part of the loop being checked, which decides where a
+        /// `continue` from it goes.
+        part: LoopPart = .body,
+        /// A `while` with a step.
+        has_step: bool = false,
+        /// The `continue`s in a `while`'s condition, whose destination the
+        /// step's point decides (`settleConditionJumps`).
+        cond_continues: std.ArrayList(Sexp) = .empty,
         /// The value of a loop used as one.
         value: ?*LoopValue = null,
         parent: ?*LoopFrame,
     };
+
+    /// The part of a loop being checked. A `for` source runs before the
+    /// loop is entered, so a jump there names the loop around it.
+    const LoopPart = enum { source, cond, step, body };
 
     /// A member a call resolved as a method: how it takes its receiver,
     /// and what it returns.
@@ -696,7 +715,8 @@ const Checker = struct {
                 }
             },
             .@"break" => try self.checkBreak(stmt),
-            .@"continue", .pass => {},
+            .@"continue" => _ = try self.resolveJump(stmt),
+            .pass => {},
             .@"defer", .@"errdefer" => {
                 if (head == .@"errdefer") try self.checkErrdeferCanRun(stmt);
                 const saved = self.body;
@@ -740,7 +760,7 @@ const Checker = struct {
                         else => try self.errAt(stmt, "{s}; `:{s}` on this statement would do nothing", .{ prefix, label }),
                     }
                 }
-                var frame: LoopFrame = .{ .label = label, .is_loop = false, .parent = self.body.loops };
+                var frame: LoopFrame = .{ .label = label, .node = inner, .is_loop = false, .parent = self.body.loops };
                 self.body.loops = &frame;
                 defer self.body.loops = frame.parent;
                 try self.checkStmt(inner);
@@ -1654,56 +1674,71 @@ const Checker = struct {
     /// parts in order, each `(as expr name)` entering the scope that
     /// binds `name`; the caller restores the scope.
     fn checkCondition(self: *Checker, cond: Sexp) Error!void {
-        if (rig.isConditionJoin(cond)) {
-            const saved_hold = self.no_hold;
-            defer self.no_hold = saved_hold;
-            self.no_hold = true;
-            try self.checkCondition(ir.get(cond, .left));
-            try self.checkCondition(ir.get(cond, .right));
-            return self.ctx.recordType(cond, self.t().bool_id);
-        }
-        if (cond.isKind(.as)) return self.checkOptionalBinding(cond);
-        return self.checkExpr(cond, self.t().bool_id);
+        const saved_hold = self.no_hold;
+        defer self.no_hold = saved_hold;
+        if (rig.isConditionJoin(cond)) self.no_hold = true;
+        const Parts = struct {
+            c: *Checker,
+            pub fn part(v: @This(), p: Sexp) Error!void {
+                if (p.isKind(.as)) return v.c.checkOptionalBinding(p);
+                return v.c.checkExpr(p, v.c.t().bool_id);
+            }
+            pub fn join(v: @This(), j: Sexp) Error!void {
+                return v.c.ctx.recordType(j, v.c.t().bool_id);
+            }
+        };
+        try rig.eachGuardPart(cond, Parts{ .c = self });
+    }
+
+    /// The guard parts of a condition (`rig.eachGuardPart`), in order.
+    fn guardParts(self: *Checker, cond: Sexp) Error![]const Sexp {
+        const Parts = struct {
+            list: std.ArrayList(Sexp) = .empty,
+            a: std.mem.Allocator,
+            pub fn part(v: *@This(), p: Sexp) Error!void {
+                try v.list.append(v.a, p);
+            }
+        };
+        var parts: Parts = .{ .a = self.ctx.arena.allocator() };
+        try rig.eachGuardPart(cond, &parts);
+        return parts.list.items;
     }
 
     /// The step of `while cond: step` cannot use a binding of `cond` that
     /// moves, which the body owns and which ends before the step runs,
     /// or a view the condition binds, which lives only in the body.
     fn checkStepUses(self: *Checker, cond: Sexp, step: Sexp) Error!void {
-        if (rig.isConditionJoin(cond)) {
-            try self.checkStepUses(ir.get(cond, .left), step);
-            return self.checkStepUses(ir.get(cond, .right), step);
-        }
-        if (!cond.isKind(.as)) return;
-        const b = self.ctx.symbolOf(ir.As.name(cond)) orelse return;
-        const sym = self.ctx.symbols.items[b];
-        const use = sema.findUse(self.ctx, step, b) orelse return;
-        if (sema.isReadOrWriteView(self.ctx, sym.ty)) {
-            try self.errAt(use, "the loop step cannot use `{s}`: it is a view (`{s}`) that lives only in the body; use it at the end of the body instead", .{ sym.name, try self.tyName(sym.ty) });
-        } else if (try self.mustTake(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
-            try self.errAt(use, "the loop step cannot use `{s}`: the body owns this `{s}`, which ends with the body before the step runs", .{ sym.name, try self.tyName(sym.ty) });
+        for (try self.guardParts(cond)) |p| {
+            if (!p.isKind(.as)) continue;
+            const b = self.ctx.symbolOf(ir.As.name(p)) orelse continue;
+            const sym = self.ctx.symbols.items[b];
+            const use = sema.findUse(self.ctx, step, b) orelse continue;
+            if (sema.isReadOrWriteView(self.ctx, sym.ty)) {
+                try self.errAt(use, "the loop step cannot use `{s}`: it is a view (`{s}`) that lives only in the body; use it at the end of the body instead", .{ sym.name, try self.tyName(sym.ty) });
+            } else if (try self.mustTake(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
+                try self.errAt(use, "the loop step cannot use `{s}`: the body owns this `{s}`, which ends with the body before the step runs", .{ sym.name, try self.tyName(sym.ty) });
+            }
         }
     }
 
     /// A step that reads a binding of the condition runs inside the `if`s
-    /// that bind it, after the body (docs/INTERNALS.md, "Loops"), so every
-    /// binding there stays until the step is done: each must be plain
-    /// data (neither a view nor owning), and no `continue` in the
-    /// condition, which goes on to the step, may skip binding one. (Every
-    /// `continue` there targets this loop: the grammar has no labeled
-    /// jump in a condition.)
-    fn checkStepBindings(self: *Checker, cond: Sexp, step: Sexp) Error!void {
-        var parts: std.ArrayList(Sexp) = .empty;
-        defer parts.deinit(self.ctx.allocator);
-        try collectConditionParts(self.ctx.allocator, cond, &parts);
+    /// that bind it, after the body (`storage.StepPoint.after_body`,
+    /// docs/INTERNALS.md, "Loops"), so every binding there stays until the
+    /// step is done: each must be plain data (neither a view nor owning),
+    /// and no `continue` in the condition, which would go on past the
+    /// step (`resolveJump`), may skip binding one.
+    fn checkStepBindings(self: *Checker, frame: *const LoopFrame, loop: Sexp) Error!void {
+        if (storage.stepPoint(self.ctx, loop) != .after_body) return;
+        const step = ir.While.step(loop);
+        const parts = try self.guardParts(ir.While.cond(loop));
         var read: ?Sexp = null;
-        for (parts.items) |p| if (p.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(p))) |b| {
+        for (parts) |p| if (p.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(p))) |b| {
             if (sema.findUse(self.ctx, step, b)) |use| read = use;
         };
         const use = read orelse return;
         const name = self.text(use);
-        for (parts.items) |p| {
-            if (hasContinue(p)) return self.errAt(use, "the loop step reads `{s}`, a binding of the condition, which a `continue` in the condition leaves unbound", .{name});
+        if (frame.cond_continues.items.len > 0) return self.errAt(use, "the loop step reads `{s}`, a binding of the condition, which a `continue` in the condition leaves unbound", .{name});
+        for (parts) |p| {
             if (!p.isKind(.as)) continue;
             const b = self.ctx.symbolOf(ir.As.name(p)) orelse continue;
             const sym = self.ctx.symbols.items[b];
@@ -1899,8 +1934,8 @@ const Checker = struct {
 
     /// The frame of the loop being entered, which takes the pending label
     /// and value.
-    fn enterLoop(self: *Checker, frame: *LoopFrame) void {
-        frame.* = .{ .label = self.loop_label, .value = self.loop_value, .parent = self.body.loops };
+    fn enterLoop(self: *Checker, frame: *LoopFrame, node: Sexp) void {
+        frame.* = .{ .label = self.loop_label, .node = node, .value = self.loop_value, .parent = self.body.loops };
         self.loop_label = "";
         self.loop_value = null;
         self.body.loops = frame;
@@ -1918,14 +1953,18 @@ const Checker = struct {
 
     fn checkWhile(self: *Checker, node: Sexp) Error!void {
         var frame: LoopFrame = undefined;
-        self.enterLoop(&frame);
+        self.enterLoop(&frame, node);
+        defer frame.cond_continues.deinit(self.ctx.allocator);
         const prev = self.scope;
         const cond = ir.While.cond(node);
+        const step = ir.While.step(node);
+        frame.has_step = step != .nil;
+        frame.part = .cond;
         const saved_hold = self.no_hold;
         self.no_hold = true;
         try self.checkCondition(cond);
         self.no_hold = saved_hold;
-        const step = ir.While.step(node);
+        frame.part = .step;
         const call_step = step.isKind(.call) or (step.isKind(.propagate) and ir.Propagate.value(step).isKind(.call));
         if (step != .nil and !step.isKind(.set) and !call_step) {
             // `while x ?? break :outer`: the label reads as the step.
@@ -1945,8 +1984,10 @@ const Checker = struct {
             };
             const mark = self.ctx.diagnostics.items.len;
             try self.checkStepUses(cond, step);
-            if ((rig.isConditionJoin(cond) or cond.isKind(.as)) and self.ctx.diagnostics.items.len == mark) try self.checkStepBindings(cond, step);
+            if ((rig.isConditionJoin(cond) or cond.isKind(.as)) and self.ctx.diagnostics.items.len == mark) try self.checkStepBindings(&frame, node);
         }
+        try self.settleConditionJumps(&frame);
+        frame.part = .body;
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
         try self.checkLoopElse(&frame, ir.While.@"else"(node));
@@ -1954,7 +1995,8 @@ const Checker = struct {
 
     fn checkFor(self: *Checker, node: Sexp) Error!void {
         var frame: LoopFrame = undefined;
-        self.enterLoop(&frame);
+        self.enterLoop(&frame, node);
+        frame.part = .source;
         const mode = ir.For.mode(node).tag;
         const binding = ir.For.@"var"(node);
         const index_binding = ir.For.index(node);
@@ -2096,6 +2138,7 @@ const Checker = struct {
                     try self.loop_pairs.put(self.ctx.allocator, sym, pair);
                 }
             }
+            frame.part = .body;
             try self.checkStmt(ir.For.body(node));
         }
         try self.checkLoopElse(&frame, ir.For.@"else"(node));
@@ -2292,13 +2335,7 @@ const Checker = struct {
     /// every `break` that leaves it, and no other `break` carries one.
     fn checkBreak(self: *Checker, node: Sexp) Error!void {
         const value = ir.Break.value(node);
-        const label = ir.Break.label(node);
-        var target = self.body.loops;
-        while (target) |f| : (target = f.parent) {
-            if (label == .nil) {
-                if (f.is_loop) break;
-            } else if (std.mem.eql(u8, f.label, self.text(label))) break;
-        }
+        const target = try self.resolveJump(node);
         const lv: ?*LoopValue = if (target) |f| f.value else null;
         if (value == .nil) {
             if (lv != null) try self.errAt(node, "this `break` leaves a loop used as a value; give it the value (`break value`)", .{});
@@ -2311,6 +2348,71 @@ const Checker = struct {
                 try self.errAt(value, "`break` with a value needs a loop whose value is used (`x = for ...`)", .{});
             } else try self.errAt(value, "a labeled block has no value; `break :{s}` cannot carry one", .{f.label});
         }
+    }
+
+    /// Where `break` or `continue` `node` goes (`sema.JumpDest`), the one
+    /// resolution of a jump, which emit and the ownership checker read: an
+    /// unlabeled jump names the innermost loop around it, a labeled one
+    /// the innermost loop or labeled block of its name, lexically. A
+    /// closure's or a `defer`'s body starts with none, and a `for` source
+    /// and a loop's `else` are outside the loop. A `continue` from a
+    /// `while`'s condition is recorded once the step's point is decided
+    /// (`settleConditionJumps`). Null for a jump that names nothing it
+    /// can leave, which is reported here.
+    fn resolveJump(self: *Checker, node: Sexp) Error!?*LoopFrame {
+        const brk = node.isKind(.@"break");
+        const label = ir.get(node, .label);
+        var target = self.body.loops;
+        while (target) |f| : (target = f.parent) {
+            if (f.part == .source) continue;
+            if (label == .nil) {
+                if (f.is_loop) break;
+            } else if (std.mem.eql(u8, f.label, self.text(label))) break;
+        }
+        const word = if (brk) "break" else "continue";
+        const f = target orelse {
+            const where = if (self.body.in_closure) " (a closure body cannot leave a loop around it)" else "";
+            if (label == .nil) {
+                try self.errAt(node, "`{s}` is not inside a loop{s}", .{ word, where });
+            } else {
+                try self.errAt(node, "`{s} :{s}` names no enclosing loop or block{s}", .{ word, self.text(label), where });
+            }
+            return null;
+        };
+        if (brk) {
+            try self.ctx.recordJumpDest(node, .{ .target = f.node, .to = .exit });
+            return f;
+        }
+        if (!f.is_loop) {
+            try self.errAt(node, "`continue :{s}` names a block, not a loop", .{f.label});
+            return null;
+        }
+        const to: sema.JumpDest.To = switch (f.part) {
+            .source => unreachable,
+            // Where it goes from the condition depends on where the step
+            // runs, which is decided once the step is checked.
+            .cond => if (f.has_step) {
+                try f.cond_continues.append(self.ctx.allocator, node);
+                return f;
+            } else .head,
+            .body => if (f.has_step) .step else .head,
+            .step => .head,
+        };
+        try self.ctx.recordJumpDest(node, .{ .target = f.node, .to = to });
+        return f;
+    }
+
+    /// The `continue`s in the condition of `while` loop `frame`: to the
+    /// step when it is the loop's continue expression, or else to the
+    /// head, past a step that reads a binding they would leave unbound
+    /// (`checkStepBindings` rejects that).
+    fn settleConditionJumps(self: *Checker, frame: *const LoopFrame) Error!void {
+        if (frame.cond_continues.items.len == 0) return;
+        const to: sema.JumpDest.To = switch (storage.stepPoint(self.ctx, frame.node)) {
+            .continue_expr => .step,
+            .after_body => .head,
+        };
+        for (frame.cond_continues.items) |c| try self.ctx.recordJumpDest(c, .{ .target = frame.node, .to = to });
     }
 
     /// The element of `for x in !xs`: a write view of each slot. The
@@ -11358,13 +11460,13 @@ const Checker = struct {
             // A closure whose type can fail sends a failure `!`
             // propagates to its caller.
             const fails = self.ctx.types.get(w.returns) == .fallible;
-            try self.checkBody(body, .{ .ret = w.returns, .is_sub = w.is_sub, .fail_to = if (fails) .caller else .closure });
+            try self.checkBody(body, .{ .ret = w.returns, .is_sub = w.is_sub, .fail_to = if (fails) .caller else .closure, .in_closure = true });
             return expected.?;
         }
 
         var sites: std.ArrayList(ReturnSite) = .empty;
         defer sites.deinit(self.ctx.allocator);
-        self.body = .{ .ret = self.t().unknown_id, .is_sub = false, .fail_to = .closure, .returns = &sites };
+        self.body = .{ .ret = self.t().unknown_id, .is_sub = false, .fail_to = .closure, .returns = &sites, .in_closure = true };
         var ret = self.t().void_id;
         var ends_in_return = false;
         if (body.isKind(.block)) {
@@ -11853,26 +11955,6 @@ fn listElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
     if (pn.sym != ctx.list_sym_id or pn.args.len != 1) return null;
     return pn.args[0];
-}
-
-fn collectConditionParts(a: std.mem.Allocator, cond: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    if (rig.isConditionJoin(cond)) {
-        try collectConditionParts(a, ir.get(cond, .left), out);
-        return collectConditionParts(a, ir.get(cond, .right), out);
-    }
-    try out.append(a, cond);
-}
-
-/// A `continue` in `e`, outside the closures in it.
-fn hasContinue(e: Sexp) bool {
-    const kind = e.kind() orelse return false;
-    switch (kind) {
-        .@"continue" => return true,
-        .lambda => return false,
-        else => {},
-    }
-    for (rig.children(e)) |c| if (hasContinue(c)) return true;
-    return false;
 }
 
 /// An arithmetic operation: unary minus or a binary arithmetic,
