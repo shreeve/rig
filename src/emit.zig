@@ -370,7 +370,12 @@ pub const Emitter = struct {
             if (d0.isKind(.zig_extern)) try self.collectModule(ir.ZigExtern.decls(d0));
             const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
             const kind = d.kind() orelse continue;
-            const name = if (kind == .set) ir.Set.target(d) else if (ir.has(kind, .name)) ir.get(d, .name) else continue;
+            const name = switch (kind) {
+                .set => ir.Set.target(d),
+                // The name a `use` binds: its alias, else its path's last.
+                .use => if (ir.Use.alias(d) != .nil) ir.Use.alias(d) else if (ir.Use.name(d).isKind(.member)) ir.Member.name(ir.Use.name(d)) else ir.Use.name(d),
+                else => if (ir.has(kind, .name)) ir.get(d, .name) else continue,
+            };
             if (name != .src) continue;
             try self.module_names.put(a, try self.fmt("{f}", .{ident(self.srcText(name))}), {});
         }

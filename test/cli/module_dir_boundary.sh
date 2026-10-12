@@ -30,6 +30,39 @@ printf 'fun c() -> Int\n  a() + nope\n' >p/m/c.rig
 out=$("$RIG" check p/main.rig 2>&1); expect_rc $? 1 "error in a later file"
 expect_has "$out" "p/m/c.rig:2:9: error:" "error position in its own file"
 
+# A file that ends in a line continuation, or with no newline, ends its
+# last line there; the next file is still read.
+mkdir -p r/m
+printf 'use m\n\nsub main()\n  print(m.a())\n' >r/main.rig
+printf 'pub fun a() -> Int\n  1 \\' >r/m/a.rig
+printf 'fun b() -> Int\n  nope\n' >r/m/b.rig
+out=$("$RIG" check r/main.rig 2>&1); expect_rc $? 1 "a file ending in a continuation"
+expect_has "$out" "r/m/b.rig:2:3: error: use of unbound name \`nope\`" "the file after a continuation is read"
+printf 'fun b() -> Int\n  2\n' >r/m/b.rig
+out=$(rig run r/main.rig 2>&1); expect_rc $? 0 "a file ending in a continuation: $out"
+expect_eq "$out" "1" "a file ending in a continuation"
+
+# A file with no tokens (empty, or only comments) is part of the module.
+: >r/m/0.rig
+printf '# The module m.\n' >r/m/00.rig
+out=$(rig run r/main.rig 2>&1); expect_rc $? 0 "files with no tokens: $out"
+expect_eq "$out" "1" "files with no tokens"
+
+# A local may have the name another file's `use` binds.
+printf 'use std.math\n\nfun c() -> Int\n  math.abs(-1)\n' >r/m/c.rig
+printf 'pub fun a() -> Int\n  math = 1\n  math\n' >r/m/a.rig
+out=$(rig run r/main.rig 2>&1); expect_rc $? 0 "a local named like a later use: $out"
+expect_eq "$out" "1" "a local named like a later use"
+
+# `a/b.rig` is part of module `a`, and the directory `a/b/` is module
+# `a.b`: both may exist.
+mkdir -p s/a/b
+printf 'use a\nuse a.b\n\nsub main()\n  print(a.one(), b.two())\n' >s/main.rig
+printf 'pub fun one() -> Int\n  1\n' >s/a/b.rig
+printf 'pub fun two() -> Int\n  2\n' >s/a/b/two.rig
+out=$(rig run s/main.rig 2>&1); expect_rc $? 0 "a file and a directory of one name: $out"
+expect_eq "$out" "1 2" "a file and a directory of one name"
+
 # The module emits one Zig file, named by its path.
 mkdir -p q/a/b
 printf 'use a.b\n\nsub main()\n  print(b.one())\n' >q/main.rig

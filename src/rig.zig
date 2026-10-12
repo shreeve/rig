@@ -936,7 +936,16 @@ pub const Lexer = struct {
                 else => {},
             }
             if (self.last_cat == .eof and tok.pre > 0) return self.firstLineIndented(tok);
-            if (self.crossesFile(tok.pos)) return self.endOfFile();
+            if (self.crossesFile(tok.pos)) {
+                if (self.nesting > 0) return self.endOfFile();
+                if (self.last_cat != .eof) {
+                    // The file ended with no line break (a `\` before its
+                    // end): its last line ends there.
+                    return self.lineBreak(synthetic(.newline, self.ends[self.file]));
+                }
+                // The files before this token hold none.
+                while (self.crossesFile(tok.pos)) self.file += 1;
+            }
             return self.classify(tok);
         }
     }
@@ -1631,6 +1640,18 @@ pub const Parser = struct {
 
     pub fn init(alloc: std.mem.Allocator, source: []const u8) Parser {
         return .{ .base = BaseParser.init(alloc, source) };
+    }
+
+    /// A parser over a directory module's files joined, each but the
+    /// last ending at the matching `ends` position (`Lexer.ends`).
+    pub fn initFiles(alloc: std.mem.Allocator, source: []const u8, ends: []const u32) Parser {
+        var p = init(alloc, source);
+        const lexer = &p.base.lexer;
+        lexer.ends = ends;
+        // The parser read its first token as it started: the files before
+        // it hold none.
+        while (lexer.crossesFile(lexer.prev_pos)) lexer.file += 1;
+        return p;
     }
 
     pub fn deinit(self: *Parser) void {

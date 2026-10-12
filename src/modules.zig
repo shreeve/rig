@@ -317,7 +317,7 @@ pub const ModuleGraph = struct {
             } else try self.errorAt(id, at, "cannot read module `{s}`: no directory {s}/", .{ qualified, rel });
             return null;
         }
-        if (dir_kind == .dir and file_kind != .none) {
+        if (comps.len == 1 and dir_kind == .dir and file_kind != .none) {
             try self.errorAt(id, at, "module `{s}` is both the file `{s}` and the directory `{s}/`; keep one", .{ qualified, file, rel });
             return null;
         }
@@ -526,13 +526,12 @@ pub const ModuleGraph = struct {
             errdefer self.allocator.destroy(ctx);
             ctx.* = try sema.SemContext.init(self.allocator, source);
             errdefer ctx.deinit();
+            const ends = try a.alloc(u32, parts.len -| 1);
+            if (parts.len > 1) for (ends, parts[1..]) |*e, part| {
+                e.* = part.start;
+            };
             const p = try self.allocator.create(parser.Parser);
-            p.* = parser.Parser.init(self.allocator, source);
-            if (parts.len > 1) {
-                const ends = try a.alloc(u32, parts.len - 1);
-                for (ends, parts[1..]) |*e, part| e.* = part.start;
-                p.base.lexer.ends = ends;
-            }
+            p.* = parser.Parser.initFiles(self.allocator, source, ends);
 
             self.modules.appendAssumeCapacity(.{
                 .id = id,
