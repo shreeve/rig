@@ -104,7 +104,9 @@ def mac_samples(exe, n):
 def linux_samples(exe, n):
     tmp = tempfile.mkdtemp(prefix="opprof-")
     data = os.path.join(tmp, "perf.data")
-    subprocess.run(["perf", "record", "-F", "4000", "-o", data, "--", exe, str(n)],
+    # EVENT=instructions:u charges retired instructions instead of time.
+    ev = ["-e", os.environ["EVENT"]] if os.environ.get("EVENT") else []
+    subprocess.run(["perf", "record", "-F", "4000"] + ev + ["-o", data, "--", exe, str(n)],
                    capture_output=True, check=True)
     out = subprocess.run(["perf", "script", "-i", data, "-F", "ip,dso"],
                          capture_output=True, text=True, check=True).stdout
