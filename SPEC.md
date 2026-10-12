@@ -1384,6 +1384,74 @@ sub main()
 2
 ```
 
+### Methods outside the body
+
+A method may also be declared outside its type's body, in any file of
+the type's module ([§14](#directory-modules)): `fun T.m(...)` or `sub
+T.m(...)`, written as it is called. It is the member it names, the same
+declaration written as `T`'s last member: `pub` exports it, `Self` is
+`T`, and `?self`, `!self`, and `<self` mean what they mean in the body.
+A generic type's method names the type's parameters exactly as its
+declaration does (`Wrap[T]` for `obj Wrap[T]`, `Ring[T, n]` for `obj
+Ring[T, n: Int]`), and any of its own follow its name. A `drop` body
+stays in the body, since it decides the type's kind.
+
+```rig
+obj Point
+  x: Int
+  y: Int
+
+obj Wrap[T]
+  v: T
+
+fun Point.origin() -> Self
+  Point(x: 0, y: 0)
+
+sub Point.shift(!self, dx: Int)
+  self.x += dx
+
+fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]
+  Wrap(v: f(self.v))
+
+fun double(n: Int) -> Int
+  2 * n
+
+sub main()
+  p = Point.origin()
+  !p.shift(3)
+  print(p.x, Wrap(v: 4).map(double).v)
+```
+
+```output
+3 8
+```
+
+A method is declared in the module that declares its type: an `obj`
+or `enum` of this module, named as declared, not through an alias, a
+built-in type, or another module's type (methods a type gains from
+elsewhere are what traits are for, [ROADMAP](docs/ROADMAP.md)).
+
+```rig reject
+obj Point
+  x: Int
+
+type P = Point
+
+fun P.norm(?self) -> Int
+  self.x
+
+fun List.first2(?self) -> Int
+  0
+
+sub main()
+  print(Point(x: 1).x)
+```
+
+```error
+`P` is an alias of `Point`; declare the method as `fun Point.norm`
+`List` is a built-in type; a method is declared on a type of this module
+```
+
 ### Enums
 
 An `enum` lists variants, which may carry an explicit integer value or
@@ -1993,8 +2061,8 @@ test "area"
 
 A binding at module level is a constant, `name = value` or
 `name: T = value`, and `pub` exports it. Its value must be known at
-compile time: a literal, `.variant`, an earlier constant, or operators,
-ternaries (`a if c else b`), and array literals over them. Every function and type in the module
+compile time: a literal, `.variant`, a constant, or operators,
+ternaries (`a if c else b`), and array literals over them. Every function, type, and constant in the module
 reads it, wherever it is declared; nothing can reassign or move it,
 and a local or parameter may not reuse its name (`new` shadows it on
 purpose).
@@ -2015,6 +2083,21 @@ sub main()
 
 ```output
 10 5 high true
+```
+
+Constants are folded in the order they name each other, not the order
+they are written, so a constant that depends on itself is rejected:
+
+```rig reject
+A = B + 1
+B = A * 2
+
+sub main()
+  print(A)
+```
+
+```error
+constant `A` depends on itself (`A` → `B` → `A`)
 ```
 
 There are no mutable module-level variables, so a module-level binding
@@ -6597,9 +6680,12 @@ type mismatch: expected `Int`, got `ParseError`
 
 ## 14. Modules
 
-`use name` imports `name.rig` from the directory of the program's root
-file, whichever module says it, so a name denotes one file. The file's
-name must be exactly `name.rig`, case included, and names starting with
+A module is a file or a directory, named by its path from the directory
+of the program's root file, whichever module says it: `use name`
+imports `name.rig` or the directory `name/` (a program may not have
+both), and `use a.b.c` the directory `a/b/c/`. The import binds the
+path's last name, so `use a.b.c` names the module `c`. Each name of the
+path is spelled as on disk, case included, and names starting with
 `__rig` are reserved for the compiler. `use std.name` imports the
 standard library's module `name` ([STD.md](docs/STD.md)), which ships
 with the compiler; it is a different module from a `name.rig` beside
@@ -6820,6 +6906,82 @@ exactly as within one, and a type is identified by the module that
 declares it: `a.Point` and `b.Point` are different types. A module
 whose import has errors is not checked; the import's errors are
 reported.
+
+### Directory modules
+
+A directory is a module made of its `.rig` files, as a Go package is.
+Its files share one namespace: a declaration of any file, private or
+`pub`, is visible in every other, a constant may name a constant of
+any file, and a method may be declared outside its type's body
+([§3](#methods-outside-the-body)) in any file of the type's module.
+Every `.rig` file in a subdirectory belongs to that directory's
+module, so a module beneath another is a directory of its own:
+`checker/binder.rig` is part of module `checker`, and
+`checker/binder/` is the module `checker.binder`. Each file closes its
+own blocks and brackets, and a diagnostic names the file it is in.
+
+Files that call each other belong in one module: modules may not
+import each other in a cycle, so mutual recursion across files lives
+inside a directory. A `use` binds its name in its own file only, and
+each file uses the modules it names.
+
+```rig file=checker/expr.rig
+pub obj Checker
+  pub depth: Int
+
+  pub fun expr(?self, n: Int) -> Int
+    0 if n == 0 else self.stmt(n - 1)
+```
+
+```rig file=checker/stmt.rig
+use checker.binder
+
+pub fun Checker.stmt(?self, n: Int) -> Int
+  binder.bump(self.expr(n))
+```
+
+```rig file=checker/binder/bump.rig
+pub fun bump(n: Int) -> Int
+  n + 1
+```
+
+```rig
+use checker
+
+sub main()
+  print(checker.Checker(depth: 0).expr(3))
+```
+
+```output
+3
+```
+
+```rig file=m/a.rig
+use std.math
+
+pub fun a() -> Int
+  math.abs(-1)
+```
+
+```rig file=m/b.rig
+pub fun b() -> Int
+  math.abs(-2)
+```
+
+```rig reject
+use m
+
+sub main()
+  print(m.a() + m.b())
+```
+
+```error
+`math` is imported by another file of module `m`; add `use std.math` to this file
+```
+
+A file whose name ends in `_test.rig` belongs to its directory's module
+only when `rig test` builds the program, so its tests see the module's
+private names; `rig run` and `rig check` leave it out.
 
 ---
 

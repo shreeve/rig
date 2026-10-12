@@ -81,7 +81,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
     defer c.jump_targets.deinit(ctx.allocator);
-    for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
+    for (ctx.const_order.items) |decl| try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
 }
@@ -110,9 +110,6 @@ const Checker = struct {
     current_call: ?Sexp = null,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
-    /// In a module constant's declaration, its position: the types in it
-    /// name only earlier constants.
-    const_before: u32 = std.math.maxInt(u32),
     /// Enclosing `raw` blocks.
     raw_depth: u32 = 0,
     /// The operand of the `!` or `catch` being checked: a fallible call
@@ -382,7 +379,7 @@ const Checker = struct {
     }
 
     fn resolver(self: *Checker) resolve.TypeResolver {
-        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal, .const_before = self.const_before };
+        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal };
     }
 
     fn t(self: *Checker) *sema.TypeStore {
@@ -432,13 +429,11 @@ const Checker = struct {
             };
             return self.errAt(node, "a module-level binding is a constant; write `{s} = value`", .{self.text(target)});
         }
-        self.const_before = target.src.pos;
-        defer self.const_before = std.math.maxInt(u32);
         try self.checkSet(node);
         const value = ir.Set.value(node);
         if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
         if (!self.isConstExpr(value)) {
-            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, and arrays over them", .{});
+            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them", .{});
         }
     }
 
@@ -3786,8 +3781,8 @@ const Checker = struct {
         while (id != sema.symbol_invalid) {
             const sym = self.ctx.symbols.items[id];
             // A module-level constant is visible in every function body,
-            // and in later constants.
-            const later = sym.decl_pos > pos and (scope != self.module_scope or self.scope == self.module_scope);
+            // and in every constant (`SemContext.const_order`).
+            const later = sym.decl_pos > pos and scope != self.module_scope;
             if (sym.kind == .local and (later or id == self.pending)) {
                 id = sym.prev_in_scope;
                 continue;
@@ -5613,7 +5608,12 @@ const Checker = struct {
             const kw = if (is_sub) "sub" else "fun";
             if (foreign.is_std) {
                 try self.err(pos, "method `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
-            } else try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, f.name });
+            } else {
+                // A method declared outside its type's body names the type.
+                const outside = if (foreign.parser) |fp| fp.outside_members.contains(f.decl_pos) else false;
+                const shown = if (outside) try self.ctx.arena.allocator().print("{s}.{s}", .{ owner.name, f.name }) else f.name;
+                try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, shown });
+            }
         } else if (foreign.is_std) {
             try self.err(pos, "field `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
         } else {

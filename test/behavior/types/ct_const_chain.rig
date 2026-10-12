@@ -1,4 +1,4 @@
-# Module constants fold once, in declaration order, so a long chain of
+# Module constants fold once, in dependency order, so a long chain of
 # them sizes a signature or a field at once, and a type anywhere in the
 # module can name one declared after it.
 

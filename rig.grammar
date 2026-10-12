@@ -341,8 +341,8 @@ tokens
     # Declarations
     module                      ...decls
     use                         name alias:leaf?
-    fun                         name:leaf tparams:group? params:group? returns? origins:group? body:block?
-    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block?
+    fun                         name:leaf tparams:group? params:group? returns? origins:group? body:block? owner? owner_params:group?
+    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block? owner? owner_params:group?
     lambda                      captures:captures? params:group? body:block
     struct                      name:leaf unique:tag(unique)? ...members
     enum, errors                name:leaf ...members
@@ -535,15 +535,16 @@ constant = target:name "=" value:tail               → (set)
          | CONST target:name "=" value:tail         → (set op:fixed)
          | CONST target:name ":" type:type "=" value:tail → (set op:fixed)
 
-defn     = fun | sub | enum | struct | errors | typedef | test
+defn     = fun | sub | method | enum | struct | errors | typedef | test
 
-# `use geo`, `use geo as g`, `use std.os`, `use std.os as o`: a module
-# beside the root file, or one of the standard library.
+# `use geo`, `use geo as g`, `use checker.binder`, `use std.os as o`: a
+# module named by its path from the program's root directory, or from
+# the standard library's.
 use      = USE name:mpath                           → (use)
          | USE name:mpath AS alias:name             → (use)
 
 mpath    = name
-         | object:name "." name:name                → (member)
+         | object:mpath "." name:name               → (member)
 
 # A function always writes its parameter list, even when empty
 # (`sub main()`). Every definition parses without one, so that the
@@ -551,6 +552,20 @@ mpath    = name
 fun      = FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] body:block → (fun)
 sub      = SUB name:name [tparams:tparams] [params:params] body:block → (sub)
          | SUB name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)  # `sub save(p: Page)!`
+
+# A method declared outside its type's body, in the type's module:
+# `fun Point.norm(?self) -> Float`, `fun Wrap[T].map[U](...)`, with the
+# type's parameters named as its declaration names them. The Parser
+# wrapper moves it into the body (`attachMethods`). A qualified owner,
+# `fun geo.Point.m()`, parses only to be rejected.
+method   = FUN owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] body:block → (fun)
+         | FUN owner:qowner "." name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] body:block → (fun)
+         | SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] body:block → (sub)
+         | SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)
+         | SUB owner:qowner "." name:name [tparams:tparams] [params:params] body:block → (sub)
+         | SUB owner:qowner "." name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)
+
+qowner   = object:name "." name:name                → (member)
 
 returns  = "->" type                                → 2
 

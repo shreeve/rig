@@ -213,6 +213,9 @@ pub const Emitter = struct {
     counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
     module_names: std.StringHashMapUnmanaged(void) = .empty,
+    /// The names the `use` declarations emitted so far bind: in a
+    /// directory module, several files may each use one module.
+    used_names: std.StringHashMapUnmanaged(void) = .empty,
     usage: Usage = .{},
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
@@ -321,6 +324,7 @@ pub const Emitter = struct {
         self.local_by_sym.deinit(self.allocator);
         self.local_names.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
+        self.used_names.deinit(self.allocator);
         self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
@@ -412,6 +416,7 @@ pub const Emitter = struct {
         const path = ir.Use.name(node);
         const alias = ir.Use.alias(node);
         const name = self.srcText(if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path);
+        if ((try self.used_names.getOrPut(self.allocator, name)).found_existing) return;
         for (0..self.facts.importCount()) |i| {
             const imp = self.facts.importAt(i);
             if (std.mem.eql(u8, imp.local_name, name)) return self.w.print("const {f} = @import(\"{s}\");\n", .{ ident(name), imp.facts.zig_file });

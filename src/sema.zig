@@ -247,12 +247,19 @@ pub const ImportedNominal = struct {
 pub const ModuleMap = std.AutoHashMapUnmanaged(u32, *SemContext);
 const no_modules: ModuleMap = .empty;
 
+/// A `use` in one file of a directory module: the file (`SemContext.parts`),
+/// the module symbol it binds there, and the declaration.
+pub const FileUse = struct { file: u32, sym: SymbolId, decl: Sexp };
+
 /// One resolved `use NAME` of the module being checked. `sema` must
 /// outlive the importing SemContext.
 pub const ImportEntry = struct {
     local_name: []const u8,
     sema: *SemContext,
     module_id: u32,
+    /// The file of a directory module whose `use` the graph recorded it
+    /// for (`SemContext.parts`); 0 for a module of one file.
+    file: u32 = 0,
 };
 
 /// Interns types so structural equality is TypeId equality. Lookup is
@@ -1691,6 +1698,15 @@ pub const SemContext = struct {
     imports: []const ImportEntry = &.{},
     /// `use NAME` symbol -> origin module id.
     module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
+    /// A directory module: where each of its files starts in `source`.
+    /// Empty for a module of one file.
+    parts: []const diag.Part = &.{},
+    /// The module constants in the order their values are checked: each
+    /// after the constants it names (`resolve.orderModuleConsts`).
+    const_order: std.ArrayList(Sexp) = .empty,
+    /// In a directory module, each `use` by the file it is in: the
+    /// module symbol it binds, and the declaration.
+    file_uses: std.ArrayList(FileUse) = .empty,
     /// Every module of the program by id, shared by their contexts: a
     /// type from another module names its origin by id.
     foreign_semas: *const ModuleMap = &no_modules,
@@ -1839,6 +1855,8 @@ pub const SemContext = struct {
         self.declared_origins.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
+        self.file_uses.deinit(self.allocator);
+        self.const_order.deinit(self.allocator);
         self.reach.deinit(self.allocator);
         self.alias_targets.deinit(self.allocator);
         self.alias_in_progress.deinit(self.allocator);
@@ -2730,6 +2748,8 @@ pub const CheckOptions = struct {
     zig_file: []const u8 = "",
     /// A module of the standard library.
     is_std: bool = false,
+    /// A directory module: where each of its files starts in the source.
+    parts: []const diag.Part = &.{},
 };
 
 /// The end of a diagnostic for a name a standard library module does
@@ -2759,6 +2779,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     ctx.name = opts.name;
     ctx.zig_file = opts.zig_file;
     ctx.is_std = opts.is_std;
+    ctx.parts = opts.parts;
     // The caller's slice is temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, opts.imports);
     ctx.foreign_semas = opts.modules;
@@ -2782,6 +2803,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try computeOrigins(&ctx);
     try resolve.checkDeclarations(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
+    try resolve.checkFileUses(&ctx);
     try typecheck.checkFrames(&ctx, tree);
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);

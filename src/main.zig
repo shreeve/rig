@@ -192,7 +192,7 @@ pub fn main(init: std.process.Init) !void {
             }
         },
         .check => {
-            var graph = try loadProject(allocator, io, env, opts.path);
+            var graph = try loadProject(allocator, io, env, opts.path, false);
             defer graph.deinit();
             switch (opts.facts) {
                 .none => {},
@@ -405,12 +405,14 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
     try writer.interface.flush();
 }
 
-/// Load and check the project rooted at `path`; print every diagnostic
-/// and exit 1 if there are errors.
-fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !modules.ModuleGraph {
+/// Load and check the project rooted at `path`, with its directory
+/// modules' test files when `with_tests`; print every diagnostic and exit
+/// 1 if there are errors.
+fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, with_tests: bool) !modules.ModuleGraph {
     var graph = modules.ModuleGraph.init(allocator, io);
     errdefer graph.deinit();
     graph.std_dir = env.get("RIG_STD");
+    graph.with_tests = with_tests;
     try graph.loadRoot(path);
 
     var buffer: [4096]u8 = undefined;
@@ -425,7 +427,7 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 /// `rig emit`: the root module's Zig on stdout; the whole package
 /// (imports and runtime) is written to the output directory.
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
-    var graph = try loadProject(allocator, io, env, path);
+    var graph = try loadProject(allocator, io, env, path, false);
     defer graph.deinit();
     const pkg = try emitPackage(allocator, env, &graph, false);
     const dir = try outputDir(allocator, env, graph.root());
@@ -452,7 +454,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
             else => notRun("cannot clear RIG_RUN_STARTED `{s}`: {s}", .{ path, @errorName(err) }),
         };
     };
-    var graph = try loadProject(allocator, io, env, opts.path);
+    var graph = try loadProject(allocator, io, env, opts.path, opts.command == .@"test");
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     program_pending = opts.command != .build;

@@ -1,0 +1,7 @@
+BASE = 5
+
+pub fun Ring[T, n].cap(?self) -> Int
+  n
+
+pub fun ring() -> Ring[Int, 4]
+  Ring(items: [4 of 0])

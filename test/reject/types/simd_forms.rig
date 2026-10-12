@@ -15,7 +15,7 @@ sub main()
   t = Simd[U8, 4]
   print(t, LOW)
 
-# error: 6:7: a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, and arrays over them
+# error: 6:7: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them
 # error: 10:12: cannot iterate over `Simd[U8, 4]`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`)
 # error: 12:9: cannot `match` on a value of type `Simd[U8, 4]`; match works on enums, errors, integers, and Bool
 # error: 14:11: lane `4` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3

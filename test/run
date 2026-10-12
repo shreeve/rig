@@ -988,7 +988,8 @@ select_tests "$DISCOVERED" >"$LIST"
 #                      ```output block or not), or like ```rig reject when
 #                      an ```error block follows, but it must fail today;
 #                      once it passes, the suite fails
-#   ```rig file=m.rig  module `m.rig`, imported by the next example
+#   ```rig file=m.rig  module `m.rig`, imported by the next example; a
+#                      path (`file=m/a.rig`) is a file of a directory
 #
 # Each example becomes a directory holding main.rig (the directives
 # appended) and its `mode`; the id names the line of the opening fence.
@@ -998,7 +999,7 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
     name=${name//\//-}
     awk -v doc="$name" -v out="$2/$name" '
         function fail(msg) { if (mode !~ /^doc convention/) mode = "doc convention: " msg }
-        function emit(    dir, f, k, n, ls) {
+        function emit(    dir, f, k, n, ls, sub_dir) {
             dir = out "/L" start
             system("mkdir -p \"" dir "\"")
             printf "%s", body > (dir "/main.rig")
@@ -1011,7 +1012,10 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
                 }
             }
             close(dir "/main.rig")
-            for (f in pending) { printf "%s", pending[f] > (dir "/" f); close(dir "/" f); delete pending[f] }
+            for (f in pending) {
+                sub_dir = f; if (sub(/\/[^\/]*$/, "", sub_dir)) system("mkdir -p \"" dir "/" sub_dir "\"")
+                printf "%s", pending[f] > (dir "/" f); close(dir "/" f); delete pending[f]
+            }
             if (mode == "facts") { printf "%s", extra > (dir "/facts"); close(dir "/facts") }
             print (pend && mode !~ /^doc convention/ ? "pending " : "") mode > (dir "/mode"); close(dir "/mode")
             printf "doc/%s/L%d\t%s\n", doc, start, dir
@@ -1028,7 +1032,7 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
                     if (w == "") continue
                     if (w == "reject" || w == "fragment" || w == "facts") mode = w
                     else if (w == "pending") pend = 1
-                    else if (w ~ /^file=[A-Za-z_][A-Za-z0-9_]*\.rig$/) fname = substr(w, 6)
+                    else if (w ~ /^file=([A-Za-z_][A-Za-z0-9_]*\/)*[A-Za-z_][A-Za-z0-9_]*\.rig$/) fname = substr(w, 6)
                     else fail("unknown word `" w "` after ```rig")
                 }
                 body = ""
