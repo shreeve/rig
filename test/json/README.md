@@ -32,9 +32,13 @@ The `checker` and `corpus` groups read files from other projects.
 `tools/fetch-json-data.sh` downloads them into `test/json/data/`, which
 git ignores, each pinned by commit and sha256; `data/README.md` says where
 they come from and under what license. CI fetches them, and caches them by
-the script's hash. Without the data those two groups are skipped, with a
-note on the run's output and in `-v`; `JSON_REQUIRE_DATA=1` makes a missing
-or changed file a failure instead.
+the script's hash. The two groups read exactly the files the script
+pins, and a group with no cases fails. Without the data those two
+groups are skipped. The skip is noted on the run's output, in `-v`, and
+in the summary's count of skipped groups. `JSON_REQUIRE_DATA=1` makes a
+missing or changed file a failure instead. `./test/run` always checks
+`std.json`. The `JSON` variable, which points `compare.py` at another
+parser, does not reach it.
 
 ## Groups
 

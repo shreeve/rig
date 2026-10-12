@@ -71,7 +71,9 @@ jobs:
       - name: Restore the JSON test data
         uses: actions/cache@v4
         with:
-          path: rig/test/json/data
+          path: |
+            rig/test/json/data/simd-json
+            rig/test/json/data/simdjson
           key: json-data-${{ hashFiles('rig/tools/fetch-json-data.sh') }}
 
       - name: Fetch the JSON test data

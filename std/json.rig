@@ -1,5 +1,5 @@
-# std.json: JSON (RFC 8259), a scalar, validating parser that builds a
-# tape. Experimental: the API will change to fallible `!` functions.
+# std.json: JSON (RFC 8259), a one-pass, validating parser that builds
+# a tape. Experimental: the API will change to fallible `!` functions.
 #
 # `!doc.parse(src)` reads the whole of `src` in one pass and either
 # fills `doc`'s tape and returns true, or records the first error and
@@ -144,6 +144,10 @@ pub obj Doc
   pub error_pos: Int
 
   # ---- Reading the tape -----------------------------------------------
+  #
+  # Each reader takes an index `0 <= i < size()`, and the value getters
+  # an entry of their kind (`kind(i)`): out of range they panic, and on
+  # another kind they return an unspecified value or panic.
 
   # The number of tape entries.
   pub fun size(?self) -> Int
@@ -200,7 +204,13 @@ pub obj Doc
     !self.stack.clear()
     self.error = .ok
     self.error_pos = 0
-    (!self).document(src) >= 0
+    return true if (!self).document(src) >= 0
+    # A failed parse leaves no partial tape.
+    !self.tape.clear()
+    !self.text.clear()
+    !self.floats.clear()
+    !self.ints.clear()
+    false
 
   # Parses the one value `src` holds, with whitespace around it.
   fun document(!self, src: ?String) -> Int

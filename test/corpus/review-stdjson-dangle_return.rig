@@ -1,0 +1,11 @@
+use std.json
+
+fun make() -> json.Doc
+  s = String("[\"abc\"]")
+  doc = json.new_doc()
+  print((!doc).parse(?s))
+  doc
+
+sub main()
+  doc = make()
+  print(doc.get_str(1))

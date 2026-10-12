@@ -28,7 +28,7 @@ fastest run. The default variants are `rig-safe` (`rig build --release`,
 Zig's safe mode, every check kept), `rig-fast`, and Zig's `std.json`
 building the same tape or its `Value`, each in `-OReleaseSafe` and
 `-OReleaseFast`. `bench/json/bench-json --help` lists the options, among
-them `--files`, `--variants` (including `rig-safe@SCAN=8`, which rewrites
+them `--files`, `--variants` (including `rig-safe@TIER=0`, which rewrites
 a module constant of `std/json.rig`, and `rig-nocheck`, an experiment that
 removes the runtime's bounds checks to size them), `--reps` and `--ms`.
 
@@ -42,6 +42,20 @@ cpuq run --exclusive --cores 1 --label rig:json -- bench/json/bench-json --out $
 
 Run without `cpuq`, it prints a note and runs anyway: the numbers are
 then only as steady as the machine.
+
+## The guard: `guard.py`
+
+```sh
+cpuq run --cores 2 --label rig:json -- bench/json/guard.py            # check
+cpuq run --cores 2 --label rig:json -- bench/json/guard.py --update   # new baseline
+```
+
+The deep gate runs it on the Mac. It builds `rig-safe` for the six
+corpus files and counts instructions retired per byte. These counts
+don't move with the machine's load, so it can run on a busy machine.
+Any file more than 2% above its baseline in `guard.txt` fails the guard.
+A change meant to move the counts, such as a faster parser or a new Zig,
+commits a new baseline with `--update`.
 
 ## Competitors
 

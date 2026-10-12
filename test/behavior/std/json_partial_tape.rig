@@ -1,0 +1,17 @@
+# std.json: a failed parse leaves no partial tape, and a Doc parses
+# again after one.
+use std.json
+
+sub main()
+  doc = json.new_doc()
+  bad = "[[1"
+  print((!doc).parse(?bad), json.error_name(doc.error), doc.error_pos, doc.size())
+  good = "[[1], {\"a\": \"b\\n\"}, 2.5, 99999999999999999999]"
+  print((!doc).parse(?good), json.error_name(doc.error), doc.size())
+  again = "{\"x\": [\"\\u00e9\", 1.5"
+  print((!doc).parse(?again), json.error_name(doc.error), doc.error_pos, doc.size())
+
+# expect:
+# false eof 3 0
+# true ok 11
+# false eof 20 0

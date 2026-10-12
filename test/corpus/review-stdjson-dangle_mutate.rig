@@ -1,0 +1,8 @@
+use std.json
+
+sub main()
+  doc = json.new_doc()
+  s = String("[\"abc\"]")
+  if (!doc).parse(?s)
+    !s.clear()
+    print(doc.get_str(1))

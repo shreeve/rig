@@ -469,13 +469,15 @@ check_json() {
     local group=$1 outdir=$2 log=$3 part=--subset rc stub why
     [[ -n "${JSON_FULL:-}" ]] && part=""
     mkdir -p "$outdir"
-    local cmp=("$TIMEOUT_CMD" "$TIMEOUT" python3 "$ROOT/test/json/compare.py")
+    # The suite checks std.json: `JSON`, which names another parser for
+    # compare.py, does not reach it.
+    local cmp=("$TIMEOUT_CMD" "$TIMEOUT" env -u JSON python3 "$ROOT/test/json/compare.py")
     if [[ $group == checker || $group == corpus ]] && why=$("${cmp[@]}" --check-data 2>&1); then why=""; fi
     if [[ -z ${why:-} ]]; then
         # The key hashes the driver's emitted package (it is the std.json
         # of this compiler) and the files that make the cases.
         stub="$outdir/key.rig"
-        if python3 "$ROOT/test/json/compare.py" --stub "$stub" 2>/dev/null; then
+        if env -u JSON python3 "$ROOT/test/json/compare.py" --stub "$stub" 2>/dev/null; then
             { printf '# json %s %s\n# inputs %s\n' "$group" "$part" \
                 "$(cat test/json/compare.py test/json/cases.txt tools/fetch-json-data.sh | $SHA256 | cut -d' ' -f1)"; } >>"$stub"
             carried_over "json $group $part $TIMEOUT" "$stub" && return 0
@@ -485,7 +487,8 @@ check_json() {
     rc=$?
     if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
     if [[ $rc -eq 3 ]]; then
-        printf 'note: json/%s skipped (%s)\n' "$group" "$(grep -m1 '^SKIP' "$log" | cut -c6-)" >&2
+        SKIPPED="skipped: $(grep -m1 '^SKIP' "$log" | cut -c6-)"
+        printf 'note: json/%s %s\n' "$group" "$SKIPPED" >&2
         KEY=""
         return 0
     fi
@@ -585,7 +588,7 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
     local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$3"
     local entry=$path
     [[ -d "$path" ]] && entry="$path/main.rig"
-    REASON="" ID=$id KEY="" CARRIED="" NO_CACHE="" CONTRACT="" ENTRY=""
+    REASON="" ID=$id KEY="" CARRIED="" SKIPPED="" NO_CACHE="" CONTRACT="" ENTRY=""
     local kind=${id%%/*} ok
     # A test that builds and runs programs may raise its own time limit
     # with a `# timeout: <seconds>` line.
@@ -638,7 +641,7 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
             ;;
     esac
     if [[ -n "$CARRIED" ]]; then printf 'pass\t%s\tcarried over\n' "$id" >"$res"
-    elif [[ $ok -eq 0 ]]; then record_pass "$log"; printf 'pass\t%s\t\n' "$id" >"$res"
+    elif [[ $ok -eq 0 ]]; then record_pass "$log"; printf 'pass\t%s\t%s\n' "$id" "$SKIPPED" >"$res"
     else printf 'fail\t%s\t%s\n' "$id" "$REASON" >"$res"; fi
 }
 
@@ -1400,6 +1403,9 @@ ELAPSED=$((SECONDS - START))
 # With --delta, how many of the passes were carried over, not run.
 CARRIED_OVER=""
 [[ -n "$DELTA" ]] && CARRIED_OVER=" ($(grep -c $'^pass\t[^\t]*\tcarried over$' "$ALL") carried over)"
+# A json group skipped for want of its data counts as passed, and says so.
+SKIPS=$(grep -c $'^pass\t[^\t]*\tskipped: ' "$ALL")
+[[ $SKIPS -gt 0 ]] && CARRIED_OVER+=" (${Y}$SKIPS skipped${X}: run tools/fetch-json-data.sh)"
 if [[ $FAILED -eq 0 ]]; then
     printf '\n%s%d passed%s%s, 0 failed, %s%d known, %d pending%s  %s(%ds)%s\n' "$G" "$PASS" "$X" "$CARRIED_OVER" "$Y" "$KNOWN" "$PENDING" "$X" "$D" "$ELAPSED" "$X"
 else

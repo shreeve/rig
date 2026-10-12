@@ -39,7 +39,7 @@ Exit status 0 only if every case passes.
 Environment: RIG (default bin/rig), JSON (another parser than std/json.rig,
 such as an experiment), JSON_REQUIRE_DATA.
 """
-import argparse, decimal, glob, hashlib, json, math, os, random, shutil, struct, subprocess, sys, tempfile
+import argparse, decimal, hashlib, json, math, os, random, shutil, struct, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -219,11 +219,15 @@ def files_group(paths, prefix):
             out.append((prefix + os.path.splitext(os.path.basename(p))[0], f.read(), None))
     return out
 
+def pinned(directory):
+    """The files tools/fetch-json-data.sh pins directly in `directory`
+    under data/, in order: the groups read these and no others."""
+    return sorted(os.path.join(DATA, rel) for _, rel in manifest() if os.path.dirname(rel) == directory)
+
 def checker_group():
-    d = os.path.join(DATA, "simd-json")
-    return (files_group(sorted(glob.glob(os.path.join(d, "pass", "*.json"))), "pass-") +
-            files_group(sorted(glob.glob(os.path.join(d, "fail", "*.json"))), "fail-") +
-            files_group(sorted(glob.glob(os.path.join(d, "crash", "*.json"))), "crash-"))
+    return (files_group(pinned("simd-json/pass"), "pass-") +
+            files_group(pinned("simd-json/fail"), "fail-") +
+            files_group(pinned("simd-json/crash"), "crash-"))
 
 def deep_group():
     out = []
@@ -236,10 +240,7 @@ def deep_group():
     return out
 
 def corpus_group():
-    d = os.path.join(DATA, "simd-json")
-    ex = os.path.join(DATA, "simdjson")
-    return (files_group(sorted(glob.glob(os.path.join(d, "*.json"))), "corpus-") +
-            files_group(sorted(glob.glob(os.path.join(ex, "*.json"))), "example-"))
+    return files_group(pinned("simd-json"), "corpus-") + files_group(pinned("simdjson"), "example-")
 
 def scan_group():
     """Strings of every length up to 33 with a special byte at chosen
@@ -426,8 +427,8 @@ def rig_chunks(data):
     return chunks
 
 def program(cases):
-    # One table of every case's chunks, and a loop: a constant and a call
-    # per case made the program, and its compile, grow with the cases.
+    # One table of every case's chunks, and a loop, so the program's code,
+    # and its compile time, do not grow with the number of cases.
     names, starts, parts = [], [0], []
     for name, data, _ in cases:
         names.append('  "%s",\n' % name)
@@ -497,6 +498,8 @@ def manifest():
 
 def data_problem():
     """Why the third-party data cannot be used, or None."""
+    if not manifest():
+        return "%s pins no file this script can read" % os.path.relpath(FETCH, ROOT)
     for want, rel in manifest():
         p = os.path.join(DATA, rel)
         try:
@@ -557,6 +560,8 @@ def main():
             plan["%s-%d" % ("+".join(dict.fromkeys(names)), len(plan))] = list(batch)
     for g in groups:
         cases = GROUPS[g]()
+        if not cases:
+            sys.exit("FAIL group %s has no cases" % g)
         if a.subset:
             cases = thin(g, cases)
         for c in cases:

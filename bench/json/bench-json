@@ -21,7 +21,7 @@ usage: cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json [options]
                                       its runtime: sizes what they cost
                     A Rig variant may name settings after `@`, joined by
                     `+`: each rewrites a module constant or `type` alias
-                    of std/json.rig, as in rig-safe@SCAN=8+Narrow=I64;
+                    of std/json.rig, as in rig-safe@TIER=0 (SIMD only);
                     `src=NAME` takes the parser from $JSON_DIR/NAME.rig
                     instead, to compare experiments.
   --ms N            aim each timed run at about N ms (default 400)

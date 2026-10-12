@@ -34,7 +34,7 @@ decide the rounding. **Strings** are unescaped by copying the runs
 between escapes and decoding `\uXXXX`, pairing surrogates. UTF-8 is
 checked per sequence (scalar) or per block (SIMD lookup).
 
-## The design today: scalar, one pass, a tape
+## The design today: one pass, a tape
 
 `std/json.rig` is a single-pass, validating, iterative parser (an
 explicit stack, so depth costs no machine stack) that builds a tape of
@@ -44,14 +44,17 @@ lent, and Rig's types show it. Escaped strings are decoded into one
 buffer. Integers that fit an `Int` are `Int`s; every other number is
 the nearest `Float`: Clinger, then Eisel-Lemire with Rig's `U128`, then
 `std.text.parse_float` for the rare undecided case or more than 19
-digits. The Doc's lists are reused, so a warm parse allocates nothing.
+digits. Each parse reuses the Doc's lists, so a parse allocates only
+when a list must grow.
 Nothing is lazy: `parse` does all the work Zig's std.json does.
 
-It is scalar, since Rig has no vectors, and safe: every read is
-bounds-checked in `--release`. Its speed comes from the design:
+It is safe Rig, with no `raw`: every read is bounds-checked in
+`--release`. Its speed comes from the design:
 
 - one pass with no token objects and no recursion;
-- SWAR for the string scan, for runs of spaces, and for digits;
+- a tiered string scan: SWAR for a string's first 16 bytes, then
+  16-byte `Simd[U8, 16]` steps;
+- SWAR for runs of spaces and for digits;
 - non-ASCII text checked a run at a time, not one character per scan.
 
 It runs at 0.9-3.7 GB/s, 1.5-7x Zig std.json's scanner building the
@@ -94,13 +97,20 @@ The tiers come from the data, not from guesses (`bench/json/json-string-stats.py
 - **Values:** only 23-51% are at most 16 bytes, but most string bytes
   are in values over 32 bytes.
 
-Today there is one SWAR tier: U64 steps from the opening quote, which
-end keys in one or two steps. At the first special byte the scan
-stops; an escape or a run of UTF-8 is handled, and scanning resumes
-right after it, never from the string's start. With vectors the tiers
-become one or two U64 steps, then 32-byte vector steps continuing from
-where SWAR stopped. Keys never reach the second tier; most value bytes
-do.
+`skip_plain_ascii` has two tiers. The first is two U64 steps from where
+the scan starts (`TIER = 16` bytes), which end most keys. The second
+goes on 16 bytes at a time as a `Simd[U8, 16]`, and `m.first()` finds
+the first special lane. Fewer than 16 bytes from the end of the input,
+it reads the last 16 bytes again and drops the lanes it has already
+seen, so no read passes the end and the input needs no padding. At the
+first special byte the scan stops; an escape or a run of UTF-8 is
+handled, and scanning resumes right after it, never from the string's
+start. Keys rarely reach the second tier; most value bytes do.
+
+Measured (RESULTS.md): the second tier gains 12% on gsoc-2018, whose
+strings are long, and costs 3-4% on twitter and twitterescaped, whose
+values are short. Switching after 8 bytes is no better, and a 32-lane
+second tier loses 7-9% on twitter.
 
 ## A structural index against tiered scanning
 
@@ -117,7 +127,7 @@ the index.
   tokens, and fits SWAR. But its branches depend on the data.
 
 Expect the index to win on large, string-heavy documents and tiered
-scanning on small ones; measure both once Rig has vectors. The tape and
+scanning on small ones; measure both. The tape and
 stage 2 here serve either.
 
 ## The design for later
@@ -138,15 +148,12 @@ capability that needs no `raw` and no unchecked indexing. Gains are
 measured where a number is given (RESULTS.md) and estimated from the
 references' published designs where marked. In order of expected gain:
 
-1. **SIMD vectors with a byte mask** (est. 2-4x overall). A vector of
-   16, 32 or 64 bytes with lane-wise comparison and a reduction to a bit
-   mask, lowered to NEON, SSE/AVX or WASM SIMD128, and to scalar code
-   where there is none. It classifies a block of input in a few
-   instructions: simdjson's structural index, sonic-rs's 64-byte
-   whitespace bitmap, and 32-byte string scans. Long strings (86-95% of
-   the string bytes of gsoc-2018 and github_events are in strings over
-   32 bytes) gain most. The `simd` work measured a 16-lane string scan at
-   +13% to +22% on gsoc-2018 (RESULTS.md, "SIMD, round 1").
+1. **SIMD beyond the string scan** (est. up to 2x overall). Rig has
+   `Simd[T, n]` with lane-wise comparison, bit masks and `m.first()`,
+   and the string scan uses it. Still to try with it: sonic-rs's
+   64-byte whitespace bitmap, and simdjson's structural index, which
+   also needs a byte lookup (SIMD round 2) and a carry-less multiply
+   for the prefix XOR of the quote mask.
 2. **Block iteration with one check per block** (measured 1-11%). A safe
    `for block in bytes.blocks(16)` that hands out fixed-size views with
    one bounds check per block and a remainder for the tail. Removing
@@ -180,13 +187,26 @@ references' published designs where marked. In order of expected gain:
    benchmark and the test programs split a file into literals of 60 KB
    and join them at run time, and the tests stay under the 16 MiB source
    limit.
-7. **Character literals** (clarity). `'"'`, `'\\'`, `'{'` as `U8` values:
+7. **Multiple results** (clarity). A function returns one value, so
+   `take_digits` hands back the digits' value through an out-parameter,
+   which stays in a register only when the call is inlined. The byte
+   loop is split off into `take_last_digits` so that `take_digits` is
+   small enough to inline.
+8. **An enum variant's name as text** (clarity). `error_name` spells
+   out each `Error` variant's name in a `match`.
+9. **Character literals** (clarity). `'"'`, `'\\'`, `'{'` as `U8` values:
    the parser names 19 byte constants and writes `match` arms as hex
    literals with no name.
-8. **Errors that carry data** (API). A parse error is a kind and a byte
+10. **Errors that carry data** (API). A parse error is a kind and a byte
    offset, and Rig's errors carry no data, so `parse` returns a `Bool`
    and the `Doc` holds `error` and `error_pos`. The API changes to
    fallible `!` functions when errors can carry them.
+
+The final API is the design owner's decision, and is not settled:
+`parse` and the readers as fallible `!` functions, errors that carry
+their offset, and `!` or `T?` in place of the `-1` that the parser's
+internal steps return on an error. Until then `std.json` is
+experimental.
 
 Done, and no longer open: the bit methods (`leading_zeros`,
 `trailing_zeros`, `count_ones`) and `x.not()`; `<<%`; wide reads as one

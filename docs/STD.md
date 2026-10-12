@@ -537,7 +537,7 @@ before it returns.
 
 | Name | Meaning |
 |---|---|
-| `new_doc() -> Doc` | an empty `Doc`; its lists are reused by each `parse`, so a warm parse allocates nothing |
+| `new_doc() -> Doc` | an empty `Doc`; each `parse` reuses its lists, so a parse allocates only when a list must grow |
 | `(!doc).parse(src: ?String) -> Bool` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
 | `doc.error: Error`, `doc.error_pos: Int` | the first error, and the byte offset of the byte that cannot be read |
 | `error_name(e: Error) -> Static` | the name of an `Error`: `ok`, `empty`, `unexpected`, `eof`, `number`, `range`, `escape`, `surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large` |
@@ -555,7 +555,13 @@ that fits an `Int` is an `int`; any other number is the nearest `Float`
 `NaN` and `Infinity` are errors, as are an unpaired surrogate in a `\u`
 escape, bytes that are not UTF-8, and nesting deeper than 1024.
 Duplicate keys are kept, in order. `parse` reads the whole document or
-fails; there is no partial result.
+fails; a failed parse leaves an empty tape. An input over 4 GiB, or a
+string longer than 2^27 - 1 bytes, is a `too_large` error (no test
+reaches these sizes).
+
+Every reader takes an index `0 <= i < doc.size()`, and each value getter
+an entry of its own kind: out of range a reader panics, and on another
+kind a getter returns an unspecified value or panics.
 
 ```rig
 use std.json

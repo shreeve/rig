@@ -16,8 +16,8 @@ by up to about 10%, so compare columns within one table.
 
 ## Correctness
 
-``./test/run json``: **10495 of 10495 cases pass** (test/json/README.md):
-165 hand-written cases (110 with an exact error kind and offset), 1298
+``./test/run json``: **10,511 of 10,511 cases pass** (test/json/README.md):
+181 cases in `cases.txt` (119 with an exact error kind and offset), 1298
 block-edge string cases, 4192 edge cases for the other word-at-a-time
 paths (UTF-8 runs, digit runs, escapes; 3768 with an exact error kind
 and offset), 3543 string stops and 1053 whitespace runs at every offset
@@ -658,3 +658,31 @@ fastest of 15 runs of about 400 ms, `cpuq --cores 1`. MB/s.
   serde_json.
 - **gsoc-2018 is the one file left:** long strings, where the tiered
   SWAR-then-SIMD scan measured +13% to +17%.
+
+## Every file ahead of sonic-rs: the tiered scan on today's parser
+
+The tiered scan is the scalar parser with only `skip_plain_ascii`
+replaced: 16 bytes of U64 SWAR, then a 16-lane SIMD loop with an
+overlapping 16-byte tail. Measured before Rig had `m.first()`, its exit
+used the nibble mask (`shrn #4`, one `fmov`, `ctz >> 2`), the lowering
+`m.first()` now has, patched into the emitted Zig
+(`bench/json/timers/nibble.py`). Built on Rig main plus proofs, inline
+and simd. Tests: 10,511 of 10,511 through the patched build. Four
+interleaved sessions at load 4-8, fastest of 15; MB/s, best across
+sessions, with the ratio to sonic-rs:
+
+| file | scalar parser | **tiered scan** | sonic-rs |
+|---|---:|---:|---:|
+| twitter | 3346 (1.10x) | 3229 (1.06x) | 3044 |
+| twitterescaped | 2990 (1.10x) | 2871 (1.06x) | 2718 |
+| canada | 2014 (1.03x) | 2012 (1.03x) | 1957 |
+| citm_catalog | 3965 (1.07x) | 3961 (1.07x) | 3716 |
+| gsoc-2018 | 6421 (0.91x) | **7195 (1.02x)** | 7078 |
+| github_events | 3950 (1.08x) | 3970 (1.09x) | 3656 |
+
+- **gsoc** gains 12% and passes sonic-rs, though thinly: the four
+  sessions gave 1.01x, 0.98x, 1.02x and 1.02x.
+- **The cost:** a steady 3-4% against the scalar parser on twitter and
+  twitterescaped, both still ahead of sonic-rs.
+- **Switching to SIMD after 8 bytes** is no better on gsoc. **A 32-lane
+  middle loop** reaches 1.04x on gsoc but loses 7-9% on twitter.
