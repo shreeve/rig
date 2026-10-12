@@ -5,8 +5,12 @@
 H=$(cd "$(dirname "$0")" && pwd)
 R=$(cd "$H/../../.." && pwd)
 V=$1; shift
+# `src:NAME+patches`: the parser in src/NAME.rig, then the patches.
+J=$R/std/json.rig
+case $V in src:*) N=${V#src:}; N=${N%%+*}; J=$H/src/$N.rig
+  case $V in *+*) V=${V#*+};; *) V=base;; esac;; esac
 LOG=$(mktemp -d "${TMPDIR:-/tmp}/optest.XXXXXX")
-OP_PATCH=$V ZIG=$H/opzig.sh JSON=$R/std/json.rig OPZIG_LOG=$LOG/applied \
+OP_PATCH=$([ "$V" = base ] || echo "$V") ZIG=$H/opzig.sh JSON=$J OPZIG_LOG=$LOG/applied \
   python3 "$R/test/json/compare.py" "$@"
 rc=$?
 n=$(cat "$LOG/applied" 2>/dev/null | wc -l | tr -d ' ')

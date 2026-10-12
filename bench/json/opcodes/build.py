@@ -5,7 +5,8 @@ usage: build.py OUT FILES VARIANTS [--dsym] [--fast]
 
   FILES     comma-separated corpus files (test/json/data/simd-json/NAME.json)
   VARIANTS  comma-separated; each is `base` or patch names joined by `+`
-            (patches/NAME.py, each a `patch(json_zig) -> json_zig`)
+            (patches/NAME.py, each a `patch(json_zig) -> json_zig`), led
+            optionally by `src:NAME`, a parser in src/NAME.rig
 
 Rig emits the package once per file (rig build --release, kept); each
 variant is a copy of it with its patches applied, built with the same
@@ -83,26 +84,21 @@ def main():
     bj = bench_json()
     for f in files:
         data = open(os.path.join(DATA, f + ".json"), "rb").read()
-        src_dir = os.path.join(out, "_src-" + f)
-        pkg0 = os.path.join(src_dir, "out")
-        if not os.path.exists(os.path.join(pkg0, "json.zig")):
-            os.makedirs(src_dir, exist_ok=True)
-            json_rig = os.environ.get("JSON", os.path.join(ROOT, "std", "json.rig"))
-            shutil.copy(json_rig, os.path.join(src_dir, "json.rig"))
-            open(os.path.join(src_dir, "main.rig"), "w").write(bj.MAIN.replace("@PARTS@", bj.rig_parts(data)))
-            env = dict(os.environ, RIG_OUT_DIR=pkg0)
-            # `rig emit` writes the whole package to RIG_OUT_DIR.
-            run([RIG, "emit", os.path.join(src_dir, "main.rig")], env=env)
-            shutil.rmtree(os.path.join(pkg0, ".zig-cache"), ignore_errors=True)
         for v in variants:
             d = os.path.join(out, "%s-%s" % (f, v))
             exe = os.path.join(d, "prog")
             if os.path.exists(exe):
                 continue
+            # A first part `src:NAME` takes the parser from src/NAME.rig
+            # (a change to std.json itself) in place of std/json.rig.
+            parts = v.split("+")
+            srcname = parts[0][4:] if parts[0].startswith("src:") else None
+            patches = "+".join(parts[1:] if srcname else parts) or "base"
+            pkg0 = emit(out, f, data, srcname, bj)
             pkg = os.path.join(d, "pkg")
             shutil.rmtree(pkg, ignore_errors=True)
             shutil.copytree(pkg0, pkg)
-            apply(pkg, v)
+            apply(pkg, patches)
             cache = os.path.join(d, ".zc")
             run([zig, "build-exe", mode, "-j" + jobs, "--cache-dir", cache, "-femit-bin=" + exe + ".tmp",
                  os.path.join(pkg, "__rig_main.zig")], cwd=pkg)
@@ -111,6 +107,23 @@ def main():
             shutil.rmtree(cache, ignore_errors=True)
             os.rename(exe + ".tmp", exe)
             print("built", f, v, flush=True)
+
+
+def emit(out, f, data, srcname, bj):
+    """The package rig emits for file `f` with parser `srcname` (or std.json), once."""
+    src_dir = os.path.join(out, "_src-" + f + ("-" + srcname if srcname else ""))
+    pkg0 = os.path.join(src_dir, "out")
+    if not os.path.exists(os.path.join(pkg0, "json.zig")):
+        os.makedirs(src_dir, exist_ok=True)
+        json_rig = os.path.join(HERE, "src", srcname + ".rig") if srcname else \
+            os.environ.get("JSON", os.path.join(ROOT, "std", "json.rig"))
+        shutil.copy(json_rig, os.path.join(src_dir, "json.rig"))
+        open(os.path.join(src_dir, "main.rig"), "w").write(bj.MAIN.replace("@PARTS@", bj.rig_parts(data)))
+        env = dict(os.environ, RIG_OUT_DIR=pkg0)
+        # `rig emit` writes the whole package to RIG_OUT_DIR.
+        run([RIG, "emit", os.path.join(src_dir, "main.rig")], env=env)
+        shutil.rmtree(os.path.join(pkg0, ".zig-cache"), ignore_errors=True)
+    return pkg0
 
 
 main()
