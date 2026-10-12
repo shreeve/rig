@@ -5755,13 +5755,14 @@ pub const Checker = struct {
         return sema.copiedThrough(ctx, ty orelse return false) != null;
     }
 
-    /// A scalar: a number, `Bool`, `?String`, or an error. A method call
-    /// takes any other receiver by address, so a later argument must
-    /// not change it before the call reads it.
+    /// A scalar (`sema.isScalar`: a number, `Bool`, `?String`, or a
+    /// vector), or an error. A method call takes any other receiver by
+    /// address, so a later argument must not change it before the call
+    /// reads it.
     fn isScalar(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
-        return sema.isCopyPrimitive(ctx, t) or ctx.types.get(t) == .any_error;
+        return sema.isScalar(ctx, t) or ctx.types.get(t) == .any_error;
     }
 
     /// A `String`, whose bytes a `?String` may view.

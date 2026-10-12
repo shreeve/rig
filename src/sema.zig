@@ -119,6 +119,11 @@ pub const SliceType = struct { elem: TypeId };
 /// `[len]elem`: `len` is a `ct_value`, or a `ct_param` inside a generic
 /// declaration.
 pub const ArrayType = struct { elem: TypeId, len: TypeId };
+/// `Simd[elem, len]`: `len` lanes of a number or `Bool`, `len` a power of
+/// two from 2 to 64 (`ct_value`), or a `ct_param` inside a generic
+/// declaration. A vector is one plain value (docs/CORE.md §1): its lanes
+/// are parts of its value, not places.
+pub const SimdType = struct { elem: TypeId, len: TypeId };
 
 /// A value known at compile time, as a compile-time argument or an
 /// array length.
@@ -193,6 +198,9 @@ pub const Type = union(enum) {
 
     slice: SliceType,
     array: ArrayType,
+    /// `Simd[T, n]`: a vector of `n` lanes, lowered to `@Vector(n, T)`.
+    /// A mask is `Simd[Bool, n]`, what a lane-wise comparison gives.
+    simd: SimdType,
     /// `a..b`: a half-open range of the element integer type. Only valid
     /// as a `for` source.
     range: TypeId,
@@ -737,6 +745,10 @@ pub const Facts = struct {
     /// `break` and `continue` nodes -> where each goes (`JumpDest`),
     /// which the type checker resolves (`SemContext.jumpDestOf`).
     jump_dests: std.AutoHashMapUnmanaged(NodeKey, JumpDest) = .empty,
+    /// Scalar operands of a lane-wise operator or of `select` (`exprKey`)
+    /// -> the vector type they stand for, every lane theirs
+    /// (`SemContext.recordSplat`).
+    splats: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
@@ -1026,12 +1038,17 @@ pub const Use = enum {
 
 /// A built-in method on the elements of a slice, an array, a List, or a
 /// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
-/// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`;
+/// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`
+/// (`num` a number type or a vector of numbers);
 /// and the methods of an integer's bits: `x.not()`, the complement of an
-/// integer or a `Bool`, and `x.swap_bytes()` (`elem` and `num` are its
-/// type), and `x.leading_zeros()`, `x.trailing_zeros()`, and
-/// `x.count_ones()` (`num` is the integer's type, `elem` the `Int` they
-/// give).
+/// integer or a `Bool`, or lane by lane of a vector, and
+/// `x.swap_bytes()` (`elem` and `num` are its type), and
+/// `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()` (`num`
+/// is the integer's type, `elem` the `Int` they give); and the methods of
+/// a vector (`isSimd`), where `num` is the vector and `elem` its lane
+/// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.any()`, `m.all()`,
+/// `v.array()`, `v.with(i, x)`, and `m.select(a, b)`, whose `num` is the
+/// mask and `elem` the lane type of the vector it gives.
 pub const ElemCall = struct {
     op: ElemOp,
     /// The receiver's element type.
@@ -1051,13 +1068,29 @@ pub const ElemOp = enum {
     trailing_zeros,
     count_ones,
     swap_bytes,
+    splat,
+    bits,
+    any,
+    all,
+    array,
+    with,
+    select,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => true,
-            .copy, .fill, .swap, .read, .write => false,
+            .copy, .fill, .swap, .read, .write, .splat, .bits, .any, .all, .array, .with, .select => false,
+        };
+    }
+
+    /// Whether the method is a vector's (`simdCall`, `simdTypeCall`):
+    /// it reads its receiver and arguments, and makes a new value.
+    pub fn isSimd(op: ElemOp) bool {
+        return switch (op) {
+            .splat, .bits, .any, .all, .array, .with, .select => true,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => false,
         };
     }
 };
@@ -1358,7 +1391,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         const sym = ctx.symbols.items[v];
         return w.print(" {s} {s}", .{ sym.name, @tagName(sym.kind) });
     }
-    if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "payload_fields") or std.mem.eql(u8, name, "string_nums"))
+    if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "payload_fields") or std.mem.eql(u8, name, "string_nums") or std.mem.eql(u8, name, "splats"))
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
@@ -1447,6 +1480,12 @@ pub const Requirement = union(enum) {
     /// A compile-time integer from 0 to `max_array_len`: the body uses
     /// the value parameter as an array length.
     array_len,
+    /// A power of two from 2 to 64: the body uses the value parameter as
+    /// a vector's lane count (`Simd[T, n]`).
+    lane_count,
+    /// Holds no vector inline (`holdsVector`): the body takes the size or
+    /// alignment of a type that holds the parameter by value.
+    sized,
     /// An integer or float type: the body reads or writes one in bytes
     /// (`b.read[T, .big](at)`).
     bytes,
@@ -1475,6 +1514,8 @@ pub const Requirement = union(enum) {
             .copies => "a value that copies",
             .no_cleanup => "a value that owns no resource",
             .array_len => "an array length",
+            .lane_count => "a lane count",
+            .sized => "a size or alignment",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
             .not_error => "a fallible return",
@@ -1569,6 +1610,7 @@ pub const SemContext = struct {
     cell_sym_id: SymbolId = symbol_invalid,
     list_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
+    simd_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
 
@@ -2161,6 +2203,18 @@ pub const SemContext = struct {
 
     pub fn recordCallParams(self: *SemContext, call: Sexp, params: CallParams) !void {
         try self.facts.call_params.put(self.allocator, recordKey(call), params);
+    }
+
+    /// `node`, a scalar operand of a lane-wise operator or of `select`,
+    /// stands for every lane of a vector of type `ty`: emit writes it
+    /// splatted, `@as(V, @splat(x))`.
+    pub fn recordSplat(self: *SemContext, node: Sexp, ty: TypeId) !void {
+        try self.facts.splats.put(self.allocator, recordExprKey(node) orelse return, ty);
+    }
+
+    /// The vector type a scalar operand stands for (`recordSplat`).
+    pub fn splatOf(self: *const SemContext, node: Sexp) ?TypeId {
+        return self.facts.splats.get(exprKey(node) orelse return null);
     }
 
     pub fn recordElemCall(self: *SemContext, callee: Sexp, call: ElemCall) !void {
@@ -2974,6 +3028,9 @@ pub const Contents = struct {
     /// Holds itself by value, which `checkInfiniteTypes` reports: it has
     /// no size.
     cyclic: bool = false,
+    /// Holds a vector inline, directly or through an argument of a
+    /// generic instance it holds by value (`held`).
+    vector: bool = false,
 };
 
 /// Whether values hold a marked view (`?T`, `!T`, a slice), whether they
@@ -2995,7 +3052,7 @@ pub const Views = packed struct(u4) {
 /// Facts about an interned type, recorded when it is interned
 /// (`SemContext.intern`). The structural facts are always known; the
 /// rest once declarations are resolved (`SemContext.contents_ready`).
-pub const TypeInfo = packed struct(u19) {
+pub const TypeInfo = packed struct(u20) {
     /// Mentions a generic parameter anywhere.
     has_type_var: bool = false,
     /// Holds a generic parameter by value, so whether it owns a resource
@@ -3014,6 +3071,8 @@ pub const TypeInfo = packed struct(u19) {
     views: Views = .{},
     /// Is or mentions `invalid` or `unknown`: a diagnostic was reported.
     poison: bool = false,
+    /// Is or holds inline a vector (see `holdsVector`).
+    vector: bool = false,
     /// How deeply wrappers and generic instances nest in it (saturating).
     depth: u8 = 0,
 };
@@ -3058,6 +3117,7 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
             const h = try holdsIn(ctx, d.ty, params, held);
             c.glue = c.glue or h.glue;
             c.plain = c.plain and h.plain;
+            c.vector = c.vector or h.vector;
         }
     }
     // The built-in generics are runtime types: a List owns its buffer and
@@ -3080,7 +3140,7 @@ fn contentsOf(ctx: *const SemContext, id: SymbolId) Contents {
     return if (c.done) c else .{};
 }
 
-const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool = false };
+const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool = false, vector: bool = false };
 
 /// What a value of `ty` holds. `ty` is a field type of a generic type
 /// whose parameters are `params` (empty elsewhere): each parameter it
@@ -3088,19 +3148,24 @@ const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool =
 fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool) std.mem.Allocator.Error!Holds {
     if (params.len == 0 and ctx.contents_ready and ty < ctx.type_info.items.len) {
         const info = ctx.type_info.items[ty];
-        return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var };
+        return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var, .vector = info.vector };
     }
     return switch (ctx.types.get(ty)) {
         .bool, .int, .float, .string_view, .static, .any_error, .ct_value, .ct_param => .{ .plain = true },
         .string => .{ .glue = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
-        .fallible => |inner| .{ .type_var = (try holdsIn(ctx, inner, params, held)).type_var },
+        // Lanes of a number or `Bool`: one plain value.
+        .simd => .{ .plain = true, .vector = true },
+        .fallible => |inner| blk: {
+            const h = try holdsIn(ctx, inner, params, held);
+            break :blk .{ .type_var = h.type_var, .vector = h.vector };
+        },
         .shared, .weak => .{ .glue = true },
         .nominal, .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk .{};
             const c = contentsOf(decl.ctx, decl.sym);
-            break :blk .{ .glue = c.glue, .plain = c.plain };
+            break :blk .{ .glue = c.glue, .plain = c.plain, .vector = c.vector };
         },
         .type_var => |sym| blk: {
             const i = std.mem.findScalar(SymbolId, params, sym) orelse break :blk .{ .type_var = true };
@@ -3109,13 +3174,14 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         },
         .parameterized_nominal => |pn| blk: {
             const c = contentsOf(ctx, pn.sym);
-            var h: Holds = .{ .glue = c.glue, .plain = c.plain };
+            var h: Holds = .{ .glue = c.glue, .plain = c.plain, .vector = c.vector };
             for (pn.args, 0..) |a, i| {
                 if (i >= c.held.len or !c.held[i]) continue;
                 const arg = try holdsIn(ctx, a, params, held);
                 h.glue = h.glue or arg.glue;
                 h.plain = h.plain and arg.plain;
                 h.type_var = h.type_var or arg.type_var;
+                h.vector = h.vector or arg.vector;
             }
             break :blk h;
         },
@@ -3283,6 +3349,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     info.glue = h.glue;
     info.plain = h.plain;
     info.holds_type_var = h.type_var;
+    info.vector = h.vector;
     const r = try reachOf(ctx, id, .all, null);
     info.cell = r.cell;
     info.unique = r.unique;
@@ -3493,6 +3560,7 @@ pub const TypeChildren = struct {
             .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
             .slice => |s| if (i == 0) s.elem else null,
             .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
+            .simd => |v| if (i == 0) v.elem else if (i == 1) v.len else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             else => null,
@@ -3512,6 +3580,45 @@ pub fn arrayLen(ctx: *const SemContext, a: ArrayType) ?u64 {
         .ct_value => |v| if (v.int < 0 or v.int > max_array_len) null else @intCast(v.int),
         else => null,
     };
+}
+
+/// A vector's lane count when it is a known count: a power of two from
+/// 2 to 64 (`lanesInRange`); null for a compile-time parameter, whose
+/// value each instance gives, and for a count out of range, which is
+/// reported where it is written.
+pub fn simdLen(ctx: *const SemContext, v: SimdType) ?u64 {
+    return switch (ctx.types.get(v.len)) {
+        .ct_value => |c| if (lanesInRange(c.int)) @intCast(c.int) else null,
+        else => null,
+    };
+}
+
+/// Whether `n` is a lane count: a power of two from 2 to 64, so every
+/// mask fits a `U64` and every count fills whole registers.
+pub fn lanesInRange(n: Wide) bool {
+    return n >= 2 and n <= 64 and n & (n - 1) == 0;
+}
+
+/// Whether a lane may be of type `ty`: a number or `Bool`.
+pub fn isLaneType(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .int, .float, .bool => true,
+        else => false,
+    };
+}
+
+/// The vector `ty` is, through any views (`?v` reads as its value).
+pub fn simdOf(ctx: *const SemContext, ty: TypeId) ?SimdType {
+    return switch (ctx.types.get(unwrapViews(ctx, ty))) {
+        .simd => |v| v,
+        else => null,
+    };
+}
+
+/// Whether `ty` is a mask, `Simd[Bool, n]`, through any views.
+pub fn isMask(ctx: *const SemContext, ty: TypeId) bool {
+    const v = simdOf(ctx, ty) orelse return false;
+    return v.elem == ctx.types.bool_id;
 }
 
 /// The bytes a value of `ty` takes at least (padding aside), or null
@@ -3544,6 +3651,13 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const n = arrayLen(ctx, a) orelse break :blk null;
             const e = (try minBytesOf(ctx, a.elem, false)) orelse break :blk null;
             break :blk std.math.mul(u128, n, e) catch std.math.maxInt(u128);
+        },
+        // Zig's own size: a lane each, and a mask's lanes one bit each.
+        .simd => |v| blk: {
+            const n = simdLen(ctx, v) orelse break :blk null;
+            if (v.elem == ctx.types.bool_id) break :blk @max(1, n / 8);
+            const e = (try minBytesOf(ctx, v.elem, false)) orelse break :blk null;
+            break :blk n * e;
         },
         .nominal => |sym| try fieldBytes(ctx, sym, .empty),
         // Sized where it is declared (`checkTypeSizes`).
@@ -3935,6 +4049,8 @@ pub const NotEquatable = struct {
         drop,
         /// A struct declared `unique`.
         unique,
+        /// A `Simd[T, n]`, whose `==` compares lane by lane.
+        lanes,
     };
 };
 
@@ -4003,6 +4119,8 @@ const EquatableWalk = struct {
         switch (ctx.types.get(item.ty)) {
             .optional => |inner| try self.push(i, inner, ""),
             .array => |a| try self.push(i, a.elem, ""),
+            // A vector's `==` is lane by lane, a mask, not one `Bool`.
+            .simd => return .lanes,
             .slice => |sl| if (item.in_decl) return .view else try self.push(i, sl.elem, ""),
             .read_view, .write_view => return .view,
             .shared => |inner| return if (ctx.types.get(inner) == .function) .closure else .handle,
@@ -4068,6 +4186,21 @@ pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
         .bool, .int, .float, .string_view, .static, .int_literal, .float_literal => true,
         else => false,
     };
+}
+
+/// Whether a value of `ty` is or holds a vector inline: in a field, a
+/// payload, an array, an optional, or a generic instance's argument held
+/// by value (a List's or a box's elements are on the heap). Its size and
+/// alignment are the target's, so `@size` and `@align` take no such type.
+pub fn holdsVector(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).vector;
+}
+
+/// A scalar: a primitive that copies, or a vector (`Simd[T, n]`), one
+/// value held in registers. An operator reads a view of one as its value,
+/// and a method takes one by value, never by address.
+pub fn isScalar(ctx: *const SemContext, ty: TypeId) bool {
+    return isCopyPrimitive(ctx, ty) or ctx.types.get(ty) == .simd;
 }
 
 pub fn isNumeric(ctx: *const SemContext, ty: TypeId) bool {
@@ -4362,6 +4495,15 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             if (ctx.types.get(n) == .ct_value and arrayLen(ctx, .{ .elem = e, .len = n }) == null) return ctx.types.invalid_id;
             return ctx.intern(.{ .array = .{ .elem = e, .len = n } });
         },
+        .simd => |v| {
+            const e = try substituteType(ctx, v.elem, subst);
+            const n = try substituteType(ctx, v.len, subst);
+            if (e == v.elem and n == v.len) return ty_id;
+            // A lane count out of range is reported where the instance is
+            // made (`Requirement.lane_count`); the vector is poison.
+            if (ctx.types.get(n) == .ct_value and simdLen(ctx, .{ .elem = e, .len = n }) == null) return ctx.types.invalid_id;
+            return ctx.intern(.{ .simd = .{ .elem = e, .len = n } });
+        },
         .function => |f| {
             var params: std.ArrayList(TypeId) = .empty;
             defer params.deinit(ctx.allocator);
@@ -4423,11 +4565,11 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 }
 
 /// A type a read view copies: a number, `Bool`, `?String`, a slice, a
-/// function or callable view (a `rig.FnRef`), a plain enum, an
-/// error, or an optional of one of those.
+/// function or callable view (a `rig.FnRef`), a vector, a plain enum,
+/// an error, or an optional of one of those.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string_view, .static, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
+        .bool, .string_view, .static, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
@@ -5340,10 +5482,10 @@ fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFr
 }
 
 /// Whether a value of `ty` read through a view reads as the value
-/// itself: a Copy primitive or a plain enum (`n + 1` with `n: ?Int` is
-/// an `Int`).
+/// itself: a scalar or a plain enum (`n + 1` with `n: ?Int` is an `Int`,
+/// and `v + w` with `v: ?Simd[U8, 16]` a `Simd[U8, 16]`).
 pub fn readsAsValue(ctx: *const SemContext, ty: TypeId) bool {
-    return isCopyPrimitive(ctx, ty) or isPlainEnum(ctx, ty);
+    return isScalar(ctx, ty) or isPlainEnum(ctx, ty);
 }
 
 /// The type parameters `ty` holds by value, appended to `out`.
@@ -5402,6 +5544,10 @@ pub fn importType(
         .array => |a| return local_ctx.intern(.{ .array = .{
             .elem = try importType(local_ctx, foreign_ctx, a.elem, origin_module_id),
             .len = try importType(local_ctx, foreign_ctx, a.len, origin_module_id),
+        } }),
+        .simd => |v| return local_ctx.intern(.{ .simd = .{
+            .elem = try importType(local_ctx, foreign_ctx, v.elem, origin_module_id),
+            .len = try importType(local_ctx, foreign_ctx, v.len, origin_module_id),
         } }),
         .function => |f| {
             var params: std.ArrayList(TypeId) = .empty;
@@ -5828,6 +5974,7 @@ const TypePrinter = struct {
             .weak => |inner| try p.handle(inner, '~'),
             .slice => |s| try a.print("[]{s}", .{try p.id(s.elem)}),
             .array => |arr| try a.print("[{s}]{s}", .{ try p.id(arr.len), try p.id(arr.elem) }),
+            .simd => |v| try a.print("Simd[{s}, {s}]", .{ try p.id(v.elem), try p.id(v.len) }),
             .range => |e| try a.print("range of {s}", .{try p.id(e)}),
             .function => |f| if (f.is_sub)
                 try a.print("sub({s}){s}", .{ try p.list(f.params), if (f.returns == ctx.types.void_id) "" else "!" })
@@ -6314,6 +6461,14 @@ fn handsOverKind(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.
     };
 }
 
+/// Whether `node` is a lane of a vector, `v[i]`: an index whose object
+/// is a `Simd[T, n]`, or a view of one.
+pub fn isLane(ctx: *const SemContext, node: Sexp) bool {
+    if (!node.isKind(.index)) return false;
+    const ty = ctx.typeOf(ir.Index.object(node)) orelse return false;
+    return simdOf(ctx, ty) != null;
+}
+
 /// A name or a literal.
 fn leafHands(source: []const u8, ctx: ?*const SemContext, leaf: Sexp) Hands.Kind {
     const text = identAt(source, leaf) orelse return .none;
@@ -6329,8 +6484,11 @@ fn leafHands(source: []const u8, ctx: ?*const SemContext, leaf: Sexp) Hands.Kind
     };
 }
 
-/// `p.f` or `p[i]`: by the base the path starts from.
+/// `p.f` or `p[i]`: by the base the path starts from. A lane of a
+/// vector, `v[i]`, is a part of the vector's value, not a place: a value
+/// made where it is read, as an operator's result is.
 fn pathHands(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind {
+    if (ctx) |c| if (isLane(c, node)) return .made;
     var base = node;
     while (base.isKind(.member) or base.isKind(.index)) {
         const object = ir.get(base, .object);

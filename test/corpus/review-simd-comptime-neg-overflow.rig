@@ -1,0 +1,7 @@
+sub main()
+  v = Simd[I32, 4].splat(-2147483648)
+  print(-v)
+
+# expect-panic: integer overflow
+
+# release

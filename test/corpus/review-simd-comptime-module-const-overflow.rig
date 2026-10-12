@@ -1,0 +1,9 @@
+LIM: U8 = 250
+
+sub main()
+  v = Simd[U8, 4].splat(LIM)
+  print(v + 10)
+
+# expect-panic: integer overflow
+
+# release

@@ -2670,7 +2670,9 @@ const Lowerer = struct {
         } else if (callee.isKind(.member)) {
             const obj = ir.Member.object(callee);
             const obj_sym: ?sema.Symbol = if (obj == .src) if (self.ctx.symbolOf(obj)) |id| self.ctx.symbols.items[id] else null else null;
-            const static = if (obj_sym) |os| switch (os.kind) {
+            // `Simd[T, n].splat(x)` is a function of a vector type.
+            const splat = if (self.ctx.elemCallOf(callee)) |ec| ec.op == .splat else false;
+            const static = splat or if (obj_sym) |os| switch (os.kind) {
                 .module, .nominal_type, .type_alias, .generic_type => true,
                 else => false,
             } else obj.isKind(.member) and self.ctx.typeOf(obj) == null;
@@ -2710,7 +2712,7 @@ const Lowerer = struct {
                         shapes = &.{.view};
                         stored = &.{true};
                     },
-                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => all_read = true,
+                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .any, .all, .array, .with, .select => all_read = true,
                 } else all_read = true;
                 // `get`, `pop`, and `remove` hand back an element of a List:
                 // a value it held, which carries the loans the List's
@@ -3253,7 +3255,8 @@ const Lowerer = struct {
         const obj = ir.Member.object(callee);
         const mname = ir.Member.name(callee).getText(self.src);
         if (self.ctx.elemCallOf(callee)) |ec| {
-            return .{ if (ec.op == .read) .read else .write, null };
+            // An integer's bits and a vector's methods read it as a value.
+            return .{ if (ec.op == .read or ec.op.isBits() or ec.op.isSimd()) .read else .write, null };
         }
         if (self.ctx.stringCallOf(callee)) |tc| {
             _ = tc;

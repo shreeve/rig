@@ -1,0 +1,15 @@
+# Lane `-v` panics when a lane is the least value, as scalar `-` does.
+
+fun neg(v: Simd[I8, 2]) -> Simd[I8, 2]
+  -v
+
+sub main()
+  print(neg(Simd[I8, 2]([127, -127])))
+  print(neg(Simd[I8, 2]([0, -128])))
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# [-127, 127]

@@ -68,7 +68,7 @@ side; Rig names everything from the side the sigil is on.
 
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
-| **plain** | `Int`, `Bool`, `Static`, enums, structs whose parts are all plain | copies | built |
+| **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, structs whose parts are all plain | copies | built |
 | **owning** | `List[T]`, `^T`, `String`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T`, `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
@@ -94,6 +94,44 @@ sub main()
 
 ```output
 1 5
+```
+
+**A vector is plain data, one value like an `Int`.** A `Simd[T, n]`
+holds `n` lanes of a number or `Bool`, so it owns nothing and views
+nothing: a bare use copies it, it carries no loan, and nothing moves,
+clones, or drops it but the rules of whatever holds it. Its lanes are
+parts of its value, not places, as an Int's bits are: `v[i]` reads a
+lane, and no lane is assigned, lent, or taken (`v.with(i, x)` makes
+the changed copy). `v` itself is a place like any other binding,
+field, or element, lent with `?v` and `!v`. Reading a vector out of
+bytes copies them, so the vector keeps no loan on what it was read
+from. *(built)*
+
+```rig
+sub bump(v: !Simd[U8, 4])
+  v = v + 1
+
+sub main()
+  s = String("abcd")
+  v = (?s).read[Simd[U8, 4]](0)
+  !s.add("e")
+  bump(!v)
+  w = v.with(0, 0)
+  print(v, w, s)
+```
+
+```output
+[98, 99, 100, 101] [0, 99, 100, 101] abcde
+```
+
+```rig reject
+sub main()
+  v = Simd[U8, 4].splat(1)
+  v[0] = 2
+```
+
+```error
+a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(0, x)`
 ```
 
 **Two kinds the parts can't show:**

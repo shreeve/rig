@@ -1,0 +1,11 @@
+# A mask's bits are counted as the `U64` `bits()` gives.
+
+sub main()
+  v = Simd[U8, 16].splat(0x22)
+  m = v == 0x22
+  print(m.trailing_zeros(), (v < 3).count_ones(), m.leading_zeros())
+
+# error: 6:11: `trailing_zeros` counts an integer's bits, and `m` is a mask, `Simd[Bool, 16]`: count the bits `bits()` gives, `m.bits().trailing_zeros()`
+# error: 6:37: `count_ones` counts an integer's bits, and `v < 3` is a mask, `Simd[Bool, 16]`: count the bits `bits()` gives, `(v < 3).bits().count_ones()`
+# error: 6:53: `leading_zeros` counts an integer's bits, and `m` is a mask, `Simd[Bool, 16]`: count the bits `bits()` gives, `m.bits().leading_zeros()`
+# errors: 3

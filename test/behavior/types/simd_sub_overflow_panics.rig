@@ -1,0 +1,18 @@
+# Lane `-` panics when any lane overflows, as scalar `-` does; `-%` wraps.
+
+fun sub1(v: Simd[I16, 2], w: Simd[I16, 2]) -> Simd[I16, 2]
+  v - w
+
+sub main()
+  v = Simd[I16, 2]([0, -32767])
+  print(v -% 2)
+  print(sub1(v, Simd[I16, 2].splat(1)))
+  print(sub1(v, Simd[I16, 2]([0, 2])))
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# [-2, 32767]
+# [-1, -32768]

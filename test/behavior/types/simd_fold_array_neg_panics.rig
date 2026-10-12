@@ -1,0 +1,10 @@
+# A vector made of constants (array) is a run-time value:
+# a lane that overflows panics when the program runs.
+
+sub main()
+  v = Simd[I8, 4]([-128, 0, 1, 2])
+  print(-v)
+
+# expect-panic: integer overflow
+
+# release

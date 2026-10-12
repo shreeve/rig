@@ -1,0 +1,18 @@
+# Lane `*` panics when any lane overflows, as scalar `*` does; `*%` wraps.
+
+fun times(v: Simd[U32, 2], k: U32) -> Simd[U32, 2]
+  k * v
+
+sub main()
+  v = Simd[U32, 2]([65536, 1])
+  print(v *% 65536)
+  print(times(v, 65535))
+  print(times(v, 65536))
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# [0, 65536]
+# [4294901760, 65535]

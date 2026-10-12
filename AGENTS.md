@@ -146,12 +146,14 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
   changes. Any Nexus will do, built from the sibling checkout's main
   (`zig build -Doptimize=safe` there). Without one the build fails and
   says where it looked. To use another binary: `zig build -Dnexus=PATH`.
-- The machine is shared: run a full run, a grid, or a corpus pass
-  through the machine's job queue (`cpuq run --cores 2-6 -- …`, with
+- The machines are shared: run a full run, a grid, or a corpus pass
+  through the machine's job queue (`cpuq run --cores 2 -- …`, with
   `-j "$CPUQ_CORES"`), which shares the CPUs fairly instead of waiting
-  on the load. Pass `-j` to `zig build` there too; without it Zig uses
-  every CPU. Under load, rerun a timeout failure alone before trusting
-  it.
+  on the load. Start a job only when no one else is waiting, and send
+  long full runs to the Linux machine, one at a time. Pass `-j` to
+  `zig build` there too; without it Zig uses every CPU. Under load,
+  rerun a timeout failure alone before trusting it. A wait loop watches
+  only its own job, and every loop has a bound.
 - Fixing a bug starts with a failing test that reproduces it.
 - Every change keeps `./test/run` green.
 - Commit messages are short, imperative, and describe the change.

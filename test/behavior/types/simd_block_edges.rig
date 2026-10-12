@@ -1,0 +1,61 @@
+# Loads at every offset from 0 to 130, with 16- and 64-lane blocks, from
+# Strings of every length near a block's edge: each block read ends at or
+# before the String's end, the last one exactly there when the length
+# allows, and the scans agree with a scan byte by byte.
+
+QUOTE: U8 = 0x22
+BACKSLASH: U8 = 0x5C
+
+fun scalar(s: ?String, at: Int) -> Int
+  i = at
+  while i < s.len : i += 1
+    return i if s[i] == QUOTE or s[i] == BACKSLASH or s[i] < 0x20
+  s.len
+
+fun tail(s: ?String, at: Int) -> Int
+  i = at
+  while i < s.len : i += 1
+    return i if s[i] == QUOTE or s[i] == BACKSLASH or s[i] < 0x20
+  s.len
+
+fun scan16(s: ?String, at: Int) -> Int
+  i = at
+  while i + 16 <= s.len : i += 16
+    v = s.read[Simd[U8, 16]](i)
+    hits = (v == QUOTE) | (v == BACKSLASH) | (v < 0x20)
+    return i + hits.bits().trailing_zeros() if hits.any()
+  tail(s, i)
+
+fun scan64(s: ?String, at: Int) -> Int
+  i = at
+  while i + 64 <= s.len : i += 64
+    v = s.read[Simd[U8, 64]](i)
+    bits = ((v == QUOTE) | (v == BACKSLASH) | (v < 0x20)).bits()
+    return i + bits.trailing_zeros() if bits != 0
+  scan16(s, i)
+
+fun text(n: Int, mark: Int, byte: U8) -> String
+  t = String()
+  for i in 0..n
+    b: U8 = byte if i == mark else U8(0x41 + i % 26)
+    !t.push(b)
+  t
+
+sub main()
+  lengths = [0, 1, 2, 15, 16, 17, 31, 32, 33, 63, 64, 65, 79, 80, 81, 127, 128, 129, 130, 131, 191, 192, 193, 194]
+  marks: [3]U8 = [0x22, 0x5C, 0x01]
+  checks = 0
+  wrong = 0
+  for n in lengths
+    for k in 0..4
+      mark = -1 if k == 3 else (n * (k + 3)) % (n + 1)
+      t = text(n, mark, marks[k % 3])
+      at = 0
+      while at <= n and at <= 130 : at += 1
+        want = scalar(?t, at)
+        checks += 1
+        wrong += 1 if scan16(?t, at) != want or scan64(?t, at) != want
+  print(checks, wrong)
+
+# expect:
+# 7068 0
