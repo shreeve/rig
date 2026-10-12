@@ -20,16 +20,23 @@ DATA = os.path.join(ROOT, "test", "json", "data", "simd-json")
 MAC = platform.system() == "Darwin"
 
 
+# OP_EXT=name=path,...: other parsers, run as `path FILE.json N` (the
+# bench/json/rust-bench and zimdjson harnesses); named `ext:name`.
+EXT = dict(kv.split("=", 1) for kv in filter(None, os.environ.get("OP_EXT", "").split(",")))
+
+
 def run(exe, n):
     pin = ["taskset", "-c", os.environ["PIN"]] if os.environ.get("PIN") and not MAC else []
+    argv = (exe if isinstance(exe, list) else [exe]) + [str(n)]
     if MAC:
-        cmd = ["/usr/bin/time", "-l", exe, str(n)]
+        cmd = ["/usr/bin/time", "-l"] + argv
     else:
-        cmd = pin + ["perf", "stat", "-x", ",", "-e", "cycles,instructions", exe, str(n)]
+        cmd = pin + ["perf", "stat", "-x", ",", "-e", "cycles,instructions"] + argv
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
         sys.exit("failed: %s\n%s%s" % (" ".join(cmd), p.stdout, p.stderr))
-    ns, check = p.stdout.split()[:2]
+    m = re.search(r"^\s*(\d+) (\d+)\s*$", p.stdout + "\n" + p.stderr, re.M)
+    ns, check = m.group(1), m.group(2)
     if MAC:
         cyc = int(re.search(r"(\d+)\s+cycles elapsed", p.stderr).group(1))
         ins = int(re.search(r"(\d+)\s+instructions retired", p.stderr).group(1))
@@ -57,12 +64,17 @@ def main():
     out, files, variants = sys.argv[1], sys.argv[2].split(","), sys.argv[3].split(",")
     reps = int(sys.argv[4]) if len(sys.argv) > 4 else 15
     ms = int(sys.argv[5]) if len(sys.argv) > 5 else 300
-    exe = lambda f, v: os.path.join(out, "%s-%s" % (f, v), "prog")
+    def exe(f, v):
+        if v.startswith("ext:"):
+            return [EXT[v[4:]], os.path.join(DATA, f + ".json")]
+        return os.path.join(out, "%s-%s" % (f, v), "prog")
     size = {f: os.path.getsize(os.path.join(DATA, f + ".json")) for f in files}
     counts, one_c, one_i, checks = {}, {}, {}, {}
     for f in files:
         for v in variants:
             ns, _, _, chk = run(exe(f, v), 3)
+            if v.startswith("ext:"):
+                chk = checks.get(f, chk)
             checks.setdefault(f, chk)
             if chk != checks[f]:
                 sys.exit("%s %s: check %d, not %d" % (f, v, chk, checks[f]))
