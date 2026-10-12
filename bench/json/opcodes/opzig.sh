@@ -16,4 +16,10 @@ for a in "$@"; do
   esac
 done
 cmd="$1"; shift
+# OP_MODE=-Osafe builds the tests' programs optimized: on x86 a Debug
+# build uses Zig's own backend, where the patches take their portable
+# fallbacks, so only an LLVM build checks the target's instructions.
+if [ -n "$OP_MODE" ]; then
+  for a in "$@"; do shift; [ "$a" = -Odebug ] && a=$OP_MODE; set -- "$@" "$a"; done
+fi
 exec zig "$cmd" -j"${CPUQ_CORES:-2}" "$@"
