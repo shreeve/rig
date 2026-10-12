@@ -1,0 +1,138 @@
+# Every lane count, 2 to 64: room for `n` bytes proves the read and the
+# write of a `Simd[U8, n]`, and room for twice as many proves a
+# `Simd[U16, n]`.
+
+fun sum2(s: ![]U8) -> Int
+  t = 0
+  i = 0
+  while i + 2 <= s.len : i += 2
+    v = s.read[Simd[U8, 2]](i) # proves: read lower upper
+    !s.write[Simd[U8, 2]](i, v +% 1) # proves: write lower upper
+    t += Int(v[0])
+  t
+
+fun sum4(s: ![]U8) -> Int
+  t = 0
+  i = 0
+  while i + 4 <= s.len : i += 4
+    v = s.read[Simd[U8, 4]](i) # proves: read lower upper
+    !s.write[Simd[U8, 4]](i, v +% 1) # proves: write lower upper
+    t += Int(v[0])
+  t
+
+fun sum8(s: ![]U8) -> Int
+  t = 0
+  i = 0
+  while i + 8 <= s.len : i += 8
+    v = s.read[Simd[U8, 8]](i) # proves: read lower upper
+    !s.write[Simd[U8, 8]](i, v +% 1) # proves: write lower upper
+    t += Int(v[0])
+  t
+
+fun sum16(s: ![]U8) -> Int
+  t = 0
+  i = 0
+  while i + 16 <= s.len : i += 16
+    v = s.read[Simd[U8, 16]](i) # proves: read lower upper
+    !s.write[Simd[U8, 16]](i, v +% 1) # proves: write lower upper
+    t += Int(v[0])
+  t
+
+fun sum32(s: ![]U8) -> Int
+  t = 0
+  i = 0
+  while i + 32 <= s.len : i += 32
+    v = s.read[Simd[U8, 32]](i) # proves: read lower upper
+    !s.write[Simd[U8, 32]](i, v +% 1) # proves: write lower upper
+    t += Int(v[0])
+  t
+
+fun sum64(s: ![]U8) -> Int
+  t = 0
+  i = 0
+  while i + 64 <= s.len : i += 64
+    v = s.read[Simd[U8, 64]](i) # proves: read lower upper
+    !s.write[Simd[U8, 64]](i, v +% 1) # proves: write lower upper
+    t += Int(v[0])
+  t
+
+fun wide2(s: ?String) -> Int
+  t = 0
+  i = 0
+  while i + 4 <= s.len : i += 4
+    v = s.read[Simd[U16, 2], .little](i) # proves: read lower upper
+    t += Int(v[0])
+  t
+
+fun wide4(s: ?String) -> Int
+  t = 0
+  i = 0
+  while i + 8 <= s.len : i += 8
+    v = s.read[Simd[U16, 4], .little](i) # proves: read lower upper
+    t += Int(v[0])
+  t
+
+fun wide8(s: ?String) -> Int
+  t = 0
+  i = 0
+  while i + 16 <= s.len : i += 16
+    v = s.read[Simd[U16, 8], .little](i) # proves: read lower upper
+    t += Int(v[0])
+  t
+
+fun wide16(s: ?String) -> Int
+  t = 0
+  i = 0
+  while i + 32 <= s.len : i += 32
+    v = s.read[Simd[U16, 16], .little](i) # proves: read lower upper
+    t += Int(v[0])
+  t
+
+fun wide32(s: ?String) -> Int
+  t = 0
+  i = 0
+  while i + 64 <= s.len : i += 64
+    v = s.read[Simd[U16, 32], .little](i) # proves: read lower upper
+    t += Int(v[0])
+  t
+
+fun wide64(s: ?String) -> Int
+  t = 0
+  i = 0
+  while i + 128 <= s.len : i += 128
+    v = s.read[Simd[U16, 64], .little](i) # proves: read lower upper
+    t += Int(v[0])
+  t
+
+sub main()
+  a: [130]U8 = [130 of 1]
+  print(sum2(!a[..]))
+  print(sum4(!a[..]))
+  print(sum8(!a[..]))
+  print(sum16(!a[..]))
+  print(sum32(!a[..]))
+  print(sum64(!a[..]))
+  s = "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+  print(wide2(s))
+  print(wide4(s))
+  print(wide8(s))
+  print(wide16(s))
+  print(wide32(s))
+  print(wide64(s))
+  print(a[0], a[127], a[128], a[129])
+
+# release
+# expect:
+# 65
+# 64
+# 48
+# 32
+# 20
+# 12
+# 831105
+# 402960
+# 201480
+# 100740
+# 50370
+# 25185
+# 7 7 2 2
