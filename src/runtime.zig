@@ -1364,6 +1364,11 @@ pub fn notNan(x: anytype) @TypeOf(x) {
     return x;
 }
 
+/// The variant of plain enum `E` whose integer value is `n`, or null.
+pub fn enumFromInt(comptime E: type, n: anytype) ?E {
+    return std.enums.fromInt(E, n);
+}
+
 /// `for x in <a` of an array whose elements move: each element handed
 /// over in order; those not handed over (the loop left early) are
 /// dropped, last first, as the array would drop them.

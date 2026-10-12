@@ -1164,6 +1164,7 @@ pub const TypeResolver = struct {
                         try self.ctx.err(s.pos, "field `{s}` needs a type (`{s}: T`)", .{ vname, vname });
                         continue;
                     }
+                    if (try self.reservedEnumMember(plain_enum, vname, s.pos)) continue;
                     if (try self.checkDuplicateMember(&names, vname, s.pos, sym_name)) continue;
                     const value = if (plain_enum) try self.enumValue(&values, m, null) else null;
                     try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = s.pos, .is_variant = true, .value = value });
@@ -1197,6 +1198,7 @@ pub const TypeResolver = struct {
                             } else if (!plain_enum) {
                                 try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
                             }
+                            if (try self.reservedEnumMember(plain_enum, vname, vpos)) continue;
                             if (try self.checkDuplicateMember(&names, vname, vpos, sym_name)) continue;
                             const value = if (plain_enum) try self.enumValue(&values, name_node, ir.Valued.value(m)) else null;
                             try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = vpos, .is_variant = true, .value = value });
@@ -1213,6 +1215,8 @@ pub const TypeResolver = struct {
                                 try self.ctx.errAt(ir.get(m, .name), "an error set cannot declare methods; write a function that takes the error", .{});
                                 continue;
                             }
+                            const mname_node = ir.get(m, .name);
+                            if (try self.reservedEnumMember(plain_enum, identAt(self.ctx.source, mname_node) orelse "", mname_node.src.pos)) continue;
                             try self.resolveMethod(m, sym_id, &fields, &names);
                         },
                         .read, .write, .move => {
@@ -1379,6 +1383,15 @@ pub const TypeResolver = struct {
             },
         }
         return null;
+    }
+
+    /// Whether `name`, declared at `pos` in an enum (`plain` when it has
+    /// values), is `from_int`, which every plain enum has built in.
+    /// Reported.
+    fn reservedEnumMember(self: *TypeResolver, plain: bool, name: []const u8, pos: u32) Error!bool {
+        if (!plain or !std.mem.eql(u8, name, "from_int")) return false;
+        try self.ctx.err(pos, "`from_int` is built into every plain enum", .{});
+        return true;
     }
 
     /// Whether `name`, declared at `pos`, names an earlier member of

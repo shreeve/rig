@@ -5544,14 +5544,14 @@ const Checker = struct {
                 .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
-            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd()) {
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn()) {
                 const shown = switch (op) {
                     .copy => "!xs.copy(src)",
                     .fill => "!xs.fill(v)",
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -6965,6 +6965,7 @@ const Checker = struct {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
         if (!op.isBits()) return null;
         const value = sema.unwrapViews(self.ctx, obj_ty);
+        if (op == .to_bits) return self.toBitsCall(callee, obj, value, method, pos, args);
         // `v.not()` of a vector: lane by lane, of integer or `Bool` lanes.
         // A mask's bits are counted as `bits()`'s.
         const lane = if (sema.simdOf(self.ctx, value)) |v| (if (op == .not) v.elem else {
@@ -6987,6 +6988,89 @@ const Checker = struct {
         }
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ty}), .returns = result, .is_sub = false });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = result, .num = ty });
+        return result;
+    }
+
+    /// `f.to_bits()`: the IEEE bits of a float as the unsigned integer of
+    /// its width. Null when the receiver is not a float.
+    fn toBitsCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const info = switch (self.ctx.types.get(value)) {
+            .float => |f| f,
+            else => return null,
+        };
+        if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume its receiver");
+        const result = try self.bitsType(info);
+        if (args.len > 0) {
+            try self.err(pos, "`{s}` takes no arguments; got {d}", .{ method, args.len });
+            try self.synthArgs(args);
+        }
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{value}), .returns = result, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .to_bits, .elem = result, .num = value });
+        return result;
+    }
+
+    /// The unsigned integer type as wide as a float of `info`.
+    fn bitsType(self: *Checker, info: sema.FloatInfo) Error!TypeId {
+        return self.ctx.intern(.{ .int = .{ .bits = if (info.bits == 32) 32 else 64, .signed = false } });
+    }
+
+    /// The functions of a number type: `Float.from_bits(u)`, the float
+    /// whose IEEE bits are the unsigned integer `u`, and `I32.wrap(x)`, an
+    /// integer converted to an integer type by keeping its low bits.
+    fn numberTypeCall(self: *Checker, callee: Sexp, obj: Sexp, target: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        if (self.isPoison(target)) return self.skipCall(args);
+        const shown = self.sourceText(obj);
+        const tt = self.ctx.types.get(target);
+        const is_wrap = std.mem.eql(u8, method, "wrap");
+        const is_bits = std.mem.eql(u8, method, "from_bits");
+        if ((is_wrap and tt != .int) or (is_bits and tt != .float) or !(is_wrap or is_bits)) {
+            const fns: []const u8 = if (tt == .int) "`wrap`" else "`from_bits`";
+            return self.badCall(args, pos, "`{s}` has no function `{s}`; its function is {s}, and its limits are `{s}.min` and `{s}.max`", .{ shown, method, fns, shown, shown });
+        }
+        if (ct) |b| return self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
+        if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, pos, "`{s}.{s}(x)` takes one argument; got {d}", .{ shown, method, args.len });
+        const arg = args[0];
+        if (is_bits) {
+            const u = try self.bitsType(tt.float);
+            try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{u}), .returns = target, .is_sub = false });
+            try self.ctx.recordElemCall(callee, .{ .op = .from_bits, .elem = u, .num = target });
+            try self.checkExpr(arg, u);
+            return target;
+        }
+        var from = try self.synthValue(arg);
+        if (self.isPoison(from)) return target;
+        if (!sema.isInteger(self.ctx, from)) {
+            try self.errAt(arg, "`{s}.wrap(x)` takes an integer; convert a Float with `Int(x)` first", .{shown});
+            return target;
+        }
+        if (from == self.t().int_literal_id) {
+            try self.defaultIntLiteral(arg);
+            from = self.t().int_id;
+        }
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{from}), .returns = target, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .wrap, .elem = from, .num = target });
+        return target;
+    }
+
+    /// `Status.from_int(n)`: the variant of plain enum `enum_ty` whose
+    /// value is the integer `n`, or `none`.
+    fn enumFromIntCall(self: *Checker, callee: Sexp, enum_ty: TypeId, shown: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        const result = try self.ctx.intern(.{ .optional = enum_ty });
+        if (ct) |b| return self.badCall(args, b, "`from_int` takes no compile-time arguments", .{});
+        if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, pos, "`{s}.from_int(n)` takes one argument, an integer; got {d}", .{ shown, args.len });
+        const arg = args[0];
+        var from = try self.synthValue(arg);
+        if (self.isPoison(from)) return result;
+        if (!sema.isInteger(self.ctx, from)) {
+            try self.errAt(arg, "`{s}.from_int(n)` takes an integer; `n` has type `{s}`", .{ shown, try self.tyName(from) });
+            return result;
+        }
+        if (from == self.t().int_literal_id) {
+            try self.defaultIntLiteral(arg);
+            from = self.t().int_id;
+        }
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{from}), .returns = result, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .from_int, .elem = from, .num = enum_ty });
         return result;
     }
 
@@ -8784,6 +8868,7 @@ const Checker = struct {
         }
         if (try self.moduleNamed(obj)) |id| return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
+        if (try self.numberType(obj)) |nty| return self.misreachedWrite(misreached, obj, method, try self.numberTypeCall(callee, obj, nty, method, pos, args, ct));
         if (try self.namedType(obj)) |nt| return self.misreachedWrite(misreached, obj, method, try self.associatedCall(obj, nt, method, pos, args, ct));
 
         // A consuming (`<self`) method may take a temporary, and a
@@ -8993,7 +9078,7 @@ const Checker = struct {
     /// them or the receiver has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
-        if (op.isBits() or op.isSimd()) return null;
+        if (op.isBits() or op.isSimd() or op.isTypeFn()) return null;
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -9021,14 +9106,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -9043,7 +9128,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
         }
         return self.t().void_id;
     }
@@ -9251,6 +9336,16 @@ const Checker = struct {
         const tname = try self.namedTypeName(nt);
         const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{tname});
         const generic = nt.sym.kind == .generic_type;
+        if (!generic and std.mem.eql(u8, name, "from_int")) {
+            const enum_ty = try self.namedTypeValue(nt);
+            if (self.enumValues(enum_ty)) |plain| {
+                if (plain) return self.enumFromIntCall(self.callee_node orelse return self.skipCall(args), enum_ty, tname, pos, args, ct);
+                const declared = for (members) |m| {
+                    if (std.mem.eql(u8, m.name, name)) break true;
+                } else false;
+                if (!declared) return self.badCall(args, pos, "`{s}` has variants with payloads, which have no integer value", .{tname});
+            }
+        }
         for (members) |m| {
             if (!std.mem.eql(u8, m.name, name)) continue;
             if (m.is_method and !m.is_drop_method) {
@@ -11555,10 +11650,11 @@ const Checker = struct {
         trunc,
         floatFromInt,
         fromBackingInt,
+        variants,
 
         fn isSafe(b: Builtin) bool {
             return switch (b) {
-                .size, .@"align", .name, .type => true,
+                .size, .@"align", .name, .type, .variants => true,
                 else => false,
             };
         }
@@ -11620,17 +11716,18 @@ const Checker = struct {
                 } else if (std.mem.eql(u8, name, "intFromFloat")) {
                     try self.err(pos, "builtin `@intFromFloat` is not supported; a float becomes an integer with `@trunc`", .{});
                 } else {
-                    try self.err(pos, "builtin `@{s}` is not supported; the builtins are `@size`, `@align`, `@type`, `@name`, and, inside `raw`, `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`, `@floatFromInt`, `@fromBackingInt`", .{name});
+                    try self.err(pos, "builtin `@{s}` is not supported; the builtins are `@size`, `@align`, `@type`, `@name`, `@variants`, and, inside `raw`, `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`, `@floatFromInt`, `@fromBackingInt`", .{name});
                 }
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             };
+            if (builtin == .variants) break :blk try self.variantsOf(args, pos);
             const query = builtin.query();
             if (self.raw_depth == 0 and !builtin.isSafe()) {
                 if (query) |q| {
                     try self.zigQueryName(node, name, @tagName(q));
                 } else {
-                    try self.err(pos, "builtin `@{s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `@size`, `@align`, `@type`, `@name`", .{name});
+                    try self.err(pos, "builtin `@{s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `@size`, `@align`, `@type`, `@name`, `@variants`", .{name});
                 }
             }
             if (query) |q| switch (q) {
@@ -11677,6 +11774,28 @@ const Checker = struct {
         return ty;
     }
 
+    /// `@variants(T)`: every variant of plain enum `T`, in declaration
+    /// order, a `[N]T`.
+    fn variantsOf(self: *Checker, args: []const Sexp, pos: u32) Error!TypeId {
+        if (!(try self.builtinTypeArg("variants", args, pos))) return self.t().invalid_id;
+        const ty = self.ctx.typeOf(args[0]) orelse return self.t().invalid_id;
+        if (self.isPoison(ty)) return ty;
+        const plain = self.enumValues(ty) orelse {
+            try self.errAt(args[0], "`@variants(T)` takes a plain enum; `{s}` is not an enum", .{try self.tyName(ty)});
+            return self.t().invalid_id;
+        };
+        if (!plain) {
+            try self.errAt(args[0], "`@variants(T)` takes a plain enum; `{s}` has variants with payloads", .{try self.tyName(ty)});
+            return self.t().invalid_id;
+        }
+        const decl = sema.nominalDecl(self.ctx, ty).?;
+        var n: Wide = 0;
+        for (decl.symbol().fields orelse &.{}) |f| {
+            if (f.is_variant) n += 1;
+        }
+        return self.ctx.intern(.{ .array = .{ .elem = ty, .len = try sema.ctInt(self.ctx, n) } });
+    }
+
     /// Why Zig would reject the cast builtin `cast` from `from` to `to`,
     /// or null when it accepts it.
     fn castProblem(self: *Checker, cast: Builtin, from: TypeId, to: TypeId) ?[]const u8 {
@@ -11702,7 +11821,7 @@ const Checker = struct {
                 const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
                 if (fb != tb) return "both must have the same size";
             },
-            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf => {},
+            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf, .variants => {},
         }
         return null;
     }
