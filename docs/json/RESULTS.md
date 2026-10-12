@@ -690,40 +690,42 @@ sessions, with the ratio to sonic-rs:
 ## std.json on Rig main: the tiered scan with `m.first()`
 
 `std/json.rig` as it lands: the tiered scan with Rig's own `m.first()`,
-on Rig main 3d6e28cfd, which does not have the proofs round (checks the
+on Rig main d948f6af7, which does not have the proofs round (checks the
 compiler proves away). The "SWAR only" column is the parser before the
-tiered scan (54b834f20, `rig-safe@src=swar`). Every build is `--release`,
-the safe mode, with every check kept. Two interleaved sessions at a
-1-minute load of 4-6 (`bench/json/timers/time.py`, fastest of 15 runs of
-about 400 ms), Apple silicon; MB/s, the best of the two sessions, which
-agreed within 2%:
+tiered scan (54b834f20, `rig-safe@src=swar`). Every Rig build is
+`--release`, the safe mode, with every check kept. One quiet session
+(no other jobs, 1-minute load 2-3; `bench/json/timers/time.py`, fastest
+of 15 interleaved runs of about 400 ms), Apple silicon, MB/s. Two
+earlier sessions at a load of 4-6 agreed within 2%.
 
 | file | **std.json** | SWAR only | sonic-rs | simd-json (tape) | serde_json | Zig std.json (tape, safe) |
 |---|---:|---:|---:|---:|---:|---:|
-| twitter | **3236** | 3288 | 3093 | 3462 | 662 | 861 |
-| twitterescaped | **3025** | 3087 | 2796 | 1346 | 555 | 626 |
-| canada | **1933** | 1945 | 1990 | 1313 | 672 | 575 |
-| citm_catalog | **3740** | 3792 | 3768 | 4069 | 1011 | 1214 |
-| gsoc-2018 | **7029** | 6341 | 7194 | 3938 | 1875 | 624 |
-| github_events | **3935** | 3882 | 3712 | 3698 | 849 | 962 |
+| twitter | **3219** | 3291 | 3101 | 3465 | 665 | 876 |
+| twitterescaped | **3029** | 3111 | 2815 | 1355 | 555 | 625 |
+| canada | **1945** | 1948 | 2012 | 1320 | 676 | 573 |
+| citm_catalog | **3757** | 3771 | 3776 | 4093 | 1012 | 1221 |
+| gsoc-2018 | **7021** | 6308 | 7217 | 3931 | 1856 | 628 |
+| github_events | **3945** | 3910 | 3739 | 3710 | 855 | 969 |
 
 Against sonic-rs, std.json is:
 
 | file | std.json against sonic-rs |
 |---|---|
-| twitter | 5% faster |
+| twitter | 4% faster |
 | twitterescaped | 8% faster |
 | canada | 3% slower |
 | citm_catalog | 1% slower |
-| gsoc-2018 | 2% slower |
+| gsoc-2018 | 3% slower |
 | github_events | 6% faster |
 
-- **It does not beat sonic-rs on every file on main.** It loses on
-  canada, citm_catalog and gsoc-2018. Trig measured every file ahead
-  (the section above), but on Rig main plus the proofs round, which
-  removes checks this parser pays for; the proofs round is not on main.
+- **On main it beats sonic-rs on three of the six files** and is within
+  3% on the rest. Trig measured every file ahead (the section above) on
+  Rig main plus the proofs round, which is not on main: the checks it
+  proves away cost about 11% on canada and 18% on gsoc-2018 ("What the
+  checks cost").
 - **The second tier pays where strings are long:** gsoc-2018 is 11%
   faster than SWAR only, github_events 1% faster. It costs 2% on
-  twitter and twitterescaped, and 1% on canada and citm_catalog.
+  twitter and 3% on twitterescaped, and is level on canada and
+  citm_catalog.
 - **Against the others:** 3.1-11x Zig's std.json (safe), 2.9-5.5x
   serde_json, and ahead of simd-json's tape on four of the six files.
