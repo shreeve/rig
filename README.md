@@ -202,8 +202,9 @@ sub main()
 7 2.5 2.0
 ```
 
-Square brackets hold what is known at compile time, and parentheses
-what is known when the program runs. Type arguments are usually
+After a name, square brackets give compile-time arguments and
+parentheses give run-time ones. Indexing is the one familiar
+exception. Type arguments are usually
 inferred, and given in brackets when they are not: `max[Float](1, 2)`,
 `List[Int]()`. There are no trait bounds: each instance a program makes
 is checked against what the generic body does with `T`, and an error
