@@ -72,12 +72,16 @@ or `f() catch d`.
 b`. `!` never negates. On an integer, `x.not()` flips every bit
 (`0.not() == -1`); `not x` is rejected. `x.count_ones()`,
 `x.leading_zeros()`, and `x.trailing_zeros()` count bits, `x.swap_bytes()` reverses bytes, and `x <<% n`
-shifts left, dropping the bits that fall off.
+shifts left, dropping the bits that fall off. `a +| b` and `a -| b`
+saturate, stopping at the type's limits.
 
 **Vectors.** `Simd[U8, 16]` holds 16 lanes, operated on together:
 `v + 1` and `v == q` work lane by lane, a comparison gives a mask
 (`Simd[Bool, 16]`), and `m.first()` (the first true lane, `Int?`), `m.bits()`, `m.any()`, or `m.all()` reduce it.
-A vector copies like an `Int`, and `v[i]` reads a lane.
+A vector copies like an `Int`, and `v[i]` reads a lane. `v >> 4` shifts
+every lane, `t.lookup(idx)` looks each lane of `idx` up in a 16-byte
+table `t`, and `cur.lag[1](prev)` sees each lane's neighbour one lane
+back, across from `prev`.
 
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a
 read parameter (`print(w[1..3])`);
