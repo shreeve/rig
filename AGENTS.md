@@ -207,4 +207,5 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `docs/json/` | The JSON parser's design, its open items, and the measurement record |
 | `docs/simd/` | The design for portable vectors (`Simd`): proposal, Zig lowering, opcodes, and the Zig probes behind them |
 | `IDEAS.md` | Suggestions for improving Rig, led by the bar it must clear: shorter and plainer than idiomatic Rust |
+| `docs/RIG-NOTES.md` | Weak, missing, and inconsistent spots in Rig that the work on std.json found, each with its cost and a fix to consider |
 | `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |
