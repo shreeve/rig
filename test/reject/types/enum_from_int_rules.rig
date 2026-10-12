@@ -13,4 +13,4 @@ sub main()
 
 # error: 8:7: `from_int` is built into every plain enum
 # error: 12:19: `@variants(T)` takes a plain enum; `Shape` has variants with payloads
-# error: 12:35: `Shape` has variants with payloads, which have no integer value
+# error: 12:33: `Shape` has variants with payloads, which have no integer value
