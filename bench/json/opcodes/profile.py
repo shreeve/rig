@@ -106,26 +106,36 @@ def linux_samples(exe, n):
     data = os.path.join(tmp, "perf.data")
     subprocess.run(["perf", "record", "-F", "4000", "-o", data, "--", exe, str(n)],
                    capture_output=True, check=True)
-    out = subprocess.run(["perf", "script", "-i", data, "-F", "ip,sym,dso", "--inline", "--no-demangle"],
+    out = subprocess.run(["perf", "script", "-i", data, "-F", "ip,dso"],
                          capture_output=True, text=True, check=True).stdout
     subprocess.run(["rm", "-rf", tmp])
-    samples, other = [], 0
-    cur = None
+    addrs, other = collections.Counter(), 0
     for line in out.splitlines():
-        if not line.strip():
+        f = line.split()
+        if len(f) < 2:
             continue
-        m = re.match(r"\s*([0-9a-f]+) (\S.*?) \((.*)\)$", line)
-        if m:
-            if cur is not None:
-                samples.append((cur, 1))
-            cur = [m.group(2)] if m.group(3).endswith("/prog") else None
-            if cur is None:
-                other += 1
-        elif cur is not None:
-            cur.insert(-1, line.strip())  # inlined frames come innermost first
-    if cur is not None:
-        samples.append((cur, 1))
-    return samples, other
+        if f[1].strip("()") == os.path.realpath(exe) or f[1].endswith("/prog)"):
+            addrs[int(f[0], 16)] += 1
+        else:
+            other += 1
+    # addr2line -a prints each address, then its frames innermost first,
+    # a function line and a file:line line each.
+    keys = sorted(addrs)
+    chains = {}
+    for k in range(0, len(keys), 2000):
+        part = keys[k:k + 2000]
+        res = subprocess.run(["addr2line", "-a", "-i", "-f", "-e", exe] + ["0x%x" % a for a in part],
+                             capture_output=True, text=True, check=True).stdout.splitlines()
+        cur, j = None, 0
+        while j < len(res):
+            if res[j].startswith("0x"):
+                cur = int(res[j], 16)
+                chains[cur] = []
+                j += 1
+            else:
+                chains[cur].append(res[j])
+                j += 2
+    return [(chains.get(a, []), c) for a, c in addrs.items()], other
 
 
 def main():
