@@ -5274,12 +5274,14 @@ pub const Emitter = struct {
             // no byte order.
             .read, .write => {
                 const vector = self.facts.types.get(ec.num) == .simd;
-                // A test known to pass is omitted (`provenOf`); a vector's
-                // tests are never proven.
-                const proven = if (vector) null else provenTests(self.provenOf(callee));
-                try self.w.writeAll(if (ec.op == .read)
-                    (if (vector) "rig.simdRead(" else if (proven != null) "rig.readIntProven(" else "rig.readInt(")
-                else if (vector) "rig.simdWrite(" else if (proven != null) "rig.writeIntProven(" else "rig.writeInt(");
+                // A test known to pass is omitted (`provenOf`).
+                const proven = provenTests(self.provenOf(callee));
+                const read = ec.op == .read;
+                try self.w.writeAll(if (vector) (if (proven != null)
+                    (if (read) "rig.simdReadProven(" else "rig.simdWriteProven(")
+                else if (read) "rig.simdRead(" else "rig.simdWrite(") else if (proven != null)
+                    (if (read) "rig.readIntProven(" else "rig.writeIntProven(")
+                else if (read) "rig.readInt(" else "rig.writeInt(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.emitElems(ir.Member.object(callee));

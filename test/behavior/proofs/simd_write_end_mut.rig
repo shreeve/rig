@@ -1,0 +1,19 @@
+# Room for 3 bytes proves nothing about a 4-byte vector's write: at
+# `s.len - 3` it runs one byte past the end, and nothing is stored.
+
+sub put(s: ![]U8, at: Int)
+  i = at
+  if i + 3 <= s.len
+    !s.write[Simd[U8, 4]](i, Simd[U8, 4].splat(9)) # keeps: write upper
+
+sub main()
+  a: [8]U8 = [8 of 0]
+  put(!a[..], 4)
+  print(a)
+  put(!a[..], 5)
+  print(a)
+
+# release
+# expect-panic: byte write out of range
+# expect:
+# [0, 0, 0, 0, 9, 9, 9, 9]

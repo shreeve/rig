@@ -1,0 +1,28 @@
+# Nothing shows `0 <= i` when `i` starts below 0: a vector's read keeps
+# its sign test, and its write too.
+
+fun scan(s: ?String, at: Int) -> Int
+  i = at
+  n = 0
+  while i + 16 <= s.len : i += 16
+    v = s.read[Simd[U8, 16]](i) # keeps: read lower
+    n += Int(v[0])
+  n
+
+sub fill(t: ![]U8, at: Int)
+  i = at
+  while i + 4 <= t.len : i += 4
+    !t.write[Simd[U8, 4]](i, Simd[U8, 4].splat(1)) # keeps: write lower
+
+sub main()
+  a: [8]U8 = [8 of 0]
+  fill(!a[..], 0)
+  print(a)
+  print(scan("abcdefghijklmnopqrstuvwxyz", 0))
+  print(scan("abcdefghijklmnopqrstuvwxyz", -5))
+
+# release
+# expect-panic: byte read out of range
+# expect:
+# [1, 1, 1, 1, 1, 1, 1, 1]
+# 97

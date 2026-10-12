@@ -303,7 +303,7 @@ through a read-only pointer (`cellmut.`). A value holding a Cell made
 or held anywhere but behind `*` (a local, a by-value parameter, a List
 element, a temporary changed where it stands) must be rejected
 (`cellmut.value.`, `celltemp.value.`). It also guards an index, a byte
-read or write, or an add with each guard the compiler knows, and two
+read or write (of an integer or a `Simd`), or an add with each guard the compiler knows, and two
 that prove nothing (`+%`, `or`), writes what the guard named between it
 and the use in each way a program can (an assignment, a `!` lend, a
 closure, a `defer`, a branch, a `match` arm, a loop, `raw`, a shadowing

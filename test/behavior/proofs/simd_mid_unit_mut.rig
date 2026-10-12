@@ -1,0 +1,22 @@
+# A write of the offset inside the read's own statement ends the guard's
+# facts for it, whichever part runs first: the read keeps both tests.
+
+fun bump(n: !Int) -> Int
+  n += 1
+  0
+
+fun peek(s: ?String, at: Int) -> Int
+  i = at
+  if i + 16 <= s.len
+    return bump(!i) + Int(s.read[Simd[U8, 16]](i)[0]) # keeps: read lower upper
+  0
+
+sub main()
+  s = "abcdefghijklmnopqrstuvwxyz"
+  print(peek(s, 0))
+  print(peek(s, s.len - 16))
+
+# release
+# expect-panic: byte read out of range
+# expect:
+# 98
