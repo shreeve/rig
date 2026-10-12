@@ -1,0 +1,68 @@
+# Every operator a vector takes works lane by lane, beside another vector
+# of its type or a scalar of its lane type (a literal included), on
+# either side, and through a view of it. Arithmetic and `&`, `|`, `^`
+# give a vector; a comparison gives a mask.
+
+sub shapes(v: Simd[I32, 4], w: Simd[I32, 4], s: I32)
+  print(v + w, v + s, s + v, v + 1, 1 + v)
+  print(v - w, v - s, s - v, v - 1, 1 - v)
+  print(v * w, v * s, s * v, v * 2, 2 * v)
+  print(v +% w, v -% s, s *% v, v +% 1, 1 -% v)
+  print(v & w, v | s, s ^ v, v & 1, 6 | v)
+  print(v == w, v != s, s < v, v <= 2, 2 > v, v >= w)
+  print(-v)
+
+fun viewed(v: ?Simd[I32, 4], w: !Simd[I32, 4]) -> Simd[I32, 4]
+  w = w + v
+  w * 2 + v
+
+sub main()
+  v = Simd[I32, 4]([1, 2, 3, 4])
+  w = Simd[I32, 4]([4, 3, 2, 1])
+  shapes(v, w, 2)
+  x = Simd[I32, 4].splat(10)
+  print(viewed(?v, !x), x)
+  u = Simd[U8, 4]([0, 1, 254, 255])
+  print(u +% 1, u -% 1, u *% 2, u.not(), u ^ 0xFF)
+  b = Simd[I8, 2]([-128, 127])
+  print(b +% 1, b -% 1, b.not())
+  f = Simd[F32, 4]([1.5, -2.0, 0.25, 8.0])
+  print(f + 0.5, f * f, -f, f == f, f < 0.0)
+  g = Simd[F64, 2]([1.0, 2.5])
+  print(g - 1.0, g >= 2.5)
+  m = v < w
+  n = v > 1
+  print(m & n, m | n, m ^ n, m == n, m != n, m.not())
+  t = Simd[U64, 2]([1, 18446744073709551614])
+  print(t + 1, t == 1)
+  y = v
+  y += 1
+  y -= w
+  y *= 3
+  y +%= 2147483647
+  y &= 0x7F
+  y |= 0x100
+  y ^= v
+  print(y)
+  mm = m
+  mm |= n
+  mm &= v != 4
+  print(mm)
+
+# expect:
+# [5, 5, 5, 5] [3, 4, 5, 6] [3, 4, 5, 6] [2, 3, 4, 5] [2, 3, 4, 5]
+# [-3, -1, 1, 3] [-1, 0, 1, 2] [1, 0, -1, -2] [0, 1, 2, 3] [0, -1, -2, -3]
+# [4, 6, 6, 4] [2, 4, 6, 8] [2, 4, 6, 8] [2, 4, 6, 8] [2, 4, 6, 8]
+# [5, 5, 5, 5] [-1, 0, 1, 2] [2, 4, 6, 8] [2, 3, 4, 5] [0, -1, -2, -3]
+# [0, 2, 2, 0] [3, 2, 3, 6] [3, 0, 1, 6] [1, 0, 1, 0] [7, 6, 7, 6]
+# [false, false, false, false] [true, false, true, true] [false, false, true, true] [true, true, false, false] [true, false, false, false] [false, false, true, true]
+# [-1, -2, -3, -4]
+# [23, 26, 29, 32] [11, 12, 13, 14]
+# [1, 2, 255, 0] [255, 0, 253, 254] [0, 2, 252, 254] [255, 254, 1, 0] [255, 254, 1, 0]
+# [-127, -128] [127, 126] [127, -128]
+# [2.0, -1.5, 0.75, 8.5] [2.25, 4.0, 0.0625, 64.0] [-1.5, 2.0, -0.25, -8.0] [true, true, true, true] [false, true, false, false]
+# [0.0, 1.5] [false, true]
+# [false, true, false, false] [true, true, true, true] [true, false, true, true] [false, true, false, false] [true, false, true, true] [false, false, true, true]
+# [2, 18446744073709551615] [true, false]
+# [376, 381, 262, 271]
+# [true, true, true, false]

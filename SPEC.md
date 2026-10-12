@@ -773,7 +773,8 @@ cannot lend a slice of a `?String` to write; a `?String` is read-only
 Bytes hold fixed-width numbers. `bytes.read[T, e](at)` is the integer
 or float `T` stored in the `@size(T)` bytes from offset `at`, in byte
 order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
-integer or float type, or a type parameter every instance gives one;
+integer or float type, a vector of them ([Vectors](#reading-bytes-into-a-vector)),
+or a type parameter every instance gives one of the first;
 `e` is a compile-time value of the built-in enum
 `Endian`, `.little` or `.big` (a literal, `Endian.big`, a constant, or
 a compile-time parameter; there is no native order). A one-byte `T`
@@ -818,6 +819,141 @@ sub main()
 no variant `native` on enum `Endian`
 ```
 
+### Vectors
+
+`Simd[T, n]` is a vector: `n` lanes of one number type or `Bool` `T`,
+held and operated on together, as the target's vector registers hold
+them. `n` is a power of two from 2 to 64, a constant or a compile-time
+integer parameter (`fun f[n: Int](v: Simd[U8, n])`), which each
+instance checks. A vector is plain data, one value like an `Int`
+([Core §1](docs/CORE.md#1-four-kinds-of-value)): a bare use copies it,
+and a field, an element, an optional, a `Cell`, or a closure holds a
+copy. A **mask** is `Simd[Bool, n]`, what a lane-wise comparison gives.
+`Simd` is a built-in name, like `List`, and is reserved; a program
+names the vectors it uses with an alias, `type Block = Simd[U8, 64]`.
+
+A vector is made from one value for every lane, `Simd[T, n].splat(x)`,
+from an array of its lanes, `Simd[T, n](a)` with `a` a `[n]T`, or from
+bytes ([below](#reading-bytes-into-a-vector)). It prints as the array of
+its lanes.
+
+**Operators work lane by lane.** `+`, `-`, `*`, their wrapping forms
+`+%`, `-%`, `*%`, `&`, `|`, `^`, and `-v` give a vector of the same type,
+and `==`, `!=`, `<`, `<=`, `>`, and `>=` give a mask. Each lane follows
+the scalar rule for its type: `+`, `-`, `*`, and `-v` panic when any
+lane overflows, in every build mode, and the wrapping forms wrap; the
+integer operators take integer lanes, `&`, `|`, and `^` also a mask's,
+the orderings number lanes, and `-v` signed or float lanes. A scalar of
+the lane type, or a literal that fits it, stands for every lane, on
+either side: `v < 0x20`, `v == quote`, `1 + v`. The compound forms
+(`v += 1`, `m |= v == q`) assign the result. `/`, `%`, and the shifts
+take no vector. A vector's lanes are computed only when the program
+runs, even from constants: where a constant scalar that overflows is
+rejected (`x: I8 = -128` then `x * -1`), a lane that overflows panics
+when the program runs (`Simd[I8, 4].splat(-128) * -1`). Both stop the
+program before it uses a wrong value. Precedence is unchanged, so masks are combined in
+parentheses: `(v == 0x22) | (v == 0x5C)`.
+
+**Masks.** `m.bits()` is a `U64` whose bit `i` is lane `i`, the higher
+bits 0, for every lane count, so `m.bits().trailing_zeros()` is the
+first true lane and `m.bits().count_ones()` counts them. `m.any()` and
+`m.all()` reduce a mask to a `Bool`, `m.not()` flips every lane (as
+`v.not()` flips every bit of an integer vector), and `m.select(a, b)`
+is the vector whose lane `i` is `a`'s where `m`'s is true and `b`'s
+where it is false; `a` and `b` are vectors with as many lanes, or
+scalars standing for every lane. A mask is not a `Bool`, so a condition,
+`and`, `or`, `not`, and a ternary reject it, with the form that reduces
+it or combines it.
+
+**Lanes are values, not places**, as an `Int`'s bits are. `v[i]` reads
+lane `i`, its index checked as an element's is (a constant one when the
+program is checked). `v.with(i, x)` is a copy of `v` whose lane `i` is
+`x`, and `v.array()` the lanes as a `[n]T`, which a `for` walks. A lane
+is never assigned, lent, or taken: `v[i] = x` is written
+`v = v.with(i, x)`.
+
+```rig
+type Block = Simd[U8, 16]
+
+QUOTE: U8 = 0x22
+BACKSLASH: U8 = 0x5C
+
+# The index of the first `"` or `\` from `at` on, or `s.len`: 16 bytes
+# at a time, then the bytes after the last whole block.
+fun find_quote(s: ?String, at: Int) -> Int
+  i = at
+  while i + 16 <= s.len : i += 16
+    v = s.read[Block](i)
+    hits = (v == QUOTE) | (v == BACKSLASH)
+    return i + hits.bits().trailing_zeros() if hits.any()
+  while i < s.len : i += 1
+    return i if s[i] == QUOTE or s[i] == BACKSLASH
+  s.len
+
+sub main()
+  s = "say \"hi\" \\ there, then plain text"
+  print(find_quote(s, 0), find_quote(s, 5), find_quote(s, 8), find_quote(s, 10))
+  v = Simd[I32, 4]([1, -2, 3, -4])
+  m = v < 0
+  print(v * 2, v +% 1, m, m.bits(), m.select(-v, v))
+  print(v[1], v.with(0, 9), (v == 3).any(), (v != 0).all())
+```
+
+```output
+4 7 9 33
+[2, -4, 6, -8] [2, -1, 4, -3] [false, true, false, true] 10 [1, 2, 3, 4]
+-2 [9, -2, 3, -4] true true
+```
+
+```rig reject
+sub main()
+  v = Simd[U8, 16].splat(0x20)
+  if v == 0x20
+    print("blank")
+  v[0] = 0x41
+  print(v + 300)
+```
+
+```error
+`v == 0x20` is a mask, `Simd[Bool, 16]`, not a `Bool`: write `(v == 0x20).any()` or `(v == 0x20).all()`
+a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(0, x)`
+integer value `300` does not fit in `U8` (0..255)
+```
+
+#### Reading bytes into a vector
+
+`read` and `write` ([Bytes](#bytes)) take a vector of number lanes:
+`bytes.read[Simd[T, n], e](at)` is the `n` values of type `T` held one
+after another from `at`, lane `i` at `at + i * @size(T)`, each in byte
+order `e`, and `!bytes.write[Simd[T, n], e](at, v)` stores them. As a
+one-byte `T` does, a vector of one-byte lanes takes no byte order:
+`s.read[Simd[U8, 64]](at)`. A read or write is checked once, for every
+byte it touches, and loads or stores the vector whole: the program
+reads no byte past `at + n * @size(T)`.
+
+**A vector is one value.** It has no `==` of its own beyond its lanes',
+so a struct, enum, array, or optional that holds one has none, and a
+generic `T` that is one cannot be compared. Its size and alignment are
+the target's, so `@size` and `@align` take no type that holds one
+inline (a `List` of vectors holds them on the heap, and has a size). A
+generic body applies to a vector `T` only what it applies to plain data:
+it copies, moves, prints, and stores one, but arithmetic and comparisons
+on a `T` take a number.
+
+```rig reject
+obj Lexer
+  ahead: Simd[U8, 16]
+
+sub main()
+  a = Lexer(ahead: Simd[U8, 16].splat(0))
+  print(a == a, @size(Lexer))
+```
+
+```error
+`==` is not defined for `Lexer`: field `ahead` is a `Simd[U8, 16]`, whose `==` compares lane by lane
+`@size` takes no type that holds a vector
+```
+
 ### Composite and handle types
 
 | Type | Meaning | Section |
@@ -837,6 +973,7 @@ no variant `native` on enum `Endian`
 | `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-string-and-signal) |
 | `String` | owned, growable text | [§10](#string) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
+| `Simd[T, n]` | vector: `n` lanes of a number or `Bool`, operated on together; `Simd[Bool, n]` is a mask | [§2](#vectors) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
 How the sigils of a type combine (`*User?` is an optional handle,
@@ -866,7 +1003,7 @@ where its value is taken ([§7](#reading)):
 
 | Kind | Types | A bare name where the value is taken |
 |---|---|---|
-| **plain** | numbers, `Bool`, plain enums, and optionals, arrays, structs, and enums of them | copies it |
+| **plain** | numbers, `Bool`, plain enums, vectors (`Simd[T, n]`), and optionals, arrays, structs, and enums of them | copies it |
 | **owning** | `List`, `^T`, `String`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
 | **handle** | `*T`, `~T`, and owned closures | the same: `<h` moves it, `+h` adds a count |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `?String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
@@ -1916,9 +2053,10 @@ sub main()
 21
 ```
 
-An assignment evaluates its value first, then the indexes of its
-target from left to right (the outermost index first), and only then finds the place and stores
-into it; a compound assignment reads the place there, combines, and
+An assignment evaluates its value first, then its target from left to
+right: the value its path starts from (a call, `pick(!t, !i)[0] = s[i]`,
+runs after `s[i]` is read), then its indexes (the outermost index
+first), and only then finds the place and stores into it; a compound assignment reads the place there, combines, and
 writes it back. A call on the right that grows the List an element is
 in, or replaces the value a field is in, is safe: the store lands in
 the value as the call left it, and panics if the element is gone.
@@ -2192,6 +2330,9 @@ take a float type or a type parameter a float fills. The same holds
 for the integer operators `&`, `|`, `^`, `<<`, `<<%`, and `>>`. `+%=`, `-%=`, and `*%=` assign the
 wrapped result. Constant wrapping arithmetic is computed in its type,
 as the program computes it.
+
+On a vector, an operator works lane by lane, and a scalar of its lane
+type stands for every lane ([Vectors](#vectors)).
 
 `<<%` is the wrapping left shift: the high bits it shifts out are
 dropped, where `<<` panics. It binds as `<<` does, and its amount is
@@ -6949,6 +7090,8 @@ The rest parse, and the checker rejects them as not supported yet
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain data `` |
+| `/`, `%`, or a shift of a vector; a vector's lanes summed, converted, or shuffled | `` operator `/` does not take a `Simd` ``, `` type `Simd[U8, 16]` has no method `sum` `` |
+| a module constant holding a vector | `` a module-level constant needs a value known at compile time `` |
 
 ```rig reject
 sub main()

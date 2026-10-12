@@ -100,14 +100,19 @@ review rounds.
   once only if they touch different facts or classifiers. Each later
   branch to merge first passes the full gates on the combined tree:
   main with the earlier branches merged, plus it.
-- **Land fast, release deep.** A round lands through the fast gate: the
-  full gates (suite, corpus, matrix, unit), the round's new tests, a
+- **Land fast, release deep.** A round lands through the fast gate, in
+  minutes: the build, `./test/run --delta`, the round's new tests, a
   targeted grid of the forms it changes, and one independent review run
-  in parallel with them, then CI. A release is tagged only after the
-  deep gate: the generated grids in debug and `--release` on macOS and
-  Linux, and an adversarial review of everything merged since the last
-  release. A soundness finding from either gate is fixed before the
-  tag.
+  in parallel with them, then CI. A round that changes a soundness
+  classifier (`src/ownership.zig`, the facts or proofs walks, or
+  typecheck's classification of expressions) also runs the full
+  matrix. The deep gate runs on `main` as it stands, about twice a day:
+  the full suite, corpus, matrix, and unit tests, equivalence against
+  the last deep run, the JSON benchmark guard, and the
+  generated grids in debug and `--release` on macOS and Linux. A deep
+  gate failure is bisected and fixed before any new round lands. A
+  release is tagged only after a clean deep gate and an adversarial
+  review of everything merged since the last release.
 - **Rerun only what changed.** A grid or corpus rerun uses `--delta`
   (`./test/run --delta`, `test/matrix.py --delta`): it checks every
   program, and runs only those whose package, expectation, driver,
@@ -142,12 +147,14 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
   changes. Any Nexus will do, built from the sibling checkout's main
   (`zig build -Doptimize=safe` there). Without one the build fails and
   says where it looked. To use another binary: `zig build -Dnexus=PATH`.
-- The machine is shared: run a full run, a grid, or a corpus pass
-  through the machine's job queue (`cpuq run --cores 2-6 -- …`, with
+- The machines are shared: run a full run, a grid, or a corpus pass
+  through the machine's job queue (`cpuq run --cores 2 -- …`, with
   `-j "$CPUQ_CORES"`), which shares the CPUs fairly instead of waiting
-  on the load. Pass `-j` to `zig build` there too; without it Zig uses
-  every CPU. Under load, rerun a timeout failure alone before trusting
-  it.
+  on the load. Start a job only when no one else is waiting, and send
+  long full runs to the Linux machine, one at a time. Pass `-j` to
+  `zig build` there too; without it Zig uses every CPU. Under load,
+  rerun a timeout failure alone before trusting it. A wait loop watches
+  only its own job, and every loop has a bound.
 - Fixing a bug starts with a failing test that reproduces it.
 - Every change keeps `./test/run` green.
 - Commit messages are short, imperative, and describe the change.
@@ -175,6 +182,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
 | `src/lib.zig` | The compiler as a library, for `bin/rig-oracle` only |
+| `tools/` | `migrate-0.3.py`, which migrates 0.2 programs to 0.3 |
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |

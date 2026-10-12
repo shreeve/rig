@@ -1608,7 +1608,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint(failure.state);
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse tokenHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse tokenHint(tok) orelse chainedComparison(src, tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1927,6 +1927,21 @@ pub const Parser = struct {
             .ampersand => "Rig lends with `?x` (to read) or `!x` (to write)",
             else => null,
         };
+    }
+
+    /// A comparison operator after a value, where the parser takes none:
+    /// a second comparison in a chain (`a == b | c == d` reads as
+    /// `a == (b | c) == d`, since `|`, `&`, and `^` bind tighter).
+    fn chainedComparison(src: []const u8, tok: Token) ?[]const u8 {
+        switch (tok.cat) {
+            .eq, .ne, .le, .ge, .lt, .gt => {},
+            else => return null,
+        }
+        const before = std.mem.trimEnd(u8, src[0..tok.pos], " ");
+        if (before.len == 0) return null;
+        const c = before[before.len - 1];
+        if (!isIdentCont(c) and c != ')' and c != ']' and c != '"' and c != '\'') return null;
+        return "comparisons do not chain, and `|`, `&`, and `^` bind tighter than a comparison: put each comparison in parentheses, `(a == b) | (c == d)`";
     }
 
     fn endsWithWord(text: []const u8, word: []const u8) bool {

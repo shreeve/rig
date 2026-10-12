@@ -1,0 +1,30 @@
+# An assignment's value runs before its target: a target whose call
+# takes a List the value reads leaves the value reading it whole,
+# before the call frees it.
+
+obj H
+  n: Int
+
+fun take(xs: List[Int], out: ![]Int) -> ![]Int from out
+  out
+
+fun take_h(xs: List[Int], h: !H) -> !H
+  h
+
+sub main()
+  x: List[Int] = List()
+  !x.push(7)
+  a: [2]Int = [0, 0]
+  take(<x, !a[..])[0] = x[0]
+  print(a)
+
+  y: List[Int] = List()
+  !y.push(4)
+  !y.push(5)
+  h = H(n: 1)
+  take_h(<y, !h).n += y.len
+  print(h.n)
+
+# expect:
+# [7, 0]
+# 3

@@ -1,0 +1,12 @@
+# A vector made of constants (splat const) is a run-time value:
+# a lane that overflows panics when the program runs.
+
+K: I8 = -128
+
+sub main()
+  v = Simd[I8, 4].splat(K)
+  print(v - 1)
+
+# expect-panic: integer overflow
+
+# release

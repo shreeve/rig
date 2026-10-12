@@ -1,0 +1,12 @@
+# `read` on a String lent to read, `(?s).read[T, e](at)`, reads its bytes,
+# and the String may change once the call is done.
+
+sub main()
+  s = String("abcd")
+  n = (?s).read[U32, .little](0)
+  !s.add("e")
+  m = (?s).read[U16, .big](3)
+  print(n, m, s)
+
+# expect:
+# 1684234849 25701 abcde

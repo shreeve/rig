@@ -1,0 +1,30 @@
+# A loop's step and a deferred assignment are assignments: each
+# evaluates its value before the call its target starts from.
+
+fun pick(t: ![]Int, k: !Int) -> ![]Int from t
+  k += 1
+  t
+
+sub deferred(t: ![]Int)
+  i = 0
+  defer pick(!t, !i)[0] = i
+  print("body")
+
+sub main()
+  a: [2]Int = [0, 0]
+  i = 0
+  while i < 3 : pick(!a[..], !i)[0] += i
+    print(i)
+  print(a)
+
+  b: [2]Int = [5, 5]
+  deferred(!b[..])
+  print(b)
+
+# expect:
+# 0
+# 1
+# 2
+# [3, 0]
+# body
+# [0, 5]

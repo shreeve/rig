@@ -1,0 +1,18 @@
+# Lane `+` panics when any lane overflows, as scalar `+` does; `+%` wraps.
+
+fun add(v: Simd[U8, 4], k: U8) -> Simd[U8, 4]
+  v + k
+
+sub main()
+  v = Simd[U8, 4]([250, 1, 2, 3])
+  print(v +% 10)
+  print(add(v, 5))
+  print(add(v, 6))
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# [4, 11, 12, 13]
+# [255, 6, 7, 8]

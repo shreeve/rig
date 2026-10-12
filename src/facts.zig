@@ -71,6 +71,8 @@ pub const LeafStep = storage.LeafStep;
 pub const MatchMode = storage.MatchMode;
 pub const ReceiverHold = storage.ReceiverHold;
 pub const ArgumentHold = storage.ArgumentHold;
+pub const SetOrder = storage.SetOrder;
+pub const SetStep = storage.SetStep;
 
 pub const type_invalid = sema.type_invalid;
 pub const type_param_mark = sema.type_param_mark;
@@ -192,6 +194,9 @@ pub const Facts = struct {
     }
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
+    }
+    pub fn splatOf(f: Facts, node: Sexp) ?TypeId {
+        return f.c().splatOf(node);
     }
     pub fn callableOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().callableOf(node);
@@ -357,6 +362,11 @@ pub const Facts = struct {
     /// argument, an assigned value, or an index is pure.
     pub fn hoistsArgs(f: Facts, call: Sexp) ?bool {
         return storage.decided(f.c(), call, .hoists_args);
+    }
+    /// How an assignment runs: which of its steps it evaluates into
+    /// storage in their turn (`storage.setOrder`).
+    pub fn setOrder(f: Facts, set: Sexp) ?SetOrder {
+        return storage.decided(f.c(), set, .set_order);
     }
     pub fn receiverHold(f: Facts, call: Sexp) ??ReceiverHold {
         return storage.decided(f.c(), call, .receiver_hold);
@@ -595,9 +605,6 @@ pub const Pending = struct {
     pub fn copies(p: Pending, ty: TypeId) Answer {
         return sema.copies(p.c(), ty);
     }
-    pub fn actsBeforeStore(_: Pending, target: Sexp, value: Sexp) bool {
-        return storage.actsBeforeStore(target, value);
-    }
 };
 
 /// The syntax helpers emit shares with the checkers: functions of the IR
@@ -605,6 +612,7 @@ pub const Pending = struct {
 pub const syntax = struct {
     pub const lentPlace = storage.lentPlace;
     pub const argValue = storage.argValue;
+    pub const eachTargetStep = storage.eachTargetStep;
     pub const contains = storage.contains;
     pub const isCatchAll = storage.isCatchAll;
     pub const matchGuarded = storage.matchGuarded;
@@ -629,7 +637,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 7;
+const pending_budget = 4;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");

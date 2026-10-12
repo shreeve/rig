@@ -8,7 +8,7 @@ sub main()
   print(b.read[U16, .big](rt(2)))
   print(b.read[U16, .big](rt(3)))
 
-# expect-panic: byte read out of range
+# expect-panic: byte read out of range: 2 bytes at offset 3 of 4
 
 # expect:
 # 772

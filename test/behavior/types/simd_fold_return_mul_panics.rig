@@ -1,0 +1,13 @@
+# A vector made of constants (return) is a run-time value:
+# a lane that overflows panics when the program runs.
+
+fun mk() -> Simd[I8, 4]
+  Simd[I8, 4].splat(127)
+
+sub main()
+  v = mk()
+  print(v * 2)
+
+# expect-panic: integer overflow
+
+# release

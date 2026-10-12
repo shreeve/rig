@@ -1,0 +1,16 @@
+pub type Block = Simd[U8, 4]
+
+pub obj Lexer
+  pub ahead: Block
+
+  pub fun first(?self) -> U8
+    self.ahead[0]
+
+pub fun ones() -> Block
+  Block.splat(1)
+
+pub fun hits(v: ?Block, b: U8) -> U64
+  (v == b).bits()
+
+pub fun widen[n: Int](v: Simd[U8, n]) -> Simd[U8, n]
+  v +% 1

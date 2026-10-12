@@ -1,0 +1,41 @@
+# `read` loads a vector from bytes with one bounds check, and `write`
+# stores one: lanes of one byte need no byte order, and wider lanes are
+# each read or written in the order given. The bytes may be a `?String`,
+# a `[]U8`, an `![]U8`, a `[N]U8`, or a `List[U8]`.
+
+sub main()
+  s = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+  print(s.read[Simd[U8, 4]](0), s.read[Simd[U8, 2]](30))
+  t = String(s)
+  r = ?t
+  v = r.read[Simd[U8, 16]](16)
+  print(v == 0x30)
+  b: [8]U8 = [1, 0, 2, 0, 0, 3, 0, 4]
+  print(b.read[Simd[U16, 4], .little](0), b.read[Simd[U16, 4], .big](0))
+  print(b.read[Simd[U32, 2], .big](0), b.read[Simd[I8, 8]](0))
+  !b.write[Simd[U16, 2], .big](4, Simd[U16, 2]([0x0102, 0x0304]))
+  print(b)
+  xs: List[U8] = List()
+  for i in 0..32
+    !xs.push(U8(i))
+  w = xs.read[Simd[U8, 32]](0)
+  !xs.write[Simd[U8, 32]](0, w +% 100)
+  print(xs.read[Simd[U8, 4]](28), (xs.read[Simd[F32, 2], .little](0) == xs.read[Simd[F32, 2], .little](0)).all())
+  sl = ?xs[4..12]
+  print(sl.read[Simd[I32, 1 + 1], .big](0) == Simd[I32, 2]([0x68696A6B, 0x6C6D6E6F]))
+  ws = !xs[0..8]
+  !ws.write[Simd[U8, 8]](0, Simd[U8, 8].splat(7))
+  print(xs.read[Simd[U8, 8]](0), xs[8])
+  f: [16]U8 = [0, 0, 128, 63, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0]
+  print(f.read[Simd[F32, 4], .little](0))
+
+# expect:
+# [65, 66, 67, 68] [52, 53]
+# [false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false]
+# [1, 2, 768, 1024] [256, 512, 3, 4]
+# [16777728, 196612] [1, 0, 2, 0, 0, 3, 0, 4]
+# [1, 0, 2, 0, 1, 2, 3, 4]
+# [128, 129, 130, 131] true
+# [true, true]
+# [7, 7, 7, 7, 7, 7, 7, 7] 108
+# [1.0, 2.0, 0.0, 0.0]

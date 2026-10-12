@@ -1,0 +1,41 @@
+# An assignment makes its value first. When a later step of its target,
+# the value its path starts from or an index, leaves (`?`, `!`), the
+# value made first is dropped on the way out.
+
+error E
+  bad
+
+obj H
+  l: List[Int]
+
+fun pick(h: !H, fail: Bool) -> (!H)?
+  if fail
+    return none
+  !h
+
+fun slot(fail: Bool) -> Int!
+  return E.bad if fail
+  0
+
+fun into_root(fail: Bool) -> Int?
+  h = H(l: List())
+  v: List[Int] = List()
+  !v.push(1)
+  pick(!h, fail)?.l = <v
+  h.l.len
+
+fun into_index(fail: Bool) -> Int!
+  a: [2]List[Int] = [List(), List()]
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  a[slot(fail)!] = <v
+  a[0].len
+
+sub main()
+  print(into_root(false) ?? 9, into_root(true) ?? 9)
+  print(into_index(false) catch 9, into_index(true) catch 9)
+
+# expect:
+# 1 9
+# 2 9

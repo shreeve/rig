@@ -1,0 +1,17 @@
+# A compound `+=` on a vector panics when any lane overflows; `+%=` wraps.
+
+sub main()
+  v = Simd[U8, 2]([200, 0])
+  v +%= 100
+  print(v)
+  v += 155
+  print(v)
+  v += 1
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# [44, 100]
+# [199, 255]

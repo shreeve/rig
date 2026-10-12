@@ -4,7 +4,7 @@
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
-`drop`, a struct declared `unique`, and a few cells of a struct holding
+`drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
 stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
@@ -15,7 +15,8 @@ is live or after (`lendw.`), a header (`match`, `if … as`, `while … as`,
 branch, every one of which must be rejected (`hdr.`), a
 `while` step reading what its condition binds (`step.`), an assignment
 to a place a view reaches whose value holds a statement of its own
-(`target.`), and the
+(`target.`), an assignment whose target starts from a value that changes
+what its value reads (`order.`), and the
 shapes of nested loops and the jumps between them (`loop.`), a `for`
 over an iterator, from each kind of source, in each statement, value, and
 jump context, run in debug and with `--release` (`iter.`), a Cell
@@ -279,6 +280,9 @@ TYPES = {
     # which a view's value is copied out as a number's is.
     "plain": dict(ty="P", decls="obj P\n  v: Int\n", mk="P(v: n)", ctor="P(v: 5)"),
     "array": dict(ty="A2", decls="type A2 = [2]Int\n", mk="[n, n + 1]", ctor="[5, 6]"),
+    # A vector: plain data, one value like an Int (Core §1), whose `==`
+    # gives a mask.
+    "simd": dict(ty="Simd[U8, 4]", decls="", mk="Simd[U8, 4].splat(U8(n))", ctor="Simd[U8, 4]([1, 2, 3, 4])"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: List[Int])\n",
                  mk="xs: List[Int] = List()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
@@ -402,7 +406,7 @@ POKES = {
     "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "list": "for i in 0..100\n    !x.push(i)",
     "shared": "x = *N(v: 9)", "box": "x = ^N(v: 9)", "drop": "x = D(v: 9)",
     "unique": "x = U(v: 9)", "enum": "x = S.dot",
-    "plain": "x = P(v: 9)", "array": "x[0] += 1",
+    "plain": "x = P(v: 9)", "array": "x[0] += 1", "simd": "x = x +% 1",
 }
 WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
@@ -1882,6 +1886,145 @@ def named_program(call, kind, order):
     return src, f"{after} {wres}\n"
 
 
+# -----------------------------------------------------------------------------
+# An assignment whose target's path starts from a value that changes what
+# the assignment's value reads: a call that writes `i`, a method of a lent
+# receiver, a propagation of an optional or a failure, a branch whose
+# condition writes `i`, or a call that takes the List `x` the value reads.
+# An assignment evaluates its value, then its target from the base of its
+# path outward, then stores (docs/INTERNALS.md, "Assignments"), so the
+# value reads `i` or `x` as they were. Each path is a field, an element,
+# or an element whose index is a call; each value reads plainly, through
+# an index, or with a call of its own. Each cell must be accepted and
+# print what that order stores, in debug and with `--release`.
+# Cells are `order.<root>.<path>.<op>.<value>`; `order.leave.<step>.<fail>`
+# makes an owned value, then a step of its target leaves (`?`, `!`) or
+# not, and must print the same either way, with nothing leaked.
+# -----------------------------------------------------------------------------
+
+# Each root: the target's base, the read `R` of what it changes, and the
+# function the assignment stands in (`sub`, or one returning `Int?` or
+# `Int!` for a propagation).
+ORDER_ROOTS = {
+    "call": dict(base="pick(!p, !i)", read="i", fn="sub"),
+    "method": dict(base="(!p).at(!i)", read="i", fn="sub"),
+    "slice": dict(base="pick_s(!p.v[..], !i)", read="i", fn="sub"),
+    "opt": dict(base="pick_opt(!p, !i)?", read="i", fn="opt"),
+    "err": dict(base="pick_err(!p, !i)!", read="i", fn="err"),
+    "branch": dict(base="(!p if bump(!i) else !q)", read="i", fn="sub"),
+    "take": dict(base="take(<x, !p)", read="x[0]", fn="sub"),
+}
+# Each path from the base, and which element of `p` it reaches (None: the field `n`).
+ORDER_PATHS = {"field": (".n", None), "elem": (".v[0]", 0), "elem_call": (".v[id(1)]", 1)}
+ORDER_OPS = {"set": ("=", lambda old, v: v), "add": ("+=", lambda old, v: old + v), "shl": ("<<=", lambda old, v: old << v)}
+# Each value, with `R` the read, and what it gives when `R` reads 1.
+ORDER_VALUES = {"plain": ("R", 1), "index": ("s[R]", 20), "call": ("R + id(0)", 1)}
+ORDER_LEAVES = {
+    "root_opt": dict(stmt="pick_h(!h, fail)?.l = <w", fn="opt", show="h.l.len"),
+    "root_err": dict(stmt="pick_he(!h, fail)!.l = <w", fn="err", show="h.l.len"),
+    "index_opt": dict(stmt="a[slot(fail)?] = <w", fn="opt", show="a[0].len"),
+    "index_err": dict(stmt="a[slot_e(fail)!] = <w", fn="err", show="a[0].len"),
+}
+ORDER_DECLS = """error E
+  bad
+
+obj P
+  n: Int
+  v: [2]Int
+
+  fun at(self: !P, k: !Int) -> !P
+    k += 1
+    self
+
+obj H
+  l: List[Int]
+
+fun pick(p: !P, k: !Int) -> !P
+  k += 1
+  p
+
+fun pick_s(t: ![]Int, k: !Int) -> ![]Int from t
+  k += 1
+  t
+
+fun pick_opt(p: !P, k: !Int) -> (!P)?
+  k += 1
+  !p
+
+fun pick_err(p: !P, k: !Int) -> (!P)!
+  k += 1
+  !p
+
+fun bump(k: !Int) -> Bool
+  k += 1
+  true
+
+fun take(xs: List[Int], p: !P) -> !P
+  p
+
+fun id(n: Int) -> Int
+  n
+
+fun pick_h(h: !H, fail: Bool) -> (!H)?
+  if fail
+    return none
+  !h
+
+fun pick_he(h: !H, fail: Bool) -> (!H)!
+  return E.bad if fail
+  !h
+
+fun slot(fail: Bool) -> Int?
+  if fail
+    return none
+  0
+
+fun slot_e(fail: Bool) -> Int!
+  return E.bad if fail
+  0
+"""
+
+
+def order_fn(fn, body, call):
+    """`run` holding `body`, and `main`'s lines calling it with `call`."""
+    head = {"sub": "sub run(" + call + ")", "opt": "fun run(" + call + ") -> Int?", "err": "fun run(" + call + ") -> Int!"}[fn]
+    tail = [] if fn == "sub" else ["0"]
+    return head + "\n" + indent(body + tail, 2) + "\n"
+
+
+def order_program(root, path, op, value):
+    """The program for one order cell and what it prints, or (None, None)
+    where the path cannot follow the root."""
+    r = ORDER_ROOTS[root]
+    step, elem = ORDER_PATHS[path]
+    if root == "slice":
+        if elem is None:
+            return None, None
+        step = step[2:]
+    v_src, v = ORDER_VALUES[value]
+    body = ["p = P(n: 5, v: [5, 5])"]
+    body += ["q = P(n: 5, v: [5, 5])"] if root == "branch" else []
+    body += ["x: List[Int] = List()", "!x.push(1)"] if root == "take" else ["i = 1"]
+    body += ["s: [3]Int = [10, 20, 30]"] if value == "index" else []
+    sigil, combine = ORDER_OPS[op]
+    body += [f"{r['base']}{step} {sigil} {v_src.replace('R', r['read'])}", "print(p)"]
+    stored = combine(5, v)
+    n, vs = (stored, [5, 5]) if elem is None else (5, [stored if k == elem else 5 for k in range(2)])
+    main = "run()" if r["fn"] == "sub" else ("_ = run()" if r["fn"] == "opt" else "_ = run() catch 0")
+    src = ORDER_DECLS + "\n" + order_fn(r["fn"], body, "") + "\nsub main()\n  " + main + "\n"
+    return src, f"P(n: {n}, v: [{vs[0]}, {vs[1]}])\n"
+
+
+def order_leave_program(step, fail):
+    """The program for one leave cell and what it prints."""
+    lv = ORDER_LEAVES[step]
+    body = ["h = H(l: List())"] if step.startswith("root") else ["a: [2]List[Int] = [List(), List()]"]
+    body += ["w: List[Int] = List()", "!w.push(1)", "!w.push(2)", lv["stmt"], f"print({lv['show']})"]
+    main = "_ = run(" + fail + ")" + (" catch 0" if lv["fn"] == "err" else "")
+    src = ORDER_DECLS + "\n" + order_fn(lv["fn"], body, "fail: Bool") + "\nsub main()\n  " + main + '\n  print("done")\n'
+    return src, ("done\n" if fail == "true" else "2\ndone\n")
+
+
 def indent(lines, n):
     return "\n".join(" " * n + l for l in lines)
 
@@ -1898,7 +2041,7 @@ def program(tname, fname, cname):
     if "recv" in ctx and tname not in ctx["recv"] or tname not in ctx.get("types", (tname,)):
         return None
     if "tail" in ctx:
-        if fname != "call" or tname in ("int", "string", "static", "plain", "array"):
+        if fname != "call" or tname in ("int", "string", "static", "plain", "array", "simd"):
             return None
         write = TAIL_WRITES.get(tname, "print(look(?t))")
         lines = []
@@ -2291,6 +2434,21 @@ def main():
                 expects[ident] = out if out is not None else "(rejected)\n"
                 if out is not None:
                     release.add(ident)
+    order_cells = [(f"order.{root}.{path}.{op}.{value}", order_program(root, path, op, value))
+                   for root in ORDER_ROOTS for path in ORDER_PATHS for op in ORDER_OPS for value in ORDER_VALUES]
+    order_cells += [(f"order.leave.{step}.{fail}", order_leave_program(step, fail)) for step in ORDER_LEAVES for fail in ("true", "false")]
+    for ident, (src, out) in order_cells:
+        if not wanted(ident):
+            continue
+        if src is None:
+            skipped += 1
+            continue
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        expects[ident] = out
+        release.add(ident)
     for t in PAYLOAD_TYPES:
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:

@@ -1180,7 +1180,8 @@ instead of re-deriving it by name:
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (the receiver too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
-| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
+| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...) |
+| `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
@@ -1303,7 +1304,9 @@ whether it evaluates its arguments first (`hoists_args`), how it holds
 its receiver (`receiver_hold`), whether it consumes a temporary
 receiver (`consumes_receiver`), how it holds each argument
 (`argument_hold`), and whether an argument, an assigned value, or an
-index is pure, staying where it is (`pure_arg`). Typecheck's arm-local
+index is pure, staying where it is (`pure_arg`); and for each
+assignment, which of its steps it evaluates into storage in their turn
+(`set_order`, [Assignments](#assignments)). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
@@ -1340,7 +1343,9 @@ emitter ask these, never a predicate built for another question:
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell, a Signal, and an owned closure's parameters and result hold |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
-| `readsAsValue` | a scalar (a primitive or a plain enum): an operator, generic inference, and a binding with no type read a read view of one as the value |
+| `readsAsValue` | a scalar (`isScalar`) or a plain enum: an operator, generic inference, and a binding with no type read a read view of one as the value |
+| `isScalar` | a primitive that copies, or a vector: a method takes it by value, never by address |
+| `holdsVector` | is or holds inline a vector, whose size and alignment are the target's: `@size` and `@align` take none |
 
 A generic body that copies a `T` records `Requirement.copies`; one
 that discards, overwrites, or stores a `T` in an array or slice records
@@ -1442,7 +1447,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
-| `new_value`, `index`, `slot` | `__rig_new`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then finds its place (`storage.actsBeforeStore`) | owned, owned, pointer | assignment |
+| `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -1650,6 +1655,92 @@ language's spelling of a Rig form (`null`, `True`, `this`,
 `println`, ...; `unboundHint` in typecheck) names Rig's. A local that
 is never read is reported as a *lint* (`Diagnostic.lint`), the one
 error that does not keep ownership from checking the module.
+
+### Vectors
+
+`Simd[T, n]` (SPEC §2, "Vectors") is a type of its own kind,
+`Type.simd`, not a generic instance: `resolve.registerBuiltins` names
+`Simd` as a built-in generic with a type and an `Int` parameter, so it is
+spelled, reserved, and given its arguments as `Ring[T, n: Int]` is, and
+every instance of it, written in a type or an expression, is made by
+`resolve.simdInstance`, which checks the lane type (a number or `Bool`,
+`sema.isLaneType`) and the count (a power of two from 2 to 64,
+`sema.lanesInRange`; a compile-time parameter records
+`Requirement.lane_count`, checked at each instance) and interns
+`.simd`. Interning, substitution (`substituteType`), import, and the
+type's children follow `.array`'s. A vector is plain data (Core §1):
+`holdsIn` gives it `plain`, so every ownership fact (`copies`, `moves`,
+`isPlainData`, `readByAddress`, `dropRunsBody`, `isUnique`) answers as
+for an `Int` with no rule of its own, and `TypeInfo.vector` records that
+a type holds one inline (`holdsVector`, which `@size`, `@align`, and
+`Requirement.sized` read).
+
+Every vector operation lowers to an operator on values, a call of a
+runtime function with value arguments, or the existing `read` and
+`write`:
+
+| Rig | Zig |
+|---|---|
+| `Simd[T, n]` | `@Vector(n, T)` (`bool` lanes for a mask) |
+| `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))` |
+| `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))` |
+| `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows |
+| a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`) |
+| `v.not()` | `~v`, or `!m` of a mask |
+| `m.bits()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
+| `m.select(a, b)` | `@select(T, m, a, b)` |
+| `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)` |
+| `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
+
+Every vector comes from one of those constructions, a parameter, or
+bytes read when the program runs (no constant holds one), and each
+construction goes through `rig.rt`, so no vector is known to Zig when it
+compiles: a lane that overflows panics when the program runs, never
+stopping Zig's fold, where Rig's own fold rejects a constant scalar
+that overflows.
+
+None of these makes hidden storage or takes an address: a splat is an
+rvalue, and the runtime functions take their vectors by value. So the
+ownership checker walks a vector operation as it walks the same
+operation on an `Int`, and needs nothing new beyond `sema.isScalar`,
+which counts a vector as a scalar: a method takes it by value, and a
+read view of it is read as its value by an operator, inference, and a
+binding with no type (`readsAsValue`), and is a copy in Zig
+(`lendByValue`, `rig.ReadView`). A lane is no place: `handsOver` lists
+`v[i]` (`sema.isLane`) with an operator's result as `made`, and
+typecheck rejects a lane assigned, lent, or taken (`rejectLane`), with
+`with` to write.
+
+Typecheck decides each operation once and records it: an operator with
+a vector operand goes through `simdOperands` (one type on both sides,
+or a scalar of the lane type, recorded as a splat), comparisons give the
+mask type, and the methods are `ElemCall`s (`ElemOp.isSimd`), recorded
+on the callee as `x.not()` is; a call of a vector type is emitted as the
+conversion it is (`Emitter.simdConversion`, from the call's type and its
+callee's instance). A mask where a `Bool` is expected is reported by
+`maskAsBool`, from where it stands: a condition, `and`, `or`, `not`, or
+a ternary.
+
+The runtime picks each target's lowering of `maskBits`, guarded by
+compile-time feature tests, so an intrinsic is named only where LLVM
+builds the code and the CPU has the feature (an intrinsic for a missing
+feature stops LLVM, and Zig's own backends know none). Each form gives
+the same bits, which a runtime test checks on random masks of every
+count, and `rig.simdRead` loads through an `align(1)` pointer, so an
+unaligned offset is never read with the vector's own alignment. The
+measured forms (Zig 0.17, ReleaseFast, instructions for a 64-byte
+compare-and-mask kernel):
+
+| Target | Form | 64 lanes |
+|---|---|---:|
+| aarch64 with NEON, LLVM | the mask as bytes, weighted, then pairwise adds (`llvm.aarch64.neon.addp.v16i8`), read as one lane of a `u64` vector, for 32 and 64 lanes; `any` and `all` as a byte `umaxv` or `uminv` | 31 |
+| x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`) | 39, 21 |
+| WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` through them | 64 (511 by `@bitCast`) |
+| WASM without SIMD | each lane a byte, eight gathered by one multiply | 851, but 1.75x faster under wasmtime than `@bitCast`'s 779 |
+
+`test/behavior/types/simd_*` and `test/reject/types/simd_*` hold the
+behavior and rejections, including every block offset from 0 to 130
+against a scan byte by byte.
 
 ## Ownership
 
@@ -2430,17 +2521,73 @@ is one desugaring, which the checker walks (`walkSet`) and emit writes
 (`emitSet`):
 
 ```text
-place op= value   ==>   { __v = value; place op= __v }
+place op= value   ==>   { __v = value; __b = base; __i1 = i1; ... __in = in; place(__b, __i1..__in) op= __v }
 ```
+
+Its steps, in the order they run, are one list, `storage.eachSetStep`:
+the value; then the target's base, the value its path of fields and
+elements starts from (a name, a lend `(!h)`, a call `pick(!t, !i)`, a
+method's result `(!p).at(!i)`, a propagation `get(!h)?`, a branch
+`(!a if c else !b)`); then each index on the path from the base outward,
+a range's bounds left to right. A target that is a name has no steps.
+The store comes last: it finds the place through the base and indexes
+as they were evaluated, and stores.
 
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
-scope it opens, and the drops and defers that end them. Only then is
-the target evaluated, its indexes from the outside in, and the store
-made through the place as the value left it. A temporary the value
-makes outside its nested scopes (`mk(5).n`) belongs to the assignment's
-statement, as every statement's temporaries do, so it lives until after
-the store: `__v = value;` does not end it.
+scope it opens, and the drops and defers that end them. Only then does
+the target run, from its base outward, and the store is made through
+the place as the value left it. So a call the target starts from runs
+after the value, and cannot change what the value reads:
+`pick(!t, !i)[0] = s[i]` reads `s[i]` before `pick` writes `i`, and
+`take(<x, !t)[0] = x[0]` reads `x[0]` before `take` frees `x`. A
+temporary the value makes outside its nested scopes (`mk(5).n`) belongs
+to the assignment's statement, as every statement's temporaries do, so
+it lives until after the store: `__v = value;` does not end it.
+
+**The fact: `SetOrder`** (`storage.setOrder`, the decision `set_order`,
+read by emit as `Facts.setOrder`). Which steps emit evaluates into
+storage in their turn is decided once per assignment, from the steps
+and three positive lists:
+
+- `held`: the value or an index can act (`storage.setActs`: a call, an
+  assignment, a drop, `return`, `break`, `continue`, `!`, or `?` in it,
+  outside the closures it holds), or the base can and the value is not
+  pure (`isPureArg`). Then the value is made into `__rig_new_N` unless
+  it is pure, and each index into `__rig_ix_N_k` unless it is pure.
+  Otherwise Zig's own order (the base, the indexes, then the value) is
+  one no program can tell from this one, and stands.
+- `base`: the steps are held, an index after the base is, and the base
+  does not stay (`baseStays`: a name, or a lend of a name or of a field
+  path off one, gives the same place whenever it runs). Then the base
+  is evaluated into `__rig_base_N` in its turn: the pointer a write
+  view is, or the slice. A base not held is evaluated where the place
+  is found, after every held step, which is its turn when no index is
+  held.
+- `guard`: the value owns a resource and a step of the target can leave
+  (`setLeaves`: `!`, `?`, `return`, `break`, `continue`). The value,
+  where it is made first (when `held`, or into a place that owns, whose
+  old value is dropped only after the new one is made), is then
+  `var __rig_new_N` with a flag, dropped by a `defer` on the way out
+  unless the store takes it (`rig.take(&__rig_live_N_new,
+  __rig_new_N)`), as a call's hoisted argument is.
+
+Its readers, each taking the steps from `eachSetStep`:
+
+- **The storage plan** records the storage the fact names (`new_value`,
+  `base`, `index`, and `slot`; `Planner.assignment`).
+- **Emit** writes the steps the fact holds, in their turn
+  (`openAssign`, `openSetValue`, `hoistTarget`, `emitPlaceAssign`), and
+  the store through the names they were held in.
+- **The ownership checker** walks the steps in the same order
+  (`walkSet`): the value, then a base that is no place, then the
+  indexes, then the store (`walkFieldAssign`).
+- A pass that removes run-time checks reads it to know which indexes
+  are evaluated before the place is found, and what each step could
+  have changed by then.
+
+A new reader takes the steps from `eachSetStep` and the held storage
+from `setOrder`, and decides neither again.
 
 - **The checker** walks the value, then the target. While the value is
   walked, the target's uses lie ahead, in the statement after `__v`:
@@ -2455,16 +2602,32 @@ the store: `__v = value;` does not end it.
   symbols pinned inside the loop or block it leaves are not live on its
   path (`walkJump`). Liveness positions are not patched: the target's
   uses are recorded where they stand, and a scope that ends after the
-  assignment (one whose last line it is) sees them as behind it.
-- **Emit** makes `__v` whenever the value can act (`actsBeforeStore`: a
-  call, an assignment, a drop, or a jump), as the `new_value` storage
-  fact `__rig_new_N`, then stores through the place: a field or element
-  through `openAssign` or `openNewValue`, a compound through
-  `openAssign`, a reassigned resource through `openNewValue`, and any
-  other name store through `storesAfterValue`. So Zig never takes the
-  place's address before the value runs: `w = match ...` through a
-  `!T` local is `{ const __rig_new_N = switch ...; w.* = __rig_new_N; }`,
-  never `w.* = switch ...`.
+  assignment (one whose last line it is) sees them as behind it. A
+  base's loans stay live while the indexes after it run, as the view
+  it gives is used by the store, so an index cannot change what the
+  base views.
+- **Emit** makes `__v` whenever the value can act or the fact holds it,
+  as the `new_value` storage fact `__rig_new_N`, then stores through
+  the place: a field or element through `openAssign` or
+  `openSetValue`, a compound through `openAssign`, a reassigned
+  resource through `openNewValue`, and any other name store through
+  `storesAfterValue`. So Zig never takes the place's address before the
+  value runs: `w = match ...` through a `!T` local is
+  `{ const __rig_new_N = switch ...; w.* = __rig_new_N; }`, never
+  `w.* = switch ...`, and `pick(!t, !i)[k] = s[i]` with `k` a local is
+  `{ const __rig_new_N = s[i]; const __rig_base_N = pick(t, &i);
+  const __rig_ix_N_k = k; rig.elemPtr(__rig_base_N, __rig_ix_N_k).* =
+  __rig_new_N; }`.
+
+A loop's step (`while c : place op= value`) and a deferred assignment
+are assignments, with the same steps and the same fact. The other forms
+that evaluate more than one part record their order as facts too, which
+the checker walks and emit writes: a call evaluates its receiver, then
+its arguments in the order written (`hoists_args`, `receiver_hold`,
+`argument_hold`; [Emit](#emit), "Evaluation order of arguments"), and a
+`match`, `if … as`, `while … as`, or `for` evaluates its subject once,
+before its arms or body (`match_block`, `subject_hold`,
+`header_points`).
 
 The other forms whose value may hold statements have no place to
 evaluate after it: `return value`, `break value`, and a new binding's
@@ -2533,8 +2696,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   order, including early returns, loop exits, and error propagation.
 - **Views.** `!T` parameters, `!self` receivers, and bindings of a
   write view are pointers, read through `.*`. A `?T` of a scalar or a view (a
-  number, `Bool`, a plain enum, an error, a slice or `?String`, a
-  function, or an optional of one) is a copy: Zig parameters are
+  number, `Bool`, a vector, a plain enum, an error, a slice or
+  `?String`, a function, or an optional of one) is a copy: Zig parameters are
   immutable. Any other `?T` (a struct, an array, an enum with
   payloads) is a pointer, since a copy of a value with drop glue
   would be dropped with whatever holds it, and a `Cell` can change
@@ -2798,10 +2961,11 @@ symbols); a query that decides more than that belongs in `Pending`.
   the chokepoint checks the storage's `life` against the scope emit
   gives it, so each of these becomes a slot or a fact the checker walks.
 - **Assignments.** Zig finds the address of `place.* = f()` before it
-  calls `f`, so an assignment whose value or indexes can act (a call,
-  an assignment, a drop, a jump) evaluates the value into
-  `__rig_new_N` and each index into `__rig_ix_N_k` first, then stores
-  (`openAssign`, and `storesAfterValue` for a name): the desugaring
+  calls `f`, and evaluates a call the place starts from where it finds
+  the place, so an assignment any step of which can act (a call, an
+  assignment, a drop, a jump) evaluates its steps into storage in
+  their turn, then stores (`SetOrder`, `openAssign`, and
+  `storesAfterValue` for a name): the desugaring
   [Assignments](#assignments) gives, which the ownership checker walks,
   and the order SPEC §4 gives. A lend, a
   slice, or a receiver takes its place's address up to each index
@@ -2879,7 +3043,7 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
-| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
+| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
@@ -2890,6 +3054,7 @@ reviewed.
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 16 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
+| `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |

@@ -1,0 +1,10 @@
+# A vector made of constants (with) is a run-time value:
+# a lane that overflows panics when the program runs.
+
+sub main()
+  v = Simd[I8, 4].splat(0).with(1, 127)
+  print(v * 2)
+
+# expect-panic: integer overflow
+
+# release
