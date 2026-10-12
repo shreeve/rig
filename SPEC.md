@@ -777,14 +777,17 @@ integer or float type, a vector of them ([Vectors](#reading-bytes-into-a-vector)
 or a type parameter every instance gives one of the first;
 `e` is a compile-time value of the built-in enum
 `Endian`, `.little` or `.big` (a literal, `Endian.big`, a constant, or
-a compile-time parameter; there is no native order). `read` works on a
+a compile-time parameter; there is no native order). A one-byte `T`
+(`U8`, `I8`) has no byte order and takes no `e`: `read[U8](at)`,
+`write[U8](at, v)`. `read` works on a
 `[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, and a `?String`; `write` on
 the writable ones, written `!bytes` (or an `![]U8` binding). Every byte
 must be in range, `0 <= at` and `at + @size(T) <= len`: a constant
 offset into an array is checked at compile time, and any other when the
 program runs, which panics in every build mode when it is not. A float
 is read and written by its bits, so a NaN's payload survives. `Endian`
-is a built-in name, like `List`, and is reserved.
+is a built-in name, like `List`, and is reserved. A String appends a
+number's bytes with `!t.push[T, e](v)` ([String](#string)).
 
 ```rig
 sub main()
@@ -927,8 +930,8 @@ integer value `300` does not fit in `U8` (0..255)
 `read` and `write` ([Bytes](#bytes)) take a vector of number lanes:
 `bytes.read[Simd[T, n], e](at)` is the `n` values of type `T` held one
 after another from `at`, lane `i` at `at + i * @size(T)`, each in byte
-order `e`, and `!bytes.write[Simd[T, n], e](at, v)` stores them. A
-vector of one-byte lanes has no byte order, so it may be left out:
+order `e`, and `!bytes.write[Simd[T, n], e](at, v)` stores them. As a
+one-byte `T` does, a vector of one-byte lanes takes no byte order:
 `s.read[Simd[U8, 64]](at)`. A read or write is checked once, for every
 byte it touches, and loads or stores the vector whole: the program
 reads no byte past `at + n * @size(T)`.
@@ -2055,9 +2058,10 @@ sub main()
 21
 ```
 
-An assignment evaluates its value first, then the indexes of its
-target from left to right (the outermost index first), and only then finds the place and stores
-into it; a compound assignment reads the place there, combines, and
+An assignment evaluates its value first, then its target from left to
+right: the value its path starts from (a call, `pick(!t, !i)[0] = s[i]`,
+runs after `s[i]` is read), then its indexes (the outermost index
+first), and only then finds the place and stores into it; a compound assignment reads the place there, combines, and
 writes it back. A call on the right that grows the List an element is
 in, or replaces the value a field is in, is safe: the store lands in
 the value as the call left it, and panics if the element is gone.
@@ -5414,6 +5418,8 @@ String. A `?String` is the view of text; a String is where text is built.
 | `String(a, b, ...)` | a String holding each value as `print` writes it ([§17](#17-printing)), with no separators |
 | `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
 | `!t.push(b)` | append one byte `b`, a `U8`, given by position |
+| `!t.push[T, e](v)` | append the `@size(T)` bytes of the integer `v`, a `T`, in byte order `e` (`.little` or `.big`), in one write; a one-byte `T` takes no `e`, and `push[U8](b)` is `push(b)` |
+| `!t.reserve(n)` | make room for `n` more bytes, so the next `n` bytes of `push` allocate nothing; the length is unchanged |
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a `?String` viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
@@ -5452,6 +5458,39 @@ sub main()
 n=42 p=Point(x: 1, y: 2.5) ok=true ["a", "b"]
 45 false n=42
 fresh 5
+```
+
+`push[T, e]` is the writing side of `bytes.read[T, e](at)` ([Bytes](#bytes)):
+`T` is an integer type (or a type parameter every instance gives one),
+`e` a compile-time `Endian`, and a multi-byte `T` without `e` is an
+error. `reserve(n)` is amortized: it grows the buffer at least
+geometrically, so reserving a little at a time stays linear.
+
+```rig
+sub main()
+  t = String()
+  !t.reserve(16)
+  !t.push[U16, .big](0x4869)
+  !t.push[U8](33)
+  !t.push[U32, .little](0x2e2e2e2e)
+  v: ?String = ?t
+  print(t, t.len, v.read[U16, .big](0), v.read[U32, .little](3))
+```
+
+```output
+Hi!.... 7 18537 774778414
+```
+
+```rig reject
+sub main()
+  t = String()
+  !t.push[U16](1)
+  !t.push[F32, .big](1.5)
+```
+
+```error
+`push` of a `U16` takes a byte order too: `push[U32, .little](value)`
+`push` appends an integer type; got `F32`
 ```
 
 **A `?String` is a view of its String.** `?t[a..b]` lends the String as a

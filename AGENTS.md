@@ -100,14 +100,19 @@ review rounds.
   once only if they touch different facts or classifiers. Each later
   branch to merge first passes the full gates on the combined tree:
   main with the earlier branches merged, plus it.
-- **Land fast, release deep.** A round lands through the fast gate: the
-  full gates (suite, corpus, matrix, unit), the round's new tests, a
+- **Land fast, release deep.** A round lands through the fast gate, in
+  minutes: the build, `./test/run --delta`, the round's new tests, a
   targeted grid of the forms it changes, and one independent review run
-  in parallel with them, then CI. A release is tagged only after the
-  deep gate: the generated grids in debug and `--release` on macOS and
-  Linux, and an adversarial review of everything merged since the last
-  release. A soundness finding from either gate is fixed before the
-  tag.
+  in parallel with them, then CI. A round that changes a soundness
+  classifier (`src/ownership.zig`, the facts or proofs walks, or
+  typecheck's classification of expressions) also runs the full
+  matrix. The deep gate runs on `main` as it stands, about twice a day:
+  the full suite, corpus, matrix, and unit tests, equivalence against
+  the last deep run, the JSON benchmark guard, and the
+  generated grids in debug and `--release` on macOS and Linux. A deep
+  gate failure is bisected and fixed before any new round lands. A
+  release is tagged only after a clean deep gate and an adversarial
+  review of everything merged since the last release.
 - **Rerun only what changed.** A grid or corpus rerun uses `--delta`
   (`./test/run --delta`, `test/matrix.py --delta`): it checks every
   program, and runs only those whose package, expectation, driver,
@@ -168,11 +173,13 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/typecheck.zig` | Expression pass: types every expression, records facts, checks fallibility and the `raw` boundary |
 | `src/storage.zig` | Storage facts: the hidden storage emit makes, decided once |
 | `src/ownership.zig` | Move / loan / drop checking |
+| `src/inlining.zig` | Which small functions are emitted `inline`, decided once for the whole program |
 | `src/facts.zig` | What emit may know: the recorded facts, read-only; emit imports no classifier |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
 | `src/lib.zig` | The compiler as a library, for `bin/rig-oracle` only |
+| `tools/` | `migrate-0.3.py`, which migrates 0.2 programs to 0.3 |
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |

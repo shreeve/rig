@@ -719,6 +719,8 @@ pub const Facts = struct {
     /// `String(...)` call node, or `t.add` / `t.clear` callee node -> the
     /// built-in String operation it is (`StringCall`).
     string_calls: std.AutoHashMapUnmanaged(NodeKey, StringCall) = .empty,
+    /// `t.push[T, e]` callee node -> the integer type `T` it appends.
+    string_nums: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -839,6 +841,9 @@ pub const StorageKind = enum {
     closure_env,
     /// An assignment's value, made before the store (`__rig_new`).
     new_value,
+    /// The value an assignment's target path starts from, evaluated after
+    /// the value and before the indexes (`__rig_base`).
+    base,
     /// An index of an assignment's target, evaluated before the store
     /// (`__rig_ix`).
     index,
@@ -961,6 +966,10 @@ pub const Question = enum(u8) {
     /// Of an argument, an assigned value, or an index: whether it is pure,
     /// so it stays where it is (`storage.isPureArg`).
     pure_arg,
+    /// Of an assignment: which of its steps are evaluated into storage in
+    /// their turn, and whether the value made first is dropped if a later
+    /// step leaves (`storage.setOrder`).
+    set_order,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.
@@ -1058,8 +1067,9 @@ pub const ElemOp = enum {
 /// A call of a built-in String operation: `String(a, b, ...)`, which builds
 /// one, and the methods `!t.add(a, b, ...)`, `!t.push(b)`, and
 /// `!t.clear()`. `new` and `add` format their arguments as `print` does,
-/// reading them; `push` appends one byte.
-pub const StringCall = enum { new, add, push, clear };
+/// reading them; `push` appends one byte, `push[T, e](v)` (`push_int`)
+/// the bytes of an integer, and `reserve(n)` makes room for `n` more.
+pub const StringCall = enum { new, add, push, push_int, reserve, clear };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -1350,7 +1360,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         const sym = ctx.symbols.items[v];
         return w.print(" {s} {s}", .{ sym.name, @tagName(sym.kind) });
     }
-    if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "payload_fields") or std.mem.eql(u8, name, "splats"))
+    if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "payload_fields") or std.mem.eql(u8, name, "string_nums") or std.mem.eql(u8, name, "splats"))
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
@@ -1663,6 +1673,11 @@ pub const SemContext = struct {
     storage: std.AutoHashMapUnmanaged(StorageKey, Storage) = .empty,
     /// The values expression statements discard (`discardsValue`).
     discards: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The functions and methods Zig inlines at every call, by where
+    /// their names are declared (`inlining.decide`).
+    inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// The calls that may reach one of them, by node (`inlining.decide`).
+    inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
     decided: *Decided,
     /// The `from` clause of each function and method that writes one
@@ -1736,6 +1751,8 @@ pub const SemContext = struct {
         self.plain_reqs.deinit(self.allocator);
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
+        self.inlined.deinit(self.allocator);
+        self.inlined_calls.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);
         self.allocator.destroy(self.decided);
         self.arena.deinit();
@@ -2360,6 +2377,15 @@ pub const SemContext = struct {
     /// callee (`member`) is.
     pub fn stringCallOf(self: *const SemContext, node: Sexp) ?StringCall {
         return self.facts.string_calls.get(nodeKey(node) orelse return null);
+    }
+
+    pub fn recordStringNum(self: *SemContext, callee: Sexp, num: TypeId) !void {
+        try self.facts.string_nums.put(self.allocator, recordKey(callee), num);
+    }
+
+    /// The integer type `T` of a `t.push[T, e](v)` callee.
+    pub fn stringNumOf(self: *const SemContext, callee: Sexp) ?TypeId {
+        return self.facts.string_nums.get(nodeKey(callee) orelse return null);
     }
 
     pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {

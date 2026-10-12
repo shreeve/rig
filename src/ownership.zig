@@ -3356,12 +3356,37 @@ pub const Checker = struct {
         const target = ir.Set.target(node);
         const expr = ir.Set.value(node);
         if (target != .src) {
-            const value = blk: {
-                const mark = try self.useAfterValue(node);
-                defer self.after_value.shrinkRetainingCapacity(mark);
-                break :blk try self.walkConsumed(expr, .field);
+            // The steps in the order emit evaluates them
+            // (`storage.eachSetStep`): the value, the base of the target's
+            // path, and its indexes from the base outward.
+            const Steps = struct {
+                c: *Checker,
+                set: Sexp,
+                placed: bool,
+                value: Value = .{},
+                base: ?Value = null,
+
+                pub fn step(st: *@This(), s: storage.SetStep) Error!void {
+                    switch (s.role) {
+                        .value => {
+                            const mark = try st.c.useAfterValue(st.set);
+                            defer st.c.after_value.shrinkRetainingCapacity(mark);
+                            st.value = try st.c.walkConsumed(s.node, .field);
+                        },
+                        // The base of a target that is no place (a lend,
+                        // `(!h).r`, or a write view a call returns,
+                        // `wrap(!h).r`) runs here; a place is found at
+                        // the store.
+                        .base => if (!st.placed) {
+                            st.base = try st.c.walk(s.node);
+                        },
+                        .index => _ = try st.c.walk(s.node),
+                    }
+                }
             };
-            return self.walkFieldAssign(target, value);
+            var steps: Steps = .{ .c = self, .set = node, .placed = self.resolvePlace(target) != null };
+            try storage.eachSetStep(node, &steps);
+            return self.walkFieldAssign(target, steps.value, steps.base);
         }
 
         const pos = target.src.pos;
@@ -3605,23 +3630,20 @@ pub const Checker = struct {
         try self.absorbThroughWrites(held, value, pos, self.vars.items[id].name, depth);
     }
 
-    /// `p.f = e` / `v[i] = e`, once `e` is walked to `value`.
-    fn walkFieldAssign(self: *Checker, target: Sexp, value: Value) Error!void {
+    /// The store of `value` into `target`, once its steps have run
+    /// (`walkSet`); `base` is what a base that is no place gave.
+    fn walkFieldAssign(self: *Checker, target: Sexp, value: Value, base: ?Value) Error!void {
         const place = self.resolvePlace(target) orelse {
-            // A target whose path starts from a value no var holds (a
-            // lend, `(!h).r`, or a write view a call returns,
-            // `wrap(!h).r`) is reached through that value's write loans:
-            // what is stored there lands in what they reach.
-            const base = pathBase(target);
-            const lent = try self.walk(base);
-            try self.walkPlaceIndices(target);
+            // A target whose path starts from a value no var holds is
+            // reached through that value's write loans: what is stored
+            // there lands in what they reach.
+            const lent = base orelse Value{};
             // An element of a Cell's List, marked `(!c)[i] = v`, is stored
             // in the Cell as one a name reaches is.
             if (self.inCellList(target)) return self.storeInCellList(target, value);
             if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
             return self.storeThroughLend(lent, value, self.startOf(target));
         };
-        try self.walkPlaceIndices(target);
         const id = place.root;
         const pos = self.startOf(target);
         if (!try self.checkLive(id, pos)) return;
@@ -3665,14 +3687,6 @@ pub const Checker = struct {
     /// loans reach holds `stored`'s loans from here on.
     fn storeThroughLend(self: *Checker, lent: Value, stored: Value, pos: u32) Error!void {
         try self.absorbThroughWrites(lent, stored, pos, null, null);
-    }
-
-    /// The value a field or element path starts from: `(!h)` in
-    /// `(!h).rs[0]`, `wrap(!h)` in `wrap(!h).r`.
-    fn pathBase(e: Sexp) Sexp {
-        var p = e;
-        while (p.isKind(.member) or p.isKind(.index)) p = ir.get(p, .object);
-        return p;
     }
 
     /// `value`, which carries only loans the caller handed in, was stored

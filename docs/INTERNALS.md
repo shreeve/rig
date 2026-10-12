@@ -21,6 +21,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │  storage     src/storage.zig   the hidden storage emit makes
   │  ownership   src/ownership.zig moves, loans, drops, aliasing
   ▼
+inlining         src/inlining.zig  which small functions Zig inlines, program-wide
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig
   ▼
@@ -156,6 +157,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
+| `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`) |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
@@ -1191,7 +1193,7 @@ instead of re-deriving it by name:
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
-| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
+| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
@@ -1302,7 +1304,9 @@ whether it evaluates its arguments first (`hoists_args`), how it holds
 its receiver (`receiver_hold`), whether it consumes a temporary
 receiver (`consumes_receiver`), how it holds each argument
 (`argument_hold`), and whether an argument, an assigned value, or an
-index is pure, staying where it is (`pure_arg`). Typecheck's arm-local
+index is pure, staying where it is (`pure_arg`); and for each
+assignment, which of its steps it evaluates into storage in their turn
+(`set_order`, [Assignments](#assignments)). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
@@ -1443,7 +1447,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
-| `new_value`, `index`, `slot` | `__rig_new`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then finds its place (`storage.actsBeforeStore`) | owned, owned, pointer | assignment |
+| `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -2532,17 +2536,73 @@ is one desugaring, which the checker walks (`walkSet`) and emit writes
 (`emitSet`):
 
 ```text
-place op= value   ==>   { __v = value; place op= __v }
+place op= value   ==>   { __v = value; __b = base; __i1 = i1; ... __in = in; place(__b, __i1..__in) op= __v }
 ```
+
+Its steps, in the order they run, are one list, `storage.eachSetStep`:
+the value; then the target's base, the value its path of fields and
+elements starts from (a name, a lend `(!h)`, a call `pick(!t, !i)`, a
+method's result `(!p).at(!i)`, a propagation `get(!h)?`, a branch
+`(!a if c else !b)`); then each index on the path from the base outward,
+a range's bounds left to right. A target that is a name has no steps.
+The store comes last: it finds the place through the base and indexes
+as they were evaluated, and stores.
 
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
-scope it opens, and the drops and defers that end them. Only then is
-the target evaluated, its indexes from the outside in, and the store
-made through the place as the value left it. A temporary the value
-makes outside its nested scopes (`mk(5).n`) belongs to the assignment's
-statement, as every statement's temporaries do, so it lives until after
-the store: `__v = value;` does not end it.
+scope it opens, and the drops and defers that end them. Only then does
+the target run, from its base outward, and the store is made through
+the place as the value left it. So a call the target starts from runs
+after the value, and cannot change what the value reads:
+`pick(!t, !i)[0] = s[i]` reads `s[i]` before `pick` writes `i`, and
+`take(<x, !t)[0] = x[0]` reads `x[0]` before `take` frees `x`. A
+temporary the value makes outside its nested scopes (`mk(5).n`) belongs
+to the assignment's statement, as every statement's temporaries do, so
+it lives until after the store: `__v = value;` does not end it.
+
+**The fact: `SetOrder`** (`storage.setOrder`, the decision `set_order`,
+read by emit as `Facts.setOrder`). Which steps emit evaluates into
+storage in their turn is decided once per assignment, from the steps
+and three positive lists:
+
+- `held`: the value or an index can act (`storage.setActs`: a call, an
+  assignment, a drop, `return`, `break`, `continue`, `!`, or `?` in it,
+  outside the closures it holds), or the base can and the value is not
+  pure (`isPureArg`). Then the value is made into `__rig_new_N` unless
+  it is pure, and each index into `__rig_ix_N_k` unless it is pure.
+  Otherwise Zig's own order (the base, the indexes, then the value) is
+  one no program can tell from this one, and stands.
+- `base`: the steps are held, an index after the base is, and the base
+  does not stay (`baseStays`: a name, or a lend of a name or of a field
+  path off one, gives the same place whenever it runs). Then the base
+  is evaluated into `__rig_base_N` in its turn: the pointer a write
+  view is, or the slice. A base not held is evaluated where the place
+  is found, after every held step, which is its turn when no index is
+  held.
+- `guard`: the value owns a resource and a step of the target can leave
+  (`setLeaves`: `!`, `?`, `return`, `break`, `continue`). The value,
+  where it is made first (when `held`, or into a place that owns, whose
+  old value is dropped only after the new one is made), is then
+  `var __rig_new_N` with a flag, dropped by a `defer` on the way out
+  unless the store takes it (`rig.take(&__rig_live_N_new,
+  __rig_new_N)`), as a call's hoisted argument is.
+
+Its readers, each taking the steps from `eachSetStep`:
+
+- **The storage plan** records the storage the fact names (`new_value`,
+  `base`, `index`, and `slot`; `Planner.assignment`).
+- **Emit** writes the steps the fact holds, in their turn
+  (`openAssign`, `openSetValue`, `hoistTarget`, `emitPlaceAssign`), and
+  the store through the names they were held in.
+- **The ownership checker** walks the steps in the same order
+  (`walkSet`): the value, then a base that is no place, then the
+  indexes, then the store (`walkFieldAssign`).
+- A pass that removes run-time checks reads it to know which indexes
+  are evaluated before the place is found, and what each step could
+  have changed by then.
+
+A new reader takes the steps from `eachSetStep` and the held storage
+from `setOrder`, and decides neither again.
 
 - **The checker** walks the value, then the target. While the value is
   walked, the target's uses lie ahead, in the statement after `__v`:
@@ -2557,16 +2617,32 @@ the store: `__v = value;` does not end it.
   symbols pinned inside the loop or block it leaves are not live on its
   path (`walkJump`). Liveness positions are not patched: the target's
   uses are recorded where they stand, and a scope that ends after the
-  assignment (one whose last line it is) sees them as behind it.
-- **Emit** makes `__v` whenever the value can act (`actsBeforeStore`: a
-  call, an assignment, a drop, or a jump), as the `new_value` storage
-  fact `__rig_new_N`, then stores through the place: a field or element
-  through `openAssign` or `openNewValue`, a compound through
-  `openAssign`, a reassigned resource through `openNewValue`, and any
-  other name store through `storesAfterValue`. So Zig never takes the
-  place's address before the value runs: `w = match ...` through a
-  `!T` local is `{ const __rig_new_N = switch ...; w.* = __rig_new_N; }`,
-  never `w.* = switch ...`.
+  assignment (one whose last line it is) sees them as behind it. A
+  base's loans stay live while the indexes after it run, as the view
+  it gives is used by the store, so an index cannot change what the
+  base views.
+- **Emit** makes `__v` whenever the value can act or the fact holds it,
+  as the `new_value` storage fact `__rig_new_N`, then stores through
+  the place: a field or element through `openAssign` or
+  `openSetValue`, a compound through `openAssign`, a reassigned
+  resource through `openNewValue`, and any other name store through
+  `storesAfterValue`. So Zig never takes the place's address before the
+  value runs: `w = match ...` through a `!T` local is
+  `{ const __rig_new_N = switch ...; w.* = __rig_new_N; }`, never
+  `w.* = switch ...`, and `pick(!t, !i)[k] = s[i]` with `k` a local is
+  `{ const __rig_new_N = s[i]; const __rig_base_N = pick(t, &i);
+  const __rig_ix_N_k = k; rig.elemPtr(__rig_base_N, __rig_ix_N_k).* =
+  __rig_new_N; }`.
+
+A loop's step (`while c : place op= value`) and a deferred assignment
+are assignments, with the same steps and the same fact. The other forms
+that evaluate more than one part record their order as facts too, which
+the checker walks and emit writes: a call evaluates its receiver, then
+its arguments in the order written (`hoists_args`, `receiver_hold`,
+`argument_hold`; [Emit](#emit), "Evaluation order of arguments"), and a
+`match`, `if … as`, `while … as`, or `for` evaluates its subject once,
+before its arms or body (`match_block`, `subject_hold`,
+`header_points`).
 
 The other forms whose value may hold statements have no place to
 evaluate after it: `return value`, `break value`, and a new binding's
@@ -2746,6 +2822,77 @@ symbols); a query that decides more than that belongs in `Pending`.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
+- **Inlining.** A small `fun` or `sub` is emitted `pub inline fn`.
+  `inlining.decide` decides it once for the whole program, after every
+  module is checked, and emit reads it as `Facts.isInlined`. LLVM leaves a
+  small hot helper a call once its body grows, and pays the prologue and a
+  stack protector at each call. A function is inlined when
+
+  - its body has at most `inlining.max_size` (60) nodes, counting each
+    form of the tree once (a call, an operator, a binding, an `if`),
+    which Trig's JSON helpers (`string`, `plain`, `key`, `close`,
+    `literal`, 27 to 50) fit and larger ones in that parser do not;
+  - it is on no cycle of calls, directly or through others;
+  - every mention of it is the callee of a call, so it is never passed,
+    stored, returned, or captured, and no address of it is taken;
+  - it is not the root's `main`, has no compile-time parameters, is not a
+    member of a generic type, and holds no closure (`extern` functions
+    have no body);
+  - it keeps at most 64 KiB of values on its stack, and no function gets
+    more than that added by the inlined calls in it
+    (`max_inlined_frame_bytes`), since Zig puts an inlined body's locals in
+    its caller's frame and `rig.guardStack` is sized for frames of 16 MiB
+    (`checkFrames`);
+  - with the inlined calls in it, each counted at every call site, it
+    expands to at most `inlining.max_expanded` (320) nodes, so a chain of
+    functions that each call the next twice does not have Zig analyze the
+    innermost 2^n times.
+
+  A function that fails a test of the last two is dropped and the tests
+  run again, until none fails. A call resolves by the callee's name (a
+  function by its symbol, so a local of that name is not it), so two
+  functions of one name stand for each other: the analysis finds at most
+  more cycles and more value uses than there are.
+
+  Both of Zig's ways to inline, `inline fn` and `@call(.always_inline, ...)`,
+  analyze the body at each call, so an argument known at compile time is
+  known inside: `a + 1` called with `255` as a `U8` is a compile error
+  where Rig specifies a panic when it runs, and so is an index past the
+  end of an array, a division by zero, or a conversion that does not fit,
+  in a call that the program may never make. Emit therefore binds every
+  parameter of an inlined function through `rig.rt` at the top of the
+  body, as it does a constant in arithmetic:
+
+  ```zig
+  pub inline fn next(__rig_in_n: i64) i64 {
+      const n = rig.rt(__rig_in_n);
+      return n + 1;
+  }
+  ```
+
+  A value that crosses the boundary the other way is hidden the same way:
+  a call that may reach an inlined function (`Facts.callsInlined`) is
+  written `rig.rt(f(x))`. Zig knows the result of an inlined call that
+  no argument decides (`fun zero() -> Int  0`, one that ignores its
+  parameters, or one that passes on another's) at compile time, and so a
+  `const` bound to it, so `10 / z` would be a compile error in code that
+  never runs. `rig.rt` covers the whole result, an error or an optional
+  with its payload. The call graph holds every call emit makes: the `next`
+  of a `for` over an iterator is a call in the tree by then (the rewrite of
+  [Loops over an iterator](#loops-over-an-iterator)), and the only other
+  user function emit calls on its own, a type's `drop` body, is not inlined.
+
+  The desugaring is that: a function that is called, with a copy of its
+  parameters taken first (`var` where the parameter is a value that moves,
+  which it was already copied into), and its calls read through `rig.rt`.
+  The checker walks the same function, and the optimizer folds `rig.rt`
+  away. The panic is the same one at the same line.
+  `test/behavior/emit/inline_*.rig` run calls with literal arguments in
+  debug and `--release`, `test/cli/inline_grid.sh` runs every shape of
+  result against every use in both, `test/cli/inline.sh` checks which
+  functions are inlined, and `test/behavior/types/value_size_limit.rig`
+  holds the frames to their limit.
+
 - **Evaluation order of arguments.** A call's arguments are evaluated
   in the order they are written and passed in the order the parameters
   are declared: `f(b: e2, a: e1)` is `{ b = e2; a = e1; f(a, b) }`,
@@ -2829,10 +2976,11 @@ symbols); a query that decides more than that belongs in `Pending`.
   the chokepoint checks the storage's `life` against the scope emit
   gives it, so each of these becomes a slot or a fact the checker walks.
 - **Assignments.** Zig finds the address of `place.* = f()` before it
-  calls `f`, so an assignment whose value or indexes can act (a call,
-  an assignment, a drop, a jump) evaluates the value into
-  `__rig_new_N` and each index into `__rig_ix_N_k` first, then stores
-  (`openAssign`, and `storesAfterValue` for a name): the desugaring
+  calls `f`, and evaluates a call the place starts from where it finds
+  the place, so an assignment any step of which can act (a call, an
+  assignment, a drop, a jump) evaluates its steps into storage in
+  their turn, then stores (`SetOrder`, `openAssign`, and
+  `storesAfterValue` for a name): the desugaring
   [Assignments](#assignments) gives, which the ownership checker walks,
   and the order SPEC §4 gives. A lend, a
   slice, or a receiver takes its place's address up to each index

@@ -1,0 +1,10 @@
+# A type parameter given to `push[T, e]` must be an integer in every instance.
+
+sub put[T](t: !String, v: T)
+  !t.push[T, .big](v)
+
+sub main()
+  s = String()
+  put(!s, 1.5)
+
+# error: 8:3: `put[Float]` cannot use `T = Float`: the generic body applies `push` to `T`, which `Float` does not support

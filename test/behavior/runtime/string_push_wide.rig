@@ -1,0 +1,84 @@
+# `!t.reserve(n)` makes room for `n` more bytes without changing the
+# length, and `!t.push[T, e](v)` appends the bytes of the integer `v` in
+# byte order `e`, in one write. A one-byte `T` needs no byte order.
+
+fun intact(v: ?String) -> Bool
+  ok = true
+  for i in 0..300
+    if v.read[U32, .big](1000 + 4 * i) != U32(i) * 1000003
+      ok = false
+  for i in 0..1000
+    if v[i] != U8(i % 256)
+      ok = false
+  ok
+
+sub put[T](t: !String, v: T)
+  !t.push[T, .big](v)
+
+obj Frame
+  body: String
+
+sub main()
+  f = Frame(body: String())
+  !f.body.reserve(8)
+  !f.body.push[U16, .big](0xcafe)
+  put(!f.body, U32(0xdeadbeef))
+  put(!f.body, I8(-1))
+  g: ?String = ?f.body
+  print(g.len, g.read[U16, .big](0), g.read[U32, .big](2), g.read[I8](6))
+
+  s = String()
+  !s.reserve(0)
+  print(s.len)
+  !s.reserve(3)
+  print(s.len)
+  !s.push[U8](65)
+  !s.push[I8](66)
+  !s.push[U8](67)
+  print(s)
+
+  b = String()
+  !b.push[U16, .little](0x0102)
+  !b.push[U16, .big](0x0102)
+  !b.push[U32, .little](0x01020304)
+  !b.push[U32, .big](0x01020304)
+  !b.push[U64, .little](0x0102030405060708)
+  !b.push[U64, .big](0x0102030405060708)
+  !b.push[I16, .big](-2)
+  !b.push[I32, .little](-2)
+  print(b.len)
+  v: ?String = ?b
+  print(v.read[U16, .little](0), v.read[U16, .big](2))
+  print(v.read[U32, .little](4), v.read[U32, .big](8))
+  print(v.read[U64, .little](12), v.read[U64, .big](20))
+  print(v.read[I16, .big](28), v.read[I32, .little](30))
+
+  # Growth boundaries: reserve, then push many, and push many unreserved.
+  r = String()
+  !r.reserve(1000)
+  for i in 0..1000
+    !r.push(U8(i % 256))
+  for i in 0..300
+    !r.push[U32, .big](U32(i) * 1000003)
+  print(r.len)
+  print(intact(?r))
+  !r.reserve(5000)
+  print(r.len)
+  !r.push[U64, .little](7)
+  w: ?String = ?r
+  print(w.read[U64, .little](w.len - 8))
+
+# expect:
+# 7 51966 3735928559 -1
+# 0
+# 0
+# ABC
+# 34
+# 258 258
+# 16909060 16909060
+# 72623859790382856 72623859790382856
+# -2 -2
+# 2200
+# true
+# 2200
+# 7

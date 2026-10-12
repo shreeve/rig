@@ -6724,13 +6724,15 @@ const Checker = struct {
     /// it, and `!t.clear()`, on a String receiver written `!t`, recorded
     /// on the callee. Null when the receiver is no String or the method
     /// none of these.
-    fn stringCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+    fn stringCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         // A box lends the String it holds.
         var held = sema.unwrapViews(self.ctx, obj_ty);
         while (sema.boxedType(self.ctx, held)) |inner| held = sema.unwrapViews(self.ctx, inner);
         if (held != self.t().string_id) return null;
         const op = std.meta.stringToEnum(sema.StringCall, method) orelse return null;
-        if (op == .new) return null;
+        if (op == .new or op == .push_int) return null;
+        // Only `push` takes compile-time arguments: `push[T, e](v)`.
+        if (ct != null and op != .push) return try self.badCall(args, ct.?, "`{s}` takes no compile-time arguments", .{method});
         const recv = try self.ctx.intern(.{ .write_view = self.t().string_id });
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{recv}), .returns = self.t().void_id, .is_sub = true });
         if (!try self.checkReceiverSigil(obj, .write, self.t().void_id, method)) {
@@ -6749,20 +6751,88 @@ const Checker = struct {
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
             // One byte, as a List's `push` takes one element.
-            .push => if (args.len == 1 and args[0].isKind(.kwarg)) {
+            .push_int => unreachable,
+            // `push[T, e](v)`: the bytes of an integer.
+            .push => if (ct) |b| {
+                const wide = try self.pushWide(callee, b, pos, args);
+                if (wide) return try self.finishStringCall(callee, .push_int);
+            } else if (args.len == 1 and args[0].isKind(.kwarg)) {
                 try self.errAt(args[0], "`push` takes its byte by position, not by name: `!t.push({s})`", .{self.sourceText(ir.Kwarg.value(args[0]))});
                 try self.synthArgs(args);
             } else if (args.len != 1) {
                 try self.err(pos, "`push` takes one byte, a `U8`; got {d} arguments", .{args.len});
                 try self.synthArgs(args);
             } else try self.checkExpr(args[0], try self.byteType()),
+            // Room for `n` more bytes.
+            .reserve => if (args.len == 1 and args[0].isKind(.kwarg)) {
+                try self.errAt(args[0], "`reserve` takes its count by position, not by name: `!t.reserve({s})`", .{self.sourceText(ir.Kwarg.value(args[0]))});
+                try self.synthArgs(args);
+            } else if (args.len != 1) {
+                try self.err(pos, "`reserve` takes one argument, the number of bytes to make room for; got {d} arguments", .{args.len});
+                try self.synthArgs(args);
+            } else try self.checkExpr(args[0], self.t().int_id),
             else => if (args.len > 0) {
                 try self.err(pos, "`clear` takes no arguments; got {d}", .{args.len});
                 try self.synthArgs(args);
             },
         }
+        return try self.finishStringCall(callee, op);
+    }
+
+    fn finishStringCall(self: *Checker, callee: Sexp, op: sema.StringCall) Error!TypeId {
         try self.ctx.recordStringCall(callee, op);
         return self.t().void_id;
+    }
+
+    /// `!t.push[T, e](v)`: the integer `v`, a `T`, appended as `@size(T)`
+    /// bytes in byte order `e`, a compile-time `Endian`; a one-byte `T`
+    /// takes no byte order. True when it checked, with the call's `T`
+    /// recorded; after a diagnostic, false.
+    fn pushWide(self: *Checker, callee: Sexp, b: Sexp, pos: u32, args: []const Sexp) Error!bool {
+        const example = "push[U32, .little](value)";
+        try self.ctx.recordInstance(b, .function);
+        const given = sema.bracketArgs(b);
+        if (given.len < 1 or given.len > 2) {
+            _ = try self.badCall(args, b, "`push` takes the integer type and, for more than one byte, the byte order in brackets: `{s}`", .{example});
+            return false;
+        }
+        const num = try self.typeArg(given[0]);
+        if (self.isPoison(num)) {
+            _ = try self.skipCall(args);
+            return false;
+        }
+        var one_byte = false;
+        switch (self.ctx.types.get(num)) {
+            .int => |info| one_byte = intBounds(info).bits == 8,
+            // A type parameter: each instance must be an integer.
+            .type_var => |param| try self.require(param, .integer, self.startOf(given[0]), "push"),
+            else => {
+                _ = try self.badCall(args, given[0], "`push` appends an integer type; got `{s}`", .{try self.tyName(num)});
+                return false;
+            },
+        }
+        if (given.len == 2) {
+            if (one_byte) {
+                _ = try self.badCall(args, given[1], "`push` of a one-byte `{s}` takes no byte order: `push[{s}](byte)`", .{ try self.tyName(num), try self.tyName(num) });
+                return false;
+            }
+            const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
+            try self.checkCtValue(given[1], endian, 1, "push");
+        } else if (!one_byte) {
+            _ = try self.badCall(args, b, "`push` of a `{s}` takes a byte order too: `{s}`", .{ try self.tyName(num), example });
+            return false;
+        }
+        for (args) |a| if (a.isKind(.kwarg)) {
+            _ = try self.badCall(args, a, "`push` takes no keyword arguments", .{});
+            return false;
+        };
+        if (args.len != 1) {
+            _ = try self.badCall(args, pos, "`push` takes one argument, the integer to append; got {d} arguments", .{args.len});
+            return false;
+        }
+        try self.checkExpr(args[0], num);
+        try self.ctx.recordStringNum(callee, num);
+        return true;
     }
 
     /// The methods of an integer's bits, all on its bit pattern, so a
@@ -8612,7 +8682,7 @@ const Checker = struct {
         }
 
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, if (std.meta.stringToEnum(sema.ElemOp, method) == .read) .read else .write, ty);
-        if (ct == null) if (try self.stringCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .write, ty);
+        if (try self.stringCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .write, ty);
         if (ct == null) if (try self.bitCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
         if (ct == null) if (try self.simdCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
@@ -8878,22 +8948,29 @@ const Checker = struct {
         const b = ct orelse return self.badCall(args, pos, "`{s}` takes the type and the byte order in brackets: `{s}`", .{ method, example });
         try self.ctx.recordInstance(b, .function);
         const given = sema.bracketArgs(b);
-        if (given.len < 1 or given.len > 2) return self.badCall(args, b, "`{s}` takes two compile-time arguments, the type and the byte order: `{s}`", .{ method, example });
+        if (given.len < 1 or given.len > 2) return self.badCall(args, b, "`{s}` takes the type and the byte order, in brackets: `{s}`", .{ method, example });
         const num = try self.typeArg(given[0]);
         if (self.isPoison(num)) return self.skipCall(args);
         // A vector of numbers is read lane by lane, each lane in the byte
-        // order; one-byte lanes have none, so it may be left out.
+        // order; a value of one byte, or a vector of one-byte lanes, has
+        // none.
         const lanes = if (sema.simdOf(self.ctx, num)) |v| v.elem else null;
+        var one_byte = false;
         switch (self.ctx.types.get(lanes orelse num)) {
-            .int, .float => {},
+            .int => |info| one_byte = intBounds(info).bits == 8,
+            .float => {},
             // A type parameter: each instance must be a number.
             .type_var => |param| try self.require(param, .bytes, self.startOf(given[0]), method),
             else => return self.badCall(args, given[0], "`{s}` {s} an integer or float type, or a `Simd` of them; got `{s}`", .{ method, if (op == .read) "reads" else "writes", try self.tyName(num) }),
         }
-        const one_byte = if (lanes) |l| (try sema.minBytes(self.ctx, l)) == 1 else false;
-        if (given.len == 1 and !one_byte) return self.badCall(args, b, "`{s}` takes two compile-time arguments, the type and the byte order: `{s}`; only a vector of one-byte lanes may leave the byte order out", .{ method, example });
-        const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
-        if (given.len == 2) try self.checkCtValue(given[1], endian, 1, method);
+        if (one_byte) {
+            if (given.len == 2) return self.badCall(args, given[1], "`{s}` of {s}`{s}`{s} takes no byte order: `{s}[{s}]{s}`", .{ method, if (lanes == null) "a one-byte " else "", try self.tyName(num), if (lanes == null) "" else ", whose lanes are one byte,", method, try self.tyName(num), if (op == .read) "(at)" else "(at, value)" });
+        } else if (given.len != 2) {
+            return self.badCall(args, b, "`{s}` of a `{s}` takes a byte order too: `{s}`", .{ method, try self.tyName(num), example });
+        } else {
+            const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
+            try self.checkCtValue(given[1], endian, 1, method);
+        }
         for (args) |a| if (a.isKind(.kwarg)) return self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         const want: usize = if (op == .read) 1 else 2;
         if (args.len != want) return self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, if (op == .read) "one argument, the offset of the first byte" else "two arguments, the offset of the first byte and the value", args.len, if (args.len == 1) "" else "s" });
@@ -12684,6 +12761,18 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
     var w: FrameWalker = .{ .ctx = ctx };
     try w.walk(tree, null, false);
+}
+
+/// The bytes of values the `fun` or `sub` `node` keeps on its stack, as
+/// `checkFrames` counts them, for a function with no closure; null when
+/// that depends on generic parameters or follows an error.
+pub fn frameBytesOfFunction(ctx: *SemContext, node: Sexp) Error!?u128 {
+    var w: FrameWalker = .{ .ctx = ctx };
+    var slots: FrameWalker.Slots = .empty;
+    defer slots.deinit(ctx.allocator);
+    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false);
+    for (slots.items) |ty| if (sema.containsTypeVar(ctx, ty)) return null;
+    return frameBytes(ctx, slots.items);
 }
 
 const FrameWalker = struct {

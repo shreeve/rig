@@ -22,6 +22,14 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 - **A value-yielding `try` block** with a matching `catch` block.
 - **Drop bodies for enums and generic types.**
 
+- **Multiple results** from a function.
+
+## Speed
+
+- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, then byte lookup, a joined shift, a saturating subtract, `pad:` reads, and `blocks(N)`.
+- **Checker-proved check elimination**: bounds and overflow checks the checker proves redundant, redesigned around units.
+- **A frame-size guard** for every function.
+
 ## Concurrency
 
 - **Structured concurrency**: scope-bound tasks with cancellation and no orphans.
@@ -43,6 +51,8 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 - **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`obj File owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
   Settled so far: containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
 - **String building in std.text**: functions that build new text into a `String`, such as an upper-case copy, a replacement, and a join.
+- **`std.json`**: a JSON parser, moving in from the Trig project.
+- **A String API** for part-word appends and windowed writes.
 - **A reactive library** in userland, grown from `examples/memo_canary.rig`.
 
 ## Tooling
@@ -60,6 +70,7 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 - **Traces in Rig terms**: a panic, or an error that leaves `main`, prints Zig's stack trace, whose lines are in the emitted Zig (in the package directory `rig run` names); mapping them to `.rig` lines would need a source map.
 - **An explicit emitter context**: the emitter keeps per-function state in `Emitter.fun`, swapped out around a closure's body; passing it explicitly would make what each helper reads visible.
 - **Tighter generated code**: Debug builds pay for round trips such as `rig.lend(&rig.elemPtr(xs, j).*)` and `rig.eql((&p).*, (&q).*)`, and a generic `for x in xs` copies each element it only lends. Release builds optimize these away.
+- **Nexus's `Span.text`** in place of slicing the source by position.
 - **Runtime tests outside the runtime**: `src/runtime.zig` carries its unit tests into every emitted package; they could move to their own file.
 
 ## Open questions

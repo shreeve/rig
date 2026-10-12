@@ -1,0 +1,21 @@
+# A one-byte integer has no byte order: `push`, `read`, and `write`
+# take none for a `U8` or an `I8`, and need one for a wider integer.
+
+sub main()
+  s = String()
+  !s.push[U8, .big](1)
+  !s.push[I8, .little](1)
+  b: [8]U8 = [8 of 0]
+  print(b.read[U8, .big](0))
+  print(b.read[I8, .little](0))
+  !b.write[U8, .big](0, 1)
+  print(b.read[U16](0))
+  !b.write[U16](0, 1)
+
+# error: 6:15: `push` of a one-byte `U8` takes no byte order: `push[U8](byte)`
+# error: 7:15: `push` of a one-byte `I8` takes no byte order: `push[I8](byte)`
+# error: 9:20: `read` of a one-byte `U8` takes no byte order: `read[U8](at)`
+# error: 10:20: `read` of a one-byte `I8` takes no byte order: `read[I8](at)`
+# error: 11:16: `write` of a one-byte `U8` takes no byte order: `write[U8](at, value)`
+# error: 12:9: `read` of a `U16` takes a byte order too: `read[U32, .little](at)`
+# error: 13:4: `write` of a `U16` takes a byte order too: `write[U32, .little](at, value)`

@@ -2,7 +2,7 @@ obj View
   s: ![]U8
 
 sub f(v: ?View)
-  v.s.write[U8, .big](0, 1)
+  v.s.write[U8](0, 1)
 
 sub g(v: ?View)
   v.s.swap(0, 1)

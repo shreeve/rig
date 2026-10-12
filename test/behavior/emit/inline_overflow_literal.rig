@@ -1,0 +1,16 @@
+# A small function that Zig inlines keeps its run-time checks when a call
+# passes a literal: the sum overflows when the program runs, not when Zig
+# compiles it.
+
+fun next(n: Int) -> Int
+  n + 1
+
+sub main()
+  print(next(41))
+  print(next(9223372036854775807))
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 42
