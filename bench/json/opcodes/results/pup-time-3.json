@@ -1,0 +1,218 @@
+{
+ "twitter base": {
+  "ns": 281046.0180555555,
+  "cycles": 1351296.6230876218,
+  "ins": 6918064.262865091,
+  "bytes": 631514
+ },
+ "twitter utf8_kl+esc_copy16+esc_hex16b": {
+  "ns": 259348.44014962594,
+  "cycles": 1248530.7827715357,
+  "ins": 6445906.50062422,
+  "bytes": 631514
+ },
+ "twitter src:wsbits3+wsb_tbl+vread": {
+  "ns": 257379.2034739454,
+  "cycles": 1232434.0559006212,
+  "ins": 6264367.735403727,
+  "bytes": 631514
+ },
+ "twitter ws_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 252928.82935560858,
+  "cycles": 1219871.1863799284,
+  "ins": 5508148.267622462,
+  "bytes": 631514
+ },
+ "twitter src:wsbits3+wsb_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 232252.19097222222,
+  "cycles": 1112220.5249130938,
+  "ins": 5677875.450753187,
+  "bytes": 631514
+ },
+ "twitter ext:sonic": {
+  "ns": 226727.05220228384,
+  "cycles": 1084709.5130718953,
+  "ins": 4979417.3839869285,
+  "bytes": 631514
+ },
+ "twitterescaped base": {
+  "ns": 263422.14155844157,
+  "cycles": 1262331.7113133941,
+  "ins": 6878741.261378413,
+  "bytes": 562408
+ },
+ "twitterescaped utf8_kl+esc_copy16+esc_hex16b": {
+  "ns": 249286.53631961258,
+  "cycles": 1192928.5333333334,
+  "ins": 6285235.00969697,
+  "bytes": 562408
+ },
+ "twitterescaped src:wsbits3+wsb_tbl+vread": {
+  "ns": 286279.8347457627,
+  "cycles": 1371108.7340876944,
+  "ins": 7358098.345120226,
+  "bytes": 562408
+ },
+ "twitterescaped ws_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 233156.7052631579,
+  "cycles": 1115998.3079625294,
+  "ins": 5836439.81030445,
+  "bytes": 562408
+ },
+ "twitterescaped src:wsbits3+wsb_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 259331.09314359637,
+  "cycles": 1241728.2642487048,
+  "ins": 6606458.492227979,
+  "bytes": 562408
+ },
+ "twitterescaped ext:sonic": {
+  "ns": 251941.3201320132,
+  "cycles": 1204236.4280991736,
+  "ins": 5904332.636363637,
+  "bytes": 562408
+ },
+ "canada base": {
+  "ns": 1752472.8064516129,
+  "cycles": 8404924.138211383,
+  "ins": 43548390.951219514,
+  "bytes": 2251051
+ },
+ "canada utf8_kl+esc_copy16+esc_hex16b": {
+  "ns": 1736154.3984375,
+  "cycles": 8317789.669291339,
+  "ins": 44544428.69291338,
+  "bytes": 2251051
+ },
+ "canada src:wsbits3+wsb_tbl+vread": {
+  "ns": 1677285.1515151516,
+  "cycles": 8059426.022900763,
+  "ins": 38930551.70992366,
+  "bytes": 2251051
+ },
+ "canada ws_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 1688260.7286821706,
+  "cycles": 8098039.25,
+  "ins": 40161030.09375,
+  "bytes": 2251051
+ },
+ "canada src:wsbits3+wsb_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 1679101.0153846154,
+  "cycles": 8074491.162790698,
+  "ins": 38987622.31007752,
+  "bytes": 2251051
+ },
+ "canada ext:sonic": {
+  "ns": 1574733.8207547169,
+  "cycles": 7485217.780952381,
+  "ins": 36190109.961904764,
+  "bytes": 2251051
+ },
+ "citm_catalog base": {
+  "ns": 682953.6294117647,
+  "cycles": 3284004.5221238937,
+  "ins": 17561101.867256638,
+  "bytes": 1727204
+ },
+ "citm_catalog utf8_kl+esc_copy16+esc_hex16b": {
+  "ns": 690576.1386430678,
+  "cycles": 3321318.2396449703,
+  "ins": 17654056.4408284,
+  "bytes": 1727204
+ },
+ "citm_catalog src:wsbits3+wsb_tbl+vread": {
+  "ns": 505971.0668202765,
+  "cycles": 2423137.2817551964,
+  "ins": 12779767.290993072,
+  "bytes": 1727204
+ },
+ "citm_catalog ws_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 570304.6545454545,
+  "cycles": 2730687.5494791665,
+  "ins": 13168666.4609375,
+  "bytes": 1727204
+ },
+ "citm_catalog src:wsbits3+wsb_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 502289.80637813214,
+  "cycles": 2406271.401826484,
+  "ins": 12782430.200913241,
+  "bytes": 1727204
+ },
+ "citm_catalog ext:sonic": {
+  "ns": 482659.1849056604,
+  "cycles": 2304648.1893939395,
+  "ins": 10851863.715909092,
+  "bytes": 1727204
+ },
+ "gsoc-2018 base": {
+  "ns": 725208.5620155039,
+  "cycles": 3464454.392996109,
+  "ins": 15204371.245136186,
+  "bytes": 3327831
+ },
+ "gsoc-2018 utf8_kl+esc_copy16+esc_hex16b": {
+  "ns": 677756.5760869565,
+  "cycles": 3236457.5054545454,
+  "ins": 14721181.930909092,
+  "bytes": 3327831
+ },
+ "gsoc-2018 src:wsbits3+wsb_tbl+vread": {
+  "ns": 700978.3431734317,
+  "cycles": 3352501.8814814813,
+  "ins": 14192374.892592592,
+  "bytes": 3327831
+ },
+ "gsoc-2018 ws_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 680872.4871794871,
+  "cycles": 3254834.724264706,
+  "ins": 13266112.176470589,
+  "bytes": 3327831
+ },
+ "gsoc-2018 src:wsbits3+wsb_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 659365.7816901408,
+  "cycles": 3153575.954063604,
+  "ins": 13637068.424028268,
+  "bytes": 3327831
+ },
+ "gsoc-2018 ext:sonic": {
+  "ns": 641874.0211640212,
+  "cycles": 3045300.2712765955,
+  "ins": 8353163.606382979,
+  "bytes": 3327831
+ },
+ "github_events base": {
+  "ns": 23862.38354186718,
+  "cycles": 114498.33547248515,
+  "ins": 614001.7287020696,
+  "bytes": 65132
+ },
+ "github_events utf8_kl+esc_copy16+esc_hex16b": {
+  "ns": 23851.796974894743,
+  "cycles": 114682.81378665003,
+  "ins": 609888.4797255147,
+  "bytes": 65132
+ },
+ "github_events src:wsbits3+wsb_tbl+vread": {
+  "ns": 21007.80083607047,
+  "cycles": 100572.05569658056,
+  "ins": 527609.3374645363,
+  "bytes": 65132
+ },
+ "github_events ws_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 22934.843007915566,
+  "cycles": 110049.84547720276,
+  "ins": 500450.837560475,
+  "bytes": 65132
+ },
+ "github_events src:wsbits3+wsb_tbl+utf8_kl+esc_copy16+esc_hex16b+vread": {
+  "ns": 20828.288839941262,
+  "cycles": 99674.01674254664,
+  "ins": 520605.151123513,
+  "bytes": 65132
+ },
+ "github_events ext:sonic": {
+  "ns": 16851.085109447005,
+  "cycles": 80979.08080080657,
+  "ins": 349656.9338902492,
+  "bytes": 65132
+ }
+}
