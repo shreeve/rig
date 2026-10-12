@@ -34,12 +34,14 @@ def run(exe, n):
         cyc = int(re.search(r"(\d+)\s+cycles elapsed", p.stderr).group(1))
         ins = int(re.search(r"(\d+)\s+instructions retired", p.stderr).group(1))
     else:
-        vals = {}
+        # A hybrid CPU reports each event per core type (cpu_core/cycles/,
+        # cpu_atom/cycles/); the ones that did not count are skipped.
+        cyc = ins = 0
         for line in p.stderr.splitlines():
             f = line.split(",")
             if len(f) > 2 and f[0].strip().isdigit():
-                vals[f[2].split(":")[0]] = int(f[0])
-        cyc, ins = vals.get("cycles", 0), vals.get("instructions", 0)
+                if "cycles" in f[2]: cyc += int(f[0])
+                elif "instructions" in f[2]: ins += int(f[0])
     return int(ns), cyc, ins, int(check)
 
 
