@@ -1,0 +1,14 @@
+# `first` is a mask's, takes no arguments, and gives an optional index:
+# it is not an `Int`.
+
+sub main()
+  v = Simd[U8, 4].splat(1)
+  m = v == 1
+  print(v.first(), m.first(2))
+  k: Int = m.first()
+  print(k)
+
+# error: 7:11: `first` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`
+# error: 7:22: `first` takes no arguments; got 1 argument
+# error: 8:12: type mismatch: expected `Int`, got `Int?`
+# errors: 3

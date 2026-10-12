@@ -1554,14 +1554,73 @@ pub fn maskBits(m: anytype) u64 {
     return maskBitsCast(n, m);
 }
 
+/// `m.first()`: the index of the first true lane of mask `m`, or null.
+/// One vector-to-register crossing decides it on NEON for 16 lanes or
+/// more (`nibbleMask`; a wider mask tests the OR of its pieces with `umaxv`, and locates the
+/// piece only when a lane is true); elsewhere `bits()` is already one
+/// bitmask, whose lowest set bit is the lane.
+pub fn maskFirst(m: anytype) ?i64 {
+    const n = @typeInfo(@TypeOf(m)).vector.len;
+    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+        const bytes = maskBytes(n, m);
+        if (comptime n == 16) {
+            const mask = nibbleMask(bytes);
+            if (mask == 0) return null;
+            return @as(i64, @ctz(mask) >> 2);
+        }
+        const pieces: [n / 16]@Vector(16, u8) = @bitCast(bytes);
+        if (@"llvm.aarch64.neon.umaxv.i32.v16i8"(foldBytes(n, bytes, false)) == 0) return null;
+        inline for (pieces, 0..) |piece, k| {
+            const mask = nibbleMask(piece);
+            if (mask != 0) return @as(i64, k * 16) + @as(i64, @ctz(mask) >> 2);
+        }
+        unreachable;
+    }
+    const bits = maskBits(m);
+    if (bits == 0) return null;
+    return @ctz(bits);
+}
+
+/// A 16-byte mask (0xFF or 0 per byte) as 4 bits per byte in a `u64`,
+/// lane `i` at bits `4i..4i+3`: a narrowing shift right by 4 (`shrn`)
+/// and one `fmov`.
+fn nibbleMask(bytes: @Vector(16, u8)) u64 {
+    const wide: @Vector(8, u16) = @bitCast(bytes);
+    const narrow: @Vector(8, u8) = @truncate(wide >> @as(@Vector(8, u4), @splat(4)));
+    return @bitCast(narrow);
+}
+
+/// The OR (or AND) of the 16-byte pieces of `w`, a power of two bytes of 16
+/// or more, by halving shuffles: an
+/// OR over the pieces as an array makes LLVM move them through general
+/// registers.
+fn foldBytes(comptime n: usize, w: @Vector(n, u8), comptime and_: bool) @Vector(16, u8) {
+    comptime std.debug.assert(n >= 16 and std.math.isPowerOfTwo(n));
+    if (n == 16) return w;
+    const h = n / 2;
+    const lo = @shuffle(u8, w, undefined, iota(h, 0));
+    const hi = @shuffle(u8, w, undefined, iota(h, h));
+    return foldBytes(h, if (and_) lo & hi else lo | hi, and_);
+}
+
+/// The indices `from`, `from + 1`, ... of a shuffle mask.
+fn iota(comptime n: usize, comptime from: i32) @Vector(n, i32) {
+    var a: [n]i32 = undefined;
+    for (&a, 0..) |*x, j| x.* = from + @as(i32, @intCast(j));
+    return a;
+}
+
 /// `m.any()`: whether any lane of mask `m` is true.
 pub fn maskAny(m: anytype) bool {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     // WASM SIMD reduces a mask of more than 16 lanes lane by lane.
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) != 0;
-    // On NEON, the lanes as bytes reduce to a `umaxv`, which shares the
-    // bytes `maskBits` weighs when `bits()` follows.
-    if (comptime n >= 16 and neonIntrinsics()) return @reduce(.Max, maskBytes(n, m)) != 0;
+    // On NEON, the pieces OR into one, whose largest byte (`umaxv`) is
+    // the answer; spelled as a reduction, LLVM turns it back into a
+    // bitmask in a loop.
+    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+        return @"llvm.aarch64.neon.umaxv.i32.v16i8"(foldBytes(n, maskBytes(n, m), false)) != 0;
+    }
     return @reduce(.Or, m);
 }
 
@@ -1569,9 +1628,16 @@ pub fn maskAny(m: anytype) bool {
 pub fn maskAll(m: anytype) bool {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) == std.math.maxInt(@Int(.unsigned, n));
-    if (comptime n >= 16 and neonIntrinsics()) return @reduce(.Min, maskBytes(n, m)) != 0;
+    if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
+        return @"llvm.aarch64.neon.uminv.i32.v16i8"(foldBytes(n, maskBytes(n, m), true)) != 0;
+    }
     return @reduce(.And, m);
 }
+
+/// NEON's across-lanes maximum and minimum of 16 bytes; named only where
+/// `neonIntrinsics` holds.
+extern fn @"llvm.aarch64.neon.umaxv.i32.v16i8"(@Vector(16, u8)) i32;
+extern fn @"llvm.aarch64.neon.uminv.i32.v16i8"(@Vector(16, u8)) i32;
 
 /// A mask's lanes as bytes, 0xFF for true and 0 for false.
 fn maskBytes(comptime n: usize, m: @Vector(n, bool)) @Vector(n, u8) {
@@ -2476,7 +2542,27 @@ test "maskBits: every form agrees" {
             if (n >= 16) try testing.expectEqual(want, maskBitsPieces(n, m));
             if (comptime (n == 32 or n == 64) and neonIntrinsics()) try testing.expectEqual(want, maskBitsNeon(n, m));
             try testing.expectEqual(want != 0, maskAny(m));
+            try testing.expectEqual(if (want == 0) null else @as(?i64, @ctz(want)), maskFirst(m));
             try testing.expectEqual(want == std.math.maxInt(@Int(.unsigned, n)), maskAll(m));
+        }
+    }
+}
+
+test "maskFirst: every lane, every run, every lane count" {
+    inline for (.{ 2, 4, 8, 16, 32, 48, 64 }) |n| {
+        try testing.expectEqual(@as(?i64, null), maskFirst(@as(@Vector(n, bool), @splat(false))));
+        for (0..n) |i| {
+            var lanes: [n]bool = @splat(false);
+            lanes[i] = true;
+            try testing.expectEqual(@as(?i64, @intCast(i)), maskFirst(@as(@Vector(n, bool), lanes)));
+            var run: [n]bool = @splat(false);
+            for (i..n) |j| run[j] = true;
+            try testing.expectEqual(@as(?i64, @intCast(i)), maskFirst(@as(@Vector(n, bool), run)));
+            try testing.expectEqual(i == 0, maskAll(@as(@Vector(n, bool), run)));
+            try testing.expect(maskAny(@as(@Vector(n, bool), lanes)));
+            var hole: [n]bool = @splat(true);
+            hole[i] = false;
+            try testing.expect(!maskAll(@as(@Vector(n, bool), hole)));
         }
     }
 }
