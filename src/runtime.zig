@@ -1104,6 +1104,44 @@ pub const String = struct {
         l.items.len = used +% n;
     }
 
+    /// `!t.push(v, keep: k)` of a vector of bytes, and
+    /// `!t.push[T, e](w, keep: k)` of an integer: append the first `k`
+    /// bytes of `v`, in byte order `endian` for an integer. Room is made
+    /// for all of `v`, which one unaligned store writes after the
+    /// length; the length then grows by `k`, so the bytes past it are
+    /// spare capacity that no String operation reads. Panics unless
+    /// `0 <= k <= @sizeOf(T)`.
+    pub fn pushKeep(self: *String, comptime T: type, value: T, count: Int, comptime endian: Endian) void {
+        const is_vector = @typeInfo(T) == .vector;
+        const n = if (is_vector) @typeInfo(T).vector.len else @sizeOf(T);
+        const k = std.math.cast(usize, count) orelse keepPanic(count, n);
+        if (k > n) keepPanic(count, n);
+        const l = &self.list;
+        const used = l.items.len;
+        if (l.capacity -% used < n) self.grow(n);
+        invariant(l.capacity -% used >= n);
+        // One store of all `n` bytes at `used`, through an unaligned
+        // pointer; `used + n <= capacity` puts them inside the allocation.
+        const dst = l.items.ptr + used;
+        if (comptime is_vector) {
+            if (comptime wideVector(T, n)) {
+                const p: *align(1) T = @ptrCast(dst);
+                p.* = value;
+            } else if (comptime smallVector(n)) {
+                const p: *align(1) @Int(.unsigned, n * 8) = @ptrCast(dst);
+                p.* = @bitCast(value);
+            } else dst[0..n].* = @bitCast(value);
+        } else {
+            const p: *align(1) T = @ptrCast(dst);
+            p.* = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(value) else value;
+        }
+        l.items.len = used +% k;
+    }
+
+    noinline fn keepPanic(count: Int, n: usize) noreturn {
+        std.debug.panic("`keep: {d}` is outside 0..{d}, the bytes pushed", .{ count, n });
+    }
+
     /// Append `bytes_`, which does not alias this String's buffer.
     fn appendBytes(self: *String, bytes_: []const u8) void {
         const l = &self.list;
