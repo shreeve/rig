@@ -57,8 +57,8 @@ It is safe Rig, with no `raw`: every read is bounds-checked in
 - SWAR for runs of spaces and for digits;
 - non-ASCII text checked a run at a time, not one character per scan.
 
-It runs at 0.9-3.7 GB/s, 1.5-7x Zig std.json's scanner building the
-same tape (RESULTS.md).
+It runs at 1.9-7.0 GB/s on the six standard files, 3.1-11x Zig's
+std.json building the same tape (RESULTS.md, "std.json on Rig main").
 
 ## SWAR as a first-class option
 

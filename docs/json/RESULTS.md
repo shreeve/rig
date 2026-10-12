@@ -725,5 +725,5 @@ Against sonic-rs, std.json is:
 - **The second tier pays where strings are long:** gsoc-2018 is 11%
   faster than SWAR only, github_events 1% faster. It costs 2% on
   twitter and twitterescaped, and 1% on canada and citm_catalog.
-- **Against the others:** 2.0-11x Zig's std.json (safe), 2.9-5.5x
+- **Against the others:** 3.1-11x Zig's std.json (safe), 2.9-5.5x
   serde_json, and ahead of simd-json's tape on four of the six files.

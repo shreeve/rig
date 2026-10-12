@@ -529,8 +529,8 @@ fast today, not as a settled API.
 
 A JSON parser (RFC 8259) in safe Rig, written for speed: it validates
 the whole document in one pass and builds a tape, a flat list with one
-entry for each value in document order. On Apple silicon it ran at about 1 to 6 GB/s
-([docs/json/](json/RESULTS.md)), several times Zig's `std.json`, with
+entry for each value in document order. On Apple silicon it runs at 1.9 to 7.0 GB/s on the standard
+benchmark files ([docs/json/](json/RESULTS.md)), 3 to 11 times Zig's `std.json`, with
 every bounds and overflow check kept in `--release`. Nothing is lazy:
 `parse` decodes every escape, checks all UTF-8, and converts every number
 before it returns.
