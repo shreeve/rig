@@ -3,7 +3,7 @@ block at a time (`String` write window: store a whole block into reserved
 room, keep its first k bytes), instead of a scan (`plain`) and then a
 `String.add` of the run. A run that meets a byte of 0x80 or more, or the
 input's last block, goes the old way from there."""
-import os, sys
+import os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import add_helpers, fn_text, replace_fn
 
@@ -69,7 +69,9 @@ def make(copy):
     def patch(s):
         s = add_helpers(s)
         body = fn_text(s, "escaped")
-        assert body.count(OLD) == 1 and "__rig_body_29" in body
-        s = replace_fn(s, "escaped", body.replace(OLD, NEW))
+        # The loop body's label, whose number depends on the source.
+        label = re.search(r"(__rig_body_\d+): \{", body).group(1)
+        assert body.count(OLD) == 1
+        s = replace_fn(s, "escaped", body.replace(OLD, NEW.replace("__rig_body_29", label)))
         return s + copy
     return patch
