@@ -6848,7 +6848,7 @@ const Checker = struct {
         while (sema.boxedType(self.ctx, held)) |inner| held = sema.unwrapViews(self.ctx, inner);
         if (held != self.t().string_id) return null;
         const op = std.meta.stringToEnum(sema.StringCall, method) orelse return null;
-        if (op == .new or op == .push_int) return null;
+        if (op == .new or op == .push_int or op == .push_keep) return null;
         // Only `push` takes compile-time arguments: `push[T, e](v)`.
         if (ct != null and op != .push) return try self.badCall(args, ct.?, "`{s}` takes no compile-time arguments", .{method});
         const recv = try self.ctx.intern(.{ .write_view = self.t().string_id });
@@ -6869,11 +6869,14 @@ const Checker = struct {
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
             // One byte, as a List's `push` takes one element.
-            .push_int => unreachable,
-            // `push[T, e](v)`: the bytes of an integer.
+            .push_int, .push_keep => unreachable,
+            // `push[T, e](v)`: the bytes of an integer; `push(v, keep:
+            // k)` the first `k` bytes of a vector.
             .push => if (ct) |b| {
                 const wide = try self.pushWide(callee, b, pos, args);
-                if (wide) return try self.finishStringCall(callee, .push_int);
+                if (wide) return try self.finishStringCall(callee, if (self.pushKeepOf(args) != null) .push_keep else .push_int);
+            } else if (self.pushKeepOf(args) != null) {
+                if (try self.pushVector(callee, pos, args)) return try self.finishStringCall(callee, .push_keep);
             } else if (args.len == 1 and args[0].isKind(.kwarg)) {
                 try self.errAt(args[0], "`push` takes its byte by position, not by name: `!t.push({s})`", .{self.sourceText(ir.Kwarg.value(args[0]))});
                 try self.synthArgs(args);
@@ -6940,16 +6943,79 @@ const Checker = struct {
             _ = try self.badCall(args, b, "`push` of a `{s}` takes a byte order too: `{s}`", .{ try self.tyName(num), example });
             return false;
         }
-        for (args) |a| if (a.isKind(.kwarg)) {
-            _ = try self.badCall(args, a, "`push` takes no keyword arguments", .{});
+        const keep = self.pushKeepOf(args);
+        for (args, 0..) |a, i| if (a.isKind(.kwarg) and !(keep != null and i == args.len - 1)) {
+            _ = try self.badCall(args, a, "`push` takes no keyword argument but `keep:`, last: `push[U64, .little](word, keep: k)`", .{});
             return false;
         };
-        if (args.len != 1) {
-            _ = try self.badCall(args, pos, "`push` takes one argument, the integer to append; got {d} arguments", .{args.len});
+        const given_args = args.len - @intFromBool(keep != null);
+        if (given_args != 1) {
+            _ = try self.badCall(args, pos, "`push` takes one argument, the integer to append; got {d} arguments", .{given_args});
             return false;
         }
         try self.checkExpr(args[0], num);
+        if (keep) |k| try self.checkKeep(ir.Kwarg.value(k), switch (self.ctx.types.get(num)) {
+            .int => |info| intBounds(info).bits / 8,
+            else => null,
+        });
         try self.ctx.recordStringNum(callee, num);
+        return true;
+    }
+
+    /// The `keep: k` argument of a `push`: the last argument, a keyword
+    /// argument named `keep`; else null.
+    fn pushKeepOf(self: *Checker, args: []const Sexp) ?Sexp {
+        if (args.len == 0) return null;
+        const last = args[args.len - 1];
+        if (!last.isKind(.kwarg)) return null;
+        const name = ir.Kwarg.name(last);
+        if (!std.mem.eql(u8, self.text(name), "keep")) return null;
+        return last;
+    }
+
+    /// `keep: k`: an `Int`, which must be `0..=size` where `size`, the
+    /// bytes of the value pushed, is known and `k` is a constant;
+    /// otherwise the push panics.
+    fn checkKeep(self: *Checker, k: Sexp, size: ?u64) Error!void {
+        try self.checkExpr(k, self.t().int_id);
+        const v = self.constInt(k) orelse return;
+        if (v < 0) {
+            try self.errAt(k, "`keep: {d}` is negative; `push` keeps 0 up to the size of the value", .{v});
+        } else if (size) |n| if (v > n) {
+            try self.errAt(k, "`keep: {d}` is more than the {d} bytes pushed", .{ v, n });
+        };
+    }
+
+    /// `!t.push(v, keep: k)`: the first `k` bytes of the vector `v`, a
+    /// `Simd[U8, n]`. True when it checked, with the vector's type
+    /// recorded; after a diagnostic, false.
+    fn pushVector(self: *Checker, callee: Sexp, pos: u32, args: []const Sexp) Error!bool {
+        const keep = self.pushKeepOf(args).?;
+        for (args, 0..) |a, i| if (a.isKind(.kwarg) and i != args.len - 1) {
+            _ = try self.badCall(args, a, "`push` takes no keyword argument but `keep:`, last: `push(block, keep: k)`", .{});
+            return false;
+        };
+        if (args.len != 2) {
+            _ = try self.badCall(args, pos, "`push(v, keep: k)` takes one value and `keep:`; got {d} arguments", .{args.len - 1});
+            return false;
+        }
+        const ty = try self.synthExpr(args[0]);
+        if (self.isPoison(ty)) {
+            try self.synthArgs(args[1..]);
+            return false;
+        }
+        const vec = sema.unwrapViews(self.ctx, ty);
+        const simd = sema.simdOf(self.ctx, vec);
+        const bytes = if (simd) |v| switch (self.ctx.types.get(v.elem)) {
+            .int => |info| if (intBounds(info).bits == 8 and !info.signed) sema.simdLen(self.ctx, v) else null,
+            else => null,
+        } else null;
+        if (bytes == null) {
+            _ = try self.badCall(args, args[0], "`push` with `keep:` takes a vector of bytes, a `Simd[U8, n]`, or an integer with its byte order, `push[U64, .little](word, keep: k)`; got `{s}`", .{try self.tyName(ty)});
+            return false;
+        }
+        try self.checkKeep(ir.Kwarg.value(keep), bytes.?);
+        try self.ctx.recordStringNum(callee, vec);
         return true;
     }
 

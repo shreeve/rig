@@ -5434,6 +5434,7 @@ String. A `?String` is the view of text; a String is where text is built.
 | `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
 | `!t.push(b)` | append one byte `b`, a `U8`, given by position |
 | `!t.push[T, e](v)` | append the `@size(T)` bytes of the integer `v`, a `T`, in byte order `e` (`.little` or `.big`), in one write; a one-byte `T` takes no `e`, and `push[U8](b)` is `push(b)` |
+| `!t.push(v, keep: k)`, `!t.push[T, e](w, keep: k)` | append the first `k` bytes of `v`, a `Simd[U8, n]`, or of the integer `w` in byte order `e`; `0 <= k <= size of v`, else it panics (a constant `k` out of range is an error); with no `keep:`, `push[T, e]` keeps every byte |
 | `!t.reserve(n)` | make room for `n` more bytes, so the next `n` bytes of `push` allocate nothing; the length is unchanged |
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
@@ -5480,6 +5481,47 @@ fresh 5
 `e` a compile-time `Endian`, and a multi-byte `T` without `e` is an
 error. `reserve(n)` is amortized: it grows the buffer at least
 geometrically, so reserving a little at a time stays linear.
+
+`keep: k` appends only the first `k` bytes of a vector of bytes, or of an
+integer's bytes in order `e`, for text copied a block at a time while it
+is scanned. `k` is an `Int`, `0 <= k <= size of v`; outside that it
+panics in every build mode (when `k` is a constant, the program is
+rejected). It desugars to `reserve(size)`, one unaligned store of all
+`size` bytes after the length, and a length of `len + k`. The bytes
+stored past the new length are spare capacity: `len`, indexing, slices,
+`read`, printing, and `clone` never reach them, and the next push
+overwrites them. A vector is appended only with `keep:`; its lanes must be
+one-byte (`U8`).
+
+```rig
+sub main()
+  src = String("abcdefghijklmnopqrstuvwxyz")
+  v: ?String = ?src
+  block = v.read[Simd[U8, 16]](0)
+  t = String()
+  !t.push(block, keep: 5)
+  !t.push[U32, .big](0x2d2d2d2d, keep: 2)
+  !t.push(block, keep: 0)
+  print(t, t.len)
+```
+
+```output
+abcde-- 7
+```
+
+```rig reject
+sub main()
+  t = String("abcdefghijklmnop")
+  v: ?String = ?t
+  block = v.read[Simd[U8, 16]](0)
+  !t.push(block, keep: 17)
+  !t.push(block, keep: -1)
+```
+
+```error
+`keep: 17` is more than the 16 bytes pushed
+`keep: -1` is negative; `push` keeps 0 up to the size of the value
+```
 
 ```rig
 sub main()

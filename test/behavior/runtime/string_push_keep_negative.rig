@@ -1,0 +1,15 @@
+# `keep:` outside 0..size panics, and nothing is appended first.
+
+sub main()
+  s = String("abcdefghijklmnopqrstuvwxyz0123456789")
+  v: ?String = ?s
+  block = v.read[Simd[U8, 16]](0)
+  k = s.len - 37
+  print("before")
+  !s.push(block, keep: k)
+  print("unreachable")
+
+# expect-panic: `keep: -1` is outside 0..16, the bytes pushed
+
+# expect:
+# before

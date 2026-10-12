@@ -1164,7 +1164,9 @@ pub const ElemOp = enum {
 /// `!t.clear()`. `new` and `add` format their arguments as `print` does,
 /// reading them; `push` appends one byte, `push[T, e](v)` (`push_int`)
 /// the bytes of an integer, and `reserve(n)` makes room for `n` more.
-pub const StringCall = enum { new, add, push, push_int, reserve, clear };
+/// `push_keep` is `push(v, keep: k)` of a vector of bytes, or
+/// `push[T, e](w, keep: k)` of an integer: the first `k` bytes of `v`.
+pub const StringCall = enum { new, add, push, push_int, push_keep, reserve, clear };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`

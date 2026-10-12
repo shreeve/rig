@@ -1,0 +1,21 @@
+# Room for 15 bytes proves nothing about a 16-byte vector's read: at
+# `s.len - 15` it runs one byte past the end.
+
+fun scan(s: ?String, at: Int) -> Int
+  i = at
+  n = 0
+  while i + 15 <= s.len
+    v = s.read[Simd[U8, 16]](i) # keeps: read upper
+    n += Int(v[0])
+    i += 16
+  n
+
+sub main()
+  s = "abcdefghijklmnopqrstuvwxyz"
+  print(scan(s, 0))
+  print(scan(s, s.len - 15))
+
+# release
+# expect-panic: byte read out of range
+# expect:
+# 97
