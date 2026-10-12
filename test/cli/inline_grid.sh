@@ -20,7 +20,7 @@ USES = {
     "shift": ("Int", "70", "1 << z"),
     "index": ("Int", "7", "xs[z]"),
 }
-SHAPES = ["const", "ignored", "transitive"]
+SHAPES = ["const", "ignored", "transitive", "ctbool", "ctint", "ctenum", "ctthrough"]
 
 def defs(shape, use):
     ty, v, _ = USES[use]
@@ -29,7 +29,17 @@ def defs(shape, use):
         return base, f"c_{use}()"
     if shape == "ignored":
         return f"fun c_{use}(n: Int) -> {ty}\n  {v}\n", f"c_{use}(1)"
-    return base + f"\nfun t_{use}(n: Int) -> {ty}\n  c_{use}()\n", f"t_{use}(1)"
+    if shape == "transitive":
+        return base + f"\nfun t_{use}(n: Int) -> {ty}\n  c_{use}()\n", f"t_{use}(1)"
+    # Compile-time parameters: the instance is a function as any other, so
+    # its result is a run-time value to the caller.
+    if shape == "ctbool":
+        return f"fun c_{use}[b: Bool](n: Int) -> {ty}\n  {v} if b else {v}\n", f"c_{use}[true](1)"
+    if shape == "ctint":
+        return f"fun c_{use}[k: Int](n: Int) -> {ty}\n  {v}\n", f"c_{use}[3](1)"
+    if shape == "ctenum":
+        return f"enum M_{use}\n  a\n  b\n\nfun c_{use}[m: M_{use}](n: Int) -> {ty}\n  {v}\n", f"c_{use}[.b](1)"
+    return base + f"\nfun t_{use}[b: Bool](n: Int) -> {ty}\n  c_{use}()\n", f"t_{use}[false](1)"
 
 def program(shape, uses, cond):
     ds, body = [], []
@@ -46,6 +56,39 @@ for shape in SHAPES:
     open(f"unreached_{shape}.rig", "w").write(program(shape, list(USES), "os.args().len > 50"))
     for u in USES:
         open(f"reached_{shape}_{u}.rig", "w").write(program(shape, [u], "os.args().len > 0"))
+# Instances that compute from run-time arguments, call helpers, and recurse
+# through an instance, against the values worked out by hand.
+open("ctvalues.rig", "w").write("""use std.os
+
+enum Mode
+  strict
+  loose
+
+fun step(i: Int) -> Int
+  i + 1
+
+fun scale[k: Int](x: Int) -> Int
+  step(x) * k
+
+fun pick[m: Mode](x: Int) -> Int
+  x + 1 if m == .strict else x - 1
+
+fun flip[b: Bool](x: Int) -> Int
+  x if x <= 0 else flip[not b](x - 1) + (1 if b else 2)
+
+fun sum[dense: Bool](n: Int) -> Int
+  total = 0
+  i = 0
+  while i < n
+    total += scale[2](i) if dense else step(i)
+    i += 1
+  total
+
+sub main()
+  n = os.args().len + 3
+  print(scale[3](n), pick[.strict](n), pick[.loose](n), flip[true](n))
+  print(sum[true](n), sum[false](n))
+""")
 open("unreached_optional.rig", "w").write(extra("o", "fun nothing() -> Int?\n  none\n", "    z = nothing() ?? 0\n    print(10 / z)\n", "os.args().len > 50"))
 open("unreached_failing.rig", "w").write(extra("f", "error Oops\n  bad\n\nfun fails() -> Int!\n  return Oops.bad\n", "    z = fails() catch 0\n    print(10 / z)\n", "os.args().len > 50"))
 open("unreached_var.rig", "w").write(extra("v", "fun zero() -> Int\n  0\n", "    z = zero()\n    var_ = z\n    print(10 / var_)\n", "os.args().len > 50"))
@@ -64,6 +107,12 @@ for mode in debug release; do
             *) expect_eq "$out" $'3\nok' "$mode $f" ;;
         esac
     done
+    if [[ $mode == debug ]]; then out=$(rig run ctvalues.rig 2>&1) || fail "$mode ctvalues: $out"
+    else
+        rig build --release -o prog_ctvalues ctvalues.rig >build.log 2>&1 || fail "release ctvalues: $(cat build.log)"
+        out=$(./prog_ctvalues 2>&1) || fail "release ctvalues ran: $out"
+    fi
+    expect_eq "$out" $'15 5 3 6\n20 10' "$mode ctvalues"
     for f in reached_*.rig; do
         if [[ $mode == debug ]]; then
             out=$(rig run "$f" 2>&1) && fail "$mode $f should panic: $out"

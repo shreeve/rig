@@ -3040,9 +3040,14 @@ symbols); a query that decides more than that belongs in `Pending`.
   - it is on no cycle of calls, directly or through others;
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
-  - it is not the root's `main`, has no compile-time parameters, is not a
-    member of a generic type, and holds no closure (`extern` functions
-    have no body);
+  - it is not the root's `main`, has no compile-time type parameters, is not
+    a member of a generic type, and holds no closure (`extern` functions
+    have no body). A function whose compile-time parameters are all values
+    (`Bool`, a number, an enum) is a function per instance, sized,
+    cycle-checked, and inlined as any other, and so are the helpers it
+    calls; the `comptime` parameters stay compile-time and the rest are
+    bound through `rig.rt` as always. Its frame must be known without the
+    values;
   - it keeps at most 64 KiB of values on its stack, and no function gets
     more than that added by the inlined calls in it
     (`max_inlined_frame_bytes`), and no function's own frame (`checkFrames`)
@@ -3051,7 +3056,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
-    innermost 2^n times.
+    innermost 2^n times. A function called from one place only is exempt
+    from this limit, since nothing repeats it.
 
   A function that fails a test of the last two is dropped and the tests
   run again, until none fails. A call resolves by the callee's name (a

@@ -207,3 +207,71 @@ RIG
 out=$(emit framefull.rig)
 expect_has "$out" 'pub fn bump(' "a callee that would overfill the caller's frame"
 expect_has "$out" 'pub fn near(' "the caller"
+
+# An instance of a function with compile-time values (Bool, Int, enum) is
+# sized and inlined as any function, and so are the helpers it calls; one
+# with a compile-time type parameter is called.
+cat >ctvalue.rig <<'RIG'
+enum Mode
+  strict
+  loose
+
+fun step(s: ?String, i: Int) -> Int
+  i + 1 if i < s.len else i
+
+fun pick(s: ?String, i: Int) -> Int
+  step(s, i) + 1
+
+fun walk[dense: Bool](s: ?String) -> Int
+  i = 0
+  while i < s.len
+    i = pick(s, i)
+    i = step(s, i) if dense else i
+  i
+
+fun times[n: Int](x: Int) -> Int
+  x * n
+
+fun mode[m: Mode](x: Int) -> Int
+  x + 1 if m == .strict else x - 1
+
+fun same[T](x: T) -> T
+  x
+
+fun down[b: Bool](x: Int) -> Int
+  x if x <= 0 else down[not b](x - 1)
+
+sub main()
+  print(walk[true]("abc"), walk[false]("abc"))
+  print(times[3](2), mode[.strict](1), mode[.loose](1), same(5), down[true](4))
+RIG
+out=$(emit ctvalue.rig)
+expect_has "$out" 'pub inline fn walk(comptime dense: bool' "a function with a compile-time Bool"
+expect_has "$out" 'pub inline fn times(comptime n: i64' "a function with a compile-time Int"
+expect_has "$out" 'pub inline fn mode(comptime m: ' "a function with a compile-time enum"
+expect_has "$out" 'pub inline fn step(' "the callee of an instance"
+expect_has "$out" 'pub inline fn pick(' "the callee of an instance"
+expect_has "$out" 'pub fn same(comptime T: type' "a function with a compile-time type"
+expect_has "$out" 'pub fn down(' "recursion through an instance"
+
+# A function that is called from one place only is exempt from
+# inlining.max_expanded (nothing repeats it), as with `once` here, which
+# expands to over 320 nodes; `twice` is the same body called twice.
+{
+    echo 'fun leaf(n: Int) -> Int'
+    echo '  total = n'
+    for i in $(seq 1 18); do echo "  total += $i * n"; done
+    echo '  total'
+    for name in once twice; do
+        echo
+        echo "fun $name(n: Int) -> Int"
+        echo '  leaf(n) + leaf(n + 1) + leaf(n + 2) + leaf(n + 3) + leaf(n + 4) + leaf(n + 5) + leaf(n + 6) + leaf(n + 7)'
+    done
+    echo
+    echo 'sub main()'
+    echo '  print(once(1) + twice(2) + twice(3))'
+} >once.rig
+out=$(emit once.rig)
+expect_has "$out" 'pub inline fn leaf(' "the leaf"
+expect_has "$out" 'pub inline fn once(' "an expansion over the limit, called from one place"
+expect_has "$out" 'pub fn twice(' "the same expansion, called from two"
