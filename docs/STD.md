@@ -37,6 +37,7 @@ never read as the library's.
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
+| [`std.json`](#stdjson) | a JSON parser (experimental) |
 
 ## std.math
 
@@ -519,3 +520,92 @@ Bern 1
 Lima 10
 Oslo 7
 ```
+
+## std.json
+
+**Experimental:** the names and shapes below will change, to idiomatic
+fallible `!` functions, once errors can carry data. Use it to read JSON
+fast today, not as a settled API.
+
+A JSON parser (RFC 8259) in safe Rig, written for speed: it validates
+the whole document in one pass and builds a tape, a flat list with one
+entry for each value in document order. On Apple silicon it runs at 1.9 to 7.0 GB/s on the standard
+benchmark files ([docs/json/](json/RESULTS.md)), 3 to 11 times Zig's `std.json`, with
+every bounds and overflow check kept in `--release`. Nothing is lazy:
+`parse` decodes every escape, checks all UTF-8, and converts every number
+before it returns.
+
+| Name | Meaning |
+|---|---|
+| `new_doc() -> Doc` | an empty `Doc`; each `parse` reuses its lists, so a parse allocates only when a list must grow |
+| `(!doc).parse(src: ?String) -> Bool` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
+| `doc.error: Error`, `doc.error_pos: Int` | the first error, and the byte offset of the byte that cannot be read |
+| `error_name(e: Error) -> Static` | the name of an `Error`: `ok`, `empty`, `unexpected`, `eof`, `number`, `range`, `escape`, `surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large` |
+| `doc.size() -> Int` | the number of tape entries |
+| `doc.kind(i: Int) -> Kind` | the entry at `i`: `null`, `bool`, `int`, `float`, `string`, `array`, `array_end`, `object`, or `object_end` |
+| `doc.get_bool(i: Int) -> Bool`, `doc.get_int(i: Int) -> Int`, `doc.get_float(i: Int) -> Float` | the value of a `bool`, `int`, or `float` entry |
+| `doc.get_str(i: Int) -> ?String` | a `string` entry, an object's key included: its decoded UTF-8 bytes |
+| `doc.next(i: Int) -> Int` | the index just past the value at `i`, past its closing entry for an array or object, to skip it |
+
+An object's entries are its keys and values, alternating, between its
+`object` and `object_end` entries. A string without escapes is a view of
+`src`, so a `Doc` keeps `src` lent while it is in use. An integer literal
+that fits an `Int` is an `int`; any other number is the nearest `Float`
+(`-0` is a `Float`), and one beyond `Float.max` is a `range` error.
+`NaN` and `Infinity` are errors, as are an unpaired surrogate in a `\u`
+escape, bytes that are not UTF-8, and nesting deeper than 1024.
+Duplicate keys are kept, in order. `parse` reads the whole document or
+fails; a failed parse leaves an empty tape. An input over 4 GiB, or a
+string longer than 2^27 - 1 bytes, is a `too_large` error (no test
+reaches these sizes).
+
+Every reader takes an index `0 <= i < doc.size()`, and each value getter
+an entry of its own kind: out of range a reader panics, and on another
+kind a getter returns an unspecified value or panics.
+
+```rig
+use std.json
+
+sub main()
+  src = "{\"name\": \"Ada\", \"langs\": [\"en\", \"fr\"], \"born\": 1815, \"pi\": 3.5}"
+  doc = json.new_doc()
+  if (!doc).parse(?src)
+    for i in 0..doc.size()
+      match doc.kind(i)
+        .object => print("{")
+        .object_end => print("}")
+        .array => print("[")
+        .array_end => print("]")
+        .string => print("string", doc.get_str(i))
+        .int => print("int", doc.get_int(i))
+        .float => print("float", doc.get_float(i))
+        _ => print("other")
+  else
+    print("error", doc.error)
+  bad = "[1, 2"
+  again = json.new_doc()
+  if not (!again).parse(?bad)
+    print(json.error_name(again.error), "at byte", again.error_pos)
+```
+
+```output
+{
+string name
+string Ada
+string langs
+[
+string en
+string fr
+]
+string born
+int 1815
+string pi
+float 3.5
+}
+eof at byte 5
+```
+
+`./test/run json` checks it against Python's `json` module on 10,511
+inputs, sanitizer-clean (`test/json/README.md`); the design and the
+measurements are in [json/DESIGN.md](json/DESIGN.md) and
+[json/RESULTS.md](json/RESULTS.md).

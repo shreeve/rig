@@ -47,6 +47,14 @@ from).
     with Nexus, which is co-developed with Rig; and `tools/migrate-0.3.py`
     migrates 0.2 programs, each rename an independent pass (box, list,
     string, `obj`).
+- **`std.json` (experimental):** a one-pass, validating JSON parser in
+  safe Rig (`std/json.rig`) that builds a tape, with a tiered string
+  scan (SWAR, then `Simd[U8, 16]`). `./test/run json` checks it against
+  Python's `json` module on 10,511 inputs; `tools/fetch-json-data.sh`
+  fetches the third-party files those read. `bench/json/` times it
+  against Zig's `std.json`, serde_json, simd-json, sonic-rs and
+  zimdjson (docs/json/RESULTS.md). Its API is not settled
+  (docs/json/DESIGN.md, "Open items").
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
   on `main` untagged until the next tag, which is cut only after the
@@ -293,8 +301,6 @@ and run the corpus after.
 2. Checker-proved check elimination, redesigned around units: first
    `loopfacts` (where loop steps run and jumps go, recorded once; no
    emitted change), then `proofs2`.
-3. `std.json`, the JSON parser moving in from the Trig project, with
-   its tests and benchmark; it lands last.
 
 **Toward `v0.3.0`:** the docs pass, the deep gate, and the tag with a
 migration guide (`tools/migrate-0.3.py`).
@@ -330,6 +336,13 @@ Two gates (AGENTS.md, "Land fast, release deep"):
   equivalence against the last deep run and the JSON benchmark guard. A
   failure is bisected and fixed before any new round lands; a tag needs
   a clean deep gate.
+- **The JSON benchmark guard:** on the Mac, `cpuq run --cores 2 --label
+  rig:json -- bench/json/guard.py` builds `rig-safe` for the six corpus
+  files and counts instructions retired per byte, which do not move
+  with the load. A file more than 2% above its baseline in
+  `bench/json/guard.txt` is a regression, and the guard fails. A change
+  meant to move the counts commits a new baseline
+  (`bench/json/guard.py --update`).
 
 The machines are shared: run heavy work through the job queue
 (`cpuq run --cores 2 -- …`, with `-j "$CPUQ_CORES"`), which shares the

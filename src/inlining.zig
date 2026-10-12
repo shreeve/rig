@@ -48,7 +48,7 @@ pub const max_inlined_frame_bytes: u128 = 64 << 10;
 /// The most nodes an inlined function may expand to at a call, counting
 /// the inlined calls in it (each of them as often as it is called):
 /// otherwise a chain of functions that each call the next twice would make
-/// Zig analyze a body 2^n times. Trig's JSON parser, the program that set
+/// Zig analyze a body 2^n times. std.json, the program that set
 /// `max_size`, has a hot helper (`key`) that expands to 287.
 pub const max_expanded = 320;
 

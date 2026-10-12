@@ -4035,6 +4035,12 @@ test/corpus/review-cell-mark-1-p21_same_handle_twice.rig main
 test/corpus/review-cell-mark-1-p23_wv_holder_take.rig f
 test/corpus/review-cell-mark-1-p23_wv_holder_take.rig f
 test/corpus/review-std-b8.rig main
+test/corpus/review-stdjson-dangle_drop.rig main
+test/corpus/review-stdjson-dangle_loop.rig main
+test/corpus/review-stdjson-dangle_mutate.rig main
+test/corpus/review-stdjson-dangle_reparse.rig keep
+test/corpus/review-stdjson-dangle_return.rig make
+test/corpus/review-stdjson-stale_view.rig main
 holder.list.box.write.live main
 holder.list.box.move.live main
 holder.list.box.drop.live main

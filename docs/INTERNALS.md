@@ -3034,7 +3034,7 @@ symbols); a query that decides more than that belongs in `Pending`.
 
   - its body has at most `inlining.max_size` (60) nodes, counting each
     form of the tree once (a call, an operator, a binding, an `if`),
-    which Trig's JSON helpers (`string`, `plain`, `key`, `close`,
+    which std.json's helpers (`string`, `plain`, `key`, `close`,
     `literal`, 27 to 50) fit and larger ones in that parser do not;
   - it is on no cycle of calls, directly or through others;
   - every mention of it is the callee of a call, so it is never passed,
