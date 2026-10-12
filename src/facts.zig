@@ -32,6 +32,7 @@ const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
 const resolve = @import("resolve.zig");
+const rig = @import("rig.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -73,6 +74,8 @@ pub const ReceiverHold = storage.ReceiverHold;
 pub const ArgumentHold = storage.ArgumentHold;
 pub const SetOrder = storage.SetOrder;
 pub const SetStep = storage.SetStep;
+pub const StepPoint = storage.StepPoint;
+pub const JumpDest = sema.JumpDest;
 
 pub const type_invalid = sema.type_invalid;
 pub const type_param_mark = sema.type_param_mark;
@@ -368,6 +371,15 @@ pub const Facts = struct {
     pub fn setOrder(f: Facts, set: Sexp) ?SetOrder {
         return storage.decided(f.c(), set, .set_order);
     }
+    /// Where the step of a `while` runs (`storage.stepPoint`).
+    pub fn stepPoint(f: Facts, loop: Sexp) ?StepPoint {
+        return storage.decided(f.c(), loop, .step_point);
+    }
+    /// Where a `break` or `continue` goes, as the type checker resolved it
+    /// (`sema.JumpDest`).
+    pub fn jumpDest(f: Facts, jump: Sexp) ?JumpDest {
+        return f.c().jumpDestOf(jump);
+    }
     pub fn receiverHold(f: Facts, call: Sexp) ??ReceiverHold {
         return storage.decided(f.c(), call, .receiver_hold);
     }
@@ -593,9 +605,6 @@ pub const Pending = struct {
         return @ptrCast(@alignCast(p.sema_context));
     }
 
-    pub fn stepReadsBinding(p: Pending, cond: Sexp, step: Sexp) bool {
-        return sema.stepReadsBinding(p.c(), cond, step);
-    }
     pub fn assignWritesThrough(p: Pending, ty: TypeId) bool {
         return sema.assignWritesThrough(p.c(), ty);
     }
@@ -613,6 +622,8 @@ pub const syntax = struct {
     pub const lentPlace = storage.lentPlace;
     pub const argValue = storage.argValue;
     pub const eachTargetStep = storage.eachTargetStep;
+    pub const eachGuardPart = rig.eachGuardPart;
+    pub const leavesBody = rig.leavesBody;
     pub const contains = storage.contains;
     pub const isCatchAll = storage.isCatchAll;
     pub const matchGuarded = storage.matchGuarded;
@@ -637,7 +648,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 4;
+const pending_budget = 3;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
@@ -820,6 +831,77 @@ test "Facts reads every match decision the plan made" {
         }
     };
     try std.testing.expectEqual(1, matches);
+}
+
+test "Facts reads where each step runs and where each jump goes" {
+    const source =
+        \\fun some(i: Int) -> Int?
+        \\  i if i < 6 else none
+        \\
+        \\sub main()
+        \\  i = 0
+        \\  while some(i) as h and h >= 0: i += h
+        \\    continue if h == 2
+        \\    break if h == 4
+        \\  j = 0
+        \\  while j < 3: j += 1
+        \\    continue
+        \\  k = 0
+        \\  while (some(k) ?? continue) > 0
+        \\    k += 1
+        \\  :outer for a in 0..3
+        \\    for b in 0..3
+        \\      continue :outer if b == a
+        \\      break :outer
+        \\  m = 0
+        \\  while true: m += some(m) ?? continue
+        \\    break
+        \\  :blk match i
+        \\    0 => break :blk
+        \\    _ => pass
+        \\
+    ;
+    const a = std.testing.allocator;
+    var p = parser.Parser.init(a, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    var ctx = try sema.check(a, source, tree, .{});
+    defer ctx.deinit();
+    for (ctx.diagnostics.items) |d| std.debug.print("{s}\n", .{d.message});
+    try std.testing.expect(!ctx.hasErrors());
+    const f = Facts.of(&ctx);
+    var nodes: std.ArrayList(Sexp) = .empty;
+    defer nodes.deinit(a);
+    try collect(a, tree, &nodes);
+    const Want = struct { to: JumpDest.To, target: parser.Tag };
+    const jumps = [_]Want{
+        .{ .to = .step, .target = .@"while" }, // a `continue` from the body, to a step after it
+        .{ .to = .exit, .target = .@"while" },
+        .{ .to = .step, .target = .@"while" }, // to the continue expression
+        .{ .to = .head, .target = .@"while" }, // from the condition of a loop with no step
+        .{ .to = .head, .target = .@"for" }, // `continue :outer` from the inner loop's body
+        .{ .to = .exit, .target = .@"for" },
+        .{ .to = .head, .target = .@"while" }, // from the step
+        .{ .to = .exit, .target = .@"while" },
+        .{ .to = .exit, .target = .match },
+    };
+    const steps = [_]StepPoint{ .after_body, .continue_expr, .continue_expr, .continue_expr };
+    var nj: usize = 0;
+    var ns: usize = 0;
+    for (nodes.items) |n| {
+        if (n.isKind(.@"while")) {
+            try std.testing.expectEqual(steps[ns], f.stepPoint(n).?);
+            ns += 1;
+        }
+        if (n.isKind(.@"break") or n.isKind(.@"continue")) {
+            const d = f.jumpDest(n) orelse return error.TestUnexpectedResult;
+            try std.testing.expectEqual(jumps[nj].to, d.to);
+            try std.testing.expectEqual(jumps[nj].target, d.target.kind().?);
+            nj += 1;
+        }
+    }
+    try std.testing.expectEqual(jumps.len, nj);
+    try std.testing.expectEqual(steps.len, ns);
 }
 
 fn collect(a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) !void {

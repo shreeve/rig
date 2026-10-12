@@ -368,8 +368,9 @@ const FnCtx = struct {
 
 /// A loop, or a labeled block, that `break` / `continue` can leave.
 const LoopCtx = struct {
-    /// The `:label` naming it, or empty.
-    label: []const u8 = "",
+    /// The construct a jump's `JumpDest` names: the `while` or `for`, or
+    /// a labeled block's `match` or `raw` block.
+    node: Sexp,
     /// The state at loop entry; `breaks` and `conts` are relative to it.
     /// Its var count is the number of vars in scope at loop entry.
     point: Point,
@@ -377,10 +378,10 @@ const LoopCtx = struct {
     scope_depth: usize,
     breaks: std.ArrayList(State) = .empty,
     conts: std.ArrayList(State) = .empty,
-    /// While the body of a `while` whose step reads a binding of its
-    /// condition is walked (`sema.stepReadsBinding`): the state after
-    /// the bindings, with `step_depth` scopes open, where a `continue`
-    /// goes on to the step. `step_conts` are relative to it.
+    /// While the body of a `while` whose step runs after it is walked
+    /// (`storage.StepPoint.after_body`): the state after the bindings,
+    /// with `step_depth` scopes open, where a `continue` to the step goes.
+    /// `step_conts` are relative to it.
     step_point: ?Point = null,
     step_depth: usize = 0,
     step_conts: std.ArrayList(State) = .empty,
@@ -560,8 +561,6 @@ pub const Checker = struct {
 
     func: FnCtx = .{},
     loop: ?*LoopCtx = null,
-    /// The label of the loop about to be walked (`:name while ...`).
-    pending_label: []const u8 = "",
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, lent argument, `*|...|`).
     lambda_ok: bool = false,
@@ -3490,10 +3489,7 @@ pub const Checker = struct {
     /// propagation, a `return`, a `break`, or a `continue` inside it.
     fn leavesEarly(e: Sexp) bool {
         if (e != .list) return false;
-        if (e.kind()) |k| switch (k) {
-            .propagate, .propagate_none, .@"return", .@"break", .@"continue" => return true,
-            else => {},
-        };
+        if (rig.leavesBody(e) or rig.isJump(e)) return true;
         for (e.items()) |item| if (leavesEarly(item)) return true;
         return false;
     }
@@ -4853,10 +4849,18 @@ pub const Checker = struct {
     /// views; the loans taken to compute it end there, so the path
     /// where there is no value is free to use them.
     fn walkConditionParts(self: *Checker, cond: Sexp, body: Sexp) Error!void {
-        if (rig.isConditionJoin(cond)) {
-            try self.walkConditionParts(ir.get(cond, .left), body);
-            return self.walkConditionParts(ir.get(cond, .right), body);
-        }
+        const Parts = struct {
+            c: *Checker,
+            body: Sexp,
+            pub fn part(v: @This(), p: Sexp) Error!void {
+                return v.c.walkConditionPart(p, v.body);
+            }
+        };
+        try rig.eachGuardPart(cond, Parts{ .c = self, .body = body });
+    }
+
+    /// One part of a condition (`rig.eachGuardPart`).
+    fn walkConditionPart(self: *Checker, cond: Sexp, body: Sexp) Error!void {
         // Each part is a header, its own statement: its temporaries end
         // with it, after the binding takes what it binds.
         if (!cond.isKind(.as)) return self.walkStmt(cond);
@@ -5287,17 +5291,14 @@ pub const Checker = struct {
     /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or
     /// `raw` block, which `break :name` leaves.
     fn walkLabeled(self: *Checker, node: Sexp) Error!Value {
-        const label = self.text(ir.Labeled.label(node));
         const stmt = ir.Labeled.stmt(node);
         if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
-            self.pending_label = label;
             self.pending_reads = self.readsValue(node);
             const v = try self.walk(stmt);
-            self.pending_label = "";
             self.pending_reads = false;
             return v;
         }
-        var ctx: LoopCtx = .{ .label = label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
+        var ctx: LoopCtx = .{ .node = stmt, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
@@ -5306,8 +5307,7 @@ pub const Checker = struct {
     }
 
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
-        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo, .reads = self.pending_reads or self.readsValue(spec.node) };
-        self.pending_label = "";
+        var ctx: LoopCtx = .{ .node = spec.node, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo, .reads = self.pending_reads or self.readsValue(spec.node) };
         self.pending_reads = false;
         self.loop = &ctx;
         defer self.loop = ctx.parent;
@@ -5386,10 +5386,11 @@ pub const Checker = struct {
         }
         // The loop is `while true { x = a or break; body: { body }; step }`
         // (docs/INTERNALS.md, "Loops"): a `continue` in the body leaves
-        // the body's block for the step. A step that reads a binding of
-        // the condition runs in the bindings' scope, after the body's
-        // own scope ends; any other runs after the bindings' scope ends.
-        const step_inside = if (self.sema) |sctx| spec.cond_binds and sema.stepReadsBinding(sctx, spec.cond.?, spec.cont orelse .nil) else false;
+        // the body's block for the step. A step that runs after the body
+        // (`storage.StepPoint`) runs in the bindings' scope, after the
+        // body's own scope ends; any other runs after the bindings' scope
+        // ends.
+        const step_inside = if (self.sema) |sctx| spec.node.isKind(.@"while") and storage.stepPoint(sctx, spec.node) == .after_body else false;
         if (step_inside) {
             ctx.step_point = try self.here();
             ctx.step_depth = self.scopes.items.len;
@@ -5407,9 +5408,9 @@ pub const Checker = struct {
 
         // A `continue` and the end of the body go back to the loop's
         // head through any other step, as does a `continue` in the
-        // condition (which the type checker rejects when the step reads a
-        // binding, since it would skip binding one); a `continue` in the
-        // step ends it.
+        // condition (which the type checker rejects when the step runs
+        // after the body, since it would skip binding what the step
+        // reads); a `continue` in the step ends it.
         if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
         if (!step_inside) if (spec.cont) |c| {
             ctx.conts.clearRetainingCapacity();
@@ -5475,17 +5476,16 @@ pub const Checker = struct {
     }
 
     /// `(break value-or-_ label?)` / `(continue label?)`: the state here
-    /// flows to the loop (or labeled block) the jump names, or the
-    /// innermost loop.
+    /// flows to where the jump goes, as the type checker resolved it
+    /// (`sema.JumpDest`): past the construct it names, to the loop's step,
+    /// or to the loop's head.
     fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
-        const label = self.text(ir.get(node, .label));
         const value = if (jump == .brk) ir.Break.value(node) else .nil;
+        const dest = if (self.sema) |ctx| ctx.jumpDestOf(node) else null;
         var target = self.loop;
-        while (target) |t| : (target = t.parent) {
-            if (label.len == 0) {
-                if (t.is_loop) break;
-            } else if (std.mem.eql(u8, t.label, label)) break;
-        }
+        if (dest) |d| while (target) |t| : (target = t.parent) {
+            if (sameNode(t.node, d.target)) break;
+        };
         // A `break` value leaves the loop like a returned value leaves the
         // function: it is consumed, and it may not view what the loop
         // declared.
@@ -5500,38 +5500,31 @@ pub const Checker = struct {
         else
             try self.walkConsumed(value, .brk);
         self.value_reads = false;
-        const word = if (jump == .brk) "break" else "continue";
-        const at = self.stmtSpan(node);
-        if (target == null) {
-            const where = if (self.func.in_closure) " (a closure body cannot leave a loop around it)" else "";
-            if (label.len == 0) {
-                try self.errSpan(at, "`{s}` is not inside a loop{s}", .{ word, where });
-            } else {
-                try self.errSpan(at, "`{s} :{s}` names no enclosing loop or block{s}", .{ word, label, where });
-            }
-        } else if (jump == .cont and !target.?.is_loop) {
-            try self.errSpan(at, "`continue :{s}` names a block, not a loop", .{label});
+        const t = target orelse {
+            // The type checker resolves every jump of a module it accepts.
+            try self.errSpan(self.stmtSpan(node), "internal error: this `{s}` goes to no construct the checker is walking", .{if (jump == .brk) "break" else "continue"});
+            self.reachable = false;
+            return;
+        };
+        // A jump out of an assignment's value never reaches its
+        // target: what the target reads is not used on this path.
+        const pinned = self.after_value.items.len;
+        const left = for (self.after_value.items, 0..) |a, i| {
+            if (encloses(t, a.loop)) break i;
+        } else pinned;
+        const kept = try self.arena().dupe(AfterValue, self.after_value.items[left..]);
+        self.after_value.shrinkRetainingCapacity(left);
+        t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
+        // A `continue` to a step that runs in the condition's bindings'
+        // scope goes to that point; any other goes back to the loop's
+        // head, through a step that is the loop's continue expression.
+        const to_step = if (dest.?.to == .step) t.step_point else null;
+        const s = try self.exitTo(.{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth } });
+        switch (dest.?.to) {
+            .exit => try t.breaks.append(self.arena(), s),
+            .step, .head => try (if (to_step != null) &t.step_conts else &t.conts).append(self.arena(), s),
         }
-        if (target) |t| {
-            // A jump out of an assignment's value never reaches its
-            // target: what the target reads is not used on this path.
-            const pinned = self.after_value.items.len;
-            const left = for (self.after_value.items, 0..) |a, i| {
-                if (encloses(t, a.loop)) break i;
-            } else pinned;
-            const kept = try self.arena().dupe(AfterValue, self.after_value.items[left..]);
-            self.after_value.shrinkRetainingCapacity(left);
-            t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
-            // A `continue` goes on to a step that runs in the condition's
-            // bindings' scope, or else back to the loop's head.
-            const step = if (jump == .cont) t.step_point else null;
-            const s = try self.exitTo(.{ .to = step orelse t.point, .exit = .{ .jump = if (step != null) t.step_depth else t.scope_depth } });
-            switch (jump) {
-                .brk => try t.breaks.append(self.arena(), s),
-                .cont => try (if (step != null) &t.step_conts else &t.conts).append(self.arena(), s),
-            }
-            try self.after_value.appendSlice(self.gpa, kept);
-        }
+        try self.after_value.appendSlice(self.gpa, kept);
         self.reachable = false;
     }
 
@@ -5971,6 +5964,15 @@ fn sexpMentionsView(t: Sexp) bool {
     return false;
 }
 
+/// The same IR node: the same leaf, or the same list.
+fn sameNode(a: Sexp, b: Sexp) bool {
+    return switch (a) {
+        .src => |s| b == .src and b.src.pos == s.pos,
+        .list => b == .list and a.items().ptr == b.items().ptr,
+        else => false,
+    };
+}
+
 /// Whether loop (or labeled block) `outer` is `inner` or encloses it.
 fn encloses(outer: *const LoopCtx, inner: ?*const LoopCtx) bool {
     var l = inner;
@@ -6018,9 +6020,15 @@ fn extent(s: Sexp) struct { lo: u32, hi: u32 } {
 const TestRig = struct {
     parser_obj: parser.Parser,
     checker: Checker,
+    /// The program's facts, for a test checked with them (`checkWithSema`).
+    ctx: ?*sema.SemContext = null,
 
     fn deinit(self: *TestRig) void {
         self.checker.deinit();
+        if (self.ctx) |ctx| {
+            ctx.deinit();
+            std.testing.allocator.destroy(ctx);
+        }
         self.parser_obj.deinit();
     }
 
@@ -6040,6 +6048,68 @@ fn checkSource(allocator: std.mem.Allocator, source: []const u8) !TestRig {
     errdefer c.deinit();
     try c.check(tree);
     return .{ .parser_obj = p, .checker = c };
+}
+
+/// Check `source` as the compiler does: sema first, whose facts the
+/// ownership checker reads (the jumps' destinations among them).
+fn checkWithSema(source: []const u8) !TestRig {
+    const a = std.testing.allocator;
+    var p = parser.Parser.init(a, source);
+    errdefer p.deinit();
+    const tree = try p.parseProgram();
+    const ctx = try a.create(sema.SemContext);
+    errdefer a.destroy(ctx);
+    ctx.* = try sema.check(a, source, tree, .{});
+    errdefer ctx.deinit();
+    if (ctx.hasErrors()) {
+        for (ctx.diagnostics.items) |d| std.debug.print("sema: {s}\n", .{d.message});
+        return error.TestUnexpectedResult;
+    }
+    var c = try Checker.initWithSema(a, source, ctx);
+    errdefer c.deinit();
+    try c.check(tree);
+    return .{ .parser_obj = p, .checker = c, .ctx = ctx };
+}
+
+/// The declarations the loop tests below call.
+const loop_prelude =
+    \\obj R unique
+    \\  n: Int
+    \\
+    \\fun make() -> R
+    \\  R(n: 1)
+    \\
+    \\sub eat(r: R)
+    \\  print(r.n)
+    \\
+    \\sub look(r: ?R)
+    \\  print(r.n)
+    \\
+    \\fun go() -> Bool
+    \\  true
+    \\
+    \\fun done() -> Bool
+    \\  false
+    \\
+;
+
+fn expectCleanWithSema(source: []const u8) !void {
+    var t = try checkWithSema(source);
+    defer t.deinit();
+    if (t.checker.hasErrors()) {
+        for (t.checker.diagnostics.items) |d| std.debug.print("unexpected: {s}\n", .{d.message});
+        return error.TestUnexpectedResult;
+    }
+}
+
+fn expectErrorWithSema(source: []const u8, needle: []const u8) !void {
+    var t = try checkWithSema(source);
+    defer t.deinit();
+    if (!t.hasError(needle)) {
+        std.debug.print("expected error containing \"{s}\"; got:\n", .{needle});
+        for (t.checker.diagnostics.items) |d| std.debug.print("  {s}\n", .{d.message});
+        return error.TestUnexpectedResult;
+    }
 }
 
 fn expectClean(source: []const u8) !void {
@@ -6139,7 +6209,7 @@ test "move in loop then reassign is fine" {
 }
 
 test "move then break leaves the loop" {
-    try expectClean(
+    try expectCleanWithSema(loop_prelude ++
         \\sub main()
         \\  rc = make()
         \\  while go()
@@ -6152,7 +6222,7 @@ test "move then break leaves the loop" {
 }
 
 test "move after loop exit via break is still a move" {
-    try expectError(
+    try expectErrorWithSema(loop_prelude ++
         \\sub main()
         \\  rc = make()
         \\  while go()
@@ -6164,11 +6234,11 @@ test "move after loop exit via break is still a move" {
 }
 
 test "move then continue is seen at the loop head" {
-    try expectError(
+    try expectErrorWithSema(loop_prelude ++
         \\sub main()
         \\  rc = make()
         \\  while go()
-        \\    if skip()
+        \\    if done()
         \\      eat(<rc)
         \\      continue
         \\    look(?rc)
