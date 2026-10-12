@@ -1,0 +1,47 @@
+# `!t.add(?src[a..b])` copies every slice length from 0 to 40 exactly: at
+# the start, the middle and the very end of the source, onto a String that
+# is empty, reserved to exactly the room it needs, or holding stale bytes
+# past its length after a clear.
+
+sub main()
+  src = String("")
+  for i in 0..100
+    !src.push(U8(33 + i))
+  bad = 0
+  total = 0
+  for n in 0..41
+    for off in [0, 7, 100 - n]
+      want = String("")
+      for k in 0..n
+        !want.push(U8(33 + off + k))
+      for mode in 0..5
+        t = String("")
+        if mode == 1
+          !t.reserve(n)
+        else if mode == 2
+          !t.reserve(n + 64)
+          for _ in 0..61
+            !t.push(U8(120))
+          !t.clear()
+        else if mode == 3
+          for _ in 0..13
+            !t.push(U8(88))
+        else if mode == 4
+          for _ in 0..13
+            !t.push(U8(88))
+          !t.reserve(n)
+        !t.add(?src[off..off + n])
+        pre = 0
+        if mode >= 3
+          pre = 13
+        if t.len != pre + n
+          bad += 1
+        if ?t[pre..] != ?want[..]
+          bad += 1
+        if mode >= 3 and ?t[..pre] != "XXXXXXXXXXXXX"
+          bad += 1
+        total += t.len
+  print(bad, total)
+
+# expect:
+# 0 15498

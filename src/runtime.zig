@@ -1110,8 +1110,47 @@ pub const String = struct {
         const used = l.items.len;
         if (l.capacity -% used < bytes_.len) self.grow(bytes_.len);
         invariant(l.capacity -% used >= bytes_.len);
-        @memcpy((l.items.ptr + used)[0..bytes_.len], bytes_);
+        copyShort(l.items.ptr + used, bytes_);
         l.items.len = used +% bytes_.len;
+    }
+
+    /// Copy `src` to `dst`, which has room for `src.len` bytes. A run of
+    /// 16 bytes or fewer is two loads and two stores of one width, the
+    /// first and last `w` bytes of the run, which overlap when it is not
+    /// exactly `2 * w` long. Every load and store lies inside `src` and
+    /// `dst[0..src.len]`, so none reads or writes past either. A longer
+    /// run is a `@memcpy`.
+    inline fn copyShort(dst: [*]u8, src: []const u8) void {
+        const n = src.len;
+        if (n > 16) return @memcpy(dst[0..n], src);
+        if (n >= 8) {
+            const a = loadU(u64, src.ptr);
+            const b = loadU(u64, src.ptr + (n - 8));
+            storeU(u64, dst, a);
+            storeU(u64, dst + (n - 8), b);
+        } else if (n >= 4) {
+            const a = loadU(u32, src.ptr);
+            const b = loadU(u32, src.ptr + (n - 4));
+            storeU(u32, dst, a);
+            storeU(u32, dst + (n - 4), b);
+        } else if (n > 0) {
+            const a = src[0];
+            const m = src[n >> 1];
+            const z = src[n - 1];
+            dst[0] = a;
+            dst[n >> 1] = m;
+            dst[n - 1] = z;
+        }
+    }
+
+    inline fn loadU(comptime T: type, p: [*]const u8) T {
+        const q: *align(1) const T = @ptrCast(p);
+        return q.*;
+    }
+
+    inline fn storeU(comptime T: type, p: [*]u8, v: T) void {
+        const q: *align(1) T = @ptrCast(p);
+        q.* = v;
     }
 
     noinline fn grow(self: *String, extra: usize) void {
