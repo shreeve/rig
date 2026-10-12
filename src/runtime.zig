@@ -1607,6 +1607,13 @@ pub fn withLane(v: anytype, i: anytype, x: @typeInfo(@TypeOf(v)).vector.child) @
     return lanes;
 }
 
+/// The mask helpers (`maskBits`, `maskFirst`, `maskAny`, `maskAll`, and the
+/// functions they call) are `inline`: called, a wide mask is moved through
+/// its lanes one by one (about 56 moves per 32 bytes on aarch64), where
+/// inline LLVM keeps it in vector registers. They hold no checked
+/// arithmetic, so a mask known at compile time gives the same answer
+/// (`test "mask helpers: a mask known at compile time"`).
+///
 /// `m.bits()`: bit `i` is lane `i` of mask `m`, the higher bits 0. Each
 /// target gets the fastest form measured for it (docs/INTERNALS.md,
 /// "Vectors"): NEON's pairwise-add reduction for 32 and 64 lanes, 16-lane
@@ -1615,7 +1622,7 @@ pub fn withLane(v: anytype, i: anytype, x: @typeInfo(@TypeOf(v)).vector.child) @
 /// WASM without SIMD, and Zig's own `@bitCast` elsewhere (one `pmovmskb`
 /// per 16 lanes on x86, one `i8x16.bitmask` on WASM SIMD). Every form
 /// gives the same bits (`test "maskBits: every form agrees"`).
-pub fn maskBits(m: anytype) u64 {
+pub inline fn maskBits(m: anytype) u64 {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     if (comptime (n == 32 or n == 64) and neonIntrinsics()) return maskBitsNeon(n, m);
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m);
@@ -1630,7 +1637,7 @@ pub fn maskBits(m: anytype) u64 {
 /// more (`nibbleMask`; a wider mask tests the OR of its pieces with `umaxv`, and locates the
 /// piece only when a lane is true); elsewhere `bits()` is already one
 /// bitmask, whose lowest set bit is the lane.
-pub fn maskFirst(m: anytype) ?i64 {
+pub inline fn maskFirst(m: anytype) ?i64 {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
         const bytes = maskBytes(n, m);
@@ -1655,7 +1662,7 @@ pub fn maskFirst(m: anytype) ?i64 {
 /// A 16-byte mask (0xFF or 0 per byte) as 4 bits per byte in a `u64`,
 /// lane `i` at bits `4i..4i+3`: a narrowing shift right by 4 (`shrn`)
 /// and one `fmov`.
-fn nibbleMask(bytes: @Vector(16, u8)) u64 {
+inline fn nibbleMask(bytes: @Vector(16, u8)) u64 {
     const wide: @Vector(8, u16) = @bitCast(bytes);
     const narrow: @Vector(8, u8) = @truncate(wide >> @as(@Vector(8, u4), @splat(4)));
     return @bitCast(narrow);
@@ -1665,7 +1672,7 @@ fn nibbleMask(bytes: @Vector(16, u8)) u64 {
 /// or more, by halving shuffles: an
 /// OR over the pieces as an array makes LLVM move them through general
 /// registers.
-fn foldBytes(comptime n: usize, w: @Vector(n, u8), comptime and_: bool) @Vector(16, u8) {
+inline fn foldBytes(comptime n: usize, w: @Vector(n, u8), comptime and_: bool) @Vector(16, u8) {
     comptime std.debug.assert(n >= 16 and std.math.isPowerOfTwo(n));
     if (n == 16) return w;
     const h = n / 2;
@@ -1682,7 +1689,7 @@ fn iota(comptime n: usize, comptime from: i32) @Vector(n, i32) {
 }
 
 /// `m.any()`: whether any lane of mask `m` is true.
-pub fn maskAny(m: anytype) bool {
+pub inline fn maskAny(m: anytype) bool {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     // WASM SIMD reduces a mask of more than 16 lanes lane by lane.
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) != 0;
@@ -1696,7 +1703,7 @@ pub fn maskAny(m: anytype) bool {
 }
 
 /// `m.all()`: whether every lane of mask `m` is true.
-pub fn maskAll(m: anytype) bool {
+pub inline fn maskAll(m: anytype) bool {
     const n = @typeInfo(@TypeOf(m)).vector.len;
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, m) == std.math.maxInt(@Int(.unsigned, n));
     if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
@@ -1711,7 +1718,7 @@ extern fn @"llvm.aarch64.neon.umaxv.i32.v16i8"(@Vector(16, u8)) i32;
 extern fn @"llvm.aarch64.neon.uminv.i32.v16i8"(@Vector(16, u8)) i32;
 
 /// A mask's lanes as bytes, 0xFF for true and 0 for false.
-fn maskBytes(comptime n: usize, m: @Vector(n, bool)) @Vector(n, u8) {
+inline fn maskBytes(comptime n: usize, m: @Vector(n, bool)) @Vector(n, u8) {
     return @select(u8, m, @as(@Vector(n, u8), @splat(0xFF)), @as(@Vector(n, u8), @splat(0)));
 }
 
@@ -1728,13 +1735,13 @@ fn wasmSimd() bool {
     return builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(builtin.cpu.features, .simd128);
 }
 
-fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
+inline fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
     return @as(@Int(.unsigned, n), @bitCast(m));
 }
 
 /// simdjson's reduction: each lane's bit weighted within its byte, then
 /// pairwise adds (`addp`) fold 16 lanes into 2 bytes, 64 into 8.
-fn maskBitsNeon(comptime n: usize, m: @Vector(n, bool)) u64 {
+inline fn maskBitsNeon(comptime n: usize, m: @Vector(n, bool)) u64 {
     const V = @Vector(16, u8);
     const addp = @"llvm.aarch64.neon.addp.v16i8";
     const eight = [8]u8{ 1, 2, 4, 8, 16, 32, 64, 128 };
@@ -1769,7 +1776,7 @@ extern fn @"llvm.aarch64.neon.addp.v16i8"(@Vector(16, u8), @Vector(16, u8)) @Vec
 
 /// A mask of more than 16 lanes as 16-lane bitmasks, one `i8x16.bitmask`
 /// each on WASM SIMD.
-fn maskBitsPieces(comptime n: usize, m: @Vector(n, bool)) u64 {
+inline fn maskBitsPieces(comptime n: usize, m: @Vector(n, bool)) u64 {
     const bytes: [n]u8 = @select(u8, m, @as(@Vector(n, u8), @splat(0xFF)), @as(@Vector(n, u8), @splat(0)));
     var r: u64 = 0;
     inline for (0..n / 16) |k| {
@@ -1782,7 +1789,7 @@ fn maskBitsPieces(comptime n: usize, m: @Vector(n, bool)) u64 {
 /// A mask's lanes as bytes of 0 or 1, gathered eight at a time into the
 /// top byte of one multiply: lane `i` of eight lands on bit `56 + i`, and
 /// no two partial products meet.
-fn maskBitsSwar(comptime n: usize, m: @Vector(n, bool)) u64 {
+inline fn maskBitsSwar(comptime n: usize, m: @Vector(n, bool)) u64 {
     const bytes: [n]u8 = @select(u8, m, @as(@Vector(n, u8), @splat(1)), @as(@Vector(n, u8), @splat(0)));
     var r: u64 = 0;
     inline for (0..n / 8) |k| {
@@ -2654,6 +2661,23 @@ test "maskBits: every form agrees" {
             try testing.expectEqual(if (want == 0) null else @as(?i64, @ctz(want)), maskFirst(m));
             try testing.expectEqual(want == std.math.maxInt(@Int(.unsigned, n)), maskAll(m));
         }
+    }
+}
+
+test "mask helpers: a mask known at compile time" {
+    inline for (.{ 8, 16, 32, 64 }) |n| {
+        const none: @Vector(n, bool) = @splat(false);
+        const all: @Vector(n, bool) = @splat(true);
+        var one = none;
+        one[n - 1] = true;
+        try testing.expectEqual(@as(?i64, null), maskFirst(none));
+        try testing.expectEqual(@as(?i64, 0), maskFirst(all));
+        try testing.expectEqual(@as(?i64, n - 1), maskFirst(one));
+        try testing.expect(!maskAny(none) and maskAny(one) and maskAny(all));
+        try testing.expect(!maskAll(none) and !maskAll(one) and maskAll(all));
+        try testing.expectEqual(@as(u64, 0), maskBits(none));
+        try testing.expectEqual(@as(u64, 1) << (n - 1), maskBits(one));
+        try testing.expectEqual(@as(u64, std.math.maxInt(@Int(.unsigned, n))), maskBits(all));
     }
 }
 
