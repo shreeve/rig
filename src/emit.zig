@@ -5283,11 +5283,12 @@ pub const Emitter = struct {
                 try self.emitBare(args[0]);
                 return self.w.writeAll(")))");
             },
-            // `rig.maskBits(m)`, `rig.maskAny(m)`, `rig.maskAll(m)`: the
-            // runtime lowers each per target.
-            .bits, .any, .all => {
+            // `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`,
+            // `rig.maskAll(m)`: the runtime lowers each per target.
+            .bits, .first, .any, .all => {
                 try self.w.writeAll(switch (ec.op) {
                     .bits => "rig.maskBits(",
+                    .first => "rig.maskFirst(",
                     .any => "rig.maskAny(",
                     else => "rig.maskAll(",
                 });

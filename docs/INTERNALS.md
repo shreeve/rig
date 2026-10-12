@@ -1846,7 +1846,7 @@ runtime function with value arguments, or the existing `read` and
 | `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows |
 | a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`) |
 | `v.not()` | `~v`, or `!m` of a mask |
-| `m.bits()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
+| `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
 | `m.select(a, b)` | `@select(T, m, a, b)` |
 | `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)` |
 | `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
@@ -1896,6 +1896,21 @@ compare-and-mask kernel):
 | x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`) | 39, 21 |
 | WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` through them | 64 (511 by `@bitCast`) |
 | WASM without SIMD | each lane a byte, eight gathered by one multiply | 851, but 1.75x faster under wasmtime than `@bitCast`'s 779 |
+
+`m.first()` is the index of the first true lane, `Int?`. On NEON it
+turns the 16 mask bytes into a nibble mask: a narrowing shift right by 4
+(`shrn`, written as a `@Vector(8, u16)` shift and truncate, plain Zig),
+one `fmov`, a test for zero, and `ctz >> 2`, so a 16-lane scan block
+crosses from vector to register once. For 32 and 64 lanes the pieces
+are ORed by halving shuffles and tested with `umaxv` (an OR over the
+pieces as an array makes LLVM move them through general registers),
+and only on a hit is each piece's nibble mask taken to find it. `any`
+and `all` call `umaxv` and `uminv` the same way, as `@reduce` over the
+bytes is rewritten back into a bitmask inside a loop. Other targets take
+`bits()` and its lowest set bit, one bitmask already. `if hits.first() as k`
+is the idiom for testing and locating at once; `hits.any()` followed by
+`hits.bits()` reduces the mask twice. In a release build the 16-lane scan
+loop is `cmeq`, `orr`, `shrn`, `fmov`, `cbz`.
 
 `test/behavior/types/simd_*` and `test/reject/types/simd_*` hold the
 behavior and rejections, including every block offset from 0 to 130
@@ -2566,16 +2581,21 @@ loop's continue expression, and its source is evaluated before the loop
 is entered, so a jump in it targets the loop around this one, as the
 checker walks it before `walkLoop`.
 
-**Jump targets.** Where each `break` and `continue` goes is resolved
-once, by the type checker (`Checker.resolveJump`), and recorded as the
-jump's `JumpDest` (`SemContext.jumpDestOf`): the construct it names
-(the `while` or `for`, or a labeled `match` or `raw` block) and the
-point it goes to, `exit` (past the construct, a `break`), `step`, or
-`head`. The resolution is lexical: an unlabeled jump names the
-innermost loop around it, a labeled one the innermost loop or block of
-its name, so a label may repeat an enclosing one; a closure's or a
-`defer`'s body starts with none, and a `for` source and a loop's
-`else` are outside the loop. A `continue` goes to `step` from the body
+**Jump targets.** Which construct each `break` and `continue` names
+(the `while` or `for`, or a labeled `match` or `raw` block) is one rule,
+`sema.eachJumpTo`, which lists the jumps that name a construct. It is
+lexical: an unlabeled jump names the innermost loop around it, a
+labeled one the innermost loop or block of its name, so a label may
+repeat an enclosing one; a closure's or a `defer`'s body is another
+body, and a `for` source and a loop's `else` are outside the loop, so a
+`break v` in a nested `for`'s source gives the loop around that `for`
+its value. The type checker records, as it enters each construct, the
+jumps that name it, and resolves each jump once from that record
+(`Checker.resolveJump`) into its `JumpDest` (`SemContext.jumpDestOf`):
+the construct and the point it goes to, `exit` (past the construct, a
+`break`), `step`, or `head`. The walks of a loop's value
+(`hasValueBreaks`, `loopValues`, and through them `yieldedLeaves`) take
+its `break`s from the same rule. A `continue` goes to `step` from the body
 of a `while` with a step, and from its condition when the step is the
 continue expression; to `head` from a step, and in a loop with no step.
 Its errors (a jump not inside a loop, a label naming nothing around it,
@@ -3247,7 +3267,7 @@ reviewed.
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 16 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
-| `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target |
+| `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index` and `readInt` make it, with the same panic. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |
