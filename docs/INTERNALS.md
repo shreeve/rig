@@ -2718,7 +2718,7 @@ none), never `self`; and `*Env(...)` makes a new counted handle.
 - `*fun(P, !Q) -> R` is `*Env` for some such `Env`. Sema needs only
   that it carries no loan (`checkViews`), needs cleanup, and never
   copies; its parameter and result types stand where a function's do
-  (`Home.signature`, `resolve.checkOwnedClosureType`). A function
+  (`Home.signature`, `TypeResolver.ownedClosureSignature`). A function
   type's parameters and result are not parts of its value
   (`nestsWriteView` does not enter them), so `List[*sub(!Checker)]`
   holds no write view, and a generic `T` in a closure's signature
