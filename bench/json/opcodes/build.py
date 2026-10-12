@@ -59,7 +59,8 @@ def apply(pkg, variant):
         s = mod.patch(s)
         if hasattr(mod, "patch_runtime"):
             r = os.path.join(pkg, "rig", "runtime.zig")
-            open(r, "w").write(mod.patch_runtime(open(r).read()))
+            text = mod.patch_runtime(open(r).read())
+            open(r, "w").write(text)
     open(p, "w").write(s)
 
 
