@@ -1201,6 +1201,7 @@ instead of re-deriving it by name:
 | `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
+| `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded by the storage plan; emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 **The lend table.** Which views a value lends (Core §4) is decided in
@@ -1516,7 +1517,7 @@ ownership checker accepted (`ModuleGraph.check` runs it only on a
 (`SemContext.provenOf`, a `sema.Proven`): a guard or a check that ran made
 the same test on every path to the node, and nothing it named was
 written between. Emit reads it through `Facts.provenOf` and writes the
-operation without those tests. As a desugaring:
+operation without those tests:
 
 ```text
 s[i]   ==>  test 0 <= i unless lower is proven; test i < s.len unless upper is proven; s.ptr[i]
@@ -1529,23 +1530,59 @@ proven check failed (compiler bug)"), so every test that runs checks the
 proofs it reaches; `./test/run`, the corpus, and the matrix fail on that
 message even where a panic is expected. An optimized build makes it too
 when `RIG_VERIFY_PROOFS=1` is set as it is built (the root module then
-declares `__rig_verify_proofs`).
+declares `__rig_verify_proofs`), and `RIG_NO_PROOFS=1` makes emit write
+every test, as if nothing were proven.
 
-**Facts.** The pass tracks three facts, about bindings, by symbol:
-`nonneg(i)`, `0 <= i`; `below(i, k, b)`, `i + k <= b` exactly; and
-`fits(s)`, `s.len <= 2^62 - 1`. `i` is a local or parameter of type
-`Int` of the body being walked (not a capture, a view, or a field); a
-bound `b` is `len(s)`, where `s` is such a binding of type `?String`,
-`[]T`, or `![]T`, or `int(n)`, where `n` is an `Int` binding like `i`;
-`k` is at most `2^62`. Each list below is positive: a shape not on it
-makes nothing and proves nothing.
+**Units.** A body is cut into units (`rig.eachUnit`), the one list every
+pass reads: a statement that orders no others (an assignment, a binding,
+an expression, `return`, `break`, `continue`, `<x`); each guard part of
+an `if` or `while` condition (an `as` part, or an operand of the top
+`and` chain of any other part, which Zig's `and` runs only after the
+operands before it held); a `while` step; a `for` source; a statement
+`match`'s selection (its subject, every pattern, every guard); and a
+`raw` block. The structured statements (a block, `if`, `while`, `for`,
+`match`, a labeled one, `defer`) are no unit: they order the units they
+hold. A block inside a unit's expression (an arm of a value `match`, a
+branch of a value `if`, a `catch` handler, a value loop's body) and a
+closure's body hold units of their own, nested in it. The storage plan
+records each node's unit (`SemContext.unitOf`). The proof is the
+desugaring
 
-| Makes | Gives |
+```text
+unit u  ==>  prove every check in u from E - K(u); then add u's facts
+```
+
+where `E` is the facts at `u`'s entry and `K(u)` every write anywhere in
+`u` (nested units, closure literals, and `defer`s registered in it
+included), but an assignment's own store, which follows every other step
+of the assignment (`storage.eachSetStep`). Inside a unit nothing is
+ordered: whatever order emit picks for its parts (an assignment's steps,
+a held receiver or argument, a hoisted value), every write it runs is in
+`K(u)`, and no fact `u` makes is visible to its own checks. A unit
+nested in `u` starts from `E - K(u)` too.
+
+**Facts.** The pass tracks four facts, about bindings, by symbol:
+`nonneg(i)`, `0 <= i`; `below(i, k, b)`, `i + k <= b` exactly;
+`fits(s)`, `s.len <= 2^62 - 1`; and `eq(n, s)`, `n == s.len`. `i` and
+`n` are locals or parameters of type `Int` of the body being walked (not
+a capture, a view, or a field); a bound `b` is `len(s)`, where `s` is
+such a binding of type `?String`, `[]T`, or `![]T`, or `int(n)`; `k` is
+at most `2^62`. Each list below is positive: a shape not on it makes
+nothing and proves nothing. A unit makes its facts on its exit, each
+only if nothing in `K(u)` names it; then an assignment's store applies,
+and then what the store makes.
+
+| Unit | Makes, on its exit |
 |---|---|
-| a guard on its true edge: an `if` or `while` condition, each part of an `and` chain, and the left of an `and` as its right sees it | `i < b`: `below(i, 1, b)`; `i <= b`: `below(i, 0, b)`; `i + k < b` or `k + i < b`: `below(i, k + 1, b)`; `i + k <= b`: `below(i, k, b)`; `0 <= i` or `0 < i`: `nonneg(i)`; each either way round. `b` is written `s.len` or `n`, `k` is an integer literal, and the `+` is checked (`+%` is another operator) |
-| a check that ran: `x = s[i]`, `x = s.read[T, e](i)`, or the statement `!s.write[T, e](i, v)` when nothing in it writes `i` or re-points `s`; `T` concrete | `nonneg(i)`, `below(i, width, len(s))`, before the statement's own store |
-| `i = c` with a literal `c`, `i = s.len`, `i = j` with `nonneg(j)` | `nonneg(i)` |
-| `s.len` read (emit lowers it through `rig.len`, which tests the margin) | `fits(s)` |
+| a guard part, on its true edge | `i < b`: `below(i, 1, b)`; `i <= b`: `below(i, 0, b)`; `i + k < b` or `k + i < b`: `below(i, k + 1, b)`; `i + k <= b`: `below(i, k, b)`; `0 <= i` or `0 < i`: `nonneg(i)`; each either way round. `b` is written `s.len` (which also gives `fits(s)`: the length was read through `rig.len`, which tests the margin) or `n`, `k` is an integer literal, and the `+` is checked (`+%` is another operator) |
+| `x = s[i]`, `x = s.read[T, e](i)`, or the statement `!s.write[T, e](i, v)`, `T` concrete: the check ran | `nonneg(i)`, `below(i, width, len(s))`, before the store |
+| `i = c` with a literal `c`, `i = j` with `nonneg(j)` | `nonneg(i)`, after the store |
+| `n = s.len` | `nonneg(n)`, `fits(s)`, and `eq(n, s)`, after the store |
+
+With `eq(n, s)` held, `below(i, k, int(n))` also gives `below(i, k,
+len(s))`, which then lasts while `i` and `s` do, whatever `n` does. A
+guard in a value (`x = s[i] if i < s.len else 0`, `ok = i < n and s[i]`)
+is part of its unit, and makes nothing.
 
 | Node | Proven |
 |---|---|
@@ -1560,51 +1597,65 @@ an assignment or compound assignment of the binding, a `!x` or
 `for e in !x` of it or a part of it, a store into a part of it, `<x.f`,
 a `|!x|` capture, and `<x` of the binding itself. The binding's
 `reassigned` and `written` flags are derived from that record. A write
-ends every fact about the binding it writes, but `i += c` and
-`i = i + c` with a literal `c >= 0` keep `nonneg(i)`; it ends every
-`below` whose bound it is, but a `!s`, `s[j] = x`, or `!s.write` of a
-slice view `s` keeps `len(s)` and `fits(s)`, since writing through a
-view changes elements, never its length; and a `raw` block ends every
-fact, and nothing in it is proven. A write view made before a guard and
-used after it makes the guard's read of what it views a rejection (Core
-sentences 5 and 6), so in an accepted module every write between a
-fact and its use lies between them in the walk.
+ends every fact naming the binding it writes, but `i += c` and
+`i = i + c` with a literal `c >= 0` keep `nonneg(i)`, and a `!s`,
+`s[j] = x`, or `!s.write` of a slice view `s` keeps `len(s)`, `fits(s)`,
+and `eq(_, s)`, since writing through a view changes elements, never its
+length. A `raw` block ends every fact, and nothing in it is proven. A
+write view made before a guard and used after it makes the guard's read
+of what it views a rejection (Core sentences 5 and 6), so in an accepted
+module every write between a fact and its use is in a unit between them.
 
-**The walk** follows the emitted control flow: a block's statements in
-order; an assignment's value, then the store ([Assignments](#assignments));
-a loop's condition parts, its body, then its step ([Loops](#loops)); `and`
-and `or` left to right; each `defer` of a block where the block ends.
-Emit finds an assignment's place after its value only when the value can
-act (`actsBeforeStore`), so the target's indexes are walked from what
-holds either way: the facts before the value less what the value writes,
-never a fact the value made. Inside one expression the walk relies on no
-order: every write in the expression ends its facts before any part of
-it is read, each part starts from the facts before the expression, and
-the writes end what the parts made before the expression's own test is
-proven (`walkAtomic`). Where control flow joins
-(`if` and `else`, `match`, a ternary, `catch`, `??`, `or`, a labeled
-block, a loop and its `else`), the facts are those from before the
-construct less every write inside it. A loop starts from the facts
-before it less every write in its condition, body, and step, so a fact
-holds at every iteration's start only if nothing in the loop changes
-it, and no fixpoint is needed; the body adds its guard's facts each
-iteration. The step sees the body's starting facts less every write in
-the body, or, when the condition holds a `continue`, which reaches the
-step before the guard after it runs, the loop's starting facts. A
-`match` arm runs after the guards of the arms before it failed, so each
-starts from the subject's facts less every write in any guard. After a
-`return`, `break`, or `continue`, nothing is known. A closure's body, a
-`defer` body, and each function start with no facts.
+**Between units** the walk follows the skeleton, each of whose edges is
+a fact emit and the ownership checker read too:
+
+| Construct | The walk |
+|---|---|
+| block | its statements in order; at its end, the kills of its `defer`s |
+| `if` | the guard parts in order, each from the true edge of the one before (`rig.eachGuardPart`, `rig.eachGuardOperand`); `then` from the last one's; `else` from `E - K(condition)`; after it, `E - K(if)` |
+| `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; `else` from `L - K(condition)`; after it, `E - K(loop)` |
+| `for` | the source unit; then `L` as for `while`, the body from `L`; a `for` binding gets no facts |
+| statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
+| `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
+| `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, or `continue` statement nothing is reached |
+| `raw` | opaque: nothing in it is proven, no fact outlives it, and a jump out of it carries none |
+| a closure's body, a `defer` body, a function's body | from no facts |
+
+A meet keeps the facts both sides hold, a `below` with the smaller `k`.
+Every state inside a loop holds `L`, so no fixpoint is needed.
+
+**Keeping emit and the walk together.** Three checks make a divergence
+fail a run rather than a proof:
+
+- Emit enters each unit as it writes the unit's code (`enterUnit`), and
+  asserts, in every debug build of the compiler, that each check, write,
+  expression, and hidden storage location it writes lies in the unit
+  that holds it (`Emitter.inUnit`): no hoist carries a check or a write
+  into another unit's code unseen.
+- The unit-order test (`proofs.checkUnitOrder`): a debug build of the
+  compiler traces the units emit writes, in the order their code runs,
+  and each Zig jump it writes, and checks that they are the units the
+  walk visits, nested alike, the units of each block in the same order,
+  and each jump going where the walk sends its facts. A unit test runs
+  it over `test/behavior/emit` and `test/behavior/proofs`, and checks
+  that a swapped pair of units or a misdirected jump fails it.
+- The differential run (`./test/run --proofs-diff`): each program with
+  a proven test runs in debug (every omitted test asserted), with
+  `--release`, and with `--release` and `RIG_NO_PROOFS=1`; all three
+  must print the same, exit the same, and panic the same, and no proven
+  check may fail. `--proofs-diff=all` runs every program.
 
 `rig check --facts=proofs` prints each node with a test known to pass,
 `L:C KIND TESTS` (`index`, `read`, `write`, `+`, or `+=`, then `lower`,
 `upper`, `no_overflow`), in source order. `test/cli/facts_proofs.sh`
 compares it on `test/behavior/proofs/swar.rig` line by line and checks
-the `# proves:` and `# keeps:` marks of every program beside it; each
-program that keeps a test has one where it fails, in debug and with
-`--release`. `test/matrix.py`'s `proof.` grid puts each guard, write,
-and use together, and checks the dump against its own copy of these
-tables.
+the `# proves:` and `# keeps:` marks of every program beside it.
+`test/matrix.py`'s `proof.` grid puts each guard, write, and use
+together and checks the dump against its own copy of these tables; its
+`unit.` grid puts a write of `i` in each slot of each statement form
+beside a use, and checks that the use is proven exactly when a guard
+dominates its unit and no write of `i` is in that unit or on a path
+from the guard.
 
 ### Generics
 

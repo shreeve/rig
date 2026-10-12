@@ -21,6 +21,13 @@
 #   --delta     check every program, but do not run again one whose run
 #               passed before with the same inputs (the results cache,
 #               test/README.md); it counts as passed, carried over
+#   --proofs-diff[=all]
+#               instead of each program's own checks, the differential
+#               run of the proven checks: each program the compiler
+#               proves a test of (with =all, every program) runs in
+#               debug, with --release, and with --release and
+#               RIG_NO_PROOFS=1, and all three must print the same, exit
+#               the same, and panic the same, with no proven check failing
 #
 # Environment: ZIG (the Zig executable),
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
@@ -452,6 +459,40 @@ check_corpus() {
     return 0
 }
 
+# The differential run of the proven checks (--proofs-diff): a program
+# the compiler proves a test of (`rig check --facts=proofs`; with =all,
+# any it accepts) runs in debug, where every omitted test is still made
+# as an assertion, with --release, and with --release and RIG_NO_PROOFS=1,
+# where emit omits none. All three must print the same, exit the same,
+# and panic with the same message, and no proven check may fail.
+check_proofs_diff() {
+    local entry=$1 outdir=$2 log=$3 facts how msg first="" rc0="" out0=""
+    facts=$("$TIMEOUT_CMD" "$TIMEOUT" "$RIG" check --facts=proofs "$entry" 2>/dev/null </dev/null) || return 0
+    [[ -z "$facts" && $PROOFS_DIFF != all ]] && return 0
+    carried_over "proofs-diff $TIMEOUT" "$entry" && return 0
+    : >"$log"
+    for how in debug release plain; do
+        case $how in
+            debug) run_program "$entry" "$outdir/$how" ;;
+            release) run_program "$entry" "$outdir/$how" --release ;;
+            plain) RIG_NO_PROOFS=1 run_program "$entry" "$outdir/$how" --release ;;
+        esac
+        { echo "=== $how (exit $RC)"; cat "$outdir/$how.stdout"; echo "--- stderr"; cat "$outdir/$how.stderr"; } >>"$log"
+        if [[ $RC -eq 124 ]]; then REASON="$how: timed out after ${TIMEOUT}s"; return 1; fi
+        not_run "$outdir/$how" "$RC" && { REASON="$how: $REASON"; return 1; }
+        if grep -qF 'rig: a proven check failed' "$outdir/$how.stderr"; then REASON="$how: a proven check failed"; return 1; fi
+        msg=$(grep -m1 -oE 'panic: .*' "$outdir/$how.stderr")
+        if [[ -z "$first" ]]; then
+            first=$how rc0=$RC out0=$(cat "$outdir/$how.stdout") msg0=$msg
+            continue
+        fi
+        [[ $RC -eq $rc0 ]] || { REASON="$how exits $RC, $first $rc0"; return 1; }
+        [[ "$(cat "$outdir/$how.stdout")" == "$out0" ]] || { REASON="$how prints other than $first"; return 1; }
+        [[ "$msg" == "$msg0" ]] || { REASON="$how: ${msg:-no panic}, $first: ${msg0:-no panic}"; return 1; }
+    done
+    return 0
+}
+
 # check_cli <script> <outdir> <logfile>: the script exits 0. It runs in an
 # empty directory with RIG, ROOT, and RIG_OUT_DIR set (test/cli/_lib.sh).
 check_cli() {
@@ -574,6 +615,16 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
         [[ -d "$outdir/programs" ]] && find "$outdir/programs" -mindepth 2 -maxdepth 2 ! -name .zig-cache -exec rm -rf {} +
     fi
 
+    if [[ -n "$PROOFS_DIFF" ]]; then
+        case $kind in
+            behavior|examples|corpus) check_proofs_diff "$entry" "$outdir" "$log"; ok=$? ;;
+            *) printf 'pass\t%s\tnot a program\n' "$id" >"$res"; return ;;
+        esac
+        if [[ -n "$CARRIED" ]]; then printf 'pass\t%s\tcarried over\n' "$id" >"$res"
+        elif [[ $ok -eq 0 ]]; then record_pass "$log"; printf 'pass\t%s\t\n' "$id" >"$res"
+        else printf 'fail\t%s\t%s\n' "$id" "$REASON" >"$res"; fi
+        return
+    fi
     case $kind in
         behavior|examples) check_behavior "$entry" "$outdir" "$log"; ok=$? ;;
         reject)            check_reject "$entry" "$log"; ok=$? ;;
@@ -624,7 +675,7 @@ fi
 # Driver
 # -----------------------------------------------------------------------------
 
-UPDATE="" VERBOSE="" PRUNE="" SHARD="" DELTA="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+UPDATE="" VERBOSE="" PRUNE="" SHARD="" DELTA="" PROOFS_DIFF="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 FILTERS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -636,6 +687,8 @@ while [[ $# -gt 0 ]]; do
             SHARD=$2; shift ;;
         -v) VERBOSE=1 ;;
         --delta) DELTA=1 ;;
+        --proofs-diff) PROOFS_DIFF=proven ;;
+        --proofs-diff=all) PROOFS_DIFF=all ;;
         -j) [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { echo "-j needs a number of jobs" >&2; exit 2; }
             JOBS=$2; shift ;;
         -h|--help) sed -n '2,/^$/p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -728,7 +781,7 @@ fi
 RIG_LOCATIONS='^RIG_(RESULTS_CACHE|BUILD_STORE|BUILD_STORE_DAYS|BUILD_STORE_MAX_GB|TEST_OUT|OUT_DIR|RUN_STARTED|PROGRAM_STARTED)='
 if [[ -n "$RESULTS_CACHE" ]]; then
     if ! RESULTS_BASE=$({ $SHA256 <"$SELF" && $SHA256 <src/main.zig && "$ZIG" env &&
-        printf 'zig %s\nsanitize %s\ntimeout %s\n' "$ZIG" "$SANITIZE" "$TIMEOUT" &&
+        printf 'zig %s\nsanitize %s\ntimeout %s\nproofs-diff %s\n' "$ZIG" "$SANITIZE" "$TIMEOUT" "$PROOFS_DIFF" &&
         env | awk -v loc="$RIG_LOCATIONS" '/^RIG_/ && $0 !~ loc' | LC_ALL=C sort; } 2>/dev/null | $SHA256) ||
         ! FIXED_INPUTS=$(fixed_inputs 2>/dev/null); then
         printf '%snote: cannot hash the inputs of a run; the results cache is off%s\n' "$Y" "$X"
@@ -773,7 +826,7 @@ exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
 PERL
     chmod +x "$TIMEOUT_CMD"
 fi
-export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE DELTA RESULTS_CACHE RESULTS_BASE SHA256 FIXED_INPUTS
+export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE DELTA PROOFS_DIFF RESULTS_CACHE RESULTS_BASE SHA256 FIXED_INPUTS
 
 is_kind() {
     case $1 in behavior|reject|known|examples|ir|torture|cli|unit|classify|vocab|style|doc|corpus|oracle) return 0 ;; esac

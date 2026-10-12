@@ -1318,3 +1318,248 @@ test "joins: a fact made in a branch ends with it; a loop keeps only what it doe
     );
 }
 
+
+test "units: a check is proved from the facts at its unit's entry less every write in the unit" {
+    // A `continue` in the condition carries what held before the guard
+    // after it: the step's `i += 1` is not proven.
+    try expectDump(
+        \\fun pick(i: Int) -> Int?
+        \\  none
+        \\
+        \\fun run(at: Int, n: Int) -> Int
+        \\  i = at
+        \\  t = 0
+        \\  while (pick(i) ?? continue) > 0 and i < n : i += 1
+        \\    t += 1
+        \\  t
+        \\
+    ,
+        \\
+    );
+    // Every guard of a `match` is in its selection: a guard that writes
+    // `i` ends what each arm would know of it.
+    try expectDump(
+        \\fun bump(n: !Int) -> Bool
+        \\  n += 1
+        \\  false
+        \\
+        \\fun pick(s: ?String, at: Int, k: Int) -> U8
+        \\  i = at
+        \\  if i < s.len
+        \\    match k
+        \\      1 if bump(!i) => print(1)
+        \\      _ => return s[i]
+        \\  0
+        \\
+    ,
+        \\
+    );
+    // The value's check proves nothing in its own statement, whichever
+    // of the value and the target runs first; a target's root that
+    // writes `i`, or an index that does, ends the guard's facts in it.
+    try expectDump(
+        \\fun pick(t: ![]U8, n: !Int) -> ![]U8 from t
+        \\  n += 1
+        \\  t
+        \\
+        \\fun next(n: !Int) -> Int
+        \\  n += 1
+        \\  n
+        \\
+        \\sub put(t: ![]U8, s: ?String, at: Int)
+        \\  i = at
+        \\  t[i] = s[i]
+        \\  if i < s.len
+        \\    pick(!t, !i)[0] = s[i]
+        \\  if i < s.len
+        \\    pick(!t, !i)[0] += s[i]
+        \\  if i < s.len
+        \\    t[next(!i) - 4] = s[i]
+        \\
+    ,
+        \\
+    );
+    // What a statement shows holds after it: `c = t[i]` proves both
+    // accesses of the next statement.
+    try expectDump(
+        \\sub put(t: ![]U8, src: ?String, at: Int)
+        \\  i = at
+        \\  c = t[i]
+        \\  t[i] = src[i] + c
+        \\
+    ,
+        \\4:3 index lower upper
+        \\4:10 index lower
+        \\
+    );
+}
+
+test "units: a guard in a value proves nothing" {
+    try expectDump(
+        \\fun f(s: ?String, i: Int, n: Int) -> Int
+        \\  x = Int(s[i]) if i < s.len else 0
+        \\  ok = i < n and s[i] == 32
+        \\  y = (i + 1) if i < n else 0
+        \\  x + y + (1 if ok else 0)
+        \\
+    ,
+        \\
+    );
+}
+
+test "E1: after `n = s.len`, a guard on `n` bounds `s`" {
+    // A guard on `n` once `n = s.len` holds.
+    try expectDump(
+        \\fun count(src: ?String) -> Int
+        \\  n = src.len
+        \\  i = 0
+        \\  while i < n and src[i] != 0
+        \\    i += 1
+        \\  i
+        \\
+    ,
+        \\4:19 index lower upper
+        \\5:5 += no_overflow
+        \\
+    );
+    // `n = s.len` after the guard converts what the guard showed of `n`;
+    // what it gave stays when `n` changes later.
+    try expectDump(
+        \\fun f(s: ?String, at: Int, m: Int) -> U8
+        \\  n = m
+        \\  i = at
+        \\  if i < n
+        \\    n = s.len
+        \\    print(s[i])
+        \\  n = s.len
+        \\  if i < n
+        \\    n -= 2
+        \\    return s[i]
+        \\  0
+        \\
+    ,
+        \\10:12 index upper
+        \\
+    );
+    // Re-pointing `s` ends the equality and what it gave.
+    try expectDump(
+        \\fun f(t: ?String, at: Int) -> U8
+        \\  s = t
+        \\  n = s.len
+        \\  i = at
+        \\  if i < n
+        \\    s = t[..1]
+        \\    return s[i]
+        \\  n = s.len
+        \\  s = t[..1]
+        \\  if i < n
+        \\    return s[i]
+        \\  0
+        \\
+    ,
+        \\
+    );
+}
+
+/// Every `.rig` program of `dir` (a multi-file test's `main.rig`).
+fn programsIn(a: std.mem.Allocator, dir_path: []const u8, out: *std.ArrayList([]const u8)) !void {
+    const io = std.testing.io;
+    var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        const path = switch (entry.kind) {
+            .file => if (std.mem.endsWith(u8, entry.name, ".rig")) try std.fs.path.join(a, &.{ dir_path, entry.name }) else continue,
+            .directory => try std.fs.path.join(a, &.{ dir_path, entry.name, "main.rig" }),
+            else => continue,
+        };
+        try out.append(a, path);
+    }
+}
+
+test "the unit-order test: emit writes the units the walk visits, nested and ordered alike" {
+    // Every program of test/behavior/emit and test/behavior/proofs: the
+    // units emit writes, in the order their code runs, are the ones the
+    // walk visits, each in the same unit, and the units of each block in
+    // the same order; each jump goes where the walk sends its facts. A
+    // trace with two units of a block swapped, or a jump sent elsewhere,
+    // fails the test.
+    const emit = @import("emit.zig");
+    const facts = @import("facts.zig");
+    const modules = @import("modules.zig");
+    const a = std.testing.allocator;
+    const io = std.testing.io;
+    var arena_all = std.heap.ArenaAllocator.init(a);
+    defer arena_all.deinit();
+    var names: std.ArrayList([]const u8) = .empty;
+    try programsIn(arena_all.allocator(), "test/behavior/emit", &names);
+    try programsIn(arena_all.allocator(), "test/behavior/proofs", &names);
+    var compared: usize = 0;
+    var units: usize = 0;
+    var swapped: usize = 0;
+    for (names.items) |path| {
+        // The compiler runs in an arena, as `rig` does.
+        var arena = std.heap.ArenaAllocator.init(a);
+        defer arena.deinit();
+        const aa = arena.allocator();
+        var graph = modules.ModuleGraph.init(aa, io);
+        defer graph.deinit();
+        graph.loadRoot(path) catch continue;
+        if (graph.hasErrors()) continue;
+        const m = graph.root();
+        var trace: std.ArrayList(UnitEvent) = .empty;
+        defer trace.deinit(a);
+        var out: std.Io.Writer.Allocating = .init(a);
+        defer out.deinit();
+        var em = emit.Emitter.init(a, m.source, &out.writer, facts.Facts.of(m.sema));
+        defer em.deinit();
+        em.unit_trace = &trace;
+        try em.emit(m.ir);
+        if (try checkUnitOrder(m.sema, aa, m.ir, trace.items)) |what| {
+            std.debug.print("{s}: {s}\n", .{ path, what });
+            return error.TestUnexpectedResult;
+        }
+        compared += 1;
+        for (trace.items) |ev| if (ev == .enter) {
+            units += 1;
+        };
+        // Swap the first two units that start one after the other at a
+        // body's top level: the test must see it.
+        const placed = try placeUnits(aa, trace.items);
+        var groups: Groups = .{ .a = aa };
+        try rig.eachBody(m.ir, &groups, Groups.body);
+        var i: usize = 0;
+        while (i + 1 < placed.items.len) : (i += 1) {
+            const x = placed.items[i];
+            const y = placed.items[i + 1];
+            if (x.parent != null or y.parent != null) continue;
+            if (groups.of.get(x.unit) != groups.of.get(y.unit)) continue;
+            var bad: std.ArrayList(UnitEvent) = .empty;
+            for (trace.items) |ev| try bad.append(aa, switch (ev) {
+                .enter => |k| .{ .enter = if (k == x.unit) y.unit else if (k == y.unit) x.unit else k },
+                .exit => |k| .{ .exit = if (k == x.unit) y.unit else if (k == y.unit) x.unit else k },
+                .jump => ev,
+            });
+            if (try checkUnitOrder(m.sema, aa, m.ir, bad.items) == null) {
+                std.debug.print("{s}: two units swapped went unseen\n", .{path});
+                return error.TestUnexpectedResult;
+            }
+            swapped += 1;
+            break;
+        }
+        // A jump sent to another point of its target: the test must see it.
+        for (trace.items, 0..) |ev, j| if (ev == .jump) {
+            var bad = try std.ArrayList(UnitEvent).initCapacity(aa, trace.items.len);
+            bad.appendSliceAssumeCapacity(trace.items);
+            bad.items[j].jump.to = if (ev.jump.to == .exit) .head else .exit;
+            if (try checkUnitOrder(m.sema, aa, m.ir, bad.items) == null) {
+                std.debug.print("{s}: a jump sent elsewhere went unseen\n", .{path});
+                return error.TestUnexpectedResult;
+            }
+            break;
+        };
+    }
+    try std.testing.expect(compared > 100);
+    try std.testing.expect(units > 1000);
+    try std.testing.expect(swapped > 50);
+}

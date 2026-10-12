@@ -3098,6 +3098,82 @@ test "a condition's guard parts: each part a binding condition joins, or the who
     }
 }
 
+test "a body's units: statements, guard parts, steps, sources, selections, and raw blocks, nested in the unit holding their block" {
+    const source =
+        \\fun f(s: ?String, o: Int?, k: Int) -> Int
+        \\  i = 0
+        \\  while o as x and i < s.len and s[i] > 0: i += 1
+        \\    if i > 2 and x > 1
+        \\      break
+        \\  for c in s[i..]
+        \\    print(c)
+        \\  match k
+        \\    1 if i > 0 => print(1)
+        \\    _ => pass
+        \\  y = match k
+        \\    1
+        \\      print(2)
+        \\      3
+        \\    _ => 4
+        \\  raw
+        \\    print(5)
+        \\  defer print(6)
+        \\  g = |n: Int| n + 1
+        \\  i + y + g(1)
+        \\
+    ;
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    const Units = struct {
+        lines: std.ArrayList(u8) = .empty,
+        depth: usize = 0,
+        parser: *const Parser,
+        pub fn enter(self: *@This(), root: Sexp, kind: UnitKind) std.mem.Allocator.Error!void {
+            const sp = self.parser.span(root);
+            const text = std.mem.trim(u8, self.parser.base.source[sp.start..sp.end], " \n");
+            const line_end = std.mem.indexOfScalar(u8, text, '\n') orelse text.len;
+            for (0..self.depth) |_| try self.lines.appendSlice(testing.allocator, "  ");
+            try self.lines.print(testing.allocator, "{s} {s}\n", .{ @tagName(kind), text[0..line_end] });
+            self.depth += 1;
+        }
+        pub fn exit(self: *@This(), _: Sexp) std.mem.Allocator.Error!void {
+            self.depth -= 1;
+        }
+    };
+    var units: Units = .{ .parser = &p };
+    defer units.lines.deinit(testing.allocator);
+    const Body = struct {
+        fn each(u: *Units, _: Sexp, body: Sexp) std.mem.Allocator.Error!void {
+            try eachUnit(body, u);
+        }
+    };
+    try eachBody(tree, &units, Body.each);
+    try testing.expectEqualStrings(
+        \\stmt i = 0
+        \\guard o as x
+        \\guard i < s.len
+        \\guard s[i] > 0
+        \\guard i > 2
+        \\guard x > 1
+        \\stmt break
+        \\step i += 1
+        \\source s[i..]
+        \\stmt print(c)
+        \\selection match k
+        \\stmt print(1)
+        \\stmt pass
+        \\stmt y = match k
+        \\  stmt print(2)
+        \\raw raw
+        \\stmt print(6)
+        \\stmt g = |n: Int| n + 1
+        \\  stmt n + 1
+        \\stmt i + y + g(1)
+        \\
+    , units.lines.items);
+}
+
 test "a body's exits are `return`, `!`, and `?`; the jumps are `break` and `continue`" {
     const source =
         \\fun f(o: Int?, r: Int!) -> Int?
