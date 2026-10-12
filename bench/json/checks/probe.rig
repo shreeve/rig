@@ -1,0 +1,13 @@
+# A program that uses all of std.json, for checks/inventory.py: it parses
+# its last argument, so nothing is known about the input at compile time.
+use std.json
+use std.os
+
+sub main()
+  args = os.args()
+  doc = json.new_doc()
+  n = 0
+  for _ in 0..3
+    if (!doc).parse(args[args.len - 1])
+      n += doc.size()
+  print(n)
