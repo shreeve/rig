@@ -32,6 +32,15 @@ const VarId = core.VarId;
 const BlockId = core.BlockId;
 const Step = core.Step;
 
+/// The text of a leaf, as `Sexp.getText` gives it, and the whole text of
+/// a leaf of a token over 65534 bytes (`rig.leafEnd`).
+pub fn leafText(s: Sexp, source: []const u8) []const u8 {
+    return switch (s) {
+        .src => |x| lib.diag.textBetween(source, x.pos, rig.leafEnd(source, x)),
+        else => s.getText(source),
+    };
+}
+
 /// Why the last lowering abstained.
 pub var abstain_reason: []const u8 = "";
 
@@ -172,10 +181,10 @@ fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
     if (names == .nil) return null;
     var mask: u64 = 0;
     for (names.items()) |n| {
-        const text = n.getText(m.source);
+        const text = leafText(n, m.source);
         for (ir.get(d, .params).items(), 0..) |p, i| {
             const pn = sema.paramNameNode(p) orelse continue;
-            if (std.mem.eql(u8, pn.getText(m.source), text) and i < 64) mask |= @as(u64, 1) << @intCast(i);
+            if (std.mem.eql(u8, leafText(pn, m.source), text) and i < 64) mask |= @as(u64, 1) << @intCast(i);
         }
     }
     return mask;
@@ -211,7 +220,7 @@ fn findDecl(m: *const lib.modules.Module, name: []const u8, pos: ?u32) ?Callee {
         const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
         if (!d.isKind(.fun) and !d.isKind(.sub)) continue;
         const n = ir.get(d, .name);
-        if (n != .src or !std.mem.eql(u8, n.getText(m.source), name)) continue;
+        if (n != .src or !std.mem.eql(u8, leafText(n, m.source), name)) continue;
         if (pos) |p| if (n.src.pos != p) continue;
         if (ir.get(d, .body) == .nil) return null;
         return .{ .module = m, .decl = d };
@@ -664,7 +673,7 @@ const Lowerer = struct {
             .labeled => {
                 const inner = ir.Labeled.stmt(s);
                 if (!inner.isKind(.@"while") and !inner.isKind(.@"for") and !inner.isKind(.match)) return abstain("a labeled `raw` block");
-                self.label = ir.Labeled.label(s).getText(self.src);
+                self.label = leafText(ir.Labeled.label(s), self.src);
                 try self.stmtIn(inner);
             },
             // Registered on the scope under the statement's temporaries;
@@ -684,7 +693,7 @@ const Lowerer = struct {
         const target = ir.Set.target(s);
         const rhs = ir.Set.value(s);
         const pos = self.posOf(s);
-        if (target == .src and std.mem.eql(u8, target.getText(self.src), "_")) {
+        if (target == .src and std.mem.eql(u8, leafText(target, self.src), "_")) {
             // `_ = e` binds the value to nothing: it is taken, then
             // dropped with the statement.
             _ = try self.eval(rhs, .take, null);
@@ -1079,7 +1088,7 @@ const Lowerer = struct {
     /// ends with the statement (Core §3: a view of what a header made
     /// does not outlive it).
     fn bindHeld(self: *Lowerer, leaf: Sexp, h: Held, stored: ?TypeId) Error!void {
-        if (leaf == .nil or std.mem.eql(u8, leaf.getText(self.src), "_")) {
+        if (leaf == .nil or std.mem.eql(u8, leafText(leaf, self.src), "_")) {
             try self.emit(.{ .pos = h.pos, .what = .use, .uses = try self.one(h.v) });
             return;
         }
@@ -1154,7 +1163,7 @@ const Lowerer = struct {
         if (decl.ctx != self.ctx) return null;
         const name = ir.VariantPattern.name(pattern);
         if (name != .src) return null;
-        const want = name.getText(self.src);
+        const want = leafText(name, self.src);
         for (decl.symbol().fields orelse &.{}) |*f| {
             if (!f.is_variant or !std.mem.eql(u8, f.name, want)) continue;
             const payload = sema.dataFields(f);
@@ -1234,7 +1243,7 @@ const Lowerer = struct {
 
     fn irrefutable(self: *Lowerer, pattern: Sexp) bool {
         if (pattern != .src) return false;
-        if (std.mem.eql(u8, pattern.getText(self.src), "_")) return true;
+        if (std.mem.eql(u8, leafText(pattern, self.src), "_")) return true;
         return self.bindsName(pattern);
     }
 
@@ -1286,7 +1295,7 @@ const Lowerer = struct {
         const h = try self.newBlock();
         try self.goto(h);
         self.cur = h;
-        const forever = cond == .src and std.mem.eql(u8, cond.getText(self.src), "true");
+        const forever = cond == .src and std.mem.eql(u8, leafText(cond, self.src), "true");
         const b = try self.newBlock();
         const x = try self.newBlock();
         const st = try self.newBlock();
@@ -1398,13 +1407,13 @@ const Lowerer = struct {
         // Each element: a copy, or owned when the source is, or else a
         // view of the source, carrying its loans.
         const var_leaf = ir.For.@"var"(s);
-        if (var_leaf != .nil and !std.mem.eql(u8, var_leaf.getText(self.src), "_")) {
+        if (var_leaf != .nil and !std.mem.eql(u8, leafText(var_leaf, self.src), "_")) {
             try self.bindHeld(var_leaf, .{ .v = src_var, .pos = pos, .ty = src_ty }, self.elementOf(src_ty));
             // An element of a source the loop moves is its own.
             if (mode != .move) try self.loop_elems.put(self.a, @intCast(self.f.vars.items.len - 1), {});
         }
         const idx_leaf = ir.For.index(s);
-        if (idx_leaf != .nil and !std.mem.eql(u8, idx_leaf.getText(self.src), "_")) {
+        if (idx_leaf != .nil and !std.mem.eql(u8, leafText(idx_leaf, self.src), "_")) {
             const iv = try self.bind(idx_leaf, 0);
             try self.emit(.{ .pos = pos, .what = .make, .def = iv });
         }
@@ -1423,7 +1432,7 @@ const Lowerer = struct {
 
     fn findLoop(self: *Lowerer, label: Sexp) Error!Loop {
         var i = self.loops.items.len;
-        const want = if (label == .nil) null else label.getText(self.src);
+        const want = if (label == .nil) null else leafText(label, self.src);
         while (i > self.loop_floor) {
             i -= 1;
             const lp = self.loops.items[i];
@@ -1608,7 +1617,7 @@ const Lowerer = struct {
         // branch is not (`ifInto`): its temporaries are its statement's,
         // and only the error a `catch` binds leaves with it.
         const name: Sexp = if (e.isKind(.@"catch")) ir.Catch.name(e) else .nil;
-        const binds = name != .nil and !std.mem.eql(u8, name.getText(self.src), "_");
+        const binds = name != .nil and !std.mem.eql(u8, leafText(name, self.src), "_");
         if (binds) {
             try self.pushRegion();
             const err = try self.bind(name, 0);
@@ -1762,7 +1771,7 @@ const Lowerer = struct {
                 try self.emit(.{ .pos = pos, .what = .make, .reads = try self.pair(n, v), .def = t });
                 return t;
             },
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => {
                 // An operand is read as its value (SPEC §7).
                 const l = try self.readOpt(ir.get(e, .left));
                 const r = try self.readOpt(ir.get(e, .right));
@@ -1976,7 +1985,7 @@ const Lowerer = struct {
             } else _ = try self.eval(idx, .read, null);
             _ = self.finding.pop();
             step = .elem;
-        } else step = .{ .field = ir.Member.name(e).getText(self.src) };
+        } else step = .{ .field = leafText(ir.Member.name(e), self.src) };
         const path = try self.a.alloc(Step, base.path.len + 1);
         @memcpy(path[0..base.path.len], base.path);
         path[base.path.len] = step;
@@ -2612,7 +2621,7 @@ const Lowerer = struct {
         var recv_vars: std.ArrayList(VarId) = .empty;
 
         if (callee == .src) {
-            const name = callee.getText(self.src);
+            const name = leafText(callee, self.src);
             const sym_id = self.ctx.symbolOf(callee);
             const sym: ?sema.Symbol = if (sym_id) |id| self.ctx.symbols.items[id] else null;
             const builtin = sym == null or sym.?.decl_pos == sema.builtin_decl_pos;
@@ -2712,14 +2721,14 @@ const Lowerer = struct {
                         shapes = &.{.view};
                         stored = &.{true};
                     },
-                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select => all_read = true,
+                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => all_read = true,
                 } else all_read = true;
                 // `get`, `pop`, and `remove` hand back an element of a List:
                 // a value it held, which carries the loans the List's
                 // elements carry, and no loan on the List (Core s7: a view
                 // reached through another carries that view's loans).
                 const elem_method = self.isList(recv_ty) and for ([_][]const u8{ "get", "pop", "remove" }) |m| {
-                    if (std.mem.eql(u8, m, ir.Member.name(callee).getText(self.src))) break true;
+                    if (std.mem.eql(u8, m, leafText(ir.Member.name(callee), self.src))) break true;
                 } else false;
                 switch (recv_mode) {
                     .none => return abstain("a function of a type called on a value"),
@@ -2854,7 +2863,7 @@ const Lowerer = struct {
             }
             const arg_how: How = if (all_read) .read else if (shape == .view) .view else .take;
             // Where a write view goes, a bare one would be copied (SPEC §7).
-            const wants_view = is_ctor and arg.isKind(.kwarg) and self.fieldIsWriteView(e, ir.Kwarg.name(arg).getText(self.src));
+            const wants_view = is_ctor and arg.isKind(.kwarg) and self.fieldIsWriteView(e, leafText(ir.Kwarg.name(arg), self.src));
             var v = try self.eval(val, arg_how, if (wants_view) self.ctx.typeOf(val) else null) orelse continue;
             if ((arg_how == .take and (!is_ctor or cell_store)) or all_read) v = try self.readThrough(v, self.posOf(val));
             if (elem_copy) |et| {
@@ -3203,7 +3212,7 @@ const Lowerer = struct {
         const obj_sym = self.ctx.symbolOf(obj) orelse return null;
         const mid = self.ctx.module_refs.get(obj_sym) orelse return null;
         const fm = moduleById(mid) orelse return null;
-        return findDecl(fm, ir.Member.name(callee).getText(self.src), null);
+        return findDecl(fm, leafText(ir.Member.name(callee), self.src), null);
     }
 
     /// The `from` clause of `module.f` named by callee `callee`.
@@ -3213,7 +3222,7 @@ const Lowerer = struct {
         const obj_sym = self.ctx.symbolOf(obj) orelse return null;
         const mid = self.ctx.module_refs.get(obj_sym) orelse return null;
         const fm = moduleById(mid) orelse return null;
-        const name = ir.Member.name(callee).getText(self.src);
+        const name = leafText(ir.Member.name(callee), self.src);
         const id = fm.sema.lookupInScopeOnly(sema.module_scope, name) orelse return null;
         return declaredFrom(fm.sema, fm.sema.symbols.items[id].decl_pos);
     }
@@ -3253,7 +3262,7 @@ const Lowerer = struct {
     /// How a method takes its receiver, and its other parameters' types.
     fn method(self: *Lowerer, callee: Sexp) Error!struct { sema.MethodReceiver, ?MethodParams } {
         const obj = ir.Member.object(callee);
-        const mname = ir.Member.name(callee).getText(self.src);
+        const mname = leafText(ir.Member.name(callee), self.src);
         if (self.ctx.elemCallOf(callee)) |ec| {
             // An integer's bits and a vector's methods read it as a value.
             return .{ if (ec.op == .read or ec.op.isBits() or ec.op.isSimd()) .read else .write, null };

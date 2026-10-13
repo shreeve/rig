@@ -1,5 +1,5 @@
-# A dotted path names a module of the standard library; there is no
-# `std.nope`, and `geo.point` is not a module path.
+# There is no `std.nope`, and `geo.point` names the directory geo/point/,
+# which does not exist.
 use std.nope
 use geo.point
 
@@ -7,5 +7,5 @@ sub main()
   print(0)
 
 # error: 3:1: the standard library has no module `nope`
-# error: 4:5: `geo.point` names no module
+# error: 4:1: cannot read module `geo.point`: no directory geo/point/
 # errors: 2

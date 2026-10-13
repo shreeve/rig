@@ -112,7 +112,7 @@ compiler. The word after `rig` on the opening fence sets the contract:
 | ```` ```rig reject ```` followed by ```` ```error ```` | `rig check` rejects it; each line of the error block appears in a diagnostic |
 | ```` ```rig fragment ```` | only parsed; for snippets that are not whole programs |
 | ```` ```rig facts ```` followed by ```` ```facts ```` | `rig check --facts` accepts it and prints exactly the facts block |
-| ```` ```rig file=name.rig ```` | module `name.rig`, written next to the next example, which can `use name` |
+| ```` ```rig file=name.rig ```` | module `name.rig`, written next to the next example, which can `use name`; a path, ```` ```rig file=dir/name.rig ````, writes a file of the directory module `dir` |
 | ```` ```rig pending ```` | a rule that is decided but not built yet (see below) |
 
 Blank lines may separate a block from its `output` or `error` block.

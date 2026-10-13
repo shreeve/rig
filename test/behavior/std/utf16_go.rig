@@ -1,0 +1,114 @@
+# std.utf16 on Go's unicode/utf16 tests (src/unicode/utf16/utf16_test.go),
+# ported by hand: `size` is `RuneLen`, `pair_from_rune` is `EncodeRune`,
+# `rune_from_pair` is `DecodeRune`, and `is_surrogate` is `IsSurrogate`.
+# Go's `Encode` is written here with `size` and `pair_from_rune`.
+# Each check that fails prints itself; the last line counts them.
+# release
+use std.utf8
+use std.utf16
+
+# TestRuneLen: each value and its units, or -1 for `none`.
+LENS = [[0, 1], [0xD7FF, 1], [0xE000, 1], [0xFFFF, 1], [0x10000, 2], [0x10FFFF, 2], [0x110000, -1], [-1, -1]]
+
+# encodeTests: runes, and the units Go's `Encode` writes for them.
+RUNES1 = [1, 2, 3, 4]
+UNITS1 = [1, 2, 3, 4]
+RUNES2 = [0xffff, 0x10000, 0x10001, 0x12345, 0x10ffff]
+UNITS2 = [0xffff, 0xd800, 0xdc00, 0xd800, 0xdc01, 0xd808, 0xdf45, 0xdbff, 0xdfff]
+RUNES3 = [0x61, 0x62, 0xd7ff, 0xd800, 0xdfff, 0xe000, 0x110000, -1]
+UNITS3 = [0x61, 0x62, 0xd7ff, 0xfffd, 0xfffd, 0xe000, 0xfffd, 0xfffd]
+
+# decodeRuneTests: a pair and the rune it decodes to.
+PAIRS = [[0xd800, 0xdc00, 0x10000], [0xd800, 0xdc01, 0x10001], [0xd808, 0xdf45, 0x12345], [0xdbff, 0xdfff, 0x10ffff], [0xd800, 0x61, 0xfffd]]
+
+# surrogateTests: a value and whether it is a surrogate.
+SURROGATES = [[0x7A, 0], [0x6C34, 0], [0xFEFF, 0], [0x10000, 0], [0x1D11E, 0], [0x10FFFD, 0], [0xd7ff, 0], [0xd800, 1], [0xdc00, 1], [0xe000, 0], [0xdfff, 1]]
+
+# TestRuneLen.
+fun lens() -> Int
+  failed = 0
+  for t in LENS
+    n = utf16.size(t[0]) ?? -1
+    if n != t[1]
+      print("size", t[0], "gave", n, "want", t[1])
+      failed += 1
+  failed
+
+# TestEncode and TestEncodeRune: the units of each rune, from `size` and
+# `pair_from_rune`; a rune of size 2 decodes back from its pair, and
+# every other value's pair is `REPLACEMENT` twice.
+fun encode() -> Int
+  encode_case(?RUNES1, ?UNITS1) + encode_case(?RUNES2, ?UNITS2) + encode_case(?RUNES3, ?UNITS3)
+
+# One case of `encode`: the runes `rs` and the units `want`.
+fun encode_case(rs: []Int, want: []Int) -> Int
+  failed = 0
+  out = List[Int]()
+  for r in rs
+    p = utf16.pair_from_rune(r)
+    size = utf16.size(r) ?? 0
+    if size == 2
+      !out.push(p.hi)
+      !out.push(p.lo)
+      if utf16.rune_from_pair(p.hi, p.lo) != r
+        print("decode", r)
+        failed += 1
+    else
+      !out.push(r if size == 1 else utf8.REPLACEMENT)
+      if p.hi != utf8.REPLACEMENT or p.lo != utf8.REPLACEMENT
+        print("pair", r, p.hi, p.lo)
+        failed += 1
+  same = out.len == want.len
+  for u, k in want
+    same = same and k < out.len and out[k] == u
+  if not same
+    print("encode", rs.len)
+    failed += 1
+  failed
+
+# TestDecodeRune.
+fun decode() -> Int
+  failed = 0
+  for t in PAIRS
+    r = utf16.rune_from_pair(t[0], t[1])
+    if r != t[2]
+      print("rune_from_pair", t[0], t[1], "gave", r, "want", t[2])
+      failed += 1
+  failed
+
+# TestIsSurrogate.
+fun surrogates() -> Int
+  failed = 0
+  for t in SURROGATES
+    if utf16.is_surrogate(t[0]) != (t[1] == 1)
+      print("is_surrogate", t[0])
+      failed += 1
+  failed
+
+# Every value from -2 to 0x110001: `pair_from_rune` and `rune_from_pair`
+# undo each other on the runes from U+10000, `size` is 2 exactly there,
+# and `rune_from_pair` gives `REPLACEMENT` for every pair whose high or
+# low unit is just outside its range.
+fun exhaustive() -> Int
+  failed = 0
+  r = -2
+  while r <= 0x110001 : r += 1
+    p = utf16.pair_from_rune(r)
+    size = utf16.size(r) ?? 0
+    if r >= 0x10000 and r <= 0x10FFFF
+      ok = size == 2 and p.hi >= 0xD800 and p.hi < 0xDC00 and p.lo >= 0xDC00 and p.lo < 0xE000 and utf16.rune_from_pair(p.hi, p.lo) == r
+      failed += 1 if not ok else 0
+    else
+      ok = p.hi == 0xFFFD and p.lo == 0xFFFD and size == (0 if r < 0 or r > 0x10FFFF or utf16.is_surrogate(r) else 1)
+      failed += 1 if not ok else 0
+  for hi in [0xD7FF, 0xDC00, 0xDFFF, -1]
+    failed += 1 if utf16.rune_from_pair(hi, 0xDC00) != 0xFFFD else 0
+  for lo in [0xDBFF, 0xE000, 0x10000, -1]
+    failed += 1 if utf16.rune_from_pair(0xD800, lo) != 0xFFFD else 0
+  failed
+
+sub main()
+  print(lens(), encode(), decode(), surrogates(), exhaustive())
+
+# expect:
+# 0 0 0 0 0

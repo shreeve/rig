@@ -1,0 +1,13 @@
+# A zero element of a constant array divides when the program runs.
+
+zeros = [1, 0]
+
+sub main()
+  print(8 / zeros[0])
+  print(8 / zeros[1])
+
+# release
+# expect-panic: division by zero
+
+# expect:
+# 8

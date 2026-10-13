@@ -1,0 +1,22 @@
+# A name a match binds to a constant subject is a run-time value, as is
+# the value an optional constant holds.
+
+M = 9223372036854775807
+O: Int? = 9223372036854775807
+
+sub main()
+  match 1
+    0 => print(0)
+    n => print(n + 1)
+  if O as x
+    print(x - 1)
+  match M
+    0 => print(0)
+    n => print(n + 1)
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 2
+# 9223372036854775806

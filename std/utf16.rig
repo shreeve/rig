@@ -1,0 +1,100 @@
+# std.utf16: units, the 16-bit code units of UTF-16, for code that must
+# agree with JavaScript and the languages built on it. A rune below
+# U+10000 is one unit; a rune from U+10000 to U+10FFFF is two, a high
+# surrogate (0xD800 to 0xDBFF) and then a low one (0xDC00 to 0xDFFF).
+# Surrogates are units, never runes. Text is UTF-8, as a `String` holds
+# it, and each byte that is not valid UTF-8 counts as one unit, U+FFFD,
+# as Go's unicode/utf8 reads it.
+
+use std.utf8
+
+# The UTF-16 units of a rune from U+10000 up: a high surrogate `hi` and
+# a low one `lo`, or `REPLACEMENT` twice for a rune that needs no pair.
+pub obj Pair
+  pub hi: Int
+  pub lo: Int
+
+# How many units `r` takes, 1 or 2, or `none` when `r` is not a rune: a
+# negative, a surrogate, or past 0x10FFFF. Go's `utf16.RuneLen`.
+pub fun size(r: Int) -> Int?
+  return none if r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)
+  # 1 below U+10000, 2 from it: arithmetic, so the result is one value
+  # and not a choice among constant optionals, which Zig loads from memory.
+  1 + ((r + 0xF0000) >> 20)
+
+# Whether `u` is a surrogate, high or low: `0xD800 <= u < 0xE000`. Go's
+# `utf16.IsSurrogate`.
+pub fun is_surrogate(u: Int) -> Bool
+  u >= 0xD800 and u < 0xE000
+
+# Whether `u` is a high surrogate, the first unit of a pair:
+# `0xD800 <= u < 0xDC00`. One unsigned compare: below 0xD800 the
+# difference wraps past 0x3FF.
+pub fun is_high_surrogate(u: Int) -> Bool
+  U64.wrap(u -% 0xD800) < 0x400
+
+# Whether `u` is a low surrogate, the second unit of a pair:
+# `0xDC00 <= u < 0xE000`, in one unsigned compare.
+pub fun is_low_surrogate(u: Int) -> Bool
+  U64.wrap(u -% 0xDC00) < 0x400
+
+# The rune the pair `hi`, `lo` encodes, or `utf8.REPLACEMENT` when `hi` is
+# not a high surrogate or `lo` not a low one. Go's `utf16.DecodeRune`.
+pub fun rune_from_pair(hi: Int, lo: Int) -> Int
+  if hi >= 0xD800 and hi < 0xDC00 and lo >= 0xDC00 and lo < 0xE000
+    return ((hi - 0xD800) << 10 | (lo - 0xDC00)) + 0x10000
+  utf8.REPLACEMENT
+
+# The pair of units that encodes `r`, or `Pair(0xFFFD, 0xFFFD)` when `r`
+# needs no pair: below U+10000, or not a rune. Go's `utf16.EncodeRune`.
+pub fun pair_from_rune(r: Int) -> Pair
+  if r < 0x10000 or r > 0x10FFFF
+    return Pair(hi: utf8.REPLACEMENT, lo: utf8.REPLACEMENT)
+  v = r - 0x10000
+  Pair(hi: 0xD800 + (v >> 10), lo: 0xDC00 + (v & 0x3FF))
+
+# How many units the UTF-8 text `s` takes in UTF-16: JavaScript's
+# `length` of the same text. A rune of four UTF-8 bytes is two units,
+# every other rune one, and each bad byte one (U+FFFD).
+pub fun unit_count(s: ?String) -> Int
+  n = 0
+  i = 0
+  while i < s.len
+    if s[i] < 0x80
+      k = ascii_run(s, i)
+      i += k
+      n += k
+    else
+      k = utf8.rune_after(s, i).size
+      i += k
+      n += 2 if k == 4 else 1
+  n
+
+# The byte where `units` units into `s` falls: the inverse of
+# `unit_count`, so `byte_index(s, unit_count(s[..i])) == i` at every
+# rune boundary `i`. A unit inside a pair lands after its rune. `units`
+# of 0 or less gives 0, and `units` at or past `unit_count(s)` gives
+# `s.len`.
+pub fun byte_index(s: ?String, units: Int) -> Int
+  n = 0
+  i = 0
+  while i < s.len and n < units
+    if s[i] < 0x80
+      k = ascii_run(s, i)
+      k = units - n if units - n < k else k
+      i += k
+      n += k
+    else
+      k = utf8.rune_after(s, i).size
+      i += k
+      n += 2 if k == 4 else 1
+  i
+
+# How many bytes from `i` on, 1 to 8, are below 0x80, given that `s[i]`
+# is: one U64 read finds the first of the eight that is not, and a short
+# tail is taken a byte at a time.
+fun ascii_run(s: ?String, i: Int) -> Int
+  return 1 if i + 8 > s.len
+  m = s.read[U64, .little](i) & 0x8080808080808080
+  return 8 if m == 0
+  m.trailing_zeros() / 8

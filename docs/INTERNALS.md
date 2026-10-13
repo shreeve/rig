@@ -332,8 +332,24 @@ forms to `value`, an expression without blocks or closures (conditions,
   leading zero or an uppercase radix prefix, a control character in a
   string, and a carriage return without a line feed (a leading byte
   order mark is skipped);
-- bounds nesting (64 blocks, 512 brackets, 32 islands) and token
-  length (65535 bytes) so no input can overflow it.
+- bounds nesting (64 blocks, 512 brackets, 32 islands) so no input
+  can overflow it.
+
+A token may be of any length (`@longtokens` in `rig.grammar`): one
+over 65534 bytes keeps its category, and its `len` of 65535 stands for
+"longer". Its end is read in one place per side. In the lexer, `endOf`
+gives every token's end from the end the lexer recorded as it scanned
+it, and the wrapper builds no token of a computed length but a parse
+failure's (`BaseLexer.token`). After the parse, `rig.leafEnd` gives
+every leaf's end, and `rig.leafText` and `rig.leafSpan` read it: a long
+leaf's end is where the generated lexer's scan from its start ends. That
+lexer keeps no state between tokens, so the scan finds the end the
+parser kept, which `Parser.parseTree` checks for every long token. That
+holds while `rig.grammar`'s `@lexer` has no state, guards, or `@code`:
+a lexer rule that adds one must move `leafEnd` to the parser's table of
+long-token ends, and the check turns a missed case into a panic rather
+than a wrong end. A source file holds at most 16 MiB
+(`modules.max_source_bytes`).
 
 `rig tokens` shows its output.
 
@@ -660,34 +676,116 @@ exported yet (see [ROADMAP.md](ROADMAP.md)).
 
 ## Modules
 
-`ModuleGraph` loads the root file, then each `use`d module from the
-root file's directory, whichever module names it: `use foo` is always
-the one file `foo.rig` there, loaded once. `use std.foo` loads the
-standard library's `foo.rig`, from the table `std/embed.zig` embeds in
-the compiler (the build imports it as `rig_std`), or from `$RIG_STD`
-when that names a directory, a setting for developing the library;
-diagnostics name it `std/foo.rig`. A standard library module is keyed
-apart from every file of the program (`<std>/foo.rig`), so even a
+`ModuleGraph` (`src/modules.zig`) loads the root file, then each
+`use`d module, by a path from the root file's directory, whichever
+module names it. `use foo` is the file `foo.rig` there or the
+directory `foo/`, and naming both is an error; `use a.b.c` is the
+directory `a/b/c/`. Every `.rig` file in a directory belongs to that
+directory's module, so a module beneath another is a directory too,
+and `a/b.rig` beside a `use a.b` is reported as part of module `a`.
+`use std.PATH` names the standard library's module by the same rule,
+from the table `std/embed.zig` embeds in the compiler (the build
+imports it as `rig_std`), or from `$RIG_STD` when that names a
+directory, a setting for developing the library; diagnostics name it
+`std/foo.rig`. A standard library module is keyed apart from every
+file of the program (`<std>/foo.rig`, `<std>/a/b/`), so even a
 `$RIG_STD` naming the program's directory never makes one file both,
-and it imports only `std.` modules. A
-module is keyed by its qualified name (`foo`, `std.foo`), and its
-`Import` records the local name it is bound to (the alias of `as`, else
-the path's last name), which the resolver declares as a module symbol,
-so two imports binding one name are reported as a duplicate. Each
-module emits to its own file, `foo.zig` or `__rig_std_foo.zig`
-(`SemContext.zig_file`), which importers `@import` under their local
-name. Its real name must be
-exactly `foo.rig` (not another spelling on a case-insensitive
-filesystem, nor a symlink under another name), and names starting with
-`__rig` are the emitter's. Loading is a worklist, so import depth does
-not grow the stack. Modules are checked after their imports; a cycle or
-an unreadable file is reported at the `use`. A module whose import has
-errors is not checked further, since its errors would only be
-consequences; the import's own errors are reported. A module with a
-`for` over an iterator is checked twice, the second time on the tree
-that loop is rewritten into ([Loops over an iterator](#loops-over-an-iterator)),
-and only the second check's context is the module's. The CLI prints at
-most 100 errors for a program and counts the rest.
+and it imports only `std.` modules. A module is keyed by its qualified
+name (`foo`, `a.b.c`, `std.foo`), and its `Import` records the local
+name it is bound to (the alias of `as`, else the path's last name) and
+the file of the `use`. Each module emits to its own file, `foo.zig`,
+`a.b.c.zig`, or `__rig_std_foo.zig` (`SemContext.zig_file`), which an
+importer `@import`s under a name of the emitter's, `__rig_m<id>_foo`
+(`Emitter.writeModuleZig`), whatever name its `use`s bind. Each name of the path must be spelled as on disk (not another
+spelling on a case-insensitive filesystem, nor a symlink under another
+name), and names starting with `__rig` are the emitter's.
+
+**Resolution order.** Loading is a worklist over the `use`
+declarations, depth first, so import depth does not grow the stack. A
+module is checked when it leaves the worklist, after all of its
+imports: symbols, declarations, types, ownership (`sema.check`, then
+the ownership checker), so every importer reads a finished context.
+While a module is on the worklist it is `loading`, and a `use` that
+reaches it is a cycle, reported at the `use` with the hint to put the
+files that call each other in one directory module; a module of many
+files is the unit of mutual recursion, as a Go package or a Rust
+crate is. An unreadable file or directory is reported at the `use`. A
+module whose import has errors is not checked further, since its
+errors would only be consequences; the import's own errors are
+reported. A module with a `for` over an iterator is checked twice, the
+second time on the tree that loop is rewritten into ([Loops over an
+iterator](#loops-over-an-iterator)), and only the second check's
+context is the module's. The CLI prints at most 100 errors for a
+program and counts the rest.
+
+### Directory modules
+
+A directory module is the one-file module whose source is its `.rig`
+files joined, in the byte order of their names, each without a byte
+order mark and ending in a newline (`ModuleGraph.readDir`); the 16 MiB
+source limit applies to the module. `Module.parts` records where each
+file starts and its path. Three things keep the files apart:
+
+- **Layout.** The lexer (`Lexer.ends`) closes each file's blocks at its
+  end, as at the end of input: no token is read across a file's end
+  while a bracket is open (the input ends there, and the unclosed
+  bracket is reported in that file), and a file's first line may not
+  be indented.
+- **Diagnostics.** `diag.File.parts` maps a position to the file it is
+  in and its line and column there.
+- **`use`.** A `use` binds its name in its own file only, as in a
+  module of one file. Its module symbol is in no scope; it is recorded
+  with its file (`SemContext.file_uses`), and a lookup that reaches the
+  module's scope from a position asks for the module that position's
+  file binds first (`SemContext.fileModule`, through `lookupAt`,
+  `lookupBefore`, and typecheck's `visibleIn`). So two files may bind
+  one name to different modules, a name another file binds is free in
+  this one, and one that only another file binds is reported unbound,
+  with that file's `use` to add. In the file that binds it, the name is
+  taken, as any visible name is: a parameter or local of that name is
+  rejected, with the hint to import the module under another name, and
+  for a local, to hide the module with `new`. Two `use`s of one file
+  may not bind one name, nor may a `use` bind the name of a
+  declaration of its module. Emit names each imported module by its
+  id, never by a name a `use` binds, so the files' names never meet in
+  the module's one Zig file.
+
+Everything else, private names included, is the module's, as in a Go
+package: sema's pipeline is unchanged, and the module emits one Zig
+file. Files whose names end in `_test.rig` belong to the module only in
+a build for `rig test` (`ModuleGraph.with_tests`), so they see its
+private names, and `rig run` and `rig check` leave them out;
+`rig check --tests` checks the program with them.
+
+### Methods outside the body
+
+A method may be declared outside its type's body, in the type's
+module: `fun Point.norm(?self) -> Float`, `sub Point.shift(!self, dx:
+Int)`, `fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]`. It
+desugars to the member it names (`Parser.attachMethods`, a rewrite of
+the tree before any pass reads it): in module M, where M declares `obj
+T[P]` or `enum T[P]`, `[pub] fun T[P].m[Q](r, ps) -> R` and its block
+are the same declaration without `T[P].`, appended as `T`'s last
+member, with `pub` kept, so `Self` is `T` and `?self`, `!self`, and
+`<self` mean what they mean in the body. `[P]` names the type's
+parameters exactly as its declaration does (`Ring[T, n]` for `obj
+Ring[T, n: Int]`). A method naming no such type is set aside
+(`Parser.detached`), and `resolve.checkDetachedMethods` says why: a
+qualified owner (`fun geo.Point.m`, whose type another module
+declares), an alias, a built-in type, a name no type of the module
+has, or parameters named otherwise. A `drop` body stays in the body,
+since it decides the type's kind (docs/CORE.md, §1). The importer sees
+a closed set of members, and privacy stays per module.
+
+### Constants
+
+A module constant may name any constant of its module, wherever it is
+declared (in a directory module, in any file). `resolve.orderModuleConsts`
+orders the constants so each comes after those its value and its type
+name (`SemContext.const_order`, depth first with an explicit stack);
+the fold (`resolve.foldModuleConsts`) and typecheck take them in that
+order, and a constant that depends on itself is rejected, with its
+cycle, and left out.
 
 Every module's `SemContext` is in one shared table, and cross-module
 references go through it: an imported nominal type is
@@ -1198,7 +1296,7 @@ instead of re-deriving it by name:
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
-| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
+| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
 | `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded by the storage plan; emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
@@ -1564,13 +1662,15 @@ a held receiver or argument, a hoisted value), every write it runs is in
 `K(u)`, and no fact `u` makes is visible to its own checks. A unit
 nested in `u` starts from `E - K(u)` too.
 
-**Facts.** The pass tracks four facts, about bindings, by symbol:
+**Facts.** The pass tracks five facts, about bindings, by symbol:
 `nonneg(i)`, `0 <= i`; `below(i, k, b)`, `i + k <= b` exactly;
-`fits(s)`, `s.len <= 2^62 - 1`; and `eq(n, s)`, `n == s.len`. `i` and
+`fits(s)`, `s.len <= 2^62 - 1`; `eq(n, s)`, `n == s.len`; and
+`upto(d, f, h)`, `0 <= d.f <= h`. `i` and
 `n` are locals or parameters of type `Int` of the body being walked (not
 a capture, a view, or a field); a bound `b` is `len(s)`, where `s` is
-such a binding of type `?String`, `[]T`, or `![]T`, or `int(n)`; `k` is
-at most `2^62`. Each list below is positive: a shape not on it makes
+such a binding of type `?String`, `[]T`, or `![]T`, or `int(n)`; `d` is
+such a binding of a struct type, held by value; `k` and `h` are at most
+`2^62`. Each list below is positive: a shape not on it makes
 nothing and proves nothing. A unit makes its facts on its exit, each
 only if nothing in `K(u)` names it; then an assignment's store applies,
 and then what the store makes.
@@ -1581,6 +1681,7 @@ and then what the store makes.
 | `x = s[i]`, `x = s.read[T, e](i)`, or the statement `!s.write[T, e](i, v)`, `T` concrete: the check ran | `nonneg(i)`, `below(i, width, len(s))`, before the store |
 | `i = c` with a literal `c`, `i = j` with `nonneg(j)` | `nonneg(i)`, after the store |
 | `n = s.len` | `nonneg(n)`, `fits(s)`, and `eq(n, s)`, after the store |
+| `d = g(...)`, `g` a function that bounds fields of its result | `upto(d, f, h)` for each field `f` that `g` bounds by `h`, after the store |
 
 With `eq(n, s)` held, `below(i, k, int(n))` also gives `below(i, k,
 len(s))`, which then lasts while `i` and `s` do, whatever `n` does. A
@@ -1592,6 +1693,28 @@ is part of its unit, and makes nothing.
 | `s[i]`, read or a place | `lower` under `nonneg(i)`; `upper` under `below(i, k, len(s))`, `k >= 1` |
 | `s.read[T, e](i)`, `!s.write[T, e](i, v)`, on the callee | the same, with `k >= @size(T)`: the width of a number `T`, or `n` times the width of `E` for a `Simd[E, n]` of numbers with a known `n` (a vector's bytes are tested as an integer's of that size) |
 | `i + c`, and the `set` of `i += c`, `0 < c <= 2^62` a literal | `no_overflow` under `below(i, k, b)` with `k >= c` (`i + c <= b`), or under `below(i, k, len(s))` and `fits(s)` (`i + c <= 2^62 - 1 + c`) |
+| `i + x`, and the `set` of `i += x`, `x` an `Int` with `0 <= x <= h`: `d.f` under `upto(d, f, h)`, or `g(...).f` or `g(...)` where `g` bounds that field or its result by `h` | as `i + max(h, 1)`: `i + x <= i + max(h, 1)` |
+
+**Results.** Before it walks a module's bodies, the pass finds what each
+of its functions bounds of its result (`SemContext.result_bounds`, a
+`sema.ResultBound`), which a caller in this module or another reads
+through the call: `f(...)` of a function of the module, or `m.f(...)` of
+a module `m` (not a closure, a method, an extern, or a generic
+instance), whose module the graph checked first. A function bounds its
+result, an `Int`, by `h` when every value it can return (each
+`return`'s, but those of the closures and functions declared in its
+body, and its body's tail unless that is a `return`) is a literal or a
+call of a function that bounds its result, and `h` is the largest of
+their bounds; it bounds the field `f` of its result, a struct, by `h`
+when every value it can return is a constructor of that struct whose
+argument `f:` is a literal, or a call of a function that bounds `f` of
+the same struct. Every bound is a literal some path returns, so `0 <=
+x <= h`: what the callee returns, it returned through one of those
+values, and a struct held by value changes a field only where a write
+of its binding says so. Anything else (a value `if`, a parameter, a
+negative or a larger literal) bounds nothing, and nor does a function
+whose bound reaches itself through a cycle of calls, since its bound is
+not known when it is asked for.
 
 **Writes.** A binding changes only where an assignment or a `!` says so
 (Core sentences 4 and 9), and resolve and typecheck record each such
@@ -1631,12 +1754,13 @@ Every state inside a loop holds `L`, so no fixpoint is needed.
 fail a run rather than a proof:
 
 - Emit enters each unit as it writes the unit's code (`enterUnit`), and
-  asserts, in every debug build of the compiler, that each check, write,
+  asserts, in every self-checking build of the compiler (a debug build,
+  or `-Dself-check=true`, as ./test/run builds), that each check, write,
   expression, and hidden storage location it writes lies in the unit
   that holds it (`Emitter.inUnit`): no hoist carries a check or a write
   into another unit's code unseen.
-- The unit-order test (`proofs.checkUnitOrder`): a debug build of the
-  compiler traces the units emit writes, in the order their code runs,
+- The unit-order test (`proofs.checkUnitOrder`): a self-checking build
+  of the compiler traces the units emit writes, in the order their code runs,
   and each Zig jump it writes, and checks that they are the units the
   walk visits, nested alike, the units of each block in the same order,
   each unit's code started once (only a pause and a resume of it, as a
@@ -1700,7 +1824,7 @@ constants, array lengths, compile-time arguments, and enum values; it
 reads the program only through a names provider: `resolve.ConstNames`
 looks names up from a scope, and reads each constant's value and type
 from `const_ints` (module constants are folded into it once, in
-declaration order, before any type is resolved, their literals taking
+dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
 other module's, if it is public), and `sema.constInt` reads the facts
 of checked code. A compile-time parameter,
@@ -1847,21 +1971,30 @@ runtime function with value arguments, or the existing `read` and
 
 | Rig | Zig |
 |---|---|
-| `Simd[T, n]` | `@Vector(n, T)` (`bool` lanes for a mask) |
-| `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))` |
-| `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))` |
-| `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows |
-| a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`) |
-| `v.not()` | `~v`, or `!m` of a mask |
+| `Simd[T, n]` | `@Vector(n, T)` |
+| `Simd[Bool, n]`, a mask | `rig.Mask(n)`: `@Vector(n, bool)` up to 16 lanes, a `rig.WideMask(n)` of bytes above (below) |
+| `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), @splat(x)))` |
+| `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), a))` |
+| `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows; a comparison's lanes become a mask through `rig.mask(v == w)` |
+| `m & k`, `m \| k`, `m ^ k`, `m == k`, `m != k` of masks, and their compound forms | `rig.maskAnd(m, k)`, `rig.maskOr`, `rig.maskXor`, `rig.maskEq`, `rig.maskNe` |
+| `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
+| `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic |
+| `t.lookup(idx)` | `rig.lookup(t, idx)`: NEON `tbl1`/`tbl2`/`tbl4`, x86 `pshufb` (SSSE3; `vpshufb` on 32 indexes with AVX2) on the indexes plus 0x70, saturated (bit 7 set exactly from 16 on), WASM `i8x16.swizzle`, ORed over the table's 16-byte pieces off NEON, else a loop; at compile time, the loop (`@inComptime`) |
+| `cur.lag[k](prev)` | `rig.lag(k, cur, prev)`: one constant `@shuffle` of `prev` and `cur` |
+| a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`); beside a mask, `m \| true`, `rig.rt(rig.maskOf(rig.Mask(n), @splat(true)))` |
+| `v.not()` | `~v`, or `rig.maskNot(m)` of a mask |
 | `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
-| `m.select(a, b)` | `@select(T, m, a, b)` |
-| `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)` |
+| `m.select(a, b)` | `rig.maskSelect(m, a, b)`: `@select` of the mask's lanes |
+| `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)`, or `rig.maskArray(m)` of a mask |
 | `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
 
-Every vector comes from one of those constructions, a parameter, or
-bytes read when the program runs (no constant holds one), and each
-construction goes through `rig.rt`, so no vector is known to Zig when it
-compiles: a lane that overflows panics when the program runs, never
+Every vector comes from one of those constructions, a parameter, bytes
+read when the program runs, or a module constant, which is a Zig `var`
+that nothing writes (`Emitter.emitConst`): `checkModuleConst` takes a
+vector only as a constant's whole value, `Simd[T, n](a)` or `.splat(x)`
+of constants (`isVectorMade`), never inside an array or a branch, which
+Zig would know when it compiles. Each construction goes through `rig.rt`, so no vector
+is known to Zig when it compiles: a lane that overflows panics when the program runs, never
 stopping Zig's fold, where Rig's own fold rejects a constant scalar
 that overflows.
 
@@ -1886,6 +2019,33 @@ conversion it is (`Emitter.simdConversion`, from the call's type and its
 callee's instance). A mask where a `Bool` is expected is reported by
 `maskAsBool`, from where it stands: a condition, `and`, `or`, `not`, or
 a ternary.
+
+A mask of more than 16 lanes is a `rig.WideMask(n)`: a struct of one
+`@Vector(n, u8)`, each lane 0xFF or 0. LLVM keeps a `@Vector(n, bool)`
+that is wider than one vector register in vector registers only inside
+one basic block. Where it lives across blocks, as a mask built up by a
+loop or an argument of a call that is not inlined, LLVM takes it apart
+into one general register per lane. This happens on NEON, on SSE, on
+AVX2 at 64 lanes, and on WASM SIMD, and it made a 32-lane scan with a
+compare loop many times slower than a 16-lane one on aarch64. Bytes
+stay in vector registers. A comparison gives them with no extra work,
+and `bits`, `first`, `any`, and `all` read them as they read a
+16-lane mask's bytes. The runtime's mask functions take either form, so
+emit spells every mask operation the same way for any `n`, and a
+generic `n` resolves in `rig.Mask`. On a wide mask, `&` and `|` are the
+lanes' `@min` and `@max`, which agree with them on 0 and 0xFF. LLVM
+turns `|` of the bytes of comparisons back into a `<n x i1>` select,
+which NEON widens again with `shl` and `cmlt`, two instructions per 16
+lanes; `umin` and `umax` stay bytes. The struct gives the mask its own
+type, so `print` shows it as a mask rather than as the bytes that
+hold it. Sema sizes a mask as it is held (`sema.maskBytes`, a byte a
+lane above `max_bit_mask_lanes`, a bit a lane at or below), so the
+limits on a value's size and a frame's count its bytes
+(`test/reject/types/mask_size.rig`); a unit test holds that size to
+the runtime's `@sizeOf(rig.Mask(n))`.
+`test/lanes/mask_rig_grid.py` checks every mask operation at every lane
+count, in debug and `--release`, against a scalar reference, in each
+place a mask can cross blocks.
 
 The runtime picks each target's lowering of `maskBits`, guarded by
 compile-time feature tests, so an intrinsic is named only where LLVM
@@ -3040,9 +3200,14 @@ symbols); a query that decides more than that belongs in `Pending`.
   - it is on no cycle of calls, directly or through others;
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
-  - it is not the root's `main`, has no compile-time parameters, is not a
-    member of a generic type, and holds no closure (`extern` functions
-    have no body);
+  - it is not the root's `main`, has no compile-time type parameters, is not
+    a member of a generic type, and holds no closure (`extern` functions
+    have no body). A function whose compile-time parameters are all values
+    (`Bool`, a number, an enum) is a function per instance, sized,
+    cycle-checked, and inlined as any other, and so are the helpers it
+    calls; the `comptime` parameters stay compile-time and the rest are
+    bound through `rig.rt` as always. Its frame must be known without the
+    values;
   - it keeps at most 64 KiB of values on its stack, and no function gets
     more than that added by the inlined calls in it
     (`max_inlined_frame_bytes`), and no function's own frame (`checkFrames`)
@@ -3051,13 +3216,27 @@ symbols); a query that decides more than that belongs in `Pending`.
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
-    innermost 2^n times.
-
+    innermost 2^n times. A function called from one place only, in a
+    function with compile-time values, is exempt from this limit: each
+    instance of the caller holds a copy that LLVM cannot merge into one;
   A function that fails a test of the last two is dropped and the tests
   run again, until none fails. A call resolves by the callee's name (a
   function by its symbol, so a local of that name is not it), so two
   functions of one name stand for each other: the analysis finds at most
   more cycles and more value uses than there are.
+
+  Zig charges each inline call, and each pass of a compile-time loop in
+  an inlined body, to the evaluation budget of the function the code
+  lands in (1000 backwards branches unless raised), and fails the build
+  when it runs out. That holds for every inline call alike: Rig's own
+  inlined functions and the runtime's `inline fn` helpers (`rig.addProven`,
+  `rig.atProven`, ...), at any depth, since an inline body has no budget of
+  its own but runs on its caller's. So emit starts every function it
+  writes that is not inline (a `fun` or `sub`, a method, an instance, a
+  closure's `__rig_invoke`, a `test`) with
+  `@setEvalBranchQuota(rig.eval_quota)`, the largest budget Zig takes,
+  and no number of inline calls in a function stops its build. Nothing
+  is counted, so there is no count to keep in step with what is inlined.
 
   Both of Zig's ways to inline, `inline fn` and `@call(.always_inline, ...)`,
   analyze the body at each call, so an argument known at compile time is
@@ -3097,6 +3276,32 @@ symbols); a query that decides more than that belongs in `Pending`.
   result against every use in both, `test/cli/inline.sh` checks which
   functions are inlined, and `test/behavior/types/value_size_limit.rig`
   holds the frames to their limit.
+
+  **Parts of constants.** Zig also knows a part of a value built only
+  of constants: an element of a module constant array (`pub const`),
+  of an array literal, a field of a constructor, a payload of a variant
+  of literals, and a `const` bound to any of them. Rig folds only the
+  constant scalars its own folder decides (`constIntOf`), so a part
+  must stay a run-time value: `big[0] + 1` is checked when the program
+  runs, and a conversion or a division by a zero element likewise. One
+  predicate, `isZigComptimeIn`, says when Zig could evaluate an
+  expression at compile time (a module-level name always can, and a
+  constructor or variant of such parts), and three places use it:
+
+  | Where | Emitted |
+  |---|---|
+  | a read of a number or `Bool` part (`table[0]`, `P(a: 1).a`) whose base and index it holds | `rig.rt(table[0])`; a read with a run-time index, as in a hot loop over a table, is emitted as before |
+  | a binding of such an expression | a `var`, as for any value Zig could fold (`emitBind`) |
+  | the subject of a `match` or `if ... as` | `rig.rt(@as(T, subject))` |
+
+  The optimizer folds `rig.rt` away, so a table read costs what it did:
+  the asm of `rig.rt(T[i & 7]) + 1` and of `T[i & 7] + 1` is the same
+  instructions, and `rig.rt(T[3]) + rig.rt(T[5])` folds to the constant in
+  `--release`. A part that is itself an array or a value (a row of a
+  nested table) is left bare: what reads or binds it is one of the three.
+  `test/behavior/emit/const_table_*.rig` and `constructed_field_overflow.rig`
+  run the forms, and `test/matrix.py -k fold.` every constant against every
+  way of reading it and every operator that can fail, in debug and `--release`.
 
 - **Evaluation order of arguments.** A call's arguments are evaluated
   in the order they are written and passed in the order the parameters

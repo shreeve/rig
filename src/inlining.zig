@@ -9,8 +9,10 @@
 //!   - it is not on a cycle of calls, directly or through others,
 //!   - no mention of it is anything but the callee of a call: it is
 //!     never passed, stored, returned, or made into a closure,
-//!   - it is not the program's `main`, has no compile-time parameters,
-//!     is not a member of a generic type, and holds no closure.
+//!   - it is not the program's `main`, has no compile-time type
+//!     parameters (an instance of one with compile-time values is sized
+//!     and inlined as any function), is not a member of a generic type,
+//!     and holds no closure.
 //!
 //! A call resolves by name (a method by its name alone, a function by
 //! its symbol), so two functions of one name stand for each other: the
@@ -49,7 +51,9 @@ pub const max_inlined_frame_bytes: u128 = 64 << 10;
 /// The most nodes an inlined function may expand to at a call, counting
 /// the inlined calls in it (each of them as often as it is called):
 /// otherwise a chain of functions that each call the next twice would make
-/// Zig analyze a body 2^n times. std.json, the program that set
+/// Zig analyze a body 2^n times. A function with one call, in a function
+/// with compile-time values, is exempt: its expansion is counted in each
+/// instance of the caller. std.json, the program that set
 /// `max_size`, has a hot helper (`key`) that expands to 287.
 pub const max_expanded = 320;
 
@@ -71,6 +75,10 @@ const Fn = struct {
     inlined: bool = false,
     /// Its frame with the inlined calls in it (`frames`).
     frame: ?u128 = null,
+    /// How many calls may reach it.
+    call_sites: u32 = 0,
+    /// The function of the first call that may reach it.
+    first_caller: ?u32 = null,
     /// Its size with the inlined calls in it (`expanded`).
     weight: ?u64 = null,
     // Tarjan's.
@@ -138,7 +146,7 @@ const Pass = struct {
         const name = textOf(c, name_node);
         const body = ir.get(node, .body);
         const is_main = !member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
-        const eligible = body != .nil and !is_main and !generic_owner and sema.tparamsOf(node) == .nil;
+        const eligible = body != .nil and !is_main and !generic_owner and onlyValueParams(node);
         const idx: u32 = @intCast(self.fns.items.len);
         const pos = c.startOf(name_node);
         try self.fns.append(self.a, .{
@@ -226,6 +234,10 @@ const Pass = struct {
             } else try self.visit(module, cur, callee),
         }
         if (cur) |from| try self.fns.items[from].calls.appendSlice(self.a, targets.items);
+        for (targets.items) |t| {
+            if (self.fns.items[t].call_sites == 0) self.fns.items[t].first_caller = cur;
+            self.fns.items[t].call_sites += 1;
+        }
         if (targets.items.len > 0 and call.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = call.list.id, .targets = targets.items });
         // The bracket list of a generic call, `f[T](x)`.
         if (raw.isKind(.inst)) for (raw.items()[2..]) |a| try self.visit(module, cur, a);
@@ -267,6 +279,16 @@ const Pass = struct {
         return total;
     }
 
+    /// Whether `f` is called from one place, in a function with
+    /// compile-time values: each instance of that function holds a copy of
+    /// `f`, which no one call site of an ordinary function does, so the
+    /// copies are the ones Zig counts and LLVM cannot merge.
+    fn oncePerInstance(self: *Pass, f: *const Fn) bool {
+        if (f.call_sites != 1) return false;
+        const caller = f.first_caller orelse return false;
+        return sema.tparamsOf(self.fns.items[caller].node) != .nil;
+    }
+
     /// Stop inlining until no function adds more than
     /// `max_inlined_frame_bytes` to its frame, no function has a frame of
     /// more than `sema.max_frame_bytes` with the inlined calls in it, no inlined function has a
@@ -282,7 +304,7 @@ const Pass = struct {
             }
             for (self.fns.items, 0..) |*f, i| {
                 const v: u32 = @intCast(i);
-                if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or self.expanded(v) > max_expanded)) {
+                if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
                     f.inlined = false;
                     again = true;
                     break;
@@ -348,6 +370,16 @@ pub fn size(e: Sexp) u32 {
     return n;
 }
 
+/// Whether every compile-time parameter of `node` is a value (`n: Int`,
+/// `dense: Bool`), none a type (`T`): each instance is then a function of
+/// a known frame, sized and inlined as any other.
+fn onlyValueParams(node: Sexp) bool {
+    const tp = sema.tparamsOf(node);
+    if (tp == .nil) return true;
+    for (tp.items()) |p| if (p != .list) return false;
+    return true;
+}
+
 fn holdsClosure(e: Sexp) bool {
     if (e != .list) return false;
     if (e.isKind(.lambda)) return true;
@@ -371,7 +403,11 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     for (0..pass.fns.items.len) |v| if (pass.fns.items[v].index == 0) try pass.strong(@intCast(v));
     for (pass.fns.items) |*f| {
         if (ir.get(f.node, .body) == .nil) continue;
-        f.own = (try typecheck.frameBytesOfFunction(mods[f.module].sema, f.node)) orelse continue;
+        f.own = (try typecheck.frameBytesOfFunction(mods[f.module].sema, f.node)) orelse {
+            // A frame that depends on a compile-time value is unknown.
+            if (sema.tparamsOf(f.node) != .nil) f.eligible = false;
+            continue;
+        };
     }
     for (pass.fns.items) |*f| {
         if (!f.eligible or f.used_as_value or f.cyclic or f.size > max) continue;

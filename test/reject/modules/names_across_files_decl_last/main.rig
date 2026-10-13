@@ -1,0 +1,10 @@
+# The files of a directory module share its names, so a parameter in one file
+# may not take the name of a declaration in another, whichever file sorts first.
+use m
+
+sub main()
+  print(m.site(1))
+
+# error: parameter `Thing` has the same name as the module-level declaration `Thing`
+# error: declared here
+# errors: 1

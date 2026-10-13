@@ -1,0 +1,11 @@
+# An element read straight off an array literal is a run-time value.
+
+sub main()
+  print([1, 2][1] + 1)
+  print([9223372036854775807, 1][0] + 1)
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 3

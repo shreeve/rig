@@ -439,11 +439,11 @@ fn collectDecl(a: std.mem.Allocator, m: *const modules.Module, decl: Sexp, owner
             if (ir.get(decl, .body) == .nil) return;
             const base = switch (kind) {
                 .drop_decl => "drop",
-                .@"test" => ir.Test.name(decl).getText(m.source),
-                else => ir.get(decl, .name).getText(m.source),
+                .@"test" => lower.leafText(ir.Test.name(decl), m.source),
+                else => lower.leafText(ir.get(decl, .name), m.source),
             };
             var name = if (owner != .nil)
-                try std.mem.concat(a, u8, &.{ ir.get(owner, .name).getText(m.source), ".", base })
+                try std.mem.concat(a, u8, &.{ lower.leafText(ir.get(owner, .name), m.source), ".", base })
             else if (kind == .@"test")
                 try std.mem.concat(a, u8, &.{ "test", base })
             else

@@ -1,5 +1,5 @@
 # Correctness driver for std.json (test/json/compare.py generates the
-# program from this template: the cases become tables of string
+# program from this template: the cases become a table of string
 # literals, and main loops over them). Prints each parse as the
 # canonical dump that test/json/README.md describes.
 use std.json
@@ -22,28 +22,22 @@ sub put_string(out: !String, s: ?String)
       !out.push(b)
   !out.push(0x0A)
 
-fun float_bits(f: Float) -> U64
-  b: [8]U8 = [8 of 0]
-  !b.write[F64, .little](0, f)
-  b.read[U64, .little](0)
-
 sub dump(d: ?json.Doc, out: !String)
   for i in 0..d.size()
     match d.kind(i)
       .null => put_line(!out, "null")
       .bool => put_line(!out, "true" if d.get_bool(i) else "false")
       .int => !out.add("i ", d.get_int(i), "\n")
-      .float => !out.add("f ", float_bits(d.get_float(i)), "\n")
+      .float => !out.add("f ", d.get_float(i).to_bits(), "\n")
       .string => put_string(!out, d.get_str(i))
       .array => put_line(!out, "[")
       .array_end => put_line(!out, "]")
       .object => put_line(!out, "{")
       .object_end => put_line(!out, "}")
 
-sub run(name: Static, parts: []Static)
-  src = String()
-  for p in parts
-    !src.add(p)
+# The case is copied into a String, as a program's input would be.
+sub run(name: Static, text: Static)
+  src = String(text)
   d = json.new_doc()
   out = String("=== ", name, "\n")
   if (!d).parse(?src)

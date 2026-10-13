@@ -1,0 +1,78 @@
+# std.utf16's `unit_count` and `byte_index` on emoji, CJK, ASCII runs
+# longer than a word, and bytes that are not UTF-8, each of which is one
+# unit; past either end `byte_index` stops at 0 or `s.len`; and on every
+# string of up to four pieces both agree with a count of `utf8.runes`
+# and undo each other at every rune boundary.
+# release
+use std.utf8
+use std.utf16
+
+PIECES = ["a", "abcdefghi", "\u{e9}", "\u{4e2d}", "\u{1f600}", "\xff", "\xe2\x82", "\xf0\x9f\x98", "\xed\xa0\x80"]
+
+# The units of `s` counted rune by rune, each bad byte one `REPLACEMENT`.
+fun naive(s: ?String) -> Int
+  n = 0
+  for r in utf8.runes(s)
+    n += utf16.size(r) ?? 99
+  n
+
+# How `unit_count` and `byte_index` differ on `s` from `naive` and from
+# each other: at each rune boundary `i`, `byte_index` of the units before
+# `i` is `i`, and every unit count lands on the boundary at or after it.
+fun check(s: ?String) -> Int
+  bad = 0
+  total = utf16.unit_count(s)
+  bad += 1 if total != naive(s) else 0
+  bad += 1 if utf16.byte_index(s, total) != s.len or utf16.byte_index(s, total + 1) != s.len else 0
+  bad += 1 if utf16.byte_index(s, 0) != 0 or utf16.byte_index(s, -1) != 0 else 0
+  i = 0
+  units = 0
+  while i < s.len
+    bad += 1 if utf16.byte_index(s, units) != i or utf16.unit_count(s[..i]) != units else 0
+    d = utf8.rune_after(s, i)
+    w = utf16.size(d.rune) ?? 99
+    if w == 2
+      bad += 1 if utf16.byte_index(s, units + 1) != i + d.size else 0
+    i += d.size
+    units += w
+  bad += 1 if units != total else 0
+  bad
+
+sub main()
+  family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}"
+  wave = "\u{1f44b}\u{1f3fd}"
+  print(utf16.unit_count(""), utf16.unit_count("abc"), utf16.unit_count("\u{e9}"), utf16.unit_count("e\u{301}"), utf16.unit_count("\u{20ac}"))
+  print(utf16.unit_count("\u{1f600}"), utf16.unit_count(wave), utf16.unit_count(family), family.len)
+  print(utf16.unit_count("a\xffb"), utf16.unit_count("\xe2\x82"), utf16.unit_count("\xed\xa0\x80"), utf16.unit_count("\xf0\x9f\x98"), utf16.unit_count("\x80\x80\x80\x80\x80\x80\x80\x80\x80"))
+  print(utf16.unit_count("abcdefghij\u{1f600}klmnopqrst"), utf16.unit_count("\u{4e2d}\u{6587}\u{4e2d}\u{6587}"))
+  s = "a\u{1f600}b"
+  for u in [-3, 0, 1, 2, 3, 4, 5, 100]
+    print(u, utf16.byte_index(s, u))
+  print(utf16.byte_index(family, 1), utf16.byte_index(family, 2), utf16.byte_index(family, 3), utf16.byte_index(family, 8))
+  print(utf16.byte_index("", 0), utf16.byte_index("", 3), utf16.byte_index("abcdefghijklmnop", 11), utf16.byte_index("\xff\xfe", 1))
+  bad = 0
+  strings = 0
+  for a in PIECES
+    for b in PIECES
+      for c in PIECES
+        for d in PIECES
+          bad += check(?String(a, b, c, d))
+          strings += 1
+  print(strings, bad)
+
+# expect:
+# 0 3 1 2 1
+# 2 4 8 18
+# 3 2 3 3 9
+# 22 4
+# -3 0
+# 0 0
+# 1 1
+# 2 5
+# 3 5
+# 4 6
+# 5 6
+# 100 6
+# 4 4 7 18
+# 0 0 11 1
+# 6561 0

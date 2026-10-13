@@ -1,0 +1,11 @@
+# `keep` past the List's length panics, as `remove` does out of range.
+# release
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  !v.keep(v.len + 1)
+  print(v)
+
+# expect-panic: index out of bounds

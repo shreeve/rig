@@ -247,12 +247,28 @@ pub const ImportedNominal = struct {
 pub const ModuleMap = std.AutoHashMapUnmanaged(u32, *SemContext);
 const no_modules: ModuleMap = .empty;
 
+/// A `use`: the file of a directory module it is in (`SemContext.parts`;
+/// 0 in a module of one file), the module symbol it binds there, and the
+/// declaration.
+pub const FileUse = struct { file: u32, sym: SymbolId, decl: Sexp };
+
+/// The index of the file of a directory module `pos` is in; 0 in a
+/// module of one file.
+pub fn fileIndex(parts: []const diag.Part, pos: u32) u32 {
+    var i: usize = parts.len;
+    while (i > 1 and parts[i - 1].start > pos) i -= 1;
+    return @intCast(i -| 1);
+}
+
 /// One resolved `use NAME` of the module being checked. `sema` must
 /// outlive the importing SemContext.
 pub const ImportEntry = struct {
     local_name: []const u8,
     sema: *SemContext,
     module_id: u32,
+    /// The file of a directory module whose `use` the graph recorded it
+    /// for (`SemContext.parts`); 0 for a module of one file.
+    file: u32 = 0,
 };
 
 /// Interns types so structural equality is TypeId equality. Lookup is
@@ -818,6 +834,27 @@ pub const Proven = packed struct(u8) {
     }
 };
 
+/// What a function bounds of its result on every path that returns
+/// (docs/INTERNALS.md, "Proven checks"): `0 <= v <= hi` of the result
+/// itself, an `Int`, or of named `Int` fields of the struct it returns.
+/// Written only by `src/proofs.zig`, for a module the ownership checker
+/// accepted, and read by the proof pass of each module that calls it.
+pub const ResultBound = struct {
+    /// The bound of an `Int` result.
+    whole: ?u64 = null,
+    /// The bounds of the fields of a struct result.
+    fields: []const FieldBound = &.{},
+
+    /// The bound of field `name`, or null.
+    pub fn field(b: ResultBound, name: []const u8) ?u64 {
+        for (b.fields) |f| if (std.mem.eql(u8, f.name, name)) return f.hi;
+        return null;
+    }
+};
+
+/// `0 <= field <= hi` of a struct a function returns.
+pub const FieldBound = struct { name: []const u8, hi: u64 };
+
 /// How a header (`for`, `match`, `if … as`, `while … as`) has a bare
 /// subject that is not plain data (docs/INTERNALS.md, "Header subjects").
 pub const Header = enum {
@@ -1115,8 +1152,10 @@ pub const Use = enum {
 /// enum); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
 /// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
-/// `v.array()`, `v.with(i, x)`, and `m.select(a, b)`, whose `num` is the
-/// mask and `elem` the lane type of the vector it gives.
+/// `v.array()`, `v.with(i, x)`, `m.select(a, b)`, whose `num` is the
+/// mask and `elem` the lane type of the vector it gives, `t.lookup(idx)`,
+/// whose `num` is the index vector's type and `elem` its lane type, and
+/// `v.lag[k](prev)`.
 pub const ElemCall = struct {
     op: ElemOp,
     /// The receiver's element type.
@@ -1152,13 +1191,15 @@ pub const ElemOp = enum {
     array,
     with,
     select,
+    lookup,
+    lag,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => false,
         };
     }
 
@@ -1175,7 +1216,7 @@ pub const ElemOp = enum {
     /// it reads its receiver and arguments, and makes a new value.
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
-            .splat, .bits, .first, .any, .all, .array, .with, .select => true,
+            .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
             .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent => false,
         };
     }
@@ -1186,7 +1227,9 @@ pub const ElemOp = enum {
 /// `!t.clear()`. `new` and `add` format their arguments as `print` does,
 /// reading them; `push` appends one byte, `push[T, e](v)` (`push_int`)
 /// the bytes of an integer, and `reserve(n)` makes room for `n` more.
-pub const StringCall = enum { new, add, push, push_int, reserve, clear };
+/// `push_keep` is `push(v, keep: k)` of a vector of bytes, or
+/// `push[T, e](w, keep: k)` of an integer: the first `k` bytes of `v`.
+pub const StringCall = enum { new, add, push, push_int, push_keep, reserve, clear };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -1407,7 +1450,7 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
             try t.print("{s} ", .{name});
             var span: parser.Span = .empty;
             if (node) |n| {
-                span = if (ctx.parser) |p| p.span(n) else diag.leafSpan(n);
+                span = if (ctx.parser) |p| p.span(n) else rig.leafSpan(ctx.source, n);
                 const kind = if (n == .src) "leaf" else if (n.kind()) |k| @tagName(k) else "group";
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
@@ -1452,7 +1495,7 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
         inline for (@typeInfo(StorageKind).@"enum".field_names) |name| {
             const kind = @field(StorageKind, name);
             if (ctx.storageOf(n, kind)) |s| {
-                const span = if (ctx.parser) |p| p.span(n) else diag.leafSpan(n);
+                const span = if (ctx.parser) |p| p.span(n) else rig.leafSpan(ctx.source, n);
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
                 var text: std.Io.Writer.Allocating = .init(a);
@@ -1713,6 +1756,15 @@ pub const SemContext = struct {
     imports: []const ImportEntry = &.{},
     /// `use NAME` symbol -> origin module id.
     module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
+    /// A directory module: where each of its files starts in `source`.
+    /// Empty for a module of one file.
+    parts: []const diag.Part = &.{},
+    /// The module constants in the order their values are checked: each
+    /// after the constants it names (`resolve.orderModuleConsts`).
+    const_order: std.ArrayList(Sexp) = .empty,
+    /// Each `use` by the file it is in: the module symbol it binds, and
+    /// the declaration (`fileModule`).
+    file_uses: std.ArrayList(FileUse) = .empty,
     /// Every module of the program by id, shared by their contexts: a
     /// type from another module names its origin by id.
     foreign_semas: *const ModuleMap = &no_modules,
@@ -1816,12 +1868,20 @@ pub const SemContext = struct {
     /// `src/proofs.zig` once the ownership checker accepted the module.
     /// Printed by `check --facts=proofs`, not `--facts=sema`.
     proven: std.AutoHashMapUnmanaged(NodeKey, Proven) = .empty,
+    /// What each function of the module bounds of its result
+    /// (`ResultBound`), by where its name is declared: written only by
+    /// `src/proofs.zig`, with the tests above.
+    result_bounds: std.AutoHashMapUnmanaged(u32, ResultBound) = .empty,
     /// Each node of a body -> the root of the innermost unit holding it
     /// (`rig.eachUnit`), recorded by the storage plan (`storage.plan`).
     /// Kept beside the facts table, not in `check --facts=sema`.
     unit_of: std.AutoHashMapUnmanaged(NodeKey, NodeKey) = .empty,
     /// The root of each unit -> its kind.
     unit_roots: std.AutoHashMapUnmanaged(NodeKey, rig.UnitKind) = .empty,
+    /// The variants of each enum with many fields, by name, keyed by
+    /// where its fields are (`findVariant`), so that finding one walks no
+    /// others. Lives in the arena.
+    variant_index: std.AutoHashMapUnmanaged(usize, VariantIndex) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -1861,6 +1921,8 @@ pub const SemContext = struct {
         self.declared_origins.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
+        self.file_uses.deinit(self.allocator);
+        self.const_order.deinit(self.allocator);
         self.reach.deinit(self.allocator);
         self.alias_targets.deinit(self.allocator);
         self.alias_in_progress.deinit(self.allocator);
@@ -1889,6 +1951,7 @@ pub const SemContext = struct {
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
+        self.result_bounds.deinit(self.allocator);
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);
@@ -1904,7 +1967,7 @@ pub const SemContext = struct {
     /// includes keywords and sigils (`return x`, `<p`).
     pub fn span(self: *const SemContext, node: Sexp) diag.Span {
         if (self.parser) |p| return p.span(node);
-        return diag.leafSpan(node);
+        return rig.leafSpan(self.source, node);
     }
 
     /// Where a node starts in the source.
@@ -1989,8 +2052,46 @@ pub const SemContext = struct {
         return self.scopes.items[scope_id].by_name.get(name);
     }
 
+    /// The module a `use` in the file `pos` is in binds as `name`
+    /// (`file_uses`). A `use` binds its name in its own file only, so its
+    /// module symbol is in no scope: a lookup that reaches the module's
+    /// scope asks here first.
+    pub fn fileModule(self: *const SemContext, name: []const u8, pos: u32) ?SymbolId {
+        const file = fileIndex(self.parts, pos);
+        for (self.file_uses.items) |u| {
+            if (u.file == file and std.mem.eql(u8, self.symbols.items[u.sym].name, name)) return u.sym;
+        }
+        return null;
+    }
+
+    /// The end of a diagnostic for `name`, unbound where it is used: in a
+    /// directory module, the `use` another file binds it with, which this
+    /// file lacks. Empty when no file binds it.
+    pub fn otherFileUse(self: *SemContext, name: []const u8) std.mem.Allocator.Error![]const u8 {
+        for (self.file_uses.items) |u| {
+            if (!std.mem.eql(u8, self.symbols.items[u.sym].name, name)) continue;
+            const p = self.parser orelse return "";
+            return self.arena.allocator().print("; `{s}` is imported by another file of module `{s}`; add `{s}` to this file", .{ name, self.name, diag.textOf(self.source, p.span(u.decl)) });
+        }
+        return "";
+    }
+
+    /// `lookup` for a name written at `pos`: a module a `use` of its file
+    /// binds is visible there.
+    pub fn lookupAt(self: *const SemContext, from_scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
+        var sid: ?ScopeId = from_scope;
+        while (sid) |s| {
+            if (s == scope_invalid or s >= self.scopes.items.len) break;
+            if (s == module_scope) if (self.fileModule(name, pos)) |id| return id;
+            if (self.lookupInScopeOnly(s, name)) |id| return id;
+            sid = self.scopes.items[s].parent;
+        }
+        return null;
+    }
+
     /// The symbol `name` resolves to from `from_scope`: the latest
-    /// declaration in the innermost enclosing scope that has one.
+    /// declaration in the innermost enclosing scope that has one. A
+    /// module a `use` binds is named only at a position (`lookupAt`).
     pub fn lookup(self: *const SemContext, from_scope: ScopeId, name: []const u8) ?SymbolId {
         var sid: ?ScopeId = from_scope;
         while (sid) |s| {
@@ -2007,6 +2108,7 @@ pub const SemContext = struct {
         var sid: ?ScopeId = from_scope;
         while (sid) |s| {
             if (s == scope_invalid or s >= self.scopes.items.len) break;
+            if (s == module_scope) if (self.fileModule(name, pos)) |id| return id;
             var id = self.lookupInScopeOnly(s, name) orelse symbol_invalid;
             while (id != symbol_invalid and s != module_scope and self.symbols.items[id].kind == .local and self.symbols.items[id].decl_pos > pos) id = self.symbols.items[id].prev_in_scope;
             if (id != symbol_invalid) return id;
@@ -2752,6 +2854,8 @@ pub const CheckOptions = struct {
     zig_file: []const u8 = "",
     /// A module of the standard library.
     is_std: bool = false,
+    /// A directory module: where each of its files starts in the source.
+    parts: []const diag.Part = &.{},
 };
 
 /// The end of a diagnostic for a name a standard library module does
@@ -2781,6 +2885,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     ctx.name = opts.name;
     ctx.zig_file = opts.zig_file;
     ctx.is_std = opts.is_std;
+    ctx.parts = opts.parts;
     // The caller's slice is temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, opts.imports);
     ctx.foreign_semas = opts.modules;
@@ -2808,7 +2913,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
-    if (zig_builtin.optimize == .debug or zig_builtin.is_test) try checkBindingAccess(&ctx);
+    if (@import("build_options").self_check or zig_builtin.is_test) try checkBindingAccess(&ctx);
     try storage.plan(&ctx, tree);
     return ctx;
 }
@@ -3786,6 +3891,18 @@ pub fn isMask(ctx: *const SemContext, ty: TypeId) bool {
     return v.elem == ctx.types.bool_id;
 }
 
+/// The most lanes a mask, `Simd[Bool, n]`, holds as a `@Vector(n, bool)`,
+/// a bit a lane; a wider one is a `rig.WideMask(n)`, a byte a lane, which
+/// LLVM keeps in vector registers across blocks (`rig.Mask` in
+/// src/runtime.zig, which decides it as this does; `test "maskBytes:
+/// the runtime's own size"`).
+pub const max_bit_mask_lanes = 16;
+
+/// The bytes of a mask of `n` lanes, as `rig.Mask(n)` holds it.
+pub fn maskBytes(n: u64) u64 {
+    return if (n > max_bit_mask_lanes) n else @max(1, n / 8);
+}
+
 /// The bytes a value of `ty` takes at least (padding aside), or null
 /// when that depends on a generic parameter or follows an error, such as
 /// holding a type reported too large.
@@ -3817,10 +3934,12 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const e = (try minBytesOf(ctx, a.elem, false)) orelse break :blk null;
             break :blk std.math.mul(u128, n, e) catch std.math.maxInt(u128);
         },
-        // Zig's own size: a lane each, and a mask's lanes one bit each.
+        // Zig's own size: a lane each. A mask is `rig.Mask(n)`: up to
+        // `max_bit_mask_lanes` a bool vector, its lanes a bit each, and
+        // above a byte each (`maskBytes`).
         .simd => |v| blk: {
             const n = simdLen(ctx, v) orelse break :blk null;
-            if (v.elem == ctx.types.bool_id) break :blk @max(1, n / 8);
+            if (v.elem == ctx.types.bool_id) break :blk maskBytes(n);
             const e = (try minBytesOf(ctx, v.elem, false)) orelse break :blk null;
             break :blk n * e;
         },
@@ -5308,8 +5427,9 @@ const ReachWalk = struct {
                 };
                 try self.push(next, .{ .read = path.read, .viewed = true });
             },
-            // A `?String` views bytes; a String owns them.
-            .string_view => if (self.targets.bytes) self.reached(read, true),
+            // A `?String` views bytes, which a target that is any memory
+            // (a type parameter's, say) includes; a String owns them.
+            .string_view => if (self.targets.bytes or self.targets.any) self.reached(read, true),
             .string => if (self.targets.bytes) self.reached(path, path.viewed),
             else => {
                 self.cur = path;
@@ -6028,12 +6148,52 @@ fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocato
     return null;
 }
 
+/// The first variant of each name among a declaration's `fields`, by
+/// its place in them. A declaration's fields are replaced whole, never
+/// in place, and never freed before the context is.
+const VariantIndex = struct {
+    len: usize,
+    first: std.StringHashMapUnmanaged(u32),
+};
+
+/// An enum with no more fields than this is searched in turn.
+const variant_index_min = 16;
+
+/// The place in `fields`, a declaration's, of its first variant `name`,
+/// after indexing the variants of an enum with many fields (`variantIn`).
+fn findVariant(ctx: *SemContext, fields: []const Field, name: []const u8) std.mem.Allocator.Error!?usize {
+    if (fields.len > variant_index_min) {
+        const a = ctx.arena.allocator();
+        const entry = try ctx.variant_index.getOrPut(a, @intFromPtr(fields.ptr));
+        const index = entry.value_ptr;
+        if (!entry.found_existing or index.len != fields.len) {
+            index.* = .{ .len = fields.len, .first = .empty };
+            for (fields, 0..) |f, i| if (f.is_variant) {
+                const slot = try index.first.getOrPut(a, f.name);
+                if (!slot.found_existing) slot.value_ptr.* = @intCast(i);
+            };
+        }
+    }
+    return variantIn(ctx, fields, name);
+}
+
+/// The place in `fields`, a declaration's, of its first variant `name`:
+/// through the index of them `findVariant` built, else in turn.
+pub fn variantIn(ctx: *const SemContext, fields: []const Field, name: []const u8) ?usize {
+    if (ctx.variant_index.getPtr(@intFromPtr(fields.ptr))) |index| {
+        if (index.len == fields.len) return if (index.first.get(name)) |i| i else null;
+    }
+    for (fields, 0..) |f, i| if (f.is_variant and std.mem.eql(u8, f.name, name)) return i;
+    return null;
+}
+
 /// An enum variant of the receiver's nominal, local or imported.
 pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
     const decl = nominalDecl(ctx, receiver_ty) orelse return null;
     const subst = if (membersOf(ctx, unwrapViews(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
-    for (decl.symbol().fields orelse return null) |f| {
-        if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
+    const fields = decl.symbol().fields orelse return null;
+    if (try findVariant(ctx, fields, name)) |i| {
+        const f = fields[i];
         var payload = f.payload orelse &.{};
         if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {
             const typed = try ctx.arena.allocator().dupe(Field, payload);
@@ -6986,7 +7146,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Declarations and their parts.
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
-        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
+        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
@@ -6999,7 +7159,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // with one.
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
         .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .box, .weak => .made,
-        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
+        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
 
@@ -7341,7 +7501,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => {},
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return .not_constant,
             }
             const a = switch (ctFoldBy(ctx, ir.get(e, .left), names)) {
@@ -7370,6 +7530,14 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                         else => a.v *% b.v,
                     };
                     return .{ .value = .{ .v = wrapTo(info, v), .int = info } };
+                },
+                // Saturating arithmetic stops at the type's limits, which a
+                // `Wide` holds; literals alone need their context's type too.
+                .@"+|", .@"-|" => {
+                    const info = int orelse names.literalInt(e) orelse return .not_constant;
+                    const r = intRange(info);
+                    const v = if (h == .@"+|") a.v + b.v else a.v - b.v;
+                    return .{ .value = .{ .v = std.math.clamp(v, r.min, r.max), .int = info } };
                 },
                 // A shift keeps the low bits too, if its amount is below the
                 // width (reported where the operator is checked).
@@ -7436,7 +7604,7 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
         if (target.isKind(.member)) {
             const m = ir.Member.object(target);
             if (m != .src) return null;
-            const module = c.lookup(sym.scope, identAt(c.source, m) orelse return null) orelse return null;
+            const module = c.lookupAt(sym.scope, identAt(c.source, m) orelse return null, m.src.pos) orelse return null;
             if (c.symbols.items[module].kind != .module) return null;
             const foreign = c.foreign_semas.get(c.module_refs.get(module) orelse return null) orelse return null;
             alias = foreign.lookupInScopeOnly(module_scope, identAt(c.source, ir.Member.name(target)) orelse return null) orelse return null;
@@ -8435,6 +8603,14 @@ test "check: a long chain of types each holding the next by value" {
     try std.testing.expectEqual(@as(?u128, 8), try minBytes(&r.ctx, s0));
 }
 
+test "maskBytes: the runtime's own size" {
+    const runtime = @import("runtime.zig");
+    inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
+        try std.testing.expectEqual(@as(u64, @sizeOf(runtime.Mask(n))), maskBytes(n));
+        try std.testing.expectEqual(n > max_bit_mask_lanes, @typeInfo(runtime.Mask(n)) == .@"struct");
+    }
+}
+
 test "type facts: moves, copies, cloneable" {
     var r = try factsRun(
         \\obj P
@@ -8774,7 +8950,7 @@ const Coverage = struct {
 
     fn expectType(self: *Coverage, node: Sexp) void {
         if (self.r.ctx.typeOf(node) == null) {
-            std.debug.print("no type for node at {d} ({s})\n", .{ diag.leafSpan(node).start, if (node.kind()) |h| @tagName(h) else "leaf" });
+            std.debug.print("no type for node at {d} ({s})\n", .{ rig.leafSpan(self.r.source, node).start, if (node.kind()) |h| @tagName(h) else "leaf" });
             self.missing += 1;
         }
     }

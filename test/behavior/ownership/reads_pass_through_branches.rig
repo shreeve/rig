@@ -17,8 +17,8 @@ fun mk() -> N
 error E
   bad
 
-fun fails(k: Int) -> N!
-  return E.bad if k > 0
+fun fails(n: Int) -> N!
+  return E.bad if n > 0
   N(id: 8, t: String("f"))
 
 fun f(o: N?, c: Bool) -> Int?
