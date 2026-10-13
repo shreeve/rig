@@ -155,16 +155,159 @@ pub fun rune_size(s: ?String, i: Int) -> Int?
 # How many runes `s` holds, each bad byte counted as one, as `runes`
 # reads them. Go's `RuneCountInString`.
 pub fun rune_count(s: ?String) -> Int
+  tally[false](s).runes
+
+# How many runes `s` holds, and how many UTF-16 units they take (a rune
+# of four bytes takes two, every other rune one), each bad byte counted
+# as one rune of one unit, as `runes` reads them: `rune_count(s)` and
+# `utf16.unit_count(s)` in one pass.
+pub fun counts(s: ?String) -> Counts
+  tally[true](s)
+
+# What `counts` finds.
+pub obj Counts
+  pub runes: Int
+  pub units: Int
+
+# `counts`, where `units` is counted only when `wide` is true. Valid
+# UTF-8 holds one rune per byte that is not a continuation byte
+# (10xxxxxx), and a rune of four bytes per first byte of 0xF0 or more,
+# so whole blocks are counted that way, each checked valid as it is
+# counted (`errors`). The bytes from the first block that is not
+# valid, and those after the last whole block, are read rune by rune.
+fun tally[wide: Bool](s: ?String) -> Counts
   n = 0
+  f = 0
   i = 0
+  prev = Block.splat(0)
+  ones = Block.splat(0)
+  fours = Block.splat(0)
+  held = 0
+  # Whether `prev` holds a byte of 0x80 or more: only then can it end in
+  # a first byte whose sequence the next block must finish.
+  high = false
+  while i + 64 <= s.len : i += 64
+    a = s.read[Block](i)
+    b = s.read[Block](i + 16)
+    c = s.read[Block](i + 32)
+    d = s.read[Block](i + 48)
+    if ((a | b | c | d) >= 0x80).any()
+      break if ((errors(a, prev) | errors(b, a) | errors(c, b) | errors(d, c)) != 0).any()
+      ones += starts(a) + starts(b) + starts(c) + starts(d)
+      fours += fours_of(a) + fours_of(b) + fours_of(c) + fours_of(d) if wide
+      held += 1
+      # Each lane gains at most 4 for 64 bytes: empty them before 255.
+      if held == 63
+        n += lanes_sum(ones)
+        f += lanes_sum(fours) if wide
+        ones = Block.splat(0)
+        fours = Block.splat(0)
+        held = 0
+      high = true
+    else
+      break if high and ((prev -| ENDS) != 0).any()
+      high = false
+      n += 64
+    prev = d
+  # Fewer than 64 bytes are left, or the 64 from `i` hold a fault: 16 at
+  # a time, at most 3 blocks before the end or the fault, so no lane of
+  # `ones` or `fours` passes 62 * 4 + 3.
+  while i + 16 <= s.len : i += 16
+    a = s.read[Block](i)
+    if (a >= 0x80).any()
+      break if (errors(a, prev) != 0).any()
+      ones += starts(a)
+      fours += fours_of(a) if wide
+      high = true
+    else
+      break if high and ((prev -| ENDS) != 0).any()
+      high = false
+      n += 16
+    prev = a
+  n += lanes_sum(ones)
+  f += lanes_sum(fours) if wide
+  # Every byte before `i` is valid UTF-8, but for a sequence that the
+  # bytes from `i` were to finish: read again from its first byte,
+  # which was counted.
+  j = i
+  while j > 0 and j > i - 3 and s[j - 1] & 0xC0 == 0x80
+    j -= 1
+  if j > 0 and s[j - 1] >= 0xC0
+    i = j - 1
+    n -= 1
+    f -= 1 if wide and s[i] >= 0xF0 else 0
   while i < s.len
     if s[i] < 0x80
-      k = ascii_run(s, i)
-      i += k
-      n += k
+      k = ascii_end(s, i)
+      n += k - i
+      i = k
     else
-      i += rune_after(s, i).size
+      k = rune_after(s, i).size
+      i += k
       n += 1
+      f += 1 if wide and k == 4 else 0
+  Counts(runes: n, units: n + f)
+
+type Block = Simd[U8, 16]
+
+# The lanes of `cur` that break UTF-8, given the block before it: nonzero
+# where one does. Keiser and Lemire's check: each byte and the one before
+# it pick three sets of the faults they could make together, by the high
+# and low nibbles of the first and the high nibble of the second, and
+# what is left in all three is a fault. A byte 2 or 3 after a first byte
+# of 3 or 4 must be a continuation byte, the one fault a pair cannot see.
+fun errors(cur: Block, prev: Block) -> Block
+  p1 = cur.lag[1](prev)
+  pair = BY_FIRST_HIGH.lookup(p1 >> 4) & BY_FIRST_LOW.lookup(p1 & 0x0F) & BY_SECOND_HIGH.lookup(cur >> 4)
+  must = ((cur.lag[2](prev) -| (0xE0 - 0x80)) | (cur.lag[3](prev) -| (0xF0 - 0x80))) >= 0x80
+  must.select(Block.splat(TWO_CONTINUATIONS), Block.splat(0)) ^ pair
+
+# The faults of a pair of bytes, each a bit: a first byte, or ASCII,
+# then not a continuation byte (TOO_SHORT); ASCII then a continuation
+# byte (TOO_LONG); an overlong form of 2, 3, or 4 bytes; a surrogate,
+# ED A0 to ED BF; past U+10FFFF (TOO_LARGE, and TOO_LARGE_1000 for a
+# second byte 80 to 8F, which shares OVERLONG_4's bit); and a
+# continuation byte after one (TWO_CONTINUATIONS), which is a fault only
+# where `must` is false.
+TOO_SHORT: U8 = 0x01
+TOO_LONG: U8 = 0x02
+OVERLONG_3: U8 = 0x04
+TOO_LARGE: U8 = 0x08
+SURROGATE: U8 = 0x10
+OVERLONG_2: U8 = 0x20
+TOO_LARGE_1000: U8 = 0x40
+OVERLONG_4: U8 = 0x40
+TWO_CONTINUATIONS: U8 = 0x80
+# The faults the low nibble of the first byte does not decide.
+CARRY: U8 = 0x83
+
+# The faults each high nibble of the first byte can make.
+BY_FIRST_HIGH = Block([0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x80, 0x80, 0x80, 0x80, 0x21, 0x01, 0x15, 0x49])
+
+# The faults each low nibble of the first byte can make.
+BY_FIRST_LOW = Block([0xE7, 0xA3, 0x83, 0x83, 0x8B, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xDB, 0xCB, 0xCB])
+
+# The faults each high nibble of the second byte can make.
+BY_SECOND_HIGH = Block([0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0xE6, 0xAE, 0xBA, 0xBA, 0x01, 0x01, 0x01, 0x01])
+
+# Above these, a byte in the last three lanes is a first byte whose
+# sequence runs past the block: 0xF0 and up in lane 13, 0xE0 in 14, 0xC0
+# in 15.
+ENDS = Block([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0xDF, 0xBF])
+
+# 1 in each lane that starts a rune: not a continuation byte.
+fun starts(v: Block) -> Block
+  ((v < 0x80) | (v >= 0xC0)).select(Block.splat(1), Block.splat(0))
+
+# 1 in each lane that starts a rune of four bytes.
+fun fours_of(v: Block) -> Block
+  (v >= 0xF0).select(Block.splat(1), Block.splat(0))
+
+# The sum of the lanes of `v`.
+fun lanes_sum(v: Block) -> Int
+  n = 0
+  for x in v.array()
+    n += Int(x)
   n
 
 # Whether `s` is well-formed UTF-8: every byte is part of a valid
@@ -173,21 +316,12 @@ pub fun is_valid(s: ?String) -> Bool
   i = 0
   while i < s.len
     if s[i] < 0x80
-      i += ascii_run(s, i)
+      i = ascii_end(s, i)
     else
       n = rune_after(s, i).size
       return false if n == 1
       i += n
   true
-
-# How many bytes from `i` on, 1 to 8, are below 0x80, given that `s[i]`
-# is: one U64 read finds the first of the eight that is not, and a short
-# tail is taken a byte at a time.
-fun ascii_run(s: ?String, i: Int) -> Int
-  return 1 if i + 8 > s.len
-  m = s.read[U64, .little](i) & 0x8080808080808080
-  return 8 if m == 0
-  m.trailing_zeros() / 8
 
 # Whether every byte of `s` is below `RUNE_SELF`, so each byte is a
 # whole rune.
@@ -200,6 +334,82 @@ pub fun is_ascii(s: ?String) -> Bool
     return false if s[i] >= 0x80
     i += 1
   true
+
+# ---- ASCII runs ------------------------------------------------------------
+
+# The index of the first byte at or after `i` that is 0x80 or more, or
+# `s.len` when there is none: `s[i..ascii_end(s, i)]` is the run of
+# ASCII from `i`, each byte a whole rune. `i` is a cursor, `0 <= i <=
+# s.len`; outside that it panics, as indexing does. It tests only the
+# top bit of each byte, many bytes at once: the first 16 as one U128,
+# where most identifiers end, with no setup and no call, so this part
+# is emitted inline; then 64 at a time (`vector_end`); and fewer than 16
+# by reading the end of `s` again (`short_end`), with no loop of bytes.
+pub fun ascii_end(s: ?String, i: Int) -> Int
+  if i >= 0 and i <= s.len
+    if i + 16 <= s.len
+      m = s.read[U128, .little](i) & HIGH128
+      return vector_end(s, i + 16) if m == 0
+      low = U64(m & 0xFFFFFFFFFFFFFFFF)
+      return i + (low.trailing_zeros() >> 3) if low != 0
+      return i + 8 + (U64(m >> 64).trailing_zeros() >> 3)
+    return short_end(s, i)
+  _ = s[i]  # outside 0 to `s.len`: panics, as indexing does
+  s.len
+
+# `ascii_end` from `at`, `16 <= at <= s.len`: 64 bytes at a time, as
+# four vectors of 16 OR'd into one test, until one holds a byte of 0x80
+# or more; then 16 at a time, which finds it; then the last 16 bytes of
+# `s` read again. The test of `at` is always true, and shows the reads
+# below to be in bounds, so they test no bound of their own.
+fun vector_end(s: ?String, at: Int) -> Int
+  if at >= 0
+    k = at
+    while k + 64 <= s.len : k += 64
+      break if (s.read[Simd[U8, 64]](k) >= 0x80).any()
+    while k + 16 <= s.len : k += 16
+      if (s.read[Simd[U8, 16]](k) >= 0x80).first() as j
+        return k + j
+    return k if k == s.len
+    # Fewer than 16 bytes are left: read the last 16 of `s` again, and
+    # leave out the lanes before `k`, which were tested.
+    seen = k + 16 - s.len
+    if ((s.read[Simd[U8, 16]](s.len - 16) >= 0x80) & (LANES >= U8(seen))).first() as j
+      return k + j - seen
+  s.len
+
+# `ascii_end` from `at`, `0 <= at <= s.len`, where fewer than 16 bytes are
+# left: a U64 from `at` if 8 are left, then the last 8 bytes of `s` read
+# again; or for an `s` shorter than 8, its bytes gathered into one U64.
+fun short_end(s: ?String, at: Int) -> Int
+  n = s.len
+  k = at
+  if n >= 8
+    if k + 8 <= n
+      m = s.read[U64, .little](k) & HIGH
+      return k + (m.trailing_zeros() >> 3) if m != 0
+      k += 8
+    return n if k >= n
+    m = (s.read[U64, .little](n - 8) & HIGH) >> ((k + 8 - n) << 3)
+    return k + (m.trailing_zeros() >> 3) if m != 0
+    return n
+  return n if k >= n
+  w: U64 = 0
+  if n >= 4
+    w = U64(s.read[U32, .little](0)) | U64(s.read[U32, .little](n - 4)) <<% ((n - 4) << 3)
+  else
+    h = n >> 1
+    w = U64(s[0]) | U64(s[h]) <<% (h << 3) | U64(s[n - 1]) <<% ((n - 1) << 3)
+  m = (w & HIGH) >> (k << 3)
+  return k + (m.trailing_zeros() >> 3) if m != 0
+  n
+
+# The top bit of every byte of a U64, and of a U128.
+HIGH: U64 = 0x8080808080808080
+HIGH128: U128 = 0x80808080808080808080808080808080
+
+# Each lane's index.
+LANES = Simd[U8, 16]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
 
 # ---- Writing ---------------------------------------------------------------
 

@@ -703,8 +703,10 @@ how runes fit with bytes, units, and chars.
 | `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` | |
 | `size(r: Int) -> Int?` | the bytes, 1 to 4, that `r` takes in UTF-8, or `none` when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF | `RuneLen` |
 | `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
+| `counts(s: ?String) -> Counts` | `Counts(runes: Int, units: Int)`: `rune_count(s)` and `utf16.unit_count(s)`, from one pass over `s` | |
 | `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
+| `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 
 `test/behavior/std/utf8_go.rig` runs Go's own test tables, and
@@ -776,6 +778,35 @@ sub main()
 233 2
 97 1
 0 2 0 0
+```
+
+`ascii_end` finds where a run of ASCII ends, testing many bytes at
+once, so a reader can take the whole run and decode only the runes
+after it. Counting is done in blocks: valid UTF-8 holds one rune for
+each byte that is not a continuation byte, and one more unit for each
+first byte of a rune of four, so `rune_count`, `counts`, and
+`utf16.unit_count` count whole blocks by their bytes, checking each one
+valid as they go, and read rune by rune only from a block that is not
+valid.
+
+```rig
+use std.utf8
+
+sub main()
+  s = "let caf\u{e9} = 1"
+  i = 0
+  while i < s.len
+    j = utf8.ascii_end(s, i)
+    print(i, j, s[i..j])
+    i = j + utf8.rune_after(s, j).size if j < s.len else j
+  c = utf8.counts("a\u{e9}\u{1f600}\xff")
+  print(c.runes, c.units, utf8.ascii_end(s, s.len))
+```
+
+```output
+0 7 let caf
+9 13  = 1
+4 5 13
 ```
 
 `runes` gives an iterator whose `next` gives each rune, as `lines` does
