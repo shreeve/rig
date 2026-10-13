@@ -1,0 +1,28 @@
+# The identifier classes of UAX #31 for Unicode 15.1: ID_Start and
+# ID_Continue, with Other_ID_Start and Other_ID_Continue included. Every
+# ASCII value is checked against its definition.
+use std.unicode
+
+sub main()
+  print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
+  print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
+  print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
+  print(unicode.VERSION)
+  bad = 0
+  for c in 0..128
+    letter = (c >= 65 and c <= 90) or (c >= 97 and c <= 122)
+    digit = c >= 48 and c <= 57
+    bad += 1 if unicode.is_id_start(c) != letter else 0
+    bad += 1 if unicode.is_id_continue(c) != (letter or digit or c == 95) else 0
+  print(bad)
+  print(unicode.is_id_start(-1), unicode.is_id_continue(0x110000), unicode.is_id_continue(0xE0100))
+  print(unicode.is_id_start(0x323AF), unicode.is_id_start(0x323B0), unicode.is_id_start(0x1F600))
+
+# expect:
+# true false true
+# true false true
+# false true true
+# 15.1.0
+# 0
+# false false true
+# true false false
