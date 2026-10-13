@@ -3056,9 +3056,14 @@ symbols); a query that decides more than that belongs in `Pending`.
   - it is on no cycle of calls, directly or through others;
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
-  - it is not the root's `main`, has no compile-time parameters, is not a
-    member of a generic type, and holds no closure (`extern` functions
-    have no body);
+  - it is not the root's `main`, has no compile-time type parameters, is not
+    a member of a generic type, and holds no closure (`extern` functions
+    have no body). A function whose compile-time parameters are all values
+    (`Bool`, a number, an enum) is a function per instance, sized,
+    cycle-checked, and inlined as any other, and so are the helpers it
+    calls; the `comptime` parameters stay compile-time and the rest are
+    bound through `rig.rt` as always. Its frame must be known without the
+    values;
   - it keeps at most 64 KiB of values on its stack, and no function gets
     more than that added by the inlined calls in it
     (`max_inlined_frame_bytes`), and no function's own frame (`checkFrames`)
@@ -3067,13 +3072,34 @@ symbols); a query that decides more than that belongs in `Pending`.
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
-    innermost 2^n times.
+    innermost 2^n times. A function called from one place only, in a
+    function with compile-time values, is exempt from this limit: each
+    instance of the caller holds a copy that LLVM cannot merge into one;
+  - no function holds more than `inlining.max_inlined_calls` (256) inlined
+    calls, those inside the inlined bodies counted too, so the callee it
+    calls most is called instead: past that a function, and the time to
+    build it, grows with every call it holds. The limit bounds size; it is
+    not what keeps a build within Zig's evaluation budget (below).
 
-  A function that fails a test of the last two is dropped and the tests
+  A function that fails a test of the last three is dropped and the tests
   run again, until none fails. A call resolves by the callee's name (a
   function by its symbol, so a local of that name is not it), so two
   functions of one name stand for each other: the analysis finds at most
   more cycles and more value uses than there are.
+
+  Zig charges each inline call, and each pass of a compile-time loop in
+  an inlined body, to the evaluation budget of the function the code
+  lands in (1000 backwards branches unless raised), and fails the build
+  when it runs out. That holds for every inline call alike: Rig's own
+  inlined functions and the runtime's `inline fn` helpers (`rig.addProven`,
+  `rig.atProven`, ...), at any depth, since an inline body has no budget of
+  its own but runs on its caller's. So emit starts every function it
+  writes that is not inline (a `fun` or `sub`, a method, an instance, a
+  closure's `__rig_invoke`, a `test`) with
+  `@setEvalBranchQuota(rig.eval_quota)`, the largest budget Zig takes,
+  and no number of inline calls in a function stops its build, whatever
+  `max_inlined_calls` lets through. Nothing is counted, so there is no
+  count to keep in step with what is inlined.
 
   Both of Zig's ways to inline, `inline fn` and `@call(.always_inline, ...)`,
   analyze the body at each call, so an argument known at compile time is

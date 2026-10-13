@@ -175,6 +175,9 @@ const FunState = struct {
     inlined: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
+    /// The body's first statement is still to come: it raises Zig's
+    /// compile-time evaluation budget (`rig.eval_quota`).
+    quota: bool = true,
 };
 
 const Nominal = struct {
@@ -216,7 +219,7 @@ pub const Emitter = struct {
     usage: Usage = .{},
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
-    fun: FunState = .{},
+    fun: FunState = .{ .quota = false },
     /// Closure bodies being emitted around the current point. Each names
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
     /// inside another does not shadow the outer one's.
@@ -837,11 +840,21 @@ pub const Emitter = struct {
         return std.mem.eql(u8, facts.syntax.paramName(self.source, p) orelse "", "self");
     }
 
-    /// Statements at the top of a function body: in `main`,
+    /// Statements at the top of a function body: the evaluation budget
+    /// (`rig.eval_quota`) unless it is inline; in `main`,
     /// `rig.guardStack()` and the deferred `rig.finish()` (flush output,
     /// check for leaks), then parameter copies and guards, and discards
     /// for unused parameters.
     fn emitFunPrologue(self: *Emitter) Error!void {
+        // Zig charges every inline call, ours and the runtime's alike, and
+        // every compile-time loop in an inlined body, to one budget per
+        // function it emits code for, shared with all the inline calls in
+        // it; an inline function's body runs on its caller's. So every
+        // function that is not inline raises its budget first.
+        if (self.fun.quota) {
+            self.fun.quota = false;
+            if (!self.fun.inlined) try self.line("@setEvalBranchQuota(rig.eval_quota);", .{});
+        }
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
             try self.line("rig.guardStack();", .{});
