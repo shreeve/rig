@@ -182,7 +182,7 @@ pub fn main(init: std.process.Init) !void {
     switch (opts.command) {
         .clean => clean(allocator, io, env),
         .tokens, .parse, .normalize => {
-            const source = std.Io.Dir.cwd().readFileAlloc(io, opts.path, allocator, .limited(modules.max_source_bytes)) catch |err|
+            const source = std.Io.Dir.cwd().readFileAlloc(io, opts.path, allocator, .limited(modules.max_source_bytes + 1)) catch |err|
                 fatal("error: cannot read `{s}`: {s}", .{ opts.path, modules.fileError(err) });
             switch (opts.command) {
                 .tokens => try dumpTokens(io, opts.path, source),
@@ -357,7 +357,7 @@ fn dumpTokens(io: std.Io, path: []const u8, source: []const u8) !void {
             try w.flush();
             var err_buffer: [4096]u8 = undefined;
             var err_writer = std.Io.File.stderr().writerStreaming(io, &err_buffer);
-            try diag.write(&.{.{ .severity = .@"error", .pos = tok.pos, .end = tok.pos + tok.len, .message = lexer.err.message() }}, source, path, &err_writer.interface);
+            try diag.write(&.{.{ .severity = .@"error", .pos = tok.pos, .end = rig.endOf(&lexer.base, tok), .message = lexer.err.message() }}, source, path, &err_writer.interface);
             try err_writer.interface.flush();
             std.process.exit(1);
         }
@@ -387,7 +387,7 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
-    try tree.write(source, &writer.interface);
+    try rig.writeTree(tree, source, &writer.interface);
     try writer.interface.writeAll("\n");
     try writer.interface.flush();
 }
@@ -635,7 +635,7 @@ fn declaresMain(m: *const modules.Module) bool {
     for (ir.Module.decls(m.ir)) |top| {
         const decl = if (top.isKind(.@"pub")) ir.Pub.decl(top) else top;
         if (!decl.isKind(.sub) and !decl.isKind(.fun)) continue;
-        if (std.mem.eql(u8, ir.get(decl, .name).getText(m.source), "main")) return true;
+        if (std.mem.eql(u8, rig.leafText(m.source, ir.get(decl, .name).src), "main")) return true;
     }
     return false;
 }

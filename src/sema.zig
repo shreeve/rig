@@ -1405,7 +1405,7 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
             try t.print("{s} ", .{name});
             var span: parser.Span = .empty;
             if (node) |n| {
-                span = if (ctx.parser) |p| p.span(n) else diag.leafSpan(n);
+                span = if (ctx.parser) |p| p.span(n) else rig.leafSpan(ctx.source, n);
                 const kind = if (n == .src) "leaf" else if (n.kind()) |k| @tagName(k) else "group";
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
@@ -1450,7 +1450,7 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
         inline for (@typeInfo(StorageKind).@"enum".field_names) |name| {
             const kind = @field(StorageKind, name);
             if (ctx.storageOf(n, kind)) |s| {
-                const span = if (ctx.parser) |p| p.span(n) else diag.leafSpan(n);
+                const span = if (ctx.parser) |p| p.span(n) else rig.leafSpan(ctx.source, n);
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
                 var text: std.Io.Writer.Allocating = .init(a);
@@ -1906,7 +1906,7 @@ pub const SemContext = struct {
     /// includes keywords and sigils (`return x`, `<p`).
     pub fn span(self: *const SemContext, node: Sexp) diag.Span {
         if (self.parser) |p| return p.span(node);
-        return diag.leafSpan(node);
+        return rig.leafSpan(self.source, node);
     }
 
     /// Where a node starts in the source.
@@ -8791,7 +8791,7 @@ const Coverage = struct {
 
     fn expectType(self: *Coverage, node: Sexp) void {
         if (self.r.ctx.typeOf(node) == null) {
-            std.debug.print("no type for node at {d} ({s})\n", .{ diag.leafSpan(node).start, if (node.kind()) |h| @tagName(h) else "leaf" });
+            std.debug.print("no type for node at {d} ({s})\n", .{ rig.leafSpan(self.r.source, node).start, if (node.kind()) |h| @tagName(h) else "leaf" });
             self.missing += 1;
         }
     }
