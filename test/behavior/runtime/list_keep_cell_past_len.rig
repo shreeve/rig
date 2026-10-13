@@ -1,0 +1,10 @@
+# `keep` on a Cell's List past its length panics, as on a List.
+# release
+
+sub main()
+  c: *Cell[List[String]] = *Cell(List())
+  !c.push(String("a"))
+  !c.keep(c.len + 1)
+  print(c.len)
+
+# expect-panic: index out of bounds

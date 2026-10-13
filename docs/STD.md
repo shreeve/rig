@@ -347,8 +347,8 @@ sub main()
 `List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room
 for `n` more elements without changing the length, so the next `n`
 pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
-first `n` elements and drops the rest, keeping the buffer, so a List can
-be rewound to a length saved earlier.
+first `n` elements and drops the rest, so a List can be rewound to a
+length saved earlier.
 
 ```rig
 sub main()

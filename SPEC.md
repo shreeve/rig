@@ -5233,14 +5233,14 @@ owns one), and read views.
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
-| `!v.keep(n)` | keep the first `n` elements and drop the rest, last first, keeping the buffer; `n == v.len` changes nothing, `n == 0` drops every element; panics unless `0 <= n <= v.len` |
+| `!v.keep(n)` | keep the first `n` elements and drop the rest, last first; `n == v.len` changes nothing, `n == 0` drops every element; panics unless `0 <= n <= v.len` |
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
 
 `keep`'s count is the length that remains, as `!t.push(v, keep: k)` keeps
 the first `k` bytes of `v` ([String](#string)): a rewind saves
-`mark = v.len` and later calls `!v.keep(mark)`. It allocates nothing.
+`mark = v.len` and later calls `!v.keep(mark)`.
 
 ```rig
 obj Step
@@ -5472,7 +5472,7 @@ String. A `?String` is the view of text; a String is where text is built.
 | `!t.push[T, e](v)` | append the `@size(T)` bytes of the integer `v`, a `T`, in byte order `e` (`.little` or `.big`), in one write; a one-byte `T` takes no `e`, and `push[U8](b)` is `push(b)` |
 | `!t.push(v, keep: k)`, `!t.push[T, e](w, keep: k)` | append the first `k` bytes of `v`, a `Simd[U8, n]`, or of the integer `w` in byte order `e`; `0 <= k <= size of v`, else it panics (a constant `k` out of range is an error); with no `keep:`, `push[T, e]` keeps every byte |
 | `!t.reserve(n)` | make room for `n` more bytes, so the next `n` bytes of `push` allocate nothing; the length is unchanged |
-| `!t.clear()` | empty it, keeping its buffer |
+| `!t.clear()` | empty it |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a `?String` viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t`, with or without a `?String` or `(?String)?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
