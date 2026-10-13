@@ -1,16 +1,16 @@
 # std.text's `class_end` against a plain loop: each of the 8 mask bits
 # alone, a mask of several and of all; runs of 0 to 40 bytes in a class
-# before a byte outside it, from every `at`; a text of one class to its
+# before a byte outside it, from every `i`; a text of one class to its
 # end; and a byte whose table entry is 0xFF, in every class. Each case
 # that differs prints itself; the last line counts them.
 # release
 use std.text
 
-fun plain(s: ?String, at: Int, table: ?[256]U8, mask: U8) -> Int
-  i = at
-  while i < s.len and table[s[i]] & mask != 0
-    i += 1
-  i
+fun plain(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int
+  j = i
+  while j < s.len and table[s[j]] & mask != 0
+    j += 1
+  j
 
 # Byte `b` is in the classes of the bits of `b % 8` and `b % 8 + 1`;
 # 0xFF is in every class, and 0x00 in none.
@@ -21,11 +21,11 @@ fun classes() -> [256]U8
   t[255] = 0xFF
   t
 
-fun differs(s: ?String, at: Int, table: ?[256]U8, mask: U8) -> Int
-  got = text.class_end(s, at, table, mask)
-  want = plain(s, at, table, mask)
+fun differs(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int
+  got = text.class_end(s, i, table, mask)
+  want = plain(s, i, table, mask)
   return 0 if got == want
-  print("mask", mask, "len", s.len, "at", at, "got", got, "want", want)
+  print("mask", mask, "len", s.len, "at", i, "got", got, "want", want)
   1
 
 sub main()
@@ -49,8 +49,8 @@ sub main()
         !s.push(outside)
         for _ in 0..tail
           !s.push(inside)
-        for at in 0..s.len + 1
-          bad += differs(s, at, t, mask)
+        for i in 0..s.len + 1
+          bad += differs(s, i, t, mask)
     for b in 0..256
       if t[b] & mask != 0
         s = String()

@@ -98,13 +98,13 @@ sub main()
 ```
 
 A scanner that stops at a few bytes, a lexer at the end of a string or
-a comment, asks `text.find_any[set](s, at)`: the first index at or after
-`at` whose byte is one of `set`'s, or `none` when there is none, as
+a comment, asks `text.find_any[set](s, i)`: the first index at or after
+`i` whose byte is one of `set`'s, or `none` when there is none, as
 `find` gives; a scanner that runs to the end writes `?? s.len`. The set
 is a compile-time string, so each set is its own instance, its bytes
 constants in the code; it tests 16 bytes at a time, with one compare
 for each byte of the set. An empty set holds no byte, so the result is
-`none`, and an `at` outside `0..s.len` panics, as indexing does.
+`none`, and an `i` outside `0..s.len` panics, as indexing does.
 
 ```rig
 use std.text
@@ -127,11 +127,11 @@ no ! or ?
 ```
 
 A run of bytes of one kind, an identifier or a number, ends where
-`text.class_end(s, at, table, mask)` says: the first index at or after
-`at` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`.
+`text.class_end(s, i, table, mask)` says: the first index at or after
+`i` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`.
 The caller's 256-entry table gives each byte its class bits, so one
 table serves several kinds, and any set of bytes costs one load and one
-test per byte. An `at` outside `0..s.len` panics, as indexing does.
+test per byte. An `i` outside `0..s.len` panics, as indexing does.
 
 ```rig
 use std.text

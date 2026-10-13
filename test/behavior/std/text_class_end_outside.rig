@@ -1,4 +1,4 @@
-# std.text's `class_end` panics at an `at` outside 0 to `s.len`, as
+# std.text's `class_end` panics at an `i` outside 0 to `s.len`, as
 # indexing does.
 # release
 use std.text

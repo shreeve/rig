@@ -34,9 +34,9 @@ pub fun ends_with(s: ?String, suffix: ?String) -> Bool
 
 # ---- Byte sets -----------------------------------------------------------
 
-# The index of the first byte of `s` at or after `at` that is one of the
+# The index of the first byte of `s` at or after `i` that is one of the
 # bytes of `set`, or `none` when there is none; an empty `set` holds no
-# byte, so the result is `none`. `at` is a cursor, `0 <= at <= s.len`;
+# byte, so the result is `none`. `i` is a cursor, `0 <= i <= s.len`;
 # outside that it panics, as indexing does. `set` is known at compile
 # time, so each set is its own instance, with its bytes as constants.
 #
@@ -45,28 +45,28 @@ pub fun ends_with(s: ?String, suffix: ?String) -> Bool
 # one U64 (`set64`), then byte by byte. Each step asks of a block of
 # bytes which hold a byte of the set, so the same walk serves any other
 # test of one byte at a time.
-pub fun find_any[set: ?String](s: ?String, at: Int) -> Int?
-  if at >= 0 and at <= s.len
+pub fun find_any[set: ?String](s: ?String, i: Int) -> Int?
+  if i >= 0 and i <= s.len
     return none if set.len == 0
-    i = at
-    while i + 16 <= s.len : i += 16
-      if set16[set](s.read[Simd[U8, 16]](i)).first() as k
-        return i + k
-    if i < s.len and s.len >= 16
+    j = i
+    while j + 16 <= s.len : j += 16
+      if set16[set](s.read[Simd[U8, 16]](j)).first() as k
+        return j + k
+    if j < s.len and s.len >= 16
       # Fewer than 16 bytes are left: read the last 16 of `s` again, and
-      # drop the lanes before `i`, which were tested or come before `at`.
-      m = set16[set](s.read[Simd[U8, 16]](s.len - 16)).bits() >> (i + 16 - s.len)
-      return i + m.trailing_zeros() if m != 0
+      # drop the lanes before `j`, which were tested or come before `i`.
+      m = set16[set](s.read[Simd[U8, 16]](s.len - 16)).bits() >> (j + 16 - s.len)
+      return j + m.trailing_zeros() if m != 0
       return none
-    if i + 8 <= s.len
-      m = set64[set](s.read[U64, .little](i))
-      return i + (m.trailing_zeros() >> 3) if m != 0
-      i += 8
-    while i < s.len : i += 1
+    if j + 8 <= s.len
+      m = set64[set](s.read[U64, .little](j))
+      return j + (m.trailing_zeros() >> 3) if m != 0
+      j += 8
+    while j < s.len : j += 1
       for b in set
-        return i if s[i] == b
+        return j if s[j] == b
     return none
-  _ = s[at]  # outside 0 to `s.len`: panics, as indexing does
+  _ = s[i]  # outside 0 to `s.len`: panics, as indexing does
   none
 
 # The lanes of `v` that hold a byte of `set`: one compare for each byte.
@@ -89,18 +89,18 @@ fun set64[set: ?String](w: U64) -> U64
     m |= (x -% ONES64) & x.not()
   m & HIGHS64
 
-# The index of the first byte of `s` at or after `at` whose class,
-# `table[b]`, has no bit of `mask`, or `s.len` when every byte from `at`
+# The index of the first byte of `s` at or after `i` whose class,
+# `table[b]`, has no bit of `mask`, or `s.len` when every byte from `i`
 # has one. The caller's table gives each of the 256 bytes its class bits,
-# so any set of bytes costs one load and one test per byte. `at` is a
-# cursor, `0 <= at <= s.len`; outside that it panics, as indexing does.
-pub fun class_end(s: ?String, at: Int, table: ?[256]U8, mask: U8) -> Int
-  if at >= 0 and at <= s.len
-    i = at
-    while i < s.len and table[s[i]] & mask != 0
-      i += 1
-    return i
-  _ = s[at]  # outside 0 to `s.len`: panics, as indexing does
+# so any set of bytes costs one load and one test per byte. `i` is a
+# cursor, `0 <= i <= s.len`; outside that it panics, as indexing does.
+pub fun class_end(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int
+  if i >= 0 and i <= s.len
+    j = i
+    while j < s.len and table[s[j]] & mask != 0
+      j += 1
+    return j
+  _ = s[i]  # outside 0 to `s.len`: panics, as indexing does
   s.len
 
 ONES64: U64 = 0x0101010101010101

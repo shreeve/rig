@@ -1,4 +1,4 @@
-# std.text's `find_any` panics at a negative `at`, as indexing does.
+# std.text's `find_any` panics at a negative `i`, as indexing does.
 # release
 use std.text
 

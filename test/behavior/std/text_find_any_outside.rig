@@ -1,4 +1,4 @@
-# std.text's `find_any` panics at an `at` outside 0 to `s.len`, as
+# std.text's `find_any` panics at an `i` outside 0 to `s.len`, as
 # indexing does, even with an empty set.
 # release
 use std.text
