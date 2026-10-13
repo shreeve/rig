@@ -356,10 +356,10 @@ pub obj Doc
 
   # `plain` from the non-ASCII byte at `at` on: out of line, since most
   # strings are ASCII. Checked 16 bytes at a time up to the next quote,
-  # backslash, or control byte; then a sequence at a time, from the last
-  # block read (less a sequence it cuts short) when the input's last 15
-  # bytes hold the stop, or from `at` when a block shows an error, which
-  # finds where.
+  # backslash, or control byte; then a sequence at a time: from the end
+  # of the last block read, less a sequence it cuts short, when the
+  # input's last 15 bytes hold the stop, or from `at` when a block shows
+  # an error, which finds where.
   fun utf8_text(!self, src: ?String, at: Int) -> Int
     n = src.len
     prev = Block.splat(0)
