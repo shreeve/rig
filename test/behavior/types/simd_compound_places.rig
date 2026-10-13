@@ -14,3 +14,6 @@ sub main()
   v = V.splat(5)
   bump(!v)
   print(bx.v[0], arr[1][0], v[0])
+
+# expect:
+# 3 6 6
