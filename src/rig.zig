@@ -460,7 +460,16 @@ pub fn keyword(word: []const u8) ?TokenCat {
     if (std.mem.eql(u8, word, "new")) return .new;
     var base = BaseLexer.init(word);
     const tok = base.next();
-    return if (tok.len == word.len and isKeyword(tok.cat)) tok.cat else null;
+    return if (endOf(&base, tok) == word.len and isKeyword(tok.cat)) tok.cat else null;
+}
+
+/// Where a token the lexer `base` scanned or built ends: `pos + len`, and
+/// for a token over 65534 bytes (its `len` is 65535, `@longtokens`) the
+/// end `base` recorded. Every end of a token on the lexer's side is read
+/// here; the parser's side reads `BaseParser.tokenEnd`.
+pub fn endOf(base: *const BaseLexer, tok: Token) u32 {
+    if (tok.len < std.math.maxInt(u16)) return tok.pos + tok.len;
+    return base.longEnds.find(tok.pos).?;
 }
 
 // =============================================================================
@@ -775,7 +784,6 @@ pub const Lexer = struct {
         leading_zero,
         radix_case,
         bad_number,
-        too_long,
         fixed_assign,
         detached_prefix,
         semicolon,
@@ -791,7 +799,6 @@ pub const Lexer = struct {
                 .leading_zero => "a decimal number has no leading zero",
                 .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
-                .too_long => "token is longer than 65535 bytes",
                 .fixed_assign => "Rig has no `=!`: a binding that never changes is `const x = e`, and `x = !y` lends `y` to write",
                 .detached_prefix => "a prefix sigil touches its operand",
                 .semicolon => "unexpected `;`",
@@ -845,7 +852,7 @@ pub const Lexer = struct {
             self.before_pos = self.prev_pos;
             self.prev_cat = tok.cat;
             self.prev_pos = tok.pos;
-            self.prev_end = tok.pos + tok.len;
+            self.prev_end = endOf(&self.base, tok);
         }
         if (self.closed_bars) {
             self.closed_bars = false;
@@ -918,8 +925,6 @@ pub const Lexer = struct {
             const tok = self.base.next();
             switch (tok.cat) {
                 .comment => continue,
-                // A comment longer than a token can hold.
-                .err => if (tok.len == std.math.maxInt(u16) and self.base.source[tok.pos] == '#') continue,
                 .skip => continue, // `\` line continuation
                 .newline => {
                     if (!self.inIsland() and (self.nesting > 0 or self.last_cat == .eof)) continue;
@@ -959,7 +964,7 @@ pub const Lexer = struct {
     /// turn its indentation into NEWLINE, INDENT, or OUTDENTs.
     fn lineBreak(self: *Lexer, nl: Token) Token {
         const src = self.base.source;
-        var line: u32 = nl.pos + nl.len;
+        var line: u32 = endOf(&self.base, nl);
         while (true) {
             var p = line;
             var tab: ?u32 = null;
@@ -1166,7 +1171,7 @@ pub const Lexer = struct {
             .lparen, .lbracket => if (after_value and before and !self.startsLine(tok)) .call_bracket else null,
             else => if (after_value and isInfix(cat) and before != after) (if (before) .infix_before else .infix_after) else null,
         };
-        if (kind) |k| self.recordLayout(.{ .pos = tok.pos, .len = tok.len, .kind = k });
+        if (kind) |k| self.recordLayout(.{ .pos = tok.pos, .len = endOf(&self.base, tok) - tok.pos, .kind = k });
     }
 
     fn recordLayout(self: *Lexer, layout: Layout) void {
@@ -1252,7 +1257,7 @@ pub const Lexer = struct {
 
     /// The character right after `tok`, or 0 at the end of the source.
     fn charAfter(self: *const Lexer, tok: Token) u8 {
-        const end = tok.pos + tok.len;
+        const end = endOf(&self.base, tok);
         return if (end < self.base.source.len) self.base.source[end] else 0;
     }
 
@@ -1392,7 +1397,7 @@ pub const Lexer = struct {
     fn nextIsName(self: *const Lexer) bool {
         var probe = self.base;
         const t = probe.next();
-        return t.cat == .ident and !std.mem.eql(u8, self.base.text(t), "new");
+        return t.cat == .ident and !std.mem.eql(u8, probe.text(t), "new");
     }
 
     fn nextIsConst(self: *const Lexer) bool {
@@ -1402,7 +1407,6 @@ pub const Lexer = struct {
 
     /// Why the grammar produced an `err` token.
     fn lexError(self: *Lexer, tok: Token) Token {
-        if (tok.len == std.math.maxInt(u16)) return self.fail(.too_long, tok.pos);
         const t = self.base.text(tok);
         return switch (t[0]) {
             '"', '\'' => self.stringError(tok.pos),
@@ -1546,7 +1550,79 @@ const hidden_id_base: u16 = 0xFF00;
 /// built it (`hiddenLeaf`). Every pass reads a name through this.
 pub fn leafText(source: []const u8, leaf: parser.Src) []const u8 {
     if (leaf.id >= hidden_id_base) return @as(HiddenName, @enumFromInt(leaf.id - hidden_id_base)).text();
-    return diag.textBetween(source, leaf.pos, @as(usize, leaf.pos) + leaf.len);
+    return diag.textBetween(source, leaf.pos, leafEnd(source, leaf));
+}
+
+/// Where a leaf's text ends: `pos + len`, and for a leaf of a token over
+/// 65534 bytes (its `len` is 65535, `@longtokens`) the end of the token
+/// the generated lexer scans from its start. That lexer keeps no state
+/// between tokens, and the wrapper builds no long token, so this is the
+/// end the parser kept for the token (`Parser.parseTree` checks it).
+/// Every end of a leaf is read here.
+pub fn leafEnd(source: []const u8, leaf: parser.Src) u32 {
+    if (leaf.len < std.math.maxInt(u16) or leaf.pos >= source.len) return leaf.pos + leaf.len;
+    var lx = BaseLexer.init(source);
+    lx.pos = leaf.pos;
+    return endOf(&lx, lx.next());
+}
+
+/// `sexp`'s span as far as its leaves tell. Keywords and punctuation are
+/// not leaves, so this is a fallback for trees without the parser's
+/// spans; it is empty at 0 for a node without leaves.
+pub fn leafSpan(source: []const u8, sexp: Sexp) diag.Span {
+    switch (sexp) {
+        .src => |s| return .{ .start = s.pos, .end = leafEnd(source, s) },
+        .list => {
+            var out: ?diag.Span = null;
+            for (sexp.items()) |c| {
+                const cs = leafSpan(source, c);
+                if (cs.end == 0) continue;
+                out = if (out) |o| .{ .start = @min(o.start, cs.start), .end = @max(o.end, cs.end) } else cs;
+            }
+            return out orelse .empty;
+        },
+        else => return .empty,
+    }
+}
+
+/// Print `tree` on one line as `Sexp.write` does, with the whole text of
+/// a leaf of a token over 65534 bytes (`leafText`), which `Sexp.write`
+/// does not hold.
+pub fn writeTree(tree: Sexp, source: []const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    var stack: std.ArrayList([]const Sexp) = .empty;
+    defer stack.deinit(std.heap.page_allocator);
+    var s = tree;
+    while (true) {
+        // Whether the next item of the innermost list follows another.
+        var sep = true;
+        switch (s) {
+            .nil => try w.writeAll("_"),
+            .tag => |t| try w.writeAll(std.enums.tagName(parser.Tag, t) orelse "?"),
+            .src => |x| {
+                try w.writeAll(diag.textBetween(source, x.pos, leafEnd(source, x)));
+                if (x.id != 0) try w.print("#{d}", .{x.id});
+            },
+            .str => |x| try w.print("\"{s}\"", .{x}),
+            .list => |l| {
+                try w.writeByte('(');
+                stack.append(std.heap.page_allocator, l.items()) catch return error.WriteFailed;
+                sep = false;
+            },
+        }
+        while (true) {
+            if (stack.items.len == 0) return;
+            const rest = &stack.items[stack.items.len - 1];
+            if (rest.len > 0) {
+                if (sep) try w.writeByte(' ');
+                s = rest.*[0];
+                rest.* = rest.*[1..];
+                break;
+            }
+            _ = stack.pop();
+            try w.writeByte(')');
+            sep = true;
+        }
+    }
 }
 
 /// How a `for` over an iterator walks its source, which decides the
@@ -1817,6 +1893,11 @@ pub const Parser = struct {
     /// Parse without the IR rewrites: the grammar's own output.
     pub fn parseTree(self: *Parser) !Sexp {
         const tree = try self.base.parseProgram();
+        // `leafEnd` finds a long token's end by scanning it again.
+        for (self.base.longTokenEnds.items) |kept| {
+            const leaf: parser.Src = .{ .pos = kept.pos, .len = std.math.maxInt(u16), .id = 0 };
+            if (leafEnd(self.base.source, leaf) != kept.end) @panic("a token over 65534 bytes scans to another end than the parser kept");
+        }
         if (tooDeep(tree, 0)) |deep| {
             self.reject(deep, "expression is nested too deeply or too long; split it with named intermediate values");
             return error.ParseError;
@@ -1859,11 +1940,11 @@ pub const Parser = struct {
     pub fn diagnostic(self: *Parser) diag.Diagnostic {
         if (self.failure) |f| return f;
         const failure = self.base.lastError().?;
-        const tok = BaseLexer.makeToken(failure.cat, 0, failure.span.start, failure.span.end);
+        const lexer = &self.base.lexer;
+        const tok = lexer.base.token(failure.cat, 0, failure.span.start, failure.span.end);
         const src = self.base.source;
         var pos = tok.pos;
-        var end = tok.pos + tok.len;
-        const lexer = &self.base.lexer;
+        var end = failure.span.end;
         if (self.openRange(tok)) |d| return d;
         if (self.foreignWord(tok)) |d| return d;
         if (self.headerColon(tok)) |d| return d;
@@ -1911,7 +1992,7 @@ pub const Parser = struct {
                 break :blk .{ .{ .cat = .dotdot, .pre = 0, .pos = pos, .len = 2 }, "an end" };
             },
         };
-        return .{ .severity = .@"error", .pos = at.pos, .end = at.pos + at.len, .message = self.format("a range needs {s}; only a slice leaves a side open: `xs[a..]`, `xs[..b]`, `xs[..]`", .{side}) };
+        return .{ .severity = .@"error", .pos = at.pos, .end = self.base.tokenEnd(at), .message = self.format("a range needs {s}; only a slice leaves a side open: `xs[a..]`, `xs[..b]`, `xs[..]`", .{side}) };
     }
 
     /// A word other languages use where Rig has its own form, at the
@@ -1921,23 +2002,22 @@ pub const Parser = struct {
     fn foreignWord(self: *Parser, tok: Token) ?diag.Diagnostic {
         const lexer = &self.base.lexer;
         const src = self.base.source;
-        const at: Token = blk: {
+        const start: u32, const end: u32 = blk: {
             // The word the parser failed on, written where no Rig form
             // takes a name (`if x then`, `const x = 5`).
-            if (tok.len > 0 and (tok.cat == .ident or keyword(src[tok.pos .. tok.pos + tok.len]) != null)) {
-                const word = src[tok.pos .. tok.pos + tok.len];
-                if (foreign_words.get(word)) |f| if (f.alone) break :blk tok;
+            if (tok.len > 0 and (tok.cat == .ident or keyword(self.base.tokenText(tok)) != null)) {
+                if (foreign_words.get(self.base.tokenText(tok))) |f| if (f.alone) break :blk .{ tok.pos, self.base.tokenEnd(tok) };
             }
             // The statement's first word, right before the failure.
             const cat, const pos = if (tok.len > 0) .{ lexer.before_cat, lexer.before_pos } else .{ lexer.prev_cat, lexer.prev_pos };
             if (cat != .ident or pos != lexer.head_pos) return null;
             var end = pos;
             while (end < src.len and isIdentCont(src[end])) end += 1;
-            break :blk BaseLexer.makeToken(.ident, 0, pos, end);
+            break :blk .{ pos, end };
         };
-        const word = src[at.pos .. at.pos + at.len];
+        const word = src[start..end];
         const f = foreign_words.get(word) orelse return null;
-        return .{ .severity = .@"error", .pos = at.pos, .end = at.pos + at.len, .message = self.format("Rig has no `{s}`; {s}", .{ word, f.fix }) };
+        return .{ .severity = .@"error", .pos = start, .end = end, .message = self.format("Rig has no `{s}`; {s}", .{ word, f.fix }) };
     }
 
     const Foreign = struct {
@@ -2000,7 +2080,7 @@ pub const Parser = struct {
         var probe = BaseLexer.init(self.base.source);
         probe.pos = at + 3;
         const end = probe.next();
-        const text = diag.textBetween(self.base.source, end.pos, end.pos + end.len);
+        const text = probe.text(end);
         const n = if (end.cat == .integer) std.fmt.parseInt(i64, text, 0) catch null else null;
         const fix = if (n) |v|
             self.format("`..={s}` is written `..{d}`", .{ text, v + 1 })
@@ -2132,8 +2212,8 @@ pub const Parser = struct {
             if (t.cat != .skip and t.cat != .comment) break t;
         };
         const operand = switch (next.cat) {
-            .ident, .integer, .real, .string_sq, .string_dq => src[next.pos .. next.pos + next.len],
-            else => if (isKeyword(next.cat)) src[next.pos .. next.pos + next.len] else "x",
+            .ident, .integer, .real, .string_sq, .string_dq => probe.text(next),
+            else => if (isKeyword(next.cat)) probe.text(next) else "x",
         };
         return self.format("a prefix `{c}` touches its operand: write `{c}{s}`", .{ src[tok.pos], src[tok.pos], operand });
     }
@@ -2653,7 +2733,7 @@ pub const Parser = struct {
 
     /// A name a binding may have: not a literal, `true`, or `false`.
     fn isBindingName(source: []const u8, leaf: Sexp) bool {
-        const text = leaf.getText(source);
+        const text = leafText(source, leaf.src);
         if (text.len == 0 or !isIdentStart(text[0])) return false;
         return keyword(text) == null;
     }
@@ -3077,13 +3157,43 @@ fn chars(comptime c: u8, comptime n: usize) *const [n]u8 {
     return &s;
 }
 
-test "tokens longer than 65535 bytes: a comment is skipped, anything else is an error" {
+test "tokens over 65534 bytes keep their category and their end" {
     try expectCats("#" ++ chars('c', 70000) ++ "\nx", &.{ .ident, .eof });
-    var lx = Lexer.init("x = " ++ chars('y', 70000));
+    try expectCats("x = 1 # " ++ chars('c', 70000) ++ "\ny", &.{ .ident, .assign, .integer, .newline, .ident, .eof });
+    const source = "x = \"" ++ chars('y', 70000) ++ "\" + " ++ chars('z', 65535) ++ "\n";
+    var lx = Lexer.init(source);
     _ = lx.next();
     _ = lx.next();
-    try testing.expectEqual(TokenCat.err, lx.next().cat);
-    try testing.expectEqual(Lexer.LexError.too_long, lx.err);
+    const str = lx.next();
+    try testing.expectEqual(TokenCat.string_dq, str.cat);
+    try testing.expectEqual(@as(u32, 4 + 70002), endOf(&lx.base, str));
+    try testing.expectEqual(@as(u32, 4 + 70002), lx.prev_end);
+    try testing.expectEqual(TokenCat.plus, lx.next().cat);
+    const name = lx.next();
+    try testing.expectEqual(TokenCat.ident, name.cat);
+    try testing.expectEqual(@as(u32, source.len - 1), endOf(&lx.base, name));
+    try testing.expectEqual(@as(?TokenCat, null), keyword(chars('a', 70000)));
+}
+
+test "leafEnd and leafText: a long leaf's whole text, as the parser kept it" {
+    const source = "sub main()\n  s = '" ++ chars('q', 65533) ++ "'\n  print(s)\n";
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    _ = tree;
+    try testing.expectEqual(@as(usize, 1), p.base.longTokenEnds.items.len);
+    const kept = p.base.longTokenEnds.items[0];
+    const leaf: parser.Src = .{ .pos = kept.pos, .len = std.math.maxInt(u16), .id = 0 };
+    try testing.expectEqual(kept.end, leafEnd(source, leaf));
+    try testing.expectEqual(@as(usize, 65535), leafText(source, leaf).len);
+    try testing.expectEqualStrings(p.base.leafText(.{ .src = leaf }), leafText(source, leaf));
+}
+
+test "leafSpan: from the first leaf to the end of the last" {
+    var inner = [_]Sexp{ .{ .tag = .@"+" }, .{ .src = .{ .pos = 4, .len = 1, .id = 0 } }, .{ .src = .{ .pos = 8, .len = 2, .id = 0 } } };
+    const s = leafSpan("0123456789", Sexp.listOf(&inner));
+    try testing.expectEqual(@as(u32, 4), s.start);
+    try testing.expectEqual(@as(u32, 10), s.end);
 }
 
 test "layout: a closure body inside brackets is laid out in blocks" {

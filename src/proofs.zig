@@ -1075,7 +1075,7 @@ pub fn writeDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *s
             .member => sema.identAt(ctx.source, ir.Member.name(n)) orelse "member",
             else => @tagName(n.kind().?),
         };
-        const span = if (ctx.parser) |pr| pr.base.span(n) else diag.leafSpan(n);
+        const span = if (ctx.parser) |pr| pr.base.span(n) else rig.leafSpan(ctx.source, n);
         var text: std.Io.Writer.Allocating = .init(a);
         const t = &text.writer;
         const lc = lines.at(span.start);
