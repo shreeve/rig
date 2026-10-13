@@ -14,6 +14,11 @@ started:
 - Multiple results.
 - A frame-size guard for every function.
 - Switching to Nexus's `Span.text`.
+- Big integers in the standard library, to replace Trig's own: arbitrary
+  precision, enough for JavaScript number and BigInt work (Trig's jsnum
+  uses them in 3 places). Trig's version passes all 32,076 of its test
+  cases; the std one must pass the same cases and be as fast before Trig
+  swaps.
 
 ## Agent tooling
 
