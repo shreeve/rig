@@ -1,0 +1,41 @@
+# `cur.lag[k](prev)` gives each lane the value `k` lanes before it in
+# `prev` then `cur`: lane `i` is `cur[i - k]`, and the first `k` lanes are
+# the last `k` of `prev`. `k` is a constant from 1 to the lane count less
+# one; the lanes may be of any type.
+
+LAG = 3
+
+sub main()
+  prev = Simd[U8, 16]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+  cur = prev + 16
+  print(cur.lag[1](prev))
+  print(cur.lag[LAG](prev))
+  print(cur.lag[15](prev))
+  i = Simd[I32, 4]([-1, -2, -3, -4])
+  print(i.lag[1](i * 10), i.lag[2](i * 10), i.lag[3](i * 10))
+  m = Simd[Bool, 2]([true, false])
+  print(m.lag[1](m.not()))
+  a: [64]U8 = [64 of 0]
+  for k in 0..64
+    a[k] = U8(k)
+  p64 = Simd[U8, 64](a)
+  c64 = p64 + 64
+  w = c64.lag[17](p64)
+  print(w[0], w[16], w[17], w[63])
+  b: [32]U16 = [32 of 0]
+  for k in 0..32
+    b[k] = U16(k * 1000)
+  p32 = Simd[U16, 32](b)
+  v = (p32 +| 1).lag[31](p32)
+  print(v[0], v[1], v[31])
+
+# expect:
+# [15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+# [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+# [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+# [-40, -1, -2, -3] [-30, -40, -1, -2] [-20, -30, -40, -1]
+# [true, true]
+# 47 63 64 110
+# 1000 2000 1
+
+# release

@@ -1,0 +1,7 @@
+# `first_chars` takes no negative count.
+use std.text
+
+sub main()
+  print(text.first_chars("ab", -1))
+
+# expect-panic: text.first_chars: the count is negative

@@ -803,7 +803,7 @@ elif command -v shasum >/dev/null; then SHA256="shasum -a 256"
 else RESULTS_CACHE=""; fi
 
 printf '%sbuilding rig%s\n' "$D" "$X"
-if ! "$ZIG" build 2>&1; then
+if ! "$ZIG" build -Dself-check=true 2>&1; then
     printf '%sbuild failed%s\n' "$R" "$X"
     exit 1
 fi
@@ -1170,7 +1170,7 @@ fi
 # Whole-program checks run alongside the per-file tests.
 UNIT_LOG="$WORK/unit.log" UNIT_PID=""
 if selected unit; then
-    "$ZIG" build test >"$UNIT_LOG" 2>&1 &
+    "$ZIG" build test -Dself-check=true >"$UNIT_LOG" 2>&1 &
     UNIT_PID=$!
 fi
 # What an expression hands over is decided once, by `sema.handsOver`: no

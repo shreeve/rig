@@ -1,0 +1,24 @@
+# `t.lookup(idx)` takes a table of 16, 32, or 64 `U8` lanes and one
+# argument, a `Simd[U8, n]` of indexes: no scalar, no other lane type, no
+# compile-time or keyword argument.
+
+sub main()
+  t = Simd[U8, 16].splat(1)
+  idx = Simd[U8, 16].splat(2)
+  print(Simd[U8, 8].splat(1).lookup(idx))
+  print(Simd[I8, 16].splat(1).lookup(idx))
+  print(t.lookup(3), t.lookup(Simd[I8, 16].splat(2)), t.lookup(idx == idx))
+  print(t.lookup(), t.lookup(idx, idx), t.lookup(at: idx), t.lookup[1](idx))
+  print(idx.lag(t))
+
+# error: 8:9: `lookup` looks up bytes in a table of 16, 32, or 64 of them: a `Simd[U8, 16]`, `Simd[U8, 32]`, or `Simd[U8, 64]`; got `Simd[U8, 8]`
+# error: 9:9: `lookup` looks up bytes in a table of 16, 32, or 64 of them: a `Simd[U8, 16]`, `Simd[U8, 32]`, or `Simd[U8, 64]`; got `Simd[I8, 16]`
+# error: 10:18: `lookup` takes its indexes as a `Simd[U8, n]`; got `Int`
+# error: 10:31: `lookup` takes its indexes as a `Simd[U8, n]`; got `Simd[I8, 16]`
+# error: 10:64: `lookup` takes its indexes as a `Simd[U8, n]`; got `Simd[Bool, 16]`
+# error: 11:11: `lookup` takes one argument, a `Simd[U8, n]` of indexes into the table; got 0 arguments
+# error: 11:23: `lookup` takes one argument, a `Simd[U8, n]` of indexes into the table; got 2 arguments
+# error: 11:50: `lookup` takes no keyword arguments
+# error: 11:60: `lookup` takes no compile-time arguments
+# error: 12:13: `lag` takes how many lanes back in brackets: `v.lag[1](prev)`
+# errors: 10

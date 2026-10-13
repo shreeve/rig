@@ -8,12 +8,20 @@ progress, is in [HANDOFF.md](HANDOFF.md).
 The in-flight list is in HANDOFF.md, "What comes next". Decided, not
 started:
 
-- SIMD round 2: byte lookup, a joined shift, a saturating subtract
-  (its spelling is undecided), `pad:` reads, and `blocks(N)`.
+- SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
 - A frame-size guard for every function.
 - Switching to Nexus's `Span.text`.
+- `text.ByteSet`, a byte set built once when the program runs and
+  searched with `set.find(s, at)`: the run-time sibling of
+  `text.find_any[set]`. Built when a port needs a set known only at run
+  time; none does yet.
+- Big integers in the standard library, to replace Trig's own: arbitrary
+  precision, enough for JavaScript number and BigInt work (Trig's jsnum
+  uses them in 3 places). Trig's version passes all 32,076 of its test
+  cases; the std one must pass the same cases and be as fast before Trig
+  swaps.
 
 ## Agent tooling
 

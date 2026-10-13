@@ -6,14 +6,10 @@ that follows from them. This page is the design. [SPEC,
 Strings](../SPEC.md#strings) states what the language does, and
 [STD](STD.md) lists each module's functions.
 
-**Status.** The model and the byte layer are built: a `String` holds
-UTF-8 bytes, and `s.len`, `s[i]`, slicing, and `std.text` work on them.
-The rune, unit, and char layers below are designed and named, and are
-being built in this order: `std.utf8` and `std.utf16` with
-`std.unicode`, then the char tools on the Unicode grapheme tables. A
-section marked *(planned)* describes a function that is not built yet;
-its examples are `rig pending` examples, which the suite checks do not
-run yet.
+**Status.** Every layer below is built: a `String` holds UTF-8 bytes,
+and `s.len`, `s[i]`, slicing, and `std.text` work on them; `std.utf8`,
+`std.utf16`, and `std.unicode` read and write runes and units; and
+`std.text`'s char tools read chars, on the Unicode grapheme tables.
 
 ## Four units, four words
 
@@ -64,7 +60,7 @@ pattern, as Go's `strings.Count` and Python's `str.count` do.
 
 For `"👨‍👩‍👧"`:
 
-```rig pending
+```rig
 use std.text
 use std.utf8
 use std.utf16
@@ -101,10 +97,11 @@ sub main()
 3 8
 ```
 
-## Runes: `std.utf8` *(planned)*
+## Runes: `std.utf8`
 
-Decoding and encoding UTF-8. Each function matches Go's `unicode/utf8`
-on every input, valid or not, so a Go port is a rename.
+Decoding and encoding UTF-8. Each function with a Go twin in
+`unicode/utf8` matches it on every input, valid or not, so a Go port is
+a rename.
 
 | Rig | Returns | Go |
 |---|---|---|
@@ -126,7 +123,7 @@ Think of `i` as a cursor between bytes: `rune_after(s, i)` reads the
 rune just after it, `rune_before(s, i)` the rune just before it, and the
 cursor moves by `d.size`:
 
-```rig pending
+```rig
 use std.utf8
 
 sub main()
@@ -150,7 +147,7 @@ byte as one rune. `push_rune` writes U+FFFD for a value that is not a
 rune (a surrogate, a negative, or over 0x10FFFF). A byte index outside
 `0..s.len` panics, as indexing does. All of this is Go's behavior.
 
-## Units: `std.utf16` *(planned)*
+## Units: `std.utf16`
 
 UTF-16, for code that must agree with JavaScript and the languages built
 on it: a TypeScript checker's positions and columns are UTF-16 units.
@@ -159,7 +156,7 @@ on it: a TypeScript checker's positions and columns are UTF-16 units.
 |---|---|---|
 | `utf16.size(r) -> Int?` | the units `r` takes (1 or 2), or `none` if `r` is not a rune | `utf16.RuneLen` |
 | `utf16.unit_count(s) -> Int` | the UTF-16 units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
-| `utf16.byte_index(s, units) -> Int` | the byte where `units` units into `s` falls (a unit inside a pair lands after its rune) | |
+| `utf16.byte_index(s, units) -> Int` | the byte where `units` units into `s` falls (a unit inside a pair lands after its rune), clamped to `0..s.len` | |
 | `utf16.is_surrogate(u) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
 | `utf16.rune_from_pair(hi, lo) -> Int` | the rune a surrogate pair encodes, or U+FFFD if it is not one | `utf16.DecodeRune` |
 | `utf16.pair_from_rune(r) -> Pair` | `Pair(hi, lo)`, or `Pair(0xFFFD, 0xFFFD)` if `r` needs no pair | `utf16.EncodeRune` |
@@ -169,14 +166,49 @@ Surrogates are units, never runes, so their parameters are named `u`,
 one unit (U+FFFD), as Go does; a JavaScript decoder may merge a run of
 bad bytes into one U+FFFD.
 
-## Rune properties: `std.unicode` *(planned)*
+`byte_index` turns a JavaScript position back into a byte, and clamps:
+a count of 0 or less gives 0, a count at or past `unit_count(s)` gives
+`s.len`, so a stale or edited position never panics, and a count inside
+a pair gives the byte after its rune:
+
+```rig
+use std.utf16
+
+sub main()
+  s = "a\u{1f600}b"
+  print(s.len, utf16.unit_count(s))
+  print(utf16.byte_index(s, -1), utf16.byte_index(s, 1), utf16.byte_index(s, 2), utf16.byte_index(s, 3), utf16.byte_index(s, 9))
+  p = utf16.pair_from_rune(0x1f600)
+  print(p.hi, p.lo, utf16.rune_from_pair(p.hi, p.lo))
+```
+
+```output
+6 4
+0 1 5 5 6
+55357 56832 128512
+```
+
+## Rune properties: `std.unicode`
 
 Facts about one rune, from the Unicode Character Database 15.1: whether
 it may start or continue an identifier (`unicode.is_id_start(r)`,
 `unicode.is_id_continue(r)`, UAX #31), and whether it is whitespace
 (`unicode.is_space_rune(r)`). Every table names its Unicode version.
 
-## Chars: `std.text` *(planned)*
+```rig
+use std.unicode
+
+sub main()
+  print(unicode.VERSION, unicode.is_id_start(0x4e2d), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
+  print(unicode.is_space_rune(0x3000), unicode.is_space_rune(0xfeff))
+```
+
+```output
+15.1.0 true false true
+true false
+```
+
+## Chars: `std.text`
 
 What a reader sees, by the rules of Unicode's text segmentation (UAX
 #29), so char-correct code is one call, and its name says "char":
@@ -188,8 +220,10 @@ What a reader sees, by the rules of Unicode's text segmentation (UAX
 | `text.first_chars(s, n) -> ?String` | the first `n` chars of `s`, or all of `s` if it has fewer |
 | `text.last_chars(s, n) -> ?String` | the last `n` chars of `s`, or all of `s` if it has fewer |
 | `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
+| `text.char_width(c) -> Int` *(planned)* | the terminal columns one char `c` takes, 0, 1, or 2: by its East Asian Width (UAX #11), 2 for an emoji, 0 for a combining mark or a zero-width char |
+| `text.width(s) -> Int` *(planned)* | the terminal columns `s` takes: `char_width` summed over its chars |
 
-```rig pending
+```rig
 use std.text
 use std.utf8
 
@@ -204,6 +238,33 @@ a 1 1
 👋🏽 8 2
 hé
 ```
+
+```rig
+use std.text
+
+sub main()
+  s = "e\u{301}\u{1f44b}\u{1f3fd}\r\n\u{1f1eb}\u{1f1f7}"
+  print(s.len, text.char_count(s), text.last_chars(s, 1), text.char_boundary(s, 2))
+```
+
+```output
+21 4 🇫🇷 0
+```
+
+**Invalid UTF-8 never stops a char tool.** Text that is not UTF-8 is
+read as `std.utf8` reads it, which is Go's way: each byte that starts no
+well-formed sequence is one rune, U+FFFD, of one byte, and a char like
+any other (a combining mark after it joins it). So every byte is in
+exactly one char, and the chars of `s` always tile it: their sizes add
+up to `s.len`. A byte index outside `0..s.len`, or a negative count of
+chars, panics.
+
+Width is measured per char, never per rune: a family emoji is five
+runes but one char two columns wide. An East Asian Ambiguous char counts
+as 1, and a tab is not measured (it depends on where it lands). There is
+no `rune_width`, `unit_width`, or `byte_width`: bytes and units are not
+drawn, and summing per-rune widths is wrong for any char of several
+runes.
 
 `first_chars` is how to shorten text for a reader (a preview, a
 280-character post); `s[0..n]` is how to take `n` bytes.

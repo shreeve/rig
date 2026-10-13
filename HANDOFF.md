@@ -321,9 +321,9 @@ migration guide (`tools/migrate-0.3.py`).
 - Constant tables: module constants built from constructors of plain
   types, for Trig's diagnostics catalog (part B of the modules
   proposal, `.git/revamp/r3/proposal-modules-constants.md`, local).
-- SIMD round 2: byte lookup, a joined shift, a saturating subtract (its
-  spelling is undecided), `pad:` reads, `blocks(N)`, and one load for
-  4- and 8-byte byte-lane reads on ARM.
+- SIMD: `pad:` reads, `blocks(N)`, and one load for 4- and 8-byte
+  byte-lane reads on ARM. (Round 2 built `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and
+  `-|`, and lane shifts.)
 - A String API for part-word appends and windowed writes.
 - Multiple results.
 - A frame-size guard for every function.
@@ -349,7 +349,9 @@ Two gates (AGENTS.md, "Land fast, release deep"):
 - **The deep gate, on `main` about twice a day:** everything below, plus
   equivalence against the last deep run and the JSON benchmark guard. A
   failure is bisected and fixed before any new round lands; a tag needs
-  a clean deep gate.
+  a clean deep gate. It also runs the Unicode tables' freshness test
+  with the database present: `RIG_UCD=dir ./test/run unicode_tables`
+  (the generator fetches any pinned file `dir` lacks).
 - **The JSON benchmark guard:** on the Mac, `cpuq run --cores 2 --label
   rig:json -- bench/json/guard.py` builds `rig-safe` for the six corpus
   files and counts instructions retired per byte, which do not move

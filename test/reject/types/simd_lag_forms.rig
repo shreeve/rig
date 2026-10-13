@@ -1,0 +1,31 @@
+# `cur.lag[k](prev)` takes one compile-time `k` from 1 to the lane count
+# less one, and one argument of `cur`'s type. `k` is a constant: on a
+# compile-time parameter, or a lane count a generic body does not know,
+# Rig cannot check it.
+
+fun back[k: Int](v: Simd[U8, 16]) -> Simd[U8, 16]
+  v.lag[k](v)
+
+fun any_lanes[n: Int](v: Simd[U8, n]) -> Simd[U8, n]
+  v.lag[1](v)
+
+sub main()
+  v = Simd[U8, 16].splat(1)
+  w = Simd[U16, 16].splat(1)
+  k = 2
+  print(v.lag[0](v), v.lag[16](v), v.lag[-1](v), v.lag[k](v))
+  print(v.lag[1, 2](v), v.lag[1](w), v.lag[1](), v.lag[1](v, v), v.lag[1](1))
+  print(back[2](v), any_lanes(v))
+
+# error: 7:9: `lag` takes a constant number of lanes, on a vector whose lane count is known where it is checked; got `k` on a `Simd[U8, 16]`
+# error: 10:9: `lag` takes a constant number of lanes, on a vector whose lane count is known where it is checked; got `1` on a `Simd[U8, n]`
+# error: 16:15: `lag` of a `Simd[U8, 16]` takes 1 to 15 lanes; got `0`
+# error: 16:28: `lag` of a `Simd[U8, 16]` takes 1 to 15 lanes; got `16`
+# error: 16:42: `lag` of a `Simd[U8, 16]` takes 1 to 15 lanes; got `-1`
+# error: 16:56: compile-time argument 1 of `lag` must be known at compile time
+# error: 17:9: `lag` takes one compile-time argument, how many lanes back: `v.lag[1](prev)`
+# error: 17:34: type mismatch: expected `Simd[U8, 16]`, got `Simd[U16, 16]`
+# error: 17:40: `lag` takes one argument, the vector before this one; got 0 arguments
+# error: 17:52: `lag` takes one argument, the vector before this one; got 2 arguments
+# error: 17:75: type mismatch: expected `Simd[U8, 16]`, got `Int`
+# errors: 11

@@ -1,0 +1,8 @@
+# `is_empty` only reads, so no `!` before its receiver.
+
+sub main()
+  v: List[Int] = List()
+  print(!v.is_empty())
+
+# error: 5:9: `is_empty` does not write its receiver; for negation use `not`
+# errors: 1

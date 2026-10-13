@@ -1,9 +1,13 @@
 # A vector is one value: a `for` walks its lanes through `v.array()`, a
 # `match` does not take it, and a lane index is checked against the lane
-# count. A module constant does not hold one, and a vector type is no
-# value.
+# count. A module constant holds a vector made of constants, and no
+# arithmetic on one; a vector type is no value.
 
 LOW = Simd[U8, 4]([1, 2, 3, 4])
+HIGH = LOW + 1
+PAIR = [Simd[U8, 4].splat(200), Simd[U8, 4].splat(100)]
+FILL = [2 of Simd[U8, 4].splat(200)]
+PICK = Simd[U8, 4].splat(1) if 1 < 2 else Simd[U8, 4].splat(2)
 
 sub main()
   v = Simd[U8, 4].splat(1)
@@ -15,10 +19,13 @@ sub main()
   t = Simd[U8, 4]
   print(t, LOW)
 
-# error: 6:7: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them
-# error: 10:12: cannot iterate over `Simd[U8, 4]`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`)
-# error: 12:9: cannot `match` on a value of type `Simd[U8, 4]`; match works on enums, errors, integers, and Bool
-# error: 14:11: lane `4` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3
-# error: 14:17: lane `-1` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3
-# error: 15:7: `Simd[U8, 4]` is a type, not a value
-# errors: 6
+# error: 7:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)
+# error: 8:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)
+# error: 9:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)
+# error: 10:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)
+# error: 14:12: cannot iterate over `Simd[U8, 4]`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`)
+# error: 16:9: cannot `match` on a value of type `Simd[U8, 4]`; match works on enums, errors, integers, and Bool
+# error: 18:11: lane `4` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3
+# error: 18:17: lane `-1` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3
+# error: 19:7: `Simd[U8, 4]` is a type, not a value
+# errors: 9

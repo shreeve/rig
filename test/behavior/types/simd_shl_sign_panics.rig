@@ -1,0 +1,13 @@
+# A signed lane that a `<<` would turn negative panics: it loses its sign.
+
+sub main()
+  v = Simd[I16, 8].splat(0x2000)
+  print((v << 1)[0])
+  print((v << 2)[0])
+
+# expect-panic: left shift overflowed bits
+
+# release
+
+# expect:
+# 16384

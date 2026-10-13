@@ -1,0 +1,39 @@
+# A literal size past 2^62 is no bound, and a function on a cycle of
+# calls bounds nothing: both adds keep their tests.
+
+obj Decoded
+  rune: Int
+  size: Int
+
+fun huge(s: ?String, i: Int) -> Decoded
+  return Decoded(rune: Int(s[i]), size: 1) if s[i] < 0x80
+  Decoded(rune: 0xFFFD, size: 0x7FFFFFFFFFFFFFFF)
+
+fun spin(s: ?String, i: Int, k: Int) -> Decoded
+  return spin(s, i, k - 1) if k > 0
+  huge(s, i)
+
+fun total(s: ?String) -> Int
+  sum = 0
+  i = 0
+  while i < s.len
+    d = huge(s, i)
+    sum += d.rune
+    i += d.size # keeps: += no_overflow
+  sum
+
+fun spun(s: ?String) -> Int
+  i = 0
+  while i < s.len
+    i += spin(s, i, 2).size # keeps: += no_overflow
+  i
+
+sub main()
+  print(spun("abc"))
+  print(total("a\u{e9}"))
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 3
