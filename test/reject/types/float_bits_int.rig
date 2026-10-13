@@ -1,0 +1,6 @@
+sub main()
+  n = 5
+  print(n.to_bits(), Float.from_bits(-1))
+
+# error: 3:11: type `Int` has no method `to_bits`
+# error: 3:38: integer value `-1` does not fit in `U64`

@@ -1,0 +1,16 @@
+enum Shape
+  dot
+  circle(r: Int)
+
+enum Status
+  ok = 200
+
+  fun from_int(n: Int) -> Int
+    n
+
+sub main()
+  print(@variants(Shape), Shape.from_int(0))
+
+# error: 8:7: `from_int` is built into every plain enum
+# error: 12:19: `@variants(T)` takes a plain enum; `Shape` has variants with payloads
+# error: 12:33: `Shape` has variants with payloads, which have no integer value

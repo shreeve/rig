@@ -1,0 +1,26 @@
+use std.math
+
+fun zero() -> Float
+  0.0
+
+sub show(f: Float)
+  if math.shortest(f) as d
+    print(d.neg, d.digits, d.exp)
+  else
+    print("none")
+
+sub main()
+  show(5e-324)
+  show(-0.1)
+  show(1e21)
+  show(123.45)
+  show(0.0)
+  show(1.0 / zero())
+
+# expect:
+# false 5 -324
+# true 1 -1
+# false 1 21
+# false 12345 -2
+# false 0 0
+# none
