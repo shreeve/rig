@@ -11781,8 +11781,28 @@ const Checker = struct {
         if (!(try self.builtinTypeArg("variants", args, pos))) return self.t().invalid_id;
         const ty = self.ctx.typeOf(args[0]) orelse return self.t().invalid_id;
         if (self.isPoison(ty)) return ty;
+        const direct = switch (self.ctx.types.get(ty)) {
+            .nominal, .imported_nominal => true,
+            else => false,
+        };
+        if (!direct) {
+            switch (self.ctx.types.get(ty)) {
+                .optional, .read_view, .write_view => |inner| if (self.enumValues(inner) != null) {
+                    const what: []const u8 = switch (self.ctx.types.get(ty)) {
+                        .optional => "an optional",
+                        .read_view => "a read view",
+                        else => "a write view",
+                    };
+                    try self.errAt(args[0], "`@variants` takes an enum type; `{s}` is {s} of one: write `@variants({s})`", .{ try self.tyName(ty), what, try self.tyName(inner) });
+                    return self.t().invalid_id;
+                },
+                else => {},
+            }
+            try self.errAt(args[0], "`@variants` takes an enum type; `{s}` is not one", .{try self.tyName(ty)});
+            return self.t().invalid_id;
+        }
         const plain = self.enumValues(ty) orelse {
-            try self.errAt(args[0], "`@variants(T)` takes a plain enum; `{s}` is not an enum", .{try self.tyName(ty)});
+            try self.errAt(args[0], "`@variants` takes an enum type; `{s}` is not an enum", .{try self.tyName(ty)});
             return self.t().invalid_id;
         };
         if (!plain) {
