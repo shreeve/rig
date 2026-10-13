@@ -37,6 +37,7 @@ never read as the library's.
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
+| [`std.unicode`](#stdunicode) | identifier classes and UTF-16 surrogates |
 | [`std.json`](#stdjson) | a JSON parser (experimental) |
 
 ## std.math
@@ -413,7 +414,8 @@ functions return.
 | `split(s: ?String, sep: ?String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
 | `lines(s: ?String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
 | `words(s: ?String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
-| `parse_int(s: ?String) -> Int!` | `s` as a base-10 `Int`: an optional sign, `+` or `-`, then digits, and nothing else |
+| `parse_int(s: ?String, base: Int = 10) -> Int!` | `s` as an `Int` in base `base`, 2 to 36: an optional sign, `+` or `-`, then digits (letters `a` to `z`, in either case, are 10 to 35), and nothing else: no `0x`, no `_`; panics for another base |
+| `format_int(n: Int, base: Int = 10, upper: Bool = false) -> String` | `n` in base `base`, 2 to 36: a `-` if negative, then the digits, lower case unless `upper`; an owned `String`; panics for another base |
 | `parse_float(s: ?String) -> Float!` | `s` as a `Float`: an optional sign, then digits with an optional `.` and fraction and an optional exponent (`2.5`, `.5`, `1e-3`), or `inf`, `infinity`, or `nan` in any case; the nearest `Float` to the number |
 | `parse_bool(s: ?String) -> Bool!` | `true` for `"true"` and `false` for `"false"` |
 | `is_digit(b: U8) -> Bool`, `is_alpha(b: U8) -> Bool` | whether `b` is an ASCII digit, or an ASCII letter |
@@ -421,6 +423,7 @@ functions return.
 | `to_upper(b: U8) -> U8`, `to_lower(b: U8) -> U8` | `b` in upper, or lower, case when it is an ASCII letter, else `b` |
 | `valid_utf8(bytes: []U8) -> Bool` | whether `bytes` is well-formed UTF-8 |
 | `compare(a: ?String, b: ?String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
+| `edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) -> Int` | the Levenshtein distance between `a` and `b` over runes (insert, delete, and substitute cost 1); `row` is the caller's scratch; with `max >= 0`, `max + 1` once the distance passes `max` |
 
 ```rig
 use std.text
@@ -525,6 +528,93 @@ Bern 1
 Lima 10
 Oslo 7
 ```
+
+`parse_int` and `format_int` take a base from 2 to 36, and `edit_distance` counts
+the edits between two names over a scratch `row` the caller reuses, so the loop
+that compares one name with many candidates allocates once:
+
+```rig
+use std.text
+
+sub main()
+  print(text.parse_int("ff", 16)!, text.parse_int("-101", 2)!, text.parse_int("zz", 36)!)
+  print(text.parse_int("12", 2) catch -1)
+  print(text.format_int(255, 16), text.format_int(255, 16, upper: true), text.format_int(-8, 8))
+  row: List[Int] = List()
+  print(text.edit_distance("kitten", "sitting", !row), text.edit_distance("", "abc", !row))
+  print(text.edit_distance("\u{e9}a", "ea", !row), text.edit_distance("kitten", "sitting", !row, max: 2))
+```
+
+```output
+255 -5 1295
+-1
+ff FF -10
+3 3
+1 3
+```
+
+## std.unicode
+
+Properties of Unicode code points, each an `Int`, and of UTF-16 code
+units. The identifier classes are those of [UAX #31](https://unicode.org/reports/tr31/)
+for the Unicode version in `unicode.VERSION`, 15.1.0, the version of
+TypeScript's scanner: `is_id_start(c)` is ID_Start (letters, letter
+numbers, and Other_ID_Start) and `is_id_continue(c)` is ID_Continue (ID_Start,
+marks, decimal digits, connector punctuation, and Other_ID_Continue). A
+code point outside `0..0x10FFFF` is in neither. They are exactly the
+Unicode classes: a language that begins identifiers with `$` or `_` adds
+those itself. (Unicode 15.1 put the joiners U+200C and U+200D into
+ID_Continue, as Other_ID_Continue.)
+
+| Function | Result |
+|---|---|
+| `VERSION` | the Unicode version of the tables, `"15.1.0"` |
+| `is_id_start(c: Int) -> Bool`, `is_id_continue(c: Int) -> Bool` | whether code point `c` may begin an identifier, or continue one |
+| `is_high_surrogate(c: Int) -> Bool`, `is_low_surrogate(c: Int) -> Bool` | whether `c` is U+D800 to U+DBFF, or U+DC00 to U+DFFF |
+| `surrogate_pair_to_code_point(hi: Int, lo: Int) -> Int` | the code point a UTF-16 pair encodes; panics unless `hi` is a high surrogate and `lo` a low one |
+| `utf16_len(c: Int) -> Int` | 2 for a code point from U+10000, else 1 (a lone surrogate is one unit); panics outside `0..0x10FFFF` |
+
+```rig
+use std.unicode
+
+sub main()
+  print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
+  print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
+  print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
+  print(unicode.VERSION)
+```
+
+```output
+true false true
+true false true
+false true true
+15.1.0
+```
+
+```rig
+use std.unicode
+
+sub main()
+  print(unicode.is_high_surrogate(0xD83D), unicode.is_low_surrogate(0xDE00))
+  print(unicode.surrogate_pair_to_code_point(0xD83D, 0xDE00) == 0x1F600)
+  print(unicode.utf16_len(0x1F600), unicode.utf16_len(0xFFFF), unicode.utf16_len(0x61))
+```
+
+```output
+true true
+true
+2 1 1
+```
+
+The tables are generated: `tools/gen-unicode.py` reads the pinned
+`DerivedCoreProperties.txt` of the Unicode Character Database (checking
+its sha256, and fetching it when absent) and writes
+`std/unicode_tables.zig`, a two-level bitmap of about 11 KB with an
+ASCII fast path. To move to a newer Unicode, change the pinned version
+and hashes, run the generator, and review the diff of the census test it
+also writes. `tools/verify-unicode.py` compares every code point with the
+database and with Python's `unicodedata`; the deep gate runs both with
+`RIG_UCD` naming a directory of the database.
 
 ## std.json
 

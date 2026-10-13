@@ -191,7 +191,7 @@ pub fun format_int(n: Int, base: Int = 10, upper: Bool = false) -> String
 # has grown. With `max >= 0` the search stops as soon as the distance is
 # known to exceed `max`, and the result is `max + 1`: use it where only
 # near matches matter.
-pub fun edit_distance(a: ?String, b: ?String, !row: List[Int], max: Int = -1) -> Int
+pub fun edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) -> Int
   m = 0
   j = 0
   while j < b.len

@@ -2,8 +2,8 @@
 # UTF-16 code units. The identifier classes are those of UAX #31 for the
 # Unicode version in `VERSION`, generated into `unicode_tables.zig` by
 # `tools/gen-unicode.py`; a code point outside `0..0x10FFFF` is in no
-# class. The classes are the Unicode ones: a language that adds `$`, `_`
-# at the start, or the joiners U+200C and U+200D adds them itself.
+# class. The classes are the Unicode ones: a language that begins
+# identifiers with `$` or `_` adds those itself.
 
 # The Unicode version the tables come from.
 pub VERSION = "15.1.0"
