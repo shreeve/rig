@@ -1095,3 +1095,36 @@ a 1-minute load of 2.6-2.9, fastest of 15 interleaved runs of about
   on every file (citm_catalog 2% faster, the rest within 1%), with 1.5%
   fewer instructions on canada, citm_catalog and twitterescaped. It is
   kept for the simpler `Doc` (one list fewer to grow).
+
+## The float conversion inlined (Rig main at 598a244e0)
+
+`normal_float_bits`, the one-multiply Eisel-Lemire that converts every
+number of 16 to 19 digits, was a call from `number` on every such float:
+its body was over the inliner's size. Its rare path, the next 64 bits
+of 5^q when the top word cannot decide the rounding, moved into a small
+`settle_hi`, and the rest now inlines. Instructions per byte
+(bench/json/guard.txt): canada 3.4% fewer, the other files the same. The Mac, fastest of 15
+interleaved runs at a 1-minute load of 3.3-4 (another project's job ran
+on 2 cores); MB/s:
+
+| file | std.json | float inlined | sonic-rs | float inlined against sonic-rs |
+|---|---:|---:|---:|---|
+| twitter | 3348 | 3294 | 3096 | 6% faster |
+| twitterescaped | 3188 | 3213 | 2792 | 15% faster |
+| canada | 2039 | 2095 | 1998 | 5% faster |
+| citm_catalog | 4096 | 4110 | 3764 | 9% faster |
+| gsoc-2018 | 8260 | 8222 | 7213 | 14% faster |
+| github_events | 4084 | 4114 | 3746 | 10% faster |
+
+- **canada is 2.7% faster**, and the other files move within noise:
+  canada goes from within noise of sonic-rs (2% faster) to 5% faster,
+  so std.json leads sonic-rs on all six files on the Mac by more than
+  noise.
+- **The same run timed main under the `inlinect` compiler** (#154, which
+  inlines instances of functions with compile-time parameters): within
+  noise on every file, and the guard's counts unchanged.
+- **A specialized `document[dense: Bool]`** (the whitespace bitmap in the
+  dense instance only) made citm_catalog 11% faster under it but canada
+  10% slower: the generic `document` counted both instances' calls
+  against the inliner's per-function cap, which then out-lined
+  `Doc.number`. docs/RIG-NOTES.md, entry 6.

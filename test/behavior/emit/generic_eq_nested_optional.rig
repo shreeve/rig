@@ -1,0 +1,37 @@
+# A generic `==` over nested optionals compares `none` at each level
+# before unwrapping, so a `none` held inside a `some` differs from the
+# outer `none`. A side with fewer levels counts as `some` at the rest.
+
+fun eq[K](a: K?, b: K?) -> Bool
+  a == b
+
+fun eq2[K](a: (K?)?, b: (K?)?) -> Bool
+  a == b
+
+fun mixed[K](a: K?, b: (K?)?) -> Bool
+  a == b
+
+fun mixed3[K](a: (K?)?, b: ((K?)?)?) -> Bool
+  a == b
+
+sub main()
+  b: Int? = none
+  d: (Int?)? = b
+  a: (Int?)? = none
+  print(d == none, d == a, eq[Int?](d, none), eq[Int?](d, a))
+  c: (Int?)? = 3
+  print(c == a, c == d, c == c, a == a, d == d)
+  e: ((Int?)?)? = d
+  f: ((Int?)?)? = none
+  g: ((Int?)?)? = a
+  print(eq2[Int?](e, f), eq2[Int?](e, g), eq2[Int?](g, f), eq2[Int?](f, f), eq2[Int?](e, e))
+  print(mixed[Int](b, a), mixed[Int](b, d), mixed[Int](b, c))
+  o: (Int?)? = 4
+  print(mixed3[Int](a, f), mixed3[Int](d, e), mixed3[Int](d, g), mixed3[Int](o, e))
+
+# expect:
+# false false false false
+# false false true true true
+# false false false true true
+# false true false
+# false true false false

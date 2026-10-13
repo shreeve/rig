@@ -50,8 +50,14 @@ tools that take them in `bench/json/`.
    specialization, which should cost nothing, costs a call. Two copies
    of `document` (`document[dense: Bool]`) left `skip_ws[dense]` and
    even `scalar` out of line: 10-15% more instructions on every corpus
-   file. Fix: decide inlining per instance, after instantiation.
-   *In flight (#154).*
+   file. Fix: decide inlining per instance, after instantiation. *In
+   flight (#154).* Under #154 the same `document` still lost
+   `Doc.number`'s inlining (canada 10% slower): its cap on inlined calls
+   per function counts a generic's calls in every branch, those a
+   compile-time constant removes too, and then out-lines the callee
+   that brings the most calls, the hottest. Fix: drop the cap, which
+   no longer guards correctness, or count per instance after folding
+   and out-line the coldest callee. *In flight (a follow-up to #154).*
 7. **No way to keep a cold path out of line.** The whitespace bitmap's
    run function, called only for deeply indented documents, was inlined
    at every call site and cost 4-6% more instructions where it never ran.
@@ -109,16 +115,19 @@ tools that take them in `bench/json/`.
     (`QUOTE`, `BACKSLASH`, `LBRACE`, ...) and writes `match` arms in hex.
     Fix: `'"'`, `'\\'`, `'{'` as `U8` values. *Observed.*
 16. **An enum variant's name is not text.** `error_name` spells out all
-    13 `Error` variants in a `match`. Fix: `e.name()`, a `Static`.
-    *Observed.*
+    13 `Error` variants in a `match`. `print` shows a variant as `.ok`,
+    and `@variants(T)` lists the values, but no expression gives the
+    name as text. Fix: `e.name()`, a `Static`. *Observed.*
 17. **Errors carry no data.** `parse` returns a `Bool` and keeps `error`
     and `error_pos` in the `Doc`; the parser's internal steps return
     `-1`. Fix: errors with a payload (an offset), so `parse` can be `!`.
     std.json's final API waits on it. *Observed.*
-18. **Long literals and embedding.** A string literal is at most 64 KB
-    and a source file 16 MiB, so the benchmark and the tests split each
-    JSON file into 60 KB literals and join them at run time. Fix:
-    `@embed("file.json")` as a `Static`, or longer literals. *Observed.*
+18. **Long literals and embedding.** A string literal was at most 64 KB
+    and a source file is 16 MiB, so the benchmark and the tests split
+    each JSON file into 60 KB literals and join them at run time. Fix:
+    `@embed("file.json")` as a `Static`, or longer literals. Literals
+    of any length within the 16 MiB source are *fixed* (`@longtokens`);
+    `@embed` is *observed*.
 
 ## Traps
 
