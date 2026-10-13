@@ -220,6 +220,7 @@ What a reader sees, by the rules of Unicode's text segmentation (UAX
 | `text.first_chars(s, n) -> ?String` | the first `n` chars of `s`, or all of `s` if it has fewer |
 | `text.last_chars(s, n) -> ?String` | the last `n` chars of `s`, or all of `s` if it has fewer |
 | `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
+| `text.width(s) -> Int` *(planned)* | the terminal columns `s` takes: each char's East Asian Width (UAX #11), 2 for an emoji, 0 for a combining mark or a zero-width char, summed |
 
 ```rig
 use std.text
