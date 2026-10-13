@@ -161,44 +161,37 @@ references' published designs where marked. In order of expected gain:
    every bounds check from the runtime in an experiment gained 11% on
    twitter, 10% on github_events and 6% on canada (`rig-fast` against
    `rig-nocheck`).
-3. **Checks the compiler proves away** (measured up to 18%). An index
-   already bounded by `while i < s.len` or `for k in 0..s.len` needs no
-   check; neither does `i += 1` under `i < s.len`, nor
-   `m << m.leading_zeros()`, which is checked today (3 instructions per
-   number). Overflow checks cost 11% on canada and 18% on gsoc-2018
-   (`rig-safe` against `rig-fast`). A padded buffer type, followed by N
-   readable bytes, would also remove the tail loop of a block read.
-4. **Cheap word appends.** Copying the text between escapes a word at a
-   time, as sonic-rs does, did not pay yet:
-   - each `push[U64]` is about 13 instructions and 4 branches, three of
-     which cannot fire (a checked `capacity - len`, an overflow check on
-     `len + n`, and the range check `writeInt` repeats); wrapping
-     arithmetic and a store at `items.ptr + used` make it 8 and 1
-     (measured: another 2.2 points on twitterescaped);
-   - `len` lives in memory, so each push reloads what the last one stored;
-   - a tail of 1 to 7 bytes takes up to three pushes: a byte count on
-     `push`, or `!t.truncate(n)`, would allow "write 8, keep k";
-   - `reserve` alone removes no check: a write checked once for a reserved
-     window would allow the fused loop.
-5. **Bits of a Float** (measured about 0%; clarity). Eisel-Lemire builds
-   a Float from its bits through an `[8]U8` and `write`/`read`, which
-   LLVM folds, so a direct conversion is for clarity.
-6. **Large literals and embedding** (build). `@embed("file.json")` as a
+3. **Checks the compiler proves away** (mostly done). Indexes and reads
+   bounded by a loop's condition, `+` under such a bound, and the
+   string scan's 16-byte reads are proven, with no check (#138, #149).
+   The checks left cost 4-9% of instructions together and nothing
+   measurable in time on the Mac (RESULTS.md, "Checks and IPC after
+   proofs2"). Still checked: `m << m.leading_zeros()`, a read after an
+   early-return guard, and `i >= 0` for a position a call returned
+   (docs/RIG-NOTES.md, entries 10 and 19).
+4. **Cheap block appends to a List.** The text between escapes is
+   copied 16 bytes at a time as it is scanned, with `String`'s
+   `!t.push(v, keep: k)` (#150). Tape entries are pushed one at a time,
+   and `document` keeps the tape's length and capacity in memory, so
+   each push reloads them; a `List` write window (reserve n, write
+   through a cursor) would keep them in registers (docs/RIG-NOTES.md,
+   entry 8).
+5. **Large literals and embedding** (build). `@embed("file.json")` as a
    `Static`, or string literals longer than the lexer's 64 KB token. The
    benchmark and the test programs split a file into literals of 60 KB
    and join them at run time, and the tests stay under the 16 MiB source
    limit.
-7. **Multiple results** (clarity). A function returns one value, so
+6. **Multiple results** (clarity). A function returns one value, so
    `take_digits` hands back the digits' value through an out-parameter,
    which stays in a register only when the call is inlined. The byte
    loop is split off into `take_last_digits` so that `take_digits` is
    small enough to inline.
-8. **An enum variant's name as text** (clarity). `error_name` spells
+7. **An enum variant's name as text** (clarity). `error_name` spells
    out each `Error` variant's name in a `match`.
-9. **Character literals** (clarity). `'"'`, `'\\'`, `'{'` as `U8` values:
+8. **Character literals** (clarity). `'"'`, `'\\'`, `'{'` as `U8` values:
    the parser names 19 byte constants and writes `match` arms as hex
    literals with no name.
-10. **Errors that carry data** (API). A parse error is a kind and a byte
+9. **Errors that carry data** (API). A parse error is a kind and a byte
    offset, and Rig's errors carry no data, so `parse` returns a `Bool`
    and the `Doc` holds `error` and `error_pos`. The API changes to
    fallible `!` functions when errors can carry them.
@@ -209,8 +202,8 @@ their offset, and `!` or `T?` in place of the `-1` that the parser's
 internal steps return on an error. Until then `std.json` is
 experimental.
 
-Done, and no longer open: the bit methods (`leading_zeros`,
-`trailing_zeros`, `count_ones`) and `x.not()`; `<<%`; wide reads as one
-load (`read[U128, .little]`); inlined `List.push` and `String.push`,
-`reserve`, `push[T, e]`, and the trimmed append paths; and inlining of
-small functions.
+Done, and no longer open: a Float from its bits (`Float.from_bits`); the
+bit methods (`leading_zeros`, `trailing_zeros`, `count_ones`) and
+`x.not()`; `<<%`; wide reads as one load (`read[U128, .little]`);
+inlined `List.push` and `String.push`, `reserve`, `push[T, e]`, and the
+trimmed append paths; and inlining of small functions.

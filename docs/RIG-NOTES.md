@@ -109,8 +109,9 @@ tools that take them in `bench/json/`.
     (`QUOTE`, `BACKSLASH`, `LBRACE`, ...) and writes `match` arms in hex.
     Fix: `'"'`, `'\\'`, `'{'` as `U8` values. *Observed.*
 16. **An enum variant's name is not text.** `error_name` spells out all
-    13 `Error` variants in a `match`. Fix: `e.name()`, a `Static`.
-    *Observed.*
+    13 `Error` variants in a `match`. `print` shows a variant as `.ok`,
+    and `@variants(T)` lists the values, but no expression gives the
+    name as text. Fix: `e.name()`, a `Static`. *Observed.*
 17. **Errors carry no data.** `parse` returns a `Bool` and keeps `error`
     and `error_pos` in the `Doc`; the parser's internal steps return
     `-1`. Fix: errors with a payload (an offset), so `parse` can be `!`.
