@@ -344,8 +344,12 @@ failure's (`BaseLexer.token`). After the parse, `rig.leafEnd` gives
 every leaf's end, and `rig.leafText` and `rig.leafSpan` read it: a long
 leaf's end is where the generated lexer's scan from its start ends. That
 lexer keeps no state between tokens, so the scan finds the end the
-parser kept, which `Parser.parseTree` checks for every long token. A
-source file holds at most 16 MiB (`modules.max_source_bytes`).
+parser kept, which `Parser.parseTree` checks for every long token. That
+holds while `rig.grammar`'s `@lexer` has no state, guards, or `@code`:
+a lexer rule that adds one must move `leafEnd` to the parser's table of
+long-token ends, and the check turns a missed case into a panic rather
+than a wrong end. A source file holds at most 16 MiB
+(`modules.max_source_bytes`).
 
 `rig tokens` shows its output.
 
