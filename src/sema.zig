@@ -818,6 +818,27 @@ pub const Proven = packed struct(u8) {
     }
 };
 
+/// What a function bounds of its result on every path that returns
+/// (docs/INTERNALS.md, "Proven checks"): `0 <= v <= hi` of the result
+/// itself, an `Int`, or of named `Int` fields of the struct it returns.
+/// Written only by `src/proofs.zig`, for a module the ownership checker
+/// accepted, and read by the proof pass of each module that calls it.
+pub const ResultBound = struct {
+    /// The bound of an `Int` result.
+    whole: ?u64 = null,
+    /// The bounds of the fields of a struct result.
+    fields: []const FieldBound = &.{},
+
+    /// The bound of field `name`, or null.
+    pub fn field(b: ResultBound, name: []const u8) ?u64 {
+        for (b.fields) |f| if (std.mem.eql(u8, f.name, name)) return f.hi;
+        return null;
+    }
+};
+
+/// `0 <= field <= hi` of a struct a function returns.
+pub const FieldBound = struct { name: []const u8, hi: u64 };
+
 /// How a header (`for`, `match`, `if … as`, `while … as`) has a bare
 /// subject that is not plain data (docs/INTERNALS.md, "Header subjects").
 pub const Header = enum {
@@ -1115,8 +1136,10 @@ pub const Use = enum {
 /// enum); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
 /// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
-/// `v.array()`, `v.with(i, x)`, and `m.select(a, b)`, whose `num` is the
-/// mask and `elem` the lane type of the vector it gives.
+/// `v.array()`, `v.with(i, x)`, `m.select(a, b)`, whose `num` is the
+/// mask and `elem` the lane type of the vector it gives, `t.lookup(idx)`,
+/// whose `num` is the index vector's type and `elem` its lane type, and
+/// `v.lag[k](prev)`.
 pub const ElemCall = struct {
     op: ElemOp,
     /// The receiver's element type.
@@ -1148,13 +1171,15 @@ pub const ElemOp = enum {
     array,
     with,
     select,
+    lookup,
+    lag,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => false,
         };
     }
 
@@ -1171,7 +1196,7 @@ pub const ElemOp = enum {
     /// it reads its receiver and arguments, and makes a new value.
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
-            .splat, .bits, .first, .any, .all, .array, .with, .select => true,
+            .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
             .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int => false,
         };
     }
@@ -1814,6 +1839,10 @@ pub const SemContext = struct {
     /// `src/proofs.zig` once the ownership checker accepted the module.
     /// Printed by `check --facts=proofs`, not `--facts=sema`.
     proven: std.AutoHashMapUnmanaged(NodeKey, Proven) = .empty,
+    /// What each function of the module bounds of its result
+    /// (`ResultBound`), by where its name is declared: written only by
+    /// `src/proofs.zig`, with the tests above.
+    result_bounds: std.AutoHashMapUnmanaged(u32, ResultBound) = .empty,
     /// Each node of a body -> the root of the innermost unit holding it
     /// (`rig.eachUnit`), recorded by the storage plan (`storage.plan`).
     /// Kept beside the facts table, not in `check --facts=sema`.
@@ -1891,6 +1920,7 @@ pub const SemContext = struct {
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
+        self.result_bounds.deinit(self.allocator);
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);
@@ -2810,7 +2840,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
-    if (zig_builtin.optimize == .debug or zig_builtin.is_test) try checkBindingAccess(&ctx);
+    if (@import("build_options").self_check or zig_builtin.is_test) try checkBindingAccess(&ctx);
     try storage.plan(&ctx, tree);
     return ctx;
 }
@@ -7004,7 +7034,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Declarations and their parts.
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
-        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
+        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
@@ -7017,7 +7047,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // with one.
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
         .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .box, .weak => .made,
-        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
+        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
 
@@ -7359,7 +7389,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => {},
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return .not_constant,
             }
             const a = switch (ctFoldBy(ctx, ir.get(e, .left), names)) {
@@ -7388,6 +7418,14 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                         else => a.v *% b.v,
                     };
                     return .{ .value = .{ .v = wrapTo(info, v), .int = info } };
+                },
+                // Saturating arithmetic stops at the type's limits, which a
+                // `Wide` holds; literals alone need their context's type too.
+                .@"+|", .@"-|" => {
+                    const info = int orelse names.literalInt(e) orelse return .not_constant;
+                    const r = intRange(info);
+                    const v = if (h == .@"+|") a.v + b.v else a.v - b.v;
+                    return .{ .value = .{ .v = std.math.clamp(v, r.min, r.max), .int = info } };
                 },
                 // A shift keeps the low bits too, if its amount is below the
                 // width (reported where the operator is checked).

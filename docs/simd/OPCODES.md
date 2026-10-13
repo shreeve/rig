@@ -26,15 +26,16 @@ Status: **used** (Rig emits it today, or on the `simd` branch),
 | `mul` + `umulh` | Full 64×64 → 128-bit multiply, low and high halves | `U128` multiply, in Eisel-Lemire float conversion | `mul` (`rdx:rax`), `mulx` | emulated with 32-bit pieces | used |
 | `rev` | Reverses the bytes of a register | `x.swap_bytes()`, and `.big` reads and pushes | `bswap`, `movbe` | shifts and masks | used |
 | `ldp` (q registers) | Loads 32 bytes as a pair of vector registers | wide `read[U128]` and vector reads (Rig #115) | `movdqu`, `vmovdqu` | `v128.load` twice | used |
+| `tbl` (1, 2, or 4 table registers) | Looks up each lane's byte in a 16-, 32-, or 64-byte table, an out-of-range index giving 0 | `t.lookup(idx)`: byte classification, UTF-8 validation, hex | `pshufb` on the index plus 0x70, saturated (`paddusb`), so bit 7 is set exactly from 16 on; one per 16-byte table piece, ORed; `vpshufb` with the table in both halves on AVX2 | `i8x16.swizzle`, one per table piece, ORed | used |
+| `ext` | Joins two vectors, shifted: each lane gets the lane `k` before it | `cur.lag[k](prev)`: vector UTF-8 validation | `palignr`; `vperm2i128` + `vpalignr` for 32 bytes on AVX2 | `i8x16.shuffle` | used |
+| `uqsub`, `uqadd` (`sqsub`, `sqadd` signed) | Saturating subtract and add | `-\|` and `+\|`, scalar or lane-wise: UTF-8 range checks | `psubusb`, `paddusb` | `i8x16.sub_sat_u`, `i8x16.add_sat_u` | used |
+| `ushr`, `shl` (immediate) | Shifts every lane by one amount | `v >> 4`, `v <<% 4`; `v << 4` adds one compare (`cmhi` + `umaxv`) that panics if a lane loses bits | `psrlw` + `pand` (no byte shift) | `i8x16.shr_u`, `i8x16.shl` | used |
 
 ## Worth adding next
 
 | Opcode | What it is for | Rig operation | x86-64 | WASM | Status |
 |---|---|---|---|---|---|
 | `shrn` #4 | The "nibble mask": narrows a 16-lane compare to a 64-bit mask with 4 bits per byte in one instruction. Then `rbit` + `clz`, shifted right 2, gives the first match. The fastest first-match search on ARM (glibc's string functions, .NET's `IndexOf`) | a mask's first true lane, such as `m.first()` returning `Int?` (requested from Rig) | `pmovmskb` + `tzcnt` | `i8x16.bitmask` + `i32.ctz` | next |
-| `tbl`, `tbx` | Looks up each lane's byte in a 16- to 64-byte table | the byte lookup in SIMD round 2, an out-of-range index giving 0: byte classification, UTF-8 validation, hex, base64 | `pshufb` (SSSE3), `vpermb` (AVX-512 VBMI) | `i8x16.swizzle` | next |
-| `ext` | Shifts across two vectors, giving each lane the bytes before it | the concatenating shift in SIMD round 2, needed for vector UTF-8 validation | `palignr` (SSSE3) | `i8x16.shuffle` (constant indices) | next |
-| `uqsub` | Saturating subtract | `-\|` on vectors: UTF-8 range checks | `psubusb` | `i8x16.sub_sat_u` | next |
 | `cnt` + `addv` | Popcount per byte, then a sum across lanes | `m.bits().count_ones()`, `x.count_ones()` | `popcnt` (scalar), `vpopcntb` (AVX-512 BITALG) | `i8x16.popcnt` | next |
 | `udot` | Dot product of 4 bytes with 4 bytes, into each 32-bit lane | possibly 16-digit number parsing (SWAR already wins at 8 digits) | `vpdpbusd` (AVX-VNNI), `pmaddubsw` | `i32x4.dot_i16x8_s` (16-bit lanes) | next, if measured |
 | `pmull` | Carry-less multiply | simdjson's in-string quote mask (prefix XOR). Only a two-stage parser needs it, and the JSON parser measured that one pass wins | `pclmulqdq` | none (6 shift-XORs) | skip for now |
@@ -61,8 +62,8 @@ interning hashes every identifier.
 
 1. The `shrn` nibble-mask lowering, through a mask's first-true-lane
    method (`m.first()`).
-2. `tbl` and `ext` in SIMD round 2 (already planned), and a saturating
-   `-|` on vectors.
+2. Done in SIMD round 2: `tbl` (`t.lookup(idx)`), `ext`
+   (`cur.lag[k](prev)`), the saturating `+|` and `-|`, and lane shifts.
 3. Later, for hash maps: a hashing primitive that lowers to `crc32` or
    AES rounds where the target has them, and to a portable hash where it
    does not.

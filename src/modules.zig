@@ -260,34 +260,61 @@ pub const ModuleGraph = struct {
     }
 
     /// Read the Zig file of each `extern zig` block of the standard
-    /// library's module `id`; false if one cannot be.
+    /// library's module `id`, and each Zig file of the standard library
+    /// those import by its plain name (`@import("name.zig")`), which the
+    /// package holds beside them; false if one cannot be.
     fn loadShims(self: *ModuleGraph, id: ModuleId) Error!bool {
         const m = self.get(id);
         if (m.ir == .nil) return true;
+        var at: parser.Span = undefined;
         for (ir.Module.decls(m.ir)) |decl| {
             if (!decl.isKind(.zig_extern)) continue;
             const leaf = ir.ZigExtern.file(decl);
-            const at = m.parser.span(leaf);
+            at = m.parser.span(leaf);
             const quoted = rig.leafText(m.source, leaf.src);
             const file = quoted[1 .. quoted.len - 1];
-            const base = file[0..file.len -| 4];
-            const plain = std.mem.endsWith(u8, file, ".zig") and base.len > 0 and for (base) |c| {
-                if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
-            } else true;
-            if (!plain) {
+            if (!plainZigFile(file)) {
                 try self.errorAt(id, at, "`extern zig` names a Zig file of the standard library, `name.zig`", .{});
                 return false;
             }
-            const found = self.readStd(file) catch |err| {
-                try self.stdError(id, at, file, err);
-                return false;
-            } orelse {
-                try self.errorAt(id, at, "the standard library has no Zig file `{s}`", .{file});
-                return false;
-            };
-            try self.get(id).shims.append(self.allocator, .{ .name = file, .source = found.source });
+            if (!try self.addShim(id, at, file)) return false;
+        }
+        var next: usize = 0;
+        while (next < self.get(id).shims.items.len) : (next += 1) {
+            var rest = self.get(id).shims.items[next].source;
+            const import = "@import(\"";
+            while (std.mem.find(u8, rest, import)) |k| {
+                rest = rest[k + import.len ..];
+                const file = rest[0 .. std.mem.findScalar(u8, rest, '"') orelse break];
+                if (!plainZigFile(file)) continue;
+                for (self.get(id).shims.items) |shim| {
+                    if (std.mem.eql(u8, shim.name, file)) break;
+                } else if (!try self.addShim(id, at, file)) return false;
+            }
         }
         return true;
+    }
+
+    /// Read `file` of the standard library as a shim of module `id`;
+    /// false, with a diagnostic at `at`, if it cannot be.
+    fn addShim(self: *ModuleGraph, id: ModuleId, at: parser.Span, file: []const u8) Error!bool {
+        const found = self.readStd(file) catch |err| {
+            try self.stdError(id, at, file, err);
+            return false;
+        } orelse {
+            try self.errorAt(id, at, "the standard library has no Zig file `{s}`", .{file});
+            return false;
+        };
+        try self.get(id).shims.append(self.allocator, .{ .name = file, .source = found.source });
+        return true;
+    }
+
+    /// `name.zig`, with a name of letters, digits, and `_`.
+    fn plainZigFile(file: []const u8) bool {
+        const base = file[0..file.len -| 4];
+        return std.mem.endsWith(u8, file, ".zig") and base.len > 0 and for (base) |c| {
+            if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
+        } else true;
     }
 
     /// A file of the standard library: from `$RIG_STD` when it is set,

@@ -1,0 +1,26 @@
+# A store into the decoded value ends what the decoder bounds: `i +=
+# d.size` keeps its test.
+
+obj Decoded
+  rune: Int
+  size: Int
+
+fun rune_after(s: ?String, i: Int) -> Decoded
+  return Decoded(rune: Int(s[i]), size: 1) if s[i] < 0x80
+  Decoded(rune: 0xFFFD, size: 2)
+
+fun total(s: ?String, big: Int) -> Int
+  sum = 0
+  i = 0
+  while i < s.len
+    d = rune_after(s, i)
+    d.size = big if d.rune == 0xFFFD
+    sum += d.rune
+    i += d.size # keeps: += no_overflow
+  sum
+
+sub main()
+  print(total("a\u{e9}", Int.max))
+
+# release
+# expect-panic: integer overflow

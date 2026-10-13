@@ -1,0 +1,17 @@
+# A vector `<<` that would lose a lane's bits panics, as a scalar `<<`
+# does, also on lanes known when the program is built.
+
+sub main()
+  v = Simd[U8, 32].splat(0x40)
+  print((v << 1)[0])
+  w = v.with(31, 0x81)
+  print("start")
+  print((w << 1)[0])
+
+# expect-panic: left shift overflowed bits
+
+# release
+
+# expect:
+# 128
+# start

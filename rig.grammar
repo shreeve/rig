@@ -113,6 +113,8 @@ tokens
     plus_wrap       # +%  wrapping add
     minus_wrap      # -%  wrapping subtract
     star_wrap       # *%  wrapping multiply
+    plus_sat        # +|  saturating add
+    minus_sat       # -|  saturating subtract
     power           # ** (not a Rig operator; lexed so it can be rejected)
     eq              # ==
     ne              # !=
@@ -149,6 +151,8 @@ tokens
     plus_wrap_assign   # +%=
     minus_wrap_assign  # -%=
     star_wrap_assign   # *%=
+    plus_sat_assign    # +|=
+    minus_sat_assign   # -|=
 
     # Punctuation
     lparen          # (
@@ -222,6 +226,10 @@ tokens
 "+%"                                        → plus_wrap
 "-%"                                        → minus_wrap
 "*%"                                        → star_wrap
+"+|="                                       → plus_sat_assign
+"-|="                                       → minus_sat_assign
+"+|"                                        → plus_sat
+"-|"                                        → minus_sat
 ">>="                                       → rshift_assign
 "**"                                        → power
 "=="                                        → eq
@@ -369,7 +377,7 @@ tokens
     variant                     name:leaf params:group
 
     # Bindings: `op` is the binding kind (see BindingKind in src/rig.zig)
-    set                         op:tag(fixed|shadow|shadow_fixed|"+="|"-="|"*="|"/="|"%="|"+%="|"-%="|"*%="|"&="|"|="|"^="|"<<="|"<<%="|">>=")? target type? value
+    set                         op:tag(fixed|shadow|shadow_fixed|"+="|"-="|"*="|"/="|"%="|"+%="|"-%="|"*%="|"+|="|"-|="|"&="|"|="|"^="|"<<="|"<<%="|">>=")? target type? value
     drop                        target @wrapper  # a name, or the (move e) whose value is dropped
     pass
 
@@ -411,6 +419,7 @@ tokens
     # Operators
     "+", "-", "*", "/", "%"     left right
     "+%", "-%", "*%"            left right
+    "+|", "-|"                  left right
     "==", "!=", "<", ">", "<=", ">="  left right
     "&", "|", "^", "<<", "<<%", ">>"   left right
     "??", and, or               left right
@@ -449,6 +458,7 @@ tokens
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
     "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", "<<%=": "`<<%=`", ">>=": "`>>=`"
     "+%=": "`+%=`", "-%=": "`-%=`", "*%=": "`*%=`", "+%": "`+%`", "-%": "`-%`", "*%": "`*%`"
+    "+|=": "`+|=`", "-|=": "`-|=`", "+|": "`+|`", "-|": "`-|`"
     ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
     "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
     "@": "`@`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
@@ -521,7 +531,7 @@ simple   = tail
 
 assign   = target:postfix "="   value:tail          → (set)
          | target:postfix
-           op:("+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%=" | "*%=" | "&=" | "|=" | "^=" | "<<=" | "<<%=" | ">>=")
+           op:("+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%=" | "*%=" | "+|=" | "-|=" | "&=" | "|=" | "^=" | "<<=" | "<<%=" | ">>=")
            value:tail                               → (set)
 
 # ==============================================================================
@@ -982,5 +992,5 @@ atom     = name
     "^"  left
     "&"  left
     "<<" left, "<<%" left, ">>" left
-    "+"  left, "-"  left, "+%" left, "-%" left
+    "+"  left, "-"  left, "+%" left, "-%" left, "+|" left, "-|" left
     "*"  left, "/"  left, "%"  left, "*%" left

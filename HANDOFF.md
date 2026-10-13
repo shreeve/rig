@@ -307,9 +307,9 @@ migration guide (`tools/migrate-0.3.py`).
 
 **Later:**
 
-- SIMD round 2: byte lookup, a joined shift, a saturating subtract (its
-  spelling is undecided), `pad:` reads, `blocks(N)`, and one load for
-  4- and 8-byte byte-lane reads on ARM.
+- SIMD: `pad:` reads, `blocks(N)`, and one load for 4- and 8-byte
+  byte-lane reads on ARM. (Round 2 built `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and
+  `-|`, and lane shifts.)
 - A String API for part-word appends and windowed writes.
 - Multiple results.
 - A frame-size guard for every function.

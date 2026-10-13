@@ -6,13 +6,10 @@ that follows from them. This page is the design. [SPEC,
 Strings](../SPEC.md#strings) states what the language does, and
 [STD](STD.md) lists each module's functions.
 
-**Status.** The model, the byte layer, and the rune and unit layers are
-built: a `String` holds UTF-8 bytes, and `s.len`, `s[i]`, slicing, and
-`std.text` work on them; `std.utf8`, `std.utf16`, and `std.unicode` read
-and write runes and units. The char tools are designed and named, and
-are built next, on the Unicode grapheme tables. A section marked
-*(planned)* describes a function that is not built yet; its examples are
-`rig pending` examples, which the suite checks do not run yet.
+**Status.** Every layer below is built: a `String` holds UTF-8 bytes,
+and `s.len`, `s[i]`, slicing, and `std.text` work on them; `std.utf8`,
+`std.utf16`, and `std.unicode` read and write runes and units; and
+`std.text`'s char tools read chars, on the Unicode grapheme tables.
 
 ## Four units, four words
 
@@ -63,7 +60,7 @@ pattern, as Go's `strings.Count` and Python's `str.count` do.
 
 For `"👨‍👩‍👧"`:
 
-```rig pending
+```rig
 use std.text
 use std.utf8
 use std.utf16
@@ -211,7 +208,7 @@ sub main()
 true false
 ```
 
-## Chars: `std.text` *(planned)*
+## Chars: `std.text`
 
 What a reader sees, by the rules of Unicode's text segmentation (UAX
 #29), so char-correct code is one call, and its name says "char":
@@ -224,7 +221,7 @@ What a reader sees, by the rules of Unicode's text segmentation (UAX
 | `text.last_chars(s, n) -> ?String` | the last `n` chars of `s`, or all of `s` if it has fewer |
 | `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
 
-```rig pending
+```rig
 use std.text
 use std.utf8
 
@@ -239,6 +236,26 @@ a 1 1
 👋🏽 8 2
 hé
 ```
+
+```rig
+use std.text
+
+sub main()
+  s = "e\u{301}\u{1f44b}\u{1f3fd}\r\n\u{1f1eb}\u{1f1f7}"
+  print(s.len, text.char_count(s), text.last_chars(s, 1), text.char_boundary(s, 2))
+```
+
+```output
+21 4 🇫🇷 0
+```
+
+**Invalid UTF-8 never stops a char tool.** Text that is not UTF-8 is
+read as `std.utf8` reads it, which is Go's way: each byte that starts no
+well-formed sequence is one rune, U+FFFD, of one byte, and a char like
+any other (a combining mark after it joins it). So every byte is in
+exactly one char, and the chars of `s` always tile it: their sizes add
+up to `s.len`. A byte index outside `0..s.len`, or a negative count of
+chars, panics.
 
 `first_chars` is how to shorten text for a reader (a preview, a
 280-character post); `s[0..n]` is how to take `n` bytes.
