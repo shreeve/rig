@@ -54,7 +54,10 @@ def extra(name, defs_text, use_text, cond):
 
 for shape in SHAPES:
     open(f"unreached_{shape}.rig", "w").write(program(shape, list(USES), "os.args().len > 50"))
+    # The compile-time shapes run the three uses that panic differently.
     for u in USES:
+        if shape.startswith("ct") and u not in ("div", "overflow8", "index"):
+            continue
         open(f"reached_{shape}_{u}.rig", "w").write(program(shape, [u], "os.args().len > 0"))
 # Instances that compute from run-time arguments, call helpers, and recurse
 # through an instance, against the values worked out by hand.
