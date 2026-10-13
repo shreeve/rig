@@ -193,3 +193,21 @@ tools that take them in `bench/json/`.
     `/usr/bin/time -l` instruction count varies by several percent from
     run to run, so the least of 3 picks outliers. Tooling, not language.
     *Fixed (#144: the median of 5).*
+25. **Fewer instructions can be slower.** A whitespace skip that read 16
+    bytes and found the first non-whitespace lane (`WS.lookup(v & 0x0F)
+    == v`, then `.not().first()`) retired 12-29% fewer instructions on
+    four corpus files and was 32-41% slower on the Mac. On x86 its IPC
+    fell from about 5 to 3.7, for 9-13% more cycles on three of those
+    files. The byte loop it replaced is branchy, so the
+    predictor guesses where a run ends and the next token starts early.
+    The vector form makes that position a data dependency (load,
+    classify, move the mask to a register, count) on every token's
+    critical path. `bench/json/guard.py` counts instructions only, so it
+    passes such a change: a change to a hot loop is judged by time on
+    both machines. *Verified* (docs/json/RESULTS.md).
+26. **A guard cannot bind.** `return i + k if m.first() as k` is
+    rejected with "use of unbound name `k`": a guard (`if cond` after a
+    statement) takes a `Bool`, and `as` binds only in a block form (`if
+    m.first() as k` then `return i + k`). Either the guard should bind,
+    as `if … as` does, or the error should say that a guard cannot
+    bind. *Observed.*
