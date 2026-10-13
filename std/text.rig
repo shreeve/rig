@@ -399,8 +399,6 @@ extern zig "text.zig"
   # `ParseError.overflow` when its magnitude is beyond `Float.max`.
   pub fun parse_float(s: ?String) -> Float!
 
-  # Whether `bytes` is well-formed UTF-8.
-  pub fun valid_utf8(bytes: []U8) -> Bool
   # Panics: a base is not between 2 and 36.
   sub bad_base(who: ?String)
 
