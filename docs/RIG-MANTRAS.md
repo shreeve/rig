@@ -114,6 +114,12 @@ mean what everyone means by "character".
 
 ## How we measure
 
+**Same speed or faster, or it doesn't swap.** Code the standard library
+replaces (Trig's helpers, std.json's routines) moves only when std is at
+least as fast, per function. "As fast" means within 2%: measured in a
+quiet window, interleaved, fastest of N. A loss goes to the owner with
+its numbers and a fix, never swapped in quietly.
+
 **Measure time, not instruction counts.** Fewer instructions can run
 slower; only time decides.
 
