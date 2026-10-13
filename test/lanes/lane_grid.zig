@@ -123,7 +123,16 @@ fn cell(comptime impl: Impl, comptime op: Op, comptime T: type, comptime n: usiz
     return 0;
 }
 
+/// Ends the process as a panic's abort does, with status 134, but by
+/// exiting: a crash reporter that the kernel starts for each abort (apport
+/// on Ubuntu) would cost each `ovf` cell a second or more.
+fn exitOnAbort(_: std.posix.SIG) callconv(.c) void {
+    std.process.exit(134);
+}
+
 pub fn main(init: std.process.Init.Minimal) u8 {
+    const act: std.posix.Sigaction = .{ .handler = .{ .handler = exitOnAbort }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    std.posix.sigaction(.ABRT, &act, null);
     var it = init.args.iterate();
     _ = it.next();
     const impl_name = it.next().?;
