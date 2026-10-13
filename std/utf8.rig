@@ -153,35 +153,18 @@ pub fun rune_size(s: ?String, i: Int) -> Int?
   n
 
 # How many runes `s` holds, each bad byte counted as one, as `runes`
-# reads them. Go's `RuneCountInString`.
+# reads them. Go's `RuneCountInString`. Valid UTF-8 holds one rune per
+# byte that is not a continuation byte (10xxxxxx), so whole blocks of 64
+# and then 16 bytes are counted that way, each checked valid as it is
+# counted (`errors`). The rest is read rune by rune: everything from the
+# first block that is not valid, a sequence the last valid block cut
+# short (from its first byte), and the 15 or fewer bytes after the last
+# whole block. std.utf16's `unit_count` counts units the same way.
 pub fun rune_count(s: ?String) -> Int
-  tally[false](s).runes
-
-# How many runes `s` holds, and how many UTF-16 units they take (a rune
-# of four bytes takes two, every other rune one), each bad byte counted
-# as one rune of one unit, as `runes` reads them: `rune_count(s)` and
-# `utf16.unit_count(s)` in one pass.
-pub fun counts(s: ?String) -> Counts
-  tally[true](s)
-
-# What `counts` finds.
-pub obj Counts
-  pub runes: Int
-  pub units: Int
-
-# `counts`, where `units` is counted only when `wide` is true. Valid
-# UTF-8 holds one rune per byte that is not a continuation byte
-# (10xxxxxx), and a rune of four bytes per first byte of 0xF0 or more,
-# so whole blocks are counted that way, each checked valid as it is
-# counted (`errors`). The bytes from the first block that is not
-# valid, and those after the last whole block, are read rune by rune.
-fun tally[wide: Bool](s: ?String) -> Counts
   n = 0
-  f = 0
   i = 0
   prev = Block.splat(0)
   ones = Block.splat(0)
-  fours = Block.splat(0)
   held = 0
   # Whether `prev` holds a byte of 0x80 or more: only then can it end in
   # a first byte whose sequence the next block must finish.
@@ -194,14 +177,11 @@ fun tally[wide: Bool](s: ?String) -> Counts
     if ((a | b | c | d) >= 0x80).any()
       break if ((errors(a, prev) | errors(b, a) | errors(c, b) | errors(d, c)) != 0).any()
       ones += starts(a) + starts(b) + starts(c) + starts(d)
-      fours += fours_of(a) + fours_of(b) + fours_of(c) + fours_of(d) if wide
       held += 1
       # Each lane gains at most 4 for 64 bytes: empty them before 255.
       if held == 63
         n += lanes_sum(ones)
-        f += lanes_sum(fours) if wide
         ones = Block.splat(0)
-        fours = Block.splat(0)
         held = 0
       high = true
     else
@@ -211,13 +191,12 @@ fun tally[wide: Bool](s: ?String) -> Counts
     prev = d
   # Fewer than 64 bytes are left, or the 64 from `i` hold a fault: 16 at
   # a time, at most 3 blocks before the end or the fault, so no lane of
-  # `ones` or `fours` passes 62 * 4 + 3.
+  # `ones` passes 62 * 4 + 3.
   while i + 16 <= s.len : i += 16
     a = s.read[Block](i)
     if (a >= 0x80).any()
       break if (errors(a, prev) != 0).any()
       ones += starts(a)
-      fours += fours_of(a) if wide
       high = true
     else
       break if high and ((prev -| ENDS) != 0).any()
@@ -225,7 +204,6 @@ fun tally[wide: Bool](s: ?String) -> Counts
       n += 16
     prev = a
   n += lanes_sum(ones)
-  f += lanes_sum(fours) if wide
   # Every byte before `i` is valid UTF-8, but for a sequence that the
   # bytes from `i` were to finish: read again from its first byte,
   # which was counted.
@@ -235,18 +213,15 @@ fun tally[wide: Bool](s: ?String) -> Counts
   if j > 0 and s[j - 1] >= 0xC0
     i = j - 1
     n -= 1
-    f -= 1 if wide and s[i] >= 0xF0 else 0
   while i < s.len
     if s[i] < 0x80
       k = ascii_end(s, i)
       n += k - i
       i = k
     else
-      k = rune_after(s, i).size
-      i += k
+      i += rune_after(s, i).size
       n += 1
-      f += 1 if wide and k == 4 else 0
-  Counts(runes: n, units: n + f)
+  n
 
 type Block = Simd[U8, 16]
 
@@ -298,10 +273,6 @@ ENDS = Block([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 
 # 1 in each lane that starts a rune: not a continuation byte.
 fun starts(v: Block) -> Block
   ((v < 0x80) | (v >= 0xC0)).select(Block.splat(1), Block.splat(0))
-
-# 1 in each lane that starts a rune of four bytes.
-fun fours_of(v: Block) -> Block
-  (v >= 0xF0).select(Block.splat(1), Block.splat(0))
 
 # The sum of the lanes of `v`.
 fun lanes_sum(v: Block) -> Int

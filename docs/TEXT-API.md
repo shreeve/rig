@@ -75,7 +75,7 @@ Whole-string ASCII checks are `utf8.is_ascii(s)` and `utf8.ascii_end(s, i)`.
 | `rune_count(s) -> Int` | built |
 | `size(r) -> Int?` | built |
 | `is_valid(s)`, `is_ascii(s)` | built |
-| `ascii_end(s, i) -> Int` | *(planned: runespeed)* |
+| `ascii_end(s, i) -> Int` | built |
 | `push_rune(!out, r)` | built |
 | `REPLACEMENT`, `RUNE_SELF` | built |
 

@@ -1,5 +1,5 @@
-# std.utf8's `counts` and `rune_count`, and std.utf16's `unit_count`,
-# against a count rune by rune with `rune_after`, which reads every bad
+# std.utf8's `rune_count` and std.utf16's `unit_count` against a count
+# rune by rune with `rune_after`, which reads every bad
 # byte as one rune of one unit, as Go does. Whole blocks of 64 and 16
 # bytes are counted by their bytes and checked valid as they are: each
 # piece, valid or not, is put at every byte from 0 to 150 of ASCII and
@@ -33,8 +33,7 @@ fun reference(s: ?String, wide: Bool) -> Int
 fun agrees(s: ?String) -> Bool
   runes = reference(s, false)
   units = reference(s, true)
-  c = utf8.counts(s)
-  c.runes == runes and c.units == units and utf8.rune_count(s) == runes and utf16.unit_count(s) == units
+  utf8.rune_count(s) == runes and utf16.unit_count(s) == units
 
 sub main()
   checked = 0
@@ -67,8 +66,8 @@ sub main()
     checked += 1
     wrong += 0 if agrees(t) else 1
   print(checked, wrong)
-  c = utf8.counts("a\u{e9}\u{4e2d}\u{1f600}\xff")
-  print(c.runes, c.units, utf8.rune_count(""), utf16.unit_count(""))
+  s = "a\u{e9}\u{4e2d}\u{1f600}\xff"
+  print(utf8.rune_count(s), utf16.unit_count(s), utf8.rune_count(""), utf16.unit_count(""))
 
 # expect:
 # 18100 0

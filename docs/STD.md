@@ -714,7 +714,6 @@ how runes fit with bytes, units, and chars.
 | `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` | |
 | `size(r: Int) -> Int?` | the bytes, 1 to 4, that `r` takes in UTF-8, or `none` when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF | `RuneLen` |
 | `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
-| `counts(s: ?String) -> Counts` | `Counts(runes: Int, units: Int)`: `rune_count(s)` and `utf16.unit_count(s)`, from one pass over `s` | |
 | `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
 | `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
@@ -793,15 +792,19 @@ sub main()
 
 `ascii_end` finds where a run of ASCII ends, testing many bytes at
 once, so a reader can take the whole run and decode only the runes
-after it. Counting is done in blocks: valid UTF-8 holds one rune for
-each byte that is not a continuation byte, and one more unit for each
-first byte of a rune of four, so `rune_count`, `counts`, and
-`utf16.unit_count` count whole blocks by their bytes, checking each one
-valid as they go, and read rune by rune only from a block that is not
-valid.
+after it. `rune_count` and `utf16.unit_count` count in blocks: valid
+UTF-8 holds one rune for each byte that is not a continuation byte,
+and one more unit for each first byte of a rune of four, so whole
+blocks of 64 and then 16 bytes are counted by their bytes, each checked
+valid as it is counted. The rest is read rune by rune: everything from
+the first block that is not valid, a sequence the last valid block cut
+short (from its first byte), and the 15 or fewer bytes after the last
+whole block. Either way each bad byte is one rune of one unit, as in
+Go.
 
 ```rig
 use std.utf8
+use std.utf16
 
 sub main()
   s = "let caf\u{e9} = 1"
@@ -810,8 +813,8 @@ sub main()
     j = utf8.ascii_end(s, i)
     print(i, j, s[i..j])
     i = j + utf8.rune_after(s, j).size if j < s.len else j
-  c = utf8.counts("a\u{e9}\u{1f600}\xff")
-  print(c.runes, c.units, utf8.ascii_end(s, s.len))
+  t = "a\u{e9}\u{1f600}\xff"
+  print(utf8.rune_count(t), utf16.unit_count(t), utf8.ascii_end(s, s.len))
 ```
 
 ```output

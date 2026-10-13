@@ -1,7 +1,7 @@
 # std.utf8's bulk readers never read past the end of a string: every
 # string here ends at the last byte of a page whose next page is
 # inaccessible, so a read past its end stops the program. `ascii_end`
-# from every cursor, and `counts`, `rune_count`, `utf16.unit_count`,
+# from every cursor, and `rune_count`, `utf16.unit_count`,
 # `utf16.byte_index`, and `is_valid` of every suffix, run clean in a debug
 # build and with --release, on strings of 0 to 200 bytes that end in
 # ASCII, in a rune of two to four bytes, in a first byte whose sequence
@@ -91,10 +91,9 @@ sub main()
       for i in 0..s.len + 1
         checked += 1
         wrong += 1 if utf8.ascii_end(s, i) != scan(s, i)
-        c = utf8.counts(s[i..])
-        wrong += 1 if c.runes != reference(s[i..], false) or c.units != reference(s[i..], true)
-        wrong += 1 if utf8.rune_count(s[i..]) != c.runes or utf16.unit_count(s[i..]) != c.units
-        wrong += 1 if utf16.byte_index(s[i..], c.units) != s.len - i
+        units = utf16.unit_count(s[i..])
+        wrong += 1 if utf8.rune_count(s[i..]) != reference(s[i..], false) or units != reference(s[i..], true)
+        wrong += 1 if utf16.byte_index(s[i..], units) != s.len - i
         _ = utf8.is_valid(s[i..])
   print(checked, wrong)
 EOF
