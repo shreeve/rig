@@ -104,10 +104,9 @@ for n in 100 1000 5000; do
     done
 done
 
-# Inlining stops at inlining.max_inlined_calls (256) calls in one
-# function, for size: 300 calls of a helper leave it called, 250 of one
-# holding six proven adds (1,750 inline calls in main) leave it inlined,
-# and the adds stay proven.
+# No count of calls stops inlining: 300 calls of a helper leave it
+# inlined, as do 250 of one holding six proven adds (1,750 inline calls in
+# main), and the adds stay proven.
 {
     echo 'fun inc(x: Int) -> Int'
     echo '  x + 1'
@@ -118,7 +117,7 @@ done
     echo '  print(n)'
 } >over.rig
 out=$(rig emit over.rig 2>/dev/null) || fail "emit over"
-expect_has "$out" 'pub fn inc(' "300 calls in one function: inc called"
+expect_has "$out" 'pub inline fn inc(' "300 calls in one function: inc inlined"
 {
     echo 'fun bump(s: ?String, at: Int) -> Int'
     echo '  i = at'

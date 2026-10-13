@@ -4,7 +4,8 @@ How Rig stores, measures, and walks text: four units, each with one
 name; one rule for how a measure is spelled; and the standard library
 that follows from them. This page is the design. [SPEC,
 Strings](../SPEC.md#strings) states what the language does, and
-[STD](STD.md) lists each module's functions.
+[STD](STD.md) lists each module's functions, and [TEXT-API](TEXT-API.md)
+lists every name of the text API in one place, built and planned.
 
 **Status.** Every layer below is built: a `String` holds UTF-8 bytes,
 and `s.len`, `s[i]`, slicing, and `std.text` work on them; `std.utf8`,
@@ -95,6 +96,65 @@ sub main()
 ```output
 2 195 169
 3 8
+```
+
+A scanner that stops at a few bytes, a lexer at the end of a string or
+a comment, asks `text.find_any[set](s, i)`: the first index at or after
+`i` whose byte is one of `set`'s, or `none` when there is none, as
+`find` gives; a scanner that runs to the end writes `?? s.len`. The set
+is a compile-time string, so each set is its own instance, its bytes
+constants in the code; it tests 16 bytes at a time, with one compare
+for each byte of the set. An empty set holds no byte, so the result is
+`none`, and an `i` outside `0..s.len` panics, as indexing does.
+
+```rig
+use std.text
+
+STOPS = "\"\\\n"
+
+sub main()
+  s = "say \"hi\" \\ then"
+  i = text.find_any[STOPS](s, 0) ?? s.len
+  print(i, text.find_any[STOPS](s, i + 1) ?? s.len, text.find_any["#"](s, 0) ?? s.len, s.len)
+  if text.find_any["!?"](s, 0) as k
+    print("found at", k)
+  else
+    print("no ! or ?")
+```
+
+```output
+4 7 15 15
+no ! or ?
+```
+
+A run of bytes of one kind, an identifier or a number, ends where
+`text.class_end(s, i, table, mask)` says: the first index at or after
+`i` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`.
+The caller's 256-entry table gives each byte its class bits, so one
+table serves several kinds, and any set of bytes costs one load and one
+test per byte. An `i` outside `0..s.len` panics, as indexing does.
+
+```rig
+use std.text
+
+WORD: U8 = 1
+DIGIT: U8 = 2
+
+fun classes() -> [256]U8
+  t: [256]U8 = [256 of 0]
+  for b in 0..256
+    t[b] |= WORD if (b >= 0x61 and b <= 0x7A) or b == 0x5F
+    t[b] |= WORD | DIGIT if b >= 0x30 and b <= 0x39
+  t
+
+sub main()
+  t = classes()
+  s = "count_2 = 42;"
+  print(text.class_end(s, 0, t, WORD), text.class_end(s, 10, t, DIGIT), text.class_end(s, 0, t, DIGIT))
+```
+
+```output
+7 12 0
 ```
 
 ## Runes: `std.utf8`
@@ -195,14 +255,14 @@ sub main()
 Facts about one rune, from the Unicode Character Database 15.1: whether
 it may start or continue an identifier (`unicode.is_id_start(r)`,
 `unicode.is_id_continue(r)`, UAX #31), and whether it is whitespace
-(`unicode.is_space_rune(r)`). Every table names its Unicode version.
+(`unicode.is_space(r)`). Every table names its Unicode version.
 
 ```rig
 use std.unicode
 
 sub main()
   print(unicode.VERSION, unicode.is_id_start(0x4e2d), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
-  print(unicode.is_space_rune(0x3000), unicode.is_space_rune(0xfeff))
+  print(unicode.is_space(0x3000), unicode.is_space(0xfeff))
 ```
 
 ```output
@@ -222,6 +282,8 @@ What a reader sees, by the rules of Unicode's text segmentation (UAX
 | `text.first_chars(s, n) -> ?String` | the first `n` chars of `s`, or all of `s` if it has fewer |
 | `text.last_chars(s, n) -> ?String` | the last `n` chars of `s`, or all of `s` if it has fewer |
 | `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
+| `text.char_width(c) -> Int` *(planned)* | the terminal columns one char `c` takes, 0, 1, or 2: by its East Asian Width (UAX #11), 2 for an emoji, 0 for a combining mark or a zero-width char |
+| `text.width(s) -> Int` *(planned)* | the terminal columns `s` takes: `char_width` summed over its chars |
 
 ```rig
 use std.text
@@ -259,6 +321,13 @@ exactly one char, and the chars of `s` always tile it: their sizes add
 up to `s.len`. A byte index outside `0..s.len`, or a negative count of
 chars, panics.
 
+Width is measured per char, never per rune: a family emoji is five
+runes but one char two columns wide. An East Asian Ambiguous char counts
+as 1, and a tab is not measured (it depends on where it lands). There is
+no `rune_width`, `unit_width`, or `byte_width`: bytes and units are not
+drawn, and summing per-rune widths is wrong for any char of several
+runes.
+
 `first_chars` is how to shorten text for a reader (a preview, a
 280-character post); `s[0..n]` is how to take `n` bytes.
 `char_boundary` is how to cut at a byte limit without breaking a char:
@@ -274,7 +343,7 @@ scripts), so a char count depends on the Unicode version Rig ships.
 |---|---|
 | store, index, slice, parse, or send text | bytes: `s.len`, `s[i]`, `s[a..b]` |
 | decode, encode, or check UTF-8 | runes: `std.utf8` |
-| ask what a character is | rune properties: `std.unicode` |
+| ask what a rune is (identifier, white space) | rune properties: `std.unicode` |
 | agree with JavaScript positions | units: `std.utf16` |
 | count, shorten, or walk what a reader sees | chars: `text.char_count`, `text.first_chars`, `text.chars` |
 

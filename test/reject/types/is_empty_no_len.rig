@@ -1,0 +1,8 @@
+# `is_empty` is built in only where `len` is.
+
+sub main()
+  n = 3
+  print(n.is_empty())
+
+# error: 5:11: type `Int` has no method `is_empty`
+# errors: 1

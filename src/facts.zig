@@ -60,7 +60,7 @@ pub const NodeKey = sema.NodeKey;
 
 /// Emit asserts that it writes each node inside the unit that holds it
 /// (`Emitter.inUnit`) in every debug build of the compiler.
-pub const check_units = @import("builtin").mode == .debug;
+pub const check_units = @import("build_options").self_check;
 
 pub const UnitEvent = sema.UnitEvent;
 pub const GenericCall = sema.GenericCall;

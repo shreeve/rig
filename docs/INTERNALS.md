@@ -1672,12 +1672,13 @@ Every state inside a loop holds `L`, so no fixpoint is needed.
 fail a run rather than a proof:
 
 - Emit enters each unit as it writes the unit's code (`enterUnit`), and
-  asserts, in every debug build of the compiler, that each check, write,
+  asserts, in every self-checking build of the compiler (a debug build,
+  or `-Dself-check=true`, as ./test/run builds), that each check, write,
   expression, and hidden storage location it writes lies in the unit
   that holds it (`Emitter.inUnit`): no hoist carries a check or a write
   into another unit's code unseen.
-- The unit-order test (`proofs.checkUnitOrder`): a debug build of the
-  compiler traces the units emit writes, in the order their code runs,
+- The unit-order test (`proofs.checkUnitOrder`): a self-checking build
+  of the compiler traces the units emit writes, in the order their code runs,
   and each Zig jump it writes, and checks that they are the units the
   walk visits, nested alike, the units of each block in the same order,
   each unit's code started once (only a pause and a resume of it, as a
@@ -3107,13 +3108,7 @@ symbols); a query that decides more than that belongs in `Pending`.
     innermost 2^n times. A function called from one place only, in a
     function with compile-time values, is exempt from this limit: each
     instance of the caller holds a copy that LLVM cannot merge into one;
-  - no function holds more than `inlining.max_inlined_calls` (256) inlined
-    calls, those inside the inlined bodies counted too, so the callee it
-    calls most is called instead: past that a function, and the time to
-    build it, grows with every call it holds. The limit bounds size; it is
-    not what keeps a build within Zig's evaluation budget (below).
-
-  A function that fails a test of the last three is dropped and the tests
+  A function that fails a test of the last two is dropped and the tests
   run again, until none fails. A call resolves by the callee's name (a
   function by its symbol, so a local of that name is not it), so two
   functions of one name stand for each other: the analysis finds at most
@@ -3129,9 +3124,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   writes that is not inline (a `fun` or `sub`, a method, an instance, a
   closure's `__rig_invoke`, a `test`) with
   `@setEvalBranchQuota(rig.eval_quota)`, the largest budget Zig takes,
-  and no number of inline calls in a function stops its build, whatever
-  `max_inlined_calls` lets through. Nothing is counted, so there is no
-  count to keep in step with what is inlined.
+  and no number of inline calls in a function stops its build. Nothing
+  is counted, so there is no count to keep in step with what is inlined.
 
   Both of Zig's ways to inline, `inline fn` and `@call(.always_inline, ...)`,
   analyze the body at each call, so an argument known at compile time is
