@@ -403,26 +403,54 @@ Every text API is described in four words, each with one meaning:
 | **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
 | **char** | what a reader sees as one character: a Unicode extended grapheme cluster | 1 or more runes |
 
-A char is a grapheme and nothing else. Other languages spend "char" on a
-byte (C), a UTF-16 unit (Java, JavaScript), or a code point (Rust); Rig
-names those byte, unit, and rune, so `"👋🏽"` is 1 char, 2 runes, 4 units,
-and 8 bytes.
+A char is a grapheme and nothing else: one character, as a person
+counts it, however many bytes it takes. Other languages spend "char" on
+a byte (C), a UTF-16 unit (Java, JavaScript), or a code point (Rust);
+Rig names those byte, unit, and rune. Each of these is one char:
 
-A `String` holds UTF-8 by convention. A byte from 0 to 127 is ASCII and
-a whole rune on its own; every other rune takes 2 to 4 bytes, each from
-128 to 255, and none of those bytes is a rune by itself. So `"é"` is 1
-rune in 2 bytes, 195 and 169:
+| Text | Written as | Bytes | Runes | Units | Chars |
+|---|---|---:|---:|---:|---:|
+| `a` | U+0061 | 1 | 1 | 1 | 1 |
+| `é` | U+00E9, one rune | 2 | 1 | 1 | 1 |
+| `é` | `e` U+0065, then a combining acute U+0301 | 3 | 2 | 2 | 1 |
+| `👋🏽` | waving hand U+1F44B, then skin tone U+1F3FD | 8 | 2 | 4 | 1 |
+| `👨‍👩‍👧` | man, zero-width joiner, woman, joiner, girl | 18 | 5 | 8 | 1 |
+
+The two `é`s look the same and are one char each, but take 2 and 3
+bytes. A `String` holds UTF-8 by convention: a byte from 0 to 127 is
+ASCII and a whole rune on its own; every other rune takes 2 to 4 bytes,
+each from 128 to 255, none of them a rune by itself. `s.len` counts
+bytes:
 
 ```rig
 sub main()
-  s = "é"
+  s = "\u{e9}"
   print(s.len, s[0], s[1])
-  print("👋🏽".len)
+  print("e\u{301}".len, "\u{1f44b}\u{1f3fd}".len)
+  print("\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}".len)
 ```
 
 ```output
 2 195 169
-8
+3 8
+18
+```
+
+Counting chars, runes, and units scans the text, so each is a call
+that names its unit:
+
+```rig pending
+use std.text
+use std.utf8
+use std.utf16
+
+sub main()
+  s = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}"
+  print(text.char_count(s), utf8.rune_count(s), utf16.unit_count(s), s.len)
+```
+
+```output
+1 5 8 18
 ```
 
 ## String
