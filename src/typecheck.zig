@@ -4247,16 +4247,16 @@ const Checker = struct {
             const ty = try self.synthExpr(other);
             // An `==` operand is read (Core §3). `none` and a bare
             // `.variant` test a value made there and drop it with the
-            // test; any other operand that owns a resource is read where
+            // test; any other operand whose value may move is read where
             // it is (`readLeaf`), as is a payload literal's operand and
             // the literal, a value made there.
-            const owns = !self.isPoison(ty) and sema.typeHasDropGlue(self.ctx, ty);
+            const owns = !self.isPoison(ty) and sema.moves(self.ctx, ty) != .no;
             if (owns and (lit.isKind(.call) or self.hands(other).kind != .made)) try self.readLeaf(other);
             const reached = try self.readThrough(other, ty, sema.unwrapViews(self.ctx, ty));
             try self.checkExpr(lit, reached);
             if (lit.isKind(.call)) {
                 try self.checkEquatable(reached, l, op);
-                if (self.ctx.typeOf(lit)) |lit_ty| if (!self.isPoison(lit_ty) and sema.typeHasDropGlue(self.ctx, lit_ty)) try self.readLeaf(lit);
+                if (self.ctx.typeOf(lit)) |lit_ty| if (!self.isPoison(lit_ty) and sema.moves(self.ctx, lit_ty) != .no) try self.readLeaf(lit);
             }
             return self.t().bool_id;
         }
@@ -4288,11 +4288,13 @@ const Checker = struct {
             const vt = try self.simdOperands(e, op, .equatable, a, b);
             return if (self.isPoison(vt)) vt else self.maskOf(self.ctx.types.get(vt).simd);
         }
-        // An owning temporary compared is dropped with its statement; a
-        // view compared owns nothing.
+        // An operand whose value may move (an owner, a unique value, or
+        // a type parameter's, which emit consumes) is read where it is,
+        // and a temporary of it is dropped with its statement; a view
+        // compared owns nothing.
         for ([2]Sexp{ l, r }) |operand| {
             const own = self.ctx.typeOf(operand) orelse continue;
-            if (sema.typeHasDropGlue(self.ctx, own)) try self.readLeaf(operand);
+            if (!self.isPoison(own) and sema.moves(self.ctx, own) != .no) try self.readLeaf(operand);
         }
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
