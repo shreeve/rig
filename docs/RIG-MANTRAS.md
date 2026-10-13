@@ -84,7 +84,11 @@ Work done on a value is a method or a function, never an `@`: so
 Zig's.)
 
 **Name from the owner's side.** The owner lends; the compiler records a
-loan; the receiver holds a view.
+loan; the receiver holds a view. The rules are the ownership model, and
+the pass that enforces them is the ownership checker. Rust's single word
+for all of these is never ours: in docs, code, commits, and proposals,
+say "the ownership checker treats a loan of one field as a loan of the
+whole value", not that the checker of that other name is too strict.
 
 ## How we name
 
