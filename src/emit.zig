@@ -5211,12 +5211,13 @@ pub const Emitter = struct {
     /// `t.add(.{ a, &b })`, the arguments written as `print`'s are
     /// (`emitPrintArgs`), so a place is read at the call; `!t.clear()` →
     /// `t.clear()`; `!t.reserve(n)` → `t.reserve(n)`; `!t.push[T, e](v)` →
-    /// `t.pushInt(T, v, e)`.
+    /// `t.pushInt(T, v, e)`; `!t.push(v, keep: k)` and `!t.push[T, e](v,
+    /// keep: k)` → `t.pushKeep(T, v, k, e)`.
     fn emitStringCall(self: *Emitter, call: Sexp, op: facts.StringCall) Error!void {
         const args = ir.Call.args(call);
         switch (op) {
             .new => try self.w.writeAll("rig.String.of("),
-            .add, .push, .push_int, .reserve, .clear => {
+            .add, .push, .push_int, .push_keep, .reserve, .clear => {
                 const recv = ir.Member.object(self.facts.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
                 if (self.typeOf(recv)) |t| try self.writeReach(t);
@@ -5232,6 +5233,21 @@ pub const Emitter = struct {
                     try self.emitTypeTy(self.facts.stringNumOf(self.facts.calleeOf(call)) orelse return self.unsupported(call, "a `push` without its type"));
                     try self.w.writeAll(", ");
                     try self.emitBare(args[0]);
+                    try self.w.writeAll(", ");
+                    const given = self.facts.ctArgsOf(call);
+                    if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
+                    return self.w.writeAll(")");
+                }
+                // `.pushKeep(T, v, k, endian)`: all of `v` is stored, the
+                // first `k` bytes kept. A vector takes no byte order.
+                if (op == .push_keep) {
+                    const num = self.facts.stringNumOf(self.facts.calleeOf(call)) orelse return self.unsupported(call, "a `push` without its type");
+                    try self.w.writeAll(".pushKeep(");
+                    try self.emitTypeTy(num);
+                    try self.w.writeAll(", ");
+                    try self.emitBare(args[0]);
+                    try self.w.writeAll(", ");
+                    try self.emitBare(ir.Kwarg.value(args[1]));
                     try self.w.writeAll(", ");
                     const given = self.facts.ctArgsOf(call);
                     if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
@@ -5264,12 +5280,14 @@ pub const Emitter = struct {
             // no byte order.
             .read, .write => {
                 const vector = self.facts.types.get(ec.num) == .simd;
-                // A test known to pass is omitted (`provenOf`); a vector's
-                // tests are never proven.
-                const proven = if (vector) null else provenTests(self.provenOf(callee));
-                try self.w.writeAll(if (ec.op == .read)
-                    (if (vector) "rig.simdRead(" else if (proven != null) "rig.readIntProven(" else "rig.readInt(")
-                else if (vector) "rig.simdWrite(" else if (proven != null) "rig.writeIntProven(" else "rig.writeInt(");
+                // A test known to pass is omitted (`provenOf`).
+                const proven = provenTests(self.provenOf(callee));
+                const read = ec.op == .read;
+                try self.w.writeAll(if (vector) (if (proven != null)
+                    (if (read) "rig.simdReadProven(" else "rig.simdWriteProven(")
+                else if (read) "rig.simdRead(" else "rig.simdWrite(") else if (proven != null)
+                    (if (read) "rig.readIntProven(" else "rig.writeIntProven(")
+                else if (read) "rig.readInt(" else "rig.writeInt(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.emitElems(ir.Member.object(callee));

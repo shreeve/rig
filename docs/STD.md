@@ -368,6 +368,11 @@ sub main()
 makes room for `n` more bytes without changing the length, and
 `!t.push[T, e](v)` appends the bytes of the integer `v` in byte order `e`
 in one write, as `bytes.read[T, e](at)` reads them back.
+`!t.push(v, keep: k)` appends only the first `k` bytes of a `Simd[U8, n]`
+(or `!t.push[T, e](w, keep: k)` of an integer's bytes), `0 <= k <= n`:
+it stores the whole block after the length in one write, and keeps `k`
+bytes, so text is copied a block at a time while it is scanned
+([SPEC §10](../SPEC.md#string)).
 
 ```rig
 sub main()

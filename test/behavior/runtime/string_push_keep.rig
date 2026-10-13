@@ -1,0 +1,93 @@
+# `!t.push(v, keep: k)` appends the first `k` bytes of a vector, and
+# `!t.push[T, e](w, keep: k)` the first `k` of an integer's bytes, for
+# every `k` from 0 to the size, at each distance from the capacity
+# (none reserved, exactly full, one short, one over). The bytes stored
+# past the new length are spare room: a later push overwrites them, and
+# the String never shows them.
+
+# 32 bytes counting up from `base`.
+fun counting(base: Int) -> String
+  s = String()
+  for i in 0..32
+    !s.push(U8(base + i))
+  s
+
+fun block16(base: Int) -> Simd[U8, 16]
+  s = counting(base)
+  v: ?String = ?s
+  v.read[Simd[U8, 16]](0)
+
+fun block32(base: Int) -> Simd[U8, 32]
+  s = counting(base)
+  v: ?String = ?s
+  v.read[Simd[U8, 32]](0)
+
+sub main()
+  bad = 0
+  for room in 0..70
+    for k in 0..17
+      s = String()
+      !s.reserve(room)
+      for i in 0..room
+        !s.push(U8(i))
+      !s.push(block16(100), keep: k)
+      !s.push(U8(7))
+      v: ?String = ?s
+      bad += 1 if v.len != room + k + 1
+      for i in 0..room
+        bad += 1 if v[i] != U8(i)
+      for i in 0..k
+        bad += 1 if v[room + i] != U8(100 + i)
+      bad += 1 if v[room + k] != 7
+    for k in 0..33
+      s = String()
+      !s.reserve(room)
+      for i in 0..room
+        !s.push(U8(i))
+      !s.push(block32(50), keep: k)
+      !s.add("z")
+      v: ?String = ?s
+      bad += 1 if v.len != room + k + 1
+      for i in 0..k
+        bad += 1 if v[room + i] != U8(50 + i)
+      bad += 1 if v[room + k] != 122
+    for k in 0..9
+      s = String()
+      !s.reserve(room)
+      for i in 0..room
+        !s.push(U8(i))
+      !s.push[U64, .little](0x0807060504030201, keep: k)
+      !s.push[U64, .big](0x0102030405060708, keep: k)
+      v: ?String = ?s
+      bad += 1 if v.len != room + 2 * k
+      for i in 0..k
+        bad += 1 if v[room + i] != U8(1 + i)
+        bad += 1 if v[room + k + i] != U8(1 + i)
+  print(bad)
+
+  # A kept run is a prefix, appended after what is there.
+  t = String("ab")
+  !t.push(block16(65), keep: 3)
+  !t.push[U32, .big](0x43444546, keep: 2)
+  !t.push[U16, .little](0x4948, keep: 0)
+  print(t)
+
+  # The length never counts the spare bytes, and a clone copies none.
+  u = String()
+  !u.push(block32(200), keep: 0)
+  print(u.len)
+  !u.push(block32(200), keep: 1)
+  w = +u
+  print(w.len)
+  !u.clear()
+  !u.push(block16(1), keep: 16)
+  print(u.len)
+
+# release
+
+# expect:
+# 0
+# abABCCD
+# 0
+# 1
+# 16
