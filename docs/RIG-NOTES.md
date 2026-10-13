@@ -74,8 +74,9 @@ tools that take them in `bench/json/`.
    cannot find. A second reason surfaced later: a large function with
    one call site is inlined into its caller by LLVM, so std.json's
    parser is compiled as part of whatever calls `parse`, and its code
-   changed with the caller (one parse of canada: 9% fewer instructions
-   when the benchmark's `main` was simplified, docs/json/RESULTS.md).
+   changed with the caller (when the benchmark's `main` was simplified,
+   canada took 9% fewer instructions and github_events 10% more,
+   docs/json/RESULTS.md).
    Keeping such a function out of line would make its code the same in
    every program. *Verified; waiting on #154 to re-measure.*
 8. **A List's length and capacity are reloaded on every push.** In
