@@ -1,0 +1,35 @@
+# std.json's whitespace skip: every byte after every run of mixed
+# whitespace from 0 to 40 bytes long, then more whitespace or none, so
+# the run ends at every offset within a 16-byte block, across block
+# edges, and in the input's last 15 bytes. The checksum of every case's
+# error and offset is the one std.json gave when this test was written,
+# so a faster skip must give exactly the same results.
+use std.json
+
+WS = " \t\n\r"
+
+sub main()
+  cases = 0
+  ok = 0
+  sum: U64 = 0
+  for p in 0..41
+    for b in 0..256
+      for q in [0, 3, 17]
+        s = String()
+        !s.push(0x5B)
+        for k in 0..p
+          !s.push(WS[k % 4])
+        !s.push(U8(b))
+        for k in 0..q
+          !s.push(WS[(k + 1) % 4])
+        !s.push(0x5D)
+        doc = json.new_doc()
+        good = (!doc).parse(?s)
+        ok += 1 if good
+        name = json.error_name(doc.error)
+        sum = sum *% 1000003 +% U64(doc.error_pos) *% 31 +% U64(name.len) *% 7 +% U64(name[0])
+        cases += 1
+  print("cases", cases, "ok", ok, "checksum", sum)
+
+# expect:
+# cases 31488 ok 1722 checksum 2873757600852398656

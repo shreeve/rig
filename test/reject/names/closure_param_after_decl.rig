@@ -1,0 +1,16 @@
+# A closure param may not share a module-level name, whichever comes first
+# (here the declaration comes after).
+
+fun site() -> Int
+  f = |Thing: Int| Thing
+  f(1)
+
+obj Thing
+  v: Int
+
+sub main()
+  print(1)
+
+# error: parameter `Thing` has the same name as the module-level declaration `Thing`
+# error: declared here
+# errors: 1

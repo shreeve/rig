@@ -84,7 +84,14 @@ tools that take them in `bench/json/`.
    more instructions on five corpus files, twitterescaped's 17% among
    them, which has no non-ASCII byte at all. std.json keeps it out by
    writing the loop and its fallback as one method too large for the
-   inliner (`utf8_text`): size standing in for coldness. A second
+   inliner (`utf8_text`): size standing in for coldness. A rule by
+   structure cannot tell it from a hot function: `Doc.number` also has
+   one call site inlined into `document`'s loop, yet per parse it runs
+   111,126 times on canada and 14,392 on citm_catalog, while
+   `utf8_text` runs for 755 of twitter's 18,099 strings, 108 of
+   citm_catalog's 26,604, 2 of github_events' 1,891, and none on the
+   other three files. Only the programmer, a marker, or a profile knows
+   which is which. A second
    reason surfaced later: a large function with one call site is inlined into its caller by LLVM, so std.json's
    parser is compiled as part of whatever calls `parse`, and its code
    changed with the caller (when the benchmark's `main` was simplified,
@@ -193,3 +200,21 @@ tools that take them in `bench/json/`.
     `/usr/bin/time -l` instruction count varies by several percent from
     run to run, so the least of 3 picks outliers. Tooling, not language.
     *Fixed (#144: the median of 5).*
+25. **Fewer instructions can be slower.** A whitespace skip that read 16
+    bytes and found the first non-whitespace lane (`WS.lookup(v & 0x0F)
+    == v`, then `.not().first()`) retired 12-29% fewer instructions on
+    four corpus files and was 32-41% slower on the Mac. On x86 its IPC
+    fell from about 5 to 3.7, for 9-13% more cycles on three of those
+    files. The byte loop it replaced is branchy, so the
+    predictor guesses where a run ends and the next token starts early.
+    The vector form makes that position a data dependency (load,
+    classify, move the mask to a register, count) on every token's
+    critical path. `bench/json/guard.py` counts instructions only, so it
+    passes such a change: a change to a hot loop is judged by time on
+    both machines. *Verified* (docs/json/RESULTS.md).
+26. **A guard cannot bind.** `return i + k if m.first() as k` is
+    rejected with "use of unbound name `k`": a guard (`if cond` after a
+    statement) takes a `Bool`, and `as` binds only in a block form (`if
+    m.first() as k` then `return i + k`). Either the guard should bind,
+    as `if … as` does, or the error should say that a guard cannot
+    bind. *Observed.*

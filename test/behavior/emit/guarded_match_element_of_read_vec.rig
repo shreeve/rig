@@ -1,5 +1,5 @@
 # A guarded match reads its subject where it is: an element of a List a
-# read borrow reaches is read through a constant pointer, whether the
+# read view reaches is read through a constant pointer, whether the
 # subject is the element, a lend of it, or a field of it.
 
 enum E

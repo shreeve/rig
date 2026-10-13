@@ -32,6 +32,7 @@ never read as the library's.
 |---|---|
 | [`std.math`](#stdmath) | number helpers, and Float functions |
 | [`std.os`](#stdos) | the program's arguments and environment |
+| [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
@@ -190,6 +191,47 @@ sub main()
 ```output
 nowhere
 ```
+
+## std.file
+
+Reading a whole file into a `String`.
+
+| Function | Result |
+|---|---|
+| `read(path: ?String) -> String?` | the file at `path` as a fresh `String` of exactly its bytes, or `none` when it cannot be read |
+
+A relative `path` starts at the working directory. The bytes are the
+file's as they are: none added, and none checked to be UTF-8, so a
+binary file reads as well as text. The `String` is the caller's, like
+any other, and its buffer holds exactly the file's bytes, with no
+spare room past them. A pipe or a device, which has no
+size, is read to its end, so one that never ends (`/dev/zero`) is read
+until memory runs out, and a pipe with no writer waits, as Go's
+`os.ReadFile` does. A file too large for memory panics as any
+allocation that fails does.
+
+`read` gives `none` when the file does not exist, when `path` names a
+directory, when the program may not read the file, and when reading it
+fails partway. It does not say which: the `none` covers them all.
+
+```rig
+use std.file
+use std.text
+
+sub main()
+  if file.read("examples/hello.rig") as source
+    end = text.find(source, "\n") ?? source.len
+    print(source[..end])
+  print(file.read("examples") == none, file.read("no/such/file") == none)
+```
+
+```output
+# The smallest meaningful Rig program.
+true true
+```
+
+The suite runs this example from the repository's root, where
+`examples/hello.rig` is.
 
 ## std.time
 
@@ -836,6 +878,8 @@ one U+FFFD.
 | `unit_count(s: ?String) -> Int` | the units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
 | `byte_index(s: ?String, units: Int) -> Int` | the byte where `units` units into `s` falls; a unit inside a pair lands after its rune, 0 or less gives 0, and a count past the end gives `s.len` | |
 | `is_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
+| `is_high_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xDC00`, the first unit of a pair | |
+| `is_low_surrogate(u: Int) -> Bool` | whether `0xDC00 <= u < 0xE000`, the second unit of a pair | |
 | `rune_from_pair(hi: Int, lo: Int) -> Int` | the rune a pair encodes, or 0xFFFD when `hi` is not a high surrogate or `lo` not a low one | `utf16.DecodeRune` |
 | `pair_from_rune(r: Int) -> Pair` | the pair that encodes `r`, or `Pair(hi: 0xFFFD, lo: 0xFFFD)` when `r` needs none | `utf16.EncodeRune` |
 
@@ -854,6 +898,7 @@ sub main()
   p = utf16.pair_from_rune(0x1f600)
   q = utf16.pair_from_rune(0x41)
   print(p.hi, p.lo, q.hi, q.lo, utf16.is_surrogate(p.hi))
+  print(utf16.is_high_surrogate(p.hi), utf16.is_low_surrogate(p.hi), utf16.is_low_surrogate(p.lo))
   print(utf16.rune_from_pair(0xd83d, 0xde00), utf16.rune_from_pair(0xde00, 0xd83d))
 ```
 
@@ -867,6 +912,7 @@ sub main()
 20 18
 1 2 0
 55357 56832 65533 65533 true
+true false true
 128512 65533
 ```
 
