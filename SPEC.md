@@ -2110,6 +2110,10 @@ and a local or parameter may not reuse its name (`new` shadows it on
 purpose).
 Arithmetic on constants alone is checked at compile time; with a value
 known only when the program runs, it is checked then, like any other.
+Only a constant scalar is folded: an element of a constant array
+(`table[0]`), a field of a constructed value, and a payload are read
+when the program runs, so `table[0] + 1` with `Int.max` in `table[0]`
+is a panic there, in every build mode, not a compile error.
 
 ```rig
 limit = 10
@@ -5171,7 +5175,7 @@ default (`hits: Cell[Int] = Cell(0)`).
 | `c.get()` | a copy of the value (a `T` of plain data only) |
 | `!c.set(v)` | store `v`; the old value is dropped |
 | `(!c).replace(v)` | store `v` and return the old value |
-| `!c.push(x)`, `(!c).pop()`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
+| `!c.push(x)`, `(!c).pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
 | `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` of plain data: an element, bounds-checked, or `T?` |
 
 `T` is plain data ([§2](#kinds-of-value)), an owning type, or a type
@@ -5183,17 +5187,18 @@ String ([String](#string)), since every handle to the cell reaches it.
 
 A `Cell[List[T]]` answers its List's members as `set` does, each a marked
 call: `push` moves or clones an owning element in (`<x`, `+x`), `pop`
-hands the last one out as `T?`, and `clear` drops them all. No user code runs
-while the cell's List is in use: `clear` leaves the cell holding an empty
-List before it drops the elements, so a `drop` body that reaches back
-into the cell finds a valid List. For the same reason an element is a
+hands the last one out as `T?`, `keep(n)` drops all but the first `n`, and
+`clear` drops them all. No user code runs while the cell's List is in use:
+`clear` leaves the cell holding an empty List before it drops the
+elements, and `keep` pops each element before it drops it, so a `drop`
+body that reaches back into the cell finds a valid List. For the same reason an element is a
 copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
 when `T` is plain data, an element cannot be lent, and a field of one is
 not written in place. The elements of a List of handles are taken out
 with `pop`, or by taking the whole List out with `replace`.
 
 Every call that changes a Cell is marked: `set`, `replace`, `push`,
-`pop`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
+`pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
 and `subscribe`. They take `!self`, so the receiver-sigil rule enforces
 the mark, and a read view (`?Cell[T]`, a `?self` method of a struct
 holding one) cannot change a Cell. `!c` where `c` is a handle lends the
@@ -5343,9 +5348,44 @@ owns one), and read views.
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
+| `!v.keep(n)` | keep the first `n` elements and drop the rest, last first; `n == v.len` changes nothing, `n == 0` drops every element; panics unless `0 <= n <= v.len` |
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
+
+`keep`'s count is the length that remains, as `!t.push(v, keep: k)` keeps
+the first `k` bytes of `v` ([String](#string)): a rewind saves
+`mark = v.len` and later calls `!v.keep(mark)`.
+
+```rig
+obj Step
+  name: String
+
+  drop(!self)
+    print("undo", self.name)
+
+sub main()
+  steps: List[Step] = List()
+  !steps.push(Step(name: String("open")))
+  mark = steps.len
+  !steps.push(Step(name: String("read")))
+  !steps.push(Step(name: String("parse")))
+  !steps.keep(mark)
+  print(steps.len, steps[0].name)
+  nums: List[Int] = List()
+  for i in 1..8
+    !nums.push(i)
+  !nums.keep(2)
+  print(nums)
+```
+
+```output
+undo parse
+undo read
+1 open
+[1, 2]
+undo open
+```
 
 A `for` loop lends the List to read for the whole loop ([§6](#for)), so
 it cannot be modified inside it. An element that owns a resource is a
@@ -5545,8 +5585,9 @@ String. A `?String` is the view of text; a String is where text is built.
 | `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
 | `!t.push(b)` | append one byte `b`, a `U8`, given by position |
 | `!t.push[T, e](v)` | append the `@size(T)` bytes of the integer `v`, a `T`, in byte order `e` (`.little` or `.big`), in one write; a one-byte `T` takes no `e`, and `push[U8](b)` is `push(b)` |
+| `!t.push(v, keep: k)`, `!t.push[T, e](w, keep: k)` | append the first `k` bytes of `v`, a `Simd[U8, n]`, or of the integer `w` in byte order `e`; `0 <= k <= size of v`, else it panics (a constant `k` out of range is an error); with no `keep:`, `push[T, e]` keeps every byte |
 | `!t.reserve(n)` | make room for `n` more bytes, so the next `n` bytes of `push` allocate nothing; the length is unchanged |
-| `!t.clear()` | empty it, keeping its buffer |
+| `!t.clear()` | empty it |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a `?String` viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t`, with or without a `?String` or `(?String)?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
@@ -5591,6 +5632,47 @@ fresh 5
 `e` a compile-time `Endian`, and a multi-byte `T` without `e` is an
 error. `reserve(n)` is amortized: it grows the buffer at least
 geometrically, so reserving a little at a time stays linear.
+
+`keep: k` appends only the first `k` bytes of a vector of bytes, or of an
+integer's bytes in order `e`, for text copied a block at a time while it
+is scanned. `k` is an `Int`, `0 <= k <= size of v`; outside that it
+panics in every build mode (when `k` is a constant, the program is
+rejected). It desugars to `reserve(size)`, one unaligned store of all
+`size` bytes after the length, and a length of `len + k`. The bytes
+stored past the new length are spare capacity: `len`, indexing, slices,
+`read`, printing, and `clone` never reach them, and the next push
+overwrites them. A vector is appended only with `keep:`; its lanes must be
+one-byte (`U8`).
+
+```rig
+sub main()
+  src = String("abcdefghijklmnopqrstuvwxyz")
+  v: ?String = ?src
+  block = v.read[Simd[U8, 16]](0)
+  t = String()
+  !t.push(block, keep: 5)
+  !t.push[U32, .big](0x2d2d2d2d, keep: 2)
+  !t.push(block, keep: 0)
+  print(t, t.len)
+```
+
+```output
+abcde-- 7
+```
+
+```rig reject
+sub main()
+  t = String("abcdefghijklmnop")
+  v: ?String = ?t
+  block = v.read[Simd[U8, 16]](0)
+  !t.push(block, keep: 17)
+  !t.push(block, keep: -1)
+```
+
+```error
+`keep: 17` is more than the 16 bytes pushed
+`keep: -1` is negative; `push` keeps 0 up to the size of the value
+```
 
 ```rig
 sub main()

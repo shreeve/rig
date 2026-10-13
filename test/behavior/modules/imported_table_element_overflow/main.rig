@@ -1,0 +1,14 @@
+# An element of another module's constant array is a run-time value too:
+# the sum overflows when the program runs.
+
+use lib
+
+sub main()
+  print(lib.table[1] + 1)
+  print(lib.table[0] + 1)
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 2

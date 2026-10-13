@@ -1,0 +1,18 @@
+# A payload read from a variant built of literals is a run-time value,
+# whether the variant is bound or matched where it is made.
+
+enum E
+  v(x: Int)
+
+sub main()
+  match E.v(x: 1)
+    .v(x) => print(x + 1)
+  e = E.v(x: 9223372036854775807)
+  match e
+    .v(x) => print(x + 1)
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 2

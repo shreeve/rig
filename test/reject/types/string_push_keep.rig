@@ -1,0 +1,33 @@
+# `push(v, keep: k)` takes a vector of bytes, or an integer with its
+# byte order, and an `Int` count, 0 up to the size of `v` when a constant.
+
+sub main()
+  s = String("abcdefghijklmnopqrstuvwxyz0123456789")
+  v: ?String = ?s
+  block = v.read[Simd[U8, 16]](0)
+  word = v.read[U64, .little](0)
+  !s.push(block, keep: 17)
+  !s.push(block, keep: -1)
+  !s.push[U64, .little](word, keep: 9)
+  !s.push[U16, .big](1, keep: 3)
+  !s.push(word, keep: 2)
+  !s.push(block, keep: 1.5)
+  !s.push(block, size: 1)
+  !s.push[U64, .little](word, size: 1)
+  !s.push(block, 1)
+  !s.push(block, block, keep: 1)
+  !s.push(1, keep: 1)
+  !s.push(block, keep: "x")
+
+# error: 9:24: `keep: 17` is more than the 16 bytes pushed
+# error: 10:24: `keep: -1` is negative; `push` keeps 0 up to the size of the value
+# error: 11:37: `keep: 9` is more than the 8 bytes pushed
+# error: 12:31: `keep: 3` is more than the 2 bytes pushed
+# error: 13:11: `push` with `keep:` takes a vector of bytes, a `Simd[U8, n]`, or an integer with its byte order, `push[U64, .little](word, keep: k)`; got `U64`
+# error: 14:24: type mismatch: expected `Int`, got `Float`
+# error: 15:6: `push` takes one byte, a `U8`; got 2 arguments
+# error: 16:31: `push` takes no keyword argument but `keep:`, last: `push[U64, .little](word, keep: k)`
+# error: 17:6: `push` takes one byte, a `U8`; got 2 arguments
+# error: 18:6: `push(v, keep: k)` takes one value and `keep:`; got 2 arguments
+# error: 19:11: `push` with `keep:` takes a vector of bytes, a `Simd[U8, n]`, or an integer with its byte order, `push[U64, .little](word, keep: k)`; got `Int`
+# error: 20:24: type mismatch: expected `Int`, got `Static`

@@ -1065,3 +1065,33 @@ proofs2" above, on 2cc2008e6, whose std.json code is the same):
   citm_catalog and github_events it is whitespace, where a prototype of
   sonic-rs's whitespace bitmap, kept between calls, measured 13% to 34%
   faster on pup.
+
+## After proven Simd reads and block copies (Rig main at f026d177e)
+
+Rig main f026d177e adds proven Simd reads (#149), which take the bounds
+check out of the string scan's loop, and the String write window
+`push(v, keep: k)` (#150), which copies the text between escapes 16
+bytes at a time as it is scanned. The Mac (Apple M5), a quiet window at
+a 1-minute load of 2.6-2.9, fastest of 15 interleaved runs of about
+400 ms; MB/s, every Rig check kept:
+
+| file | std.json | sonic-rs | std.json against sonic-rs | simd-json (tape) | serde_json | Zig std.json (tape, safe) |
+|---|---:|---:|---|---:|---:|---:|
+| twitter | 3304 | 3078 | 7% faster | 3442 | 653 | 865 |
+| twitterescaped | 3188 | 2792 | 14% faster | 1340 | 543 | 623 |
+| canada | 2003 | 1984 | within noise (1% faster) | 1307 | 672 | 565 |
+| citm_catalog | 4034 | 3752 | 8% faster | 4030 | 1005 | 1217 |
+| gsoc-2018 | 8166 | 7149 | 14% faster | 3885 | 1833 | 618 |
+| github_events | 4080 | 3725 | 10% faster | 3691 | 837 | 962 |
+| geomean | | | 9% faster | | | |
+
+- **On the Mac std.json leads sonic-rs on five files and ties it on
+  canada**, 9% faster by geomean (1% faster before proofs2, #138, and 6% after it).
+- **simd-json's tape parser leads std.json on twitter** (4% faster) and
+  ties it on citm_catalog.
+- **Nesting without a separate list.** The same run timed the parser
+  with its `stack` list dropped, an open array's or object's tape entry
+  holding the entry of the one around it until it closes: within noise
+  on every file (citm_catalog 2% faster, the rest within 1%), with 1.5%
+  fewer instructions on canada, citm_catalog and twitterescaped. It is
+  kept for the simpler `Doc` (one list fewer to grow).

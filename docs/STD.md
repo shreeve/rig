@@ -384,7 +384,9 @@ sub main()
 
 `List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room
 for `n` more elements without changing the length, so the next `n`
-pushes allocate nothing; a negative `n` panics.
+pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
+first `n` elements and drops the rest, so a List can be rewound to a
+length saved earlier.
 
 ```rig
 sub main()
@@ -393,10 +395,13 @@ sub main()
   for i in 0..3
     !v.push(i * i)
   print(v.len, v)
+  !v.keep(1)
+  print(v)
 ```
 
 ```output
 3 [0, 1, 4]
+[0]
 ```
 
 ## String
@@ -406,6 +411,11 @@ sub main()
 makes room for `n` more bytes without changing the length, and
 `!t.push[T, e](v)` appends the bytes of the integer `v` in byte order `e`
 in one write, as `bytes.read[T, e](at)` reads them back.
+`!t.push(v, keep: k)` appends only the first `k` bytes of a `Simd[U8, n]`
+(or `!t.push[T, e](w, keep: k)` of an integer's bytes), `0 <= k <= n`:
+it stores the whole block after the length in one write, and keeps `k`
+bytes, so text is copied a block at a time while it is scanned
+([SPEC §10](../SPEC.md#string)).
 
 ```rig
 sub main()

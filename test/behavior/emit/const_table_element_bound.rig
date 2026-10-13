@@ -1,0 +1,15 @@
+# A binding of a constant array's element is a run-time value too.
+
+big = [9223372036854775807, 1]
+
+sub main()
+  small = big[1]
+  print(small + 1)
+  m = big[0]
+  print(m + 1)
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 2

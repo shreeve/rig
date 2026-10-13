@@ -1,0 +1,12 @@
+# `keep` writes the List, so a read view cannot call it.
+
+sub cut(v: ?List[Int])
+  !v.keep(1)
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  cut(?v)
+
+# error: cannot lend to write through a read view `?List[Int]`
+# errors: 1

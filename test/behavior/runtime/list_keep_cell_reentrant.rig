@@ -1,0 +1,33 @@
+# `keep` on a Cell's List takes each element out of the List before it
+# drops it, so a drop body that reaches back into the cell finds a valid
+# List of the elements not yet dropped. It keeps the first `n`: what a
+# drop body pushes past them is dropped too.
+
+obj Item
+  id: Int
+  owner: ~Cell[List[*Item]]
+
+  drop(!self)
+    if self.owner.upgrade() as cell
+      print("drop", self.id, "sees", cell.len)
+      (!cell).push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
+
+sub main()
+  items: *Cell[List[*Item]] = *Cell(List())
+  !items.push(*Item(id: 1, owner: ~items))
+  !items.push(*Item(id: 2, owner: ~items))
+  !items.push(*Item(id: 3, owner: ~items))
+  !items.keep(1)
+  print("after keep", items.len)
+  !items.keep(0)
+  print("end", items.len)
+
+# expect:
+# drop 3 sees 2
+# drop 30 sees 2
+# drop 2 sees 1
+# drop 20 sees 1
+# after keep 1
+# drop 1 sees 0
+# drop 10 sees 0
+# end 0

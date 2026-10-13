@@ -1,0 +1,49 @@
+# An enum of many variants finds each by name: a pattern or a value
+# naming one it lacks is rejected, as is a repeated arm, and a match
+# that misses some names them. A variant declared twice is rejected
+# where it repeats.
+
+enum Op
+  op0
+  op1
+  op2
+  op3
+  op4
+  op5(a: Int, b: Int)
+  op6
+  op7
+  op8
+  op9
+  op10
+  op11
+  op12
+  op13
+  op14
+  op15
+  op16
+  op17
+  op18
+  op19
+  op3
+
+fun cost(o: ?Op) -> Int
+  match o
+    .op0 => 0
+    .op5(a, b) => a + b
+    .op5(a) => a
+    .op1 => 1
+    .op0 => 2
+    .op21 => 3
+    .op19 if true => 19
+
+sub main()
+  o: Op = .op22
+  print(cost(?o), Op.op3)
+
+# error: 27:3: duplicate member `op3` in `Op`
+# error: 33:6: duplicate arm for variant `op5`
+# error: 33:6: variant `op5` has 2 payload fields, pattern destructures 1
+# error: 35:5: duplicate arm for variant `op0`
+# error: 36:6: no variant `op21` on enum `Op`
+# error: 30:9: `match` is not exhaustive: it misses `.op2`, `.op3`, `.op4`, `.op6`, and 13 more
+# error: 40:12: no variant `op22` on enum `Op`
