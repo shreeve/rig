@@ -32,9 +32,10 @@ cmp -s facts.txt again.txt || fail "two dumps of one program differ"
 # TEST...` where a node of KIND on that line has every TEST proven, and
 # `# keeps: KIND TEST...` where none of KIND has any of them, so the test
 # is still made. Each program that keeps a test is one where that test
-# fails, at least on one path the guard does not cover.
+# fails, at least on one path the guard does not cover. A program of
+# several modules is a directory, whose root `main.rig` holds the marks.
 marked=0
-for f in "$ROOT"/test/behavior/proofs/*.rig; do
+for f in "$ROOT"/test/behavior/proofs/*.rig "$ROOT"/test/behavior/proofs/*/main.rig; do
     dump=$("$RIG" check --facts=proofs "$f" 2>err.txt) || fail "rig check --facts=proofs $f: $(cat err.txt)"
     while IFS= read -r m; do
         line=${m%%:*}
