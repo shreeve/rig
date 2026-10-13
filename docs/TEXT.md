@@ -158,7 +158,7 @@ on it: a TypeScript checker's positions and columns are UTF-16 units.
 |---|---|---|
 | `utf16.size(r) -> Int?` | the units `r` takes (1 or 2), or `none` if `r` is not a rune | `utf16.RuneLen` |
 | `utf16.unit_count(s) -> Int` | the UTF-16 units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
-| `utf16.byte_index(s, units) -> Int` | the byte where `units` units into `s` falls (a unit inside a pair lands after its rune) | |
+| `utf16.byte_index(s, units) -> Int` | the byte where `units` units into `s` falls (a unit inside a pair lands after its rune), clamped to `0..s.len` | |
 | `utf16.is_surrogate(u) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
 | `utf16.rune_from_pair(hi, lo) -> Int` | the rune a surrogate pair encodes, or U+FFFD if it is not one | `utf16.DecodeRune` |
 | `utf16.pair_from_rune(r) -> Pair` | `Pair(hi, lo)`, or `Pair(0xFFFD, 0xFFFD)` if `r` needs no pair | `utf16.EncodeRune` |
@@ -168,9 +168,10 @@ Surrogates are units, never runes, so their parameters are named `u`,
 one unit (U+FFFD), as Go does; a JavaScript decoder may merge a run of
 bad bytes into one U+FFFD.
 
-`byte_index` turns a JavaScript position back into a byte: a count past
-the end gives `s.len`, and one inside a pair gives the byte after its
-rune:
+`byte_index` turns a JavaScript position back into a byte, and clamps:
+a count of 0 or less gives 0, a count at or past `unit_count(s)` gives
+`s.len`, so a stale or edited position never panics, and a count inside
+a pair gives the byte after its rune:
 
 ```rig
 use std.utf16
@@ -178,14 +179,14 @@ use std.utf16
 sub main()
   s = "a\u{1f600}b"
   print(s.len, utf16.unit_count(s))
-  print(utf16.byte_index(s, 1), utf16.byte_index(s, 2), utf16.byte_index(s, 3), utf16.byte_index(s, 9))
+  print(utf16.byte_index(s, -1), utf16.byte_index(s, 1), utf16.byte_index(s, 2), utf16.byte_index(s, 3), utf16.byte_index(s, 9))
   p = utf16.pair_from_rune(0x1f600)
   print(p.hi, p.lo, utf16.rune_from_pair(p.hi, p.lo))
 ```
 
 ```output
 6 4
-1 5 5 6
+0 1 5 5 6
 55357 56832 128512
 ```
 
