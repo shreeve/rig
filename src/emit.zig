@@ -4754,8 +4754,13 @@ pub const Emitter = struct {
     /// `(member obj name)`. A shared handle auto-dereferences through
     /// `.value`; `.len` of an array, slice, string, or List is an `Int`.
     fn emitMember(self: *Emitter, sexp: Sexp) Error!void {
+        return self.emitMemberNamed(sexp, self.srcText(ir.Member.name(sexp)));
+    }
+
+    /// Member `sexp` read as `field`: the member's own name, or `len` for
+    /// the length `is_empty()` compares.
+    fn emitMemberNamed(self: *Emitter, sexp: Sexp, field: []const u8) Error!void {
         const obj = ir.Member.object(sexp);
-        const field = self.srcText(ir.Member.name(sexp));
         const obj_ty = self.typeOf(obj);
         // `U8.max`, `F64.min`: a number type's limit.
         if (self.facts.intLimit(sexp)) |limit| return self.emitIntConstant(sexp, limit.v);
@@ -5788,6 +5793,16 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
 
+        // `x.is_empty()` of a built-in length is `x.len == 0`.
+        if (callee.isKind(.member) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "is_empty") and ir.Call.args(sexp).len == 0) if (self.typeOf(ir.Member.object(callee))) |t| {
+            if (self.isCellListTy(t) or self.hasLen(t) or self.facts.unwrapAccess(t) == self.facts.types.string_id or
+                (self.facts.boxedType(self.facts.unwrapReadAccess(t)) != null and self.hasLen(self.facts.unwrapAccess(t))))
+            {
+                try self.w.writeAll("(");
+                try self.emitMemberNamed(callee, "len");
+                return self.w.writeAll(" == 0)");
+            }
+        };
         // A Cell holding a List answers the List's members.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellListTy(t)) {
             const m = self.srcText(ir.Member.name(callee));

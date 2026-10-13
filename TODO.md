@@ -13,6 +13,10 @@ started:
 - Multiple results.
 - A frame-size guard for every function.
 - Switching to Nexus's `Span.text`.
+- `text.ByteSet`, a byte set built once when the program runs and
+  searched with `set.find(s, at)`: the run-time sibling of
+  `text.find_any[set]`. Built when a port needs a set known only at run
+  time; none does yet.
 - Big integers in the standard library, to replace Trig's own: arbitrary
   precision, enough for JavaScript number and BigInt work (Trig's jsnum
   uses them in 3 places). Trig's version passes all 32,076 of its test

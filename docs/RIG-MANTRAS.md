@@ -114,6 +114,17 @@ mean what everyone means by "character".
 
 ## How we measure
 
+**Same speed or faster, or it doesn't swap.** Code the standard library
+replaces (Trig's helpers, std.json's routines) moves only when std is at
+least as fast, per function. "As fast" means within 2%: measured in a
+quiet window, interleaved, fastest of N. Between two at parity, the
+cleaner code or algorithm wins; a swap usually is the cleaner one, since
+it removes a duplicate. A loss goes to the owner with its numbers and a
+fix, never swapped in quietly. A new optimization lands only if it wins
+by more than 2% on what it targets, with cycles backing the time, and
+loses nothing beyond 2% elsewhere: a change within 2% is noise, and is
+dropped.
+
 **Measure time, not instruction counts.** Fewer instructions can run
 slower; only time decides.
 
