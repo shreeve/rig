@@ -27,7 +27,7 @@ DATA = os.path.join(ROOT, "test", "json", "data", "simd-json")
 
 
 def bench_json():
-    """bench-json's MAIN and rig_parts, so the programs are the same."""
+    """bench-json's MAIN and rig_literal, so the programs are the same."""
     spec = importlib.util.spec_from_loader("bench_json", loader=None)
     mod = importlib.util.module_from_spec(spec)
     path = os.path.join(ROOT, "bench", "json", "bench-json")
@@ -119,7 +119,7 @@ def emit(out, f, data, srcname, bj):
         json_rig = os.path.join(HERE, "src", srcname + ".rig") if srcname else \
             os.environ.get("JSON", os.path.join(ROOT, "std", "json.rig"))
         shutil.copy(json_rig, os.path.join(src_dir, "json.rig"))
-        open(os.path.join(src_dir, "main.rig"), "w").write(bj.MAIN.replace("@PARTS@", bj.rig_parts(data)))
+        open(os.path.join(src_dir, "main.rig"), "w").write(bj.MAIN.replace("@SRC@", bj.rig_literal(data)))
         env = dict(os.environ, RIG_OUT_DIR=pkg0)
         # `rig emit` writes the whole package to RIG_OUT_DIR.
         run([RIG, "emit", os.path.join(src_dir, "main.rig")], env=env)
