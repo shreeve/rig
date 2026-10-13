@@ -4,7 +4,8 @@ How Rig stores, measures, and walks text: four units, each with one
 name; one rule for how a measure is spelled; and the standard library
 that follows from them. This page is the design. [SPEC,
 Strings](../SPEC.md#strings) states what the language does, and
-[STD](STD.md) lists each module's functions.
+[STD](STD.md) lists each module's functions, and [TEXT-API](TEXT-API.md)
+lists every name of the text API in one place, built and planned.
 
 **Status.** Every layer below is built: a `String` holds UTF-8 bytes,
 and `s.len`, `s[i]`, slicing, and `std.text` work on them; `std.utf8`,
