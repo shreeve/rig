@@ -3098,6 +3098,32 @@ symbols); a query that decides more than that belongs in `Pending`.
   functions are inlined, and `test/behavior/types/value_size_limit.rig`
   holds the frames to their limit.
 
+  **Parts of constants.** Zig also knows a part of a value built only
+  of constants: an element of a module constant array (`pub const`),
+  of an array literal, a field of a constructor, a payload of a variant
+  of literals, and a `const` bound to any of them. Rig folds only the
+  constant scalars its own folder decides (`constIntOf`), so a part
+  must stay a run-time value: `big[0] + 1` is checked when the program
+  runs, and a conversion or a division by a zero element likewise. One
+  predicate, `isZigComptimeIn`, says when Zig could evaluate an
+  expression at compile time (a module-level name always can, and a
+  constructor or variant of such parts), and three places use it:
+
+  | Where | Emitted |
+  |---|---|
+  | a read of a number or `Bool` part (`table[0]`, `P(a: 1).a`) whose base and index it holds | `rig.rt(table[0])`; a read with a run-time index, as in a hot loop over a table, is emitted as before |
+  | a binding of such an expression | a `var`, as for any value Zig could fold (`emitBind`) |
+  | the subject of a `match` or `if ... as` | `rig.rt(@as(T, subject))` |
+
+  The optimizer folds `rig.rt` away, so a table read costs what it did:
+  the asm of `rig.rt(T[i & 7]) + 1` and of `T[i & 7] + 1` is the same
+  instructions, and `rig.rt(T[3]) + rig.rt(T[5])` folds to the constant in
+  `--release`. A part that is itself an array or a value (a row of a
+  nested table) is left bare: what reads or binds it is one of the three.
+  `test/behavior/emit/const_table_*.rig` and `constructed_field_overflow.rig`
+  run the forms, and `test/matrix.py -k fold.` every constant against every
+  way of reading it and every operator that can fail, in debug and `--release`.
+
 - **Evaluation order of arguments.** A call's arguments are evaluated
   in the order they are written and passed in the order the parameters
   are declared: `f(b: e2, a: e1)` is `{ b = e2; a = e1; f(a, b) }`,

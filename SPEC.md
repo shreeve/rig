@@ -2000,6 +2000,10 @@ and a local or parameter may not reuse its name (`new` shadows it on
 purpose).
 Arithmetic on constants alone is checked at compile time; with a value
 known only when the program runs, it is checked then, like any other.
+Only a constant scalar is folded: an element of a constant array
+(`table[0]`), a field of a constructed value, and a payload are read
+when the program runs, so `table[0] + 1` with `Int.max` in `table[0]`
+is a panic there, in every build mode, not a compile error.
 
 ```rig
 limit = 10
