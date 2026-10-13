@@ -1,0 +1,44 @@
+# A vector of integers shifts every lane by one amount: a constant, or an
+# integer known when the program runs, below the lane width. `>>` is
+# arithmetic on signed lanes; `<<%` drops the bits shifted out, and `<<`
+# panics where a lane would lose them (`simd_shl_overflow_panics.rig`).
+
+fun nibbles(v: Simd[U8, 16]) -> Simd[U8, 16]
+  (v >> 4) | (v << 4 >> 4 << 4)
+
+sub main()
+  u = Simd[U8, 4]([0x12, 0x80, 0xFF, 1])
+  print(u >> 4, u <<% 4, u & 0x0F, u >> 0, u <<% 7)
+  i = Simd[I8, 4]([-128, -1, 64, 1])
+  print(i >> 1, i >> 7, i <<% 1)
+  small = Simd[U16, 4]([1, 2, 0x0FFF, 0])
+  print(small << 4, small << 0)
+  n = 3
+  print(Simd[U32, 2]([1, 0x10000000]) << n, Simd[I64, 2]([-64, 64]) >> n)
+  x = Simd[U8, 16].splat(0x0F)
+  print(nibbles(x)[0])
+  y = Simd[U8, 4]([1, 2, 4, 8])
+  y <<= 2
+  print(y)
+  y >>= 1
+  print(y)
+  y <<%= 5
+  print(y)
+  a: [64]U8 = [64 of 0]
+  for k in 0..64
+    a[k] = U8(k * 4)
+  w = Simd[U8, 64](a)
+  print((w >> 4)[63], (w <<% 2)[63], (w >> 2)[17])
+
+# expect:
+# [1, 8, 15, 0] [32, 0, 240, 16] [2, 0, 15, 1] [18, 128, 255, 1] [0, 0, 128, 128]
+# [-64, -1, 32, 0] [-1, -1, 0, 0] [0, -2, -128, 2]
+# [16, 32, 65520, 0] [1, 2, 4095, 0]
+# [8, 2147483648] [-8, 8]
+# 240
+# [4, 8, 16, 32]
+# [2, 4, 8, 16]
+# [64, 128, 0, 0]
+# 15 240 17
+
+# release

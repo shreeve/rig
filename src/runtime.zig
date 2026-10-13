@@ -1783,6 +1783,248 @@ pub fn withLane(v: anytype, i: anytype, x: @typeInfo(@TypeOf(v)).vector.child) @
     return lanes;
 }
 
+/// `a +| b` and `a -| b` of integer vectors: each lane stops at its
+/// type's limits. LLVM's own saturating operators (`uqadd`, `psubusb`,
+/// `i8x16.sub_sat_u`) where it builds the code; elsewhere the wrapped
+/// result, corrected where a lane overflowed. Zig's own x86 backend (a
+/// debug build) gives wrong lanes for `I32` vectors of 8 or more on a CPU
+/// without AVX (`test/lanes/simd2_grid.zig`).
+pub inline fn vecAddSat(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return if (comptime builtin.zig_backend == .stage2_llvm) a +| b else addSatWrapped(a, b);
+}
+
+pub inline fn vecSubSat(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return if (comptime builtin.zig_backend == .stage2_llvm) a -| b else subSatWrapped(a, b);
+}
+
+inline fn addSatWrapped(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const r = a +% b;
+    if (comptime laneSigned(V)) {
+        const over = ((a ^ r) & (b ^ r)) < laneSplat(V, 0);
+        return @select(laneChild(V), over, @select(laneChild(V), a < laneSplat(V, 0), laneSplat(V, laneMin(V)), laneSplat(V, laneMax(V))), r);
+    }
+    return @select(laneChild(V), r < a, laneSplat(V, laneMax(V)), r);
+}
+
+inline fn subSatWrapped(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const r = a -% b;
+    if (comptime laneSigned(V)) {
+        const over = ((a ^ b) & (a ^ r)) < laneSplat(V, 0);
+        return @select(laneChild(V), over, @select(laneChild(V), a < laneSplat(V, 0), laneSplat(V, laneMin(V)), laneSplat(V, laneMax(V))), r);
+    }
+    return @select(laneChild(V), a < b, laneSplat(V, 0), r);
+}
+
+fn laneChild(comptime V: type) type {
+    return @typeInfo(V).vector.child;
+}
+
+fn laneSigned(comptime V: type) bool {
+    return @typeInfo(laneChild(V)).int.signedness == .signed;
+}
+
+fn laneMin(comptime V: type) laneChild(V) {
+    return std.math.minInt(laneChild(V));
+}
+
+fn laneMax(comptime V: type) laneChild(V) {
+    return std.math.maxInt(laneChild(V));
+}
+
+inline fn laneSplat(comptime V: type, x: laneChild(V)) V {
+    return @splat(x);
+}
+
+/// `v << c`, `v <<% c`, and `v >> c` of a vector of integers: every lane
+/// shifted by the one amount `c`, which must be below the lane width (a
+/// cast that panics otherwise, as for a scalar). `<<` panics where a lane
+/// loses bits or its sign, found by shifting back (`(r >> c) != v`): no
+/// overflow intrinsic, and a vector known at compile time still panics
+/// when the program runs rather than stopping the build.
+pub inline fn vecShl(v: anytype, amount: anytype) @TypeOf(v) {
+    return laneShift(.left_checked, v, amount);
+}
+
+pub inline fn vecShlWrap(v: anytype, amount: anytype) @TypeOf(v) {
+    return laneShift(.left, v, amount);
+}
+
+pub inline fn vecShr(v: anytype, amount: anytype) @TypeOf(v) {
+    return laneShift(.right, v, amount);
+}
+
+const Shift = enum { left, left_checked, right };
+
+/// A shift of every lane of `v` by `amount`. On WASM SIMD a vector of
+/// less than 16 bytes is shifted as the low lanes of a 16-byte one: LLVM
+/// (Zig 0.17) gives wrong lanes for `>>` of a `Simd[U8, 2]` or
+/// `Simd[U8, 4]` there in an optimized build (`test/lanes/simd2_grid.zig`).
+inline fn laneShift(comptime op: Shift, v: anytype, amount: anytype) @TypeOf(v) {
+    const V = @TypeOf(v);
+    const info = @typeInfo(V).vector;
+    if (comptime wasmSimd() and @sizeOf([info.len]info.child) < 16) {
+        const m = 16 / @sizeOf(info.child);
+        const wide = @shuffle(info.child, v, @as(V, @splat(0)), padIndicesTo(m, info.len));
+        return @shuffle(info.child, laneShiftWhole(op, wide, amount), undefined, iota(info.len, 0));
+    }
+    return laneShiftWhole(op, v, amount);
+}
+
+inline fn laneShiftWhole(comptime op: Shift, v: anytype, amount: anytype) @TypeOf(v) {
+    const k = laneAmount(@TypeOf(v), amount);
+    if (op == .right) return v >> k;
+    const r = v << k;
+    if (op == .left_checked and @reduce(.Or, (r >> k) != v)) panic.shlOverflow();
+    return r;
+}
+
+/// A shift amount for every lane of `V`, in the width Zig shifts by.
+inline fn laneAmount(comptime V: type, amount: anytype) @Vector(@typeInfo(V).vector.len, std.math.Log2Int(@typeInfo(V).vector.child)) {
+    return @splat(@intCast(amount));
+}
+
+/// `cur.lag[k](prev)`: lane `i` is `cur[i - k]` for `i >= k`, and
+/// `prev[n - k + i]` below: the lanes of `prev` then `cur`, `k` lanes
+/// back from the end. One constant two-vector shuffle, which LLVM lowers
+/// to `ext` on NEON, `palignr` on x86 (with a lane-crossing permute for
+/// AVX2's 32 bytes), and `i8x16.shuffle` on WASM. Typecheck holds `k` to
+/// 1..n-1.
+pub inline fn lag(comptime k: usize, cur: anytype, prev: @TypeOf(cur)) @TypeOf(cur) {
+    const info = @typeInfo(@TypeOf(cur)).vector;
+    return @shuffle(info.child, prev, cur, lagIndices(info.len, k));
+}
+
+fn lagIndices(comptime n: usize, comptime k: usize) @Vector(n, i32) {
+    @setEvalBranchQuota(100_000);
+    var a: [n]i32 = undefined;
+    for (&a, 0..) |*x, i| x.* = if (i < k) @intCast(n - k + i) else ~@as(i32, @intCast(i - k));
+    return a;
+}
+
+/// `t.lookup(idx)` of a table `t` of 16, 32, or 64 bytes: lane `i` is
+/// `t[idx[i]]`, or 0 where `idx[i]` is past the table. Each target's
+/// table instruction takes 16 indexes at a time (a shorter `idx` is
+/// filled out with indexes past the table, and a longer one taken in
+/// pieces): NEON's `tbl` takes 1 to 4 table registers and gives 0 past
+/// them. x86's `pshufb` (SSSE3; `vpshufb`, 32 indexes against a table
+/// repeated in both halves, with AVX2) and WASM's `i8x16.swizzle` read one
+/// 16-byte table piece, so each piece is looked up with the indexes moved
+/// down to it, and the results OR together. `pshufb` reads only an
+/// index's low 4 bits unless its bit 7 is set, which gives 0: a saturating
+/// add of 0x70 sets bit 7 exactly where an index is 16 or more. Elsewhere,
+/// and at compile time, a lane at a time (`lookupLanes`); every form gives
+/// the same lanes (`test "lookup: every form agrees"`).
+pub inline fn lookup(table: anytype, idx: anytype) @TypeOf(idx) {
+    const n = @typeInfo(@TypeOf(idx)).vector.len;
+    if (@inComptime() or comptime !lookupInstructions()) return lookupLanes(table, idx);
+    if (comptime n >= 16) return lookupPieces(table, idx);
+    const wide = @shuffle(u8, idx, @as(@Vector(16, u8), @splat(0xFF)), padIndices(n));
+    return @shuffle(u8, lookupPieces(table, wide), undefined, iota(n, 0));
+}
+
+/// `lookup` of 16 or more indexes, a target's table instructions at a time.
+/// Vectors are cut into pieces and joined again by shuffles: through an
+/// array, LLVM moves each 8 bytes at a time.
+inline fn lookupPieces(table: anytype, idx: anytype) @TypeOf(idx) {
+    const m = @typeInfo(@TypeOf(table)).vector.len;
+    const n = @typeInfo(@TypeOf(idx)).vector.len;
+    var ts: [m / 16]@Vector(16, u8) = undefined;
+    inline for (&ts, 0..) |*t, j| t.* = @shuffle(u8, table, undefined, iota(16, 16 * j));
+    const w = if (avx2 and n >= 32) 32 else 16;
+    const W = @Vector(w, u8);
+    var out: [n / w]W = undefined;
+    inline for (&out, 0..) |*o, k| {
+        const piece: W = @shuffle(u8, idx, undefined, iota(w, w * k));
+        if (w == 32) {
+            var r: W = @splat(0);
+            inline for (ts, 0..) |t, j| {
+                const both = @shuffle(u8, t, undefined, iota(32, 0) & @as(@Vector(32, i32), @splat(15)));
+                r |= @"llvm.x86.avx2.pshuf.b"(both, (piece -% @as(W, @splat(16 * j))) +| @as(W, @splat(0x70)));
+            }
+            o.* = r;
+        } else o.* = lookup16(m, ts, piece);
+    }
+    return joinPieces(w, n, out);
+}
+
+/// The `n / w` pieces of `w` bytes as one vector of `n`, by halves.
+inline fn joinPieces(comptime w: usize, comptime n: usize, pieces: [n / w]@Vector(w, u8)) @Vector(n, u8) {
+    if (n == w) return pieces[0];
+    const h = n / 2;
+    const lo = joinPieces(w, h, pieces[0 .. h / w].*);
+    const hi = joinPieces(w, h, pieces[h / w ..].*);
+    return @shuffle(u8, lo, hi, concatIndices(h));
+}
+
+/// The lanes of `a` then of `b`, each of `h` lanes.
+fn concatIndices(comptime h: usize) @Vector(2 * h, i32) {
+    var a: [2 * h]i32 = undefined;
+    for (&a, 0..) |*x, i| x.* = if (i < h) @intCast(i) else ~@as(i32, @intCast(i - h));
+    return a;
+}
+
+/// One 16-index piece of `lookup`.
+inline fn lookup16(comptime m: usize, ts: [m / 16]@Vector(16, u8), idx: @Vector(16, u8)) @Vector(16, u8) {
+    const P = @Vector(16, u8);
+    if (comptime neonIntrinsics()) return switch (m) {
+        16 => @"llvm.aarch64.neon.tbl1.v16i8"(ts[0], idx),
+        32 => @"llvm.aarch64.neon.tbl2.v16i8"(ts[0], ts[1], idx),
+        else => @"llvm.aarch64.neon.tbl4.v16i8"(ts[0], ts[1], ts[2], ts[3], idx),
+    };
+    var r: P = @splat(0);
+    inline for (ts, 0..) |t, j| {
+        const down = idx -% @as(P, @splat(16 * j));
+        r |= if (comptime wasmSimd()) @"llvm.wasm.swizzle"(t, down) else @"llvm.x86.ssse3.pshuf.b.128"(t, down +| @as(P, @splat(0x70)));
+    }
+    return r;
+}
+
+/// Whether the target has a table instruction `lookup` uses: NEON, x86's
+/// SSSE3, or WASM SIMD, each through LLVM.
+fn lookupInstructions() bool {
+    return lookup_instructions;
+}
+
+const lookup_instructions = builtin.zig_backend == .stage2_llvm and (neon_intrinsics or wasm_simd or
+    (builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3)));
+const avx2 = builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and
+    std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
+
+/// `lookup` a lane at a time.
+fn lookupLanes(table: anytype, idx: anytype) @TypeOf(idx) {
+    const m = @typeInfo(@TypeOf(table)).vector.len;
+    const n = @typeInfo(@TypeOf(idx)).vector.len;
+    const t: [m]u8 = table;
+    const is: [n]u8 = idx;
+    var out: [n]u8 = undefined;
+    for (is, &out) |j, *o| o.* = if (j < m) t[j] else 0;
+    return out;
+}
+
+/// Lanes `0..n` of a vector, then 16 - n lanes of the second operand's.
+fn padIndices(comptime n: usize) @Vector(16, i32) {
+    return padIndicesTo(16, n);
+}
+
+/// Lanes `0..n` of a vector, then `m - n` lanes of the second operand's
+/// (its first lane, for an operand of every lane alike).
+fn padIndicesTo(comptime m: usize, comptime n: usize) @Vector(m, i32) {
+    var a: [m]i32 = undefined;
+    for (&a, 0..) |*x, i| x.* = if (i < n) @intCast(i) else -1;
+    return a;
+}
+
+/// The table instructions, each named only where `lookupInstructions`
+/// picks it.
+extern fn @"llvm.aarch64.neon.tbl1.v16i8"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+extern fn @"llvm.aarch64.neon.tbl2.v16i8"(@Vector(16, u8), @Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+extern fn @"llvm.aarch64.neon.tbl4.v16i8"(@Vector(16, u8), @Vector(16, u8), @Vector(16, u8), @Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+extern fn @"llvm.x86.ssse3.pshuf.b.128"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+extern fn @"llvm.x86.avx2.pshuf.b"(@Vector(32, u8), @Vector(32, u8)) @Vector(32, u8);
+extern fn @"llvm.wasm.swizzle"(@Vector(16, u8), @Vector(16, u8)) @Vector(16, u8);
+
 /// The mask helpers (`maskBits`, `maskFirst`, `maskAny`, `maskAll`, and the
 /// functions they call) are `inline`: called, a wide mask is moved through
 /// its lanes one by one (about 56 moves per 32 bytes on aarch64), where
@@ -1905,14 +2147,20 @@ inline fn maskBytes(comptime n: usize, m: @Vector(n, bool)) @Vector(n, u8) {
 /// built by LLVM (Zig's own backends do not know them, and an intrinsic
 /// for a feature the target lacks stops LLVM).
 fn neonIntrinsics() bool {
-    return builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm and
-        std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
+    return neon_intrinsics;
 }
+
+/// Decided once: a feature test in an inline helper would count against
+/// the branch quota of every function that calls it.
+const neon_intrinsics = builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm and
+    std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
 
 /// Whether the target is WASM with its 128-bit SIMD.
 fn wasmSimd() bool {
-    return builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(builtin.cpu.features, .simd128);
+    return wasm_simd;
 }
+
+const wasm_simd = builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(builtin.cpu.features, .simd128);
 
 inline fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
     return @as(@Int(.unsigned, n), @bitCast(m));
@@ -2839,6 +3087,105 @@ test "maskBits: every form agrees" {
             try testing.expectEqual(want != 0, maskAny(m));
             try testing.expectEqual(if (want == 0) null else @as(?i64, @ctz(want)), maskFirst(m));
             try testing.expectEqual(want == std.math.maxInt(@Int(.unsigned, n)), maskAll(m));
+        }
+    }
+}
+
+/// An index for `lookup`'s tests: in the table, just past it, around
+/// `pshufb`'s bit 7 and the saturating add of 0x70, or anything.
+fn lookupIndex(r: std.Random, m: usize) u8 {
+    const edges = [_]u8{ 0, 15, 16, 31, 32, 47, 48, 63, 64, 0x6F, 0x70, 0x7F, 0x80, 0x8F, 0x90, 0xEF, 0xF0, 0xFF };
+    return switch (r.uintLessThan(u8, 4)) {
+        0 => edges[r.uintLessThan(usize, edges.len)],
+        1 => r.uintLessThan(u8, @intCast(m)),
+        else => r.int(u8),
+    };
+}
+
+test "lookup: every form agrees" {
+    var prng = std.Random.DefaultPrng.init(0x7ab1e);
+    const r = prng.random();
+    inline for (.{ 16, 32, 64 }) |m| {
+        inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
+            for (0..300) |_| {
+                var t: [m]u8 = undefined;
+                r.bytes(&t);
+                var is: [n]u8 = undefined;
+                for (&is) |*x| x.* = lookupIndex(r, m);
+                var want: [n]u8 = undefined;
+                for (is, &want) |j, *w| w.* = if (j < m) t[j] else 0;
+                const table: @Vector(m, u8) = t;
+                const idx: @Vector(n, u8) = is;
+                try testing.expectEqual(want, @as([n]u8, lookup(table, idx)));
+                try testing.expectEqual(want, @as([n]u8, lookupLanes(table, idx)));
+            }
+        }
+    }
+}
+
+test "lookup: at compile time" {
+    const t: @Vector(16, u8) = "0123456789abcdef".*;
+    const idx: @Vector(4, u8) = .{ 0, 15, 16, 0x80 };
+    const r = comptime lookup(t, idx);
+    try testing.expectEqual([4]u8{ '0', 'f', 0, 0 }, @as([4]u8, r));
+}
+
+test "vecAddSat, vecSubSat: the wrapped forms agree with Zig's" {
+    var prng = std.Random.DefaultPrng.init(0x5a7);
+    const r = prng.random();
+    inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
+        inline for (.{ 2, 8, 16, 64 }) |n| {
+            for (0..200) |_| {
+                var xs: [n]T = undefined;
+                var ys: [n]T = undefined;
+                for (&xs, &ys) |*x, *y| {
+                    x.* = r.int(T);
+                    y.* = if (r.boolean()) r.int(T) else if (r.boolean()) 0 else std.math.minInt(T);
+                }
+                const add: [n]T = addSatWrapped(@as(@Vector(n, T), xs), @as(@Vector(n, T), ys));
+                const sub: [n]T = subSatWrapped(@as(@Vector(n, T), xs), @as(@Vector(n, T), ys));
+                for (xs, ys, add, sub) |x, y, s, d| {
+                    try testing.expectEqual(x +| y, s);
+                    try testing.expectEqual(x -| y, d);
+                }
+            }
+        }
+    }
+}
+
+test "lag: every amount and lane count" {
+    inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
+        var p: [n]u16 = undefined;
+        var c: [n]u16 = undefined;
+        for (&p, &c, 0..) |*x, *y, i| {
+            x.* = @intCast(i);
+            y.* = @intCast(1000 + i);
+        }
+        inline for (1..n) |k| {
+            const got: [n]u16 = lag(k, @as(@Vector(n, u16), c), @as(@Vector(n, u16), p));
+            for (got, 0..) |g, i| try testing.expectEqual(if (i >= k) c[i - k] else p[n - k + i], g);
+        }
+    }
+}
+
+test "vecShl, vecShlWrap, vecShr: every lane type and amount" {
+    var prng = std.Random.DefaultPrng.init(0x5417);
+    const r = prng.random();
+    inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
+        inline for (.{ 2, 16, 32, 64 }) |n| {
+            for (0..@bitSizeOf(T)) |c| {
+                var xs: [n]T = undefined;
+                for (&xs) |*x| x.* = if (r.boolean()) r.int(T) else @truncate(r.int(T) >> @intCast(r.uintLessThan(usize, @bitSizeOf(T))));
+                const v: @Vector(n, T) = xs;
+                const k: std.math.Log2Int(T) = @intCast(c);
+                var lost = false;
+                for (xs, @as([n]T, vecShlWrap(v, c)), @as([n]T, vecShr(v, c))) |x, wrapped, right| {
+                    try testing.expectEqual(x << k, wrapped);
+                    try testing.expectEqual(x >> k, right);
+                    if ((x << k) >> k != x) lost = true;
+                }
+                if (!lost) try testing.expectEqual(@as([n]T, vecShlWrap(v, c)), @as([n]T, vecShl(v, c)));
+            }
         }
     }
 }

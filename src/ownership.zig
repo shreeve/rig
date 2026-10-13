@@ -1978,7 +1978,7 @@ pub const Checker = struct {
                 // Operators on values produce fresh Copy results. A binary
                 // operator reads its left operand where it runs, and uses
                 // it after the right one runs.
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
                     const operands = rig.children(sexp);
                     if (operands.len == 2) {
                         _ = try self.walkThenHeld(operands[0], .operand, operands[1]);

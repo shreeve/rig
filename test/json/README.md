@@ -3,12 +3,15 @@
 `./test/run json` checks `std.json` (`std/json.rig`) against Python's
 `json` module. `test/json/compare.py` does the work. Rig programs cannot
 read files yet, so the inputs become generated Rig programs
-(`driver.rig.tmpl`), each input embedded as string literals in one table,
-split into chunks of under 64 KB (Rig's longest token). Consecutive groups
-share a program, since each program compiles the parser afresh; a program
-holds at most 6000 inputs and stays under 16 MiB (Rig's largest source
-file). The programs run under `rig run` with `RIG_SANITIZE=1`, so a leak
-or a use of freed memory fails the group.
+(`driver.rig.tmpl`), each input one string literal in a table. Consecutive
+groups share a program, since each program compiles the parser afresh; a
+program holds at most 6000 inputs and stays under 16 MiB (Rig's largest
+source file), counting the inputs as they are written in the program.
+Each input is copied into a `String` before it is parsed. The programs
+run under `rig run` with `RIG_SANITIZE=1`, so a leak or a use of freed
+memory fails the group; a read past an input's end is stopped by Rig's
+bounds checks (the sanitizer's guard page lies past the `String`'s
+capacity, which is larger than the input).
 
 ```sh
 ./test/run json                  # every input of every group (10,511), whole
