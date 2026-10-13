@@ -233,6 +233,10 @@ pub const Emitter = struct {
     /// value (`facts.syntax.valueParts`) the use reaches.
     use: ?facts.Use = null,
     use_node: Sexp = .nil,
+    /// The value parts of each `match` that has been the value whose use
+    /// is known, by the match (`partOfUse`), found once so that telling
+    /// whether a value is one of them walks no arm.
+    match_parts: std.AutoHashMapUnmanaged(PartKey, std.AutoHashMapUnmanaged(PartKey, void)) = .empty,
     /// The next expression is emitted as the pointer it yields, even where
     /// its context reads through it (`emitDeref`).
     want_ptr: bool = false,
@@ -3499,7 +3503,7 @@ pub const Emitter = struct {
             self.use = saved_use;
             self.use_node = saved_use_node;
         }
-        if (!self.partOfUse(sexp)) self.use = self.facts.useOf(sexp);
+        if (!try self.partOfUse(sexp)) self.use = self.facts.useOf(sexp);
         self.use_node = sexp;
         const want_ptr = self.want_ptr;
         self.want_ptr = false;
@@ -3720,12 +3724,31 @@ pub const Emitter = struct {
     /// Whether `sexp`, the value being emitted, is the value whose use is
     /// known or a part of it (`facts.syntax.valueParts`), directly or as the
     /// block whose tail the part is.
-    fn partOfUse(self: *const Emitter, sexp: Sexp) bool {
+    fn partOfUse(self: *Emitter, sexp: Sexp) Error!bool {
         if (self.use_node == .nil) return false;
         if (sameNode(sexp, self.use_node)) return true;
+        if (self.use_node.isKind(.match)) {
+            const parts = try self.matchParts(self.use_node);
+            const tail = facts.syntax.tailOf(sexp);
+            return (if (partKey(sexp)) |k| parts.contains(k) else false) or
+                (if (partKey(tail)) |k| parts.contains(k) else false);
+        }
         var parts = facts.syntax.valueParts(self.use_node);
         while (parts.next()) |p| if (sameNode(p.node, sexp) or sameNode(p.node, facts.syntax.tailOf(sexp))) return true;
         return false;
+    }
+
+    /// The value parts of `match` (`facts.syntax.valueParts`), one per
+    /// arm, as a set.
+    fn matchParts(self: *Emitter, match: Sexp) Error!*const std.AutoHashMapUnmanaged(PartKey, void) {
+        const a = self.arena.allocator();
+        const entry = try self.match_parts.getOrPut(a, partKey(match).?);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = .empty;
+            var parts = facts.syntax.valueParts(match);
+            while (parts.next()) |p| if (partKey(p.node)) |k| try entry.value_ptr.put(a, k, {});
+        }
+        return entry.value_ptr;
     }
 
     /// Whether name `sexp`, at a tail of the value being emitted, moves
@@ -7274,6 +7297,18 @@ fn sameNode(a: Sexp, b: Sexp) bool {
         .src => |s| b == .src and b.src.pos == s.pos,
         .list => b == .list and a.items().ptr == b.items().ptr,
         else => false,
+    };
+}
+
+/// What `sameNode` compares a node by: a leaf's position, or a list's
+/// items. Two nodes are the same exactly when their keys are equal.
+const PartKey = struct { leaf: bool, at: usize };
+
+fn partKey(n: Sexp) ?PartKey {
+    return switch (n) {
+        .src => |s| .{ .leaf = true, .at = s.pos },
+        .list => .{ .leaf = false, .at = @intFromPtr(n.items().ptr) },
+        else => null,
     };
 }
 
