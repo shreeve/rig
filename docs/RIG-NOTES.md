@@ -122,10 +122,12 @@ tools that take them in `bench/json/`.
     and `error_pos` in the `Doc`; the parser's internal steps return
     `-1`. Fix: errors with a payload (an offset), so `parse` can be `!`.
     std.json's final API waits on it. *Observed.*
-18. **Long literals and embedding.** A string literal is at most 64 KB
-    and a source file 16 MiB, so the benchmark and the tests split each
-    JSON file into 60 KB literals and join them at run time. Fix:
-    `@embed("file.json")` as a `Static`, or longer literals. *Observed.*
+18. **Long literals and embedding.** A string literal was at most 64 KB
+    and a source file is 16 MiB, so the benchmark and the tests split
+    each JSON file into 60 KB literals and join them at run time. Fix:
+    `@embed("file.json")` as a `Static`, or longer literals. Literals
+    of any length within the 16 MiB source are *fixed* (`@longtokens`);
+    `@embed` is *observed*.
 
 ## Traps
 

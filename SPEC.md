@@ -68,6 +68,9 @@ program calls `main`: Rig code cannot call it or use it as a value. The
 program's arguments and environment are read through
 [`std.os`](docs/STD.md#stdos).
 
+A source file holds at most 16 MiB. A token in it, such as a string
+literal, a name, or a comment, may be of any length up to that.
+
 ```rig
 fun main() -> Int
   print("nothing to do")
