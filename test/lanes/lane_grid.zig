@@ -13,11 +13,12 @@
 // status: 0 correct; 3 a wrong value; 4 no panic on an overflow (missed).
 // A panic on a clean vector is a false overflow: the process aborts.
 // Vectors are loaded from bytes by a noinline function, so nothing folds
-// at compile time. `lane_grid.py` runs the grid.
+// at compile time. `lane_grid.py` runs the grid, and builds only the ways
+// it was asked for (the module `impls`, a `list` of them).
 const std = @import("std");
 const rig = @import("rig");
 
-const Impl = enum { plain, intrinsic, rig };
+pub const Impl = enum { plain, intrinsic, rig };
 const Op = enum { add, sub, mul, neg };
 
 noinline fn load(comptime T: type, comptime n: usize, b: []const u8) @Vector(n, T) {
@@ -132,7 +133,7 @@ pub fn main(init: std.process.Init.Minimal) u8 {
     const ovf = std.mem.eql(u8, it.next().?, "ovf");
     const seed = std.fmt.parseInt(u64, it.next().?, 10) catch unreachable;
     const at = if (it.next()) |s| std.fmt.parseInt(usize, s, 10) catch unreachable else 0;
-    inline for (comptime std.enums.values(Impl)) |impl| {
+    inline for (@import("impls").list) |impl| {
         inline for (comptime std.enums.values(Op)) |op| {
             inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
                 inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {

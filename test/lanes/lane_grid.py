@@ -18,9 +18,13 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 TYPES = ["u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64"]
 LANES = [2, 4, 8, 16, 32, 64]
 
-def build(mode, out, zig):
-    cmd = [zig, "build-exe", "-O", mode, f"-femit-bin={out}", "--dep", "rig",
-           f"-Mroot={HERE}/lane_grid.zig", f"-Mrig={ROOT}/src/runtime.zig",
+def build(mode, out, zig, impls):
+    # The ways asked for, and no others: each is a copy of every cell.
+    listing = os.path.join(os.path.dirname(out), "impls.zig")
+    with open(listing, "w") as f:
+        f.write("pub const list = .{ " + ", ".join(f".{i}" for i in impls) + " };\n")
+    cmd = [zig, "build-exe", "-O", mode, f"-femit-bin={out}", "--dep", "rig", "--dep", "impls",
+           f"-Mroot={HERE}/lane_grid.zig", f"-Mrig={ROOT}/src/runtime.zig", f"-Mimpls={listing}",
            "--cache-dir", os.path.join(os.path.dirname(out), "cache"),
            "--global-cache-dir", os.path.join(os.path.dirname(out), "gcache")]
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -73,7 +77,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         for mode in a.modes.split(","):
             out = os.path.join(tmp, f"grid-{mode}")
-            build(mode, out, a.zig)
+            build(mode, out, a.zig, a.impl.split(","))
             jobs = [(impl, op, ty, int(n)) for impl in a.impl.split(",") for op in a.ops.split(",")
                     for ty in a.types.split(",") for n in a.lanes.split(",")]
             with cf.ThreadPoolExecutor(a.jobs) as ex:
