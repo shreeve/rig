@@ -7292,7 +7292,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
                 },
-                .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match,
+                .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block,
                 .propagate, .propagate_none, .@"catch", .@"??", .neg, .not, .@"and", .@"or",
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^",
                 .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
