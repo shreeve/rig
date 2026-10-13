@@ -39,6 +39,7 @@
 # NEEDS; docs/json/DESIGN.md ("Open items") lists them.
 
 use std.text
+use std.utf8
 
 # ---- Bytes ------------------------------------------------------------
 # NEEDS (character literals): byte values are named here.
@@ -357,9 +358,7 @@ pub obj Doc
       return i if i >= n or src[i] < 0x80
       # A run of non-ASCII text, checked a sequence at a time.
       while i < n and src[i] >= 0x80
-        j = utf8_end3(src, i)
-        return (!self).fail(.utf8, i) if j < 0
-        i = j
+        i += utf8.rune_size(src, i) ?? return (!self).fail(.utf8, i)
     n
 
   # The rest of a string that has an escape: decodes it into `text`.
@@ -424,7 +423,7 @@ pub obj Doc
     if c >= 0x800 and (c < 0xD800 or c > 0xDFFF) and i + 6 <= src.len and src.read[U16, .little](i) == BACKSLASH_U
       d = hex_value(src, i + 2)
       if d >= 0x800 and (d < 0xD800 or d > 0xDFFF)
-        push_utf8_two3(!self.text, c, d)
+        utf8.push_runes3(!self.text, c, d)
         return i + 6
     if c >= 0xDC00 and c <= 0xDFFF
       return (!self).fail(.surrogate, at)
@@ -436,7 +435,7 @@ pub obj Doc
       return (!self).fail(.surrogate, at) if low < 0xDC00 or low > 0xDFFF
       c = 0x10000 + ((c - 0xD800) << 10) + (low - 0xDC00)
       i += 6
-    push_utf8(!self.text, c)
+    utf8.push_rune_unchecked(!self.text, c)
     i
 
   # The value of the four hex digits at `at`, or -1 after recording the
@@ -722,68 +721,6 @@ fun special64(w: U64) -> U64
 # The index of the first byte `special64` marked in `m` (not 0).
 fun first_marked64(m: U64) -> Int
   m.trailing_zeros() >> 3
-
-# The index just past the UTF-8 sequence that starts at `at`, or -1
-# when the bytes there are not one: RFC 3629 allows no overlong form,
-# no surrogate, and nothing past U+10FFFF.
-fun utf8_end(s: ?String, at: Int) -> Int
-  width = 0
-  lo: U8 = 0x80
-  hi: U8 = 0xBF
-  match s[at]
-    0xC2..0xE0 => width = 2
-    0xE0
-      width = 3
-      lo = 0xA0
-    0xE1..0xED, 0xEE..0xF0 => width = 3
-    0xED
-      width = 3
-      hi = 0x9F
-    0xF0
-      width = 4
-      lo = 0x90
-    0xF1..0xF4 => width = 4
-    0xF4
-      width = 4
-      hi = 0x8F
-    _ => return -1
-  return -1 if at + width > s.len
-  second = s[at + 1]
-  return -1 if second < lo or second > hi
-  for k in 2..width
-    return -1 if s[at + k] & 0xC0 != 0x80
-  at + width
-
-# `utf8_end`, with one U32 read for the commonest sequence in CJK text:
-# three bytes, 1110xxxx 10xxxxxx 10xxxxxx. A first byte of E0 or ED
-# narrows the second byte's range, so those go to `utf8_end`, with
-# every other sequence.
-fun utf8_end3(s: ?String, at: Int) -> Int
-  if at + 4 <= s.len
-    w = s.read[U32, .little](at)
-    lead = w & 0xFF
-    if w & 0xC0C0F0 == 0x8080E0 and lead != 0xE0 and lead != 0xED
-      return at + 3
-  utf8_end(s, at)
-
-# Appends the UTF-8 bytes of the code point `c` in one write, or two
-# for three bytes, each a big-endian number whose top byte comes first.
-sub push_utf8(out: !String, c: Int)
-  if c < 0x80
-    !out.push(U8(c))
-  else if c < 0x800
-    !out.push[U16, .big](U16(0xC080 | (c >> 6) << 8 | c & 0x3F))
-  else if c < 0x10000
-    !out.push[U16, .big](U16(0xE080 | (c >> 12) << 8 | (c >> 6) & 0x3F))
-    !out.push(U8(0x80 | c & 0x3F))
-  else
-    !out.push[U32, .big](U32(0xF0808080 | (c >> 18) << 24 | ((c >> 12) & 0x3F) << 16 | ((c >> 6) & 0x3F) << 8 | c & 0x3F))
-
-# Appends two code points of three UTF-8 bytes each (0x800 to 0xFFFF,
-# no surrogate) in two writes, of four bytes and then two.
-sub push_utf8_two3(out: !String, c: Int, d: Int)
-  !out.push[U32, .big](U32(0xE08080E0 | (c >> 12) << 24 | ((c >> 6) & 0x3F) << 16 | (c & 0x3F) << 8 | d >> 12))
-  !out.push[U16, .big](U16(0x8080 | ((d >> 6) & 0x3F) << 8 | d & 0x3F))
 
 # ---- Decimal to binary ------------------------------------------------
 
