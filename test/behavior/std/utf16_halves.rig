@@ -1,0 +1,39 @@
+# `utf16.is_high_surrogate` and `utf16.is_low_surrogate` at every
+# boundary and at the ends of Int, and against their definitions on
+# every value from -1 to 0x110000.
+use std.utf16
+
+sub main()
+  for u in [Int.min, -0xD800, -1, 0, 0xD7FF, 0xD800, 0xDBFF, 0xDC00, 0xDFFF, 0xE000, 0xFFFF, 0x1D800, 0x1DC00, 0x100000000 + 0xD800, Int.min + 0xD800, Int.max]
+    print(u, utf16.is_high_surrogate(u), utf16.is_low_surrogate(u), utf16.is_surrogate(u))
+  wrong = 0
+  highs = 0
+  lows = 0
+  u = -1
+  while u <= 0x110000 : u += 1
+    high = u >= 0xD800 and u <= 0xDBFF
+    low = u >= 0xDC00 and u <= 0xDFFF
+    wrong += 1 if utf16.is_high_surrogate(u) != high or utf16.is_low_surrogate(u) != low
+    wrong += 1 if utf16.is_surrogate(u) != (utf16.is_high_surrogate(u) or utf16.is_low_surrogate(u))
+    highs += 1 if high
+    lows += 1 if low
+  print(wrong, highs, lows)
+
+# expect:
+# -9223372036854775808 false false false
+# -55296 false false false
+# -1 false false false
+# 0 false false false
+# 55295 false false false
+# 55296 true false true
+# 56319 true false true
+# 56320 false true true
+# 57343 false true true
+# 57344 false false false
+# 65535 false false false
+# 120832 false false false
+# 121856 false false false
+# 4295022592 false false false
+# -9223372036854720512 false false false
+# 9223372036854775807 false false false
+# 0 1024 1024

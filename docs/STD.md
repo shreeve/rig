@@ -836,6 +836,8 @@ one U+FFFD.
 | `unit_count(s: ?String) -> Int` | the units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
 | `byte_index(s: ?String, units: Int) -> Int` | the byte where `units` units into `s` falls; a unit inside a pair lands after its rune, 0 or less gives 0, and a count past the end gives `s.len` | |
 | `is_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
+| `is_high_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xDC00`, the first unit of a pair | |
+| `is_low_surrogate(u: Int) -> Bool` | whether `0xDC00 <= u < 0xE000`, the second unit of a pair | |
 | `rune_from_pair(hi: Int, lo: Int) -> Int` | the rune a pair encodes, or 0xFFFD when `hi` is not a high surrogate or `lo` not a low one | `utf16.DecodeRune` |
 | `pair_from_rune(r: Int) -> Pair` | the pair that encodes `r`, or `Pair(hi: 0xFFFD, lo: 0xFFFD)` when `r` needs none | `utf16.EncodeRune` |
 
@@ -854,6 +856,7 @@ sub main()
   p = utf16.pair_from_rune(0x1f600)
   q = utf16.pair_from_rune(0x41)
   print(p.hi, p.lo, q.hi, q.lo, utf16.is_surrogate(p.hi))
+  print(utf16.is_high_surrogate(p.hi), utf16.is_low_surrogate(p.hi), utf16.is_low_surrogate(p.lo))
   print(utf16.rune_from_pair(0xd83d, 0xde00), utf16.rune_from_pair(0xde00, 0xd83d))
 ```
 
@@ -867,6 +870,7 @@ sub main()
 20 18
 1 2 0
 55357 56832 65533 65533 true
+true false true
 128512 65533
 ```
 

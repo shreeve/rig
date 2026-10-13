@@ -218,6 +218,8 @@ on it: a TypeScript checker's positions and columns are UTF-16 units.
 | `utf16.unit_count(s) -> Int` | the UTF-16 units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
 | `utf16.byte_index(s, units) -> Int` | the byte where `units` units into `s` falls (a unit inside a pair lands after its rune), clamped to `0..s.len` | |
 | `utf16.is_surrogate(u) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
+| `utf16.is_high_surrogate(u) -> Bool` | whether `0xD800 <= u < 0xDC00`, the first unit of a pair | |
+| `utf16.is_low_surrogate(u) -> Bool` | whether `0xDC00 <= u < 0xE000`, the second unit of a pair | |
 | `utf16.rune_from_pair(hi, lo) -> Int` | the rune a surrogate pair encodes, or U+FFFD if it is not one | `utf16.DecodeRune` |
 | `utf16.pair_from_rune(r) -> Pair` | `Pair(hi, lo)`, or `Pair(0xFFFD, 0xFFFD)` if `r` needs no pair | `utf16.EncodeRune` |
 
