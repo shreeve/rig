@@ -1,0 +1,11 @@
+# A negative `keep` panics.
+# release
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  n = 0 - 1
+  !v.keep(n)
+  print(v)
+
+# expect-panic: index out of bounds

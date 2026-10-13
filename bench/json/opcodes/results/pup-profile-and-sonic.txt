@@ -1,0 +1,448 @@
+pup.sh: opcodes 9067d7799915 in /home/shreeve/Data/Code/rig-wt/opcodes
+== tests (optimized)
+ws_cmp+inl: 10511 passed, 0 failed, 10511 total optest: ws_cmp+inl patched 5 package(s) 
+dig16+inl: 10511 passed, 0 failed, 10511 total optest: dig16+inl patched 5 package(s) 
+zz_dig_bad: 10096 passed, 415 failed, 10511 total optest: zz_dig_bad patched 5 package(s) 
+== build
+built github_events ws_cmp+inl
+built github_events dig16+inl
+== calls to mask helpers
+base: 2
+ws_cmp: 2
+ws_tbl: 2
+ws_all_tbl: 2
+utf8_kl: 2
+esc_copy16: 2
+esc_hex16b: 2
+dig16: 2
+dig16_port: 2
+dig16_sat: 2
+scan_tbl: 2
+src:wsbits3: 2
+src:wsbits3+wsb_tbl: 2
+utf8_kl+esc_copy16+esc_hex16b: 2
+ws_cmp+inl: 2
+dig16+inl: 2
+== profile (time)
+   17.9%  json.skip_plain_ascii
+   15.1%  json.skip_space < json.Doc.document < json.Doc.parse
+    5.2%  json.Doc.plain < json.Doc.string < json.Doc.scalar
+    4.8%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    4.7%  json.skip_space < json.Doc.key < json.Doc.document
+    3.8%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    3.6%  json.special64 < json.skip_plain_ascii
+    3.2%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    3.1%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    3.0%  json.Doc.key < json.Doc.document < json.Doc.parse
+    2.6%  json.Doc.plain < json.Doc.string < json.Doc.key
+    2.5%  json.utf8_end3 < json.Doc.plain < json.Doc.escaped
+    2.2%  json.utf8_end3 < json.Doc.plain < json.Doc.string
+    2.2%  rig.runtime.byteOffset__func_815 < rig.runtime.readInt__func_730 < json.skip_plain_ascii
+    2.1%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    1.7%  json.Doc.number < json.Doc.scalar < json.Doc.document
+    1.7%  json.take_digits < json.Doc.number < json.Doc.scalar
+    1.6%  rig.runtime.readInt__func_733 < json.utf8_end3 < json.Doc.plain
+    1.5%  json.Doc.plain < json.Doc.escaped
+    1.4%  rig.runtime.at__func_729 < json.skip_space < json.Doc.key
+    1.0%  rig.runtime.at__func_729 < json.Doc.document < json.Doc.parse
+    1.0%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    1.0%  rig.runtime.List(i64).push < json.Doc.open < json.Doc.document
+    1.0%  json.special < json.skip_plain_ascii
+    0.9%  rig.runtime.List(i64).push < json.Doc.literal < json.Doc.scalar
+twitter: 4248 samples
+   15.9%  json.skip_plain_ascii
+    7.9%  json.Doc.unicode < json.Doc.escape < json.Doc.escaped
+    4.8%  json.push_utf8_two3 < json.Doc.unicode < json.Doc.escape
+    4.4%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    4.3%  json.special64 < json.skip_plain_ascii
+    3.4%  json.hex_value < json.Doc.hex4 < json.Doc.unicode
+    3.2%  json.hex_value < json.Doc.unicode < json.Doc.escape
+    3.0%  json.Doc.escaped
+    2.9%  json.Doc.plain < json.Doc.string < json.Doc.key
+    2.8%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    2.7%  rig.runtime.String.pushInt__func_813 < json.push_utf8_two3 < json.Doc.unicode
+    2.5%  json.Doc.key < json.Doc.document < json.Doc.parse
+    2.4%  rig.runtime.byteOffset__func_815 < rig.runtime.readInt__func_730 < json.skip_plain_ascii
+    2.2%  json.skip_space < json.Doc.key < json.Doc.document
+    2.1%  json.skip_space < json.Doc.document < json.Doc.parse
+    2.0%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    1.9%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    1.7%  rig.runtime.String.appendBytes < rig.runtime.String.add__func_691 < json.Doc.escaped
+    1.6%  rig.runtime.at__func_729 < json.skip_space < json.Doc.key
+    1.5%  rig.runtime.String.pushInt__func_812 < json.push_utf8_two3 < json.Doc.unicode
+    1.4%  json.Doc.plain < json.Doc.string < json.Doc.scalar
+    1.4%  json.Doc.escape < json.Doc.escaped
+    1.2%  json.take_digits < json.Doc.number < json.Doc.scalar
+    1.2%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.Doc.escaped
+    1.1%  rig.runtime.byteOffset__func_815 < rig.runtime.readInt__func_808 < json.hex_value
+twitterescaped: 5540 samples
+   14.4%  json.take_digits < json.Doc.number < json.Doc.scalar
+   12.9%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+   11.8%  json.Doc.number < json.Doc.scalar < json.Doc.document
+    9.9%  json.normal_float_bits
+    8.9%  json.decimal_to_float < json.Doc.number < json.Doc.scalar
+    5.2%  json.eight_digits < json.take_digits < json.Doc.number
+    4.8%  rig.runtime.List(f64).push < json.Doc.add_float < json.Doc.number
+    4.8%  rig.runtime.List(i64).push < json.Doc.open < json.Doc.document
+    4.1%  rig.runtime.List(i64).push < json.Doc.add_float < json.Doc.number
+    3.8%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    3.5%  json.skip_space < json.Doc.document < json.Doc.parse
+    2.8%  rig.runtime.List(i64).push < json.Doc.close < json.Doc.document
+    1.9%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    1.5%  rig.runtime.at__func_729 < json.Doc.document < json.Doc.parse
+    1.5%  json.Doc.open < json.Doc.document < json.Doc.parse
+    1.5%  rig.runtime.byteOffset__func_815 < rig.runtime.readInt__func_730 < json.take_digits
+    1.4%  rig.runtime.readInt__func_730 < json.take_digits < json.Doc.number
+    1.3%  rig.runtime.List(i64).pop < json.Doc.close < json.Doc.document
+    1.3%  json.Doc.close < json.Doc.document < json.Doc.parse
+    1.2%  json.peek < json.Doc.number < json.Doc.scalar
+    0.6%  rig.runtime.List(i64).slot__func_732 < json.Doc.close < json.Doc.document
+    0.5%  json.Doc.scalar < json.Doc.document < json.Doc.parse
+    0.0%  compiler_rt.memsetSmallPowerOf2__func_2 < compiler_rt.fastMemset
+    0.0%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.Doc.document
+    0.0%  json.skip_plain_ascii
+canada: 6736 samples
+   26.2%  json.skip_space < json.Doc.document < json.Doc.parse
+    8.6%  json.skip_plain_ascii
+    7.6%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    5.8%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    4.6%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    4.5%  json.take_digits < json.Doc.number < json.Doc.scalar
+    4.4%  json.skip_space < json.Doc.key < json.Doc.document
+    4.4%  json.Doc.number < json.Doc.scalar < json.Doc.document
+    4.2%  rig.runtime.List(i64).push < json.Doc.open < json.Doc.document
+    2.6%  json.Doc.plain < json.Doc.string < json.Doc.key
+    2.4%  json.special64 < json.skip_plain_ascii
+    2.3%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    2.1%  json.eight_digits < json.take_digits < json.Doc.number
+    1.8%  json.Doc.key < json.Doc.document < json.Doc.parse
+    1.7%  json.Doc.open < json.Doc.document < json.Doc.parse
+    1.7%  rig.runtime.List(i64).push < json.Doc.close < json.Doc.document
+    1.6%  rig.runtime.List(i64).push
+    1.5%  rig.runtime.at__func_729 < json.Doc.document < json.Doc.parse
+    1.4%  rig.runtime.List(i64).pop < json.Doc.close < json.Doc.document
+    1.3%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    1.3%  rig.runtime.at__func_729 < json.skip_space < json.Doc.key
+    1.2%  rig.runtime.List(i64).push < json.Doc.add_int < json.Doc.number
+    1.1%  json.Doc.close < json.Doc.document < json.Doc.parse
+    1.0%  rig.runtime.byteOffset__func_815 < rig.runtime.readInt__func_730 < json.skip_plain_ascii
+    1.0%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+citm_catalog: 5143 samples
+   24.7%  json.skip_plain_ascii
+   10.0%  json.skip_space < json.Doc.document < json.Doc.parse
+    5.8%  json.special < json.skip_plain_ascii
+    5.0%  rig.runtime.maskFirst__func_825 < json.skip_plain_ascii
+    4.5%  rig.runtime.byteOffset__func_815 < rig.runtime.simdRead__func_822 < json.skip_plain_ascii
+    4.0%  json.special64 < json.skip_plain_ascii
+    3.4%  compiler_rt.memcpy.copyBlocks < compiler_rt.memcpy.copyBlocksAlignedSource < compiler_rt.memcpy.copyForwards
+    3.3%  rig.runtime.String.appendBytes < rig.runtime.String.add__func_691 < json.Doc.escaped
+    3.0%  json.skip_space < json.Doc.key < json.Doc.document
+    2.9%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    2.3%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    2.2%  json.Doc.plain < json.Doc.string < json.Doc.key
+    2.2%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    1.8%  json.Doc.escaped
+    1.8%  json.Doc.plain < json.Doc.string < json.Doc.scalar
+    1.8%  rig.runtime.byteOffset__func_815 < rig.runtime.readInt__func_730 < json.skip_plain_ascii
+    1.6%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    1.5%  json.Doc.key < json.Doc.document < json.Doc.parse
+    1.4%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    1.3%  json.Doc.plain < json.Doc.escaped
+    1.3%  rig.runtime.String.push < json.Doc.escape < json.Doc.escaped
+    1.0%  rig.runtime.at__func_729 < json.skip_space < json.Doc.key
+    0.9%  compiler_rt.memcpy.copyFixedLength < compiler_rt.memcpy.copyForwards < compiler_rt.memcpy.memcpyFast
+    0.9%  json.Doc.escape < json.Doc.escaped
+    0.9%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+gsoc-2018: 6175 samples
+   18.7%  json.skip_space < json.Doc.document < json.Doc.parse
+   18.5%  json.skip_plain_ascii
+    6.4%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    5.5%  json.skip_space < json.Doc.key < json.Doc.document
+    4.8%  json.special64 < json.skip_plain_ascii
+    4.4%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    3.4%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    3.3%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    2.6%  json.special < json.skip_plain_ascii
+    2.5%  json.Doc.plain < json.Doc.string < json.Doc.scalar
+    2.5%  rig.runtime.byteOffset__func_815 < rig.runtime.readInt__func_730 < json.skip_plain_ascii
+    2.4%  json.Doc.plain < json.Doc.string < json.Doc.key
+    2.3%  json.Doc.key < json.Doc.document < json.Doc.parse
+    2.2%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    1.8%  rig.runtime.byteOffset__func_815 < rig.runtime.simdRead__func_822 < json.skip_plain_ascii
+    1.7%  rig.runtime.maskFirst__func_825 < json.skip_plain_ascii
+    1.3%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    1.3%  rig.runtime.List(i64).push < json.Doc.open < json.Doc.document
+| category | twitter | twitterescaped | canada | citm_catalog | gsoc-2018 | github_events |
+|---|---:|---:|---:|---:|---:|---:|
+| string scan | 26.2% | 25.1% | 0.0% | 12.7% | 46.3% | 32.8% |
+| UTF-8 | 17.0% | 6.2% | 0.0% | 3.2% | 6.3% | 6.6% |
+| escapes | 1.6% | 35.8% | 0.0% | 0.0% | 9.3% | 1.4% |
+| whitespace | 28.2% | 7.9% | 7.4% | 42.2% | 17.7% | 33.1% |
+| digits | 4.9% | 3.5% | 35.5% | 13.1% | 0.0% | 3.0% |
+| float conversion | 0.0% | 0.0% | 27.8% | 0.0% | 0.0% | 0.0% |
+| string end, tape | 7.1% | 7.5% | 0.0% | 4.1% | 6.0% | 8.1% |
+| structure | 14.0% | 12.7% | 29.1% | 22.9% | 7.6% | 13.9% |
+| other | 1.1% | 1.3% | 0.2% | 1.7% | 6.9% | 1.1% |
+| of which in the runtime (checks, pushes) | 25.3% | 29.5% | 28.7% | 28.7% | 35.1% | 27.0% |
+| samples | 4248 | 5540 | 6736 | 5143 | 6175 | 2543 |
+    1.2%  rig.runtime.at__func_729 < json.skip_space < json.Doc.key
+    1.2%  json.Doc.number < json.Doc.scalar < json.Doc.document
+    1.2%  json.take_digits < json.Doc.number < json.Doc.scalar
+    1.1%  json.Doc.string < json.Doc.key < json.Doc.document
+    1.1%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.Doc.plain
+    0.9%  rig.runtime.at__func_729 < json.Doc.document < json.Doc.parse
+    0.7%  json.Doc.string < json.Doc.scalar < json.Doc.document
+github_events: 2543 samples
+== profile (instructions)
+   13.5%  json.skip_space < json.Doc.document < json.Doc.parse
+   13.4%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+   12.3%  json.skip_plain_ascii
+    4.9%  json.special64 < json.skip_plain_ascii
+    4.7%  json.first_marked64 < json.skip_plain_ascii
+    4.6%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    3.8%  json.Doc.plain < json.Doc.string < json.Doc.scalar
+    3.8%  json.utf8_end3 < json.Doc.plain < json.Doc.string
+    3.2%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    2.7%  json.Doc.literal < json.Doc.scalar < json.Doc.document
+    2.6%  json.Doc.scalar < json.Doc.document < json.Doc.parse
+    2.6%  json.Doc.plain < json.Doc.escaped
+    2.2%  json.skip_space < json.Doc.key < json.Doc.document
+    2.0%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    1.8%  json.Doc.plain < json.Doc.string < json.Doc.key
+    1.7%  json.Doc.key < json.Doc.document < json.Doc.parse
+    1.4%  json.utf8_end3 < json.Doc.plain < json.Doc.escaped
+    1.4%  json.Doc.open < json.Doc.document < json.Doc.parse
+    1.2%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    1.1%  json.take_digits < json.Doc.number < json.Doc.scalar
+    1.0%  json.special < json.skip_plain_ascii
+    1.0%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    0.9%  rig.runtime.at__func_729 < json.skip_space < json.Doc.key
+    0.9%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.Doc.document
+    0.8%  rig.runtime.readInt__func_733 < json.utf8_end3 < json.Doc.plain
+twitter: 4100 samples
+   11.9%  json.skip_plain_ascii
+   10.1%  json.Doc.unicode < json.Doc.escape < json.Doc.escaped
+    6.1%  json.push_utf8_two3 < json.Doc.unicode < json.Doc.escape
+    5.7%  json.special64 < json.skip_plain_ascii
+    5.2%  json.Doc.plain < json.Doc.string < json.Doc.key
+    4.1%  json.hex_value < json.Doc.unicode < json.Doc.escape
+    4.1%  json.hex_value < json.Doc.hex4 < json.Doc.unicode
+    3.5%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    3.1%  json.first_marked64 < json.skip_plain_ascii
+    3.0%  json.special < json.skip_plain_ascii
+    2.4%  rig.runtime.String.pushInt__func_812 < json.push_utf8_two3 < json.Doc.unicode
+    2.4%  json.Doc.key < json.Doc.document < json.Doc.parse
+    2.1%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    1.9%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    1.8%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    1.8%  json.Doc.escaped
+    1.8%  rig.runtime.maskFirst__func_825 < json.skip_plain_ascii
+    1.4%  json.Doc.plain < json.Doc.string < json.Doc.scalar
+    1.3%  rig.runtime.len < json.skip_plain_ascii
+    1.3%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.Doc.plain
+    1.2%  rig.runtime.String.appendBytes < rig.runtime.String.add__func_691 < json.Doc.escaped
+    1.2%  json.take_digits < json.Doc.number < json.Doc.scalar
+    1.2%  json.eight_digits < json.take_digits < json.Doc.number
+    1.1%  rig.runtime.String.pushInt__func_813 < json.push_utf8_two3 < json.Doc.unicode
+    1.1%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+twitterescaped: 3856 samples
+   19.7%  json.eight_digits < json.take_digits < json.Doc.number
+   16.4%  json.Doc.number < json.Doc.scalar < json.Doc.document
+   15.6%  json.take_digits < json.Doc.number < json.Doc.scalar
+   13.0%  json.normal_float_bits
+    8.4%  json.decimal_to_float < json.Doc.number < json.Doc.scalar
+    7.5%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    4.0%  json.first_marked64 < json.take_digits < json.Doc.number
+    2.1%  rig.runtime.byteOffset__func_815 < rig.runtime.readInt__func_730 < json.take_digits
+    1.2%  json.Doc.open < json.Doc.document < json.Doc.parse
+    1.2%  rig.runtime.List(f64).push < json.Doc.add_float < json.Doc.number
+    1.2%  rig.runtime.List(i64).push < json.Doc.open < json.Doc.document
+    1.2%  json.Doc.close < json.Doc.document < json.Doc.parse
+    1.0%  rig.runtime.List(i64).push < json.Doc.add_float < json.Doc.number
+    0.9%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    0.7%  rig.runtime.List(i64).pop < json.Doc.close < json.Doc.document
+    0.6%  rig.runtime.at__func_729 < json.Doc.document < json.Doc.parse
+    0.6%  json.peek < json.Doc.number < json.Doc.scalar
+    0.5%  rig.runtime.List(i64).push < json.Doc.close < json.Doc.document
+    0.5%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    0.5%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.Doc.document
+    0.5%  json.skip_space < json.Doc.document < json.Doc.parse
+    0.5%  rig.runtime.readInt__func_730 < json.take_digits < json.Doc.number
+    0.4%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    0.4%  json.Doc.add_float < json.Doc.number < json.Doc.scalar
+    0.4%  rig.runtime.len < json.Doc.add_float < json.Doc.number
+canada: 6931 samples
+   23.8%  json.skip_space < json.Doc.document < json.Doc.parse
+    7.4%  json.skip_plain_ascii
+    6.9%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    6.7%  json.eight_digits < json.take_digits < json.Doc.number
+    6.3%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    6.3%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    5.1%  json.Doc.plain < json.Doc.string < json.Doc.key
+    3.8%  json.special64 < json.skip_plain_ascii
+    3.6%  json.take_digits < json.Doc.number < json.Doc.scalar
+    2.5%  json.first_marked64 < json.skip_plain_ascii
+    2.5%  json.Doc.key < json.Doc.document < json.Doc.parse
+    2.4%  json.Doc.close < json.Doc.document < json.Doc.parse
+    2.2%  rig.runtime.List(i64).push < json.Doc.open < json.Doc.document
+    2.1%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    2.1%  json.Doc.open < json.Doc.document < json.Doc.parse
+    1.5%  json.skip_space < json.Doc.key < json.Doc.document
+    1.4%  rig.runtime.List(i64).push < json.Doc.close < json.Doc.document
+    1.2%  rig.runtime.List(i64).push
+    1.2%  rig.runtime.List(i64).pop < json.Doc.close < json.Doc.document
+    1.2%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    1.0%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    0.8%  rig.runtime.len < json.skip_plain_ascii
+    0.8%  rig.runtime.at__func_729 < json.Doc.document < json.Doc.parse
+    0.7%  rig.runtime.at__func_729 < json.skip_space < json.Doc.key
+    0.6%  json.Doc.number < json.Doc.scalar < json.Doc.document
+citm_catalog: 6728 samples
+   22.0%  json.skip_plain_ascii
+   13.0%  json.special < json.skip_plain_ascii
+    7.5%  rig.runtime.byteOffset__func_815 < rig.runtime.simdRead__func_822 < json.skip_plain_ascii
+    7.4%  json.skip_space < json.Doc.document < json.Doc.parse
+    6.2%  json.special64 < json.skip_plain_ascii
+    4.3%  json.Doc.plain < json.Doc.string < json.Doc.key
+    3.9%  json.first_marked64 < json.skip_plain_ascii
+    3.7%  rig.runtime.maskFirst__func_825 < json.skip_plain_ascii
+    2.1%  json.Doc.plain < json.Doc.string < json.Doc.scalar
+    2.0%  compiler_rt.memcpy.copyBlocks < compiler_rt.memcpy.copyBlocksAlignedSource < compiler_rt.memcpy.copyForwards
+    1.9%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    1.9%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    1.9%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    1.5%  json.Doc.key < json.Doc.document < json.Doc.parse
+    1.4%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    1.3%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.Doc.plain
+    1.2%  json.skip_space < json.Doc.key < json.Doc.document
+    1.2%  rig.runtime.simdRead__func_822 < json.skip_plain_ascii
+    1.1%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    1.0%  rig.runtime.String.appendBytes < rig.runtime.String.add__func_691 < json.Doc.escaped
+    0.9%  rig.runtime.len < json.skip_plain_ascii
+    0.9%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    0.9%  compiler_rt.memcpy.copyFixedLength < compiler_rt.memcpy.copyForwards < compiler_rt.memcpy.memcpyFast
+    0.8%  json.Doc.close < json.Doc.document < json.Doc.parse
+    0.8%  json.Doc.plain < json.Doc.escaped
+gsoc-2018: 4744 samples
+| category | twitter | twitterescaped | canada | citm_catalog | gsoc-2018 | github_events |
+|---|---:|---:|---:|---:|---:|---:|
+| string scan | 25.5% | 29.3% | 4.1% | 15.7% | 58.8% | 41.4% |
+| UTF-8 | 15.3% | 9.7% | 0.0% | 6.1% | 9.3% | 15.4% |
+| escapes | 1.4% | 35.7% | 0.0% | 0.0% | 4.0% | 0.4% |
+| whitespace | 25.1% | 3.2% | 2.0% | 40.2% | 13.4% | 22.6% |
+| digits | 2.5% | 3.1% | 54.9% | 11.9% | 0.0% | 3.0% |
+| float conversion | 0.0% | 0.0% | 24.5% | 0.0% | 0.0% | 0.0% |
+| string end, tape | 3.4% | 6.7% | 0.0% | 3.2% | 4.3% | 5.5% |
+| structure | 25.9% | 10.6% | 14.5% | 21.6% | 5.8% | 10.6% |
+| other | 1.0% | 1.7% | 0.1% | 1.2% | 4.5% | 1.1% |
+| of which in the runtime (checks, pushes) | 20.7% | 25.6% | 11.4% | 28.6% | 30.6% | 27.3% |
+| samples | 4100 | 3856 | 6931 | 6728 | 4744 | 1516 |
+== sonic-rs citm_catalog
+   17.9%  json.skip_plain_ascii
+   11.8%  json.skip_space < json.Doc.document < json.Doc.parse
+    7.9%  json.Doc.plain < json.Doc.string < json.Doc.key
+    6.0%  json.special64 < json.skip_plain_ascii
+    4.7%  json.first_marked64 < json.skip_plain_ascii
+    4.3%  json.special < json.skip_plain_ascii
+    3.8%  json.Doc.document < json.Doc.parse < __rig_main.__rig_run_main
+    3.8%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.skip_space
+    3.3%  rig.runtime.byteOffset__func_815 < rig.runtime.simdRead__func_822 < json.skip_plain_ascii
+    3.1%  rig.runtime.at__func_729 < json.skip_space < json.Doc.document
+    3.1%  json.Doc.plain < json.Doc.string < json.Doc.scalar
+    2.4%  json.skip_space < json.Doc.key < json.Doc.document
+    2.3%  math.cast__func_141 < rig.runtime.index__func_739 < rig.runtime.at__func_729
+    2.1%  json.Doc.key < json.Doc.document < json.Doc.parse
+    2.0%  rig.runtime.index__func_739 < rig.runtime.at__func_729 < json.Doc.plain
+    2.0%  rig.runtime.List(i64).push < json.Doc.add_string < json.Doc.string
+    1.6%  json.Doc.add_string < json.Doc.string < json.Doc.key
+    1.6%  json.take_digits < json.Doc.number < json.Doc.scalar
+    1.5%  rig.runtime.simdRead__func_822 < json.skip_plain_ascii
+    1.3%  rig.runtime.len < json.skip_plain_ascii
+    1.2%  rig.runtime.at__func_729 < json.skip_space < json.Doc.key
+    1.1%  json.Doc.close < json.Doc.document < json.Doc.parse
+    1.0%  json.first_marked64 < json.take_digits < json.Doc.number
+    0.9%  rig.runtime.maskFirst__func_825 < json.skip_plain_ascii
+    0.8%  rig.runtime.at__func_729 < json.Doc.document < json.Doc.parse
+github_events: 1516 samples
+    64.62%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_object::<sonic_rs::value::node::DocumentVisitor>
+    10.70%  [.] simdutf8::implementation::x86::validate_utf8_basic_avx2
+    10.65%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_array::<sonic_rs::value::node::DocumentVisitor>
+     8.80%  [.] cfree@GLIBC_2.2.5
+     2.61%  [.] _dl_start
+     2.61%  [k] 0xffffffff9b200b90
+
+
+    89.32%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_object::<sonic_rs::value::node::DocumentVisitor>
+     6.86%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_array::<sonic_rs::value::node::DocumentVisitor>
+     3.82%  [.] simdutf8::implementation::x86::validate_utf8_basic_avx2
+
+
+-- rig-safe citm_catalog
+    63.60%  [.] __rig_main.main
+    22.65%  [.] json.skip_plain_ascii
+     8.83%  [.] compiler_rt.memcpy.memcpyFast
+     4.92%  [.] start.posixCallMainAndExit
+
+
+    87.10%  [.] __rig_main.main
+    12.88%  [.] json.skip_plain_ascii
+
+
+== sonic-rs github_events
+    88.41%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_object::<sonic_rs::value::node::DocumentVisitor>
+     5.79%  [.] _dl_start
+     5.79%  [.] memset
+
+
+    96.94%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_object::<sonic_rs::value::node::DocumentVisitor>
+
+
+-- rig-safe github_events
+    50.48%  [.] __rig_main.main
+    25.05%  [.] json.skip_plain_ascii
+    24.47%  [.] start.posixCallMainAndExit
+
+
+    52.34%  [.] __rig_main.main
+    47.20%  [.] json.skip_plain_ascii
+
+
+== sonic-rs twitter
+    40.30%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_object::<sonic_rs::value::node::DocumentVisitor>
+    19.95%  [.] __brk
+    19.88%  [.] _dl_start
+    19.88%  [.] _int_malloc
+
+
+    88.24%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_object::<sonic_rs::value::node::DocumentVisitor>
+     7.79%  [.] simdutf8::implementation::x86::validate_utf8_basic_avx2
+     2.29%  [.] __memcmp_avx2_movbe
+     1.68%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_array::<sonic_rs::value::node::DocumentVisitor>
+
+
+-- rig-safe twitter
+    47.27%  [.] __rig_main.main
+    29.75%  [.] json.skip_plain_ascii
+    14.20%  [.] compiler_rt.memcpy.memcpyFast
+     4.39%  [.] compiler_rt.fastMemset
+     4.39%  [.] start.posixCallMainAndExit
+
+
+    61.54%  [.] __rig_main.main
+    35.45%  [.] json.skip_plain_ascii
+
+
+== sonic-rs gsoc-2018
+    87.55%  [.] <sonic_rs::parser::Parser<sonic_rs::reader::PaddedSliceRead>>::parse_object::<sonic_rs::value::node::DocumentVisitor>
+    12.45%  [.] simdutf8::implementation::x86::validate_utf8_basic_avx2
+
+
+-- rig-safe gsoc-2018
+   100.00%  [.] start.posixCallMainAndExit
+
+
+    63.72%  [.] json.skip_plain_ascii
+    30.90%  [.] __rig_main.main
+     5.37%  [.] json.Doc.escaped
+
+

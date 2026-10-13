@@ -1,0 +1,6 @@
+sub main()
+  big = 5000000000
+  print(I32.wrap(big), U8.wrap(-1), U64.wrap(I32(-1)), I8.wrap(U8(200)), I32.wrap(Int.min))
+
+# expect:
+# 705032704 255 18446744073709551615 -56 0
