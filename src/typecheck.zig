@@ -9345,12 +9345,12 @@ const Checker = struct {
         return false;
     }
 
-    /// A `Cell[List[E]]` answers its List's `push`, `pop`, `clear`, and,
-    /// for a plain-data `E`, `get(i)`, through any path to the cell, as
-    /// `set` does. Null for the Cell's own members.
+    /// A `Cell[List[E]]` answers its List's `push`, `pop`, `keep`,
+    /// `clear`, and, for a plain-data `E`, `get(i)`, through any path to
+    /// the cell, as `set` does. Null for the Cell's own members.
     fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
         const method = self.text(ir.Member.name(callee));
-        const Member = enum { push, pop, clear, get };
+        const Member = enum { push, pop, keep, clear, get };
         const member = std.meta.stringToEnum(Member, method) orelse return null;
         if (member == .get and args.len == 0) return null;
         const cell = sema.unwrapReadAccess(self.ctx, obj_ty);
@@ -9359,15 +9359,15 @@ const Checker = struct {
         const params: []const TypeId = switch (member) {
             .push => &.{ recv, elem },
             .pop, .clear => &.{recv},
-            .get => &.{ recv, self.t().int_id },
+            .keep, .get => &.{ recv, self.t().int_id },
         };
         const f: FunctionType = .{
             .params = try self.ctx.dupeIds(params),
             .returns = switch (member) {
-                .push, .clear => self.t().void_id,
+                .push, .keep, .clear => self.t().void_id,
                 .pop, .get => opt_elem,
             },
-            .is_sub = member == .push or member == .clear,
+            .is_sub = member == .push or member == .keep or member == .clear,
         };
         try self.noteCallee(f);
         if (member == .get) {

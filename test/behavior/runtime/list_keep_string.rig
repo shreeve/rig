@@ -1,0 +1,23 @@
+# `keep` on a List of owned text frees the Strings it drops.
+# release
+
+sub main()
+  v: List[String] = List()
+  for i in 0..6
+    !v.push(String("s", i))
+  !v.keep(v.len)
+  !v.keep(4)
+  print(v)
+  !v.keep(1)
+  print(v)
+  !v.push(String("more"))
+  !v.keep(0)
+  print(v, v.len)
+  !v.push(String("again"))
+  print(v)
+
+# expect:
+# ["s0", "s1", "s2", "s3"]
+# ["s0"]
+# [] 0
+# ["again"]
