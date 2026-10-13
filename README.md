@@ -349,12 +349,13 @@ and environment variable. The suite runs on Linux and macOS in
   rules as scalars, comparisons that give masks, and byte reads
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
-  environment), `std.time`, `std.random`, `std.sort`, `std.slices`,
-  `std.text` (searching, splitting, and parsing `?String` values), and
+  environment), `std.file` (reading a whole file), `std.time`,
+  `std.random`, `std.sort`, `std.slices`, `std.text` (searching,
+  splitting, and parsing `?String` values), and
   `std.json` (a fast JSON parser; experimental)
 
-**Not yet:** most of a standard library (files, maps, number formatting),
-concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
+**Not yet:** most of a standard library (writing files, maps, number
+formatting), concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a
 `?fun`, works);
