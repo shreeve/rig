@@ -303,7 +303,7 @@ UTF-8 by convention, and nothing checks it: lengths and indexes count
 bytes, and a slice checks only its bounds.
 
 Text is measured in four units, each with one name
-([STD, Text](docs/STD.md#text-bytes-runes-units-chars)): a **byte**,
+([TEXT](docs/TEXT.md)): a **byte**,
 what `s.len` counts; a **rune**, one code point; a **unit**, one UTF-16
 code unit, what JavaScript's string length counts; and a **char**, what
 a reader sees as one character. A char is a grapheme and nothing else:

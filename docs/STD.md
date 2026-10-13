@@ -410,7 +410,8 @@ Every text API is described in four words, each with one meaning:
 
 A char is a grapheme and nothing else: one character, as a person
 counts it, however many bytes it takes. The table of one char at 1, 2,
-3, 8, and 18 bytes is in [SPEC, Strings](../SPEC.md#strings).
+3, 8, and 18 bytes is in [SPEC, Strings](../SPEC.md#strings), and the
+whole design, with each unit's module, is [TEXT](TEXT.md).
 
 Counting chars, runes, and units scans the text, so each is a call
 that names its unit:
