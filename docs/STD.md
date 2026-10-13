@@ -463,10 +463,11 @@ Rig!!! 6
 
 Searching, slicing, splitting, and parsing text, which every function
 reads as a `?String`: UTF-8 bytes by convention, and nothing here checks
-that it is. Every index and length is in bytes, and whitespace and case
-are ASCII's. A function that returns a `?String` returns a part of the
-`?String` it was given, a view of the same bytes, so nothing here
-allocates. A `?String` taken from a `String`
+that it is. Every index is a byte index; a count names its unit; and
+whitespace and case are ASCII's. A function that returns a `?String`
+returns a part of the `?String` it was given, a view of the same bytes,
+so nothing here allocates but `format_int`, which returns a new String,
+and `edit_distance`, which grows the `row` it is given. A `?String` taken from a `String`
 ([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
 functions return.
 

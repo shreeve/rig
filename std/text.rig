@@ -1,8 +1,10 @@
 # std.text: searching, slicing, splitting, and parsing text, which every
 # function reads as a `?String`: UTF-8 bytes by convention, and nothing
-# here checks that it is. Every index and length is in bytes. Every
-# function that returns a `?String` returns a view of the `?String` it
-# was given, so nothing here allocates.
+# here checks that it is. Every index is a byte index; a count names its
+# unit. Every function that returns a `?String` returns a view of the
+# `?String` it was given, so nothing here allocates but `format_int`,
+# which returns a new String, and `edit_distance`, which grows the `row`
+# it is given.
 #
 # A char is what a reader sees as one character: a Unicode extended
 # grapheme cluster (UAX #29), of one rune or several, by the tables of
