@@ -252,14 +252,14 @@ sub main()
 Facts about one rune, from the Unicode Character Database 15.1: whether
 it may start or continue an identifier (`unicode.is_id_start(r)`,
 `unicode.is_id_continue(r)`, UAX #31), and whether it is whitespace
-(`unicode.is_space_rune(r)`). Every table names its Unicode version.
+(`unicode.is_space(r)`). Every table names its Unicode version.
 
 ```rig
 use std.unicode
 
 sub main()
   print(unicode.VERSION, unicode.is_id_start(0x4e2d), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
-  print(unicode.is_space_rune(0x3000), unicode.is_space_rune(0xfeff))
+  print(unicode.is_space(0x3000), unicode.is_space(0xfeff))
 ```
 
 ```output

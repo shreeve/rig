@@ -889,7 +889,7 @@ has no property.
 |---|---|
 | `VERSION` | the Unicode version of every property, `"15.1.0"` |
 | `is_id_start(r: Int) -> Bool`, `is_id_continue(r: Int) -> Bool` | whether `r` may begin an identifier, or continue one |
-| `is_space_rune(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
+| `is_space(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
 
 ```rig
 use std.unicode
@@ -898,7 +898,7 @@ sub main()
   print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
   print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
   print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
-  print(unicode.is_space_rune(0x20), unicode.is_space_rune(0x85), unicode.is_space_rune(0x3000), unicode.is_space_rune(0xFEFF))
+  print(unicode.is_space(0x20), unicode.is_space(0x85), unicode.is_space(0x3000), unicode.is_space(0xFEFF))
   print(unicode.VERSION)
 ```
 
