@@ -3060,15 +3060,30 @@ symbols); a query that decides more than that belongs in `Pending`.
     function with compile-time values, is exempt from this limit: each
     instance of the caller holds a copy that LLVM cannot merge into one;
   - no function holds more than `inlining.max_inlined_calls` (256) inlined
-    calls, those inside the inlined bodies counted too: Zig charges each to
-    the function's compile-time evaluation budget (1000 backwards
-    branches), so the callee it calls most is called instead.
+    calls, those inside the inlined bodies counted too, so the callee it
+    calls most is called instead: past that a function, and the time to
+    build it, grows with every call it holds. The limit bounds size; it is
+    not what keeps a build within Zig's evaluation budget (below).
 
-  A function that fails a test of the last two is dropped and the tests
+  A function that fails a test of the last three is dropped and the tests
   run again, until none fails. A call resolves by the callee's name (a
   function by its symbol, so a local of that name is not it), so two
   functions of one name stand for each other: the analysis finds at most
   more cycles and more value uses than there are.
+
+  Zig charges each inline call, and each pass of a compile-time loop in
+  an inlined body, to the evaluation budget of the function the code
+  lands in (1000 backwards branches unless raised), and fails the build
+  when it runs out. That holds for every inline call alike: Rig's own
+  inlined functions and the runtime's `inline fn` helpers (`rig.addProven`,
+  `rig.atProven`, ...), at any depth, since an inline body has no budget of
+  its own but runs on its caller's. So emit starts every function it
+  writes that is not inline (a `fun` or `sub`, a method, an instance, a
+  closure's `__rig_invoke`, a `test`) with
+  `@setEvalBranchQuota(rig.eval_quota)`, the largest budget Zig takes,
+  and no number of inline calls in a function stops its build, whatever
+  `max_inlined_calls` lets through. Nothing is counted, so there is no
+  count to keep in step with what is inlined.
 
   Both of Zig's ways to inline, `inline fn` and `@call(.always_inline, ...)`,
   analyze the body at each call, so an argument known at compile time is

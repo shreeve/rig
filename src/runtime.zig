@@ -203,6 +203,15 @@ pub fn take(alive: *bool, value: anytype) @TypeOf(value) {
     return value;
 }
 
+/// The compile-time evaluation budget every emitted function that is not
+/// inline sets first (`@setEvalBranchQuota`). Zig charges each inline
+/// call, and each pass of a compile-time loop in an inlined body, to the
+/// budget of the function the code lands in, 1000 by default, and fails
+/// the build when it runs out. No Rig program evaluates anything at
+/// compile time that it could not finish, so the budget is never what
+/// stops it.
+pub const eval_quota = std.math.maxInt(u32);
+
 /// `value`, as a run-time value: arithmetic on a compile-time constant
 /// read through this is checked when it runs, as Rig specifies, rather
 /// than folded by Zig at compile time.

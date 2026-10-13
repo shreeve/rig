@@ -58,11 +58,11 @@ pub const max_inlined_frame_bytes: u128 = 64 << 10;
 pub const max_expanded = 320;
 
 /// The most inlined calls one function may hold, counting those inside
-/// the inlined bodies (each as often as it is called). Zig counts every
-/// inlined call against the compile-time evaluation budget of the function
-/// it is in (1000 backwards branches), and fails the build when a body
-/// passes it, so a caller with more is left with calls: the function it
-/// calls most is no longer inlined.
+/// the inlined bodies (each as often as it is called): past it a function,
+/// and the time to build it, grows with every call it holds, so the
+/// function it calls most is no longer inlined. It bounds size only; Zig's evaluation budget, which
+/// every inline call is charged to, is raised in each function by emit
+/// (`rig.eval_quota`).
 pub const max_inlined_calls = 256;
 
 const Fn = struct {
