@@ -11,16 +11,17 @@ jobs=${CPUQ_CORES:-2}
 jobs=${jobs%%-*}
 
 # The default run is the part that fits a CI shard: the runtime's helpers
-# in Zig (every lane type, count, and build mode), and the Rig programs
-# with --release, where the miscompile was, on the byte lanes it hit and
-# on I64. LANE_GRID_FULL=1 adds every lane type to the Rig grid, a second
-# seed of the Zig grid, and the debug builds of the Rig grids.
+# in Zig (every lane type, count, and build mode), and the Rig
+# programs with --release, where the miscompile was, on the byte lanes it
+# hit, U16, I32, and I64. Each Rig grid builds one program per lane type.
+# LANE_GRID_FULL=1 adds every lane type to the Rig grid, more seeds of the
+# Zig grid, and the debug builds of the Rig grids.
 seeds=1
 [[ -n "${LANE_GRID_FULL:-}" ]] && seeds=4
 
 python3 "$ROOT/test/lanes/lane_grid.py" --impl rig --seeds "$seeds" --jobs "$jobs" --zig "${ZIG:-zig}" || fail "the Zig lane grid"
 
-types=U8,I8,I64
+types=U8,I8,U16,I32,I64
 [[ -n "${LANE_GRID_FULL:-}" ]] && types=U8,I8,U16,I16,U32,I32,U64,I64
 python3 "$ROOT/test/lanes/rig_grid.py" "$RIG" --release --jobs "$jobs" --types "$types" || fail "the Rig lane grid with --release"
 python3 "$ROOT/test/lanes/place_grid.py" "$RIG" --release --jobs "$jobs" || fail "the place grid with --release"
