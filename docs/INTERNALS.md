@@ -1647,12 +1647,13 @@ Every state inside a loop holds `L`, so no fixpoint is needed.
 fail a run rather than a proof:
 
 - Emit enters each unit as it writes the unit's code (`enterUnit`), and
-  asserts, in every debug build of the compiler, that each check, write,
+  asserts, in every self-checking build of the compiler (a debug build,
+  or `-Dself-check=true`, as ./test/run builds), that each check, write,
   expression, and hidden storage location it writes lies in the unit
   that holds it (`Emitter.inUnit`): no hoist carries a check or a write
   into another unit's code unseen.
-- The unit-order test (`proofs.checkUnitOrder`): a debug build of the
-  compiler traces the units emit writes, in the order their code runs,
+- The unit-order test (`proofs.checkUnitOrder`): a self-checking build
+  of the compiler traces the units emit writes, in the order their code runs,
   and each Zig jump it writes, and checks that they are the units the
   walk visits, nested alike, the units of each block in the same order,
   each unit's code started once (only a pause and a resume of it, as a
