@@ -79,5 +79,4 @@ Language decisions not yet made. Each describes what Rig does today;
 any change would be future work.
 
 - **`T??`** as a spelling of the nested optional `(T?)?`; today `??` after a type is the fallback operator, and the error points to `(T?)?`.
-- **Modules in subdirectories**: `use name` finds only `name.rig` beside the root file.
 - **Function values as module constants** (`handler = on_click` at module level); a module constant holds only compile-time values today.

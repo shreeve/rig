@@ -1,0 +1,8 @@
+# Modules may not import each other: the message points to a directory
+# module, whose files share one namespace.
+use a
+
+sub main()
+  print(a.fa())
+
+# error: cyclic import: `a` is still being loaded when `b` imports it; modules may not import each other in a cycle: put the files that call each other in one module, a directory

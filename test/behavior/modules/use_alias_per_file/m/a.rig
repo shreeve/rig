@@ -1,0 +1,4 @@
+use std.math as g
+
+pub fun a() -> Int
+  g.abs(-1)

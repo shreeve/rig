@@ -1,0 +1,6 @@
+use checker.nope
+
+sub main()
+  print(1)
+
+# error: 1:1: cannot read module `checker.nope`: no directory checker/nope/
