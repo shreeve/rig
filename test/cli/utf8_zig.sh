@@ -1,9 +1,10 @@
 # std.utf8 against Zig's std.unicode, built with --release: every code
-# point is written by `push_rune` as Zig encodes it and read back by
-# `rune_after`, `rune_before`, and `rune_size`, and Zig encodes no surrogate and
-# nothing past U+10FFFF; every string of one to three bytes, and every
-# four-byte one from a first byte of 0xC0 or more whose last byte is an
-# edge of the continuation range, is read at 0 by `rune_size` and `rune_after` as
+# point is written by `push_rune` as Zig encodes it, in `rune_len` bytes,
+# and read back by `rune_after`, `rune_before`, and `rune_size`, and
+# neither Zig nor `rune_len` encodes a surrogate or anything past
+# U+10FFFF; every string of one to three bytes, and every four-byte one
+# from a first byte of 0xC0 or more whose last byte is an edge of the
+# continuation range, is read at 0 by `rune_size` and `rune_after` as
 # Zig's decoder reads it. `RIG_STD` adds the reference, `std.utf8ref`.
 # timeout: 600
 source "$ROOT/test/cli/_lib.sh"
@@ -71,7 +72,7 @@ fun code_points() -> Int
   c = 0
   while c <= 0x10FFFF : c += 1
     if c >= 0xD800 and c <= 0xDFFF
-      if utf8ref.encodes(c, "")
+      if utf8ref.encodes(c, "") or utf8.rune_len(c) != -1
         bad += 1
       continue
     !out.clear()
@@ -79,9 +80,9 @@ fun code_points() -> Int
     n = out.len
     r = utf8.rune_after(?out, 0)
     b = utf8.rune_before(?out, n)
-    if not utf8ref.encodes(c, ?out) or r.code != c or r.size != n or b.code != c or b.size != n or (utf8.rune_size(?out, 0) ?? 0) != n
+    if not utf8ref.encodes(c, ?out) or r.code != c or r.size != n or b.code != c or b.size != n or (utf8.rune_size(?out, 0) ?? 0) != n or utf8.rune_len(c) != n
       bad += 1
-  if utf8ref.encodes(0x110000, "")
+  if utf8ref.encodes(0x110000, "") or utf8.rune_len(0x110000) != -1 or utf8.rune_len(-1) != -1
     bad += 1
   bad
 

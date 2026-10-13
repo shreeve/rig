@@ -1,22 +1,22 @@
 # std.utf8: reading and writing UTF-8 (RFC 3629), which encodes each
-# Unicode code point as one to four bytes. A valid sequence has no
-# overlong form, encodes no surrogate (U+D800 to U+DFFF), and nothing
-# past U+10FFFF. Every index and size is in bytes, and nothing here
+# rune, one Unicode code point, as one to four bytes. A valid sequence
+# has no overlong form, encodes no surrogate (U+D800 to U+DFFF), and
+# nothing past U+10FFFF. Every index and size is in bytes, and nothing here
 # allocates but the `push_` functions, which grow the `String` they are
 # given.
 
-# The code point read in place of bytes that are not valid UTF-8.
+# The rune read in place of bytes that are not valid UTF-8.
 pub REPLACEMENT = 0xFFFD
 
-# A code point read from a `?String`, and the bytes it took there.
+# A rune read from a `?String`, and the bytes it took there.
 pub obj Rune
   pub code: Int
   pub size: Int
 
 # ---- Reading ---------------------------------------------------------------
 
-# The code point whose sequence starts at `i`, `0 <= i <= s.len`: `i`
-# is a cursor between bytes, and this is the rune just after it. A byte
+# The rune whose sequence starts at `i`, `0 <= i <= s.len`: `i` is a
+# cursor between bytes, and this is the rune just after it. A byte
 # that does not start a valid sequence reads as `REPLACEMENT`, of size 1,
 # so a reader moves past one bad byte at a time; at `s.len` the result is
 # `REPLACEMENT` of size 0.
@@ -31,7 +31,7 @@ pub fun rune_after(s: ?String, i: Int) -> Rune
     code = (code << 6) | (Int(s[k]) & 0x3F)
   Rune(code: code, size: e - i)
 
-# The code point whose sequence ends at `i`, `0 <= i <= s.len`: the rune
+# The rune whose sequence ends at `i`, `0 <= i <= s.len`: the rune
 # just before the cursor, which `rune_after` reads at `i - r.size`. When
 # no valid sequence ends at `i`, the byte before `i` reads as
 # `REPLACEMENT`, of size 1; at 0 the result is `REPLACEMENT` of size 0.
@@ -48,13 +48,13 @@ pub fun rune_before(s: ?String, i: Int) -> Rune
   return r if start + r.size == i
   Rune(code: REPLACEMENT, size: 1)
 
-# The code points of a `?String`, which `runes` gives, in order:
+# The runes of a `?String`, which `runes` gives, in order:
 # `for r in utf8.runes(s)`.
 pub obj Runes
   s: ?String
   at: Int
 
-  # The next code point, as `rune_after` reads it, or `none` after the
+  # The next rune, as `rune_after` reads it, or `none` after the
   # last.
   pub fun next(!self) -> Rune?
     return none if self.at == self.s.len
@@ -62,7 +62,7 @@ pub obj Runes
     self.at += r.size
     r
 
-# The code points of `s`, read by `rune_after` from its first byte to its
+# The runes of `s`, read by `rune_after` from its first byte to its
 # last: a bad byte is one `REPLACEMENT` of size 1.
 pub fun runes(s: ?String) -> Runes
   Runes(s: s, at: 0)
@@ -122,13 +122,24 @@ fun end_any(s: ?String, at: Int) -> Int
 
 # ---- Writing ---------------------------------------------------------------
 
-# Appends the UTF-8 bytes of the code point `c`; panics when `c` is a
+# The size in bytes, 1 to 4, of the UTF-8 encoding of the rune `c`,
+# or -1 when `c` is a surrogate or outside 0 to 0x10FFFF.
+pub fun rune_len(c: Int) -> Int
+  return -1 if c < 0
+  return 1 if c < 0x80
+  return 2 if c < 0x800
+  return -1 if c >= 0xD800 and c <= 0xDFFF
+  return 3 if c < 0x10000
+  return 4 if c <= 0x10FFFF
+  -1
+
+# Appends the UTF-8 bytes of the rune `c`; panics when `c` is a
 # surrogate or outside 0 to 0x10FFFF.
 pub sub push_rune(out: !String, c: Int)
   not_code_point(c) if c < 0 or c > 0x10FFFF or (c >= 0xD800 and c <= 0xDFFF)
   push_rune_unchecked(!out, c)
 
-# `push_rune` for a `c` its caller knows is a code point and no surrogate,
+# `push_rune` for a `c` its caller knows is a rune and no surrogate,
 # without the check: a surrogate is written as its three bytes, which
 # are not UTF-8. It appends in one write, or two for three bytes, each a
 # big-endian number whose top byte comes first.
@@ -143,7 +154,7 @@ pub sub push_rune_unchecked(out: !String, c: Int)
   else
     !out.push[U32, .big](U32(0xF0808080 | (c >> 18) << 24 | ((c >> 12) & 0x3F) << 16 | ((c >> 6) & 0x3F) << 8 | c & 0x3F))
 
-# Appends two code points of three UTF-8 bytes each, `c` and then `d`,
+# Appends two runes of three UTF-8 bytes each, `c` and then `d`,
 # in two writes, of four bytes and then two. Each must be 0x800 to
 # 0xFFFF and no surrogate, which it does not check.
 pub sub push_runes3(out: !String, c: Int, d: Int)
@@ -151,5 +162,5 @@ pub sub push_runes3(out: !String, c: Int, d: Int)
   !out.push[U16, .big](U16(0x8080 | ((d >> 6) & 0x3F) << 8 | d & 0x3F))
 
 extern zig "utf8.zig"
-  # Panics: `push_rune`'s code point is a surrogate or outside 0 to 0x10FFFF.
+  # Panics: `push_rune`'s rune is a surrogate or outside 0 to 0x10FFFF.
   sub not_code_point(c: Int)
