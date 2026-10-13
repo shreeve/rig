@@ -5726,6 +5726,8 @@ pub const Emitter = struct {
                 "listPop"
             else if (std.mem.eql(u8, m, "clear"))
                 "listClear"
+            else if (std.mem.eql(u8, m, "keep"))
+                "listKeep"
             else if (std.mem.eql(u8, m, "get") and ir.Call.args(sexp).len == 1) "listGet" else null;
             if (method) |name| {
                 try self.emitCellPtr(ir.Member.object(callee));
