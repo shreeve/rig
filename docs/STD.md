@@ -38,6 +38,7 @@ never read as the library's.
 | [`std.slices`](#stdslices) | reversing and linear search |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.unicode`](#stdunicode) | identifier classes and UTF-16 surrogates |
+| [`std.utf8`](#stdutf8) | reading and writing UTF-8 a rune at a time |
 | [`std.json`](#stdjson) | a JSON parser (experimental) |
 
 ## std.math
@@ -651,6 +652,145 @@ and hashes, run the generator, and review the diff of the census test it
 also writes. `tools/verify-unicode.py` compares every code point with the
 database and with Python's `unicodedata`; the deep gate runs both with
 `RIG_UCD` naming a directory of the database.
+
+## std.utf8
+
+Reading and writing UTF-8 (RFC 3629), which encodes each rune, one
+Unicode code point held as an `Int` from 0 to 0x10FFFF, as one to four
+bytes. A valid sequence has no overlong form, encodes no surrogate
+(U+D800 to U+DFFF), and nothing past U+10FFFF. Every index and size is
+in bytes. A reader takes a `?String` and allocates nothing; a writer
+appends to a `String`. The names below wait on one decision about the
+words len, size, and count, and may change with it.
+
+| Name | Meaning |
+|---|---|
+| `Rune` | a rune read from a `?String`: its `code: Int`, and the `size: Int` in bytes it took there |
+| `REPLACEMENT` | 0xFFFD, the code read in place of bytes that are not UTF-8 |
+| `rune_after(s: ?String, i: Int) -> Rune` | the rune just after the cursor `i`, whose sequence starts at `i`; a byte that starts no valid sequence reads as `REPLACEMENT` of size 1, and `s.len` as `REPLACEMENT` of size 0 |
+| `rune_before(s: ?String, i: Int) -> Rune` | the rune just before the cursor `i`, whose sequence ends at `i`; where none does, the byte before `i` reads as `REPLACEMENT` of size 1, and 0 as `REPLACEMENT` of size 0 |
+| `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` |
+| `runes(s: ?String) -> Runes` | the runes of `s`, in order, each as `rune_after` reads it |
+| `rune_len(r: Int) -> Int` | the size in bytes, 1 to 4, of the UTF-8 encoding of the rune `r`, or -1 when `r` is a surrogate or outside 0 to 0x10FFFF |
+| `push_rune(out: !String, r: Int)` | append the bytes of the rune `r`; panics when `r` is a surrogate or outside 0 to 0x10FFFF |
+| `push_rune_unchecked(out: !String, r: Int)` | `push_rune` without the check, for an `r` known to be a rune and no surrogate |
+| `push_runes3(out: !String, r1: Int, r2: Int)` | append the three-byte runes `r1` and then `r2`, each 0x800 to 0xFFFF and no surrogate, unchecked |
+
+`rune_after` and `rune_before` decode as Go's `utf8.DecodeRuneInString`
+and `utf8.DecodeLastRuneInString` do, and give the same `Rune` for the
+same bytes (`test/behavior/std/utf8_go.rig` runs Go's own cases):
+
+- **Size 1:** where the bytes are not valid UTF-8 (a stray continuation
+  byte, a truncated or overlong sequence, an encoded surrogate, or
+  anything past U+10FFFF), the result is `Rune(code: 0xFFFD, size: 1)`,
+  so a reader steps over one byte.
+- **Size 0:** where there is nothing to read, `rune_after(s, s.len)`
+  and `rune_before(s, 0)`, the empty `?String` included, the result is
+  `Rune(code: 0xFFFD, size: 0)`.
+- `rune_before` gives size 1 when the bytes behind `i` do not form one
+  valid rune ending at `i`.
+
+A valid U+FFFD in the text reads with its size, 3, so the size tells it
+from an error:
+
+```rig
+use std.utf8
+
+sub main()
+  for s in ["", "\u{fffd}", "\xe2\x82", "\xed\xa0\x80", "\x80\x80\x80\x80\x80"]
+    a = utf8.rune_after(s, 0)
+    b = utf8.rune_before(s, s.len)
+    print(s.len, a.code, a.size, b.code, b.size)
+```
+
+```output
+0 65533 0 65533 0
+3 65533 3 65533 3
+2 65533 1 65533 1
+3 65533 1 65533 1
+5 65533 1 65533 1
+```
+
+`rune_after` and `rune_before` read in either direction, and an index
+outside 0 to `s.len` panics as indexing does, as it does for
+`rune_size`. Bad bytes read one at a time, so a reader always moves;
+here reading back from the end gives the runes read forward:
+
+```rig
+use std.utf8
+
+sub main()
+  s = "a\u{e9}\u{20ac}\xff\u{1f600}"
+  i = 0
+  while i < s.len
+    r = utf8.rune_after(s, i)
+    print(r.code, r.size)
+    i += r.size
+  while i > 0
+    r = utf8.rune_before(s, i)
+    print(r.code, r.size)
+    i -= r.size
+  print(utf8.rune_after(s, s.len).size, utf8.rune_size(s, 1) ?? 0, utf8.rune_size(s, 2) ?? 0, utf8.rune_size(s, 6) ?? 0)
+```
+
+```output
+97 1
+233 2
+8364 3
+65533 1
+128512 4
+128512 4
+65533 1
+8364 3
+233 2
+97 1
+0 2 0 0
+```
+
+`runes` gives an iterator whose `next` gives each `Rune`, as `lines`
+does in `std.text`, and `push_rune` writes runes back:
+
+```rig
+use std.utf8
+
+sub main()
+  out = String()
+  for r in utf8.runes("\u{e9}t\u{e9}\x80")
+    utf8.push_rune(!out, r.code)
+  print(out, out.len, ?out == "\u{e9}t\u{e9}\u{fffd}")
+```
+
+```output
+été� 8 true
+```
+
+`rune_len` gives the bytes `push_rune` writes for a rune, as Go's
+`utf8.RuneLen` does, and -1 for what `push_rune` would panic on:
+
+```rig
+use std.utf8
+
+sub main()
+  out = String()
+  for r in [0x41, 0xe9, 0x20ac, 0x1f600, 0xd800, 0x110000, -1]
+    n = utf8.rune_len(r)
+    if n > 0
+      start = out.len
+      utf8.push_rune(!out, r)
+      print(r, n, out.len - start)
+    else
+      print(r, n)
+```
+
+```output
+65 1 1
+233 2 2
+8364 3 3
+128512 4 4
+55296 -1
+1114112 -1
+-1 -1
+```
 
 ## std.json
 
