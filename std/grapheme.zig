@@ -318,6 +318,7 @@ fn walk(s: []const u8, limit: usize) Walk {
                 i += lanes;
             }
             after_cr = s[i - 1] == '\r';
+            if (i == s.len) break;
         }
         if (ascii and i + lanes <= s.len) {
             // A block with ASCII before its first byte that is not: those
@@ -505,6 +506,26 @@ test "a long run of ASCII, with CR LF across the lanes" {
     while (i < s.len) : (n += 1) i = charEnd(&s, i);
     try std.testing.expectEqual(n, char_count(&s));
     try std.testing.expectEqual(@as(i64, 194), char_count(&s));
+}
+
+test "ASCII that ends the text at a block's end" {
+    var buf: [200]u8 = undefined;
+    for (&buf, 0..) |*b, i| b.* = if (i % 7 == 6) '\r' else if (i % 7 == 0) '\n' else 'y';
+    for (0..buf.len + 1) |len| {
+        for (0..4) |from| {
+            if (from > len) continue;
+            const s = buf[from..len];
+            var starts: usize = 0;
+            var i: usize = 0;
+            while (i < s.len) : (starts += 1) i = charEnd(s, i);
+            try std.testing.expectEqual(@as(i64, @intCast(starts)), char_count(s));
+            for (0..starts + 2) |n| {
+                var end: usize = 0;
+                for (0..@min(n, starts)) |_| end = charEnd(s, end);
+                try std.testing.expectEqual(@as(i64, @intCast(end)), first_chars_end(s, @intCast(n)));
+            }
+        }
+    }
 }
 
 test "runes read backward are the runes read forward" {
