@@ -97,6 +97,59 @@ sub main()
 3 8
 ```
 
+A scanner that stops at a few bytes, a lexer at the end of a string or
+a comment, asks `text.find_any[set](s, at)`: the first index at or after
+`at` whose byte is one of `set`'s, or `s.len` when there is none. The
+set is a compile-time string, so each set is its own instance, its bytes
+constants in the code; it tests 16 bytes at a time, with one compare
+for each byte of the set. An empty set stops at no byte, so the result is
+`s.len`, and an `at` outside `0..s.len` panics, as indexing does.
+
+```rig
+use std.text
+
+STOPS = "\"\\\n"
+
+sub main()
+  s = "say \"hi\" \\ then"
+  i = text.find_any[STOPS](s, 0)
+  print(i, text.find_any[STOPS](s, i + 1), text.find_any["#"](s, 0), s.len)
+```
+
+```output
+4 7 15 15
+```
+
+A run of bytes of one kind, an identifier or a number, ends where
+`text.class_end(s, at, table, mask)` says: the first index at or after
+`at` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`.
+The caller's 256-entry table gives each byte its class bits, so one
+table serves several kinds, and any set of bytes costs one load and one
+test per byte. An `at` outside `0..s.len` panics, as indexing does.
+
+```rig
+use std.text
+
+WORD: U8 = 1
+DIGIT: U8 = 2
+
+fun classes() -> [256]U8
+  t: [256]U8 = [256 of 0]
+  for b in 0..256
+    t[b] |= WORD if (b >= 0x61 and b <= 0x7A) or b == 0x5F
+    t[b] |= WORD | DIGIT if b >= 0x30 and b <= 0x39
+  t
+
+sub main()
+  t = classes()
+  s = "count_2 = 42;"
+  print(text.class_end(s, 0, t, WORD), text.class_end(s, 10, t, DIGIT), text.class_end(s, 0, t, DIGIT))
+```
+
+```output
+7 12 0
+```
+
 ## Runes: `std.utf8`
 
 Decoding and encoding UTF-8. Each function with a Go twin in

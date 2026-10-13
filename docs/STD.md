@@ -477,6 +477,8 @@ functions return.
 | `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every `?String` contains `""` |
 | `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
 | `count(s: ?String, pat: ?String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
+| `find_any[set: ?String](s: ?String, at: Int) -> Int` | the first index at or after `at` whose byte is one of `set`'s, or `s.len`; `set` is a compile-time string, each byte of it one compare per 16 bytes of `s`, and `""` stops at none; panics unless `0 <= at <= s.len` |
+| `class_end(s: ?String, at: Int, table: ?[256]U8, mask: U8) -> Int` | the first index at or after `at` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`; the caller's table gives each byte its class bits; panics unless `0 <= at <= s.len` |
 | `trim(s: ?String) -> ?String` | `s` without its leading and trailing ASCII whitespace |
 | `trim_start(s: ?String) -> ?String`, `trim_end(s: ?String) -> ?String` | `s` without its leading, or its trailing, ASCII whitespace |
 | `strip_prefix(s: ?String, prefix: ?String) -> (?String)? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
@@ -510,6 +512,11 @@ sub main()
   print(text.find("banana", "an"), text.find_last("banana", "an"), text.count("banana", "a"))
   print(text.starts_with("main.rig", "main"), text.strip_suffix("main.rig", ".rig") ?? "?")
   print(text.contains("banana", "nab"), text.strip_prefix("banana", "x") ?? "no prefix")
+  print(text.find_any[",;"]("a b;c,d", 0), text.find_any[",;"]("a b;c,d", 4), text.find_any[",;"]("a b", 0))
+  digits: [256]U8 = [256 of 0]
+  for b in 0x30..0x3A
+    digits[b] = 1
+  print(text.class_end("2026-10-13", 0, digits, 1), text.class_end("2026-10-13", 5, digits, 1))
 ```
 
 ```output
@@ -517,6 +524,8 @@ name is Ada Lovelace
 1 3 3
 true main
 false no prefix
+3 5 3
+4 7
 ```
 
 `split`, `lines`, and `words` give an iterator, a struct holding the

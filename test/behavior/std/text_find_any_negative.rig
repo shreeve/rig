@@ -1,0 +1,12 @@
+# std.text's `find_any` panics at a negative `at`, as indexing does.
+# release
+use std.text
+
+sub main()
+  print(text.find_any["a"]("ab", 0))
+  print(text.find_any["a"]("ab", -1))
+
+# expect-panic: index out of bounds
+
+# expect:
+# 0
