@@ -346,7 +346,9 @@ sub main()
 
 `List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room
 for `n` more elements without changing the length, so the next `n`
-pushes allocate nothing; a negative `n` panics.
+pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
+first `n` elements and drops the rest, keeping the buffer, so a List can
+be rewound to a length saved earlier.
 
 ```rig
 sub main()
@@ -355,10 +357,13 @@ sub main()
   for i in 0..3
     !v.push(i * i)
   print(v.len, v)
+  !v.keep(1)
+  print(v)
 ```
 
 ```output
 3 [0, 1, 4]
+[0]
 ```
 
 ## String

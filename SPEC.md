@@ -5060,7 +5060,7 @@ default (`hits: Cell[Int] = Cell(0)`).
 | `c.get()` | a copy of the value (a `T` of plain data only) |
 | `!c.set(v)` | store `v`; the old value is dropped |
 | `(!c).replace(v)` | store `v` and return the old value |
-| `!c.push(x)`, `(!c).pop()`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
+| `!c.push(x)`, `(!c).pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
 | `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` of plain data: an element, bounds-checked, or `T?` |
 
 `T` is plain data ([§2](#kinds-of-value)), an owning type, or a type
@@ -5072,17 +5072,18 @@ String ([String](#string)), since every handle to the cell reaches it.
 
 A `Cell[List[T]]` answers its List's members as `set` does, each a marked
 call: `push` moves or clones an owning element in (`<x`, `+x`), `pop`
-hands the last one out as `T?`, and `clear` drops them all. No user code runs
-while the cell's List is in use: `clear` leaves the cell holding an empty
-List before it drops the elements, so a `drop` body that reaches back
-into the cell finds a valid List. For the same reason an element is a
+hands the last one out as `T?`, `keep(n)` drops all but the first `n`, and
+`clear` drops them all. No user code runs while the cell's List is in use:
+`clear` leaves the cell holding an empty List before it drops the
+elements, and `keep` pops each element before it drops it, so a `drop`
+body that reaches back into the cell finds a valid List. For the same reason an element is a
 copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
 when `T` is plain data, an element cannot be lent, and a field of one is
 not written in place. The elements of a List of handles are taken out
 with `pop`, or by taking the whole List out with `replace`.
 
 Every call that changes a Cell is marked: `set`, `replace`, `push`,
-`pop`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
+`pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
 and `subscribe`. They take `!self`, so the receiver-sigil rule enforces
 the mark, and a read view (`?Cell[T]`, a `?self` method of a struct
 holding one) cannot change a Cell. `!c` where `c` is a handle lends the
@@ -5232,9 +5233,44 @@ owns one), and read views.
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
+| `!v.keep(n)` | keep the first `n` elements and drop the rest, last first, keeping the buffer; `n == v.len` changes nothing, `n == 0` drops every element; panics unless `0 <= n <= v.len` |
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
+
+`keep`'s count is the length that remains, as `!t.push(v, keep: k)` keeps
+the first `k` bytes of `v` ([String](#string)): a rewind saves
+`mark = v.len` and later calls `!v.keep(mark)`. It allocates nothing.
+
+```rig
+obj Step
+  name: String
+
+  drop(!self)
+    print("undo", self.name)
+
+sub main()
+  steps: List[Step] = List()
+  !steps.push(Step(name: String("open")))
+  mark = steps.len
+  !steps.push(Step(name: String("read")))
+  !steps.push(Step(name: String("parse")))
+  !steps.keep(mark)
+  print(steps.len, steps[0].name)
+  nums: List[Int] = List()
+  for i in 1..8
+    !nums.push(i)
+  !nums.keep(2)
+  print(nums)
+```
+
+```output
+undo parse
+undo read
+1 open
+[1, 2]
+undo open
+```
 
 A `for` loop lends the List to read for the whole loop ([§6](#for)), so
 it cannot be modified inside it. An element that owns a resource is a
