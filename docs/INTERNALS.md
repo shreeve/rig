@@ -1867,6 +1867,10 @@ runtime function with value arguments, or the existing `read` and
 | `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))` |
 | `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))` |
 | `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows |
+| `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
+| `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic |
+| `t.lookup(idx)` | `rig.lookup(t, idx)`: NEON `tbl1`/`tbl2`/`tbl4`, x86 `pshufb` (SSSE3; `vpshufb` on 32 indexes with AVX2) on the indexes plus 0x70, saturated (bit 7 set exactly from 16 on), WASM `i8x16.swizzle`, ORed over the table's 16-byte pieces off NEON, else a loop; at compile time, the loop (`@inComptime`) |
+| `cur.lag[k](prev)` | `rig.lag(k, cur, prev)`: one constant `@shuffle` of `prev` and `cur` |
 | a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`) |
 | `v.not()` | `~v`, or `!m` of a mask |
 | `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
@@ -1874,10 +1878,13 @@ runtime function with value arguments, or the existing `read` and
 | `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)` |
 | `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
 
-Every vector comes from one of those constructions, a parameter, or
-bytes read when the program runs (no constant holds one), and each
-construction goes through `rig.rt`, so no vector is known to Zig when it
-compiles: a lane that overflows panics when the program runs, never
+Every vector comes from one of those constructions, a parameter, bytes
+read when the program runs, or a module constant, which is a Zig `var`
+that nothing writes (`Emitter.emitConst`): `checkModuleConst` takes a
+vector only as a constant's whole value, `Simd[T, n](a)` or `.splat(x)`
+of constants (`isVectorMade`), never inside an array or a branch, which
+Zig would know when it compiles. Each construction goes through `rig.rt`, so no vector
+is known to Zig when it compiles: a lane that overflows panics when the program runs, never
 stopping Zig's fold, where Rig's own fold rejects a constant scalar
 that overflows.
 

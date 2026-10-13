@@ -8,8 +8,7 @@ progress, is in [HANDOFF.md](HANDOFF.md).
 The in-flight list is in HANDOFF.md, "What comes next". Decided, not
 started:
 
-- SIMD round 2: byte lookup, a joined shift, a saturating subtract
-  (its spelling is undecided), `pad:` reads, and `blocks(N)`.
+- SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
 - A frame-size guard for every function.
