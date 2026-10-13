@@ -205,7 +205,10 @@ file's as they are: none added, and none checked to be UTF-8, so a
 binary file reads as well as text. The `String` is the caller's, like
 any other, and its buffer holds exactly the file's bytes, with no
 spare room past them. A pipe or a device, which has no
-size, is read to its end.
+size, is read to its end, so one that never ends (`/dev/zero`) is read
+until memory runs out, and a pipe with no writer waits, as Go's
+`os.ReadFile` does. A file too large for memory panics as any
+allocation that fails does.
 
 `read` gives `none` when the file does not exist, when `path` names a
 directory, when the program may not read the file, and when reading it
