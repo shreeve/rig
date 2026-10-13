@@ -1,0 +1,69 @@
+# `x.is_empty()` is `x.len == 0` on everything with a built-in `len`:
+# it reads its receiver, and a type's own `is_empty` method wins.
+
+obj Bag
+  n: Int
+
+  fun is_empty(?self) -> Bool
+    self.n == 99
+
+fun list_empty[T](xs: ?List[T]) -> Bool
+  xs.is_empty()
+
+fun slice_empty(xs: []Int) -> Bool
+  xs.is_empty()
+
+fun wslice_empty(xs: ![]Int) -> Bool
+  xs.is_empty()
+
+fun text_empty(s: ?String) -> Bool
+  s.is_empty()
+
+obj Holder
+  items: List[Int]
+
+sub main()
+  s = ""
+  t = "abc"
+  print(s.is_empty(), t.is_empty())
+  v: List[Int] = List()
+  print(v.is_empty())
+  !v.push(1)
+  print(v.is_empty(), list_empty(?v))
+  a = [1, 2, 3]
+  z: [0]Int = []
+  print(a.is_empty(), z.is_empty())
+  print(slice_empty(?a[..]), slice_empty(?a[0..0]), slice_empty(?z[..]))
+  print(text_empty(s), text_empty(t), text_empty(t[1..1]))
+  w = [5]
+  print(wslice_empty(!w[..]), wslice_empty(!w[0..0]))
+  e: List[Int] = List()
+  print(list_empty(?e), list_empty(?v))
+  c: *Cell[List[Int]] = *Cell(<e)
+  print(c.is_empty())
+  !c.push(4)
+  print(c.is_empty())
+  h = Holder(items: List())
+  print(h.items.is_empty())
+  !h.items.push(1)
+  print(h.items.is_empty())
+  b = Bag(n: 99)
+  print(b.is_empty(), Bag(n: 0).is_empty())
+  if not t.is_empty()
+    print("not empty")
+
+# expect:
+# true false
+# true
+# false false
+# false true
+# false true true
+# true false true
+# false true
+# true false
+# true
+# false
+# true
+# false
+# true false
+# not empty
