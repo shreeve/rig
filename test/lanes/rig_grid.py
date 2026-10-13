@@ -3,7 +3,7 @@
 their compound forms) on every integer lane type and lane count, on
 vectors made at run time.
 
-  test/lanes/rig_grid.py <rig> [--release] [--jobs N]
+  test/lanes/rig_grid.py <rig> [--release] [--jobs N] [--types U8,I8,...]
 
 A `clean` program has no overflowing lane and must print `true` twice
 (the operator, then its compound form, against the expected lanes). An
@@ -128,10 +128,14 @@ def main():
     ap.add_argument("rig")
     ap.add_argument("--release", action="store_true")
     ap.add_argument("--jobs", type=int, default=2)
+    ap.add_argument("--types", default=",".join(TYPES))
     a = ap.parse_args()
+    types = a.types.split(",")
     cells = []
     for op in OPS:
         for ty, (bits, signed) in TYPES.items():
+            if ty not in types:
+                continue
             if op == "neg" and not signed:
                 continue
             cells += [(op, ty, n, False) for n in LANES]
