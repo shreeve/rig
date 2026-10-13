@@ -315,7 +315,7 @@ to share state that changes (a `*Signal` also tells its subscribers).
 bin/rig run hello.rig        # check, build, and run (Debug, leak-checked)
 bin/rig run hello.rig -- a b # the same, passing the program `a` and `b`
 bin/rig build -o hello hello.rig
-bin/rig test hello.rig       # run the program's `test` blocks
+bin/rig test hello.rig       # run the file's own `test` blocks
 bin/rig emit hello.rig       # print the Zig it generates
 ```
 

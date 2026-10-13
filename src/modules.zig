@@ -28,7 +28,8 @@
 //! "Directory modules"): each file closes its own blocks and brackets, a
 //! diagnostic names the file it is in, and a `use` binds its name in its
 //! own file only. Its files whose names end in `_test.rig` belong to it
-//! only when the program is built for `rig test`.
+//! only when it is the root of a build for `rig test`: the root may be a
+//! directory, and no imported module has its test files.
 //!
 //! A module is checked after its imports, so modules may not import
 //! each other in a cycle. A cycle or a module that cannot be read is
@@ -124,8 +125,9 @@ pub const ModuleGraph = struct {
     errors: std.ArrayList([]const u8) = .empty,
     /// Where `rig check --time` adds the time of each pass.
     timing: ?*timing.Timing = null,
-    /// The program is built for `rig test`: a directory module's
-    /// `_test.rig` files belong to it.
+    /// The program is built for `rig test`: the root, when it is a
+    /// directory module, has its `_test.rig` files. An imported module
+    /// never does.
     with_tests: bool = false,
 
     pub const Error = std.mem.Allocator.Error;
@@ -172,16 +174,25 @@ pub const ModuleGraph = struct {
     /// stack, so an import chain of any depth fits. A module is checked
     /// when it leaves the stack, after all of its imports; while on the
     /// stack it is `loading`, which is how a cycle is recognized.
+    ///
+    /// The root is a file, or a directory module (`isDirectory`), whose
+    /// imports are then its siblings.
     pub fn loadRoot(self: *ModuleGraph, path: []const u8) Error!void {
-        const source = self.read(path) catch |err| {
-            try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
-            return;
-        };
         const Frame = struct { id: ModuleId, next: usize = 0, ok: bool = true };
         var stack: std.ArrayList(Frame) = .empty;
         defer stack.deinit(self.allocator);
 
-        const root_id = try self.add(try self.realPath(path), path, moduleName(path), source, &.{});
+        const root_id = if (self.isDirectory(path)) blk: {
+            const shown = std.mem.trimEnd(u8, path, "/");
+            const found = (try self.readDir(null, .{ .start = 0, .end = 0 }, .{}, if (shown.len == 0) "/" else shown, moduleName(try self.realPath(path)))) orelse return;
+            break :blk try self.add(found.key, found.display, moduleName(try self.realPath(path)), found.source, found.parts);
+        } else blk: {
+            const source = self.read(path) catch |err| {
+                try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
+                return;
+            };
+            break :blk try self.add(try self.realPath(path), path, moduleName(path), source, &.{});
+        };
         if (self.get(root_id).state == .loading) try stack.append(self.allocator, .{ .id = root_id });
         while (stack.items.len > 0) {
             const top = &stack.items[stack.items.len - 1];
@@ -239,7 +250,7 @@ pub const ModuleGraph = struct {
         }
         const qualified = if (in_std) try a.print("std.{s}", .{dotted}) else dotted;
         const target = self.by_name.get(qualified) orelse blk: {
-            const tree: Tree = if (!in_std) .{ .dir = std.fs.path.dirname(self.root().display) } else if (self.std_dir) |d| .{ .dir = d, .std = true } else .{ .std = true, .embedded = true };
+            const tree: Tree = if (!in_std) .{ .dir = std.fs.path.dirname(std.mem.trimEnd(u8, self.root().display, "/")) } else if (self.std_dir) |d| .{ .dir = d, .std = true } else .{ .std = true, .embedded = true };
             const found = (try self.findModule(id, at, tree, comps, qualified)) orelse return .failed;
             if (self.by_path.get(found.key)) |existing| break :blk existing;
             const added = try self.add(found.key, found.display, qualified, found.source, found.parts);
@@ -354,9 +365,12 @@ pub const ModuleGraph = struct {
 
     /// The directory module at `rel` in `tree`: its `.rig` files, in the
     /// byte order of their names, joined into one source, each ending in
-    /// a newline and without a byte order mark.
-    fn readDir(self: *ModuleGraph, id: ModuleId, at: parser.Span, tree: Tree, rel: []const u8, qualified: []const u8) Error!?Found {
+    /// a newline and without a byte order mark. `id` is the importing
+    /// module, null for the root, the only directory module that has its
+    /// test files, and only under `with_tests`.
+    fn readDir(self: *ModuleGraph, id: ?ModuleId, at: parser.Span, tree: Tree, rel: []const u8, qualified: []const u8) Error!?Found {
         const a = self.arena.allocator();
+        const own_tests = id == null and self.with_tests;
         const display_dir = if (tree.embedded) try a.print("std/{s}/", .{rel}) else try a.print("{s}/", .{try tree.path(a, rel)});
         var key: []const u8 = try a.print("<std>/{s}/", .{rel});
         var names: std.ArrayList([]const u8) = .empty;
@@ -364,7 +378,7 @@ pub const ModuleGraph = struct {
             for (std_lib.files) |f| {
                 const n = f[0];
                 if (n.len > rel.len + 1 and std.mem.startsWith(u8, n, rel) and n[rel.len] == '/' and std.mem.findScalar(u8, n[rel.len + 1 ..], '/') == null) {
-                    if (self.belongs(n[rel.len + 1 ..])) try names.append(a, n[rel.len + 1 ..]);
+                    if (belongs(n[rel.len + 1 ..], false)) try names.append(a, n[rel.len + 1 ..]);
                 }
             }
         } else {
@@ -378,7 +392,7 @@ pub const ModuleGraph = struct {
                 while (comps.next()) |c| if (!std.mem.eql(u8, parts.next() orelse "", c)) {
                     wrong = true;
                 };
-                if (wrong) {
+                if (wrong and id != null) {
                     const n = std.mem.countScalar(u8, rel, '/') + 1;
                     var start = canonical.len;
                     var seen: usize = 0;
@@ -386,29 +400,29 @@ pub const ModuleGraph = struct {
                         if (canonical[start - 1] == std.fs.path.sep) seen += 1;
                         if (seen == n) break;
                     }
-                    try self.errorAt(id, at, "module `{s}` is the directory `{s}/`; import it by that name", .{ qualified, canonical[start..] });
+                    try self.dirError(id, at, "module `{s}` is the directory `{s}/`; import it by that name", .{ qualified, canonical[start..] });
                     return null;
                 }
                 key = try a.print("{s}/", .{canonical});
             }
             var d = std.Io.Dir.cwd().openDir(self.io, dir_path, .{ .iterate = true }) catch |err| {
-                try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}", .{ qualified, display_dir, fileError(err) });
+                try self.dirError(id, at, "cannot read module `{s}` ({s}): {s}", .{ qualified, display_dir, fileError(err) });
                 return null;
             };
             defer d.close(self.io);
             var it = d.iterate();
             while (it.next(self.io) catch |err| {
-                try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}", .{ qualified, display_dir, fileError(err) });
+                try self.dirError(id, at, "cannot read module `{s}` ({s}): {s}", .{ qualified, display_dir, fileError(err) });
                 return null;
             }) |entry| {
-                if (!std.mem.endsWith(u8, entry.name, ".rig") or entry.name.len == 4 or !self.belongs(entry.name)) continue;
+                if (!std.mem.endsWith(u8, entry.name, ".rig") or entry.name.len == 4 or !belongs(entry.name, own_tests)) continue;
                 const st = d.statFile(self.io, entry.name, .{}) catch continue;
                 if (st.kind != .file) continue;
                 try names.append(a, try a.dupe(u8, entry.name));
             }
         }
         if (names.items.len == 0) {
-            try self.errorAt(id, at, "module `{s}` is the directory `{s}`, which holds no `.rig` file", .{ qualified, display_dir });
+            try self.dirError(id, at, "module `{s}` is the directory `{s}`, which holds no `.rig` file", .{ qualified, display_dir });
             return null;
         }
         std.mem.sort([]const u8, names.items, {}, struct {
@@ -421,13 +435,13 @@ pub const ModuleGraph = struct {
         for (names.items) |n| {
             const shown = try a.print("{s}{s}", .{ display_dir, n });
             const text = if (tree.embedded) std_lib.get(try a.print("{s}/{s}", .{ rel, n })).? else self.read(shown) catch |err| {
-                try self.errorAt(id, at, "cannot read `{s}`: {s}", .{ shown, fileError(err) });
+                try self.dirError(id, at, "cannot read `{s}`: {s}", .{ shown, fileError(err) });
                 return null;
             };
             const body = if (std.mem.startsWith(u8, text, "\xEF\xBB\xBF")) text[3..] else text;
             const newline: usize = @intFromBool(body.len > 0 and body[body.len - 1] != '\n');
             if (joined.items.len + body.len + newline > max_source_bytes) {
-                try self.errorAt(id, at, "module `{s}` is larger than {d} MiB, the most one module may hold; split it into modules", .{ qualified, max_source_bytes >> 20 });
+                try self.dirError(id, at, "module `{s}` is larger than {d} MiB, the most one module may hold; split it into modules", .{ qualified, max_source_bytes >> 20 });
                 return null;
             }
             try parts.append(a, .{ .start = @intCast(joined.items.len), .path = shown });
@@ -437,10 +451,24 @@ pub const ModuleGraph = struct {
         return .{ .key = key, .display = display_dir, .source = joined.items, .parts = parts.items };
     }
 
+    /// An error in reading a directory module: at the `use` of module
+    /// `id`, or, for the root, with no position.
+    fn dirError(self: *ModuleGraph, id: ?ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {
+        if (id) |i| return self.errorAt(i, at, fmt, args);
+        try self.errors.append(self.allocator, try self.arena.allocator().print(fmt, args));
+    }
+
+    /// Whether `path` is a directory, which as a root is a directory
+    /// module.
+    fn isDirectory(self: *ModuleGraph, path: []const u8) bool {
+        const st = std.Io.Dir.cwd().statFile(self.io, path, .{}) catch return false;
+        return st.kind == .directory;
+    }
+
     /// Whether a file of a directory belongs to its module: a test file,
-    /// `name_test.rig`, only in a build for `rig test`.
-    fn belongs(self: *const ModuleGraph, name: []const u8) bool {
-        return std.mem.endsWith(u8, name, ".rig") and (self.with_tests or !std.mem.endsWith(u8, name, "_test.rig"));
+    /// `name_test.rig`, only for the root of a build for `rig test`.
+    fn belongs(name: []const u8, own_tests: bool) bool {
+        return std.mem.endsWith(u8, name, ".rig") and (own_tests or !std.mem.endsWith(u8, name, "_test.rig"));
     }
 
     /// Read the Zig file of each `extern zig` block of the standard

@@ -136,7 +136,7 @@ zig build test --cache-dir "$(mktemp -d)"  # unit tests, not replayed from cache
 bin/rig run file.rig       # compile + run (debug, leak-checked)
 bin/rig emit file.rig      # the emitted Zig
 bin/rig check --time file.rig              # the time each compiler pass takes
-bin/rig test file.rig      # run the program's `test` blocks
+bin/rig test file.rig      # run the file's own `test` blocks
 bin/rig build --release -o prog file.rig   # optimized executable (safe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory

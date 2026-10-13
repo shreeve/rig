@@ -42,7 +42,7 @@ from).
     (`fun Point.norm(?self)`, `fun Wrap[T].map[U](...)`), which
     desugars to the member. Module constants fold in dependency order,
     and one that depends on itself is rejected. A directory's
-    `_test.rig` files belong to its module under `rig test` only
+    `_test.rig` files belong to its module only as the root of `rig test`
     (docs/INTERNALS.md, "Directory modules").
   - **Evaluation order:** every assignment evaluates its value first,
     then its target's steps, then stores; the order is one recorded fact

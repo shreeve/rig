@@ -895,7 +895,7 @@ of its module, before or after it.
 
 ### Tests
 
-`test "name"` (or `test 'name'`) declares a block that `rig test` runs.
+`test "name"` (or `test 'name'`) declares a block that `rig test` runs when it is in the file or directory module `rig test` is given, not in a module that one imports.
 
 ### Imports and extern
 
