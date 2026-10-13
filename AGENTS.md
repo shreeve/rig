@@ -2,7 +2,8 @@
 
 Read this before changing anything. It is short on purpose. Where
 Rig stands and what comes next is in [HANDOFF.md](HANDOFF.md); read
-that first.
+that first. The short phrases we steer by are in
+[docs/RIG-MANTRAS.md](docs/RIG-MANTRAS.md).
 
 ## North star
 
@@ -201,6 +202,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `FAQ.md` | Common questions |
 | `docs/STD.md` | The standard library's modules |
 | `docs/DESIGN.md` | Principles and rationale |
+| `docs/RIG-MANTRAS.md` | The short phrases we steer by: how we choose, build, name, and measure |
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
