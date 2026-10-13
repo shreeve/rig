@@ -1,0 +1,23 @@
+# Lanes of `Simd[I8, 32]` squared with one lane, 127, that overflows. Zig's
+# own vector `*` misses this overflow on aarch64 with --release and gives
+# the wrapped lanes, so the checked `*` is made another way and panics.
+
+sub main()
+  a: [32]I8 = [32 of 0]
+  for i in 0..32
+    if i == 5
+      a[i] = 127
+    else if i == 7 or i == 13
+      a[i] = 1
+    else if i == 9
+      a[i] = 7
+  v = Simd[I8, 32](a)
+  print("start")
+  print(v * v)
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# start
