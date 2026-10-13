@@ -129,6 +129,9 @@ pub const ModuleGraph = struct {
     /// directory module, has its `_test.rig` files. An imported module
     /// never does.
     with_tests: bool = false,
+    /// Where the root's imports are: the root file's directory, or a
+    /// directory root's parent (null for the current directory).
+    import_dir: ?[]const u8 = null,
 
     pub const Error = std.mem.Allocator.Error;
 
@@ -184,9 +187,20 @@ pub const ModuleGraph = struct {
 
         const root_id = if (self.isDirectory(path)) blk: {
             const shown = std.mem.trimEnd(u8, path, "/");
-            const found = (try self.readDir(null, .{ .start = 0, .end = 0 }, .{}, if (shown.len == 0) "/" else shown, moduleName(try self.realPath(path)))) orelse return;
-            break :blk try self.add(found.key, found.display, moduleName(try self.realPath(path)), found.source, found.parts);
+            const canonical = try self.realPath(path);
+            const name = moduleName(canonical);
+            const found = (try self.readDir(null, .{ .start = 0, .end = 0 }, .{}, if (shown.len == 0) "/" else shown, name)) orelse return;
+            // Siblings are in the real parent. The spelled parent names
+            // it unless the path ends in `.` or `..` or goes through a
+            // link; then the real parent is used.
+            const base = std.fs.path.basename(shown);
+            const spelled = std.fs.path.dirname(shown);
+            const same = !std.mem.eql(u8, base, ".") and !std.mem.eql(u8, base, "..") and std.mem.eql(u8, std.fs.path.basename(canonical), base) and
+                std.mem.eql(u8, try self.realPath(spelled orelse "."), std.fs.path.dirname(canonical) orelse "/");
+            self.import_dir = if (same) spelled else std.fs.path.dirname(canonical) orelse "/";
+            break :blk try self.add(found.key, found.display, name, found.source, found.parts);
         } else blk: {
+            self.import_dir = std.fs.path.dirname(path);
             const source = self.read(path) catch |err| {
                 try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
                 return;
@@ -250,7 +264,7 @@ pub const ModuleGraph = struct {
         }
         const qualified = if (in_std) try a.print("std.{s}", .{dotted}) else dotted;
         const target = self.by_name.get(qualified) orelse blk: {
-            const tree: Tree = if (!in_std) .{ .dir = std.fs.path.dirname(std.mem.trimEnd(u8, self.root().display, "/")) } else if (self.std_dir) |d| .{ .dir = d, .std = true } else .{ .std = true, .embedded = true };
+            const tree: Tree = if (!in_std) .{ .dir = self.import_dir } else if (self.std_dir) |d| .{ .dir = d, .std = true } else .{ .std = true, .embedded = true };
             const found = (try self.findModule(id, at, tree, comps, qualified)) orelse return .failed;
             if (self.by_path.get(found.key)) |existing| break :blk existing;
             const added = try self.add(found.key, found.display, qualified, found.source, found.parts);

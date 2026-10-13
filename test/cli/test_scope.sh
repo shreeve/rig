@@ -43,3 +43,23 @@ expect_has "$out" "p/m/b_test.rig:2:12: error:" "check --tests of the module rea
 out=$("$RIG" test p/m 2>&1); expect_rc $? 1 "test of the module"
 expect_has "$out" "p/m/b_test.rig:2:12: error:" "rig test of the module reads its test files"
 out=$("$RIG" check p/m 2>&1); expect_rc $? 0 "check of the module leaves test files out: $out"
+
+# A directory root finds its siblings in its real parent, whatever the
+# spelling of its path: `.`, `./`, `..`, a trailing slash, a path through
+# `..`, or a link to the directory.
+ln -s n p/linked
+for spelling in p/n p/n/ ./p/n p/../p/n p/linked; do
+    out=$("$RIG" check --tests "$spelling" 2>&1); expect_rc $? 0 "check --tests $spelling: $out"
+done
+out=$(rig test p/n/ 2>&1); expect_rc $? 0 "test p/n/: $out"
+expect_has "$out" '2 passed, 0 failed' "test p/n/"
+out=$(cd p/n && "$RIG" check --tests . 2>&1); expect_rc $? 0 "check --tests .: $out"
+out=$(cd p/n && "$RIG" check --tests ./ 2>&1); expect_rc $? 0 "check --tests ./: $out"
+out=$(cd p/n && "$RIG" check --tests ../n 2>&1); expect_rc $? 0 "check --tests ../n: $out"
+out=$(cd p && "$RIG" check --tests n 2>&1); expect_rc $? 0 "check --tests n: $out"
+out=$(cd p/n && RIG_OUT_DIR="$RIG_OUT_DIR/programs/dot" "$RIG" test . 2>&1); expect_rc $? 0 "test .: $out"
+expect_has "$out" '2 passed, 0 failed' "test ."
+# A link elsewhere to a module whose siblings are in the real parent.
+mkdir -p q
+ln -s ../p/n q/n
+out=$("$RIG" check --tests q/n 2>&1); expect_rc $? 0 "check --tests through a link in another directory: $out"
