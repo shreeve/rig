@@ -1891,15 +1891,15 @@ runtime function with value arguments, or the existing `read` and
 |---|---|
 | `Simd[T, n]` | `@Vector(n, T)` |
 | `Simd[Bool, n]`, a mask | `rig.Mask(n)`: `@Vector(n, bool)` up to 16 lanes, a `rig.WideMask(n)` of bytes above (below) |
-| `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))` |
-| `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))` |
+| `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), @splat(x)))` |
+| `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), a))` |
 | `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows; a comparison's lanes become a mask through `rig.mask(v == w)` |
 | `m & k`, `m \| k`, `m ^ k`, `m == k`, `m != k` of masks, and their compound forms | `rig.maskAnd(m, k)`, `rig.maskOr`, `rig.maskXor`, `rig.maskEq`, `rig.maskNe` |
 | `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
 | `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic |
 | `t.lookup(idx)` | `rig.lookup(t, idx)`: NEON `tbl1`/`tbl2`/`tbl4`, x86 `pshufb` (SSSE3; `vpshufb` on 32 indexes with AVX2) on the indexes plus 0x70, saturated (bit 7 set exactly from 16 on), WASM `i8x16.swizzle`, ORed over the table's 16-byte pieces off NEON, else a loop; at compile time, the loop (`@inComptime`) |
 | `cur.lag[k](prev)` | `rig.lag(k, cur, prev)`: one constant `@shuffle` of `prev` and `cur` |
-| a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`) |
+| a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`); beside a mask, `m \| true`, `rig.rt(rig.maskOf(rig.Mask(n), @splat(true)))` |
 | `v.not()` | `~v`, or `rig.maskNot(m)` of a mask |
 | `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
 | `m.select(a, b)` | `rig.maskSelect(m, a, b)`: `@select` of the mask's lanes |
@@ -1956,7 +1956,11 @@ turns `|` of the bytes of comparisons back into a `<n x i1>` select,
 which NEON widens again with `shl` and `cmlt`, two instructions per 16
 lanes; `umin` and `umax` stay bytes. The struct gives the mask its own
 type, so `print` shows it as a mask rather than as the bytes that
-hold it.
+hold it. Sema sizes a mask as it is held (`sema.maskBytes`, a byte a
+lane above `max_bit_mask_lanes`, a bit a lane at or below), so the
+limits on a value's size and a frame's count its bytes
+(`test/reject/types/mask_size.rig`); a unit test holds that size to
+the runtime's `@sizeOf(rig.Mask(n))`.
 `test/lanes/mask_rig_grid.py` checks every mask operation at every lane
 count, in debug and `--release`, against a scalar reference, in each
 place a mask can cross blocks.
