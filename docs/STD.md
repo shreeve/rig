@@ -477,7 +477,7 @@ functions return.
 | `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every `?String` contains `""` |
 | `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
 | `count(s: ?String, pat: ?String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
-| `find_any[set: ?String](s: ?String, at: Int) -> Int` | the first index at or after `at` whose byte is one of `set`'s, or `s.len`; `set` is a compile-time string, each byte of it one compare per 16 bytes of `s`, and `""` stops at none; panics unless `0 <= at <= s.len` |
+| `find_any[set: ?String](s: ?String, at: Int) -> Int?` | the first index at or after `at` whose byte is one of `set`'s, or `none`; `set` is a compile-time string, each byte of it one compare per 16 bytes of `s`, and `""` holds no byte; panics unless `0 <= at <= s.len` |
 | `class_end(s: ?String, at: Int, table: ?[256]U8, mask: U8) -> Int` | the first index at or after `at` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`; the caller's table gives each byte its class bits; panics unless `0 <= at <= s.len` |
 | `trim(s: ?String) -> ?String` | `s` without its leading and trailing ASCII whitespace |
 | `trim_start(s: ?String) -> ?String`, `trim_end(s: ?String) -> ?String` | `s` without its leading, or its trailing, ASCII whitespace |
@@ -511,7 +511,7 @@ sub main()
   print(text.find("banana", "an"), text.find_last("banana", "an"), text.count("banana", "a"))
   print(text.starts_with("main.rig", "main"), text.strip_suffix("main.rig", ".rig") ?? "?")
   print(text.contains("banana", "nab"), text.strip_prefix("banana", "x") ?? "no prefix")
-  print(text.find_any[",;"]("a b;c,d", 0), text.find_any[",;"]("a b;c,d", 4), text.find_any[",;"]("a b", 0))
+  print(text.find_any[",;"]("a b;c,d", 0) ?? -1, text.find_any[",;"]("a b;c,d", 4) ?? -1, text.find_any[",;"]("a b", 0) ?? -1)
   digits: [256]U8 = [256 of 0]
   for b in 0x30..0x3A
     digits[b] = 1
@@ -523,7 +523,7 @@ name is Ada Lovelace
 1 3 3
 true main
 false no prefix
-3 5 3
+3 5 -1
 4 7
 ```
 

@@ -1,12 +1,12 @@
-# std.text's `find_any` against a plain loop over the set: sets of 0 to 8
-# bytes and a long one, with 0x00, 0xFF and duplicates; a match at every
-# offset from `at`, and none; every `at` from 0 to `s.len`; texts of every
-# length 0 to 80, so the 16-byte steps, the tail that reads the last 16
-# bytes again, and the U64 test of a short text each meet every case;
-# and random texts. The filler beside a match is a set byte plus 1, which
-# a word test can wrongly mark when the subtraction at a match takes 1
-# from it. Each case
-# that differs prints itself; the last line counts them.
+# std.text's `find_any` against a plain loop over the set, with `none`
+# read as -1: sets of 0 to 8 bytes and a long one, with 0x00, 0xFF and
+# duplicates; a match at every offset from `at`, and none; every `at`
+# from 0 to `s.len`; texts of every length 0 to 80, so the 16-byte
+# steps, the tail that reads the last 16 bytes again, and the U64 test
+# of a short text each meet every case; and random texts. The filler
+# beside a match is a set byte plus 1, which a word test can wrongly
+# mark when the subtraction at a match takes 1 from it. Each case that
+# differs prints itself; the last line counts them.
 # release
 use std.text
 
@@ -17,12 +17,12 @@ obj Rand
     self.x = self.x *% 6364136223846793005 +% 1442695040888963407
     (self.x >> 33) & 0x7FFFFFFF
 
-# The first index from `at` whose byte is in `set`, or `s.len`.
+# The first index from `at` whose byte is in `set`, or -1.
 fun plain(s: ?String, set: ?String, at: Int) -> Int
   for i in at..s.len
     for b in set
       return i if s[i] == b
-  s.len
+  -1
 
 fun in_set(set: ?String, c: U8) -> Bool
   for b in set
@@ -40,7 +40,7 @@ fun fillers(set: ?String) -> String
   out
 
 fun differs[set: ?String](s: ?String, at: Int) -> Int
-  got = text.find_any[set](s, at)
+  got = text.find_any[set](s, at) ?? -1
   want = plain(s, set, at)
   return 0 if got == want
   print("set", set.len, "len", s.len, "at", at, "got", got, "want", want)
@@ -109,11 +109,11 @@ sub main()
   bad += all["aa"](!rnd)
   bad += all["xyxyx"](!rnd)
   s = "say \"hi\" \\ then"
-  print(text.find_any["\"\\"](s, 0), text.find_any["\"\\"](s, 5), text.find_any["\"\\"](s, 8), text.find_any["\"\\"](s, s.len))
-  print(text.find_any[""](s, 3), text.find_any["z"](s, 0), text.find_any["\x00"]("", 0))
+  print(text.find_any["\"\\"](s, 0) ?? -1, text.find_any["\"\\"](s, 5) ?? -1, text.find_any["\"\\"](s, 8) ?? -1, text.find_any["\"\\"](s, s.len) ?? -1)
+  print(text.find_any[""](s, 3) ?? -1, text.find_any["z"](s, 0) ?? -1, text.find_any["\x00"]("", 0) ?? -1)
   print(bad, "differ")
 
 # expect:
-# 4 7 9 15
-# 15 15 0
+# 4 7 9 -1
+# -1 -1 -1
 # 0 differ

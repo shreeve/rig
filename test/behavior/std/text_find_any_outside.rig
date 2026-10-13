@@ -5,10 +5,10 @@ use std.text
 
 sub main()
   s = "ab"
-  print(text.find_any["a"](s, s.len), text.find_any[""](s, s.len))
-  print(text.find_any[""](s, s.len + 1))
+  print(text.find_any["a"](s, s.len) ?? -1, text.find_any[""](s, s.len) ?? -1)
+  print(text.find_any[""](s, s.len + 1) ?? -1)
 
 # expect-panic: index out of bounds
 
 # expect:
-# 2 2
+# -1 -1

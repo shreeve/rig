@@ -99,11 +99,12 @@ sub main()
 
 A scanner that stops at a few bytes, a lexer at the end of a string or
 a comment, asks `text.find_any[set](s, at)`: the first index at or after
-`at` whose byte is one of `set`'s, or `s.len` when there is none. The
-set is a compile-time string, so each set is its own instance, its bytes
+`at` whose byte is one of `set`'s, or `none` when there is none, as
+`find` gives; a scanner that runs to the end writes `?? s.len`. The set
+is a compile-time string, so each set is its own instance, its bytes
 constants in the code; it tests 16 bytes at a time, with one compare
-for each byte of the set. An empty set stops at no byte, so the result is
-`s.len`, and an `at` outside `0..s.len` panics, as indexing does.
+for each byte of the set. An empty set holds no byte, so the result is
+`none`, and an `at` outside `0..s.len` panics, as indexing does.
 
 ```rig
 use std.text
@@ -112,12 +113,17 @@ STOPS = "\"\\\n"
 
 sub main()
   s = "say \"hi\" \\ then"
-  i = text.find_any[STOPS](s, 0)
-  print(i, text.find_any[STOPS](s, i + 1), text.find_any["#"](s, 0), s.len)
+  i = text.find_any[STOPS](s, 0) ?? s.len
+  print(i, text.find_any[STOPS](s, i + 1) ?? s.len, text.find_any["#"](s, 0) ?? s.len, s.len)
+  if text.find_any["!?"](s, 0) as k
+    print("found at", k)
+  else
+    print("no ! or ?")
 ```
 
 ```output
 4 7 15 15
+no ! or ?
 ```
 
 A run of bytes of one kind, an identifier or a number, ends where
