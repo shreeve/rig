@@ -33,6 +33,17 @@ from).
     `Simd[Bool, n]` with `any()`, `all()`, and `bits()`, `v.with(i, x)`,
     and byte reads with one bounds check. A vector is plain data
     (docs/CORE.md).
+  - **Modules at scale:** a directory is a module whose `.rig` files
+    share one namespace, as a Go package's do: `use a.b` names the
+    directory `a/b/`, a `use` binds its name in its own file, private
+    names are module-wide, and each module emits one Zig file. Modules
+    still may not import each other in a cycle. A method may be
+    declared outside its type's body in the type's module
+    (`fun Point.norm(?self)`, `fun Wrap[T].map[U](...)`), which
+    desugars to the member. Module constants fold in dependency order,
+    and one that depends on itself is rejected. A directory's
+    `_test.rig` files belong to its module under `rig test` only
+    (docs/INTERNALS.md, "Directory modules").
   - **Evaluation order:** every assignment evaluates its value first,
     then its target's steps, then stores; the order is one recorded fact
     (`storage.SetOrder`, `storage.eachSetStep`) that emit and the
@@ -307,9 +318,12 @@ migration guide (`tools/migrate-0.3.py`).
 
 **Later:**
 
-- SIMD round 2: byte lookup, a joined shift, a saturating subtract (its
-  spelling is undecided), `pad:` reads, `blocks(N)`, and one load for
-  4- and 8-byte byte-lane reads on ARM.
+- Constant tables: module constants built from constructors of plain
+  types, for Trig's diagnostics catalog (part B of the modules
+  proposal, `.git/revamp/r3/proposal-modules-constants.md`, local).
+- SIMD: `pad:` reads, `blocks(N)`, and one load for 4- and 8-byte
+  byte-lane reads on ARM. (Round 2 built `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and
+  `-|`, and lane shifts.)
 - A String API for part-word appends and windowed writes.
 - Multiple results.
 - A frame-size guard for every function.

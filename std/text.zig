@@ -1,7 +1,7 @@
 //! `std.text`: searching and comparing text (`?String`s) on Zig's `std.mem`,
-//! parsing numbers with `std.fmt`, and checking UTF-8 with
-//! `std.unicode`. A parse fails with the errors of `std.text.ParseError`,
-//! which the emitter names `error.@"std.text.ParseError.name"`.
+//! and parsing numbers with `std.fmt`. A parse fails with the errors of
+//! `std.text.ParseError`, which the emitter names
+//! `error.@"std.text.ParseError.name"`.
 
 const std = @import("std");
 
@@ -32,35 +32,75 @@ pub fn bad_base(who: []const u8) void {
     @panic(std.fmt.bufPrint(&buf, "{s}: the base is not between 2 and 36", .{who}) catch "text: the base is not between 2 and 36");
 }
 
-/// The value of the digit `b` in base `radix`, 2 to 36: `0` to `9`,
-/// then the letters `a` to `z` in either case, or null.
-fn digit(b: u8, radix: u8) ?u8 {
-    const d = switch (b) {
-        '0'...'9' => b - '0',
-        'a'...'z' => b - 'a' + 10,
-        'A'...'Z' => b - 'A' + 10,
-        else => return null,
-    };
-    return if (d < radix) d else null;
+/// The value of each byte as a digit: `0` to `9`, then the letters `a`
+/// to `z` in either case for 10 to 35, and 36 for any other byte.
+const digit_values: [256]u8 = blk: {
+    @setEvalBranchQuota(4000);
+    var t: [256]u8 = @splat(36);
+    for (0..10) |d| t['0' + d] = d;
+    for (0..26) |d| {
+        t['a' + d] = 10 + d;
+        t['A' + d] = 10 + d;
+    }
+    break :blk t;
+};
+
+/// For each base, how many digits never overflow an `i64`: the most `n`
+/// with `base^n - 1 <= maxInt(i64)`.
+const safe_digits: [37]u8 = blk: {
+    @setEvalBranchQuota(10000);
+    var t: [37]u8 = @splat(0);
+    for (2..37) |base| {
+        var n: u8 = 0;
+        var max: u128 = base - 1; // the largest number of n + 1 digits
+        while (max <= std.math.maxInt(i64)) : (max = max * base + base - 1) n += 1;
+        t[base] = n;
+    }
+    break :blk t;
+};
+
+/// One pass over the digits. Up to `safe_digits[base]` of them cannot
+/// overflow, so they are read with no overflow check; longer runs go to
+/// `parseLong`. The function stays small, so LLVM inlines it into a hot
+/// loop, where the error folds into the caller's `catch`.
+pub fn parse_radix(s: []const u8, base: i64) ParseError!i64 {
+    const b: u64 = @bitCast(base);
+    var digits = s;
+    var negative = false;
+    if (s.len > 0 and (s[0] == '-' or s[0] == '+')) {
+        negative = s[0] == '-';
+        digits = s[1..];
+    }
+    if (digits.len == 0) return error.@"std.text.ParseError.invalid";
+    if (digits.len > safe_digits[@intCast(b)]) return parseLong(digits, b, negative);
+    var acc: u64 = 0;
+    for (digits) |c| {
+        const d = digit_values[c];
+        if (d >= b) return error.@"std.text.ParseError.invalid";
+        acc = acc *% b +% d;
+    }
+    const value: i64 = @bitCast(acc);
+    return if (negative) 0 -% value else value;
 }
 
-pub fn parse_radix(s: []const u8, base: i64) ParseError!i64 {
-    const radix: u8 = @intCast(base);
-    const digits = if (s.len > 0 and (s[0] == '+' or s[0] == '-')) s[1..] else s;
-    if (digits.len == 0) return error.@"std.text.ParseError.invalid";
-    for (digits) |b| _ = digit(b, radix) orelse return error.@"std.text.ParseError.invalid";
-    // Accumulate below zero, which holds `Int.min`.
-    var acc: i64 = 0;
-    for (digits) |b| {
-        const d: i64 = digit(b, radix).?;
+/// `digits`, more than `safe_digits[base]` of them, in base `base`, with
+/// overflow checked; negative for `negative`, which reaches `minInt(i64)`.
+/// A bad digit anywhere makes them invalid, even after an overflow.
+fn parseLong(digits: []const u8, base: u64, negative: bool) ParseError!i64 {
+    @branchHint(.unlikely);
+    var acc: u64 = 0;
+    var over = false;
+    for (digits) |c| {
+        const d = digit_values[c];
+        if (d >= base) return error.@"std.text.ParseError.invalid";
         const scaled = @mulWithOverflow(acc, base);
-        const next = @subWithOverflow(scaled[0], d);
-        if (scaled[1] != 0 or next[1] != 0) return error.@"std.text.ParseError.overflow";
+        const next = @addWithOverflow(scaled[0], d);
+        over = over or scaled[1] != 0 or next[1] != 0;
         acc = next[0];
     }
-    if (s[0] == '-') return acc;
-    if (acc == std.math.minInt(i64)) return error.@"std.text.ParseError.overflow";
-    return -acc;
+    const limit: u64 = if (negative) 1 << 63 else std.math.maxInt(i64);
+    if (over or acc > limit) return error.@"std.text.ParseError.overflow";
+    return if (negative) @bitCast(0 -% acc) else @bitCast(acc);
 }
 
 pub fn parse_float(s: []const u8) ParseError!f64 {
@@ -71,10 +111,6 @@ pub fn parse_float(s: []const u8) ParseError!f64 {
     const x = std.fmt.parseFloat(f64, s) catch return error.@"std.text.ParseError.invalid";
     if (std.math.isInf(x) and std.ascii.toLower(rest[0]) != 'i') return error.@"std.text.ParseError.overflow";
     return x;
-}
-
-pub fn valid_utf8(bytes: []const u8) bool {
-    return std.unicode.utf8ValidateSlice(bytes);
 }
 
 pub fn compare(a: []const u8, b: []const u8) i64 {

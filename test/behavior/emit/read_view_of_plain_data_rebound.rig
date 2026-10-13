@@ -68,10 +68,10 @@ sub main()
 sub plain()
   p = Pt(x: 7, y: 8)
   q = ?p.x
-  q = first(?p, ?p.y)
+  q = first_of(?p, ?p.y)
   print(q)
 
-fun first(p: ?Pt, k: ?Int) -> ?Int
+fun first_of(p: ?Pt, k: ?Int) -> ?Int
   ?p.x
 
 # expect:

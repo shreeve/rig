@@ -47,7 +47,24 @@ const srcPos = sema.srcPos;
 
 pub fn resolveSymbols(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     var r: SymbolResolver = .{ .ctx = ctx, .scope = module_scope, .module_scope = module_scope };
+    defer r.pending_shadows.deinit(ctx.allocator);
     try r.walk(tree);
+    // Module-level names are visible throughout the module, so the
+    // clash with them is judged once all are declared.
+    // Each lands where the walk met it, so diagnostics stay in the
+    // order a one-pass check would give.
+    var inserted: usize = 0;
+    for (r.pending_shadows.items) |p| {
+        const start = ctx.diagnostics.items.len;
+        try r.reportShadowsDeclaration(p.name_node, p.what);
+        const n = ctx.diagnostics.items.len - start;
+        if (n == 0) continue;
+        const group = try ctx.allocator.dupe(sema.Diagnostic, ctx.diagnostics.items[start..]);
+        defer ctx.allocator.free(group);
+        ctx.diagnostics.shrinkRetainingCapacity(start);
+        try ctx.diagnostics.insertSlice(ctx.allocator, p.at + inserted, group);
+        inserted += n;
+    }
 }
 
 const SymbolResolver = struct {
@@ -57,12 +74,19 @@ const SymbolResolver = struct {
     /// The generic parameters of the generic type whose members are
     /// being walked.
     type_params: []const SymbolId = &.{},
+    /// Parameters and locals whose clash with a module-level
+    /// declaration is checked after the whole module is walked.
+    pending_shadows: std.ArrayList(PendingShadow) = .empty,
+
+    const PendingShadow = struct { name_node: Sexp, what: []const u8, at: usize };
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
             .module => {
+                // A file's `use`s name its modules everywhere in it.
+                for (ir.Module.decls(sexp)) |c| if (c.isKind(.use)) try self.walk(c);
                 for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walk(c);
-                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walk(c);
+                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c) and !c.isKind(.use)) try self.walk(c);
             },
             .@"pub" => {
                 const decl = ir.Pub.decl(sexp);
@@ -215,11 +239,33 @@ const SymbolResolver = struct {
             try self.ctx.errAt(name_node, "{s} `{s}` has the name of the generic parameter `{s}`; use a different name", .{ what, name, name });
             return;
         }
+        if (self.ctx.fileModule(name, srcPos(name_node, 0))) |module| return self.shadowsModule(name_node, what, module);
+        try self.pending_shadows.append(self.ctx.allocator, .{ .name_node = name_node, .what = what, .at = self.ctx.diagnostics.items.len });
+    }
+
+    fn reportShadowsDeclaration(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
+        const name = identAt(self.ctx.source, name_node) orelse return;
         const decl = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return;
         const sym = self.ctx.symbols.items[decl];
         if (sym.decl_pos == sema.builtin_decl_pos) return;
         try self.ctx.errAt(name_node, "{s} `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ what, name, name });
         try self.ctx.note(sym.decl_pos, "`{s}` declared here", .{name});
+    }
+
+    /// A parameter or local named like a module its file uses. A
+    /// parameter can take the name only if the module is imported under
+    /// another; a local can also hide the module with `new`.
+    fn shadowsModule(self: *SymbolResolver, name_node: Sexp, what: []const u8, module: SymbolId) Error!void {
+        const name = identAt(self.ctx.source, name_node).?;
+        const decl = for (self.ctx.file_uses.items) |u| {
+            if (u.sym == module) break u.decl;
+        } else unreachable;
+        const path = if (self.ctx.parser) |p| diag.textOf(self.ctx.source, p.span(ir.Use.name(decl))) else name;
+        const other: []const u8 = if (name.len > 1) name[0..1] else "m";
+        if (std.mem.find(u8, what, "parameter") != null) {
+            try self.ctx.errAt(name_node, "{s} `{s}` has the name of the module this file uses as `{s}`; import the module under another name, `use {s} as {s}`", .{ what, name, name, path, other });
+        } else try self.ctx.errAt(name_node, "{s} `{s}` has the name of the module this file uses as `{s}`; import the module under another name, `use {s} as {s}`, or write `new {s} = ...`, which hides the module `{s}` for the rest of this scope", .{ what, name, name, path, other, name, name });
+        try self.ctx.note(self.ctx.symbols.items[module].decl_pos, "`{s}` imported here", .{name});
     }
 
     /// The parameters and body of a `fun`, `sub`, or `drop`.
@@ -316,20 +362,36 @@ const SymbolResolver = struct {
         try self.checkShadowsDeclaration(name_node, "parameter");
     }
 
-    /// `use NAME`, `use std.NAME`, or either `as ALIAS`: the module's
-    /// symbol is named by the alias, else the path's last name.
+    /// `use NAME`, `use a.b.NAME`, or either `as ALIAS`: the module's
+    /// symbol is named by the alias, else the path's last name. It binds
+    /// that name in its own file only (`SemContext.fileModule`), so it is
+    /// in no scope; two `use`s of one file may not bind one name.
     fn walkUse(self: *SymbolResolver, node: Sexp) Error!void {
         const path = ir.Use.name(node);
         const alias = ir.Use.alias(node);
         const name_node = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
-        const id = (try self.declare(name_node, .module, .{})) orelse return;
-        const name = identAt(self.ctx.source, name_node).?;
-        for (self.ctx.imports) |imp| {
-            if (std.mem.eql(u8, imp.local_name, name)) {
-                try self.ctx.module_refs.put(self.ctx.allocator, id, imp.module_id);
-                break;
-            }
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        const pos = srcPos(name_node, 0);
+        const file = sema.fileIndex(self.ctx.parts, pos);
+        if (self.ctx.fileModule(name, pos)) |prev| {
+            try self.ctx.err(pos, "two imports bind the name `{s}`; name one of them with `as`: `use ... as other`", .{name});
+            try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` first imported here", .{name});
+            return;
         }
+        // The module this file's `use` names.
+        const target = for (self.ctx.imports) |imp| {
+            if (std.mem.eql(u8, imp.local_name, name) and imp.file == file) break imp.module_id;
+        } else null;
+        const id = try self.ctx.addSymbol(.{
+            .name = name,
+            .kind = .module,
+            .ty = self.ctx.types.unknown_id,
+            .decl_pos = pos,
+            .scope = self.module_scope,
+        });
+        try self.ctx.recordName(name_node, id);
+        if (target) |t| try self.ctx.module_refs.put(self.ctx.allocator, id, t);
+        try self.ctx.file_uses.append(self.ctx.allocator, .{ .file = file, .sym = id, .decl = node });
     }
 
     fn walkTypeAlias(self: *SymbolResolver, node: Sexp) Error!void {
@@ -424,7 +486,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     try self.ctx.recordWrite(node, existing, .compound);
                 } else if (self.scope == self.module_scope) {
@@ -582,7 +644,10 @@ const SymbolResolver = struct {
 
 pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     if (!tree.isKind(.module)) return;
-    try foldModuleConsts(ctx, tree);
+    try checkDetachedMethods(ctx, tree);
+    try checkUseNames(ctx);
+    try orderModuleConsts(ctx, tree);
+    try foldModuleConsts(ctx);
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
     for (ir.Module.decls(tree)) |decl| {
         if ((if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.errors)) tr.declares_errors = true;
@@ -590,22 +655,227 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     for (ir.Module.decls(tree)) |decl| try tr.resolveDecl(decl);
 }
 
-/// Fold each integer module constant once, in declaration order, into
-/// `const_ints`, so any type in the module can name it. A constant's
-/// value names only earlier constants, and its literals take its
-/// declared type (`Int` without one), as a local constant's do; one that
-/// does not fold, or does not fit its type, is left for the checker to
-/// report.
-fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
+/// A `use` may not bind the name of a declaration of its module, which
+/// its file sees too.
+fn checkUseNames(ctx: *SemContext) Error!void {
+    for (ctx.file_uses.items) |u| {
+        const sym = ctx.symbols.items[u.sym];
+        const decl = ctx.lookupInScopeOnly(sema.module_scope, sym.name) orelse continue;
+        const d = ctx.symbols.items[decl];
+        if (d.decl_pos == sema.builtin_decl_pos) continue;
+        try ctx.err(sym.decl_pos, "`{s}` is a declaration of this module; import the module under another name: `use ... as other`", .{sym.name});
+        try ctx.note(d.decl_pos, "`{s}` declared here", .{sym.name});
+    }
+}
+
+/// Why each method declared outside a body names no type it can join
+/// (`Parser.attachMethods` attached every one that does): a method is a
+/// member of an `obj` or `enum` of its own module, named with the
+/// type's parameters as its declaration names them.
+fn checkDetachedMethods(ctx: *SemContext, tree: Sexp) Error!void {
+    const p = ctx.parser orelse return;
+    const src = ctx.source;
+    for (p.detached.items) |decl| {
+        const def = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        const owner = ir.get(def, .owner);
+        const name = identAt(src, ir.get(def, .name)) orelse "";
+        const kw = if (def.isKind(.sub)) "sub" else "fun";
+        if (owner.isKind(.member)) {
+            const shown = diag.textOf(src, p.span(owner));
+            const module = identAt(src, ir.Member.object(owner)) orelse shown;
+            try ctx.errAt(owner, "methods of `{s}` are declared in module `{s}`, which declares the type", .{ shown, module });
+            continue;
+        }
+        const tname = identAt(src, owner) orelse continue;
+        const id = ctx.lookupInScopeOnly(sema.module_scope, tname);
+        const sym = if (id) |i| ctx.symbols.items[i] else null;
+        if (sym != null and sym.?.kind == .type_alias) {
+            const target = ctx.alias_targets.get(id.?).?;
+            const shown = diag.textOf(src, p.span(target));
+            const plain = target == .src and declaredType(src, tree, shown) != null;
+            if (plain) {
+                try ctx.errAt(owner, "`{s}` is an alias of `{s}`; declare the method as `{s} {s}.{s}`", .{ tname, shown, kw, shown, name });
+            } else try ctx.errAt(owner, "`{s}` is an alias of `{s}`; a method is declared on an `obj` or `enum` of this module", .{ tname, shown });
+            continue;
+        }
+        if ((sym != null and sym.?.decl_pos == sema.builtin_decl_pos) or isBuiltinTypeName(ctx, tname) or std.mem.eql(u8, tname, "String") or std.mem.eql(u8, tname, "Static")) {
+            try ctx.errAt(owner, "`{s}` is a built-in type; a method is declared on a type of this module", .{tname});
+            continue;
+        }
+        const ty = declaredType(src, tree, tname) orelse {
+            try ctx.errAt(owner, "`{s}` names no type declared in this module", .{tname});
+            continue;
+        };
+        if (ty.isKind(.errors)) {
+            try ctx.errAt(owner, "`{s}` is an error set; a method is declared on an `obj` or `enum`", .{tname});
+            continue;
+        }
+        // The type is this module's: the parameters are named otherwise.
+        const keyword = if (ty.isKind(.@"enum") or ty.isKind(.generic_enum)) "enum" else "obj";
+        const tparams = rig.Parser.tparamsOf(ty);
+        if (tparams == .nil) {
+            try ctx.errAt(owner, "write `{s} {s}.{s}`: `{s} {s}` takes no compile-time parameters", .{ kw, tname, name, keyword, tname });
+            continue;
+        }
+        var names: std.ArrayList(u8) = .empty;
+        for (tparams.items(), 0..) |tp, i| {
+            if (i > 0) try names.appendSlice(ctx.arena.allocator(), ", ");
+            try names.appendSlice(ctx.arena.allocator(), sema.paramName(src, tp) orelse "_");
+        }
+        const params = names.items;
+        try ctx.errAt(owner, "write `{s} {s}[{s}].{s}`: a method names its type's parameters as `{s} {s}[{s}]` declares them", .{ kw, tname, params, name, keyword, tname, params });
+    }
+}
+
+/// The `obj`, `enum`, or error set this module declares as `name`.
+fn declaredType(src: []const u8, tree: Sexp, name: []const u8) ?Sexp {
+    for (ir.Module.decls(tree)) |decl| {
+        const d = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        switch (d.kind() orelse continue) {
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => {},
+            else => continue,
+        }
+        if (std.mem.eql(u8, identAt(src, ir.get(d, .name)) orelse "", name)) return d;
+    }
+    return null;
+}
+
+/// Order the module constants so that each comes after the constants
+/// its value and its type name (`SemContext.const_order`): a constant
+/// may name any constant of its module, wherever it is declared, and
+/// one that depends on itself is rejected and left out. A module-level
+/// binding that is no constant (`k += 1`) comes last, for the checker
+/// to reject.
+fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
+    const a = ctx.allocator;
+    var consts: std.ArrayList(Sexp) = .empty;
+    defer consts.deinit(a);
+    var index: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty;
+    defer index.deinit(a);
+    var rest: std.ArrayList(Sexp) = .empty;
+    defer rest.deinit(a);
     for (ir.Module.decls(tree)) |decl| {
         if (!rig.isModuleConst(decl)) continue;
+        const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        const target = ir.Set.target(set);
+        const id = if (target == .src and rig.bindingKindOf(ir.Set.op(set)) == .fixed) ctx.symbolOf(target) else null;
+        if (id == null or index.contains(id.?)) {
+            try rest.append(a, decl);
+            continue;
+        }
+        try index.put(a, id.?, @intCast(consts.items.len));
+        try consts.append(a, decl);
+    }
+    // What each constant names: `deps[starts[i]..starts[i + 1]]`.
+    var deps: std.ArrayList(u32) = .empty;
+    defer deps.deinit(a);
+    const starts = try a.alloc(u32, consts.items.len + 1);
+    defer a.free(starts);
+    for (consts.items, 0..) |decl, i| {
+        starts[i] = @intCast(deps.items.len);
+        const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        try constNamesIn(ctx, ir.Set.value(set), &index, &deps);
+        try constNamesIn(ctx, ir.Set.type(set), &index, &deps);
+    }
+    starts[consts.items.len] = @intCast(deps.items.len);
+
+    // Depth first, with an explicit stack, so a long chain fits.
+    const State = enum(u2) { new, open, done };
+    const state = try a.alloc(State, consts.items.len);
+    defer a.free(state);
+    @memset(state, .new);
+    const cyclic = try a.alloc(bool, consts.items.len);
+    defer a.free(cyclic);
+    @memset(cyclic, false);
+    const Frame = struct { i: u32, next: u32 };
+    var stack: std.ArrayList(Frame) = .empty;
+    defer stack.deinit(a);
+    ctx.const_order.clearRetainingCapacity();
+    for (0..consts.items.len) |root| {
+        if (state[root] != .new) continue;
+        state[root] = .open;
+        try stack.append(a, .{ .i = @intCast(root), .next = starts[root] });
+        while (stack.items.len > 0) {
+            const top = &stack.items[stack.items.len - 1];
+            if (top.next < starts[top.i + 1]) {
+                const j = deps.items[top.next];
+                top.next += 1;
+                switch (state[j]) {
+                    .new => {
+                        state[j] = .open;
+                        try stack.append(a, .{ .i = j, .next = starts[j] });
+                    },
+                    .open => if (!cyclic[j]) try reportConstCycle(ctx, consts.items, stack.items, j, cyclic),
+                    .done => {},
+                }
+                continue;
+            }
+            const done = stack.pop().?;
+            state[done.i] = .done;
+            if (!cyclic[done.i]) try ctx.const_order.append(a, consts.items[done.i]);
+        }
+    }
+    try ctx.const_order.appendSlice(a, rest.items);
+}
+
+/// Each constant of `index` that a name leaf in `node` names, appended
+/// to `out`: a member's name, a keyword argument's, and an enum literal's
+/// name no constant of this module.
+fn constNamesIn(ctx: *const SemContext, node: Sexp, index: *const std.AutoHashMapUnmanaged(SymbolId, u32), out: *std.ArrayList(u32)) Error!void {
+    switch (node) {
+        .src => {
+            const text = identAt(ctx.source, node) orelse return;
+            const id = ctx.lookupInScopeOnly(sema.module_scope, text) orelse return;
+            if (index.get(id)) |i| try out.append(ctx.allocator, i);
+        },
+        .list => switch (node.kind() orelse return) {
+            .member => try constNamesIn(ctx, ir.Member.object(node), index, out),
+            .kwarg => try constNamesIn(ctx, ir.Kwarg.value(node), index, out),
+            .enum_lit, .builtin => for (rig.children(node)[1..]) |c| try constNamesIn(ctx, c, index, out),
+            else => for (rig.children(node)) |c| try constNamesIn(ctx, c, index, out),
+        },
+        else => {},
+    }
+}
+
+/// The constants open on `stack` from `j` on name each other in a
+/// cycle back to `j`: reported once, at `j`'s value, and each left out.
+fn reportConstCycle(ctx: *SemContext, consts: []const Sexp, stack: anytype, j: u32, cyclic: []bool) Error!void {
+    const a = ctx.arena.allocator();
+    var from: usize = stack.len;
+    while (from > 0 and stack[from - 1].i != j) from -= 1;
+    from -|= 1;
+    var path: std.ArrayList(u8) = .empty;
+    for (stack[from..]) |f| {
+        cyclic[f.i] = true;
+        try path.print(a, "`{s}` → ", .{constName(ctx, consts[f.i])});
+        const set = if (consts[f.i].isKind(.@"pub")) ir.Pub.decl(consts[f.i]) else consts[f.i];
+        if (ctx.symbolOf(ir.Set.target(set))) |id| ctx.symbols.items[id].ty = ctx.types.invalid_id;
+    }
+    try path.print(a, "`{s}`", .{constName(ctx, consts[j])});
+    const set = if (consts[j].isKind(.@"pub")) ir.Pub.decl(consts[j]) else consts[j];
+    try ctx.errAt(ir.Set.value(set), "constant `{s}` depends on itself ({s})", .{ constName(ctx, consts[j]), path.items });
+}
+
+fn constName(ctx: *const SemContext, decl: Sexp) []const u8 {
+    const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+    return identAt(ctx.source, ir.Set.target(set)) orelse "_";
+}
+
+/// Fold each integer module constant once, in dependency order
+/// (`orderModuleConsts`), into `const_ints`, so any type in the module
+/// can name it. Its literals take its declared type (`Int` without
+/// one), as a local constant's do; one that does not fold, or does not
+/// fit its type, is left for the checker to report.
+fn foldModuleConsts(ctx: *SemContext) Error!void {
+    for (ctx.const_order.items) |decl| {
         const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
         const target = ir.Set.target(set);
         if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) continue;
         const id = ctx.symbolOf(target) orelse continue;
         const ty = ir.Set.type(set);
         const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
-        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .before = target.src.pos, .literal = declared orelse .{} };
+        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{} };
         const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
             .value => |t| t,
             else => continue,
@@ -683,9 +953,6 @@ pub const ConstNames = struct {
     scope: ScopeId,
     /// The generic type's parameters, which are not constants.
     type_params: []const SymbolId = &.{},
-    /// In a module constant's declaration, its position: the module
-    /// constants declared from there on are not visible yet.
-    before: u32 = std.math.maxInt(u32),
     /// The integer type arithmetic on literals alone takes: a module
     /// constant's declared type.
     literal: ?sema.IntInfo = null,
@@ -693,8 +960,7 @@ pub const ConstNames = struct {
     pub fn symbol(self: ConstNames, e: Sexp) ?SymbolId {
         const text = identAt(self.ctx.source, e) orelse return null;
         for (self.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, text)) return tp;
-        const id = self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos) orelse return null;
-        return if (self.visible(id)) id else null;
+        return self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos);
     }
 
     pub fn name(self: ConstNames, e: Sexp) ?sema.TypedInt {
@@ -707,7 +973,8 @@ pub const ConstNames = struct {
 
     pub fn member(self: ConstNames, e: Sexp) ?sema.TypedInt {
         const obj = ir.Member.object(e);
-        const id = self.ctx.lookup(self.scope, identAt(self.ctx.source, obj) orelse return null) orelse return null;
+        if (obj != .src) return null;
+        const id = self.ctx.lookupAt(self.scope, identAt(self.ctx.source, obj) orelse return null, obj.src.pos) orelse return null;
         if (self.ctx.symbols.items[id].kind != .module) return null;
         const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
@@ -718,13 +985,6 @@ pub const ConstNames = struct {
 
     pub fn literalInt(self: ConstNames, _: Sexp) ?sema.IntInfo {
         return self.literal;
-    }
-
-    /// Whether symbol `id` is visible: a module constant declared at or
-    /// after `before` is not.
-    pub fn visible(self: ConstNames, id: SymbolId) bool {
-        const sym = self.ctx.symbols.items[id];
-        return !(sym.scope == sema.module_scope and sym.kind == .local and sym.decl_pos >= self.before);
     }
 };
 
@@ -765,8 +1025,6 @@ pub const TypeResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     nominal: NominalContext = NominalContext.none,
-    /// In a module constant's declaration, its position (`ConstNames.before`).
-    const_before: u32 = std.math.maxInt(u32),
     /// The module declares an error set, which its fallible Zig-backed
     /// functions fail with.
     declares_errors: bool = false,
@@ -1931,8 +2189,8 @@ pub const TypeResolver = struct {
     fn memberNotCtInt(self: *TypeResolver, node: Sexp, what: []const u8) Error!bool {
         const obj = ir.Member.object(node);
         const module_name = identAt(self.ctx.source, obj) orelse return false;
-        const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
-            try self.ctx.errAt(obj, "use of unbound name `{s}`", .{module_name});
+        const mod_id = self.ctx.lookupAt(self.scope, module_name, srcPos(obj, 0)) orelse {
+            try self.ctx.errAt(obj, "use of unbound name `{s}`{s}", .{ module_name, try self.ctx.otherFileUse(module_name) });
             return true;
         };
         if (self.ctx.symbols.items[mod_id].kind != .module) return false;
@@ -1993,7 +2251,7 @@ pub const TypeResolver = struct {
             },
             .list => if (node.isKind(.member)) {
                 const obj = ir.Member.object(node);
-                const id = self.ctx.lookup(self.scope, identAt(self.ctx.source, obj) orelse return) orelse return;
+                const id = self.ctx.lookupAt(self.scope, identAt(self.ctx.source, obj) orelse return, srcPos(obj, 0)) orelse return;
                 if (self.ctx.symbols.items[id].kind == .module) try self.ctx.recordName(obj, id);
             } else for (node.items()) |c| try self.recordCtNames(c),
             else => {},
@@ -2027,14 +2285,12 @@ pub const TypeResolver = struct {
 
     /// The constants names in a type denote.
     fn constNames(self: *const TypeResolver) ConstNames {
-        return .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params, .before = self.const_before };
+        return .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
     }
 
-    /// The symbol a name leaf in a compile-time integer denotes; a module
-    /// constant a constant's declaration names must come before it.
+    /// The symbol a name leaf in a compile-time integer denotes.
     fn lookupCt(self: *const TypeResolver, leaf: Sexp) ?SymbolId {
-        const id = self.ctx.lookupBefore(self.scope, identAt(self.ctx.source, leaf) orelse return null, leaf.src.pos) orelse return null;
-        return if (self.constNames().visible(id)) id else null;
+        return self.ctx.lookupBefore(self.scope, identAt(self.ctx.source, leaf) orelse return null, leaf.src.pos);
     }
 
     fn sourceText(self: *const TypeResolver, node: Sexp) Error![]const u8 {
@@ -2050,8 +2306,11 @@ pub const TypeResolver = struct {
         const module_name = identAt(self.ctx.source, module_node) orelse return null;
         const name = identAt(self.ctx.source, name_node) orelse return null;
         const pos = srcPos(name_node, 0);
-        const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
-            try self.ctx.errAt(module_node, "use of unbound module `{s}`; import it with `use {s}`", .{ module_name, module_name });
+        const mod_id = self.ctx.lookupAt(self.scope, module_name, srcPos(module_node, 0)) orelse {
+            const other = try self.ctx.otherFileUse(module_name);
+            if (other.len > 0) {
+                try self.ctx.errAt(module_node, "use of unbound module `{s}`{s}", .{ module_name, other });
+            } else try self.ctx.errAt(module_node, "use of unbound module `{s}`; import it with `use {s}`", .{ module_name, module_name });
             return null;
         };
         if (self.ctx.symbols.items[mod_id].kind != .module) {

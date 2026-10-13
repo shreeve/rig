@@ -81,7 +81,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
     defer c.jump_targets.deinit(ctx.allocator);
-    for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
+    for (ctx.const_order.items) |decl| try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
 }
@@ -110,9 +110,6 @@ const Checker = struct {
     current_call: ?Sexp = null,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
-    /// In a module constant's declaration, its position: the types in it
-    /// name only earlier constants.
-    const_before: u32 = std.math.maxInt(u32),
     /// Enclosing `raw` blocks.
     raw_depth: u32 = 0,
     /// The operand of the `!` or `catch` being checked: a fallible call
@@ -382,7 +379,7 @@ const Checker = struct {
     }
 
     fn resolver(self: *Checker) resolve.TypeResolver {
-        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal, .const_before = self.const_before };
+        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal };
     }
 
     fn t(self: *Checker) *sema.TypeStore {
@@ -432,13 +429,16 @@ const Checker = struct {
             };
             return self.errAt(node, "a module-level binding is a constant; write `{s} = value`", .{self.text(target)});
         }
-        self.const_before = target.src.pos;
-        defer self.const_before = std.math.maxInt(u32);
         try self.checkSet(node);
         const value = ir.Set.value(node);
         if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
-        if (!self.isConstExpr(value)) {
-            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, and arrays over them", .{});
+        // A vector made of constants, `Simd[U8, 16](array)` or
+        // `Simd[U8, 16].splat(x)` (or through an alias of the type), is a
+        // module constant's whole value: it is a Zig `var` (`emitConst`),
+        // and an array or a branch holding one would be known to Zig.
+        const vector = value.isKind(.call) and self.isVectorMade(value) and self.isConstExpr(ir.Call.args(value)[0]);
+        if (!vector and !self.isConstExpr(value)) {
+            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", .{});
         }
     }
 
@@ -451,6 +451,20 @@ const Checker = struct {
         // A ternary `a if c else b` over constants.
         if (e.isKind(.@"if")) return self.isConstExpr(ir.If.cond(e)) and self.isConstExpr(ir.If.then(e)) and self.isConstExpr(ir.If.@"else"(e));
         return self.isComptimeKnown(e);
+    }
+
+    /// A call that makes a vector of its one argument: `Simd[T, n](a)`,
+    /// `Block(a)` for an alias `Block` of a vector type, or `.splat(x)` of
+    /// either.
+    fn isVectorMade(self: *Checker, call: Sexp) bool {
+        const ty = self.ctx.typeOf(call) orelse return false;
+        if (self.ctx.types.get(ty) != .simd or ir.Call.args(call).len != 1) return false;
+        const callee = ir.Call.callee(call);
+        if (self.ctx.elemCallOf(callee)) |ec| return ec.op == .splat;
+        const named = if (rig.isBracketList(callee)) ir.get(callee, .object) else callee;
+        if (named != .src) return false;
+        const id = self.ctx.symbolOf(named) orelse self.lookupQuiet(named) orelse return false;
+        return if (rig.isBracketList(callee)) id == self.ctx.simd_sym_id else self.ctx.symbols.items[id].kind == .type_alias;
     }
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
@@ -1010,7 +1024,7 @@ const Checker = struct {
         };
 
         switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
                 const what = try self.ctx.arena.allocator().print("`{s}` has type", .{name});
                 try self.checkCompound(kind, declared, rhs, target.src.pos, what);
                 try self.ctx.recordType(target, declared);
@@ -1191,7 +1205,7 @@ const Checker = struct {
             return;
         }
         const req: Requirement = switch (op) {
-            .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"+%", .@"-%", .@"*%" => .integer,
+            .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|" => .integer,
             else => .numeric,
         };
         if (sema.simdOf(self.ctx, target_ty) != null) return self.simdCompound(op, spelled, sema.unwrapViews(self.ctx, target_ty), rhs, pos);
@@ -3793,6 +3807,8 @@ const Checker = struct {
     /// of.
     fn unboundHint(self: *Checker, leaf: Sexp, name: []const u8) Error![]const u8 {
         if (sema.retiredNameHint(name)) |hint| return hint;
+        const other = try self.ctx.otherFileUse(name);
+        if (other.len > 0) return other;
         const Other = struct { []const u8, []const u8 };
         const others = [_]Other{
             .{ "null", "; Rig's absent value is `none`" },
@@ -3824,12 +3840,14 @@ const Checker = struct {
     /// excluding a `new x = ...` whose value is still being checked (its
     /// right side reads the previous `x`).
     fn visibleIn(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
+        // A module is named where a `use` of its file binds it.
+        if (scope == self.module_scope) if (self.ctx.fileModule(name, pos)) |id| return id;
         var id = self.ctx.lookupInScopeOnly(scope, name) orelse return null;
         while (id != sema.symbol_invalid) {
             const sym = self.ctx.symbols.items[id];
             // A module-level constant is visible in every function body,
-            // and in later constants.
-            const later = sym.decl_pos > pos and (scope != self.module_scope or self.scope == self.module_scope);
+            // and in every constant (`SemContext.const_order`).
+            const later = sym.decl_pos > pos and scope != self.module_scope;
             if (sym.kind == .local and (later or id == self.pending)) {
                 id = sym.prev_in_scope;
                 continue;
@@ -3863,7 +3881,7 @@ const Checker = struct {
             .weak => self.synthWeak(e),
             .clone => self.synthClone(e),
             .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric, null),
-            .@"&", .@"|", .@"^", .@"+%", .@"-%", .@"*%" => self.checkNumericOperands(e, @tagName(head), .integer, null),
+            .@"&", .@"|", .@"^", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|" => self.checkNumericOperands(e, @tagName(head), .integer, null),
             .@"<<", .@"<<%", .@">>" => self.synthShift(e, @tagName(head)),
             .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
@@ -4077,10 +4095,16 @@ const Checker = struct {
             _ = try self.synthExpr(ir.get(e, .right));
             return ty;
         }
-        if (sema.simdOf(self.ctx, ty) != null) {
-            try self.errAt(left, "operator `{s}` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons", .{op});
-            _ = try self.synthExpr(ir.get(e, .right));
-            return self.t().invalid_id;
+        // A vector of integers shifts each lane by one amount, with the
+        // rules of its lane type.
+        if (sema.simdOf(self.ctx, ty)) |v| {
+            if (!sema.isInteger(self.ctx, v.elem)) {
+                try self.errAt(left, "operator `{s}` requires integer lanes; got `{s}`", .{ op, try self.tyName(sema.unwrapViews(self.ctx, ty)) });
+                _ = try self.synthExpr(ir.get(e, .right));
+                return self.t().invalid_id;
+            }
+            if (!(try self.checkShiftAmount(ir.get(e, .right), v.elem, op))) return self.t().invalid_id;
+            return sema.unwrapViews(self.ctx, ty);
         }
         switch (self.ctx.types.get(ty)) {
             .type_var => |tv| try self.require(tv, .integer, self.startOf(left), op),
@@ -4104,7 +4128,8 @@ const Checker = struct {
         switch (self.ctx.types.get(ty)) {
             .type_var => |tv| try self.require(tv, .integer, self.startOf(amount), op),
             else => if (!sema.isInteger(self.ctx, ty)) {
-                try self.errAt(amount, "a shift amount must be an integer; got `{s}`", .{try self.tyName(ty)});
+                const each = if (sema.simdOf(self.ctx, ty) != null) "; a vector's lanes all shift by one integer" else "";
+                try self.errAt(amount, "a shift amount must be an integer; got `{s}`{s}", .{ try self.tyName(ty), each });
                 return false;
             },
         }
@@ -4858,7 +4883,7 @@ const Checker = struct {
         return switch (e.kind() orelse return false) {
             .enum_lit => true,
             .member => self.ctx.isErrorMember(e) or try self.namesTypeConstant(e) or self.namesModuleConstant(e),
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>" => for (rig.children(e)) |c| {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>" => for (rig.children(e)) |c| {
                 if (!try self.isConstant(c)) break false;
             } else true,
             else => false,
@@ -5595,7 +5620,7 @@ const Checker = struct {
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -5657,7 +5682,12 @@ const Checker = struct {
             const kw = if (is_sub) "sub" else "fun";
             if (foreign.is_std) {
                 try self.err(pos, "method `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
-            } else try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, f.name });
+            } else {
+                // A method declared outside its type's body names the type.
+                const outside = if (foreign.parser) |fp| fp.outside_members.contains(f.decl_pos) else false;
+                const shown = if (outside) try self.ctx.arena.allocator().print("{s}.{s}", .{ owner.name, f.name }) else f.name;
+                try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, shown });
+            }
         } else if (foreign.is_std) {
             try self.err(pos, "field `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
         } else {
@@ -7277,9 +7307,11 @@ const Checker = struct {
     /// true lane, or `none`; `m.any()` and `m.all()`;
     /// `m.select(a, b)`, lane `i` of `a` where `m`'s is true and of `b`
     /// where it is false; `v.array()`, the lanes as a `[n]T`; and
-    /// `v.with(i, x)`, a copy of `v` whose lane `i` is `x`. Null when the
-    /// receiver is no vector or `method` none of them.
-    fn simdCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+    /// `v.with(i, x)`, a copy of `v` whose lane `i` is `x`; `t.lookup(idx)`,
+    /// lane `i` of table `t` at each index of `idx` (`lookupCall`); and
+    /// `v.lag[k](prev)` (`lagCall`). Null when the receiver is no vector or
+    /// `method` none of them.
+    fn simdCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const v = sema.simdOf(self.ctx, obj_ty) orelse return null;
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
         if (!op.isSimd() or op == .splat) return null;
@@ -7287,16 +7319,24 @@ const Checker = struct {
         const mask_op = op == .bits or op == .first or op == .any or op == .all or op == .select;
         if (mask_op and v.elem != self.t().bool_id) return try self.badCall(args, pos, "`{s}` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `{s}`", .{ method, try self.tyName(vt) });
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "reads its receiver as a value");
+        if (op == .lag) {
+            const b = ct orelse return try self.badCall(args, pos, "`lag` takes how many lanes back in brackets: `v.lag[1](prev)`", .{});
+            return try self.lagCall(callee, vt, b, pos, args);
+        }
+        if (ct) |b| return try self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
         const want: usize = switch (op) {
             .select, .with => 2,
+            .lookup => 1,
             else => 0,
         };
         for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         if (args.len != want) return try self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, switch (op) {
             .select => "two arguments, the lanes where the mask is true and where it is false",
             .with => "two arguments, the lane's index and its new value",
+            .lookup => "one argument, a `Simd[U8, n]` of indexes into the table",
             else => "no arguments",
         }, args.len, plural(args.len) });
+        if (op == .lookup) return try self.lookupCall(callee, obj, vt, args[0]);
         var elem = v.elem;
         const result: TypeId = switch (op) {
             .bits => try self.ctx.intern(.{ .int = .{ .bits = 64, .signed = false } }),
@@ -7324,6 +7364,62 @@ const Checker = struct {
             try self.checkExpr(args[1], v.elem);
         }
         return result;
+    }
+
+    /// `t.lookup(idx)`: a table `t` of 16, 32, or 64 `U8` lanes, and indexes
+    /// `idx`, a `Simd[U8, n]`; lane `i` of the result is `t[idx[i]]`, or 0
+    /// where `idx[i]` is past the table. The result's type is `idx`'s.
+    fn lookupCall(self: *Checker, callee: Sexp, obj: Sexp, vt: TypeId, arg: Sexp) Error!?TypeId {
+        const byte = try self.byteType();
+        const v = self.ctx.types.get(vt).simd;
+        const m = sema.simdLen(self.ctx, v);
+        if (v.elem != byte or m == null or m.? < 16) {
+            try self.errAt(obj, "`lookup` looks up bytes in a table of 16, 32, or 64 of them: a `Simd[U8, 16]`, `Simd[U8, 32]`, or `Simd[U8, 64]`; got `{s}`", .{try self.tyName(vt)});
+            _ = try self.synthExpr(arg);
+            return self.t().invalid_id;
+        }
+        const at = try self.synthOperandValue(arg);
+        if (self.isPoison(at)) return self.t().invalid_id;
+        const idx = sema.unwrapViews(self.ctx, at);
+        const iv = sema.simdOf(self.ctx, idx);
+        if (iv == null or iv.?.elem != byte) {
+            try self.errAt(arg, "`lookup` takes its indexes as a `Simd[U8, n]`; got `{s}`", .{try self.tyName(at)});
+            return self.t().invalid_id;
+        }
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ vt, idx }), .returns = idx, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .lookup, .elem = byte, .num = idx });
+        return idx;
+    }
+
+    /// `cur.lag[k](prev)`: lane `i` is `cur[i - k]` for `i >= k`, and
+    /// `prev[n - k + i]` below, for vectors `cur` and `prev` of one type.
+    /// `k` is a constant integer from 1 to `n - 1`, checked now, so the
+    /// lane count must be known too.
+    fn lagCall(self: *Checker, callee: Sexp, vt: TypeId, b: Sexp, pos: u32, args: []const Sexp) Error!?TypeId {
+        try self.ctx.recordInstance(b, .function);
+        const given = sema.bracketArgs(b);
+        if (given.len != 1) return try self.badCall(args, b, "`lag` takes one compile-time argument, how many lanes back: `v.lag[1](prev)`", .{});
+        for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`lag` takes no keyword arguments", .{});
+        if (args.len != 1) return try self.badCall(args, pos, "`lag` takes one argument, the vector before this one; got {d} argument{s}", .{ args.len, plural(args.len) });
+        const n = sema.simdLen(self.ctx, self.ctx.types.get(vt).simd);
+        const mark = self.ctx.diagnostics.items.len;
+        try self.checkCtValue(given[0], self.t().int_id, 0, "lag");
+        if (self.ctx.diagnostics.items.len == mark) {
+            const names: resolve.ConstNames = .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
+            const k: ?Wide = switch (sema.constIntBy(self.ctx, given[0], names)) {
+                .value => |c| c,
+                else => null,
+            };
+            if (k == null or n == null) {
+                try self.errAt(given[0], "`lag` takes a constant number of lanes, on a vector whose lane count is known where it is checked; got `{s}` on a `{s}`", .{ self.sourceText(given[0]), try self.tyName(vt) });
+            } else if (k.? < 1 or k.? >= n.?) {
+                try self.errAt(given[0], "`lag` of a `{s}` takes 1 to {d} lanes; got `{d}`", .{ try self.tyName(vt), n.? - 1, k.? });
+            }
+        }
+        try self.checkExpr(args[0], vt);
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ vt, vt }), .returns = vt, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .lag, .elem = self.ctx.types.get(vt).simd.elem, .num = vt });
+        return vt;
     }
 
     /// A constant lane index of a vector of type `vt` is checked against
@@ -7407,7 +7503,7 @@ const Checker = struct {
         const head = e.kind().?;
         switch (head) {
             .@"/", .@"%" => {
-                try self.errAt(operands[0], "operator `{s}` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons", .{op});
+                try self.errAt(operands[0], "operator `{s}` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping and saturating forms, `&`, `|`, `^`, the shifts, and the comparisons", .{op});
                 return self.t().invalid_id;
             },
             else => {},
@@ -7441,9 +7537,9 @@ const Checker = struct {
         const v = self.ctx.types.get(vt).simd;
         const req: Requirement = switch (op) {
             .@"+", .@"-", .@"*" => .numeric,
-            .@"&", .@"|", .@"^", .@"+%", .@"-%", .@"*%" => .integer,
+            .@"&", .@"|", .@"^", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>" => .integer,
             else => {
-                try self.err(pos, "`{s}` does not take a `Simd`: a vector has `+=`, `-=`, `*=`, their wrapping forms, `&=`, `|=`, and `^=`", .{spelled});
+                try self.err(pos, "`{s}` does not take a `Simd`: a vector has `+=`, `-=`, `*=`, their wrapping and saturating forms, `&=`, `|=`, `^=`, and the shifts", .{spelled});
                 _ = try self.synthExpr(rhs);
                 return;
             },
@@ -7453,6 +7549,10 @@ const Checker = struct {
         if (!lane_ok) {
             try self.err(pos, "`{s}` requires {s} lanes; got `{s}`", .{ spelled, if (req == .integer) "integer" else "numeric", try self.tyName(vt) });
             _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (op == .@"<<" or op == .@"<<%" or op == .@">>") {
+            _ = try self.checkShiftAmount(rhs, v.elem, spelled);
             return;
         }
         const ty = try self.synthOperandValue(rhs);
@@ -8631,7 +8731,7 @@ const Checker = struct {
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     // Rig checks arithmetic only on constants: a compile-time
                     // parameter or a `const` binding of one differs per call.
-                    .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
+                    .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => blk: {
                         const obj = ir.Member.object(e);
                         // A number type's limits.
@@ -8687,7 +8787,7 @@ const Checker = struct {
         const h = e.kind() orelse return false;
         return switch (h) {
             .neg => self.isCtOperand(ir.Neg.operand(e)),
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => self.isCtOperand(ir.get(e, .left)) and self.isCtOperand(ir.get(e, .right)),
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => self.isCtOperand(ir.get(e, .left)) and self.isCtOperand(ir.get(e, .right)),
             else => false,
         };
     }
@@ -8998,7 +9098,7 @@ const Checker = struct {
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, if (std.meta.stringToEnum(sema.ElemOp, method) == .read) .read else .write, ty);
         if (try self.stringCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .write, ty);
         if (ct == null) if (try self.bitCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
-        if (ct == null) if (try self.simdCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
+        if (try self.simdCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .value, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -9048,6 +9148,18 @@ const Checker = struct {
             _ = try self.checkReceiverSigil(obj, .read, ty, method);
             return self.noteMethod(callee, .read, ty);
         };
+
+        if (resolved_method == null and std.mem.eql(u8, method, "is_empty") and self.hasBuiltinLen(peeled)) {
+            const f: FunctionType = .{
+                .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .read_view = sema.unwrapViews(self.ctx, obj_ty) })}),
+                .returns = self.t().bool_id,
+                .is_sub = false,
+            };
+            try self.noteCallee(f);
+            try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "is_empty", pos, .{ .receiver = true });
+            _ = try self.checkReceiverSigil(obj, .read, f.returns, method);
+            return self.noteMethod(callee, .read, f.returns);
+        }
 
         const resolved = resolved_method orelse {
             // A data field holding a function or a closure handle is
@@ -9217,14 +9329,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -9239,7 +9351,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
         }
         return self.t().void_id;
     }
@@ -9431,6 +9543,17 @@ const Checker = struct {
         }
         try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "get", pos, .{ .receiver = true });
         return f.returns;
+    }
+
+    /// Whether `.len` (and so `is_empty()`) is built in on `ty`, a type
+    /// with its views peeled: an array, a slice, a `?String`, a `Static`,
+    /// a List, or a Cell holding a List.
+    fn hasBuiltinLen(self: *Checker, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .array, .slice, .string_view, .static, .string => true,
+            .parameterized_nominal => listElementType(self.ctx, ty) != null or cellListElement(self.ctx, ty) != null,
+            else => false,
+        };
     }
 
     fn noteCallee(self: *Checker, f: FunctionType) Error!void {
@@ -11411,7 +11534,7 @@ const Checker = struct {
             .neg => integerOnlyOp(ir.Neg.operand(e)),
             .@"if" => integerOnlyOp(ir.If.then(e)) orelse integerOnlyOp(ir.If.@"else"(e)),
             .@"+", .@"-", .@"*", .@"/", .@"%" => integerOnlyOp(ir.get(e, .left)) orelse integerOnlyOp(ir.get(e, .right)),
-            .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>" => e,
+            .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>" => e,
             else => null,
         };
     }
@@ -11436,7 +11559,7 @@ const Checker = struct {
                 try self.recordLiteralType(ir.If.then(e), target);
                 try self.recordLiteralType(ir.If.@"else"(e), target);
             },
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^" => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"&", .@"|", .@"^" => {
                 try self.recordLiteralType(ir.get(e, .left), target);
                 try self.recordLiteralType(ir.get(e, .right), target);
             },
@@ -11542,7 +11665,7 @@ const Checker = struct {
             // Not constant as a whole (a branch is chosen when the program
             // runs): its constant parts are values of the type too.
             .not_constant => if (e.kind()) |h| switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^" => {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"&", .@"|", .@"^" => {
                     try self.checkLiteralFits(ir.get(e, .left), target);
                     try self.checkLiteralFits(ir.get(e, .right), target);
                 },
@@ -12621,7 +12744,7 @@ fn listElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
 fn isArithmetic(e: Sexp) bool {
     const h = e.kind() orelse return false;
     return switch (h) {
-        .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => true,
+        .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => true,
         else => false,
     };
 }

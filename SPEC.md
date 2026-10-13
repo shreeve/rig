@@ -243,13 +243,13 @@ integer value `16777217` does not fit exactly in `F32`
 
 A number type's name also has functions, which name how they convert.
 `I32.wrap(x)`, for any integer type, converts an integer by keeping its
-low bits: the value modulo 2^(the target's width), read in the target's
+low bits: the value modulo 2^(the target's bit count), read in the target's
 signedness, and it never panics. A narrower target keeps the low bits; a
 wider one gets the value, sign-extended when the source is signed. It
 takes an integer, not a float: convert a `Float` with `Int(x)` first.
 `Float.from_bits(u)` is the float whose IEEE 754 bits are the unsigned
 integer `u`, a `U64` (a `U32` for `F32`), and `f.to_bits()` reads those
-bits from a float, as the unsigned integer of its width. They convert the
+bits from a float, as the unsigned integer of its size. They convert the
 representation, where `U64(f)` converts the value.
 
 ```rig
@@ -292,7 +292,23 @@ type `Int` has no method `to_bits`
 
 A `?String` has a length `s.len` and can be indexed (`s[0]`, or
 `s.get(i)`, a `U8?` that is `none` past the end), and a `for` loop over
-it yields its bytes as `U8`. `?String` values compare with `==` and
+it yields its bytes as `U8`. `s.is_empty()` is `s.len == 0`; it works
+the same on a List, an array, a slice, and a `Cell[List[T]]`, and a
+type's own `is_empty` method wins on that type.
+
+```rig
+sub main()
+  s = ""
+  v: List[Int] = List()
+  !v.push(1)
+  print(s.is_empty(), "ab".is_empty(), v.is_empty())
+```
+
+```output
+true false false
+```
+
+`?String` values compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§5](#operators)).
 
@@ -869,7 +885,7 @@ cannot lend a slice of a `?String` to write; a `?String` is read-only
 
 ### Bytes
 
-Bytes hold fixed-width numbers. `bytes.read[T, e](at)` is the integer
+Bytes hold fixed-size numbers. `bytes.read[T, e](at)` is the integer
 or float `T` stored in the `@size(T)` bytes from offset `at`, in byte
 order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
 integer or float type, a vector of them ([Vectors](#reading-bytes-into-a-vector)),
@@ -937,15 +953,21 @@ bytes ([below](#reading-bytes-into-a-vector)). It prints as the array of
 its lanes.
 
 **Operators work lane by lane.** `+`, `-`, `*`, their wrapping forms
-`+%`, `-%`, `*%`, `&`, `|`, `^`, and `-v` give a vector of the same type,
-and `==`, `!=`, `<`, `<=`, `>`, and `>=` give a mask. Each lane follows
-the scalar rule for its type: `+`, `-`, `*`, and `-v` panic when any
-lane overflows, in every build mode, and the wrapping forms wrap; the
-integer operators take integer lanes, `&`, `|`, and `^` also a mask's,
-the orderings number lanes, and `-v` signed or float lanes. A scalar of
-the lane type, or a literal that fits it, stands for every lane, on
-either side: `v < 0x20`, `v == quote`, `1 + v`. The compound forms
-(`v += 1`, `m |= v == q`) assign the result. `/`, `%`, and the shifts
+`+%`, `-%`, `*%`, their saturating forms `+|`, `-|`, `&`, `|`, `^`, and
+`-v` give a vector of the same type, and `==`, `!=`, `<`, `<=`, `>`, and
+`>=` give a mask. Each lane follows the scalar rule for its type: `+`,
+`-`, `*`, and `-v` panic when any lane overflows, in every build mode,
+the wrapping forms wrap, and the saturating forms stop at the lane
+type's limits; the integer operators take integer lanes, `&`, `|`, and
+`^` also a mask's, the orderings number lanes, and `-v` signed or float
+lanes. A scalar of the lane type, or a literal that fits it, stands for
+every lane, on either side: `v < 0x20`, `v == quote`, `1 + v`. The
+shifts `v << c`, `v <<% c`, and `v >> c` move every integer lane by one
+amount `c`, an integer, below the lane's bit count, with the scalar rules: a
+constant `c` at or over it is rejected and a run-time one
+panics, `<<` panics where a lane loses bits (or its sign), `<<%` drops
+them, and `>>` is arithmetic on signed lanes. The compound forms
+(`v += 1`, `m |= v == q`, `v >>= 4`) assign the result. `/` and `%`
 take no vector. A vector's lanes are computed only when the program
 runs, even from constants: where a constant scalar that overflows is
 rejected (`x: I8 = -128` then `x * -1`), a lane that overflows panics
@@ -967,6 +989,53 @@ where it is false; `a` and `b` are vectors with as many lanes, or
 scalars standing for every lane. A mask is not a `Bool`, so a condition,
 `and`, `or`, `not`, and a ternary reject it, with the form that reduces
 it or combines it.
+
+**Tables and neighbours.** `t.lookup(idx)` looks bytes up in a table:
+`t` is a `Simd[U8, 16]`, `Simd[U8, 32]`, or `Simd[U8, 64]`, `idx` a
+`Simd[U8, n]` of any lane count, and lane `i` of the result, a
+`Simd[U8, n]`, is `t[idx[i]]`, or 0 where `idx[i]` is past the table.
+It lowers to the target's table instruction (`tbl` on ARM, `pshufb` on
+x86, `i8x16.swizzle` on WASM), 16 indexes at a time, and to a loop where
+there is none. `cur.lag[k](prev)` is the vector whose lanes are those of
+`prev` then `cur`, `k` lanes back from the end: lane `i` is `cur[i - k]`
+for `i >= k` and `prev[n - k + i]` below, so each lane sees the lane `k`
+before it in a stream of vectors. `k` is a constant from 1 to `n - 1`,
+checked when the program is checked, and `prev` is of `cur`'s type,
+whose lanes may be any. A module constant may hold a vector made of
+constants: `Simd[T, n](array)` or `Simd[T, n].splat(x)`.
+
+```rig
+type Block = Simd[U8, 16]
+
+HEX = Block([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66])
+
+sub main()
+  v = Block([0xC3, 0xA9, 0x41, 0xE2, 0x82, 0xAC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xF0])
+  high = HEX.lookup(v >> 4)
+  low = HEX.lookup(v & 0x0F)
+  print(high[0], low[0], HEX.lookup(Block.splat(16))[0])
+  before = v.lag[1](Block.splat(0x20))
+  print(before[0], before[1], (v -| 0xBF)[1], (v +| 0x40)[0])
+  print(((v.lag[1](Block.splat(0)) >= 0xC0) & (v < 0xC0)).bits())
+```
+
+```output
+99 51 0
+32 195 0 255
+18
+```
+
+```rig reject
+sub main()
+  v = Simd[U8, 16].splat(1)
+  print(v.lag[16](v), v >> 8, Simd[U16, 16].splat(1).lookup(v))
+```
+
+```error
+`lag` of a `Simd[U8, 16]` takes 1 to 15 lanes; got `16`
+shift amount `8` is out of range for `U8` (0..7)
+`lookup` looks up bytes in a table of 16, 32, or 64 of them
+```
 
 **Lanes are values, not places**, as an `Int`'s bits are. `v[i]` reads
 lane `i`, its index checked as an element's is (a constant one when the
@@ -1470,6 +1539,74 @@ sub main()
 
 ```output
 2
+```
+
+### Methods outside the body
+
+A method may also be declared outside its type's body, in any file of
+the type's module ([§14](#directory-modules)): `fun T.m(...)` or `sub
+T.m(...)`, written as it is called. It is the member it names, the same
+declaration written as `T`'s last member: `pub` exports it, `Self` is
+`T`, and `?self`, `!self`, and `<self` mean what they mean in the body.
+A generic type's method names the type's parameters exactly as its
+declaration does (`Wrap[T]` for `obj Wrap[T]`, `Ring[T, n]` for `obj
+Ring[T, n: Int]`), and any of its own follow its name. A `drop` body
+stays in the body, since it decides the type's kind.
+
+```rig
+obj Point
+  x: Int
+  y: Int
+
+obj Wrap[T]
+  v: T
+
+fun Point.origin() -> Self
+  Point(x: 0, y: 0)
+
+sub Point.shift(!self, dx: Int)
+  self.x += dx
+
+fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]
+  Wrap(v: f(self.v))
+
+fun double(n: Int) -> Int
+  2 * n
+
+sub main()
+  p = Point.origin()
+  !p.shift(3)
+  print(p.x, Wrap(v: 4).map(double).v)
+```
+
+```output
+3 8
+```
+
+A method is declared in the module that declares its type: an `obj`
+or `enum` of this module, named as declared, not through an alias, a
+built-in type, or another module's type (methods a type gains from
+elsewhere are what traits are for, [ROADMAP](docs/ROADMAP.md)).
+
+```rig reject
+obj Point
+  x: Int
+
+type P = Point
+
+fun P.norm(?self) -> Int
+  self.x
+
+fun List.first2(?self) -> Int
+  0
+
+sub main()
+  print(Point(x: 1).x)
+```
+
+```error
+`P` is an alias of `Point`; declare the method as `fun Point.norm`
+`List` is a built-in type; a method is declared on a type of this module
 ```
 
 ### Enums
@@ -2121,7 +2258,10 @@ that error. `rig test file.rig` runs every test block of the file and
 of the modules it imports: it prints
 `ok    test "name"` for each one that finishes, or
 `FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
-`rig run` ignores test blocks.
+`rig run` ignores test blocks. A directory module's `*_test.rig` files
+belong to it only in a build for `rig test` ([§14](#directory-modules));
+`rig check --tests` checks the program as `rig test` builds it, those
+files included, without building or running it.
 
 ```rig
 fun area(w: Int, h: Int) -> Int
@@ -2135,8 +2275,8 @@ test "area"
 
 A binding at module level is a constant, `name = value` or
 `name: T = value`, and `pub` exports it. Its value must be known at
-compile time: a literal, `.variant`, an earlier constant, or operators,
-ternaries (`a if c else b`), and array literals over them. Every function and type in the module
+compile time: a literal, `.variant`, a constant, or operators,
+ternaries (`a if c else b`), and array literals over them. Every function, type, and constant in the module
 reads it, wherever it is declared; nothing can reassign or move it,
 and a local or parameter may not reuse its name (`new` shadows it on
 purpose).
@@ -2161,6 +2301,21 @@ sub main()
 
 ```output
 10 5 high true
+```
+
+Constants are folded in the order they name each other, not the order
+they are written, so a constant that depends on itself is rejected:
+
+```rig reject
+A = B + 1
+B = A * 2
+
+sub main()
+  print(A)
+```
+
+```error
+constant `A` depends on itself (`A` → `B` → `A`)
 ```
 
 There are no mutable module-level variables, so a module-level binding
@@ -2480,7 +2635,7 @@ sub main()
 ```
 
 Bitwise operators need integers; a shift amount may be any
-integer, from 0 up to the width of the shifted type. A left shift that
+integer, from 0 up to the bit count of the shifted type. A left shift that
 loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.
 
@@ -2496,9 +2651,29 @@ as the program computes it.
 On a vector, an operator works lane by lane, and a scalar of its lane
 type stands for every lane ([Vectors](#vectors)).
 
+`+|` and `-|` are saturating arithmetic, as in Zig: a result past the
+limits of the operands' integer type stops at the limit it passes, so
+`U8(250) +| 10` is 255 and `I8(-100) -| 100` is -128, and never panics
+or wraps. They bind as `+` and `-` do, take integers as the wrapping
+forms do, and `+|=` and `-|=` assign the result. Constant saturating
+arithmetic is computed in its type.
+
+```rig
+sub main()
+  a: U8 = 250
+  i: I8 = -100
+  n: U8 = 3
+  n -|= 5
+  print(a +| 10, a -| 251, i -| 100, i +| 100 -| 100, n)
+```
+
+```output
+255 0 -128 -100 0
+```
+
 `<<%` is the wrapping left shift: the high bits it shifts out are
 dropped, where `<<` panics. It binds as `<<` does, and its amount is
-checked as `<<`'s is: it must be below the width of the shifted type,
+checked as `<<`'s is: it must be below the bit count of the shifted type,
 and one at or over it is rejected if constant and panics when the
 program runs, never masked. `<<%=` assigns the shifted result.
 
@@ -2583,7 +2758,7 @@ The other methods of an integer's bits take no arguments and work on
 its bit pattern, so a negative value counts as its two's complement.
 `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()` give
 an `Int`: the zero bits above the highest set bit, the zero bits below
-the lowest, and the set bits. For `0` both zero counts are the width of
+the lowest, and the set bits. For `0` both zero counts are the bit count of
 its type, and `(-1).count_ones()` is 64. `x.swap_bytes()` reverses the
 bytes, in the integer's own type. A receiver that is not an integer is
 rejected.
@@ -5377,6 +5552,7 @@ owns one), and read views.
 | `List()`, `List(capacity: n)` | an empty List (typed by context) |
 | `!v.push(x)` | append; an owning `x` is moved or cloned in |
 | `v.len` | the number of elements |
+| `v.is_empty()` | `v.len == 0`; it only reads, so `!v.is_empty()` is rejected (negate with `not`) |
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
@@ -6822,9 +6998,12 @@ type mismatch: expected `Int`, got `ParseError`
 
 ## 14. Modules
 
-`use name` imports `name.rig` from the directory of the program's root
-file, whichever module says it, so a name denotes one file. The file's
-name must be exactly `name.rig`, case included, and names starting with
+A module is a file or a directory, named by its path from the directory
+of the program's root file, whichever module says it: `use name`
+imports `name.rig` or the directory `name/` (a program may not have
+both), and `use a.b.c` the directory `a/b/c/`. The import binds the
+path's last name, so `use a.b.c` names the module `c`. Each name of the
+path is spelled as on disk, case included, and names starting with
 `__rig` are reserved for the compiler. `use std.name` imports the
 standard library's module `name` ([STD.md](docs/STD.md)), which ships
 with the compiler; it is a different module from a `name.rig` beside
@@ -7045,6 +7224,88 @@ exactly as within one, and a type is identified by the module that
 declares it: `a.Point` and `b.Point` are different types. A module
 whose import has errors is not checked; the import's errors are
 reported.
+
+### Directory modules
+
+A directory is a module made of its `.rig` files, as a Go package is.
+Its files share one namespace: a declaration of any file, private or
+`pub`, is visible in every other, a constant may name a constant of
+any file, and a method may be declared outside its type's body
+([§3](#methods-outside-the-body)) in any file of the type's module.
+Every `.rig` file in a subdirectory belongs to that directory's
+module, so a module beneath another is a directory of its own:
+`checker/binder.rig` is part of module `checker`, and
+`checker/binder/` is the module `checker.binder`. Each file closes its
+own blocks and brackets, and a diagnostic names the file it is in.
+
+Files that call each other belong in one module: modules may not
+import each other in a cycle, so mutual recursion across files lives
+inside a directory. A `use` binds its name in its own file only, and
+each file uses the modules it names. Two files may bind one name to
+different modules, and a name another file binds is free in this one,
+for a parameter or a local. In the file that binds it, the name is
+taken: a parameter of that name needs the module imported under
+another (`use ast as a`), and a local can also hide the module for the
+rest of its scope with `new ast = ...`.
+
+```rig file=checker/expr.rig
+pub obj Checker
+  pub depth: Int
+
+  pub fun expr(?self, n: Int) -> Int
+    0 if n == 0 else self.stmt(n - 1)
+```
+
+```rig file=checker/stmt.rig
+use checker.binder
+
+pub fun Checker.stmt(?self, n: Int) -> Int
+  binder.bump(self.expr(n))
+```
+
+```rig file=checker/binder/bump.rig
+pub fun bump(n: Int) -> Int
+  n + 1
+```
+
+```rig
+use checker
+
+sub main()
+  print(checker.Checker(depth: 0).expr(3))
+```
+
+```output
+3
+```
+
+```rig file=m/a.rig
+use std.math
+
+pub fun a() -> Int
+  math.abs(-1)
+```
+
+```rig file=m/b.rig
+pub fun b() -> Int
+  math.abs(-2)
+```
+
+```rig reject
+use m
+
+sub main()
+  print(m.a() + m.b())
+```
+
+```error
+`math` is imported by another file of module `m`; add `use std.math` to this file
+```
+
+A file whose name ends in `_test.rig` belongs to its directory's module
+only when `rig test` builds the program, so its tests see the module's
+private names; `rig run` and `rig check` leave it out, and
+`rig check --tests` checks the program with it.
 
 ---
 

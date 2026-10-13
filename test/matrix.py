@@ -2505,6 +2505,9 @@ PROOF_USES = {
     "add": ("print(i + 1)", "+", "i + 1", None, False, "i + 1 > 0", None),
     "add_set": ("i += 1", "+=", "i += 1", None, False, None, None),
     "add8": ("print(i + 8)", "+", "i + 8", None, False, "i + 8 > 0", None),
+    # `w = four(k)` before the guard: `four` bounds `w.size` by 4.
+    "add_field": ("print(i + w.size)", "+", "i + w.size", None, False, "i + w.size > 0", None),
+    "add_field_set": ("i += w.size", "+=", "i += w.size", None, False, None, None),
 }
 PROOF_PLACES = ("straight", "nested", "and")
 
@@ -2513,7 +2516,7 @@ def proof_tests(facts, uname):
     """The tests the use's node has proven under `facts` (docs/INTERNALS.md,
     "Proven checks"): an index or a byte access, `0 <= i` and room for its
     width; an add of `c`, room for `c`, or any room below a length that
-    fits."""
+    fits; an add of a field its function bounds by 4, as an add of 4."""
     _, kind, _, width, _, _, _ = PROOF_USES[uname]
     below = facts["below"]
     if width is not None:
@@ -2523,7 +2526,7 @@ def proof_tests(facts, uname):
         if below is not None and below >= width:
             tests.append("upper")
         return tests
-    c = 8 if uname == "add8" else 1
+    c = {"add8": 8, "add_field": 4, "add_field_set": 4}.get(uname, 1)
     return ["no_overflow"] if below is not None and (below >= c or facts["fits"]) else []
 
 
@@ -2550,10 +2553,12 @@ def proof_program(gname, mname, uname, place, deep=False):
         sig.append("out: ![]Int")
     sig += ["at: Int", "flag: Bool", "k: Int"]
     body = ["s = t" if not uwrites else "s = <t", "i = at"]
+    if uname.startswith("add_field"):
+        body.append("w = four(k)")
     # `i += 1` is followed by a read of `i`, which it would otherwise leave
     # unread.
     # The use's line is marked with a NUL until its place is known.
-    stmts = ["\0" + ustmt] + (["print(i)"] if uname == "add_set" else [])
+    stmts = ["\0" + ustmt] + (["print(i)"] if uname in ("add_set", "add_field_set") else [])
     use = [uexpr] if place == "and" else stmts
     if place == "nested":
         use = ["if flag"] + ["  " + x for x in stmts]
@@ -2618,6 +2623,11 @@ def proof_program(gname, mname, uname, place, deep=False):
         elif uname == "add_set":
             i += 1
             prints.append(str(i))
+        elif uname == "add_field":
+            prints.append(str(i + 4))
+        elif uname == "add_field_set":
+            i += 4
+            prints.append(str(i))
         i += 1
     if uwrites and panic is None:
         prints.append("[" + ", ".join(map(str, buf)) + "]")
@@ -2626,6 +2636,8 @@ def proof_program(gname, mname, uname, place, deep=False):
     facts.update(meffect)
     tests = proof_tests(facts, uname)
     src = ["sub bump(n: !Int)", "  n += 1", "", "fun next(n: !Int) -> Int", "  n += 1", "  7", ""]
+    if uname.startswith("add_field"):
+        src += ["obj W", "  size: Int", "", "fun four(k: Int) -> W", "  return W(size: 4) if k > 0", "  W(size: 0)", ""]
     src.append(f"sub probe({', '.join(sig)})")
     first = len(src) + 1
     src += ["  " + l for l in body]

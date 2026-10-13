@@ -126,7 +126,7 @@ review rounds.
 ## Workflow
 
 ```bash
-zig build                  # builds bin/rig
+zig build                  # builds bin/rig (ReleaseSafe; -Doptimize=debug for compiler work)
 ./test/run -j 2            # full suite; must be green before every commit
 ./test/run -j 2 corpus     # every reviewer probe, not only the default sample
 test/matrix.py -j 2        # form x context x type programs, checked and run
@@ -202,6 +202,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `FAQ.md` | Common questions |
 | `docs/STD.md` | The standard library's modules |
 | `docs/TEXT.md` | Text: bytes, runes, units, and chars, how each is measured, and the modules for each |
+| `docs/TEXT-API.md` | Every name of the text API in one list, with its signature and whether it is built |
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/RIG-MANTRAS.md` | The short phrases we steer by: how we choose, build, name, and measure |
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |

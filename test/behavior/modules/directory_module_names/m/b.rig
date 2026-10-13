@@ -1,0 +1,6 @@
+use geo
+
+LIMIT = BASE * 2
+
+fun helper() -> Int
+  geo.Point(x: BASE, y: 0).x

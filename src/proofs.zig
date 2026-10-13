@@ -10,7 +10,7 @@
 //! (`SemContext.recordProven`). Emit omits those tests; a debug build
 //! still makes each one, as an assertion of the proof.
 //!
-//! The pass tracks four facts about bindings, by symbol:
+//! The pass tracks five facts about bindings, by symbol:
 //!
 //! - `nonneg(i)`: `0 <= i`;
 //! - `below(i, k, b)`: `i + k <= b`, exactly, where the bound `b` is
@@ -18,7 +18,16 @@
 //!   an `Int` binding `n`;
 //! - `fits(s)`: `s.len <= max_len`, which `rig.len` tests where a length
 //!   is read;
-//! - `eq(n, s)`: `n == s.len`, after `n = s.len`.
+//! - `eq(n, s)`: `n == s.len`, after `n = s.len`;
+//! - `upto(d, f, h)`: `0 <= d.f <= h`, after `d = g(...)` where `g`
+//!   bounds the field `f` of its result.
+//!
+//! What a function bounds of its result (`sema.ResultBound`) is found
+//! first, for every function of the module, from its return values:
+//! each is a literal, a constructor whose field is a literal, or a call
+//! of a function that bounds the same (`Summaries`). A caller's add
+//! `i + x` is proven when `x` is such a field or result and `i` has room
+//! below a bound.
 //!
 //! A body is cut into units (`rig.eachUnit`): a statement, a guard part,
 //! a `while` step, a `for` source, a `match`'s selection, a `raw` block.
@@ -76,6 +85,9 @@ const Bound = union(enum) {
 
 const Below = struct { i: SymbolId, k: u64, b: Bound };
 
+/// `0 <= d.name <= hi`, of a struct binding `d`.
+const Upto = struct { d: SymbolId, name: []const u8, hi: u64 };
+
 /// `n == s.len`.
 const Eq = struct { n: SymbolId, s: SymbolId };
 
@@ -84,6 +96,7 @@ const Fact = union(enum) {
     below: Below,
     fits: SymbolId,
     eq: Eq,
+    upto: Upto,
 };
 
 /// The facts that hold at a point of the walk.
@@ -115,11 +128,22 @@ const State = struct {
         return null;
     }
 
+    /// The `hi` of `upto(d, name, hi)`, or null.
+    fn uptoHi(st: *const State, d: SymbolId, name: []const u8) ?u64 {
+        for (st.facts.items) |f| if (f == .upto and f.upto.d == d and std.mem.eql(u8, f.upto.name, name)) return f.upto.hi;
+        return null;
+    }
+
     /// Add `fact`, and what it gives with an `eq` held: `below(i, k,
     /// int(n))` with `eq(n, s)` is `below(i, k, len(s))`.
     fn add(st: *State, a: std.mem.Allocator, fact: Fact) std.mem.Allocator.Error!void {
         switch (fact) {
             .nonneg, .fits, .eq => if (st.has(fact)) return,
+            // One `upto` per binding and field: the smallest `hi`.
+            .upto => |nu| for (st.facts.items) |*f| if (f.* == .upto and f.upto.d == nu.d and std.mem.eql(u8, f.upto.name, nu.name)) {
+                f.upto.hi = @min(f.upto.hi, nu.hi);
+                return;
+            },
             // One `below` per binding and bound: the largest `k`.
             .below => |nb| for (st.facts.items) |*f| if (f.* == .below and f.below.i == nb.i and std.meta.eql(f.below.b, nb.b)) {
                 if (nb.k <= f.below.k) return;
@@ -151,13 +175,15 @@ const State = struct {
         }
     }
 
-    /// The facts both `x` and `y` hold, `below` with the smaller `k`.
+    /// The facts both `x` and `y` hold, `below` with the smaller `k`, and
+    /// `upto` with the larger `hi`.
     fn meet(a: std.mem.Allocator, x: *const State, y: *const State) !State {
         if (x.dead) return y.clone(a);
         if (y.dead) return x.clone(a);
         var out: State = .{};
         for (x.facts.items) |f| switch (f) {
             .below => |b| if (y.belowK(b.i, b.b)) |k| try out.facts.append(a, .{ .below = .{ .i = b.i, .k = @min(k, b.k), .b = b.b } }),
+            .upto => |u| if (y.uptoHi(u.d, u.name)) |hi| try out.facts.append(a, .{ .upto = .{ .d = u.d, .name = u.name, .hi = @max(hi, u.hi) } }),
             else => if (y.has(f)) try out.facts.append(a, f),
         };
         return out;
@@ -211,6 +237,7 @@ const Kills = struct {
                 .int => |n| k.effectOn(n) != null,
             },
             .eq => |e| k.effectOn(e.n) != null or k.movesLen(e.s),
+            .upto => |u| k.effectOn(u.d) != null,
         };
     }
 
@@ -304,10 +331,36 @@ const Pass = struct {
 
     /// An integer literal written in decimal, hex, octal, or binary.
     fn intLiteral(p: *const Pass, e: Sexp) ?u64 {
+        return literalOf(p.ctx, e);
+    }
+
+    /// `d`, a binding an `upto` may be about: an own binding whose type is
+    /// a struct held by value (not a view of one), whose fields change
+    /// only where a write of `d` says so.
+    fn structLocal(p: *const Pass, e: Sexp) ?SymbolId {
         if (e != .src) return null;
-        const text = sema.identAt(p.source(), e) orelse return null;
-        if (text.len == 0 or !std.ascii.isDigit(text[0])) return null;
-        return std.fmt.parseInt(u64, text, 0) catch null;
+        const sym = p.ctx.symbolOf(e) orelse return null;
+        if (!p.ownBinding(sym)) return null;
+        return switch (p.ctx.types.get(p.ctx.symbols.items[sym].ty)) {
+            .nominal, .imported_nominal => sym,
+            else => null,
+        };
+    }
+
+    /// `0 <= x <= hi` of an `Int` addend `x`: `d.f` under `upto(d, f,
+    /// hi)`, or `g(...).f` or `g(...)` where `g` bounds that field or its
+    /// result (`sema.ResultBound`).
+    fn addendBound(p: *const Pass, e: Sexp, st: *const State) ?u64 {
+        if (p.ctx.typeOf(e) != p.ctx.types.int_id) return null;
+        if (e.isKind(.member)) {
+            const name = sema.identAt(p.source(), ir.Member.name(e)) orelse return null;
+            const obj = ir.Member.object(e);
+            if (p.structLocal(obj)) |d| return st.uptoHi(d, name);
+            if (obj.isKind(.call)) if (resultBoundOf(p.ctx, obj)) |b| return b.field(name);
+            return null;
+        }
+        if (e.isKind(.call)) if (resultBoundOf(p.ctx, e)) |b| return b.whole;
+        return null;
     }
 
     /// `s.len` of a slice view.
@@ -494,13 +547,18 @@ const Pass = struct {
                 try p.record(b.callee, rangeProven(st, b.i, b.s, b.width));
             },
             .@"+" => {
-                const pc = p.plusConst(node, false) orelse return;
-                try p.record(node, .{ .no_overflow = addFits(st, pc.i, pc.c) });
+                if (p.plusConst(node, false)) |pc| return p.record(node, .{ .no_overflow = addFits(st, pc.i, pc.c) });
+                // `i + x` with `0 <= x <= hi`: as `i + max(hi, 1)`.
+                if (p.ctx.typeOf(node) != p.ctx.types.int_id) return;
+                const i = p.intLocal(ir.get(node, .left)) orelse return;
+                const hi = p.addendBound(ir.get(node, .right), st) orelse return;
+                try p.record(node, .{ .no_overflow = addFits(st, i, @max(hi, 1)) });
             },
-            // `i += c`: the add's own test.
+            // `i += c`, and `i += x` with `0 <= x <= hi`: the add's own test.
             .set => if (rig.bindingKindOf(ir.Set.op(node)) == .@"+=") {
                 const i = p.intLocal(ir.Set.target(node)) orelse return;
-                const c = p.intLiteral(ir.Set.value(node)) orelse return;
+                const value = ir.Set.value(node);
+                const c = p.intLiteral(value) orelse @max(p.addendBound(value, st) orelse return, 1);
                 try p.record(node, .{ .no_overflow = addFits(st, i, c) });
             },
             else => {},
@@ -560,12 +618,21 @@ const Pass = struct {
         try out.add(p.a, .{ .below = .{ .i = i, .k = width, .b = .{ .len = s } } });
     }
 
-    /// G3 and E1, after an assignment's store: `i = c` (a literal),
-    /// `i = j` with `0 <= j` before it, and `n = s.len`, which also gives
-    /// `eq(n, s)` and, from the length read, `fits(s)`.
+    /// G3, E1, and E2, after an assignment's store: `i = c` (a literal),
+    /// `i = j` with `0 <= j` before it, `n = s.len`, which also gives
+    /// `eq(n, s)` and, from the length read, `fits(s)`, and `d = g(...)`,
+    /// which gives `upto(d, f, hi)` of each field `g` bounds.
     fn genStore(p: *Pass, set: Sexp, before: *const State, out: *State) Error!void {
         const kind = rig.bindingKindOf(ir.Set.op(set));
         if (kind.operator() != null) return;
+        // E2: `d = g(...)`, where `g` bounds fields of its result.
+        if (p.structLocal(ir.Set.target(set))) |d| {
+            const value = ir.Set.value(set);
+            if (p.ctx.typeOf(value) != p.ctx.symbols.items[d].ty) return;
+            const b = resultBoundOf(p.ctx, value) orelse return;
+            for (b.fields) |f| try out.add(p.a, .{ .upto = .{ .d = d, .name = f.name, .hi = f.hi } });
+            return;
+        }
         const i = p.intLocal(ir.Set.target(set)) orelse return;
         const value = ir.Set.value(set);
         if (p.intLiteral(value) != null) return out.add(p.a, .{ .nonneg = i });
@@ -858,11 +925,14 @@ const Pass = struct {
     }
 };
 
-/// Record the tests each node of a module the ownership checker accepted
-/// is known to pass (`SemContext.provenOf`).
+/// Record what each function of a module the ownership checker accepted
+/// bounds of its result (`SemContext.result_bounds`), and the tests each
+/// node is known to pass (`SemContext.provenOf`).
 pub fn check(ctx: *SemContext, root: Sexp) Error!void {
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
+    var sums: Summaries = .{ .ctx = ctx, .a = arena.allocator() };
+    try sums.all(root);
     var p: Pass = .{ .ctx = ctx, .a = arena.allocator() };
     try rig.eachBody(root, &p, walkDeclBody);
     var it = p.proven.iterator();
@@ -871,6 +941,210 @@ pub fn check(ctx: *SemContext, root: Sexp) Error!void {
 
 fn walkDeclBody(p: *Pass, owner: Sexp, body: Sexp) Error!void {
     try p.walkBody(owner, body);
+}
+
+// ---------------------------------------------------------------------------
+// What a function bounds of its result
+// ---------------------------------------------------------------------------
+
+/// An integer literal written in decimal, hex, octal, or binary.
+fn literalOf(ctx: *const SemContext, e: Sexp) ?u64 {
+    if (e != .src) return null;
+    const text = sema.identAt(ctx.source, e) orelse return null;
+    if (text.len == 0 or !std.ascii.isDigit(text[0])) return null;
+    return std.fmt.parseInt(u64, text, 0) catch null;
+}
+
+/// A function a call names: where its name is declared, in the module
+/// that declares it.
+const Callee = struct { ctx: *const SemContext, pos: u32 };
+
+/// The function `call` calls, when it names one: `f(...)` of a function
+/// of this module, or `m.f(...)` of a module `m`; not a closure, a
+/// method, an extern, a generic instance, or a proxy of another module's
+/// declaration.
+fn calledFn(ctx: *const SemContext, call: Sexp) ?Callee {
+    if (!call.isKind(.call)) return null;
+    const callee = ir.Call.callee(call);
+    if (ctx.instanceOf(callee) != null) return null;
+    if (callee == .src) {
+        const id = ctx.symbolOf(callee) orelse return null;
+        const s = ctx.symbols.items[id];
+        if (s.kind != .function or sema.isProxy(s)) return null;
+        return .{ .ctx = ctx, .pos = s.decl_pos };
+    }
+    if (!callee.isKind(.member)) return null;
+    const id = ctx.symbolOf(ir.Member.object(callee)) orelse return null;
+    if (ctx.symbols.items[id].kind != .module) return null;
+    const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
+    const name = sema.identAt(ctx.source, ir.Member.name(callee)) orelse return null;
+    const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+    const s = foreign.symbols.items[fid];
+    if (s.kind != .function or sema.isProxy(s)) return null;
+    return .{ .ctx = foreign, .pos = s.decl_pos };
+}
+
+/// What the function `call` calls bounds of its result, once its module's
+/// bounds are found (`Summaries`); null when it bounds nothing.
+fn resultBoundOf(ctx: *const SemContext, call: Sexp) ?sema.ResultBound {
+    const f = calledFn(ctx, call) orelse return null;
+    return f.ctx.result_bounds.get(f.pos);
+}
+
+/// Whether `call` constructs a value of the struct `ty`: `T(...)` or
+/// `m.T(...)` of a struct that is no generic instance.
+fn constructs(ctx: *const SemContext, call: Sexp, ty: sema.TypeId) bool {
+    if (!call.isKind(.call) or ctx.typeOf(call) != ty) return false;
+    const callee = ir.Call.callee(call);
+    if (ctx.instanceOf(callee) != null) return false;
+    if (callee == .src) {
+        const id = ctx.symbolOf(callee) orelse return false;
+        return ctx.symbols.items[id].kind == .nominal_type;
+    }
+    if (!callee.isKind(.member)) return false;
+    const s = storage.moduleMemberSym(ctx, callee) orelse return false;
+    return s.kind == .nominal_type;
+}
+
+/// What each function of a module bounds of its result, from its return
+/// values (docs/INTERNALS.md, "Proven checks"). Each value a function can
+/// return (every `return`'s, and the body's tail unless it is a
+/// `return`) is, for an `Int` result, a literal or a call of a function
+/// that bounds its result, and for a struct result, a constructor that
+/// gives the field a literal, or a call of a function that bounds that
+/// field. Anything else bounds nothing, and so does a function on a cycle
+/// of calls, which reaches itself before its bound is known.
+const Summaries = struct {
+    ctx: *SemContext,
+    a: std.mem.Allocator,
+    /// Each function of the module, by where its name is declared.
+    fns: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
+    /// The functions whose bound is being found, or was.
+    seen: std.AutoHashMapUnmanaged(u32, void) = .empty,
+
+    fn all(s: *Summaries, root: Sexp) Error!void {
+        for (ir.Module.decls(root)) |decl| {
+            const d = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+            if (!d.isKind(.fun)) continue;
+            try s.fns.put(s.a, s.ctx.startOf(ir.get(d, .name)), d);
+        }
+        var it = s.fns.keyIterator();
+        while (it.next()) |pos| _ = try s.local(pos.*);
+    }
+
+    /// The bound of the function that `call` calls: another module's,
+    /// found with that module, or one of this module's, found now.
+    fn of(s: *Summaries, call: Sexp) Error!?sema.ResultBound {
+        const f = calledFn(s.ctx, call) orelse return null;
+        if (f.ctx != s.ctx) return f.ctx.result_bounds.get(f.pos);
+        return s.local(f.pos);
+    }
+
+    fn local(s: *Summaries, pos: u32) Error!?sema.ResultBound {
+        if ((try s.seen.getOrPut(s.a, pos)).found_existing) return s.ctx.result_bounds.get(pos);
+        const node = s.fns.get(pos) orelse return null;
+        const b = (try s.summarize(node, pos)) orelse return null;
+        try s.ctx.result_bounds.put(s.ctx.allocator, pos, b);
+        return b;
+    }
+
+    fn summarize(s: *Summaries, node: Sexp, pos: u32) Error!?sema.ResultBound {
+        const ctx = s.ctx;
+        const body = ir.get(node, .body);
+        if (body == .nil or sema.tparamsOf(node) != .nil) return null;
+        const name = sema.identAt(ctx.source, ir.get(node, .name)) orelse return null;
+        const id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+        const sym = ctx.symbols.items[id];
+        if (sym.kind != .function or sym.decl_pos != pos) return null;
+        const fty = switch (ctx.types.get(sym.ty)) {
+            .function => |f| f,
+            else => return null,
+        };
+        const ret = fty.returns;
+        var values: std.ArrayList(Sexp) = .empty;
+        if (!try s.returns(body, &values)) return null;
+        const tail = sema.tailOf(body);
+        if (tail == .nil) return null;
+        if (!tail.isKind(.@"return")) try values.append(s.a, tail);
+        if (ret == ctx.types.int_id) {
+            var hi: u64 = 0;
+            for (values.items) |v| hi = @max(hi, (try s.wholeOf(v)) orelse return null);
+            return .{ .whole = hi };
+        }
+        switch (ctx.types.get(ret)) {
+            .nominal => {},
+            else => return null,
+        }
+        // The fields some value gives a bound, each kept when every value
+        // bounds it.
+        var names: std.ArrayList([]const u8) = .empty;
+        for (values.items) |v| {
+            if (constructs(ctx, v, ret)) {
+                for (ir.Call.args(v)) |arg| if (arg.isKind(.kwarg)) {
+                    const n = sema.identAt(ctx.source, ir.Kwarg.name(arg)) orelse continue;
+                    if (!contains(names.items, n)) try names.append(s.a, n);
+                };
+            } else if (try s.of(v)) |b| for (b.fields) |f| {
+                if (!contains(names.items, f.name)) try names.append(s.a, f.name);
+            };
+        }
+        var fields: std.ArrayList(sema.FieldBound) = .empty;
+        next: for (names.items) |n| {
+            var hi: u64 = 0;
+            for (values.items) |v| hi = @max(hi, (try s.fieldOf(v, ret, n)) orelse continue :next);
+            try fields.append(s.a, .{ .name = try ctx.arena.allocator().dupe(u8, n), .hi = hi });
+        }
+        if (fields.items.len == 0) return null;
+        return .{ .fields = try ctx.arena.allocator().dupe(sema.FieldBound, fields.items) };
+    }
+
+    /// The value of every `return` in `e`, but those of the functions and
+    /// closures declared in it; false when one returns no value.
+    fn returns(s: *Summaries, e: Sexp, out: *std.ArrayList(Sexp)) Error!bool {
+        if (e != .list) return true;
+        switch (e.kind() orelse .set) {
+            .lambda, .fun, .sub => return true,
+            .@"return" => {
+                const v = ir.Return.value(e);
+                if (v == .nil) return false;
+                try out.append(s.a, v);
+            },
+            else => {},
+        }
+        for (e.items()) |c| if (!try s.returns(c, out)) return false;
+        return true;
+    }
+
+    /// The bound of an `Int` value: a literal, or a call of a function
+    /// that bounds its result.
+    fn wholeOf(s: *Summaries, v: Sexp) Error!?u64 {
+        if (literalOf(s.ctx, v)) |c| return if (c <= max_k) c else null;
+        const b = (try s.of(v)) orelse return null;
+        return b.whole;
+    }
+
+    /// The bound of field `name` of a struct value of type `ty`: a
+    /// constructor that gives it a literal, or a call of a function that
+    /// bounds it.
+    fn fieldOf(s: *Summaries, v: Sexp, ty: sema.TypeId, name: []const u8) Error!?u64 {
+        if (constructs(s.ctx, v, ty)) {
+            for (ir.Call.args(v)) |arg| if (arg.isKind(.kwarg)) {
+                const n = sema.identAt(s.ctx.source, ir.Kwarg.name(arg)) orelse continue;
+                if (!std.mem.eql(u8, n, name)) continue;
+                const c = literalOf(s.ctx, ir.Kwarg.value(arg)) orelse return null;
+                return if (c <= max_k) c else null;
+            };
+            return null;
+        }
+        if (s.ctx.typeOf(v) != ty) return null;
+        const b = (try s.of(v)) orelse return null;
+        return b.field(name);
+    }
+};
+
+fn contains(names: []const []const u8, name: []const u8) bool {
+    for (names) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
 }
 
 /// The units of a module's bodies in the order the walk visits them, and
@@ -1666,4 +1940,118 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
     try std.testing.expect(units > 1000);
     try std.testing.expect(swapped > 50);
     try std.testing.expect(late_resumes > 5);
+}
+
+test "E2: a bound a function gives its result proves a caller's add" {
+    // `dec` returns `one()`'s size 1 or a size 4; `w` returns 1 or 2: so
+    // `i + d.size`, `i + dec(s, i).size`, `i + w(...)`, and `i += d.size`
+    // fit under `i < s.len`, and `e`'s fact lasts through a loop that
+    // does not write `e`.
+    try expectDump(
+        \\obj D
+        \\  rune: Int
+        \\  size: Int
+        \\
+        \\fun one() -> D
+        \\  D(rune: 0, size: 1)
+        \\
+        \\fun dec(s: ?String, i: Int) -> D
+        \\  return one() if s[i] < 0x80
+        \\  D(rune: 1, size: 4)
+        \\
+        \\fun w(b: U8) -> Int
+        \\  return 1 if b < 0x80
+        \\  2
+        \\
+        \\fun f(s: ?String, at: Int) -> Int
+        \\  i = at
+        \\  if i < s.len
+        \\    d = dec(s, i)
+        \\    print(i + d.size, i + dec(s, i).size, i + w(s[i]))
+        \\    i += d.size
+        \\  e = dec(s, 0)
+        \\  while i < s.len
+        \\    print(i + e.size)
+        \\    i += 1
+        \\  i
+        \\
+    ,
+        \\20:11 + no_overflow
+        \\20:23 + no_overflow
+        \\20:43 + no_overflow
+        \\20:49 index upper
+        \\21:5 += no_overflow
+        \\24:11 + no_overflow
+        \\25:5 += no_overflow
+        \\
+    );
+}
+
+test "E2: a near miss bounds nothing" {
+    // A size from a parameter, a negative one, a value `if`, one past
+    // 2^62, one through a cycle of calls, a store into the field, a
+    // reassignment from an unbounded call, a write view, a parameter
+    // struct, the bound on the left of `+`, a loop that writes the
+    // struct, and a `raw` block: only the loop's own `j += 1` is proven.
+    try expectDump(
+        \\obj D
+        \\  rune: Int
+        \\  size: Int
+        \\
+        \\sub bump(d: !D)
+        \\  d.size += 1
+        \\
+        \\fun var(n: Int) -> D
+        \\  D(rune: 0, size: n)
+        \\
+        \\fun neg() -> D
+        \\  D(rune: 0, size: -1)
+        \\
+        \\fun cond(k: Int) -> D
+        \\  D(rune: 0, size: 1) if k > 0 else D(rune: 0, size: 2)
+        \\
+        \\fun big() -> D
+        \\  D(rune: 0, size: 0x4000000000000001)
+        \\
+        \\fun rec(k: Int) -> D
+        \\  return rec(k - 1) if k > 0
+        \\  D(rune: 0, size: 1)
+        \\
+        \\fun dec() -> D
+        \\  D(rune: 0, size: 4)
+        \\
+        \\fun f(s: ?String, i: Int, p: D) -> Int
+        \\  if i < s.len
+        \\    a = var(3)
+        \\    b = neg()
+        \\    c = cond(1)
+        \\    e = big()
+        \\    w = rec(1)
+        \\    h = dec()
+        \\    h.size = 9
+        \\    k = dec()
+        \\    k = var(5)
+        \\    m = dec()
+        \\    bump(!m)
+        \\    n = dec()
+        \\    print(i + a.size, i + b.size, i + c.size, i + e.size, i + w.size, i + h.size, i + p.size, i + k.size, i + m.size, n.size + i)
+        \\  0
+        \\
+        \\fun g(s: ?String, i: Int) -> Int
+        \\  j = 0
+        \\  d = dec()
+        \\  while j < s.len
+        \\    print(j + d.size)
+        \\    d = var(9)
+        \\    j += 1
+        \\  raw
+        \\    d = dec()
+        \\  if i < s.len
+        \\    print(i + d.size)
+        \\  0
+        \\
+    ,
+        \\50:5 += no_overflow
+        \\
+    );
 }

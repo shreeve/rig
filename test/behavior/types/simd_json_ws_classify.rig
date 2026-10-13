@@ -1,0 +1,39 @@
+# std.json's whitespace bitmap: the bytes of a 64-byte block that are not
+# JSON whitespace, by one nibble lookup per 16 lanes and a compare. WS holds,
+# for each low nibble, the whitespace byte with that nibble (0x20, 0x09,
+# 0x0A, 0x0D) and 0 for the rest, which no byte with that nibble equals.
+type Table = Simd[U8, 16]
+type Wide = Simd[U8, 64]
+
+WS = Table([0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0x09, 0x0A, 0, 0, 0x0D, 0, 0])
+SAMPLE = " \x09\x0a\x0d{\"a\": 1,  [x]\x0a\x0a    \x09}"
+
+fun nonspace(s: ?String, at: Int) -> U64
+  v = s.read[Wide](at)
+  (WS.lookup(v & 0x0F) == v).not().bits()
+
+fun nonspace_scalar(s: ?String, at: Int) -> U64
+  m: U64 = 0
+  for k in 0..64
+    c = s[at + k]
+    if not (c == 0x20 or c == 0x09 or c == 0x0A or c == 0x0D)
+      m = m | (U64(1) << k)
+  m
+
+sub main()
+  s = String()
+  for k in 0..256
+    !s.push(U8(k))
+  for k in 0..300
+    !s.push(SAMPLE[k % SAMPLE.len])
+  bad = 0
+  for at in 0..s.len - 63
+    bad += 1 if nonspace(?s, at) != nonspace_scalar(?s, at)
+  print("checked", s.len - 63, "mismatches", bad)
+  print(nonspace(?s, 256))
+
+# expect:
+# checked 493 mismatches 0
+# 4017777785597709808
+
+# release

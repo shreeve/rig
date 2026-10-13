@@ -1,0 +1,27 @@
+# A method declared outside its type's body is the member it names.
+obj Point
+  x: Int
+  y: Int
+
+obj Wrap[T]
+  v: T
+
+fun Point.origin() -> Self
+  Point(x: 0, y: 0)
+
+sub Point.shift(!self, dx: Int)
+  self.x += dx
+
+fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]
+  Wrap(v: f(self.v))
+
+fun double(n: Int) -> Int
+  2 * n
+
+sub main()
+  p = Point.origin()
+  !p.shift(3)
+  print(p.x, Wrap(v: 4).map(double).v)
+
+# expect:
+# 3 8

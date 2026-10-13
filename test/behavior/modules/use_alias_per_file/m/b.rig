@@ -1,0 +1,4 @@
+use geo as g
+
+pub fun b() -> Int
+  g.two()

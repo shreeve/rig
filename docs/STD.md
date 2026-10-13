@@ -32,6 +32,7 @@ never read as the library's.
 |---|---|
 | [`std.math`](#stdmath) | number helpers, and Float functions |
 | [`std.os`](#stdos) | the program's arguments and environment |
+| [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
@@ -190,6 +191,47 @@ sub main()
 ```output
 nowhere
 ```
+
+## std.file
+
+Reading a whole file into a `String`.
+
+| Function | Result |
+|---|---|
+| `read(path: ?String) -> String?` | the file at `path` as a fresh `String` of exactly its bytes, or `none` when it cannot be read |
+
+A relative `path` starts at the working directory. The bytes are the
+file's as they are: none added, and none checked to be UTF-8, so a
+binary file reads as well as text. The `String` is the caller's, like
+any other, and its buffer holds exactly the file's bytes, with no
+spare room past them. A pipe or a device, which has no
+size, is read to its end, so one that never ends (`/dev/zero`) is read
+until memory runs out, and a pipe with no writer waits, as Go's
+`os.ReadFile` does. A file too large for memory panics as any
+allocation that fails does.
+
+`read` gives `none` when the file does not exist, when `path` names a
+directory, when the program may not read the file, and when reading it
+fails partway. It does not say which: the `none` covers them all.
+
+```rig
+use std.file
+use std.text
+
+sub main()
+  if file.read("examples/hello.rig") as source
+    end = text.find(source, "\n") ?? source.len
+    print(source[..end])
+  print(file.read("examples") == none, file.read("no/such/file") == none)
+```
+
+```output
+# The smallest meaningful Rig program.
+true true
+```
+
+The suite runs this example from the repository's root, where
+`examples/hello.rig` is.
 
 ## std.time
 
@@ -402,12 +444,14 @@ sub main()
 
 ## Text: bytes, runes, units, chars
 
+The whole text API, built and planned, is listed in [TEXT-API](TEXT-API.md).
+
 Every text API is described in four words, each with one meaning:
 
 | Word | What it is | Size |
 |---|---|---|
 | **byte** | 8 bits, a `U8`: what a `String` stores, and what `s.len`, `s[i]`, and slicing count | 1 byte |
-| **rune** | one Unicode code point other than a surrogate (a scalar value): a character's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
+| **rune** | one Unicode code point other than a surrogate (a scalar value): a code point's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
 | **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
 | **char** | what a reader sees as one character: a Unicode extended grapheme cluster | 1 or more runes |
 
@@ -463,10 +507,11 @@ Rig!!! 6
 
 Searching, slicing, splitting, and parsing text, which every function
 reads as a `?String`: UTF-8 bytes by convention, and nothing here checks
-that it is. Every index and length is in bytes, and whitespace and case
-are ASCII's. A function that returns a `?String` returns a part of the
-`?String` it was given, a view of the same bytes, so nothing here
-allocates. A `?String` taken from a `String`
+that it is. Every index is a byte index; a count names its unit; and
+whitespace and case are ASCII's. A function that returns a `?String`
+returns a part of the `?String` it was given, a view of the same bytes,
+so nothing here allocates but `format_int`, which returns a new String,
+and `edit_distance`, which grows the `row` it is given. A `?String` taken from a `String`
 ([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
 functions return.
 
@@ -477,6 +522,8 @@ functions return.
 | `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every `?String` contains `""` |
 | `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
 | `count(s: ?String, pat: ?String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
+| `find_any[set: ?String](s: ?String, i: Int) -> Int?` | the first index at or after `i` whose byte is one of `set`'s, or `none`; `set` is a compile-time string, each byte of it one compare per 16 bytes of `s`, and `""` holds no byte; panics unless `0 <= i <= s.len` |
+| `class_end(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int` | the first index at or after `i` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`; the caller's table gives each byte its class bits; panics unless `0 <= i <= s.len` |
 | `trim(s: ?String) -> ?String` | `s` without its leading and trailing ASCII whitespace |
 | `trim_start(s: ?String) -> ?String`, `trim_end(s: ?String) -> ?String` | `s` without its leading, or its trailing, ASCII whitespace |
 | `strip_prefix(s: ?String, prefix: ?String) -> (?String)? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
@@ -496,7 +543,6 @@ functions return.
 | `is_digit(b: U8) -> Bool`, `is_alpha(b: U8) -> Bool` | whether `b` is an ASCII digit, or an ASCII letter |
 | `is_space(b: U8) -> Bool` | whether `b` is ASCII whitespace: a space, tab, line feed, vertical tab, form feed, or carriage return |
 | `to_upper(b: U8) -> U8`, `to_lower(b: U8) -> U8` | `b` in upper, or lower, case when it is an ASCII letter, else `b` |
-| `valid_utf8(bytes: []U8) -> Bool` | whether `bytes` is well-formed UTF-8 |
 | `compare(a: ?String, b: ?String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
 | `edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) -> Int` | the Levenshtein distance between `a` and `b` over runes (insert, delete, and substitute cost 1); `row` is the caller's scratch; with `max >= 0`, `max + 1` once the distance passes `max` |
 
@@ -510,6 +556,11 @@ sub main()
   print(text.find("banana", "an"), text.find_last("banana", "an"), text.count("banana", "a"))
   print(text.starts_with("main.rig", "main"), text.strip_suffix("main.rig", ".rig") ?? "?")
   print(text.contains("banana", "nab"), text.strip_prefix("banana", "x") ?? "no prefix")
+  print(text.find_any[",;"]("a b;c,d", 0) ?? -1, text.find_any[",;"]("a b;c,d", 4) ?? -1, text.find_any[",;"]("a b", 0) ?? -1)
+  digits: [256]U8 = [256 of 0]
+  for b in 0x30..0x3A
+    digits[b] = 1
+  print(text.class_end("2026-10-13", 0, digits, 1), text.class_end("2026-10-13", 5, digits, 1))
 ```
 
 ```output
@@ -517,6 +568,8 @@ name is Ada Lovelace
 1 3 3
 true main
 false no prefix
+3 5 -1
+4 7
 ```
 
 `split`, `lines`, and `words` give an iterator, a struct holding the
@@ -706,6 +759,7 @@ how runes fit with bytes, units, and chars.
 | `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
 | `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
+| `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 
 `test/behavior/std/utf8_go.rig` runs Go's own test tables, and
@@ -779,6 +833,39 @@ sub main()
 0 2 0 0
 ```
 
+`ascii_end` finds where a run of ASCII ends, testing many bytes at
+once, so a reader can take the whole run and decode only the runes
+after it. `rune_count` and `utf16.unit_count` count in blocks: valid
+UTF-8 holds one rune for each byte that is not a continuation byte,
+and one more unit for each first byte of a rune of four, so whole
+blocks of 64 and then 16 bytes are counted by their bytes, each checked
+valid as it is counted. The rest is read rune by rune: everything from
+the first block that is not valid, a sequence the last valid block cut
+short (from its first byte), and the 15 or fewer bytes after the last
+whole block. Either way each bad byte is one rune of one unit, as in
+Go.
+
+```rig
+use std.utf8
+use std.utf16
+
+sub main()
+  s = "let caf\u{e9} = 1"
+  i = 0
+  while i < s.len
+    j = utf8.ascii_end(s, i)
+    print(i, j, s[i..j])
+    i = j + utf8.rune_after(s, j).size if j < s.len else j
+  t = "a\u{e9}\u{1f600}\xff"
+  print(utf8.rune_count(t), utf16.unit_count(t), utf8.ascii_end(s, s.len))
+```
+
+```output
+0 7 let caf
+9 13  = 1
+4 5 13
+```
+
 `runes` gives an iterator whose `next` gives each rune, as `lines` does
 in `std.text`, and `push_rune` writes runes back, a value that is not a
 rune as U+FFFD:
@@ -826,6 +913,8 @@ one U+FFFD.
 | `unit_count(s: ?String) -> Int` | the units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
 | `byte_index(s: ?String, units: Int) -> Int` | the byte where `units` units into `s` falls; a unit inside a pair lands after its rune, 0 or less gives 0, and a count past the end gives `s.len` | |
 | `is_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
+| `is_high_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xDC00`, the first unit of a pair | |
+| `is_low_surrogate(u: Int) -> Bool` | whether `0xDC00 <= u < 0xE000`, the second unit of a pair | |
 | `rune_from_pair(hi: Int, lo: Int) -> Int` | the rune a pair encodes, or 0xFFFD when `hi` is not a high surrogate or `lo` not a low one | `utf16.DecodeRune` |
 | `pair_from_rune(r: Int) -> Pair` | the pair that encodes `r`, or `Pair(hi: 0xFFFD, lo: 0xFFFD)` when `r` needs none | `utf16.EncodeRune` |
 
@@ -844,6 +933,7 @@ sub main()
   p = utf16.pair_from_rune(0x1f600)
   q = utf16.pair_from_rune(0x41)
   print(p.hi, p.lo, q.hi, q.lo, utf16.is_surrogate(p.hi))
+  print(utf16.is_high_surrogate(p.hi), utf16.is_low_surrogate(p.hi), utf16.is_low_surrogate(p.lo))
   print(utf16.rune_from_pair(0xd83d, 0xde00), utf16.rune_from_pair(0xde00, 0xd83d))
 ```
 
@@ -857,6 +947,7 @@ sub main()
 20 18
 1 2 0
 55357 56832 65533 65533 true
+true false true
 128512 65533
 ```
 
@@ -882,7 +973,7 @@ has no property.
 |---|---|
 | `VERSION` | the Unicode version of every property, `"15.1.0"` |
 | `is_id_start(r: Int) -> Bool`, `is_id_continue(r: Int) -> Bool` | whether `r` may begin an identifier, or continue one |
-| `is_space_rune(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
+| `is_space(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
 
 ```rig
 use std.unicode
@@ -891,7 +982,7 @@ sub main()
   print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
   print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
   print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
-  print(unicode.is_space_rune(0x20), unicode.is_space_rune(0x85), unicode.is_space_rune(0x3000), unicode.is_space_rune(0xFEFF))
+  print(unicode.is_space(0x20), unicode.is_space(0x85), unicode.is_space(0x3000), unicode.is_space(0xFEFF))
   print(unicode.VERSION)
 ```
 

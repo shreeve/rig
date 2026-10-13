@@ -1,0 +1,25 @@
+# A size the decoder takes from its caller is not bounded, so `i +=
+# d.size` keeps its test: from `i = 1` a size of `Int.max` overflows.
+
+obj Decoded
+  rune: Int
+  size: Int
+
+fun rune_after(s: ?String, i: Int, big: Int) -> Decoded
+  return Decoded(rune: Int(s[i]), size: 1) if s[i] < 0x80
+  Decoded(rune: 0xFFFD, size: big)
+
+fun total(s: ?String, big: Int) -> Int
+  sum = 0
+  i = 0
+  while i < s.len
+    d = rune_after(s, i, big)
+    sum += d.rune
+    i += d.size # keeps: += no_overflow
+  sum
+
+sub main()
+  print(total("a\u{e9}", Int.max))
+
+# release
+# expect-panic: integer overflow

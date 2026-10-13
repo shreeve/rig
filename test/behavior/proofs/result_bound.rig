@@ -1,0 +1,67 @@
+# A loop that steps by the size a decoder returns. Every size the decoder
+# can return is a literal from 0 to 4, so under `i < s.len`, which leaves
+# `i` below `s.len <= 2^62 - 1`, `i + d.size` cannot overflow.
+
+obj Decoded
+  rune: Int
+  size: Int
+
+fun bad() -> Decoded
+  Decoded(rune: 0xFFFD, size: 1)
+
+fun multi(s: ?String, i: Int) -> Decoded
+  n = 2 if s[i] < 0xE0 else 3
+  return bad() if i + n > s.len
+  r = Int(s[i] & 0x0F) << 6 | Int(s[i + 1] & 0x3F)
+  return Decoded(rune: Int(s[i] & 0x1F) << 6 | Int(s[i + 1] & 0x3F), size: 2) if n < 3
+  Decoded(rune: r << 6 | Int(s[i + 2] & 0x3F), size: 3)
+
+fun rune_after(s: ?String, i: Int) -> Decoded
+  if i >= 0 and i < s.len
+    b = s[i]
+    return Decoded(rune: Int(b), size: 1) if b < 0x80
+    return multi(s, i)
+  Decoded(rune: 0xFFFD, size: 0)
+
+fun total(s: ?String) -> Int
+  sum = 0
+  i = 0
+  while i < s.len
+    d = rune_after(s, i)
+    sum += d.rune
+    i += d.size # proves: += no_overflow
+  sum
+
+fun count(s: ?String) -> Int
+  n = 0
+  i = 0
+  while i < s.len
+    i += rune_after(s, i).size # proves: += no_overflow
+    n += 1
+  n
+
+fun after(s: ?String, i: Int) -> Int
+  if i < s.len
+    d = rune_after(s, i)
+    return i + d.size # proves: + no_overflow
+  i
+
+fun width(b: U8) -> Int
+  return 1 if b < 0x80
+  return 2 if b < 0xE0
+  3
+
+fun skip(s: ?String) -> Int
+  n = 0
+  i = 0
+  while i < s.len
+    i += width(s[i]) # proves: += no_overflow
+    n += 1
+  n
+
+sub main()
+  s = "h\u{e9}llo \u{20ac}!"
+  print(total(s), count(s), after(s, 1), skip(s))
+
+# expect:
+# 9093 8 3 8

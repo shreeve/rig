@@ -1,0 +1,15 @@
+# A module constant's vector is a run-time value: a `<<` that loses its
+# bits panics when the program runs, rather than stopping the build.
+
+HIGH = Simd[U8, 16].splat(0x80)
+
+sub main()
+  print("start")
+  print((HIGH << 1)[0])
+
+# expect-panic: left shift overflowed bits
+
+# release
+
+# expect:
+# start

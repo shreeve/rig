@@ -1128,3 +1128,210 @@ on 2 cores); MB/s:
   10% slower: the generic `document` counted both instances' calls
   against the inliner's per-function cap, which then out-lined
   `Doc.number`. docs/RIG-NOTES.md, entry 6.
+
+## Linux x86 (pup), after the float conversion (Rig main at 646b4c9c5)
+
+pup (Intel Core Ultra 9 185H, AVX2), `cpuq run --exclusive`, pinned to a
+P core (`taskset -c 2`), fastest of 15 interleaved runs of about 400 ms;
+MB/s. The build is std.json with #149, #150, #160 and #167, the Rust
+parsers at `target-cpu=native`:
+
+| file | std.json | sonic-rs | std.json against sonic-rs | simd-json (tape) | serde_json | Zig std.json (tape, safe) |
+|---|---:|---:|---|---:|---:|---:|
+| twitter | 2609 | 2746 | 5% slower | 2475 | 380 | 692 |
+| twitterescaped | 2406 | 2185 | 10% faster | 1448 | 333 | 476 |
+| canada | 1370 | 1434 | 4% slower | 1124 | 349 | 398 |
+| citm_catalog | 2907 | 3543 | 18% slower | 2592 | 691 | 753 |
+| gsoc-2018 | 5685 | 5144 | 11% faster | 3494 | 1176 | 445 |
+| github_events | 3194 | 3870 | 17% slower | 2764 | 428 | 631 |
+| geomean | | | 5% slower | | | |
+
+Cycles and instructions per byte (`perf stat`, the same core):
+
+| file | std.json cycles/byte | sonic-rs | std.json instructions/byte | sonic-rs | std.json IPC | sonic-rs |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 1.816 | 1.748 | 9.30 | 7.99 | 5.12 | 4.57 |
+| twitterescaped | 1.922 | 2.161 | 10.27 | 10.47 | 5.34 | 4.84 |
+| canada | 3.427 | 3.340 | 17.05 | 16.13 | 4.98 | 4.83 |
+| citm_catalog | 1.616 | 1.298 | 8.72 | 6.29 | 5.39 | 4.84 |
+| gsoc-2018 | 0.806 | 0.966 | 3.78 | 2.51 | 4.69 | 2.60 |
+| github_events | 1.457 | 1.256 | 8.03 | 5.39 | 5.51 | 4.30 |
+
+- **5% slower than sonic-rs by geomean** (7% after proofs2, 18% before),
+  and faster than simd-json on every file. gsoc-2018 went from 1%
+  slower to 11% faster.
+- **The gap is instructions.** std.json runs at a higher IPC on every
+  file but retires 39% more instructions per byte on citm_catalog and
+  49% more on github_events. Those two files are where a whitespace
+  bitmap kept between calls applies (a prototype measured citm_catalog
+  21% faster and github_events 5% faster on pup), and a vector UTF-8
+  check.
+
+## One literal per file in the benchmark (the harness, not the parser)
+
+With string literals of any length (#168), `bench/json/bench-json`
+writes each corpus file as one literal, copied into a `String` once at
+start-up, in place of 60 KB literals joined in a loop. std.json's code
+and the bytes it parses are unchanged, and the same functions stay out
+of line, yet instructions per byte moved, both ways
+(bench/json/guard.py): canada 9% fewer, citm_catalog 7% fewer, twitter
+3% fewer, twitterescaped 2% fewer, gsoc-2018 1% fewer, and github_events
+10% more. `parse` has one call site, so LLVM inlines the parser into the
+benchmark's `main`, and the code around that call changes how it
+allocates registers and lays out the parser's loops. The guard's
+baseline (`bench/json/guard.txt`) was regenerated with this harness;
+counts and times before it compare only with each other.
+
+In time (the Mac, one interleaved run at a load of 3.9-5.2, fastest of
+15; MB/s), the one-literal harness against the chunked one, the same
+compiler and parser:
+
+| file | chunked | one literal | one literal against chunked |
+|---|---:|---:|---|
+| twitter | 2986 | 3178 | 6% faster |
+| twitterescaped | 2960 | 2992 | within noise |
+| canada | 1956 | 2070 | 6% faster |
+| citm_catalog | 3736 | 4212 | 13% faster |
+| gsoc-2018 | 7533 | 7758 | 3% faster |
+| github_events | 3756 | 3659 | 3% slower |
+
+The same run timed Rig's removal of the inliner's call cap (#154's
+follow-up) on today's parser: within noise. A `document` specialized
+for dense whitespace still lost `Doc.number`'s inlining under it, for
+the reason docs/RIG-NOTES.md, entry 6, gives.
+
+## UTF-8 checked 16 bytes at a time (Rig main at 995ad18d2)
+
+A string's non-ASCII text is checked a block at a time with SIMD round
+2's `t.lookup(v)`, `cur.lag[k](prev)` and `-|` (Keiser-Lemire's lookups,
+as simdjson's lookup4), up to the string's next quote, backslash, or
+control byte; the sequence-at-a-time check runs only near the end of
+the input or to place an error. Results are unchanged: all 10,511
+inputs of `./test/run json`, and 864 strings that put each valid and
+invalid sequence around the block edges
+(test/behavior/std/json_utf8_blocks.rig), whose expected errors come
+from Python's decoder. A string whose stop lies in the input's last 15
+bytes, past the last block the loop can read, resumes the
+sequence-at-a-time check at that block, not at the text's start: a 3 MB
+top-level string parses 2.2x as fast as on main (0.10 s against 0.22 s
+for 400 parses), where checking it again from its start had made it 90%
+slower.
+
+Instructions per byte (bench/json/guard.py, median of 5), main against
+the branch:
+
+| file | main | UTF-8 blocks | change |
+|---|---:|---:|---|
+| twitter | 8.41 | 7.48 | 11% fewer |
+| twitterescaped | 9.29 | 9.18 | 1% fewer |
+| canada | 14.64 | 14.01 | 4% fewer |
+| citm_catalog | 7.43 | 7.31 | 2% fewer |
+| gsoc-2018 | 3.43 | 3.40 | 1% fewer |
+| github_events | 7.80 | 6.70 | 14% fewer |
+
+Inlined into `document`, the same block loop took 6-17% more
+instructions on five of the files, twitterescaped's 17% among them,
+which holds no non-ASCII byte; it is a separate method, `utf8_text`,
+which the inliner leaves as a call (docs/RIG-NOTES.md, entry 7).
+canada holds no non-ASCII byte and github_events 4, so their change
+is not the check: it is the code around the string scan, where
+`document` no longer holds the sequence-at-a-time loop either. twitter
+(95,406 non-ASCII bytes) is where the check itself runs.
+
+In time (the Mac, a quiet window at a load of 3.8, fastest of 15
+interleaved runs; MB/s):
+
+| file | main | UTF-8 blocks | sonic-rs | against main | against sonic-rs |
+|---|---:|---:|---:|---|---|
+| twitter | 3383 | 3680 | 3074 | 9% faster | 20% faster |
+| twitterescaped | 3222 | 3252 | 2793 | within noise | 16% faster |
+| canada | 2250 | 2247 | 2003 | within noise | 12% faster |
+| citm_catalog | 4506 | 4570 | 3748 | within noise | 22% faster |
+| gsoc-2018 | 8288 | 8430 | 7139 | within noise | 18% faster |
+| github_events | 4037 | 4383 | 3718 | 9% faster | 18% faster |
+
+Every parser in one session (the Mac, load 2.7-3.3, one core, fastest
+of 15 interleaved runs; MB/s). The Rust parsers are built for the
+native CPU; zimdjson (a Zig port of simdjson) is its DOM parser in
+ReleaseFast; std.json is in Zig's safe mode, every check kept:
+
+| file | std.json | std.json on main | sonic-rs | simd-json (tape) | zimdjson (DOM, fast) | serde_json | Zig std.json (tape, safe) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| twitter | **3642** | 3362 | 3082 | 3437 | 3612 | 656 | 874 |
+| twitterescaped | **3259** | 3220 | 2781 | 1341 | 2765 | 549 | 620 |
+| canada | **2266** | 2243 | 2010 | 1307 | 1324 | 672 | 573 |
+| citm_catalog | **4615** | 4549 | 3777 | 4065 | 3933 | 1009 | 1211 |
+| gsoc-2018 | **8423** | 8345 | 7208 | 3902 | 3850 | 1850 | 621 |
+| github_events | **4338** | 4010 | 3714 | 3688 | 3984 | 852 | 956 |
+| geomean | **4069** | 3932 | 3469 | 2658 | 3045 | 853 | 779 |
+
+std.json is the fastest on every file but twitter, where it and
+zimdjson are within noise. By geomean it is 17% faster than sonic-rs,
+34% faster than zimdjson, 53% faster than simd-json, 4.8x serde_json,
+and 5.2x Zig's std.json.
+
+On x86 (pup, Intel Core Ultra 9 185H, AVX2; `cpuq run --exclusive`,
+pinned to a P core with `taskset -c 2`, fastest of 15 interleaved runs
+of about 400 ms; MB/s; instructions and cycles per byte from `perf
+stat`), the branch as first committed (0934fa9c5, before the tail fix,
+which left the Mac's instruction counts unchanged):
+
+| file | std.json | std.json on main | sonic-rs | against main | against sonic-rs | instructions/byte, against main |
+|---|---:|---:|---:|---|---|---|
+| twitter | 2970 | 2719 | 2765 | 9% faster | 7% faster | 8.00 vs 8.57, 7% fewer |
+| twitterescaped | 2511 | 2507 | 2203 | within noise | 14% faster | 10.17 vs 9.64, 5% more |
+| canada | 1407 | 1432 | 1440 | within noise | within noise | 16.90 vs 16.62, 2% more |
+| citm_catalog | 3155 | 3152 | 3566 | within noise | 12% slower | 7.61 vs 8.00, 5% fewer |
+| gsoc-2018 | 5933 | 6074 | 5273 | 2% slower | 13% faster | 3.69 vs 3.50, 5% more |
+| github_events | 3444 | 3389 | 3903 | within noise | 12% slower | 7.20 vs 7.13, 1% more |
+| geomean | 2963 | 2930 | 2938 | 1% faster | 1% faster | |
+
+On x86 std.json now leads sonic-rs by geomean, by 1%; main was within
+noise of it in the same run. twitter gains as on the Mac; the layout
+gains the Mac showed on canada and github_events do not carry over, and
+twitterescaped and gsoc-2018, whose strings hold no non-ASCII text, run
+5% more instructions: the code around the string scan changed, not the
+check. citm_catalog and github_events remain 12% behind sonic-rs, which
+retires 18-24% fewer instructions per byte on them.
+
+## A vector whitespace skip: fewer instructions, slower
+
+`skip_space` (std/json.rig) goes a byte at a time, or 8 spaces at a time
+with one U64 compare. A variant read 16 bytes when 16 were left, and
+returned the first lane that is not whitespace:
+
+```
+v = s.read[Simd[U8, 16]](i)
+ws = WS.lookup(v & 0x0F) == v     # WS: 0x20, 0x09, 0x0A, 0x0D by low nibble
+if ws.not().first() as k
+  return i + k
+i += 16
+```
+
+Its results were the same as main's (11,987,148 direct comparisons, and
+test/behavior/std/json_space_blocks.rig). Instructions per byte fell,
+and time rose:
+
+| file | instructions (Mac) | time (Mac, MB/s, main → variant) | cycles (x86) | IPC (x86, main → variant) |
+|---|---|---|---|---|
+| twitter | 18% fewer | 3652 → 2195, 40% slower | 13% more | 4.91 → 3.66 |
+| twitterescaped | within noise | within noise | 9% fewer | 5.22 → 5.67 |
+| canada | within noise | within noise | 3% fewer | 4.97 → 4.95 |
+| citm_catalog | 29% fewer | 4617 → 2736, 41% slower | within noise | 5.12 → 3.81 |
+| gsoc-2018 | 12% fewer | 8466 → 5754, 32% slower | 9% more | 4.44 → 3.63 |
+| github_events | 20% fewer | 4346 → 2568, 41% slower | 11% more | 5.20 → 3.74 |
+
+The Mac: one quiet window, fastest of 15 interleaved runs (a compare-based
+classify, `(v == SPACE) | (v == LF) | ...`, was as slow). x86: pup, `perf
+stat` on a P core, 2 cores held, not exclusive.
+
+The byte loop is branchy: the predictor guesses where a run of
+whitespace ends, so the next token's loads start before the run is
+checked. The vector skip computes that position from data, so every
+token waits on a load, the classify, a move of the mask to a register,
+and a count. sonic-rs keeps that chain short by classifying 64 bytes
+once and keeping the bitmap in a register, so a skip is a shift and a
+count: the whitespace bitmap above (the wsspec prototype), which waits
+on Rig's inlining of single-call functions. The instruction guard
+(`bench/json/guard.py`) would have passed this variant
+(docs/RIG-NOTES.md, entry 25).
