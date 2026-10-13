@@ -6,7 +6,7 @@
 //! exactly one rune and one char, and the chars of a text tile it.
 //!
 //! Forward, a char's end is found with the rules' state carried along
-//! (`State`); backward, `isBoundary` decides one position by the rules as
+//! (`State`, run as the table `Dfa` built from it); backward, `isBoundary` decides one position by the rules as
 //! UAX #29 writes them, looking left only as far as GB9c, GB11, GB12, and
 //! GB13 need. Both are checked against Unicode's GraphemeBreakTest.txt
 //! (test/behavior/std/text_chars_conformance.rig) and against each other
@@ -224,6 +224,50 @@ const State = struct {
 
 // ---- Forward ---------------------------------------------------------------
 
+/// `State` as a table, built from it at compile time: each state the
+/// text can reach is a number, and `next[n][c]` is the state after a rune
+/// of class `c`, with bit 7 set when that rune starts a char. `start[c]`
+/// is the state after a char starts with class `c`, and so the state
+/// after an ASCII byte, whose class carries nothing further.
+const Dfa = struct {
+    next: [max_states][n_classes]u8,
+    start: [n_classes]u8,
+
+    const max_states = 64;
+    const split: u8 = 0x80;
+
+    fn build() Dfa {
+        @setEvalBranchQuota(100_000);
+        var d: Dfa = undefined;
+        var states: [max_states]State = undefined;
+        var n: usize = 0;
+        for (0..n_classes) |c| d.start[c] = index(&states, &n, State.start(@enumFromInt(c)));
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            for (0..n_classes) |c| {
+                var st = states[i];
+                const brk = st.breaksBefore(@enumFromInt(c));
+                d.next[i][c] = index(&states, &n, st) | if (brk) split else 0;
+            }
+        }
+        return d;
+    }
+
+    fn index(states: *[max_states]State, n: *usize, st: State) u8 {
+        for (states[0..n.*], 0..) |known, k| {
+            if (known.prev == st.prev and known.odd_flags == st.odd_flags and
+                known.emoji == st.emoji and known.conjunct == st.conjunct) return k;
+        }
+        if (n.* == max_states) @compileError("more grapheme states than Dfa.max_states");
+        states[n.*] = st;
+        n.* += 1;
+        return n.* - 1;
+    }
+};
+
+const dfa = Dfa.build();
+
+
 /// The end of the char that starts at the char boundary `i < s.len`.
 fn charEnd(s: []const u8, i: usize) usize {
     const b = s[i];
@@ -233,11 +277,12 @@ fn charEnd(s: []const u8, i: usize) usize {
         if (n < 0x80) return if (b == '\r' and n == '\n') i + 2 else i + 1;
     }
     var r = decode(s, i);
-    var st = State.start(tables.of(r.cp));
+    var st = dfa.start[@intFromEnum(tables.of(r.cp))];
     var j = i + r.len;
     while (j < s.len) : (j += r.len) {
         r = decode(s, j);
-        if (st.breaksBefore(tables.of(r.cp))) break;
+        st = dfa.next[st & ~Dfa.split][@intFromEnum(tables.of(r.cp))];
+        if (st & Dfa.split != 0) break;
     }
     return j;
 }
@@ -257,17 +302,36 @@ fn walk(s: []const u8, limit: usize) Walk {
     // CR. The start of the text acts as an ASCII control.
     var ascii = true;
     var after_cr = false;
-    var st: State = undefined;
+    var st: u8 = undefined;
     while (i < s.len) {
+        if (ascii and i > 0 and i + lanes <= s.len) {
+            // Blocks of ASCII alone: each byte starts a char, but an LF
+            // after a CR, which the block one byte back shows.
+            while (i + lanes <= s.len) {
+                const v: Lanes = s[i..][0..lanes].*;
+                if (@reduce(.Max, v) >= 0x80) break;
+                const back: Lanes = s[i - 1 ..][0..lanes].*;
+                const joined = @intFromBool(v == @as(Lanes, @splat('\n'))) & @intFromBool(back == @as(Lanes, @splat('\r')));
+                const starts = lanes - @as(usize, @reduce(.Add, @as(Lanes, joined)));
+                if (count + starts > limit) break;
+                count += starts;
+                i += lanes;
+            }
+            after_cr = s[i - 1] == '\r';
+        }
         if (ascii and i + lanes <= s.len) {
+            // A block with ASCII before its first byte that is not: those
+            // bytes alone.
             const v: Lanes = s[i..][0..lanes].*;
             const high: Mask = @bitCast(v >= @as(Lanes, @splat(0x80)));
-            const lf: Mask = @bitCast(v == @as(Lanes, @splat('\n')));
             const cr: Mask = @bitCast(v == @as(Lanes, @splat('\r')));
-            const joined = lf & (cr << 1 | @intFromBool(after_cr));
             const k: usize = @ctz(high);
             const prefix: Mask = if (k == lanes) ~@as(Mask, 0) else (@as(Mask, 1) << @intCast(k)) - 1;
-            const starts = k - @popCount(joined & prefix);
+            var starts = k;
+            if (after_cr or cr & prefix != 0) {
+                const lf: Mask = @bitCast(v == @as(Lanes, @splat('\n')));
+                starts -= @popCount(lf & (cr << 1 | @intFromBool(after_cr)) & prefix);
+            }
             if (count + starts <= limit and k > 0) {
                 count += starts;
                 i += k;
@@ -285,9 +349,10 @@ fn walk(s: []const u8, limit: usize) Walk {
             i += 1;
             continue;
         }
-        if (ascii) st = .{ .prev = if (i == 0) .control else tables.ascii(@intCast(s[i - 1])) };
+        if (ascii) st = dfa.start[@intFromEnum(if (i == 0) Class.control else tables.ascii(@intCast(s[i - 1])))];
         const r = decode(s, i);
-        if (st.breaksBefore(tables.of(r.cp))) {
+        st = dfa.next[st & ~Dfa.split][@intFromEnum(tables.of(r.cp))];
+        if (st & Dfa.split != 0) {
             if (count == limit) return .{ .count = count, .end = i };
             count += 1;
         }

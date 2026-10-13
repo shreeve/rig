@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
 """Generate std/unicode_tables.zig, the identifier tables of std.unicode,
-from the Unicode Character Database, and the boundary test of the tables.
+and std/grapheme_tables.zig, the grapheme classes behind the chars of
+std.text, from the Unicode Character Database, and the tests of both.
 
     tools/gen-unicode.py [--ucd DIR] [--check]
 
-The input is DerivedCoreProperties.txt of the pinned version below, read
-from DIR (default $RIG_UCD, else ~/.cache/rig-ucd/VERSION) and fetched
-from unicode.org when DIR lacks it. A file is used only when its sha256
-is the pinned one, so every run writes the same bytes. `--check` writes
+The inputs are the pinned files of the version below, read from DIR
+(default $RIG_UCD, else ~/.cache/rig-ucd/VERSION) and fetched from
+unicode.org when DIR lacks them. A file is used only when its sha256 is
+the pinned one, so every run writes the same bytes. `--check` writes
 nothing and fails when a checked-in output differs from the generated one.
 
-Each code point holds two bits: bit 0, ID_Continue; bit 1, ID_Start.
-DerivedCoreProperties lists ID_Start and ID_Continue with Other_ID_Start
-and Other_ID_Continue already included (UAX #31, "Default Identifiers").
-The table is two-level: an index of blocks over the code points, and the
-distinct blocks, four code points to a byte. The block size is the one
-that makes the table smallest.
+Identifiers: each code point holds two bits: bit 0, ID_Continue; bit 1,
+ID_Start. DerivedCoreProperties lists ID_Start and ID_Continue with
+Other_ID_Start and Other_ID_Continue already included (UAX #31, "Default
+Identifiers"). The table is two-level: an index of blocks over the code
+points, and the distinct blocks, four code points to a byte. The block
+size is the one that makes the table smallest.
+
+Chars: each code point holds its grapheme class, four bits, in a table of
+the same shape: its Grapheme_Cluster_Break (GraphemeBreakProperty.txt),
+split by Extended_Pictographic (emoji-data.txt) and Indic_Conjunct_Break
+(DerivedCoreProperties.txt). The rules of UAX #29 are written here too
+(`is_break`), and every test of GraphemeBreakTest.txt must pass them; the
+generated tests check std.text against that file and against every code
+point's class.
 """
 import argparse
 import hashlib

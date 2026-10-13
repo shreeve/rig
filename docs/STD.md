@@ -483,6 +483,10 @@ functions return.
 | `split(s: ?String, sep: ?String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
 | `lines(s: ?String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
 | `words(s: ?String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
+| `chars(s: ?String) -> Chars` | the chars of `s`, each a `?String` viewing its bytes in `s` ([below](#chars)) |
+| `char_count(s: ?String) -> Int` | how many chars `s` holds |
+| `first_chars(s: ?String, n: Int) -> ?String`, `last_chars(s: ?String, n: Int) -> ?String` | the first, or last, `n` chars of `s`, or all of `s` if it has fewer; panics when `n` is negative |
+| `char_boundary(s: ?String, i: Int) -> Int` | the char boundary at or before byte `i`: `i` where a char starts and at `s.len`, else the start of the char `i` is inside; panics unless `0 <= i <= s.len` |
 | `parse_int(s: ?String, base: Int = 10) -> Int!` | `s` as an `Int` in base `base`, 2 to 36: an optional sign, `+` or `-`, then digits (letters `a` to `z`, in either case, are 10 to 35), and nothing else: no `0x`, no `_`; panics for another base |
 | `format_int(n: Int, base: Int = 10, upper: Bool = false) -> String` | `n` in base `base`, 2 to 36: a `-` if negative, then the digits, lower case unless `upper`; an owned `String`; panics for another base |
 | `parse_float(s: ?String) -> Float!` | `s` as a `Float`: an optional sign, then digits with an optional `.` and fraction and an optional exponent (`2.5`, `.5`, `1e-3`), or `inf`, `infinity`, or `nan` in any case; the nearest `Float` to the number |
@@ -621,6 +625,59 @@ ff FF -10
 3 3
 1 3
 ```
+
+### Chars
+
+A char is an extended grapheme cluster of Unicode's text segmentation
+([UAX #29](https://unicode.org/reports/tr29/), rules GB1 to GB13 and
+GB999) by the tables of Unicode 15.1.0, the version of `std.unicode`:
+one character as a reader sees it, of one rune or several. Text that is
+not UTF-8 is read as Go reads it: each byte that starts no well-formed
+sequence is one rune, U+FFFD, of one byte. So every byte is in exactly
+one char, and the chars of a `?String` tile it: their sizes add up to
+`s.len`.
+
+`chars`, `char_count`, and `first_chars` read from the start of the
+text; `last_chars` and `char_boundary` read back from the end, or from
+`i`, only as far as they need. Each is one pass, and a run of ASCII is
+read 32 bytes at a time: two ASCII bytes are two chars, unless they are
+CR LF.
+
+```rig
+use std.text
+
+sub main()
+  s = "cafe\u{301}-\u{1f44b}\u{1f3fd}-\u{1f1eb}\u{1f1f7}!"
+  print(s.len, text.char_count(s))
+  for c in text.chars(s)
+    print(c, c.len)
+  print(text.first_chars(s, 4), text.last_chars(s, 2))
+  print(s[..text.char_boundary(s, 5)], text.char_count("\xff\xfe\r\n"))
+```
+
+```output
+25 9
+c 1
+a 1
+f 1
+é 3
+- 1
+👋🏽 8
+- 1
+🇫🇷 8
+! 1
+café 🇫🇷!
+caf 3
+```
+
+The tables are generated: `tools/gen-unicode.py` reads the pinned
+GraphemeBreakProperty.txt, emoji-data.txt (Extended_Pictographic), and
+DerivedCoreProperties.txt (Indic_Conjunct_Break, for GB9c) and writes
+`std/grapheme_tables.zig`, a two-level table of four bits a code point,
+about 16 KB. It also writes two tests: every line of Unicode's
+GraphemeBreakTest.txt, through each char tool at every byte, and a
+census that puts every code point in texts whose char counts tell its
+class apart.
 
 ## std.unicode
 

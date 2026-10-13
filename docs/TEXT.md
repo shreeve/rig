@@ -6,14 +6,14 @@ that follows from them. This page is the design. [SPEC,
 Strings](../SPEC.md#strings) states what the language does, and
 [STD](STD.md) lists each module's functions.
 
-**Status.** The model and the byte layer are built: a `String` holds
-UTF-8 bytes, and `s.len`, `s[i]`, slicing, and `std.text` work on them.
-The rune, unit, and char layers below are designed and named, and are
-being built in this order: `std.utf8` and `std.utf16` with
-`std.unicode`, then the char tools on the Unicode grapheme tables. A
-section marked *(planned)* describes a function that is not built yet;
-its examples are `rig pending` examples, which the suite checks do not
-run yet.
+**Status.** The model, the byte layer, and the chars are built: a
+`String` holds UTF-8 bytes, `s.len`, `s[i]`, slicing, and `std.text`
+work on them, and `std.text`'s char tools read its chars. The rune and
+unit layers below are designed and named, and are being built:
+`std.utf8` and `std.utf16` with `std.unicode`. A section marked
+*(planned)* describes a function that is not built yet; its examples,
+and those that use it, are `rig pending` examples, which the suite
+checks do not run yet.
 
 ## Four units, four words
 
@@ -176,7 +176,7 @@ it may start or continue an identifier (`unicode.is_id_start(r)`,
 `unicode.is_id_continue(r)`, UAX #31), and whether it is whitespace
 (`unicode.is_space_rune(r)`). Every table names its Unicode version.
 
-## Chars: `std.text` *(planned)*
+## Chars: `std.text`
 
 What a reader sees, by the rules of Unicode's text segmentation (UAX
 #29), so char-correct code is one call, and its name says "char":
@@ -204,6 +204,26 @@ a 1 1
 👋🏽 8 2
 hé
 ```
+
+```rig
+use std.text
+
+sub main()
+  s = "e\u{301}\u{1f44b}\u{1f3fd}\r\n\u{1f1eb}\u{1f1f7}"
+  print(s.len, text.char_count(s), text.last_chars(s, 1), text.char_boundary(s, 2))
+```
+
+```output
+21 4 🇫🇷 0
+```
+
+**Invalid UTF-8 never stops a char tool.** Text that is not UTF-8 is
+read as `std.utf8` reads it, which is Go's way: each byte that starts no
+well-formed sequence is one rune, U+FFFD, of one byte, and a char like
+any other (a combining mark after it joins it). So every byte is in
+exactly one char, and the chars of `s` always tile it: their sizes add
+up to `s.len`. A byte index outside `0..s.len`, or a negative count of
+chars, panics.
 
 `first_chars` is how to shorten text for a reader (a preview, a
 280-character post); `s[0..n]` is how to take `n` bytes.
