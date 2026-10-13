@@ -1,0 +1,7 @@
+# `last_chars` takes no negative count.
+use std.text
+
+sub main()
+  print(text.last_chars("ab", -1))
+
+# expect-panic: text.last_chars: the count is negative

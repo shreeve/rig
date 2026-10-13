@@ -3,6 +3,12 @@
 # here checks that it is. Every index and length is in bytes. Every
 # function that returns a `?String` returns a view of the `?String` it
 # was given, so nothing here allocates.
+#
+# A char is what a reader sees as one character: a Unicode extended
+# grapheme cluster (UAX #29), of one rune or several, by the tables of
+# Unicode 15.1. The char tools read bytes that are not UTF-8 as Go does,
+# each such byte one rune, U+FFFD, so every byte is in exactly one char,
+# and the chars of a `?String` tile it.
 
 # Why a parse failed: the text is not a number (or Bool) as written,
 # or it is one too large for its type.
@@ -138,6 +144,35 @@ pub obj Words
 # The words of `s`: the nonempty runs of bytes between ASCII whitespace.
 pub fun words(s: ?String) -> Words
   Words(rest: s)
+
+# ---- Chars -------------------------------------------------------------
+
+# The chars of a `?String`, which `chars` gives, in order:
+# `for c in text.chars(s)`.
+pub obj Chars
+  rest: ?String
+
+  # The next char, or `none` after the last.
+  pub fun next(!self) -> (?String)?
+    return none if self.rest.len == 0
+    end = char_end(self.rest, 0)
+    c = self.rest[..end]
+    self.rest = self.rest[end..]
+    c
+
+# The chars of `s`, each a `?String` viewing its bytes in `s`.
+pub fun chars(s: ?String) -> Chars
+  Chars(rest: s)
+
+# The first `n` chars of `s`, or all of `s` if it has fewer. Panics when
+# `n` is negative.
+pub fun first_chars(s: ?String, n: Int) -> ?String
+  s[..first_chars_end(s, n)]
+
+# The last `n` chars of `s`, or all of `s` if it has fewer. Panics when
+# `n` is negative.
+pub fun last_chars(s: ?String, n: Int) -> ?String
+  s[last_chars_start(s, n)..]
 
 # ---- Parsing -------------------------------------------------------------
 
@@ -300,3 +335,18 @@ extern zig "text.zig"
   # The order of `a` and `b` by their bytes, as `<` orders them: -1
   # when `a` sorts first, 1 when `b` does, and 0 when they are equal.
   pub fun compare(a: ?String, b: ?String) -> Int
+
+extern zig "grapheme.zig"
+  # How many chars `s` holds.
+  pub fun char_count(s: ?String) -> Int
+  # The char boundary at or before byte `i`: `i` itself when a char
+  # starts there or `i` is `s.len`, else the start of the char `i` is
+  # inside. `s[..text.char_boundary(s, n)]` is the most of `s` that fits
+  # in `n` bytes without cutting a char. Panics unless `0 <= i <= s.len`.
+  pub fun char_boundary(s: ?String, i: Int) -> Int
+  # The byte where the char that starts at byte `i` ends.
+  fun char_end(s: ?String, i: Int) -> Int
+  # The bytes the first `n` chars of `s` take.
+  fun first_chars_end(s: ?String, n: Int) -> Int
+  # The byte where the last `n` chars of `s` start.
+  fun last_chars_start(s: ?String, n: Int) -> Int
