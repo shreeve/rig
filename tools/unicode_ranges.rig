@@ -12,7 +12,7 @@ sub main()
   for c in 0..0x110001
     s = c < 0x110000 and unicode.is_id_start(c)
     k = c < 0x110000 and unicode.is_id_continue(c)
-    w = c < 0x110000 and unicode.is_space_rune(c)
+    w = c < 0x110000 and unicode.is_space(c)
     if s and first_s < 0
       first_s = c
     if not s and first_s >= 0

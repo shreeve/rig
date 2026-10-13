@@ -1,7 +1,7 @@
 //! `std.text`: searching and comparing text (`?String`s) on Zig's `std.mem`,
-//! parsing numbers with `std.fmt`, and checking UTF-8 with
-//! `std.unicode`. A parse fails with the errors of `std.text.ParseError`,
-//! which the emitter names `error.@"std.text.ParseError.name"`.
+//! and parsing numbers with `std.fmt`. A parse fails with the errors of
+//! `std.text.ParseError`, which the emitter names
+//! `error.@"std.text.ParseError.name"`.
 
 const std = @import("std");
 
@@ -71,10 +71,6 @@ pub fn parse_float(s: []const u8) ParseError!f64 {
     const x = std.fmt.parseFloat(f64, s) catch return error.@"std.text.ParseError.invalid";
     if (std.math.isInf(x) and std.ascii.toLower(rest[0]) != 'i') return error.@"std.text.ParseError.overflow";
     return x;
-}
-
-pub fn valid_utf8(bytes: []const u8) bool {
-    return std.unicode.utf8ValidateSlice(bytes);
 }
 
 pub fn compare(a: []const u8, b: []const u8) i64 {
