@@ -99,8 +99,11 @@ read one way; a bare `drop(3)` leaves readers guessing which end.
 **Avoid a word other languages disagree on.** `pop(3)` is the last three
 in Ruby and index 3 in Python, so Rig doesn't use it.
 
-**Say rune, never char.** "Char" is a byte in C, a UTF-16 unit in Java,
-and a code point in Rust; a rune is always one code point.
+**A char is what a reader sees.** In Rig a char is a grapheme, one
+character as a person counts it, and nothing else: a byte is a byte, a
+code point is a rune, and a UTF-16 code unit is a unit. Other languages
+spend "char" on one of those; Rig gives each its own word, so "char" can
+mean what everyone means by "character".
 
 ## How we measure
 
