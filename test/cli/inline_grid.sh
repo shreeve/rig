@@ -116,6 +116,11 @@ for mode in debug release; do
         out=$(./prog_ctvalues 2>&1) || fail "release ctvalues ran: $out"
     fi
     expect_eq "$out" $'15 5 3 6\n20 10' "$mode ctvalues"
+    # A use that runs panics the same in both modes; --release builds of
+    # them run only with INLINE_GRID_FULL=1 (the full gates), to fit a CI
+    # shard. The unreached programs, where Zig folding would fail the
+    # build, run in both modes always.
+    [[ $mode == release && -z "${INLINE_GRID_FULL:-}" ]] && continue
     for f in reached_*.rig; do
         if [[ $mode == debug ]]; then
             out=$(rig run "$f" 2>&1) && fail "$mode $f should panic: $out"

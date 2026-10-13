@@ -95,6 +95,9 @@ for n in 100 1000 5000; do
         # per program (over 25 for one out-of-line instance), so the
         # largest count is built in debug only.
         [[ $n == 5000 ]] && continue
+        # --release at 1,000 calls runs only with INLINE_BUDGET_FULL=1 (the
+        # full gates), to fit a CI shard.
+        [[ $n == 1000 && -z "${INLINE_BUDGET_FULL:-}" ]] && continue
         rig build --release -o "prog_${shape}_$n" "b_${shape}_$n.rig" >build.log 2>&1 || fail "release $shape $n: $(cat build.log)"
         out=$(./"prog_${shape}_$n" 2>&1) || fail "release $shape $n ran: $out"
         expect_eq "$out" "$want" "release $shape $n"
