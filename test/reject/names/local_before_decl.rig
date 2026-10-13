@@ -1,0 +1,16 @@
+# A local may not share a module-level name, whichever comes first
+# (here the declaration comes before).
+
+obj Thing
+  v: Int
+
+fun site() -> Int
+  Thing = 1
+  Thing
+
+sub main()
+  print(1)
+
+# error: local `Thing` has the same name as the module-level declaration `Thing`
+# error: declared here
+# errors: 1

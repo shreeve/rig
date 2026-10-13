@@ -285,10 +285,29 @@ grep -qF '@intCast(__rig_i_' <<<"$out" && fail "a loop index is range-checked ea
 # is taken apart lane by lane. (Their asm, checked by hand with
 # `zig build-obj -target aarch64-macos`, has no `umov` and no call.)
 for f in maskBits maskFirst maskAny maskAll nibbleMask foldBytes maskBytes \
-         maskBitsCast maskBitsNeon maskBitsPieces maskBitsSwar; do
+         maskBitsCast maskBitsNeon maskBitsPieces maskBitsSwar mask maskOf \
+         maskLanes maskArray maskAnd maskOr maskXor maskEq maskNe maskNot maskSelect; do
   grep -qE "^(pub )?inline fn $f\(" "$ROOT/src/runtime.zig" || fail "runtime: $f is not an inline fn"
 done
 true
+
+# A mask of more than 16 lanes is held as bytes (`rig.Mask`), which LLVM
+# keeps in vector registers where a `@Vector(32, bool)` crossing blocks
+# is taken apart lane by lane; its operators are the runtime's.
+cat >wide_mask.rig <<'EOF2'
+fun found(v: Simd[U8, 32], keys: ?[4]U8) -> Simd[Bool, 32]
+  m = Simd[Bool, 32].splat(false)
+  for k in keys
+    m |= v == k
+  m
+EOF2
+out=$("$RIG" emit wide_mask.rig 2>/dev/null) || fail "rig emit wide_mask.rig"
+expect_has "$out" 'rig.Mask(32)' "a mask type is rig.Mask"
+expect_has "$out" 'rig.maskOr(' "a mask's |= is the runtime's"
+expect_has "$out" 'rig.mask(v == ' "a comparison gives its lanes as a mask"
+grep -qF '@Vector(32, bool)' <<<"$out" && fail "a wide mask is a bool vector: $out"
+grep -qE '^pub fn Mask\(comptime n: comptime_int\) type \{$' "$ROOT/src/runtime.zig" || fail "runtime: no rig.Mask"
+grep -qF 'return if (n > 16) WideMask(n) else @Vector(n, bool);' "$ROOT/src/runtime.zig" || fail "runtime: a mask of more than 16 lanes is not bytes"
 
 # A test the compiler proved is omitted (docs/INTERNALS.md, "Proven
 # checks"): the proven half of an index or a byte read, and an add known

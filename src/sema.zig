@@ -3891,6 +3891,18 @@ pub fn isMask(ctx: *const SemContext, ty: TypeId) bool {
     return v.elem == ctx.types.bool_id;
 }
 
+/// The most lanes a mask, `Simd[Bool, n]`, holds as a `@Vector(n, bool)`,
+/// a bit a lane; a wider one is a `rig.WideMask(n)`, a byte a lane, which
+/// LLVM keeps in vector registers across blocks (`rig.Mask` in
+/// src/runtime.zig, which decides it as this does; `test "maskBytes:
+/// the runtime's own size"`).
+pub const max_bit_mask_lanes = 16;
+
+/// The bytes of a mask of `n` lanes, as `rig.Mask(n)` holds it.
+pub fn maskBytes(n: u64) u64 {
+    return if (n > max_bit_mask_lanes) n else @max(1, n / 8);
+}
+
 /// The bytes a value of `ty` takes at least (padding aside), or null
 /// when that depends on a generic parameter or follows an error, such as
 /// holding a type reported too large.
@@ -3922,10 +3934,12 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const e = (try minBytesOf(ctx, a.elem, false)) orelse break :blk null;
             break :blk std.math.mul(u128, n, e) catch std.math.maxInt(u128);
         },
-        // Zig's own size: a lane each, and a mask's lanes one bit each.
+        // Zig's own size: a lane each. A mask is `rig.Mask(n)`: up to
+        // `max_bit_mask_lanes` a bool vector, its lanes a bit each, and
+        // above a byte each (`maskBytes`).
         .simd => |v| blk: {
             const n = simdLen(ctx, v) orelse break :blk null;
-            if (v.elem == ctx.types.bool_id) break :blk @max(1, n / 8);
+            if (v.elem == ctx.types.bool_id) break :blk maskBytes(n);
             const e = (try minBytesOf(ctx, v.elem, false)) orelse break :blk null;
             break :blk n * e;
         },
@@ -8562,6 +8576,14 @@ test "check: a long chain of types each holding the next by value" {
     defer r.deinit();
     const s0 = try r.ctx.intern(.{ .nominal = r.ctx.lookup(module_scope, "S0").? });
     try std.testing.expectEqual(@as(?u128, 8), try minBytes(&r.ctx, s0));
+}
+
+test "maskBytes: the runtime's own size" {
+    const runtime = @import("runtime.zig");
+    inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
+        try std.testing.expectEqual(@as(u64, @sizeOf(runtime.Mask(n))), maskBytes(n));
+        try std.testing.expectEqual(n > max_bit_mask_lanes, @typeInfo(runtime.Mask(n)) == .@"struct");
+    }
 }
 
 test "type facts: moves, copies, cloneable" {

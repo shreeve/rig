@@ -279,23 +279,47 @@ pub fun parse_int(s: ?String, base: Int = 10) -> Int!
 pub fun format_int(n: Int, base: Int = 10, upper: Bool = false) -> String
   if base < 2 or base > 36
     bad_base("text.format_int")
-  letter = 55 if upper else 87
-  digits = String()
-  rest = n
-  while true
-    d = rest % base
-    d = -d if d < 0 else d
-    !digits.push(U8(d + 48 if d < 10 else d + letter))
-    rest = rest / base
-    break if rest == 0
+  # The digits, written backward from the end: 64 hold Int.min in base 2.
+  buf = [64 of U8(0)]
+  i = buf.len
+  # The magnitude, unsigned, which holds Int.min's.
+  rest = U64.wrap(0 -% n) if n < 0 else U64(n)
+  if base == 10
+    # Two digits a step: `rest` is `100 * q` plus the pair's value.
+    while rest >= 100
+      q = rest / 100
+      p = Int(rest - q * 100) * 2
+      i -= 2
+      buf[i] = PAIRS[p]
+      buf[i + 1] = PAIRS[p + 1]
+      rest = q
+    if rest >= 10
+      i -= 2
+      buf[i] = PAIRS[Int(rest) * 2]
+      buf[i + 1] = PAIRS[Int(rest) * 2 + 1]
+    else
+      i -= 1
+      buf[i] = U8(rest) + 48
+  else
+    digits = UPPER_DIGITS if upper else LOWER_DIGITS
+    b = U64(base)
+    while true
+      q = rest / b
+      i -= 1
+      buf[i] = digits[Int(rest - q * b)]
+      rest = q
+      break if rest == 0
   out = String()
+  !out.reserve(buf.len - i + 1)
   !out.push(45) if n < 0
-  ds = ?digits[..]
-  i = ds.len
-  while i > 0
-    i -= 1
-    !out.push(ds[i])
+  for k in i..buf.len
+    !out.push(buf[k])
   out
+
+LOWER_DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
+UPPER_DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+# "00" to "99": the two digits of `r` at `2 * r`.
+PAIRS = "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"
 
 # The Levenshtein distance between `a` and `b`: the fewest insertions,
 # deletions, and substitutions of a rune that turn one into the other. A
