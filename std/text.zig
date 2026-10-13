@@ -27,21 +27,37 @@ pub fn count(s: []const u8, pat: []const u8) i64 {
     return @intCast(std.mem.count(u8, s, pat));
 }
 
-/// `s` without its sign, when every byte after it is a digit and there
-/// is one; `std.fmt` would also take `_` between digits.
-fn digits(s: []const u8) ?[]const u8 {
-    const rest = if (s.len > 0 and (s[0] == '+' or s[0] == '-')) s[1..] else s;
-    if (rest.len == 0) return null;
-    for (rest) |c| if (!std.ascii.isDigit(c)) return null;
-    return rest;
+pub fn bad_base(who: []const u8) void {
+    var buf: [64]u8 = undefined;
+    @panic(std.fmt.bufPrint(&buf, "{s}: the base is not between 2 and 36", .{who}) catch "text: the base is not between 2 and 36");
 }
 
-pub fn parse_int(s: []const u8) ParseError!i64 {
-    _ = digits(s) orelse return error.@"std.text.ParseError.invalid";
-    return std.fmt.parseInt(i64, s, 10) catch |err| switch (err) {
-        error.Overflow => error.@"std.text.ParseError.overflow",
-        error.InvalidCharacter => error.@"std.text.ParseError.invalid",
-    };
+pub fn parse_radix(s: []const u8, base: i64) ParseError!i64 {
+    const radix: u8 = @intCast(base);
+    const digits = if (s.len > 0 and (s[0] == '+' or s[0] == '-')) s[1..] else s;
+    if (digits.len == 0) return error.@"std.text.ParseError.invalid";
+    for (digits) |c| _ = std.fmt.charToDigit(c, radix) catch return error.@"std.text.ParseError.invalid";
+    // Accumulate below zero, which holds `Int.min`.
+    var acc: i64 = 0;
+    for (digits) |c| {
+        const d: i64 = std.fmt.charToDigit(c, radix) catch unreachable;
+        const scaled = @mulWithOverflow(acc, base);
+        const next = @subWithOverflow(scaled[0], d);
+        if (scaled[1] != 0 or next[1] != 0) return error.@"std.text.ParseError.overflow";
+        acc = next[0];
+    }
+    if (s[0] == '-') return acc;
+    if (acc == std.math.minInt(i64)) return error.@"std.text.ParseError.overflow";
+    return -acc;
+}
+
+pub fn decode_rune(s: []const u8, i: i64) i64 {
+    const at: usize = @intCast(i);
+    const bad = 0xFFFD * 8 + 1;
+    const n = std.unicode.utf8ByteSequenceLength(s[at]) catch return bad;
+    if (at + n > s.len) return bad;
+    const c = std.unicode.utf8Decode(s[at .. at + n]) catch return bad;
+    return @as(i64, c) * 8 + n;
 }
 
 pub fn parse_float(s: []const u8) ParseError!f64 {
