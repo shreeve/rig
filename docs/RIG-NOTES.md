@@ -57,7 +57,14 @@ tools that take them in `bench/json/`.
    compile-time constant removes too, and then out-lines the callee
    that brings the most calls, the hottest. Fix: drop the cap, which
    no longer guards correctness, or count per instance after folding
-   and out-line the coldest callee. *In flight (a follow-up to #154).*
+   and out-line the coldest callee. With the cap removed, `Doc.number`
+   was still out of line: Rig emits std.json's large functions
+   (`document`, `scalar`, `number`, `escaped`) as plain functions, and
+   LLVM inlines `scalar` and `number` only because each has one call
+   site. Two instances of `document` give `number` two, and LLVM leaves
+   it out. Fix: Rig emits as `inline` a function with one call site per
+   instance, whatever its size, so Rig decides it and a specialization
+   keeps it. *Verified; proposed to the Rig session.*
 7. **No way to keep a cold path out of line.** The whitespace bitmap's
    run function, called only for deeply indented documents, was inlined
    at every call site and cost 4-6% more instructions where it never ran.

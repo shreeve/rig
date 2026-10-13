@@ -1181,3 +1181,21 @@ benchmark's `main`, and the code around that call changes how it
 allocates registers and lays out the parser's loops. The guard's
 baseline (`bench/json/guard.txt`) was regenerated with this harness;
 counts and times before it compare only with each other.
+
+In time (the Mac, one interleaved run at a load of 3.9-5.2, fastest of
+15; MB/s), the one-literal harness against the chunked one, the same
+compiler and parser:
+
+| file | chunked | one literal | one literal against chunked |
+|---|---:|---:|---|
+| twitter | 2986 | 3178 | 6% faster |
+| twitterescaped | 2960 | 2992 | within noise |
+| canada | 1956 | 2070 | 6% faster |
+| citm_catalog | 3736 | 4212 | 13% faster |
+| gsoc-2018 | 7533 | 7758 | 3% faster |
+| github_events | 3756 | 3659 | 3% slower |
+
+The same run timed Rig's removal of the inliner's call cap (#154's
+follow-up) on today's parser: within noise. A `document` specialized
+for dense whitespace still lost `Doc.number`'s inlining under it, for
+the reason docs/RIG-NOTES.md, entry 6, gives.
