@@ -1269,3 +1269,27 @@ std.json is the fastest on every file but twitter, where it and
 zimdjson are within noise. By geomean it is 17% faster than sonic-rs,
 34% faster than zimdjson, 53% faster than simd-json, 4.8x serde_json,
 and 5.2x Zig's std.json.
+
+On x86 (pup, Intel Core Ultra 9 185H, AVX2; `cpuq run --exclusive`,
+pinned to a P core with `taskset -c 2`, fastest of 15 interleaved runs
+of about 400 ms; MB/s; instructions and cycles per byte from `perf
+stat`), the branch as first committed (0934fa9c5, before the tail fix,
+which left the Mac's instruction counts unchanged):
+
+| file | std.json | std.json on main | sonic-rs | against main | against sonic-rs | instructions/byte, against main |
+|---|---:|---:|---:|---|---|---|
+| twitter | 2970 | 2719 | 2765 | 9% faster | 7% faster | 8.00 vs 8.57, 7% fewer |
+| twitterescaped | 2511 | 2507 | 2203 | within noise | 14% faster | 10.17 vs 9.64, 5% more |
+| canada | 1407 | 1432 | 1440 | within noise | within noise | 16.90 vs 16.62, 2% more |
+| citm_catalog | 3155 | 3152 | 3566 | within noise | 12% slower | 7.61 vs 8.00, 5% fewer |
+| gsoc-2018 | 5933 | 6074 | 5273 | 2% slower | 13% faster | 3.69 vs 3.50, 5% more |
+| github_events | 3444 | 3389 | 3903 | within noise | 12% slower | 7.20 vs 7.13, 1% more |
+| geomean | 2963 | 2930 | 2938 | 1% faster | 1% faster | |
+
+On x86 std.json now leads sonic-rs by geomean, by 1%; main was within
+noise of it in the same run. twitter gains as on the Mac; the layout
+gains the Mac showed on canada and github_events do not carry over, and
+twitterescaped and gsoc-2018, whose strings hold no non-ASCII text, run
+5% more instructions: the code around the string scan changed, not the
+check. citm_catalog and github_events remain 12% behind sonic-rs, which
+retires 18-24% fewer instructions per byte on them.
