@@ -1,0 +1,13 @@
+# A module constant may name any constant of its module, wherever it is
+# declared, and so may the array lengths in its declaration.
+
+Z = [B of 0]
+Y: [B]Int = [1, 2, 3]
+B = 3
+A = B + 1
+
+sub main()
+  print(Z.len, Y[2], A)
+
+# expect:
+# 3 3 4

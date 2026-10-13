@@ -33,8 +33,32 @@ pub const Diagnostic = struct {
     lint: bool = false,
 };
 
-/// A source file diagnostics point into.
-pub const File = struct { source: []const u8, path: []const u8 };
+/// A source diagnostics point into: one file, or the files of a
+/// directory module joined.
+pub const File = struct {
+    source: []const u8,
+    path: []const u8,
+    /// A module of several files: where each starts in `source`,
+    /// ascending, the first at 0. Empty for a module of one file.
+    parts: []const Part = &.{},
+
+    /// The file `pos` is in: its path, and its text, which starts at
+    /// `start` in `source`.
+    pub fn locate(self: File, pos: u32) Located {
+        if (self.parts.len == 0) return .{ .path = self.path, .start = 0, .text = self.source };
+        var i: usize = self.parts.len - 1;
+        while (i > 0 and self.parts[i].start > pos) i -= 1;
+        const start = @min(self.parts[i].start, self.source.len);
+        const end = if (i + 1 < self.parts.len) @min(self.parts[i + 1].start, self.source.len) else self.source.len;
+        return .{ .path = self.parts[i].path, .start = @intCast(start), .text = self.source[start..end] };
+    }
+};
+
+/// One file of a directory module: where its text starts in the
+/// module's source, and its path.
+pub const Part = struct { start: u32, path: []const u8 };
+
+pub const Located = struct { path: []const u8, start: u32, text: []const u8 };
 
 pub fn hasErrorsIn(items: []const Diagnostic) bool {
     for (items) |d| {
@@ -61,6 +85,7 @@ pub fn write(items: []const Diagnostic, source: []const u8, file_path: []const u
 pub fn writeSome(items: []const Diagnostic, home: File, modules: []const File, w: anytype, budget: *u32) !u32 {
     var file = home;
     var at_module: u32 = 0;
+    var at_start: ?u32 = null;
     var lines: Lines = .{ .source = home.source };
     var hidden: u32 = 0;
     var showing = true;
@@ -79,14 +104,19 @@ pub fn writeSome(items: []const Diagnostic, home: File, modules: []const File, w
         if (module != at_module) {
             at_module = module;
             file = if (module == 0) home else modules[module - 1];
-            lines = .{ .source = file.source };
+            at_start = null;
         }
         const source = file.source;
-        const path = if (file.path.len == 0) "<unknown>" else file.path;
+        const in = file.locate(d.pos);
+        if (at_start != in.start) {
+            at_start = in.start;
+            lines = .{ .source = in.text };
+        }
+        const path = if (in.path.len == 0) "<unknown>" else in.path;
         if (source.len == 0) {
             try w.print("{s}: {s}: {s}\n", .{ path, tag, msg });
         } else {
-            const lc = lines.at(d.pos);
+            const lc = lines.at(d.pos -| in.start);
             try w.print("{s}:{d}:{d}: {s}: {s}\n", .{ path, lc.line, lc.col, tag, msg });
             try writeExcerpt(source, d.pos, d.end, w);
         }
@@ -273,6 +303,26 @@ test "writeSome: a note in another module's file" {
 fn chars(comptime c: u8, comptime n: usize) *const [n]u8 {
     const s: [n]u8 = @splat(c);
     return &s;
+}
+
+test "writeSome: a directory module's diagnostic names its file" {
+    var buf: [256]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    var budget: u32 = 10;
+    const source = "fun a() -> Int\n  1\nfun b() -> Int\n  x\n";
+    _ = try writeSome(&.{
+        .{ .severity = .@"error", .pos = 36, .end = 37, .message = "unbound" },
+        .{ .severity = .note, .pos = 4, .message = "here" },
+    }, .{ .source = source, .path = "m/", .parts = &.{ .{ .start = 0, .path = "m/a.rig" }, .{ .start = 19, .path = "m/b.rig" } } }, &.{}, &w, &budget);
+    try std.testing.expectEqualStrings(
+        \\m/b.rig:2:3: error: unbound
+        \\  x
+        \\  ^
+        \\m/a.rig:1:5:   note: here
+        \\fun a() -> Int
+        \\    ^
+        \\
+    , w.buffered());
 }
 
 test "writeExcerpt: a long line is cut around the position" {

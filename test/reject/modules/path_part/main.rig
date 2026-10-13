@@ -1,0 +1,6 @@
+use checker.binder
+
+sub main()
+  print(1)
+
+# error: 1:1: `checker/binder.rig` is part of module `checker`; a module under `checker/` is a directory, such as `checker/binder/`

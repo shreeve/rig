@@ -1,0 +1,11 @@
+# A parameter may not have the name a `use` of its file binds; the
+# module can be imported under another name.
+use ast
+
+fun f(ast: Int) -> Int
+  ast
+
+sub main()
+  print(f(1), ast.size())
+
+# error: 5:7: parameter `ast` has the name of the module this file uses as `ast`; import the module under another name, `use ast as a`

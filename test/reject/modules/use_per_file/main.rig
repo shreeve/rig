@@ -1,0 +1,7 @@
+# A `use` binds its name in its own file only.
+use m
+
+sub main()
+  print(1)
+
+# error: 2:3: `geo` is imported by another file of module `m`; add `use geo` to this file

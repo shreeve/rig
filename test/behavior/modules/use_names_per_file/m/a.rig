@@ -1,0 +1,6 @@
+use ast
+
+pub fun a() -> Int
+  n = ast.size()
+  new ast = n * 10
+  ast + n
