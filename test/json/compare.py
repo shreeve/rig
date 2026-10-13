@@ -48,7 +48,6 @@ RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 DATA = os.path.join(HERE, "data")
 FETCH = os.path.join(ROOT, "tools", "fetch-json-data.sh")
 MAX_DEPTH = 1024
-CHUNK = 60000  # Rig's lexer takes a token of at most 65535 bytes
 BATCH_BYTES = 6 * 1024 * 1024
 BATCH_CASES = 6000
 
@@ -413,30 +412,23 @@ GROUPS = {"cases": cases_group, "scan": scan_group, "edges": edges_group, "block
 
 # ---- The Rig program -------------------------------------------------
 
-def rig_chunks(data):
-    chunks, cur, n = [], [], 0
+def rig_literal(data):
+    """`data` as the text of one Rig string literal."""
+    out = []
     for b in data:
-        if b == 0x22: e = '\\"'
-        elif b == 0x5C: e = "\\\\"
-        elif 0x20 <= b < 0x7F: e = chr(b)
-        else: e = "\\x%02x" % b
-        cur.append(e); n += len(e)
-        if n >= CHUNK:
-            chunks.append("".join(cur)); cur, n = [], 0
-    chunks.append("".join(cur))
-    return chunks
+        if b == 0x22: out.append('\\"')
+        elif b == 0x5C: out.append("\\\\")
+        elif 0x20 <= b < 0x7F: out.append(chr(b))
+        else: out.append("\\x%02x" % b)
+    return "".join(out)
 
 def program(cases):
-    # One table of every case's chunks, and a loop, so the program's code,
+    # One table of every case's text, and a loop, so the program's code,
     # and its compile time, do not grow with the number of cases.
-    names, starts, parts = [], [0], []
-    for name, data, _ in cases:
-        names.append('  "%s",\n' % name)
-        parts += ['  "%s",\n' % p for p in rig_chunks(data)]
-        starts.append(len(parts))
-    consts = "NAMES = [\n%s]\n\nSTARTS = [%s]\n\nPARTS = [\n%s]\n" % (
-        "".join(names), ", ".join(map(str, starts)), "".join(parts))
-    loop = "  for k in 0..NAMES.len\n    run(NAMES[k], PARTS[STARTS[k]..STARTS[k + 1]])\n"
+    names = "".join('  "%s",\n' % name for name, _, _ in cases)
+    texts = "".join('  "%s",\n' % rig_literal(data) for _, data, _ in cases)
+    consts = "NAMES = [\n%s]\n\nTEXTS = [\n%s]\n" % (names, texts)
+    loop = "  for k in 0..NAMES.len\n    run(NAMES[k], TEXTS[k])\n"
     with open(os.path.join(HERE, "driver.rig.tmpl")) as f:
         return f.read().replace("@CASES@", consts).replace("@MAIN@", loop)
 

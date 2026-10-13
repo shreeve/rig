@@ -176,11 +176,11 @@ references' published designs where marked. In order of expected gain:
    each push reloads them; a `List` write window (reserve n, write
    through a cursor) would keep them in registers (docs/RIG-NOTES.md,
    entry 8).
-5. **Large literals and embedding** (build). `@embed("file.json")` as a
-   `Static`, or string literals longer than the lexer's 64 KB token. The
-   benchmark and the test programs split a file into literals of 60 KB
-   and join them at run time, and the tests stay under the 16 MiB source
-   limit.
+5. **Embedding a file** (build). `@embed("file.json")` as a `Static`.
+   A string literal may be of any length (#168), so the benchmark and
+   the tests write each input as one literal, but a program is at most
+   16 MiB of source, so the tests spread their inputs over several
+   programs.
 6. **Multiple results** (clarity). A function returns one value, so
    `take_digits` hands back the digits' value through an out-parameter,
    which stays in a register only when the call is inlined. The byte
@@ -199,8 +199,10 @@ references' published designs where marked. In order of expected gain:
 The final API is the design owner's decision, and is not settled:
 `parse` and the readers as fallible `!` functions, errors that carry
 their offset, and `!` or `T?` in place of the `-1` that the parser's
-internal steps return on an error. Until then `std.json` is
-experimental.
+internal steps return on an error. A `T?` costs nothing here: with
+`utf8_end` and `utf8_end3` returning `Int?` in place of `-1`, and no
+other change, instructions per byte stayed within 1% on all six corpus
+files. Until then `std.json` is experimental.
 
 Done, and no longer open: a Float from its bits (`Float.from_bits`); the
 bit methods (`leading_zeros`, `trailing_zeros`, `count_ones`) and

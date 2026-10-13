@@ -1128,3 +1128,56 @@ on 2 cores); MB/s:
   10% slower: the generic `document` counted both instances' calls
   against the inliner's per-function cap, which then out-lined
   `Doc.number`. docs/RIG-NOTES.md, entry 6.
+
+## Linux x86 (pup), after the float conversion (Rig main at 646b4c9c5)
+
+pup (Intel Core Ultra 9 185H, AVX2), `cpuq run --exclusive`, pinned to a
+P core (`taskset -c 2`), fastest of 15 interleaved runs of about 400 ms;
+MB/s. The build is std.json with #149, #150, #160 and #167, the Rust
+parsers at `target-cpu=native`:
+
+| file | std.json | sonic-rs | std.json against sonic-rs | simd-json (tape) | serde_json | Zig std.json (tape, safe) |
+|---|---:|---:|---|---:|---:|---:|
+| twitter | 2609 | 2746 | 5% slower | 2475 | 380 | 692 |
+| twitterescaped | 2406 | 2185 | 10% faster | 1448 | 333 | 476 |
+| canada | 1370 | 1434 | 4% slower | 1124 | 349 | 398 |
+| citm_catalog | 2907 | 3543 | 18% slower | 2592 | 691 | 753 |
+| gsoc-2018 | 5685 | 5144 | 11% faster | 3494 | 1176 | 445 |
+| github_events | 3194 | 3870 | 17% slower | 2764 | 428 | 631 |
+| geomean | | | 5% slower | | | |
+
+Cycles and instructions per byte (`perf stat`, the same core):
+
+| file | std.json cycles/byte | sonic-rs | std.json instructions/byte | sonic-rs | std.json IPC | sonic-rs |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 1.816 | 1.748 | 9.30 | 7.99 | 5.12 | 4.57 |
+| twitterescaped | 1.922 | 2.161 | 10.27 | 10.47 | 5.34 | 4.84 |
+| canada | 3.427 | 3.340 | 17.05 | 16.13 | 4.98 | 4.83 |
+| citm_catalog | 1.616 | 1.298 | 8.72 | 6.29 | 5.39 | 4.84 |
+| gsoc-2018 | 0.806 | 0.966 | 3.78 | 2.51 | 4.69 | 2.60 |
+| github_events | 1.457 | 1.256 | 8.03 | 5.39 | 5.51 | 4.30 |
+
+- **5% slower than sonic-rs by geomean** (7% after proofs2, 18% before),
+  and faster than simd-json on every file. gsoc-2018 went from 1%
+  slower to 11% faster.
+- **The gap is instructions.** std.json runs at a higher IPC on every
+  file but retires 39% more instructions per byte on citm_catalog and
+  49% more on github_events. Those two files are where a whitespace
+  bitmap kept between calls applies (a prototype measured citm_catalog
+  21% faster and github_events 5% faster on pup), and a vector UTF-8
+  check.
+
+## One literal per file in the benchmark (the harness, not the parser)
+
+With string literals of any length (#168), `bench/json/bench-json`
+writes each corpus file as one literal, copied into a `String` once at
+start-up, in place of 60 KB literals joined in a loop. std.json's code
+and the bytes it parses are unchanged, and the same functions stay out
+of line, yet instructions per byte moved, both ways
+(bench/json/guard.py): canada 9% fewer, citm_catalog 7% fewer, twitter
+3% fewer, twitterescaped 2% fewer, gsoc-2018 1% fewer, and github_events
+10% more. `parse` has one call site, so LLVM inlines the parser into the
+benchmark's `main`, and the code around that call changes how it
+allocates registers and lays out the parser's loops. The guard's
+baseline (`bench/json/guard.txt`) was regenerated with this harness;
+counts and times before it compare only with each other.
