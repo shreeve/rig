@@ -184,7 +184,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
 | `src/lib.zig` | The compiler as a library, for `bin/rig-oracle` only |
-| `tools/` | `migrate-0.3.py`, which migrates 0.2 programs to 0.3; `gen-unicode.py`, which writes `std/unicode_tables.zig` from the pinned Unicode data, and `verify-unicode.py`, which checks it (`RIG_UCD`, docs/STD.md) |
+| `tools/` | `migrate-0.3.py`, which migrates 0.2 programs to 0.3; `gen-unicode.py`, which writes `std/unicode_tables.zig` and `std/grapheme_tables.zig` (the classes behind `std/grapheme.zig`, the chars of `std.text`) from the pinned Unicode data, and `verify-unicode.py`, which checks it (`RIG_UCD`, docs/STD.md) |
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
