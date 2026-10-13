@@ -8,7 +8,7 @@ work, the one a mantra favors wins. The rules they come from are in
 
 ## How we choose
 
-**Dissolve a problem rather than solve it.** A problem that cannot occur
+**It's better to dissolve a problem than to solve it.** A problem that cannot occur
 beats a clever fix for it. Ownership makes a use-after-free impossible
 instead of detecting it at run time; a write view is never stored, so
 none can dangle; a result that may be missing is a `T?`, so no caller
