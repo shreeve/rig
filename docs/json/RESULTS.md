@@ -1249,3 +1249,23 @@ interleaved runs; MB/s):
 | citm_catalog | 4506 | 4570 | 3748 | within noise | 22% faster |
 | gsoc-2018 | 8288 | 8430 | 7139 | within noise | 18% faster |
 | github_events | 4037 | 4383 | 3718 | 9% faster | 18% faster |
+
+Every parser in one session (the Mac, load 2.7-3.3, one core, fastest
+of 15 interleaved runs; MB/s). The Rust parsers are built for the
+native CPU; zimdjson (a Zig port of simdjson) is its DOM parser in
+ReleaseFast; std.json is in Zig's safe mode, every check kept:
+
+| file | std.json | std.json on main | sonic-rs | simd-json (tape) | zimdjson (DOM, fast) | serde_json | Zig std.json (tape, safe) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| twitter | **3642** | 3362 | 3082 | 3437 | 3612 | 656 | 874 |
+| twitterescaped | **3259** | 3220 | 2781 | 1341 | 2765 | 549 | 620 |
+| canada | **2266** | 2243 | 2010 | 1307 | 1324 | 672 | 573 |
+| citm_catalog | **4615** | 4549 | 3777 | 4065 | 3933 | 1009 | 1211 |
+| gsoc-2018 | **8423** | 8345 | 7208 | 3902 | 3850 | 1850 | 621 |
+| github_events | **4338** | 4010 | 3714 | 3688 | 3984 | 852 | 956 |
+| geomean | **4069** | 3932 | 3469 | 2658 | 3045 | 853 | 779 |
+
+std.json is the fastest on every file but twitter, where it and
+zimdjson are within noise. By geomean it is 17% faster than sonic-rs,
+34% faster than zimdjson, 53% faster than simd-json, 4.8x serde_json,
+and 5.2x Zig's std.json.
