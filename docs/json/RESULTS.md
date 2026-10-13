@@ -1199,3 +1199,48 @@ The same run timed Rig's removal of the inliner's call cap (#154's
 follow-up) on today's parser: within noise. A `document` specialized
 for dense whitespace still lost `Doc.number`'s inlining under it, for
 the reason docs/RIG-NOTES.md, entry 6, gives.
+
+## UTF-8 checked 16 bytes at a time (Rig main at 995ad18d2)
+
+A string's non-ASCII text is checked a block at a time with SIMD round
+2's `t.lookup(v)`, `cur.lag[k](prev)` and `-|` (Keiser-Lemire's lookups,
+as simdjson's lookup4), up to the string's next quote, backslash, or
+control byte; the sequence-at-a-time check runs only near the end of
+the input or to place an error. Results are unchanged: all 10,511
+inputs of `./test/run json`, and 864 strings that put each valid and
+invalid sequence around the block edges
+(test/behavior/std/json_utf8_blocks.rig), whose expected errors come
+from Python's decoder.
+
+Instructions per byte (bench/json/guard.py, median of 5), main against
+the branch:
+
+| file | main | UTF-8 blocks | change |
+|---|---:|---:|---|
+| twitter | 8.41 | 7.48 | 11% fewer |
+| twitterescaped | 9.29 | 9.18 | 1% fewer |
+| canada | 14.64 | 14.01 | 4% fewer |
+| citm_catalog | 7.43 | 7.31 | 2% fewer |
+| gsoc-2018 | 3.43 | 3.40 | 1% fewer |
+| github_events | 7.80 | 6.70 | 14% fewer |
+
+Inlined into `document`, the same block loop took 6-17% more
+instructions on five of the files, twitterescaped's 17% among them,
+which holds no non-ASCII byte; it is a separate method, `utf8_text`,
+which the inliner leaves as a call (docs/RIG-NOTES.md, entry 7).
+canada holds no non-ASCII byte and github_events 4, so their change
+is not the check: it is the code around the string scan, where
+`document` no longer holds the sequence-at-a-time loop either. twitter
+(95,406 non-ASCII bytes) is where the check itself runs.
+
+In time (the Mac, a quiet window at a load of 3.8, fastest of 15
+interleaved runs; MB/s):
+
+| file | main | UTF-8 blocks | sonic-rs | against main | against sonic-rs |
+|---|---:|---:|---:|---|---|
+| twitter | 3383 | 3680 | 3074 | 9% faster | 20% faster |
+| twitterescaped | 3222 | 3252 | 2793 | within noise | 16% faster |
+| canada | 2250 | 2247 | 2003 | within noise | 12% faster |
+| citm_catalog | 4506 | 4570 | 3748 | within noise | 22% faster |
+| gsoc-2018 | 8288 | 8430 | 7139 | within noise | 18% faster |
+| github_events | 4037 | 4383 | 3718 | 9% faster | 18% faster |
