@@ -82,6 +82,33 @@ The Emdb session owns this work; it is a few days by estimate.
 - **Keeping it working.** A slice of the test suite runs under wasmtime
   in CI.
 
+**What Trig needs from it** (trig's docs/WASM.md; WebAssembly is
+Trig's eventual target, not urgent):
+
+1. **Exported functions.** A host calls `check(files) -> diagnostics`:
+   Rig functions exported with the C calling convention, the same
+   feature `c.zig` needs in part 4, so one design serves both.
+2. **Bytes across the boundary:** exported `alloc` and `free`, and text
+   passed as a pointer and a length.
+3. **wasm32-freestanding, or WASI with a small shim,** for browsers and
+   editors, which have no WASI. Trig's core makes no OS calls.
+4. **`Simd[T, n]` lowered to WebAssembly's 128-bit SIMD,** so Trig's
+   lexer and std.json keep their speed. SIMD round 2 (#156) already
+   tested its operations on wasm SIMD and found two LLVM bugs there (a
+   shift of a vector under 16 bytes in optimized builds, and a shift by
+   a per-lane amount passed through a call at -O0); the runtime works
+   around the first.
+5. **Stack depth.** WebAssembly stacks are small and fixed, and a
+   TypeScript parser and checker recurse deeply. Rig must state the
+   limit on each target and report running out of stack as a clear
+   panic, never a silent crash.
+6. **Traits** (round 2), for a `Host` interface; already queued.
+
+When `rig build --target wasm32-wasi` works, Trig will run its lexer and
+parser test sets (all 18,547 parser inputs) under wasmtime and report
+speed and memory against native, as an early check for stack and
+allocator surprises.
+
 ### 3. Rig calling emdb (a binding)
 
 - **Using a Zig library from a Rig program.** Today Rig calls Zig only
