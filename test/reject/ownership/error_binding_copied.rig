@@ -1,0 +1,17 @@
+# `error` is owning, so a bare use of an error a handler names copies
+# nothing: it moves with `<err`, clones with `+err`, or lends.
+
+error E
+  bad
+
+fun f() -> Int!
+  return E.bad
+
+sub main()
+  n = f() catch |err|
+    a = err
+    print(a)
+    0
+  print(n)
+
+# error: 12:9: `err` owns an `error`, which can't be copied by `=`: write `<err` to move it, `+err` to clone it, or `?err` to view it

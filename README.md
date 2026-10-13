@@ -339,7 +339,7 @@ and environment variable. The suite runs on Linux and macOS in
   parameter types, and return values
 - optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions
   that fail with error values, handled with `f()!`, `catch`, and
-  `catch |err|`
+  `catch |err|`; `error`, the owning type of an error of any set
 - modules with `pub` and `as`, `raw` blocks, C functions through
   `extern`, and `test` blocks run by `rig test`
 - integer bit methods (`count_ones`, `leading_zeros`, `swap_bytes`, ...)

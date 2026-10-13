@@ -37,6 +37,10 @@ from).
     then its target's steps, then stores; the order is one recorded fact
     (`storage.SetOrder`, `storage.eachSetStep`) that emit and the
     ownership checker both read.
+  - **Errors:** `error` is a type, an error of any set (a parameter, a
+    field, `List[error]`), and it is owning in every program: `<e`
+    moves it and `+e` clones it (docs/CORE.md, "A failure moves its
+    error").
   - **Speed:** runtime fast paths for push, add, and clear; small,
     only-called functions are emitted `inline` by a size rule the
     compiler decides, with no syntax (`src/inlining.zig`); a `for` index
@@ -307,6 +311,10 @@ migration guide (`tools/migrate-0.3.py`).
 
 **Later:**
 
+- Errors that carry data, after `error` the type: declared sets
+  (`T!E`, `error L = A | B`) and the typed `catch` binding, then member
+  fields moved up through `!`, then std.json's fallible API (SPEC §13,
+  "Declared sets and fields").
 - SIMD round 2: byte lookup, a joined shift, a saturating subtract (its
   spelling is undecided), `pad:` reads, `blocks(N)`, and one load for
   4- and 8-byte byte-lane reads on ARM.

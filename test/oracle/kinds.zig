@@ -82,8 +82,9 @@ pub const Kinds = struct {
             .read_view, .slice, .string_view => .read_view,
             // A unique value moves and is dropped once, like an owner
             // (Core §1): a declared one, and under the planned rule one
-            // holding a Cell.
-            else => if (ti.glue or ti.unique or (self.planned and ti.cell) or (self.generic and (ti.holds_type_var or ctx.types.get(ty) == .type_var)))
+            // holding a Cell. So does an `error`, and a value holding
+            // one (Core §2, "A failure moves its error").
+            else => if (ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell) or (self.generic and (ti.holds_type_var or ctx.types.get(ty) == .type_var)))
                 .owning
             else if (ti.views.write)
                 .write_view
@@ -99,7 +100,7 @@ pub const Kinds = struct {
             .holds_writes = ti.views.write,
             .drop_reads = scan.drop_body and kind == .owning,
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
-            .generic_copy = kind == .owning and !(ti.glue or ti.unique or (self.planned and ti.cell)),
+            .generic_copy = kind == .owning and !(ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell)),
         };
         try self.memo.put(self.a, ty, info);
         return info;

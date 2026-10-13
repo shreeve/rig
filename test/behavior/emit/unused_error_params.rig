@@ -1,0 +1,30 @@
+# Zig discards no error by value, so a parameter holding an error that
+# the body never reads is discarded by address: one of an error set, of
+# `error`, a read view of one, and a generic one whose instance is an
+# error.
+
+error A
+  x
+
+fun f(e: A) -> Int
+  1
+
+fun g(e: error) -> Int
+  2
+
+fun h[T](x: ?T) -> Int
+  3
+
+fun k[T](x: T) -> Int
+  4
+
+fun m(e: ?error) -> Int
+  5
+
+sub main()
+  a: A = A.x
+  b: error = A.x
+  print(f(A.x), g(A.x), h(?a), h(?b), k(A.x), m(?b), k(<b))
+
+# expect:
+# 1 2 3 3 4 5 4

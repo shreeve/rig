@@ -1,0 +1,7 @@
+# `error` is a type, not a value.
+
+sub main()
+  x = error
+  print(1)
+
+# error: 4:7: `error` is a type, not a value

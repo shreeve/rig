@@ -69,7 +69,7 @@ side; Rig names everything from the side the sigil is on.
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, structs whose parts are all plain | copies | built |
-| **owning** | `List[T]`, `^T`, `String`, structs holding an owner | moves; one owner; dropped once | built |
+| **owning** | `List[T]`, `^T`, `String`, `error`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T`, `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
@@ -134,13 +134,16 @@ sub main()
 a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(0, x)`
 ```
 
-**Two kinds the parts can't show:**
+**Three kinds the parts can't show:**
 
 - **A type that must not be copied but owns nothing**, such as a random
   generator whose copy would repeat its numbers, says so on the type:
   `obj Random unique`. It moves like an owner. *(built)*
 - **A type that holds a `Cell`**, or a bare `Cell[T]`, lives only
   behind `*`: see sentence 9. *(built)*
+- **`error`**, which holds an error of any set, is owning whatever the
+  program's sets hold, so whether it copies never depends on code
+  elsewhere: see "A failure moves its error" (§2). *(built)*
 
 ```rig reject
 sub main()
@@ -652,6 +655,69 @@ sub main()
 
 ```error
 return Bad.oops
+```
+
+**A failure moves its error.** An error set's member may carry fields,
+as an enum's variant does, but never a view, and every field clones.
+*(planned)* An error is plain or owning by the enum rule (§1), and
+`error`, which holds an error of any set, is owning. *(built)*
+`return E.name(...)` moves the error out of the function, `e!` passes
+the same error to the caller, and `catch |err|` makes it the handler's
+own binding, which drops when the handler ends unless the handler moves
+it on (`return err`, `<err`). *(built)* A `catch` that names no error
+drops it before its handler runs. *(planned)* Reading, matching,
+printing, storing, and cloning an error follow its type, as for any
+value. *(built)*
+
+```rig reject
+error E
+  bad
+
+fun f() -> Int!
+  return E.bad
+
+sub main()
+  n = f() catch |err|
+    keep = <err
+    print(err, keep)
+    0
+  print(n)
+```
+
+```error
+use of `err` after move
+```
+
+```rig pending
+error ParseError
+  empty
+  bad(pos: Int, msg: String)
+
+fun parse(s: ?String) -> Int!ParseError
+  return ParseError.empty if s.len == 0
+  return ParseError.bad(pos: 0, msg: String("not a digit: ", s)) if s[0] < 0x30 or s[0] > 0x39
+  s.len
+
+fun twice(s: ?String) -> Int!ParseError
+  parse(s)! * 2
+
+sub main()
+  print(twice("42") catch -1, twice("") catch -1)
+  n = twice("x1") catch |err|
+    print(err)
+    match err
+      .empty => -1
+      .bad(pos, msg)
+        print("at", pos, msg)
+        -2
+  print(n)
+```
+
+```output
+4 -1
+ParseError.bad(pos: 0, msg: "not a digit: x1")
+at 0 not a digit: x1
+-2
 ```
 
 Only code inside `raw` may break these rules. *(built)*
