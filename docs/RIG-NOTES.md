@@ -84,7 +84,14 @@ tools that take them in `bench/json/`.
    more instructions on five corpus files, twitterescaped's 17% among
    them, which has no non-ASCII byte at all. std.json keeps it out by
    writing the loop and its fallback as one method too large for the
-   inliner (`utf8_text`): size standing in for coldness. A second
+   inliner (`utf8_text`): size standing in for coldness. A rule by
+   structure cannot tell it from a hot function: `Doc.number` also has
+   one call site inlined into `document`'s loop, yet per parse it runs
+   111,126 times on canada and 14,392 on citm_catalog, while
+   `utf8_text` runs for 755 of twitter's 18,099 strings, 108 of
+   citm_catalog's 26,604, 2 of github_events' 1,891, and none on the
+   other three files. Only the programmer, a marker, or a profile knows
+   which is which. A second
    reason surfaced later: a large function with one call site is inlined into its caller by LLVM, so std.json's
    parser is compiled as part of whatever calls `parse`, and its code
    changed with the caller (when the benchmark's `main` was simplified,
