@@ -1808,10 +1808,11 @@ pub const Emitter = struct {
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
         const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
-        // A vector's lanes shift through the runtime (`vecShift`), which
-        // takes the amount as it is.
-        const lanes = shift and self.isSimd(self.typeOf(target));
-        const builtin: ?[]const u8 = if (lanes) vecShift(op) else switch (op) {
+        // A vector's lanes shift (`vecShift`) and saturate through the
+        // runtime, which takes the amount as it is.
+        const vector = self.isSimd(self.typeOf(target));
+        const lanes = shift and vector;
+        const builtin: ?[]const u8 = if (lanes) vecShift(op) else if (vector and op == .@"+|") "rig.vecAddSat" else if (vector and op == .@"-|") "rig.vecSubSat" else switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
             .@"<<" => "@shlExact",
             else => null,
@@ -4228,6 +4229,13 @@ pub const Emitter = struct {
             },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
             .@"+%", .@"-%", .@"*%", .@"+|", .@"-|" => {
+                if ((head == .@"+|" or head == .@"-|") and self.isSimd(self.typeOf(sexp))) {
+                    try self.w.writeAll(if (head == .@"+|") "rig.vecAddSat(" else "rig.vecSubSat(");
+                    try self.emitBare(ir.get(sexp, .left));
+                    try self.w.writeAll(", ");
+                    try self.emitBare(ir.get(sexp, .right));
+                    return self.w.writeAll(")");
+                }
                 // In the expression's type, so that literal operands wrap
                 // or saturate as it does rather than as a Zig `comptime_int`.
                 if (!bare) try self.w.writeAll("(");

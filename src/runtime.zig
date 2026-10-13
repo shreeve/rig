@@ -1627,6 +1627,60 @@ pub fn withLane(v: anytype, i: anytype, x: @typeInfo(@TypeOf(v)).vector.child) @
     return lanes;
 }
 
+/// `a +| b` and `a -| b` of integer vectors: each lane stops at its
+/// type's limits. LLVM's own saturating operators (`uqadd`, `psubusb`,
+/// `i8x16.sub_sat_u`) where it builds the code; elsewhere the wrapped
+/// result, corrected where a lane overflowed. Zig's own x86 backend (a
+/// debug build) gives wrong lanes for `I32` vectors of 8 or more on a CPU
+/// without AVX (`test/lanes/simd2_grid.zig`).
+pub inline fn vecAddSat(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return if (comptime builtin.zig_backend == .stage2_llvm) a +| b else addSatWrapped(a, b);
+}
+
+pub inline fn vecSubSat(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return if (comptime builtin.zig_backend == .stage2_llvm) a -| b else subSatWrapped(a, b);
+}
+
+inline fn addSatWrapped(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const r = a +% b;
+    if (comptime laneSigned(V)) {
+        const over = ((a ^ r) & (b ^ r)) < laneSplat(V, 0);
+        return @select(laneChild(V), over, @select(laneChild(V), a < laneSplat(V, 0), laneSplat(V, laneMin(V)), laneSplat(V, laneMax(V))), r);
+    }
+    return @select(laneChild(V), r < a, laneSplat(V, laneMax(V)), r);
+}
+
+inline fn subSatWrapped(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const r = a -% b;
+    if (comptime laneSigned(V)) {
+        const over = ((a ^ b) & (a ^ r)) < laneSplat(V, 0);
+        return @select(laneChild(V), over, @select(laneChild(V), a < laneSplat(V, 0), laneSplat(V, laneMin(V)), laneSplat(V, laneMax(V))), r);
+    }
+    return @select(laneChild(V), a < b, laneSplat(V, 0), r);
+}
+
+fn laneChild(comptime V: type) type {
+    return @typeInfo(V).vector.child;
+}
+
+fn laneSigned(comptime V: type) bool {
+    return @typeInfo(laneChild(V)).int.signedness == .signed;
+}
+
+fn laneMin(comptime V: type) laneChild(V) {
+    return std.math.minInt(laneChild(V));
+}
+
+fn laneMax(comptime V: type) laneChild(V) {
+    return std.math.maxInt(laneChild(V));
+}
+
+inline fn laneSplat(comptime V: type, x: laneChild(V)) V {
+    return @splat(x);
+}
+
 /// `v << c`, `v <<% c`, and `v >> c` of a vector of integers: every lane
 /// shifted by the one amount `c`, which must be below the lane width (a
 /// cast that panics otherwise, as for a scalar). `<<` panics where a lane
@@ -2918,6 +2972,29 @@ test "lookup: at compile time" {
     const idx: @Vector(4, u8) = .{ 0, 15, 16, 0x80 };
     const r = comptime lookup(t, idx);
     try testing.expectEqual([4]u8{ '0', 'f', 0, 0 }, @as([4]u8, r));
+}
+
+test "vecAddSat, vecSubSat: the wrapped forms agree with Zig's" {
+    var prng = std.Random.DefaultPrng.init(0x5a7);
+    const r = prng.random();
+    inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
+        inline for (.{ 2, 8, 16, 64 }) |n| {
+            for (0..200) |_| {
+                var xs: [n]T = undefined;
+                var ys: [n]T = undefined;
+                for (&xs, &ys) |*x, *y| {
+                    x.* = r.int(T);
+                    y.* = if (r.boolean()) r.int(T) else if (r.boolean()) 0 else std.math.minInt(T);
+                }
+                const add: [n]T = addSatWrapped(@as(@Vector(n, T), xs), @as(@Vector(n, T), ys));
+                const sub: [n]T = subSatWrapped(@as(@Vector(n, T), xs), @as(@Vector(n, T), ys));
+                for (xs, ys, add, sub) |x, y, s, d| {
+                    try testing.expectEqual(x +| y, s);
+                    try testing.expectEqual(x -| y, d);
+                }
+            }
+        }
+    }
 }
 
 test "lag: every amount and lane count" {

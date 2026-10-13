@@ -6,7 +6,8 @@
 //   simd2_grid shl <type> <n>   a `vecShl` that loses a bit in its last
 //                               lane: must panic "left shift overflowed bits"
 //
-// Operations: `+|` and `-|` (Zig's own operators, which Rig emits),
+// Operations: `+|` and `-|` (`rig.vecAddSat`, `vecSubSat`, and the
+// scalar operators),
 // `rig.vecShl` (on vectors that lose no bits), `vecShlWrap`, `vecShr`,
 // `rig.lookup` (tables of 16, 32, 64 bytes; indexes of every lane count,
 // biased to the edges: past the table, `pshufb`'s bit 7, 0x70), and
@@ -50,13 +51,15 @@ noinline fn saturating(comptime T: type, comptime n: usize, r: std.Random) void 
     const ys = lanes(T, n, r);
     const a = load(T, n, &xs);
     const b = load(T, n, &ys);
-    const add: [n]T = a +| b;
-    const sub: [n]T = a -| b;
+    const add: [n]T = rig.vecAddSat(a, b);
+    const sub: [n]T = rig.vecSubSat(a, b);
     for (xs, ys, add, sub, 0..) |x, y, s, d, i| {
         const wide_s = @as(i128, x) + @as(i128, y);
         const wide_d = @as(i128, x) - @as(i128, y);
         const want_s: T = @intCast(std.math.clamp(wide_s, std.math.minInt(T), std.math.maxInt(T)));
         const want_d: T = @intCast(std.math.clamp(wide_d, std.math.minInt(T), std.math.maxInt(T)));
+        if (x +| y != want_s) fail("scalar +| {s}: {d} +| {d} gave {d}, want {d}", .{ @typeName(T), x, y, x +| y, want_s });
+        if (x -| y != want_d) fail("scalar -| {s}: {d} -| {d} gave {d}, want {d}", .{ @typeName(T), x, y, x -| y, want_d });
         if (s != want_s) fail("+| {s} x{d} lane {d}: {d} +| {d} gave {d}, want {d}", .{ @typeName(T), n, i, x, y, s, want_s });
         if (d != want_d) fail("-| {s} x{d} lane {d}: {d} -| {d} gave {d}, want {d}", .{ @typeName(T), n, i, x, y, d, want_d });
     }
