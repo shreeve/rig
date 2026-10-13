@@ -2324,7 +2324,7 @@ fn indexPanic() noreturn {
     @panic("index out of bounds");
 }
 
-fn oom() noreturn {
+pub fn oom() noreturn {
     @panic("out of memory");
 }
 
