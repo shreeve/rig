@@ -1,0 +1,155 @@
+# std.utf8: reading and writing UTF-8 (RFC 3629), which encodes each
+# Unicode code point as one to four bytes. A valid sequence has no
+# overlong form, encodes no surrogate (U+D800 to U+DFFF), and nothing
+# past U+10FFFF. Every index and size is in bytes, and nothing here
+# allocates but the `push_` functions, which grow the `String` they are
+# given.
+
+# The code point read in place of bytes that are not valid UTF-8.
+pub REPLACEMENT = 0xFFFD
+
+# A code point read from a `?String`, and the bytes it took there.
+pub obj Rune
+  pub code: Int
+  pub size: Int
+
+# ---- Reading ---------------------------------------------------------------
+
+# The code point whose sequence starts at `i`, `0 <= i <= s.len`: `i`
+# is a cursor between bytes, and this is the rune just after it. A byte
+# that does not start a valid sequence reads as `REPLACEMENT`, of size 1,
+# so a reader moves past one bad byte at a time; at `s.len` the result is
+# `REPLACEMENT` of size 0.
+pub fun rune_after(s: ?String, i: Int) -> Rune
+  return Rune(code: REPLACEMENT, size: 0) if i == s.len
+  b = s[i]
+  return Rune(code: Int(b), size: 1) if b < 0x80
+  e = end_multi(s, i)
+  return Rune(code: REPLACEMENT, size: 1) if e < 0
+  code = Int(b) & (0x7F >> (e - i))
+  for k in i + 1..e
+    code = (code << 6) | (Int(s[k]) & 0x3F)
+  Rune(code: code, size: e - i)
+
+# The code point whose sequence ends at `i`, `0 <= i <= s.len`: the rune
+# just before the cursor, which `rune_after` reads at `i - r.size`. When
+# no valid sequence ends at `i`, the byte before `i` reads as
+# `REPLACEMENT`, of size 1; at 0 the result is `REPLACEMENT` of size 0.
+# It looks back at most four bytes.
+pub fun rune_before(s: ?String, i: Int) -> Rune
+  return Rune(code: REPLACEMENT, size: 0) if i == 0
+  b = s[i - 1]
+  return Rune(code: Int(b), size: 1) if b < 0x80
+  start = i - 1
+  first = i - 4 if i > 4 else 0
+  while start > first and s[start] & 0xC0 == 0x80
+    start -= 1
+  r = rune_after(s, start)
+  return r if start + r.size == i
+  Rune(code: REPLACEMENT, size: 1)
+
+# The code points of a `?String`, which `runes` gives, in order:
+# `for r in utf8.runes(s)`.
+pub obj Runes
+  s: ?String
+  at: Int
+
+  # The next code point, as `rune_after` reads it, or `none` after the
+  # last.
+  pub fun next(!self) -> Rune?
+    return none if self.at == self.s.len
+    r = rune_after(self.s, self.at)
+    self.at += r.size
+    r
+
+# The code points of `s`, read by `rune_after` from its first byte to its
+# last: a bad byte is one `REPLACEMENT` of size 1.
+pub fun runes(s: ?String) -> Runes
+  Runes(s: s, at: 0)
+
+# The size in bytes, 1 to 4, of the valid rune that starts at `i`,
+# `0 <= i <= s.len`, or `none` when the bytes there are not valid UTF-8
+# or `i` is `s.len`: `i += n` steps over the rune.
+pub fun rune_size(s: ?String, i: Int) -> Int?
+  return none if i == s.len
+  return 1 if s[i] < 0x80
+  e = end_multi(s, i)
+  return none if e < 0
+  e - i
+
+# The index just past the valid sequence of two to four bytes that
+# starts at `at`, `0 <= at < s.len`, or -1 when there is none, as for an
+# ASCII byte. One U32 read takes the commonest sequence in CJK text:
+# three bytes, 1110xxxx 10xxxxxx 10xxxxxx. A first byte of E0 or ED
+# narrows the second byte's range, so those go to `end_any`, with every
+# other sequence.
+fun end_multi(s: ?String, at: Int) -> Int
+  if at + 4 <= s.len
+    w = s.read[U32, .little](at)
+    lead = w & 0xFF
+    if w & 0xC0C0F0 == 0x8080E0 and lead != 0xE0 and lead != 0xED
+      return at + 3
+  end_any(s, at)
+
+# `end_multi`, one byte at a time.
+fun end_any(s: ?String, at: Int) -> Int
+  width = 0
+  lo: U8 = 0x80
+  hi: U8 = 0xBF
+  match s[at]
+    0xC2..0xE0 => width = 2
+    0xE0
+      width = 3
+      lo = 0xA0
+    0xE1..0xED, 0xEE..0xF0 => width = 3
+    0xED
+      width = 3
+      hi = 0x9F
+    0xF0
+      width = 4
+      lo = 0x90
+    0xF1..0xF4 => width = 4
+    0xF4
+      width = 4
+      hi = 0x8F
+    _ => return -1
+  return -1 if at + width > s.len
+  second = s[at + 1]
+  return -1 if second < lo or second > hi
+  for k in 2..width
+    return -1 if s[at + k] & 0xC0 != 0x80
+  at + width
+
+# ---- Writing ---------------------------------------------------------------
+
+# Appends the UTF-8 bytes of the code point `c`; panics when `c` is a
+# surrogate or outside 0 to 0x10FFFF.
+pub sub push_rune(out: !String, c: Int)
+  not_code_point(c) if c < 0 or c > 0x10FFFF or (c >= 0xD800 and c <= 0xDFFF)
+  push_rune_unchecked(!out, c)
+
+# `push_rune` for a `c` its caller knows is a code point and no surrogate,
+# without the check: a surrogate is written as its three bytes, which
+# are not UTF-8. It appends in one write, or two for three bytes, each a
+# big-endian number whose top byte comes first.
+pub sub push_rune_unchecked(out: !String, c: Int)
+  if c < 0x80
+    !out.push(U8(c))
+  else if c < 0x800
+    !out.push[U16, .big](U16(0xC080 | (c >> 6) << 8 | c & 0x3F))
+  else if c < 0x10000
+    !out.push[U16, .big](U16(0xE080 | (c >> 12) << 8 | (c >> 6) & 0x3F))
+    !out.push(U8(0x80 | c & 0x3F))
+  else
+    !out.push[U32, .big](U32(0xF0808080 | (c >> 18) << 24 | ((c >> 12) & 0x3F) << 16 | ((c >> 6) & 0x3F) << 8 | c & 0x3F))
+
+# Appends two code points of three UTF-8 bytes each, `c` and then `d`,
+# in two writes, of four bytes and then two. Each must be 0x800 to
+# 0xFFFF and no surrogate, which it does not check.
+pub sub push_runes3(out: !String, c: Int, d: Int)
+  !out.push[U32, .big](U32(0xE08080E0 | (c >> 12) << 24 | ((c >> 6) & 0x3F) << 16 | (c & 0x3F) << 8 | d >> 12))
+  !out.push[U16, .big](U16(0x8080 | ((d >> 6) & 0x3F) << 8 | d & 0x3F))
+
+extern zig "utf8.zig"
+  # Panics: `push_rune`'s code point is a surrogate or outside 0 to 0x10FFFF.
+  sub not_code_point(c: Int)

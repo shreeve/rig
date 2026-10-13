@@ -1,0 +1,106 @@
+# std.utf8 on the decode cases of Go's unicode/utf8 tests
+# (src/unicode/utf8/utf8_test.go), ported by hand: `rune_after` is
+# `DecodeRuneInString` and `rune_before` is `DecodeLastRuneInString`.
+# Each check that fails prints itself; the last line counts them.
+# release
+use std.utf8
+
+# utf8map: each code point and its encoding.
+CODES = [0x0000, 0x0001, 0x007e, 0x007f, 0x0080, 0x0081, 0x00bf, 0x00c0, 0x00c1, 0x00c8, 0x00d0, 0x00e0, 0x00f0, 0x00f8, 0x00ff, 0x0100, 0x07ff, 0x0400, 0x0800, 0x0801, 0x1000, 0xd000, 0xd7ff, 0xe000, 0xfffe, 0xffff, 0x10000, 0x10001, 0x40000, 0x10fffe, 0x10ffff, 0xFFFD]
+SEQS = ["\x00", "\x01", "\x7e", "\x7f", "\xc2\x80", "\xc2\x81", "\xc2\xbf", "\xc3\x80", "\xc3\x81", "\xc3\x88", "\xc3\x90", "\xc3\xa0", "\xc3\xb0", "\xc3\xb8", "\xc3\xbf", "\xc4\x80", "\xdf\xbf", "\xd0\x80", "\xe0\xa0\x80", "\xe0\xa0\x81", "\xe1\x80\x80", "\xed\x80\x80", "\xed\x9f\xbf", "\xee\x80\x80", "\xef\xbf\xbe", "\xef\xbf\xbf", "\xf0\x90\x80\x80", "\xf0\x90\x80\x81", "\xf1\x80\x80\x80", "\xf4\x8f\xbf\xbe", "\xf4\x8f\xbf\xbf", "\xef\xbf\xbd"]
+
+# surrogateMap: U+D800 and U+DFFF, each encoded as if it were a code point.
+SURROGATES = ["\xed\xa0\x80", "\xed\xbf\xbf"]
+
+# testStrings.
+STRINGS = ["", "abcd", "\u{263a}\u{263b}\u{2639}", "\u{65e5}a\u{672c}b\u{8a9e}\u{e7}\u{65e5}\u{f0}\u{672c}\u{ca}\u{8a9e}\u{fe}\u{65e5}\u{a5}\u{672c}\u{bc}\u{8a9e}i\u{65e5}\u{a9}", "\u{65e5}a\u{672c}b\u{8a9e}\u{e7}\u{65e5}\u{f0}\u{672c}\u{ca}\u{8a9e}\u{fe}\u{65e5}\u{a5}\u{672c}\u{bc}\u{8a9e}i\u{65e5}\u{a9}\u{65e5}a\u{672c}b\u{8a9e}\u{e7}\u{65e5}\u{f0}\u{672c}\u{ca}\u{8a9e}\u{fe}\u{65e5}\u{a5}\u{672c}\u{bc}\u{8a9e}i\u{65e5}\u{a9}\u{65e5}a\u{672c}b\u{8a9e}\u{e7}\u{65e5}\u{f0}\u{672c}\u{ca}\u{8a9e}\u{fe}\u{65e5}\u{a5}\u{672c}\u{bc}\u{8a9e}i\u{65e5}\u{a9}", "\x80\x80\x80\x80"]
+
+# invalidSequenceTests: each starts with no valid rune.
+INVALID = ["\xed\xa0\x80\x80", "\xed\xbf\xbf\x80", "\x91\x80\x80\x80", "\xC2\x7F\x80\x80", "\xC2\xC0\x80\x80", "\xDF\x7F\x80\x80", "\xDF\xC0\x80\x80", "\xE0\x9F\xBF\x80", "\xE0\xA0\x7F\x80", "\xE0\xBF\xC0\x80", "\xE0\xC0\x80\x80", "\xE1\x7F\xBF\x80", "\xE1\x80\x7F\x80", "\xE1\xBF\xC0\x80", "\xE1\xC0\x80\x80", "\xED\x7F\xBF\x80", "\xED\x80\x7F\x80", "\xED\x9F\xC0\x80", "\xED\xA0\x80\x80", "\xF0\x8F\xBF\xBF", "\xF0\x90\x7F\xBF", "\xF0\x90\x80\x7F", "\xF0\xBF\xBF\xC0", "\xF0\xBF\xC0\x80", "\xF0\xC0\x80\x80", "\xF1\x7F\xBF\xBF", "\xF1\x80\x7F\xBF", "\xF1\x80\x80\x7F", "\xF1\xBF\xBF\xC0", "\xF1\xBF\xC0\x80", "\xF1\xC0\x80\x80", "\xF4\x7F\xBF\xBF", "\xF4\x80\x7F\xBF", "\xF4\x80\x80\x7F", "\xF4\x8F\xBF\xC0", "\xF4\x8F\xC0\x80", "\xF4\x90\x80\x80"]
+
+ERROR = 0xFFFD
+
+# Whether `r` is `code` of `size`; prints the case when it is not.
+fun want(what: ?String, n: Int, r: utf8.Rune, code: Int, size: Int) -> Bool
+  return true if r.code == code and r.size == size
+  print(what, n, "gave", r.code, r.size, "want", code, size)
+  false
+
+# TestDecodeRune: each encoding decodes, alone and before a NUL, and so
+# does `rune_before` at its end; without its last byte it is
+# `ERROR` of size 1 (0 when nothing is left); with its last byte made
+# bad it is `ERROR` of size 1.
+fun decode() -> Int
+  failed = 0
+  for m, n in SEQS
+    c = CODES[n]
+    failed += 1 if not want("decode", n, utf8.rune_after(m, 0), c, m.len) else 0
+    nul = String(m, "\x00")
+    failed += 1 if not want("decode NUL", n, utf8.rune_after(?nul, 0), c, m.len) else 0
+    failed += 1 if not want("decode last", n, utf8.rune_before(m, m.len), c, m.len) else 0
+    short = m[..m.len - 1]
+    wantsize = 1 if m.len > 1 else 0
+    failed += 1 if not want("decode short", n, utf8.rune_after(short, 0), ERROR, wantsize) else 0
+    failed += 1 if not want("decode last short", n, utf8.rune_before(short, short.len), ERROR, wantsize) else 0
+    bad = String(short)
+    !bad.push(U8(0x80 if m.len == 1 else 0x7F))
+    failed += 1 if not want("decode bad", n, utf8.rune_after(?bad, 0), ERROR, 1) else 0
+  failed
+
+# TestDecodeSurrogateRune: a surrogate is `ERROR` of size 1, from
+# either side.
+fun surrogates() -> Int
+  failed = 0
+  for m, n in SURROGATES
+    failed += 1 if not want("surrogate", n, utf8.rune_after(m, 0), ERROR, 1) else 0
+    failed += 1 if not want("surrogate last", n, utf8.rune_before(m, m.len), ERROR, 1) else 0
+  failed
+
+# TestDecodeInvalidSequence: each is `ERROR`, of size 1.
+fun invalid() -> Int
+  failed = 0
+  for m, n in INVALID
+    failed += 1 if not want("invalid", n, utf8.rune_after(m, 0), ERROR, 1) else 0
+  failed
+
+# testSequence: `rune_before`, walking back from the end, gives the
+# runes and the indexes `rune_after` gives walking forward.
+fun sequence(s: ?String) -> Int
+  at = List[Int]()
+  codes = List[Int]()
+  i = 0
+  while i < s.len
+    r = utf8.rune_after(s, i)
+    !at.push(i)
+    !codes.push(r.code)
+    i += r.size
+  j = at.len
+  i = s.len
+  while i > 0
+    j -= 1
+    r = utf8.rune_before(s, i)
+    i -= r.size
+    if j < 0 or r.code != codes[j] or i != at[j]
+      print("sequence", s.len, i, j)
+      return 1
+  1 if j != 0 else 0
+
+# TestSequencing: every test string around every encoding.
+fun sequencing() -> Int
+  failed = 0
+  for ts in STRINGS
+    for m in SEQS
+      failed += sequence(?String(ts, m))
+      failed += sequence(?String(m, ts))
+      failed += sequence(?String(ts, m, ts))
+  failed
+
+sub main()
+  e = utf8.rune_after("", 0)
+  l = utf8.rune_before("", 0)
+  print(e.code, e.size, l.code, l.size)
+  print(decode(), surrogates(), invalid(), sequencing())
+
+# expect:
+# 65533 0 65533 0
+# 0 0 0 0

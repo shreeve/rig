@@ -1,0 +1,44 @@
+# std.utf8's `push_rune` at every boundary of the encoding's lengths, read
+# back by `rune_after`, `rune_size`, and `runes`; and the forms without the check.
+# release
+use std.utf8
+
+sub main()
+  points = [0, 0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFD, 0xFFFF, 0x10000, 0x10FFFF]
+  out = String()
+  for c in points
+    at = out.len
+    utf8.push_rune(!out, c)
+    r = utf8.rune_after(?out, at)
+    print(c, out.len - at, r.code == c, r.size == out.len - at, (utf8.rune_size(?out, at) ?? 0) == out.len - at)
+  print(?out == "\x00\u{7f}\u{80}\u{7ff}\u{800}\u{d7ff}\u{e000}\u{fffd}\u{ffff}\u{10000}\u{10ffff}")
+  n = 0
+  for r in utf8.runes(?out)
+    n += 1 if r.code == points[n] else 100
+  print(n)
+  t = String()
+  utf8.push_runes3(!t, 0x800, 0xFFFF)
+  utf8.push_runes3(!t, 0x4E2D, 0x6587)
+  utf8.push_rune_unchecked(!t, 0x10FFFF)
+  utf8.push_rune_unchecked(!t, 0x41)
+  print(?t == "\u{800}\u{ffff}\u{4e2d}\u{6587}\u{10ffff}A", t.len)
+  w = String()
+  utf8.push_rune_unchecked(!w, 0xD800)
+  print(?w == "\xed\xa0\x80", utf8.rune_size(?w, 0) ?? 0, utf8.rune_after(?w, 0).code)
+
+# expect:
+# 0 1 true true true
+# 127 1 true true true
+# 128 2 true true true
+# 2047 2 true true true
+# 2048 3 true true true
+# 55295 3 true true true
+# 57344 3 true true true
+# 65533 3 true true true
+# 65535 3 true true true
+# 65536 4 true true true
+# 1114111 4 true true true
+# true
+# 11
+# true 17
+# true 0 65533
