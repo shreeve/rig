@@ -1,8 +1,8 @@
 # A callable held in a field, `s.cb(...)`, has no receiver: a call of it
 # whose arguments are evaluated first fills its parameters from its first
 # argument, so an owned argument is held as the value it is and dropped
-# when a later argument fails, and a write borrow its first parameter
-# takes is the argument's.
+# when a later argument fails, and a write view its first parameter
+# takes is of the argument.
 
 error Bad
   no
