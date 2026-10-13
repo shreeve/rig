@@ -392,6 +392,34 @@ sub main()
 3 [0, 1, 4]
 ```
 
+## Text: bytes, runes, units, graphemes
+
+Every text API is described in four words, and Rig never says "char",
+which means a byte in C, a UTF-16 unit in Java and JavaScript, and a
+code point in Rust.
+
+| Word | What it is | Size |
+|---|---|---|
+| **byte** | 8 bits, a `U8`: what a `String` stores, and what `s.len`, `s[i]`, and slicing count | 1 byte |
+| **rune** | one Unicode code point, a character's number from 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
+| **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
+| **grapheme** | what a reader sees as one character | 1 or more runes |
+
+A `String` holds UTF-8 by convention. A byte from 0 to 127 is ASCII and
+a whole rune on its own; every other rune takes 2 to 4 bytes, each from
+128 to 255, and none of those bytes is a rune by itself. So `"é"` is 1
+rune in 2 bytes, 195 and 169:
+
+```rig
+sub main()
+  s = "é"
+  print(s.len, s[0], s[1])
+```
+
+```output
+2 195 169
+```
+
 ## String
 
 `String` is built in ([SPEC §10](../SPEC.md#string)). Besides `add` and
