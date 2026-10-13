@@ -174,7 +174,11 @@ pub fun rune_count(s: ?String) -> Int
     b = s.read[Block](i + 16)
     c = s.read[Block](i + 32)
     d = s.read[Block](i + 48)
-    if ((a | b | c | d) >= 0x80).any()
+    if ((a | b | c | d) < 0x80).all()
+      break if high and ((prev -| ENDS) != 0).any()
+      high = false
+      n += 64
+    else
       break if ((errors(a, prev) | errors(b, a) | errors(c, b) | errors(d, c)) != 0).any()
       ones += starts(a) + starts(b) + starts(c) + starts(d)
       held += 1
@@ -184,24 +188,20 @@ pub fun rune_count(s: ?String) -> Int
         ones = Block.splat(0)
         held = 0
       high = true
-    else
-      break if high and ((prev -| ENDS) != 0).any()
-      high = false
-      n += 64
     prev = d
   # Fewer than 64 bytes are left, or the 64 from `i` hold a fault: 16 at
   # a time, at most 3 blocks before the end or the fault, so no lane of
   # `ones` passes 62 * 4 + 3.
   while i + 16 <= s.len : i += 16
     a = s.read[Block](i)
-    if (a >= 0x80).any()
-      break if (errors(a, prev) != 0).any()
-      ones += starts(a)
-      high = true
-    else
+    if (a < 0x80).all()
       break if high and ((prev -| ENDS) != 0).any()
       high = false
       n += 16
+    else
+      break if (errors(a, prev) != 0).any()
+      ones += starts(a)
+      high = true
     prev = a
   n += lanes_sum(ones)
   # Every byte before `i` is valid UTF-8, but for a sequence that the
