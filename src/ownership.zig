@@ -792,7 +792,7 @@ pub const Checker = struct {
     /// leaves when checking without ctx.
     fn span(self: *const Checker, node: Sexp) diag.Span {
         if (self.sema) |s| return s.span(node);
-        return diag.leafSpan(node);
+        return rig.leafSpan(self.source, node);
     }
 
     /// Where a node starts in the source.
