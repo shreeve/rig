@@ -398,6 +398,39 @@ sub main()
 [0]
 ```
 
+## Text: bytes, runes, units, chars
+
+Every text API is described in four words, each with one meaning:
+
+| Word | What it is | Size |
+|---|---|---|
+| **byte** | 8 bits, a `U8`: what a `String` stores, and what `s.len`, `s[i]`, and slicing count | 1 byte |
+| **rune** | one Unicode code point other than a surrogate (a scalar value): a character's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
+| **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
+| **char** | what a reader sees as one character: a Unicode extended grapheme cluster | 1 or more runes |
+
+A char is a grapheme and nothing else: one character, as a person
+counts it, however many bytes it takes. The table of one char at 1, 2,
+3, 8, and 18 bytes is in [SPEC, Strings](../SPEC.md#strings), and the
+whole design, with each unit's module, is [TEXT](TEXT.md).
+
+Counting chars, runes, and units scans the text, so each is a call
+that names its unit:
+
+```rig pending
+use std.text
+use std.utf8
+use std.utf16
+
+sub main()
+  s = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}"
+  print(text.char_count(s), utf8.rune_count(s), utf16.unit_count(s), s.len)
+```
+
+```output
+1 5 8 18
+```
+
 ## String
 
 `String` is built in ([SPEC §10](../SPEC.md#string)). Besides `add` and
