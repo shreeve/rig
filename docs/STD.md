@@ -676,7 +676,8 @@ The tables are generated: `tools/gen-unicode.py` reads the pinned
 GraphemeBreakProperty.txt, emoji-data.txt (Extended_Pictographic), and
 DerivedCoreProperties.txt (Indic_Conjunct_Break, for GB9c) and writes
 `std/grapheme_tables.zig`, a two-level table of four bits a code point,
-about 16 KB. It also writes two tests: every line of Unicode's
+20 KB, whose levels each fill the range of the type that indexes them,
+so no lookup needs a bounds check. It also writes two tests: every line of Unicode's
 GraphemeBreakTest.txt, through each char tool at every byte, and a
 census that puts every code point in texts whose char counts tell its
 class apart.
