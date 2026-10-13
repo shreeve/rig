@@ -27,6 +27,17 @@ pub fun size(r: Int) -> Int?
 pub fun is_surrogate(u: Int) -> Bool
   u >= 0xD800 and u < 0xE000
 
+# Whether `u` is a high surrogate, the first unit of a pair:
+# `0xD800 <= u < 0xDC00`. One unsigned compare: below 0xD800 the
+# difference wraps past 0x3FF.
+pub fun is_high_surrogate(u: Int) -> Bool
+  U64.wrap(u -% 0xD800) < 0x400
+
+# Whether `u` is a low surrogate, the second unit of a pair:
+# `0xDC00 <= u < 0xE000`, in one unsigned compare.
+pub fun is_low_surrogate(u: Int) -> Bool
+  U64.wrap(u -% 0xDC00) < 0x400
+
 # The rune the pair `hi`, `lo` encodes, or `utf8.REPLACEMENT` when `hi` is
 # not a high surrogate or `lo` not a low one. Go's `utf16.DecodeRune`.
 pub fun rune_from_pair(hi: Int, lo: Int) -> Int
