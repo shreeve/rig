@@ -1,0 +1,16 @@
+# A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+fun mk(s: ?String) -> List[?String]
+  l: List[?String] = List()
+  !l.push(s)
+  l
+
+fun run[T](f: fun(?String) -> T, s: ?String) -> T
+  f(s)
+
+sub main()
+  t = String("abc")
+  k = run(mk, ?t)
+  <t
+  print(k)
+
+# error: cannot drop `t` while it is lent

@@ -1,7 +1,0 @@
-# A pair needs a high half and a low half.
-use std.unicode
-
-sub main()
-  print(unicode.surrogate_pair_to_code_point(0xDE00, 0xD83D))
-
-# expect-panic: unicode.surrogate_pair_to_code_point: not a high and a low surrogate

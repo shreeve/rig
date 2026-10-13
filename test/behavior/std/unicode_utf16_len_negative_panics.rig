@@ -1,7 +1,0 @@
-# A code point is not negative.
-use std.unicode
-
-sub main()
-  print(unicode.utf16_len(-1))
-
-# expect-panic: unicode.utf16_len: not a code point

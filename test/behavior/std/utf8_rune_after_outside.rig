@@ -1,0 +1,13 @@
+# std.utf8's `rune_after` panics at an index outside 0 to `s.len`, as indexing does.
+# release
+use std.utf8
+
+sub main()
+  s = "ab"
+  print(utf8.rune_after(s, s.len).rune)
+  print(utf8.rune_after(s, s.len + 1).rune)
+
+# expect-panic: index out of bounds
+
+# expect:
+# 65533

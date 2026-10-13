@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Check std.unicode's identifier tables against the Character Database.
+"""Check std.unicode's properties against the Character Database.
 
     tools/verify-unicode.py [--ucd DIR] [--rig bin/rig]
 
 Runs tools/unicode_ranges.rig, which looks up every code point from 0 to
-0x10FFFF through std.unicode, and compares its runs, code point by code
-point, with:
+0x10FFFF through std.unicode, and compares its White_Space runs with
+PropList.txt, and its identifier runs, code point by code point, with:
 
 1. the classes DerivedCoreProperties.txt lists;
 2. the classes derived again, independently, by the definition in UAX #31
@@ -19,7 +19,7 @@ point, with:
    assigned it) or the later version moved it to another general category,
    and every such code point is listed by range.
 
-Exits non-zero on any difference of 1 or 2.
+Exits non-zero on any difference of White_Space, 1, or 2.
 """
 import argparse
 import importlib.util
@@ -38,15 +38,15 @@ LIMIT = gen.LIMIT
 
 
 def from_ranges(lines):
-    """(start, continue) bytearrays from `start|continue FIRST LAST` lines."""
-    out = {"start": bytearray(LIMIT), "continue": bytearray(LIMIT)}
+    """(start, continue, space) bytearrays from `start|continue|space FIRST LAST` lines."""
+    out = {"start": bytearray(LIMIT), "continue": bytearray(LIMIT), "space": bytearray(LIMIT)}
     for line in lines:
         if not line.strip():
             continue
         kind, a, b = line.split()
         for c in range(int(a, 16), int(b, 16) + 1):
             out[kind][c] = 1
-    return out["start"], out["continue"]
+    return out["start"], out["continue"], out["space"]
 
 
 def unicode_data(path):
@@ -117,7 +117,7 @@ def main():
                              capture_output=True, text=True, env=dict(os.environ, RIG_OUT_DIR=tmp))
     if out.returncode != 0:
         sys.exit("rig run failed:\n" + out.stderr)
-    got_s, got_c = from_ranges(out.stdout.splitlines())
+    got_s, got_c, got_w = from_ranges(out.stdout.splitlines())
 
     # 1. DerivedCoreProperties
     cls = gen.classes(ucd)
@@ -128,7 +128,8 @@ def main():
 
     # 2. UAX #31 from UnicodeData and PropList
     pl = gen.property_ranges(gen.ucd_file(ucd, "PropList.txt"),
-                             ["Other_ID_Start", "Other_ID_Continue", "Pattern_Syntax", "Pattern_White_Space"])
+                             ["Other_ID_Start", "Other_ID_Continue", "Pattern_Syntax", "Pattern_White_Space", "White_Space"])
+    bad += len(diff("space vs White_Space", got_w, mark(pl["White_Space"])))
     cat = unicode_data(gen.ucd_file(ucd, "UnicodeData.txt"))
     pattern = mark(pl["Pattern_Syntax"] + pl["Pattern_White_Space"])
     oid_s, oid_c = mark(pl["Other_ID_Start"]), mark(pl["Other_ID_Continue"])
@@ -150,7 +151,7 @@ def main():
             " ".join(spans(moved)[:12]), len(other), " ".join(spans(other)[:12])))
         bad += len(other)
     n = sum(got_s), sum(got_c)
-    print("%d ID_Start and %d ID_Continue code points checked over 0..10FFFF" % n)
+    print("%d ID_Start, %d ID_Continue, and %d White_Space code points checked over 0..10FFFF" % (n + (sum(got_w),)))
     sys.exit(1 if bad else 0)
 
 

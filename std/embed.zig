@@ -19,8 +19,9 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "time.rig", @embedFile("time.rig") },
     .{ "time.zig", @embedFile("time.zig") },
     .{ "unicode.rig", @embedFile("unicode.rig") },
-    .{ "unicode.zig", @embedFile("unicode.zig") },
     .{ "unicode_tables.zig", @embedFile("unicode_tables.zig") },
+    .{ "utf16.rig", @embedFile("utf16.rig") },
+    .{ "utf8.rig", @embedFile("utf8.rig") },
 };
 
 pub fn get(name: []const u8) ?[]const u8 {
