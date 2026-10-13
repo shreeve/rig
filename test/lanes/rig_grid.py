@@ -7,8 +7,9 @@ vectors made at run time.
                          [--lanes 2,4,...] [--keep DIR]
 
 Each lane type is one program, built once, whose cells are subs; its
-first argument names what to run. `clean` runs every cell with no
-overflowing lane, each printing `ok <cell>` or `bad <cell>`:
+first argument names the cell to run, or `clean`, every cell with no
+overflowing lane (each prints `ok <cell>` or `bad <cell>`; when that run
+fails, each is run again on its own):
 
   line   `x op y` and `t op= y` once, on vectors made from formulas of the
          lane index
@@ -192,7 +193,7 @@ def type_program(ty, lanes):
                 ovfs.append(f"loopovf_{op}_{n}")
     main = ["sub main()", "  args = os.args()", "  which = args[1]", '  if which == "clean"']
     main += [f"    {c}()" for c in clean]
-    for c in ovfs:
+    for c in clean + ovfs:
         main += [f'  else if which == "{c}"', f"    {c}()"]
     return "use std.os\n\n" + "\n".join(subs) + "\n" + "\n".join(main) + "\n", clean, ovfs
 
@@ -213,13 +214,14 @@ def check_type(rig, release, work, ty, lanes, jobs):
         return [f"{ty}: build failed\n  {b.stderr[:1500]}"], 0
     bad = []
     r = run(exe, "clean")
-    got = r.stdout.split("\n")
-    for c in clean:
-        if f"ok {c}" not in got:
-            why = "false overflow" if "integer overflow" in r.stderr else "wrong value" if f"bad {c}" in got else "not run"
-            bad.append(f"{ty} {c}: {why}")
-    if r.returncode:
-        bad.append(f"{ty} clean: exit {r.returncode}\n  {r.stderr[:300]}")
+    if r.returncode or r.stdout.split("\n")[:-1] != [f"ok {c}" for c in clean]:
+        # Each clean cell again on its own: a panic stops the run of all.
+        with cf.ThreadPoolExecutor(jobs) as ex:
+            for c, r in zip(clean, ex.map(lambda c: run(exe, c), clean)):
+                if r.returncode == 0 and r.stdout == f"ok {c}\n":
+                    continue
+                why = "false overflow" if "integer overflow" in r.stderr else "wrong value"
+                bad.append(f"{ty} {c}: {why}\n  {(r.stderr or r.stdout)[:300]}")
     with cf.ThreadPoolExecutor(jobs) as ex:
         for c, r in zip(ovfs, ex.map(lambda c: run(exe, c), ovfs)):
             if r.returncode != 0 and "integer overflow" in r.stderr and r.stdout.strip() == "start":
