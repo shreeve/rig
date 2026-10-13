@@ -1,7 +1,0 @@
-# Two files of one module may not bind one name to different modules.
-use m
-
-sub main()
-  print(1)
-
-# error: two imports bind the name `g`; name one of them with `as`

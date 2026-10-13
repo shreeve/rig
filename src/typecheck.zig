@@ -3788,6 +3788,8 @@ const Checker = struct {
     /// of.
     fn unboundHint(self: *Checker, leaf: Sexp, name: []const u8) Error![]const u8 {
         if (sema.retiredNameHint(name)) |hint| return hint;
+        const other = try self.ctx.otherFileUse(name);
+        if (other.len > 0) return other;
         const Other = struct { []const u8, []const u8 };
         const others = [_]Other{
             .{ "null", "; Rig's absent value is `none`" },
@@ -3819,6 +3821,8 @@ const Checker = struct {
     /// excluding a `new x = ...` whose value is still being checked (its
     /// right side reads the previous `x`).
     fn visibleIn(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
+        // A module is named where a `use` of its file binds it.
+        if (scope == self.module_scope) if (self.ctx.fileModule(name, pos)) |id| return id;
         var id = self.ctx.lookupInScopeOnly(scope, name) orelse return null;
         while (id != sema.symbol_invalid) {
             const sym = self.ctx.symbols.items[id];

@@ -1,4 +1,0 @@
-use std.os as g
-
-pub fun b() -> Int
-  2

@@ -221,7 +221,7 @@ pub const ModuleGraph = struct {
         const alias = ir.Use.alias(decl);
         const local_name = if (alias == .nil) name else rig.leafText(importer.source, alias.src);
         const at = importer.parser.span(decl);
-        const file = partOf(importer.parts, at.start);
+        const file = sema.fileIndex(importer.parts, at.start);
 
         for (comps) |c| if (std.mem.startsWith(u8, c, reserved_prefix)) {
             try self.errorAt(id, at, "module names starting with `{s}` are reserved for the compiler", .{reserved_prefix});
@@ -252,9 +252,8 @@ pub const ModuleGraph = struct {
             try self.errorAt(id, at, "cyclic import: `{s}` is still being loaded when `{s}` imports it; modules may not import each other in a cycle: put the files that call each other in one module, a directory", .{ qualified, self.get(id).name });
             return .failed;
         }
-        for (self.get(id).imports.items) |imp| if (imp.target == target and std.mem.eql(u8, imp.local_name, local_name)) {
-            // Each file of a directory module says what it uses.
-            if (imp.file != file) return .loaded;
+        // Each file of a directory module says what it uses.
+        for (self.get(id).imports.items) |imp| if (imp.target == target and imp.file == file and std.mem.eql(u8, imp.local_name, local_name)) {
             try self.errorAt(id, at, "`{s}` is already imported as `{s}`", .{ qualified, local_name });
             return .failed;
         };
@@ -676,13 +675,6 @@ fn hasTypeErrors(items: []const diag.Diagnostic) bool {
     return false;
 }
 
-/// The index of the part of a directory module's source that `pos` is
-/// in; 0 for a module of one file.
-pub fn partOf(parts: []const diag.Part, pos: u32) u32 {
-    var i: usize = parts.len;
-    while (i > 1 and parts[i - 1].start > pos) i -= 1;
-    return @intCast(i -| 1);
-}
 
 /// `dir/name.rig` → `name`.
 fn moduleName(path: []const u8) []const u8 {

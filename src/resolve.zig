@@ -21,7 +21,6 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const diag = @import("diag.zig");
-const modules = @import("modules.zig");
 const sema = @import("sema.zig");
 const Wide = sema.Wide;
 
@@ -62,8 +61,10 @@ const SymbolResolver = struct {
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
             .module => {
+                // A file's `use`s name its modules everywhere in it.
+                for (ir.Module.decls(sexp)) |c| if (c.isKind(.use)) try self.walk(c);
                 for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walk(c);
-                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walk(c);
+                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c) and !c.isKind(.use)) try self.walk(c);
             },
             .@"pub" => {
                 const decl = ir.Pub.decl(sexp);
@@ -216,11 +217,28 @@ const SymbolResolver = struct {
             try self.ctx.errAt(name_node, "{s} `{s}` has the name of the generic parameter `{s}`; use a different name", .{ what, name, name });
             return;
         }
+        if (self.ctx.fileModule(name, srcPos(name_node, 0))) |module| return self.shadowsModule(name_node, what, module);
         const decl = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return;
         const sym = self.ctx.symbols.items[decl];
         if (sym.decl_pos == sema.builtin_decl_pos) return;
         try self.ctx.errAt(name_node, "{s} `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ what, name, name });
         try self.ctx.note(sym.decl_pos, "`{s}` declared here", .{name});
+    }
+
+    /// A parameter or local named like a module its file uses. A
+    /// parameter can take the name only if the module is imported under
+    /// another; a local can also hide the module with `new`.
+    fn shadowsModule(self: *SymbolResolver, name_node: Sexp, what: []const u8, module: SymbolId) Error!void {
+        const name = identAt(self.ctx.source, name_node).?;
+        const decl = for (self.ctx.file_uses.items) |u| {
+            if (u.sym == module) break u.decl;
+        } else unreachable;
+        const path = if (self.ctx.parser) |p| diag.textOf(self.ctx.source, p.span(ir.Use.name(decl))) else name;
+        const other: []const u8 = if (name.len > 1) name[0..1] else "m";
+        if (std.mem.find(u8, what, "parameter") != null) {
+            try self.ctx.errAt(name_node, "{s} `{s}` has the name of the module this file uses as `{s}`; import the module under another name, `use {s} as {s}`", .{ what, name, name, path, other });
+        } else try self.ctx.errAt(name_node, "{s} `{s}` has the name of the module this file uses as `{s}`; import the module under another name, `use {s} as {s}`, or write `new {s} = ...`, which hides the module `{s}` for the rest of this scope", .{ what, name, name, path, other, name, name });
+        try self.ctx.note(self.ctx.symbols.items[module].decl_pos, "`{s}` imported here", .{name});
     }
 
     /// The parameters and body of a `fun`, `sub`, or `drop`.
@@ -317,32 +335,34 @@ const SymbolResolver = struct {
         try self.checkShadowsDeclaration(name_node, "parameter");
     }
 
-    /// `use NAME`, `use std.NAME`, or either `as ALIAS`: the module's
-    /// symbol is named by the alias, else the path's last name.
-    /// In a directory module, two files that use one module under one
-    /// name share its symbol; each file records its own `use`.
+    /// `use NAME`, `use a.b.NAME`, or either `as ALIAS`: the module's
+    /// symbol is named by the alias, else the path's last name. It binds
+    /// that name in its own file only (`SemContext.fileModule`), so it is
+    /// in no scope; two `use`s of one file may not bind one name.
     fn walkUse(self: *SymbolResolver, node: Sexp) Error!void {
         const path = ir.Use.name(node);
         const alias = ir.Use.alias(node);
         const name_node = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
         const name = identAt(self.ctx.source, name_node) orelse return;
-        const file = modules.partOf(self.ctx.parts, srcPos(name_node, 0));
-        // The module this file's `use` names (the graph records one
-        // import of a module under a name, by the first file to use it).
+        const pos = srcPos(name_node, 0);
+        const file = sema.fileIndex(self.ctx.parts, pos);
+        if (self.ctx.fileModule(name, pos)) |prev| {
+            try self.ctx.err(pos, "two imports bind the name `{s}`; name one of them with `as`: `use ... as other`", .{name});
+            try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` first imported here", .{name});
+            return;
+        }
+        // The module this file's `use` names.
         const target = for (self.ctx.imports) |imp| {
             if (std.mem.eql(u8, imp.local_name, name) and imp.file == file) break imp.module_id;
-        } else for (self.ctx.imports) |imp| {
-            if (std.mem.eql(u8, imp.local_name, name)) break imp.module_id;
         } else null;
-        if (self.ctx.lookupInScopeOnly(self.module_scope, name)) |prev| {
-            const p = self.ctx.symbols.items[prev];
-            if (p.kind == .module and target != null and self.ctx.module_refs.get(prev) == target.? and fileUse(self.ctx, prev, file) == null) {
-                try self.ctx.recordName(name_node, prev);
-                try self.ctx.file_uses.append(self.ctx.allocator, .{ .file = file, .sym = prev, .decl = node });
-                return;
-            }
-        }
-        const id = (try self.declare(name_node, .module, .{})) orelse return;
+        const id = try self.ctx.addSymbol(.{
+            .name = name,
+            .kind = .module,
+            .ty = self.ctx.types.unknown_id,
+            .decl_pos = pos,
+            .scope = self.module_scope,
+        });
+        try self.ctx.recordName(name_node, id);
         if (target) |t| try self.ctx.module_refs.put(self.ctx.allocator, id, t);
         try self.ctx.file_uses.append(self.ctx.allocator, .{ .file = file, .sym = id, .decl = node });
     }
@@ -598,6 +618,7 @@ const SymbolResolver = struct {
 pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     if (!tree.isKind(.module)) return;
     try checkDetachedMethods(ctx, tree);
+    try checkUseNames(ctx);
     try orderModuleConsts(ctx, tree);
     try foldModuleConsts(ctx);
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
@@ -607,33 +628,17 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     for (ir.Module.decls(tree)) |decl| try tr.resolveDecl(decl);
 }
 
-/// In a directory module, a `use` binds its name in its own file only:
-/// each name of a module another file binds, used in a file that does
-/// not, is reported.
-pub fn checkFileUses(ctx: *SemContext) Error!void {
-    if (ctx.parts.len < 2) return;
-    var at: std.ArrayList(u32) = .empty;
-    defer at.deinit(ctx.allocator);
-    var it = ctx.facts.names.iterator();
-    while (it.next()) |e| {
-        const sym = ctx.symbols.items[e.value_ptr.*];
-        if (sym.kind != .module or sym.scope != sema.module_scope) continue;
-        if (fileUse(ctx, e.value_ptr.*, modules.partOf(ctx.parts, e.key_ptr.*)) == null) try at.append(ctx.allocator, e.key_ptr.*);
+/// A `use` may not bind the name of a declaration of its module, which
+/// its file sees too.
+fn checkUseNames(ctx: *SemContext) Error!void {
+    for (ctx.file_uses.items) |u| {
+        const sym = ctx.symbols.items[u.sym];
+        const decl = ctx.lookupInScopeOnly(sema.module_scope, sym.name) orelse continue;
+        const d = ctx.symbols.items[decl];
+        if (d.decl_pos == sema.builtin_decl_pos) continue;
+        try ctx.err(sym.decl_pos, "`{s}` is a declaration of this module; import the module under another name: `use ... as other`", .{sym.name});
+        try ctx.note(d.decl_pos, "`{s}` declared here", .{sym.name});
     }
-    std.mem.sort(u32, at.items, {}, std.sort.asc(u32));
-    for (at.items) |pos| {
-        const id = ctx.facts.names.get(pos).?;
-        const decl = fileUse(ctx, id, null).?.decl;
-        const shown = if (ctx.parser) |p| diag.textOf(ctx.source, p.span(decl)) else "use ...";
-        try ctx.err(pos, "`{s}` is imported by another file of module `{s}`; add `{s}` to this file", .{ ctx.symbols.items[id].name, ctx.name, shown });
-    }
-}
-
-/// The `use` that binds module symbol `id` in file `file`, or in any
-/// file when `file` is null.
-fn fileUse(ctx: *const SemContext, id: SymbolId, file: ?u32) ?sema.FileUse {
-    for (ctx.file_uses.items) |u| if (u.sym == id and (file == null or u.file == file.?)) return u;
-    return null;
 }
 
 /// Why each method declared outside a body names no type it can join
@@ -941,7 +946,8 @@ pub const ConstNames = struct {
 
     pub fn member(self: ConstNames, e: Sexp) ?sema.TypedInt {
         const obj = ir.Member.object(e);
-        const id = self.ctx.lookup(self.scope, identAt(self.ctx.source, obj) orelse return null) orelse return null;
+        if (obj != .src) return null;
+        const id = self.ctx.lookupAt(self.scope, identAt(self.ctx.source, obj) orelse return null, obj.src.pos) orelse return null;
         if (self.ctx.symbols.items[id].kind != .module) return null;
         const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
@@ -2156,8 +2162,8 @@ pub const TypeResolver = struct {
     fn memberNotCtInt(self: *TypeResolver, node: Sexp, what: []const u8) Error!bool {
         const obj = ir.Member.object(node);
         const module_name = identAt(self.ctx.source, obj) orelse return false;
-        const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
-            try self.ctx.errAt(obj, "use of unbound name `{s}`", .{module_name});
+        const mod_id = self.ctx.lookupAt(self.scope, module_name, srcPos(obj, 0)) orelse {
+            try self.ctx.errAt(obj, "use of unbound name `{s}`{s}", .{ module_name, try self.ctx.otherFileUse(module_name) });
             return true;
         };
         if (self.ctx.symbols.items[mod_id].kind != .module) return false;
@@ -2218,7 +2224,7 @@ pub const TypeResolver = struct {
             },
             .list => if (node.isKind(.member)) {
                 const obj = ir.Member.object(node);
-                const id = self.ctx.lookup(self.scope, identAt(self.ctx.source, obj) orelse return) orelse return;
+                const id = self.ctx.lookupAt(self.scope, identAt(self.ctx.source, obj) orelse return, srcPos(obj, 0)) orelse return;
                 if (self.ctx.symbols.items[id].kind == .module) try self.ctx.recordName(obj, id);
             } else for (node.items()) |c| try self.recordCtNames(c),
             else => {},
@@ -2273,8 +2279,11 @@ pub const TypeResolver = struct {
         const module_name = identAt(self.ctx.source, module_node) orelse return null;
         const name = identAt(self.ctx.source, name_node) orelse return null;
         const pos = srcPos(name_node, 0);
-        const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
-            try self.ctx.errAt(module_node, "use of unbound module `{s}`; import it with `use {s}`", .{ module_name, module_name });
+        const mod_id = self.ctx.lookupAt(self.scope, module_name, srcPos(module_node, 0)) orelse {
+            const other = try self.ctx.otherFileUse(module_name);
+            if (other.len > 0) {
+                try self.ctx.errAt(module_node, "use of unbound module `{s}`{s}", .{ module_name, other });
+            } else try self.ctx.errAt(module_node, "use of unbound module `{s}`; import it with `use {s}`", .{ module_name, module_name });
             return null;
         };
         if (self.ctx.symbols.items[mod_id].kind != .module) {

@@ -692,12 +692,11 @@ file of the program (`<std>/foo.rig`, `<std>/a/b/`), so even a
 `$RIG_STD` naming the program's directory never makes one file both,
 and it imports only `std.` modules. A module is keyed by its qualified
 name (`foo`, `a.b.c`, `std.foo`), and its `Import` records the local
-name it is bound to (the alias of `as`, else the path's last name),
-which the resolver declares as a module symbol, so two imports binding
-one name are reported as a duplicate. Each module emits to its own
-file, `foo.zig`, `a.b.c.zig`, or `__rig_std_foo.zig`
-(`SemContext.zig_file`), which importers `@import` under their local
-name. Each name of the path must be spelled as on disk (not another
+name it is bound to (the alias of `as`, else the path's last name) and
+the file of the `use`. Each module emits to its own file, `foo.zig`,
+`a.b.c.zig`, or `__rig_std_foo.zig` (`SemContext.zig_file`), which an
+importer `@import`s under a name of the emitter's, `__rig_m<id>_foo`
+(`Emitter.writeModuleZig`), whatever name its `use`s bind. Each name of the path must be spelled as on disk (not another
 spelling on a case-insensitive filesystem, nor a symlink under another
 name), and names starting with `__rig` are the emitter's.
 
@@ -734,13 +733,22 @@ file starts and its path. Three things keep the files apart:
   be indented.
 - **Diagnostics.** `diag.File.parts` maps a position to the file it is
   in and its line and column there.
-- **`use`.** A `use` binds its name in its own file only. The files
-  that use one module under one name share its module symbol, each
-  recording its own `use` (`SemContext.file_uses`); after typecheck,
-  `resolve.checkFileUses` reports each recorded use of a module name
-  (`facts.names`) in a file with no such `use`. Two files that bind one
-  name to different modules are the duplicate above. Emit writes one
-  `@import` per name.
+- **`use`.** A `use` binds its name in its own file only, as in a
+  module of one file. Its module symbol is in no scope; it is recorded
+  with its file (`SemContext.file_uses`), and a lookup that reaches the
+  module's scope from a position asks for the module that position's
+  file binds first (`SemContext.fileModule`, through `lookupAt`,
+  `lookupBefore`, and typecheck's `visibleIn`). So two files may bind
+  one name to different modules, a name another file binds is free in
+  this one, and one that only another file binds is reported unbound,
+  with that file's `use` to add. In the file that binds it, the name is
+  taken, as any visible name is: a parameter or local of that name is
+  rejected, with the hint to import the module under another name, and
+  for a local, to hide the module with `new`. Two `use`s of one file
+  may not bind one name, nor may a `use` bind the name of a
+  declaration of its module. Emit names each imported module by its
+  id, never by a name a `use` binds, so the files' names never meet in
+  the module's one Zig file.
 
 Everything else, private names included, is the module's, as in a Go
 package: sema's pipeline is unchanged, and the module emits one Zig

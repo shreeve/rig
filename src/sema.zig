@@ -247,9 +247,18 @@ pub const ImportedNominal = struct {
 pub const ModuleMap = std.AutoHashMapUnmanaged(u32, *SemContext);
 const no_modules: ModuleMap = .empty;
 
-/// A `use` in one file of a directory module: the file (`SemContext.parts`),
-/// the module symbol it binds there, and the declaration.
+/// A `use`: the file of a directory module it is in (`SemContext.parts`;
+/// 0 in a module of one file), the module symbol it binds there, and the
+/// declaration.
 pub const FileUse = struct { file: u32, sym: SymbolId, decl: Sexp };
+
+/// The index of the file of a directory module `pos` is in; 0 in a
+/// module of one file.
+pub fn fileIndex(parts: []const diag.Part, pos: u32) u32 {
+    var i: usize = parts.len;
+    while (i > 1 and parts[i - 1].start > pos) i -= 1;
+    return @intCast(i -| 1);
+}
 
 /// One resolved `use NAME` of the module being checked. `sema` must
 /// outlive the importing SemContext.
@@ -1724,8 +1733,8 @@ pub const SemContext = struct {
     /// The module constants in the order their values are checked: each
     /// after the constants it names (`resolve.orderModuleConsts`).
     const_order: std.ArrayList(Sexp) = .empty,
-    /// In a directory module, each `use` by the file it is in: the
-    /// module symbol it binds, and the declaration.
+    /// Each `use` by the file it is in: the module symbol it binds, and
+    /// the declaration (`fileModule`).
     file_uses: std.ArrayList(FileUse) = .empty,
     /// Every module of the program by id, shared by their contexts: a
     /// type from another module names its origin by id.
@@ -2009,8 +2018,46 @@ pub const SemContext = struct {
         return self.scopes.items[scope_id].by_name.get(name);
     }
 
+    /// The module a `use` in the file `pos` is in binds as `name`
+    /// (`file_uses`). A `use` binds its name in its own file only, so its
+    /// module symbol is in no scope: a lookup that reaches the module's
+    /// scope asks here first.
+    pub fn fileModule(self: *const SemContext, name: []const u8, pos: u32) ?SymbolId {
+        const file = fileIndex(self.parts, pos);
+        for (self.file_uses.items) |u| {
+            if (u.file == file and std.mem.eql(u8, self.symbols.items[u.sym].name, name)) return u.sym;
+        }
+        return null;
+    }
+
+    /// The end of a diagnostic for `name`, unbound where it is used: in a
+    /// directory module, the `use` another file binds it with, which this
+    /// file lacks. Empty when no file binds it.
+    pub fn otherFileUse(self: *SemContext, name: []const u8) std.mem.Allocator.Error![]const u8 {
+        for (self.file_uses.items) |u| {
+            if (!std.mem.eql(u8, self.symbols.items[u.sym].name, name)) continue;
+            const p = self.parser orelse return "";
+            return self.arena.allocator().print("; `{s}` is imported by another file of module `{s}`; add `{s}` to this file", .{ name, self.name, diag.textOf(self.source, p.span(u.decl)) });
+        }
+        return "";
+    }
+
+    /// `lookup` for a name written at `pos`: a module a `use` of its file
+    /// binds is visible there.
+    pub fn lookupAt(self: *const SemContext, from_scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
+        var sid: ?ScopeId = from_scope;
+        while (sid) |s| {
+            if (s == scope_invalid or s >= self.scopes.items.len) break;
+            if (s == module_scope) if (self.fileModule(name, pos)) |id| return id;
+            if (self.lookupInScopeOnly(s, name)) |id| return id;
+            sid = self.scopes.items[s].parent;
+        }
+        return null;
+    }
+
     /// The symbol `name` resolves to from `from_scope`: the latest
-    /// declaration in the innermost enclosing scope that has one.
+    /// declaration in the innermost enclosing scope that has one. A
+    /// module a `use` binds is named only at a position (`lookupAt`).
     pub fn lookup(self: *const SemContext, from_scope: ScopeId, name: []const u8) ?SymbolId {
         var sid: ?ScopeId = from_scope;
         while (sid) |s| {
@@ -2027,6 +2074,7 @@ pub const SemContext = struct {
         var sid: ?ScopeId = from_scope;
         while (sid) |s| {
             if (s == scope_invalid or s >= self.scopes.items.len) break;
+            if (s == module_scope) if (self.fileModule(name, pos)) |id| return id;
             var id = self.lookupInScopeOnly(s, name) orelse symbol_invalid;
             while (id != symbol_invalid and s != module_scope and self.symbols.items[id].kind == .local and self.symbols.items[id].decl_pos > pos) id = self.symbols.items[id].prev_in_scope;
             if (id != symbol_invalid) return id;
@@ -2827,7 +2875,6 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try computeOrigins(&ctx);
     try resolve.checkDeclarations(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
-    try resolve.checkFileUses(&ctx);
     try typecheck.checkFrames(&ctx, tree);
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
@@ -7475,7 +7522,7 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
         if (target.isKind(.member)) {
             const m = ir.Member.object(target);
             if (m != .src) return null;
-            const module = c.lookup(sym.scope, identAt(c.source, m) orelse return null) orelse return null;
+            const module = c.lookupAt(sym.scope, identAt(c.source, m) orelse return null, m.src.pos) orelse return null;
             if (c.symbols.items[module].kind != .module) return null;
             const foreign = c.foreign_semas.get(c.module_refs.get(module) orelse return null) orelse return null;
             alias = foreign.lookupInScopeOnly(module_scope, identAt(c.source, ir.Member.name(target)) orelse return null) orelse return null;

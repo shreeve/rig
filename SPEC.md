@@ -7151,7 +7151,12 @@ own blocks and brackets, and a diagnostic names the file it is in.
 Files that call each other belong in one module: modules may not
 import each other in a cycle, so mutual recursion across files lives
 inside a directory. A `use` binds its name in its own file only, and
-each file uses the modules it names.
+each file uses the modules it names. Two files may bind one name to
+different modules, and a name another file binds is free in this one,
+for a parameter or a local. In the file that binds it, the name is
+taken: a parameter of that name needs the module imported under
+another (`use ast as a`), and a local can also hide the module for the
+rest of its scope with `new ast = ...`.
 
 ```rig file=checker/expr.rig
 pub obj Checker

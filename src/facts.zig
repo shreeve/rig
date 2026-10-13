@@ -154,6 +154,11 @@ pub const Facts = struct {
         return null;
     }
 
+    /// The module a `use`'s symbol names.
+    pub fn moduleOf(f: Facts, sym: SymbolId) ?u32 {
+        return f.c().module_refs.get(sym);
+    }
+
     pub const Import = struct { local_name: []const u8, module_id: u32, facts: Facts };
 
     pub fn importCount(f: Facts) usize {
