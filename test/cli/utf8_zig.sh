@@ -18,8 +18,8 @@ extern zig "utf8ref.zig"
   pub fun end(s: ?String, at: Int) -> Int
   # The code point Zig decodes at `at`, or -1.
   pub fun code(s: ?String, at: Int) -> Int
-  # Whether Zig encodes `c` as exactly the bytes of `s`.
-  pub fun encodes(c: Int, s: ?String) -> Bool
+  # Whether Zig encodes `r` as exactly the bytes of `s`.
+  pub fun encodes(r: Int, s: ?String) -> Bool
 EOF
 
 cat >lib/utf8ref.zig <<'EOF'
@@ -52,9 +52,9 @@ pub fn code(s: []const u8, at: i64) i64 {
     return d[0];
 }
 
-pub fn encodes(c: i64, s: []const u8) bool {
+pub fn encodes(r: i64, s: []const u8) bool {
     var buf: [4]u8 = undefined;
-    const n = unicode.utf8Encode(@intCast(c), &buf) catch return false;
+    const n = unicode.utf8Encode(@intCast(r), &buf) catch return false;
     return std.mem.eql(u8, buf[0..n], s);
 }
 EOF

@@ -581,10 +581,10 @@ words len, size, and count, and may change with it.
 | `rune_before(s: ?String, i: Int) -> Rune` | the rune just before the cursor `i`, whose sequence ends at `i`; where none does, the byte before `i` reads as `REPLACEMENT` of size 1, and 0 as `REPLACEMENT` of size 0 |
 | `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` |
 | `runes(s: ?String) -> Runes` | the runes of `s`, in order, each as `rune_after` reads it |
-| `rune_len(c: Int) -> Int` | the size in bytes, 1 to 4, of the UTF-8 encoding of the rune `c`, or -1 when `c` is a surrogate or outside 0 to 0x10FFFF |
-| `push_rune(out: !String, c: Int)` | append the bytes of the rune `c`; panics when `c` is a surrogate or outside 0 to 0x10FFFF |
-| `push_rune_unchecked(out: !String, c: Int)` | `push_rune` without the check, for a `c` known to be a rune and no surrogate |
-| `push_runes3(out: !String, c: Int, d: Int)` | append the three-byte runes `c` and then `d`, each 0x800 to 0xFFFF and no surrogate, unchecked |
+| `rune_len(r: Int) -> Int` | the size in bytes, 1 to 4, of the UTF-8 encoding of the rune `r`, or -1 when `r` is a surrogate or outside 0 to 0x10FFFF |
+| `push_rune(out: !String, r: Int)` | append the bytes of the rune `r`; panics when `r` is a surrogate or outside 0 to 0x10FFFF |
+| `push_rune_unchecked(out: !String, r: Int)` | `push_rune` without the check, for an `r` known to be a rune and no surrogate |
+| `push_runes3(out: !String, r1: Int, r2: Int)` | append the three-byte runes `r1` and then `r2`, each 0x800 to 0xFFFF and no surrogate, unchecked |
 
 `rune_after` and `rune_before` decode as Go's `utf8.DecodeRuneInString`
 and `utf8.DecodeLastRuneInString` do, and give the same `Rune` for the
@@ -682,14 +682,14 @@ use std.utf8
 
 sub main()
   out = String()
-  for c in [0x41, 0xe9, 0x20ac, 0x1f600, 0xd800, 0x110000, -1]
-    n = utf8.rune_len(c)
+  for r in [0x41, 0xe9, 0x20ac, 0x1f600, 0xd800, 0x110000, -1]
+    n = utf8.rune_len(r)
     if n > 0
       start = out.len
-      utf8.push_rune(!out, c)
-      print(c, n, out.len - start)
+      utf8.push_rune(!out, r)
+      print(r, n, out.len - start)
     else
-      print(c, n)
+      print(r, n)
 ```
 
 ```output

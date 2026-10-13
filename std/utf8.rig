@@ -122,45 +122,45 @@ fun end_any(s: ?String, at: Int) -> Int
 
 # ---- Writing ---------------------------------------------------------------
 
-# The size in bytes, 1 to 4, of the UTF-8 encoding of the rune `c`,
-# or -1 when `c` is a surrogate or outside 0 to 0x10FFFF.
-pub fun rune_len(c: Int) -> Int
-  return -1 if c < 0
-  return 1 if c < 0x80
-  return 2 if c < 0x800
-  return -1 if c >= 0xD800 and c <= 0xDFFF
-  return 3 if c < 0x10000
-  return 4 if c <= 0x10FFFF
+# The size in bytes, 1 to 4, of the UTF-8 encoding of the rune `r`,
+# or -1 when `r` is a surrogate or outside 0 to 0x10FFFF.
+pub fun rune_len(r: Int) -> Int
+  return -1 if r < 0
+  return 1 if r < 0x80
+  return 2 if r < 0x800
+  return -1 if r >= 0xD800 and r <= 0xDFFF
+  return 3 if r < 0x10000
+  return 4 if r <= 0x10FFFF
   -1
 
-# Appends the UTF-8 bytes of the rune `c`; panics when `c` is a
+# Appends the UTF-8 bytes of the rune `r`; panics when `r` is a
 # surrogate or outside 0 to 0x10FFFF.
-pub sub push_rune(out: !String, c: Int)
-  not_code_point(c) if c < 0 or c > 0x10FFFF or (c >= 0xD800 and c <= 0xDFFF)
-  push_rune_unchecked(!out, c)
+pub sub push_rune(out: !String, r: Int)
+  not_code_point(r) if r < 0 or r > 0x10FFFF or (r >= 0xD800 and r <= 0xDFFF)
+  push_rune_unchecked(!out, r)
 
-# `push_rune` for a `c` its caller knows is a rune and no surrogate,
+# `push_rune` for an `r` its caller knows is a rune and no surrogate,
 # without the check: a surrogate is written as its three bytes, which
 # are not UTF-8. It appends in one write, or two for three bytes, each a
 # big-endian number whose top byte comes first.
-pub sub push_rune_unchecked(out: !String, c: Int)
-  if c < 0x80
-    !out.push(U8(c))
-  else if c < 0x800
-    !out.push[U16, .big](U16(0xC080 | (c >> 6) << 8 | c & 0x3F))
-  else if c < 0x10000
-    !out.push[U16, .big](U16(0xE080 | (c >> 12) << 8 | (c >> 6) & 0x3F))
-    !out.push(U8(0x80 | c & 0x3F))
+pub sub push_rune_unchecked(out: !String, r: Int)
+  if r < 0x80
+    !out.push(U8(r))
+  else if r < 0x800
+    !out.push[U16, .big](U16(0xC080 | (r >> 6) << 8 | r & 0x3F))
+  else if r < 0x10000
+    !out.push[U16, .big](U16(0xE080 | (r >> 12) << 8 | (r >> 6) & 0x3F))
+    !out.push(U8(0x80 | r & 0x3F))
   else
-    !out.push[U32, .big](U32(0xF0808080 | (c >> 18) << 24 | ((c >> 12) & 0x3F) << 16 | ((c >> 6) & 0x3F) << 8 | c & 0x3F))
+    !out.push[U32, .big](U32(0xF0808080 | (r >> 18) << 24 | ((r >> 12) & 0x3F) << 16 | ((r >> 6) & 0x3F) << 8 | r & 0x3F))
 
-# Appends two runes of three UTF-8 bytes each, `c` and then `d`,
+# Appends two runes of three UTF-8 bytes each, `r1` and then `r2`,
 # in two writes, of four bytes and then two. Each must be 0x800 to
 # 0xFFFF and no surrogate, which it does not check.
-pub sub push_runes3(out: !String, c: Int, d: Int)
-  !out.push[U32, .big](U32(0xE08080E0 | (c >> 12) << 24 | ((c >> 6) & 0x3F) << 16 | (c & 0x3F) << 8 | d >> 12))
-  !out.push[U16, .big](U16(0x8080 | ((d >> 6) & 0x3F) << 8 | d & 0x3F))
+pub sub push_runes3(out: !String, r1: Int, r2: Int)
+  !out.push[U32, .big](U32(0xE08080E0 | (r1 >> 12) << 24 | ((r1 >> 6) & 0x3F) << 16 | (r1 & 0x3F) << 8 | r2 >> 12))
+  !out.push[U16, .big](U16(0x8080 | ((r2 >> 6) & 0x3F) << 8 | r2 & 0x3F))
 
 extern zig "utf8.zig"
   # Panics: `push_rune`'s rune is a surrogate or outside 0 to 0x10FFFF.
-  sub not_code_point(c: Int)
+  sub not_code_point(r: Int)
