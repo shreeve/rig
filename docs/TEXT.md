@@ -331,7 +331,7 @@ scripts), so a char count depends on the Unicode version Rig ships.
 |---|---|
 | store, index, slice, parse, or send text | bytes: `s.len`, `s[i]`, `s[a..b]` |
 | decode, encode, or check UTF-8 | runes: `std.utf8` |
-| ask what a character is | rune properties: `std.unicode` |
+| ask what a rune is (identifier, white space) | rune properties: `std.unicode` |
 | agree with JavaScript positions | units: `std.utf16` |
 | count, shorten, or walk what a reader sees | chars: `text.char_count`, `text.first_chars`, `text.chars` |
 

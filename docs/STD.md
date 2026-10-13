@@ -407,7 +407,7 @@ Every text API is described in four words, each with one meaning:
 | Word | What it is | Size |
 |---|---|---|
 | **byte** | 8 bits, a `U8`: what a `String` stores, and what `s.len`, `s[i]`, and slicing count | 1 byte |
-| **rune** | one Unicode code point other than a surrogate (a scalar value): a character's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
+| **rune** | one Unicode code point other than a surrogate (a scalar value): a code point's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
 | **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
 | **char** | what a reader sees as one character: a Unicode extended grapheme cluster | 1 or more runes |
 
