@@ -102,8 +102,9 @@ sub main()
 
 ## Runes: `std.utf8`
 
-Decoding and encoding UTF-8. Each function matches Go's `unicode/utf8`
-on every input, valid or not, so a Go port is a rename.
+Decoding and encoding UTF-8. Each function with a Go twin in
+`unicode/utf8` matches it on every input, valid or not, so a Go port is
+a rename.
 
 | Rig | Returns | Go |
 |---|---|---|

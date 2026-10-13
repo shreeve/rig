@@ -631,8 +631,8 @@ from 0 to 0xD7FF or 0xE000 to 0x10FFFF, which UTF-8 writes as one to
 four bytes; a valid sequence has no overlong form, encodes no surrogate,
 and nothing past U+10FFFF. Every index and size is in bytes. A reader
 takes a `?String` and allocates nothing; `push_rune` appends to a
-`String`. Each function reads every input, valid or not, as its twin in
-Go's `unicode/utf8` does, so a Go port is a rename; [TEXT](TEXT.md) says
+`String`. Each function with a twin in Go's `unicode/utf8` reads every
+input, valid or not, as that twin does, so a Go port is a rename; [TEXT](TEXT.md) says
 how runes fit with bytes, units, and chars.
 
 | Name | Meaning | Go |

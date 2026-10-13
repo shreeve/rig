@@ -3,8 +3,8 @@
 # four bytes. A valid sequence has no overlong form, encodes no surrogate
 # (U+D800 to U+DFFF), and nothing past U+10FFFF. Every index and size is
 # in bytes, and nothing here allocates but `push_rune`, which grows the
-# `String` it is given. Each function reads every input, valid or not,
-# as Go's unicode/utf8 does.
+# `String` it is given. Each function with a twin in Go's unicode/utf8
+# reads every input, valid or not, as that twin does.
 
 # The rune read in place of a byte that is not valid UTF-8, and written in
 # place of a value that is not a rune: U+FFFD, Go's `utf8.RuneError`.
@@ -47,19 +47,21 @@ fun multi_after(s: ?String, i: Int) -> Decoded
   c1 = s[i + 1]
   return bad() if c1 < SECOND_LO[x >> 4] or c1 > SECOND_HI[x >> 4]
   r = (Int(s[i]) & 0x7F >> n) << 6 | Int(c1 & 0x3F)
-  return Decoded(rune: r, size: 2) if n == 2
+  return Decoded(rune: r, size: n) if n == 2
   long_after(s, i, n, r)
 
 # `multi_after` past a valid second byte of a sequence of `n` bytes, 3
-# or 4, all in `s`, whose first two bytes hold the bits `r`.
+# or 4, all in `s`, whose first two bytes hold the bits `r`. The size is
+# given as `n`, which `multi_after` checked against `s.len`, so a caller's
+# `i += d.size` is known not to overflow.
 fun long_after(s: ?String, i: Int, n: Int, r: Int) -> Decoded
   c2 = s[i + 2]
   return bad() if c2 & 0xC0 != 0x80
   r3 = r << 6 | Int(c2 & 0x3F)
-  return Decoded(rune: r3, size: 3) if n == 3
+  return Decoded(rune: r3, size: n) if n == 3
   c3 = s[i + 3]
   return bad() if c3 & 0xC0 != 0x80
-  Decoded(rune: r3 << 6 | Int(c3 & 0x3F), size: 4)
+  Decoded(rune: r3 << 6 | Int(c3 & 0x3F), size: n)
 
 # A byte that starts no valid sequence: `REPLACEMENT`, of size 1.
 fun bad() -> Decoded
@@ -100,11 +102,13 @@ pub fun rune_before(s: ?String, i: Int) -> Decoded
   _ = s[i - 1] if i != 0  # outside 0 to `s.len`: panics, as indexing does
   Decoded(rune: REPLACEMENT, size: 0)
 
-# `rune_before` where `s[i - 1]` is 0x80 or more: it backs up over at
-# most three continuation bytes to a first byte, and reads forward.
+# `rune_before` where `s[i - 1]` is 0x80 or more: it backs up from
+# `i - 2` over at most two more continuation bytes to a first byte, and
+# reads forward. (When `s[i - 1]` is itself a first byte, no sequence from
+# further back can end at `i`, so it need not be looked at.)
 fun multi_before(s: ?String, i: Int) -> Decoded
-  start = i - 1
   first = i - 4 if i > 4 else 0
+  start = i - 2 if i > 1 else 0
   while start > first and s[start] & 0xC0 == 0x80
     start -= 1
   d = rune_after(s, start)
@@ -195,13 +199,11 @@ pub fun is_ascii(s: ?String) -> Bool
 # when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF.
 # Go's `RuneLen`.
 pub fun size(r: Int) -> Int?
-  return none if r < 0
-  return 1 if r < 0x80
-  return 2 if r < 0x800
-  return none if r >= 0xD800 and r <= 0xDFFF
-  return 3 if r < 0x10000
-  return 4 if r <= 0x10FFFF
-  none
+  return none if r < 0 or r > 0x10FFFF or (r >= 0xD800 and r <= 0xDFFF)
+  # One more byte past each of 0x7F, 0x7FF, and 0xFFFF (`x >> 63` is -1
+  # for a negative `x`): arithmetic, so the result is one value and not a
+  # choice among constant optionals, which Zig loads from memory.
+  1 - ((0x7F - r) >> 63) - ((0x7FF - r) >> 63) - ((0xFFFF - r) >> 63)
 
 # Appends the UTF-8 bytes of `r`, or of `REPLACEMENT` when `r` is not a
 # rune: a negative, a surrogate, or past 0x10FFFF. Go's `AppendRune`.
