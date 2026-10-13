@@ -5050,6 +5050,7 @@ pub const Checker = struct {
         var value: Value = .{};
         var catch_all = false;
         const arms = ir.Match.arms(match);
+        const past = resumeAt(.nil, match);
         for (arms, 0..) |arm, i| {
             const pattern = ir.Arm.pattern(arm);
             const guard = ir.Arm.guard(arm);
@@ -5078,7 +5079,7 @@ pub const Checker = struct {
                 // A header, its own statement.
                 try self.walkStmt(guard);
                 // A failing guard goes on to the next arm, or past the match.
-                failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match) });
+                failed = try self.exitTo(.{ .to = base, .resume_at = resumeBefore(if (i + 1 < arms.len) arms[i + 1] else .nil, past) });
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
@@ -5088,7 +5089,7 @@ pub const Checker = struct {
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
-            const s = try self.leave(base, resumeAt(.nil, match));
+            const s = try self.leave(base, past);
             acc = if (acc) |a| try self.join(a, s) else s;
             if (failed) |f| start = try self.join(start, f);
         }
@@ -5988,7 +5989,12 @@ fn stepAt(node: Sexp) u32 {
 /// Where a path that skips the rest of `node` goes on: at `next`, a
 /// later part of it, or else past its end.
 fn resumeAt(next: Sexp, node: Sexp) u32 {
-    const past = extent(node).hi +| 1;
+    return resumeBefore(next, extent(node).hi +| 1);
+}
+
+/// Where a path that skips to `next` goes on, in a node whose end is
+/// `past` (`resumeAt` with that node's end found once).
+fn resumeBefore(next: Sexp, past: u32) u32 {
     return if (next == .nil) past else @min(extent(next).lo, past);
 }
 

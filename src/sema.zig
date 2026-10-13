@@ -1107,7 +1107,12 @@ pub const Use = enum {
 /// integer or a `Bool`, or lane by lane of a vector, and
 /// `x.swap_bytes()` (`elem` and `num` are its type), and
 /// `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()` (`num`
-/// is the integer's type, `elem` the `Int` they give); and the methods of
+/// is the integer's type, `elem` the `Int` they give); `f.to_bits()`
+/// (`num` is the float's type, `elem` the unsigned integer of its width);
+/// the functions of a type, which take an integer (`elem` is its type):
+/// `I32.wrap(x)` (`num` the target), `Float.from_bits(u)` (`num` the
+/// float, `elem` the unsigned integer), `Status.from_int(n)` (`num` the
+/// enum); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
 /// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
 /// `v.array()`, `v.with(i, x)`, `m.select(a, b)`, whose `num` is the
@@ -1133,6 +1138,10 @@ pub const ElemOp = enum {
     trailing_zeros,
     count_ones,
     swap_bytes,
+    to_bits,
+    from_bits,
+    wrap,
+    from_int,
     splat,
     bits,
     first,
@@ -1148,8 +1157,17 @@ pub const ElemOp = enum {
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
-            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => true,
-            .copy, .fill, .swap, .read, .write, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => false,
+            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits => true,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => false,
+        };
+    }
+
+    /// Whether the call is a function of a number type or a plain enum:
+    /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`.
+    pub fn isTypeFn(op: ElemOp) bool {
+        return switch (op) {
+            .from_bits, .wrap, .from_int => true,
+            else => false,
         };
     }
 
@@ -1158,7 +1176,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int => false,
         };
     }
 };
@@ -1168,7 +1186,9 @@ pub const ElemOp = enum {
 /// `!t.clear()`. `new` and `add` format their arguments as `print` does,
 /// reading them; `push` appends one byte, `push[T, e](v)` (`push_int`)
 /// the bytes of an integer, and `reserve(n)` makes room for `n` more.
-pub const StringCall = enum { new, add, push, push_int, reserve, clear };
+/// `push_keep` is `push(v, keep: k)` of a vector of bytes, or
+/// `push[T, e](w, keep: k)` of an integer: the first `k` bytes of `v`.
+pub const StringCall = enum { new, add, push, push_int, push_keep, reserve, clear };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -1804,6 +1824,10 @@ pub const SemContext = struct {
     unit_of: std.AutoHashMapUnmanaged(NodeKey, NodeKey) = .empty,
     /// The root of each unit -> its kind.
     unit_roots: std.AutoHashMapUnmanaged(NodeKey, rig.UnitKind) = .empty,
+    /// The variants of each enum with many fields, by name, keyed by
+    /// where its fields are (`findVariant`), so that finding one walks no
+    /// others. Lives in the arena.
+    variant_index: std.AutoHashMapUnmanaged(usize, VariantIndex) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -6005,12 +6029,52 @@ fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocato
     return null;
 }
 
+/// The first variant of each name among a declaration's `fields`, by
+/// its place in them. A declaration's fields are replaced whole, never
+/// in place, and never freed before the context is.
+const VariantIndex = struct {
+    len: usize,
+    first: std.StringHashMapUnmanaged(u32),
+};
+
+/// An enum with no more fields than this is searched in turn.
+const variant_index_min = 16;
+
+/// The place in `fields`, a declaration's, of its first variant `name`,
+/// after indexing the variants of an enum with many fields (`variantIn`).
+fn findVariant(ctx: *SemContext, fields: []const Field, name: []const u8) std.mem.Allocator.Error!?usize {
+    if (fields.len > variant_index_min) {
+        const a = ctx.arena.allocator();
+        const entry = try ctx.variant_index.getOrPut(a, @intFromPtr(fields.ptr));
+        const index = entry.value_ptr;
+        if (!entry.found_existing or index.len != fields.len) {
+            index.* = .{ .len = fields.len, .first = .empty };
+            for (fields, 0..) |f, i| if (f.is_variant) {
+                const slot = try index.first.getOrPut(a, f.name);
+                if (!slot.found_existing) slot.value_ptr.* = @intCast(i);
+            };
+        }
+    }
+    return variantIn(ctx, fields, name);
+}
+
+/// The place in `fields`, a declaration's, of its first variant `name`:
+/// through the index of them `findVariant` built, else in turn.
+pub fn variantIn(ctx: *const SemContext, fields: []const Field, name: []const u8) ?usize {
+    if (ctx.variant_index.getPtr(@intFromPtr(fields.ptr))) |index| {
+        if (index.len == fields.len) return if (index.first.get(name)) |i| i else null;
+    }
+    for (fields, 0..) |f, i| if (f.is_variant and std.mem.eql(u8, f.name, name)) return i;
+    return null;
+}
+
 /// An enum variant of the receiver's nominal, local or imported.
 pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
     const decl = nominalDecl(ctx, receiver_ty) orelse return null;
     const subst = if (membersOf(ctx, unwrapViews(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
-    for (decl.symbol().fields orelse return null) |f| {
-        if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
+    const fields = decl.symbol().fields orelse return null;
+    if (try findVariant(ctx, fields, name)) |i| {
+        const f = fields[i];
         var payload = f.payload orelse &.{};
         if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {
             const typed = try ctx.arena.allocator().dupe(Field, payload);

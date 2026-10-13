@@ -1,0 +1,14 @@
+# A conversion of a constant array's element is checked when the program
+# runs.
+
+big = [300, 7]
+
+sub main()
+  print(U8(big[1]))
+  print(U8(big[0]))
+
+# release
+# expect-panic: integer does not fit
+
+# expect:
+# 7

@@ -1,0 +1,24 @@
+# `?` of a constant optional binds a run-time value: adding to it
+# overflows when the program runs, not when Zig compiles it.
+
+O: Int? = 9223372036854775807
+P: Int? = 1
+
+fun f(o: Int?) -> Int?
+  v = o?
+  v + 1
+
+fun g() -> Int?
+  v = P?
+  w = O?
+  v + w
+
+sub main()
+  print(f(1) ?? 0)
+  print(g() ?? 0)
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 2

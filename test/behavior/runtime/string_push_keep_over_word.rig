@@ -1,0 +1,15 @@
+# `keep:` outside 0..size panics, and nothing is appended first.
+
+sub main()
+  s = String("abcdefghijklmnopqrstuvwxyz0123456789")
+  v: ?String = ?s
+  word = v.read[U64, .little](0)
+  k = s.len - 27
+  print("before")
+  !s.push[U64, .little](word, keep: k)
+  print("unreachable")
+
+# expect-panic: `keep: 9` is outside 0..8, the bytes pushed
+
+# expect:
+# before

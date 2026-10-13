@@ -624,8 +624,9 @@ pub fn Cell(comptime T: type) type {
 
         // A `Cell(List(E))` answers its List's members. No user code runs
         // while the List is in use: `push`, `pop`, `len`, and the element
-        // reads and writes of a plain-data `E` run no destructor, and
-        // `clear` empties the cell before it drops the elements.
+        // reads and writes of a plain-data `E` run no destructor, `clear`
+        // empties the cell before it drops the elements, and `keep` pops
+        // each element before it drops it.
 
         /// The element type when `T` is a List; referenced only then.
         const E = @typeInfo(@FieldType(T, "buf")).pointer.child;
@@ -652,6 +653,21 @@ pub fn Cell(comptime T: type) type {
 
         pub fn listSet(self: *Self, i: anytype, value: E) void {
             self.value.slot(i).* = value;
+        }
+
+        /// Each element leaves the List before it drops, so a drop that
+        /// reaches back into the cell finds the elements not yet dropped;
+        /// what it pushes past the first `n` is dropped in turn.
+        pub fn listKeep(self: *Self, n: Int) void {
+            const rest = index(n, self.value.len + 1);
+            if (comptime !needsDrop(E)) {
+                self.value.len = rest;
+                return;
+            }
+            while (self.value.len > rest) {
+                var gone = self.value.pop().?;
+                dropElement(E, &gone);
+            }
         }
 
         /// A drop that reaches back into the cell finds an empty List.
@@ -1017,6 +1033,22 @@ pub fn List(comptime T: type) type {
             }
         }
 
+        /// `!v.keep(n)`: keep the first `n` elements and drop the rest,
+        /// last first as `clear` does, keeping the buffer. Panics unless
+        /// `0 <= n <= len`.
+        pub fn keep(self: *Self, n: Int) void {
+            const rest = index(n, self.len + 1);
+            if (comptime !needsDrop(T)) {
+                self.len = rest;
+                return;
+            }
+            invariant(self.len <= self.buf.len);
+            while (self.len > rest) {
+                self.len -= 1;
+                dropElement(T, &self.buf.ptr[self.len]);
+            }
+        }
+
         pub fn __rig_drop(self: *Self) void {
             self.clear();
             defaultAllocator().free(self.buf);
@@ -1102,6 +1134,44 @@ pub const String = struct {
         const dst: *align(1) Bits = @ptrCast(l.items.ptr + used);
         dst.* = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(raw) else raw;
         l.items.len = used +% n;
+    }
+
+    /// `!t.push(v, keep: k)` of a vector of bytes, and
+    /// `!t.push[T, e](w, keep: k)` of an integer: append the first `k`
+    /// bytes of `v`, in byte order `endian` for an integer. Room is made
+    /// for all of `v`, which one unaligned store writes after the
+    /// length; the length then grows by `k`, so the bytes past it are
+    /// spare capacity that no String operation reads. Panics unless
+    /// `0 <= k <= @sizeOf(T)`.
+    pub fn pushKeep(self: *String, comptime T: type, value: T, count: Int, comptime endian: Endian) void {
+        const is_vector = @typeInfo(T) == .vector;
+        const n = if (is_vector) @typeInfo(T).vector.len else @sizeOf(T);
+        const k = std.math.cast(usize, count) orelse keepPanic(count, n);
+        if (k > n) keepPanic(count, n);
+        const l = &self.list;
+        const used = l.items.len;
+        if (l.capacity -% used < n) self.grow(n);
+        invariant(l.capacity -% used >= n);
+        // One store of all `n` bytes at `used`, through an unaligned
+        // pointer; `used + n <= capacity` puts them inside the allocation.
+        const dst = l.items.ptr + used;
+        if (comptime is_vector) {
+            if (comptime wideVector(T, n)) {
+                const p: *align(1) T = @ptrCast(dst);
+                p.* = value;
+            } else if (comptime smallVector(n)) {
+                const p: *align(1) @Int(.unsigned, n * 8) = @ptrCast(dst);
+                p.* = @bitCast(value);
+            } else dst[0..n].* = @bitCast(value);
+        } else {
+            const p: *align(1) T = @ptrCast(dst);
+            p.* = if (n > 1 and zigEndian(endian) != builtin.cpu.arch.endian()) @byteSwap(value) else value;
+        }
+        l.items.len = used +% k;
+    }
+
+    noinline fn keepPanic(count: Int, n: usize) noreturn {
+        std.debug.panic("`keep: {d}` is outside 0..{d}, the bytes pushed", .{ count, n });
     }
 
     /// Append `bytes_`, which does not alias this String's buffer.
@@ -1364,6 +1434,11 @@ pub fn notNan(x: anytype) @TypeOf(x) {
     return x;
 }
 
+/// The variant of plain enum `E` whose integer value is `n`, or null.
+pub fn enumFromInt(comptime E: type, n: anytype) ?E {
+    return std.enums.fromInt(E, n);
+}
+
 /// `for x in <a` of an array whose elements move: each element handed
 /// over in order; those not handed over (the loop left early) are
 /// dropped, last first, as the array would drop them.
@@ -1541,8 +1616,28 @@ pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, com
 /// bytes from `at`, each in byte order `e`; panics unless they are all in
 /// range. One check, then one unaligned load of exactly the bytes read.
 pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endian: Endian) V {
-    const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
+    const n = comptime vectorBytes(V);
     const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("read", n, offset, bytes.len);
+    return simdLoad(V, bytes[i..][0..n], endian);
+}
+
+/// `simdRead` with the tests `p` proves omitted; an unproven one panics as
+/// `simdRead`'s does.
+pub fn simdReadProven(comptime V: type, bytes: anytype, offset: Int, comptime endian: Endian, comptime p: Proven) V {
+    const n = comptime vectorBytes(V);
+    const i = provenOffset(offset, bytes.len, n, p) orelse bytesPanic("read", n, offset, bytes.len);
+    return simdLoad(V, @ptrCast(bytes.ptr + i), endian);
+}
+
+/// The bytes a vector `V` is read from or written to: its lanes' sizes,
+/// with no padding.
+fn vectorBytes(comptime V: type) usize {
+    return @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
+}
+
+/// The lanes of `V` held in the bytes at `src`, each in byte order `endian`.
+inline fn simdLoad(comptime V: type, src: *const [vectorBytes(V)]u8, comptime endian: Endian) V {
+    const n = comptime vectorBytes(V);
     // The bytes are loaded as an array of exactly `n`, then become the
     // vector: a load through a vector pointer may touch the vector's whole
     // register (Zig's own x86 backend loads 16 bytes for a 4-byte vector),
@@ -1552,19 +1647,18 @@ pub fn simdRead(comptime V: type, bytes: anytype, offset: anytype, comptime endi
         // one scalar load, where a byte-array to byte-vector cast is
         // lowered lane by lane on aarch64.
         const Bits = @Int(.unsigned, n * 8);
-        const src: *align(1) const Bits = @ptrCast(bytes[i..][0..n]);
-        return lanesInOrder(@as(V, @bitCast(src.*)), endian);
+        const word: *align(1) const Bits = @ptrCast(src);
+        return lanesInOrder(@as(V, @bitCast(word.*)), endian);
     }
     if (comptime wideVector(V, n)) {
         // A whole-register vector: a load through an unaligned vector
-        // pointer from the bounds-checked slice touches exactly its
-        // `n` bytes, and lowers to the target's own vector loads (the
-        // array copy of 64 bytes is spilled and rebuilt byte by byte
-        // on x86).
-        const src: *align(1) const V = @ptrCast(bytes[i..][0..n]);
-        return lanesInOrder(src.*, endian);
+        // pointer touches exactly its `n` bytes, and lowers to the
+        // target's own vector loads (the array copy of 64 bytes is
+        // spilled and rebuilt byte by byte on x86).
+        const vec: *align(1) const V = @ptrCast(src);
+        return lanesInOrder(vec.*, endian);
     }
-    const raw: [n]u8 = bytes[i..][0..n].*;
+    const raw: [n]u8 = src.*;
     return lanesInOrder(@as(V, @bitCast(raw)), endian);
 }
 
@@ -1583,21 +1677,35 @@ fn smallVector(comptime n: usize) bool {
 /// bytes from `at`, each in byte order `e`; panics unless they are all in
 /// range. One check, then one unaligned store.
 pub fn simdWrite(comptime V: type, bytes: anytype, offset: anytype, value: V, comptime endian: Endian) void {
-    const n = @sizeOf([@typeInfo(V).vector.len]@typeInfo(V).vector.child);
+    const n = comptime vectorBytes(V);
     const i = byteOffset(bytes.len, offset, n) orelse bytesPanic("write", n, offset, bytes.len);
-    // Stored as exactly `n` bytes, as `simdRead` loads.
+    simdStore(V, bytes[i..][0..n], value, endian);
+}
+
+/// `simdWrite` with the tests `p` proves omitted; an unproven one panics
+/// as `simdWrite`'s does.
+pub fn simdWriteProven(comptime V: type, bytes: anytype, offset: Int, value: V, comptime endian: Endian, comptime p: Proven) void {
+    const n = comptime vectorBytes(V);
+    const i = provenOffset(offset, bytes.len, n, p) orelse bytesPanic("write", n, offset, bytes.len);
+    simdStore(V, @ptrCast(bytes.ptr + i), value, endian);
+}
+
+/// Store the lanes of `value` in the bytes at `dst`, as `simdLoad` loads
+/// them: exactly `n` bytes.
+inline fn simdStore(comptime V: type, dst: *[vectorBytes(V)]u8, value: V, comptime endian: Endian) void {
+    const n = comptime vectorBytes(V);
     if (comptime smallVector(n)) {
         const Bits = @Int(.unsigned, n * 8);
-        const dst: *align(1) Bits = @ptrCast(bytes[i..][0..n]);
-        dst.* = @bitCast(lanesInOrder(value, endian));
+        const word: *align(1) Bits = @ptrCast(dst);
+        word.* = @bitCast(lanesInOrder(value, endian));
         return;
     }
     if (comptime wideVector(V, n)) {
-        const dst: *align(1) V = @ptrCast(bytes[i..][0..n]);
-        dst.* = lanesInOrder(value, endian);
+        const vec: *align(1) V = @ptrCast(dst);
+        vec.* = lanesInOrder(value, endian);
         return;
     }
-    bytes[i..][0..n].* = @bitCast(lanesInOrder(value, endian));
+    dst.* = @bitCast(lanesInOrder(value, endian));
 }
 
 /// `v` with each lane's bytes in the native order where `endian` is not

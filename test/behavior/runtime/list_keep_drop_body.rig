@@ -1,0 +1,43 @@
+# Each element `keep` drops runs its drop body exactly once, last first
+# as a List drops; the elements kept run theirs when the List drops.
+# release
+
+obj B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  bs: List[B] = List()
+  for i in 1..8
+    !bs.push(B(n: i))
+  !bs.keep(bs.len)
+  print("keep len", bs.len)
+  !bs.keep(4)
+  print("keep 4", bs.len)
+  !bs.keep(1)
+  print("keep 1", bs.len, bs[0].n)
+  !bs.push(B(n: 8))
+  !bs.keep(0)
+  print("keep 0", bs.len)
+  !bs.push(B(n: 9))
+  !bs.push(B(n: 10))
+  print("end")
+
+# expect:
+# keep len 7
+# drop 7
+# drop 6
+# drop 5
+# keep 4 4
+# drop 4
+# drop 3
+# drop 2
+# keep 1 1 1
+# drop 8
+# drop 1
+# keep 0 0
+# end
+# drop 10
+# drop 9
