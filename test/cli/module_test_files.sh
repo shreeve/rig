@@ -25,3 +25,13 @@ printf 'pub fun only_in_tests() -> Int\n  1\n' >p/m/c_test.rig
 printf 'use m\n\nsub main()\n  print(m.only_in_tests())\n' >p/uses.rig
 out=$("$RIG" check p/uses.rig 2>&1); expect_rc $? 1 "a test file's name outside tests"
 expect_has "$out" "only_in_tests" "a test file's name outside tests"
+
+# `rig check --tests` checks the program as `rig test` builds it: a type
+# error in a test file, which plain `rig check` does not see, is reported
+# at its file, line, and column.
+printf 'test "a typed helper"\n  n: Int = "text"\n  print(n)\n' >p/m/d_test.rig
+out=$("$RIG" check p/main.rig 2>&1); expect_rc $? 0 "rig check leaves the test file out: $out"
+out=$("$RIG" check --tests p/main.rig 2>&1); expect_rc $? 1 "rig check --tests reads the test file"
+expect_has "$out" "p/m/d_test.rig:2:12: error:" "rig check --tests reports the test file's error"
+out=$("$RIG" run --tests p/main.rig 2>&1); expect_rc $? 2 "--tests applies to check"
+expect_has "$out" "\`--tests\` applies to check" "--tests applies to check"

@@ -746,7 +746,8 @@ Everything else, private names included, is the module's, as in a Go
 package: sema's pipeline is unchanged, and the module emits one Zig
 file. Files whose names end in `_test.rig` belong to the module only in
 a build for `rig test` (`ModuleGraph.with_tests`), so they see its
-private names, and `rig run` and `rig check` leave them out.
+private names, and `rig run` and `rig check` leave them out;
+`rig check --tests` checks the program with them.
 
 ### Methods outside the body
 

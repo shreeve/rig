@@ -2189,7 +2189,10 @@ that error. `rig test file.rig` runs every test block of the file and
 of the modules it imports: it prints
 `ok    test "name"` for each one that finishes, or
 `FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
-`rig run` ignores test blocks.
+`rig run` ignores test blocks. A directory module's `*_test.rig` files
+belong to it only in a build for `rig test` ([§14](#directory-modules));
+`rig check --tests` checks the program as `rig test` builds it, those
+files included, without building or running it.
 
 ```rig
 fun area(w: Int, h: Int) -> Int
@@ -7206,7 +7209,8 @@ sub main()
 
 A file whose name ends in `_test.rig` belongs to its directory's module
 only when `rig test` builds the program, so its tests see the module's
-private names; `rig run` and `rig check` leave it out.
+private names; `rig run` and `rig check` leave it out, and
+`rig check --tests` checks the program with it.
 
 ---
 
