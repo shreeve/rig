@@ -1,0 +1,35 @@
+# A generic `==` beside an optional compares the value inside, whatever
+# form the other operand has: an optional `String` and a view of one,
+# a List element and a view, and `none`.
+
+fun same[K](a: ?K?, k: ?K) -> Bool
+  a == k
+
+fun differ[K](a: ?K?, k: ?K) -> Bool
+  a != k
+
+fun find[K](xs: ?List[K?], k: ?K) -> Bool
+  xs[0] == k
+
+fun held[K](a: K?, b: ?K) -> Bool
+  a == b
+
+sub main()
+  o: String? = String("a")
+  n: String? = none
+  t = String("a")
+  u = String("b")
+  print(same[String](?o, ?t), same[String](?o, ?u), same[String](?n, ?t))
+  print(differ[String](?o, ?t), differ[String](?o, ?u), differ[String](?n, ?t))
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(none)
+  print(find[String](?v, ?t), find[String](?v, ?u))
+  m: String? = String("b")
+  print(held[String](<o, ?t), held[String](<m, ?t))
+
+# expect:
+# true false false
+# false true true
+# true false
+# true false

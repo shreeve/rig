@@ -113,7 +113,6 @@ test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` 
 # A view reached through a slice or a write view carries that view's
 # loans, not a loan on what holds it (Core s7).
 test/corpus/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` views an element of `vs`, which outlives the loop's `s`
-test/corpus/review-step3-l14_handle_in_vec_loop.rig main prod-rejects prod-strict `keep(h)` of a `for h in v` element of a List of handles, used within the iteration
 test/corpus/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !self.es` element views what `self` was lent
 
 # A place holding a write view, re-pointed or exchanged, holds the new

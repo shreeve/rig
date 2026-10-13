@@ -1,0 +1,29 @@
+# The form the hints of a `for` over an iterator that views a place name:
+# bind the iterator with the lend written, then advance it in place.
+
+obj Cur
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+obj Bag
+  xs: List[Int]
+
+  fun each(?self) -> Cur from self
+    Cur(xs: ?self.xs, i: 0)
+
+sub main()
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  !b.xs.push(5)
+  it = ?b.each()
+  for x in !it
+    print(x)
+
+# expect:
+# 4
+# 5

@@ -229,11 +229,50 @@ pub fn create(comptime T: type) *T {
 pub fn eql(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
+    // Optionals compare level by level. Where both sides are optional,
+    // `none` is checked on each before either is unwrapped, so a `none`
+    // held inside an outer `some` differs from the outer `none`. A side
+    // with more optional levels than the other is unwrapped alone (the
+    // other side counts as `some` at that level), and `none` equals only
+    // `none`: a `String?` beside a `?String` compares the text.
+    if (comptime A == @TypeOf(null) or B == @TypeOf(null)) return nullish(a) and nullish(b);
+    const dA = comptime optDepth(A);
+    const dB = comptime optDepth(B);
+    if (comptime dA > dB) {
+        const x = a orelse return false;
+        return eql(x, b);
+    }
+    if (comptime dB > dA) {
+        const y = b orelse return false;
+        return eql(a, y);
+    }
+    if (comptime dA > 0) {
+        const x = a orelse return b == null;
+        const y = b orelse return false;
+        return eql(x, y);
+    }
     // A String compares with a String or a `?String` by its bytes.
     if (comptime isString(A) or isString(B)) return std.mem.eql(u8, stringBytes(a), stringBytes(b));
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
+}
+
+/// How many optional levels `T` has.
+fn optDepth(comptime T: type) comptime_int {
+    return switch (@typeInfo(T)) {
+        .optional => |o| 1 + optDepth(o.child),
+        else => 0,
+    };
+}
+
+/// Whether `x` is `none`: the literal, or an optional holding nothing.
+fn nullish(x: anytype) bool {
+    return switch (@typeInfo(@TypeOf(x))) {
+        .null => true,
+        .optional => x == null,
+        else => false,
+    };
 }
 
 /// A `String`, or a pointer to one (a viewed `String`), or a box or shared

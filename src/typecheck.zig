@@ -2209,6 +2209,16 @@ const Checker = struct {
     /// or the advance must be written `for x in !it`. The one switch.
     const bare_place_advances = false;
 
+    /// What to write for a `for` over an iterator made here. One that
+    /// holds no view is held by the loop (`for x in mk()`); one that views
+    /// a place (`b.each()`) keeps it lent, so it is bound first with the
+    /// lend written, then advanced in place.
+    fn madeIteratorFix(self: *Checker, head: []const u8, shown: []const u8, source_ty: TypeId) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        if (sema.holdsMarkedView(self.ctx, source_ty)) return a.print("it views a place it keeps lent, so bind it first: `it = ?{s}`, then `{s}!it`", .{ shown, head });
+        return a.print("write `{s}{s}`, which holds it for the loop", .{ head, shown });
+    }
+
     /// A name, or fields from one: the places a loop over an iterator
     /// advances where they stand.
     fn isFieldPath(e: Sexp) bool {
@@ -2252,12 +2262,14 @@ const Checker = struct {
         }
         const how: rig.IterSource = switch (mode) {
             .read => {
-                try self.errAt(source, "`{s}?{s}` would only read an iterator, which `next` cannot advance; write `{s}!{s}` to advance it in place", .{ head, shown, head, shown });
+                if (kind == .made) {
+                    try self.errAt(source, "`{s}?{s}` would only read an iterator made here, which `next` cannot advance; {s}", .{ head, shown, try self.madeIteratorFix(head, shown, source_ty) });
+                } else try self.errAt(source, "`{s}?{s}` would only read an iterator, which `next` cannot advance; write `{s}!{s}` to advance it in place", .{ head, shown, head, shown });
                 return true;
             },
             .write => if (kind == .place) .place else {
                 if (kind == .made) {
-                    try self.errAt(source, "`!{s}` advances a place, and this is a value made here; write `{s}{s}`, which holds it for the loop", .{ shown, head, shown });
+                    try self.errAt(source, "`!{s}` advances a place, and this is a value made here; {s}", .{ shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
                 return true;
             },
@@ -10022,7 +10034,7 @@ const Checker = struct {
         const target = ir.Set.target(stmt);
         if (target == .src and std.mem.eql(u8, self.text(target), "_")) return;
         if (rig.bindingKindOf(ir.Set.op(stmt)).operator() != null) return;
-        try self.keptLends(ir.Set.value(stmt), .{ .binding = self.sourceText(target) });
+        try self.keptLends(ir.Set.value(stmt), .{ .binding = if (target == .src) self.text(target) else self.sourceText(target) });
     }
 
     /// The one decider of a lasting lend (Core sentence 4: a lend kept
@@ -10095,7 +10107,9 @@ const Checker = struct {
         const call_text = self.sourceText(call);
         _ = receiver;
         switch (kept) {
-            .binding => |name| try self.errAt(lent, "`{s}` keeps `{s}` lent while `{s}` lives; write `{s}`", .{ call_text, shown, name, fixed }),
+            .binding => |name| if (std.mem.eql(u8, name, rig.hiddenIteratorName())) {
+                try self.errAt(lent, "`{s}` keeps `{s}` lent while the loop walks it; bind the iterator first, `it = {s}`, then write `for ... in !it`", .{ call_text, shown, fixed });
+            } else try self.errAt(lent, "`{s}` keeps `{s}` lent while `{s}` lives; write `{s}`", .{ call_text, shown, name, fixed }),
             .returned => try self.errAt(lent, "`{s}` keeps `{s}` lent in the value it returns; write `{s}`", .{ call_text, shown, fixed }),
             .stored => |callee| try self.errAt(lent, "`{s}` keeps `{s}` lent in what `{s}` stores; write `{s}`", .{ call_text, shown, callee, fixed }),
         }
