@@ -48,7 +48,9 @@ RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 DATA = os.path.join(HERE, "data")
 FETCH = os.path.join(ROOT, "tools", "fetch-json-data.sh")
 MAX_DEPTH = 1024
-BATCH_BYTES = 6 * 1024 * 1024
+# The most bytes of literal text in one program: the inputs as escaped,
+# under Rig's 16 MiB limit on a source file with room for the driver.
+BATCH_BYTES = 8 * 1024 * 1024
 BATCH_CASES = 6000
 
 sys.set_int_max_str_digits(0)
@@ -560,10 +562,11 @@ def main():
             if a.only not in c[0]: continue
             if c[0] in seen: sys.exit("two cases are named " + c[0])
             seen.add(c[0])
-            if batch and (size + len(c[1]) > BATCH_BYTES or len(batch) >= BATCH_CASES):
+            n = len(rig_literal(c[1]))
+            if batch and (size + n > BATCH_BYTES or len(batch) >= BATCH_CASES):
                 flush()
                 batch, size, names = [], 0, []
-            batch.append(c); size += len(c[1]); names.append(g)
+            batch.append(c); size += n; names.append(g)
     flush()
     # The programs with the most input take longest: start them first.
     order = sorted(plan, key=lambda g: -sum(len(c[1]) for c in plan[g]))

@@ -126,20 +126,30 @@ tools that take them in `bench/json/`.
     6-7% faster in the opcode study), the `\u` decoder, and a lookup
     whitespace classify possible. *In flight.*
 
+15. **A String made from known text is over-allocated.** `String(text)`
+    reserves about half its length again plus 128 bytes (Zig's growth
+    rule), though nothing may ever be appended. Memory aside, the
+    sanitizing allocator's guard page then lies past that capacity, not
+    past the text, so it cannot catch a read just past the end; only the
+    bounds checks do (std.json's tests copy each input this way). Fix:
+    allocate a `String` made from text, or `String.with_capacity(n)`, to
+    exactly its size. *Verified (a reviewer's probe: `String("abc")` had a
+    capacity of 132, and reads at indexes 3 to 131 did not fault).*
+
 ## Missing pieces that cost clarity
 
-15. **No character literals.** std.json names 19 byte constants
+16. **No character literals.** std.json names 19 byte constants
     (`QUOTE`, `BACKSLASH`, `LBRACE`, ...) and writes `match` arms in hex.
     Fix: `'"'`, `'\\'`, `'{'` as `U8` values. *Observed.*
-16. **An enum variant's name is not text.** `error_name` spells out all
+17. **An enum variant's name is not text.** `error_name` spells out all
     13 `Error` variants in a `match`. `print` shows a variant as `.ok`,
     and `@variants(T)` lists the values, but no expression gives the
     name as text. Fix: `e.name()`, a `Static`. *Observed.*
-17. **Errors carry no data.** `parse` returns a `Bool` and keeps `error`
+18. **Errors carry no data.** `parse` returns a `Bool` and keeps `error`
     and `error_pos` in the `Doc`; the parser's internal steps return
     `-1`. Fix: errors with a payload (an offset), so `parse` can be `!`.
     std.json's final API waits on it. *Observed.*
-18. **Long literals and embedding.** A string literal was at most 64 KB
+19. **Long literals and embedding.** A string literal was at most 64 KB
     and a source file is 16 MiB, so the benchmark and the tests split
     each JSON file into 60 KB literals and join them at run time. Fix:
     `@embed("file.json")` as a `Static`, or longer literals. Literals
@@ -148,31 +158,31 @@ tools that take them in `bench/json/`.
 
 ## Traps
 
-19. **Proofs ignore early-return guards.** After `return 0 if i < 0 or
+20. **Proofs ignore early-return guards.** After `return 0 if i < 0 or
     i >= s.len`, `s[i]` is still checked; only the enclosing form, `if
     i >= 0 and i < s.len` then `return s[i]`, is proven: two spellings
     of one fact, treated differently. In std.json it costs nothing
     measurable (LLVM removes the check once the helper is inlined), so
     the case is clarity, not speed. *Parked (its round is saved on a
     branch).*
-20. **A profiler's "check" includes the access.** Samples whose
+21. **A profiler's "check" includes the access.** Samples whose
     innermost frame is `rig.at` or `index` count the load as well as its
     bounds check, so they overstate what checks cost (canada: 5% of
     samples, 0% of instructions when removed). Size a check by removing
     it and counting (`bench/json/checks/sizing.py`). *Verified.*
-21. **On Apple silicon, a hot loop's layout moves its time by 5-7%.** A
+22. **On Apple silicon, a hot loop's layout moves its time by 5-7%.** A
     variant that ran the same instructions as `main` on twitter,
     gsoc-2018, and github_events (within 1-2%) was 5-7% slower on them,
     because code added elsewhere in `document` moved its loop. Only
     interleaved timing can judge a change to a hot loop. Specialization
     without lost inlining (entry 6) lets a fast path stay unchanged.
     *Verified.*
-22. **Wrapping arithmetic is slower than proven arithmetic.** Writing
+23. **Wrapping arithmetic is slower than proven arithmetic.** Writing
     `+%` to avoid an overflow check *adds* 1-2.5% of instructions: a
     checked add leaves LLVM the fact that it did not overflow, and `+%`
     loses it. Fix: say so in SPEC beside `+%`, and let proofs cover the
     checks people would otherwise wrap away. *Verified.*
-23. **macOS's instruction count needs a median.** One binary's
+24. **macOS's instruction count needs a median.** One binary's
     `/usr/bin/time -l` instruction count varies by several percent from
     run to run, so the least of 3 picks outliers. Tooling, not language.
     *Fixed (#144: the median of 5).*

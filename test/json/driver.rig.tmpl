@@ -35,8 +35,7 @@ sub dump(d: ?json.Doc, out: !String)
       .object => put_line(!out, "{")
       .object_end => put_line(!out, "}")
 
-# The case is copied to the heap, where the sanitizer stops any read
-# past its end at once.
+# The case is copied into a String, as a program's input would be.
 sub run(name: Static, text: Static)
   src = String(text)
   d = json.new_doc()
