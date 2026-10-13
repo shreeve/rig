@@ -17,11 +17,8 @@ pub obj Pair
 # How many units `r` takes, 1 or 2, or `none` when `r` is not a rune: a
 # negative, a surrogate, or past 0x10FFFF. Go's `utf16.RuneLen`.
 pub fun size(r: Int) -> Int?
-  return none if r < 0
-  return 1 if r < 0xD800
-  return none if r < 0xE000
-  return 1 if r < 0x10000
-  return 2 if r <= 0x10FFFF
+  return 1 if (r >= 0 and r < 0xD800) or (r >= 0xE000 and r < 0x10000)
+  return 2 if r >= 0x10000 and r <= 0x10FFFF
   none
 
 # Whether `u` is a surrogate, high or low: `0xD800 <= u < 0xE000`. Go's
@@ -51,13 +48,14 @@ pub fun unit_count(s: ?String) -> Int
   n = 0
   i = 0
   while i < s.len
-    if i + 8 <= s.len and s.read[U64, .little](i) & 0x8080808080808080 == 0
-      i += 8
-      n += 8
-      continue
-    k = utf8.rune_size(s, i) ?? 1
-    i += k
-    n += 2 if k == 4 else 1
+    if s[i] < 0x80
+      k = ascii_run(s, i)
+      i += k
+      n += k
+    else
+      k = utf8.rune_after(s, i).size
+      i += k
+      n += 2 if k == 4 else 1
   n
 
 # The byte where `units` units into `s` falls: the inverse of
@@ -69,11 +67,22 @@ pub fun byte_index(s: ?String, units: Int) -> Int
   n = 0
   i = 0
   while i < s.len and n < units
-    if units - n >= 8 and i + 8 <= s.len and s.read[U64, .little](i) & 0x8080808080808080 == 0
-      i += 8
-      n += 8
-      continue
-    k = utf8.rune_size(s, i) ?? 1
-    i += k
-    n += 2 if k == 4 else 1
+    if s[i] < 0x80
+      k = ascii_run(s, i)
+      k = units - n if units - n < k else k
+      i += k
+      n += k
+    else
+      k = utf8.rune_after(s, i).size
+      i += k
+      n += 2 if k == 4 else 1
   i
+
+# How many bytes from `i` on, 1 to 8, are below 0x80, given that `s[i]`
+# is: one U64 read finds the first of the eight that is not, and a short
+# tail is taken a byte at a time.
+fun ascii_run(s: ?String, i: Int) -> Int
+  return 1 if i + 8 > s.len
+  m = s.read[U64, .little](i) & 0x8080808080808080
+  return 8 if m == 0
+  m.trailing_zeros() / 8

@@ -3,6 +3,7 @@
 # White_Space property of Unicode 15.1 (PropList.txt), which Go's
 # `unicode.IsSpace` reports. U+FEFF and U+180E, white space in some
 # other definitions, are not.
+# release
 use std.text
 use std.unicode
 
