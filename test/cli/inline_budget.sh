@@ -80,7 +80,8 @@ for n in 100 1000 5000; do
                     ctproven) echo '  n = n + cbump[1](s, 0)' ;;
                 esac
             done
-            echo '  print(n + many(s))'
+            # Two calls keep `many` out of line, with a budget of its own.
+            echo '  print(n + many(s) + many(""))'
         } >"b_${shape}_$n.rig"
         case $shape in
             nested) want=$((2 * n)) ;;

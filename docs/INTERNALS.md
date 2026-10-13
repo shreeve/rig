@@ -3085,7 +3085,23 @@ symbols); a query that decides more than that belongs in `Pending`.
   - its body has at most `inlining.max_size` (60) nodes, counting each
     form of the tree once (a call, an operator, a binding, an `if`),
     which std.json's helpers (`string`, `plain`, `key`, `close`,
-    `literal`, 27 to 50) fit and larger ones in that parser do not;
+    `literal`, 27 to 50) fit and larger ones in that parser do not; or,
+    whatever its size, its one call is the only copy of it
+    (`inlining.once`): it has one call in the program, in a function of
+    its own module that is not inlined or is itself inlined from its one
+    call. How often another module calls a module's functions does not
+    decide the code the module gets: std.json's `document`, called once
+    in `parse`, which is small and inlined into the caller's module, is
+    called, and so is a large function another module calls once. A call in a
+    function with compile-time values is one call in each instance, so
+    the callee is inlined into each, as it would be in instances written
+    out by hand; a call in a function inlined at two calls is two copies.
+    LLVM inlines a function with one call on its own, but only while it
+    has one: std.json's `number`, called once in `scalar`, has two calls
+    once `scalar` is inlined into both instances of `document[dense]`,
+    and LLVM then calls it. A function decided small is inlined before a
+    large one is tested, so a large function called from a small one
+    inlined at two calls is called (`inlining.settle`);
   - it is on no cycle of calls, directly or through others;
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
@@ -3105,9 +3121,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
-    innermost 2^n times. A function called from one place only, in a
-    function with compile-time values, is exempt from this limit: each
-    instance of the caller holds a copy that LLVM cannot merge into one;
+    innermost 2^n times. A function whose one call is the only copy of
+    it is exempt from this limit, since nothing repeats it;
   A function that fails a test of the last two is dropped and the tests
   run again, until none fails; since dropping one only shrinks frames
   and expansions, they run again from the function that failed, not

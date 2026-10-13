@@ -5,7 +5,8 @@
 //! small hot helper as a call when its body grows. A `fun` or `sub` is
 //! emitted as an `inline fn` when
 //!
-//!   - its body has at most `max_size` nodes (`size`),
+//!   - its body has at most `max_size` nodes (`size`), or its one call is
+//!     the only copy of it (`once`),
 //!   - it is not on a cycle of calls, directly or through others,
 //!   - no mention of it is anything but the callee of a call: it is
 //!     never passed, stored, returned, or made into a closure,
@@ -52,9 +53,8 @@ pub const max_inlined_frame_bytes: u128 = 64 << 10;
 /// The most nodes an inlined function may expand to at a call, counting
 /// the inlined calls in it (each of them as often as it is called):
 /// otherwise a chain of functions that each call the next twice would make
-/// Zig analyze a body 2^n times. A function with one call, in a function
-/// with compile-time values, is exempt: its expansion is counted in each
-/// instance of the caller. std.json, the program that set
+/// Zig analyze a body 2^n times. A function whose one call is the only
+/// copy of it is exempt (`once`). std.json, the program that set
 /// `max_size`, has a hot helper (`key`) that expands to 287.
 pub const max_expanded = 320;
 
@@ -91,6 +91,10 @@ const Fn = struct {
     /// The calls of it, and the first (`First`).
     direct_calls: u32 = 0,
     first: ?First = null,
+    /// Whether `settle` has decided it, and whether its body is then one
+    /// copy: it is not inlined, or it is and its one call is (`once`).
+    settled: Settled = .unknown,
+    single: bool = true,
     /// The step of `fit` that last forgot its frame and expansion.
     forgot: u32 = 0,
     node_state: Tarjan = .{},
@@ -117,6 +121,8 @@ const Group = struct {
 };
 
 const Top = struct { fun: ?u32 };
+
+const Settled = enum { unknown, visiting, done };
 
 /// A call, by the order the calls are visited in, and the function it is in.
 const First = struct { seq: u32, caller: ?u32 };
@@ -382,14 +388,44 @@ const Pass = struct {
         return total;
     }
 
-    /// Whether `f` is called from one place, in a function with
-    /// compile-time values: each instance of that function holds a copy of
-    /// `f`, which no one call site of an ordinary function does, so the
-    /// copies are the ones Zig counts and LLVM cannot merge.
-    fn oncePerInstance(self: *Pass, f: *const Fn) bool {
-        if (f.call_sites != 1) return false;
-        const caller = f.first_caller orelse return false;
-        return sema.tparamsOf(self.fns.items[caller].node) != .nil;
+    /// Whether inlining `v` adds no copy of its body: it has one call in
+    /// the program, and the function that call is in is of `v`'s module
+    /// and is not inlined, or is itself inlined from its one call. The
+    /// module bound keeps how often another module calls a module's
+    /// functions from deciding the code the module gets. A call in a
+    /// function with compile-time values is one call in each instance, so
+    /// a function called once there is inlined into each, as it would be
+    /// in instances written out by hand; a call in a function inlined at
+    /// two calls is two copies, as the function itself is.
+    fn once(self: *Pass, v: u32) bool {
+        var f = v;
+        while (true) {
+            const x = &self.fns.items[f];
+            if (x.call_sites != 1) return false;
+            const g = x.first_caller orelse return true;
+            if (self.fns.items[g].module != x.module) return false;
+            if (!self.fns.items[g].inlined) return true;
+            f = g;
+        }
+    }
+
+    /// Whether `v` is inlined before `fit`: it is small, or its one call is
+    /// the only copy of it (`once`), counting as inlined the functions that
+    /// are by this same test. Settling a function settles the chain of
+    /// callers its one call leads up, which ends, since no function on a
+    /// cycle is inlined.
+    fn settle(self: *Pass, v: u32) void {
+        if (self.fns.items[v].settled != .unknown) return;
+        self.fns.items[v].settled = .visiting;
+        const f = &self.fns.items[v];
+        var one = f.call_sites == 1;
+        if (one) if (f.first_caller) |g| {
+            self.settle(g);
+            one = self.fns.items[g].module == f.module and self.fns.items[g].single;
+        };
+        self.fns.items[v].inlined = self.fns.items[v].size <= self.max or one;
+        self.fns.items[v].single = !self.fns.items[v].inlined or one;
+        self.fns.items[v].settled = .done;
     }
 
     /// Stop inlining until no function adds more than
@@ -410,7 +446,7 @@ const Pass = struct {
         while (i < self.fns.items.len) {
             const v: u32 = @intCast(i);
             const f = &self.fns.items[i];
-            if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
+            if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.once(v)))) {
                 try self.uninline(v);
                 continue;
             }
@@ -602,10 +638,9 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         };
     }
     for (pass.fns.items, 0..) |*f, v| {
-        if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > max) continue;
-        if (f.own > max_inlined_frame_bytes) continue;
-        f.inlined = true;
+        if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.own > max_inlined_frame_bytes) f.settled = .done;
     }
+    for (0..pass.fns.items.len) |v| pass.settle(@intCast(v));
     try pass.fit();
     for (pass.fns.items) |f| {
         if (f.inlined) try mods[f.module].sema.inlined.put(allocator, f.pos, {});

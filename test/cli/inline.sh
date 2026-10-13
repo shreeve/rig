@@ -117,7 +117,8 @@ expect_has "$out" 'pub fn size(self: *const Pong' "a method calling another of i
 out=$(rig run methods.rig 2>&1) || fail "rig run methods.rig: $out"
 expect_eq "$out" "3 2 0 3" "methods.rig"
 
-# A body of more than inlining.max_size nodes (60) is called.
+# A body of more than inlining.max_size nodes (60), called from two
+# places, is called.
 {
     echo 'fun long(n: Int) -> Int'
     echo '  total = n'
@@ -125,7 +126,7 @@ expect_eq "$out" "3 2 0 3" "methods.rig"
     echo '  total'
     echo
     echo 'sub main()'
-    echo '  print(long(2))'
+    echo '  print(long(2) + long(3))'
 } >long.rig
 out=$(emit long.rig)
 expect_has "$out" 'pub fn long(' "a long body"
@@ -296,10 +297,19 @@ expect_has "$out" 'pub inline fn pick(' "the callee of an instance"
 expect_has "$out" 'pub fn same(comptime T: type' "a function with a compile-time type"
 expect_has "$out" 'pub fn down(' "recursion through an instance"
 
-# A function that is called from one place only, in a function with
-# compile-time values, is exempt from inlining.max_expanded (each instance
-# of the caller holds a copy): `once` here expands to over 320 nodes. The
-# same body called from an ordinary function, or from two places, is called.
+# A function whose one call is the only copy of it is inlined whatever its
+# size or expansion: `plain`, `once`, `big`, `scalar` and `number` have more
+# than inlining.max_size nodes or expand to more than inlining.max_expanded.
+# A call in a function with compile-time values is one call in each
+# instance: `once`, called once in `inst`, is inlined into each instance,
+# and so is `number`, called once in `scalar`, which each instance of
+# `document` calls once. The same bodies called from two places are called,
+# and so is a recursive one called once. (A large function called from a
+# small one that is inlined at two calls is called: entry.rig above.)
+pad() {
+    echo '  total = n'
+    for i in $(seq 1 35); do echo "  total += $i * n"; done
+}
 {
     echo 'fun leaf(n: Int) -> Int'
     echo '  total = n'
@@ -310,18 +320,78 @@ expect_has "$out" 'pub fn down(' "recursion through an instance"
         echo "fun $name(n: Int) -> Int"
         echo '  leaf(n) + leaf(n + 1) + leaf(n + 2) + leaf(n + 3) + leaf(n + 4) + leaf(n + 5) + leaf(n + 6) + leaf(n + 7)'
     done
+    for name in big shared number scalar rec; do
+        echo
+        echo "fun $name(n: Int) -> Int"
+        pad
+        case $name in
+            scalar) echo '  total += number(n)' ;;
+            rec) echo '  total += rec(n - 1) if n > 0 else 0' ;;
+        esac
+        echo '  total'
+    done
     echo
     echo 'fun inst[b: Bool](n: Int) -> Int'
-    echo '  once(n) if b else twice(n) + twice(n + 1)'
+    pad
+    echo '  total + (once(n) if b else twice(n) + twice(n + 1))'
+    echo
+    echo 'fun document[dense: Bool](n: Int) -> Int'
+    pad
+    echo '  total + scalar(n + 1 if dense else n)'
     echo
     echo 'sub main()'
     echo '  print(inst[true](1) + inst[false](2) + plain(3))'
+    echo '  print(big(1) + shared(2) + shared(3) + rec(4))'
+    echo '  print(document[true](1) + document[false](2))'
 } >once.rig
 out=$(emit once.rig)
 expect_has "$out" 'pub inline fn leaf(' "the leaf"
-expect_has "$out" 'pub inline fn once(' "an expansion over the limit, called from one instance function"
+expect_has "$out" 'pub inline fn once(' "an expansion over the limit, called once in an instance function"
+expect_has "$out" 'pub inline fn plain(' "an expansion over the limit, called once in an ordinary function"
 expect_has "$out" 'pub fn twice(' "the same expansion, called from two places"
-expect_has "$out" 'pub fn plain(' "the same expansion, called from an ordinary function"
+expect_has "$out" 'pub fn inst(comptime b: bool' "a body over the limit, called from two places"
+expect_has "$out" 'pub inline fn big(' "a body over the limit, called once"
+expect_has "$out" 'pub fn shared(' "the same body, called from two places"
+expect_has "$out" 'pub fn document(comptime dense: bool' "the instance function"
+expect_has "$out" 'pub inline fn scalar(' "a body over the limit, called once in an instance function"
+expect_has "$out" 'pub inline fn number(' "its callee, called once in each instance"
+expect_has "$out" 'pub fn rec(' "a body over the limit that recurses, called once"
+got=$(rig run once.rig 2>&1) || fail "rig run once.rig: $got"
+expect_eq "$got" $'33541\n10096\n6941' "once.rig"
+
+# The one call must be in the function's own module, and so must the
+# chain of one calls it is inlined through: how often another module
+# calls a module's functions does not decide the code the module gets.
+# `parse` is small and inlined; `document`, its one call, is large and is
+# called, though `main` calls `parse` once. `helper`, large and called once
+# from another module, is called too; `inner`, large and called once in
+# `document`, which is not inlined, is inlined.
+{
+    echo 'pub fun parse(n: Int) -> Int'
+    echo '  document(n) + 1'
+    echo
+    for name in document helper inner; do
+        echo "pub fun $name(n: Int) -> Int"
+        pad
+        [[ $name == document ]] && echo '  total += inner(n)'
+        echo '  total'
+        echo
+    done
+} >lib.rig
+{
+    echo 'use lib'
+    echo
+    echo 'sub main()'
+    echo '  print(lib.parse(1) + lib.helper(2))'
+} >app.rig
+rig emit app.rig >/dev/null 2>&1 || fail "rig emit app.rig"
+lib=$(cat "$RIG_OUT_DIR/programs/app/lib.zig") || fail "no lib.zig"
+expect_has "$lib" 'pub inline fn parse(' "a small function of another module"
+expect_has "$lib" 'pub fn document(' "a large function whose one call is inlined into another module"
+expect_has "$lib" 'pub fn helper(' "a large function called once from another module"
+expect_has "$lib" 'pub inline fn inner(' "a large function called once in its module"
+out=$(rig run app.rig 2>&1) || fail "rig run app.rig: $out"
+expect_eq "$out" 2525 "app.rig"
 
 # Inlining keeps what the proofs omitted: a Simd read proven in bounds
 # stays proven in a function that is inlined, whether it is small or is
