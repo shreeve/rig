@@ -1,0 +1,19 @@
+# What a function of another module bounds of its result proves the add
+# of its caller: `decode.rune_after` returns a size from 0 to 2.
+
+use decode
+
+fun total(s: ?String) -> Int
+  sum = 0
+  i = 0
+  while i < s.len
+    d = decode.rune_after(s, i)
+    sum += d.rune
+    i += d.size # proves: += no_overflow
+  sum
+
+sub main()
+  print(total("h\u{e9}llo"))
+
+# expect:
+# 664

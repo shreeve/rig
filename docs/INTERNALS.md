@@ -1580,13 +1580,15 @@ a held receiver or argument, a hoisted value), every write it runs is in
 `K(u)`, and no fact `u` makes is visible to its own checks. A unit
 nested in `u` starts from `E - K(u)` too.
 
-**Facts.** The pass tracks four facts, about bindings, by symbol:
+**Facts.** The pass tracks five facts, about bindings, by symbol:
 `nonneg(i)`, `0 <= i`; `below(i, k, b)`, `i + k <= b` exactly;
-`fits(s)`, `s.len <= 2^62 - 1`; and `eq(n, s)`, `n == s.len`. `i` and
+`fits(s)`, `s.len <= 2^62 - 1`; `eq(n, s)`, `n == s.len`; and
+`upto(d, f, h)`, `0 <= d.f <= h`. `i` and
 `n` are locals or parameters of type `Int` of the body being walked (not
 a capture, a view, or a field); a bound `b` is `len(s)`, where `s` is
-such a binding of type `?String`, `[]T`, or `![]T`, or `int(n)`; `k` is
-at most `2^62`. Each list below is positive: a shape not on it makes
+such a binding of type `?String`, `[]T`, or `![]T`, or `int(n)`; `d` is
+such a binding of a struct type, held by value; `k` and `h` are at most
+`2^62`. Each list below is positive: a shape not on it makes
 nothing and proves nothing. A unit makes its facts on its exit, each
 only if nothing in `K(u)` names it; then an assignment's store applies,
 and then what the store makes.
@@ -1597,6 +1599,7 @@ and then what the store makes.
 | `x = s[i]`, `x = s.read[T, e](i)`, or the statement `!s.write[T, e](i, v)`, `T` concrete: the check ran | `nonneg(i)`, `below(i, width, len(s))`, before the store |
 | `i = c` with a literal `c`, `i = j` with `nonneg(j)` | `nonneg(i)`, after the store |
 | `n = s.len` | `nonneg(n)`, `fits(s)`, and `eq(n, s)`, after the store |
+| `d = g(...)`, `g` a function that bounds fields of its result | `upto(d, f, h)` for each field `f` that `g` bounds by `h`, after the store |
 
 With `eq(n, s)` held, `below(i, k, int(n))` also gives `below(i, k,
 len(s))`, which then lasts while `i` and `s` do, whatever `n` does. A
@@ -1608,6 +1611,28 @@ is part of its unit, and makes nothing.
 | `s[i]`, read or a place | `lower` under `nonneg(i)`; `upper` under `below(i, k, len(s))`, `k >= 1` |
 | `s.read[T, e](i)`, `!s.write[T, e](i, v)`, on the callee | the same, with `k >= @size(T)`: the width of a number `T`, or `n` times the width of `E` for a `Simd[E, n]` of numbers with a known `n` (a vector's bytes are tested as an integer's of that size) |
 | `i + c`, and the `set` of `i += c`, `0 < c <= 2^62` a literal | `no_overflow` under `below(i, k, b)` with `k >= c` (`i + c <= b`), or under `below(i, k, len(s))` and `fits(s)` (`i + c <= 2^62 - 1 + c`) |
+| `i + x`, and the `set` of `i += x`, `x` an `Int` with `0 <= x <= h`: `d.f` under `upto(d, f, h)`, or `g(...).f` or `g(...)` where `g` bounds that field or its result by `h` | as `i + max(h, 1)`: `i + x <= i + max(h, 1)` |
+
+**Results.** Before it walks a module's bodies, the pass finds what each
+of its functions bounds of its result (`SemContext.result_bounds`, a
+`sema.ResultBound`), which a caller in this module or another reads
+through the call: `f(...)` of a function of the module, or `m.f(...)` of
+a module `m` (not a closure, a method, an extern, or a generic
+instance), whose module the graph checked first. A function bounds its
+result, an `Int`, by `h` when every value it can return (each
+`return`'s, but those of the closures and functions declared in its
+body, and its body's tail unless that is a `return`) is a literal or a
+call of a function that bounds its result, and `h` is the largest of
+their bounds; it bounds the field `f` of its result, a struct, by `h`
+when every value it can return is a constructor of that struct whose
+argument `f:` is a literal, or a call of a function that bounds `f` of
+the same struct. Every bound is a literal some path returns, so `0 <=
+x <= h`: what the callee returns, it returned through one of those
+values, and a struct held by value changes a field only where a write
+of its binding says so. Anything else (a value `if`, a parameter, a
+negative or a larger literal) bounds nothing, and nor does a function
+whose bound reaches itself through a cycle of calls, since its bound is
+not known when it is asked for.
 
 **Writes.** A binding changes only where an assignment or a `!` says so
 (Core sentences 4 and 9), and resolve and typecheck record each such

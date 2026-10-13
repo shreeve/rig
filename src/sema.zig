@@ -818,6 +818,27 @@ pub const Proven = packed struct(u8) {
     }
 };
 
+/// What a function bounds of its result on every path that returns
+/// (docs/INTERNALS.md, "Proven checks"): `0 <= v <= hi` of the result
+/// itself, an `Int`, or of named `Int` fields of the struct it returns.
+/// Written only by `src/proofs.zig`, for a module the ownership checker
+/// accepted, and read by the proof pass of each module that calls it.
+pub const ResultBound = struct {
+    /// The bound of an `Int` result.
+    whole: ?u64 = null,
+    /// The bounds of the fields of a struct result.
+    fields: []const FieldBound = &.{},
+
+    /// The bound of field `name`, or null.
+    pub fn field(b: ResultBound, name: []const u8) ?u64 {
+        for (b.fields) |f| if (std.mem.eql(u8, f.name, name)) return f.hi;
+        return null;
+    }
+};
+
+/// `0 <= field <= hi` of a struct a function returns.
+pub const FieldBound = struct { name: []const u8, hi: u64 };
+
 /// How a header (`for`, `match`, `if … as`, `while … as`) has a bare
 /// subject that is not plain data (docs/INTERNALS.md, "Header subjects").
 pub const Header = enum {
@@ -1818,6 +1839,10 @@ pub const SemContext = struct {
     /// `src/proofs.zig` once the ownership checker accepted the module.
     /// Printed by `check --facts=proofs`, not `--facts=sema`.
     proven: std.AutoHashMapUnmanaged(NodeKey, Proven) = .empty,
+    /// What each function of the module bounds of its result
+    /// (`ResultBound`), by where its name is declared: written only by
+    /// `src/proofs.zig`, with the tests above.
+    result_bounds: std.AutoHashMapUnmanaged(u32, ResultBound) = .empty,
     /// Each node of a body -> the root of the innermost unit holding it
     /// (`rig.eachUnit`), recorded by the storage plan (`storage.plan`).
     /// Kept beside the facts table, not in `check --facts=sema`.
@@ -1895,6 +1920,7 @@ pub const SemContext = struct {
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
+        self.result_bounds.deinit(self.allocator);
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);

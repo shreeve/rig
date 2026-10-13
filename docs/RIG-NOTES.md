@@ -89,7 +89,10 @@ tools that take them in `bench/json/`.
     value at least `i`, but `document`'s next `src[i]` still tests
     `i >= 0`, since the fact does not cross the call. Fix: facts a
     function proves of its result, or proofs after inlining.
-    *Observed.*
+    *Observed. Partly fixed: a function whose every return value is a
+    small literal, or a struct whose field is one, proves a caller's
+    `i += d.size` (docs/INTERNALS.md, "Proven checks", Results); a bound
+    in terms of an argument, such as `>= i`, is still open.*
 11. **A List's length converts to `Int` with a check.** `rig.len` tests
     `n > max_len` at every `xs.len` (about 11 sites in std.json), though
     no length can exceed `Int`. Fix: let the runtime assume it. Measured
