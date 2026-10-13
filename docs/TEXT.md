@@ -220,6 +220,8 @@ What a reader sees, by the rules of Unicode's text segmentation (UAX
 | `text.first_chars(s, n) -> ?String` | the first `n` chars of `s`, or all of `s` if it has fewer |
 | `text.last_chars(s, n) -> ?String` | the last `n` chars of `s`, or all of `s` if it has fewer |
 | `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
+| `text.char_width(c) -> Int` *(planned)* | the terminal columns one char `c` takes, 0, 1, or 2: by its East Asian Width (UAX #11), 2 for an emoji, 0 for a combining mark or a zero-width char |
+| `text.width(s) -> Int` *(planned)* | the terminal columns `s` takes: `char_width` summed over its chars |
 
 ```rig
 use std.text
@@ -256,6 +258,13 @@ any other (a combining mark after it joins it). So every byte is in
 exactly one char, and the chars of `s` always tile it: their sizes add
 up to `s.len`. A byte index outside `0..s.len`, or a negative count of
 chars, panics.
+
+Width is measured per char, never per rune: a family emoji is five
+runes but one char two columns wide. An East Asian Ambiguous char counts
+as 1, and a tab is not measured (it depends on where it lands). There is
+no `rune_width`, `unit_width`, or `byte_width`: bytes and units are not
+drawn, and summing per-rune widths is wrong for any char of several
+runes.
 
 `first_chars` is how to shorten text for a reader (a preview, a
 280-character post); `s[0..n]` is how to take `n` bytes.

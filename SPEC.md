@@ -243,13 +243,13 @@ integer value `16777217` does not fit exactly in `F32`
 
 A number type's name also has functions, which name how they convert.
 `I32.wrap(x)`, for any integer type, converts an integer by keeping its
-low bits: the value modulo 2^(the target's width), read in the target's
+low bits: the value modulo 2^(the target's bit count), read in the target's
 signedness, and it never panics. A narrower target keeps the low bits; a
 wider one gets the value, sign-extended when the source is signed. It
 takes an integer, not a float: convert a `Float` with `Int(x)` first.
 `Float.from_bits(u)` is the float whose IEEE 754 bits are the unsigned
 integer `u`, a `U64` (a `U32` for `F32`), and `f.to_bits()` reads those
-bits from a float, as the unsigned integer of its width. They convert the
+bits from a float, as the unsigned integer of its size. They convert the
 representation, where `U64(f)` converts the value.
 
 ```rig
@@ -869,7 +869,7 @@ cannot lend a slice of a `?String` to write; a `?String` is read-only
 
 ### Bytes
 
-Bytes hold fixed-width numbers. `bytes.read[T, e](at)` is the integer
+Bytes hold fixed-size numbers. `bytes.read[T, e](at)` is the integer
 or float `T` stored in the `@size(T)` bytes from offset `at`, in byte
 order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
 integer or float type, a vector of them ([Vectors](#reading-bytes-into-a-vector)),
@@ -947,8 +947,8 @@ type's limits; the integer operators take integer lanes, `&`, `|`, and
 lanes. A scalar of the lane type, or a literal that fits it, stands for
 every lane, on either side: `v < 0x20`, `v == quote`, `1 + v`. The
 shifts `v << c`, `v <<% c`, and `v >> c` move every integer lane by one
-amount `c`, an integer, below the lane width, with the scalar rules: a
-constant `c` at or over the width is rejected and a run-time one
+amount `c`, an integer, below the lane's bit count, with the scalar rules: a
+constant `c` at or over it is rejected and a run-time one
 panics, `<<` panics where a lane loses bits (or its sign), `<<%` drops
 them, and `>>` is arithmetic on signed lanes. The compound forms
 (`v += 1`, `m |= v == q`, `v >>= 4`) assign the result. `/` and `%`
@@ -2533,7 +2533,7 @@ sub main()
 ```
 
 Bitwise operators need integers; a shift amount may be any
-integer, from 0 up to the width of the shifted type. A left shift that
+integer, from 0 up to the bit count of the shifted type. A left shift that
 loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.
 
@@ -2571,7 +2571,7 @@ sub main()
 
 `<<%` is the wrapping left shift: the high bits it shifts out are
 dropped, where `<<` panics. It binds as `<<` does, and its amount is
-checked as `<<`'s is: it must be below the width of the shifted type,
+checked as `<<`'s is: it must be below the bit count of the shifted type,
 and one at or over it is rejected if constant and panics when the
 program runs, never masked. `<<%=` assigns the shifted result.
 
@@ -2656,7 +2656,7 @@ The other methods of an integer's bits take no arguments and work on
 its bit pattern, so a negative value counts as its two's complement.
 `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()` give
 an `Int`: the zero bits above the highest set bit, the zero bits below
-the lowest, and the set bits. For `0` both zero counts are the width of
+the lowest, and the set bits. For `0` both zero counts are the bit count of
 its type, and `(-1).count_ones()` is 64. `x.swap_bytes()` reverses the
 bytes, in the integer's own type. A receiver that is not an integer is
 rejected.
