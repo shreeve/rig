@@ -1,0 +1,68 @@
+# std.text's `class_end` against a plain loop: each of the 8 mask bits
+# alone, a mask of several and of all; runs of 0 to 40 bytes in a class
+# before a byte outside it, from every `i`; a text of one class to its
+# end; and a byte whose table entry is 0xFF, in every class. Each case
+# that differs prints itself; the last line counts them.
+# release
+use std.text
+
+fun plain(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int
+  j = i
+  while j < s.len and table[s[j]] & mask != 0
+    j += 1
+  j
+
+# Byte `b` is in the classes of the bits of `b % 8` and `b % 8 + 1`;
+# 0xFF is in every class, and 0x00 in none.
+fun classes() -> [256]U8
+  t: [256]U8 = [256 of 0]
+  for b in 1..255
+    t[b] = U8(1) <<% (b % 8) | U8(1) <<% ((b + 1) % 8)
+  t[255] = 0xFF
+  t
+
+fun differs(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int
+  got = text.class_end(s, i, table, mask)
+  want = plain(s, i, table, mask)
+  return 0 if got == want
+  print("mask", mask, "len", s.len, "at", i, "got", got, "want", want)
+  1
+
+sub main()
+  t = classes()
+  bad = 0
+  masks: [11]U8 = [1, 2, 4, 8, 16, 32, 64, 128, 0x81, 0x5A, 0xFF]
+  for mask in masks
+    # The last byte below 0xFF in `mask`'s class, and the last outside it.
+    inside: U8 = 0xFF
+    outside: U8 = 0
+    for b in 1..255
+      if t[b] & mask != 0
+        inside = U8(b)
+      else
+        outside = U8(b)
+    for run in 0..41
+      for tail in 0..3
+        s = String()
+        for j in 0..run
+          !s.push(0xFF if j % 3 == 0 else inside)
+        !s.push(outside)
+        for _ in 0..tail
+          !s.push(inside)
+        for i in 0..s.len + 1
+          bad += differs(s, i, t, mask)
+    for b in 0..256
+      if t[b] & mask != 0
+        s = String()
+        for _ in 0..37
+          !s.push(U8(b))
+        bad += differs(s, 0, t, mask) + differs(s, 18, t, mask) + differs(s, s.len, t, mask)
+  s = "abc\x00def"
+  print(text.class_end(s, 0, t, 0xFF), text.class_end(s, 4, t, 0xFF), text.class_end(s, s.len, t, 0xFF))
+  print(text.class_end("\xff\xff\x00", 0, t, 0x80), text.class_end("\xff\xff", 1, t, 0x01), text.class_end("", 0, t, 1))
+  print(bad, "differ")
+
+# expect:
+# 3 7 7
+# 2 2 0
+# 0 differ

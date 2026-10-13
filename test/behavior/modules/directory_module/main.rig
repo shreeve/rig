@@ -1,0 +1,9 @@
+# A directory is a module: its files share one namespace and call each
+# other, and a module beneath it is a directory of its own.
+use checker
+
+sub main()
+  print(checker.Checker(depth: 0).expr(3))
+
+# expect:
+# 3

@@ -1,0 +1,4 @@
+use geo
+
+pub fun a() -> Int
+  geo.origin()

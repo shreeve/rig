@@ -1585,7 +1585,7 @@ const Planner = struct {
         const order = setOrder(ctx, set);
         if (kind.operator()) |op| {
             try p.openAssign(set, order);
-            if (target != .src and divides(ctx, op, target, value)) try p.record(target, .slot, .pointer, .assignment);
+            if (target != .src and assignsThroughCall(ctx, op, target, value)) try p.record(target, .slot, .pointer, .assignment);
             return;
         }
         if (target != .src) {
@@ -1682,9 +1682,12 @@ const Planner = struct {
     }
 };
 
-/// Whether `x op= v` lowers to a builtin that assigns its result
-/// (`rig.rem`, `@shlExact`, an integer `/`): its place is found once.
-fn divides(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
+/// Whether `x op= v` lowers to a call that assigns its result, as
+/// `Emitter.emitCompound` lowers it: `rig.rem`, `@shlExact`, an integer
+/// `/`, and on a vector the runtime's lane shifts and saturating `+|` and
+/// `-|`, and a mask's `&`, `|`, and `^` (`rig.Mask`): its place is found
+/// once.
+fn assignsThroughCall(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
     switch (op) {
         .@"%", .@"<<" => return true,
         .@"/" => {
@@ -1696,6 +1699,17 @@ fn divides(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
                 }
             }
             return true;
+        },
+        .@"<<%", .@">>", .@"+|", .@"-|", .@"&", .@"|", .@"^" => {
+            const ty = typeOf(ctx, target) orelse return false;
+            const v = switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
+                .simd => |v| v,
+                else => return false,
+            };
+            return switch (op) {
+                .@"&", .@"|", .@"^" => v.elem == ctx.types.bool_id,
+                else => true,
+            };
         },
         else => return false,
     }

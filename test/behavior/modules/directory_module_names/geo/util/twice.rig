@@ -1,0 +1,2 @@
+pub fun twice(n: Int) -> Int
+  2 * n

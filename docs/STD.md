@@ -402,12 +402,14 @@ sub main()
 
 ## Text: bytes, runes, units, chars
 
+The whole text API, built and planned, is listed in [TEXT-API](TEXT-API.md).
+
 Every text API is described in four words, each with one meaning:
 
 | Word | What it is | Size |
 |---|---|---|
 | **byte** | 8 bits, a `U8`: what a `String` stores, and what `s.len`, `s[i]`, and slicing count | 1 byte |
-| **rune** | one Unicode code point other than a surrogate (a scalar value): a character's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
+| **rune** | one Unicode code point other than a surrogate (a scalar value): a code point's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
 | **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
 | **char** | what a reader sees as one character: a Unicode extended grapheme cluster | 1 or more runes |
 
@@ -463,10 +465,11 @@ Rig!!! 6
 
 Searching, slicing, splitting, and parsing text, which every function
 reads as a `?String`: UTF-8 bytes by convention, and nothing here checks
-that it is. Every index and length is in bytes, and whitespace and case
-are ASCII's. A function that returns a `?String` returns a part of the
-`?String` it was given, a view of the same bytes, so nothing here
-allocates. A `?String` taken from a `String`
+that it is. Every index is a byte index; a count names its unit; and
+whitespace and case are ASCII's. A function that returns a `?String`
+returns a part of the `?String` it was given, a view of the same bytes,
+so nothing here allocates but `format_int`, which returns a new String,
+and `edit_distance`, which grows the `row` it is given. A `?String` taken from a `String`
 ([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
 functions return.
 
@@ -477,6 +480,8 @@ functions return.
 | `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every `?String` contains `""` |
 | `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
 | `count(s: ?String, pat: ?String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
+| `find_any[set: ?String](s: ?String, i: Int) -> Int?` | the first index at or after `i` whose byte is one of `set`'s, or `none`; `set` is a compile-time string, each byte of it one compare per 16 bytes of `s`, and `""` holds no byte; panics unless `0 <= i <= s.len` |
+| `class_end(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int` | the first index at or after `i` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`; the caller's table gives each byte its class bits; panics unless `0 <= i <= s.len` |
 | `trim(s: ?String) -> ?String` | `s` without its leading and trailing ASCII whitespace |
 | `trim_start(s: ?String) -> ?String`, `trim_end(s: ?String) -> ?String` | `s` without its leading, or its trailing, ASCII whitespace |
 | `strip_prefix(s: ?String, prefix: ?String) -> (?String)? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
@@ -496,7 +501,6 @@ functions return.
 | `is_digit(b: U8) -> Bool`, `is_alpha(b: U8) -> Bool` | whether `b` is an ASCII digit, or an ASCII letter |
 | `is_space(b: U8) -> Bool` | whether `b` is ASCII whitespace: a space, tab, line feed, vertical tab, form feed, or carriage return |
 | `to_upper(b: U8) -> U8`, `to_lower(b: U8) -> U8` | `b` in upper, or lower, case when it is an ASCII letter, else `b` |
-| `valid_utf8(bytes: []U8) -> Bool` | whether `bytes` is well-formed UTF-8 |
 | `compare(a: ?String, b: ?String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
 | `edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) -> Int` | the Levenshtein distance between `a` and `b` over runes (insert, delete, and substitute cost 1); `row` is the caller's scratch; with `max >= 0`, `max + 1` once the distance passes `max` |
 
@@ -510,6 +514,11 @@ sub main()
   print(text.find("banana", "an"), text.find_last("banana", "an"), text.count("banana", "a"))
   print(text.starts_with("main.rig", "main"), text.strip_suffix("main.rig", ".rig") ?? "?")
   print(text.contains("banana", "nab"), text.strip_prefix("banana", "x") ?? "no prefix")
+  print(text.find_any[",;"]("a b;c,d", 0) ?? -1, text.find_any[",;"]("a b;c,d", 4) ?? -1, text.find_any[",;"]("a b", 0) ?? -1)
+  digits: [256]U8 = [256 of 0]
+  for b in 0x30..0x3A
+    digits[b] = 1
+  print(text.class_end("2026-10-13", 0, digits, 1), text.class_end("2026-10-13", 5, digits, 1))
 ```
 
 ```output
@@ -517,6 +526,8 @@ name is Ada Lovelace
 1 3 3
 true main
 false no prefix
+3 5 -1
+4 7
 ```
 
 `split`, `lines`, and `words` give an iterator, a struct holding the
@@ -881,7 +892,7 @@ has no property.
 |---|---|
 | `VERSION` | the Unicode version of every property, `"15.1.0"` |
 | `is_id_start(r: Int) -> Bool`, `is_id_continue(r: Int) -> Bool` | whether `r` may begin an identifier, or continue one |
-| `is_space_rune(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
+| `is_space(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
 
 ```rig
 use std.unicode
@@ -890,7 +901,7 @@ sub main()
   print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
   print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
   print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
-  print(unicode.is_space_rune(0x20), unicode.is_space_rune(0x85), unicode.is_space_rune(0x3000), unicode.is_space_rune(0xFEFF))
+  print(unicode.is_space(0x20), unicode.is_space(0x85), unicode.is_space(0x3000), unicode.is_space(0xFEFF))
   print(unicode.VERSION)
 ```
 

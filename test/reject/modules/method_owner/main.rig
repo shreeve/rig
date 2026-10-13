@@ -1,0 +1,40 @@
+use geo
+
+type P = Point
+
+obj Point
+  x: Int
+
+obj Wrap[T]
+  v: T
+
+fun geo.Point.a(?self) -> Int
+  1
+
+fun Nope.b() -> Int
+  1
+
+fun P.c(?self) -> Int
+  1
+
+fun List.d(?self) -> Int
+  1
+
+fun Wrap.e(?self) -> T
+  self.v
+
+fun Point.x2(?self) -> Int
+  1
+
+fun Point.x2(?self) -> Int
+  2
+
+sub main()
+  print(1)
+
+# error: 11:5: methods of `geo.Point` are declared in module `geo`, which declares the type
+# error: 14:5: `Nope` names no type declared in this module
+# error: 17:5: `P` is an alias of `Point`; declare the method as `fun Point.c`
+# error: 20:5: `List` is a built-in type; a method is declared on a type of this module
+# error: 23:5: write `fun Wrap[T].e`: a method names its type's parameters as `obj Wrap[T]` declares them
+# error: 29:11: duplicate member `x2` in `Point`

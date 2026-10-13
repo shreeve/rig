@@ -216,6 +216,9 @@ pub const Emitter = struct {
     counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
     module_names: std.StringHashMapUnmanaged(void) = .empty,
+    /// The modules whose `@import` is emitted so far: in a directory
+    /// module, several files may each use one module.
+    used_modules: std.AutoHashMapUnmanaged(u32, void) = .empty,
     usage: Usage = .{},
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
@@ -328,6 +331,7 @@ pub const Emitter = struct {
         self.local_by_sym.deinit(self.allocator);
         self.local_names.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
+        self.used_modules.deinit(self.allocator);
         self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
@@ -418,16 +422,28 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
     }
 
-    /// `use` binds its local name to the module's emitted file.
+    /// A `use` imports the module's emitted file under a name of the
+    /// emitter's (`writeModuleZig`), whatever name the `use` binds: a
+    /// `use` binds its name in its own file only, and a local of any
+    /// file may have it.
     fn emitUse(self: *Emitter, node: Sexp) Error!void {
         const path = ir.Use.name(node);
         const alias = ir.Use.alias(node);
-        const name = self.srcText(if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path);
-        for (0..self.facts.importCount()) |i| {
-            const imp = self.facts.importAt(i);
-            if (std.mem.eql(u8, imp.local_name, name)) return self.w.print("const {f} = @import(\"{s}\");\n", .{ ident(name), imp.facts.zig_file });
-        }
-        return self.unsupported(node, "an unresolved `use`");
+        const name = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
+        const sym = self.facts.symbolOf(name) orelse return self.unsupported(node, "an unresolved `use`");
+        const module = self.facts.moduleOf(sym) orelse return self.unsupported(node, "an unresolved `use`");
+        if ((try self.used_modules.getOrPut(self.allocator, module)).found_existing) return;
+        const foreign = self.facts.foreign(module) orelse return self.unsupported(node, "an unloaded module");
+        try self.w.writeAll("const ");
+        try self.writeModuleZig(module);
+        try self.w.print(" = @import(\"{s}\");\n", .{foreign.zig_file});
+    }
+
+    /// The Zig name of an imported module: `__rig_m<id>_<name>`.
+    fn writeModuleZig(self: *Emitter, module: u32) Error!void {
+        const name = if (self.facts.foreign(module)) |f| f.name else "";
+        try self.w.print("__rig_m{d}_", .{module});
+        for (name) |c| try self.w.writeByte(if (c == '.') '_' else c);
     }
 
     /// `extern_fun` / `extern_sub`, a C function, or `extern`, a C
@@ -1806,6 +1822,28 @@ pub const Emitter = struct {
         return self.facts.types.get(self.peelViews(t)) == .simd;
     }
 
+    /// Whether `ty` is a mask, `Simd[Bool, n]`, or a view of one: a
+    /// `rig.Mask(n)`, whose operators are the runtime's (`rig.maskOr`).
+    fn isMask(self: *Emitter, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return switch (self.facts.types.get(self.peelViews(t))) {
+            .simd => |v| v.elem == self.facts.types.bool_id,
+            else => false,
+        };
+    }
+
+    /// The runtime function of a mask operator, or null for one that no mask takes.
+    fn maskOperator(op: Tag) ?[]const u8 {
+        return switch (op) {
+            .@"&" => "rig.maskAnd(",
+            .@"|" => "rig.maskOr(",
+            .@"^" => "rig.maskXor(",
+            .@"==" => "rig.maskEq(",
+            .@"!=" => "rig.maskNe(",
+            else => null,
+        };
+    }
+
     /// The runtime function that shifts a vector's lanes by one amount
     /// (`<<`, `<<%`, or `>>`).
     fn vecShift(op: Tag) []const u8 {
@@ -1829,7 +1867,13 @@ pub const Emitter = struct {
         // runtime, which takes the amount as it is.
         const vector = self.isSimd(self.typeOf(target));
         const lanes = shift and vector;
-        const builtin: ?[]const u8 = if (lanes) vecShift(op) else if (vector and op == .@"+|") "rig.vecAddSat" else if (vector and op == .@"-|") "rig.vecSubSat" else switch (op) {
+        const mask_op: ?[]const u8 = if (self.isMask(self.typeOf(target))) switch (op) {
+            .@"&" => "rig.maskAnd",
+            .@"|" => "rig.maskOr",
+            .@"^" => "rig.maskXor",
+            else => null,
+        } else null;
+        const builtin: ?[]const u8 = if (mask_op) |m| m else if (lanes) vecShift(op) else if (vector and op == .@"+|") "rig.vecAddSat" else if (vector and op == .@"-|") "rig.vecSubSat" else switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
             .@"<<" => "@shlExact",
             else => null,
@@ -3742,6 +3786,7 @@ pub const Emitter = struct {
         if (isLiteralText(name)) return self.w.writeAll(name);
         // A built-in type named in an expression: `Endian.big`.
         if (self.facts.symbolOf(sexp)) |id| if (id == self.facts.endian_sym_id) return self.writeNominalName(id);
+        if (self.facts.symbolOf(sexp)) |id| if (self.facts.moduleOf(id)) |module| return self.writeModuleZig(module);
         if (self.rt_names and !self.keep_comptime and self.isModuleConst(sexp)) {
             try self.w.writeAll("rig.rt(");
             try self.writeModuleName(name);
@@ -4456,6 +4501,19 @@ pub const Emitter = struct {
         };
         // An add known not to overflow (`provenOf`).
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
+        // Masks combine and compare through the runtime (`rig.Mask`), and
+        // a comparison of other vectors gives its lanes as a mask.
+        if (self.isMask(self.typeOf(sexp))) {
+            if (self.isMask(self.typeOf(operands[0])) or self.isMask(self.typeOf(operands[1]))) {
+                const f = maskOperator(kind) orelse return self.unsupported(sexp, "this operator on masks");
+                return self.emitCall2(f, operands, ")");
+            }
+            try self.w.writeAll("rig.mask(");
+            try self.emitExpr(operands[0]);
+            try self.w.print(" {s} ", .{op});
+            try self.emitExpr(operands[1]);
+            return self.w.writeAll(")");
+        }
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});
@@ -4809,7 +4867,7 @@ pub const Emitter = struct {
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
             try self.w.writeAll("rig.rt(");
-            try self.writeModuleName(self.srcText(obj));
+            try self.writeModuleZig(self.facts.moduleOf(self.facts.symbolOf(obj).?).?);
             return self.w.print(".{f})", .{ident(field)});
         }
         // A field of a value built of constants is a run-time value
@@ -5493,11 +5551,9 @@ pub const Emitter = struct {
                 try self.emitBare(ir.Member.object(callee));
                 return self.w.writeAll(")");
             },
-            // `@select(T, m, a, b)`.
+            // `rig.maskSelect(m, a, b)`.
             .select => {
-                try self.w.writeAll("@select(");
-                try self.emitTypeTy(ec.elem);
-                try self.w.writeAll(", ");
+                try self.w.writeAll("rig.maskSelect(");
                 try self.emitBare(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
@@ -5505,8 +5561,13 @@ pub const Emitter = struct {
                 }
                 return self.w.writeAll(")");
             },
-            // `@as([n]T, v)`.
+            // `@as([n]T, v)`, or `rig.maskArray(m)`.
             .array => {
+                if (ec.elem == self.facts.types.bool_id) {
+                    try self.w.writeAll("rig.maskArray(");
+                    try self.emitBare(ir.Member.object(callee));
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("@as([");
                 try self.emitTypeTy(self.facts.types.get(ec.num).simd.len);
                 try self.w.writeAll("]");
@@ -5550,6 +5611,11 @@ pub const Emitter = struct {
                     .simd => |v| v.elem,
                     else => self.peelViews(ec.num),
                 };
+                if (lanes == self.facts.types.bool_id and lanes != self.peelViews(ec.num)) {
+                    try self.w.writeAll("rig.maskNot(");
+                    try self.emitBare(obj);
+                    return self.w.writeAll(")");
+                }
                 if (lanes == self.facts.types.bool_id) {
                     try self.w.writeAll("(!");
                     try self.emitExpr(obj);
@@ -5661,7 +5727,7 @@ pub const Emitter = struct {
     /// when it compiles, and a lane that overflows panics when the program
     /// runs, as Rig specifies, rather than stopping Zig's fold.
     fn writeVectorOpen(self: *Emitter, vt: TypeId) Error!void {
-        try self.w.writeAll("rig.rt(@as(");
+        try self.w.writeAll(if (self.isMask(vt)) "rig.rt(rig.maskOf(" else "rig.rt(@as(");
         try self.emitTypeTy(vt);
         try self.w.writeAll(", ");
     }
@@ -6848,6 +6914,11 @@ pub const Emitter = struct {
                 try self.emitTypeTy(a.elem);
             },
             .simd => |v| {
+                if (v.elem == self.facts.types.bool_id) {
+                    try self.w.writeAll("rig.Mask(");
+                    try self.emitTypeTy(v.len);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("@Vector(");
                 try self.emitTypeTy(v.len);
                 try self.w.writeAll(", ");
@@ -6935,7 +7006,7 @@ pub const Emitter = struct {
     fn writeModuleRef(self: *Emitter, module_id: u32) Error!void {
         for (0..self.facts.importCount()) |i| {
             const imp = self.facts.importAt(i);
-            if (imp.module_id == module_id) return self.writeModuleName(imp.local_name);
+            if (imp.module_id == module_id) return self.writeModuleZig(module_id);
         }
         const foreign = self.facts.foreign(module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
         try self.w.print("@import(\"{s}\")", .{foreign.zig_file});

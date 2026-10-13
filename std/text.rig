@@ -1,8 +1,10 @@
 # std.text: searching, slicing, splitting, and parsing text, which every
 # function reads as a `?String`: UTF-8 bytes by convention, and nothing
-# here checks that it is. Every index and length is in bytes. Every
-# function that returns a `?String` returns a view of the `?String` it
-# was given, so nothing here allocates.
+# here checks that it is. Every index is a byte index; a count names its
+# unit. Every function that returns a `?String` returns a view of the
+# `?String` it was given, so nothing here allocates but `format_int`,
+# which returns a new String, and `edit_distance`, which grows the `row`
+# it is given.
 #
 # A char is what a reader sees as one character: a Unicode extended
 # grapheme cluster (UAX #29), of one rune or several, by the tables of
@@ -31,6 +33,80 @@ pub fun starts_with(s: ?String, prefix: ?String) -> Bool
 # Whether `s` ends with `suffix`.
 pub fun ends_with(s: ?String, suffix: ?String) -> Bool
   suffix.len <= s.len and s[s.len - suffix.len..] == suffix
+
+# ---- Byte sets -----------------------------------------------------------
+
+# The index of the first byte of `s` at or after `i` that is one of the
+# bytes of `set`, or `none` when there is none; an empty `set` holds no
+# byte, so the result is `none`. `i` is a cursor, `0 <= i <= s.len`;
+# outside that it panics, as indexing does. `set` is known at compile
+# time, so each set is its own instance, with its bytes as constants.
+#
+# It tests 16 bytes at a time, then the last 16 bytes of `s` read again,
+# leaving out the lanes already tested; in a text shorter than 16 bytes,
+# one U64 (`set64`), then byte by byte. Each step asks of a block of
+# bytes which hold a byte of the set, so the same walk serves any other
+# test of one byte at a time.
+pub fun find_any[set: ?String](s: ?String, i: Int) -> Int?
+  if i >= 0 and i <= s.len
+    return none if set.len == 0
+    j = i
+    while j + 16 <= s.len : j += 16
+      if set16[set](s.read[Simd[U8, 16]](j)).first() as k
+        return j + k
+    if j < s.len and s.len >= 16
+      # Fewer than 16 bytes are left: read the last 16 of `s` again, and
+      # drop the lanes before `j`, which were tested or come before `i`.
+      m = set16[set](s.read[Simd[U8, 16]](s.len - 16)).bits() >> (j + 16 - s.len)
+      return j + m.trailing_zeros() if m != 0
+      return none
+    if j + 8 <= s.len
+      m = set64[set](s.read[U64, .little](j))
+      return j + (m.trailing_zeros() >> 3) if m != 0
+      j += 8
+    while j < s.len : j += 1
+      for b in set
+        return j if s[j] == b
+    return none
+  _ = s[i]  # outside 0 to `s.len`: panics, as indexing does
+  none
+
+# The lanes of `v` that hold a byte of `set`: one compare for each byte.
+fun set16[set: ?String](v: Simd[U8, 16]) -> Simd[Bool, 16]
+  m = Simd[Bool, 16].splat(false)
+  for b in set
+    m |= v == b
+  m
+
+# The top bit of each byte of `w` that holds a byte of `set`, exact only
+# at the lowest one, which is all a caller may read (with
+# `trailing_zeros`). `(x - 1) & ~x` marks a byte of `x` that is 0, and
+# subtracting 1 from a byte that is 0 takes 1 from the byte above, which
+# can mark bytes above it as well, never below (Mycroft's test), so an OR
+# of such marks is exact at its lowest.
+fun set64[set: ?String](w: U64) -> U64
+  m: U64 = 0
+  for b in set
+    x = w ^ (ONES64 * U64(b))
+    m |= (x -% ONES64) & x.not()
+  m & HIGHS64
+
+# The index of the first byte of `s` at or after `i` whose class,
+# `table[b]`, has no bit of `mask`, or `s.len` when every byte from `i`
+# has one. The caller's table gives each of the 256 bytes its class bits,
+# so any set of bytes costs one load and one test per byte. `i` is a
+# cursor, `0 <= i <= s.len`; outside that it panics, as indexing does.
+pub fun class_end(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int
+  if i >= 0 and i <= s.len
+    j = i
+    while j < s.len and table[s[j]] & mask != 0
+      j += 1
+    return j
+  _ = s[i]  # outside 0 to `s.len`: panics, as indexing does
+  s.len
+
+ONES64: U64 = 0x0101010101010101
+HIGHS64: U64 = 0x8080808080808080
 
 # ---- Views ---------------------------------------------------------------
 
@@ -325,8 +401,6 @@ extern zig "text.zig"
   # `ParseError.overflow` when its magnitude is beyond `Float.max`.
   pub fun parse_float(s: ?String) -> Float!
 
-  # Whether `bytes` is well-formed UTF-8.
-  pub fun valid_utf8(bytes: []U8) -> Bool
   # Panics: a base is not between 2 and 36.
   sub bad_base(who: ?String)
 
