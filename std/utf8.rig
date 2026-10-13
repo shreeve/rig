@@ -43,25 +43,27 @@ pub fun rune_after(s: ?String, i: Int) -> Decoded
 fun multi_after(s: ?String, i: Int) -> Decoded
   x = LEAD[s[i] - 0x80]
   n = Int(x & 7)
-  return bad() if n == 0 or i + n > s.len
+  return bad() if n < 2 or i + n > s.len
   c1 = s[i + 1]
   return bad() if c1 < SECOND_LO[x >> 4] or c1 > SECOND_HI[x >> 4]
   r = (Int(s[i]) & 0x7F >> n) << 6 | Int(c1 & 0x3F)
-  return Decoded(rune: r, size: n) if n == 2
+  return Decoded(rune: r, size: 2) if n < 3
   long_after(s, i, n, r)
 
 # `multi_after` past a valid second byte of a sequence of `n` bytes, 3
-# or 4, all in `s`, whose first two bytes hold the bits `r`. The size is
-# given as `n`, which `multi_after` checked against `s.len`, so a caller's
-# `i += d.size` is known not to overflow.
+# or 4, all in `s`, whose first two bytes hold the bits `r`. Each size
+# is a constant of its branch, not a value read from memory, so a
+# reader's `i += d.size` does not wait on the loads of the bytes; and the
+# branches test `n <` each size, so `i + n <= s.len` shows that the add
+# cannot overflow.
 fun long_after(s: ?String, i: Int, n: Int, r: Int) -> Decoded
   c2 = s[i + 2]
   return bad() if c2 & 0xC0 != 0x80
   r3 = r << 6 | Int(c2 & 0x3F)
-  return Decoded(rune: r3, size: n) if n == 3
+  return Decoded(rune: r3, size: 3) if n < 4
   c3 = s[i + 3]
   return bad() if c3 & 0xC0 != 0x80
-  Decoded(rune: r3 << 6 | Int(c3 & 0x3F), size: n)
+  Decoded(rune: r3 << 6 | Int(c3 & 0x3F), size: 4)
 
 # A byte that starts no valid sequence: `REPLACEMENT`, of size 1.
 fun bad() -> Decoded
@@ -105,14 +107,20 @@ pub fun rune_before(s: ?String, i: Int) -> Decoded
 # `rune_before` where `s[i - 1]` is 0x80 or more: it backs up from
 # `i - 2` over at most two more continuation bytes to a first byte, and
 # reads forward. (When `s[i - 1]` is itself a first byte, no sequence from
-# further back can end at `i`, so it need not be looked at.)
+# further back can end at `i`, so it need not be looked at.) From `i = 4`
+# on, the two bytes are tested without a loop.
 fun multi_before(s: ?String, i: Int) -> Decoded
-  first = i - 4 if i > 4 else 0
   start = i - 2 if i > 1 else 0
-  while start > first and s[start] & 0xC0 == 0x80
-    start -= 1
+  if i >= 4
+    if s[i - 2] & 0xC0 == 0x80
+      start = i - 4 if s[i - 3] & 0xC0 == 0x80 else i - 3
+  else
+    while start > 0 and s[start] & 0xC0 == 0x80
+      start -= 1
   d = rune_after(s, start)
-  return d if start + d.size == i
+  # A new `Decoded`, not `d` itself: returning `d` or `bad()` makes the
+  # compiler pass the result through memory, and a reader waits on it.
+  return Decoded(rune: d.rune, size: d.size) if start + d.size == i
   bad()
 
 # The runes of a `?String`, which `runes` gives, in order:
