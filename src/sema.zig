@@ -2840,7 +2840,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
-    if (zig_builtin.optimize == .debug or zig_builtin.is_test) try checkBindingAccess(&ctx);
+    if (@import("build_options").self_check or zig_builtin.is_test) try checkBindingAccess(&ctx);
     try storage.plan(&ctx, tree);
     return ctx;
 }

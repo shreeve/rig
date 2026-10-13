@@ -126,7 +126,7 @@ review rounds.
 ## Workflow
 
 ```bash
-zig build                  # builds bin/rig
+zig build                  # builds bin/rig (ReleaseSafe; -Doptimize=debug for compiler work)
 ./test/run -j 2            # full suite; must be green before every commit
 ./test/run -j 2 corpus     # every reviewer probe, not only the default sample
 test/matrix.py -j 2        # form x context x type programs, checked and run
