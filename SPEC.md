@@ -83,7 +83,10 @@ nothing to do
 
 `rig check` checks a program, `rig run` checks, builds, and runs it,
 and `rig --help` lists the other commands (see also the
-[README](README.md#build-and-run)).
+[README](README.md#build-and-run)). `rig check` and `rig test` also
+accept a directory module as the root. The root's imports are its
+sibling modules, found in the directory's real parent, with symlinks
+resolved, whatever the path is spelled.
 
 `rig run` builds in Zig's debug mode with a leak-checking allocator: a program
 that leaks memory reports it and exits with an error. Built with

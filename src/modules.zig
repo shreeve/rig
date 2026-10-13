@@ -436,7 +436,7 @@ pub const ModuleGraph = struct {
             }
         }
         if (names.items.len == 0) {
-            try self.dirError(id, at, "module `{s}` is the directory `{s}`, which holds no `.rig` file", .{ qualified, display_dir });
+            if (id == null) try self.dirError(id, at, "the directory `{s}` holds no `.rig` file", .{display_dir}) else try self.dirError(id, at, "module `{s}` is the directory `{s}`, which holds no `.rig` file", .{ qualified, display_dir });
             return null;
         }
         std.mem.sort([]const u8, names.items, {}, struct {

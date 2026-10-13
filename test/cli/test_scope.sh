@@ -63,3 +63,29 @@ expect_has "$out" '2 passed, 0 failed' "test ."
 mkdir -p q
 ln -s ../p/n q/n
 out=$("$RIG" check --tests q/n 2>&1); expect_rc $? 0 "check --tests through a link in another directory: $out"
+
+# Bad arguments exit non-zero: `run`, `build`, and `emit` need a file,
+# and a directory with no `.rig` file is named plainly.
+mkdir -p "sp ace/n" empty
+for cmd in run build emit; do
+    "$RIG" $cmd "sp ace/n" >/dev/null 2>&1; expect_rc $? 2 "rig $cmd of a directory"
+done
+out=$("$RIG" check empty 2>&1); expect_rc $? 1 "rig check of an empty directory"
+expect_has "$out" 'the directory `empty/` holds no `.rig` file' "empty root"
+
+# A module imported through an alias, and by two modules (a diamond),
+# keeps its `_test.rig` files and inline tests out of the importer's run.
+mkdir -p d/leaf d/a d/b
+printf 'pub fun f() -> Int\n  1\n\ntest "leaf inline"\n  print(boom()!)\n' >d/leaf/x.rig
+printf 'error Bad\n  oops\n\nfun boom() -> Int!\n  return Bad.oops if 1 > 0\n  1\n' >d/leaf/y.rig
+printf 'test "leaf file"\n  print(boom()!)\n' >d/leaf/x_test.rig
+printf 'use leaf as L\n\npub fun a() -> Int\n  L.f()\n' >d/a1.rig
+printf 'use leaf\n\npub fun b() -> Int\n  leaf.f() + 1\n' >d/b1.rig
+printf 'use a1\nuse b1\nuse leaf as q\n\nsub main()\n  print(a1.a() + b1.b() + q.f())\n\ntest "root"\n  print(a1.a())\n' >d/main.rig
+out=$(rig test d/main.rig 2>&1); expect_rc $? 0 "alias and diamond: $out"
+expect_has "$out" '1 passed, 0 failed' "alias and diamond"
+case "$out" in *"leaf"*) fail "a shared module's tests ran: $out" ;; esac
+out=$(rig run d/main.rig 2>&1); expect_rc $? 0 "alias and diamond run: $out"
+expect_eq "$out" "4" "alias and diamond run"
+out=$("$RIG" test d/leaf 2>&1); expect_rc $? 1 "the shared module's own tests"
+expect_has "$out" '0 passed, 2 failed' "the shared module's own tests"
