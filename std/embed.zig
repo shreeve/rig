@@ -3,6 +3,8 @@
 //! block its Zig shim. `RIG_STD=dir` reads them from `dir` instead.
 
 pub const files = [_]struct { []const u8, []const u8 }{
+    .{ "file.rig", @embedFile("file.rig") },
+    .{ "file.zig", @embedFile("file.zig") },
     .{ "grapheme.zig", @embedFile("grapheme.zig") },
     .{ "grapheme_tables.zig", @embedFile("grapheme_tables.zig") },
     .{ "json.rig", @embedFile("json.rig") },

@@ -32,6 +32,7 @@ never read as the library's.
 |---|---|
 | [`std.math`](#stdmath) | number helpers, and Float functions |
 | [`std.os`](#stdos) | the program's arguments and environment |
+| [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
@@ -190,6 +191,47 @@ sub main()
 ```output
 nowhere
 ```
+
+## std.file
+
+Reading a whole file into a `String`.
+
+| Function | Result |
+|---|---|
+| `read(path: ?String) -> String?` | the file at `path` as a fresh `String` of exactly its bytes, or `none` when it cannot be read |
+
+A relative `path` starts at the working directory. The bytes are the
+file's as they are: none added, and none checked to be UTF-8, so a
+binary file reads as well as text. The `String` is the caller's, like
+any other, and its buffer holds exactly the file's bytes, with no
+spare room past them. A pipe or a device, which has no
+size, is read to its end, so one that never ends (`/dev/zero`) is read
+until memory runs out, and a pipe with no writer waits, as Go's
+`os.ReadFile` does. A file too large for memory panics as any
+allocation that fails does.
+
+`read` gives `none` when the file does not exist, when `path` names a
+directory, when the program may not read the file, and when reading it
+fails partway. It does not say which: the `none` covers them all.
+
+```rig
+use std.file
+use std.text
+
+sub main()
+  if file.read("examples/hello.rig") as source
+    end = text.find(source, "\n") ?? source.len
+    print(source[..end])
+  print(file.read("examples") == none, file.read("no/such/file") == none)
+```
+
+```output
+# The smallest meaningful Rig program.
+true true
+```
+
+The suite runs this example from the repository's root, where
+`examples/hello.rig` is.
 
 ## std.time
 
