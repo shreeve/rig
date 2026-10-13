@@ -1,0 +1,38 @@
+# `!v.keep(n)` keeps the first `n` elements and drops the rest: `n` is
+# the length that remains. `n == v.len` changes nothing, and `n == 0`
+# empties the List as `clear` does. A rewind saves `v.len` and keeps it.
+# release
+
+sub main()
+  v: List[Int] = List()
+  for i in 1..8
+    !v.push(i)
+  !v.keep(v.len)
+  print(v)
+  !v.keep(2)
+  print(v)
+  !v.keep(1)
+  print(v, v.len)
+  !v.keep(0)
+  print(v, v.len)
+  !v.keep(0)
+  print(v)
+
+  mark = v.len
+  !v.push(4)
+  !v.push(5)
+  print(v)
+  !v.keep(mark)
+  print(v)
+  !v.push(6)
+  print(v)
+
+# expect:
+# [1, 2, 3, 4, 5, 6, 7]
+# [1, 2]
+# [1] 1
+# [] 0
+# []
+# [4, 5]
+# []
+# [6]
