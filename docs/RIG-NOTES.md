@@ -77,9 +77,15 @@ tools that take them in `bench/json/`.
    a branch that returns an error) is emitted cold and out of line
    (`@branchHint(.cold)` in Zig), with no new syntax. A marker such as
    `cold fun` is a design owner's decision, since inlining has no
-   syntax, and comes back to him only if cases remain that inference
-   cannot find. A second reason surfaced later: a large function with
-   one call site is inlined into its caller by LLVM, so std.json's
+   syntax, and comes back to the owner only if cases remain that
+   inference cannot find. The vector UTF-8 check is a second case: its
+   block loop, reached only from a string's first non-ASCII byte, was
+   inlined through `plain` and `string` into `document`, and took 6-17%
+   more instructions on five corpus files, twitterescaped's 17% among
+   them, which has no non-ASCII byte at all. std.json keeps it out by
+   writing the loop and its fallback as one method too large for the
+   inliner (`utf8_text`): size standing in for coldness. A second
+   reason surfaced later: a large function with one call site is inlined into its caller by LLVM, so std.json's
    parser is compiled as part of whatever calls `parse`, and its code
    changed with the caller (when the benchmark's `main` was simplified,
    canada took 9% fewer instructions and github_events 10% more,
@@ -124,7 +130,8 @@ tools that take them in `bench/json/`.
     joined shift (the design owner approved `table.lookup(v)`, `+|` and
     `-|`, and `cur.lag[k](prev)`). They make UTF-8 checking (twitter
     6-7% faster in the opcode study), the `\u` decoder, and a lookup
-    whitespace classify possible. *In flight.*
+    whitespace classify possible. *Fixed (#156).* std.json checks
+    UTF-8 with them: twitter and github_events 9% faster on the Mac.
 
 15. **A String made from known text is over-allocated.** `String(text)`
     reserves about half its length again plus 128 bytes (Zig's growth
