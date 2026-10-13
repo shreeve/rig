@@ -162,13 +162,14 @@ references' published designs where marked. In order of expected gain:
    twitter, 10% on github_events and 6% on canada (`rig-fast` against
    `rig-nocheck`).
 3. **Checks the compiler proves away** (mostly done). Indexes and reads
-   bounded by a loop's condition, `+` under such a bound, and the
-   string scan's 16-byte reads are proven, with no check (#138, #149).
-   The checks left cost 4-9% of instructions together and no net time
-   on the Mac: removing them made canada 6% faster and four files 3-9%
-   slower (RESULTS.md, "Checks and IPC after proofs2"). Still checked: `m << m.leading_zeros()`, a read after an
-   early-return guard, and `i >= 0` for a position a call returned
-   (docs/RIG-NOTES.md, entries 10 and 20).
+   bounded by a loop's condition, `+` under such a bound, and the string
+   scan's 16-byte reads are proven, with no check (#138, #149). The
+   checks left cost 4-9% of instructions together and no net time on the
+   Mac: removing them made canada 6% faster and four files 3-9% slower
+   (RESULTS.md, "Checks and IPC after proofs2"). Still checked: `m <<
+   m.leading_zeros()`, a read after an early-return guard, and `i >= 0`
+   for a position a call returned (docs/RIG-NOTES.md, entries 10 and
+   20).
 4. **Cheap block appends to a List.** The text between escapes is
    copied 16 bytes at a time as it is scanned, with `String`'s
    `!t.push(v, keep: k)` (#150). Tape entries are pushed one at a time,
