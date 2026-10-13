@@ -1,0 +1,11 @@
+# A negative `keep` on a Cell's List panics.
+# release
+
+sub main()
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  n = 0 - 1
+  !c.keep(n)
+  print(c.len)
+
+# expect-panic: index out of bounds

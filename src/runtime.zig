@@ -624,8 +624,9 @@ pub fn Cell(comptime T: type) type {
 
         // A `Cell(List(E))` answers its List's members. No user code runs
         // while the List is in use: `push`, `pop`, `len`, and the element
-        // reads and writes of a plain-data `E` run no destructor, and
-        // `clear` empties the cell before it drops the elements.
+        // reads and writes of a plain-data `E` run no destructor, `clear`
+        // empties the cell before it drops the elements, and `keep` pops
+        // each element before it drops it.
 
         /// The element type when `T` is a List; referenced only then.
         const E = @typeInfo(@FieldType(T, "buf")).pointer.child;
@@ -652,6 +653,21 @@ pub fn Cell(comptime T: type) type {
 
         pub fn listSet(self: *Self, i: anytype, value: E) void {
             self.value.slot(i).* = value;
+        }
+
+        /// Each element leaves the List before it drops, so a drop that
+        /// reaches back into the cell finds the elements not yet dropped;
+        /// what it pushes past the first `n` is dropped in turn.
+        pub fn listKeep(self: *Self, n: Int) void {
+            const rest = index(n, self.value.len + 1);
+            if (comptime !needsDrop(E)) {
+                self.value.len = rest;
+                return;
+            }
+            while (self.value.len > rest) {
+                var gone = self.value.pop().?;
+                dropElement(E, &gone);
+            }
         }
 
         /// A drop that reaches back into the cell finds an empty List.
@@ -1012,6 +1028,22 @@ pub fn List(comptime T: type) type {
             }
             invariant(self.len <= self.buf.len);
             while (self.len > 0) {
+                self.len -= 1;
+                dropElement(T, &self.buf.ptr[self.len]);
+            }
+        }
+
+        /// `!v.keep(n)`: keep the first `n` elements and drop the rest,
+        /// last first as `clear` does, keeping the buffer. Panics unless
+        /// `0 <= n <= len`.
+        pub fn keep(self: *Self, n: Int) void {
+            const rest = index(n, self.len + 1);
+            if (comptime !needsDrop(T)) {
+                self.len = rest;
+                return;
+            }
+            invariant(self.len <= self.buf.len);
+            while (self.len > rest) {
                 self.len -= 1;
                 dropElement(T, &self.buf.ptr[self.len]);
             }
@@ -1400,6 +1432,11 @@ pub fn index(i: anytype, count: usize) usize {
 pub fn notNan(x: anytype) @TypeOf(x) {
     if (comptime builtin.optimize.runtimeSafety()) if (std.math.isNan(x)) @panic("integer part of floating point value out of bounds");
     return x;
+}
+
+/// The variant of plain enum `E` whose integer value is `n`, or null.
+pub fn enumFromInt(comptime E: type, n: anytype) ?E {
+    return std.enums.fromInt(E, n);
 }
 
 /// `for x in <a` of an array whose elements move: each element handed

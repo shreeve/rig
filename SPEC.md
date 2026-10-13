@@ -238,6 +238,53 @@ sub main()
 integer value `16777217` does not fit exactly in `F32`
 ```
 
+A number type's name also has functions, which name how they convert.
+`I32.wrap(x)`, for any integer type, converts an integer by keeping its
+low bits: the value modulo 2^(the target's width), read in the target's
+signedness, and it never panics. A narrower target keeps the low bits; a
+wider one gets the value, sign-extended when the source is signed. It
+takes an integer, not a float: convert a `Float` with `Int(x)` first.
+`Float.from_bits(u)` is the float whose IEEE 754 bits are the unsigned
+integer `u`, a `U64` (a `U32` for `F32`), and `f.to_bits()` reads those
+bits from a float, as the unsigned integer of its width. They convert the
+representation, where `U64(f)` converts the value.
+
+```rig
+sub main()
+  big = 5000000000
+  print(I32.wrap(big), U8.wrap(-1), U64.wrap(I32(-1)), I8.wrap(U8(200)))
+  x = 1.5
+  b = x.to_bits()
+  print(b, Float.from_bits(b), Float.from_bits(0x8000000000000000))
+  y: F32 = 1.5
+  print(y.to_bits(), F32.from_bits(0x3FC00000))
+```
+
+```output
+705032704 255 18446744073709551615 -56
+4609434218613702656 1.5 -0.0
+1069547520 1.5
+```
+
+```rig reject
+sub main()
+  print(I32.wrap(2.5))
+```
+
+```error
+`I32.wrap(x)` takes an integer; convert a Float with `Int(x)` first
+```
+
+```rig reject
+sub main()
+  n = 5
+  print(n.to_bits())
+```
+
+```error
+type `Int` has no method `to_bits`
+```
+
 ### Strings
 
 A `?String` has a length `s.len` and can be indexed (`s[0]`, or
@@ -1438,6 +1485,60 @@ sub main()
 `Int(x)` takes a plain enum's value; `Shape` has variants with payloads, which have no integer value
 ```
 
+`Status.from_int(n)` is the other way: the variant of a plain enum
+whose value is the integer `n`, of any integer type, or `none` when no
+variant has it. `from_int` is built into every plain enum, so an enum
+cannot declare a variant or method of that name. `@variants(T)` is every
+variant of a plain enum, in declaration order, as a constant `[N]T`; it
+can be a module constant, and it asks about a type as `@size(T)` does.
+A payload enum has neither.
+
+```rig
+enum Status
+  ok = 200
+  missing = 404
+
+all = @variants(Status)
+
+sub main()
+  print(Status.from_int(404), Status.from_int(500), Status.from_int(U16(200)))
+  for s in all
+    print(s, Int(s))
+  print(@variants(Status).len)
+```
+
+```output
+.missing none .ok
+.ok 200
+.missing 404
+2
+```
+
+```rig reject
+enum Status
+  ok = 200
+
+  fun from_int(n: Int) -> Int
+    n
+```
+
+```error
+`from_int` is built into every plain enum
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+sub main()
+  print(@variants(Shape))
+```
+
+```error
+`@variants(T)` takes a plain enum; `Shape` has variants with payloads
+```
+
 ### Error sets
 
 `error Name` declares a set of error values, which are used like the
@@ -2000,6 +2101,10 @@ and a local or parameter may not reuse its name (`new` shadows it on
 purpose).
 Arithmetic on constants alone is checked at compile time; with a value
 known only when the program runs, it is checked then, like any other.
+Only a constant scalar is folded: an element of a constant array
+(`table[0]`), a field of a constructed value, and a payload are read
+when the program runs, so `table[0] + 1` with `Int.max` in `table[0]`
+is a panic there, in every build mode, not a compile error.
 
 ```rig
 limit = 10
@@ -2760,7 +2865,8 @@ sub main()
 `@builtin(args)` calls a compiler builtin. Rig's own work anywhere:
 `@size(T)` and `@align(T)` are a type's size and alignment in bytes,
 `@name(T)` is its name, and `@type(x)`, only as the argument of one of
-these three, is the type of `x`. A type argument is written as one is
+these three, is the type of `x`. `@variants(T)` is the variants of a
+plain enum ([§3](#enums)). A type argument is written as one is
 in an expression (`List[Int]`, `?P`, `Int?`; a slice, array, or function
 type through a `type` alias).
 
@@ -5060,7 +5166,7 @@ default (`hits: Cell[Int] = Cell(0)`).
 | `c.get()` | a copy of the value (a `T` of plain data only) |
 | `!c.set(v)` | store `v`; the old value is dropped |
 | `(!c).replace(v)` | store `v` and return the old value |
-| `!c.push(x)`, `(!c).pop()`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
+| `!c.push(x)`, `(!c).pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
 | `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` of plain data: an element, bounds-checked, or `T?` |
 
 `T` is plain data ([§2](#kinds-of-value)), an owning type, or a type
@@ -5072,17 +5178,18 @@ String ([String](#string)), since every handle to the cell reaches it.
 
 A `Cell[List[T]]` answers its List's members as `set` does, each a marked
 call: `push` moves or clones an owning element in (`<x`, `+x`), `pop`
-hands the last one out as `T?`, and `clear` drops them all. No user code runs
-while the cell's List is in use: `clear` leaves the cell holding an empty
-List before it drops the elements, so a `drop` body that reaches back
-into the cell finds a valid List. For the same reason an element is a
+hands the last one out as `T?`, `keep(n)` drops all but the first `n`, and
+`clear` drops them all. No user code runs while the cell's List is in use:
+`clear` leaves the cell holding an empty List before it drops the
+elements, and `keep` pops each element before it drops it, so a `drop`
+body that reaches back into the cell finds a valid List. For the same reason an element is a
 copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
 when `T` is plain data, an element cannot be lent, and a field of one is
 not written in place. The elements of a List of handles are taken out
 with `pop`, or by taking the whole List out with `replace`.
 
 Every call that changes a Cell is marked: `set`, `replace`, `push`,
-`pop`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
+`pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
 and `subscribe`. They take `!self`, so the receiver-sigil rule enforces
 the mark, and a read view (`?Cell[T]`, a `?self` method of a struct
 holding one) cannot change a Cell. `!c` where `c` is a handle lends the
@@ -5232,9 +5339,44 @@ owns one), and read views.
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
+| `!v.keep(n)` | keep the first `n` elements and drop the rest, last first; `n == v.len` changes nothing, `n == 0` drops every element; panics unless `0 <= n <= v.len` |
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
+
+`keep`'s count is the length that remains, as `!t.push(v, keep: k)` keeps
+the first `k` bytes of `v` ([String](#string)): a rewind saves
+`mark = v.len` and later calls `!v.keep(mark)`.
+
+```rig
+obj Step
+  name: String
+
+  drop(!self)
+    print("undo", self.name)
+
+sub main()
+  steps: List[Step] = List()
+  !steps.push(Step(name: String("open")))
+  mark = steps.len
+  !steps.push(Step(name: String("read")))
+  !steps.push(Step(name: String("parse")))
+  !steps.keep(mark)
+  print(steps.len, steps[0].name)
+  nums: List[Int] = List()
+  for i in 1..8
+    !nums.push(i)
+  !nums.keep(2)
+  print(nums)
+```
+
+```output
+undo parse
+undo read
+1 open
+[1, 2]
+undo open
+```
 
 A `for` loop lends the List to read for the whole loop ([§6](#for)), so
 it cannot be modified inside it. An element that owns a resource is a
@@ -5436,7 +5578,7 @@ String. A `?String` is the view of text; a String is where text is built.
 | `!t.push[T, e](v)` | append the `@size(T)` bytes of the integer `v`, a `T`, in byte order `e` (`.little` or `.big`), in one write; a one-byte `T` takes no `e`, and `push[U8](b)` is `push(b)` |
 | `!t.push(v, keep: k)`, `!t.push[T, e](w, keep: k)` | append the first `k` bytes of `v`, a `Simd[U8, n]`, or of the integer `w` in byte order `e`; `0 <= k <= size of v`, else it panics (a constant `k` out of range is an error); with no `keep:`, `push[T, e]` keeps every byte |
 | `!t.reserve(n)` | make room for `n` more bytes, so the next `n` bytes of `push` allocate nothing; the length is unchanged |
-| `!t.clear()` | empty it, keeping its buffer |
+| `!t.clear()` | empty it |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a `?String` viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t`, with or without a `?String` or `(?String)?` expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |

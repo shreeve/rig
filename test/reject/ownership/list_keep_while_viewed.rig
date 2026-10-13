@@ -1,0 +1,13 @@
+# `keep` writes the List, so it does not run while a view of its
+# elements is live.
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  s = ?v[..]
+  !v.keep(1)
+  print(s)
+
+# error: 9:3: cannot lend `v` to write while a read loan is live
+# errors: 1

@@ -1,0 +1,36 @@
+# Integer arms that touch cover the run between them: a pattern inside
+# the run overlaps an earlier arm, an arm after the arms cover every
+# value never runs, and a match that misses a value names the least one.
+
+fun bytes(b: U8) -> Int
+  match b
+    0..100 => 1
+    101 => 2
+    102 => 3
+    100 => 4
+    98..102 => 8
+    104..256 => 5
+    103 => 6
+    7 => 7
+
+fun signed(n: I8) -> Int
+  match n
+    -128..-1 => 1
+    1, 2 => 2
+    0 => 3
+    4..128 => 4
+
+fun negative(n: I8) -> Int
+  match n
+    0..128 => 1
+    -126..0 => 2
+    -128 => 3
+
+sub main()
+  print(bytes(1), signed(1), negative(1))
+
+# error: 11:5: this pattern overlaps an earlier arm
+# error: 14:5: this arm never runs: the arms before it cover every value
+# error: 14:5: this pattern overlaps an earlier arm
+# error: 17:9: `match` on `I8` is not exhaustive: it misses `3`
+# error: 24:9: `match` on `I8` is not exhaustive: it misses `-127`

@@ -1,0 +1,4 @@
+sub main()
+  print(I32.wrap(2.5))
+
+# error: 2:18: `I32.wrap(x)` takes an integer; convert a Float with `Int(x)` first
