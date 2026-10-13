@@ -879,8 +879,9 @@ FOLD_CONSTS = {
     "local": dict(top="", pre=f"K = {FOLD_ARRAY}", read="K[{r}]", ty="i",
                   access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "for")),
     "variant": dict(top="", ty="i", access=("direct", "bound")),
-    "optional": dict(top=None, ty="i", access=("as", "coalesce", "arm")),
-    "optarray": dict(top="O: [4]Int? = [" + ", ".join(FOLD_VALUES) + "]", ty="i", access=("as", "coalesce")),
+    "optional": dict(top=None, ty="i", access=("as", "coalesce", "arm", "propagate")),
+    "optarray": dict(top="O: [4]Int? = [" + ", ".join(FOLD_VALUES) + "]", ty="i", access=("as", "coalesce", "propagate")),
+    "fallible": dict(top=None, ty="i", access=("propagate", "coalesce")),
     "scalar": dict(top=None, ty="i", access=("direct", "bound", "arm"), rejected=True),
 }
 
@@ -921,6 +922,8 @@ def fold_program(c, a, op):
         top.append(spec["top"] + "\n")
     if c == "optional":
         top.append(f"O: Int? = {value}\n")
+    if c == "fallible":
+        top.append(f"fun mk() -> Int!\n  {value}\n")
     if c == "scalar":
         top.append(f"K = {value}\n")
     if spec.get("pre"):
@@ -932,6 +935,8 @@ def fold_program(c, a, op):
         read = "(O ?? 0)"
     if c == "optarray":
         read = f"(O[{role}] ?? 0)"
+    if c == "fallible":
+        read = "(mk() catch 0)"
     helpers = []
     if a == "direct":
         if c == "variant":
@@ -970,6 +975,12 @@ def fold_program(c, a, op):
         main += [f"if {'O' if c == 'optional' else f'O[{role}]'} as x", f"  print({use('x')})"]
     elif a == "coalesce":
         main.append(f"print({use(read)})")
+    elif a == "propagate":
+        # `?` or `!` of a constant binds a run-time value.
+        src_ = {"optional": "O", "optarray": f"O[{role}]", "fallible": "mk()"}[c]
+        mark = "!" if c == "fallible" else "?"
+        helpers.append(f"fun p() -> Int{mark}\n" + f"  v = {src_}{mark}\n  print({use('v')})\n  v\n")
+        main.append("print(p() " + ("catch 0)" if c == "fallible" else "?? 0)"))
     src = "\n".join(top) + "\n" + "\n".join(helpers) + "\nsub main()\n" + "\n".join("  " + l for l in main) + "\n"
     return src, not FOLD_CONSTS[c].get("rejected", False)
 

@@ -7252,15 +7252,19 @@ fn isPlainIdent(name: []const u8) bool {
     return name.len > 0 and name[0] != '@' and std.mem.findScalar(u8, name, '.') == null;
 }
 
-/// Whether Zig could evaluate `e` at compile time: it is built only from
-/// literals, compile-time names (compile-time parameters, `const` bindings),
-/// constructors, and operators. Conservative: true when unsure.
+/// Whether Zig could evaluate `e` at compile time. A positive list: a
+/// literal, a name of a constant (a module-level binding, a compile-time
+/// parameter, a function or a type), a constructor or variant, and an
+/// operator, index, field, propagation, `??`, `catch`, ternary, or `match`
+/// whose parts all are. Any other form (a call, a lend, a move, a clone,
+/// a closure, an extern variable, a form added later) is not.
 fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     if (depth > 32) return true;
     switch (e) {
         .src => {
             const t = em.srcText(e);
             if (isLiteralText(t) or std.mem.eql(u8, t, "none")) return true;
+            // A label or member name, which names no symbol.
             const sym = em.facts.symbolOf(e) orelse return true;
             const sd = em.facts.symbols.items[sym];
             return switch (sd.kind) {
@@ -7268,11 +7272,12 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                 // compile time whatever it holds.
                 .local => em.facts.isModuleLevel(sym) or sd.flags.comptime_known,
                 .param, .capture => sd.flags.comptime_known,
-                else => true,
+                .function, .type_alias, .generic_type, .generic_param, .nominal_type, .module => true,
+                else => false,
             };
         },
         .list => {
-            const h = e.kind() orelse return true;
+            const h = e.kind() orelse return false;
             switch (h) {
                 .call => {
                     // A constructor or variant of constant arguments is
@@ -7287,17 +7292,20 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
                 },
-                .share, .box, .clone, .weak, .move, .read, .write, .lambda, .propagate, .propagate_none, .@"catch" => return false,
-                else => {
+                .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match,
+                .propagate, .propagate_none, .@"catch", .@"??", .neg, .not, .@"and", .@"or",
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^",
+                .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
                     for (rig.children(e)) |c| {
                         if (c == .tag or c == .nil) continue;
                         if (!isZigComptimeIn(em, c, depth + 1)) return false;
                     }
                     return true;
                 },
+                else => return false,
             }
         },
-        else => return true,
+        else => return false,
     }
 }
 
