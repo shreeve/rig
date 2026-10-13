@@ -1,7 +1,0 @@
-# A code point is at most U+10FFFF.
-use std.unicode
-
-sub main()
-  print(unicode.utf16_len(0x110000))
-
-# expect-panic: unicode.utf16_len: not a code point

@@ -16,22 +16,22 @@ const limit: i64 = 0xe0200;
 const ascii_start: u128 = 0x7fffffe07fffffe0000000000000000;
 const ascii_continue: u128 = 0x7fffffe87fffffe03ff000000000000;
 
-fn class(c: i64) u8 {
-    if (c < 0 or c >= limit) return 0;
-    const cp: usize = @intCast(c);
+fn class(r: i64) u8 {
+    if (r < 0 or r >= limit) return 0;
+    const cp: usize = @intCast(r);
     const block: usize = index[cp >> block_shift];
     const byte = blocks[block * block_bytes + ((cp & ((1 << block_shift) - 1)) >> 2)];
     return (byte >> @intCast((cp & 3) * 2)) & 3;
 }
 
-pub fn is_id_start(c: i64) bool {
-    if (0 <= c and c < 128) return (ascii_start >> @intCast(c)) & 1 != 0;
-    return class(c) & 2 != 0;
+pub fn is_id_start(r: i64) bool {
+    if (0 <= r and r < 128) return (ascii_start >> @intCast(r)) & 1 != 0;
+    return class(r) & 2 != 0;
 }
 
-pub fn is_id_continue(c: i64) bool {
-    if (0 <= c and c < 128) return (ascii_continue >> @intCast(c)) & 1 != 0;
-    return class(c) & 1 != 0;
+pub fn is_id_continue(r: i64) bool {
+    if (0 <= r and r < 128) return (ascii_continue >> @intCast(r)) & 1 != 0;
+    return class(r) & 1 != 0;
 }
 
 const index = [_]u8{

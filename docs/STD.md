@@ -37,8 +37,9 @@ never read as the library's.
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
-| [`std.unicode`](#stdunicode) | identifier classes and UTF-16 surrogates |
-| [`std.utf8`](#stdutf8) | reading and writing UTF-8 a rune at a time |
+| [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
+| [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
+| [`std.unicode`](#stdunicode) | rune properties: identifier classes and white space |
 | [`std.json`](#stdjson) | a JSON parser (experimental) |
 
 ## std.math
@@ -590,108 +591,49 @@ ff FF -10
 1 3
 ```
 
-## std.unicode
-
-Properties of Unicode code points, each an `Int`, and of UTF-16 code
-units. The identifier classes are those of [UAX #31](https://unicode.org/reports/tr31/)
-for the Unicode version in `unicode.VERSION`, 15.1.0, the version of
-TypeScript's scanner: `is_id_start(c)` is ID_Start (letters, letter
-numbers, and Other_ID_Start) and `is_id_continue(c)` is ID_Continue (ID_Start,
-marks, decimal digits, connector punctuation, and Other_ID_Continue). A
-code point outside `0..0x10FFFF` is in neither. They are exactly the
-Unicode classes: a language that begins identifiers with `$` or `_` adds
-those itself. (Unicode 15.1 put the joiners U+200C and U+200D into
-ID_Continue, as Other_ID_Continue.)
-
-| Function | Result |
-|---|---|
-| `VERSION` | the Unicode version of the tables, `"15.1.0"` |
-| `is_id_start(c: Int) -> Bool`, `is_id_continue(c: Int) -> Bool` | whether code point `c` may begin an identifier, or continue one |
-| `is_high_surrogate(c: Int) -> Bool`, `is_low_surrogate(c: Int) -> Bool` | whether `c` is U+D800 to U+DBFF, or U+DC00 to U+DFFF |
-| `surrogate_pair_to_code_point(hi: Int, lo: Int) -> Int` | the code point a UTF-16 pair encodes; panics unless `hi` is a high surrogate and `lo` a low one |
-| `utf16_len(c: Int) -> Int` | 2 for a code point from U+10000, else 1 (a lone surrogate is one unit); panics outside `0..0x10FFFF` |
-
-```rig
-use std.unicode
-
-sub main()
-  print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
-  print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
-  print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
-  print(unicode.VERSION)
-```
-
-```output
-true false true
-true false true
-false true true
-15.1.0
-```
-
-```rig
-use std.unicode
-
-sub main()
-  print(unicode.is_high_surrogate(0xD83D), unicode.is_low_surrogate(0xDE00))
-  print(unicode.surrogate_pair_to_code_point(0xD83D, 0xDE00) == 0x1F600)
-  print(unicode.utf16_len(0x1F600), unicode.utf16_len(0xFFFF), unicode.utf16_len(0x61))
-```
-
-```output
-true true
-true
-2 1 1
-```
-
-The tables are generated: `tools/gen-unicode.py` reads the pinned
-`DerivedCoreProperties.txt` of the Unicode Character Database (checking
-its sha256, and fetching it when absent) and writes
-`std/unicode_tables.zig`, a two-level bitmap of about 11 KB with an
-ASCII fast path. To move to a newer Unicode, change the pinned version
-and hashes, run the generator, and review the diff of the census test it
-also writes. `tools/verify-unicode.py` compares every code point with the
-database and with Python's `unicodedata`; the deep gate runs both with
-`RIG_UCD` naming a directory of the database.
-
 ## std.utf8
 
-Reading and writing UTF-8 (RFC 3629), which encodes each rune, one
-Unicode code point held as an `Int` from 0 to 0x10FFFF, as one to four
-bytes. A valid sequence has no overlong form, encodes no surrogate
-(U+D800 to U+DFFF), and nothing past U+10FFFF. Every index and size is
-in bytes. A reader takes a `?String` and allocates nothing; a writer
-appends to a `String`. The names below wait on one decision about the
-words len, size, and count, and may change with it.
+Runes in UTF-8 (RFC 3629). A rune is one Unicode scalar value, an `Int`
+from 0 to 0xD7FF or 0xE000 to 0x10FFFF, which UTF-8 writes as one to
+four bytes; a valid sequence has no overlong form, encodes no surrogate,
+and nothing past U+10FFFF. Every index and size is in bytes. A reader
+takes a `?String` and allocates nothing; `push_rune` appends to a
+`String`. Each function reads every input, valid or not, as its twin in
+Go's `unicode/utf8` does, so a Go port is a rename; [TEXT](TEXT.md) says
+how runes fit with bytes, units, and chars.
 
-| Name | Meaning |
-|---|---|
-| `Rune` | a rune read from a `?String`: its `code: Int`, and the `size: Int` in bytes it took there |
-| `REPLACEMENT` | 0xFFFD, the code read in place of bytes that are not UTF-8 |
-| `rune_after(s: ?String, i: Int) -> Rune` | the rune just after the cursor `i`, whose sequence starts at `i`; a byte that starts no valid sequence reads as `REPLACEMENT` of size 1, and `s.len` as `REPLACEMENT` of size 0 |
-| `rune_before(s: ?String, i: Int) -> Rune` | the rune just before the cursor `i`, whose sequence ends at `i`; where none does, the byte before `i` reads as `REPLACEMENT` of size 1, and 0 as `REPLACEMENT` of size 0 |
-| `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` |
-| `runes(s: ?String) -> Runes` | the runes of `s`, in order, each as `rune_after` reads it |
-| `rune_len(r: Int) -> Int` | the size in bytes, 1 to 4, of the UTF-8 encoding of the rune `r`, or -1 when `r` is a surrogate or outside 0 to 0x10FFFF |
-| `push_rune(out: !String, r: Int)` | append the bytes of the rune `r`; panics when `r` is a surrogate or outside 0 to 0x10FFFF |
-| `push_rune_unchecked(out: !String, r: Int)` | `push_rune` without the check, for an `r` known to be a rune and no surrogate |
-| `push_runes3(out: !String, r1: Int, r2: Int)` | append the three-byte runes `r1` and then `r2`, each 0x800 to 0xFFFF and no surrogate, unchecked |
+| Name | Meaning | Go |
+|---|---|---|
+| `Decoded` | a rune read from a `?String`: its `rune: Int`, and the `size: Int` in bytes it took there | |
+| `REPLACEMENT` | 0xFFFD, read in place of a byte that is not UTF-8, and written in place of a value that is not a rune | `RuneError` |
+| `RUNE_SELF` | 0x80: a byte below it is a whole rune | `RuneSelf` |
+| `rune_after(s: ?String, i: Int) -> Decoded` | the rune just after the cursor `i`, whose sequence starts at `i` | `DecodeRuneInString(s[i:])` |
+| `rune_before(s: ?String, i: Int) -> Decoded` | the rune just before the cursor `i`, whose sequence ends at `i` | `DecodeLastRuneInString(s[:i])` |
+| `runes(s: ?String) -> Runes` | each rune of `s`, a plain `Int`, in order, as `rune_after` reads it | `for _, r := range s` |
+| `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` | |
+| `size(r: Int) -> Int?` | the bytes, 1 to 4, that `r` takes in UTF-8, or `none` when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF | `RuneLen` |
+| `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
+| `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
+| `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
+| `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 
-`rune_after` and `rune_before` decode as Go's `utf8.DecodeRuneInString`
-and `utf8.DecodeLastRuneInString` do, and give the same `Rune` for the
-same bytes (`test/behavior/std/utf8_go.rig` runs Go's own cases):
+`test/behavior/std/utf8_go.rig` runs Go's own test tables, and
+`test/cli/text_go.sh` compares every function with Go's on generated
+text when `go` is installed.
 
 - **Size 1:** where the bytes are not valid UTF-8 (a stray continuation
   byte, a truncated or overlong sequence, an encoded surrogate, or
-  anything past U+10FFFF), the result is `Rune(code: 0xFFFD, size: 1)`,
+  anything past U+10FFFF), the result is `Decoded(rune: 0xFFFD, size: 1)`,
   so a reader steps over one byte.
 - **Size 0:** where there is nothing to read, `rune_after(s, s.len)`
   and `rune_before(s, 0)`, the empty `?String` included, the result is
-  `Rune(code: 0xFFFD, size: 0)`.
+  `Decoded(rune: 0xFFFD, size: 0)`.
 - `rune_before` gives size 1 when the bytes behind `i` do not form one
   valid rune ending at `i`.
+- An index outside 0 to `s.len` panics, as indexing does.
 
 A valid U+FFFD in the text reads with its size, 3, so the size tells it
-from an error:
+from an error, while `utf8.size(REPLACEMENT)` is always 3:
 
 ```rig
 use std.utf8
@@ -700,21 +642,20 @@ sub main()
   for s in ["", "\u{fffd}", "\xe2\x82", "\xed\xa0\x80", "\x80\x80\x80\x80\x80"]
     a = utf8.rune_after(s, 0)
     b = utf8.rune_before(s, s.len)
-    print(s.len, a.code, a.size, b.code, b.size)
+    print(s.len, a.rune, a.size, b.rune, b.size, utf8.rune_count(s), utf8.is_valid(s))
 ```
 
 ```output
-0 65533 0 65533 0
-3 65533 3 65533 3
-2 65533 1 65533 1
-3 65533 1 65533 1
-5 65533 1 65533 1
+0 65533 0 65533 0 0 true
+3 65533 3 65533 3 1 true
+2 65533 1 65533 1 2 false
+3 65533 1 65533 1 3 false
+5 65533 1 65533 1 5 false
 ```
 
-`rune_after` and `rune_before` read in either direction, and an index
-outside 0 to `s.len` panics as indexing does, as it does for
-`rune_size`. Bad bytes read one at a time, so a reader always moves;
-here reading back from the end gives the runes read forward:
+`rune_after` and `rune_before` read in either direction. Bad bytes read
+one at a time, so a reader always moves; here reading back from the end
+gives the runes read forward:
 
 ```rig
 use std.utf8
@@ -723,13 +664,13 @@ sub main()
   s = "a\u{e9}\u{20ac}\xff\u{1f600}"
   i = 0
   while i < s.len
-    r = utf8.rune_after(s, i)
-    print(r.code, r.size)
-    i += r.size
+    d = utf8.rune_after(s, i)
+    print(d.rune, d.size)
+    i += d.size
   while i > 0
-    r = utf8.rune_before(s, i)
-    print(r.code, r.size)
-    i -= r.size
+    d = utf8.rune_before(s, i)
+    print(d.rune, d.size)
+    i -= d.size
   print(utf8.rune_after(s, s.len).size, utf8.rune_size(s, 1) ?? 0, utf8.rune_size(s, 2) ?? 0, utf8.rune_size(s, 6) ?? 0)
 ```
 
@@ -747,8 +688,9 @@ sub main()
 0 2 0 0
 ```
 
-`runes` gives an iterator whose `next` gives each `Rune`, as `lines`
-does in `std.text`, and `push_rune` writes runes back:
+`runes` gives an iterator whose `next` gives each rune, as `lines` does
+in `std.text`, and `push_rune` writes runes back, a value that is not a
+rune as U+FFFD:
 
 ```rig
 use std.utf8
@@ -756,41 +698,130 @@ use std.utf8
 sub main()
   out = String()
   for r in utf8.runes("\u{e9}t\u{e9}\x80")
-    utf8.push_rune(!out, r.code)
-  print(out, out.len, ?out == "\u{e9}t\u{e9}\u{fffd}")
-```
-
-```output
-été� 8 true
-```
-
-`rune_len` gives the bytes `push_rune` writes for a rune, as Go's
-`utf8.RuneLen` does, and -1 for what `push_rune` would panic on:
-
-```rig
-use std.utf8
-
-sub main()
-  out = String()
+    utf8.push_rune(!out, r)
+  utf8.push_rune(!out, 0xD800)
+  print(out, out.len, ?out == "\u{e9}t\u{e9}\u{fffd}\u{fffd}", utf8.is_ascii(?out))
   for r in [0x41, 0xe9, 0x20ac, 0x1f600, 0xd800, 0x110000, -1]
-    n = utf8.rune_len(r)
-    if n > 0
-      start = out.len
-      utf8.push_rune(!out, r)
-      print(r, n, out.len - start)
-    else
-      print(r, n)
+    print(r, utf8.size(r) ?? -1)
 ```
 
 ```output
-65 1 1
-233 2 2
-8364 3 3
-128512 4 4
+été�� 11 true false
+65 1
+233 2
+8364 3
+128512 4
 55296 -1
 1114112 -1
 -1 -1
 ```
+
+## std.utf16
+
+Units: the 16-bit code units of UTF-16, for code that must agree with
+JavaScript and the languages built on it, whose string `length` and
+positions count units. A rune below U+10000 is one unit; a rune from
+U+10000 up is two, a high surrogate (0xD800 to 0xDBFF) and then a low one
+(0xDC00 to 0xDFFF). Surrogates are units, never runes, so their
+parameters are named `u`, `hi`, and `lo`. Text is UTF-8, as a `String`
+holds it, and each byte that is not UTF-8 counts as one unit (U+FFFD),
+as Go reads it; a JavaScript decoder may merge a run of bad bytes into
+one U+FFFD.
+
+| Name | Meaning | Go |
+|---|---|---|
+| `Pair` | the two units of a rune from U+10000 up: `hi: Int` and `lo: Int` | |
+| `size(r: Int) -> Int?` | the units `r` takes, 1 or 2, or `none` when `r` is not a rune | `utf16.RuneLen` |
+| `unit_count(s: ?String) -> Int` | the units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
+| `byte_index(s: ?String, units: Int) -> Int` | the byte where `units` units into `s` falls; a unit inside a pair lands after its rune, 0 or less gives 0, and a count past the end gives `s.len` | |
+| `is_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
+| `rune_from_pair(hi: Int, lo: Int) -> Int` | the rune a pair encodes, or 0xFFFD when `hi` is not a high surrogate or `lo` not a low one | `utf16.DecodeRune` |
+| `pair_from_rune(r: Int) -> Pair` | the pair that encodes `r`, or `Pair(hi: 0xFFFD, lo: 0xFFFD)` when `r` needs none | `utf16.EncodeRune` |
+
+`byte_index` undoes `unit_count`: at each rune boundary `i`,
+`byte_index(s, unit_count(s[..i]))` is `i`.
+
+```rig
+use std.utf16
+
+sub main()
+  s = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}"
+  print(s.len, utf16.unit_count(s), utf16.unit_count("a\xffb"))
+  for u in [0, 1, 2, 3, 8, 20]
+    print(u, utf16.byte_index(s, u))
+  print(utf16.size(0x41) ?? 0, utf16.size(0x1f600) ?? 0, utf16.size(0xd800) ?? 0)
+  p = utf16.pair_from_rune(0x1f600)
+  q = utf16.pair_from_rune(0x41)
+  print(p.hi, p.lo, q.hi, q.lo, utf16.is_surrogate(p.hi))
+  print(utf16.rune_from_pair(0xd83d, 0xde00), utf16.rune_from_pair(0xde00, 0xd83d))
+```
+
+```output
+18 8 3
+0 0
+1 4
+2 4
+3 7
+8 18
+20 18
+1 2 0
+55357 56832 65533 65533 true
+128512 65533
+```
+
+`test/behavior/std/utf16_go.rig` runs Go's `unicode/utf16` test tables.
+
+## std.unicode
+
+Properties of one rune, from the Unicode Character Database of the
+version in `unicode.VERSION`, 15.1.0, the version of TypeScript's
+scanner. The identifier classes are those of
+[UAX #31](https://unicode.org/reports/tr31/): `is_id_start(r)` is
+ID_Start (letters, letter numbers, and Other_ID_Start) and
+`is_id_continue(r)` is ID_Continue (ID_Start, marks, decimal digits,
+connector punctuation, and Other_ID_Continue). They are exactly the
+Unicode classes: a language that begins identifiers with `$` or `_` adds
+those itself. (Unicode 15.1 put the joiners U+200C and U+200D into
+ID_Continue, as Other_ID_Continue.) White space is the White_Space
+property of `PropList.txt`, which is Go's `unicode.IsSpace`; it is not
+JavaScript's white space, which adds U+FEFF. A value that is not a rune
+has no property.
+
+| Name | Meaning |
+|---|---|
+| `VERSION` | the Unicode version of every property, `"15.1.0"` |
+| `is_id_start(r: Int) -> Bool`, `is_id_continue(r: Int) -> Bool` | whether `r` may begin an identifier, or continue one |
+| `is_space_rune(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
+
+```rig
+use std.unicode
+
+sub main()
+  print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
+  print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
+  print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
+  print(unicode.is_space_rune(0x20), unicode.is_space_rune(0x85), unicode.is_space_rune(0x3000), unicode.is_space_rune(0xFEFF))
+  print(unicode.VERSION)
+```
+
+```output
+true false true
+true false true
+false true true
+true true true false
+15.1.0
+```
+
+The identifier tables are generated: `tools/gen-unicode.py` reads the
+pinned `DerivedCoreProperties.txt` of the Unicode Character Database
+(checking its sha256, and fetching it when absent) and writes
+`std/unicode_tables.zig`, a two-level bitmap of about 11 KB with an
+ASCII fast path. To move to a newer Unicode, change the pinned version
+and hashes, run the generator, and review the diff of the census test it
+also writes. `tools/verify-unicode.py` compares every code point with the
+database and with Python's `unicodedata`, the identifier classes and
+White_Space both; the deep gate runs both with `RIG_UCD` naming a
+directory of the database.
 
 ## std.json
 

@@ -1,36 +1,36 @@
 # std.utf8 at every edge: each case prints the runes `rune_after` reads
-# from the start (code/size), whether `rune_before` reads the same runes
+# from the start (rune/size), whether `rune_before` reads the same runes
 # walking back from the end, and `rune_size` at each byte (0 for `none`).
 # release
 use std.utf8
 
 sub show(name: ?String, s: ?String)
-  codes = List[Int]()
+  found = List[Int]()
   sizes = List[Int]()
   line = String()
   i = 0
   while i < s.len
     r = utf8.rune_after(s, i)
-    !codes.push(r.code)
+    !found.push(r.rune)
     !sizes.push(r.size)
-    !line.add(" ", r.code, "/", r.size)
+    !line.add(" ", r.rune, "/", r.size)
     i += r.size
   at_end = utf8.rune_after(s, s.len)
   at_start = utf8.rune_before(s, 0)
   same = true
   j = s.len
-  k = codes.len
+  k = found.len
   while j > 0 and k > 0
     r = utf8.rune_before(s, j)
     k -= 1
-    if r.code != codes[k] or r.size != sizes[k]
+    if r.rune != found[k] or r.size != sizes[k]
       same = false
     j -= r.size
   back = "ok" if same and j == 0 and k == 0 else "differs"
   ends = String()
   for n in 0..s.len
     !ends.add(" ", utf8.rune_size(s, n) ?? 0)
-  print(name, ":", line, "| back", back, "| size", ends, "| last", at_end.code, at_end.size, at_start.code, at_start.size)
+  print(name, ":", line, "| back", back, "| size", ends, "| last", at_end.rune, at_end.size, at_start.rune, at_start.size)
 
 sub main()
   show("empty", "")

@@ -4,6 +4,8 @@
 # function that returns a `?String` returns a view of the `?String` it
 # was given, so nothing here allocates.
 
+use std.utf8
+
 # Why a parse failed: the text is not a number (or Bool) as written,
 # or it is one too large for its type.
 pub error ParseError
@@ -194,16 +196,8 @@ pub fun format_int(n: Int, base: Int = 10, upper: Bool = false) -> String
 # known to exceed `max`, and the result is `max + 1`: use it where only
 # near matches matter.
 pub fun edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) -> Int
-  m = 0
-  j = 0
-  while j < b.len
-    j += decode_rune(b, j) % 8
-    m += 1
-  n = 0
-  i = 0
-  while i < a.len
-    i += decode_rune(a, i) % 8
-    n += 1
+  m = utf8.rune_count(b)
+  n = utf8.rune_count(a)
   if max >= 0 and (n - m > max or m - n > max)
     return max + 1
   while row.len > m + 1
@@ -215,8 +209,9 @@ pub fun edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) ->
   i = 0
   y = 0
   while i < a.len
-    ra = decode_rune(a, i)
-    i += ra % 8
+    da = utf8.rune_after(a, i)
+    ra = rune_key(da, a[i])
+    i += da.size
     y += 1
     diag = row[0]
     row[0] = y
@@ -224,11 +219,12 @@ pub fun edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) ->
     j = 0
     x = 0
     while j < b.len
-      rb = decode_rune(b, j)
-      j += rb % 8
+      db = utf8.rune_after(b, j)
+      rb = rune_key(db, b[j])
+      j += db.size
       x += 1
       above = row[x]
-      best = diag + (0 if ra / 8 == rb / 8 else 1)
+      best = diag + (0 if ra == rb else 1)
       best = above + 1 if above + 1 < best else best
       best = row[x - 1] + 1 if row[x - 1] + 1 < best else best
       row[x] = best
@@ -238,6 +234,13 @@ pub fun edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) ->
       return max + 1
   d = row[m]
   max + 1 if max >= 0 and d > max else d
+
+# The rune `d`, read at a byte `first`, or 0x110000 plus `first` when `d`
+# is a bad byte read as `utf8.REPLACEMENT`, so it equals only the same
+# byte.
+fun rune_key(d: utf8.Decoded, first: U8) -> Int
+  return 0x110000 + Int(first) if d.size == 1 and first >= 0x80
+  d.rune
 
 # ---- Bytes ---------------------------------------------------------------
 
@@ -289,11 +292,6 @@ extern zig "text.zig"
 
   # Whether `bytes` is well-formed UTF-8.
   pub fun valid_utf8(bytes: []U8) -> Bool
-  # The rune at byte `i` of `s` and its size in bytes, packed as
-  # `code * 8 + size`. A byte that does not begin a well-formed sequence
-  # is a rune of size 1 whose code is 0x110000 plus the byte, so it
-  # equals only the same byte.
-  fun decode_rune(s: ?String, i: Int) -> Int
   # Panics: a base is not between 2 and 36.
   sub bad_base(who: ?String)
 

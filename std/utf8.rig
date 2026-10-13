@@ -1,16 +1,24 @@
-# std.utf8: reading and writing UTF-8 (RFC 3629), which encodes each
-# rune, one Unicode code point, as one to four bytes. A valid sequence
-# has no overlong form, encodes no surrogate (U+D800 to U+DFFF), and
-# nothing past U+10FFFF. Every index and size is in bytes, and nothing here
-# allocates but the `push_` functions, which grow the `String` they are
-# given.
+# std.utf8: runes in UTF-8 (RFC 3629), which encodes each rune, one
+# Unicode scalar value (0 to 0xD7FF or 0xE000 to 0x10FFFF), as one to
+# four bytes. A valid sequence has no overlong form, encodes no surrogate
+# (U+D800 to U+DFFF), and nothing past U+10FFFF. Every index and size is
+# in bytes, and nothing here allocates but `push_rune`, which grows the
+# `String` it is given. Each function reads every input, valid or not,
+# as Go's unicode/utf8 does.
 
-# The rune read in place of bytes that are not valid UTF-8.
+# The rune read in place of a byte that is not valid UTF-8, and written in
+# place of a value that is not a rune: U+FFFD, Go's `utf8.RuneError`.
 pub REPLACEMENT = 0xFFFD
 
-# A rune read from a `?String`, and the bytes it took there.
-pub obj Rune
-  pub code: Int
+# The bytes below this are each a whole rune, as in ASCII: Go's
+# `utf8.RuneSelf`.
+pub RUNE_SELF = 0x80
+
+# A rune read from a `?String`, and the bytes it took there: `size` is 1
+# for a bad byte read as `REPLACEMENT`, and 0 where there was nothing to
+# read, while `utf8.size(REPLACEMENT)` is 3.
+pub obj Decoded
+  pub rune: Int
   pub size: Int
 
 # ---- Reading ---------------------------------------------------------------
@@ -19,34 +27,34 @@ pub obj Rune
 # cursor between bytes, and this is the rune just after it. A byte
 # that does not start a valid sequence reads as `REPLACEMENT`, of size 1,
 # so a reader moves past one bad byte at a time; at `s.len` the result is
-# `REPLACEMENT` of size 0.
-pub fun rune_after(s: ?String, i: Int) -> Rune
-  return Rune(code: REPLACEMENT, size: 0) if i == s.len
+# `REPLACEMENT` of size 0. Go's `DecodeRuneInString(s[i:])`.
+pub fun rune_after(s: ?String, i: Int) -> Decoded
+  return Decoded(rune: REPLACEMENT, size: 0) if i == s.len
   b = s[i]
-  return Rune(code: Int(b), size: 1) if b < 0x80
+  return Decoded(rune: Int(b), size: 1) if b < 0x80
   e = end_multi(s, i)
-  return Rune(code: REPLACEMENT, size: 1) if e < 0
-  code = Int(b) & (0x7F >> (e - i))
+  return Decoded(rune: REPLACEMENT, size: 1) if e < 0
+  r = Int(b) & (0x7F >> (e - i))
   for k in i + 1..e
-    code = (code << 6) | (Int(s[k]) & 0x3F)
-  Rune(code: code, size: e - i)
+    r = (r << 6) | (Int(s[k]) & 0x3F)
+  Decoded(rune: r, size: e - i)
 
 # The rune whose sequence ends at `i`, `0 <= i <= s.len`: the rune
-# just before the cursor, which `rune_after` reads at `i - r.size`. When
+# just before the cursor, which `rune_after` reads at `i - d.size`. When
 # no valid sequence ends at `i`, the byte before `i` reads as
 # `REPLACEMENT`, of size 1; at 0 the result is `REPLACEMENT` of size 0.
-# It looks back at most four bytes.
-pub fun rune_before(s: ?String, i: Int) -> Rune
-  return Rune(code: REPLACEMENT, size: 0) if i == 0
+# It looks back at most four bytes. Go's `DecodeLastRuneInString(s[:i])`.
+pub fun rune_before(s: ?String, i: Int) -> Decoded
+  return Decoded(rune: REPLACEMENT, size: 0) if i == 0
   b = s[i - 1]
-  return Rune(code: Int(b), size: 1) if b < 0x80
+  return Decoded(rune: Int(b), size: 1) if b < 0x80
   start = i - 1
   first = i - 4 if i > 4 else 0
   while start > first and s[start] & 0xC0 == 0x80
     start -= 1
-  r = rune_after(s, start)
-  return r if start + r.size == i
-  Rune(code: REPLACEMENT, size: 1)
+  d = rune_after(s, start)
+  return d if start + d.size == i
+  Decoded(rune: REPLACEMENT, size: 1)
 
 # The runes of a `?String`, which `runes` gives, in order:
 # `for r in utf8.runes(s)`.
@@ -56,14 +64,14 @@ pub obj Runes
 
   # The next rune, as `rune_after` reads it, or `none` after the
   # last.
-  pub fun next(!self) -> Rune?
+  pub fun next(!self) -> Int?
     return none if self.at == self.s.len
-    r = rune_after(self.s, self.at)
-    self.at += r.size
-    r
+    d = rune_after(self.s, self.at)
+    self.at += d.size
+    d.rune
 
 # The runes of `s`, read by `rune_after` from its first byte to its
-# last: a bad byte is one `REPLACEMENT` of size 1.
+# last: a bad byte is one `REPLACEMENT`. Go's `for _, r := range s`.
 pub fun runes(s: ?String) -> Runes
   Runes(s: s, at: 0)
 
@@ -76,6 +84,52 @@ pub fun rune_size(s: ?String, i: Int) -> Int?
   e = end_multi(s, i)
   return none if e < 0
   e - i
+
+# How many runes `s` holds, each bad byte counted as one, as `runes`
+# reads them. Go's `RuneCountInString`.
+pub fun rune_count(s: ?String) -> Int
+  n = 0
+  i = 0
+  while i < s.len
+    if i + 8 <= s.len and s.read[U64, .little](i) & 0x8080808080808080 == 0
+      i += 8
+      n += 8
+      continue
+    if s[i] < 0x80
+      i += 1
+    else
+      e = end_multi(s, i)
+      i = e if e > 0 else i + 1
+    n += 1
+  n
+
+# Whether `s` is well-formed UTF-8: every byte is part of a valid
+# sequence. Go's `ValidString`.
+pub fun is_valid(s: ?String) -> Bool
+  i = 0
+  while i < s.len
+    if i + 8 <= s.len and s.read[U64, .little](i) & 0x8080808080808080 == 0
+      i += 8
+      continue
+    if s[i] < 0x80
+      i += 1
+    else
+      e = end_multi(s, i)
+      return false if e < 0
+      i = e
+  true
+
+# Whether every byte of `s` is below `RUNE_SELF`, so each byte is a
+# whole rune.
+pub fun is_ascii(s: ?String) -> Bool
+  i = 0
+  while i + 8 <= s.len
+    return false if s.read[U64, .little](i) & 0x8080808080808080 != 0
+    i += 8
+  while i < s.len
+    return false if s[i] >= 0x80
+    i += 1
+  true
 
 # The index just past the valid sequence of two to four bytes that
 # starts at `at`, `0 <= at < s.len`, or -1 when there is none, as for an
@@ -122,45 +176,36 @@ fun end_any(s: ?String, at: Int) -> Int
 
 # ---- Writing ---------------------------------------------------------------
 
-# The size in bytes, 1 to 4, of the UTF-8 encoding of the rune `r`,
-# or -1 when `r` is a surrogate or outside 0 to 0x10FFFF.
-pub fun rune_len(r: Int) -> Int
-  return -1 if r < 0
+# The size in bytes, 1 to 4, of the UTF-8 encoding of `r`, or `none`
+# when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF.
+# Go's `RuneLen`.
+pub fun size(r: Int) -> Int?
+  return none if r < 0
   return 1 if r < 0x80
   return 2 if r < 0x800
-  return -1 if r >= 0xD800 and r <= 0xDFFF
+  return none if r >= 0xD800 and r <= 0xDFFF
   return 3 if r < 0x10000
   return 4 if r <= 0x10FFFF
-  -1
+  none
 
-# Appends the UTF-8 bytes of the rune `r`; panics when `r` is a
-# surrogate or outside 0 to 0x10FFFF.
+# Appends the UTF-8 bytes of `r`, or of `REPLACEMENT` when `r` is not a
+# rune: a negative, a surrogate, or past 0x10FFFF. Go's `AppendRune`.
 pub sub push_rune(out: !String, r: Int)
-  not_code_point(r) if r < 0 or r > 0x10FFFF or (r >= 0xD800 and r <= 0xDFFF)
-  push_rune_unchecked(!out, r)
-
-# `push_rune` for an `r` its caller knows is a rune and no surrogate,
-# without the check: a surrogate is written as its three bytes, which
-# are not UTF-8. It appends in one write, or two for three bytes, each a
-# big-endian number whose top byte comes first.
-pub sub push_rune_unchecked(out: !String, r: Int)
-  if r < 0x80
+  if r >= 0 and r < 0x80
     !out.push(U8(r))
-  else if r < 0x800
+  else if r < 0 or r > 0x10FFFF or (r >= 0xD800 and r <= 0xDFFF)
+    push_multi(!out, REPLACEMENT)
+  else
+    push_multi(!out, r)
+
+# Appends the two to four UTF-8 bytes of the rune `r`, at least 0x80, in
+# one write, or two for three bytes, each a big-endian number whose top
+# byte comes first.
+sub push_multi(out: !String, r: Int)
+  if r < 0x800
     !out.push[U16, .big](U16(0xC080 | (r >> 6) << 8 | r & 0x3F))
   else if r < 0x10000
     !out.push[U16, .big](U16(0xE080 | (r >> 12) << 8 | (r >> 6) & 0x3F))
     !out.push(U8(0x80 | r & 0x3F))
   else
     !out.push[U32, .big](U32(0xF0808080 | (r >> 18) << 24 | ((r >> 12) & 0x3F) << 16 | ((r >> 6) & 0x3F) << 8 | r & 0x3F))
-
-# Appends two runes of three UTF-8 bytes each, `r1` and then `r2`,
-# in two writes, of four bytes and then two. Each must be 0x800 to
-# 0xFFFF and no surrogate, which it does not check.
-pub sub push_runes3(out: !String, r1: Int, r2: Int)
-  !out.push[U32, .big](U32(0xE08080E0 | (r1 >> 12) << 24 | ((r1 >> 6) & 0x3F) << 16 | (r1 & 0x3F) << 8 | r2 >> 12))
-  !out.push[U16, .big](U16(0x8080 | ((r2 >> 6) & 0x3F) << 8 | r2 & 0x3F))
-
-extern zig "utf8.zig"
-  # Panics: `push_rune`'s rune is a surrogate or outside 0 to 0x10FFFF.
-  sub not_code_point(r: Int)

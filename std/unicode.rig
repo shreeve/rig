@@ -1,47 +1,30 @@
-# std.unicode: properties of Unicode code points, each an `Int`, and of
-# UTF-16 code units. The identifier classes are those of UAX #31 for the
-# Unicode version in `VERSION`, generated into `unicode_tables.zig` by
-# `tools/gen-unicode.py`; a code point outside `0..0x10FFFF` is in no
-# class. The classes are the Unicode ones: a language that begins
-# identifiers with `$` or `_` adds those itself.
+# std.unicode: properties of one rune, an `Int`, from the Unicode
+# Character Database of the version in `VERSION`. The identifier classes
+# are those of UAX #31, generated into `unicode_tables.zig` by
+# `tools/gen-unicode.py`; white space is the White_Space property of
+# PropList.txt. A value that is not a rune (a negative, a surrogate, or
+# past 0x10FFFF) has no property. The classes are the Unicode ones: a
+# language that begins identifiers with `$` or `_` adds those itself.
 
-# The Unicode version the tables come from.
+# The Unicode version of every property here.
 pub VERSION = "15.1.0"
 
-# Whether `c` is a high (leading) UTF-16 surrogate, U+D800 to U+DBFF.
-pub fun is_high_surrogate(c: Int) -> Bool
-  c >= 0xD800 and c < 0xDC00
-
-# Whether `c` is a low (trailing) UTF-16 surrogate, U+DC00 to U+DFFF.
-pub fun is_low_surrogate(c: Int) -> Bool
-  c >= 0xDC00 and c < 0xE000
-
-# The code point that the UTF-16 pair `hi`, `lo` encodes. Panics unless
-# `hi` is a high surrogate and `lo` a low one.
-pub fun surrogate_pair_to_code_point(hi: Int, lo: Int) -> Int
-  if not is_high_surrogate(hi) or not is_low_surrogate(lo)
-    not_a_pair()
-  (hi - 0xD800) * 0x400 + (lo - 0xDC00) + 0x10000
-
-# How many UTF-16 code units code point `c` takes: 2 from U+10000 up,
-# else 1 (a lone surrogate is one unit). Panics unless `c` is in
-# `0..0x10FFFF`.
-pub fun utf16_len(c: Int) -> Int
-  if c < 0 or c > 0x10FFFF
-    not_a_code_point()
-  2 if c >= 0x10000 else 1
-
-extern zig "unicode.zig"
-  # Panics: `surrogate_pair_to_code_point`'s arguments are not a pair.
-  sub not_a_pair()
-  # Panics: `utf16_len`'s argument is not a code point.
-  sub not_a_code_point()
+# Whether `r` is white space: the 25 runes of Unicode's White_Space
+# property, ASCII's tab, line feed, vertical tab, form feed, carriage
+# return, and space among them. Go's `unicode.IsSpace`.
+pub fun is_space_rune(r: Int) -> Bool
+  if r < 0x80
+    return r == 0x20 or (r >= 0x09 and r <= 0x0D)
+  match r
+    0x85, 0xA0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => true
+    0x2000..0x200B => true
+    _ => false
 
 extern zig "unicode_tables.zig"
-  # Whether code point `c` is ID_Start: it may begin an identifier. The
-  # letters, the letter numbers, and Other_ID_Start.
-  pub fun is_id_start(c: Int) -> Bool
-  # Whether code point `c` is ID_Continue: it may follow the first
-  # character of an identifier. ID_Start, marks, decimal digits,
-  # connector punctuation, and Other_ID_Continue.
-  pub fun is_id_continue(c: Int) -> Bool
+  # Whether `r` is ID_Start: it may begin an identifier. The letters,
+  # the letter numbers, and Other_ID_Start.
+  pub fun is_id_start(r: Int) -> Bool
+  # Whether `r` is ID_Continue: it may follow the first rune of an
+  # identifier. ID_Start, marks, decimal digits, connector punctuation,
+  # and Other_ID_Continue.
+  pub fun is_id_continue(r: Int) -> Bool

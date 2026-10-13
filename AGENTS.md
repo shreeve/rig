@@ -200,6 +200,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `SPEC.md` | Language reference: what every form means |
 | `FAQ.md` | Common questions |
 | `docs/STD.md` | The standard library's modules |
+| `docs/TEXT.md` | Text: bytes, runes, units, and chars, how each is measured, and the modules for each |
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |

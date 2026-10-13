@@ -1,7 +1,8 @@
-# std.utf8 on the decode and length cases of Go's unicode/utf8 tests
-# (src/unicode/utf8/utf8_test.go), ported by hand: `rune_after` is
-# `DecodeRuneInString`, `rune_before` is `DecodeLastRuneInString`, and
-# `rune_len` is `RuneLen`.
+# std.utf8 on Go's unicode/utf8 tests (src/unicode/utf8/utf8_test.go),
+# ported by hand: `rune_after` is `DecodeRuneInString`, `rune_before` is
+# `DecodeLastRuneInString`, `runes` is `for range`, `size` is `RuneLen`
+# (and `ValidRune` where it is not `none`), `push_rune` is `AppendRune`,
+# `rune_count` is `RuneCountInString`, and `is_valid` is `ValidString`.
 # Each check that fails prints itself; the last line counts them.
 # release
 use std.utf8
@@ -19,15 +20,27 @@ STRINGS = ["", "abcd", "\u{263a}\u{263b}\u{2639}", "\u{65e5}a\u{672c}b\u{8a9e}\u
 # invalidSequenceTests: each starts with no valid rune.
 INVALID = ["\xed\xa0\x80\x80", "\xed\xbf\xbf\x80", "\x91\x80\x80\x80", "\xC2\x7F\x80\x80", "\xC2\xC0\x80\x80", "\xDF\x7F\x80\x80", "\xDF\xC0\x80\x80", "\xE0\x9F\xBF\x80", "\xE0\xA0\x7F\x80", "\xE0\xBF\xC0\x80", "\xE0\xC0\x80\x80", "\xE1\x7F\xBF\x80", "\xE1\x80\x7F\x80", "\xE1\xBF\xC0\x80", "\xE1\xC0\x80\x80", "\xED\x7F\xBF\x80", "\xED\x80\x7F\x80", "\xED\x9F\xC0\x80", "\xED\xA0\x80\x80", "\xF0\x8F\xBF\xBF", "\xF0\x90\x7F\xBF", "\xF0\x90\x80\x7F", "\xF0\xBF\xBF\xC0", "\xF0\xBF\xC0\x80", "\xF0\xC0\x80\x80", "\xF1\x7F\xBF\xBF", "\xF1\x80\x7F\xBF", "\xF1\x80\x80\x7F", "\xF1\xBF\xBF\xC0", "\xF1\xBF\xC0\x80", "\xF1\xC0\x80\x80", "\xF4\x7F\xBF\xBF", "\xF4\x80\x7F\xBF", "\xF4\x80\x80\x7F", "\xF4\x8F\xBF\xC0", "\xF4\x8F\xC0\x80", "\xF4\x90\x80\x80"]
 
-# runelentests: each code point and the bytes it encodes to, or -1.
+# runelentests: each value and the bytes it encodes to, or -1 for `none`.
 LENS = [[0, 1], [0x65, 1], [0xe9, 2], [0x263a, 3], [0xFFFD, 3], [0x10FFFF, 4], [0xD800, -1], [0xDFFF, -1], [0x110000, -1], [-1, -1]]
+
+# runecounttests: each string and its runes.
+COUNTED = ["abcd", "\u{263a}\u{263b}\u{2639}", "1,2,3,4", "\xe2\x00", "\xe2\x80", "a\xe2\x80"]
+COUNTS = [4, 3, 7, 2, 2, 3]
+
+# validTests, before the generated ones `valid` adds.
+VALID = ["", "a", "abc", "\u{416}", "\u{416}\u{416}", "\u{431}\u{440}\u{44d}\u{434}-\u{41b}\u{413}\u{422}\u{41c}", "\u{263a}\u{263b}\u{2639}", "a\u{fffd}b", "\xF4\x8F\xBF\xBF"]
+INVALID_TEXT = ["aa\xe2", "B\xfa", "B\xfaC", "\xF4\x90\x80\x80", "\xF7\xBF\xBF\xBF", "\xFB\xBF\xBF\xBF\xBF", "\xc0\x80", "\xed\xa0\x80", "\xed\xbf\xbf"]
+
+# validrunetests: each value, and whether it is a rune.
+VALID_RUNES = [0, 0x65, 0xe9, 0x263a, 0xFFFD, 0x10FFFF, 0xD7FF, 0xE000]
+NOT_RUNES = [0xD800, 0xDFFF, 0x110000, -1]
 
 ERROR = 0xFFFD
 
-# Whether `r` is `code` of `size`; prints the case when it is not.
-fun want(what: ?String, n: Int, r: utf8.Rune, code: Int, size: Int) -> Bool
-  return true if r.code == code and r.size == size
-  print(what, n, "gave", r.code, r.size, "want", code, size)
+# Whether `d` is `r` of `size`; prints the case when it is not.
+fun want(what: ?String, n: Int, d: utf8.Decoded, r: Int, size: Int) -> Bool
+  return true if d.rune == r and d.size == size
+  print(what, n, "gave", d.rune, d.size, "want", r, size)
   false
 
 # TestDecodeRune: each encoding decodes, alone and before a NUL, and so
@@ -71,12 +84,12 @@ fun invalid() -> Int
 # runes and the indexes `rune_after` gives walking forward.
 fun sequence(s: ?String) -> Int
   at = List[Int]()
-  codes = List[Int]()
+  found = List[Int]()
   i = 0
   while i < s.len
     r = utf8.rune_after(s, i)
     !at.push(i)
-    !codes.push(r.code)
+    !found.push(r.rune)
     i += r.size
   j = at.len
   i = s.len
@@ -84,7 +97,7 @@ fun sequence(s: ?String) -> Int
     j -= 1
     r = utf8.rune_before(s, i)
     i -= r.size
-    if j < 0 or r.code != codes[j] or i != at[j]
+    if j < 0 or r.rune != found[j] or i != at[j]
       print("sequence", s.len, i, j)
       return 1
   1 if j != 0 else 0
@@ -99,22 +112,101 @@ fun sequencing() -> Int
       failed += sequence(?String(ts, m, ts))
   failed
 
-# TestRuneLen: `rune_len` of each.
-fun rune_lens() -> Int
+# TestRuneLen: `size` of each; and TestValidRune: whether `size` is
+# `none`.
+fun sizes() -> Int
   failed = 0
   for t in LENS
-    n = utf8.rune_len(t[0])
+    n = utf8.size(t[0]) ?? -1
     if n != t[1]
-      print("rune_len", t[0], "gave", n, "want", t[1])
+      print("size", t[0], "gave", n, "want", t[1])
       failed += 1
+  for r in VALID_RUNES
+    failed += 1 if utf8.size(r) == none else 0
+  for r in NOT_RUNES
+    failed += 1 if utf8.size(r) != none else 0
+  failed
+
+# TestEncodeRune and TestAppendRune: each code point is written as its
+# encoding, alone and after "init"; and TestNegativeRune: -1 is written
+# as `REPLACEMENT` is.
+fun encode() -> Int
+  failed = 0
+  for m, n in SEQS
+    out = String()
+    utf8.push_rune(!out, CODES[n])
+    init = String("init")
+    utf8.push_rune(!init, CODES[n])
+    if ?out != m or ?init != ?String("init", m)
+      print("encode", n)
+      failed += 1
+  a = String()
+  utf8.push_rune(!a, ERROR)
+  b = String()
+  utf8.push_rune(!b, -1)
+  failed += 1 if ?a != ?b else 0
+  failed
+
+# TestRuntimeConversion: `runes` gives what `rune_after` reads walking
+# forward, and `rune_count` counts them.
+fun conversion() -> Int
+  failed = 0
+  for ts in STRINGS
+    i = 0
+    n = 0
+    for r in utf8.runes(ts)
+      d = utf8.rune_after(ts, i)
+      failed += 1 if r != d.rune else 0
+      i += d.size
+      n += 1
+    failed += 1 if i != ts.len or n != utf8.rune_count(ts) else 0
+  failed
+
+# TestRuneCount: `rune_count` of each.
+fun rune_counts() -> Int
+  failed = 0
+  for s, n in COUNTED
+    if utf8.rune_count(s) != COUNTS[n]
+      print("rune_count", n, "gave", utf8.rune_count(s), "want", COUNTS[n])
+      failed += 1
+  failed
+
+# 1 when `is_valid(s)` is not `ok`, after printing the case; else 0.
+fun check_valid(s: ?String, ok: Bool) -> Int
+  return 0 if utf8.is_valid(s) == ok
+  print("is_valid", s.len, "want", ok)
+  1
+
+# TestValid: each of `VALID` and `INVALID_TEXT`, then for `i` below 100,
+# "a" repeated `i` times, alone, before a valid rune, before a cut one,
+# and each of those two before "b" repeated `i` times.
+fun valid() -> Int
+  failed = 0
+  for s in VALID
+    failed += check_valid(s, true)
+  for s in INVALID_TEXT
+    failed += check_valid(s, false)
+  for i in 0..100
+    a = String()
+    b = String()
+    for _ in 0..i
+      !a.push(0x61)
+      !b.push(0x62)
+    failed += check_valid(?a, true)
+    failed += check_valid(?String(a, "\u{416}"), true)
+    failed += check_valid(?String(a, "\xe2"), false)
+    failed += check_valid(?String(a, "\u{416}", b), true)
+    failed += check_valid(?String(a, "\xe2", b), false)
   failed
 
 sub main()
   e = utf8.rune_after("", 0)
   l = utf8.rune_before("", 0)
-  print(e.code, e.size, l.code, l.size)
-  print(decode(), surrogates(), invalid(), sequencing(), rune_lens())
+  print(e.rune, e.size, l.rune, l.size, utf8.REPLACEMENT, utf8.RUNE_SELF)
+  print(decode(), surrogates(), invalid(), sequencing(), sizes())
+  print(encode(), conversion(), rune_counts(), valid())
 
 # expect:
-# 65533 0 65533 0
+# 65533 0 65533 0 65533 128
 # 0 0 0 0 0
+# 0 0 0 0
