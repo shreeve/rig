@@ -2026,7 +2026,7 @@ test "E2: a near miss bounds nothing" {
         \\    b = neg()
         \\    c = cond(1)
         \\    e = big()
-        \\    g = rec(1)
+        \\    w = rec(1)
         \\    h = dec()
         \\    h.size = 9
         \\    k = dec()
@@ -2034,7 +2034,7 @@ test "E2: a near miss bounds nothing" {
         \\    m = dec()
         \\    bump(!m)
         \\    n = dec()
-        \\    print(i + a.size, i + b.size, i + c.size, i + e.size, i + g.size, i + h.size, i + p.size, i + k.size, i + m.size, n.size + i)
+        \\    print(i + a.size, i + b.size, i + c.size, i + e.size, i + w.size, i + h.size, i + p.size, i + k.size, i + m.size, n.size + i)
         \\  0
         \\
         \\fun g(s: ?String, i: Int) -> Int

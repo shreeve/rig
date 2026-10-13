@@ -47,7 +47,24 @@ const srcPos = sema.srcPos;
 
 pub fn resolveSymbols(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     var r: SymbolResolver = .{ .ctx = ctx, .scope = module_scope, .module_scope = module_scope };
+    defer r.pending_shadows.deinit(ctx.allocator);
     try r.walk(tree);
+    // Module-level names are visible throughout the module, so the
+    // clash with them is judged once all are declared.
+    // Each lands where the walk met it, so diagnostics stay in the
+    // order a one-pass check would give.
+    var inserted: usize = 0;
+    for (r.pending_shadows.items) |p| {
+        const start = ctx.diagnostics.items.len;
+        try r.reportShadowsDeclaration(p.name_node, p.what);
+        const n = ctx.diagnostics.items.len - start;
+        if (n == 0) continue;
+        const group = try ctx.allocator.dupe(sema.Diagnostic, ctx.diagnostics.items[start..]);
+        defer ctx.allocator.free(group);
+        ctx.diagnostics.shrinkRetainingCapacity(start);
+        try ctx.diagnostics.insertSlice(ctx.allocator, p.at + inserted, group);
+        inserted += n;
+    }
 }
 
 const SymbolResolver = struct {
@@ -57,6 +74,11 @@ const SymbolResolver = struct {
     /// The generic parameters of the generic type whose members are
     /// being walked.
     type_params: []const SymbolId = &.{},
+    /// Parameters and locals whose clash with a module-level
+    /// declaration is checked after the whole module is walked.
+    pending_shadows: std.ArrayList(PendingShadow) = .empty,
+
+    const PendingShadow = struct { name_node: Sexp, what: []const u8, at: usize };
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
@@ -218,6 +240,11 @@ const SymbolResolver = struct {
             return;
         }
         if (self.ctx.fileModule(name, srcPos(name_node, 0))) |module| return self.shadowsModule(name_node, what, module);
+        try self.pending_shadows.append(self.ctx.allocator, .{ .name_node = name_node, .what = what, .at = self.ctx.diagnostics.items.len });
+    }
+
+    fn reportShadowsDeclaration(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
+        const name = identAt(self.ctx.source, name_node) orelse return;
         const decl = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return;
         const sym = self.ctx.symbols.items[decl];
         if (sym.decl_pos == sema.builtin_decl_pos) return;
