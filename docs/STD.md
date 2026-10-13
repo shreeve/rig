@@ -402,6 +402,8 @@ sub main()
 
 ## Text: bytes, runes, units, chars
 
+The whole text API, built and planned, is listed in [TEXT-API](TEXT-API.md).
+
 Every text API is described in four words, each with one meaning:
 
 | Word | What it is | Size |
