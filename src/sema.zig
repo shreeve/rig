@@ -5305,8 +5305,9 @@ const ReachWalk = struct {
                 };
                 try self.push(next, .{ .read = path.read, .viewed = true });
             },
-            // A `?String` views bytes; a String owns them.
-            .string_view => if (self.targets.bytes) self.reached(read, true),
+            // A `?String` views bytes, which a target that is any memory
+            // (a type parameter's, say) includes; a String owns them.
+            .string_view => if (self.targets.bytes or self.targets.any) self.reached(read, true),
             .string => if (self.targets.bytes) self.reached(path, path.viewed),
             else => {
                 self.cur = path;
