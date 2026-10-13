@@ -1,0 +1,30 @@
+# Times `std.unicode`'s identifier lookups: ASCII only, a mix of Latin
+# and CJK text, and every code point once. Build it for speed:
+#   bin/rig build --release -o unicode_bench tools/unicode_bench.rig
+use std.time
+use std.unicode
+
+sub main()
+  rounds = 20
+  n = 1_000_000
+  hits = 0
+  t = time.now()
+  for _ in 0..rounds
+    for i in 0..n
+      hits += 1 if unicode.is_id_start(i % 128) else 0
+  ascii_ns = t.elapsed()
+  t = time.now()
+  for _ in 0..rounds
+    for i in 0..n
+      hits += 1 if unicode.is_id_continue(0x4E00 + i % 0x5000) else 0
+  cjk_ns = t.elapsed()
+  t = time.now()
+  for _ in 0..rounds
+    for i in 0..n
+      hits += 1 if unicode.is_id_continue((i * 7919) % 0x110000) else 0
+  all_ns = t.elapsed()
+  total = rounds * n
+  print("ascii", ascii_ns * 100 / total, "centi-ns per lookup")
+  print("cjk", cjk_ns * 100 / total, "centi-ns per lookup")
+  print("all", all_ns * 100 / total, "centi-ns per lookup")
+  print(hits)

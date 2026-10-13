@@ -1,0 +1,7 @@
+# Bases run from 2 to 36.
+use std.text
+
+sub main()
+  print(text.parse_int("1", 1) catch 0)
+
+# expect-panic: text.parse_int: the base is not between 2 and 36

@@ -4,6 +4,8 @@
 # function that returns a `?String` returns a view of the `?String` it
 # was given, so nothing here allocates.
 
+use std.utf8
+
 # Why a parse failed: the text is not a number (or Bool) as written,
 # or it is one too large for its type.
 pub error ParseError
@@ -148,6 +150,98 @@ pub fun parse_bool(s: ?String) -> Bool!
   return false if s == "false"
   return ParseError.invalid
 
+# `s` as an `Int` in base `base`, 2 to 36 (10 by default): an optional
+# sign, `+` or `-`, then one or more digits, letters `a` to `z` in
+# either case standing for 10 to 35, and nothing else: no prefix such as
+# `0x`, and no `_`. Fails with `ParseError.invalid` when `s` is not
+# written so, and `ParseError.overflow` when its value is not an `Int`.
+# Panics when `base` is not between 2 and 36.
+pub fun parse_int(s: ?String, base: Int = 10) -> Int!
+  if base < 2 or base > 36
+    bad_base("text.parse_int")
+  parse_radix(s, base)!
+
+# `n` written in base `base`, 2 to 36 (10 by default): a `-` for a
+# negative number, then the digits without leading zeros, `0` for zero,
+# with the letters `a` to `z` for 10 to 35 (`A` to `Z` when `upper`).
+# Panics when `base` is not between 2 and 36.
+pub fun format_int(n: Int, base: Int = 10, upper: Bool = false) -> String
+  if base < 2 or base > 36
+    bad_base("text.format_int")
+  letter = 55 if upper else 87
+  digits = String()
+  rest = n
+  while true
+    d = rest % base
+    d = -d if d < 0 else d
+    !digits.push(U8(d + 48 if d < 10 else d + letter))
+    rest = rest / base
+    break if rest == 0
+  out = String()
+  !out.push(45) if n < 0
+  ds = ?digits[..]
+  i = ds.len
+  while i > 0
+    i -= 1
+    !out.push(ds[i])
+  out
+
+# The Levenshtein distance between `a` and `b`: the fewest insertions,
+# deletions, and substitutions of a rune that turn one into the other. A
+# byte that does not begin a well-formed UTF-8 sequence is one rune, equal
+# only to the same byte.
+# `row` is scratch space, grown to hold one cell per rune of `b` plus
+# one: pass the same `row` to many calls, and nothing allocates once it
+# has grown. With `max >= 0` the search stops as soon as the distance is
+# known to exceed `max`, and the result is `max + 1`: use it where only
+# near matches matter.
+pub fun edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) -> Int
+  m = utf8.rune_count(b)
+  n = utf8.rune_count(a)
+  if max >= 0 and (n - m > max or m - n > max)
+    return max + 1
+  while row.len > m + 1
+    _ = !row.pop()
+  while row.len < m + 1
+    !row.push(0)
+  for k in 0..m + 1
+    row[k] = k
+  i = 0
+  y = 0
+  while i < a.len
+    da = utf8.rune_after(a, i)
+    ra = rune_key(da, a[i])
+    i += da.size
+    y += 1
+    diag = row[0]
+    row[0] = y
+    low = y
+    j = 0
+    x = 0
+    while j < b.len
+      db = utf8.rune_after(b, j)
+      rb = rune_key(db, b[j])
+      j += db.size
+      x += 1
+      above = row[x]
+      best = diag + (0 if ra == rb else 1)
+      best = above + 1 if above + 1 < best else best
+      best = row[x - 1] + 1 if row[x - 1] + 1 < best else best
+      row[x] = best
+      diag = above
+      low = best if best < low else low
+    if max >= 0 and low > max
+      return max + 1
+  d = row[m]
+  max + 1 if max >= 0 and d > max else d
+
+# The rune `d`, read at a byte `first`, or 0x110000 plus `first` when `d`
+# is a bad byte read as `utf8.REPLACEMENT`, so it equals only the same
+# byte.
+fun rune_key(d: utf8.Decoded, first: U8) -> Int
+  return 0x110000 + Int(first) if d.size == 1 and first >= 0x80
+  d.rune
+
 # ---- Bytes ---------------------------------------------------------------
 
 # Whether `b` is an ASCII digit, `0` to `9`.
@@ -186,11 +280,8 @@ extern zig "text.zig"
   # places between and around the bytes.
   pub fun count(s: ?String, pat: ?String) -> Int
 
-  # `s` as a base-10 `Int`: an optional sign, `+` or `-`, then one or
-  # more digits, and nothing else. Fails with `ParseError.invalid` when
-  # `s` is not written so, and `ParseError.overflow` when its value is
-  # not an `Int`.
-  pub fun parse_int(s: ?String) -> Int!
+  # `s` as an `Int` in base `base`, 2 to 36: see `parse_int`.
+  fun parse_radix(s: ?String, base: Int) -> Int!
   # `s` as a `Float`: an optional sign, then digits with an optional
   # `.` and fraction (one side of the `.` may be empty) and an optional
   # exponent (`e` or `E`, an optional sign, and digits), or `inf`,
@@ -201,6 +292,9 @@ extern zig "text.zig"
 
   # Whether `bytes` is well-formed UTF-8.
   pub fun valid_utf8(bytes: []U8) -> Bool
+  # Panics: a base is not between 2 and 36.
+  sub bad_base(who: ?String)
+
   # The order of `a` and `b` by their bytes, as `<` orders them: -1
   # when `a` sorts first, 1 when `b` does, and 0 when they are equal.
   pub fun compare(a: ?String, b: ?String) -> Int
