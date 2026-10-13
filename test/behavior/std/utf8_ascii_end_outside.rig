@@ -1,0 +1,14 @@
+# std.utf8's `ascii_end` panics at a cursor outside 0 to `s.len`, as
+# indexing does.
+# release
+use std.utf8
+
+sub main()
+  s = "ab"
+  print(utf8.ascii_end(s, s.len))
+  print(utf8.ascii_end(s, s.len + 1))
+
+# expect-panic: index out of bounds
+
+# expect:
+# 2
