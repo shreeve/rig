@@ -119,6 +119,13 @@ def opt(ty):
     return f"({ty})?" if ty.startswith("?") else f"{ty}?"
 
 
+def optn(ty, n):
+    """The optional of a type, n levels deep."""
+    for _ in range(n):
+        ty = opt(ty)
+    return ty
+
+
 def build_store():
     """Where programs build: RIG_BUILD_STORE, else test/run's default, the
     store in the repository's git directory that its worktrees share;
@@ -778,10 +785,14 @@ EQ_FORMS = {
     "opt": ("K?", True, "{v}"),
     "vopt": ("?K?", True, "{v}"),
     "optv": ("(?K)?", True, "{v}"),
+    "nopt": ("(K?)?", True, "{v}"),
+    "nnopt": ("((K?)?)?", True, "{v}"),
     "elem": ("?List[K]", False, "{v}[0]"),
     "elemopt": ("?List[K?]", True, "{v}[0]"),
 }
-EQ_RIGHT = ("view", "wview", "own", "opt", "vopt", "optv")
+EQ_RIGHT = ("view", "wview", "own", "opt", "vopt", "optv", "nopt", "nnopt")
+# the optional levels of a form's parameter type
+EQ_DEPTH = {"opt": 1, "vopt": 1, "optv": 1, "elemopt": 1, "nopt": 2, "nnopt": 3}
 EQ_ORDER_FORMS = ("view", "own", "opt", "vopt", "optv")
 
 
@@ -791,6 +802,16 @@ def eq_operand(form, spec, n, i):
     ty, copy = spec["ty"], spec["copy"]
     a, x = f"a{i}", f"x{i}"
     take = x if copy else f"<{x}"
+    if form in ("nopt", "nnopt"):
+        # n is (s, core): s `some` layers around a core that is none (s < depth) or the value
+        d, (s, core) = EQ_DEPTH[form], n
+        if s == d:
+            return [f"{x}: {optn(ty, d)} = mk({core})"], take
+        lines, prev = [f"v{i}_0: {optn(ty, d - s)} = none"], f"v{i}_0"
+        for j in range(1, s + 1):
+            lines.append(f"v{i}_{j}: {optn(ty, d - s + j)} = " + (prev if copy else f"<{prev}"))
+            prev = f"v{i}_{j}"
+        return lines, prev if copy else f"<{prev}"
     if form in ("view", "wview", "own"):
         arg = {"view": f"?{a}", "wview": f"!{a}", "own": a if copy else f"<{a}"}[form]
         return [f"{a} = mk({n})"], arg
@@ -827,21 +848,43 @@ def eq_program(tname, lform, rform, group):
         lines += [f"fun {op}[K](a: {lty}, b: {rty}) -> Bool",
                   f"  {lbody.format(v='a')} {symbol[op]} {rbody.format(v='b')}", ""]
     run, out = [], []
-    lcases = (0, 1, 2) if lmay and group == "eq" else (1, 2)
-    rcases = (0, 1, 2) if rmay and group == "eq" else (1, 2)
+    def cases(form, may):
+        d = EQ_DEPTH.get(form, 0)
+        if not may or group != "eq":
+            return [(0, 1), (0, 2)]
+        return [(s, None) for s in range(d)] + [(d, 1), (d, 2)]
+
+    def arg(form, v):
+        """The value in the form's operand: an int (0 is none), or (s, core) for the nested forms."""
+        s, core = v
+        if form in ("nopt", "nnopt"):
+            return v
+        return core if core is not None else 0
+
+    def same(lv, rv):
+        """Whether two values are equal: the shallower side is lifted by `some` to the deeper one's depth."""
+        ld, rd_ = EQ_DEPTH.get(lform, 0), EQ_DEPTH.get(rform, 0)
+        top = max(ld, rd_)
+        return lv[0] + top - ld == rv[0] + top - rd_ and lv[1] == rv[1]
+
+    run, out = [], []
     i = 0
-    for lc in lcases:
-        for rc in rcases:
+    for lv in cases(lform, lmay):
+        for rv in cases(rform, rmay):
             shown = []
             for op in ops:
-                ls, la = eq_operand(lform, spec, lc, i)
-                rs, ra = eq_operand(rform, spec, rc, i + 1)
+                ls, la = eq_operand(lform, spec, arg(lform, lv), i)
+                rs, ra = eq_operand(rform, spec, arg(rform, rv), i + 1)
                 i += 2
                 run += ls + rs
                 shown.append(f"{op}[{spec['ty']}]({la}, {ra})")
             run.append("print(" + ", ".join(shown) + ")")
-            vals = [None if c == 0 else c for c in (lc, rc)]
-            out.append(" ".join("true" if eq_expect(op, *vals) else "false" for op in ops))
+            if group == "eq":
+                e = same(lv, rv)
+                out.append(" ".join("true" if (e if op == "eq" else not e) else "false" for op in ops))
+            else:
+                vals = [None if v[1] is None else v[1] for v in (lv, rv)]
+                out.append(" ".join("true" if eq_expect(op, *vals) else "false" for op in ops))
     lines += ["sub main()"] + ["  " + l for l in run]
     ok = spec["eq"] if group == "eq" else spec["ord"]
     return "\n".join(lines) + "\n", ("\n".join(out) + "\n") if ok else None
