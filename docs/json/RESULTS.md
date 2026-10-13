@@ -1102,8 +1102,8 @@ a 1-minute load of 2.6-2.9, fastest of 15 interleaved runs of about
 number of 16 to 19 digits, was a call from `number` on every such float:
 its body was over the inliner's size. Its rare path, the next 64 bits
 of 5^q when the top word cannot decide the rounding, moved into a small
-`settle_hi`, and the rest now inlines. Instructions per byte: canada
-3.5% fewer, the other files the same. The Mac, fastest of 15
+`settle_hi`, and the rest now inlines. Instructions per byte
+(bench/json/guard.txt): canada 3.4% fewer, the other files the same. The Mac, fastest of 15
 interleaved runs at a 1-minute load of 3.3-4 (another project's job ran
 on 2 cores); MB/s:
 
@@ -1116,8 +1116,10 @@ on 2 cores); MB/s:
 | gsoc-2018 | 8260 | 8222 | 7213 | 14% faster |
 | github_events | 4084 | 4114 | 3746 | 10% faster |
 
-- **canada is 2.7% faster**, and the other files move within noise, so
-  std.json now leads sonic-rs on all six files on the Mac.
+- **canada is 2.7% faster**, and the other files move within noise:
+  canada goes from within noise of sonic-rs (2% faster) to 5% faster,
+  so std.json leads sonic-rs on all six files on the Mac by more than
+  noise.
 - **The same run timed main under the `inlinect` compiler** (#154, which
   inlines instances of functions with compile-time parameters): within
   noise on every file, and the guard's counts unchanged.
