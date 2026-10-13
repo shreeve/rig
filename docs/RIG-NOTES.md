@@ -50,8 +50,14 @@ tools that take them in `bench/json/`.
    specialization, which should cost nothing, costs a call. Two copies
    of `document` (`document[dense: Bool]`) left `skip_ws[dense]` and
    even `scalar` out of line: 10-15% more instructions on every corpus
-   file. Fix: decide inlining per instance, after instantiation.
-   *In flight (#154).*
+   file. Fix: decide inlining per instance, after instantiation. *In
+   flight (#154).* Under #154 the same `document` still lost
+   `Doc.number`'s inlining (canada 10% slower): its cap on inlined calls
+   per function counts a generic's calls in every branch, those a
+   compile-time constant removes too, and then out-lines the callee
+   that brings the most calls, the hottest. Fix: drop the cap, which
+   no longer guards correctness, or count per instance after folding
+   and out-line the coldest callee. *In flight (a follow-up to #154).*
 7. **No way to keep a cold path out of line.** The whitespace bitmap's
    run function, called only for deeply indented documents, was inlined
    at every call site and cost 4-6% more instructions where it never ran.
