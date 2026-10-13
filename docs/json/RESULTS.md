@@ -1293,3 +1293,45 @@ twitterescaped and gsoc-2018, whose strings hold no non-ASCII text, run
 5% more instructions: the code around the string scan changed, not the
 check. citm_catalog and github_events remain 12% behind sonic-rs, which
 retires 18-24% fewer instructions per byte on them.
+
+## A vector whitespace skip: fewer instructions, slower
+
+`skip_space` (std/json.rig) goes a byte at a time, or 8 spaces at a time
+with one U64 compare. A variant read 16 bytes when 16 were left, and
+returned the first lane that is not whitespace:
+
+```
+v = s.read[Simd[U8, 16]](i)
+ws = WS.lookup(v & 0x0F) == v     # WS: 0x20, 0x09, 0x0A, 0x0D by low nibble
+if ws.not().first() as k
+  return i + k
+i += 16
+```
+
+Its results were the same as main's (11,987,148 direct comparisons, and
+test/behavior/std/json_space_blocks.rig). Instructions per byte fell,
+and time rose:
+
+| file | instructions (Mac) | time (Mac, MB/s, main → variant) | cycles (x86) | IPC (x86, main → variant) |
+|---|---|---|---|---|
+| twitter | 18% fewer | 3652 → 2195, 40% slower | 13% more | 4.91 → 3.66 |
+| twitterescaped | within noise | within noise | 9% fewer | 5.22 → 5.67 |
+| canada | within noise | within noise | 3% fewer | 4.97 → 4.95 |
+| citm_catalog | 29% fewer | 4617 → 2736, 41% slower | within noise | 5.12 → 3.81 |
+| gsoc-2018 | 12% fewer | 8466 → 5754, 32% slower | 9% more | 4.44 → 3.63 |
+| github_events | 20% fewer | 4346 → 2568, 41% slower | 11% more | 5.20 → 3.74 |
+
+The Mac: one quiet window, fastest of 15 interleaved runs (a compare-based
+classify, `(v == SPACE) | (v == LF) | ...`, was as slow). x86: pup, `perf
+stat` on a P core, 2 cores held, not exclusive.
+
+The byte loop is branchy: the predictor guesses where a run of
+whitespace ends, so the next token's loads start before the run is
+checked. The vector skip computes that position from data, so every
+token waits on a load, the classify, a move of the mask to a register,
+and a count. sonic-rs keeps that chain short by classifying 64 bytes
+once and keeping the bitmap in a register, so a skip is a shift and a
+count: the whitespace bitmap above (the wsspec prototype), which waits
+on Rig's inlining of single-call functions. The instruction guard
+(`bench/json/guard.py`) would have passed this variant
+(docs/RIG-NOTES.md, entry 25).
