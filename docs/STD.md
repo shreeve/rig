@@ -417,10 +417,12 @@ rune in 2 bytes, 195 and 169:
 sub main()
   s = "é"
   print(s.len, s[0], s[1])
+  print("👋🏽".len)
 ```
 
 ```output
 2 195 169
+8
 ```
 
 ## String
