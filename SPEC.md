@@ -292,7 +292,23 @@ type `Int` has no method `to_bits`
 
 A `?String` has a length `s.len` and can be indexed (`s[0]`, or
 `s.get(i)`, a `U8?` that is `none` past the end), and a `for` loop over
-it yields its bytes as `U8`. `?String` values compare with `==` and
+it yields its bytes as `U8`. `s.is_empty()` is `s.len == 0`; it works
+the same on a List, an array, a slice, and a `Cell[List[T]]`, and a
+type's own `is_empty` method wins on that type.
+
+```rig
+sub main()
+  s = ""
+  v: List[Int] = List()
+  !v.push(1)
+  print(s.is_empty(), "ab".is_empty(), v.is_empty())
+```
+
+```output
+true false false
+```
+
+`?String` values compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§5](#operators)).
 
@@ -5450,6 +5466,7 @@ owns one), and read views.
 | `List()`, `List(capacity: n)` | an empty List (typed by context) |
 | `!v.push(x)` | append; an owning `x` is moved or cloned in |
 | `v.len` | the number of elements |
+| `v.is_empty()` | `v.len == 0`; it only reads, so `!v.is_empty()` is rejected (negate with `not`) |
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |

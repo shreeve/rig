@@ -9145,6 +9145,18 @@ const Checker = struct {
             return self.noteMethod(callee, .read, ty);
         };
 
+        if (resolved_method == null and std.mem.eql(u8, method, "is_empty") and self.hasBuiltinLen(peeled)) {
+            const f: FunctionType = .{
+                .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .read_view = sema.unwrapViews(self.ctx, obj_ty) })}),
+                .returns = self.t().bool_id,
+                .is_sub = false,
+            };
+            try self.noteCallee(f);
+            try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "is_empty", pos, .{ .receiver = true });
+            _ = try self.checkReceiverSigil(obj, .read, f.returns, method);
+            return self.noteMethod(callee, .read, f.returns);
+        }
+
         const resolved = resolved_method orelse {
             // A data field holding a function or a closure handle is
             // called like one.
@@ -9527,6 +9539,17 @@ const Checker = struct {
         }
         try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "get", pos, .{ .receiver = true });
         return f.returns;
+    }
+
+    /// Whether `.len` (and so `is_empty()`) is built in on `ty`, a type
+    /// with its views peeled: an array, a slice, a `?String`, a `Static`,
+    /// a List, or a Cell holding a List.
+    fn hasBuiltinLen(self: *Checker, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .array, .slice, .string_view, .static, .string => true,
+            .parameterized_nominal => listElementType(self.ctx, ty) != null or cellListElement(self.ctx, ty) != null,
+            else => false,
+        };
     }
 
     fn noteCallee(self: *Checker, f: FunctionType) Error!void {
