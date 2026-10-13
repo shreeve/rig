@@ -50,6 +50,9 @@ o=$(RIG_BUILD_STORE=$PWD/dstore RIG_BUILD_STORE_DAYS= RIG_TEST_OUT="$out" "$ROOT
 # recently used builds go first (the run's age prune is out of the way
 # with a long RIG_BUILD_STORE_DAYS); 0 means no cap.
 # Random bytes: a compressing filesystem (ZFS) stores zeros in almost no blocks, so `du` would see no size.
+# The stores live in the system's temp directory: ZFS shows a file just
+# written as about 1 KB to `du` until it commits it, seconds later.
+cd "$(mktemp -d)" || fail "no temp directory"
 mkcap() {
   rm -rf "$1"; mkdir -p "$1"
   for n in a b c d; do mkdir -p "$1/$n/package"; dd if=/dev/urandom of="$1/$n/package/blob" bs=1024 count=1024 2>/dev/null; done
