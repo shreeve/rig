@@ -216,6 +216,9 @@ pub const Emitter = struct {
     counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
     module_names: std.StringHashMapUnmanaged(void) = .empty,
+    /// The modules whose `@import` is emitted so far: in a directory
+    /// module, several files may each use one module.
+    used_modules: std.AutoHashMapUnmanaged(u32, void) = .empty,
     usage: Usage = .{},
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
@@ -328,6 +331,7 @@ pub const Emitter = struct {
         self.local_by_sym.deinit(self.allocator);
         self.local_names.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
+        self.used_modules.deinit(self.allocator);
         self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
@@ -418,16 +422,28 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
     }
 
-    /// `use` binds its local name to the module's emitted file.
+    /// A `use` imports the module's emitted file under a name of the
+    /// emitter's (`writeModuleZig`), whatever name the `use` binds: a
+    /// `use` binds its name in its own file only, and a local of any
+    /// file may have it.
     fn emitUse(self: *Emitter, node: Sexp) Error!void {
         const path = ir.Use.name(node);
         const alias = ir.Use.alias(node);
-        const name = self.srcText(if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path);
-        for (0..self.facts.importCount()) |i| {
-            const imp = self.facts.importAt(i);
-            if (std.mem.eql(u8, imp.local_name, name)) return self.w.print("const {f} = @import(\"{s}\");\n", .{ ident(name), imp.facts.zig_file });
-        }
-        return self.unsupported(node, "an unresolved `use`");
+        const name = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
+        const sym = self.facts.symbolOf(name) orelse return self.unsupported(node, "an unresolved `use`");
+        const module = self.facts.moduleOf(sym) orelse return self.unsupported(node, "an unresolved `use`");
+        if ((try self.used_modules.getOrPut(self.allocator, module)).found_existing) return;
+        const foreign = self.facts.foreign(module) orelse return self.unsupported(node, "an unloaded module");
+        try self.w.writeAll("const ");
+        try self.writeModuleZig(module);
+        try self.w.print(" = @import(\"{s}\");\n", .{foreign.zig_file});
+    }
+
+    /// The Zig name of an imported module: `__rig_m<id>_<name>`.
+    fn writeModuleZig(self: *Emitter, module: u32) Error!void {
+        const name = if (self.facts.foreign(module)) |f| f.name else "";
+        try self.w.print("__rig_m{d}_", .{module});
+        for (name) |c| try self.w.writeByte(if (c == '.') '_' else c);
     }
 
     /// `extern_fun` / `extern_sub`, a C function, or `extern`, a C
@@ -3742,6 +3758,7 @@ pub const Emitter = struct {
         if (isLiteralText(name)) return self.w.writeAll(name);
         // A built-in type named in an expression: `Endian.big`.
         if (self.facts.symbolOf(sexp)) |id| if (id == self.facts.endian_sym_id) return self.writeNominalName(id);
+        if (self.facts.symbolOf(sexp)) |id| if (self.facts.moduleOf(id)) |module| return self.writeModuleZig(module);
         if (self.rt_names and !self.keep_comptime and self.isModuleConst(sexp)) {
             try self.w.writeAll("rig.rt(");
             try self.writeModuleName(name);
@@ -4809,7 +4826,7 @@ pub const Emitter = struct {
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
             try self.w.writeAll("rig.rt(");
-            try self.writeModuleName(self.srcText(obj));
+            try self.writeModuleZig(self.facts.moduleOf(self.facts.symbolOf(obj).?).?);
             return self.w.print(".{f})", .{ident(field)});
         }
         // A field of a value built of constants is a run-time value
@@ -6935,7 +6952,7 @@ pub const Emitter = struct {
     fn writeModuleRef(self: *Emitter, module_id: u32) Error!void {
         for (0..self.facts.importCount()) |i| {
             const imp = self.facts.importAt(i);
-            if (imp.module_id == module_id) return self.writeModuleName(imp.local_name);
+            if (imp.module_id == module_id) return self.writeModuleZig(module_id);
         }
         const foreign = self.facts.foreign(module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
         try self.w.print("@import(\"{s}\")", .{foreign.zig_file});

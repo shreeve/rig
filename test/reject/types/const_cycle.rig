@@ -1,0 +1,7 @@
+A = B + 1
+B = A * 2
+
+sub main()
+  print(1)
+
+# error: 1:5: constant `A` depends on itself (`A` → `B` → `A`)

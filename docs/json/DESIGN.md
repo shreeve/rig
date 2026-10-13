@@ -106,7 +106,12 @@ it reads the last 16 bytes again and drops the lanes it has already
 seen, so no read passes the end and the input needs no padding. At the
 first special byte the scan stops; an escape or a run of UTF-8 is
 handled, and scanning resumes right after it, never from the string's
-start. Keys rarely reach the second tier; most value bytes do.
+start. Non-ASCII text is checked 16 bytes at a time up to the string's
+next stop, by Keiser-Lemire's table lookups (simdjson's lookup4), in a
+method kept out of line, since most strings never reach it. Near the
+end of the input, or when a block shows an error, it checks a sequence
+at a time from the text's first non-ASCII byte, which gives the
+error's offset. Keys rarely reach the second tier; most value bytes do.
 
 Measured (RESULTS.md): the second tier gains 12% on gsoc-2018, whose
 strings are long, and costs 3-4% on twitter and twitterescaped, whose
@@ -153,8 +158,8 @@ references' published designs where marked. In order of expected gain:
    `Simd[T, n]` with lane-wise comparison, bit masks and `m.first()`,
    and the string scan uses it. Still to try with it: sonic-rs's
    64-byte whitespace bitmap, and simdjson's structural index, which
-   also needs a byte lookup (SIMD round 2) and a carry-less multiply
-   for the prefix XOR of the quote mask.
+   also needs a carry-less multiply for the prefix XOR of the quote
+   mask. The byte lookup it needs (`t.lookup(v)`) now checks UTF-8.
 2. **Block iteration with one check per block** (measured 1-11%). A safe
    `for block in bytes.blocks(16)` that hands out fixed-size views with
    one bounds check per block and a remainder for the tail. Removing

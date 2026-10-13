@@ -676,34 +676,116 @@ exported yet (see [ROADMAP.md](ROADMAP.md)).
 
 ## Modules
 
-`ModuleGraph` loads the root file, then each `use`d module from the
-root file's directory, whichever module names it: `use foo` is always
-the one file `foo.rig` there, loaded once. `use std.foo` loads the
-standard library's `foo.rig`, from the table `std/embed.zig` embeds in
-the compiler (the build imports it as `rig_std`), or from `$RIG_STD`
-when that names a directory, a setting for developing the library;
-diagnostics name it `std/foo.rig`. A standard library module is keyed
-apart from every file of the program (`<std>/foo.rig`), so even a
+`ModuleGraph` (`src/modules.zig`) loads the root file, then each
+`use`d module, by a path from the root file's directory, whichever
+module names it. `use foo` is the file `foo.rig` there or the
+directory `foo/`, and naming both is an error; `use a.b.c` is the
+directory `a/b/c/`. Every `.rig` file in a directory belongs to that
+directory's module, so a module beneath another is a directory too,
+and `a/b.rig` beside a `use a.b` is reported as part of module `a`.
+`use std.PATH` names the standard library's module by the same rule,
+from the table `std/embed.zig` embeds in the compiler (the build
+imports it as `rig_std`), or from `$RIG_STD` when that names a
+directory, a setting for developing the library; diagnostics name it
+`std/foo.rig`. A standard library module is keyed apart from every
+file of the program (`<std>/foo.rig`, `<std>/a/b/`), so even a
 `$RIG_STD` naming the program's directory never makes one file both,
-and it imports only `std.` modules. A
-module is keyed by its qualified name (`foo`, `std.foo`), and its
-`Import` records the local name it is bound to (the alias of `as`, else
-the path's last name), which the resolver declares as a module symbol,
-so two imports binding one name are reported as a duplicate. Each
-module emits to its own file, `foo.zig` or `__rig_std_foo.zig`
-(`SemContext.zig_file`), which importers `@import` under their local
-name. Its real name must be
-exactly `foo.rig` (not another spelling on a case-insensitive
-filesystem, nor a symlink under another name), and names starting with
-`__rig` are the emitter's. Loading is a worklist, so import depth does
-not grow the stack. Modules are checked after their imports; a cycle or
-an unreadable file is reported at the `use`. A module whose import has
-errors is not checked further, since its errors would only be
-consequences; the import's own errors are reported. A module with a
-`for` over an iterator is checked twice, the second time on the tree
-that loop is rewritten into ([Loops over an iterator](#loops-over-an-iterator)),
-and only the second check's context is the module's. The CLI prints at
-most 100 errors for a program and counts the rest.
+and it imports only `std.` modules. A module is keyed by its qualified
+name (`foo`, `a.b.c`, `std.foo`), and its `Import` records the local
+name it is bound to (the alias of `as`, else the path's last name) and
+the file of the `use`. Each module emits to its own file, `foo.zig`,
+`a.b.c.zig`, or `__rig_std_foo.zig` (`SemContext.zig_file`), which an
+importer `@import`s under a name of the emitter's, `__rig_m<id>_foo`
+(`Emitter.writeModuleZig`), whatever name its `use`s bind. Each name of the path must be spelled as on disk (not another
+spelling on a case-insensitive filesystem, nor a symlink under another
+name), and names starting with `__rig` are the emitter's.
+
+**Resolution order.** Loading is a worklist over the `use`
+declarations, depth first, so import depth does not grow the stack. A
+module is checked when it leaves the worklist, after all of its
+imports: symbols, declarations, types, ownership (`sema.check`, then
+the ownership checker), so every importer reads a finished context.
+While a module is on the worklist it is `loading`, and a `use` that
+reaches it is a cycle, reported at the `use` with the hint to put the
+files that call each other in one directory module; a module of many
+files is the unit of mutual recursion, as a Go package or a Rust
+crate is. An unreadable file or directory is reported at the `use`. A
+module whose import has errors is not checked further, since its
+errors would only be consequences; the import's own errors are
+reported. A module with a `for` over an iterator is checked twice, the
+second time on the tree that loop is rewritten into ([Loops over an
+iterator](#loops-over-an-iterator)), and only the second check's
+context is the module's. The CLI prints at most 100 errors for a
+program and counts the rest.
+
+### Directory modules
+
+A directory module is the one-file module whose source is its `.rig`
+files joined, in the byte order of their names, each without a byte
+order mark and ending in a newline (`ModuleGraph.readDir`); the 16 MiB
+source limit applies to the module. `Module.parts` records where each
+file starts and its path. Three things keep the files apart:
+
+- **Layout.** The lexer (`Lexer.ends`) closes each file's blocks at its
+  end, as at the end of input: no token is read across a file's end
+  while a bracket is open (the input ends there, and the unclosed
+  bracket is reported in that file), and a file's first line may not
+  be indented.
+- **Diagnostics.** `diag.File.parts` maps a position to the file it is
+  in and its line and column there.
+- **`use`.** A `use` binds its name in its own file only, as in a
+  module of one file. Its module symbol is in no scope; it is recorded
+  with its file (`SemContext.file_uses`), and a lookup that reaches the
+  module's scope from a position asks for the module that position's
+  file binds first (`SemContext.fileModule`, through `lookupAt`,
+  `lookupBefore`, and typecheck's `visibleIn`). So two files may bind
+  one name to different modules, a name another file binds is free in
+  this one, and one that only another file binds is reported unbound,
+  with that file's `use` to add. In the file that binds it, the name is
+  taken, as any visible name is: a parameter or local of that name is
+  rejected, with the hint to import the module under another name, and
+  for a local, to hide the module with `new`. Two `use`s of one file
+  may not bind one name, nor may a `use` bind the name of a
+  declaration of its module. Emit names each imported module by its
+  id, never by a name a `use` binds, so the files' names never meet in
+  the module's one Zig file.
+
+Everything else, private names included, is the module's, as in a Go
+package: sema's pipeline is unchanged, and the module emits one Zig
+file. Files whose names end in `_test.rig` belong to the module only in
+a build for `rig test` (`ModuleGraph.with_tests`), so they see its
+private names, and `rig run` and `rig check` leave them out;
+`rig check --tests` checks the program with them.
+
+### Methods outside the body
+
+A method may be declared outside its type's body, in the type's
+module: `fun Point.norm(?self) -> Float`, `sub Point.shift(!self, dx:
+Int)`, `fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]`. It
+desugars to the member it names (`Parser.attachMethods`, a rewrite of
+the tree before any pass reads it): in module M, where M declares `obj
+T[P]` or `enum T[P]`, `[pub] fun T[P].m[Q](r, ps) -> R` and its block
+are the same declaration without `T[P].`, appended as `T`'s last
+member, with `pub` kept, so `Self` is `T` and `?self`, `!self`, and
+`<self` mean what they mean in the body. `[P]` names the type's
+parameters exactly as its declaration does (`Ring[T, n]` for `obj
+Ring[T, n: Int]`). A method naming no such type is set aside
+(`Parser.detached`), and `resolve.checkDetachedMethods` says why: a
+qualified owner (`fun geo.Point.m`, whose type another module
+declares), an alias, a built-in type, a name no type of the module
+has, or parameters named otherwise. A `drop` body stays in the body,
+since it decides the type's kind (docs/CORE.md, §1). The importer sees
+a closed set of members, and privacy stays per module.
+
+### Constants
+
+A module constant may name any constant of its module, wherever it is
+declared (in a directory module, in any file). `resolve.orderModuleConsts`
+orders the constants so each comes after those its value and its type
+name (`SemContext.const_order`, depth first with an explicit stack);
+the fold (`resolve.foldModuleConsts`) and typecheck take them in that
+order, and a constant that depends on itself is rejected, with its
+cycle, and left out.
 
 Every module's `SemContext` is in one shared table, and cross-module
 references go through it: an imported nominal type is
@@ -1742,7 +1824,7 @@ constants, array lengths, compile-time arguments, and enum values; it
 reads the program only through a names provider: `resolve.ConstNames`
 looks names up from a scope, and reads each constant's value and type
 from `const_ints` (module constants are folded into it once, in
-declaration order, before any type is resolved, their literals taking
+dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
 other module's, if it is public), and `sema.constInt` reads the facts
 of checked code. A compile-time parameter,
