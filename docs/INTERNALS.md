@@ -1974,7 +1974,8 @@ runtime function with value arguments, or the existing `read` and
 | `Simd[T, n]` | `@Vector(n, T)` (`bool` lanes for a mask) |
 | `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))` |
 | `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))` |
-| `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows |
+| `v +% w`, `v & w`, `v == w`, `v < w`; `+`, `-`, `*` of float lanes | the Zig operator, lane by lane |
+| `v + w`, `v - w`, `v * w`, `-v` of integer lanes, and `+=`, `-=`, `*=` | `rig.vecAdd(v, w)`, `rig.vecSub(v, w)`, `rig.vecMul(v, w)`, `rig.vecNeg(v)` (`storage.laneChecked`): the wrapped lanes, and a panic when any lane overflows, found by lane comparisons (`r < v` unsigned, sign tests signed, the product in lanes twice as wide) with no overflow intrinsic, whose flags LLVM computes wrong on aarch64 for 32 and 64 byte lanes |
 | `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
 | `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic |
 | `t.lookup(idx)` | `rig.lookup(t, idx)`: NEON `tbl1`/`tbl2`/`tbl4`, x86 `pshufb` (SSSE3; `vpshufb` on 32 indexes with AVX2) on the indexes plus 0x70, saturated (bit 7 set exactly from 16 on), WASM `i8x16.swizzle`, ORed over the table's 16-byte pieces off NEON, else a loop; at compile time, the loop (`@inComptime`) |
