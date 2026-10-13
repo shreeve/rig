@@ -107,6 +107,37 @@ true -3.0 -2.0
 7
 ```
 
+`shortest(f: Float) -> Decimal?` is the shortest decimal that reads back
+as exactly `f`: a `Decimal` with `neg` (the sign bit), `digits: U64`
+without a trailing zero (0 for a zero), and `exp: Int`, so that `|f|` is
+`digits * 10^exp`. It is `none` for NaN and the infinities, and allocates
+nothing. Formatting, such as an exponent form, is built above it.
+
+```rig
+use std.math
+
+sub show(f: Float)
+  if math.shortest(f) as d
+    print(d.neg, d.digits, d.exp)
+  else
+    print("none")
+
+sub main()
+  show(5e-324)
+  show(-0.1)
+  show(123.45)
+  show(0.0)
+  show(math.sqrt(-1.0))
+```
+
+```output
+false 5 -324
+true 1 -1
+false 12345 -2
+false 0 0
+none
+```
+
 ## std.os
 
 The arguments and environment the program started with. Their text
@@ -346,7 +377,9 @@ sub main()
 
 `List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room
 for `n` more elements without changing the length, so the next `n`
-pushes allocate nothing; a negative `n` panics.
+pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
+first `n` elements and drops the rest, so a List can be rewound to a
+length saved earlier.
 
 ```rig
 sub main()
@@ -355,10 +388,46 @@ sub main()
   for i in 0..3
     !v.push(i * i)
   print(v.len, v)
+  !v.keep(1)
+  print(v)
 ```
 
 ```output
 3 [0, 1, 4]
+[0]
+```
+
+## Text: bytes, runes, units, chars
+
+Every text API is described in four words, each with one meaning:
+
+| Word | What it is | Size |
+|---|---|---|
+| **byte** | 8 bits, a `U8`: what a `String` stores, and what `s.len`, `s[i]`, and slicing count | 1 byte |
+| **rune** | one Unicode code point other than a surrogate (a scalar value): a character's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
+| **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
+| **char** | what a reader sees as one character: a Unicode extended grapheme cluster | 1 or more runes |
+
+A char is a grapheme and nothing else: one character, as a person
+counts it, however many bytes it takes. The table of one char at 1, 2,
+3, 8, and 18 bytes is in [SPEC, Strings](../SPEC.md#strings), and the
+whole design, with each unit's module, is [TEXT](TEXT.md).
+
+Counting chars, runes, and units scans the text, so each is a call
+that names its unit:
+
+```rig pending
+use std.text
+use std.utf8
+use std.utf16
+
+sub main()
+  s = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}"
+  print(text.char_count(s), utf8.rune_count(s), utf16.unit_count(s), s.len)
+```
+
+```output
+1 5 8 18
 ```
 
 ## String
@@ -368,6 +437,11 @@ sub main()
 makes room for `n` more bytes without changing the length, and
 `!t.push[T, e](v)` appends the bytes of the integer `v` in byte order `e`
 in one write, as `bytes.read[T, e](at)` reads them back.
+`!t.push(v, keep: k)` appends only the first `k` bytes of a `Simd[U8, n]`
+(or `!t.push[T, e](w, keep: k)` of an integer's bytes), `0 <= k <= n`:
+it stores the whole block after the length in one write, and keeps `k`
+bytes, so text is copied a block at a time while it is scanned
+([SPEC §10](../SPEC.md#string)).
 
 ```rig
 sub main()

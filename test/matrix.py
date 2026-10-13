@@ -28,7 +28,11 @@ by value (`cellbranch.`), likewise, and a guard, a write between it and
 a use, and the use, whose test the compiler omits only where the guard
 still holds (`proof.`, below), and a write and a use in the slots of each
 statement form, proven exactly where the unit rule says, and run alike in
-debug and with `--release` (`unit.`, below). The rule is
+debug and with `--release` (`unit.`, below), and a generic `==`, `!=`, or
+ordering over every pairing of a view, an optional, an owner, and a List
+element, at each instance type, which is rejected with a diagnostic or
+runs, in debug and with `--release`, and prints what the values compare
+as (`cmp.`). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -113,6 +117,13 @@ def fal(ty):
 def opt(ty):
     """The optional of a type: a read view takes parentheses first."""
     return f"({ty})?" if ty.startswith("?") else f"{ty}?"
+
+
+def optn(ty, n):
+    """The optional of a type, n levels deep."""
+    for _ in range(n):
+        ty = opt(ty)
+    return ty
 
 
 def build_store():
@@ -753,6 +764,149 @@ ITER_CONTEXTS = ("end", "break", "continue", "return", "fail", "else", "value_en
                  "tail_end", "tail_break", "nested", "labeled")
 
 
+# A generic `==`, `!=`, or ordering over two operands, each a view, an
+# optional, an owner, or a List element, with `K` any instance type.
+EQ_TYPES = {
+    "int": dict(ty="Int", decl="", mk=["n"], copy=True, eq=True, ord=True),
+    "float": dict(ty="Float", decl="", mk=["return 1.5 if n == 1", "2.5"], copy=True, eq=True, ord=True),
+    "string": dict(ty="String", decl="", mk=['return String("a") if n == 1', 'String("b")'], copy=False, eq=True, ord=True),
+    "view": dict(ty="?String", decl="", mk=['return "a" if n == 1', '"b"'], copy=True, eq=True, ord=True),
+    "obj": dict(ty="P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['P(n: n, s: String("x"))'], copy=False, eq=True, ord=False),
+    "enum": dict(ty="E", decl="enum E\n  a(x: Int)\n  z\n\n", mk=["E.a(x: n)"], copy=True, eq=True, ord=False),
+    "list": dict(ty="List[Int]", decl="", mk=["l: List[Int] = List()", "!l.push(n)", "l"], copy=False, eq=False, ord=False),
+    "box": dict(ty="^P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['^P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
+    "shared": dict(ty="*P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['*P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
+}
+# form -> (parameter type with K, whether it may be none, the operand in the body)
+EQ_FORMS = {
+    "view": ("?K", False, "{v}"),
+    "wview": ("!K", False, "{v}"),
+    "own": ("K", False, "{v}"),
+    "opt": ("K?", True, "{v}"),
+    "vopt": ("?K?", True, "{v}"),
+    "optv": ("(?K)?", True, "{v}"),
+    "nopt": ("(K?)?", True, "{v}"),
+    "nnopt": ("((K?)?)?", True, "{v}"),
+    "elem": ("?List[K]", False, "{v}[0]"),
+    "elemopt": ("?List[K?]", True, "{v}[0]"),
+}
+EQ_RIGHT = ("view", "wview", "own", "opt", "vopt", "optv", "nopt", "nnopt")
+# the optional levels of a form's parameter type
+EQ_DEPTH = {"opt": 1, "vopt": 1, "optv": 1, "elemopt": 1, "nopt": 2, "nnopt": 3}
+EQ_ORDER_FORMS = ("view", "own", "opt", "vopt", "optv")
+
+
+def eq_operand(form, spec, n, i):
+    """The setup lines and the argument for one operand holding value `n`
+    (0 is none) in the form."""
+    ty, copy = spec["ty"], spec["copy"]
+    a, x = f"a{i}", f"x{i}"
+    take = x if copy else f"<{x}"
+    if form in ("nopt", "nnopt"):
+        # n is (s, core): s `some` layers around a core that is none (s < depth) or the value
+        d, (s, core) = EQ_DEPTH[form], n
+        if s == d:
+            return [f"{x}: {optn(ty, d)} = mk({core})"], take
+        lines, prev = [f"v{i}_0: {optn(ty, d - s)} = none"], f"v{i}_0"
+        for j in range(1, s + 1):
+            lines.append(f"v{i}_{j}: {optn(ty, d - s + j)} = " + (prev if copy else f"<{prev}"))
+            prev = f"v{i}_{j}"
+        return lines, prev if copy else f"<{prev}"
+    if form in ("view", "wview", "own"):
+        arg = {"view": f"?{a}", "wview": f"!{a}", "own": a if copy else f"<{a}"}[form]
+        return [f"{a} = mk({n})"], arg
+    if form in ("opt", "vopt"):
+        arg = take if form == "opt" else f"?{x}"
+        return [f"{x}: {opt(ty)} = " + ("none" if n == 0 else f"mk({n})")], arg
+    if form == "optv":
+        if n == 0:
+            return [f"{x}: {opt(rd(ty))} = none"], x
+        return [f"{a} = mk({n})", f"{x}: {opt(rd(ty))} = ?{a}"], x
+    if form == "elem":
+        return [f"{x}: List[{ty}] = List()", f"!{x}.push(mk({n}))"], f"?{x}"
+    return [f"{x}: List[{opt(ty)}] = List()", f"!{x}.push(" + ("none" if n == 0 else f"mk({n})") + ")"], f"?{x}"
+
+
+def eq_expect(op, left, right):
+    if left is None or right is None:
+        return left is None and right is None if op == "eq" else not (left is None and right is None)
+    return {"eq": left == right, "ne": left != right, "lt": left < right, "ge": left >= right}[op]
+
+
+def eq_program(tname, lform, rform, group):
+    """The program, and what it prints (None where it must be rejected)."""
+    spec = EQ_TYPES[tname]
+    ops = ("eq", "ne") if group == "eq" else ("lt", "ge")
+    symbol = {"eq": "==", "ne": "!=", "lt": "<", "ge": ">="}
+    lty, lmay, lbody = EQ_FORMS[lform]
+    rty, rmay, rbody = EQ_FORMS[rform]
+    lines = [spec["decl"].rstrip("\n")] if spec["decl"] else []
+    if lines:
+        lines.append("")
+    lines += [f"fun mk(n: Int) -> {spec['ty']}"] + ["  " + l for l in spec["mk"]] + [""]
+    for op in ops:
+        lines += [f"fun {op}[K](a: {lty}, b: {rty}) -> Bool",
+                  f"  {lbody.format(v='a')} {symbol[op]} {rbody.format(v='b')}", ""]
+    run, out = [], []
+    def cases(form, may):
+        d = EQ_DEPTH.get(form, 0)
+        if not may or group != "eq":
+            return [(0, 1), (0, 2)]
+        return [(s, None) for s in range(d)] + [(d, 1), (d, 2)]
+
+    def arg(form, v):
+        """The value in the form's operand: an int (0 is none), or (s, core) for the nested forms."""
+        s, core = v
+        if form in ("nopt", "nnopt"):
+            return v
+        return core if core is not None else 0
+
+    def same(lv, rv):
+        """Whether two values are equal: the shallower side is lifted by `some` to the deeper one's depth."""
+        ld, rd_ = EQ_DEPTH.get(lform, 0), EQ_DEPTH.get(rform, 0)
+        top = max(ld, rd_)
+        return lv[0] + top - ld == rv[0] + top - rd_ and lv[1] == rv[1]
+
+    run, out = [], []
+    i = 0
+    for lv in cases(lform, lmay):
+        for rv in cases(rform, rmay):
+            shown = []
+            for op in ops:
+                ls, la = eq_operand(lform, spec, arg(lform, lv), i)
+                rs, ra = eq_operand(rform, spec, arg(rform, rv), i + 1)
+                i += 2
+                run += ls + rs
+                shown.append(f"{op}[{spec['ty']}]({la}, {ra})")
+            run.append("print(" + ", ".join(shown) + ")")
+            if group == "eq":
+                e = same(lv, rv)
+                out.append(" ".join("true" if (e if op == "eq" else not e) else "false" for op in ops))
+            else:
+                vals = [None if v[1] is None else v[1] for v in (lv, rv)]
+                out.append(" ".join("true" if eq_expect(op, *vals) else "false" for op in ops))
+    lines += ["sub main()"] + ["  " + l for l in run]
+    ok = spec["eq"] if group == "eq" else spec["ord"]
+    return "\n".join(lines) + "\n", ("\n".join(out) + "\n") if ok else None
+
+
+def eq_cells():
+    """The `cmp.` cells: (id, program, expected output or None to be rejected)."""
+    cells = []
+    for tname, spec in EQ_TYPES.items():
+        for group in ("eq", "ord"):
+            ordered = group == "ord"
+            for lform in (EQ_ORDER_FORMS + ("elem", "elemopt") if ordered else EQ_FORMS):
+                for rform in EQ_RIGHT:
+                    if ordered and not spec["ord"] and lform != rform:
+                        continue
+                    if ordered and rform not in EQ_ORDER_FORMS:
+                        continue
+                    src, out = eq_program(tname, lform, rform, group)
+                    cells.append((f"cmp.{tname}.{group}.{lform}.{rform}", src, out))
+    return cells
+
+
 def iter_program(source, ctx):
     """The program for one iterator cell."""
     src = ITER_SOURCES[source]
@@ -832,6 +986,157 @@ def iter_output(source, ctx):
     else:
         out = b(0, 1) + drop + ["tail 10"]
     return "\n".join(out + ["end"]) + "\n"
+
+
+# -----------------------------------------------------------------------------
+# Constants Zig must not fold: a part of a constant (an element of a
+# constant array, a field of a value built of literals, a payload, a
+# byte of text) is a run-time value. Each cell reads one part, with
+# one operator that fails on it, in one way; the program either is
+# rejected by `rig check` with a diagnostic (where Rig folds a constant
+# scalar itself) or panics when it runs, before it prints. A Zig compile
+# error, or a value printed, fails the cell. Cells are
+# `fold.<constant>.<access>.<op>`, accepted and run in debug and with
+# `--release` unless the constant is a scalar.
+# -----------------------------------------------------------------------------
+
+FOLD_MAX = "9223372036854775807"
+FOLD_VALUES = [FOLD_MAX, "(-9223372036854775807 - 1)", "0", "(-1)"]
+FOLD_BYTES = ["255", "0", "0", "255"]
+FOLD_FIELDS = "abcd"
+# op: (the role of the value it fails on, the expression over X, the
+# types it applies to)
+FOLD_OPS = {
+    "add": (0, "X + 1", "iu"), "sub": (1, "X - 1", "iu"), "mul": (0, "X * 2", "iu"),
+    "neg": (1, "-X", "i"), "shl": (0, "X << 1", "iu"), "conv": (0, "U8(X)", "i"),
+    "div0": (2, "1 / X", "iu"), "mod0": (2, "1 % X", "iu"), "divm1": (1, "X / (-1)", "i"),
+}
+FOLD_FEW = ("add", "conv", "div0")
+FOLD_DECLS = ("obj P\n  a: Int\n  b: Int\n  c: Int\n  d: Int\n\n"
+              "obj D\n  a: Int = 9223372036854775807\n  b: Int = -9223372036854775808\n  c: Int = 0\n  d: Int = -1\n\n"
+              "enum E\n  v(a: Int, b: Int, c: Int, d: Int)\n\n")
+FOLD_ARRAY = "[" + ", ".join(FOLD_VALUES) + "]"
+# constant -> (the declaration, how a part is read ({r} the index of the
+# role, {f} its field name), the element type: `i` Int, `u` U8, the
+# accesses that apply)
+FOLD_CONSTS = {
+    "array": dict(top=f"K = {FOLD_ARRAY}", read="K[{r}]", ty="i",
+                  access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "for", "slice")),
+    "nested": dict(top=f"K = [{FOLD_ARRAY}, {FOLD_ARRAY}]", read="K[1][{r}]", ty="i",
+                   access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "row")),
+    "text": dict(top='K = "\\xff\\x00\\x00\\xff"', read="K[{r}]", ty="u",
+                 access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "for", "guard")),
+    "literal": dict(top="", read=f"{FOLD_ARRAY}[{{r}}]", ty="i", access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm")),
+    "ctor": dict(top="", read="P(a: " + FOLD_VALUES[0] + ", b: " + FOLD_VALUES[1] + ", c: 0, d: (-1)).{f}", ty="i",
+                 access=("direct", "bound", "arg", "generic", "subject", "arm")),
+    "default": dict(top="", read="D().{f}", ty="i", access=("direct", "bound", "arg", "generic", "subject", "arm")),
+    "local": dict(top="", pre=f"K = {FOLD_ARRAY}", read="K[{r}]", ty="i",
+                  access=("direct", "bound", "runtime", "arg", "generic", "subject", "arm", "for")),
+    "variant": dict(top="", ty="i", access=("direct", "bound")),
+    "optional": dict(top=None, ty="i", access=("as", "coalesce", "arm", "propagate")),
+    "optarray": dict(top="O: [4]Int? = [" + ", ".join(FOLD_VALUES) + "]", ty="i", access=("as", "coalesce", "propagate")),
+    "fallible": dict(top=None, ty="i", access=("propagate", "coalesce")),
+    "scalar": dict(top=None, ty="i", access=("direct", "bound", "arm"), rejected=True),
+}
+
+
+def fold_cells():
+    """(id, constant, access, op) of every cell."""
+    cells = []
+    for c, spec in FOLD_CONSTS.items():
+        for a in spec["access"]:
+            for op, (_, _, kinds) in FOLD_OPS.items():
+                if spec["ty"] not in kinds or (spec["ty"] == "u" and op in ("conv", "neg", "divm1")):
+                    continue
+                if a not in ("direct", "bound") and op not in FOLD_FEW + ("sub",):
+                    continue
+                if a == "generic" and op == "conv":
+                    continue
+                cells.append((f"fold.{c}.{a}.{op}", c, a, op))
+    return cells
+
+
+def fold_pattern(role):
+    """A `.v` pattern that binds only the field of `role`."""
+    return ".v(" + ", ".join("abcd"[i] if i == role else "_" for i in range(4)) + ")"
+
+
+def fold_program(c, a, op):
+    """The program for one constant cell, and whether it must be accepted."""
+    spec = FOLD_CONSTS[c]
+    role, tmpl, _ = FOLD_OPS[op]
+    ty = "U8" if spec["ty"] == "u" else "Int"
+    if c == "text":
+        role = {"add": 0, "sub": 1, "mul": 0, "shl": 0, "div0": 1, "mod0": 1}[op]
+    value = (FOLD_BYTES if spec["ty"] == "u" else FOLD_VALUES)[role]
+    top, pre = [FOLD_DECLS], []
+    main = []
+    use = lambda x: tmpl.replace("X", x)
+    if spec["top"]:
+        top.append(spec["top"] + "\n")
+    if c == "optional":
+        top.append(f"O: Int? = {value}\n")
+    if c == "fallible":
+        top.append(f"fun mk() -> Int!\n  {value}\n")
+    if c == "scalar":
+        top.append(f"K = {value}\n")
+    if spec.get("pre"):
+        main.append(spec["pre"])
+    read = spec.get("read", "").format(r=role, f=FOLD_FIELDS[role]) if "read" in spec else None
+    if c == "scalar":
+        read = "K"
+    if c == "optional":
+        read = "(O ?? 0)"
+    if c == "optarray":
+        read = f"(O[{role}] ?? 0)"
+    if c == "fallible":
+        read = "(mk() catch 0)"
+    helpers = []
+    if a == "direct":
+        if c == "variant":
+            main += ["match E.v(a: " + FOLD_VALUES[0] + ", b: " + FOLD_VALUES[1] + ", c: 0, d: (-1))",
+                     f"  {fold_pattern(role)} => print({use('abcd'[role])})"]
+        else:
+            main.append(f"print({use(read)})")
+    elif a == "bound":
+        if c == "variant":
+            main += ["e = E.v(a: " + FOLD_VALUES[0] + ", b: " + FOLD_VALUES[1] + ", c: 0, d: (-1))",
+                     "match e", f"  {fold_pattern(role)} => print({use('abcd'[role])})"]
+        else:
+            main += [f"m = {read}", f"print({use('m')})"]
+    elif a == "runtime":
+        main += ["i = 0", f"i += {role}", f"print({use(spec['read'].format(r='i', f=''))})"]
+    elif a == "arg":
+        helpers.append(f"sub f(x: {ty})\n  print({use('x')})\n")
+        main.append(f"f({read})")
+    elif a == "generic":
+        helpers.append(f"sub g[T](x: T)\n  print({use('x')})\n")
+        main.append(f"g({read})")
+    elif a == "subject":
+        main += [f"match {read}", f"  {7 if c != 'text' else 7} => print(0)", f"  n => print({use('n')})"]
+    elif a == "arm":
+        main += ["match true", f"  true => print({use(read)})", "  _ => print(0)"]
+    elif a == "for":
+        src = "K"
+        main += [f"for x in {src}", f"  if x == {value}", f"    print({use('x')})"]
+    elif a == "slice":
+        main += ["s = ?K[0..4]", f"print({use(f's[{role}]')})"]
+    elif a == "row":
+        main += ["row = K[1]", f"print({use(f'row[{role}]')})"]
+    elif a == "guard":
+        main += ["if K.len > 0", f"  print({use(read)})"]
+    elif a == "as":
+        main += [f"if {'O' if c == 'optional' else f'O[{role}]'} as x", f"  print({use('x')})"]
+    elif a == "coalesce":
+        main.append(f"print({use(read)})")
+    elif a == "propagate":
+        # `?` or `!` of a constant binds a run-time value.
+        src_ = {"optional": "O", "optarray": f"O[{role}]", "fallible": "mk()"}[c]
+        mark = "!" if c == "fallible" else "?"
+        helpers.append(f"fun p() -> Int{mark}\n" + f"  v = {src_}{mark}\n  print({use('v')})\n  v\n")
+        main.append("print(p() " + ("catch 0)" if c == "fallible" else "?? 0)"))
+    src = "\n".join(top) + "\n" + "\n".join(helpers) + "\nsub main()\n" + "\n".join("  " + l for l in main) + "\n"
+    return src, not FOLD_CONSTS[c].get("rejected", False)
 
 
 def loop_program(outer, inner, jump, end):
@@ -2743,7 +3048,8 @@ def run_one(path, keep, started_dir, expect=None, release=False):
     """Classify one program: rejected, ok, or a failure with its reason.
     With `expect`, a program that runs must print exactly that; with
     `release`, also when built with `--release`, and it must be
-    accepted."""
+    accepted; with `release == "also"`, a program that is accepted is
+    also built with `--release`, but it may be rejected."""
     d = os.path.dirname(path)
     try:
         chk = subprocess.run([RIG, "check", path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -2755,7 +3061,7 @@ def run_one(path, keep, started_dir, expect=None, release=False):
     if chk.returncode != 0:
         # A program also built with `--release` is one the checker must
         # accept.
-        if release:
+        if release is True:
             return "fail", "rejected, but must be accepted: " + first_error(out)
         if POS.search(out):
             return "rejected", first_error(out)
@@ -2925,6 +3231,7 @@ def main():
                     fh.write(store_program(o, f, then))
                 cells.append((ident, path))
     release = set()
+    also = set()
     for o in STEP_OWNERS:
         for hname in STEP_HOLDERS:
             for shape in STEP_SHAPES:
@@ -2980,6 +3287,27 @@ def main():
             expects[ident] = out if out is not None else "(rejected)\n"
             if out is not None:
                 release.add(ident)
+    for ident, src, out in eq_cells():
+        if not wanted(ident):
+            continue
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        expects[ident] = out if out is not None else "(rejected)\n"
+        also.add(ident)
+    for ident, c, a, op in fold_cells():
+        if not wanted(ident):
+            continue
+        src, accepted = fold_program(c, a, op)
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        # The part is read when the program runs: it panics before it prints.
+        expects[ident] = ""
+        if accepted:
+            release.add(ident)
     for call in NAMED_CALLS:
         for kind in NAMED_KINDS:
             for order in NAMED_ORDERS:
@@ -3176,7 +3504,7 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
             futs = {(pool.submit(run_proof, p, bool(args.keep), started_dir, proofs[i]) if i in proofs else
                      pool.submit(run_unit, p, bool(args.keep), started_dir, units[i]) if i in units else
-                     pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), i in release)): i for i, p in cells}
+                     pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), "also" if i in also else i in release)): i for i, p in cells}
             for fut in concurrent.futures.as_completed(futs):
                 results[futs[fut]] = fut.result()
     finally:

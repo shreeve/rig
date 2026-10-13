@@ -183,6 +183,10 @@ tokens
     eof
     err
 
+# A token of any length keeps its category: a token over 65534 bytes has
+# `len = 65535`, and its end is read through `tokenEnd` and `leafEnd`.
+@longtokens
+
 # ==============================================================================
 # LEXER RULES
 # ==============================================================================

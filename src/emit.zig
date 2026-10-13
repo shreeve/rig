@@ -236,6 +236,10 @@ pub const Emitter = struct {
     /// value (`facts.syntax.valueParts`) the use reaches.
     use: ?facts.Use = null,
     use_node: Sexp = .nil,
+    /// The value parts of each `match` that has been the value whose use
+    /// is known, by the match (`partOfUse`), found once so that telling
+    /// whether a value is one of them walks no arm.
+    match_parts: std.AutoHashMapUnmanaged(PartKey, std.AutoHashMapUnmanaged(PartKey, void)) = .empty,
     /// The next expression is emitted as the pointer it yields, even where
     /// its context reads through it (`emitDeref`).
     want_ptr: bool = false,
@@ -2693,7 +2697,12 @@ pub const Emitter = struct {
                     const saved_path = self.subject_path;
                     defer self.subject_path = saved_path;
                     self.subject_path = subject;
+                    // A value built of constants is switched on at run
+                    // time: its payloads are not constants.
+                    const fixed = info.mode == .read and !info.boxed and isZigComptimeIn(self, subject, 0);
+                    try self.openFixed(fixed, subject);
                     try self.emitBare(subject);
+                    try self.closeFixed(fixed, subject);
                 }
                 if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
                 try self.closeHeader(h);
@@ -3376,7 +3385,14 @@ pub const Emitter = struct {
         if (points) {
             try self.emitSubjectPtr(value, false);
             try self.w.writeAll(".*");
-        } else try self.emitHeader(value);
+        } else {
+            // An optional built of constants is tested at run time, and
+            // so is the value inside it.
+            const fixed = self.isScalarPart(value) and isZigComptimeIn(self, value, 0);
+            try self.openFixed(fixed, value);
+            try self.emitHeader(value);
+            try self.closeFixed(fixed, value);
+        }
         try self.w.writeAll(") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
         const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.facts.types.get(self.peelViews(t))) {
@@ -3509,7 +3525,7 @@ pub const Emitter = struct {
             self.use = saved_use;
             self.use_node = saved_use_node;
         }
-        if (!self.partOfUse(sexp)) self.use = self.facts.useOf(sexp);
+        if (!try self.partOfUse(sexp)) self.use = self.facts.useOf(sexp);
         self.use_node = sexp;
         const want_ptr = self.want_ptr;
         self.want_ptr = false;
@@ -3730,12 +3746,31 @@ pub const Emitter = struct {
     /// Whether `sexp`, the value being emitted, is the value whose use is
     /// known or a part of it (`facts.syntax.valueParts`), directly or as the
     /// block whose tail the part is.
-    fn partOfUse(self: *const Emitter, sexp: Sexp) bool {
+    fn partOfUse(self: *Emitter, sexp: Sexp) Error!bool {
         if (self.use_node == .nil) return false;
         if (sameNode(sexp, self.use_node)) return true;
+        if (self.use_node.isKind(.match)) {
+            const parts = try self.matchParts(self.use_node);
+            const tail = facts.syntax.tailOf(sexp);
+            return (if (partKey(sexp)) |k| parts.contains(k) else false) or
+                (if (partKey(tail)) |k| parts.contains(k) else false);
+        }
         var parts = facts.syntax.valueParts(self.use_node);
         while (parts.next()) |p| if (sameNode(p.node, sexp) or sameNode(p.node, facts.syntax.tailOf(sexp))) return true;
         return false;
+    }
+
+    /// The value parts of `match` (`facts.syntax.valueParts`), one per
+    /// arm, as a set.
+    fn matchParts(self: *Emitter, match: Sexp) Error!*const std.AutoHashMapUnmanaged(PartKey, void) {
+        const a = self.arena.allocator();
+        const entry = try self.match_parts.getOrPut(a, partKey(match).?);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = .empty;
+            var parts = facts.syntax.valueParts(match);
+            while (parts.next()) |p| if (partKey(p.node)) |k| try entry.value_ptr.put(a, k, {});
+        }
+        return entry.value_ptr;
     }
 
     /// Whether name `sexp`, at a tail of the value being emitted, moves
@@ -4473,6 +4508,9 @@ pub const Emitter = struct {
             .array => |a| a.len,
             else => null,
         } else null;
+        // A value read from a constant is a run-time value (`readsFixed`).
+        const fixed = !in_place and self.readsFixed(sexp, base, index);
+        if (fixed) try self.w.writeAll("rig.rt(");
         const n = array_len orelse {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
@@ -4487,7 +4525,9 @@ pub const Emitter = struct {
             self.place_chain = false;
             try self.emitBare(index);
             if (proven) |p| try self.w.print(", .{s}", .{p});
-            return self.w.writeAll(if (in_place) ").*" else ")");
+            try self.w.writeAll(if (in_place) ").*" else ")");
+            if (fixed) try self.w.writeAll(")");
+            return;
         };
         const may_be_empty = switch (self.facts.types.get(n)) {
             .ct_value => |v| v.int == 0,
@@ -4507,7 +4547,9 @@ pub const Emitter = struct {
             try self.emitBare(index);
             try self.w.writeAll(", ");
             try self.emitTypeTy(n);
-            return self.w.writeAll(")]");
+            try self.w.writeAll(")]");
+            if (fixed) try self.w.writeAll(")");
+            return;
         }
         // An array literal is indexed through parentheses: `([_]T{ ... })[i]`.
         const literal = base.isKind(.array);
@@ -4527,6 +4569,52 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
+        if (fixed) try self.w.writeAll(")");
+    }
+
+    /// Whether `part`, an element of `base` at `index`, is a value of
+    /// plain data that Zig would know at compile time: both are built
+    /// only from constants (`isZigComptimeIn`), as in `table[0]` for a
+    /// module constant `table`. Rig folds only the constant scalars it
+    /// checks itself, so Zig must not fold the rest: a part of a constant
+    /// is read through `rig.rt`, which keeps it a run-time value, as an
+    /// inlined function's result is. A part that is itself an aggregate
+    /// is left bare: what reads it, binds it, or matches it makes the
+    /// run-time value (`isZigComptimeIn` in `emitBind`, `emitMatchSubject`).
+    fn readsFixed(self: *Emitter, part: Sexp, base: Sexp, index: Sexp) bool {
+        return !self.keep_comptime and self.isScalarPart(part) and isZigComptimeIn(self, base, 0) and isZigComptimeIn(self, index, 0);
+    }
+
+    /// The start of a `value` read as a run-time value (`rig.rt`), when
+    /// `fixed`: a scalar is given its type first, since a literal alone
+    /// is a compile-time integer or float, which `rig.rt` would keep.
+    fn openFixed(self: *Emitter, fixed: bool, value: Sexp) Error!void {
+        if (!fixed) return;
+        try self.w.writeAll("rig.rt(");
+        if (!self.isScalarPart(value)) return;
+        const t = self.typeOf(value).?;
+        const types = self.facts.types;
+        try self.writeAsOpen(switch (types.get(t)) {
+            .int_literal => types.int_id,
+            .float_literal => types.float_id,
+            else => t,
+        });
+    }
+
+    fn closeFixed(self: *Emitter, fixed: bool, value: Sexp) Error!void {
+        if (!fixed) return;
+        try self.w.writeAll(if (self.isScalarPart(value)) "))" else ")");
+    }
+
+    /// `part`'s type is a number or a `Bool`, or an optional of one: what
+    /// an operator can fail on once Zig knows it.
+    fn isScalarPart(self: *Emitter, part: Sexp) bool {
+        var t = self.peelViews(self.typeOf(part) orelse return false);
+        while (true) switch (self.facts.types.get(t)) {
+            .optional => |inner| t = inner,
+            .int, .float, .int_literal, .float_literal, .bool => return true,
+            else => return false,
+        };
     }
 
     /// Whether place `e` is reached through a read view or a shared
@@ -4677,6 +4765,11 @@ pub const Emitter = struct {
             try self.writeModuleName(self.srcText(obj));
             return self.w.print(".{f})", .{ident(field)});
         }
+        // A field of a value built of constants is a run-time value
+        // (`readsFixed`).
+        const fixed = obj_ty != null and !self.place_chain and !self.keep_comptime and !self.isModuleValue(obj, sexp) and
+            self.isScalarPart(sexp) and isZigComptimeIn(self, obj, 0);
+        if (fixed) try self.w.writeAll("rig.rt(");
         try self.emitMemberBase(obj, obj_ty);
         if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
             // A consuming method of an owned box's value takes the value
@@ -4687,6 +4780,7 @@ pub const Emitter = struct {
             } else try self.writeReach(t);
         };
         try self.w.print(".{f}", .{ident(field)});
+        if (fixed) try self.w.writeAll(")");
     }
 
     /// `.value` for each shared handle and box that member access on a
@@ -4922,6 +5016,7 @@ pub const Emitter = struct {
     /// backing integer type exactly, so its operand, any integer, goes
     /// through `@intCast` (checked in safe builds, as the tag is).
     fn emitBuiltin(self: *Emitter, sexp: Sexp) Error!void {
+        if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "variants")) return self.emitVariants(sexp);
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "name")) return self.emitNameQuery(sexp);
         const name = zigBuiltinName(self.srcText(ir.Builtin.name(sexp)));
         const cast = std.mem.eql(u8, name, "fromBackingInt");
@@ -4933,6 +5028,28 @@ pub const Emitter = struct {
         }
         if (cast) try self.w.writeAll(")");
         try self.w.writeAll(")");
+    }
+
+    /// `@variants(T)`: `[N]T{ T.a, T.b }`, the variants in order.
+    fn emitVariants(self: *Emitter, sexp: Sexp) Error!void {
+        const arr = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped `@variants`");
+        const elem = switch (self.facts.types.get(arr)) {
+            .array => |a| a.elem,
+            else => return self.unsupported(sexp, "`@variants` of this type"),
+        };
+        const decl = self.facts.nominalDecl(elem) orelse return self.unsupported(sexp, "`@variants` of this type");
+        try self.w.writeAll("(");
+        try self.emitTypeTy(arr);
+        try self.w.writeAll("{ ");
+        var first = true;
+        for (decl.symbol().fields orelse &.{}) |f| {
+            if (!f.is_variant) continue;
+            if (!first) try self.w.writeAll(", ");
+            first = false;
+            try self.emitTypeTy(elem);
+            try self.w.print(".{f}", .{ident(f.name)});
+        }
+        try self.w.writeAll(" })");
     }
 
     /// `@name(T)`: the type's name as sema's printer spells it, the
@@ -5221,12 +5338,13 @@ pub const Emitter = struct {
     /// `t.add(.{ a, &b })`, the arguments written as `print`'s are
     /// (`emitPrintArgs`), so a place is read at the call; `!t.clear()` →
     /// `t.clear()`; `!t.reserve(n)` → `t.reserve(n)`; `!t.push[T, e](v)` →
-    /// `t.pushInt(T, v, e)`.
+    /// `t.pushInt(T, v, e)`; `!t.push(v, keep: k)` and `!t.push[T, e](v,
+    /// keep: k)` → `t.pushKeep(T, v, k, e)`.
     fn emitStringCall(self: *Emitter, call: Sexp, op: facts.StringCall) Error!void {
         const args = ir.Call.args(call);
         switch (op) {
             .new => try self.w.writeAll("rig.String.of("),
-            .add, .push, .push_int, .reserve, .clear => {
+            .add, .push, .push_int, .push_keep, .reserve, .clear => {
                 const recv = ir.Member.object(self.facts.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
                 if (self.typeOf(recv)) |t| try self.writeReach(t);
@@ -5242,6 +5360,21 @@ pub const Emitter = struct {
                     try self.emitTypeTy(self.facts.stringNumOf(self.facts.calleeOf(call)) orelse return self.unsupported(call, "a `push` without its type"));
                     try self.w.writeAll(", ");
                     try self.emitBare(args[0]);
+                    try self.w.writeAll(", ");
+                    const given = self.facts.ctArgsOf(call);
+                    if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
+                    return self.w.writeAll(")");
+                }
+                // `.pushKeep(T, v, k, endian)`: all of `v` is stored, the
+                // first `k` bytes kept. A vector takes no byte order.
+                if (op == .push_keep) {
+                    const num = self.facts.stringNumOf(self.facts.calleeOf(call)) orelse return self.unsupported(call, "a `push` without its type");
+                    try self.w.writeAll(".pushKeep(");
+                    try self.emitTypeTy(num);
+                    try self.w.writeAll(", ");
+                    try self.emitBare(args[0]);
+                    try self.w.writeAll(", ");
+                    try self.emitBare(ir.Kwarg.value(args[1]));
                     try self.w.writeAll(", ");
                     const given = self.facts.ctArgsOf(call);
                     if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
@@ -5377,6 +5510,33 @@ pub const Emitter = struct {
                 try self.emitBare(ir.Member.object(callee));
                 return self.w.writeAll(")))");
             },
+            // `@as(u64, @bitCast(x))`.
+            .to_bits => {
+                try self.writeAsOpen(ec.elem);
+                try self.w.writeAll("@bitCast(");
+                try self.writeAsOpen(ec.num);
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")))");
+            },
+            // `@as(f64, @bitCast(@as(u64, u)))`.
+            .from_bits => {
+                try self.writeAsOpen(ec.num);
+                try self.w.writeAll("@bitCast(");
+                try self.writeAsOpen(ec.elem);
+                try self.emitBare(args[0]);
+                return self.w.writeAll(")))");
+            },
+            // The low bits, read in the target's signedness.
+            .wrap => return self.emitWrap(args[0], ec),
+            // `rig.enumFromInt(E, n)`.
+            .from_int => {
+                try self.w.writeAll("rig.enumFromInt(");
+                try self.emitTypeTy(ec.num);
+                try self.w.writeAll(", ");
+                try self.writeAsOpen(ec.elem);
+                try self.emitBare(args[0]);
+                return self.w.writeAll("))");
+            },
             .swap_bytes => {
                 try self.w.writeAll("@byteSwap(");
                 try self.writeAsOpen(ec.num);
@@ -5397,6 +5557,33 @@ pub const Emitter = struct {
             },
         }
         try self.w.writeAll(")");
+    }
+
+    /// `I32.wrap(x)`: to a narrower target, truncate the source's bits;
+    /// to a wider one, widen at the source's signedness; then read the
+    /// bits as the target.
+    fn emitWrap(self: *Emitter, arg: Sexp, ec: facts.ElemCall) Error!void {
+        const from = self.facts.types.get(ec.elem).int;
+        const to = self.facts.types.get(ec.num).int;
+        const wf = from.width();
+        const wt = to.width();
+        try self.writeAsOpen(ec.num);
+        try self.w.writeAll("@bitCast(");
+        if (wt < wf) {
+            try self.w.print("@as(u{d}, @truncate(@as(u{d}, @bitCast(", .{ wt, wf });
+            try self.writeAsOpen(ec.elem);
+            try self.emitBare(arg);
+            return self.w.writeAll(")))))))");
+        }
+        if (wt == wf) {
+            try self.writeAsOpen(ec.elem);
+            try self.emitBare(arg);
+            return self.w.writeAll(")))");
+        }
+        try self.w.print("@as({c}{d}, @intCast(", .{ @as(u8, if (from.signed) 'i' else 'u'), wt });
+        try self.writeAsOpen(ec.elem);
+        try self.emitBare(arg);
+        try self.w.writeAll(")))))");
     }
 
     /// `rig.rt(@as(V, `, which a vector's construction closes with `))`
@@ -5549,6 +5736,8 @@ pub const Emitter = struct {
                 "listPop"
             else if (std.mem.eql(u8, m, "clear"))
                 "listClear"
+            else if (std.mem.eql(u8, m, "keep"))
+                "listKeep"
             else if (std.mem.eql(u8, m, "get") and ir.Call.args(sexp).len == 1) "listGet" else null;
             if (method) |name| {
                 try self.emitCellPtr(ir.Member.object(callee));
@@ -7175,45 +7364,60 @@ fn isPlainIdent(name: []const u8) bool {
     return name.len > 0 and name[0] != '@' and std.mem.findScalar(u8, name, '.') == null;
 }
 
-/// Whether Zig could evaluate `e` at compile time: it is built only from
-/// literals, compile-time names (compile-time parameters, `const` bindings),
-/// constructors, and operators. Conservative: true when unsure.
+/// Whether Zig could evaluate `e` at compile time. A positive list: a
+/// literal, a name of a constant (a module-level binding, a compile-time
+/// parameter, a function or a type), a constructor or variant, and an
+/// operator, index, field, propagation, `??`, `catch`, ternary, or `match`
+/// whose parts all are. Any other form (a call, a lend, a move, a clone,
+/// a closure, an extern variable, a form added later) is not.
 fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     if (depth > 32) return true;
     switch (e) {
         .src => {
             const t = em.srcText(e);
             if (isLiteralText(t) or std.mem.eql(u8, t, "none")) return true;
+            // A label or member name, which names no symbol.
             const sym = em.facts.symbolOf(e) orelse return true;
             const sd = em.facts.symbols.items[sym];
             return switch (sd.kind) {
-                .local, .param, .capture => sd.flags.comptime_known,
-                else => true,
+                // A module-level binding is a Zig `pub const`, known at
+                // compile time whatever it holds.
+                .local => em.facts.isModuleLevel(sym) or sd.flags.comptime_known,
+                .param, .capture => sd.flags.comptime_known,
+                .function, .type_alias, .generic_type, .generic_param, .nominal_type, .module => true,
+                else => false,
             };
         },
         .list => {
-            const h = e.kind() orelse return true;
+            const h = e.kind() orelse return false;
             switch (h) {
                 .call => {
                     // A constructor or variant of constant arguments is
-                    // constant; a function call is not.
+                    // constant; a function call is not. A member callee
+                    // without a type of its own names a variant or a
+                    // type of another module (`emitCallPlain`).
                     const callee = em.facts.calleeOf(e);
-                    const ctor = callee.isKind(.enum_lit) or (callee == .src and if (em.facts.symbolOf(callee)) |id| em.isTypeSym(id) else false);
+                    const ctor = callee.isKind(.enum_lit) or
+                        (callee == .src and if (em.facts.symbolOf(callee)) |id| em.isTypeSym(id) else false) or
+                        (callee.isKind(.member) and em.facts.typeOf(callee) == null);
                     if (!ctor) return false;
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
                 },
-                .share, .box, .clone, .weak, .move, .read, .write, .lambda, .propagate, .propagate_none, .@"catch" => return false,
-                else => {
+                .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block,
+                .propagate, .propagate_none, .@"catch", .@"??", .neg, .not, .@"and", .@"or",
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^",
+                .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
                     for (rig.children(e)) |c| {
                         if (c == .tag or c == .nil) continue;
                         if (!isZigComptimeIn(em, c, depth + 1)) return false;
                     }
                     return true;
                 },
+                else => return false,
             }
         },
-        else => return true,
+        else => return false,
     }
 }
 
@@ -7268,6 +7472,18 @@ fn sameNode(a: Sexp, b: Sexp) bool {
         .src => |s| b == .src and b.src.pos == s.pos,
         .list => b == .list and a.items().ptr == b.items().ptr,
         else => false,
+    };
+}
+
+/// What `sameNode` compares a node by: a leaf's position, or a list's
+/// items. Two nodes are the same exactly when their keys are equal.
+const PartKey = struct { leaf: bool, at: usize };
+
+fn partKey(n: Sexp) ?PartKey {
+    return switch (n) {
+        .src => |s| .{ .leaf = true, .at = s.pos },
+        .list => .{ .leaf = false, .at = @intFromPtr(n.items().ptr) },
+        else => null,
     };
 }
 

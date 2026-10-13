@@ -792,7 +792,7 @@ pub const Checker = struct {
     /// leaves when checking without ctx.
     fn span(self: *const Checker, node: Sexp) diag.Span {
         if (self.sema) |s| return s.span(node);
-        return diag.leafSpan(node);
+        return rig.leafSpan(self.source, node);
     }
 
     /// Where a node starts in the source.
@@ -3095,7 +3095,9 @@ pub const Checker = struct {
                 const pos = expr.src.pos;
                 const name = v.name;
                 if (v.closure) return; // reported by walkName
-                if (v.loop_view) {
+                // A loop view passed to a call is lent on for the call, as
+                // `?x` lends it; anywhere else it would be copied out.
+                if (v.loop_view and !(sink == .argument and self.isViewType(v.ty))) {
                     try self.err(pos, "bare use of loop view `{s}` in {s} would carry the viewed handle past the loop; " ++ loop_view_rule, .{ name, sink.text() });
                     return;
                 }
@@ -5050,6 +5052,7 @@ pub const Checker = struct {
         var value: Value = .{};
         var catch_all = false;
         const arms = ir.Match.arms(match);
+        const past = resumeAt(.nil, match);
         for (arms, 0..) |arm, i| {
             const pattern = ir.Arm.pattern(arm);
             const guard = ir.Arm.guard(arm);
@@ -5078,7 +5081,7 @@ pub const Checker = struct {
                 // A header, its own statement.
                 try self.walkStmt(guard);
                 // A failing guard goes on to the next arm, or past the match.
-                failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match) });
+                failed = try self.exitTo(.{ .to = base, .resume_at = resumeBefore(if (i + 1 < arms.len) arms[i + 1] else .nil, past) });
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
@@ -5088,7 +5091,7 @@ pub const Checker = struct {
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
-            const s = try self.leave(base, resumeAt(.nil, match));
+            const s = try self.leave(base, past);
             acc = if (acc) |a| try self.join(a, s) else s;
             if (failed) |f| start = try self.join(start, f);
         }
@@ -5732,6 +5735,15 @@ pub const Checker = struct {
         };
     }
 
+    /// Whether `ty` is a view: a `?T`, `!T`, slice, or `?String`.
+    fn isViewType(self: *const Checker, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return switch (self.typeData(t)) {
+            .read_view, .write_view, .slice, .string_view => true,
+            else => false,
+        };
+    }
+
     /// The type a view type refers to.
     fn pointee(self: *const Checker, ty: ?TypeId) ?TypeId {
         const t = ty orelse return null;
@@ -5988,7 +6000,12 @@ fn stepAt(node: Sexp) u32 {
 /// Where a path that skips the rest of `node` goes on: at `next`, a
 /// later part of it, or else past its end.
 fn resumeAt(next: Sexp, node: Sexp) u32 {
-    const past = extent(node).hi +| 1;
+    return resumeBefore(next, extent(node).hi +| 1);
+}
+
+/// Where a path that skips to `next` goes on, in a node whose end is
+/// `past` (`resumeAt` with that node's end found once).
+fn resumeBefore(next: Sexp, past: u32) u32 {
     return if (next == .nil) past else @min(extent(next).lo, past);
 }
 

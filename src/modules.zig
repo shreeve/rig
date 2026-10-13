@@ -38,6 +38,7 @@
 
 const std = @import("std");
 const parser = @import("parser.zig");
+const rig = @import("rig.zig");
 const sema = @import("sema.zig");
 const proofs = @import("proofs.zig");
 const ownership = @import("ownership.zig");
@@ -45,6 +46,7 @@ const diag = @import("diag.zig");
 const ir = parser.ir;
 const std_lib = @import("rig_std");
 
+/// The most bytes a source file holds (16 MiB).
 pub const max_source_bytes = 16 * 1024 * 1024;
 
 /// The root module's emitted file. Names starting with `__rig` are the
@@ -210,14 +212,14 @@ pub const ModuleGraph = struct {
         const path = ir.Use.name(decl);
         var names: std.ArrayList([]const u8) = .empty;
         var node = path;
-        while (node.isKind(.member)) : (node = ir.Member.object(node)) try names.append(a, ir.Member.name(node).getText(importer.source));
-        try names.append(a, node.getText(importer.source));
+        while (node.isKind(.member)) : (node = ir.Member.object(node)) try names.append(a, rig.leafText(importer.source, ir.Member.name(node).src));
+        try names.append(a, rig.leafText(importer.source, node.src));
         std.mem.reverse([]const u8, names.items);
         const in_std = names.items.len > 1 and std.mem.eql(u8, names.items[0], "std");
         const comps = if (in_std) names.items[1..] else names.items;
         const name = comps[comps.len - 1];
         const alias = ir.Use.alias(decl);
-        const local_name = if (alias == .nil) name else alias.getText(importer.source);
+        const local_name = if (alias == .nil) name else rig.leafText(importer.source, alias.src);
         const at = importer.parser.span(decl);
         const file = partOf(importer.parts, at.start);
 
@@ -448,7 +450,7 @@ pub const ModuleGraph = struct {
             if (!decl.isKind(.zig_extern)) continue;
             const leaf = ir.ZigExtern.file(decl);
             const at = m.parser.span(leaf);
-            const quoted = leaf.getText(m.source);
+            const quoted = rig.leafText(m.source, leaf.src);
             const file = quoted[1 .. quoted.len - 1];
             const base = file[0..file.len -| 4];
             const plain = std.mem.endsWith(u8, file, ".zig") and base.len > 0 and for (base) |c| {
@@ -560,13 +562,15 @@ pub const ModuleGraph = struct {
                 return id;
             },
             error.InputTooLarge => unreachable, // sources are at most `max_source_bytes`
+            // `Lexer.next` returns each token it scans before it scans another.
+            error.TokenEndUnknown => unreachable,
             else => |e| return e,
         };
         return id;
     }
 
     fn read(self: *ModuleGraph, path: []const u8) ![]const u8 {
-        return std.Io.Dir.cwd().readFileAlloc(self.io, path, self.arena.allocator(), .limited(max_source_bytes));
+        return std.Io.Dir.cwd().readFileAlloc(self.io, path, self.arena.allocator(), .limited(max_source_bytes + 1));
     }
 
     /// The real absolute path of a readable file, or, where the platform

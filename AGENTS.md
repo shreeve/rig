@@ -2,7 +2,8 @@
 
 Read this before changing anything. It is short on purpose. Where
 Rig stands and what comes next is in [HANDOFF.md](HANDOFF.md); read
-that first.
+that first. The short phrases we steer by are in
+[docs/RIG-MANTRAS.md](docs/RIG-MANTRAS.md).
 
 ## North star
 
@@ -200,11 +201,14 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `SPEC.md` | Language reference: what every form means |
 | `FAQ.md` | Common questions |
 | `docs/STD.md` | The standard library's modules |
+| `docs/TEXT.md` | Text: bytes, runes, units, and chars, how each is measured, and the modules for each |
 | `docs/DESIGN.md` | Principles and rationale |
+| `docs/RIG-MANTRAS.md` | The short phrases we steer by: how we choose, build, name, and measure |
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
 | `docs/json/` | The JSON parser's design, its open items, and the measurement record |
 | `docs/simd/` | The design for portable vectors (`Simd`): proposal, Zig lowering, opcodes, and the Zig probes behind them |
 | `IDEAS.md` | Suggestions for improving Rig, led by the bar it must clear: shorter and plainer than idiomatic Rust |
+| `docs/RIG-NOTES.md` | Weak, missing, and inconsistent spots in Rig that the work on std.json found, each with its cost and a fix to consider |
 | `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |

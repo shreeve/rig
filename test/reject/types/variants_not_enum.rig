@@ -1,0 +1,9 @@
+enum S
+  a
+  b
+
+sub main()
+  print(@variants(?S), @variants(Int))
+
+# error: 6:19: `@variants` takes an enum type; `?S` is a read view of one: write `@variants(S)`
+# error: 6:34: `@variants` takes an enum type; `Int` is not one

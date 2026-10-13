@@ -332,8 +332,24 @@ forms to `value`, an expression without blocks or closures (conditions,
   leading zero or an uppercase radix prefix, a control character in a
   string, and a carriage return without a line feed (a leading byte
   order mark is skipped);
-- bounds nesting (64 blocks, 512 brackets, 32 islands) and token
-  length (65535 bytes) so no input can overflow it.
+- bounds nesting (64 blocks, 512 brackets, 32 islands) so no input
+  can overflow it.
+
+A token may be of any length (`@longtokens` in `rig.grammar`): one
+over 65534 bytes keeps its category, and its `len` of 65535 stands for
+"longer". Its end is read in one place per side. In the lexer, `endOf`
+gives every token's end from the end the lexer recorded as it scanned
+it, and the wrapper builds no token of a computed length but a parse
+failure's (`BaseLexer.token`). After the parse, `rig.leafEnd` gives
+every leaf's end, and `rig.leafText` and `rig.leafSpan` read it: a long
+leaf's end is where the generated lexer's scan from its start ends. That
+lexer keeps no state between tokens, so the scan finds the end the
+parser kept, which `Parser.parseTree` checks for every long token. That
+holds while `rig.grammar`'s `@lexer` has no state, guards, or `@code`:
+a lexer rule that adds one must move `leafEnd` to the parser's table of
+long-token ends, and the check turns a missed case into a panic rather
+than a wrong end. A source file holds at most 16 MiB
+(`modules.max_source_bytes`).
 
 `rig tokens` shows its output.
 
@@ -1271,7 +1287,7 @@ instead of re-deriving it by name:
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
-| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
+| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
 | `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded by the storage plan; emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
@@ -3170,6 +3186,32 @@ symbols); a query that decides more than that belongs in `Pending`.
   result against every use in both, `test/cli/inline.sh` checks which
   functions are inlined, and `test/behavior/types/value_size_limit.rig`
   holds the frames to their limit.
+
+  **Parts of constants.** Zig also knows a part of a value built only
+  of constants: an element of a module constant array (`pub const`),
+  of an array literal, a field of a constructor, a payload of a variant
+  of literals, and a `const` bound to any of them. Rig folds only the
+  constant scalars its own folder decides (`constIntOf`), so a part
+  must stay a run-time value: `big[0] + 1` is checked when the program
+  runs, and a conversion or a division by a zero element likewise. One
+  predicate, `isZigComptimeIn`, says when Zig could evaluate an
+  expression at compile time (a module-level name always can, and a
+  constructor or variant of such parts), and three places use it:
+
+  | Where | Emitted |
+  |---|---|
+  | a read of a number or `Bool` part (`table[0]`, `P(a: 1).a`) whose base and index it holds | `rig.rt(table[0])`; a read with a run-time index, as in a hot loop over a table, is emitted as before |
+  | a binding of such an expression | a `var`, as for any value Zig could fold (`emitBind`) |
+  | the subject of a `match` or `if ... as` | `rig.rt(@as(T, subject))` |
+
+  The optimizer folds `rig.rt` away, so a table read costs what it did:
+  the asm of `rig.rt(T[i & 7]) + 1` and of `T[i & 7] + 1` is the same
+  instructions, and `rig.rt(T[3]) + rig.rt(T[5])` folds to the constant in
+  `--release`. A part that is itself an array or a value (a row of a
+  nested table) is left bare: what reads or binds it is one of the three.
+  `test/behavior/emit/const_table_*.rig` and `constructed_field_overflow.rig`
+  run the forms, and `test/matrix.py -k fold.` every constant against every
+  way of reading it and every operator that can fail, in debug and `--release`.
 
 - **Evaluation order of arguments.** A call's arguments are evaluated
   in the order they are written and passed in the order the parameters

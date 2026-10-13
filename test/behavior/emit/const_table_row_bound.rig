@@ -1,0 +1,14 @@
+# A row of a nested constant array, bound, is read at run time.
+
+grid = [[1, 2], [9223372036854775807, 0]]
+
+sub main()
+  row = grid[1]
+  print(row[1] + 1)
+  print(row[0] + 1)
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 1

@@ -6,14 +6,12 @@
 //! start of the range, followed by the source line with the range
 //! underlined (notes are indented and attach to the preceding error).
 //!
-//! Node spans come from the parser (`parser.Parser.span`); `leafSpan`
+//! Node spans come from the parser (`parser.Parser.span`); `rig.leafSpan`
 //! is the fallback for a tree without them. `lineCol` turns a byte
 //! offset into a 1-based line and column.
 
 const std = @import("std");
 const parser = @import("parser.zig");
-
-const Sexp = parser.Sexp;
 
 pub const Severity = enum { @"error", note };
 
@@ -222,25 +220,6 @@ pub fn textOf(source: []const u8, span: Span) []const u8 {
     return textBetween(source, span.start, span.end);
 }
 
-/// `sexp`: a node's span as far as its leaves tell. Keywords and
-/// punctuation are not leaves, so this is a fallback for trees without
-/// the parser's spans; it is empty at 0 for a node without leaves.
-pub fn leafSpan(sexp: Sexp) Span {
-    switch (sexp) {
-        .src => |s| return .{ .start = s.pos, .end = s.pos + s.len },
-        .list => {
-            var out: ?Span = null;
-            for (sexp.items()) |c| {
-                const cs = leafSpan(c);
-                if (cs.end == 0) continue;
-                out = if (out) |o| .{ .start = @min(o.start, cs.start), .end = @max(o.end, cs.end) } else cs;
-            }
-            return out orelse .empty;
-        },
-        else => return .empty,
-    }
-}
-
 test "lineCol: counts lines and columns from 1" {
     const src = "ab\ncd\n";
     try std.testing.expectEqual(LineCol{ .line = 1, .col = 1 }, lineCol(src, 0));
@@ -355,11 +334,4 @@ test "writeExcerpt: a long line is cut around the position" {
     const first = out[0..std.mem.findScalar(u8, out, '\n').?];
     try std.testing.expectEqualStrings("..." ++ chars('x', 58) ++ "é" ++ chars('y', 60) ++ "...", first);
     try std.testing.expectEqualStrings(chars(' ', 62) ++ "^~~\n", out[first.len + 1 ..]);
-}
-
-test "leafSpan: from the first leaf to the end of the last" {
-    var inner = [_]Sexp{ .{ .tag = .@"+" }, .{ .src = .{ .pos = 4, .len = 1, .id = 0 } }, .{ .src = .{ .pos = 8, .len = 2, .id = 0 } } };
-    const s = leafSpan(Sexp.listOf(&inner));
-    try std.testing.expectEqual(@as(u32, 4), s.start);
-    try std.testing.expectEqual(@as(u32, 10), s.end);
 }

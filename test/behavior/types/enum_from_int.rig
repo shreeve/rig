@@ -1,0 +1,17 @@
+enum Status
+  ok = 200
+  missing = 404
+
+all = @variants(Status)
+
+sub main()
+  print(Status.from_int(404), Status.from_int(500), Status.from_int(U16(200)))
+  for s in all
+    print(s, Int(s))
+  print(@variants(Status).len)
+
+# expect:
+# .missing none .ok
+# .ok 200
+# .missing 404
+# 2
