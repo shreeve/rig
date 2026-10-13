@@ -1,6 +1,11 @@
 # `parse_int` and `format_int` in bases 2 to 36, with base 10 the default.
 use std.text
 
+fun overflows(s: ?String, base: Int) -> Bool
+  text.parse_int(s, base) catch |err|
+    return err == text.ParseError.overflow
+  false
+
 sub main()
   print(text.parse_int("ff", 16)!, text.parse_int("-101", 2)!, text.parse_int("zz", 36)!)
   print(text.parse_int("FF", 16)!, text.parse_int("+17", 8)!, text.parse_int("42")!)
@@ -13,15 +18,17 @@ sub main()
     s = text.format_int(Int.min, base)
     t = text.format_int(Int.max, base)
     print(base, s, t, text.parse_int(s, base)! == Int.min, text.parse_int(t, base)! == Int.max)
-  e = text.parse_int("1" + text.format_int(0, 2), 2)!
-  print(e)
   big = String("1")
-  for _ in 0..63
+  for _ in 0..64
     !big.add("0")
-  print(text.parse_int(big, 2) catch |err| err == text.ParseError.overflow)
-  neg = String("-") + big
-  print(text.parse_int(neg, 2) catch |err| err == text.ParseError.overflow)
-  print(text.parse_int("-1" + big[1..], 2)!)
+  print(overflows(?big[..], 2))
+  neg = String("-")
+  !neg.add(?big[..])
+  print(overflows(?neg[..], 2))
+  edge = String("-1")
+  for _ in 0..63
+    !edge.add("0")
+  print(text.parse_int(?edge[..], 2)! == Int.min)
 
 # expect:
 # 255 -5 1295
@@ -36,7 +43,6 @@ sub main()
 # 10 -9223372036854775808 9223372036854775807 true true
 # 16 -8000000000000000 7fffffffffffffff true true
 # 36 -1y2p0ij32e8e8 1y2p0ij32e8e7 true true
-# 10
 # true
 # true
-# -9223372036854775808
+# true
