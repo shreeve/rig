@@ -87,7 +87,7 @@ Whole-string ASCII checks are `utf8.is_ascii(s)` and `utf8.ascii_end(s, i)`.
 | `unit_count(s) -> Int` | built |
 | `byte_index(s, units) -> Int` | built |
 | `is_surrogate(u)` | built |
-| `is_high_surrogate(u)`, `is_low_surrogate(u)` | *(planned: textspeed)* |
+| `is_high_surrogate(u)`, `is_low_surrogate(u)` | built |
 | `rune_from_pair(hi, lo) -> Int` (U+FFFD for an invalid pair) | built |
 | `pair_from_rune(r) -> Pair`; `Pair(hi, lo)` | built |
 | `positions(s) -> Positions`, a lookup table (not an iterator), with `.unit_index(bytes)` and `.byte_index(units)`, clamping as `byte_index` does | *(planned: positions round)* |
