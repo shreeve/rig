@@ -1074,6 +1074,15 @@ pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8 };
 /// The `Question`s decided so far. Held behind a pointer, so a pass that
 /// reads the context as constant still records the answer it is first to
 /// reach, as a memo would.
+/// Facts of a type that are asked often and cost a walk of what it holds,
+/// each worked out on its first ask (through a `*const SemContext`, as
+/// the decisions are) and kept, once declarations are resolved and the
+/// answer can no longer change.
+pub const TypeMemo = struct {
+    /// `runsDropBody` of a type, with nothing yet looked into.
+    drop_body: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
+};
+
 pub const Decided = struct {
     map: std.AutoHashMapUnmanaged(struct { node: u64, q: Question }, Decision) = .empty,
     /// Set when the storage plan has verified every answer: a question
@@ -1800,6 +1809,8 @@ pub const SemContext = struct {
     inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
     decided: *Decided,
+    /// Facts of types worked out on their first ask (`TypeMemo`).
+    type_memo: *TypeMemo,
     /// The `from` clause of each function and method that writes one
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
@@ -1821,10 +1832,10 @@ pub const SemContext = struct {
     unit_of: std.AutoHashMapUnmanaged(NodeKey, NodeKey) = .empty,
     /// The root of each unit -> its kind.
     unit_roots: std.AutoHashMapUnmanaged(NodeKey, rig.UnitKind) = .empty,
-    /// The variants of each enum with many fields, by name, keyed by
-    /// where its fields are (`findVariant`), so that finding one walks no
-    /// others. Lives in the arena.
-    variant_index: std.AutoHashMapUnmanaged(usize, VariantIndex) = .empty,
+    /// The members of each declaration with many fields, by name and
+    /// kind, keyed by where its fields are (`indexMembers`), so that
+    /// finding one walks no others. Lives in the arena.
+    member_index: std.AutoHashMapUnmanaged(usize, MemberIndex) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -1833,8 +1844,13 @@ pub const SemContext = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .types = try TypeStore.init(allocator),
             .decided = try allocator.create(Decided),
+            .type_memo = undefined,
         };
         ctx.decided.* = .{};
+        errdefer allocator.destroy(ctx.decided);
+        ctx.type_memo = try allocator.create(TypeMemo);
+        ctx.type_memo.* = .{};
+        errdefer allocator.destroy(ctx.type_memo);
         try ctx.symbols.append(allocator, .{
             .name = "",
             .kind = .local,
@@ -1896,6 +1912,8 @@ pub const SemContext = struct {
         self.unit_roots.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);
         self.allocator.destroy(self.decided);
+        self.type_memo.drop_body.deinit(self.allocator);
+        self.allocator.destroy(self.type_memo);
         self.arena.deinit();
     }
 
@@ -2821,6 +2839,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     t0 = timing.start(opts.timing);
     try storage.plan(&ctx, tree);
     timing.stop(opts.timing, .storage, t0);
+    try indexAllMembers(&ctx);
     return ctx;
 }
 
@@ -5451,9 +5470,19 @@ pub const Answer = enum { no, yes, depends };
 /// answer for themselves; a type declared in another module answers by
 /// whether it has drop glue.
 pub fn dropRunsBody(ctx: *const SemContext, ty: TypeId) Answer {
-    if (runsDropBody(ctx, ty, &.{})) return .yes;
+    if (dropBodyOf(ctx, ty)) return .yes;
     const info = ctx.holds(ty);
     return if (info.holds_type_var or info.poison) .depends else .no;
+}
+
+/// `runsDropBody` of `ty`, worked out once declarations are resolved
+/// (`TypeMemo`).
+fn dropBodyOf(ctx: *const SemContext, ty: TypeId) bool {
+    if (!ctx.contents_ready) return runsDropBody(ctx, ty, &.{});
+    if (ctx.type_memo.drop_body.get(ty)) |b| return b;
+    const b = runsDropBody(ctx, ty, &.{});
+    ctx.type_memo.drop_body.put(ctx.allocator, ty, b) catch std.debug.panic("out of memory", .{});
+    return b;
 }
 
 /// `path` holds the declared types being looked into: a cycle adds nothing.
@@ -5981,13 +6010,8 @@ pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) 
     const m = membersOf(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
     // A box's `value` names its constructor argument, not a field.
     if (m.sym == ctx.box_sym_id) return null;
-    for (m.fields) |f| {
-        if (f.is_method or f.is_variant) continue;
-        if (std.mem.eql(u8, f.name, name)) {
-            return .{ .field = f, .ty = try substituteType(ctx, f.ty, m.subst), .nominal_sym = m.sym };
-        }
-    }
-    return null;
+    const f = m.fields[(try findMember(ctx, m.fields, name, .data)) orelse return null];
+    return .{ .field = f, .ty = try substituteType(ctx, f.ty, m.subst), .nominal_sym = m.sym };
 }
 
 /// Whether member access on `receiver_ty` reaches a data field `name`
@@ -5995,10 +6019,8 @@ pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) 
 pub fn lookupDataFieldConst(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?Field {
     const decl = nominalDecl(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
     if (decl.sym == decl.ctx.box_sym_id) return null;
-    for (decl.symbol().fields orelse return null) |f| {
-        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return f;
-    }
-    return null;
+    const fields = decl.symbol().fields orelse return null;
+    return fields[memberIn(decl.ctx, fields, name, .data) orelse return null];
 }
 
 /// A callable method of the receiver's nominal (auto-deref through
@@ -6016,15 +6038,14 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std
 /// takes its receiver; null when it names no method.
 pub fn methodReceiver(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?MethodReceiver {
     const decl = nominalDecl(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
-    for (decl.symbol().fields orelse return null) |f| {
-        if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return f.receiver;
-    }
-    return null;
+    const fields = decl.symbol().fields orelse return null;
+    return fields[memberIn(decl.ctx, fields, name, .method) orelse return null].receiver;
 }
 
 fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
     const m = membersOf(ctx, peeled) orelse return null;
-    for (m.fields) |f| {
+    const first = (try findMember(ctx, m.fields, name, .method)) orelse return null;
+    for (m.fields[first..]) |f| {
         if (!f.is_method or f.is_drop_method) continue;
         if (!std.mem.eql(u8, f.name, name)) continue;
         const sub_id = try substituteType(ctx, f.ty, m.subst);
@@ -6035,43 +6056,94 @@ fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocato
     return null;
 }
 
-/// The first variant of each name among a declaration's `fields`, by
-/// its place in them. A declaration's fields are replaced whole, never
-/// in place, and never freed before the context is.
-const VariantIndex = struct {
-    len: usize,
-    first: std.StringHashMapUnmanaged(u32),
+/// The kinds of member a declaration's `fields` hold, as the lookups by
+/// name ask for them: a data field, a method that can be called (not the
+/// `drop` body), a variant, or any member at all.
+pub const MemberKind = enum {
+    data,
+    method,
+    variant,
+    any,
+
+    fn has(kind: MemberKind, f: Field) bool {
+        return switch (kind) {
+            .data => !f.is_method and !f.is_variant,
+            .method => f.is_method and !f.is_drop_method,
+            .variant => f.is_variant,
+            .any => true,
+        };
+    }
 };
 
-/// An enum with no more fields than this is searched in turn.
-const variant_index_min = 16;
+const n_member_kinds = @typeInfo(MemberKind).@"enum".field_names.len;
+const no_member = std.math.maxInt(u32);
 
-/// The place in `fields`, a declaration's, of its first variant `name`,
-/// after indexing the variants of an enum with many fields (`variantIn`).
-fn findVariant(ctx: *SemContext, fields: []const Field, name: []const u8) std.mem.Allocator.Error!?usize {
-    if (fields.len > variant_index_min) {
-        const a = ctx.arena.allocator();
-        const entry = try ctx.variant_index.getOrPut(a, @intFromPtr(fields.ptr));
-        const index = entry.value_ptr;
-        if (!entry.found_existing or index.len != fields.len) {
-            index.* = .{ .len = fields.len, .first = .empty };
-            for (fields, 0..) |f, i| if (f.is_variant) {
-                const slot = try index.first.getOrPut(a, f.name);
-                if (!slot.found_existing) slot.value_ptr.* = @intCast(i);
-            };
+/// The first member of each name and kind among a declaration's `fields`,
+/// by its place in them. A declaration's fields are replaced whole, never
+/// in place, and never freed before the context is.
+const MemberIndex = struct {
+    len: usize,
+    first: std.StringHashMapUnmanaged([n_member_kinds]u32),
+};
+
+/// Fields no longer than this are searched in turn.
+const member_index_min = 16;
+
+/// Index the members of `fields`, a declaration's, when there are many
+/// (`memberIn`).
+fn indexMembers(ctx: *SemContext, fields: []const Field) std.mem.Allocator.Error!void {
+    if (fields.len <= member_index_min) return;
+    const a = ctx.arena.allocator();
+    const entry = try ctx.member_index.getOrPut(a, @intFromPtr(fields.ptr));
+    const index = entry.value_ptr;
+    if (entry.found_existing and index.len == fields.len) return;
+    index.* = .{ .len = fields.len, .first = .empty };
+    for (fields, 0..) |f, i| {
+        const slot = try index.first.getOrPut(a, f.name);
+        if (!slot.found_existing) slot.value_ptr.* = @splat(no_member);
+        inline for (0..n_member_kinds) |k| {
+            const kind: MemberKind = @enumFromInt(k);
+            if (slot.value_ptr[k] == no_member and kind.has(f)) slot.value_ptr[k] = @intCast(i);
         }
     }
-    return variantIn(ctx, fields, name);
 }
 
-/// The place in `fields`, a declaration's, of its first variant `name`:
-/// through the index of them `findVariant` built, else in turn.
-pub fn variantIn(ctx: *const SemContext, fields: []const Field, name: []const u8) ?usize {
-    if (ctx.variant_index.getPtr(@intFromPtr(fields.ptr))) |index| {
-        if (index.len == fields.len) return if (index.first.get(name)) |i| i else null;
+/// Index the members of every declaration with many (`indexMembers`),
+/// so the passes that read them through a `*const SemContext` find a
+/// member without walking the others.
+fn indexAllMembers(ctx: *SemContext) std.mem.Allocator.Error!void {
+    for (ctx.symbols.items) |sym| {
+        const fields = sym.fields orelse continue;
+        try indexMembers(ctx, fields);
+        for (fields) |f| try indexMembers(ctx, f.payload orelse continue);
     }
-    for (fields, 0..) |f, i| if (f.is_variant and std.mem.eql(u8, f.name, name)) return i;
+}
+
+/// The place in `fields`, a declaration's or a variant's payload, of
+/// its first member `name` of `kind`, after indexing them (`memberIn`).
+pub fn findMember(ctx: *SemContext, fields: []const Field, name: []const u8, kind: MemberKind) std.mem.Allocator.Error!?usize {
+    try indexMembers(ctx, fields);
+    return memberIn(ctx, fields, name, kind);
+}
+
+/// The place in `fields`, a declaration's or a variant's payload, of
+/// its first member `name` of `kind`: through the index `indexMembers`
+/// built, else in turn.
+pub fn memberIn(ctx: *const SemContext, fields: []const Field, name: []const u8, kind: MemberKind) ?usize {
+    if (ctx.member_index.getPtr(@intFromPtr(fields.ptr))) |index| {
+        if (index.len == fields.len) {
+            const firsts = index.first.get(name) orelse return null;
+            const i = firsts[@intFromEnum(kind)];
+            return if (i == no_member) null else i;
+        }
+    }
+    for (fields, 0..) |f, i| if (kind.has(f) and std.mem.eql(u8, f.name, name)) return i;
     return null;
+}
+
+/// The first variant `name` in `fields` (`memberIn`).
+pub fn variantIn(ctx: *const SemContext, fields: []const Field, name: []const u8) ?usize {
+    return memberIn(ctx, fields, name, .variant);
 }
 
 /// An enum variant of the receiver's nominal, local or imported.
@@ -6079,7 +6151,7 @@ pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) st
     const decl = nominalDecl(ctx, receiver_ty) orelse return null;
     const subst = if (membersOf(ctx, unwrapViews(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
     const fields = decl.symbol().fields orelse return null;
-    if (try findVariant(ctx, fields, name)) |i| {
+    if (try findMember(ctx, fields, name, .variant)) |i| {
         const f = fields[i];
         var payload = f.payload orelse &.{};
         if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {

@@ -75,6 +75,48 @@ RIG
 out=$(emit method.rig)
 expect_has "$out" 'pub inline fn get(' "a method"
 
+# A cycle of method calls, through a receiver, a type, or two types'
+# methods, is found. A method call resolves by name, so a method that
+# calls another of its name is taken to call itself.
+cat >methods.rig <<'RIG'
+obj Ping
+  n: Int
+
+  fun depth(?self, k: Int) -> Int
+    0 if k == 0 else 1 + self.depth(k - 1)
+
+  fun count(k: Int) -> Int
+    0 if k == 0 else 1 + Ping.count(k - 1)
+
+  fun hop(?self, p: ?Pong, k: Int) -> Int
+    0 if k == 0 else p.hop(?self, k - 1)
+
+  fun size(?self) -> Int
+    self.n
+
+obj Pong
+  n: Int
+
+  fun hop(?self, p: ?Ping, k: Int) -> Int
+    0 if k == 0 else p.hop(?self, k - 1)
+
+  fun size(?self, p: ?Ping) -> Int
+    p.size() + self.n
+
+sub main()
+  a = Ping(n: 1)
+  b = Pong(n: 2)
+  print(a.depth(3), Ping.count(2), a.hop(?b, 4), b.size(?a))
+RIG
+out=$(emit methods.rig)
+expect_has "$out" 'pub fn depth(' "recursion through the receiver"
+expect_has "$out" 'pub fn count(' "recursion through the type"
+expect_lacks "$out" 'inline fn hop(' "recursion through two types' methods"
+expect_has "$out" 'pub inline fn size(__rig_in_self: *const Ping)' "a method of a name another calls"
+expect_has "$out" 'pub fn size(self: *const Pong' "a method calling another of its name"
+out=$(rig run methods.rig 2>&1) || fail "rig run methods.rig: $out"
+expect_eq "$out" "3 2 0 3" "methods.rig"
+
 # A body of more than inlining.max_size nodes (60) is called.
 {
     echo 'fun long(n: Int) -> Int'
