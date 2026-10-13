@@ -168,7 +168,7 @@ references' published designs where marked. In order of expected gain:
    on the Mac: removing them made canada 6% faster and four files 3-9%
    slower (RESULTS.md, "Checks and IPC after proofs2"). Still checked: `m << m.leading_zeros()`, a read after an
    early-return guard, and `i >= 0` for a position a call returned
-   (docs/RIG-NOTES.md, entries 10 and 19).
+   (docs/RIG-NOTES.md, entries 10 and 20).
 4. **Cheap block appends to a List.** The text between escapes is
    copied 16 bytes at a time as it is scanned, with `String`'s
    `!t.push(v, keep: k)` (#150). Tape entries are pushed one at a time,
