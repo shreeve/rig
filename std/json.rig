@@ -355,9 +355,10 @@ pub obj Doc
     (!self).utf8_text(src, i)
 
   # `plain` from the non-ASCII byte at `at` on: out of line, since most
-  # strings are ASCII. Checked 16 bytes at a time to the string's end;
-  # near the end of the input, or at an error, a sequence at a time from
-  # `at`, which finds where.
+  # strings are ASCII. Checked 16 bytes at a time up to the next quote,
+  # backslash, or control byte; then, in the input's last 15 bytes, or
+  # from `at` when a block shows an error, a sequence at a time, which
+  # finds where.
   fun utf8_text(!self, src: ?String, at: Int) -> Int
     n = src.len
     prev = Block.splat(0)
@@ -375,7 +376,16 @@ pub obj Doc
         break
       errors |= utf8_errors(cur, prev)
       prev = cur
-    i = at
+    start = at
+    if i > at and (errors == 0).all()
+      # Every sequence before `i` is checked but one that a lead in the
+      # last three bytes starts, which is checked again.
+      start = i
+      for k in 1..4
+        if src[i - k] >= 0xC0
+          start = i - k
+          break
+    i = start
     while true
       while i < n and src[i] >= 0x80
         j = utf8_end3(src, i)
@@ -783,7 +793,8 @@ type Block = Simd[U8, 16]
 # byte", 2021), as simdjson's lookup4: each byte with the one before it
 # is looked up by three nibbles, and a bit of the three tables' AND marks
 # an error the pair shows (a lead with no continuation, a continuation
-# with no lead, an overlong form, a surrogate, a value past U+10FFFF).
+# with no lead, an overlong form, a surrogate, a value past U+10FFFF),
+# but TWO_CONTS, two continuations in a row, which `utf8_errors` decides.
 TOO_SHORT: U8 = 0x01
 TOO_LONG: U8 = 0x02
 OVERLONG_3: U8 = 0x04
@@ -815,11 +826,14 @@ BYTE_2_HIGH = Block([TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_
   TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE | TOO_LARGE,
   TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT])
 
-# The lanes of `cur` that are not UTF-8, given the 16 bytes before it:
-# 0 where all are. A 3- or 4-byte lead needs continuations 2 and 3 bytes
-# on, which the saturating subtracts find (only 111xxxxx less 0x60 and
-# 1111xxxx less 0x70 keep their top bit), and the pair lookups flag a continuation as
-# TWO_CONTS: the XOR leaves an error where the two disagree.
+# Nonzero lanes where `cur`, given the 16 bytes before it, breaks UTF-8:
+# a lane can flag a byte up to three before it, and a lead in the last
+# lanes, cut short, is flagged only by the next block. A 3- or 4-byte
+# lead needs continuations 2 and 3 bytes on, which the saturating
+# subtracts find (only 111xxxxx less 0x60 and 1111xxxx less 0x70 keep
+# their top bit), and the pair lookups flag a continuation after a
+# continuation as TWO_CONTS: the XOR leaves an error where the two
+# disagree.
 fun utf8_errors(cur: Block, prev: Block) -> Block
   b1 = cur.lag[1](prev)
   pair = BYTE_1_HIGH.lookup(b1 >> 4) & BYTE_1_LOW.lookup(b1 & 0x0F) & BYTE_2_HIGH.lookup(cur >> 4)

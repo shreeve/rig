@@ -1210,7 +1210,12 @@ the input or to place an error. Results are unchanged: all 10,511
 inputs of `./test/run json`, and 864 strings that put each valid and
 invalid sequence around the block edges
 (test/behavior/std/json_utf8_blocks.rig), whose expected errors come
-from Python's decoder.
+from Python's decoder. A string whose stop lies in the input's last 15
+bytes, past the last block the loop can read, resumes the
+sequence-at-a-time check at that block, not at the text's start: a 3 MB
+top-level string parses 2.2x as fast as on main (0.10 s against 0.22 s
+for 400 parses), where checking it again from its start had made it 90%
+slower.
 
 Instructions per byte (bench/json/guard.py, median of 5), main against
 the branch:
