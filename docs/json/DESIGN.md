@@ -41,12 +41,12 @@ builds a tape of `Int` words, `payload * 16 + tag`. A string without
 escapes is not copied: its entry points into the source, so a `Doc`
 keeps the source lent, and Rig's types show it. Nesting costs no machine
 stack and no other list: an open array's or object's tape entry holds
-the entry of the one around it until it closes, as simdjson's tape does.
-Escaped strings are decoded into one buffer. Integers that fit an `Int`
-are `Int`s; every other number is the nearest `Float`: Clinger, then
-Eisel-Lemire with Rig's `U128`, then `std.text.parse_float` for the rare
-undecided case or more than 19 digits. Each parse reuses the Doc's
-lists, so a parse allocates only when a list must grow.
+the entry of the one around it until it closes. Escaped strings are
+decoded into one buffer. Integers that fit an `Int` are `Int`s; every
+other number is the nearest `Float`: Clinger, then Eisel-Lemire with
+Rig's `U128`, then `std.text.parse_float` for the rare undecided case or
+more than 19 digits. Each parse reuses the Doc's lists, so a parse
+allocates only when a list must grow.
 Nothing is lazy: `parse` does all the work Zig's std.json does.
 
 It is safe Rig, with no `raw`: every read is bounds-checked in
