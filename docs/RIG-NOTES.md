@@ -56,10 +56,16 @@ tools that take them in `bench/json/`.
    run function, called only for deeply indented documents, was inlined
    at every call site and cost 4-6% more instructions where it never ran.
    The only way to keep it out today is to give it a compile-time
-   parameter, which works only because of entry 6. Fix: a visible marker
-   (for example `cold fun`) that keeps a function out of line and lays its
-   calls out as unlikely. A design owner's decision, since inlining has
-   no syntax. *Verified.*
+   parameter, which works only because of entry 6. Entry 6's fix likely
+   removes this case: with a `document` specialized per input, the
+   scalar copy holds no bitmap code at all. The preferred fix after that
+   is for the compiler to infer coldness, as it decides inlining: a
+   function reached only on a failing path (std.json's `fail`, a panic,
+   a branch that returns an error) is emitted cold and out of line
+   (`@branchHint(.cold)` in Zig), with no new syntax. A marker such as
+   `cold fun` is a design owner's decision, since inlining has no
+   syntax, and comes back to him only if cases remain that inference
+   cannot find. *Verified; waiting on #154 to re-measure.*
 8. **A List's length and capacity are reloaded on every push.** In
    `document`, a large function, LLVM keeps the tape's pointer, length,
    and capacity in the stack frame: each `push` loads them and stores the
