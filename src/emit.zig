@@ -1806,6 +1806,28 @@ pub const Emitter = struct {
         return self.facts.types.get(self.peelViews(t)) == .simd;
     }
 
+    /// Whether `ty` is a mask, `Simd[Bool, n]`, or a view of one: a
+    /// `rig.Mask(n)`, whose operators are the runtime's (`rig.maskOr`).
+    fn isMask(self: *Emitter, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return switch (self.facts.types.get(self.peelViews(t))) {
+            .simd => |v| v.elem == self.facts.types.bool_id,
+            else => false,
+        };
+    }
+
+    /// The runtime function of a mask operator, or null for one that no mask takes.
+    fn maskOperator(op: Tag) ?[]const u8 {
+        return switch (op) {
+            .@"&" => "rig.maskAnd(",
+            .@"|" => "rig.maskOr(",
+            .@"^" => "rig.maskXor(",
+            .@"==" => "rig.maskEq(",
+            .@"!=" => "rig.maskNe(",
+            else => null,
+        };
+    }
+
     /// The runtime function that shifts a vector's lanes by one amount
     /// (`<<`, `<<%`, or `>>`).
     fn vecShift(op: Tag) []const u8 {
@@ -1829,7 +1851,13 @@ pub const Emitter = struct {
         // runtime, which takes the amount as it is.
         const vector = self.isSimd(self.typeOf(target));
         const lanes = shift and vector;
-        const builtin: ?[]const u8 = if (lanes) vecShift(op) else if (vector and op == .@"+|") "rig.vecAddSat" else if (vector and op == .@"-|") "rig.vecSubSat" else switch (op) {
+        const mask_op: ?[]const u8 = if (self.isMask(self.typeOf(target))) switch (op) {
+            .@"&" => "rig.maskAnd",
+            .@"|" => "rig.maskOr",
+            .@"^" => "rig.maskXor",
+            else => null,
+        } else null;
+        const builtin: ?[]const u8 = if (mask_op) |m| m else if (lanes) vecShift(op) else if (vector and op == .@"+|") "rig.vecAddSat" else if (vector and op == .@"-|") "rig.vecSubSat" else switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
             .@"<<" => "@shlExact",
             else => null,
@@ -4456,6 +4484,19 @@ pub const Emitter = struct {
         };
         // An add known not to overflow (`provenOf`).
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
+        // Masks combine and compare through the runtime (`rig.Mask`), and
+        // a comparison of other vectors gives its lanes as a mask.
+        if (self.isMask(self.typeOf(sexp))) {
+            if (self.isMask(self.typeOf(operands[0])) or self.isMask(self.typeOf(operands[1]))) {
+                const f = maskOperator(kind) orelse return self.unsupported(sexp, "this operator on masks");
+                return self.emitCall2(f, operands, ")");
+            }
+            try self.w.writeAll("rig.mask(");
+            try self.emitExpr(operands[0]);
+            try self.w.print(" {s} ", .{op});
+            try self.emitExpr(operands[1]);
+            return self.w.writeAll(")");
+        }
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});
@@ -5493,11 +5534,9 @@ pub const Emitter = struct {
                 try self.emitBare(ir.Member.object(callee));
                 return self.w.writeAll(")");
             },
-            // `@select(T, m, a, b)`.
+            // `rig.maskSelect(m, a, b)`.
             .select => {
-                try self.w.writeAll("@select(");
-                try self.emitTypeTy(ec.elem);
-                try self.w.writeAll(", ");
+                try self.w.writeAll("rig.maskSelect(");
                 try self.emitBare(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
@@ -5505,8 +5544,13 @@ pub const Emitter = struct {
                 }
                 return self.w.writeAll(")");
             },
-            // `@as([n]T, v)`.
+            // `@as([n]T, v)`, or `rig.maskArray(m)`.
             .array => {
+                if (ec.elem == self.facts.types.bool_id) {
+                    try self.w.writeAll("rig.maskArray(");
+                    try self.emitBare(ir.Member.object(callee));
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("@as([");
                 try self.emitTypeTy(self.facts.types.get(ec.num).simd.len);
                 try self.w.writeAll("]");
@@ -5550,6 +5594,11 @@ pub const Emitter = struct {
                     .simd => |v| v.elem,
                     else => self.peelViews(ec.num),
                 };
+                if (lanes == self.facts.types.bool_id and lanes != self.peelViews(ec.num)) {
+                    try self.w.writeAll("rig.maskNot(");
+                    try self.emitBare(obj);
+                    return self.w.writeAll(")");
+                }
                 if (lanes == self.facts.types.bool_id) {
                     try self.w.writeAll("(!");
                     try self.emitExpr(obj);
@@ -5661,7 +5710,7 @@ pub const Emitter = struct {
     /// when it compiles, and a lane that overflows panics when the program
     /// runs, as Rig specifies, rather than stopping Zig's fold.
     fn writeVectorOpen(self: *Emitter, vt: TypeId) Error!void {
-        try self.w.writeAll("rig.rt(@as(");
+        try self.w.writeAll(if (self.isMask(vt)) "rig.rt(rig.maskOf(" else "rig.rt(@as(");
         try self.emitTypeTy(vt);
         try self.w.writeAll(", ");
     }
@@ -6848,6 +6897,11 @@ pub const Emitter = struct {
                 try self.emitTypeTy(a.elem);
             },
             .simd => |v| {
+                if (v.elem == self.facts.types.bool_id) {
+                    try self.w.writeAll("rig.Mask(");
+                    try self.emitTypeTy(v.len);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("@Vector(");
                 try self.emitTypeTy(v.len);
                 try self.w.writeAll(", ");

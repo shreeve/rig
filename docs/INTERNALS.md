@@ -1889,19 +1889,21 @@ runtime function with value arguments, or the existing `read` and
 
 | Rig | Zig |
 |---|---|
-| `Simd[T, n]` | `@Vector(n, T)` (`bool` lanes for a mask) |
+| `Simd[T, n]` | `@Vector(n, T)` |
+| `Simd[Bool, n]`, a mask | `rig.Mask(n)`: `@Vector(n, bool)` up to 16 lanes, a `rig.WideMask(n)` of bytes above (below) |
 | `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))` |
 | `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))` |
-| `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows |
+| `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows; a comparison's lanes become a mask through `rig.mask(v == w)` |
+| `m & k`, `m \| k`, `m ^ k`, `m == k`, `m != k` of masks, and their compound forms | `rig.maskAnd(m, k)`, `rig.maskOr`, `rig.maskXor`, `rig.maskEq`, `rig.maskNe` |
 | `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
 | `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic |
 | `t.lookup(idx)` | `rig.lookup(t, idx)`: NEON `tbl1`/`tbl2`/`tbl4`, x86 `pshufb` (SSSE3; `vpshufb` on 32 indexes with AVX2) on the indexes plus 0x70, saturated (bit 7 set exactly from 16 on), WASM `i8x16.swizzle`, ORed over the table's 16-byte pieces off NEON, else a loop; at compile time, the loop (`@inComptime`) |
 | `cur.lag[k](prev)` | `rig.lag(k, cur, prev)`: one constant `@shuffle` of `prev` and `cur` |
 | a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`) |
-| `v.not()` | `~v`, or `!m` of a mask |
+| `v.not()` | `~v`, or `rig.maskNot(m)` of a mask |
 | `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
-| `m.select(a, b)` | `@select(T, m, a, b)` |
-| `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)` |
+| `m.select(a, b)` | `rig.maskSelect(m, a, b)`: `@select` of the mask's lanes |
+| `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)`, or `rig.maskArray(m)` of a mask |
 | `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
 
 Every vector comes from one of those constructions, a parameter, bytes
@@ -1935,6 +1937,29 @@ conversion it is (`Emitter.simdConversion`, from the call's type and its
 callee's instance). A mask where a `Bool` is expected is reported by
 `maskAsBool`, from where it stands: a condition, `and`, `or`, `not`, or
 a ternary.
+
+A mask of more than 16 lanes is a `rig.WideMask(n)`: a struct of one
+`@Vector(n, u8)`, each lane 0xFF or 0. LLVM keeps a `@Vector(n, bool)`
+that is wider than one vector register in vector registers only inside
+one basic block. Where it lives across blocks, as a mask built up by a
+loop or an argument of a call that is not inlined, LLVM takes it apart
+into one general register per lane. This happens on NEON, on SSE, on
+AVX2 at 64 lanes, and on WASM SIMD, and it made a 32-lane scan with a
+compare loop many times slower than a 16-lane one on aarch64. Bytes
+stay in vector registers. A comparison gives them with no extra work,
+and `bits`, `first`, `any`, and `all` read them as they read a
+16-lane mask's bytes. The runtime's mask functions take either form, so
+emit spells every mask operation the same way for any `n`, and a
+generic `n` resolves in `rig.Mask`. On a wide mask, `&` and `|` are the
+lanes' `@min` and `@max`, which agree with them on 0 and 0xFF. LLVM
+turns `|` of the bytes of comparisons back into a `<n x i1>` select,
+which NEON widens again with `shl` and `cmlt`, two instructions per 16
+lanes; `umin` and `umax` stay bytes. The struct gives the mask its own
+type, so `print` shows it as a mask rather than as the bytes that
+hold it.
+`test/lanes/mask_rig_grid.py` checks every mask operation at every lane
+count, in debug and `--release`, against a scalar reference, in each
+place a mask can cross blocks.
 
 The runtime picks each target's lowering of `maskBits`, guarded by
 compile-time feature tests, so an intrinsic is named only where LLVM
