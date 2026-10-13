@@ -56,6 +56,7 @@ pub const diag = @import("diag.zig");
 const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
 const storage = @import("storage.zig");
+const timing = @import("timing.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -2754,6 +2755,8 @@ pub const CheckOptions = struct {
     zig_file: []const u8 = "",
     /// A module of the standard library.
     is_std: bool = false,
+    /// Where `rig check --time` adds the time of each pass.
+    timing: ?*timing.Timing = null,
 };
 
 /// The end of a diagnostic for a name a standard library module does
@@ -2774,6 +2777,7 @@ pub fn notPublic(ctx: *SemContext, pos: u32, module: []const u8, name: []const u
 
 /// Check one module.
 pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts: CheckOptions) !SemContext {
+    var t0 = timing.start(opts.timing);
     var ctx = try SemContext.init(allocator, source);
     errdefer ctx.deinit();
 
@@ -2805,13 +2809,18 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkTypeSizes(&ctx, order);
     try computeOrigins(&ctx);
     try resolve.checkDeclarations(&ctx);
+    timing.stop(opts.timing, .resolve, t0);
+    t0 = timing.start(opts.timing);
     try typecheck.checkModule(&ctx, tree, module_scope);
     try typecheck.checkFrames(&ctx, tree);
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
     if (zig_builtin.optimize == .debug or zig_builtin.is_test) try checkBindingAccess(&ctx);
+    timing.stop(opts.timing, .typecheck, t0);
+    t0 = timing.start(opts.timing);
     try storage.plan(&ctx, tree);
+    timing.stop(opts.timing, .storage, t0);
     return ctx;
 }
 

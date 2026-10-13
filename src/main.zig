@@ -14,6 +14,7 @@ const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const inlining = @import("inlining.zig");
+const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
@@ -44,6 +45,8 @@ const usage =
     \\                         root module instead (check)
     \\  --facts=proofs         Print the tests of the root module that are
     \\                         known to pass, which emit omits (check)
+    \\  --time                 Print the time each pass of the compiler
+    \\                         takes, summed over the modules (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
     \\                         `--release=safe` are Zig's safe mode, which
     \\                         keeps overflow and bounds checks;
@@ -125,6 +128,8 @@ const Options = struct {
     mode: Mode = .debug,
     out_path: ?[]const u8 = null,
     facts: Facts = .none,
+    /// `check --time`: print the time of each pass.
+    time: bool = false,
     /// `rig run file.rig -- args...`: the program's own arguments.
     program_args: []const []const u8 = &.{},
 };
@@ -192,7 +197,8 @@ pub fn main(init: std.process.Init) !void {
             }
         },
         .check => {
-            var graph = try loadProject(allocator, io, env, opts.path);
+            var times: timing.Timing = .{ .io = io };
+            var graph = try loadProject(allocator, io, env, opts.path, if (opts.time) &times else null);
             defer graph.deinit();
             switch (opts.facts) {
                 .none => {},
@@ -224,6 +230,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var mode: Mode = .debug;
     var out_path: ?[]const u8 = null;
     var facts: Facts = .none;
+    var time = false;
     var program_args: []const []const u8 = &.{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -254,6 +261,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .storage;
         } else if (eql(arg, "--facts=proofs")) {
             facts = .proofs;
+        } else if (eql(arg, "--time")) {
+            time = true;
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});
@@ -276,6 +285,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         usageError("`--release` applies to run, build, and test", .{});
     if (out_path != null and cmd != .build) usageError("`-o` applies to build", .{});
     if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
+    if (time and cmd != .check) usageError("`--time` applies to check", .{});
     if (cmd == .clean) {
         if (path != null) usageError("`rig clean` takes no file", .{});
         return .{ .command = cmd, .path = "" };
@@ -288,7 +298,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .program_args = program_args };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .program_args = program_args };
 }
 
 fn eql(a: []const u8, b: []const u8) bool {
@@ -407,25 +417,38 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
 
 /// Load and check the project rooted at `path`; print every diagnostic
 /// and exit 1 if there are errors.
-fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !modules.ModuleGraph {
+/// With `times`, add each pass's time to it and print them after the
+/// diagnostics.
+fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, times: ?*timing.Timing) !modules.ModuleGraph {
+    const t0 = timing.start(times);
     var graph = modules.ModuleGraph.init(allocator, io);
     errdefer graph.deinit();
     graph.std_dir = env.get("RIG_STD");
+    graph.timing = times;
     try graph.loadRoot(path);
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
     try graph.writeAllDiagnostics(&writer.interface);
     try writer.interface.flush();
-    if (graph.hasErrors()) std.process.exit(1);
-    try inlining.decide(allocator, &graph, inlining.max_size);
+    const failed = graph.hasErrors();
+    if (!failed) {
+        const t1 = timing.start(times);
+        try inlining.decide(allocator, &graph, inlining.max_size);
+        timing.stop(times, .inlining, t1);
+    }
+    if (times) |t| {
+        try t.write(&writer.interface, @intCast(@max(t0.?.durationTo(t.now()).nanoseconds, 0)));
+        try writer.interface.flush();
+    }
+    if (failed) std.process.exit(1);
     return graph;
 }
 
 /// `rig emit`: the root module's Zig on stdout; the whole package
 /// (imports and runtime) is written to the output directory.
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
-    var graph = try loadProject(allocator, io, env, path);
+    var graph = try loadProject(allocator, io, env, path, null);
     defer graph.deinit();
     const pkg = try emitPackage(allocator, env, &graph, false);
     const dir = try outputDir(allocator, env, graph.root());
@@ -452,7 +475,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
             else => notRun("cannot clear RIG_RUN_STARTED `{s}`: {s}", .{ path, @errorName(err) }),
         };
     };
-    var graph = try loadProject(allocator, io, env, opts.path);
+    var graph = try loadProject(allocator, io, env, opts.path, null);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     program_pending = opts.command != .build;
