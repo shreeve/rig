@@ -53,7 +53,7 @@ pub fn parse_radix(s: []const u8, base: i64) ParseError!i64 {
 
 pub fn decode_rune(s: []const u8, i: i64) i64 {
     const at: usize = @intCast(i);
-    const bad = 0xFFFD * 8 + 1;
+    const bad = (0x110000 + @as(i64, s[at])) * 8 + 1;
     const n = std.unicode.utf8ByteSequenceLength(s[at]) catch return bad;
     if (at + n > s.len) return bad;
     const c = std.unicode.utf8Decode(s[at .. at + n]) catch return bad;

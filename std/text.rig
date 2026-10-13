@@ -186,7 +186,8 @@ pub fun format_int(n: Int, base: Int = 10, upper: Bool = false) -> String
 
 # The Levenshtein distance between `a` and `b`: the fewest insertions,
 # deletions, and substitutions of a rune that turn one into the other. A
-# byte that does not begin a well-formed UTF-8 sequence is one rune.
+# byte that does not begin a well-formed UTF-8 sequence is one rune, equal
+# only to the same byte.
 # `row` is scratch space, grown to hold one cell per rune of `b` plus
 # one: pass the same `row` to many calls, and nothing allocates once it
 # has grown. With `max >= 0` the search stops as soon as the distance is
@@ -289,8 +290,9 @@ extern zig "text.zig"
   # Whether `bytes` is well-formed UTF-8.
   pub fun valid_utf8(bytes: []U8) -> Bool
   # The rune at byte `i` of `s` and its size in bytes, packed as
-  # `code * 8 + size`: U+FFFD and size 1 for a byte that does not begin
-  # a well-formed sequence.
+  # `code * 8 + size`. A byte that does not begin a well-formed sequence
+  # is a rune of size 1 whose code is 0x110000 plus the byte, so it
+  # equals only the same byte.
   fun decode_rune(s: ?String, i: Int) -> Int
   # Panics: a base is not between 2 and 36.
   sub bad_base(who: ?String)
