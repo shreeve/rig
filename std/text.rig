@@ -177,10 +177,11 @@ pub fun format_int(n: Int, base: Int = 10, upper: Bool = false) -> String
     break if rest == 0
   out = String()
   !out.push(45) if n < 0
-  i = digits.len
+  ds = ?digits[..]
+  i = ds.len
   while i > 0
     i -= 1
-    !out.push(digits[i])
+    !out.push(ds[i])
   out
 
 # The Levenshtein distance between `a` and `b`: the fewest insertions,
