@@ -90,10 +90,11 @@ for n in 100 1000 5000; do
         esac
         out=$(rig run "b_${shape}_$n.rig" 2>&1) || fail "debug $shape $n: $out"
         expect_eq "$out" "$want" "debug $shape $n"
-        # LLVM's InstCombine takes more than 25 minutes over 5,000 calls of
-        # one out-of-line instance in --release, with or without the
-        # budget; Zig's budget is spent in analysis, which debug runs too.
-        [[ $shape == ctproven && $n == 5000 ]] && continue
+        # Zig's budget is spent in analysis, which debug runs too, so
+        # --release adds only LLVM's time; at 5,000 calls that is minutes
+        # per program (over 25 for one out-of-line instance), so the
+        # largest count is built in debug only.
+        [[ $n == 5000 ]] && continue
         rig build --release -o "prog_${shape}_$n" "b_${shape}_$n.rig" >build.log 2>&1 || fail "release $shape $n: $(cat build.log)"
         out=$(./"prog_${shape}_$n" 2>&1) || fail "release $shape $n ran: $out"
         expect_eq "$out" "$want" "release $shape $n"
