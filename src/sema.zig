@@ -5149,7 +5149,12 @@ const TargetWalk = struct {
                 self.out.any = true;
             },
             .function, .callable, .invalid, .unknown => self.out.any = true,
-            else => try self.out.add(self.a, viewAtom(ctx, node.ty) | if (node.elem) elem_view else 0),
+            else => {
+                try self.out.add(self.a, viewAtom(ctx, node.ty) | if (node.elem) elem_view else 0);
+                // A `[]?String` also views the elements of a `[]Static`
+                // (`readsAsStringView`).
+                if (node.elem and node.ty == ctx.types.string_view_id) try self.out.add(self.a, viewAtom(ctx, ctx.types.static_id) | elem_view);
+            },
         }
     }
 
