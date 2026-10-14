@@ -1,7 +1,9 @@
 # The `?` before a `for` loop's source that is a method call reaches the
 # call's receiver, as before any call (`?b.each()` is `(?b).each()`),
 # and the loop holds the iterator the call makes, which keeps `b` lent
-# to read for the loop.
+# to read for the loop. A method that writes its receiver is called
+# with the `!` in parentheses, `(!b).drain()`, as any write call whose
+# value is used is.
 
 obj Cur
   xs: ?List[Int]
@@ -12,8 +14,21 @@ obj Cur
     self.i += 1
     self.xs[self.i - 1]
 
+obj Count
+  n: Int
+
+  fun next(!self) -> Int?
+    return none if self.n == 0
+    self.n -= 1
+    self.n
+
 obj Bag
   xs: List[Int]
+
+  fun drain(!self) -> Count
+    n = self.xs.len
+    !self.xs.clear()
+    Count(n: n)
 
   fun each(?self) -> Cur from self
     Cur(xs: ?self.xs, i: 0)
@@ -43,6 +58,9 @@ sub main()
   print(total)
   !s.bag.xs.push(1)
   print(s.bag.xs)
+  for x in (!s.bag).drain()
+    print("drained", x)
+  print(s.bag.xs.len)
 
 # expect:
 # 4
@@ -62,3 +80,8 @@ sub main()
 # 6
 # 15
 # [4, 5, 6, 1]
+# drained 3
+# drained 2
+# drained 1
+# drained 0
+# 0

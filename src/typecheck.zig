@@ -2303,7 +2303,12 @@ const Checker = struct {
                 return true;
             } else if (kind == .place) .place else {
                 if (kind == .made and receiverCall(source)) {
-                    try self.errAt(source, "`!{s}` advances a place, and this is a value made here, which holds no write view; write `{s}?{s}`, which holds it for the loop", .{ shown, head, shown });
+                    // A method that writes its receiver is reported where
+                    // it is called, with `(!b).drain()` to write; any
+                    // other method's iterator is held with `?`.
+                    const callee = ir.Call.callee(source);
+                    const writes = if (self.methods.get(nodeId(callee))) |m| m.receiver == .write else false;
+                    if (!writes) try self.errAt(source, "`!{s}` advances a place, and this is a value made here, which holds no write view; write `{s}?{s}`, which holds it for the loop", .{ shown, head, shown });
                 } else if (kind == .made) {
                     try self.errAt(source, "`!{s}` advances a place, and this is a value made here; {s}", .{ shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
