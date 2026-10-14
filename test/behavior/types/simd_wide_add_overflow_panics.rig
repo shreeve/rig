@@ -1,0 +1,18 @@
+# A wide vector read from run-time bytes: a lane that overflows `+` panics, in every build mode, though the other lanes do not.
+
+sub main()
+  b: [64]U8 = [64 of 0]
+  for i in 0..64
+    b[i] = U8(i % 8)
+  c = b.read[Simd[U8, 32]](0)
+  print((c + c)[3])
+  b[20] = 200
+  d = b.read[Simd[U8, 32]](0)
+  print(d + d)
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# 6

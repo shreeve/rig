@@ -1975,7 +1975,8 @@ runtime function with value arguments, or the existing `read` and
 | `Simd[Bool, n]`, a mask | `rig.Mask(n)`: `@Vector(n, bool)` up to 16 lanes, a `rig.WideMask(n)` of bytes above (below) |
 | `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), @splat(x)))` |
 | `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), a))` |
-| `v + w`, `v +% w`, `v & w`, `v == w`, `v < w`, `-v` | the Zig operator, lane by lane; a checked one panics when any lane overflows; a comparison's lanes become a mask through `rig.mask(v == w)` |
+| `v +% w`, `v & w`, `v == w`, `v < w`; `+`, `-`, `*`, `-v` of float lanes | the Zig operator, lane by lane; a comparison's lanes become a mask through `rig.mask(v == w)` |
+| `v + w`, `v - w`, `v * w`, `-v` of integer lanes, and `+=`, `-=`, `*=` | `rig.vecAdd(v, w)`, `rig.vecSub(v, w)`, `rig.vecMul(v, w)`, `rig.vecNeg(v)` (`storage.laneChecked`): the wrapped lanes, and a panic when any lane overflows, found by lane comparisons (`r < v` unsigned, sign tests signed, the product in lanes twice as wide) with no overflow intrinsic, whose flags LLVM computes wrong on aarch64 for 32 and 64 byte lanes |
 | `m & k`, `m \| k`, `m ^ k`, `m == k`, `m != k` of masks, and their compound forms | `rig.maskAnd(m, k)`, `rig.maskOr`, `rig.maskXor`, `rig.maskEq`, `rig.maskNe` |
 | `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
 | `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic |

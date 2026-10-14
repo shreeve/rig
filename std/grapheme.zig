@@ -6,13 +6,18 @@
 //! exactly one rune and one char, and the chars of a text tile it.
 //!
 //! Forward, a char's end is found with the rules' state carried along
-//! (`State`, run as the table `Dfa` built from it); backward, `isBoundary` decides one position by the rules as
-//! UAX #29 writes them, looking left only as far as GB9c, GB11, GB12, and
-//! GB13 need. Both are checked against Unicode's GraphemeBreakTest.txt
+//! (`State`, run as the table `Dfa` built from it); backward,
+//! `isBoundary` decides one position by the rules as UAX #29 writes them,
+//! looking left only as far as GB9c, GB11, GB12, and GB13 need. Both are checked against Unicode's GraphemeBreakTest.txt
 //! (test/behavior/std/text_chars_conformance.rig) and against each other
 //! (the tests below). Text where an ASCII byte follows an ASCII byte breaks
 //! between them unless they are CR LF, so a run of ASCII is counted 32
 //! bytes at a time.
+//!
+//! Every safety check stays on. Where one would cost in a hot loop, the
+//! code is shaped so the compiler proves it: each table is as long as the
+//! range of the type that indexes it, and a rune's bytes are read through
+//! one slice whose length test covers them.
 
 const std = @import("std");
 const tables = @import("grapheme_tables.zig");
@@ -69,29 +74,31 @@ inline fn isCont(b: u8) bool {
 
 /// The rune that starts at byte `i < s.len`, as Go's `DecodeRune` reads it.
 fn decode(s: []const u8, i: usize) Rune {
-    const b0 = s[i];
+    // One bounds check a rune: `t` is the text from `i`, and every byte
+    // read after the first follows a test of `t.len` that covers it.
+    const t = s[i..];
+    const b0 = t[0];
     if (b0 < 0x80) return .{ .cp = b0, .len = 1 };
-    const left = s.len - i;
     if (b0 < 0xC2) return bad;
     if (b0 < 0xE0) {
-        if (left < 2 or !isCont(s[i + 1])) return bad;
-        return .{ .cp = @as(u21, b0 & 0x1F) << 6 | (s[i + 1] & 0x3F), .len = 2 };
+        if (t.len < 2 or !isCont(t[1])) return bad;
+        return .{ .cp = @as(u21, b0 & 0x1F) << 6 | (t[1] & 0x3F), .len = 2 };
     }
     if (b0 < 0xF0) {
-        if (left < 3) return bad;
-        const b1 = s[i + 1];
+        if (t.len < 3) return bad;
+        const b1 = t[1];
         const lo: u8 = if (b0 == 0xE0) 0xA0 else 0x80;
         const hi: u8 = if (b0 == 0xED) 0x9F else 0xBF;
-        if (b1 < lo or b1 > hi or !isCont(s[i + 2])) return bad;
-        return .{ .cp = @as(u21, b0 & 0x0F) << 12 | @as(u21, b1 & 0x3F) << 6 | (s[i + 2] & 0x3F), .len = 3 };
+        if (b1 < lo or b1 > hi or !isCont(t[2])) return bad;
+        return .{ .cp = @as(u21, b0 & 0x0F) << 12 | @as(u21, b1 & 0x3F) << 6 | (t[2] & 0x3F), .len = 3 };
     }
     if (b0 < 0xF5) {
-        if (left < 4) return bad;
-        const b1 = s[i + 1];
+        if (t.len < 4) return bad;
+        const b1 = t[1];
         const lo: u8 = if (b0 == 0xF0) 0x90 else 0x80;
         const hi: u8 = if (b0 == 0xF4) 0x8F else 0xBF;
-        if (b1 < lo or b1 > hi or !isCont(s[i + 2]) or !isCont(s[i + 3])) return bad;
-        return .{ .cp = @as(u21, b0 & 0x07) << 18 | @as(u21, b1 & 0x3F) << 12 | @as(u21, s[i + 2] & 0x3F) << 6 | (s[i + 3] & 0x3F), .len = 4 };
+        if (b1 < lo or b1 > hi or !isCont(t[2]) or !isCont(t[3])) return bad;
+        return .{ .cp = @as(u21, b0 & 0x07) << 18 | @as(u21, b1 & 0x3F) << 12 | @as(u21, t[2] & 0x3F) << 6 | (t[3] & 0x3F), .len = 4 };
     }
     return bad;
 }
@@ -151,8 +158,11 @@ fn rule(p: Class, c: Class) Pair {
 }
 
 const n_classes = @typeInfo(Class).@"enum".field_names.len;
-const pairs: [n_classes][n_classes]Pair = blk: {
-    var t: [n_classes][n_classes]Pair = undefined;
+/// A class's number, a `u5`, indexes 32 entries, so no lookup by it needs
+/// a bounds check; the entries past the classes are never read.
+const class_range = 32;
+const pairs: [class_range][class_range]Pair = blk: {
+    var t: [class_range][class_range]Pair = @splat(@splat(.split));
     for (0..n_classes) |p| {
         for (0..n_classes) |c| t[p][c] = rule(@enumFromInt(p), @enumFromInt(c));
     }
@@ -228,17 +238,19 @@ const State = struct {
 /// text can reach is a number, and `next[n][c]` is the state after a rune
 /// of class `c`, with bit 7 set when that rune starts a char. `start[c]`
 /// is the state after a char starts with class `c`, and so the state
-/// after an ASCII byte, whose class carries nothing further.
+/// after an ASCII byte, whose class carries nothing further. A state's
+/// number is below 64, so `step` indexes `next` by a `u6`, and no lookup
+/// needs a bounds check.
 const Dfa = struct {
-    next: [max_states][n_classes]u8,
-    start: [n_classes]u8,
+    next: [max_states][class_range]u8,
+    start: [class_range]u8,
 
     const max_states = 64;
     const split: u8 = 0x80;
 
     fn build() Dfa {
         @setEvalBranchQuota(100_000);
-        var d: Dfa = undefined;
+        var d: Dfa = .{ .next = @splat(@splat(0)), .start = @splat(0) };
         var states: [max_states]State = undefined;
         var n: usize = 0;
         for (0..n_classes) |c| d.start[c] = index(&states, &n, State.start(@enumFromInt(c)));
@@ -267,6 +279,10 @@ const Dfa = struct {
 
 const dfa = Dfa.build();
 
+/// The state after a rune of class `c`, from state `st` (its bit 7 aside).
+inline fn step(st: u8, c: Class) u8 {
+    return dfa.next[@as(u6, @truncate(st))][@intFromEnum(c)];
+}
 
 /// The end of the char that starts at the char boundary `i < s.len`.
 fn charEnd(s: []const u8, i: usize) usize {
@@ -281,7 +297,7 @@ fn charEnd(s: []const u8, i: usize) usize {
     var j = i + r.len;
     while (j < s.len) : (j += r.len) {
         r = decode(s, j);
-        st = dfa.next[st & ~Dfa.split][@intFromEnum(tables.of(r.cp))];
+        st = step(st, tables.of(r.cp));
         if (st & Dfa.split != 0) break;
     }
     return j;
@@ -323,20 +339,23 @@ fn walk(s: []const u8, limit: usize) Walk {
         if (ascii and i + lanes <= s.len) {
             // A block with ASCII before its first byte that is not: those
             // bytes alone.
-            const v: Lanes = s[i..][0..lanes].*;
+            const rest = s[i..];
+            const v: Lanes = rest[0..lanes].*;
             const high: Mask = @bitCast(v >= @as(Lanes, @splat(0x80)));
             const cr: Mask = @bitCast(v == @as(Lanes, @splat('\r')));
-            const k: usize = @ctz(high);
-            const prefix: Mask = if (k == lanes) ~@as(Mask, 0) else (@as(Mask, 1) << @intCast(k)) - 1;
-            var starts = k;
+            // `k` is a `u6`, at most 32, so the shift and `rest[k - 1]`
+            // below need no check.
+            const k = @ctz(high);
+            const prefix: Mask = @truncate((@as(u64, 1) << k) - 1);
+            var starts: usize = k;
             if (after_cr or cr & prefix != 0) {
                 const lf: Mask = @bitCast(v == @as(Lanes, @splat('\n')));
                 starts -= @popCount(lf & (cr << 1 | @intFromBool(after_cr)) & prefix);
             }
-            if (count + starts <= limit and k > 0) {
+            if (k > 0 and count + starts <= limit) {
                 count += starts;
                 i += k;
-                after_cr = cr >> @intCast(k - 1) & 1 != 0;
+                after_cr = rest[k - 1] == '\r';
                 continue;
             }
         }
@@ -352,7 +371,7 @@ fn walk(s: []const u8, limit: usize) Walk {
         }
         if (ascii) st = dfa.start[@intFromEnum(if (i == 0) Class.control else tables.ascii(@intCast(s[i - 1])))];
         const r = decode(s, i);
-        st = dfa.next[st & ~Dfa.split][@intFromEnum(tables.of(r.cp))];
+        st = step(st, tables.of(r.cp));
         if (st & Dfa.split != 0) {
             if (count == limit) return .{ .count = count, .end = i };
             count += 1;

@@ -1094,6 +1094,10 @@ pub const Question = enum(u8) {
     /// Of an argument, an assigned value, or an index: whether it is pure,
     /// so it stays where it is (`storage.isPureArg`).
     pure_arg,
+    /// Of an arithmetic expression (`+`, `-`, `*`, `-v`) or a compound
+    /// assignment of one: whether it works on the integer lanes of a vector
+    /// and so is made by a checking runtime helper (`storage.laneChecked`).
+    lane_checked,
     /// Of an assignment: which of its steps are evaluated into storage in
     /// their turn, and whether the value made first is dropped if a later
     /// step leaves (`storage.setOrder`).

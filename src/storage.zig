@@ -132,6 +132,31 @@ pub fn hasStorage(ctx: *const SemContext, e: Sexp) bool {
     return sema.handsOver(ctx, e).hasStorage();
 }
 
+/// Whether the arithmetic `e` (`+`, `-`, `*`, `-v`, or a compound
+/// assignment of one) is made lane by lane on the integers of a vector,
+/// by a runtime helper that checks each lane (`rig.vecAdd`). Float lanes
+/// are not.
+pub fn laneChecked(ctx: *const SemContext, e: Sexp) bool {
+    return decide(ctx, e, .lane_checked);
+}
+
+fn decideLaneChecked(ctx: *const SemContext, e: Sexp) bool {
+    const kind = e.kind() orelse return false;
+    const op: Tag, const ty = switch (kind) {
+        .set => .{ rig.bindingKindOf(ir.Set.op(e)).operator() orelse return false, typeOf(ctx, ir.Set.target(e)) orelse return false },
+        .@"+", .@"-", .@"*", .neg => .{ kind, typeOf(ctx, e) orelse return false },
+        else => return false,
+    };
+    switch (op) {
+        .@"+", .@"-", .@"*", .neg => {},
+        else => return false,
+    }
+    return switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
+        .simd => |v| ctx.types.get(v.elem) == .int,
+        else => false,
+    };
+}
+
 /// A value whose evaluation has no side effect and reads nothing a
 /// later argument could change: a literal, a constant, a function,
 /// or a view or move of a name.
@@ -1107,7 +1132,7 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_receiver, .pure_arg => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_receiver, .pure_arg, .lane_checked => bool,
         .receiver_hold => ?ReceiverHold,
         .argument_hold => ArgumentHold,
         .match_mode => MatchMode,
@@ -1153,6 +1178,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .consumes_receiver => Node.of(decideConsumesReceiver),
         .argument_hold => Node.of(decideArgumentHold),
         .pure_arg => Node.of(decideIsPureArg),
+        .lane_checked => Node.of(decideLaneChecked),
         .set_order => Node.of(decideSetOrder),
         .step_point => Node.of(decideStepPoint),
     };
@@ -1369,7 +1395,11 @@ const Planner = struct {
                 };
                 try p.call(e);
             },
-            .set => try p.assignment(e),
+            .set => {
+                _ = laneChecked(ctx, e);
+                try p.assignment(e);
+            },
+            .@"+", .@"-", .@"*", .neg => _ = laneChecked(ctx, e),
             .@"for" => try p.forLoop(e),
             .match => try p.match(e),
             .@"if" => try p.condition(ir.If.cond(e)),
@@ -1585,7 +1615,7 @@ const Planner = struct {
         const order = setOrder(ctx, set);
         if (kind.operator()) |op| {
             try p.openAssign(set, order);
-            if (target != .src and assignsThroughCall(ctx, op, target, value)) try p.record(target, .slot, .pointer, .assignment);
+            if (target != .src and (assignsThroughCall(ctx, op, target, value) or laneChecked(ctx, set))) try p.record(target, .slot, .pointer, .assignment);
             return;
         }
         if (target != .src) {
@@ -1686,7 +1716,8 @@ const Planner = struct {
 /// `Emitter.emitCompound` lowers it: `rig.rem`, `@shlExact`, an integer
 /// `/`, and on a vector the runtime's lane shifts and saturating `+|` and
 /// `-|`, and a mask's `&`, `|`, and `^` (`rig.Mask`): its place is found
-/// once.
+/// once. A checked `+=`, `-=`, or `*=` on integer lanes does too
+/// (`laneChecked`), which the caller asks separately.
 fn assignsThroughCall(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
     switch (op) {
         .@"%", .@"<<" => return true,
