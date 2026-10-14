@@ -3273,10 +3273,14 @@ symbols); a query that decides more than that belongs in `Pending`.
     function with compile-time values, is exempt from this limit: each
     instance of the caller holds a copy that LLVM cannot merge into one;
   A function that fails a test of the last two is dropped and the tests
-  run again, until none fails. A call resolves by the callee's name (a
-  function by its symbol, so a local of that name is not it), so two
-  functions of one name stand for each other: the analysis finds at most
-  more cycles and more value uses than there are.
+  run again, until none fails; since dropping one only shrinks frames
+  and expansions, they run again from the function that failed, not
+  from the first. A call resolves by the callee's name (a function by
+  its symbol, so a local of that name is not it), so two functions of
+  one name stand for each other: the analysis finds at most more cycles
+  and more value uses than there are. A call by name is one edge to the
+  group of the functions of that name, not one to each, so a name every
+  module declares costs no more than any other.
 
   Zig charges each inline call, and each pass of a compile-time loop in
   an inlined body, to the evaluation budget of the function the code

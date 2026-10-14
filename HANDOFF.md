@@ -351,7 +351,8 @@ Two gates (AGENTS.md, "Land fast, release deep"):
   independent review in parallel. A round that changes a soundness
   classifier also runs the full matrix.
 - **The deep gate, on `main` about twice a day:** everything below, plus
-  equivalence against the last deep run and the JSON benchmark guard. A
+  equivalence against the last deep run, the JSON benchmark guard, and
+  the check-speed guard. A
   failure is bisected and fixed before any new round lands; a tag needs
   a clean deep gate. It also runs the Unicode tables' freshness test
   with the database present: `RIG_UCD=dir ./test/run unicode_tables`
@@ -363,6 +364,16 @@ Two gates (AGENTS.md, "Land fast, release deep"):
   `bench/json/guard.txt` is a regression, and the guard fails. A change
   meant to move the counts commits a new baseline
   (`bench/json/guard.py --update`).
+- **The check-speed guard:** on the Mac, `cpuq run --cores 2 --label
+  rig:check -- bench/check/guard.py` builds the compiler in ReleaseSafe
+  and runs `rig check` on a generated program about the size of Trig's
+  parser (`bench/check/gen.py`). It fails when the instructions retired
+  are more than 2% above `bench/check/guard.txt`, when a pass of `rig
+  check --time` (best of 7) is more than 20% and 0.25 ms slower (skipped above a
+  load of 5), or when checking a program 8 times larger along one
+  dimension (modules, variants, fields, functions, statements) grows
+  with an exponent over 1.15. A change meant to move them commits a new
+  baseline (`bench/check/guard.py --update`).
 
 The machines are shared: run heavy work through the job queue
 (`cpuq run --cores 2 -- …`, with `-j "$CPUQ_CORES"`), which shares the

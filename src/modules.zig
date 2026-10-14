@@ -43,6 +43,7 @@ const sema = @import("sema.zig");
 const proofs = @import("proofs.zig");
 const ownership = @import("ownership.zig");
 const diag = @import("diag.zig");
+const timing = @import("timing.zig");
 const ir = parser.ir;
 const std_lib = @import("rig_std");
 
@@ -121,6 +122,8 @@ pub const ModuleGraph = struct {
     semas: ?*sema.ModuleMap = null,
     /// Errors with no source position (the root file cannot be read).
     errors: std.ArrayList([]const u8) = .empty,
+    /// Where `rig check --time` adds the time of each pass.
+    timing: ?*timing.Timing = null,
     /// The program is built for `rig test`: a directory module's
     /// `_test.rig` files belong to it.
     with_tests: bool = false,
@@ -578,6 +581,8 @@ pub const ModuleGraph = struct {
             break :blk p;
         };
 
+        const t0 = timing.start(self.timing);
+        defer timing.stop(self.timing, .lex_parse, t0);
         self.get(id).ir = p.parseProgram() catch |err| switch (err) {
             error.ParseError => {
                 const d = p.diagnostic();
@@ -628,6 +633,7 @@ pub const ModuleGraph = struct {
             .is_root = id == 1,
             .zig_file = m.out_basename,
             .is_std = m.is_std,
+            .timing = self.timing,
             .parts = m.parts,
         };
         m.sema.deinit();
@@ -649,9 +655,11 @@ pub const ModuleGraph = struct {
             m.state = .failed;
             return;
         }
+        const t0 = timing.start(self.timing);
         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer own.deinit();
         try own.check(m.ir);
+        timing.stop(self.timing, .ownership, t0);
         const first: u32 = @intCast(m.sema.diagnostics.items.len);
         for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
         m.own_ran = true;
@@ -662,7 +670,9 @@ pub const ModuleGraph = struct {
         m.state = if (m.sema.hasErrors()) .failed else .checked;
         // Which tests are known to pass rests on the ownership checker's
         // acceptance (docs/INTERNALS.md, "Proven checks").
+        const t1 = timing.start(self.timing);
         if (m.state == .checked) try proofs.check(m.sema, m.ir);
+        timing.stop(self.timing, .proofs, t1);
     }
 
     fn errorAt(self: *ModuleGraph, id: ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {

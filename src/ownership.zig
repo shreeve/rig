@@ -4677,7 +4677,12 @@ pub const Checker = struct {
         const ctx = self.sema orelse return .{};
         if (name != .src) return .{};
         if (self.decl_owner) |owner| {
-            for (ctx.symbols.items[owner].fields orelse &.{}) |f| {
+            const fields = ctx.symbols.items[owner].fields orelse &.{};
+            // The first method of its name, unless two share it.
+            if (sema.memberIn(ctx, fields, self.text(name), .method)) |i| {
+                if (fields[i].decl_pos == name.src.pos) return fields[i].origins;
+            }
+            for (fields) |f| {
                 if (f.is_method and f.decl_pos == name.src.pos) return f.origins;
             }
             return .{};

@@ -3471,9 +3471,7 @@ const Checker = struct {
         for (bindings) |b| {
             const field = ir.Kwarg.name(b);
             const fname = self.text(field);
-            const i = for (fields, 0..) |f, i| {
-                if (std.mem.eql(u8, f.name, fname)) break i;
-            } else {
+            const i = (try sema.findMember(self.ctx, fields, fname, .any)) orelse {
                 const likely = memberSuggest(fields, fname, .field);
                 try self.err(field.src.pos, "no field `{s}` on variant `{s}`{s}", .{ fname, vname, try likely.hint(self.ctx.arena.allocator()) });
                 ok = false;
@@ -5658,7 +5656,7 @@ const Checker = struct {
         }
         const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
-        const f = findDataField(decl.symbol().fields orelse &.{}, name) orelse return null;
+        const f = (try findDataField(self.ctx, decl.symbol().fields orelse &.{}, name)) orelse return null;
         try self.checkVisible(f, decl.symbol(), module_id, pos);
         return try sema.importType(self.ctx, self.ctx.foreign_semas.get(module_id).?, f.ty, module_id);
     }
@@ -5720,13 +5718,11 @@ const Checker = struct {
         const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
         const foreign = self.ctx.foreign_semas.get(module_id).?;
-        for (decl.symbol().fields orelse &.{}) |f| {
-            if (!f.is_method or f.is_drop_method or !std.mem.eql(u8, f.name, name)) continue;
-            const ty = self.ctx.types.get(try sema.importType(self.ctx, foreign, f.ty, module_id));
-            if (ty != .function) return null;
-            return .{ .field = f, .fn_ty = ty.function, .owner = decl.symbol().name, .nominal_sym = sema.symbol_invalid, .source = foreign.source, .owner_sym = decl.symbol(), .module = module_id };
-        }
-        return null;
+        const fields = decl.symbol().fields orelse &.{};
+        const f = fields[(try sema.findMember(self.ctx, fields, name, .method)) orelse return null];
+        const ty = self.ctx.types.get(try sema.importType(self.ctx, foreign, f.ty, module_id));
+        if (ty != .function) return null;
+        return .{ .field = f, .fn_ty = ty.function, .owner = decl.symbol().name, .nominal_sym = sema.symbol_invalid, .source = foreign.source, .owner_sym = decl.symbol(), .module = module_id };
     }
 
     /// `module.name` as a value. Null when `obj` does not name a module.
@@ -5837,8 +5833,9 @@ const Checker = struct {
             try self.err(pos, "opaque type `{s}` has no members", .{tname});
             return self.t().invalid_id;
         };
-        for (members) |m| {
-            if (!std.mem.eql(u8, m.name, field)) continue;
+        // The first member of that name decides.
+        found: {
+            const m = members[(try sema.findMember(self.ctx, members, field, .any)) orelse break :found];
             // `Type.method` is a plain function value whose first
             // parameter is the receiver.
             if (m.is_method) {
@@ -5850,7 +5847,7 @@ const Checker = struct {
                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
             }
-            if (!m.is_variant) break;
+            if (!m.is_variant) break :found;
             if (nt.sym.kind == .generic_type and nt.args == null) {
                 try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ tname, tname, field, field, tname });
                 return self.t().invalid_id;
@@ -5935,10 +5932,9 @@ const Checker = struct {
             };
         };
         if (try self.namedType(inner)) |nt| {
-            for (nt.sym.fields orelse &.{}) |m| {
-                if (m.is_method and !m.is_drop_method and std.mem.eql(u8, m.name, name)) return .{ .function = fnTarget(if (nt.foreign) |fo| fo.ctx else self.ctx, m.ty) };
-            }
-            return null;
+            const fields = nt.sym.fields orelse &.{};
+            const m = fields[(try sema.findMember(self.ctx, fields, name, .method)) orelse return null];
+            return .{ .function = fnTarget(if (nt.foreign) |fo| fo.ctx else self.ctx, m.ty) };
         }
         return .value_member;
     }
@@ -6793,10 +6789,8 @@ const Checker = struct {
         if (!e.isKind(.member)) return null;
         const nt = (try self.namedType(ir.Member.object(e))) orelse return null;
         const name = self.text(ir.Member.name(e));
-        for (nt.sym.fields orelse return null) |f| {
-            if (f.is_variant and std.mem.eql(u8, f.name, name)) return f.value;
-        }
-        return null;
+        const fields = nt.sym.fields orelse return null;
+        return fields[(try sema.findMember(self.ctx, fields, name, .variant)) orelse return null].value;
     }
 
     /// A constant float converted to integer type `target`: its integer
@@ -8142,7 +8136,7 @@ const Checker = struct {
                 value = ir.Kwarg.value(arg);
                 const kname = self.text(ir.Kwarg.name(arg));
                 pattern = switch (from) {
-                    .fields, .payload => |fs| if (findDataField(fs, kname)) |f| f.ty else null,
+                    .fields, .payload => |fs| if (try findDataField(self.ctx, fs, kname)) |f| f.ty else null,
                     .params => |p| blk: {
                         const names = p.names orelse break :blk null;
                         for (names, 0..) |name, i| {
@@ -8978,7 +8972,7 @@ const Checker = struct {
                 continue;
             }
             try seen.put(self.ctx.allocator, fname, fpos);
-            const f = findDataField(fields, fname) orelse {
+            const f = (try findDataField(self.ctx, fields, fname)) orelse {
                 const likely = memberSuggest(fields, fname, .field);
                 if (likely.best) |b| try meant.put(self.ctx.allocator, b, {});
                 try self.err(fpos, "no field `{s}` on {s} `{s}`{s}", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner, try likely.hint(self.ctx.arena.allocator()) });
@@ -9018,7 +9012,7 @@ const Checker = struct {
         for (args, values, types) |arg, *v, *ty| {
             v.* = .nil;
             ty.* = sema.type_invalid;
-            const f = if (arg.isKind(.kwarg)) findDataField(fields, self.text(ir.Kwarg.name(arg))) else if (args.len == 1) soleField(fields) else null;
+            const f = if (arg.isKind(.kwarg)) try findDataField(self.ctx, fields, self.text(ir.Kwarg.name(arg))) else if (args.len == 1) soleField(fields) else null;
             const field = f orelse continue;
             v.* = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
             ty.* = try self.fieldType(field, info);
@@ -9602,18 +9596,17 @@ const Checker = struct {
             const enum_ty = try self.namedTypeValue(nt);
             if (self.enumValues(enum_ty)) |plain| {
                 if (plain) return self.enumFromIntCall(self.callee_node orelse return self.skipCall(args), enum_ty, tname, pos, args, ct);
-                const declared = for (members) |m| {
-                    if (std.mem.eql(u8, m.name, name)) break true;
-                } else false;
+                const declared = (try sema.findMember(self.ctx, members, name, .any)) != null;
                 if (!declared) return self.badCall(args, pos, "`{s}` has variants with payloads, which have no integer value", .{tname});
             }
         }
-        for (members) |m| {
-            if (!std.mem.eql(u8, m.name, name)) continue;
+        // The first member of that name decides.
+        found: {
+            const m = members[(try sema.findMember(self.ctx, members, name, .any)) orelse break :found];
             if (m.is_method and !m.is_drop_method) {
                 try self.checkVisible(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, pos);
                 const fty = self.ctx.types.get(try self.memberType(nt.foreign, m.ty));
-                if (fty != .function) break;
+                if (fty != .function) break :found;
                 var f = fty.function;
                 var recv: TypeSubst = .empty;
                 if (generic) {
@@ -9633,7 +9626,7 @@ const Checker = struct {
                 return f.returns;
             }
             if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });
-            if (!m.is_variant) break;
+            if (!m.is_variant) break :found;
             const payload = m.payload orelse &.{};
             if (payload.len == 0) return self.badCall(args, pos, "variant `{s}.{s}` takes no payload", .{ tname, name });
             var subst = TypeSubst.empty;
@@ -12727,11 +12720,8 @@ const slice_of_temporary = "only a named array, List, or String, or a field or e
 const cell_list_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `replace` the List to work on it";
 
 /// The data field (not a method or variant) named `name`.
-fn findDataField(fields: []const Field, name: []const u8) ?Field {
-    for (fields) |f| {
-        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return f;
-    }
-    return null;
+fn findDataField(ctx: *SemContext, fields: []const Field, name: []const u8) Error!?Field {
+    return fields[(try sema.findMember(ctx, fields, name, .data)) orelse return null];
 }
 
 /// The element type of a `List[T]`.
