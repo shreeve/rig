@@ -14,6 +14,7 @@ const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const inlining = @import("inlining.zig");
+const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
@@ -35,6 +36,8 @@ const usage =
     \\  clean     Remove the programs rig built in its cache (see RIG_OUT_DIR)
     \\
     \\Options:
+    \\  --tests                Check what `rig test` builds: for a directory
+    \\                         module, its `*_test.rig` files too (check)
     \\  --facts                Print the root module's syntax facts after
     \\                         checking it (check): every IR node with its
     \\                         kind, span, and role-named children
@@ -44,6 +47,8 @@ const usage =
     \\                         root module instead (check)
     \\  --facts=proofs         Print the tests of the root module that are
     \\                         known to pass, which emit omits (check)
+    \\  --time                 Print the time each pass of the compiler
+    \\                         takes, summed over the modules (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
     \\                         `--release=safe` are Zig's safe mode, which
     \\                         keeps overflow and bounds checks;
@@ -125,6 +130,10 @@ const Options = struct {
     mode: Mode = .debug,
     out_path: ?[]const u8 = null,
     facts: Facts = .none,
+    /// `check --time`: print the time of each pass.
+    time: bool = false,
+    /// `rig check --tests`: check the program as `rig test` builds it.
+    tests: bool = false,
     /// `rig run file.rig -- args...`: the program's own arguments.
     program_args: []const []const u8 = &.{},
 };
@@ -192,7 +201,8 @@ pub fn main(init: std.process.Init) !void {
             }
         },
         .check => {
-            var graph = try loadProject(allocator, io, env, opts.path);
+            var times: timing.Timing = .{ .io = io };
+            var graph = try loadProject(allocator, io, env, opts.path, opts.tests, if (opts.time) &times else null);
             defer graph.deinit();
             switch (opts.facts) {
                 .none => {},
@@ -224,6 +234,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var mode: Mode = .debug;
     var out_path: ?[]const u8 = null;
     var facts: Facts = .none;
+    var time = false;
+    var tests = false;
     var program_args: []const []const u8 = &.{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -246,6 +258,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             mode = .safe;
         } else if (eql(arg, "--release=fast")) {
             mode = .fast;
+        } else if (eql(arg, "--tests")) {
+            tests = true;
         } else if (eql(arg, "--facts")) {
             facts = .syntax;
         } else if (eql(arg, "--facts=sema")) {
@@ -254,6 +268,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .storage;
         } else if (eql(arg, "--facts=proofs")) {
             facts = .proofs;
+        } else if (eql(arg, "--time")) {
+            time = true;
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});
@@ -276,19 +292,23 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         usageError("`--release` applies to run, build, and test", .{});
     if (out_path != null and cmd != .build) usageError("`-o` applies to build", .{});
     if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
+    if (time and cmd != .check) usageError("`--time` applies to check", .{});
+    if (tests and cmd != .check) usageError("`--tests` applies to check; `rig test` builds the tests already", .{});
     if (cmd == .clean) {
         if (path != null) usageError("`rig clean` takes no file", .{});
         return .{ .command = cmd, .path = "" };
     }
     const file = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)});
+    // `rig check` and `rig test` also take a directory module.
+    const directory = (cmd == .check or cmd == .@"test") and isDirectory(io, file);
     // `rig build` writes ./<name>: a file without `.rig` would be its own
     // output.
     const base = std.fs.path.basename(file);
-    if (!std.mem.endsWith(u8, base, ".rig") or base.len == ".rig".len) usageError("`{s}` is not a .rig file", .{file});
+    if (!directory and (!std.mem.endsWith(u8, base, ".rig") or base.len == ".rig".len)) usageError("`{s}` is not a .rig file", .{file});
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .program_args = program_args };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tests = tests, .program_args = program_args };
 }
 
 fn eql(a: []const u8, b: []const u8) bool {
@@ -405,27 +425,42 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
     try writer.interface.flush();
 }
 
-/// Load and check the project rooted at `path`; print every diagnostic
-/// and exit 1 if there are errors.
-fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !modules.ModuleGraph {
+/// Load and check the project rooted at `path`, with the root's test
+/// files, if it is a directory module, when `with_tests`; print every
+/// diagnostic and exit 1 if there are errors.
+/// With `times`, add each pass's time to it and print them after the
+/// diagnostics.
+fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, with_tests: bool, times: ?*timing.Timing) !modules.ModuleGraph {
+    const t0 = timing.start(times);
     var graph = modules.ModuleGraph.init(allocator, io);
     errdefer graph.deinit();
     graph.std_dir = env.get("RIG_STD");
+    graph.with_tests = with_tests;
+    graph.timing = times;
     try graph.loadRoot(path);
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
     try graph.writeAllDiagnostics(&writer.interface);
     try writer.interface.flush();
-    if (graph.hasErrors()) std.process.exit(1);
-    try inlining.decide(allocator, &graph, inlining.max_size);
+    const failed = graph.hasErrors();
+    if (!failed) {
+        const t1 = timing.start(times);
+        try inlining.decide(allocator, &graph, inlining.max_size);
+        timing.stop(times, .inlining, t1);
+    }
+    if (times) |t| {
+        try t.write(&writer.interface, @intCast(@max(t0.?.durationTo(t.now()).nanoseconds, 0)));
+        try writer.interface.flush();
+    }
+    if (failed) std.process.exit(1);
     return graph;
 }
 
 /// `rig emit`: the root module's Zig on stdout; the whole package
 /// (imports and runtime) is written to the output directory.
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
-    var graph = try loadProject(allocator, io, env, path);
+    var graph = try loadProject(allocator, io, env, path, false, null);
     defer graph.deinit();
     const pkg = try emitPackage(allocator, env, &graph, false);
     const dir = try outputDir(allocator, env, graph.root());
@@ -452,7 +487,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
             else => notRun("cannot clear RIG_RUN_STARTED `{s}`: {s}", .{ path, @errorName(err) }),
         };
     };
-    var graph = try loadProject(allocator, io, env, opts.path);
+    var graph = try loadProject(allocator, io, env, opts.path, opts.command == .@"test", null);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     program_pending = opts.command != .build;
@@ -560,6 +595,11 @@ fn hasBinary(allocator: std.mem.Allocator, io: std.Io, zig_cache: []const u8, na
     return false;
 }
 
+fn isDirectory(io: std.Io, path: []const u8) bool {
+    const st = std.Io.Dir.cwd().statFile(io, path, .{}) catch return false;
+    return st.kind == .directory;
+}
+
 fn exists(io: std.Io, dir: []const u8, name: []const u8) bool {
     var buffer: [std.fs.max_path_bytes]u8 = undefined;
     const path = std.fmt.bufPrint(&buffer, "{s}/{s}", .{ dir, name }) catch return false;
@@ -568,10 +608,11 @@ fn exists(io: std.Io, dir: []const u8, name: []const u8) bool {
 }
 
 /// The module `rig test` builds: a driver next to the emitted ones that
-/// runs the `__rig_tests` table of every module (see `rig.runTests`).
+/// runs the `__rig_tests` table of the root module only (see
+/// `rig.runTests`); an imported module's tests are not emitted.
 const test_driver = "__rig_test.zig";
 
-fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *const modules.ModuleGraph) ![]const u8 {
+fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph) ![]const u8 {
     var driver: std.Io.Writer.Allocating = .init(allocator);
     const w = &driver.writer;
     try w.print(
@@ -592,10 +633,7 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *const modules.Modu
         \\    rig.runTests(&.{
         \\
     );
-    for (graph.modules.items, 0..) |m, i| {
-        if (m.is_std) continue;
-        try w.print("        .{{ .module = \"{s}\", .tests = testsOf(@import(\"{s}\")) }},\n", .{ if (i == 0) "" else m.name, m.out_basename });
-    }
+    try w.print("        .{{ .module = \"\", .tests = testsOf(@import(\"{s}\")) }},\n", .{graph.root().out_basename});
     try w.writeAll("    });\n}\n");
     return driver.written();
 }

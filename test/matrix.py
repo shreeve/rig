@@ -16,7 +16,9 @@ branch, every one of which must be rejected (`hdr.`), a
 `while` step reading what its condition binds (`step.`), an assignment
 to a place a view reaches whose value holds a statement of its own
 (`target.`), an assignment whose target starts from a value that changes
-what its value reads (`order.`), and the
+what its value reads (`order.`), a call of an owned closure held each
+way, given its holder or a value, and returning a view or a value
+(`clos.`), and the
 shapes of nested loops and the jumps between them (`loop.`), a `for`
 over an iterator, from each kind of source, in each statement, value, and
 jump context, run in debug and with `--release` (`iter.`), a Cell
@@ -2141,6 +2143,74 @@ def nest_program(wname, home, oname):
         "sub main()\n" + indent([o["make"], f"f = mk({o['arg']})", "print(1)"], 2) + "\n"])
 
 
+# A call of an owned closure (`clos.`): the closure is held as a local, a
+# field, a List element, an `as` binding, a view passed to a function, a
+# generic type's field, or a temporary; it is given its holder to write
+# or read, a String to own, or a ?String; and it returns a number, a
+# String, or a ?String viewing its argument. The result is printed
+# (`use`), or the argument's root is written first (`conflict`). A call
+# that lends to write what holds the closure is rejected (the closure
+# could free itself), as is a result viewing an owned parameter, a
+# write while the result views it, and a temporary callee.
+CLOS_ARGS = {
+    # arg: (parameter type, argument, the body per result, what each prints)
+    "wholder": ("!Hold", "!h", {"plain": ["k.n += 1", "k.n"], "owned": ["String(k.name)"], "view": ["?k.name"]},
+                {"plain": "2", "owned": "nm", "view": "nm"}),
+    "rholder": ("?Hold", "?h", {"plain": ["k.n"], "owned": ["String(k.name)"], "view": ["?k.name"]},
+                {"plain": "1", "owned": "nm", "view": "nm"}),
+    "owned": ("String", 'String("own")', {"plain": ["k.len"], "owned": ["k"], "view": ["?k"]},
+              {"plain": "3", "owned": "own", "view": None}),
+    "text": ("?String", "?t", {"plain": ["k.len"], "owned": ["String(k)"], "view": ["k"]},
+             {"plain": "3", "owned": "txt", "view": "txt"}),
+}
+CLOS_RESULTS = {"plain": "Int", "owned": "String", "view": "?String"}
+CLOS_CALLEES = ("local", "field", "element", "asbind", "view", "generic", "temp")
+# The callees held in `h`, the holder the call may lend.
+CLOS_IN_HOLDER = ("field", "element", "asbind", "view")
+CLOS_THENS = ("use", "conflict")
+
+
+def clos_program(callee, aname, rname, then):
+    """The program for one owned-closure call cell, and what it prints."""
+    ptype, arg, bodies, prints = CLOS_ARGS[aname]
+    ty = f"*fun({ptype}) -> {CLOS_RESULTS[rname]}"
+    field = {"field": f"  f: {ty}\n", "element": f"  fs: List[{ty}]\n",
+             "asbind": f"  o: ({ty})?\n", "view": f"  f: {ty}\n"}.get(callee, "")
+    out = ["obj Hold\n  n: Int\n  name: String\n" + field,
+           "obj Box[T]\n  f: T\n"]
+    if callee == "view":
+        passed = {"wholder": "!k", "rholder": "k", "owned": "<k", "text": "k"}[aname]
+        out.append(f"fun call(f: ?{ty}, k: {ptype}) -> {CLOS_RESULTS[rname]}\n  f({passed})\n")
+    body = ['t = String("txt")', f"cl: {ty} = *|k|"] + ["  " + l for l in bodies[rname]]
+    made = 'h = Hold(n: 1, name: String("nm"){})'
+    if callee in ("field", "view"):
+        body.append(made.format(", f: <cl"))
+    elif callee == "element":
+        body += [made.format(", fs: List()"), "!h.fs.push(<cl)"]
+    elif callee == "asbind":
+        body.append(made.format(", o: <cl"))
+    else:
+        body.append(made.format(""))
+    if callee == "generic":
+        body.append("b = Box(f: <cl)")
+    call = {"local": f"cl({arg})", "field": f"h.f({arg})", "element": f"h.fs[0]({arg})",
+            "asbind": f"g({arg})", "view": f"call(?h.f, {arg})", "generic": f"b.f({arg})",
+            "temp": f"(+cl)({arg})"}[callee]
+    tail = [f"r = {call}"]
+    if then == "conflict":
+        tail.append('!t.add("!")' if aname == "text" else "h.n += 10")
+    tail.append("print(r)")
+    if callee == "asbind":
+        body += ["if h.o as g"] + ["  " + l for l in tail]
+    else:
+        body += tail
+    out.append("sub main()\n" + indent(body, 2) + "\n")
+    rejected = (callee == "temp" or prints[rname] is None
+                or (aname == "wholder" and callee in CLOS_IN_HOLDER)
+                or (then == "conflict" and rname == "view"))
+    return "\n".join(out), "(rejected)\n" if rejected else prints[rname] + "\n"
+
+
 # -----------------------------------------------------------------------------
 # Named arguments in every order. Arguments are evaluated in the order they
 # are written and passed in the order the parameters are declared
@@ -2505,6 +2575,9 @@ PROOF_USES = {
     "add": ("print(i + 1)", "+", "i + 1", None, False, "i + 1 > 0", None),
     "add_set": ("i += 1", "+=", "i += 1", None, False, None, None),
     "add8": ("print(i + 8)", "+", "i + 8", None, False, "i + 8 > 0", None),
+    # `w = four(k)` before the guard: `four` bounds `w.size` by 4.
+    "add_field": ("print(i + w.size)", "+", "i + w.size", None, False, "i + w.size > 0", None),
+    "add_field_set": ("i += w.size", "+=", "i += w.size", None, False, None, None),
 }
 PROOF_PLACES = ("straight", "nested", "and")
 
@@ -2513,7 +2586,7 @@ def proof_tests(facts, uname):
     """The tests the use's node has proven under `facts` (docs/INTERNALS.md,
     "Proven checks"): an index or a byte access, `0 <= i` and room for its
     width; an add of `c`, room for `c`, or any room below a length that
-    fits."""
+    fits; an add of a field its function bounds by 4, as an add of 4."""
     _, kind, _, width, _, _, _ = PROOF_USES[uname]
     below = facts["below"]
     if width is not None:
@@ -2523,7 +2596,7 @@ def proof_tests(facts, uname):
         if below is not None and below >= width:
             tests.append("upper")
         return tests
-    c = 8 if uname == "add8" else 1
+    c = {"add8": 8, "add_field": 4, "add_field_set": 4}.get(uname, 1)
     return ["no_overflow"] if below is not None and (below >= c or facts["fits"]) else []
 
 
@@ -2550,10 +2623,12 @@ def proof_program(gname, mname, uname, place, deep=False):
         sig.append("out: ![]Int")
     sig += ["at: Int", "flag: Bool", "k: Int"]
     body = ["s = t" if not uwrites else "s = <t", "i = at"]
+    if uname.startswith("add_field"):
+        body.append("w = four(k)")
     # `i += 1` is followed by a read of `i`, which it would otherwise leave
     # unread.
     # The use's line is marked with a NUL until its place is known.
-    stmts = ["\0" + ustmt] + (["print(i)"] if uname == "add_set" else [])
+    stmts = ["\0" + ustmt] + (["print(i)"] if uname in ("add_set", "add_field_set") else [])
     use = [uexpr] if place == "and" else stmts
     if place == "nested":
         use = ["if flag"] + ["  " + x for x in stmts]
@@ -2618,6 +2693,11 @@ def proof_program(gname, mname, uname, place, deep=False):
         elif uname == "add_set":
             i += 1
             prints.append(str(i))
+        elif uname == "add_field":
+            prints.append(str(i + 4))
+        elif uname == "add_field_set":
+            i += 4
+            prints.append(str(i))
         i += 1
     if uwrites and panic is None:
         prints.append("[" + ", ".join(map(str, buf)) + "]")
@@ -2626,6 +2706,8 @@ def proof_program(gname, mname, uname, place, deep=False):
     facts.update(meffect)
     tests = proof_tests(facts, uname)
     src = ["sub bump(n: !Int)", "  n += 1", "", "fun next(n: !Int) -> Int", "  n += 1", "  7", ""]
+    if uname.startswith("add_field"):
+        src += ["obj W", "  size: Int", "", "fun four(k: Int) -> W", "  return W(size: 4) if k > 0", "  W(size: 0)", ""]
     src.append(f"sub probe({', '.join(sig)})")
     first = len(src) + 1
     src += ["  " + l for l in body]
@@ -3397,6 +3479,18 @@ def main():
                     expects[ident] = expect
                     if then == "done":
                         release.add(ident)
+    for callee in CLOS_CALLEES:
+        for aname in CLOS_ARGS:
+            for rname in CLOS_RESULTS:
+                for then in CLOS_THENS:
+                    ident = f"clos.{callee}.{aname}.{rname}.{then}"
+                    if not wanted(ident):
+                        continue
+                    src, expects[ident] = clos_program(callee, aname, rname, then)
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(src)
+                    cells.append((ident, path))
     for wname in NEST_WRAPPERS:
         for home in NEST_HOMES:
             for oname in NEST_OWNERS:

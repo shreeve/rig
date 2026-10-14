@@ -1,7 +1,8 @@
 # Both sides of a lane-wise operator are one `Simd` type, or a vector and
-# a scalar of its lane type; a literal must fit a lane. `/`, `%`, and the
-# shifts take no vector, ordering takes number lanes, the wrapping forms
-# integer lanes, and `-` signed or float lanes.
+# a scalar of its lane type; a literal must fit a lane. `/` and `%` take
+# no vector, ordering takes number lanes, the wrapping and saturating
+# forms and the shifts integer lanes, and `-` signed or float lanes. A
+# shift moves every lane by one integer, below the lane width.
 
 sub main()
   a = Simd[U8, 4].splat(1)
@@ -13,27 +14,33 @@ sub main()
   print(a + n)
   print(a + 300)
   print(a / 2, a % 2)
-  print(a << 1, a >> 1, a <<% 1)
+  print(a << a, a >> 8, f <<% 1)
   print(m < m)
-  print(f +% f, f & f)
+  print(f +% f, f & f, f +| f, m -| m)
   print(-a)
   a += b
-  a <<= 1
+  a <<= 9
   m += m
+  a /= 2
+  m >>= 1
 
-# error: 12:9: operator `+` operands have different types `Simd[U8, 4]` and `Simd[U16, 4]`
-# error: 13:13: operator `+` operands have different types `Simd[U8, 4]` and `Int`; a scalar beside a vector is of its lane type, `U8`
-# error: 14:13: integer value `300` does not fit in `U8` (0..255)
-# error: 15:9: operator `/` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons
-# error: 15:16: operator `%` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons
-# error: 16:9: operator `<<` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons
-# error: 16:17: operator `>>` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons
-# error: 16:25: operator `<<%` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping forms, `&`, `|`, `^`, and the comparisons
-# error: 17:9: operator `<` orders numbers; the lanes of `Simd[Bool, 4]` are not
-# error: 18:9: operator `+%` requires integer operands; got `Simd[F32, 4]`
-# error: 18:17: operator `&` requires integer operands; got `Simd[F32, 4]`
-# error: 19:10: operator `-` negates signed integer or float lanes; got `Simd[U8, 4]`
-# error: 20:8: type mismatch: expected `Simd[U8, 4]`, got `Simd[U16, 4]`
-# error: 21:3: `<<=` does not take a `Simd`: a vector has `+=`, `-=`, `*=`, their wrapping forms, `&=`, `|=`, and `^=`
-# error: 22:3: `+=` requires numeric lanes; got `Simd[Bool, 4]`
-# errors: 15
+# error: 13:9: operator `+` operands have different types `Simd[U8, 4]` and `Simd[U16, 4]`
+# error: 14:13: operator `+` operands have different types `Simd[U8, 4]` and `Int`; a scalar beside a vector is of its lane type, `U8`
+# error: 15:13: integer value `300` does not fit in `U8` (0..255)
+# error: 16:9: operator `/` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping and saturating forms, `&`, `|`, `^`, the shifts, and the comparisons
+# error: 16:16: operator `%` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping and saturating forms, `&`, `|`, `^`, the shifts, and the comparisons
+# error: 17:14: a shift amount must be an integer; got `Simd[U8, 4]`; a vector's lanes all shift by one integer
+# error: 17:22: shift amount `8` is out of range for `U8` (0..7)
+# error: 17:25: operator `<<%` requires integer lanes; got `Simd[F32, 4]`
+# error: 18:9: operator `<` orders numbers; the lanes of `Simd[Bool, 4]` are not
+# error: 19:9: operator `+%` requires integer operands; got `Simd[F32, 4]`
+# error: 19:17: operator `&` requires integer operands; got `Simd[F32, 4]`
+# error: 19:24: operator `+|` requires integer operands; got `Simd[F32, 4]`
+# error: 19:32: operator `-|` requires integer operands; got `Simd[Bool, 4]`
+# error: 20:10: operator `-` negates signed integer or float lanes; got `Simd[U8, 4]`
+# error: 21:8: type mismatch: expected `Simd[U8, 4]`, got `Simd[U16, 4]`
+# error: 22:9: shift amount `9` is out of range for `U8` (0..7)
+# error: 23:3: `+=` requires numeric lanes; got `Simd[Bool, 4]`
+# error: 24:3: `/=` does not take a `Simd`: a vector has `+=`, `-=`, `*=`, their wrapping and saturating forms, `&=`, `|=`, `^=`, and the shifts
+# error: 25:3: `>>=` requires integer lanes; got `Simd[Bool, 4]`
+# errors: 19

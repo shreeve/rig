@@ -1,0 +1,95 @@
+# Review of #193 (std.utf8's block counting): random strings of valid
+# and invalid UTF-8 and random bytes, up to 200 long, and every length 0
+# to 200 of each piece repeated, so a sequence is cut at every block
+# end. Each compares `rune_count`, `utf16.unit_count`, `is_valid`, and
+# `ascii_end` at every cursor with a reference read rune by rune, and
+# checks that `byte_index` inverts `unit_count` at every rune start.
+use std.utf8
+use std.utf16
+
+obj Gen
+  x: Int
+
+fun next(g: !Gen) -> Int
+  g.x = (g.x *% 6364136223846793005 +% 1442695040888963407)
+  (g.x >> 33) & 0x7FFFFFFF
+
+fun reference(s: ?String, wide: Bool) -> Int
+  n = 0
+  i = 0
+  while i < s.len
+    d = utf8.rune_after(s, i)
+    n += 2 if wide and d.size == 4 else 1
+    i += d.size
+  n
+
+fun ref_valid(s: ?String) -> Bool
+  i = 0
+  while i < s.len
+    d = utf8.rune_after(s, i)
+    return false if d.size == 1 and s[i] >= 0x80
+    i += d.size
+  true
+
+fun ref_end(s: ?String, i: Int) -> Int
+  j = i
+  while j < s.len and s[j] < 0x80
+    j += 1
+  j
+
+PIECES = ["\xc3\xa9", "\xe4\xb8\xad", "\xf0\x9f\x98\x80", "\xed\x9f\xbf", "\xee\x80\x80", "\xf4\x8f\xbf\xbf", "\x80", "\xbf", "\xc0\x80", "\xc1\xbf", "\xe0\x9f\xbf", "\xed\xa0\x80", "\xed\xbf\xbf", "\xf0\x8f\xbf\xbf", "\xf4\x90\x80\x80", "\xf5\x80\x80\x80", "\xfe", "\xff", "\xe0", "\xf0\x9f", "\xf0\x9f\x98", "\xc3"]
+
+sub check(s: ?String, bad: !Int)
+  r = reference(s, false)
+  u = reference(s, true)
+  if utf8.rune_count(s) != r or utf16.unit_count(s) != u
+    bad += 1
+    print("COUNT", s.len, utf8.rune_count(s), r, utf16.unit_count(s), u)
+  if utf8.is_valid(s) != ref_valid(s)
+    bad += 1
+    print("VALID", s.len)
+  for i in 0..s.len + 1
+    if utf8.ascii_end(s, i) != ref_end(s, i)
+      bad += 1
+      print("END", s.len, i, utf8.ascii_end(s, i), ref_end(s, i))
+  # byte_index inverts unit_count at every rune start
+  i = 0
+  while i < s.len
+    k = utf16.unit_count(s[..i])
+    if utf16.byte_index(s, k) != i
+      bad += 1
+      print("BYTEINDEX", s.len, i, utf16.byte_index(s, k))
+    i += utf8.rune_after(s, i).size
+
+sub main()
+  g = Gen(x: 193)
+  bad = 0
+  total = 0
+  t = String()
+  for _ in 0..6000
+    !t.clear()
+    len = next(!g) % 200
+    mode = next(!g) % 4
+    while t.len < len
+      k = next(!g) % 100
+      if mode == 0
+        !t.push(U8(next(!g) % 256))
+      else if k < 60 + mode * 10
+        !t.push(U8(0x20 + next(!g) % 90))
+      else
+        !t.add(PIECES[next(!g) % PIECES.len])
+    check(t, !bad)
+    total += 1
+  # every exact length 0..200 of each piece pattern, ending cut
+  for p in PIECES
+    for len in 0..200
+      !t.clear()
+      while t.len < len
+        !t.add(p)
+      check(t, !bad)
+      check(t[..len], !bad)
+      total += 2
+  print(total, bad)
+
+# expect:
+# 14800 0

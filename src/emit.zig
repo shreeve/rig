@@ -216,6 +216,9 @@ pub const Emitter = struct {
     counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
     module_names: std.StringHashMapUnmanaged(void) = .empty,
+    /// The modules whose `@import` is emitted so far: in a directory
+    /// module, several files may each use one module.
+    used_modules: std.AutoHashMapUnmanaged(u32, void) = .empty,
     usage: Usage = .{},
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
@@ -328,6 +331,7 @@ pub const Emitter = struct {
         self.local_by_sym.deinit(self.allocator);
         self.local_names.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
+        self.used_modules.deinit(self.allocator);
         self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
@@ -401,11 +405,15 @@ pub const Emitter = struct {
         }
     }
 
-    /// A module-level constant, `name = value`.
+    /// A module-level constant, `name = value`. A vector is a Zig `var`,
+    /// never written: Zig knows no vector when it compiles
+    /// (`writeVectorOpen`), and LLVM still folds the never-written value.
     fn emitConst(self: *Emitter, node: Sexp) Error!void {
         const target = ir.Set.target(node);
-        try self.w.print("pub const {f}: ", .{ident(self.srcText(target))});
-        try self.emitTypeTy(self.typeOf(target) orelse return self.unsupported(node, "an untyped constant"));
+        const ty = self.typeOf(target) orelse return self.unsupported(node, "an untyped constant");
+        const vector = self.facts.types.get(ty) == .simd;
+        try self.w.print("pub {s} {f}: ", .{ if (vector) "var" else "const", ident(self.srcText(target)) });
+        try self.emitTypeTy(ty);
         try self.w.writeAll(" = ");
         const saved = self.keep_comptime;
         defer self.keep_comptime = saved;
@@ -414,16 +422,28 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
     }
 
-    /// `use` binds its local name to the module's emitted file.
+    /// A `use` imports the module's emitted file under a name of the
+    /// emitter's (`writeModuleZig`), whatever name the `use` binds: a
+    /// `use` binds its name in its own file only, and a local of any
+    /// file may have it.
     fn emitUse(self: *Emitter, node: Sexp) Error!void {
         const path = ir.Use.name(node);
         const alias = ir.Use.alias(node);
-        const name = self.srcText(if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path);
-        for (0..self.facts.importCount()) |i| {
-            const imp = self.facts.importAt(i);
-            if (std.mem.eql(u8, imp.local_name, name)) return self.w.print("const {f} = @import(\"{s}\");\n", .{ ident(name), imp.facts.zig_file });
-        }
-        return self.unsupported(node, "an unresolved `use`");
+        const name = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
+        const sym = self.facts.symbolOf(name) orelse return self.unsupported(node, "an unresolved `use`");
+        const module = self.facts.moduleOf(sym) orelse return self.unsupported(node, "an unresolved `use`");
+        if ((try self.used_modules.getOrPut(self.allocator, module)).found_existing) return;
+        const foreign = self.facts.foreign(module) orelse return self.unsupported(node, "an unloaded module");
+        try self.w.writeAll("const ");
+        try self.writeModuleZig(module);
+        try self.w.print(" = @import(\"{s}\");\n", .{foreign.zig_file});
+    }
+
+    /// The Zig name of an imported module: `__rig_m<id>_<name>`.
+    fn writeModuleZig(self: *Emitter, module: u32) Error!void {
+        const name = if (self.facts.foreign(module)) |f| f.name else "";
+        try self.w.print("__rig_m{d}_", .{module});
+        for (name) |c| try self.w.writeByte(if (c == '.') '_' else c);
     }
 
     /// `extern_fun` / `extern_sub`, a C function, or `extern`, a C
@@ -495,8 +515,11 @@ pub const Emitter = struct {
     }
 
     /// `(test "name" body)` → a function listed in the module's
-    /// `__rig_tests` table, which `rig test` runs (`rig.runTests`).
+    /// `__rig_tests` table, which `rig test` runs (`rig.runTests`). Only
+    /// the root module's tests are emitted; an imported module's are
+    /// checked and left out.
     fn emitTest(self: *Emitter, node: Sexp) Error!void {
+        if (!self.facts.is_root) return;
         const func = try self.fmt("__rig_test_{d}", .{self.tests.items.len});
         try self.tests.append(self.allocator, .{ .name = self.srcText(ir.Test.name(node)), .func = func });
         try self.w.print("fn {s}() anyerror!void ", .{func});
@@ -1796,20 +1819,70 @@ pub const Emitter = struct {
         try self.hoisted.append(self.allocator, .{ .node = index, .name = name });
     }
 
+    /// Whether `ty` is a vector, or a view of one.
+    fn isSimd(self: *Emitter, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return self.facts.types.get(self.peelViews(t)) == .simd;
+    }
+
+    /// Whether `ty` is a mask, `Simd[Bool, n]`, or a view of one: a
+    /// `rig.Mask(n)`, whose operators are the runtime's (`rig.maskOr`).
+    fn isMask(self: *Emitter, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return switch (self.facts.types.get(self.peelViews(t))) {
+            .simd => |v| v.elem == self.facts.types.bool_id,
+            else => false,
+        };
+    }
+
+    /// The runtime function of a mask operator, or null for one that no mask takes.
+    fn maskOperator(op: Tag) ?[]const u8 {
+        return switch (op) {
+            .@"&" => "rig.maskAnd(",
+            .@"|" => "rig.maskOr(",
+            .@"^" => "rig.maskXor(",
+            .@"==" => "rig.maskEq(",
+            .@"!=" => "rig.maskNe(",
+            else => null,
+        };
+    }
+
+    /// The runtime function that shifts a vector's lanes by one amount
+    /// (`<<`, `<<%`, or `>>`).
+    fn vecShift(op: Tag) []const u8 {
+        return switch (op) {
+            .@"<<" => "rig.vecShl",
+            .@"<<%" => "rig.vecShlWrap",
+            else => "rig.vecShr",
+        };
+    }
+
     /// `x op= e` on a name or place, with the place evaluated once, after
     /// `e` (`openAssign`). The operators that lower to a builtin
     /// (`@divTrunc` for integer `/`, `rig.rem`, `@shlExact`) assign the
-    /// builtin's result; the others use Zig's own compound assignment.
+    /// builtin's result, as do the checked operators on integer vector lanes
+    /// (`laneHelper`); the others use Zig's own compound assignment.
     fn emitCompound(self: *Emitter, set: Sexp, op: Tag) Error!void {
         try self.inUnit(set);
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
-        const builtin: ?[]const u8 = switch (op) {
+        const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
+        // A vector's lanes shift (`vecShift`) and saturate through the
+        // runtime, which takes the amount as it is.
+        const vector = self.isSimd(self.typeOf(target));
+        const lanes = shift and vector;
+        const mask_op: ?[]const u8 = if (self.isMask(self.typeOf(target))) switch (op) {
+            .@"&" => "rig.maskAnd",
+            .@"|" => "rig.maskOr",
+            .@"^" => "rig.maskXor",
+            else => null,
+        } else null;
+        const builtin: ?[]const u8 = if (mask_op) |m| m else if (lanes) vecShift(op) else if (vector and op == .@"+|") "rig.vecAddSat" else if (vector and op == .@"-|") "rig.vecSubSat" else switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
             .@"<<" => "@shlExact",
+            .@"+", .@"-", .@"*" => self.laneHelper(set, op),
             else => null,
         };
-        const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
         const order = try self.openAssign(set, if (value_ty) |t| self.peelViews(t) else null, .value);
@@ -1825,9 +1898,10 @@ pub const Emitter = struct {
                 try self.emitPlace(target);
                 try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
             }
-            try self.w.writeAll(if (shift) ", @intCast(" else ", ");
+            const cast = shift and !lanes;
+            try self.w.writeAll(if (cast) ", @intCast(" else ", ");
             try self.emitBare(value);
-            if (shift) try self.w.writeAll(")");
+            if (cast) try self.w.writeAll(")");
             try self.w.writeAll(if (target == .src) ");" else "); }");
             return self.closeAssign(order);
         }
@@ -3717,6 +3791,7 @@ pub const Emitter = struct {
         if (isLiteralText(name)) return self.w.writeAll(name);
         // A built-in type named in an expression: `Endian.big`.
         if (self.facts.symbolOf(sexp)) |id| if (id == self.facts.endian_sym_id) return self.writeNominalName(id);
+        if (self.facts.symbolOf(sexp)) |id| if (self.facts.moduleOf(id)) |module| return self.writeModuleZig(module);
         if (self.rt_names and !self.keep_comptime and self.isModuleConst(sexp)) {
             try self.w.writeAll("rig.rt(");
             try self.writeModuleName(name);
@@ -4106,7 +4181,7 @@ pub const Emitter = struct {
             else => {},
         }
         if (self.literal_ty == null) switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
                 // does not evaluate it again with other intermediate types.
@@ -4115,7 +4190,7 @@ pub const Emitter = struct {
             else => {},
         };
         switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .neg, .index => self.rt_names = true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .neg, .index => self.rt_names = true,
             else => {},
         }
         switch (head) {
@@ -4238,6 +4313,11 @@ pub const Emitter = struct {
                 const operand = ir.Neg.operand(sexp);
                 // Zig rejects the literal `-0` as ambiguous; `0 - 0` is 0.
                 if (operand == .src and isIntZeroText(self.srcText(operand))) return self.w.writeAll("0");
+                if (self.laneHelper(sexp, .neg)) |helper| {
+                    try self.w.print("{s}(", .{helper});
+                    try self.emitBare(operand);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("-");
                 try self.emitExpr(operand);
             },
@@ -4251,9 +4331,16 @@ pub const Emitter = struct {
                 try self.w.print(".{f}", .{ident(name)});
             },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
-            .@"+%", .@"-%", .@"*%" => {
+            .@"+%", .@"-%", .@"*%", .@"+|", .@"-|" => {
+                if ((head == .@"+|" or head == .@"-|") and self.isSimd(self.typeOf(sexp))) {
+                    try self.w.writeAll(if (head == .@"+|") "rig.vecAddSat(" else "rig.vecSubSat(");
+                    try self.emitBare(ir.get(sexp, .left));
+                    try self.w.writeAll(", ");
+                    try self.emitBare(ir.get(sexp, .right));
+                    return self.w.writeAll(")");
+                }
                 // In the expression's type, so that literal operands wrap
-                // as it does rather than as a Zig `comptime_int`.
+                // or saturate as it does rather than as a Zig `comptime_int`.
                 if (!bare) try self.w.writeAll("(");
                 try self.writeAsOpen(self.typeOf(sexp) orelse self.facts.types.int_id);
                 try self.emitBare(ir.get(sexp, .left));
@@ -4274,6 +4361,13 @@ pub const Emitter = struct {
                 // does. The shift amount is cast to the width Zig requires,
                 // so one at or over the width panics in either; the shifted
                 // value has the expression's type.
+                if (self.isSimd(self.typeOf(sexp))) {
+                    try self.w.print("{s}(", .{vecShift(head)});
+                    try self.emitBare(ir.get(sexp, .left));
+                    try self.w.writeAll(", ");
+                    try self.emitBare(ir.get(sexp, .right));
+                    return self.w.writeAll(")");
+                }
                 const shl = head == .@"<<";
                 const wrap = head == .@"<<%";
                 const parens = !shl and !bare;
@@ -4365,6 +4459,22 @@ pub const Emitter = struct {
         try self.emitPlace(place);
     }
 
+    /// The runtime helper that checks the arithmetic `e` on the integer
+    /// lanes of a vector, or null when `e` is not that (`storage.laneChecked`,
+    /// a recorded fact). Zig's own vector `+`, `-`, `*`, and `-` test LLVM's
+    /// overflow bits, which aarch64 gets wrong for wide byte vectors (see
+    /// `rig.vecAdd`).
+    fn laneHelper(self: *Emitter, e: Sexp, op: Tag) ?[]const u8 {
+        if (!(self.facts.laneChecked(e) orelse false)) return null;
+        return switch (op) {
+            .@"+" => "rig.vecAdd",
+            .@"-" => "rig.vecSub",
+            .@"*" => "rig.vecMul",
+            .neg => "rig.vecNeg",
+            else => unreachable,
+        };
+    }
+
     /// A binary operator node: `(op left right)`.
     fn emitInfix(self: *Emitter, sexp: Sexp, bare: bool) Error!void {
         try self.inUnit(sexp);
@@ -4417,6 +4527,26 @@ pub const Emitter = struct {
         };
         // An add known not to overflow (`provenOf`).
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
+        if (self.laneHelper(sexp, kind)) |helper| {
+            try self.w.print("{s}(", .{helper});
+            try self.emitBare(operands[0]);
+            try self.w.writeAll(", ");
+            try self.emitBare(operands[1]);
+            return self.w.writeAll(")");
+        }
+        // Masks combine and compare through the runtime (`rig.Mask`), and
+        // a comparison of other vectors gives its lanes as a mask.
+        if (self.isMask(self.typeOf(sexp))) {
+            if (self.isMask(self.typeOf(operands[0])) or self.isMask(self.typeOf(operands[1]))) {
+                const f = maskOperator(kind) orelse return self.unsupported(sexp, "this operator on masks");
+                return self.emitCall2(f, operands, ")");
+            }
+            try self.w.writeAll("rig.mask(");
+            try self.emitExpr(operands[0]);
+            try self.w.print(" {s} ", .{op});
+            try self.emitExpr(operands[1]);
+            return self.w.writeAll(")");
+        }
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});
@@ -4715,8 +4845,13 @@ pub const Emitter = struct {
     /// `(member obj name)`. A shared handle auto-dereferences through
     /// `.value`; `.len` of an array, slice, string, or List is an `Int`.
     fn emitMember(self: *Emitter, sexp: Sexp) Error!void {
+        return self.emitMemberNamed(sexp, self.srcText(ir.Member.name(sexp)));
+    }
+
+    /// Member `sexp` read as `field`: the member's own name, or `len` for
+    /// the length `is_empty()` compares.
+    fn emitMemberNamed(self: *Emitter, sexp: Sexp, field: []const u8) Error!void {
         const obj = ir.Member.object(sexp);
-        const field = self.srcText(ir.Member.name(sexp));
         const obj_ty = self.typeOf(obj);
         // `U8.max`, `F64.min`: a number type's limit.
         if (self.facts.intLimit(sexp)) |limit| return self.emitIntConstant(sexp, limit.v);
@@ -4765,7 +4900,7 @@ pub const Emitter = struct {
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
             try self.w.writeAll("rig.rt(");
-            try self.writeModuleName(self.srcText(obj));
+            try self.writeModuleZig(self.facts.moduleOf(self.facts.symbolOf(obj).?).?);
             return self.w.print(".{f})", .{ident(field)});
         }
         // A field of a value built of constants is a run-time value
@@ -4883,7 +5018,7 @@ pub const Emitter = struct {
             return self.derefToHandle(t);
         };
         const needs_parens = movesCompound(o) or if (o.kind()) |h| switch (h) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .propagate, .call, .array => true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .propagate, .call, .array => true,
             else => false,
         } else false;
         if (needs_parens) try self.w.writeAll("(");
@@ -5449,11 +5584,9 @@ pub const Emitter = struct {
                 try self.emitBare(ir.Member.object(callee));
                 return self.w.writeAll(")");
             },
-            // `@select(T, m, a, b)`.
+            // `rig.maskSelect(m, a, b)`.
             .select => {
-                try self.w.writeAll("@select(");
-                try self.emitTypeTy(ec.elem);
-                try self.w.writeAll(", ");
+                try self.w.writeAll("rig.maskSelect(");
                 try self.emitBare(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
@@ -5461,14 +5594,37 @@ pub const Emitter = struct {
                 }
                 return self.w.writeAll(")");
             },
-            // `@as([n]T, v)`.
+            // `@as([n]T, v)`, or `rig.maskArray(m)`.
             .array => {
+                if (ec.elem == self.facts.types.bool_id) {
+                    try self.w.writeAll("rig.maskArray(");
+                    try self.emitBare(ir.Member.object(callee));
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("@as([");
                 try self.emitTypeTy(self.facts.types.get(ec.num).simd.len);
                 try self.w.writeAll("]");
                 try self.emitTypeTy(ec.elem);
                 try self.w.writeAll(", ");
                 try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")");
+            },
+            // `rig.lookup(t, idx)`, lowered per target by the runtime.
+            .lookup => {
+                try self.w.writeAll("rig.lookup(");
+                try self.emitBare(ir.Member.object(callee));
+                try self.w.writeAll(", ");
+                try self.emitBare(args[0]);
+                return self.w.writeAll(")");
+            },
+            // `rig.lag(k, cur, prev)`: one constant shuffle.
+            .lag => {
+                try self.w.writeAll("rig.lag(");
+                try self.emitBare(self.facts.ctArgsOf(call)[0]);
+                try self.w.writeAll(", ");
+                try self.emitBare(ir.Member.object(callee));
+                try self.w.writeAll(", ");
+                try self.emitBare(args[0]);
                 return self.w.writeAll(")");
             },
             // `rig.withLane(v, i, x)`.
@@ -5488,6 +5644,11 @@ pub const Emitter = struct {
                     .simd => |v| v.elem,
                     else => self.peelViews(ec.num),
                 };
+                if (lanes == self.facts.types.bool_id and lanes != self.peelViews(ec.num)) {
+                    try self.w.writeAll("rig.maskNot(");
+                    try self.emitBare(obj);
+                    return self.w.writeAll(")");
+                }
                 if (lanes == self.facts.types.bool_id) {
                     try self.w.writeAll("(!");
                     try self.emitExpr(obj);
@@ -5528,6 +5689,18 @@ pub const Emitter = struct {
                 try self.writeAsOpen(ec.elem);
                 try self.emitBare(args[0]);
                 return self.w.writeAll(")))");
+            },
+            // `std.math.nan(f64)`, `std.math.inf(f64)`.
+            .nan, .inf => {
+                try self.w.print("std.math.{s}(", .{@tagName(ec.op)});
+                try self.emitTypeTy(ec.num);
+                return self.w.writeAll(")");
+            },
+            // `rig.frexpFraction(x)`, `rig.frexpExponent(x)`.
+            .fraction, .exponent => {
+                try self.w.print("rig.frexp{s}(", .{if (ec.op == .fraction) "Fraction" else "Exponent"});
+                try self.emitBare(ir.Member.object(callee));
+                return self.w.writeAll(")");
             },
             // The low bits, read in the target's signedness.
             .wrap => return self.emitWrap(args[0], ec),
@@ -5593,12 +5766,13 @@ pub const Emitter = struct {
     /// after its value.
     /// Every vector a program makes comes from a construction (`splat`,
     /// `Simd[T, n](a)`, a scalar splatted beside a vector), a parameter,
-    /// or bytes read when the program runs, and no constant holds one; so
+    /// or bytes read when the program runs, and a module constant that
+    /// holds one is a Zig `var` (`emitConst`); so
     /// with each construction a run-time value, no vector is known to Zig
     /// when it compiles, and a lane that overflows panics when the program
     /// runs, as Rig specifies, rather than stopping Zig's fold.
     fn writeVectorOpen(self: *Emitter, vt: TypeId) Error!void {
-        try self.w.writeAll("rig.rt(@as(");
+        try self.w.writeAll(if (self.isMask(vt)) "rig.rt(rig.maskOf(" else "rig.rt(@as(");
         try self.emitTypeTy(vt);
         try self.w.writeAll(", ");
     }
@@ -5730,6 +5904,16 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
 
+        // `x.is_empty()` of a built-in length is `x.len == 0`.
+        if (callee.isKind(.member) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "is_empty") and ir.Call.args(sexp).len == 0) if (self.typeOf(ir.Member.object(callee))) |t| {
+            if (self.isCellListTy(t) or self.hasLen(t) or self.facts.unwrapAccess(t) == self.facts.types.string_id or
+                (self.facts.boxedType(self.facts.unwrapReadAccess(t)) != null and self.hasLen(self.facts.unwrapAccess(t))))
+            {
+                try self.w.writeAll("(");
+                try self.emitMemberNamed(callee, "len");
+                return self.w.writeAll(" == 0)");
+            }
+        };
         // A Cell holding a List answers the List's members.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellListTy(t)) {
             const m = self.srcText(ir.Member.name(callee));
@@ -5920,6 +6104,7 @@ pub const Emitter = struct {
             return writeErrorName(self.w, set.facts, set.symbol().name, rig.leafText(decl.source, name.src));
         };
         if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
+        if (e.isKind(.call) and decl.stringCall(e) == .new) return self.w.writeAll("rig.String.empty");
         if (decl.same(self.facts)) {
             const saved = self.keep_comptime;
             defer self.keep_comptime = saved;
@@ -6775,6 +6960,11 @@ pub const Emitter = struct {
                 try self.emitTypeTy(a.elem);
             },
             .simd => |v| {
+                if (v.elem == self.facts.types.bool_id) {
+                    try self.w.writeAll("rig.Mask(");
+                    try self.emitTypeTy(v.len);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("@Vector(");
                 try self.emitTypeTy(v.len);
                 try self.w.writeAll(", ");
@@ -6862,7 +7052,7 @@ pub const Emitter = struct {
     fn writeModuleRef(self: *Emitter, module_id: u32) Error!void {
         for (0..self.facts.importCount()) |i| {
             const imp = self.facts.importAt(i);
-            if (imp.module_id == module_id) return self.writeModuleName(imp.local_name);
+            if (imp.module_id == module_id) return self.writeModuleZig(module_id);
         }
         const foreign = self.facts.foreign(module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
         try self.w.print("@import(\"{s}\")", .{foreign.zig_file});

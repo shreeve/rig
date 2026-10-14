@@ -126,7 +126,7 @@ review rounds.
 ## Workflow
 
 ```bash
-zig build                  # builds bin/rig
+zig build                  # builds bin/rig (ReleaseSafe; -Doptimize=debug for compiler work)
 ./test/run -j 2            # full suite; must be green before every commit
 ./test/run -j 2 corpus     # every reviewer probe, not only the default sample
 test/matrix.py -j 2        # form x context x type programs, checked and run
@@ -135,7 +135,8 @@ zig build oracle           # builds bin/rig-oracle (./test/run does it too)
 zig build test --cache-dir "$(mktemp -d)"  # unit tests, not replayed from cache
 bin/rig run file.rig       # compile + run (debug, leak-checked)
 bin/rig emit file.rig      # the emitted Zig
-bin/rig test file.rig      # run the program's `test` blocks
+bin/rig check --time file.rig              # the time each compiler pass takes
+bin/rig test file.rig      # run the file's own `test` blocks
 bin/rig build --release -o prog file.rig   # optimized executable (safe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
@@ -184,13 +185,14 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
 | `src/lib.zig` | The compiler as a library, for `bin/rig-oracle` only |
-| `tools/` | `migrate-0.3.py`, which migrates 0.2 programs to 0.3; `gen-unicode.py`, which writes `std/unicode_tables.zig` from the pinned Unicode data, and `verify-unicode.py`, which checks it (`RIG_UCD`, docs/STD.md) |
+| `tools/` | `migrate-0.3.py`, which migrates 0.2 programs to 0.3; `gen-unicode.py`, which writes `std/unicode_tables.zig` and `std/grapheme_tables.zig` (the classes behind `std/grapheme.zig`, the chars of `std.text`) from the pinned Unicode data, and `verify-unicode.py`, which checks it (`RIG_UCD`, docs/STD.md) |
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
 | `test/json/` | `std.json` against Python's `json` module, run by `./test/run json` (see `test/json/README.md`) |
 | `tools/fetch-json-data.sh` | Fetches the third-party JSON files that test reads, pinned by sha256, into the untracked `test/json/data/` |
 | `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
+| `bench/check/` | The check-speed guard: `rig check`'s instructions, pass times (`rig check --time`), and scaling on generated programs (not in CI; see `bench/check/guard.py`) |
 | `examples/` | Curated example programs, all run by the suite |
 | `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |
 | `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |
@@ -202,6 +204,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `FAQ.md` | Common questions |
 | `docs/STD.md` | The standard library's modules |
 | `docs/TEXT.md` | Text: bytes, runes, units, and chars, how each is measured, and the modules for each |
+| `docs/TEXT-API.md` | Every name of the text API in one list, with its signature and whether it is built |
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/RIG-MANTRAS.md` | The short phrases we steer by: how we choose, build, name, and measure |
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |

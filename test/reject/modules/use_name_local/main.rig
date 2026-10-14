@@ -1,0 +1,9 @@
+# A local may not take the name a `use` of its file binds, unless it is
+# written with `new`, which hides the module for the rest of the scope.
+use ast
+
+sub main()
+  ast = 1
+  print(ast)
+
+# error: 6:3: local `ast` has the name of the module this file uses as `ast`; import the module under another name, `use ast as a`, or write `new ast = ...`, which hides the module `ast` for the rest of this scope

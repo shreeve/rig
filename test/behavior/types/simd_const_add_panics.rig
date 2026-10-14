@@ -1,0 +1,19 @@
+# A module constant may hold a vector made of constants. It is a run-time
+# value where the program uses it: a lane that overflows panics when the
+# program runs, rather than stopping the build.
+
+type Block = Simd[I8, 4]
+
+LOW = Block([1, 2, 3, 127])
+ONES = Block.splat(1)
+
+sub main()
+  print(LOW, ONES, LOW -| ONES)
+  print(LOW + ONES)
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# [1, 2, 3, 127] [1, 1, 1, 1] [0, 1, 2, 126]

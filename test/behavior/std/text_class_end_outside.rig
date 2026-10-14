@@ -1,0 +1,15 @@
+# std.text's `class_end` panics at an `i` outside 0 to `s.len`, as
+# indexing does.
+# release
+use std.text
+
+sub main()
+  t: [256]U8 = [256 of 1]
+  s = "ab"
+  print(text.class_end(s, 0, t, 1), text.class_end(s, s.len, t, 1))
+  print(text.class_end(s, -1, t, 1))
+
+# expect-panic: index out of bounds
+
+# expect:
+# 2 2

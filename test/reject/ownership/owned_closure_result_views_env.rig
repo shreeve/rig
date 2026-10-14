@@ -1,0 +1,9 @@
+# An owned closure's result views only what the call lent it, never its
+# environment, which a later call may outlive.
+
+sub main()
+  s = String("x")
+  f: *fun() -> ?String = *|<s| ?s
+  print(f())
+
+# error: 6:32: cannot return a view of `s`, which this function was not lent

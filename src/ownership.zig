@@ -879,7 +879,36 @@ pub const Checker = struct {
                 try self.err(pos, "cannot {s} `{s}` while a {s} loan is live", .{ verb, name, @tagName(l.kind) }),
         }
         try self.noteLoan(l);
+        if (access != .read and l.held_read == .callee) try self.noteCloneCallee(l.pos);
         return true;
+    }
+
+    /// The fix for a call of an owned closure held in what the call
+    /// writes or moves: a handle of its own keeps the closure alive
+    /// whatever the call does to its holder (Core §7).
+    fn noteCloneCallee(self: *Checker, pos: u32) Error!void {
+        const ctx = self.sema orelse return;
+        const call = self.callWithCalleeAt(self.cur_stmt, pos) orelse return;
+        const callee = ctx.calleeOf(call);
+        if (sema.ownedClosureFn(ctx, self.exprType(callee) orelse return) == null) return;
+        const args = ir.Call.args(call);
+        const a = self.arena();
+        var shown: std.ArrayList(u8) = .empty;
+        for (args, 0..) |arg, i| {
+            if (i > 0) try shown.appendSlice(a, ", ");
+            try shown.appendSlice(a, self.spanText(arg));
+        }
+        try self.note(pos, "clone the handle first: `f = +{s}`, then `f({s})`", .{ self.spanText(callee), shown.items });
+    }
+
+    /// The call in `node` whose callee starts at `pos`.
+    fn callWithCalleeAt(self: *const Checker, node: Sexp, pos: u32) ?Sexp {
+        if (node != .list) return null;
+        if (node.isKind(.call)) if (self.sema) |ctx| {
+            if (self.startOf(ctx.calleeOf(node)) == pos) return node;
+        };
+        for (node.items()) |c| if (self.callWithCalleeAt(c, pos)) |found| return found;
+        return null;
     }
 
     // -------------------------------------------------------------------------
@@ -1978,7 +2007,7 @@ pub const Checker = struct {
                 // Operators on values produce fresh Copy results. A binary
                 // operator reads its left operand where it runs, and uses
                 // it after the right one runs.
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
                     const operands = rig.children(sexp);
                     if (operands.len == 2) {
                         _ = try self.walkThenHeld(operands[0], .operand, operands[1]);
@@ -4648,7 +4677,12 @@ pub const Checker = struct {
         const ctx = self.sema orelse return .{};
         if (name != .src) return .{};
         if (self.decl_owner) |owner| {
-            for (ctx.symbols.items[owner].fields orelse &.{}) |f| {
+            const fields = ctx.symbols.items[owner].fields orelse &.{};
+            // The first method of its name, unless two share it.
+            if (sema.memberIn(ctx, fields, self.text(name), .method)) |i| {
+                if (fields[i].decl_pos == name.src.pos) return fields[i].origins;
+            }
+            for (fields) |f| {
                 if (f.is_method and f.decl_pos == name.src.pos) return f.origins;
             }
             return .{};

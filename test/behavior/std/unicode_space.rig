@@ -1,4 +1,4 @@
-# std.unicode's `is_space_rune`: every value from -1 to 0x110000 is
+# std.unicode's `is_space`: every value from -1 to 0x110000 is
 # looked up, and the white space found is exactly the 25 runes of the
 # White_Space property of Unicode 15.1 (PropList.txt), which Go's
 # `unicode.IsSpace` reports. U+FEFF and U+180E, white space in some
@@ -12,12 +12,12 @@ sub main()
   n = 0
   r = -1
   while r <= 0x110000 : r += 1
-    if unicode.is_space_rune(r)
+    if unicode.is_space(r)
       !found.add(",", text.format_int(r, 16))
       n += 1
   print(n)
   print(found)
-  print(unicode.is_space_rune(0xFEFF), unicode.is_space_rune(0x180E), unicode.is_space_rune(0x200B), unicode.is_space_rune(Int.min))
+  print(unicode.is_space(0xFEFF), unicode.is_space(0x180E), unicode.is_space(0x200B), unicode.is_space(Int.min))
 
 # expect:
 # 25

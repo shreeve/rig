@@ -1,0 +1,50 @@
+# std.utf8's `ascii_end` against a byte-by-byte scan: in a run of each
+# length 0 to 80 with a byte of 0x80 or more at each position (or none),
+# from every cursor; every cursor 0 to 64 of strings that end in a run;
+# and views that start at each offset 0 to 15 of their String, so the
+# U128, vector, and overlapped tail reads each meet the end of `s`.
+# release
+use std.utf8
+
+fun scan(s: ?String, i: Int) -> Int
+  k = i
+  while k < s.len and s[k] < 0x80
+    k += 1
+  k
+
+sub main()
+  checked = 0
+  wrong = 0
+  t = String()
+  for len in 0..81
+    for high in -1..len
+      for b in [0x80, 0xC3, 0xFF]
+        for off in [0, 1, 7, 15]
+          !t.clear()
+          for _ in 0..off
+            !t.push(U8(0xFF))
+          for j in 0..len
+            !t.push(U8(b) if j == high else U8(0x20 + j % 95))
+          s = ?t[off..]
+          for i in 0..len + 1
+            checked += 1
+            wrong += 1 if utf8.ascii_end(s, i) != scan(s, i)
+  # A second byte of 0x80 or more after the first, and runs ending at s.len.
+  for len in 0..140
+    !t.clear()
+    for j in 0..len
+      !t.push(U8(0x61 + j % 26))
+    for i in 0..(len + 1 if len < 65 else 65)
+      checked += 1
+      wrong += 1 if utf8.ascii_end(t, i) != len
+    if len > 4
+      !t.add("\u{e9}abc\u{e9}")
+      for i in 0..t.len + 1
+        checked += 1
+        wrong += 1 if utf8.ascii_end(t, i) != scan(t, i)
+  print(checked, wrong)
+  print(utf8.ascii_end("", 0), utf8.ascii_end("abc", 3), utf8.ascii_end("ab\u{e9}cd", 1), utf8.ascii_end("ab\u{e9}cd", 4))
+
+# expect:
+# 2183112 0
+# 0 3 2 6

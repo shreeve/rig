@@ -1,0 +1,2 @@
+pub fun origin() -> Int
+  0

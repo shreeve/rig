@@ -1,0 +1,54 @@
+# Calling an owned closure reads what holds it until the call returns,
+# so the call may not lend that holder to write: the closure could
+# replace itself there and free the environment it runs in. Each form
+# of the callee is held: a field, an element, a view of the handle, an
+# `as` binding, a field of a generic type, a box, and a write view.
+
+obj Checker
+  n: Int
+  hook: *sub(!Checker)
+  hooks: List[*sub(!Checker)]
+  opt: (*sub(!Checker))?
+
+  sub run(!self)
+    self.hook(!self)
+
+  sub run_element(!self)
+    self.hooks[0](!self)
+
+  sub run_view(!self)
+    g = ?self.hook
+    g(!self)
+
+  sub run_as(!self)
+    if self.opt as f
+      f(!self)
+
+obj H[T]
+  n: T
+  hook: *sub(!H[T], T)
+
+  sub run(!self, x: T)
+    self.hook(!self, x)
+
+sub boxed(b: !^Checker)
+  b.hook(!b)
+
+sub through(c: !Checker)
+  w = !c
+  w.hook(!w)
+
+sub main()
+  print(1)
+
+# error: 14:16: cannot lend `self` to write while the callee's read of it is in use
+# error: 14:5: clone the handle first: `f = +self.hook`, then `f(!self)`
+# error: 17:20: cannot lend `self` to write while the callee's read of it is in use
+# error: 17:5: clone the handle first: `f = +self.hooks[0]`, then `f(!self)`
+# error: 21:8: cannot lend `self` to write while a read loan is live
+# error: 25:10: cannot lend `self` to write while a read loan is live
+# error: 32:16: cannot lend `self` to write while the callee's read of it is in use
+# error: 32:5: clone the handle first: `f = +self.hook`, then `f(!self, x)`
+# error: 35:11: cannot lend `b` to write while the callee's read of it is in use
+# error: 39:11: cannot lend `w` to write while the callee's read of it is in use
+# errors: 7

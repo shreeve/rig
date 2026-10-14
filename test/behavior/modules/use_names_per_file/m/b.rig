@@ -1,0 +1,10 @@
+pub fun b(ast: Int) -> Int
+  ast + 1
+
+pub fun c() -> Int
+  ast = 40
+  ast + d()
+
+fun d() -> Int
+  f = |ast: Int| ast + 1
+  f(0)

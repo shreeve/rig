@@ -165,8 +165,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
     };
 }
 
@@ -394,6 +394,8 @@ pub const BindingKind = enum {
     @"+%=",
     @"-%=",
     @"*%=",
+    @"+|=",
+    @"-|=",
     @"&=",
     @"|=",
     @"^=",
@@ -708,6 +710,13 @@ pub const Lexer = struct {
     island_count: u32 = 0,
     /// A token held back until pending OUTDENTs are returned.
     pending_token: ?Token = null,
+    /// A module of several files, joined: where each file but the last
+    /// ends in the source, ascending. Each file closes its own blocks and
+    /// brackets: no token is read across an end while a bracket is open,
+    /// and a file's first line is not indented.
+    ends: []const u32 = &.{},
+    /// The index in `ends` of the end of the file being read.
+    file: u32 = 0,
 
     /// Why the last `.err` token was produced.
     err: LexError = .none,
@@ -934,6 +943,16 @@ pub const Lexer = struct {
                 else => {},
             }
             if (self.last_cat == .eof and tok.pre > 0) return self.firstLineIndented(tok);
+            if (self.crossesFile(tok.pos)) {
+                if (self.nesting > 0) return self.endOfFile();
+                if (self.last_cat != .eof) {
+                    // The file ended with no line break (a `\` before its
+                    // end): its last line ends there.
+                    return self.lineBreak(synthetic(.newline, self.ends[self.file]));
+                }
+                // The files before this token hold none.
+                while (self.crossesFile(tok.pos)) self.file += 1;
+            }
             return self.classify(tok);
         }
     }
@@ -992,6 +1011,14 @@ pub const Lexer = struct {
                 else => {},
             }
             if (tab) |t| return self.fail(.tab_indent, t);
+            if (self.crossesFile(p)) {
+                if (self.nesting > 0) return self.endOfFile();
+                self.file += 1;
+                while (self.crossesFile(p)) self.file += 1;
+                if (p > line) return self.fail(.first_line_indented, @intCast(p));
+                // A block of the file before closes; no `else` continues it.
+                self.takes_else = @splat(false);
+            }
             self.base.pos = line;
             // Back at the closure's own line: the island ends and the
             // bracketed expression continues.
@@ -1066,6 +1093,19 @@ pub const Lexer = struct {
         probe.pos = pos;
         const tok = probe.next();
         return tok.cat == .@"else";
+    }
+
+    /// Whether `pos` is past the end of the file being read.
+    fn crossesFile(self: *const Lexer, pos: usize) bool {
+        return self.file < self.ends.len and pos >= self.ends[self.file];
+    }
+
+    /// The file being read ends inside a bracket: the input ends there,
+    /// and no token of the next file is read.
+    fn endOfFile(self: *Lexer) Token {
+        const end = self.ends[self.file];
+        self.base.pos = @intCast(self.base.source.len);
+        return self.endOfInput(synthetic(.eof, end));
     }
 
     fn endOfInput(self: *Lexer, eof: Token) Token {
@@ -1474,12 +1514,12 @@ fn isSigil(cat: TokenCat) bool {
 /// The infix operators, whose spacing is the same on both sides.
 fn isInfix(cat: TokenCat) bool {
     return switch (cat) {
-        .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap => true,
+        .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap, .plus_sat, .minus_sat => true,
         .eq, .ne, .lt, .gt, .le, .ge, .nullish, .nullish_jump => true,
         .bar, .ampersand, .caret, .lshift, .lshift_wrap, .rshift => true,
         .assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign => true,
         .amp_assign, .bar_assign, .caret_assign, .lshift_assign, .lshift_wrap_assign, .rshift_assign => true,
-        .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign => true,
+        .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign, .plus_sat_assign, .minus_sat_assign => true,
         else => false,
     };
 }
@@ -1669,6 +1709,13 @@ pub const Parser = struct {
     /// The node ids of the fields and methods declared `pub`, which the
     /// member list holds without their `(pub ...)` wrapper.
     pub_members: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// Where the names of the methods declared outside their type's body
+    /// are (`attachMethods`).
+    outside_members: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// The methods declared outside a body that name no type of this
+    /// module as it declares it (`fun Nope.m()`, `fun geo.Point.m()`),
+    /// each as written, `pub` included; the checker says why.
+    detached: std.ArrayList(Sexp) = .empty,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -1676,6 +1723,18 @@ pub const Parser = struct {
 
     pub fn init(alloc: std.mem.Allocator, source: []const u8) Parser {
         return .{ .base = BaseParser.init(alloc, source) };
+    }
+
+    /// A parser over a directory module's files joined, each but the
+    /// last ending at the matching `ends` position (`Lexer.ends`).
+    pub fn initFiles(alloc: std.mem.Allocator, source: []const u8, ends: []const u32) Parser {
+        var p = init(alloc, source);
+        const lexer = &p.base.lexer;
+        lexer.ends = ends;
+        // The parser read its first token as it started: the files before
+        // it hold none.
+        while (lexer.crossesFile(lexer.prev_pos)) lexer.file += 1;
+        return p;
     }
 
     pub fn deinit(self: *Parser) void {
@@ -2102,10 +2161,16 @@ pub const Parser = struct {
         const at = self.base.lastError().?.span.start;
         var probe = BaseLexer.init(src);
         probe.pos = at;
+        // The rest of the file `at` is in.
+        const end = for (lexer.ends) |e| {
+            if (at <= e) break e;
+        } else src.len;
         var depth: u32 = 0;
         var closed: u32 = 0;
         while (closed < lexer.nesting) {
-            switch (probe.next().cat) {
+            const tok = probe.next();
+            if (tok.pos >= end) break;
+            switch (tok.cat) {
                 .lparen, .lbracket => depth += 1,
                 .rparen, .rbracket => if (depth > 0) {
                     depth -= 1;
@@ -2393,7 +2458,10 @@ pub const Parser = struct {
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
-            .module => self.moduleConsts(out),
+            .module => {
+                self.moduleConsts(out);
+                return self.attachMethods(out);
+            },
             .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.pubMembers(out),
             .lambda => {
                 try self.splitBars(out, walked);
@@ -2510,6 +2578,113 @@ pub const Parser = struct {
             if (inner == .list) try self.pub_members.put(self.allocator(), inner.list.id, {});
             m.* = inner;
         }
+    }
+
+    /// A method declared outside its type's body is the member it names
+    /// (docs/INTERNALS.md, "Methods outside the body"): in a module that
+    /// declares `obj T[P]` or `enum T[P]`, `[pub] fun T[P].m(...)` is
+    /// `[pub] fun m(...)` appended to `T`'s members, with `T`'s
+    /// parameters named exactly as the declaration names them. One that
+    /// names no such type is set aside (`detached`).
+    fn attachMethods(self: *Parser, module: Sexp) std.mem.Allocator.Error!Sexp {
+        const a = self.allocator();
+        const decls = ir.Module.decls(module);
+        var methods: usize = 0;
+        for (decls) |d| methods += @intFromBool(ownerOf(d) != .nil);
+        if (methods == 0) return module;
+        const src = self.base.source;
+        // Each type's members, with the methods it gains appended.
+        var added = std.AutoArrayHashMapUnmanaged(usize, std.ArrayList(Sexp)).empty;
+        var kept: std.ArrayList(Sexp) = .empty;
+        const head = module.items().len - decls.len;
+        try kept.appendSlice(a, module.items()[0..head]);
+        for (decls) |d| {
+            const owner = ownerOf(d);
+            if (owner == .nil) {
+                try kept.append(a, d);
+                continue;
+            }
+            const method = if (d.isKind(.@"pub")) ir.Pub.decl(d) else d;
+            const at = (if (owner == .src) typeDeclNamed(src, decls, leafText(src, owner.src)) else null) orelse {
+                try self.detached.append(a, d);
+                continue;
+            };
+            if (!sameParams(src, ir.get(method, .owner_params), tparamsOf(unpub(decls[at])))) {
+                try self.detached.append(a, d);
+                continue;
+            }
+            const items = @constCast(method.items());
+            const fun = method.isKind(.fun);
+            items[if (fun) ir.slot(.fun, .owner) else ir.slot(.sub, .owner)] = .nil;
+            items[if (fun) ir.slot(.fun, .owner_params) else ir.slot(.sub, .owner_params)] = .nil;
+            if (d.isKind(.@"pub")) try self.pub_members.put(a, method.list.id, {});
+            const name = ir.get(method, .name);
+            if (name == .src) try self.outside_members.put(a, name.src.pos, {});
+            const entry = try added.getOrPut(a, at);
+            if (!entry.found_existing) entry.value_ptr.* = .empty;
+            try entry.value_ptr.append(a, method);
+        }
+        const out = kept.items;
+        for (out[head..]) |*d| {
+            const at = std.mem.indexOfScalar(usize, added.keys(), indexIn(decls, d.*) orelse continue) orelse continue;
+            const extra = added.values()[at].items;
+            const ty = unpub(d.*);
+            const members = try std.mem.concat(a, Sexp, &.{ ty.items(), extra });
+            const node: Sexp = .{ .list = parser.List.withId(members, ty.list.id) };
+            if (d.isKind(.@"pub")) {
+                @constCast(d.items())[ir.slot(.@"pub", .decl)] = node;
+            } else d.* = node;
+        }
+        return .{ .list = parser.List.withId(out, module.list.id) };
+    }
+
+    /// A type declaration's compile-time parameters, or `_`.
+    pub fn tparamsOf(ty: Sexp) Sexp {
+        return if (ir.has(ty.kind() orelse return .nil, .tparams)) ir.get(ty, .tparams) else .nil;
+    }
+
+    /// The owner of a method declared outside a body, or `_`.
+    fn ownerOf(decl: Sexp) Sexp {
+        const d = unpub(decl);
+        return if (d.isKind(.fun) or d.isKind(.sub)) ir.get(d, .owner) else .nil;
+    }
+
+    fn unpub(decl: Sexp) Sexp {
+        return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+    }
+
+    /// The index in `decls` of the `obj` or `enum` named `name`.
+    fn typeDeclNamed(src: []const u8, decls: []const Sexp, name: []const u8) ?usize {
+        for (decls, 0..) |d, i| {
+            const t = unpub(d);
+            switch (t.kind() orelse continue) {
+                .@"struct", .@"enum", .generic_struct, .generic_enum => {},
+                else => continue,
+            }
+            const n = ir.get(t, .name);
+            if (n == .src and std.mem.eql(u8, leafText(src, n.src), name)) return i;
+        }
+        return null;
+    }
+
+    fn indexIn(decls: []const Sexp, d: Sexp) ?usize {
+        for (decls, 0..) |e, i| if (e == .list and d == .list and e.list.id == d.list.id) return i;
+        return null;
+    }
+
+    /// Whether a method's owner names its type's parameters (`[T, n]`)
+    /// exactly as the type's declaration does (`[T, n: Int]`): the same
+    /// names, bare, in the same order.
+    pub fn sameParams(src: []const u8, written: Sexp, declared: Sexp) bool {
+        const w = if (written == .nil) &[_]Sexp{} else written.items();
+        const d = if (declared == .nil) &[_]Sexp{} else declared.items();
+        if (w.len != d.len) return false;
+        for (w, d) |x, y| {
+            if (x != .src) return false;
+            const name = if (y.isKind(.@":")) ir.get(y, .name) else y;
+            if (name != .src or !std.mem.eql(u8, leafText(src, x.src), leafText(src, name.src))) return false;
+        }
+        return true;
     }
 
     /// Whether `member`, a field or method, is declared `pub`.

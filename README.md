@@ -285,7 +285,7 @@ bin/rig run file.rig -- a b            # the same, passing the program arguments
 bin/rig run --release file.rig         # the same, optimized (safe)
 bin/rig build -o hello file.rig        # a native executable
 bin/rig build --release=fast file.rig  # fast: no overflow checks
-bin/rig test file.rig                  # run the program's `test` blocks
+bin/rig test file.rig                  # run the file's own `test` blocks
 bin/rig check file.rig                 # check only
 bin/rig emit file.rig                  # print the emitted Zig
 bin/rig clean                          # remove the cache of built programs
@@ -349,12 +349,13 @@ and environment variable. The suite runs on Linux and macOS in
   rules as scalars, comparisons that give masks, and byte reads
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
-  environment), `std.time`, `std.random`, `std.sort`, `std.slices`,
-  `std.text` (searching, splitting, and parsing `?String` values), and
+  environment), `std.file` (reading a whole file), `std.time`,
+  `std.random`, `std.sort`, `std.slices`, `std.text` (searching,
+  splitting, and parsing `?String` values), and
   `std.json` (a fast JSON parser; experimental)
 
-**Not yet:** most of a standard library (files, maps, number formatting),
-concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
+**Not yet:** most of a standard library (writing files, maps, number
+formatting), concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a
 `?fun`, works);

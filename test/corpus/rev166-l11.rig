@@ -1,0 +1,17 @@
+# generic struct method storing a closure-built T through !T
+obj K
+  s: ?String
+
+obj H[T]
+  f: *fun(?String) -> T
+
+  sub fill(?self, out: !T, s: ?String)
+    out = self.f(s)
+
+sub main()
+  h = H[K](f: *|s| K(s: s))
+  t = String("abc")
+  k = K(s: "x")
+  h.fill(!k, ?t)
+  <t
+  print(k.s)

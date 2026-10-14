@@ -1,0 +1,7 @@
+# std.file: reading files.
+
+extern zig "file.zig"
+  # The whole file at `path`, a fresh String of exactly its bytes, or
+  # `none` when it cannot be read: it does not exist, is a directory,
+  # may not be read, or reading it fails.
+  pub fun read(path: ?String) -> String?

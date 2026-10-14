@@ -4,15 +4,13 @@ How Rig stores, measures, and walks text: four units, each with one
 name; one rule for how a measure is spelled; and the standard library
 that follows from them. This page is the design. [SPEC,
 Strings](../SPEC.md#strings) states what the language does, and
-[STD](STD.md) lists each module's functions.
+[STD](STD.md) lists each module's functions, and [TEXT-API](TEXT-API.md)
+lists every name of the text API in one place, built and planned.
 
-**Status.** The model, the byte layer, and the rune and unit layers are
-built: a `String` holds UTF-8 bytes, and `s.len`, `s[i]`, slicing, and
-`std.text` work on them; `std.utf8`, `std.utf16`, and `std.unicode` read
-and write runes and units. The char tools are designed and named, and
-are built next, on the Unicode grapheme tables. A section marked
-*(planned)* describes a function that is not built yet; its examples are
-`rig pending` examples, which the suite checks do not run yet.
+**Status.** Every layer below is built: a `String` holds UTF-8 bytes,
+and `s.len`, `s[i]`, slicing, and `std.text` work on them; `std.utf8`,
+`std.utf16`, and `std.unicode` read and write runes and units; and
+`std.text`'s char tools read chars, on the Unicode grapheme tables.
 
 ## Four units, four words
 
@@ -63,7 +61,7 @@ pattern, as Go's `strings.Count` and Python's `str.count` do.
 
 For `"👨‍👩‍👧"`:
 
-```rig pending
+```rig
 use std.text
 use std.utf8
 use std.utf16
@@ -100,6 +98,65 @@ sub main()
 3 8
 ```
 
+A scanner that stops at a few bytes, a lexer at the end of a string or
+a comment, asks `text.find_any[set](s, i)`: the first index at or after
+`i` whose byte is one of `set`'s, or `none` when there is none, as
+`find` gives; a scanner that runs to the end writes `?? s.len`. The set
+is a compile-time string, so each set is its own instance, its bytes
+constants in the code; it tests 16 bytes at a time, with one compare
+for each byte of the set. An empty set holds no byte, so the result is
+`none`, and an `i` outside `0..s.len` panics, as indexing does.
+
+```rig
+use std.text
+
+STOPS = "\"\\\n"
+
+sub main()
+  s = "say \"hi\" \\ then"
+  i = text.find_any[STOPS](s, 0) ?? s.len
+  print(i, text.find_any[STOPS](s, i + 1) ?? s.len, text.find_any["#"](s, 0) ?? s.len, s.len)
+  if text.find_any["!?"](s, 0) as k
+    print("found at", k)
+  else
+    print("no ! or ?")
+```
+
+```output
+4 7 15 15
+no ! or ?
+```
+
+A run of bytes of one kind, an identifier or a number, ends where
+`text.class_end(s, i, table, mask)` says: the first index at or after
+`i` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`.
+The caller's 256-entry table gives each byte its class bits, so one
+table serves several kinds, and any set of bytes costs one load and one
+test per byte. An `i` outside `0..s.len` panics, as indexing does.
+
+```rig
+use std.text
+
+WORD: U8 = 1
+DIGIT: U8 = 2
+
+fun classes() -> [256]U8
+  t: [256]U8 = [256 of 0]
+  for b in 0..256
+    t[b] |= WORD if (b >= 0x61 and b <= 0x7A) or b == 0x5F
+    t[b] |= WORD | DIGIT if b >= 0x30 and b <= 0x39
+  t
+
+sub main()
+  t = classes()
+  s = "count_2 = 42;"
+  print(text.class_end(s, 0, t, WORD), text.class_end(s, 10, t, DIGIT), text.class_end(s, 0, t, DIGIT))
+```
+
+```output
+7 12 0
+```
+
 ## Runes: `std.utf8`
 
 Decoding and encoding UTF-8. Each function with a Go twin in
@@ -116,6 +173,7 @@ a rename.
 | `utf8.rune_count(s) -> Int` | the runes in `s` | `RuneCountInString` |
 | `utf8.is_valid(s) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `utf8.is_ascii(s) -> Bool` | whether every byte is below 0x80 | |
+| `utf8.ascii_end(s, i) -> Int` | the first byte at or after `i` that is 0x80 or more, or `s.len`: where the run of ASCII from `i` ends | |
 | `utf8.push_rune(!out, r)` | appends `r` as UTF-8 | `AppendRune` |
 | `utf8.REPLACEMENT`, `utf8.RUNE_SELF` | 0xFFFD; 0x80, below which a byte is a whole rune | `RuneError`, `RuneSelf` |
 
@@ -161,6 +219,8 @@ on it: a TypeScript checker's positions and columns are UTF-16 units.
 | `utf16.unit_count(s) -> Int` | the UTF-16 units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
 | `utf16.byte_index(s, units) -> Int` | the byte where `units` units into `s` falls (a unit inside a pair lands after its rune), clamped to `0..s.len` | |
 | `utf16.is_surrogate(u) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
+| `utf16.is_high_surrogate(u) -> Bool` | whether `0xD800 <= u < 0xDC00`, the first unit of a pair | |
+| `utf16.is_low_surrogate(u) -> Bool` | whether `0xDC00 <= u < 0xE000`, the second unit of a pair | |
 | `utf16.rune_from_pair(hi, lo) -> Int` | the rune a surrogate pair encodes, or U+FFFD if it is not one | `utf16.DecodeRune` |
 | `utf16.pair_from_rune(r) -> Pair` | `Pair(hi, lo)`, or `Pair(0xFFFD, 0xFFFD)` if `r` needs no pair | `utf16.EncodeRune` |
 
@@ -196,14 +256,14 @@ sub main()
 Facts about one rune, from the Unicode Character Database 15.1: whether
 it may start or continue an identifier (`unicode.is_id_start(r)`,
 `unicode.is_id_continue(r)`, UAX #31), and whether it is whitespace
-(`unicode.is_space_rune(r)`). Every table names its Unicode version.
+(`unicode.is_space(r)`). Every table names its Unicode version.
 
 ```rig
 use std.unicode
 
 sub main()
   print(unicode.VERSION, unicode.is_id_start(0x4e2d), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
-  print(unicode.is_space_rune(0x3000), unicode.is_space_rune(0xfeff))
+  print(unicode.is_space(0x3000), unicode.is_space(0xfeff))
 ```
 
 ```output
@@ -211,7 +271,7 @@ sub main()
 true false
 ```
 
-## Chars: `std.text` *(planned)*
+## Chars: `std.text`
 
 What a reader sees, by the rules of Unicode's text segmentation (UAX
 #29), so char-correct code is one call, and its name says "char":
@@ -223,8 +283,10 @@ What a reader sees, by the rules of Unicode's text segmentation (UAX
 | `text.first_chars(s, n) -> ?String` | the first `n` chars of `s`, or all of `s` if it has fewer |
 | `text.last_chars(s, n) -> ?String` | the last `n` chars of `s`, or all of `s` if it has fewer |
 | `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
+| `text.char_width(c) -> Int` *(planned)* | the terminal columns one char `c` takes, 0, 1, or 2: by its East Asian Width (UAX #11), 2 for an emoji, 0 for a combining mark or a zero-width char |
+| `text.width(s) -> Int` *(planned)* | the terminal columns `s` takes: `char_width` summed over its chars |
 
-```rig pending
+```rig
 use std.text
 use std.utf8
 
@@ -239,6 +301,33 @@ a 1 1
 👋🏽 8 2
 hé
 ```
+
+```rig
+use std.text
+
+sub main()
+  s = "e\u{301}\u{1f44b}\u{1f3fd}\r\n\u{1f1eb}\u{1f1f7}"
+  print(s.len, text.char_count(s), text.last_chars(s, 1), text.char_boundary(s, 2))
+```
+
+```output
+21 4 🇫🇷 0
+```
+
+**Invalid UTF-8 never stops a char tool.** Text that is not UTF-8 is
+read as `std.utf8` reads it, which is Go's way: each byte that starts no
+well-formed sequence is one rune, U+FFFD, of one byte, and a char like
+any other (a combining mark after it joins it). So every byte is in
+exactly one char, and the chars of `s` always tile it: their sizes add
+up to `s.len`. A byte index outside `0..s.len`, or a negative count of
+chars, panics.
+
+Width is measured per char, never per rune: a family emoji is five
+runes but one char two columns wide. An East Asian Ambiguous char counts
+as 1, and a tab is not measured (it depends on where it lands). There is
+no `rune_width`, `unit_width`, or `byte_width`: bytes and units are not
+drawn, and summing per-rune widths is wrong for any char of several
+runes.
 
 `first_chars` is how to shorten text for a reader (a preview, a
 280-character post); `s[0..n]` is how to take `n` bytes.
@@ -255,7 +344,7 @@ scripts), so a char count depends on the Unicode version Rig ships.
 |---|---|
 | store, index, slice, parse, or send text | bytes: `s.len`, `s[i]`, `s[a..b]` |
 | decode, encode, or check UTF-8 | runes: `std.utf8` |
-| ask what a character is | rune properties: `std.unicode` |
+| ask what a rune is (identifier, white space) | rune properties: `std.unicode` |
 | agree with JavaScript positions | units: `std.utf16` |
 | count, shorten, or walk what a reader sees | chars: `text.char_count`, `text.first_chars`, `text.chars` |
 

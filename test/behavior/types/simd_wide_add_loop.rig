@@ -1,0 +1,28 @@
+# A checked `+=` of `Simd[U8, 64]`s in a loop over a String's bytes, with
+# no lane overflowing, runs in a debug build and with --release. Zig's
+# own vector `+` here panicked "integer overflow" with --release on
+# aarch64: LLVM computes its overflow flags wrong for 32 and 64 byte lanes
+# (`rig.vecAdd` checks the lanes without them).
+# release
+type Wide = Simd[U8, 64]
+
+fun sum(v: Wide) -> Int
+  n = 0
+  for x in v.array()
+    n += Int(x)
+  n
+
+sub main()
+  s = String()
+  for k in 0..640
+    !s.push(U8((k * 37) % 256))
+  t = ?s[..]
+  acc = Wide.splat(0)
+  i = 0
+  while i + 64 <= t.len : i += 64
+    v = t.read[Wide](i)
+    acc += ((v < 0x80) | (v >= 0xC0)).select(Wide.splat(1), Wide.splat(0))
+  print(sum(acc))
+
+# expect:
+# 482

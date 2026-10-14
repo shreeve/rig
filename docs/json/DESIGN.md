@@ -106,7 +106,12 @@ it reads the last 16 bytes again and drops the lanes it has already
 seen, so no read passes the end and the input needs no padding. At the
 first special byte the scan stops; an escape or a run of UTF-8 is
 handled, and scanning resumes right after it, never from the string's
-start. Keys rarely reach the second tier; most value bytes do.
+start. Non-ASCII text is checked 16 bytes at a time up to the string's
+next stop, by Keiser-Lemire's table lookups (simdjson's lookup4), in a
+method kept out of line, since most strings never reach it. Near the
+end of the input, or when a block shows an error, it checks a sequence
+at a time from the text's first non-ASCII byte, which gives the
+error's offset. Keys rarely reach the second tier; most value bytes do.
 
 Measured (RESULTS.md): the second tier gains 12% on gsoc-2018, whose
 strings are long, and costs 3-4% on twitter and twitterescaped, whose
@@ -153,8 +158,8 @@ references' published designs where marked. In order of expected gain:
    `Simd[T, n]` with lane-wise comparison, bit masks and `m.first()`,
    and the string scan uses it. Still to try with it: sonic-rs's
    64-byte whitespace bitmap, and simdjson's structural index, which
-   also needs a byte lookup (SIMD round 2) and a carry-less multiply
-   for the prefix XOR of the quote mask.
+   also needs a carry-less multiply for the prefix XOR of the quote
+   mask. The byte lookup it needs (`t.lookup(v)`) now checks UTF-8.
 2. **Block iteration with one check per block** (measured 1-11%). A safe
    `for block in bytes.blocks(16)` that hands out fixed-size views with
    one bounds check per block and a remainder for the tail. Removing
@@ -162,13 +167,14 @@ references' published designs where marked. In order of expected gain:
    twitter, 10% on github_events and 6% on canada (`rig-fast` against
    `rig-nocheck`).
 3. **Checks the compiler proves away** (mostly done). Indexes and reads
-   bounded by a loop's condition, `+` under such a bound, and the
-   string scan's 16-byte reads are proven, with no check (#138, #149).
-   The checks left cost 4-9% of instructions together and no net time
-   on the Mac: removing them made canada 6% faster and four files 3-9%
-   slower (RESULTS.md, "Checks and IPC after proofs2"). Still checked: `m << m.leading_zeros()`, a read after an
-   early-return guard, and `i >= 0` for a position a call returned
-   (docs/RIG-NOTES.md, entries 10 and 19).
+   bounded by a loop's condition, `+` under such a bound, and the string
+   scan's 16-byte reads are proven, with no check (#138, #149). The
+   checks left cost 4-9% of instructions together and no net time on the
+   Mac: removing them made canada 6% faster and four files 3-9% slower
+   (RESULTS.md, "Checks and IPC after proofs2"). Still checked: `m <<
+   m.leading_zeros()`, a read after an early-return guard, and `i >= 0`
+   for a position a call returned (docs/RIG-NOTES.md, entries 10 and
+   20).
 4. **Cheap block appends to a List.** The text between escapes is
    copied 16 bytes at a time as it is scanned, with `String`'s
    `!t.push(v, keep: k)` (#150). Tape entries are pushed one at a time,
@@ -176,11 +182,11 @@ references' published designs where marked. In order of expected gain:
    each push reloads them; a `List` write window (reserve n, write
    through a cursor) would keep them in registers (docs/RIG-NOTES.md,
    entry 8).
-5. **Large literals and embedding** (build). `@embed("file.json")` as a
-   `Static`, or string literals longer than the lexer's 64 KB token. The
-   benchmark and the test programs split a file into literals of 60 KB
-   and join them at run time, and the tests stay under the 16 MiB source
-   limit.
+5. **Embedding a file** (build). `@embed("file.json")` as a `Static`.
+   A string literal may be of any length (#168), so the benchmark and
+   the tests write each input as one literal, but a program is at most
+   16 MiB of source, so the tests spread their inputs over several
+   programs.
 6. **Multiple results** (clarity). A function returns one value, so
    `take_digits` hands back the digits' value through an out-parameter,
    which stays in a register only when the call is inlined. The byte
@@ -199,8 +205,10 @@ references' published designs where marked. In order of expected gain:
 The final API is the design owner's decision, and is not settled:
 `parse` and the readers as fallible `!` functions, errors that carry
 their offset, and `!` or `T?` in place of the `-1` that the parser's
-internal steps return on an error. Until then `std.json` is
-experimental.
+internal steps return on an error. A `T?` costs nothing here: with
+`utf8_end` and `utf8_end3` returning `Int?` in place of `-1`, and no
+other change, instructions per byte stayed within 1% on all six corpus
+files. Until then `std.json` is experimental.
 
 Done, and no longer open: a Float from its bits (`Float.from_bits`); the
 bit methods (`leading_zeros`, `trailing_zeros`, `count_ones`) and

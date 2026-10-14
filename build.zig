@@ -20,7 +20,18 @@ const version = "0.2.9";
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    // ReleaseSafe by default: every safety check on, and about ten times
+    // the speed of a debug build. `-Doptimize=debug` builds for compiler
+    // work; `--release=fast` and `--release=small` are honored.
+    const optimize: std.builtin.Optimize = b.option(std.builtin.Optimize, "optimize", "Prioritize performance, safety, or binary size (default: safe)") orelse switch (b.graph.release_mode) {
+        .off, .any, .safe => .safe,
+        .fast => .fast,
+        .small => .small,
+    };
+    // The compiler's own consistency checks (facts.check_units, sema's
+    // binding-access check): on in a debug build, and wherever
+    // `-Dself-check=true` asks for them, as ./test/run does.
+    const self_check = b.option(bool, "self-check", "Run the compiler's own consistency checks (default: in debug builds)") orelse (optimize == .debug);
 
     // -----------------------------------------------------------------
     // parser generation step
@@ -67,6 +78,7 @@ pub fn build(b: *std.Build) void {
     });
     const options = b.addOptions();
     options.addOption([]const u8, "version", version);
+    options.addOption(bool, "self_check", self_check);
     main_mod.addOptions("build_options", options);
     // The standard library's sources, embedded in the compiler.
     main_mod.addImport("rig_std", b.createModule(.{ .root_source_file = b.path("std/embed.zig") }));
@@ -112,6 +124,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lib_mod.addImport("rig_std", b.createModule(.{ .root_source_file = b.path("std/embed.zig") }));
+    lib_mod.addOptions("build_options", options);
     const oracle_exe = b.addExecutable(.{
         .name = "rig-oracle",
         .root_module = b.createModule(.{

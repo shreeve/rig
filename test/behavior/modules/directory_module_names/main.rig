@@ -1,0 +1,11 @@
+# The files of a directory module share its private names and
+# constants, in any order; each file uses the modules it names, and two
+# files may use one module. A method may be declared in any file of its
+# type's module.
+use m
+
+sub main()
+  print(m.total(), m.ring().cap())
+
+# expect:
+# 21 4

@@ -315,7 +315,7 @@ to share state that changes (a `*Signal` also tells its subscribers).
 bin/rig run hello.rig        # check, build, and run (Debug, leak-checked)
 bin/rig run hello.rig -- a b # the same, passing the program `a` and `b`
 bin/rig build -o hello hello.rig
-bin/rig test hello.rig       # run the program's `test` blocks
+bin/rig test hello.rig       # run the file's own `test` blocks
 bin/rig emit hello.rig       # print the Zig it generates
 ```
 
@@ -794,7 +794,7 @@ You will reach for these and not find them:
 - **a large standard library**: beyond `print`, `Cell`, `List`,
   `String`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,
-  `std.os`, `std.time`, `std.random`, `std.sort`, `std.slices`, and
+  `std.os`, `std.file`, `std.time`, `std.random`, `std.sort`, `std.slices`, and
   `std.text` so far;
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.

@@ -8,7 +8,7 @@
 # `rune_before`, and `rune_size` at every index, its `runes`, and
 # `byte_index` from -1 to two past its units. Each value prints `size`,
 # `utf16.size`, `push_rune`'s bytes, `is_surrogate`, `pair_from_rune`,
-# and `is_space_rune`; pairs print `rune_from_pair`; and every value
+# and `is_space`; pairs print `rune_from_pair`; and every value
 # from -3 to 0x110003 goes into one hash of all of those. Skipped when
 # `go` is not installed.
 # timeout: 600
@@ -50,7 +50,7 @@ sub value(r: Int)
   for x in b
     !line.add(Int(x), ".")
   p = utf16.pair_from_rune(r)
-  !line.add(" ", utf16.is_surrogate(r), " ", p.hi, " ", p.lo, " ", unicode.is_space_rune(r))
+  !line.add(" ", utf16.is_surrogate(r), " ", p.hi, " ", p.lo, " ", unicode.is_space(r))
   print(line)
 
 sub text_line(s: ?String)
@@ -80,7 +80,7 @@ fun hash_all() -> Int
       h = (h * 31 + Int(x)) % M
     p = utf16.pair_from_rune(r)
     f = (utf8.size(r) ?? -1) + 2 + 8 * ((utf16.size(r) ?? -1) + 2)
-    f = f + (64 if utf16.is_surrogate(r) else 0) + (128 if unicode.is_space_rune(r) else 0)
+    f = f + (64 if utf16.is_surrogate(r) else 0) + (128 if unicode.is_space(r) else 0)
     h = (h * 31 + f) % M
     h = (h * 31 + p.hi) % M
     h = (h * 31 + p.lo) % M
@@ -276,6 +276,6 @@ lines=$(wc -l <go.out | tr -d ' ')
 [[ $lines -gt 60000 ]] || fail "go printed only $lines lines"
 if ! cmp -s rig.out go.out; then
     diff rig.out go.out | head -c 3000
-    fail "std.utf8, std.utf16, and is_space_rune differ from Go"
+    fail "std.utf8, std.utf16, and is_space differ from Go"
 fi
 echo "$lines lines agree with $(go version)"

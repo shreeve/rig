@@ -5,9 +5,11 @@ pub PI = 3.141592653589793
 pub E = 2.718281828459045
 
 # `x` without its sign, for a signed number type or `Float`; panics on
-# a type's minimum integer, whose magnitude the type does not hold.
+# a type's minimum integer, whose magnitude the type does not hold. A
+# Float's zero comes back as +0.0, and a NaN stays one. (`x - x` is the
+# zero or NaN `x` is, with no sign.)
 pub fun abs[T](x: T) -> T
-  x if x >= 0 else -x
+  x if x > 0 else (-x if x < 0 else x - x)
 
 # The smaller of `a` and `b`, by `<`; `a` when they are equal.
 pub fun min[T](a: T, b: T) -> T
@@ -94,10 +96,18 @@ extern zig "math.zig"
   pub fun floor(x: Float) -> Float
   # The smallest whole number not below `x`.
   pub fun ceil(x: Float) -> Float
+  # `x` rounded toward zero: its whole part, with `x`'s sign (so
+  # `trunc(-0.5)` is -0.0).
+  pub fun trunc(x: Float) -> Float
+  # The magnitude of `x` with the sign of `sign`, a zero's or a NaN's
+  # included: `copysign(3.0, -0.0)` is -3.0.
+  pub fun copysign(x: Float, sign: Float) -> Float
   # e to the power `x`.
   pub fun exp(x: Float) -> Float
   # The natural logarithm; -inf at 0 and NaN below it.
   pub fun ln(x: Float) -> Float
+  # The base-2 logarithm; -inf at 0 and NaN below it.
+  pub fun log2(x: Float) -> Float
   # The sine of `x` radians.
   pub fun sin(x: Float) -> Float
   # The cosine of `x` radians.
