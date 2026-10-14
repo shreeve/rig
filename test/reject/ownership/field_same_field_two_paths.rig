@@ -1,0 +1,20 @@
+# `x` views `p.items`' buffer; pushing to `p.items` may move it, so `x`
+# would read freed memory. The same path through two uses overlaps.
+# Rule: two places conflict when one path is a prefix of the other (here
+# they are equal).
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_same_field_two_paths.rig).
+
+obj P
+  items: List[Int]
+  n: Int
+
+sub main()
+  p = P(items: List(), n: 0)
+  !p.items.push(1)
+  x = ?p.items[..]
+  !p.items.push(2)
+  print(x)
+
+# error: 16:3: cannot lend `p.items` to write while a read loan is live
+# errors: 1

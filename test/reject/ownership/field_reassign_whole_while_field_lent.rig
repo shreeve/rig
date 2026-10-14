@@ -1,0 +1,17 @@
+# Assigning `p` drops its old value, the String `r` views included.
+# Rule: `p = x` touches all of `p`.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_reassign_whole_while_field_lent.rig).
+
+obj P
+  name: String
+  n: Int
+
+sub main()
+  p = P(name: String("a"), n: 1)
+  r = ?p.name
+  p = P(name: String("b"), n: 2)
+  print(r)
+
+# error: 13:3: cannot reassign `p` while `p.name` is lent
+# errors: 1

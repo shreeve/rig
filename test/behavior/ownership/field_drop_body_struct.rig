@@ -1,0 +1,21 @@
+# A struct with a `drop` body is lent field by field like any other; its
+# drop runs once, at the end of its scope, after every loan is done.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_drop_body_struct.rig).
+
+obj File
+  name: String
+  uses: Int
+
+  drop(!self)
+    print("close", self.name, self.uses)
+
+sub main()
+  f = File(name: String("a.ts"), uses: 0)
+  r = ?f.name
+  f.uses += 1
+  print(r)
+
+# expect:
+# a.ts
+# close a.ts 1

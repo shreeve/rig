@@ -1,0 +1,28 @@
+# `w` is a write view of `p.a.b`; reading `p.a` (a parent) while it
+# lives would read through a place another view may change.
+# Rule: `p.a` and `p.a.b` overlap (prefix), so a read of one and a write
+# loan of the other conflict.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_parent_while_nested_written.rig).
+
+obj Inner
+  b: Int
+  c: Int
+
+obj Outer
+  a: Inner
+
+fun total(i: ?Inner) -> Int
+  i.b + i.c
+
+sub bump(w: !Int, by: Int)
+  w += by
+
+sub main()
+  p = Outer(a: Inner(b: 1, c: 2))
+  w = !p.a.b
+  bump(!w, total(?p.a))
+  print(p.a.b)
+
+# error: 24:19: cannot lend `p.a` to read while a write loan on `p.a.b` is live
+# errors: 1

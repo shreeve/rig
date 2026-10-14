@@ -1,0 +1,17 @@
+# A payload bound from an optional field (`if ?p.o as s`) carries a loan
+# on `p.o`; another field may be written while `s` lives.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_optional_payload_disjoint.rig).
+
+obj P
+  o: String?
+  n: Int
+
+sub main()
+  p = P(o: String("abc"), n: 0)
+  if ?p.o as s
+    p.n = s.len
+    print(s, p.n)
+
+# expect:
+# abc 3

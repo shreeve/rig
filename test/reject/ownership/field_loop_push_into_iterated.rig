@@ -1,0 +1,23 @@
+# Pushing to the list a `for` walks may move its buffer under the loop;
+# Go's range evaluates the slice once and never sees the appends, which
+# Rig can't promise. The paths are equal.
+# Rule: the `for` lends `self.items` for the loop; the body's push lends
+# the same path to write.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_loop_push_into_iterated.rig).
+
+obj C
+  items: List[Int]
+
+  sub grow(!self)
+    for x in ?self.items
+      !self.items.push(x + 1)
+
+sub main()
+  c = C(items: List())
+  !c.items.push(1)
+  !c.grow()
+  print(c.items.len)
+
+# error: 14:7: cannot lend `self.items` to write while a read loan is live
+# errors: 1

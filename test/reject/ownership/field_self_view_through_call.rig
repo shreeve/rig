@@ -1,0 +1,25 @@
+# `keep` stores its argument in `self`; lending `p.b` to
+# `(!p.a).keep(...)` would put in `p.a` a view of `p.b`, a value holding
+# a view of itself.
+# Rule: a value never holds a view of itself; a stored argument's loan
+# goes into the holder.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_self_view_through_call.rig).
+obj Holder
+  t: ?String
+
+  sub keep(!self, t: ?String)
+    self.t = t
+
+obj P
+  a: Holder
+  b: String
+
+sub main()
+  p = P(a: Holder(t: ""), b: String("x"))
+  (!p.a).keep(?p.b)
+  p.b = String("z")
+  print(p.a.t)
+
+# error: 21:3: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
+# errors: 1

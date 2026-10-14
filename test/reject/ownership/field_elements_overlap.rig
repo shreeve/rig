@@ -1,0 +1,24 @@
+# An index is a run-time value, so `v[0]` and `v[1]` cannot be told
+# apart; and a push may move the whole buffer. A path stops at an
+# element.
+# Rule: a path stops at an element; the loan is on the path so far
+# (`p.items`).
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_elements_overlap.rig).
+
+obj Item
+  n: Int
+
+obj P
+  items: List[Item]
+  k: Int
+
+sub main()
+  p = P(items: List(), k: 0)
+  !p.items.push(Item(n: 1))
+  first = ?p.items[0]
+  !p.items.push(Item(n: 2))
+  print(first.n)
+
+# error: 20:3: cannot lend `p.items` to write while a read loan is live
+# errors: 1
