@@ -145,6 +145,75 @@ const LoanQuery = enum { any, write };
 
 const LoanKind = enum(u1) { read, write };
 
+/// The part of a var a place names: the fields after the name (Core §5,
+/// "A field is a place of its own"), decided by `resolvePlace` and kept
+/// interned in `Paths`. `whole_path` is the var itself.
+const PathId = u32;
+const whole_path: PathId = 0;
+
+/// The paths of the places the checker has met: a trie of fields, so a
+/// path is a number and its prefixes are its ancestors.
+const Paths = struct {
+    /// The path `i + 1`: its parent and its last field.
+    nodes: std.ArrayList(Node) = .empty,
+    index: std.HashMapUnmanaged(Key, PathId, KeyContext, std.hash_map.default_max_load_percentage) = .empty,
+
+    /// A path is cut at this many fields, which only adds conflicts.
+    const max_depth = 8;
+
+    const Node = struct { parent: PathId, field: []const u8, depth: u8 };
+    const Key = struct { parent: PathId, field: []const u8 };
+    const KeyContext = struct {
+        pub fn hash(_: KeyContext, k: Key) u64 {
+            var h = std.hash.Wyhash.init(k.parent);
+            h.update(k.field);
+            return h.final();
+        }
+        pub fn eql(_: KeyContext, a: Key, b: Key) bool {
+            return a.parent == b.parent and std.mem.eql(u8, a.field, b.field);
+        }
+    };
+
+    fn deinit(self: *Paths, gpa: std.mem.Allocator) void {
+        self.nodes.deinit(gpa);
+        self.index.deinit(gpa);
+    }
+
+    /// The path `parent` and then `field`.
+    fn child(self: *Paths, gpa: std.mem.Allocator, parent: PathId, field: []const u8) Error!PathId {
+        const gop = try self.index.getOrPut(gpa, .{ .parent = parent, .field = field });
+        if (gop.found_existing) return gop.value_ptr.*;
+        errdefer self.index.removeByPtr(gop.key_ptr);
+        try self.nodes.append(gpa, .{ .parent = parent, .field = field, .depth = self.depth(parent) + 1 });
+        gop.value_ptr.* = @intCast(self.nodes.items.len);
+        return gop.value_ptr.*;
+    }
+
+    fn depth(self: *const Paths, p: PathId) u8 {
+        return if (p == whole_path) 0 else self.nodes.items[p - 1].depth;
+    }
+
+    /// Two places of one var conflict when one path is a prefix of the
+    /// other (Core sentence 5): `p` and `p.a`, `p.a` and `p.a.b`, but not
+    /// `p.a` and `p.b`.
+    fn overlap(self: *const Paths, a: PathId, b: PathId) bool {
+        var x = a;
+        var y = b;
+        while (self.depth(x) > self.depth(y)) x = self.nodes.items[x - 1].parent;
+        while (self.depth(y) > self.depth(x)) y = self.nodes.items[y - 1].parent;
+        return x == y;
+    }
+
+    /// Append the fields of path `p`, each after a `.`, to `out`.
+    fn appendText(self: *const Paths, a: std.mem.Allocator, out: *std.ArrayList(u8), p: PathId) Error!void {
+        if (p == whole_path) return;
+        const n = self.nodes.items[p - 1];
+        try self.appendText(a, out, n.parent);
+        try out.append(a, '.');
+        try out.appendSlice(a, n.field);
+    }
+};
+
 /// What reads a value in place before the operands after it run: a call
 /// argument, a method's receiver, the value a call calls, the left
 /// operand of a binary operator, or a value that is no place being
@@ -153,6 +222,8 @@ const Reader = enum(u3) { none, argument, receiver, callee, operand, base };
 
 const Loan = struct {
     root: VarId,
+    /// The place of the root the loan is on (`resolvePlace`).
+    path: PathId = whole_path,
     kind: LoanKind,
     /// Source position of the lend, for diagnostics.
     pos: u32,
@@ -177,7 +248,7 @@ const Loan = struct {
     reserved: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
-        return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
+        return a.root == b.root and a.path == b.path and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
     }
 };
 
@@ -492,6 +563,9 @@ pub const Checker = struct {
     /// of its parts leave them. Set just before walking that node; see
     /// `takeTail`.
     tail: ?Tail = null,
+    /// The paths of the places met so far (`resolvePlace`), shared by
+    /// every function the checker walks.
+    paths: *Paths,
     /// `mayOwnView`'s answers, by holder and view type.
     reaches: std.AutoHashMapUnmanaged(ReachKey, sema.ViewReach) = .empty,
     /// The struct or enum whose members are being walked: the owner of a
@@ -597,12 +671,16 @@ pub const Checker = struct {
     own_plain_reqs: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Error!Checker {
+        const paths = try allocator.create(Paths);
+        paths.* = .{};
         var c = Checker{
             .gpa = allocator,
             .arena_state = std.heap.ArenaAllocator.init(allocator),
             .fn_arena_state = std.heap.ArenaAllocator.init(allocator),
             .source = source,
+            .paths = paths,
         };
+        errdefer c.deinit();
         try c.scopes.append(allocator, .{ .start = 0, .kind = .function });
         return c;
     }
@@ -639,6 +717,8 @@ pub const Checker = struct {
         self.after_value.deinit(self.gpa);
         self.temps.deinit(self.gpa);
         self.reaches.deinit(self.gpa);
+        self.paths.deinit(self.gpa);
+        self.gpa.destroy(self.paths);
         self.fn_arena_state.deinit();
         self.arena_state.deinit();
     }
@@ -2214,6 +2294,11 @@ pub const Checker = struct {
     const Place = struct {
         root: VarId,
         whole: bool,
+        /// The part of the root the place names: its fields up to the
+        /// first step that ends a path (`extendsPath`).
+        path: PathId = whole_path,
+        /// A step has ended the path: no later field extends it.
+        path_ended: bool = false,
         /// Some step goes through an element index.
         indexed: bool = false,
         /// Some step dereferences a shared handle.
@@ -2223,9 +2308,11 @@ pub const Checker = struct {
         through_view: bool = false,
     };
 
-    /// The var a place (`sema.Hands.Kind.place`) starts from, and how
-    /// it gets there. Null for anything else, and for a name the closure
-    /// body did not capture (walking the expression reports it).
+    /// The var a place (`sema.Hands.Kind.place`) starts from, the path
+    /// it names below it, and how it gets there. Null for anything else,
+    /// and for a name the closure body did not capture (walking the
+    /// expression reports it). The path is decided here and nowhere else:
+    /// each loan, use, and store of the place carries it.
     fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
         // The value a header holds is its hidden var.
         if (self.held) |h| if (e == .list and e.list.ptr == h.base.list.ptr) return .{ .root = h.id, .whole = true };
@@ -2239,8 +2326,19 @@ pub const Checker = struct {
                 .member, .index => {
                     const object = ir.get(e, .object);
                     var p = self.resolvePlace(object) orelse return null;
+                    const at_root = p.whole;
                     p.whole = false;
                     if (e.isKind(.index)) p.indexed = true;
+                    if (!p.path_ended) {
+                        if (self.paths.depth(p.path) < Paths.max_depth and self.extendsPath(e, at_root)) {
+                            // Out of memory, the path is cut where it is,
+                            // which only adds conflicts.
+                            p.path = self.paths.child(self.gpa, p.path, self.text(ir.Member.name(e))) catch blk: {
+                                p.path_ended = true;
+                                break :blk p.path;
+                            };
+                        } else p.path_ended = true;
+                    }
                     if (self.exprType(object)) |t| {
                         const ty = self.typeData(t);
                         if (ty == .shared) p.through_shared = true;
@@ -2252,6 +2350,33 @@ pub const Checker = struct {
             },
             else => return null,
         }
+    }
+
+    /// Whether `e`, a step of a place, goes on the place's path (Core §5,
+    /// "A field is a place of its own"): a data field of a struct value,
+    /// of a box's value (a box has one owner), or of what the root's own
+    /// write view sees (`at_root`: `e`'s object is the root itself). Any
+    /// other step ends the path, and a loan is on the path so far: an
+    /// element or a slice (an index is a run-time value, and a push may
+    /// move the buffer), a handle (other handles reach its contents), a
+    /// read view (what it views is its own loans', not the holder's), an
+    /// optional's value (it exists only while present), or a member of
+    /// anything else.
+    fn extendsPath(self: *const Checker, e: Sexp, at_root: bool) bool {
+        const ctx = self.sema orelse return false;
+        if (!e.isKind(.member)) return false;
+        var t = self.exprType(ir.Member.object(e)) orelse return false;
+        if (at_root) switch (ctx.types.get(t)) {
+            .write_view => |inner| t = inner,
+            else => {},
+        };
+        while (sema.boxedType(ctx, t)) |inner| t = inner;
+        switch (ctx.types.get(t)) {
+            .nominal, .imported_nominal => {},
+            .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(ctx, pn.sym)) return false,
+            else => return false,
+        }
+        return sema.lookupDataFieldConst(ctx, t, self.text(ir.Member.name(e))) != null;
     }
 
     /// Walk the index expressions inside a place.
