@@ -1,0 +1,280 @@
+# std.hash: Map and Set, hash tables written in Rig over Lists, that
+# keep their entries in the order they were first put in. A key is any
+# value `.hash()` takes: what `==` compares, less a float and what holds
+# one. Text keys hash and compare by their bytes, so a `Map[String, V]`
+# finds a key from a `Static` or a `?String` as well as from a String.
+#
+# The entries are kept in a List, in order, each a key and its value; a
+# taken entry's are `none`. The table is open-addressed, a power of two
+# of slots probed linearly, at most four fifths full: `tags[i]` is 0 for
+# a free slot, or the top seven bits of its key's hash with the high bit
+# set, so a probe compares a key only when its tag matches, and
+# `at[i]` is its entry's index. Taking an entry shifts the slots after
+# it back, so the table keeps no tombstones; growing it drops the
+# entries taken.
+
+# One entry of a Map, as `items()` gives it: views of its key and value.
+pub obj Item[K, V]
+  pub key: K
+  pub value: V
+
+# A key and its value, both `none` once the entry is taken.
+obj Entry[K, V]
+  key: K?
+  value: V?
+
+pub obj Map[K, V]
+  es: List[Entry[K, V]]
+  tags: List[U8]
+  at: List[U32]
+  count: Int
+
+  # An empty Map. It allocates nothing until the first `put`.
+  pub fun new() -> Map[K, V]
+    Map(es: List(), tags: List(), at: List(), count: 0)
+
+  # How many entries the Map holds.
+  pub fun len(?self) -> Int
+    self.count
+
+  # Whether the Map holds the key `k`.
+  pub fun has(?self, k: ?K) -> Bool
+    self.find(k, k.hash()) != none
+
+  # The value of the key `k`, viewed where the Map holds it, or `none`.
+  pub fun get(?self, k: ?K) -> (?V)? from self
+    if self.find(k, k.hash()) as i
+      return ?self.es[Int(self.at[i])].value
+    none
+
+  # The value of the key `k`, lent to write where the Map holds it, or
+  # `none`.
+  pub fun edit(!self, k: ?K) -> (!V)? from self
+    if self.find(k, k.hash()) as i
+      if !self.es[Int(self.at[i])].value as v
+        return v
+    none
+
+  # Put the value `v` under the key `k`. A key already there keeps its
+  # place and gets `v`; its old value and `k` are dropped.
+  pub sub put(!self, k: K, v: V)
+    old = (!self).replace(<k, <v)
+    <old
+
+  # Put `v` under `k` as `put` does, and hand back the value it
+  # replaces, or `none` when the key is new.
+  pub fun replace(!self, k: K, v: V) -> V?
+    h = k.hash()
+    if self.find(?k, h) as i
+      <k
+      return replace(!self.es[Int(self.at[i])].value, <v)
+    !self.insert(<k, <v, h)
+    none
+
+  # Take the entry of the key `k` out: its value is handed back and its
+  # key dropped. `none` when the Map has no such key.
+  pub fun take(!self, k: ?K) -> V?
+    if self.find(k, k.hash()) as i
+      j = Int(self.at[i])
+      !self.unslot(i)
+      <self.es[j].key
+      return <self.es[j].value
+    none
+
+  # Drop every entry. The Map keeps the memory it has.
+  pub sub clear(!self)
+    !self.es.clear()
+    !self.tags.clear()
+    !self.at.clear()
+    self.count = 0
+
+  # The entries, in the order their keys were first put in: each an
+  # `Item` viewing its key and value.
+  pub fun items(?self) -> Items[K, V] from self
+    Items(map: ?self, next_at: 0)
+
+  # The keys, in order, each viewed where the Map holds it.
+  pub fun keys(?self) -> Keys[K, V] from self
+    Keys(map: ?self, next_at: 0)
+
+  # The values, in order, each viewed where the Map holds it.
+  pub fun values(?self) -> Values[K, V] from self
+    Values(map: ?self, next_at: 0)
+
+  # Call `f` with each key, in order, and its value lent to write. Each
+  # value is out of its entry while `f` has it.
+  pub sub update(!self, f: ?sub(?K, !V))
+    for j in 0..self.es.len
+      held = <self.es[j].value
+      if !held as v
+        kv: (?K)? = ?self.es[j].key
+        if kv as k
+          f(k, !v)
+      old = replace(!self.es[j].value, <held)
+      <old
+
+  # The used slot of the key `k`, whose hash is `h`, or `none`.
+  fun find(?self, k: ?K, h: U64) -> Int?
+    return none if self.count == 0
+    mask = self.tags.len - 1
+    tag = U8(h >> 57) | 0x80
+    i = Int(h & U64(mask))
+    while true
+      t = self.tags[i]
+      return none if t == 0
+      if t == tag
+        return i if self.es[Int(self.at[i])].key == k
+      i = (i + 1) & mask
+    none
+
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`.
+  sub insert(!self, k: K, v: V, h: U64)
+    if (self.es.len + 1) * 5 > self.tags.len * 4
+      !self.grow()
+    !self.es.push(Entry(key: <k, value: <v))
+    self.count += 1
+    !self.place(self.es.len - 1, h)
+
+  # Point a free slot at entry `j`, whose key hashes to `h`.
+  sub place(!self, j: Int, h: U64)
+    mask = self.tags.len - 1
+    i = Int(h & U64(mask))
+    while self.tags[i] != 0
+      i = (i + 1) & mask
+    self.tags[i] = U8(h >> 57) | 0x80
+    self.at[i] = U32(j)
+
+  # Free the used slot `i`, shifting back each slot after it that would
+  # otherwise no longer be found from where its key hashes to.
+  sub unslot(!self, i: Int)
+    mask = self.tags.len - 1
+    hole = i
+    s = (i + 1) & mask
+    while self.tags[s] != 0
+      home = Int(self.es[Int(self.at[s])].key.hash() & U64(mask))
+      if ((s - home) & mask) >= ((s - hole) & mask)
+        self.tags[hole] = self.tags[s]
+        self.at[hole] = self.at[s]
+        hole = s
+      s = (s + 1) & mask
+    self.tags[hole] = 0
+    self.count -= 1
+
+  # Make room for one more entry: drop the entries taken, and double the
+  # table when the entries left would fill more than two fifths of it.
+  sub grow(!self)
+    if self.count < self.es.len
+      es: List[Entry[K, V]] = List(capacity: self.count + 1)
+      for j in 0..self.es.len
+        if <self.es[j].key as k
+          !es.push(Entry(key: <k, value: <self.es[j].value))
+      self.es = <es
+    n = 8 if self.tags.len < 8 else self.tags.len
+    while (self.count + 1) * 5 > n * 2
+      n *= 2
+    !self.tags.clear()
+    !self.at.clear()
+    !self.tags.reserve(n)
+    !self.at.reserve(n)
+    for _ in 0..n
+      !self.tags.push(0)
+      !self.at.push(0)
+    for j in 0..self.es.len
+      !self.place(j, self.es[j].key.hash())
+
+  # Add the key `k` with the value `v` unless it is there: true when it
+  # was added; otherwise `k` and `v` are dropped.
+  fun add(!self, k: K, v: V) -> Bool
+    h = k.hash()
+    if self.find(?k, h) != none
+      return false
+    !self.insert(<k, <v, h)
+    true
+
+  # Take the entry of the key `k` out, handing its key back and dropping
+  # its value.
+  fun take_key(!self, k: ?K) -> K?
+    if self.find(k, k.hash()) as i
+      j = Int(self.at[i])
+      !self.unslot(i)
+      <self.es[j].value
+      return <self.es[j].key
+    none
+
+# The entries of a Map, in order (`Map.items`).
+pub obj Items[K, V]
+  map: ?Map[K, V]
+  next_at: Int
+
+  pub fun next(!self) -> Item[?K, ?V]?
+    while self.next_at < self.map.es.len
+      j = self.next_at
+      self.next_at += 1
+      k: (?K)? = ?self.map.es[j].key
+      v: (?V)? = ?self.map.es[j].value
+      if k as kk and v as vv
+        return Item(key: kk, value: vv)
+    none
+
+# The keys of a Map, in order (`Map.keys`).
+pub obj Keys[K, V]
+  map: ?Map[K, V]
+  next_at: Int
+
+  pub fun next(!self) -> (?K)?
+    while self.next_at < self.map.es.len
+      j = self.next_at
+      self.next_at += 1
+      k: (?K)? = ?self.map.es[j].key
+      if k as kk
+        return kk
+    none
+
+# The values of a Map, in order (`Map.values`).
+pub obj Values[K, V]
+  map: ?Map[K, V]
+  next_at: Int
+
+  pub fun next(!self) -> (?V)?
+    while self.next_at < self.map.es.len
+      j = self.next_at
+      self.next_at += 1
+      v: (?V)? = ?self.map.es[j].value
+      if v as vv
+        return vv
+    none
+
+# A set of keys, kept in the order they were first added: a Map whose
+# values are nothing.
+pub obj Set[K]
+  map: Map[K, Bool]
+
+  # An empty Set. It allocates nothing until the first `add`.
+  pub fun new() -> Set[K]
+    Set(map: Map[K, Bool].new())
+
+  # How many keys the Set holds.
+  pub fun len(?self) -> Int
+    self.map.len()
+
+  # Whether the Set holds the key `k`.
+  pub fun has(?self, k: ?K) -> Bool
+    self.map.has(k)
+
+  # Add the key `k`: true when it is new; otherwise `k` is dropped.
+  pub fun add(!self, k: K) -> Bool
+    (!self.map).add(<k, true)
+
+  # Take the key `k` out and hand it back, or `none` when the Set has
+  # no such key.
+  pub fun take(!self, k: ?K) -> K?
+    (!self.map).take_key(k)
+
+  # Drop every key. The Set keeps the memory it has.
+  pub sub clear(!self)
+    !self.map.clear()
+
+  # The keys, in the order they were first added, each viewed where the
+  # Set holds it.
+  pub fun items(?self) -> Keys[K, Bool] from self
+    ?self.map.keys()

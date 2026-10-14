@@ -1,0 +1,12 @@
+# The iterator `items` returns views the Map, which stays lent to read
+# while the loop walks it.
+
+use std.hash
+
+sub main()
+  m = hash.Map[String, Int].new()
+  !m.put(String("a"), 1)
+  for e in ?m.items()
+    !m.put(String("c"), 2)
+
+# error: cannot lend `m` to write while a read loan is live
