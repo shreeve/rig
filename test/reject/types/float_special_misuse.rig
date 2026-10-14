@@ -1,0 +1,9 @@
+# `nan`, `inf`, `fraction`, and `exponent` belong to floats.
+sub main()
+  n = 5
+  print(Int.nan(), n.fraction(), n.exponent(), Float.inf(1))
+
+# error: 4:13: `Int` has no function `nan`
+# error: 4:22: type `Int` has no method `fraction`
+# error: 4:36: type `Int` has no method `exponent`
+# error: 4:54: `Float.inf()` takes no arguments; got 1

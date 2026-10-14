@@ -1183,6 +1183,10 @@ pub const ElemOp = enum {
     from_bits,
     wrap,
     from_int,
+    nan,
+    inf,
+    fraction,
+    exponent,
     splat,
     bits,
     first,
@@ -1198,8 +1202,8 @@ pub const ElemOp = enum {
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
-            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => false,
+            .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => false,
         };
     }
 
@@ -1207,7 +1211,7 @@ pub const ElemOp = enum {
     /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`.
     pub fn isTypeFn(op: ElemOp) bool {
         return switch (op) {
-            .from_bits, .wrap, .from_int => true,
+            .from_bits, .wrap, .from_int, .nan, .inf => true,
             else => false,
         };
     }
@@ -1217,7 +1221,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent => false,
         };
     }
 };
@@ -5268,7 +5272,12 @@ const TargetWalk = struct {
                 self.out.any = true;
             },
             .function, .callable, .invalid, .unknown => self.out.any = true,
-            else => try self.out.add(self.a, viewAtom(ctx, node.ty) | if (node.elem) elem_view else 0),
+            else => {
+                try self.out.add(self.a, viewAtom(ctx, node.ty) | if (node.elem) elem_view else 0);
+                // A `[]?String` also views the elements of a `[]Static`
+                // (`readsAsStringView`).
+                if (node.elem and node.ty == ctx.types.string_view_id) try self.out.add(self.a, viewAtom(ctx, ctx.types.static_id) | elem_view);
+            },
         }
     }
 
@@ -6721,6 +6730,23 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
     return false;
 }
 
+/// Whether `actual` is read as `expected`, which differs from it only by
+/// a `Static` where a `?String` goes: the one conversion between the two,
+/// which reads the text and writes nothing. It holds for the text itself,
+/// a read view of it (`?Static` as `?String`), and an optional of either
+/// (a `Static?` as a `(?String)?`). A write view, a handle, and the elements
+/// of anything else hold exactly their type.
+pub fn readsAsStringView(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+    if (actual == ctx.types.static_id) return expected == ctx.types.string_view_id;
+    const a = ctx.types.get(actual);
+    const e = ctx.types.get(expected);
+    return switch (a) {
+        .read_view => |inner| e == .read_view and readsAsStringView(ctx, inner, e.read_view),
+        .optional => |inner| e == .optional and readsAsStringView(ctx, inner, e.optional),
+        else => false,
+    };
+}
+
 /// The elements of an array or a List of `elem`: `[]T` to read, `![]T`
 /// to write.
 fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId, lend: *Lend) bool {
@@ -6731,7 +6757,10 @@ fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId,
         },
         .write => writeSliceElem(ctx, view) orelse return false,
     };
-    return want == elem and lend.push(.elems);
+    // Read, the elements of a `Static` array or List are `?String`s too
+    // (`readsAsStringView`); written, they are exactly their type.
+    const reads = want == elem or (kind == .read and readsAsStringView(ctx, elem, want));
+    return reads and lend.push(.elems);
 }
 
 /// The element type of the `[]T` a value of type `ty` lends (`lendsAs`):
