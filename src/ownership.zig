@@ -162,6 +162,11 @@ const Paths = struct {
     /// The path `i + 1`: its parent and its last field.
     nodes: std.ArrayList(Node) = .empty,
     index: std.HashMapUnmanaged(Key, PathId, KeyContext, std.hash_map.default_max_load_percentage) = .empty,
+    /// Each field step's path, by its node: decided by syntax and types
+    /// alone, so `resolvePlace` classifies a step once (`extendsPath`).
+    steps: std.AutoHashMapUnmanaged(u32, Step) = .empty,
+
+    const Step = struct { path: PathId, ended: bool };
 
     /// A path is cut at this many fields, which only adds conflicts.
     const max_depth = 8;
@@ -182,6 +187,7 @@ const Paths = struct {
     fn deinit(self: *Paths, gpa: std.mem.Allocator) void {
         self.nodes.deinit(gpa);
         self.index.deinit(gpa);
+        self.steps.deinit(gpa);
     }
 
     /// The path `parent` and then `field`.
@@ -588,8 +594,9 @@ pub const Checker = struct {
     held: ?Held = null,
     /// The place `walkMember` is reading: its base (the root's name, or
     /// a header's held value) and its path. Reading that base there reads
-    /// only that path (`takePlaceRead`).
-    place_read: ?struct { base: Sexp, path: PathId } = null,
+    /// only that place (`takePlaceRead`), whose path is decided only where
+    /// a write loan on the root could conflict (`checkReadable`).
+    place_read: ?struct { base: Sexp, place: Sexp } = null,
     /// A source position at or before the statement being walked, for
     /// statements without one of their own (`break`, `continue`).
     anchor: u32 = 0,
@@ -2279,14 +2286,13 @@ pub const Checker = struct {
         return self.varValue(id);
     }
 
-    /// The path of `base` that the place `walkMember` reads names, once:
-    /// a use touches the path it names (Core §5). The whole var for any
-    /// other read.
-    fn takePlaceRead(self: *Checker, base: Sexp) PathId {
-        const r = self.place_read orelse return whole_path;
-        if (!sameNode(r.base, base)) return whole_path;
+    /// The place `walkMember` reads from `base`, once: a use touches the
+    /// path it names (Core §5). Null, the whole var, for any other read.
+    fn takePlaceRead(self: *Checker, base: Sexp) ?Sexp {
+        const r = self.place_read orelse return null;
+        if (!sameNode(r.base, base)) return null;
         self.place_read = null;
-        return r.path;
+        return r.place;
     }
 
     /// The node a place's path starts from: its root's name, or a
@@ -2312,10 +2318,13 @@ pub const Checker = struct {
         return .{ .loans = try self.unionLoans(v.loans, self.flows.items[id].loans) };
     }
 
-    /// Reading place `path` of `id`: it must be live and not lent to
-    /// write.
-    fn checkReadable(self: *Checker, id: VarId, path: PathId, pos: u32) Error!void {
+    /// Reading `id`, or the place `place` of it: it must be live and not
+    /// lent to write. The place's path is decided only where some write
+    /// loan on `id` is live.
+    fn checkReadable(self: *Checker, id: VarId, place: ?Sexp, pos: u32) Error!void {
         if (!try self.checkLive(id, pos)) return;
+        if (self.findLoan(id, whole_path, .write, null) == null) return;
+        const path = if (place) |e| (if (self.resolvePlace(e)) |p| (if (p.root == id) p.path else whole_path) else whole_path) else whole_path;
         if (self.findLoan(id, path, .write, null)) |l| {
             try self.err(pos, "use of `{s}` while a write loan{s} is live", .{ try self.pathText(id, path), try self.loanOnText(l, path) });
             try self.noteLoan(l);
@@ -2405,14 +2414,20 @@ pub const Checker = struct {
                     p.whole = false;
                     if (e.isKind(.index)) p.indexed = true;
                     if (!p.path_ended) {
-                        if (self.paths.depth(p.path) < Paths.max_depth and self.extendsPath(e, at_root)) {
-                            // Out of memory, the path is cut where it is,
-                            // which only adds conflicts.
-                            p.path = self.paths.child(self.gpa, p.path, self.text(ir.Member.name(e))) catch blk: {
-                                p.path_ended = true;
-                                break :blk p.path;
-                            };
-                        } else p.path_ended = true;
+                        if (self.paths.steps.get(e.list.id)) |step| {
+                            p.path = step.path;
+                            p.path_ended = step.ended;
+                        } else {
+                            if (self.paths.depth(p.path) < Paths.max_depth and self.extendsPath(e, at_root)) {
+                                // Out of memory, the path is cut where it
+                                // is, which only adds conflicts.
+                                p.path = self.paths.child(self.gpa, p.path, self.text(ir.Member.name(e))) catch blk: {
+                                    p.path_ended = true;
+                                    break :blk p.path;
+                                };
+                            } else p.path_ended = true;
+                            self.paths.steps.put(self.gpa, e.list.id, .{ .path = p.path, .ended = p.path_ended }) catch {};
+                        }
                     }
                     if (self.exprType(object)) |t| {
                         const ty = self.typeData(t);
@@ -2490,10 +2505,10 @@ pub const Checker = struct {
         defer if (sets_read) {
             self.place_read = null;
         };
-        if (self.place_read == null) if (self.resolvePlace(e)) |p| {
-            self.place_read = .{ .base = self.placeBase(e), .path = p.path };
+        if (self.place_read == null) {
+            self.place_read = .{ .base = self.placeBase(e), .place = e };
             sets_read = true;
-        };
+        }
         // A value that is no place is read where it runs, and indexed
         // after its index runs; a place is found after it.
         const obj = if (e.isKind(.index) and self.resolvePlace(object) == null)
@@ -2804,7 +2819,7 @@ pub const Checker = struct {
     fn walkThroughView(self: *Checker, e: Sexp) Error!Value {
         const place = self.resolvePlace(e) orelse return self.walkViewedPath(e);
         try self.walkIndicesHeld(e, place.root, place.path);
-        try self.checkReadable(place.root, place.path, self.startOf(e));
+        try self.checkReadable(place.root, e, self.startOf(e));
         return self.varValue(place.root);
     }
 
@@ -3675,7 +3690,7 @@ pub const Checker = struct {
             // Compound assignment (`+=`, ...).
             else => {
                 const id = self.find(name) orelse return;
-                try self.checkReadable(id, whole_path, pos);
+                try self.checkReadable(id, null, pos);
                 try self.checkAssignable(id, pos);
                 return;
             },
@@ -4718,21 +4733,23 @@ pub const Checker = struct {
     /// the ways the store goes in (`absorbLoans`). A value never holds a
     /// view of itself (Core §5).
     fn selfViewIn(self: *Checker, id: VarId, loans: []const Loan, lends: []const Loan, through: []const VarId) Error!?Loan {
+        // `loans`, then what the vars they are on hold, which is copied
+        // only where there is some.
         var seen: std.ArrayList(VarId) = .empty;
         var work: std.ArrayList(Loan) = .empty;
-        try work.appendSlice(self.arena(), loans);
         var i: usize = 0;
-        while (i < work.items.len) : (i += 1) {
-            const l = work.items[i];
+        while (true) : (i += 1) {
+            const l = if (i < loans.len) loans[i] else if (i - loans.len < work.items.len) work.items[i - loans.len] else break;
             if (l.ext or l.root >= self.vars.items.len) continue;
             if (l.root == id) {
                 if (!isLendOf(lends, l)) return l;
                 continue;
             }
-            if (std.mem.findScalar(VarId, through, l.root) != null or std.mem.findScalar(VarId, seen.items, l.root) != null) continue;
+            const held = self.flows.items[l.root].loans;
+            if (held.len == 0 or std.mem.findScalar(VarId, through, l.root) != null or std.mem.findScalar(VarId, seen.items, l.root) != null) continue;
             if (seen.items.len >= 64) break;
             try seen.append(self.arena(), l.root);
-            try work.appendSlice(self.arena(), self.flows.items[l.root].loans);
+            try work.appendSlice(self.arena(), held);
         }
         return null;
     }

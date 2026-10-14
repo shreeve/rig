@@ -2500,8 +2500,11 @@ use names. A use of the whole var passes `whole_path`, which overlaps
 every path: a bare name read, a move, a drop, a reassignment, a closure
 capture, and a method's receiver that is the name (`(!p).m()`,
 `!p.m()`), since a signature lends all of `self`. A field read
-(`p.b.len`) reads only its place: `walkMember` records the path, and
-the root's name, read first, takes it (`takePlaceRead`). The
+(`p.b.len`) reads only its place: `walkMember` records the place, and
+the root's name, read first, takes it (`takePlaceRead`); its path is
+decided only where some write loan on the root is live
+(`checkReadable`). Each field step's path is decided once
+(`Paths.steps`). The
 temporaries a statement takes (a receiver's reservation and its
 `place_hold`, `walkIndicesHeld`, `holdRead`) are on the place's path,
 and so are a `for` source's loan and a `match` payload's.
