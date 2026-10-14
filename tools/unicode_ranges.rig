@@ -1,0 +1,30 @@
+# Prints the runs of code points in each property of std.unicode, as
+# `start FIRST LAST`, `continue FIRST LAST`, and `space FIRST LAST` in
+# hexadecimal, for tools/verify-unicode.py to compare with the Character
+# Database.
+use std.text
+use std.unicode
+
+sub main()
+  first_s = -1
+  first_k = -1
+  first_w = -1
+  for c in 0..0x110001
+    s = c < 0x110000 and unicode.is_id_start(c)
+    k = c < 0x110000 and unicode.is_id_continue(c)
+    w = c < 0x110000 and unicode.is_space(c)
+    if s and first_s < 0
+      first_s = c
+    if not s and first_s >= 0
+      print("start", text.format_int(first_s, 16), text.format_int(c - 1, 16))
+      first_s = -1
+    if k and first_k < 0
+      first_k = c
+    if not k and first_k >= 0
+      print("continue", text.format_int(first_k, 16), text.format_int(c - 1, 16))
+      first_k = -1
+    if w and first_w < 0
+      first_w = c
+    if not w and first_w >= 0
+      print("space", text.format_int(first_w, 16), text.format_int(c - 1, 16))
+      first_w = -1

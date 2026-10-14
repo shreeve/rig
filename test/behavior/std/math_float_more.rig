@@ -1,0 +1,16 @@
+# std.math: abs of a zero is +0.0 and of a NaN a NaN, and trunc,
+# copysign, and log2 follow IEEE 754.
+use std.math
+
+sub main()
+  nan = math.sqrt(-1.0)
+  print(math.abs(-0.0), math.abs(0.0), math.abs(-2.5), math.abs(-7), math.abs(nan) != math.abs(nan))
+  print(math.trunc(2.7), math.trunc(-2.7), math.trunc(-0.5), math.trunc(0.5))
+  print(math.copysign(3.0, -1.0), math.copysign(-3.0, 1.0), math.copysign(3.0, -0.0), math.copysign(0.0, -1.0))
+  print(math.log2(8.0), math.log2(1.0), math.log2(0.5), math.log2(0.0) < 0.0, math.log2(-1.0) != math.log2(-1.0))
+
+# expect:
+# 0.0 0.0 2.5 7 true
+# 2.0 -2.0 -0.0 0.0
+# -3.0 3.0 -3.0 -0.0
+# 3.0 0.0 -1.0 true true

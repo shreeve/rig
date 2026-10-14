@@ -1,0 +1,23 @@
+# A mask of more than 16 lanes takes a byte a lane, as it is held (a
+# narrower one a bit a lane), so the 8 MiB limit on a value and the 13 MiB
+# limit on a function's frame count its bytes.
+
+obj Flags
+  rows: [140000]Simd[Bool, 64]
+  n: Int
+
+fun two(i: Int) -> Bool
+  a = [112500 of Simd[Bool, 64].splat(false)]
+  b = [112500 of Simd[Bool, 64].splat(true)]
+  a[i][0] or b[i][0]
+
+fun narrow(i: Int) -> Bool
+  a = [112500 of Simd[Bool, 16].splat(false)]
+  b = [112500 of Simd[Bool, 16].splat(true)]
+  a[i][0] or b[i][0]
+
+sub main()
+  print(two(1), narrow(1))
+
+# error: 6:9: `[140000]Simd[Bool, 64]` takes 8960000 bytes; a value takes at most 8388608 (8 MiB)
+# error: 9:5: `two` keeps 14400136 bytes of values on its stack; a function keeps at most 13631488 (13 MiB)

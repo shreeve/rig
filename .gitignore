@@ -12,3 +12,4 @@ bench/json/zimdjson/.zgc/
 bench/json/zimdjson/prog-*
 bench/json/rust-bench/target-*/
 bench/json/rust-bench/*/target/
+__pycache__/

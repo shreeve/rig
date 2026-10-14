@@ -1,0 +1,26 @@
+# `==` on a branching value of a type parameter: each instance reads the
+# chosen leaf where it is, or drops a made one with the statement.
+
+fun same[T](c: Bool, a: T, b: T, x: T) -> Bool
+  (a if c else b) == x
+
+fun pick[T](v: T) -> T
+  v
+
+fun made[T](c: Bool, a: T, b: T, x: T) -> Bool
+  (pick(<a) if c else pick(<b)) == x
+
+fun flipped[T](c: Bool, a: T, b: T, x: T) -> Bool
+  x == (a if c else b)
+
+sub main()
+  print(same(true, 1, 2, 1), same(false, 1, 2, 1))
+  print(same(true, String("a"), String("b"), String("b")), same(false, String("a"), String("b"), String("b")))
+  print(made(true, 5, 6, 5), made(false, 5, 6, 5))
+  print(flipped(false, String("a"), String("b"), String("b")), flipped(true, 3, 4, 4))
+
+# expect:
+# true false
+# false true
+# true false
+# true false

@@ -1,0 +1,17 @@
+# A generic function's result may view what its `?String` argument views
+# (its `T` could be a view): used before the String it views is dropped.
+
+fun mk(s: ?String) -> ?String
+  s
+
+fun run[T](f: fun(?String) -> T, s: ?String) -> T
+  f(s)
+
+sub main()
+  t = String("abc")
+  k = run(mk, ?t)
+  print(k)
+  <t
+
+# expect:
+# abc

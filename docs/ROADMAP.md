@@ -26,7 +26,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 
 ## Speed
 
-- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, then byte lookup, a joined shift, a saturating subtract, `pad:` reads, and `blocks(N)`.
+- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and `-|`, and lane shifts; then `pad:` reads and `blocks(N)`.
 - **Checker-proved check elimination**: bounds and overflow checks the checker proves redundant, redesigned around units.
 - **A frame-size guard** for every function.
 
@@ -79,5 +79,4 @@ Language decisions not yet made. Each describes what Rig does today;
 any change would be future work.
 
 - **`T??`** as a spelling of the nested optional `(T?)?`; today `??` after a type is the fallback operator, and the error points to `(T?)?`.
-- **Modules in subdirectories**: `use name` finds only `name.rig` beside the root file.
 - **Function values as module constants** (`handler = on_click` at module level); a module constant holds only compile-time values today.

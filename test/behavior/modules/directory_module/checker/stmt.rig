@@ -1,0 +1,4 @@
+use checker.binder
+
+pub fun Checker.stmt(?self, n: Int) -> Int
+  binder.bump(self.expr(n))

@@ -1,0 +1,417 @@
+# std.utf8: runes in UTF-8 (RFC 3629), which encodes each rune, one
+# Unicode scalar value (0 to 0xD7FF or 0xE000 to 0x10FFFF), as one to
+# four bytes. A valid sequence has no overlong form, encodes no surrogate
+# (U+D800 to U+DFFF), and nothing past U+10FFFF. Every index and size is
+# in bytes, and nothing here allocates but `push_rune`, which grows the
+# `String` it is given. Each function with a twin in Go's unicode/utf8
+# reads every input, valid or not, as that twin does.
+
+# The rune read in place of a byte that is not valid UTF-8, and written in
+# place of a value that is not a rune: U+FFFD, Go's `utf8.RuneError`.
+pub REPLACEMENT = 0xFFFD
+
+# The bytes below this are each a whole rune, as in ASCII: Go's
+# `utf8.RuneSelf`.
+pub RUNE_SELF = 0x80
+
+# A rune read from a `?String`, and the bytes it took there: `size` is 1
+# for a bad byte read as `REPLACEMENT`, and 0 where there was nothing to
+# read, while `utf8.size(REPLACEMENT)` is 3.
+pub obj Decoded
+  pub rune: Int
+  pub size: Int
+
+# ---- Reading ---------------------------------------------------------------
+
+# The rune whose sequence starts at `i`, `0 <= i <= s.len`: `i` is a
+# cursor between bytes, and this is the rune just after it. A byte
+# that does not start a valid sequence reads as `REPLACEMENT`, of size 1,
+# so a reader moves past one bad byte at a time; at `s.len` the result is
+# `REPLACEMENT` of size 0. Go's `DecodeRuneInString(s[i:])`.
+pub fun rune_after(s: ?String, i: Int) -> Decoded
+  if i >= 0 and i < s.len
+    b = s[i]
+    return Decoded(rune: Int(b), size: 1) if b < 0x80
+    return multi_after(s, i)
+  _ = s[i] if i != s.len  # outside 0 to `s.len`: panics, as indexing does
+  Decoded(rune: REPLACEMENT, size: 0)
+
+# `rune_after` where `s[i]` is 0x80 or more: a rune of two to four
+# bytes, or `REPLACEMENT` of size 1. It and the two below are small
+# enough that each is emitted inline, so a loop over `rune_after` makes
+# no call.
+fun multi_after(s: ?String, i: Int) -> Decoded
+  x = LEAD[s[i] - 0x80]
+  n = Int(x & 7)
+  return bad() if n < 2 or i + n > s.len
+  c1 = s[i + 1]
+  return bad() if c1 < SECOND_LO[x >> 4] or c1 > SECOND_HI[x >> 4]
+  r = (Int(s[i]) & 0x7F >> n) << 6 | Int(c1 & 0x3F)
+  return Decoded(rune: r, size: 2) if n < 3
+  long_after(s, i, n, r)
+
+# `multi_after` past a valid second byte of a sequence of `n` bytes, 3
+# or 4, all in `s`, whose first two bytes hold the bits `r`. Each size
+# is a constant of its branch, not a value read from memory, so a
+# reader's `i += d.size` does not wait on the loads of the bytes; and the
+# branches test `n <` each size, so `i + n <= s.len` shows that the add
+# cannot overflow.
+fun long_after(s: ?String, i: Int, n: Int, r: Int) -> Decoded
+  c2 = s[i + 2]
+  return bad() if c2 & 0xC0 != 0x80
+  r3 = r << 6 | Int(c2 & 0x3F)
+  return Decoded(rune: r3, size: 3) if n < 4
+  c3 = s[i + 3]
+  return bad() if c3 & 0xC0 != 0x80
+  Decoded(rune: r3 << 6 | Int(c3 & 0x3F), size: 4)
+
+# A byte that starts no valid sequence: `REPLACEMENT`, of size 1.
+fun bad() -> Decoded
+  Decoded(rune: REPLACEMENT, size: 1)
+
+# For each first byte from 0x80 up, the width of its sequence in the low
+# three bits (0 when no valid sequence starts with it), and above them
+# which range of `SECOND_LO` and `SECOND_HI` the second byte must be in:
+# narrower after E0, ED, F0, and F4, which would otherwise start an
+# overlong form, a surrogate, or a value past U+10FFFF.
+LEAD: [128]U8 = [
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+  0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+  0x13, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x23, 0x03, 0x03,
+  0x34, 0x04, 0x04, 0x04, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]
+
+# The lowest second byte each range of `LEAD` allows.
+SECOND_LO: [5]U8 = [0x80, 0xA0, 0x80, 0x90, 0x80]
+
+# The highest second byte each range of `LEAD` allows.
+SECOND_HI: [5]U8 = [0xBF, 0xBF, 0x9F, 0xBF, 0x8F]
+
+# The rune whose sequence ends at `i`, `0 <= i <= s.len`: the rune
+# just before the cursor, which `rune_after` reads at `i - d.size`. When
+# no valid sequence ends at `i`, the byte before `i` reads as
+# `REPLACEMENT`, of size 1; at 0 the result is `REPLACEMENT` of size 0.
+# It looks back at most four bytes. Go's `DecodeLastRuneInString(s[:i])`.
+pub fun rune_before(s: ?String, i: Int) -> Decoded
+  if i > 0 and i <= s.len
+    b = s[i - 1]
+    return Decoded(rune: Int(b), size: 1) if b < 0x80
+    return multi_before(s, i)
+  _ = s[i - 1] if i != 0  # outside 0 to `s.len`: panics, as indexing does
+  Decoded(rune: REPLACEMENT, size: 0)
+
+# `rune_before` where `s[i - 1]` is 0x80 or more: it backs up from
+# `i - 2` over at most two more continuation bytes to a first byte, and
+# reads forward. (When `s[i - 1]` is itself a first byte, no sequence from
+# further back can end at `i`, so it need not be looked at.) From `i = 4`
+# on, the two bytes are tested without a loop.
+fun multi_before(s: ?String, i: Int) -> Decoded
+  start = i - 2 if i > 1 else 0
+  if i >= 4
+    if s[i - 2] & 0xC0 == 0x80
+      start = i - 4 if s[i - 3] & 0xC0 == 0x80 else i - 3
+  else
+    while start > 0 and s[start] & 0xC0 == 0x80
+      start -= 1
+  d = rune_after(s, start)
+  # A new `Decoded`, not `d` itself: returning `d` or `bad()` makes the
+  # compiler pass the result through memory, and a reader waits on it.
+  return Decoded(rune: d.rune, size: d.size) if start + d.size == i
+  bad()
+
+# The runes of a `?String`, which `runes` gives, in order:
+# `for r in utf8.runes(s)`.
+pub obj Runes
+  s: ?String
+  at: Int
+
+  # The next rune, as `rune_after` reads it, or `none` after the
+  # last.
+  pub fun next(!self) -> Int?
+    return none if self.at == self.s.len
+    d = rune_after(self.s, self.at)
+    self.at += d.size
+    d.rune
+
+# The runes of `s`, read by `rune_after` from its first byte to its
+# last: a bad byte is one `REPLACEMENT`. Go's `for _, r := range s`.
+pub fun runes(s: ?String) -> Runes
+  Runes(s: s, at: 0)
+
+# The size in bytes, 1 to 4, of the valid rune that starts at `i`,
+# `0 <= i <= s.len`, or `none` when the bytes there are not valid UTF-8
+# or `i` is `s.len`: `i += n` steps over the rune.
+pub fun rune_size(s: ?String, i: Int) -> Int?
+  return none if i == s.len
+  return 1 if s[i] < 0x80
+  n = rune_after(s, i).size
+  return none if n == 1
+  n
+
+# How many runes `s` holds, each bad byte counted as one, as `runes`
+# reads them. Go's `RuneCountInString`. Valid UTF-8 holds one rune per
+# byte that is not a continuation byte (10xxxxxx), so whole blocks of 64
+# and then 16 bytes are counted that way, each checked valid as it is
+# counted (`errors`). The rest is read rune by rune: everything from the
+# first block that is not valid, a sequence the last valid block cut
+# short (from its first byte), and the 15 or fewer bytes after the last
+# whole block. std.utf16's `unit_count` counts units the same way.
+pub fun rune_count(s: ?String) -> Int
+  n = 0
+  i = 0
+  prev = Block.splat(0)
+  ones = Block.splat(0)
+  held = 0
+  # Whether `prev` holds a byte of 0x80 or more: only then can it end in
+  # a first byte whose sequence the next block must finish.
+  high = false
+  while i + 64 <= s.len : i += 64
+    a = s.read[Block](i)
+    b = s.read[Block](i + 16)
+    c = s.read[Block](i + 32)
+    d = s.read[Block](i + 48)
+    if ((a | b | c | d) < 0x80).all()
+      break if high and ((prev -| ENDS) != 0).any()
+      high = false
+      n += 64
+    else
+      break if ((errors(a, prev) | errors(b, a) | errors(c, b) | errors(d, c)) != 0).any()
+      ones += starts(a) + starts(b) + starts(c) + starts(d)
+      held += 1
+      # Each lane gains at most 4 for 64 bytes: empty them before 255.
+      if held == 63
+        n += lanes_sum(ones)
+        ones = Block.splat(0)
+        held = 0
+      high = true
+    prev = d
+  # Fewer than 64 bytes are left, or the 64 from `i` hold a fault: 16 at
+  # a time, at most 3 blocks before the end or the fault, so no lane of
+  # `ones` passes 62 * 4 + 3.
+  while i + 16 <= s.len : i += 16
+    a = s.read[Block](i)
+    if (a < 0x80).all()
+      break if high and ((prev -| ENDS) != 0).any()
+      high = false
+      n += 16
+    else
+      break if (errors(a, prev) != 0).any()
+      ones += starts(a)
+      high = true
+    prev = a
+  n += lanes_sum(ones)
+  # Every byte before `i` is valid UTF-8, but for a sequence that the
+  # bytes from `i` were to finish: read again from its first byte,
+  # which was counted.
+  j = i
+  while j > 0 and j > i - 3 and s[j - 1] & 0xC0 == 0x80
+    j -= 1
+  if j > 0 and s[j - 1] >= 0xC0
+    i = j - 1
+    n -= 1
+  while i < s.len
+    if s[i] < 0x80
+      k = ascii_end(s, i)
+      n += k - i
+      i = k
+    else
+      i += rune_after(s, i).size
+      n += 1
+  n
+
+type Block = Simd[U8, 16]
+
+# The lanes of `cur` that break UTF-8, given the block before it: nonzero
+# where one does. Keiser and Lemire's check: each byte and the one before
+# it pick three sets of the faults they could make together, by the high
+# and low nibbles of the first and the high nibble of the second, and
+# what is left in all three is a fault. A byte 2 or 3 after a first byte
+# of 3 or 4 must be a continuation byte, the one fault a pair cannot see.
+fun errors(cur: Block, prev: Block) -> Block
+  p1 = cur.lag[1](prev)
+  pair = BY_FIRST_HIGH.lookup(p1 >> 4) & BY_FIRST_LOW.lookup(p1 & 0x0F) & BY_SECOND_HIGH.lookup(cur >> 4)
+  must = ((cur.lag[2](prev) -| (0xE0 - 0x80)) | (cur.lag[3](prev) -| (0xF0 - 0x80))) >= 0x80
+  must.select(Block.splat(TWO_CONTINUATIONS), Block.splat(0)) ^ pair
+
+# The faults of a pair of bytes, each a bit: a first byte, or ASCII,
+# then not a continuation byte (TOO_SHORT); ASCII then a continuation
+# byte (TOO_LONG); an overlong form of 2, 3, or 4 bytes; a surrogate,
+# ED A0 to ED BF; past U+10FFFF (TOO_LARGE, and TOO_LARGE_1000 for a
+# second byte 80 to 8F, which shares OVERLONG_4's bit); and a
+# continuation byte after one (TWO_CONTINUATIONS), which is a fault only
+# where `must` is false.
+TOO_SHORT: U8 = 0x01
+TOO_LONG: U8 = 0x02
+OVERLONG_3: U8 = 0x04
+TOO_LARGE: U8 = 0x08
+SURROGATE: U8 = 0x10
+OVERLONG_2: U8 = 0x20
+TOO_LARGE_1000: U8 = 0x40
+OVERLONG_4: U8 = 0x40
+TWO_CONTINUATIONS: U8 = 0x80
+# The faults the low nibble of the first byte does not decide.
+CARRY: U8 = 0x83
+
+# The faults each high nibble of the first byte can make.
+BY_FIRST_HIGH = Block([0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x80, 0x80, 0x80, 0x80, 0x21, 0x01, 0x15, 0x49])
+
+# The faults each low nibble of the first byte can make.
+BY_FIRST_LOW = Block([0xE7, 0xA3, 0x83, 0x83, 0x8B, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xDB, 0xCB, 0xCB])
+
+# The faults each high nibble of the second byte can make.
+BY_SECOND_HIGH = Block([0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0xE6, 0xAE, 0xBA, 0xBA, 0x01, 0x01, 0x01, 0x01])
+
+# Above these, a byte in the last three lanes is a first byte whose
+# sequence runs past the block: 0xF0 and up in lane 13, 0xE0 in 14, 0xC0
+# in 15.
+ENDS = Block([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0xDF, 0xBF])
+
+# 1 in each lane that starts a rune: not a continuation byte.
+fun starts(v: Block) -> Block
+  ((v < 0x80) | (v >= 0xC0)).select(Block.splat(1), Block.splat(0))
+
+# The sum of the lanes of `v`.
+fun lanes_sum(v: Block) -> Int
+  n = 0
+  for x in v.array()
+    n += Int(x)
+  n
+
+# Whether `s` is well-formed UTF-8: every byte is part of a valid
+# sequence. Go's `ValidString`.
+pub fun is_valid(s: ?String) -> Bool
+  i = 0
+  while i < s.len
+    if s[i] < 0x80
+      i = ascii_end(s, i)
+    else
+      n = rune_after(s, i).size
+      return false if n == 1
+      i += n
+  true
+
+# Whether every byte of `s` is below `RUNE_SELF`, so each byte is a
+# whole rune.
+pub fun is_ascii(s: ?String) -> Bool
+  i = 0
+  while i + 8 <= s.len
+    return false if s.read[U64, .little](i) & 0x8080808080808080 != 0
+    i += 8
+  while i < s.len
+    return false if s[i] >= 0x80
+    i += 1
+  true
+
+# ---- ASCII runs ------------------------------------------------------------
+
+# The index of the first byte at or after `i` that is 0x80 or more, or
+# `s.len` when there is none: `s[i..ascii_end(s, i)]` is the run of
+# ASCII from `i`, each byte a whole rune. `i` is a cursor, `0 <= i <=
+# s.len`; outside that it panics, as indexing does. It tests only the
+# top bit of each byte, many bytes at once: the first 16 as one U128,
+# where most identifiers end, with no setup and no call, so this part
+# is emitted inline; then 64 at a time (`vector_end`); and fewer than 16
+# by reading the end of `s` again (`short_end`), with no loop of bytes.
+pub fun ascii_end(s: ?String, i: Int) -> Int
+  if i >= 0 and i <= s.len
+    if i + 16 <= s.len
+      m = s.read[U128, .little](i) & HIGH128
+      return vector_end(s, i + 16) if m == 0
+      low = U64(m & 0xFFFFFFFFFFFFFFFF)
+      return i + (low.trailing_zeros() >> 3) if low != 0
+      return i + 8 + (U64(m >> 64).trailing_zeros() >> 3)
+    return short_end(s, i)
+  _ = s[i]  # outside 0 to `s.len`: panics, as indexing does
+  s.len
+
+# `ascii_end` from `at`, `16 <= at <= s.len`: 64 bytes at a time, as
+# four vectors of 16 OR'd into one test, until one holds a byte of 0x80
+# or more; then 16 at a time, which finds it; then the last 16 bytes of
+# `s` read again. The test of `at` is always true, and shows the reads
+# below to be in bounds, so they test no bound of their own.
+fun vector_end(s: ?String, at: Int) -> Int
+  if at >= 0
+    k = at
+    while k + 64 <= s.len : k += 64
+      break if (s.read[Simd[U8, 64]](k) >= 0x80).any()
+    while k + 16 <= s.len : k += 16
+      if (s.read[Simd[U8, 16]](k) >= 0x80).first() as j
+        return k + j
+    return k if k == s.len
+    # Fewer than 16 bytes are left: read the last 16 of `s` again, and
+    # leave out the lanes before `k`, which were tested.
+    seen = k + 16 - s.len
+    if ((s.read[Simd[U8, 16]](s.len - 16) >= 0x80) & (LANES >= U8(seen))).first() as j
+      return k + j - seen
+  s.len
+
+# `ascii_end` from `at`, `0 <= at <= s.len`, where fewer than 16 bytes are
+# left: a U64 from `at` if 8 are left, then the last 8 bytes of `s` read
+# again; or for an `s` shorter than 8, its bytes gathered into one U64.
+fun short_end(s: ?String, at: Int) -> Int
+  n = s.len
+  k = at
+  if n >= 8
+    if k + 8 <= n
+      m = s.read[U64, .little](k) & HIGH
+      return k + (m.trailing_zeros() >> 3) if m != 0
+      k += 8
+    return n if k >= n
+    m = (s.read[U64, .little](n - 8) & HIGH) >> ((k + 8 - n) << 3)
+    return k + (m.trailing_zeros() >> 3) if m != 0
+    return n
+  return n if k >= n
+  w: U64 = 0
+  if n >= 4
+    w = U64(s.read[U32, .little](0)) | U64(s.read[U32, .little](n - 4)) <<% ((n - 4) << 3)
+  else
+    h = n >> 1
+    w = U64(s[0]) | U64(s[h]) <<% (h << 3) | U64(s[n - 1]) <<% ((n - 1) << 3)
+  m = (w & HIGH) >> (k << 3)
+  return k + (m.trailing_zeros() >> 3) if m != 0
+  n
+
+# The top bit of every byte of a U64, and of a U128.
+HIGH: U64 = 0x8080808080808080
+HIGH128: U128 = 0x80808080808080808080808080808080
+
+# Each lane's index.
+LANES = Simd[U8, 16]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+
+# ---- Writing ---------------------------------------------------------------
+
+# The size in bytes, 1 to 4, of the UTF-8 encoding of `r`, or `none`
+# when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF.
+# Go's `RuneLen`.
+pub fun size(r: Int) -> Int?
+  return none if r < 0 or r > 0x10FFFF or (r >= 0xD800 and r <= 0xDFFF)
+  # One more byte past each of 0x7F, 0x7FF, and 0xFFFF (`x >> 63` is -1
+  # for a negative `x`): arithmetic, so the result is one value and not a
+  # choice among constant optionals, which Zig loads from memory.
+  1 - ((0x7F - r) >> 63) - ((0x7FF - r) >> 63) - ((0xFFFF - r) >> 63)
+
+# Appends the UTF-8 bytes of `r`, or of `REPLACEMENT` when `r` is not a
+# rune: a negative, a surrogate, or past 0x10FFFF. Go's `AppendRune`.
+pub sub push_rune(out: !String, r: Int)
+  if r >= 0 and r < 0x80
+    !out.push(U8(r))
+  else if r < 0 or r > 0x10FFFF or (r >= 0xD800 and r <= 0xDFFF)
+    push_multi(!out, REPLACEMENT)
+  else
+    push_multi(!out, r)
+
+# Appends the two to four UTF-8 bytes of the rune `r`, at least 0x80, in
+# one write, or two for three bytes, each a big-endian number whose top
+# byte comes first.
+sub push_multi(out: !String, r: Int)
+  if r < 0x800
+    !out.push[U16, .big](U16(0xC080 | (r >> 6) << 8 | r & 0x3F))
+  else if r < 0x10000
+    !out.push[U16, .big](U16(0xE080 | (r >> 12) << 8 | (r >> 6) & 0x3F))
+    !out.push(U8(0x80 | r & 0x3F))
+  else
+    !out.push[U32, .big](U32(0xF0808080 | (r >> 18) << 24 | ((r >> 12) & 0x3F) << 16 | ((r >> 6) & 0x3F) << 8 | r & 0x3F))

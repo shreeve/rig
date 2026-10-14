@@ -792,7 +792,7 @@ pub const Checker = struct {
     /// leaves when checking without ctx.
     fn span(self: *const Checker, node: Sexp) diag.Span {
         if (self.sema) |s| return s.span(node);
-        return diag.leafSpan(node);
+        return rig.leafSpan(self.source, node);
     }
 
     /// Where a node starts in the source.
@@ -2007,7 +2007,7 @@ pub const Checker = struct {
                 // Operators on values produce fresh Copy results. A binary
                 // operator reads its left operand where it runs, and uses
                 // it after the right one runs.
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
                     const operands = rig.children(sexp);
                     if (operands.len == 2) {
                         _ = try self.walkThenHeld(operands[0], .operand, operands[1]);
@@ -3124,7 +3124,9 @@ pub const Checker = struct {
                 const pos = expr.src.pos;
                 const name = v.name;
                 if (v.closure) return; // reported by walkName
-                if (v.loop_view) {
+                // A loop view passed to a call is lent on for the call, as
+                // `?x` lends it; anywhere else it would be copied out.
+                if (v.loop_view and !(sink == .argument and self.isViewType(v.ty))) {
                     try self.err(pos, "bare use of loop view `{s}` in {s} would carry the viewed handle past the loop; " ++ loop_view_rule, .{ name, sink.text() });
                     return;
                 }
@@ -5759,6 +5761,15 @@ pub const Checker = struct {
             .read_view => .read,
             .write_view => .write,
             else => .none,
+        };
+    }
+
+    /// Whether `ty` is a view: a `?T`, `!T`, slice, or `?String`.
+    fn isViewType(self: *const Checker, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return switch (self.typeData(t)) {
+            .read_view, .write_view, .slice, .string_view => true,
+            else => false,
         };
     }
 

@@ -1,0 +1,7 @@
+# A negative byte index is outside the text.
+use std.text
+
+sub main()
+  print(text.char_boundary("ab", -1))
+
+# expect-panic: text.char_boundary: the index is out of bounds

@@ -1,0 +1,57 @@
+# A `[]?String` made of a `Static` array or List views its elements, so
+# it keeps the loan a `[]Static` keeps: the owner is not written, moved,
+# or replaced while the view lives, in a typed binding, a reassignment,
+# or a call's result.
+fun keep(xs: []?String) -> []?String
+  xs
+
+sub main()
+  l = List[Static]()
+  !l.push("a")
+  v: []?String = ?l
+  !l.push("b")
+  print(v[0])
+
+  m = List[Static]()
+  !m.push("a")
+  w: []?String = ?m[..]
+  !m.clear()
+  print(w[0])
+
+  a: [2]Static = ["a", "b"]
+  x: []?String = ?a
+  b = <a
+  print(x[0], b.len)
+
+  c: [2]Static = ["a", "b"]
+  y: []?String = ?c[..]
+  c = ["c", "d"]
+  print(y[0])
+
+  n = List[Static]()
+  !n.push("a")
+  z = keep(?n)
+  !n.push("b")
+  print(z[0])
+
+  p = List[Static]()
+  !p.push("a")
+  u = keep(?p)
+  q = <p
+  print(u[0], q.len)
+
+  r = List[Static]()
+  !r.push("a")
+  o = List[Static]()
+  t: []?String = ?o
+  t = ?r
+  !r.push("b")
+  print(t[0])
+
+# error: 12:3: cannot lend `l` to write while a read loan is live
+# error: 18:3: cannot lend `m` to write while a read loan is live
+# error: 23:8: cannot move `a` while a read loan is live
+# error: 28:3: cannot reassign `c` while it is lent
+# error: 34:3: cannot lend `n` to write while a read loan is live
+# error: 40:8: cannot move `p` while a read loan is live
+# error: 48:3: cannot lend `r` to write while a read loan is live

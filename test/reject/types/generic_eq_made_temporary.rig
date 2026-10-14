@@ -1,0 +1,15 @@
+# A made `T` compared with `==` is a temporary of `T`, which a generic
+# body may leave only for an instance that needs no cleanup: the same rule
+# as any other temporary of `T` (`print(pick(<a))`).
+
+fun pick[T](v: T) -> T
+  v
+
+fun same[T](c: Bool, a: T, b: T, x: T) -> Bool
+  (pick(<a) if c else b) == x
+
+sub main()
+  print(same(true, 1, 2, 1))
+  print(same(true, String("a"), String("b"), String("a")))
+
+# error: `same[String]` cannot use `T = String`: the generic body leaves a temporary that holds a `T`

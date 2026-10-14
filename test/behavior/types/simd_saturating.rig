@@ -1,0 +1,47 @@
+# `+|` and `-|` work lane by lane, beside a vector or a scalar of the lane
+# type, through views, and as `+|=` and `-|=`: each lane stops at its
+# type's limits. Wide vectors give the same lanes.
+
+sub viewed(v: ?Simd[I8, 4], w: !Simd[I8, 4])
+  w -|= v
+  w = w +| v
+
+sub main()
+  u = Simd[U8, 4]([0, 1, 200, 255])
+  print(u +| 100, u -| 100, 100 -| u, u +| u, u -| u)
+  i = Simd[I8, 4]([-128, -1, 1, 127])
+  print(i +| 100, i -| 100, i +| i, -100 -| i)
+  w = Simd[I8, 4].splat(-100)
+  viewed(?i, !w)
+  print(w)
+  big = Simd[U64, 2]([18446744073709551615, 5])
+  print(big +| 7, big -| 6)
+  s = Simd[I32, 2]([-2147483648, 2147483647])
+  s +|= 1
+  print(s)
+  s -|= 2
+  print(s)
+  a: [64]U8 = [64 of 0]
+  for k in 0..64
+    a[k] = U8(k * 4)
+  x = Simd[U8, 64](a)
+  y = x +| 100
+  z = x -| 100
+  print(y[0], y[38], y[39], y[63], z[0], z[25], z[26], z[63])
+  b: [32]U8 = [32 of 0]
+  for k in 0..32
+    b[k] = a[k]
+  h = Simd[U8, 32](b) -| Simd[U8, 32].splat(60)
+  print(h[14], h[15], h[16], h[31])
+
+# expect:
+# [100, 101, 255, 255] [0, 0, 100, 155] [100, 99, 0, 0] [0, 2, 255, 255] [0, 0, 0, 0]
+# [-28, 99, 101, 127] [-128, -101, -99, 27] [-128, -2, 2, 127] [28, -99, -101, -128]
+# [-100, -100, -100, -1]
+# [18446744073709551615, 12] [18446744073709551609, 0]
+# [-2147483647, 2147483647]
+# [-2147483648, 2147483645]
+# 100 252 255 255 0 0 4 152
+# 0 0 4 64
+
+# release

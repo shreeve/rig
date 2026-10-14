@@ -1,0 +1,18 @@
+# A wide signed `*` panics on an overflowing lane, in every build mode.
+
+sub main()
+  b: [64]U8 = [64 of 0]
+  for i in 0..64
+    b[i] = U8(i % 8)
+  c = b.read[Simd[I8, 32]](0)
+  print((c * c)[7])
+  b[5] = 12
+  d = b.read[Simd[I8, 32]](0)
+  print(d * d)
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# 49

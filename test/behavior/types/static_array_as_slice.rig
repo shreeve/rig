@@ -1,0 +1,22 @@
+# An array or a List of `Static` lends to read as a `[]?String`, as an
+# array of `Int` lends as a `[]Int`: a bare name, `?name`, a temporary
+# array, and a List.
+sub show(xs: []?String)
+  print(xs.len, xs[0])
+
+sub main()
+  a: [2]Static = ["a", "b"]
+  show(a)
+  show(?a)
+  show(["x", "y", "z"])
+  l = List[Static]()
+  !l.push("q")
+  show(l)
+  show(?a[..])
+
+# expect:
+# 2 a
+# 2 a
+# 3 x
+# 1 q
+# 2 a

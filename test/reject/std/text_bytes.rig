@@ -1,10 +1,8 @@
-# std.text's byte functions take a `U8`, and `valid_utf8` a `[]U8`: a
-# String is UTF-8 by convention, and not a byte slice.
+# std.text's byte functions take a `U8`.
 use std.text
 
 sub main()
-  print(text.is_digit(300), text.valid_utf8("abc"))
+  print(text.is_digit(300))
 
-# error: 6:23: integer value `300` does not fit in `U8` (0..255)
-# error: 6:45: type mismatch: expected `[]U8`, got `Static`
-# errors: 2
+# error: 5:23: integer value `300` does not fit in `U8` (0..255)
+# errors: 1

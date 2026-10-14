@@ -1,0 +1,14 @@
+# std.text's `find_any` panics at an `i` outside 0 to `s.len`, as
+# indexing does, even with an empty set.
+# release
+use std.text
+
+sub main()
+  s = "ab"
+  print(text.find_any["a"](s, s.len) ?? -1, text.find_any[""](s, s.len) ?? -1)
+  print(text.find_any[""](s, s.len + 1) ?? -1)
+
+# expect-panic: index out of bounds
+
+# expect:
+# -1 -1

@@ -1,0 +1,119 @@
+# std.text's `find_any` against a plain loop over the set, with `none`
+# read as -1: sets of 0 to 8 bytes and a long one, with 0x00, 0xFF and
+# duplicates; a match at every offset from `i`, and none; every `i`
+# from 0 to `s.len`; texts of every length 0 to 80, so the 16-byte
+# steps, the tail that reads the last 16 bytes again, and the U64 test
+# of a short text each meet every case; and random texts. The filler
+# beside a match is a set byte plus 1, which a word test can wrongly
+# mark when the subtraction at a match takes 1 from it. Each case that
+# differs prints itself; the last line counts them.
+# release
+use std.text
+
+obj Rand
+  x: Int
+
+  fun next(!self) -> Int
+    self.x = self.x *% 6364136223846793005 +% 1442695040888963407
+    (self.x >> 33) & 0x7FFFFFFF
+
+# The first index from `i` whose byte is in `set`, or -1.
+fun plain(s: ?String, set: ?String, i: Int) -> Int
+  for j in i..s.len
+    for b in set
+      return j if s[j] == b
+  -1
+
+fun in_set(set: ?String, c: U8) -> Bool
+  for b in set
+    return true if b == c
+  false
+
+# The bytes that fill a text around its matches: each set byte plus 1
+# that is not in the set, or `a`.
+fun fillers(set: ?String) -> String
+  out = String()
+  for b in set
+    c = U8((Int(b) + 1) & 0xFF)
+    !out.push(c) if not in_set(set, c)
+  !out.push(0x61) if out.len == 0
+  out
+
+fun differs[set: ?String](s: ?String, i: Int) -> Int
+  got = text.find_any[set](s, i) ?? -1
+  want = plain(s, set, i)
+  return 0 if got == want
+  print("set", set.len, "len", s.len, "at", i, "got", got, "want", want)
+  1
+
+# Every length 0 to 80, every place for one match (and none), and every
+# `i`; a second match follows the first, so a test that reads past the
+# first is caught.
+fun sweep[set: ?String]() -> Int
+  bad = 0
+  owned = fillers(set)
+  fill = ?owned[..]
+  for n in 0..81
+    for p in -1..n
+      s = String()
+      for j in 0..n
+        if set.len > 0 and (j == p or j == p + 3)
+          !s.push(set[j % set.len])
+        else
+          !s.push(fill[j % fill.len])
+      for i in 0..n + 1
+        bad += differs[set](s, i)
+  bad
+
+# Random texts of 0 to 100 bytes, each byte a set byte one time in 16,
+# and every `i`.
+fun random[set: ?String](rnd: !Rand) -> Int
+  bad = 0
+  owned = fillers(set)
+  fill = ?owned[..]
+  for _ in 0..300
+    n = (!rnd).next() % 101
+    s = String()
+    for _ in 0..n
+      v = (!rnd).next()
+      if set.len > 0 and v % 16 == 0
+        !s.push(set[(v >> 4) % set.len])
+      else if v % 16 == 1
+        !s.push(U8((v >> 4) & 0xFF))
+      else
+        !s.push(fill[(v >> 4) % fill.len])
+    for i in 0..n + 1
+      bad += differs[set](s, i)
+  bad
+
+fun all[set: ?String](rnd: !Rand) -> Int
+  sweep[set]() + random[set](!rnd)
+
+sub main()
+  rnd = Rand(x: 7)
+  bad = 0
+  bad += all[""](!rnd)
+  bad += all["\""](!rnd)
+  bad += all["\"\\"](!rnd)
+  bad += all["\n\r\xe2"](!rnd)
+  bad += all["\"\\\n\r"](!rnd)
+  bad += all["<>&\"'"](!rnd)
+  bad += all["<>&\"'\n"](!rnd)
+  bad += all["<>&\"'\n\r"](!rnd)
+  bad += all["<>&\"'\n\r\t"](!rnd)
+  bad += all["<>&\"'\n\r\x00{}[]\xff~"](!rnd)
+  bad += all["\x00"](!rnd)
+  bad += all["\xff"](!rnd)
+  bad += all["\x00\xff"](!rnd)
+  bad += all["\x01\x00"](!rnd)
+  bad += all["aa"](!rnd)
+  bad += all["xyxyx"](!rnd)
+  s = "say \"hi\" \\ then"
+  print(text.find_any["\"\\"](s, 0) ?? -1, text.find_any["\"\\"](s, 5) ?? -1, text.find_any["\"\\"](s, 8) ?? -1, text.find_any["\"\\"](s, s.len) ?? -1)
+  print(text.find_any[""](s, 3) ?? -1, text.find_any["z"](s, 0) ?? -1, text.find_any["\x00"]("", 0) ?? -1)
+  print(bad, "differ")
+
+# expect:
+# 4 7 9 -1
+# -1 -1 -1
+# 0 differ

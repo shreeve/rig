@@ -14,6 +14,18 @@ pub fn ceil(x: f64) f64 {
     return @ceil(x);
 }
 
+pub fn trunc(x: f64) f64 {
+    return @trunc(x);
+}
+
+pub fn copysign(x: f64, sign: f64) f64 {
+    return std.math.copysign(x, sign);
+}
+
+pub fn log2(x: f64) f64 {
+    return @log2(x);
+}
+
 pub fn exp(x: f64) f64 {
     return @exp(x);
 }
