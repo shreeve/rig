@@ -129,7 +129,11 @@ tools that take them in `bench/json/`.
     whitespace), not the CPU, so a choice per input fits. Still worth
     having for code that depends on the target. Fix: conditional
     compilation on os, arch, and CPU features (on the roadmap).
-    *Verified; not blocking.*
+    *Built for the arch: `use std.target`, then
+    `TIER = 0 if target.arch == .x86_64 else 16`, a choice Zig makes
+    per target (SPEC, "The target"); std.json's first user is the vector
+    string scan, 6% faster by geomean on x86_64 from the first byte. The
+    os and CPU features are still open.*
 13. **No String write window.** Copying the text between escapes 16
     bytes at a time needs "store a block, keep k bytes". *Fixed (#150,
     `!t.push(v, keep: k)`).*
