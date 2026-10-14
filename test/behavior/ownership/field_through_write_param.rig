@@ -26,5 +26,7 @@ sub main()
   take_token(!p)
   print(p.ast.bytes)
 
+# oracle: take_token accept
+
 # expect:
 # toktok

@@ -19,5 +19,7 @@ sub main()
   bump(!w, p.b.len)
   print(p.a.n)
 
+# oracle: main accept
+
 # expect:
 # 4

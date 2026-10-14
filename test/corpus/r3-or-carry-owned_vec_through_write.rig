@@ -1,5 +1,6 @@
 # An element of a List the holder owns, reached through `!self`, lends
-# `self`: the holder cannot change while the view is used.
+# `self.toks`: that field cannot change while the view is used, and the
+# holder's other fields can (Core §5, "A field is a place of its own").
 
 obj Tok
   kind: Int

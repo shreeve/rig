@@ -208,6 +208,7 @@ test/corpus/review-while-step-w48-grow-then-return-ok.rig run prod-rejects prod-
 test/corpus/review-while-step-w32-outer-repoint-after-grow-ok.rig main prod-rejects prod-strict `!v.push(2)` before `s` is re-pointed, where the step reads `s`
 step.vec.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
 test/corpus/review-payload-loan-1-v10_loop_outer_var.rig main prod-rejects prod-strict `!t.add("!")` in a loop, while `s`, declared before it, holds a view of `t` from the same pass
+test/reject/ownership/field_loop_carried.rig main prod-rejects prod-strict `!p.items.push(i)` in a loop, while `prev`, declared before it, holds a view of `p.items` it re-points before its next use
 step.vec.field.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.r`, a view of `v`
 step.vec.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.get()`, a view of `v`
 step.text.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`

@@ -16,3 +16,4 @@ sub main()
 
 # error: 14:3: cannot store in `p.a` a view of `p.b`: a value never holds a view of itself
 # errors: 1
+# oracle: main reject C9

@@ -30,6 +30,8 @@ sub main()
   p.scanner.value = String("de")
   print((!p).literal(), p.ast.bytes)
 
+# oracle: Parser.literal accept
+
 # expect:
 # 1
 # 2 abcde

@@ -1,8 +1,7 @@
-# The view made in one iteration is used in the next, after the same
-# field was written: on the second turn `prev` views a buffer the first
-# turn's push may have moved.
-# Rule: a loan lasts until the last use of every view carrying it,
-# around a loop's back edge too (Core sentence 6).
+# `prev`, declared before the loop and read in it, counts as live
+# anywhere in the loop (docs/INTERNALS.md, "Liveness"), so its view of
+# `p.items` conflicts with the push, though `prev` is re-pointed before
+# its next use. The paths are equal: a field loan changes nothing here.
 # From Trig's acceptance tests
 # (docs/ownership/acceptance/reject/field_loop_carried.rig).
 
@@ -19,5 +18,5 @@ sub main()
     !p.items.push(i)
     prev = ?p.items[..]
 
-# error: 19:5: cannot lend `p.items` to write while a read loan is live
+# error: 18:5: cannot lend `p.items` to write while a read loan is live
 # errors: 1

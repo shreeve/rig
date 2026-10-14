@@ -12,5 +12,7 @@ sub main()
   b.n = 1
   print(r, b.n)
 
+# oracle: main accept
+
 # expect:
 # id 1
