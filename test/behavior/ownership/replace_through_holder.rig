@@ -1,0 +1,27 @@
+# A value taken out of a write view by `replace` views only what its
+# fields viewed (`src`), never the place it came from, so it may be owned
+# by a holder for a while and put back.
+
+obj Scanner
+  text: ?String
+  pos: Int
+  value: String
+
+  sub round_trip(!self)
+    taken = replace(!self, Scanner(text: "", pos: 0, value: String()))
+    h = Holder(scanner: <taken)
+    h.scanner.pos += 1
+    back = replace(!h.scanner, Scanner(text: "", pos: 0, value: String()))
+    _ = replace(!self, <back)
+
+obj Holder
+  scanner: Scanner
+
+sub main()
+  src = "abc"
+  s = Scanner(text: ?src, pos: 1, value: String())
+  !s.round_trip()
+  print(s.pos, s.text)
+
+# expect:
+# 2 abc

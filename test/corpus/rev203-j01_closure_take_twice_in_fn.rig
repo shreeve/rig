@@ -1,0 +1,23 @@
+# A closure that captures `h` to write and hands back what `replace`
+# takes from it: each result views `src`, never `h`, so `f` may be
+# called again while it lives. Production accepts; the oracle rejects
+# (C6, "a view of `h` ... leaves each call").
+obj S
+  text: ?String
+  value: String
+
+obj H
+  s: S
+
+fun useh(h: !H) -> S
+  f = |!h| replace(!h.s, S(text: "", value: String("n")))
+  a = f()
+  b = f()
+  print(a.value, b.value)
+  <a
+
+sub main()
+  src = String("abc")
+  h = H(s: S(text: ?src, value: String("v")))
+  t = useh(!h)
+  print(t.text, t.value, h.s.value)

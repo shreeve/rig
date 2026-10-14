@@ -2712,6 +2712,23 @@ so a `from` clause is sentence 7's refinement rather than a form that
 desugars, and its checker rule is the call rule with the named set plus
 the body check.
 
+**`replace` and `swap`** (`walkSwapCall`). `r = replace(!p, v)` is
+`t = v; r = <p; p = <t`: `v` is evaluated while `p` is lent to write, so
+it may not read `p` (`replace(!s, make(?s))` is rejected); then the
+value in `p` is taken out, and `v` stored in its place. Ownership follows
+from the desugaring and adds no rule. The take leaves no loan on `p`
+behind (Core §5, "`<` always leaves its source done"), so `r` is no view
+of `p`: it carries what `p`'s value held, `carry` of the loans `p`'s var
+holds (`takenValue`), as `<p.f` carries them (`walkTake`). This is sound
+because a value never views itself, nor what is moved into it. A place
+reached through a write view (`replace(!w, x)` with `w = !q.f`) gives
+the loans that view's var holds, its loan on `q` among them, as `<w.f`
+does; a place no var holds (`replace(!f().x, v)`) gives the loans of
+its view. The store is an assignment: `p`'s var now also views what `v`
+viewed (`absorbThroughWrites`). `swap(!a, !b)` is
+`t = <a; a = <b; b = <t`, with each place lent to write for the call, and
+hands back nothing.
+
 ### Loops
 
 Every loop, `while` and each form of `for`, is one desugaring, which

@@ -1,0 +1,15 @@
+# `replace` writes its place, and a place reached through a read view
+# may not be written.
+
+obj S
+  name: String
+
+sub reset(s: ?S)
+  old = replace(!s.name, String())
+  print(old)
+
+sub main()
+  s = S(name: String("a"))
+  reset(?s)
+
+# error: 8:18: cannot lend to write through a read view

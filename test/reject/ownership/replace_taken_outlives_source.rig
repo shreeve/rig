@@ -1,0 +1,16 @@
+# The scanner `replace` hands back views `src`, a local of `take`:
+# returning it would let the view outlive `src`.
+
+obj Scanner
+  text: ?String
+  value: String
+
+fun take() -> Scanner
+  src = String("abc")
+  s = Scanner(text: ?src, value: String())
+  replace(!s, Scanner(text: "", value: String()))
+
+sub main()
+  print(take().value)
+
+# error: 10:21: cannot return a view of `src`

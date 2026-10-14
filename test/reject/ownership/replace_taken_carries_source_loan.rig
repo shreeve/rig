@@ -1,0 +1,16 @@
+# The value `replace` hands back still views `src`, as `s` did: dropping
+# `src` while it is used would leave `taken.text` dangling. The take
+# leaves no loan on the place, never fewer loans than the value carries.
+
+obj Scanner
+  text: ?String
+  value: String
+
+sub main()
+  src = String("abc")
+  s = Scanner(text: ?src, value: String())
+  taken = replace(!s, Scanner(text: "", value: String()))
+  <src
+  print(taken.text)
+
+# error: 13:4: cannot drop `src` while it is lent
