@@ -1,0 +1,10 @@
+# `Arch` is a built-in type: a module cannot declare its own.
+
+enum Arch
+  intel
+  arm
+
+sub main()
+  print(Arch.intel)
+
+# error: 3:6: `Arch` is a reserved built-in nominal name and cannot be redefined

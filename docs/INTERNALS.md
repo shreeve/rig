@@ -158,7 +158,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian` as a built-in enum, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian` and `Arch` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
@@ -634,7 +634,25 @@ declares and types them (and rejects the block outside the standard
 library, a compile-time parameter, and a fallible signature in a module
 that declares no error set), the type
 checker checks the signature and default values, the ownership checker
-has no body to walk, and calls to them are ordinary calls.
+has no body to walk, and calls to them are ordinary calls. A
+`(zig_const name type)` in the block is a Zig-backed constant
+(`std.target`'s `arch`): the resolver declares it a module constant,
+known at compile time, with the flag `per_target` and no folded value,
+and types it (a `Bool`, an integer, or a built-in enum).
+
+`per_target` is the one fact of a value the target sets. The resolver
+records it on a module constant whose initializer names a flagged
+constant, in the order constants are folded (`foldModuleConsts`), and
+the checker on a `const` local; `sema.perTargetLeaf` finds the flagged
+name in an expression. No fold gives such a constant a value
+(`ctFoldBy` folds a ternary only on an integer condition), so every
+place that needs one (an array length, a lane count, a compile-time
+integer argument, `lag`, a range pattern's bounds, an enum's value)
+rejects it, naming the flagged name, and a module constant's integer
+arithmetic must fold (`checkConstArithmetic`), since Zig computes it
+again when it compiles. In a function, emit reads every compile-time
+name in arithmetic, and in a compound assignment's value, through
+`rig.rt`, so Zig checks it when it runs.
 
 ### Syntax facts
 
@@ -836,7 +854,9 @@ later pass reads. It runs these steps in order:
 1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `List[T]`,
    `^T`, and `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
-   and substitution as user generics, and `Endian` as an enum. The
+   and substitution as user generics, and `Endian` and `Arch` as enums
+   (`Arch`'s variants are `std.Target.Cpu.Arch`'s, read when the
+   compiler is built). The
    methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
    slices, arrays, Lists, and `?String` values, which have no symbol, are checked
    by `elemsCall` and recorded as `elemCallOf` facts. `String` is a
@@ -3506,7 +3526,10 @@ symbols); a query that decides more than that belongs in `Pending`.
   `emitFun` spells a Rig function's, so a Zig function whose type
   differs fails the package's build with a message naming the
   declaration. The suite calls every declaration of the standard
-  library, so no such mismatch reaches a program.
+  library, so no such mismatch reaches a program. A constant is
+  Zig's, coerced to its Rig type, `pub const arch: rig.Arch =
+  __rig_shim_1.arch;`, so a choice on it is one Zig makes when it
+  compiles.
   A fallible declaration lowers to `anyerror!T`, but its Zig function
   returns `E!T` for an error set `E` it spells out, not `anyerror`.
   The third argument of `expectShim` is every error of the module's
@@ -3565,6 +3588,7 @@ reviewed.
 | `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 13 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
+| `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
