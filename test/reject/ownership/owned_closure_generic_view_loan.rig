@@ -1,0 +1,49 @@
+# An owned closure's generic `T` may hold a view of a `?String` argument,
+# so what the call returns, or stores through a `!T`, keeps it lent.
+obj K
+  s: ?String
+
+obj H[T]
+  f: *fun(?String) -> T
+
+  fun make(?self, s: ?String) -> T
+    self.f(s)
+
+  sub fill(?self, out: !T, s: ?String)
+    out = self.f(s)
+
+sub run[T](f: ?*sub(!T, ?String), k: !T, s: ?String)
+  f(!k, s)
+
+sub through_write_param()
+  f: *sub(!K, ?String) = *|k, s| k.s = s
+  k = K(s: "x")
+  t = String("abc")
+  run(?f, !k, ?t)
+  <t
+  print(k.s)
+
+sub through_result()
+  h = H[K](f: *|s| K(s: s))
+  t = String("abc")
+  k = ?h.make(?t)
+  <t
+  print(k.s)
+
+sub through_stored_result()
+  h = H[K](f: *|s| K(s: s))
+  t = String("abc")
+  k = K(s: "x")
+  h.fill(!k, ?t)
+  <t
+  print(k.s)
+
+sub main()
+  through_write_param()
+  through_result()
+  through_stored_result()
+
+# errors: 3
+# error: 23:4: cannot drop `t` while it is lent
+# error: 30:4: cannot drop `t` while it is lent
+# error: 38:4: cannot drop `t` while it is lent

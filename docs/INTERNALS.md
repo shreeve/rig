@@ -2882,9 +2882,12 @@ none), never `self`; and `*Env(...)` makes a new counted handle.
   (`Home.signature`, `TypeResolver.ownedClosureSignature`). A function
   type's parameters and result are not parts of its value
   (`nestsWriteView` does not enter them), so `List[*sub(!Checker)]`
-  holds no write view, and a generic `T` in a closure's signature
-  requires nothing of an instance, while a `T` in its captures must
-  hold no `?String` (`PlainRequirement.view`).
+  holds no write view. A generic `T` in a closure's signature may be
+  bound to a number, a view, or an owner, as a function's may; a `T`
+  that may hold a view carries the loans of the arguments it could
+  view, so a result, or a value stored through a `!T`, keeps a
+  `?String` argument lent. A `T` in its captures must hold no
+  `?String` (`PlainRequirement.view`).
 - Emit erases `Env` behind `rig.Closure(params, R)`: the arguments
   travel in one tuple to `Env.__rig_invoke`, which is the body emitted
   as a function's, so an owning argument is moved in and the body drops
