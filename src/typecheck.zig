@@ -2235,6 +2235,23 @@ const Checker = struct {
         return a.print("write `{s}{s}`, which holds it for the loop", .{ head, shown });
     }
 
+    /// Whether the `?` of the `for` loop `node` reaches the receiver of
+    /// its source's first method call (`Parser.loopReceiverSource`).
+    fn loopLendsReceiver(self: *Checker, node: Sexp) bool {
+        const p = self.ctx.parser orelse return false;
+        return p.loopReceiverSource(node) != null;
+    }
+
+    /// A method call on a name or fields from one (`b.each()`), where a
+    /// sigil written before it reaches that place.
+    fn receiverCall(source: Sexp) bool {
+        if (!source.isKind(.call)) return false;
+        const callee = ir.Call.callee(source);
+        if (!rig.isMethodCallee(callee)) return false;
+        const member = if (callee.isKind(.member)) callee else ir.get(callee, .object);
+        return isFieldPath(ir.Member.object(member));
+    }
+
     /// A name, or fields from one: the places a loop over an iterator
     /// advances where they stand.
     fn isFieldPath(e: Sexp) bool {
@@ -2277,14 +2294,17 @@ const Checker = struct {
             return true;
         }
         const how: rig.IterSource = switch (mode) {
-            .read => {
+            // `for x in ?b.each()`: the `?` reaches the call's receiver,
+            // `(?b).each()`, and the loop holds the iterator it makes.
+            .read, .write => if (kind == .made and self.loopLendsReceiver(node)) .lent else if (mode == .read) {
                 if (kind == .made) {
                     try self.errAt(source, "`{s}?{s}` would only read an iterator made here, which `next` cannot advance; {s}", .{ head, shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "`{s}?{s}` would only read an iterator, which `next` cannot advance; write `{s}!{s}` to advance it in place", .{ head, shown, head, shown });
                 return true;
-            },
-            .write => if (kind == .place) .place else {
-                if (kind == .made) {
+            } else if (kind == .place) .place else {
+                if (kind == .made and receiverCall(source)) {
+                    try self.errAt(source, "`!{s}` advances a place, and this is a value made here, which holds no write view; write `{s}?{s}`, which holds it for the loop", .{ shown, head, shown });
+                } else if (kind == .made) {
                     try self.errAt(source, "`!{s}` advances a place, and this is a value made here; {s}", .{ shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
                 return true;
@@ -10256,7 +10276,7 @@ const Checker = struct {
         _ = receiver;
         switch (kept) {
             .binding => |name| if (std.mem.eql(u8, name, rig.hiddenIteratorName())) {
-                try self.errAt(lent, "`{s}` keeps `{s}` lent while the loop walks it; bind the iterator first, `it = {s}`, then write `for ... in !it`", .{ call_text, shown, fixed });
+                try self.errAt(lent, "`{s}` keeps `{s}` lent while the loop walks it; write `for ... in {s}`", .{ call_text, shown, fixed });
             } else try self.errAt(lent, "`{s}` keeps `{s}` lent while `{s}` lives; write `{s}`", .{ call_text, shown, name, fixed }),
             .returned => try self.errAt(lent, "`{s}` keeps `{s}` lent in the value it returns; write `{s}`", .{ call_text, shown, fixed }),
             .stored => |callee| try self.errAt(lent, "`{s}` keeps `{s}` lent in what `{s}` stores; write `{s}`", .{ call_text, shown, callee, fixed }),

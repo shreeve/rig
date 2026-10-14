@@ -3368,6 +3368,7 @@ written decides what the loop does with it:
 | `!it`: a name, or a field path from one (`a.b`); a bare `it` is rejected | `while (!it).next() as x` |
 | `mk()`: a value made there | `h = mk()` held for the loop, then `while (!h).next() as x`; `h` ends with the loop |
 | `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while (!h).next() as x`; `it` is moved |
+| `?b.each()`: a method call whose `?` reaches its receiver, as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent to read while the loop holds `h` |
 | `?it` | rejected: reading an iterator cannot advance it |
 
 A type with a `next` of another shape (`next(?self)`, one that takes
@@ -3416,6 +3417,42 @@ then 4
 bb
 made 0
 made 1
+```
+
+An iterator a method returns may view the value the method was called
+on. `?b.each()` lends `b` to read for the call, as before any call, so
+the loop holds the iterator and keeps `b` lent while it walks it:
+
+```rig
+obj Cur
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+obj Bag
+  xs: List[Int]
+
+  fun each(?self) -> Cur from self
+    Cur(xs: ?self.xs, i: 0)
+
+sub main()
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  !b.xs.push(5)
+  for x in ?b.each()
+    print(x)
+  !b.xs.push(6)
+  print(b.xs)
+```
+
+```output
+4
+5
+[4, 5, 6]
 ```
 
 ```rig reject
