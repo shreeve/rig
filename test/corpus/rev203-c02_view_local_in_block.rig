@@ -1,0 +1,16 @@
+obj S
+  text: ?String
+  value: String
+
+obj H
+  s: S
+
+sub main()
+  src = String("abc")
+  h = H(s: S(text: ?src, value: String()))
+  out: List[S] = List()
+  if src.len > 0
+    w = !h.s
+    !out.push(replace(!w, S(text: "", value: String())))
+  <src
+  print(out[0].text)

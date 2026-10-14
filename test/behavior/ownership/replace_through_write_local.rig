@@ -1,0 +1,23 @@
+# The take-then-store reading of `replace` holds for a place reached
+# through a write-view local as for a name: `saved` carries the loan on
+# `src`, and `w` may be written while it lives.
+
+obj State
+  text: ?String
+  value: String
+
+obj Parser
+  state: State
+  n: Int
+
+sub main()
+  src = "ab"
+  p = Parser(state: State(text: ?src, value: String("v")), n: 0)
+  w = !p.state
+  saved = replace(!w, State(text: "", value: String()))
+  w.value = String("tmp")
+  _ = replace(!w, <saved)
+  print(p.state.value, p.state.text)
+
+# expect:
+# v ab

@@ -5191,6 +5191,28 @@ sub main()
 Pair(left: "c", right: "a") b
 ```
 
+`replace(!p, v)` takes the old value out and stores `v`, as
+`t = <p; p = v` would. What it hands back is no view of `p`: it views
+what `p`'s value viewed, so `p` may be lent again while it lives, and
+the value may be put back:
+
+```rig
+obj Scanner
+  text: ?String
+  value: String
+
+sub main()
+  src = "abc"
+  s = Scanner(text: ?src, value: String())
+  taken = replace(!s, Scanner(text: "", value: String()))
+  _ = replace(!s, <taken)
+  print(s.text)
+```
+
+```output
+abc
+```
+
 Two elements of one collection are not two places: `swap(!a[i],
 !a[j])` lends `a` to write twice, and is rejected with the collection's
 own `swap`, which exchanges them ([§2](#slices)):

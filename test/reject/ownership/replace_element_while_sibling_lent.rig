@@ -1,0 +1,13 @@
+# `replace(!v[1], ...)` writes into `v`'s buffer, and an index is a
+# run-time value, so it may be `v[0]`, which `r` views: `replace` of an
+# element lends the whole list to write.
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  r = ?v[0]
+  old = replace(!v[1], String("c"))
+  print(r, old)
+
+# error: 10:18: cannot lend `v` to write while a read loan is live

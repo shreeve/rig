@@ -1,0 +1,27 @@
+error Bad
+  no
+
+obj D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+obj Hd
+  d: D
+
+fun chk(x: Int) -> Int!
+  return Bad.no if x > 1
+  x
+
+fun go(h: !Hd, x: Int) -> D!
+  t = replace(!h.d, D(n: 10 + x))
+  _ = chk(x)!
+  return Bad.no if x == 1
+  t
+
+sub main()
+  h = Hd(d: D(n: 1))
+  for i in 0..3
+    r = go(!h, i) catch D(n: 99)
+    print("got", r.n)
+    print("h", h.d.n)

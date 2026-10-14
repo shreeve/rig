@@ -2434,7 +2434,7 @@ const Lowerer = struct {
             if (p.via == .own and self.f.vars.items[p.root].hidden) return self.found(.C3, pos, "a part of a value made here is dropped with it; nothing would see it emptied", .{});
             if (p.handle) return abstain("a take through a handle");
             const t = try self.temp(p.ty, pos);
-            try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .write } });
+            try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .write }, .untake = true });
             return t;
         }
         if (info.kind.copies()) return self.found(.C3, pos, "a part that copies is neither ended nor emptied; `<` would leave it as it was", .{});
@@ -2589,6 +2589,8 @@ const Lowerer = struct {
         // value `replace` stores.
         var exchanged: std.ArrayList(VarId) = .empty;
         var stored_value: std.ArrayList(VarId) = .empty;
+        // The root of the place `replace` takes its result out of.
+        var taken: ?VarId = null;
 
         // A generic function or type at type arguments of plain data is
         // checked by its signature here; at others, whether the body
@@ -2852,6 +2854,7 @@ const Lowerer = struct {
                 try uses.append(self.a, t);
                 try reads.append(self.a, p.root);
                 if (try self.storesViews(p)) try exchanged.append(self.a, p.root);
+                if (shapes.len == 2 and i == 0) taken = p.root;
                 continue;
             }
             if (val.isKind(.write)) {
@@ -2916,6 +2919,12 @@ const Lowerer = struct {
             .void, .noreturn => null,
             else => try self.temp(rt, pos),
         };
+        // `replace(!p, v)` is `t = <p; p = v` (Core §5): its result is
+        // taken out of the place before the store, and carries what the
+        // place's value held, no view of the place.
+        if (taken) |root| if (result) |r| {
+            try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(root), .def = r, .untake = true });
+        };
         if (stored_value.items.len > 0) for (exchanged.items) |root| {
             try self.emit(.{ .pos = pos, .what = .assign, .reads = stored_value.items, .weak = root });
         };
@@ -2931,7 +2940,7 @@ const Lowerer = struct {
             .reads = reads.items,
             .moves = moves.items,
             .uses = uses.items,
-            .def = if (elem_from == null) result else null,
+            .def = if (elem_from == null and taken == null) result else null,
             .loan = activation,
             .access = access,
             .gains = gains.items,
