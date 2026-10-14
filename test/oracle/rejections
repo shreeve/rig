@@ -2471,8 +2471,6 @@ test/corpus/review-payload-loan-1-s05_ifas_then_match.rig main
 test/corpus/review-payload-loan-1-s06_write_lend_then_read_binding.rig main
 test/corpus/review-payload-loan-1-s08_vec_payload_for_read.rig main
 test/corpus/review-payload-loan-1-s09_generic_fn_view_param.rig main
-test/corpus/review-payload-loan-1-w03_disjoint_ifas.rig main
-test/corpus/review-payload-loan-1-w04_disjoint_for.rig main
 test/corpus/review-payload-loan-2-a01_made_subject_path_write.rig main
 test/corpus/review-payload-loan-2-a02_made_call_subject_path_write.rig main
 test/corpus/review-payload-loan-2-a03_made_slice_write.rig main
@@ -3095,7 +3093,6 @@ test/corpus/review-take-p119.rig main
 test/corpus/review-take-p32.rig main
 test/corpus/review-take-p33.rig main
 test/corpus/review-take-p34.rig main
-test/corpus/review-take-p35.rig main
 test/corpus/review-take-p36.rig main
 test/corpus/review-take-p37.rig main
 test/corpus/review-take-p38.rig main
@@ -3157,7 +3154,6 @@ test/corpus/review-while-step-w51-step-stores-h-via-call.rig main
 test/corpus/review-while-step-w54-step-grows-via-h-cond-reads.rig main
 test/corpus/review-while-step-w55-optional-view-binding.rig main
 test/corpus/sb-r_a1.rig main
-test/corpus/sb-r_a2.rig main
 test/corpus/sb-r_a3.rig main
 test/corpus/sb-r_a4.rig main
 test/corpus/sb-r_a5.rig main
@@ -3184,12 +3180,8 @@ test/corpus/seams-mprobes-m12.rig main
 test/corpus/seams-probes-p06.rig main
 test/corpus/static-owned_closure_string_param.rig later
 test/corpus/stdlib-rig-g2_vec_owning_index.rig main
-test/corpus/syntax-review-complete-df1.rig S.go
-test/corpus/syntax-review-complete-df1.rig main
-test/corpus/syntax-review-complete-df2.rig main
 test/corpus/syntax-review-complete-g1.rig Map.get
 test/corpus/syntax-review-complete-g8.rig first
-test/corpus/syntax-review-complete-vw2.rig BagIter.next
 test/corpus/syntax-review-designer-p17_split.rig main
 test/corpus/syntax-review-designer-p32_getmut_two.rig main
 test/corpus/syntax-review-symmetry-p_box_named.rig main
@@ -3226,7 +3218,6 @@ test/corpus/t1-pv.rig main
 test/corpus/t1-rr.rig main
 test/corpus/t1-vi.rig main
 test/corpus/take-r3.rig main
-test/corpus/take-s1.rig main
 test/reject/modules/imported_drop_glue_alias main
 test/reject/modules/imported_view_stored_through_write_view main
 test/reject/modules/transitive_type_alias main

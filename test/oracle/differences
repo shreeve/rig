@@ -18,6 +18,7 @@
 test/corpus/review-box-p117.rig main prod-rejects prod-strict `y = x` of a `for x in ?v` element view
 test/corpus/review-box-p142.rig main prod-rejects prod-strict `new x = x` of a `for x in ?v` element view
 test/corpus/syntax-review-complete-g7.rig Map.find prod-rejects prod-strict returns a `for e in ?self.es` element view of the receiver
+test/corpus/syntax-review-complete-vw2.rig BagIter.next prod-rejects prod-strict returns a `for x in ?self.bag.items` element view of what the receiver views
 
 # Whether writing through a fixed `w =! !n` (`w = 5`, `w += 1`) reassigns
 # `w`: Core §6 forbids reassigning a const binding, and SPEC §7 says a
