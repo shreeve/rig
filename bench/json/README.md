@@ -80,6 +80,13 @@ Each binary takes `FILE N`, like the Rig programs.
   dom|od fast|safe` clones zimdjson at a pinned revision into
   `zimdjson/upstream`, applies `zig-0.17.patch` (to build on Zig 0.17),
   and builds `prog-dom-fast` and so on.
+- `cbench/`: simdjson's DOM parser (C++) and yyjson (C), each at a pinned
+  release. `cbench/build.sh` clones them into `cbench/upstream` and
+  builds `prog-simdjson-dom` and `prog-yyjson` (`-O3 -DNDEBUG` for the
+  native CPU; it needs `cc` and `c++`). Both validate as std.json does
+  (yyjson with every `YYJSON_DISABLE_*` switch off, read flags 0), reuse
+  their buffers between runs, and are called from a separate translation
+  unit, so neither is inlined into the benchmark's loop.
 
 ## Timers
 
@@ -87,7 +94,7 @@ These time `bench-json --out` builds and the competitors together:
 
 | Script | What it does |
 |---|---|
-| `timers/time.py VARIANTS [REPS]` | interleaved MB/s, fastest of N; the variants are the `bench-json` ones plus the competitors (`serde_json`, `simd-json-tape`, `sonic-rs`, `zimdjson-dom-fast`, ...). Set `BENCH_OUT` to the `--out` directory |
+| `timers/time.py VARIANTS [REPS]` | interleaved MB/s, fastest of N; the variants are the `bench-json` ones plus the competitors (`serde_json`, `simd-json-tape`, `sonic-rs`, `zimdjson-dom-fast`, `simdjson-dom`, `yyjson`, ...). Set `BENCH_OUT` to the `--out` directory |
 | `timers/timeall.py VARIANTS [REPS]` | the same over the five main corpus files |
 | `timers/cyc.py DIR FILES VARIANTS` | wall time, cycles, and instructions of builds in `DIR`, from `/usr/bin/time -l` (macOS) |
 | `timers/ins.py DIR FILES VARIANTS` | instructions retired per byte, exact under load: (instructions of N parses minus those of one) over (N - 1) and the file's size |
@@ -101,6 +108,9 @@ loaded: wall time moves by 7% with the load and the cycle count by as
 much as 16%, since it follows the core and the clock the program runs
 on, while instructions do not. One run's instruction count can still be
 off by several percent either way, so the tools take the median of 5.
+Instructions are not time, though: a change can retire fewer and run
+slower (docs/RIG-NOTES.md, entry 25), so a change to a hot loop is judged
+by exclusive timing on both machines.
 
 ## Checks: `checks/`
 
