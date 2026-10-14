@@ -13,3 +13,6 @@ bench/json/zimdjson/prog-*
 bench/json/rust-bench/target-*/
 bench/json/rust-bench/*/target/
 __pycache__/
+bench/json/cbench/upstream/
+bench/json/cbench/prog-*
+bench/json/cbench/*.o
