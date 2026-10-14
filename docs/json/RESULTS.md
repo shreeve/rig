@@ -14,6 +14,14 @@ interleaved with the others' and the fastest of 7 to 9 kept. MB/s is
 10^6 bytes per second. Runs on different days of the same build differ
 by up to about 10%, so compare columns within one table.
 
+**Which harness.** Every table before "The honest harness" (at the end)
+times a driver that calls `parse` once, so LLVM inlined the whole parser
+into the benchmark's `main` and kept the Doc's fields in registers. A
+program that parses from more than one place does not get that, and on
+the Mac std.json is 3-12% slower without it. Those tables flatter
+std.json by that much against parsers whose code stays out of line;
+compare across them only by the ratios within one table.
+
 ## Correctness
 
 ``./test/run json``: **10,511 of 10,511 cases pass** (test/json/README.md):
@@ -1335,3 +1343,53 @@ count: the whitespace bitmap above (the wsspec prototype), which waits
 on Rig's inlining of single-call functions. The instruction guard
 (`bench/json/guard.py`) would have passed this variant
 (docs/RIG-NOTES.md, entry 25).
+
+## The honest harness
+
+`bench/json/bench-json`'s driver calls `parse` twice: once on `[0]` at
+start-up, then in the timed loop. With one call, LLVM inlines the whole
+parser into the benchmark's `main` and keeps the Doc's fields in
+registers; with two, `document` stays a function and reaches the Doc
+through `self`, as in a program that parses from more than one place.
+The guard (`bench/json/guard.py`) was re-baselined on this driver.
+
+Rig main of 2026-10-13, on the Mac, one quiet window, fastest of 15
+interleaved runs; MB/s:
+
+| file | one call (inlined) | two calls (honest) | honest against inlined | instructions/byte, honest against inlined |
+|---|---:|---:|---|---|
+| twitter | 3664 | 3422 | 7% slower | 18% more |
+| twitterescaped | 3266 | 3057 | 6% slower | 14% more |
+| canada | 2244 | 2077 | 7% slower | 12% more |
+| citm_catalog | 4673 | 4131 | 12% slower | 12% more |
+| gsoc-2018 | 8493 | 8242 | 3% slower | 7% more |
+| github_events | 4293 | 4098 | 5% slower | 10% more |
+
+The likely cause is docs/RIG-NOTES.md, entry 8: through `self`, every
+push to the tape loads its length and capacity and stores the length
+back.
+
+Every parser on the honest harness (the Mac, Rig main at f42512ebb, a
+quiet window at a load of 3.3-7.7 falling, one core, fastest of 15
+interleaved runs; MB/s). The Rust parsers are built for the native CPU
+and their parsing functions are separate symbols in their binaries;
+zimdjson is its DOM parser in ReleaseFast, whose `dom.Parser` is a
+separate symbol too; std.json is in Zig's safe mode, every check kept:
+
+| file | std.json | sonic-rs | simd-json (tape) | zimdjson (DOM, fast) | serde_json | Zig std.json (tape, safe) |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 3419 | 3078 | 3440 | **3584** | 654 | 867 |
+| twitterescaped | **3056** | 2769 | 1336 | 2753 | 545 | 619 |
+| canada | **2078** | 1994 | 1303 | 1316 | 670 | 570 |
+| citm_catalog | **4125** | 3764 | 4027 | 3894 | 1008 | 1210 |
+| gsoc-2018 | **8264** | 7139 | 3881 | 3825 | 1845 | 617 |
+| github_events | **4066** | 3673 | 3669 | 3947 | 839 | 954 |
+| geomean | **3800** | 3447 | 2646 | 3023 | 848 | 776 |
+
+std.json is the fastest on five files: ahead of the next parser by 16%
+on gsoc-2018, 10% on twitterescaped, 4% on canada, 3% on github_events,
+and 2% on citm_catalog. On twitter zimdjson is 5% faster and simd-json
+ties. By geomean std.json is 10% faster than sonic-rs, 26% faster than
+zimdjson, 44% faster than simd-json, 4.5x serde_json, and 4.9x Zig's
+std.json. On the inlined harness the same geomean was 17% ahead of
+sonic-rs ("UTF-8 checked 16 bytes at a time").
