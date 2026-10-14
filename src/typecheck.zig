@@ -3918,7 +3918,7 @@ const Checker = struct {
                 try self.errAt(e, "enum literal `.{s}` needs a known enum type; write `Type.{s}` or annotate the binding", .{ name, name });
                 break :blk self.t().invalid_id;
             },
-            .lambda => self.checkLambda(e, null, false),
+            .lambda => self.checkLambda(e, null),
             .builtin => self.synthBuiltin(e, null),
             .@"..",
             => blk: {
@@ -8268,7 +8268,7 @@ const Checker = struct {
             self.tentative -= 1;
             self.ctx.diagnostics.shrinkRetainingCapacity(mark);
         }
-        const ty = try self.checkLambdaGiven(lambda, null, given, false);
+        const ty = try self.checkLambdaGiven(lambda, null, given);
         const got = self.ctx.types.get(ty).function;
         for (got.params) |p| if (self.isPoison(p)) return null;
         if (got.params.len != f.params.len) return null;
@@ -10542,7 +10542,7 @@ const Checker = struct {
             },
             .lambda => {
                 if (self.ctx.types.get(target) == .function) {
-                    const ty = try self.checkLambda(e, target, false);
+                    const ty = try self.checkLambda(e, target);
                     if (!sameNode(e, self.lent_callable) and !sameNode(e, self.callable_kept)) return ty;
                     // Reported here; the closure is not checked as escaping.
                     try self.errAt(e, "a closure literal is not a function value `{s}`; declare the parameter `?{s}` to lend the closure to the call", .{ try self.tyName(target), try self.tyName(target) });
@@ -10551,7 +10551,7 @@ const Checker = struct {
                 if (sema.callableFn(self.ctx, target) != null) return try self.lentLambda(e, target);
                 const fn_ty = self.ownedClosureType(target) orelse return null;
                 try self.errAt(e, "`{s}` is an owned closure; write `*|...| body` to make one", .{try self.tyName(target)});
-                _ = try self.checkLambda(e, fn_ty, false);
+                _ = try self.checkLambda(e, fn_ty);
                 return self.t().invalid_id;
             },
             .share => {
@@ -10559,7 +10559,7 @@ const Checker = struct {
                 if (try self.shareOfNone(e, target)) return target;
                 if (operand.isKind(.lambda) and sema.callableFn(self.ctx, target) != null) {
                     try self.errAt(e, "`{s}` views a closure for the call; write the closure without `*` (remove the `*`)", .{try self.tyName(target)});
-                    _ = try self.checkLambda(operand, sema.callableFnTy(self.ctx, target).?, false);
+                    _ = try self.checkLambda(operand, sema.callableFnTy(self.ctx, target).?);
                     return target;
                 }
                 if (operand.isKind(.lambda)) {
@@ -12160,7 +12160,7 @@ const Checker = struct {
         } else if (!sameNode(e, self.lent_callable)) {
             try self.errAt(e, "a closure literal is lent as `{s}` only as a call's argument; bind the closure (`f = |...| ...`) and lend it as `?f`", .{try self.tyName(target)});
         }
-        const ty = try self.checkLambda(e, fn_ty, false);
+        const ty = try self.checkLambda(e, fn_ty);
         try self.ctx.recordLend(e, sema.lendsAs(self.ctx, fn_ty, .read, target).?);
         return ty;
     }
@@ -12168,7 +12168,7 @@ const Checker = struct {
     /// `*|...| body`: an owned closure; `expected` is the function type
     /// its context gives it (`*fun(Int) -> Int` gives `fun(Int) -> Int`).
     fn ownedClosure(self: *Checker, lambda: Sexp, expected: ?TypeId) Error!TypeId {
-        const lty = try self.checkLambda(lambda, expected, true);
+        const lty = try self.checkLambda(lambda, expected);
         try self.ctx.recordType(lambda, lty);
         return self.ctx.intern(.{ .shared = lty });
     }
@@ -12185,14 +12185,14 @@ const Checker = struct {
     /// parameters take its parameter types and the body is checked
     /// against its return type; without one, every parameter must be
     /// annotated and the return type is that of the body's last
-    /// expression. `owned` closures pass only plain Copy values.
-    fn checkLambda(self: *Checker, node: Sexp, expected: ?TypeId, owned: bool) Error!TypeId {
-        return self.checkLambdaGiven(node, expected, &.{}, owned);
+    /// expression.
+    fn checkLambda(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
+        return self.checkLambdaGiven(node, expected, &.{});
     }
 
     /// `checkLambda`, where without an `expected` type the parameters
     /// may take types from `given` (`type_invalid` for none).
-    fn checkLambdaGiven(self: *Checker, node: Sexp, expected: ?TypeId, given_params: []const TypeId, owned: bool) Error!TypeId {
+    fn checkLambdaGiven(self: *Checker, node: Sexp, expected: ?TypeId, given_params: []const TypeId) Error!TypeId {
         const captures = sema.captureList(ir.Lambda.captures(node));
         const outer = self.scope;
         const prev = self.enter(node);
@@ -12252,9 +12252,6 @@ const Checker = struct {
             } else if (want == null and !self.under_poison and !self.namesOuterLocal(outer, name, srcPos(pn, 0))) {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
-            if (owned and given == null and !sema.isClosureValue(self.ctx, pty)) {
-                try self.errAt(pn, "an owned closure takes plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
-            }
             try params.append(self.ctx.allocator, pty);
             if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             try self.ctx.recordType(pn, pty);
@@ -12312,9 +12309,6 @@ const Checker = struct {
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
-        if (owned and ret != self.t().void_id and !sema.isClosureResult(self.ctx, ret)) {
-            try self.errAt(body, "an owned closure returns plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
-        }
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
     }

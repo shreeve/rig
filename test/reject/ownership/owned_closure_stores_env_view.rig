@@ -1,0 +1,14 @@
+# An owned closure's captures are its own locals: a view of one stored
+# through a write parameter would outlive the call.
+
+obj H
+  s: ?String
+
+sub main()
+  t = String("x")
+  set: *sub(!H) = *|<t, k| k.s = ?t
+  h = H(s: "a")
+  set(!h)
+  print(h.s)
+
+# error: 9:28: cannot store a view of `t` in `k.s`: `k` outlives it

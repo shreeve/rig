@@ -1,0 +1,45 @@
+# A function type's parameters and result are not parts of a value of
+# that type: `List[*sub(!C)]` holds no write view, and a generic type or
+# function holds an owned closure whose signature names its `T`, at a
+# number, a view, or an owner.
+
+obj C
+  n: Int
+
+obj H[T]
+  f: *fun(T) -> T
+
+fun apply[T](f: ?*fun(T) -> T, x: T) -> T
+  f(<x)
+
+fun ident[T]() -> *fun(T) -> T
+  *|x| x
+
+sub main()
+  hs: List[*sub(!C)] = List()
+  !hs.push(*|c| c.n += 1)
+  !hs.push(*|c| c.n += 10)
+  c = C(n: 0)
+  for h in hs
+    h(!c)
+  print(c.n)
+  shout = H[?String](f: *|s| s)
+  print(shout.f("hi"))
+  up = H[String](f: *|s| String(s, "!"))
+  print(up.f(String("yo")))
+  lst = H[List[Int]](f: *|v|
+    new w = <v
+    !w.push(9)
+    w
+  )
+  print(apply(?lst.f, List()))
+  same = ident[?String]()
+  t = String("ab")
+  print(same(?t), apply(?up.f, String("hey")))
+
+# expect:
+# 11
+# hi
+# yo!
+# [9]
+# ab hey!

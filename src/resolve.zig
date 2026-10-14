@@ -913,7 +913,6 @@ pub const DeferredCheck = union(enum) {
     /// `pos`: none of its fields or methods may stack two holdings.
     instance_stacking: struct { pos: u32, ty: TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
-    owned_closure: struct { node: Sexp, ty: TypeId },
     /// A type spelled at `node` that stands at `home`, where a value
     /// holding a Cell may not (`sema.misplaced`).
     cell_home: struct { node: Sexp, ty: TypeId, home: sema.Home },
@@ -936,7 +935,6 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
         .instance_stacking => |c| if (try sema.instanceHeapStacked(ctx, c.ty)) |found| {
             try ctx.err(c.pos, "`{s}` holds `{s}`, which stacks one heap holding on another; " ++ sema.heap_stacked_rule, .{ try sema.formatType(ctx, c.ty), try sema.formatType(ctx, found) });
         },
-        .owned_closure => |c| try checkOwnedClosureType(ctx, c.node, c.ty),
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
             const shown = try sema.formatType(ctx, c.ty);
             try ctx.errAt(c.node, sema.cell_misplaced, .{ shown, shown });
@@ -1552,6 +1550,20 @@ pub const TypeResolver = struct {
         return false;
     }
 
+    /// `*fun(...) -> R` / `*sub(...)`, function type `ty` written
+    /// `fun_type`: an owned closure is a method on its own environment
+    /// (docs/INTERNALS.md, "Owned closures"), so its parameters and
+    /// result stand where a function's do.
+    fn ownedClosureSignature(self: *TypeResolver, fun_type: Sexp, ty: TypeId) Error!void {
+        const f = self.ctx.types.get(ty).function;
+        const is_fun_type = fun_type.isKind(.fun_type);
+        const nodes: []const Sexp = if (is_fun_type) ir.FunType.params(fun_type).items() else &.{};
+        for (f.params, 0..) |p, i| _ = try self.misplacedAt(if (i < nodes.len) nodes[i] else fun_type, p, .signature);
+        if (f.is_sub) return;
+        const at = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ir.FunType.returns(fun_type) else fun_type;
+        _ = try self.misplacedAt(at, f.returns, .signature);
+    }
+
     /// A field's type `ty`, written `node`: a callable view is not
     /// one. Reported.
     fn fieldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
@@ -1957,7 +1969,7 @@ pub const TypeResolver = struct {
                             return t.invalid_id;
                         }
                         if (sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
-                        if (self.ctx.types.get(inner) == .function) try self.checkWhenResolved(.{ .owned_closure = .{ .node = inner_node, .ty = inner } });
+                        if (self.ctx.types.get(inner) == .function) try self.ownedClosureSignature(inner_node, inner);
                         try sema.requireHandleOf(self.ctx, inner, self.ctx.startOf(sexp), "`*`");
                         return self.ctx.intern(.{ .shared = inner });
                     },
@@ -2510,23 +2522,6 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
         return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
-}
-
-/// `*fun(...) -> R` / `*sub(...)`: an owned closure passes plain Copy
-/// values through its type-erased form, and may fail (`-> R!`).
-fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!void {
-    const f = ctx.types.get(ty).function;
-    const is_fun_type = fun_type.isKind(.fun_type);
-    const nodes: []const Sexp = if (is_fun_type) ir.FunType.params(fun_type).items() else &.{};
-    for (f.params, 0..) |p, i| {
-        if (sema.isClosureValue(ctx, p)) continue;
-        const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure takes plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data); `{s}` is not one", .{try sema.formatType(ctx, p)});
-    }
-    if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
-        const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
-    }
 }
 
 /// A leaf match pattern that binds its name: not the wildcard `_`, and

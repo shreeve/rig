@@ -4237,25 +4237,6 @@ pub fn instanceHeapStacked(ctx: *SemContext, inst: TypeId) std.mem.Allocator.Err
 /// The diagnostic for a callable view held inside another value.
 pub const held_callable = "a callable view `{s}` is only a parameter's, a local's, or a result's type; no value can hold one";
 
-/// A value an owned closure can take or return: plain data
-/// (`isPlainData`), which carries no loan but a `?String`'s (Core sentence
-/// 9).
-pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(ty)) {
-        .invalid, .unknown => true,
-        else => isPlainData(ctx, ty),
-    };
-}
-
-/// What an owned closure may return: a plain Copy value, or a fallible
-/// one (`Int!`).
-pub fn isClosureResult(ctx: *const SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(ty)) {
-        .fallible => |inner| isClosureValue(ctx, inner),
-        else => isClosureValue(ctx, ty),
-    };
-}
-
 /// A value of an error set, or any error: what a fallible function
 /// fails with.
 pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {

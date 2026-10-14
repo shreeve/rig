@@ -1447,7 +1447,7 @@ emitter ask these, never a predicate built for another question:
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or a struct or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
-| `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell, a Signal, and an owned closure's parameters and result hold |
+| `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell and a Signal hold |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
 | `readsAsValue` | a scalar (`isScalar`) or a plain enum: an operator, generic inference, and a binding with no type read a read view of one as the value |
 | `isScalar` | a primitive that copies, or a vector: a method takes it by value, never by address |
@@ -2841,6 +2841,58 @@ closure's body, after the body's own locals, with the closure's other
 owning parameters in reverse order. A closure with no type from its
 context (`f = || ...`) is not padded, and one with more parameters than
 its type passes is rejected.
+
+### Owned closures
+
+An owned closure is a method on its own environment. Given
+`*|<a, +b, p, q|` checked against `*fun(P, !Q) -> R`:
+
+```rig fragment
+obj Env
+  a: A
+  b: B
+
+  fun invoke(?self, p: P, q: !Q) -> R from p, q
+    body
+
+sub make()
+  h = *Env(a: <a, b: +b)
+```
+
+`Env`'s fields are the captures, none of them a view; `from` names the
+parameters whose types could hold what `R` views (`from static` if
+none), never `self`; and `*Env(...)` makes a new counted handle.
+
+- The body reads `a` as `self.a`, through `?self`: captures are fixed,
+  and a re-entrant call is one more read of the environment.
+- `h(x, !y)` is `h.invoke(x, !y)`: the call reads `h` until it returns
+  (the callee hold, `holdRead` with `Reader.callee`), so `x.hook(!x)` is
+  a conflict, and its diagnostic offers the handle clone
+  (`noteCloneCallee`).
+- Parameters and the result follow a function's rules: a view
+  parameter lasts the call; an owning one is taken and dropped,
+  returned, or stored through a write parameter; the call takes the
+  origins of its type (Call origins), which never name the
+  environment, so the result never views it, and a view of a capture
+  stored through a write parameter is a local's loan stored in a
+  parameter (`storeThroughCapture`).
+- `*fun(P, !Q) -> R` is `*Env` for some such `Env`. Sema needs only
+  that it carries no loan (`checkViews`), needs cleanup, and never
+  copies; its parameter and result types stand where a function's do
+  (`Home.signature`, `TypeResolver.ownedClosureSignature`). A function
+  type's parameters and result are not parts of its value
+  (`nestsWriteView` does not enter them), so `List[*sub(!Checker)]`
+  holds no write view. A generic `T` in a closure's signature may be
+  bound to a number, a view, or an owner, as a function's may; a `T`
+  that may hold a view carries the loans of the arguments it could
+  view, so a result, or a value stored through a `!T`, keeps a
+  `?String` argument lent. A `T` in its captures must hold no
+  `?String` (`PlainRequirement.view`).
+- Emit erases `Env` behind `rig.Closure(params, R)`: the arguments
+  travel in one tuple to `Env.__rig_invoke`, which is the body emitted
+  as a function's, so an owning argument is moved in and the body drops
+  it once, on success, failure, or omission (Closures with fewer
+  parameters), and an owning result is the caller's.
 
 ### Loops over an iterator
 
