@@ -4418,6 +4418,9 @@ const Checker = struct {
             .type_var => |tv| tv,
             else => null,
         };
+        // Text beside an optional of text compares by its bytes, whatever
+        // its type, as two texts do.
+        if (isText(self.ctx, inner) and isText(self.ctx, value) and value != inner) return true;
         if (value != inner and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
         if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
@@ -12786,6 +12789,13 @@ fn sliceArgLend(ctx: *const SemContext, actual: TypeId, view: TypeId) ?sema.Lend
 
 fn stringOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.unwrapAccess(ctx, ty) == ctx.types.string_id) ctx.types.string_id else ty;
+}
+
+/// A String (boxed or not), a `?String`, or a `Static`: `==` compares
+/// any two of them by their bytes.
+fn isText(ctx: *const SemContext, ty: TypeId) bool {
+    const t = stringOrBoxed(ctx, ty);
+    return t == ctx.types.string_id or t == ctx.types.string_view_id or t == ctx.types.static_id;
 }
 
 fn numericBits(t: sema.Type) ?u16 {
