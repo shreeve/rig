@@ -1,0 +1,40 @@
+# `error` is owning: `replace` takes it out of a field, local, or list
+# element and hands it back owned, and the place may be written while the
+# value lives; it is dropped once.
+
+error Net
+  timeout
+
+error Disk
+  full
+
+fun describe(e: ?error) -> ?String
+  match e
+    Net.timeout => "net"
+    Disk.full => "disk"
+    _ => "other"
+
+obj Failure
+  at: Int
+  err: error
+
+sub main()
+  f = Failure(at: 1, err: Net.timeout)
+  old = replace(!f.err, Disk.full)
+  f.at = 2
+  print(describe(?old), describe(?f.err), f.at)
+  e: error = Disk.full
+  was = replace(!e, Net.timeout)
+  print(describe(?was), describe(?e))
+  es: List[error] = List()
+  !es.push(Net.timeout)
+  first = replace(!es[0], <was)
+  print(describe(?first), describe(?es[0]))
+  _ = replace(!f.err, <old)
+  print(describe(?f.err))
+
+# expect:
+# net disk 2
+# disk net
+# net disk
+# net
