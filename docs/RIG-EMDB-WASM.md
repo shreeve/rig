@@ -48,24 +48,39 @@ pages, trees, and copy-on-write rather than parsing.
 
 ### 1. emdb on WebAssembly (emdb's repo, in Zig)
 
-Nearly all of emdb's operating-system work is in `platform.zig`, so a
-WebAssembly port is one new backend for that file, not a rewrite.
+Nearly all of emdb's operating-system work is already in
+`platform.zig`, so a WebAssembly port is one new backend for that file,
+not a rewrite. The Emdb session checked this plan against emdb as it is
+(2026-10-14), and the details below are its.
 
-- Move the remaining direct `std.posix` calls (in `txn.zig`,
-  `page.zig`, `cursor.zig`, `emdb.zig`, and `simd.zig`) behind
-  `platform.zig`, so every OS dependency lives in one file. Adding
-  Windows later is then self-contained too.
-- Add a `wasm32-wasi` backend:
+- **Finish moving the OS calls behind `platform.zig`.** `txn.zig`,
+  `page.zig`, and `cursor.zig` already make none. What remains is two
+  `std.c.access` calls in `emdb.zig`, the aarch64 `getauxval` CPU probe
+  in `simd.zig`, and the backup's file writer in `c.zig`; `main.zig`,
+  the command-line tool, does not run on WebAssembly.
+- **One process, one thread.** wasm32-wasi has no threads by default, so
+  a large commit seals its pages on one thread instead of up to eight,
+  and the writer lock's process-shared futex becomes a flag in memory.
+- **Add a `wasm32-wasi` backend:**
 
 | emdb uses | WebAssembly has | The backend |
 |---|---|---|
-| `mmap` of the database file | no `mmap` (WASI only emulates it by copying) | the pages in WebAssembly memory; reads stay zero-copy, and a commit writes pages back with `fd_write` and `fd_sync` |
+| `mmap` of the database file, written through | no `mmap` (WASI only emulates it by copying) | the pages in WebAssembly memory, so reads stay zero-copy; a commit writes its dirty pages back with `fd_pwrite` at their offsets, then `fd_sync`, then the meta page last, building on emdb's staged-append write path |
 | readers in several processes, file locks | one process | the reader table in memory, with no locks |
-| `fsync` and `F_FULLFSYNC` for crash safety | WASI `fd_sync`; a browser's OPFS sync handles | the same commit protocol over those calls |
+| `fsync` and `F_FULLFSYNC` for crash safety | WASI `fd_sync`; a browser's OPFS sync handles | the same commit protocol over those calls; durability is the host's `fd_sync` |
 | the CPU's CRC instructions | WebAssembly SIMD only | the software CRC emdb already falls back to |
 
-- Run emdb's own tests under wasmtime. A browser backend over OPFS
-  (the browser's private file storage) can follow.
+- **Size.** wasm32's memory is 4 GB, so a database is capped below that,
+  less the heap, unless the build targets memory64.
+- **The specification first.** emdb's SPEC gains a single-process
+  platform profile: what WebAssembly guarantees and what it does not (no
+  lock file, no reader table shared across processes, durability as the
+  host provides it).
+- **Tests under wasmtime:** the unit, integration, property, and audit
+  suites. The multi-process scripts, crash injection (which captures
+  `mmap` images), the disk-full tests, and the command-line smoke test do
+  not apply. A browser backend over OPFS (the browser's private file
+  storage) can follow.
 
 The Emdb session owns this work; it is a few days by estimate.
 
@@ -160,7 +175,7 @@ are on the roadmap for Trig as well.
 
 | Part | Status |
 |---|---|
-| 1. emdb on WebAssembly | proposed to the owner; not yet sent to the Emdb session |
+| 1. emdb on WebAssembly | approved by the owner and sent to the Emdb session (2026-10-14); starts after emdb's current queue |
 | 2. Rig on WebAssembly | not started; the allocator cause is known |
 | 3. The binding | not started; needs Zig-package dependencies in Rig |
 | 4. emdb's core in Rig | later |
