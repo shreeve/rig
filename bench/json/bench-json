@@ -56,7 +56,17 @@ use std.time
 
 SRC = "@SRC@"
 
+# A second, trivial call of `parse`: with only one, LLVM inlines the whole
+# parser into `main` and keeps the Doc's fields in registers, which a
+# program that parses from more than one place does not get (7% faster
+# on the Mac by geomean, docs/json/RESULTS.md).
+sub warm()
+  tiny = "[0]"
+  w = json.new_doc()
+  (!w).parse(?tiny)
+
 fun main() -> Int
+  warm()
   src = String(SRC)
   n = text.parse_int(os.args()[1]) catch 1
   d = json.new_doc()
