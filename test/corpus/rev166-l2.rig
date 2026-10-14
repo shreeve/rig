@@ -1,0 +1,14 @@
+# generic sub whose owned closure stores a view through !T
+obj K
+  s: ?String
+
+sub run[T](f: ?*sub(!T, ?String), k: !T, s: ?String)
+  f(!k, s)
+
+sub main()
+  f: *sub(!K, ?String) = *|k, s| k.s = s
+  k = K(s: "x")
+  t = String("abc")
+  run(?f, !k, ?t)
+  <t
+  print(k.s)

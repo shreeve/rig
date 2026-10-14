@@ -1,0 +1,43 @@
+# An owned closure takes and returns owners and handles as a function
+# does: a parameter it is given to own it drops, returns, or stores, and
+# a result it returns is the caller's, whether the closure's type is
+# written or inferred from its body.
+
+sub take(cb: *sub(List[Int]))
+  v: List[Int] = List()
+  !v.push(4)
+  cb(<v)
+
+sub main()
+  v: *Cell[Int] = *Cell(0)
+  set: *sub(*Cell[Int]) = *|cell| !cell.set(7)
+  share: *fun() -> *Cell[Int] = *|+v| +v
+  inferred = *|+v, cell: *Cell[Int]| !v.set(cell.get() + 1)
+  returns = *|+v| +v
+  c = *Cell(1)
+  set(+c)
+  print(c.get())
+  w = share()
+  !w.set(3)
+  print(v.get())
+  inferred(+c)
+  print(v.get())
+  r = returns()
+  print(r.get())
+  take(*|xs| print(xs.len))
+  grow: *fun(List[Int], Int) -> List[Int] = *|xs, n|
+    new ys = <xs
+    !ys.push(n)
+    ys
+  made: List[Int] = List()
+  made = grow(<made, 1)
+  made = grow(<made, 2)
+  print(made, grow(List(), 9).len)
+
+# expect:
+# 7
+# 3
+# 8
+# 8
+# 1
+# [1, 2] 1

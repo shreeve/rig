@@ -1,0 +1,16 @@
+# generic struct holding an owned closure that builds a T from a view
+obj K
+  s: ?String
+
+obj H[T]
+  f: *fun(?String) -> T
+
+  fun make(?self, s: ?String) -> T
+    self.f(s)
+
+sub main()
+  h = H[K](f: *|s| K(s: s))
+  t = String("abc")
+  k = ?h.make(?t)
+  <t
+  print(k.s)
