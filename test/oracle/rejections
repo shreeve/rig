@@ -1085,6 +1085,11 @@ store.list.read_back.grow f
 store.list.write_field.grow f
 store.list.write_through.grow f
 taken.local.drop main
+taken.field.drop main
+taken.nested.drop main
+taken.write_local.drop main
+taken.element.drop main
+taken.boxed.drop main
 string.arg_then_write.move run
 string.as_temp.call run
 string.as_temp.catch run
