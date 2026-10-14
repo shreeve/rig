@@ -3339,6 +3339,8 @@ pub const Contents = struct {
     /// Holds a vector inline, directly or through an argument of a
     /// generic instance it holds by value (`held`).
     vector: bool = false,
+    /// Holds an `error` inline, as `vector` reaches (see `moves`).
+    any_error: bool = false,
 };
 
 /// Whether values hold a marked view (`?T`, `!T`, a slice), whether they
@@ -3360,7 +3362,7 @@ pub const Views = packed struct(u4) {
 /// Facts about an interned type, recorded when it is interned
 /// (`SemContext.intern`). The structural facts are always known; the
 /// rest once declarations are resolved (`SemContext.contents_ready`).
-pub const TypeInfo = packed struct(u20) {
+pub const TypeInfo = packed struct(u21) {
     /// Mentions a generic parameter anywhere.
     has_type_var: bool = false,
     /// Holds a generic parameter by value, so whether it owns a resource
@@ -3381,6 +3383,9 @@ pub const TypeInfo = packed struct(u20) {
     poison: bool = false,
     /// Is or holds inline a vector (see `holdsVector`).
     vector: bool = false,
+    /// Is or holds inline an `error`, an error of any set, which is
+    /// owning whatever the program's sets hold (see `moves`).
+    any_error: bool = false,
     /// How deeply wrappers and generic instances nest in it (saturating).
     depth: u8 = 0,
 };
@@ -3426,6 +3431,7 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
             c.glue = c.glue or h.glue;
             c.plain = c.plain and h.plain;
             c.vector = c.vector or h.vector;
+            c.any_error = c.any_error or h.any_error;
         }
     }
     // The built-in generics are runtime types: a List owns its buffer and
@@ -3448,7 +3454,7 @@ fn contentsOf(ctx: *const SemContext, id: SymbolId) Contents {
     return if (c.done) c else .{};
 }
 
-const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool = false, vector: bool = false };
+const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool = false, vector: bool = false, any_error: bool = false };
 
 /// What a value of `ty` holds. `ty` is a field type of a generic type
 /// whose parameters are `params` (empty elsewhere): each parameter it
@@ -3456,11 +3462,14 @@ const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool =
 fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool) std.mem.Allocator.Error!Holds {
     if (params.len == 0 and ctx.contents_ready and ty < ctx.type_info.items.len) {
         const info = ctx.type_info.items[ty];
-        return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var, .vector = info.vector };
+        return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var, .vector = info.vector, .any_error = info.any_error };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string_view, .static, .any_error, .ct_value, .ct_param => .{ .plain = true },
+        .bool, .int, .float, .string_view, .static, .ct_value, .ct_param => .{ .plain = true },
         .string => .{ .glue = true },
+        // An error of any set is owning in every program, whatever the
+        // program's sets hold (Core §2, "A failure moves its error").
+        .any_error => .{ .any_error = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
         // Lanes of a number or `Bool`: one plain value.
@@ -3473,7 +3482,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         .nominal, .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk .{};
             const c = contentsOf(decl.ctx, decl.sym);
-            break :blk .{ .glue = c.glue, .plain = c.plain, .vector = c.vector };
+            break :blk .{ .glue = c.glue, .plain = c.plain, .vector = c.vector, .any_error = c.any_error };
         },
         .type_var => |sym| blk: {
             const i = std.mem.findScalar(SymbolId, params, sym) orelse break :blk .{ .type_var = true };
@@ -3482,7 +3491,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         },
         .parameterized_nominal => |pn| blk: {
             const c = contentsOf(ctx, pn.sym);
-            var h: Holds = .{ .glue = c.glue, .plain = c.plain, .vector = c.vector };
+            var h: Holds = .{ .glue = c.glue, .plain = c.plain, .vector = c.vector, .any_error = c.any_error };
             for (pn.args, 0..) |a, i| {
                 if (i >= c.held.len or !c.held[i]) continue;
                 const arg = try holdsIn(ctx, a, params, held);
@@ -3490,6 +3499,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
                 h.plain = h.plain and arg.plain;
                 h.type_var = h.type_var or arg.type_var;
                 h.vector = h.vector or arg.vector;
+                h.any_error = h.any_error or arg.any_error;
             }
             break :blk h;
         },
@@ -3658,6 +3668,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     info.plain = h.plain;
     info.holds_type_var = h.type_var;
     info.vector = h.vector;
+    info.any_error = h.any_error;
     const r = try reachOf(ctx, id, .all, null);
     info.cell = r.cell;
     info.unique = r.unique;
@@ -5557,6 +5568,12 @@ pub fn holdsWriteView(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).views.write;
 }
 
+/// Whether `ty` is or holds inline an `error`, which is owning in every
+/// program (`TypeInfo.any_error`).
+pub fn holdsAnyError(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).any_error;
+}
+
 /// Plain data, Core §1's plain kind: a value that owns nothing and
 /// holds no `?T`, `!T`, slice, function value, or type parameter, but
 /// may hold a `?String`. It copies (`copies`), and carries no loan but a
@@ -5647,12 +5664,13 @@ pub fn isUnique(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether a bare use of a value of `ty` moves it rather than copying
-/// it: `yes` when it needs cleanup (`typeHasDropGlue`) or is unique
-/// (`isUnique`), `depends` when it holds a type parameter by value
-/// (`maybeDropGlue`), otherwise `no`.
+/// it: `yes` when it needs cleanup (`typeHasDropGlue`), is unique
+/// (`isUnique`), or holds an `error` (`TypeInfo.any_error`), which is
+/// owning in every program; `depends` when it holds a type parameter by
+/// value (`maybeDropGlue`), otherwise `no`.
 pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
     const info = ctx.holds(ty);
-    if (info.glue or isUnique(ctx, ty)) return .yes;
+    if (info.glue or holdsAnyError(ctx, ty) or isUnique(ctx, ty)) return .yes;
     return if (info.holds_type_var) .depends else .no;
 }
 
@@ -5660,11 +5678,11 @@ pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
 /// argument a call reads before it runs, a branch of one) reads a value
 /// of `ty` where it is, by address, so a later argument must not change
 /// it first: a value that needs cleanup (`typeHasDropGlue`), a unique
-/// one (which moves like an owner, so reading it in place lends it), or
-/// one of a type parameter. Any other value is copied where the read
-/// runs.
+/// one or one holding an `error` (which move like an owner, so reading
+/// them in place lends them), or one of a type parameter. Any other
+/// value is copied where the read runs.
 pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
-    return typeHasDropGlue(ctx, ty) or maybeDropGlue(ctx, ty) or isUnique(ctx, ty);
+    return typeHasDropGlue(ctx, ty) or maybeDropGlue(ctx, ty) or isUnique(ctx, ty) or holdsAnyError(ctx, ty);
 }
 
 /// Whether a value of `ty` copies: it is duplicated by a bit copy, with

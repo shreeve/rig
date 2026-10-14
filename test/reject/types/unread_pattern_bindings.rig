@@ -1,18 +1,13 @@
-# A name bound by `for`, a match pattern, `as`, or `catch |e|` must be
-# read, or be `_`.
+# A name bound by `for`, a match pattern, or `as` must be read, or be
+# `_`, unless its value moves, as the error `catch |e|` names does: a
+# value that moves may be bound only to be dropped at the scope's end.
 
 enum Shape
   circle(r: Int)
   dot
 
-error E
-  bad
-
 fun maybe(n: Int) -> Int?
   n if n > 0 else none
-
-fun fails() -> Int!
-  return E.bad
 
 sub main()
   for i in 0..2
@@ -23,12 +18,8 @@ sub main()
     other => print("other")
   if maybe(1) as m
     print("some")
-  n = fails() catch |e|
-    0
-  print(n)
 
-# error: 18:7: `i` is bound but never read
-# error: 22:13: `r` is bound but never read
-# error: 23:5: `other` is bound but never read
-# error: 24:18: `m` is bound but never read
-# error: 26:22: `e` is bound but never read
+# error: 13:7: `i` is bound but never read
+# error: 17:13: `r` is bound but never read
+# error: 18:5: `other` is bound but never read
+# error: 19:18: `m` is bound but never read

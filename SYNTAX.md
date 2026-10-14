@@ -529,7 +529,8 @@ operator does, and which types it takes, is in
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),
 `F32`, `Bool`, `?String`, `Static`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
-what each holds. `String`, owned text, is a built-in type
+what each holds. `error` holds an error of any set
+([SPEC §13](SPEC.md#any-error)). `String`, owned text, is a built-in type
 ([SPEC §10](SPEC.md#string)).
 
 **How the sigils combine.** The holding sigils `^`, `*` and `~` bind to
@@ -1692,7 +1693,7 @@ type      = ("?" | "!") type | ptype | tsuffix
 ptype     = ("^" | "*" | "~")* ("[" [dim] "]" type
           | "fun" "(" [type, ...] ")" "->" type | "sub" "(" [type, ...] ")" ["!"])
 tsuffix   = tsuffix ("?" | "!") | ("^" | "*" | "~")* tatom
-tatom     = tname | tname "[" targ, ... "]" | "(" type ")"
+tatom     = tname | "error" | tname "[" targ, ... "]" | "(" type ")"
 tname     = name | name "." name
 targ      = type | ["-"] integer | "(" integer ")" | cexp
 dim       = ["-"] integer | "(" integer ")" | name | "(" name ")" | name "." name | cexp

@@ -95,6 +95,10 @@ pub const Loan = struct {
     /// An external loan that lasts one call of a closure: its
     /// parameter's (Core §7).
     call_only: bool = false,
+    /// An external loan on what the value a write-view parameter views
+    /// itself views, not on that value's place: what a value taken out
+    /// through the parameter carries (`Op.untake`).
+    held: bool = false,
     /// Lends of one `swap` or `replace` call: their places may be
     /// different fields of one value.
     group: u32 = 0,
@@ -173,6 +177,13 @@ pub const Op = struct {
     /// loan that reaches it. The flow replaces each pointer loan on a
     /// place by the loans that place carries.
     unpoint: bool = false,
+    /// A value taken out of a place (`<p.f`, `replace(!p, v)`), whose
+    /// root is `reads[0]` (Core §5: `<` leaves its source done): it
+    /// carries what the place's value held and no loan on the place. The
+    /// flow replaces each write loan the root's view of the place holds
+    /// by what its target holds, and the caller's loan on a write-view
+    /// parameter that path reaches by its `held` twin.
+    untake: bool = false,
     /// What the op makes holds no value that carries a loan (Core s9:
     /// an owned closure's captures); a flowing loan is C8.
     no_loans: bool = false,

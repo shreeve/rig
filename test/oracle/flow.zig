@@ -99,6 +99,10 @@ const Checker = struct {
     stored_full_wo: Bits = undefined,
     seen: Bits = undefined,
     work: Bits = undefined,
+    /// Each write-view parameter's `held` loan.
+    held_of: []?LoanId = &.{},
+    /// Scratch for `untake`: the vars the taken place is reached through.
+    chain: []bool = &.{},
     finding: ?core.Finding = null,
 
     fn report(self: *Checker, rule: core.Rule, pos: u32, comptime fmt: []const u8, args: anytype) !void {
@@ -184,7 +188,38 @@ const Checker = struct {
             }
             _ = out.merge(extra);
         }
+        if (op.untake) self.untake(op.reads[0], op.def, st, out);
         if (op.loan) |l| if (with_loan) out.set(l);
+    }
+
+    /// What a value taken out of a place reached from `root` carries:
+    /// what the place's value held. A write loan in `out` is a view on
+    /// the path to the place, never in the value, which holds no write
+    /// view (Core §5); it stands for what its target holds. The caller's
+    /// loan on a write-view parameter on the path stands for its `held`
+    /// twin. A value that may hold a write view keeps every loan.
+    fn untake(self: *Checker, root: VarId, def: ?VarId, st: State, out: Bits) void {
+        if (def) |d| if (self.f.vars.items[d].holds_writes) return;
+        @memset(self.chain, false);
+        self.chain[root] = true;
+        var changed = true;
+        var rounds: usize = 0;
+        while (changed and rounds <= self.nl) : (rounds += 1) {
+            changed = false;
+            for (self.f.loans.items, 0..) |l, li| {
+                if (!out.has(li) or l.external or l.mode != .write) continue;
+                out.unset(li);
+                _ = out.merge(st.holds[l.root]);
+                self.chain[l.root] = true;
+                changed = true;
+            }
+        }
+        for (self.f.loans.items, 0..) |l, li| {
+            if (!out.has(li) or !l.external or l.held or !self.chain[l.root]) continue;
+            const held = self.held_of[l.root] orelse continue;
+            out.unset(li);
+            out.set(held);
+        }
     }
 
     /// Add the flowing loans a var can carry: none if its type holds no
@@ -443,7 +478,7 @@ const Checker = struct {
                 for (self.f.loans.items, 0..) |l, li| {
                     if (!st.holds[v].has(li)) continue;
                     const root = self.f.vars.items[l.root];
-                    if (!root.capture or root.kind != .write_view) continue;
+                    if (!root.capture or root.kind != .write_view or l.held) continue;
                     try self.report(.C6, op.pos, "a view of `{s}`, which the closure captured to write, leaves each call", .{root.name});
                     return;
                 }
@@ -468,6 +503,16 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
         if (!f.vars.items[p].holds_views) continue;
         try f.loans.append(a, .{ .root = p, .path = &.{}, .mode = .read, .external = true, .call_only = f.vars.items[p].call_only, .pointer = false, .pos = 0 });
         try entry_loans.append(a, .{ p, @intCast(f.loans.items.len - 1) });
+    }
+    // What the value each write-view parameter views holds: the caller's
+    // too, reached only by a value taken out through it (`untake`).
+    const held_of = try a.alloc(?LoanId, f.vars.items.len);
+    @memset(held_of, null);
+    for (f.params.items) |p| {
+        const pv = f.vars.items[p];
+        if (!pv.holds_views or pv.kind != .write_view) continue;
+        try f.loans.append(a, .{ .root = p, .path = &.{}, .mode = .read, .external = true, .call_only = pv.call_only, .held = true, .pointer = false, .pos = 0 });
+        held_of[p] = @intCast(f.loans.items.len - 1);
     }
     const n = f.loans.items.len;
     const twins = try a.alloc(?LoanId, n);
@@ -494,7 +539,7 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
         f.keep = keep;
         f.keep_loans = f.loans.items.len;
     }
-    var c: Checker = .{ .a = a, .f = f, .nv = f.vars.items.len, .nl = f.loans.items.len, .live_out = &.{}, .twins = twins };
+    var c: Checker = .{ .a = a, .f = f, .nv = f.vars.items.len, .nl = f.loans.items.len, .live_out = &.{}, .twins = twins, .held_of = held_of, .chain = try a.alloc(bool, f.vars.items.len) };
     try c.liveness();
     c.full = try Bits.init(a, c.nl);
     c.stored = try Bits.init(a, c.nl);

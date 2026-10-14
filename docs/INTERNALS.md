@@ -242,9 +242,9 @@ The ambiguities the parser cannot settle by its state, the lexer
 rewriter, which knows the token before and can look ahead on the line,
 resolves, handing the parser distinct tokens. Whitespace inside an
 expression decides none of them. The lexer still reads position for its
-own rules: after a value (a name, a literal, `)`, `]`, or a `?` / `!`
-suffix) a character continues the value; anywhere else it starts an
-operand. A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its
+own rules: after a value (a name, the type `error`, a literal, `)`,
+`]`, or a `?` / `!` suffix) a character continues the value; anywhere
+else it starts an operand. A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its
 operand, or the lexer rejects it (`detached_prefix`), so no spacing
 reads as another form: `a < - b` is an error, not `a < -b`. After a
 type's `]` (`[2]?Int`) the lexer cannot tell a prefix from a suffix, so
@@ -1149,7 +1149,13 @@ a branch leaf of a `return` operand (`Checker.isReturnLeaf`, checked in
 where a `T!` is expected is checked as a variant of `T`
 (`checkContextual`), so an error value there always has its set's type.
 The error a `catch |err|` names has the type `error`: any error, since
-functions do not declare which errors they fail with. A bare `.name`
+functions do not declare which errors they fail with. `error` is also
+written as a type (the grammar's `tatom` takes the keyword), and a
+member of any set meets it (`meets`). It is owning in every program:
+`TypeInfo.any_error` marks it and every type that holds it inline, and
+`sema.moves` and `sema.readByAddress` answer for it as for a unique
+type, while `+e` clones it (`sema.cloneable`). It needs no cleanup while
+no set has fields, so it has no drop glue. A bare `.name`
 compared or matched with one is the member of the one error set that
 may mean it (`sema.errorSetsWith`: the module's own sets and the `pub`
 sets of the modules it reaches), and sema records that set as the
@@ -1572,7 +1578,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `as_value`, `as_copy` | `__rig_opt`, `__rig_opt_N_v` | what `if … as` or `while … as` captures, and a mutable copy its binding views | pointer, copy, or owned | body |
 | `lent` | `__rig_lent` | the value inside an optional a lend reaches | pointer | expression |
 | `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
-| `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | copy | handler |
+| `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | owned | handler |
 | `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
@@ -1625,7 +1631,8 @@ that binds one is rejected where typecheck records it
 (`rejectHeaderCopy`), unless it binds plain data of a value made there;
 a read match's
 payload view of a copy lives for its arm (`arm_view`); a `payload` copy only copies
-fields out, and an `error_value` is plain data.
+fields out, and an `error_value` is the failure's own error, which the
+handler's binding takes as it starts: the checker walks the binding.
 
 ### Proven checks
 
@@ -2724,6 +2731,23 @@ sentence 7's own: no other form says that a result does not view `b`,
 so a `from` clause is sentence 7's refinement rather than a form that
 desugars, and its checker rule is the call rule with the named set plus
 the body check.
+
+**`replace` and `swap`** (`walkSwapCall`). `r = replace(!p, v)` is
+`t = v; r = <p; p = <t`: `v` is evaluated while `p` is lent to write, so
+it may not read `p` (`replace(!s, make(?s))` is rejected); then the
+value in `p` is taken out, and `v` stored in its place. Ownership follows
+from the desugaring and adds no rule. The take leaves no loan on `p`
+behind (Core §5, "`<` always leaves its source done"), so `r` is no view
+of `p`: it carries what `p`'s value held, `carry` of the loans `p`'s var
+holds (`takenValue`), as `<p.f` carries them (`walkTake`). This is sound
+because a value never views itself, nor what is moved into it. A place
+reached through a write view (`replace(!w, x)` with `w = !q.f`) gives
+the loans that view's var holds, its loan on `q` among them, as `<w.f`
+does; a place no var holds (`replace(!f().x, v)`) gives the loans of
+its view. The store is an assignment: `p`'s var now also views what `v`
+viewed (`absorbThroughWrites`). `swap(!a, !b)` is
+`t = <a; a = <b; b = <t`, with each place lent to write for the call, and
+hands back nothing.
 
 ### Loops
 

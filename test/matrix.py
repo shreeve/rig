@@ -6,7 +6,9 @@ one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
-stores into a view parameter (`store.`, below), the views of a
+stores into a view parameter (`store.`, below), a value `replace`
+takes out of each kind of place, then the place written, the value put
+back, or what it views dropped while it lives (`taken.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
 `match` payload field that is itself a view (`viewpay.`), a lend of a
 binding that is a write view, then a write through it while the view
@@ -307,6 +309,12 @@ TYPES = {
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: List[Int])\n",
                  mk="xs: List[Int] = List()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
                  only=("eq_variant", "eq_none", "binding", "tail_if", "tail_match")),
+    # `error`, an error of any set: owning in every program, though no
+    # set here holds anything to drop (Core §2, "A failure moves its
+    # error"). `error!` is rejected, so it has no `fail`, and no form or
+    # tail catches one.
+    "error": dict(ty="error", decls="error X\n  one\n  two\n", mk="X.one if n > 0 else X.two", ctor="X.one",
+                  fallible=False),
 }
 
 # -----------------------------------------------------------------------------
@@ -427,6 +435,7 @@ POKES = {
     "shared": "x = *N(v: 9)", "box": "x = ^N(v: 9)", "drop": "x = D(v: 9)",
     "unique": "x = U(v: 9)", "enum": "x = S.dot",
     "plain": "x = P(v: 9)", "array": "x[0] += 1", "simd": "x = x +% 1",
+    "error": "x = X.two",
 }
 WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
@@ -496,6 +505,43 @@ STORE_FORMS = {
     "loop_assign": ("s", ["for k in !a", "  k = H(r: S)"]),
     "match_payload": ("e", ["match !a", "  .one(h) => h.r = S", "  .zero => print(0)"]),
     "as_binding": ("opt", ["if !a as h", "  h.r = S"]),
+}
+
+
+# -----------------------------------------------------------------------------
+# A value `replace` takes out of a place: `t = replace(!P, v)` is
+# `t = <P; P = v` (docs/INTERNALS.md), so `t` views what the place's value
+# viewed (`src`) and no part of the place. The place, of each kind, is
+# then written while `t` lives (accepted), `t` put back into it (accepted),
+# or `src` dropped while `t` lives (rejected). Its type holds a view and
+# owns a String, which the view could view by type. Cells are
+# `taken.<place>.<then>`.
+# -----------------------------------------------------------------------------
+
+# How `main` makes the place `P` from `src`; `run` puts it in a function
+# given the holder as a write view; `take` replaces the `replace`, and
+# `thens` a then's lines and output (None: not written).
+TAKEN_PLACES = {
+    "local": dict(setup=["s = S(text: ?src, value: String())"], place="s"),
+    "field": dict(setup=["h = H(s: S(text: ?src, value: String()))"], place="h.s"),
+    "nested": dict(setup=["g = G(h: H(s: S(text: ?src, value: String())))"], place="g.h.s"),
+    "write_local": dict(setup=["h = H(s: S(text: ?src, value: String()))", "w = !h.s"], place="w"),
+    "element": dict(setup=["v: List[S] = List()", "!v.push(S(text: ?src, value: String()))"], place="v[0]"),
+    "boxed": dict(setup=["b = ^H(s: S(text: ?src, value: String()))"], place="b.s"),
+    "param": dict(setup=["h = H(s: S(text: ?src, value: String()))"], place="p.s", run=True),
+    # A closure that captures `h` to write takes the value: it views
+    # `src`, never `h`, so the closure writes `h` again while it lives.
+    # Its result carries the closure's captures (Core sentence 7), so `h`
+    # itself is not written or put back into while it lives.
+    "closure": dict(setup=['h = H(s: S(text: ?src, value: String("v")))',
+                           'f = |!h| replace(!h.s, S(text: "", value: String("n")))'],
+                    place="h.s", take=["t = f()"],
+                    thens={"write": (["u = f()", "print(t.text, t.value, u.value)"], "abc v n\n"), "put_back": None}),
+}
+TAKEN_THENS = {
+    "write": (['P.value = String("w")', "print(t.text, P.value)"], "abc w\n"),
+    "put_back": (["_ = replace(!P, <t)", "print(P.text)"], "abc\n"),
+    "drop": (["<src", "print(t.text)"], "(rejected)\n"),
 }
 
 
@@ -2047,6 +2093,32 @@ def store_program(oname, fname, then):
     return "\n".join(out)
 
 
+def taken_then(pname, then):
+    """A `taken.` cell's lines after the take, and its output."""
+    return TAKEN_PLACES[pname].get("thens", {}).get(then, TAKEN_THENS[then])
+
+
+def taken_program(pname, then):
+    """The program for one `taken.` cell; None where the place lives in
+    no frame that owns `src`."""
+    pl = TAKEN_PLACES[pname]
+    lines, _ = taken_then(pname, then) or (None, None)
+    if lines is None or pl.get("run") and then == "drop":
+        return None
+    out = ["obj S\n  text: ?String\n  value: String\n", "obj H\n  s: S\n", "obj G\n  h: H\n"]
+    place = pl["place"]
+    take = pl.get("take", [f"t = replace(!{place}, S(text: \"\", value: String()))"])
+    body = take + [l.replace("P", place) for l in lines]
+    main = ['src = String("abc")'] + pl["setup"]
+    if pl.get("run"):
+        out.append("sub run(p: !H)\n" + indent(body, 2) + "\n")
+        main.append("run(!h)")
+    else:
+        main += body
+    out.append("sub main()\n" + indent(main, 2) + "\n")
+    return "\n".join(out)
+
+
 # A value that holds a read view of an owner (`holder.`), whatever
 # holds it, keeps the owner lent while the holder is used: the owner is
 # written, moved, or dropped while the holder is still used (rejected),
@@ -2422,6 +2494,9 @@ def program(tname, fname, cname):
         return None
     if "recv" in ctx and tname not in ctx["recv"] or tname not in ctx.get("types", (tname,)):
         return None
+    fallible = t.get("fallible", True)
+    if not fallible and (fname == "catch" or ctx.get("tail") == "catch"):
+        return None
     if "tail" in ctx:
         if fname != "call" or tname in ("int", "string", "static", "plain", "array", "simd"):
             return None
@@ -2441,7 +2516,8 @@ def program(tname, fname, cname):
     out.append(t["decls"])
     out.append("error E\n  bad\n")
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
-    out.append(f"fun fail(c: Bool) -> {fal(ty)}\n  return E.bad if c\n  mk(7)\n")
+    if fallible:
+        out.append(f"fun fail(c: Bool) -> {fal(ty)}\n  return E.bad if c\n  mk(7)\n")
     out.append(f"fun look(x: {rd(ty)}) -> Int\n  1\n")
     if fname in VIEW_FORMS and ("decl" in ctx or "tail" in ctx):
         return None
@@ -3314,6 +3390,23 @@ def main():
                 cells.append((ident, path))
     release = set()
     also = set()
+    for pname in TAKEN_PLACES:
+        for then in TAKEN_THENS:
+            ident = f"taken.{pname}.{then}"
+            if not wanted(ident):
+                continue
+            src = taken_program(pname, then)
+            if src is None:
+                skipped += 1
+                continue
+            path = os.path.join(work, ident.replace(".", "__") + ".rig")
+            with open(path, "w") as fh:
+                fh.write(src)
+            cells.append((ident, path))
+            expects[ident] = taken_then(pname, then)[1]
+            # A cell that runs must be accepted.
+            if then != "drop":
+                release.add(ident)
     for o in STEP_OWNERS:
         for hname in STEP_HOLDERS:
             for shape in STEP_SHAPES:

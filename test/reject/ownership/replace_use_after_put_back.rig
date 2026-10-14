@@ -1,0 +1,16 @@
+# `<taken` moves the value back into `s`; using `taken` afterwards is a
+# use after move.
+
+obj Scanner
+  text: ?String
+  pos: Int
+  value: String
+
+sub main()
+  src = "abc"
+  s = Scanner(text: ?src, pos: 1, value: String())
+  taken = replace(!s, Scanner(text: "", pos: 0, value: String()))
+  _ = replace(!s, <taken)
+  print(taken.pos)
+
+# error: 14:9: use of `taken` after move

@@ -3240,7 +3240,7 @@ const Checker = struct {
                 }
                 return self.err(pos, "`match` on `{s}` is not exhaustive: it misses `{d}`; {s}", .{ try self.tyName(scrutinee), next, fix });
             },
-            else => return self.err(pos, "`match` on `{s}` is not exhaustive; add `_ =>` for the values its arms miss", .{try self.tyName(scrutinee)}),
+            else => return self.err(pos, "`match` on `{s}` is not exhaustive; add `_ =>` for the values its arms miss", .{try self.tyName(ty)}),
         }
     }
 
@@ -5451,6 +5451,8 @@ const Checker = struct {
     fn movesBecause(self: *const Checker, ty: TypeId) []const u8 {
         if (sema.typeHasDropGlue(self.ctx, ty)) return "owns a resource";
         if (sema.holdsWriteView(self.ctx, ty)) return "holds a write view, which has one holder";
+        if (self.ctx.types.get(ty) == .any_error) return "is owning";
+        if (sema.holdsAnyError(self.ctx, ty)) return "holds an `error`, which is owning";
         return "is unique";
     }
 
@@ -9282,7 +9284,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
-                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns a copy of the value, and a `{s}` {s}, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value", .{ try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "owns what it must release" else self.movesBecause(elem) });
+                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns a copy of the value, and {s} `{s}` {s}, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value", .{ article(try self.tyName(elem)), try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "owns what it must release" else self.movesBecause(elem) });
                 }
             }
         }
@@ -9393,7 +9395,7 @@ const Checker = struct {
         if (ct) |b| return try self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
         if (!try self.writesElements(obj, obj_ty, peeled, method)) return try self.skipCall(args);
         if (op != .swap and try self.cannotCopy(elem, pos, "copies into the elements a value")) {
-            return try self.badCall(args, pos, "`{s}` copies values into the elements; a `{s}` {s}", .{ method, try self.tyName(elem), self.movesBecause(elem) });
+            return try self.badCall(args, pos, "`{s}` copies values into the elements; {s} `{s}` {s}", .{ method, article(try self.tyName(elem)), try self.tyName(elem), self.movesBecause(elem) });
         }
         for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         const want: usize = if (op == .swap) 2 else 1;
@@ -12670,6 +12672,8 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         // A `T!` holds a `T`; an error value meets it only as `return`'s
         // operand (`Checker.isReturnLeaf`).
         .fallible => |inner| return meets(ctx, actual, inner),
+        // `error` holds an error of any set.
+        .any_error => if (sema.isErrorSet(ctx, actual)) return true,
         // A `![]T` (or a `?[]T`) reads as the `[]T` it views.
         .slice => |want| switch (a) {
             .read_view, .write_view => |inner| if (inner == expected) return true,

@@ -1227,7 +1227,7 @@ pub const TypeResolver = struct {
     fn resolveReturnType(self: *TypeResolver, node: Sexp) Error!TypeId {
         if (node.isKind(.error_union)) {
             const inner = try self.resolveType(ir.ErrorUnion.type(node));
-            if (sema.isErrorSet(self.ctx, inner)) {
+            if (sema.isErrorValue(self.ctx, inner)) {
                 const e = try sema.formatType(self.ctx, inner);
                 try self.ctx.errAt(node, "`{s}!` would make a failure and a success both `{s}` values; return `{s}` or `{s}?`, or a struct that holds one", .{ e, e, e, e });
                 return self.ctx.types.invalid_id;
@@ -1900,6 +1900,8 @@ pub const TypeResolver = struct {
             .nil => return t.void_id,
             .src => |s| {
                 const name = identAt(self.ctx.source, sexp).?;
+                // The keyword `error` is the type of an error of any set.
+                if (std.mem.eql(u8, name, "error")) return t.any_error_id;
                 if (primitiveTypeId(self.ctx, name)) |id| return id;
                 if (sizedTypeId(self.ctx, name)) |id| return try id;
                 if (!self.nominal.isEmpty()) {
@@ -2616,6 +2618,8 @@ pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const 
     }
     // The read view of a `String` has no name of its own, but `@name` names it.
     try out.append(a, ctx.types.get(ctx.types.string_view_id));
+    // `error`, a keyword, is an error of any set.
+    try out.append(a, ctx.types.get(ctx.types.any_error_id));
     var buf: [4]u8 = undefined;
     for ("IUF") |prefix| for ([_]u8{ 8, 16, 32, 64, 128 }) |bits| {
         const ty = sizedType(std.fmt.bufPrint(&buf, "{c}{d}", .{ prefix, bits }) catch unreachable) orelse continue;
@@ -2629,7 +2633,7 @@ pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const 
 
 /// Whether `name` spells a built-in type: `Int`, `String`, `U8`, ...
 pub fn isBuiltinTypeName(ctx: *const SemContext, name: []const u8) bool {
-    return primitiveTypeId(ctx, name) != null or sizedTypeBits(name) != null;
+    return primitiveTypeId(ctx, name) != null or sizedTypeBits(name) != null or std.mem.eql(u8, name, "error");
 }
 
 /// Whether `name` spells a numeric type: `Int`, `Float`, or a sized one.

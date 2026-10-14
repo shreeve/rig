@@ -1,0 +1,77 @@
+# `error` holds an error of any set, wherever a type goes: a parameter,
+# a field, a result, an optional, and a List's element. It is owning in
+# every program: `<e` moves it, `+e` clones it, and a read lends it.
+
+error Net
+  timeout
+
+error Disk
+  full
+
+fun fetch(n: Int) -> Int!
+  return Net.timeout if n == 1
+  return Disk.full if n == 2
+  n
+
+obj Failure
+  at: Int
+  err: error
+
+fun describe(e: ?error) -> ?String
+  match e
+    Net.timeout => "net"
+    Disk.full => "disk"
+    _ => "other"
+
+fun first(fs: ?List[Failure]) -> error?
+  return none if fs.len == 0
+  +fs[0].err
+
+fun refail(e: error) -> Int!
+  return e
+
+fun name[T]() -> ?String
+  @name(T)
+
+fun pick(n: Int) -> error
+  return Net.timeout if n == 1
+  Disk.full
+
+sub main()
+  seen: List[error] = List()
+  log: List[Failure] = List()
+  for n in [1, 2, 3]
+    v = fetch(n) catch |e|
+      !log.push(Failure(at: n, err: +e))
+      !seen.push(<e)
+      0
+    print(v)
+  for e in seen
+    print(e, describe(?e))
+  print(log.len, log[1].at, log[1].err)
+  if first(?log) as f
+    print("first", f)
+    r = refail(<f) catch |e| 1 if e == Net.timeout else 2
+    print(r)
+  d = pick(2)
+  print(d == Disk.full, describe(?d))
+  kept: error? = none
+  kept = <d
+  print(kept)
+  print(@name(error), name[error](), name[List[error]?]())
+  more = List[error]()
+  print(more.len, @size(error) > 0)
+
+# expect:
+# 0
+# 0
+# 3
+# Net.timeout net
+# Disk.full disk
+# 2 2 Disk.full
+# first Net.timeout
+# 1
+# true disk
+# Disk.full
+# error error List[error]?
+# 0 true

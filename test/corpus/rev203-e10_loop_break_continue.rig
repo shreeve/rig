@@ -1,0 +1,19 @@
+obj S
+  text: ?String
+  value: String
+
+obj H
+  s: S
+
+sub main()
+  out: List[S] = List()
+  keep = String("k")
+  for i in 0..4
+    tmp = String("t", i)
+    s = S(text: ?keep, value: String())
+    s.text = ?tmp if i == 1
+    continue if i == 2
+    t = replace(!s, S(text: "", value: String()))
+    break if i == 3
+    !out.push(<t)
+  print(out[0].text)

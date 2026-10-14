@@ -576,9 +576,9 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   both starts and continues an operand (`<x` and `a < b`, `f(x)` and
 //   `(x)`, `?T` and `T?`, `.red` and `a.b`) is one token, and the parser
 //   tells the forms apart by where it stands. The lexer still reads
-//   position where the parser cannot: after a value (a name, a literal,
-//   `)`, `]`, or a `?` / `!` suffix) a character continues it; anywhere
-//   else it starts an operand, as a prefix:
+//   position where the parser cannot: after a value (a name, the type
+//   `error`, a literal, `)`, `]`, or a `?` / `!` suffix) a character
+//   continues it; anywhere else it starts an operand, as a prefix:
 //
 //     `|x| ...` starts a closure's bar list; after a value `|` is
 //     bitwise or.
@@ -1486,10 +1486,12 @@ pub const Lexer = struct {
 
 /// Token categories that end an operand: a `(` / `[` / `?` / `!` or
 /// another shared character after one of these continues it, as a
-/// call, an index, a suffix, or an infix operator.
+/// call, an index, a suffix, or an infix operator. The keyword `error`
+/// ends one as the type of any error, so `error?` is its optional.
 fn isValue(cat: TokenCat) bool {
     return switch (cat) {
         .ident,
+        .@"error",
         .integer,
         .real,
         .string_sq,

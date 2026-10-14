@@ -4250,7 +4250,8 @@ pub const Checker = struct {
     /// `replace(!place, v)` / `swap(!a, !b)`: the places are lent to write
     /// for the call, and `v` moves in. The two places of a `swap` may be
     /// different fields of one value (`swap(!t.left, !t.right)`); neither
-    /// may hold the other. The result holds no view.
+    /// may hold the other. `replace` is `t = <place; place = v`
+    /// (`takenValue`): its result is no view of the place.
     fn walkSwapCall(self: *Checker, args: []const Sexp, swap: bool) Error!Value {
         const start = self.temps.items.len;
         const first = try self.walkConsumed(args[0], .argument);
@@ -4269,16 +4270,25 @@ pub const Checker = struct {
         }
         const second = try self.walkConsumed(args[1], .argument);
         try self.temps.appendSlice(self.gpa, saved.items);
-        // The places hold no view, but may hold Strings: what `replace`
-        // hands back views what the place viewed, and each place now
-        // views what went in.
+        // What `replace` hands back views what the place's value viewed,
+        // and each place now views what went in.
         var result: Value = .{};
         const ty = self.exprType(args[1]);
-        if (!swap and self.mayCarryLoan(ty)) result = try self.carry(ty, first);
+        if (!swap and self.mayCarryLoan(ty)) result = try self.takenValue(args[0], ty, first);
         try self.absorbThroughWrites(first, second, self.startOf(args[1]), null, null);
         if (swap) try self.absorbThroughWrites(second, first, self.startOf(args[0]), null, null);
         self.temps.shrinkRetainingCapacity(start);
         return result;
+    }
+
+    /// What `replace(!p, v)` hands back, as `t = <p; p = v` takes it: the
+    /// value that was in `p`, which carries what `p`'s value held and no
+    /// loan on `p`, as `walkTake` gives `<p.f`. A place no var holds
+    /// (`!f().x`) is known only by the loans of its view.
+    fn takenValue(self: *Checker, lend: Sexp, ty: ?TypeId, first: Value) Error!Value {
+        const inner = if (lend.isKind(.write)) ir.Write.operand(lend) else lend;
+        const place = self.resolvePlace(inner) orelse return self.carry(ty, first);
+        return self.carry(ty, self.varValue(place.root));
     }
 
     /// `!a[i]` and `!a[j]`: write views of two elements of the one
@@ -5849,7 +5859,7 @@ pub const Checker = struct {
             .parameterized_nominal => |pn| ctx.symbols.items[pn.sym].name,
             else => if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value",
         };
-        if (!sema.typeHasDropGlue(ctx, t)) {
+        if (!sema.typeHasDropGlue(ctx, t) and sema.isUnique(ctx, t)) {
             // An array of unique values is named by its element.
             var elem = inner;
             while (ctx.types.get(elem) == .array or ctx.types.get(elem) == .optional) elem = switch (ctx.types.get(elem)) {
