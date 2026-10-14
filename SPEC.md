@@ -545,7 +545,10 @@ array literal and fill whose value no binding takes directly, and every
 call of a function or method (twice when a binding takes its result,
 since a debug build holds it in a temporary first). The frames of the
 small functions inlined into it count too, and a call that would take
-the frame over the limit is not inlined. This holds for every function,
+the frame over the limit is not inlined; a call of a function marked
+`inline` ([Function markers](#function-markers)) is, and the frame over
+the limit is an error. (A marked function generic over a type has a
+frame for each instance, which its callers' frames do not count.) This holds for every function,
 method, closure (whose captures count where it is made), test, and
 `main`, and for each instance of a generic one. The stack holds 16 MiB,
 and the frames below the one that overflows need room too. Only one
@@ -1276,6 +1279,95 @@ where a `fun(...)` or `sub(...)` is expected ([§11](#function-types)).
 Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
 name.
+
+### Function markers
+
+A function may be marked, before its `fun` or `sub`, with one of two
+words that ask for a speed and never change what the program means:
+
+- `inline fun` inlines the function at every call: its body is compiled
+  into each caller, whatever its size. A call means what it means
+  without the marker: its arguments are evaluated in order, a check on
+  them panics when the program runs (never when it compiles), and an
+  owned argument is moved in and dropped as in a call.
+- `rarely fun` says the function is rarely called, so the code that
+  calls it is laid out for the case that does not: the function stays
+  out of line, and the compiler never inlines it by its own rule.
+
+Without a marker the compiler decides which small functions to inline
+([INTERNALS](docs/INTERNALS.md), "Inlining"). A marker applies to every
+instance of a function with compile-time parameters, and a method
+takes one as any function does, in its type's body or outside it.
+
+```rig
+inline fun clamp(x: Int, lo: Int, hi: Int) -> Int
+  lo if x < lo else hi if x > hi else x
+
+rarely fun report(n: Int) -> Int
+  print("out of range:", n)
+  0
+
+fun scan[strict: Bool](xs: ?List[Int]) -> Int
+  total = 0
+  for x in xs
+    if x > 99
+      total += report(x) if strict else clamp(x, 0, 99)
+    else
+      total += clamp(x, 0, 99)
+  total
+
+sub main()
+  xs = List[Int]()
+  !xs.push(5)
+  !xs.push(-3)
+  !xs.push(120)
+  print(scan[true](xs), scan[false](xs))
+```
+
+```output
+out of range: 120
+5 104
+```
+
+An `inline` function has no address, so it is only called: naming it
+as a value is an error, and a closure that calls it is a value. One
+that calls itself, directly or through other `inline` functions, cannot
+be inlined into itself, and is an error; a cycle through a function
+that is not `inline` is a call there. A function's frame counts the
+`inline` functions inlined in it, and one over the limit
+([§2](#arrays)) is an error.
+
+```rig reject
+inline fun count(n: Int) -> Int
+  0 if n == 0 else 1 + count(n - 1)
+
+inline fun next(n: Int) -> Int
+  n + 1
+
+sub main()
+  f = next
+  print(count(3), f(1))
+```
+
+```error
+`next` is `inline`, inlined at every call, so it can only be called, not used as a value
+```
+
+A function takes one marker: `inline rarely fun` is an error. The
+program's `main`, which the program calls once, takes none, and neither
+does an `extern zig` function, whose body is Zig's.
+
+```rig reject
+inline rarely fun f() -> Int
+  1
+
+sub main()
+  print(f())
+```
+
+```error
+a function takes one marker
+```
 
 ### Structs
 

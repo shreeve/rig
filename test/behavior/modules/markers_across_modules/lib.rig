@@ -1,0 +1,17 @@
+pub obj Point
+  pub x: Int
+  pub y: Int
+
+  pub inline fun sum(?self) -> Int
+    self.x + self.y
+
+pub inline fun scale(n: Int, k: Int) -> Int
+  n * k
+
+pub rarely fun warn(n: Int) -> Int
+  print("warn", n)
+  0 - n
+
+# Of one name with `main`'s, which it does not call.
+pub inline fun twice(n: Int) -> Int
+  scale(n, 2)

@@ -1,0 +1,10 @@
+# A function takes one marker: `inline` and `rarely` contradict each other.
+
+inline rarely fun f(x: Int) -> Int
+  x
+
+sub main()
+  print(f(1))
+
+# error: 3:8: a function takes one marker
+# errors: 1

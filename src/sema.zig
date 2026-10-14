@@ -478,7 +478,10 @@ pub const SymbolFlags = packed struct(u16) {
     /// Typecheck decided the binding's access (`Symbol.access`, null
     /// included): a `match`, `as`, or loop binding.
     access_decided: bool = false,
-    _: u2 = 0,
+    /// A function declared `inline fun`: it has no address, so it is only
+    /// called, never a value.
+    inline_marked: bool = false,
+    _: u1 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -511,6 +514,8 @@ pub const Field = struct {
     /// A field or method declared `pub`, which other modules may use.
     /// (Variants and their payload fields are always visible.)
     is_pub: bool = false,
+    /// A method declared `inline fun`, which is only called.
+    inline_marked: bool = false,
 };
 
 pub const Symbol = struct {
@@ -7228,7 +7233,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@"inline", .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.

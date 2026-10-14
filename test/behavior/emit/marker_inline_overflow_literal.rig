@@ -1,0 +1,18 @@
+# A function marked `inline` keeps its run-time checks when a call passes
+# a literal, as one the compiler inlines does: the sum overflows when the
+# program runs, not when Zig compiles it.
+
+inline fun next(n: Int) -> Int
+  m = n
+  m += 1
+  m
+
+sub main()
+  print(next(41))
+  print(next(9223372036854775807))
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 42

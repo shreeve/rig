@@ -3686,7 +3686,7 @@ const Checker = struct {
                     try self.errAt(leaf, entry_point_use, .{});
                     return self.t().invalid_id;
                 }
-                return self.functionValue(sym.ty, s, leaf.src.pos);
+                return self.functionValue(sym.ty, s, leaf.src.pos, sym.flags.inline_marked);
             },
             else => return sym.ty,
         }
@@ -3700,8 +3700,13 @@ const Checker = struct {
     }
 
     /// A function named as a value. One with compile-time parameters has
-    /// an instance per call, and no single function value.
-    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32) Error!TypeId {
+    /// an instance per call, and no single function value; an `inline fun`
+    /// is inlined at every call, and has no address.
+    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32, inline_marked: bool) Error!TypeId {
+        if (inline_marked) {
+            try self.err(pos, "`{s}` is `inline`, inlined at every call, so it can only be called, not used as a value; to pass it, wrap the call in a closure", .{name});
+            return self.t().invalid_id;
+        }
         const f = self.ctx.types.get(ty);
         if (f == .function and f.function.ct_params.len != 0) {
             try self.err(pos, "`{s}` takes compile-time parameters, so it can only be called, not used as a value", .{name});
@@ -5736,7 +5741,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos);
+        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos, found.sym.flags.inline_marked);
         return ty;
     }
 
@@ -5847,7 +5852,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
-                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
+                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos, m.inline_marked);
             }
             if (!m.is_variant) break :found;
             if (nt.sym.kind == .generic_type and nt.args == null) {

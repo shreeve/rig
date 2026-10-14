@@ -1,0 +1,77 @@
+# `inline` and `rarely` mark a function before its `fun` or `sub`: a
+# module's function, a public one, a method in its type's body or outside
+# it, and a function with compile-time parameters. They ask for a speed
+# and change no meaning, and anywhere else each word is a name.
+
+inline fun add(a: Int, b: Int) -> Int
+  a + b
+
+rarely sub report(what: ?String, n: Int)
+  print(what, n)
+
+pub inline fun double(x: Int) -> Int
+  x * 2
+
+pub rarely fun fallback(x: Int) -> Int
+  x - 1
+
+obj Counter
+  n: Int
+  inline: Int
+
+  inline fun get(?self) -> Int
+    self.n + self.inline
+
+  rarely sub reset(!self)
+    self.n = 0
+
+  fun rarely(?self) -> Int
+    self.inline * 10
+
+inline fun Counter.bumped(?self, by: Int) -> Int
+  self.n + by
+
+rarely sub Counter.clear(!self)
+  self.inline = 0
+
+obj Wrap[T]
+  value: T
+
+  inline fun get(?self) -> T
+    self.value
+
+rarely fun Wrap[T].peek(?self) -> T
+  self.value
+
+inline fun larger[T](a: T, b: T) -> T
+  a if a > b else b
+
+rarely fun scaled[k: Int](x: Int) -> Int
+  x * k
+
+fun rarely(inline: Int) -> Int
+  inline + 1
+
+sub main()
+  inline = 3
+  rare = rarely(inline)
+  print(add(inline, rare), double(rare), fallback(rare))
+  report("count", inline)
+  c = Counter(n: 5, inline: 2)
+  print(c.get(), c.rarely(), c.bumped(10))
+  !c.reset()
+  !c.clear()
+  print(c.get())
+  w = Wrap[Int](value: 7)
+  print(w.get(), w.peek())
+  print(larger(3, 9), larger("a", "b"), scaled[3](4), scaled[5](4))
+
+# release
+
+# expect:
+# 7 8 3
+# count 3
+# 7 20 15
+# 0
+# 7 7
+# 9 b 12 20

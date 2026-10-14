@@ -441,14 +441,16 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
-    try graph.writeAllDiagnostics(&writer.interface);
-    try writer.interface.flush();
-    const failed = graph.hasErrors();
-    if (!failed) {
+    // Inlining is decided for a program with no errors, and reports a
+    // marked `inline` function Zig cannot inline.
+    if (!graph.hasErrors()) {
         const t1 = timing.start(times);
         try inlining.decide(allocator, &graph, inlining.max_size);
         timing.stop(times, .inlining, t1);
     }
+    try graph.writeAllDiagnostics(&writer.interface);
+    try writer.interface.flush();
+    const failed = graph.hasErrors();
     if (times) |t| {
         try t.write(&writer.interface, @intCast(@max(t0.?.durationTo(t.now()).nanoseconds, 0)));
         try writer.interface.flush();

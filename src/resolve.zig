@@ -98,7 +98,8 @@ const SymbolResolver = struct {
                 if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].flags.is_public = true;
             },
             .fun, .sub => {
-                _ = try self.declare(ir.get(sexp, .name), .function, .{});
+                const id = try self.declare(ir.get(sexp, .name), .function, .{ .inline_marked = rig.markerOf(sexp) == .@"inline" });
+                if (id) |sym| try self.checkMarker(sexp, self.ctx.symbols.items[sym]);
                 try self.walkFun(sexp);
             },
             .lambda => try self.walkLambda(sexp),
@@ -111,7 +112,12 @@ const SymbolResolver = struct {
             .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
             .zig_extern => {
                 if (!self.ctx.is_std) try self.ctx.errAt(sexp, "only the standard library binds declarations to Zig code with `extern zig`; write the function in Rig, or declare a C function with `extern fun` and call it in a `raw` block", .{});
-                for (ir.ZigExtern.decls(sexp)) |d| try self.walk(d);
+                for (ir.ZigExtern.decls(sexp)) |d| {
+                    const f = if (d.isKind(.@"pub")) ir.Pub.decl(d) else d;
+                    const m = rig.markerOf(f);
+                    if (m != .none) try self.ctx.errAt(ir.get(f, .mark), "`{s}` is an `extern zig` function, whose body is Zig code: it takes no `{s}`", .{ identAt(self.ctx.source, ir.get(f, .name)) orelse "", @tagName(m) });
+                    try self.walk(d);
+                }
             },
             .@"test" => try self.walkTest(sexp),
             .set => try self.walkSet(sexp),
@@ -130,6 +136,16 @@ const SymbolResolver = struct {
             .arm => try self.walkArm(sexp),
             .@"catch" => try self.walkCatch(sexp),
             else => for (rig.children(sexp)) |c| try self.walk(c),
+        }
+    }
+
+    /// A marker the declaration cannot take: the program's `main`, which
+    /// only the program calls, once, takes none.
+    fn checkMarker(self: *SymbolResolver, node: Sexp, sym: sema.Symbol) Error!void {
+        const m = rig.markerOf(node);
+        if (m == .none) return;
+        if (self.ctx.is_root and sym.scope == sema.module_scope and std.mem.eql(u8, sym.name, "main")) {
+            try self.ctx.errAt(ir.get(node, .mark), "`main` is the program's entry point, which the program calls once: it takes no `{s}`", .{@tagName(m)});
         }
     }
 
@@ -1751,6 +1767,7 @@ pub const TypeResolver = struct {
             .decl_pos = mpos,
             .is_method = true,
             .is_pub = self.isPubMember(node),
+            .inline_marked = rig.markerOf(node) == .@"inline",
             .receiver = receiver,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),

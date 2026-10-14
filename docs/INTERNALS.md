@@ -200,7 +200,7 @@ the finished semantic IR.
 
 ### Keywords
 
-The reserved words (all but `new`, `obj` and `of`) are literal lexer
+The reserved words (all but `new`, `obj`, `inline`, `rarely`, and `of`) are literal lexer
 rules in `rig.grammar` ahead of the identifier rule (`"if" → if`), so
 the lexer's DFA classifies them; `src/rig.zig` keeps no keyword table and
 checks token categories. `new` and `obj` need the next token to be told
@@ -212,6 +212,17 @@ state accepts both and promotion would turn every statement-initial
 `obj` into the keyword. `struct` is an ordinary name; a declaration
 written `struct Name` fails to parse and is reported with the word to
 write (`foreignWord` in the Parser wrapper).
+
+`inline` and `rarely`, a function's markers, are contextual in the
+wrapper for the same reason as `obj`: each is a keyword only at the start
+of a declaration (after any `pub`) when the next token is `fun` or `sub`,
+and a name everywhere else, so no program that names something `inline`
+or `rarely` changes. Two markers before one `fun` (`inline rarely fun`)
+are the lexer's error `two_markers`. The grammar takes one optional
+`mark` before `FUN` or `SUB` in every function form (`fun`, `sub`,
+`method`, and `zfun`, which sema rejects) and builds it as the node
+`(inline)` or `(rarely)` in the `mark` role of `fun` and `sub`; it adds
+no conflict.
 
 `unique`, `from` and `static` are contextual. `@keywords ctx unique from
 static` with `@as IDENT = [ctx!]` lets the parser accept each wherever a
@@ -267,7 +278,8 @@ detached sigil, is the one reported.
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | `while c : step` vs `?? break :outer`, `break :outer` | `STEP_COLON` vs `:` | the first `:` at a `while` header's bracket depth starts its step; any other `:` after a jump names a label, and the grammar takes a label after every `break` and `continue` |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
-| keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts |
+| keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `inline` and `rarely` only there before `fun` or `sub` |
+| `inline fun f()`, `pub rarely sub s()` vs `inline = 3`, `p.rarely`, `fun inline()` | `INLINE`, `RARELY` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
 | `obj Point`, `pub obj Pair[T]` vs `obj = 5`, `obj.x`, `f(obj: 1)` | `OBJ` vs `IDENT` | `obj` is a keyword at the start of a statement (after any `pub`) when a name follows it on the line; the parser's `@keywords` promotion cannot tell the two apart by state, since a statement may start with either |
 | `b\n  .add(1)` vs `match c\n  .red => 1` | no token | a line starting with `.` and a name, indented deeper than the statement above it, is joined to it (no `NEWLINE`, no `INDENT`) when that statement is complete and opens no block; see The lexer rewriter |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
@@ -3271,7 +3283,32 @@ symbols); a query that decides more than that belongs in `Pending`.
   `inlining.decide` decides it once for the whole program, after every
   module is checked, and emit reads it as `Facts.isInlined`. LLVM leaves a
   small hot helper a call once its body grows, and pays the prologue and a
-  stack protector at each call. A function is inlined when
+  stack protector at each call.
+
+  A function's marker comes first (SPEC.md, "Function markers"). One
+  marked `inline fun` is inlined whatever the rule below says: its size,
+  its expansion, its compile-time type parameters, a generic owner, a
+  closure in it, and the 64 KiB a caller may add are waived, and no step
+  of the rule stops inlining it. What Zig cannot inline is an error, in
+  the pass that knows it: a value use of it (`typecheck`, where every
+  function value is typed: `functionValue`, by the `inline_marked` flag
+  of its symbol or method), the root's `main` and an `extern zig`
+  function (`resolve`), and in `decide`, a cycle of calls among marked
+  `inline` functions (`forcedCycles`) and a caller whose frame with them
+  in it passes `sema.max_frame_bytes` (`fit`, `frameError`). For the
+  cycle and the frames, a marked function's calls resolve to the one
+  function they reach where the receiver's type, a module, or a type of
+  this module names it (`exactCallee`); the rule's calls by name would
+  make two `inline` methods of one name on two types a cycle. A function
+  marked `rarely fun` is never inlined by the rule, and emit starts its
+  body with `@branchHint(.cold);` before the evaluation budget, the one
+  place Zig takes the hint for a whole function: Zig 0.17 then gives
+  the function LLVM's `cold` attribute, so its callers lay out the call
+  as the unlikely path and LLVM does not inline it. Neither marker
+  changes what the checker walks: a marked function is the same function
+  called, and its calls are read through `rig.rt` as any inlined one's.
+
+  Without a marker, a function is inlined when
 
   - its body has at most `inlining.max_size` (60) nodes, counting each
     form of the tree once (a call, an operator, a binding, an `if`),

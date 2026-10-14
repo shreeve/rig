@@ -1,9 +1,16 @@
 //! Which functions are emitted `inline`: decided once, for the whole
 //! program, after every module is checked (docs/INTERNALS.md, "Inlining").
 //!
+//! A function marked `inline fun` is emitted `inline fn`, whatever its
+//! size, and one marked `rarely fun` never is; the rule below decides the
+//! rest. A marked `inline` function on a cycle of calls of `inline`
+//! functions is an error, and so is a function whose frame the marked
+//! ones push over `sema.max_frame_bytes`: the sizes below never undo a
+//! marker, they only choose among the functions the compiler picked.
+//!
 //! Zig inlines a small function only when asked, and LLVM leaves a
-//! small hot helper as a call when its body grows. A `fun` or `sub` is
-//! emitted as an `inline fn` when
+//! small hot helper as a call when its body grows. A `fun` or `sub` with
+//! no marker is emitted as an `inline fn` when
 //!
 //!   - its body has at most `max_size` nodes (`size`),
 //!   - it is not on a cycle of calls, directly or through others,
@@ -67,6 +74,15 @@ const Fn = struct {
     size: u32 = 0,
     /// Whether the declaration alone allows inlining.
     eligible: bool,
+    /// Its marker: `inline` inlines it at every call, `rarely` never.
+    marker: rig.Marker,
+    /// A member of a type, not a module's function.
+    member: bool,
+    /// What its calls reach, resolved to the function where the receiver's
+    /// type or the module names it, else to the group (`exactCallee`).
+    exact: std.ArrayList(Callee) = .empty,
+    /// The search for cycles of marked `inline` functions (`forcedCycles`).
+    color: enum { white, gray, black } = .white,
     /// Mentioned other than as a callee.
     used_as_value: bool = false,
     /// What its calls reach, once for each call (`Callee`).
@@ -163,6 +179,8 @@ const Pass = struct {
     // visit.
     epoch: u32 = 0,
     work: std.ArrayList(Callee) = .empty,
+    /// The cycles of marked `inline` functions reported.
+    cycles: u32 = 0,
 
     fn ctx(self: *Pass, module: usize) *const SemContext {
         return self.mods[module].sema;
@@ -199,7 +217,8 @@ const Pass = struct {
         const name = textOf(c, name_node);
         const body = ir.get(node, .body);
         const is_main = !member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
-        const eligible = body != .nil and !is_main and !generic_owner and onlyValueParams(node);
+        const marker = rig.markerOf(node);
+        const eligible = body != .nil and !is_main and !generic_owner and onlyValueParams(node) and marker != .rarely;
         const idx: u32 = @intCast(self.fns.items.len);
         const pos = c.startOf(name_node);
         const gop = try self.by_name.getOrPut(self.a, name);
@@ -214,6 +233,8 @@ const Pass = struct {
             .name = name,
             .pos = pos,
             .eligible = eligible,
+            .marker = marker,
+            .member = member,
             .size = if (body != .nil) size(body) else 0,
             .group = gop.value_ptr.*,
         });
@@ -275,10 +296,12 @@ const Pass = struct {
         const raw = ir.Call.callee(call);
         const callee = c.calleeOf(call);
         var target: ?Callee = null;
+        var exact: ?Callee = null;
         switch (callee.kind() orelse .set) {
             .member => {
                 try self.visit(module, cur, ir.Member.object(callee));
                 target = self.named(textOf(c, ir.Member.name(callee)));
+                exact = self.exactCallee(module, callee);
             },
             else => if (callee == .src) {
                 const id = c.symbolOf(callee);
@@ -303,11 +326,100 @@ const Pass = struct {
                 if (cur) |from| try f.callers.append(self.a, from);
             }
             if (cur) |from| try self.fns.items[from].calls.append(self.a, t);
+            if (cur) |from| try self.fns.items[from].exact.append(self.a, exact orelse t);
             if (call.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = call.list.id, .callee = t });
         }
         // The bracket list of a generic call, `f[T](x)`.
         if (raw.isKind(.inst)) for (raw.items()[2..]) |a| try self.visit(module, cur, a);
         for (ir.Call.args(call)) |a| try self.visit(module, cur, a);
+    }
+
+    /// The one function a call `object.name(...)` reaches, where the
+    /// object's type declares the method, or the object is a module or a
+    /// type of this module that declares the function: null where the
+    /// call resolves by name alone.
+    fn exactCallee(self: *Pass, module: usize, callee: Sexp) ?Callee {
+        const c = self.ctx(module);
+        const obj = ir.Member.object(callee);
+        const name = textOf(c, ir.Member.name(callee));
+        // A method of the receiver's type.
+        if (c.typeOf(obj)) |t| if (sema.nominalDecl(c, t)) |nom| {
+            const fields = nom.symbol().fields orelse return null;
+            const i = sema.memberIn(nom.ctx, fields, name, .method) orelse return null;
+            for (self.mods, 0..) |m, mi| if (m.sema == nom.ctx) return self.by_pos[mi].get(fields[i].decl_pos);
+            return null;
+        };
+        if (obj != .src) return null;
+        const id = c.symbolOf(obj) orelse return null;
+        const s = c.symbols.items[id];
+        switch (s.kind) {
+            // `Type.method(...)`, a type of this module.
+            .nominal_type => {
+                const fields = s.fields orelse return null;
+                const i = sema.memberIn(c, fields, name, .method) orelse return null;
+                return self.by_pos[module].get(fields[i].decl_pos);
+            },
+            // `module.f(...)`.
+            .module => {
+                const origin = c.module_refs.get(id) orelse return null;
+                const g = self.by_name.get(name) orelse return null;
+                for (self.groups.items[g].members.items) |f| {
+                    const fun = self.fns.items[f];
+                    if (!fun.member and self.mods[fun.module].id == origin) return f;
+                }
+                return null;
+            },
+            else => return null,
+        }
+    }
+
+    /// Report each cycle of calls whose functions are all marked `inline`,
+    /// which Zig cannot inline into itself, once, at the function it
+    /// returns to. A call reaches what `exactCallee` resolves it to, else
+    /// every function of its name.
+    fn forcedCycles(self: *Pass) !bool {
+        for (self.fns.items, 0..) |f, v| {
+            if (f.marker == .@"inline" and f.color == .white) try self.forcedVisit(@intCast(v));
+        }
+        return self.cycles > 0;
+    }
+
+    fn forcedVisit(self: *Pass, v: u32) !void {
+        self.fns.items[v].color = .gray;
+        try self.stack.append(self.a, v);
+        for (self.fns.items[v].exact.items) |t| {
+            const one = [1]u32{t};
+            const reached: []const u32 = if (t & group_bit != 0) self.groups.items[t & ~group_bit].members.items else &one;
+            for (reached) |w| {
+                if (self.fns.items[w].marker != .@"inline") continue;
+                switch (self.fns.items[w].color) {
+                    .white => try self.forcedVisit(w),
+                    .gray => try self.cycleError(w),
+                    .black => {},
+                }
+            }
+        }
+        _ = self.stack.pop();
+        self.fns.items[v].color = .black;
+    }
+
+    /// The cycle on the search's stack from `w` back to it.
+    fn cycleError(self: *Pass, w: u32) !void {
+        self.cycles += 1;
+        const f = self.fns.items[w];
+        const c = self.mods[f.module].sema;
+        const at = std.mem.lastIndexOfScalar(u32, self.stack.items, w).?;
+        const path = self.stack.items[at + 1 ..];
+        if (path.len == 0) {
+            try c.err(f.pos, "`{s}` is `inline` and calls itself, so no call of it can be inlined; drop `inline`", .{f.name});
+            return;
+        }
+        var through: std.ArrayList(u8) = .empty;
+        for (path, 0..) |g, i| {
+            if (i > 0) try through.appendSlice(self.a, ", ");
+            try through.print(self.a, "`{s}`", .{self.fns.items[g].name});
+        }
+        try c.err(f.pos, "`{s}` is `inline` and calls itself through {s}, also `inline`, so no call of it can be inlined; drop `inline` from one of them", .{ f.name, through.items });
     }
 
     /// The group of the functions named `name`, which a call that resolves
@@ -328,11 +440,20 @@ const Pass = struct {
         }
     }
 
+    /// What the calls of `v` reach, for its frame and its expansion: a
+    /// marked `inline` function's resolved where they can be (`exact`),
+    /// on which no cycle of them is left (`forcedCycles`); any other's by
+    /// name, on which no inlined function is on a cycle.
+    fn out(self: *const Pass, v: u32) []const Callee {
+        const f = &self.fns.items[v];
+        return if (f.marker == .@"inline") f.exact.items else f.calls.items;
+    }
+
     /// What the calls of `v` that are inlined add to its frame: the sum, over
     /// its call sites, of the frame of each inlined callee.
     fn added(self: *Pass, v: u32) u128 {
         var total: u128 = 0;
-        for (self.fns.items[v].calls.items) |t| total += self.calleeFrame(t);
+        for (self.out(v)) |t| total += self.calleeFrame(t);
         return total;
     }
 
@@ -363,7 +484,7 @@ const Pass = struct {
     fn expanded(self: *Pass, v: u32) u64 {
         if (self.fns.items[v].weight) |w| return w;
         var total: u64 = self.fns.items[v].size;
-        for (self.fns.items[v].calls.items) |t| total += self.calleeWeight(t);
+        for (self.out(v)) |t| total += self.calleeWeight(t);
         self.fns.items[v].weight = total;
         return total;
     }
@@ -405,12 +526,17 @@ const Pass = struct {
     /// from that function, not from the first, and forgets only the frames
     /// and expansions that counted the call no longer inlined
     /// (`uninline`).
+    ///
+    /// A function marked `inline` stays inlined: no rule undoes it, and
+    /// only the hard limit on a frame, `sema.max_frame_bytes`, holds with
+    /// it, as an error (`frameError`) once no other inlined call is left
+    /// to stop inlining.
     fn fit(self: *Pass) !void {
         var i: usize = 0;
         while (i < self.fns.items.len) {
             const v: u32 = @intCast(i);
             const f = &self.fns.items[i];
-            if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
+            if (f.inlined and f.marker != .@"inline" and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
                 try self.uninline(v);
                 continue;
             }
@@ -421,27 +547,44 @@ const Pass = struct {
             // The largest of the inlined calls, the first of them in the
             // order of the calls and of a group's functions.
             var biggest: ?u32 = null;
-            for (f.calls.items) |t| {
+            for (self.out(v)) |t| {
                 const w = self.largest(t) orelse continue;
                 if (biggest == null or self.frame(w) > self.frame(biggest.?)) biggest = w;
             }
-            try self.uninline(biggest.?);
+            if (biggest) |w| {
+                try self.uninline(w);
+                continue;
+            }
+            if (f.own + self.added(v) > sema.max_frame_bytes) try self.frameError(v);
+            i += 1;
         }
     }
 
+    /// `v`'s frame with the marked `inline` functions in it is over the
+    /// hard limit.
+    fn frameError(self: *Pass, v: u32) !void {
+        const f = self.fns.items[v];
+        try self.mods[f.module].sema.err(f.pos, "`{s}` would keep {d} bytes on its stack with the `inline` functions it calls inlined in it, more than the {d} a function may; drop `inline` from one of them", .{ f.name, f.own + self.added(v), sema.max_frame_bytes });
+    }
+
     /// The inlined function a call of `t` reaches with the largest frame,
-    /// the first of them in a group's order.
+    /// the first of them in a group's order, of those not marked `inline`.
     fn largest(self: *Pass, t: Callee) ?u32 {
-        if (t & group_bit == 0) return if (self.fns.items[t].inlined) t else null;
+        if (t & group_bit == 0) return if (self.undoable(t)) t else null;
         const gi = t & ~group_bit;
         if (self.groups.items[gi].top) |top| return top.fun;
         var best: ?u32 = null;
         for (self.groups.items[gi].members.items) |w| {
-            if (!self.fns.items[w].inlined) continue;
+            if (!self.undoable(w)) continue;
             if (best == null or self.frame(w) > self.frame(best.?)) best = w;
         }
         self.groups.items[gi].top = .{ .fun = best };
         return best;
+    }
+
+    /// Inlined by the rule, not by a marker, so `fit` may stop inlining it.
+    fn undoable(self: *const Pass, w: u32) bool {
+        return self.fns.items[w].inlined and self.fns.items[w].marker != .@"inline";
     }
 
     /// Stop inlining `w`, and forget the frame and expansion of every
@@ -580,7 +723,8 @@ fn holdsClosure(e: Sexp) bool {
 
 /// Decide, for every module of a program with no errors, which functions
 /// are emitted `inline`, and record them in the modules' contexts.
-/// `max` is the largest body to inline (`max_size`).
+/// `max` is the largest body to inline (`max_size`). A marked `inline`
+/// function Zig cannot inline is reported in its module's diagnostics.
 pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u32) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -601,7 +745,16 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
             continue;
         };
     }
+    // A cycle of marked `inline` functions is an error, and the program
+    // is not emitted.
+    if (try pass.forcedCycles()) return;
     for (pass.fns.items, 0..) |*f, v| {
+        // A marked `inline` function is never a value (typecheck rejects
+        // one), and one on a cycle of marked ones is an error above.
+        if (f.marker == .@"inline") {
+            f.inlined = true;
+            continue;
+        }
         if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > max) continue;
         if (f.own > max_inlined_frame_bytes) continue;
         f.inlined = true;

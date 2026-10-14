@@ -1,0 +1,12 @@
+# A function is declared at module level, marked or not; a test block
+# holds statements.
+
+test "inner"
+  inline fun sq(x: Int) -> Int
+    x * x
+  print(sq(3))
+
+sub main()
+  pass
+
+# error: 5:3: declarations are only allowed at module level
