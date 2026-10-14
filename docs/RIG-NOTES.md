@@ -131,9 +131,11 @@ tools that take them in `bench/json/`.
     compilation on os, arch, and CPU features (on the roadmap).
     *Built for the arch: `use std.target`, then
     `TIER = 0 if target.arch == .x86_64 else 16`, a choice Zig makes
-    per target (SPEC, "The target"); std.json's first user is the vector
-    string scan, 6% faster by geomean on x86_64 from the first byte. The
-    os and CPU features are still open.*
+    per target (SPEC, "The target"). std.json measured its vector string
+    scan from the first byte (`TIER = 0`) 6% faster by geomean on x86_64
+    (exclusive timing on pup, 2026-10-13), and 5-9% slower on three files
+    on the Mac, which keeps 16; it moves to `target.arch` once this
+    lands. The os and CPU features are still open.*
 13. **No String write window.** Copying the text between escapes 16
     bytes at a time needs "store a block, keep k bytes". *Fixed (#150,
     `!t.push(v, keep: k)`).*

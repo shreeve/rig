@@ -6792,7 +6792,14 @@ const Checker = struct {
         if (self.isPoison(from)) return target;
         if (self.enumValues(from)) |plain| {
             const shown = try self.plainText(arg);
-            if (!plain) {
+            const bare = sema.unwrapViews(self.ctx, from);
+            const builtin = switch (self.ctx.types.get(bare)) {
+                .nominal => |sym| sema.isBuiltinEnum(self.ctx, sym),
+                else => false,
+            };
+            if (builtin) {
+                try self.errAt(arg, "`{s}(x)` takes a declared enum's value; the built-in enum `{s}` has no integer value", .{ name, try self.tyName(bare) });
+            } else if (!plain) {
                 try self.errAt(arg, "`{s}(x)` takes a plain enum's value; `{s}` has variants with payloads, which have no integer value", .{ name, try self.tyName(sema.unwrapViews(self.ctx, from)) });
             } else if (self.ctx.types.get(target) != .int) {
                 try self.errAt(arg, "`{s}(x)` converts an enum's value to an integer type only; write `{s}(Int(...))`", .{ name, name });
