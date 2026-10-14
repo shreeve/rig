@@ -1,0 +1,22 @@
+# The closure may store `r`, a view of `p.b`, through `w`, a write view
+# of `p.a`: making it would leave `p` holding a view of itself.
+
+obj Holder
+  t: ?String
+
+obj P
+  a: Holder
+  b: String
+
+sub main()
+  p = P(a: Holder(t: ""), b: String("x"))
+  r = ?p.b
+  w = !p.a
+  g = |!w, ?r|
+    w.t = r
+  g()
+  print(p.a.t)
+
+# error: 15:9: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
+# errors: 1
+# oracle: main reject C9

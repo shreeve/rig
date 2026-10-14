@@ -3897,9 +3897,10 @@ pub const Checker = struct {
         if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
         // A value never holds a view of itself (Core §5): a part of `id`
         // may not take a loan on a part of `id`.
-        for (value.loans) |l| if (l.root == id and !l.ext) {
-            return self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
-        };
+        if (try self.selfViewIn(id, value.loans, &.{}, &.{})) |l| {
+            try self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
+            return self.noteLoan(l);
+        }
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
         if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
         if (v.ref != .none or place.through_view or place.through_shared or self.isGlobal(id)) {
@@ -4277,8 +4278,14 @@ pub const Checker = struct {
                     try self.storeThroughLend(lent, stored, pos);
                 }
             }
-            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
-            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
+            // Only a value that can write leads a store: a write lend, or a
+            // value holding a write view. A read view that carries the
+            // write loans of what reached it (a parameter's own, a write
+            // view's) writes nothing.
+            if (callee.isKind(.member) and self.carriesWriteView(self.exprType(ir.Member.object(callee)))) try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
+            for (args, arg_values) |a, v| {
+                if (self.carriesWriteView(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
+            }
         }
 
         // The views passed to the call end when it returns, unless its
@@ -4658,9 +4665,7 @@ pub const Checker = struct {
     /// the write loans held on the way), which are the way in, not views
     /// stored.
     fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool, lends: []const Loan) Error!void {
-        for (v_in.loans) |l| if (l.root == id and !l.ext and !isLendOf(lends, l)) {
-            return self.reportSelfView(id, l, lends, pos, via);
-        };
+        if (try self.selfViewIn(id, v_in.loans, lends, through)) |l| return self.reportSelfView(id, l, lends, pos, via);
         // A value that holds only Strings keeps only what leads to a String.
         // What lands in a value that holds only Strings needs only what
         // could hold them (`carry`).
@@ -4705,6 +4710,31 @@ pub const Checker = struct {
             if (!self.mayCarryLoan(self.pointee(self.vars.items[l.root].ty))) continue;
             try self.absorbLoans(l.root, v, pos, next, via, true, try std.mem.concat(self.arena(), Loan, &.{ lends, &.{l} }));
         }
+    }
+
+    /// A loan on a part of var `id` that a value carrying `loans` keeps,
+    /// directly or through what the vars they are on hold (a view of `r`
+    /// keeps what `r` views), but for `lends` and the loans on `through`:
+    /// the ways the store goes in (`absorbLoans`). A value never holds a
+    /// view of itself (Core §5).
+    fn selfViewIn(self: *Checker, id: VarId, loans: []const Loan, lends: []const Loan, through: []const VarId) Error!?Loan {
+        var seen: std.ArrayList(VarId) = .empty;
+        var work: std.ArrayList(Loan) = .empty;
+        try work.appendSlice(self.arena(), loans);
+        var i: usize = 0;
+        while (i < work.items.len) : (i += 1) {
+            const l = work.items[i];
+            if (l.ext or l.root >= self.vars.items.len) continue;
+            if (l.root == id) {
+                if (!isLendOf(lends, l)) return l;
+                continue;
+            }
+            if (std.mem.findScalar(VarId, through, l.root) != null or std.mem.findScalar(VarId, seen.items, l.root) != null) continue;
+            if (seen.items.len >= 64) break;
+            try seen.append(self.arena(), l.root);
+            try work.appendSlice(self.arena(), self.flows.items[l.root].loans);
+        }
+        return null;
     }
 
     /// A store of view `l` into var `id`, which `l` is a loan on a part
@@ -4787,9 +4817,12 @@ pub const Checker = struct {
         }
         // The body may store what one capture views into what a
         // captured write view leads to, as a call may with its
-        // arguments: that value now holds those loans.
+        // arguments: that value now holds those loans. Only a capture
+        // that can write leads a store (as for a call's arguments).
         if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
-            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos, null, null);
+            const pos = sema.captureNameNode(cap).?.src.pos;
+            if (sema.captureModeOf(cap).? != .cap_write and !self.carriesWriteView(self.symType(pos))) continue;
+            try self.absorbThroughWrites(cv, value, pos, null, null);
         };
 
         // The body is checked as its own function; it cannot affect the

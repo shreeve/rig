@@ -240,10 +240,12 @@ cell.write_held.move run
 doc/BEYOND-RUST/1016591654 get_and_add
 doc/BEYOND-RUST/3707937623 get_and_add
 doc/CORE/2024799561 main
+doc/CORE/66886843 main
 doc/CORE/2156986764 main
 doc/CORE/2438532286 main
 doc/CORE/262306878 main
 doc/CORE/1652697729 main
+doc/CORE/1844418493 main
 doc/CORE/3361952641 main
 doc/CORE/574900970 show
 doc/CORE/1494286010 main
@@ -264,8 +266,11 @@ doc/SPEC/2230264097 keep
 doc/SPEC/86191133 main
 doc/SPEC/4067922064 main
 doc/SPEC/3687934557 main
+doc/SPEC/3817416873 main
 doc/SPEC/385648819 main
 doc/SPEC/1795220611 main
+doc/SPEC/1796458252 Scanner.number
+doc/SPEC/2814596663 Parser.step
 doc/SPEC/2844625505 main
 doc/SPEC/2966152045 make
 doc/SPEC/2997169906 main
@@ -2358,7 +2363,6 @@ test/corpus/review-payload-loan-1-s05_ifas_then_match.rig main
 test/corpus/review-payload-loan-1-s06_write_lend_then_read_binding.rig main
 test/corpus/review-payload-loan-1-s08_vec_payload_for_read.rig main
 test/corpus/review-payload-loan-1-s09_generic_fn_view_param.rig main
-test/corpus/review-payload-loan-1-w01_disjoint_local.rig main
 test/corpus/review-payload-loan-1-w02_disjoint_param.rig f
 test/corpus/review-payload-loan-1-w03_disjoint_ifas.rig main
 test/corpus/review-payload-loan-1-w04_disjoint_for.rig main
@@ -3300,6 +3304,7 @@ test/reject/ownership/field_reassign_whole_while_field_lent.rig main
 test/reject/ownership/field_same_field_two_paths.rig main
 test/reject/ownership/field_self_view.rig main
 test/reject/ownership/field_self_view_through_call.rig main
+test/reject/ownership/field_self_view_through_closure.rig main
 test/reject/ownership/field_self_view_through_replace.rig main
 test/reject/ownership/field_self_view_through_swap.rig main
 test/reject/ownership/field_self_view_through_write_argument.rig main
